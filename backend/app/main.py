@@ -27,8 +27,9 @@ from .paths import static_dir
 from .schemas import DataCheck, Project, SimResult, SimulateRequest, ValidateRequest
 from .solver import simulate
 from .validation import validate_project
+from .version import VERSION
 
-app = FastAPI(title="SimStudio API", version="0.1.0")
+app = FastAPI(title="SimStudio API", version=VERSION)
 
 # Built frontend bundle (produced by `npm run build` → frontend/dist). When it
 # exists we serve it below so the whole app runs from this one process at :8000
@@ -46,7 +47,7 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "service": "simstudio-backend"}
+    return {"status": "ok", "service": "simstudio-backend", "version": VERSION}
 
 
 @app.get("/api/library")

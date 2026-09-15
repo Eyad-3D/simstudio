@@ -1,0 +1,29 @@
+// Flat ESLint config. Like the backend's ruff setup, this is a small
+// high-signal set: the type-aware rules that catch real mistakes, plus the
+// React Hooks rules, which are the ones that actually bite in this codebase.
+import js from "@eslint/js";
+import reactHooks from "eslint-plugin-react-hooks";
+import tseslint from "typescript-eslint";
+
+export default tseslint.config(
+  { ignores: ["dist/**", "node_modules/**", "src/data/**"] },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    files: ["**/*.{ts,tsx}"],
+    plugins: { "react-hooks": reactHooks },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      // Underscore-prefixed args are the codebase's "deliberately unused" mark.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
+  {
+    // Build scripts are plain Node modules, not part of the app's TS project.
+    files: ["scripts/**/*.mjs"],
+    languageOptions: { globals: { process: "readonly", console: "readonly" } },
+  },
+);

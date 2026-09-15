@@ -1,9 +1,8 @@
 """API tests: REST round-trip and the live WebSocket run channel."""
 from fastapi.testclient import TestClient
+from helpers import bev_axle
 
 from app.main import app
-
-from helpers import bev_axle
 
 client = TestClient(app)
 

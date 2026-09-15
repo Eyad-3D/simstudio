@@ -22,9 +22,9 @@ from .maps import TableError, interp1, interp2, parse_table1d, parse_table2d
 from .network import Driveline, Model, ModelError, Segment, build_model
 from .profiles import interp_profile, parse_profile
 from .runtime import (
+    AIR_DENSITY,
     CLUTCH_BAND,
     GRAVITY,
-    AIR_DENSITY,
     RPM,
     V_EPS,
     W_EPS,

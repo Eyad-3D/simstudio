@@ -29,10 +29,8 @@ const ssTheme: DockviewTheme = {
 // `zoom: false` opts a panel out of the font-size/UI-scale magnification. Only
 // the topology canvas does so — React Flow's pointer math assumes an unscaled
 // ancestor (CSS zoom would offset drags); every other panel scales via .ss-zoom.
-const wrap =
-  (Component: React.ComponentType, opts: { zoom?: boolean } = {}) =>
-  // eslint-disable-next-line react/display-name
-  (_props: IDockviewPanelProps) => (
+const wrap = (Component: React.ComponentType, opts: { zoom?: boolean } = {}) => {
+  const Panel = (_props: IDockviewPanelProps) => (
     <div
       className={`h-full w-full overflow-hidden bg-[color:var(--ss-panel)]${
         opts.zoom === false ? "" : " ss-zoom"
@@ -41,6 +39,11 @@ const wrap =
       <Component />
     </div>
   );
+  // Named so React DevTools shows the panel rather than a row of anonymous
+  // wrappers (and so no display-name lint directive is needed).
+  Panel.displayName = `Panel(${Component.displayName || Component.name || "Anonymous"})`;
+  return Panel;
+};
 
 // Accessible panel tabs: the default dockview tab is a plain div with no role or
 // discernible name. Wrap it so assistive tech announces each tab by its title.

@@ -1,8 +1,9 @@
-# Builds the SimStudio desktop app for Windows and Linux.
+# Packages the desktop app for Windows and Linux.
 #
 # Both halves are platform-specific — the frozen Python backend and the
-# Electron package — so each target builds on its own runner. Artifacts are
-# attached to the run; pushing a v* tag also drafts a release.
+# Electron package — so each target builds on its own runner. Slower than CI
+# (~12 min), so on pull requests it only runs when the packaging itself
+# changes; everything else is covered by the CI gate.
 name: Build desktop app
 
 on:
@@ -10,10 +11,24 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+    paths:
+      - "desktop/**"
+      - "scripts/**"
+      - "backend/simstudio-backend.spec"
+      - "backend/run_backend.py"
+      - "backend/app/server.py"
+      - "backend/app/paths.py"
+      - "backend/requirements*.txt"
+      - ".github/workflows/desktop-build.yml"
   workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
+    name: ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
@@ -41,6 +56,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+          cache-dependency-path: backend/requirements-build.txt
 
       - name: Build the UI
         working-directory: frontend
@@ -48,23 +64,40 @@ jobs:
           npm ci
           npm run build
 
-      - name: Test the backend
-        working-directory: backend
-        run: |
-          python -m pip install -r requirements-dev.txt
-          python -m pytest tests/ -q
-
       - name: Freeze the backend
         working-directory: backend
         run: |
           python -m pip install -r requirements-build.txt
           python -m PyInstaller --noconfirm --distpath dist --workpath build simstudio-backend.spec
 
+      # Unit tests run against source Python and cannot see what PyInstaller
+      # left out of the bundle. This exercises the real executable, including
+      # the live-run WebSocket.
+      - name: Smoke-test the frozen backend
+        run: node scripts/smoke-backend.mjs
+
       - name: Package the desktop app
         working-directory: desktop
         run: |
           npm ci
           npx electron-builder ${{ matrix.builder }} --publish never
+
+      - name: Check the app launches
+        if: matrix.name == 'linux'
+        working-directory: desktop
+        # xvfb gives the headless runner a display. Confirms the packaged
+        # shell starts its engine and reaches a rendered window.
+        run: xvfb-run -a node ../scripts/smoke-app.mjs release/linux-unpacked/simstudio
+
+      - name: Checksums
+        shell: bash
+        working-directory: desktop/release
+        run: |
+          shopt -s nullglob
+          for f in *.exe *.AppImage *.deb; do
+            sha256sum "$f" > "$f.sha256"
+          done
+          cat *.sha256 || true
 
       - uses: actions/upload-artifact@v4
         with:
@@ -73,9 +106,11 @@ jobs:
             desktop/release/*.exe
             desktop/release/*.AppImage
             desktop/release/*.deb
+            desktop/release/*.sha256
           if-no-files-found: error
 
   release:
+    name: Draft release
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
@@ -88,4 +123,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
+          generate_release_notes: true
           files: artifacts/**/*

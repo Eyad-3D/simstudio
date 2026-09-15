@@ -10,6 +10,7 @@ from PyInstaller.utils.hooks import collect_submodules
 datas = [
     ("app/library/components.json", "app/library"),
     ("projects", "projects"),
+    ("../VERSION", "."),  # single source of truth, read by app/version.py
 ]
 binaries = []
 

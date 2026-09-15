@@ -119,15 +119,54 @@ install && npm start` — the shell prefers the frozen backend in
 `backend/dist/` when present and otherwise falls back to `python3` on PATH, so
 no packaging step is needed while developing.
 
-### Tests
+### Tests and checks
 
 ```bash
 cd backend
-pip install -r requirements-dev.txt
+pip install -r requirements-dev.txt ruff
 python -m pytest tests/     # maps, dynamics, differential modes, scripts, API + WS
-cd frontend
+ruff check .                # lint (config in backend/pyproject.toml)
+
+cd ../frontend
+npm run lint                # ESLint (config in frontend/eslint.config.js)
 npm run build               # type-check + production build
 ```
+
+Two smoke tests exercise what unit tests cannot — they run the *built*
+artefacts rather than the source:
+
+```bash
+node scripts/smoke-backend.mjs    # the frozen executable: library, seeding,
+                                  # a REST run and a live WebSocket run
+xvfb-run -a node scripts/smoke-app.mjs \
+  desktop/release/linux-unpacked/simstudio   # the packaged app reaches its engine
+```
+
+These exist because a frozen build can be missing a module that every unit
+test passes without — that is exactly how a broken live-run WebSocket nearly
+shipped.
+
+### Versioning
+
+The root `VERSION` file is the single source of truth. `scripts/sync-version.mjs`
+copies it into the npm manifests (electron-builder and Vite each insist on
+reading their own `package.json`), and the backend reports it at
+`/api/health`. CI fails if they drift.
+
+```bash
+node scripts/sync-version.mjs           # write VERSION into the manifests
+node scripts/sync-version.mjs --check   # what CI runs
+```
+
+### Continuous integration
+
+| Workflow | Runs on | Does |
+|---|---|---|
+| `ci.yml` | every push and PR (~3 min) | backend lint + 62 tests, frontend lint + typecheck + build, version-sync check |
+| `desktop-build.yml` | `main`, `v*` tags, manual, and PRs touching packaging (~12 min) | builds Windows and Linux installers, smoke-tests both the frozen backend and the packaged app, uploads artefacts with SHA-256 checksums |
+
+Push a `v*` tag to draft a release with the installers attached. Dependabot
+opens grouped dependency PRs monthly.
 
 ## Architecture
 

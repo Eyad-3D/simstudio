@@ -21,3 +21,4 @@ __pycache__/
 # Desktop app build output
 desktop/release/
 backend/build/
+.smoke-projects/
