@@ -17,3 +17,7 @@ __pycache__/
 
 # Runtime artifacts
 *.log
+
+# Desktop app build output
+desktop/release/
+backend/build/

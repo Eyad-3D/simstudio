@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';" />
+    <title>SimStudio</title>
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        background: #1e1e1e;
+        color: #d4d4d4;
+        font: 13px/1.5 "Segoe UI", system-ui, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .box { text-align: center; }
+      .mark {
+        width: 56px; height: 56px; margin: 0 auto 18px;
+        border-radius: 12px; background: #2f6fb3;
+      }
+      h1 { font-size: 18px; font-weight: 600; margin: 0 0 6px; letter-spacing: .02em; }
+      p { margin: 0; color: #8a8a8a; }
+      .bar {
+        width: 180px; height: 2px; margin: 22px auto 0;
+        background: #333; overflow: hidden; border-radius: 2px;
+      }
+      .bar i {
+        display: block; width: 40%; height: 100%; background: #2f6fb3;
+        animation: slide 1.1s ease-in-out infinite;
+      }
+      @keyframes slide {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(350%); }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="box">
+      <div class="mark"></div>
+      <h1>SimStudio</h1>
+      <p>Starting the simulation engine…</p>
+      <div class="bar"><i></i></div>
+    </div>
+  </body>
+</html>
