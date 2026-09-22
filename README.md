@@ -204,9 +204,9 @@ desktop/   Electron shell
 In the packaged app the backend serves the built UI as well as the API, so the
 window talks to a single local origin and the frontend's relative `/api` calls
 — including the live-simulation WebSocket — work unchanged. Nothing is exposed
-off the machine: the server binds to 127.0.0.1. The port stays the same between
-launches (47815 unless another program holds it, in which case a free one is
-picked and remembered), so the UI's saved layout and settings persist.
+off the machine: the server binds to 127.0.0.1. Each installation picks a free
+port on first launch and keeps it (choosing a new one only if another program
+takes it), so the UI's saved layout and settings persist across restarts.
 
 ### API
 

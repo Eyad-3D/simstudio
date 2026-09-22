@@ -27,8 +27,9 @@ let quitting = false;
 
 // The UI keeps its settings (theme, dock layout, crash-recovery draft) in
 // localStorage, which is keyed by origin — so the port must stay the same
-// between launches or those settings silently vanish on every restart.
-const PREFERRED_PORT = 47815;
+// between launches or those settings silently vanish on every restart. Each
+// installation picks its own port once rather than sharing a fixed number,
+// so there is no well-known port for other software to aim at.
 
 /** Ask the OS for any free port. */
 function findFreePort() {
@@ -53,31 +54,24 @@ function portIsFree(port) {
 }
 
 /**
- * Reuse the port from the last launch, then the fixed default, and only fall
- * back to a random free port if another program holds both. The choice is
- * remembered so a fallback port also stays stable from then on.
+ * Reuse the port from the last launch; on first launch, or if another program
+ * has taken it since, pick a new free port and remember that instead.
  */
 async function choosePort() {
   const file = path.join(app.getPath("userData"), "backend-port.json");
   let saved = null;
   try {
     saved = JSON.parse(fs.readFileSync(file, "utf8")).port;
-  } catch { /* first launch, or unreadable — use the default */ }
+  } catch { /* first launch, or unreadable — pick a new port */ }
 
-  let port = null;
-  for (const candidate of [saved, PREFERRED_PORT]) {
-    if (Number.isInteger(candidate) && candidate > 0 && await portIsFree(candidate)) {
-      port = candidate;
-      break;
-    }
-  }
-  if (port === null) port = await findFreePort();
+  const reusable = Number.isInteger(saved) && saved > 0 && await portIsFree(saved);
+  const port = reusable ? saved : await findFreePort();
 
   if (port !== saved) {
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, JSON.stringify({ port }));
-    } catch { /* not fatal: next launch just tries the default again */ }
+    } catch { /* not fatal: settings just won't carry over to the next launch */ }
   }
   return port;
 }
