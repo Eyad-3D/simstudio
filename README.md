@@ -133,7 +133,7 @@ npm run build               # type-check + production build
 ```
 
 Two smoke tests exercise what unit tests cannot — they run the *built*
-artefacts rather than the source:
+artefacts rather than the source (Node ≥ 22, for its built-in WebSocket):
 
 ```bash
 node scripts/smoke-backend.mjs    # the frozen executable: library, seeding,
