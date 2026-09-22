@@ -53,7 +53,7 @@ linux:
       arch: [x64]
   icon: build/icon.png
   category: Science
-  synopsis: CRUISE M-style system simulation tool
+  synopsis: Vehicle system simulation tool
   desktop:
     entry:
       Name: SimStudio

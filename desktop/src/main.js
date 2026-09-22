@@ -219,10 +219,12 @@ function buildMenu() {
               title: "About SimStudio",
               message: `SimStudio ${app.getVersion()}`,
               detail:
-                "A CRUISE M-style system simulation tool.\n\n" +
+                "A vehicle system simulation tool.\n\n" +
                 "Component physics are simplified placeholders — this " +
                 "demonstrates the workflow, not validated component fidelity.\n\n" +
-                `Projects folder:\n${projectsDir}`,
+                `Projects folder:\n${projectsDir}\n\n` +
+                "Copyright © 2026 Eyad Abualkhair. All rights reserved.\n" +
+                "Free for non-commercial use; commercial use needs a licence (see EULA.txt).",
             }),
         },
       ],

@@ -1,10 +1,9 @@
-# SimStudio — CRUISE M-style System Simulation Tool
+# SimStudio — Vehicle System Simulation
 
-A web-based vehicle system simulation tool modeled on AVL CRUISE M's
-workflow: build a system topology from a component library, wire elements
-together (including signal / data-bus connections), run a dynamic
-simulation, watch it live, and inspect results — all inside a
-desktop-grade, dockable-panel UI.
+A desktop tool for simulating vehicle systems: build a system topology
+from a component library, wire elements together (including signal /
+data-bus connections), run a dynamic simulation, watch it live, and
+inspect results — all in a dockable-panel UI.
 
 ![Topology editor](docs/doc-topology.png)
 
