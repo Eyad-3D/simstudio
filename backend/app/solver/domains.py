@@ -252,6 +252,19 @@ class RunContext:
         g = st.plan.gvec[s]
         return sum(g[i] * st.plan.x[i] for i in range(st.plan.n))
 
+    def publish_sources(self, t: float) -> None:
+        """Signal sources (Constant, Driving Task) — pure functions of time,
+        so they can be evaluated at any instant without side effects."""
+        rt = self.rt
+        for el_id, cdef in self.model.cdef_of.items():
+            if cdef.id == "signal.constant":
+                rt.publish(el_id, "sig_out", float(self.params(el_id).get("value", 0)))
+            elif cdef.id == "signal.driving_task":
+                p = self.params(el_id)
+                scale = float(p.get("scale_pct", 100)) / 100.0
+                rt.publish(el_id, "sig_demand", interp_profile(
+                    self.profile_points(el_id), t, bool(p.get("repeat", False))) * scale)
+
     # ---- live parameter updates ---------------------------------------------------
 
     def apply_set_param(self, el_id: str, key: str, value) -> ParamResult:
@@ -502,16 +515,7 @@ class ControlSlave(_CtxSlave):
         model, rt = ctx.model, ctx.rt
         t = ctx.t_rec
 
-        # -- signal sources ----------------------------------------------------
-        for el_id, cdef in model.cdef_of.items():
-            p = ctx.params(el_id)
-            if cdef.id == "signal.constant":
-                rt.publish(el_id, "sig_out", float(p.get("value", 0)))
-            elif cdef.id == "signal.driving_task":
-                pts = ctx.profile_points(el_id)
-                scale = float(p.get("scale_pct", 100)) / 100.0
-                rt.publish(el_id, "sig_demand",
-                           interp_profile(pts, t, bool(p.get("repeat", False))) * scale)
+        ctx.publish_sources(t)
 
         # -- signal blocks (topological order, once per recorded step) ----------
         for el_id in model.signal_blocks:
@@ -674,6 +678,13 @@ class MechanicalSlave(_CtxSlave):
     vehicle integration — one slave because tire slip couples them stiffly."""
 
     slave_id = "mechanical"
+
+    def setup(self, t0: float) -> None:
+        # the vehicle's initial state is on the signal bus before the first step
+        ctx = self.ctx
+        if ctx.veh_id:
+            ctx.rt.publish(ctx.veh_id, "sig_speed", ctx.v * 3.6)
+            ctx.rt.publish(ctx.veh_id, "sig_distance", ctx.distance)
 
     def do_step(self, t: float, h: float) -> StepResult:
         ctx = self.ctx

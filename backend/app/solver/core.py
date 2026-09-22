@@ -75,8 +75,11 @@ def simulate(
         rt.message("warning", w)
 
     dt_rec = max(1e-4, case.timeStep)
-    steps = max(1, int(round(case.duration / dt_rec)))
-    n_sub = max(1, int(math.ceil(dt_rec / MAX_SUBSTEP)))
+    t_end = max(0.0, float(case.duration))
+    # recorded steps; the last one is shorter when the duration is not a whole
+    # number of steps (a remainder under a millionth of a step is absorbed)
+    steps = max(1, math.ceil(t_end / dt_rec - 1e-6)) if t_end > 0 else 0
+    n_sub = max(1, math.ceil(dt_rec / MAX_SUBSTEP - 1e-9))
     dt = dt_rec / n_sub
     output_every = max(1, int(getattr(case, "outputEvery", 1) or 1))
     pace = max(0.0, float(getattr(case, "realtimeFactor", 0.0) or 0.0))
@@ -100,31 +103,62 @@ def simulate(
             var_name(str(msg.get("elementId")), str(msg.get("key"))), msg.get("value"))
 
     # ---- main loop -----------------------------------------------------------
+    # Point 0 is the initial state at t = 0; every later point is recorded at
+    # the end time of the step that produced it, and the last step ends
+    # exactly at the case duration.
     cancelled = False
     times: list[float] = []
     t_start_wall = time.monotonic()
+    h_last = t_end - (steps - 1) * dt_rec if steps else 0.0
+    short_last = abs(h_last - dt_rec) > 1e-9 * dt_rec
+    t = 0.0
 
     for step in range(steps + 1):
-        t = step * dt_rec
-        ctx.t_rec = t
+        if step > 0:
+            t_prev = t
+            t = t_end if step == steps else step * dt_rec
+            ctx.t_rec = t_prev
 
-        if control:
-            for msg in control():
-                if msg.get("type") == "cancel":
-                    cancelled = True
-                elif msg.get("type") == "set_param":
-                    apply_control_msg(msg)
-        if cancelled:
-            rt.message("info", f"Simulation cancelled by user at t = {t:g} s.")
-            break
+            if control:
+                for msg in control():
+                    if msg.get("type") == "cancel":
+                        cancelled = True
+                    elif msg.get("type") == "set_param":
+                        apply_control_msg(msg)
+            if cancelled:
+                rt.message("info", f"Simulation cancelled by user at t = {t_prev:g} s.")
+                break
 
-        # -- sub-steps (master schedules control/gear at recorded cadence) ------
-        try:
-            for j in range(n_sub):
-                master.step(t + j * dt, dt)
-        except SlaveStepError:
-            # the failing slave already emitted its error message
-            break
+            # -- sub-steps (master schedules control/gear at recorded cadence) --
+            h, n, h_sub = dt_rec, n_sub, dt
+            if step == steps and short_last:
+                h = h_last
+                n = max(1, math.ceil(h / MAX_SUBSTEP - 1e-9))
+                h_sub = h / n
+            ctx.dt_rec, ctx.dt = h, h_sub
+            try:
+                for j in range(n):
+                    master.step(t_prev + j * h_sub, h_sub)
+            except SlaveStepError:
+                # the failing slave already emitted its error message
+                break
+
+            if pace > 0:
+                target_wall = t / pace
+                while not cancelled:
+                    lag = target_wall - (time.monotonic() - t_start_wall)
+                    if lag <= 0:
+                        break
+                    time.sleep(min(0.05, lag))
+                    if control:
+                        for msg in control():
+                            if msg.get("type") == "cancel":
+                                cancelled = True
+                            elif msg.get("type") == "set_param":
+                                apply_control_msg(msg)
+
+        # signal sources are stored with their value at the point's own time
+        ctx.publish_sources(t)
 
         # -- record / publish --------------------------------------------------
         # Always publish (so signal routing stays fresh for the next step); only
@@ -259,24 +293,10 @@ def simulate(
             emit({
                 "type": "step",
                 "t": t,
-                "pct": round(100.0 * step / steps, 1),
+                "pct": round(100.0 * step / steps, 1) if steps else 100.0,
                 "values": {f"{el}:{port}": round(val[-1], 5)
                            for (el, port), val in rec.items() if len(val) == rec_index + 1},
             })
-
-        if pace > 0 and step < steps:
-            target_wall = (t + dt_rec) / pace
-            while not cancelled:
-                lag = target_wall - (time.monotonic() - t_start_wall)
-                if lag <= 0:
-                    break
-                time.sleep(min(0.05, lag))
-                if control:
-                    for msg in control():
-                        if msg.get("type") == "cancel":
-                            cancelled = True
-                        elif msg.get("type") == "set_param":
-                            apply_control_msg(msg)
 
     # ---- assemble result -------------------------------------------------------
     unit_map = unit_groups()
@@ -348,9 +368,10 @@ def simulate(
     has_warning = any(m.level == "warning" for m in rt.messages) or cancelled
     status = "failed" if has_error else ("warning" if has_warning else "success")
     rec_note = f", stored every {output_every}" if output_every > 1 else ""
+    last_note = f", the last one {h_last:g} s" if steps and short_last else ""
     rt.messages.insert(0, SimMessage(
         level="info",
-        text=f"Case '{case.name}' solved: {steps} steps × {dt_rec:g} s "
+        text=f"Case '{case.name}' solved: {steps} steps × {dt_rec:g} s{last_note} "
              f"({n_sub} sub-steps each), {len(times)} points recorded{rec_note}, "
              f"{len(channels)} result channels.",
     ))
