@@ -9,7 +9,7 @@ from .core import simulate
 from .maps import TableError, interp1, interp2, parse_table1d, parse_table2d
 from .network import Model, ModelError, build_model
 from .profiles import interp_profile, parse_profile
-from .scripting import ScriptError, compile_script
+from .scripting import ScriptError, check_script, compile_script
 
 __all__ = [
     "simulate",
@@ -24,5 +24,6 @@ __all__ = [
     "interp_profile",
     "parse_profile",
     "ScriptError",
+    "check_script",
     "compile_script",
 ]

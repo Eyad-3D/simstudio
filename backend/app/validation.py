@@ -15,7 +15,7 @@ from .solver import (
     ScriptError,
     TableError,
     build_model,
-    compile_script,
+    check_script,
     parse_table1d,
     parse_table2d,
 )
@@ -160,8 +160,8 @@ def validate_project(project: Project) -> list[DataCheck]:
                 except TableError as e:
                     add("error", f"'{el.label}.{pdef.label}': {e}", el)
             elif pdef.type == "code":
-                try:
-                    compile_script(str(value or ""), el.label)
+                try:  # compile only: Data Checks never run script code
+                    check_script(str(value or ""), el.label)
                 except ScriptError as e:
                     add("error", str(e), el)
 
