@@ -4,7 +4,7 @@
  * SimStudio desktop shell.
  *
  * The app is the existing web stack wrapped in a window: a frozen copy of the
- * FastAPI backend runs as a child process on a free loopback port and serves
+ * FastAPI backend runs as a child process on a stable loopback port and serves
  * both the API and the built UI, so the renderer talks to one origin and the
  * frontend's relative `/api` calls work untouched.
  */
@@ -25,7 +25,12 @@ let mainWindow = null;
 let backendLog = "";
 let quitting = false;
 
-/** Ask the OS for a free port, so two copies of the app never collide. */
+// The UI keeps its settings (theme, dock layout, crash-recovery draft) in
+// localStorage, which is keyed by origin — so the port must stay the same
+// between launches or those settings silently vanish on every restart.
+const PREFERRED_PORT = 47815;
+
+/** Ask the OS for any free port. */
 function findFreePort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -36,6 +41,45 @@ function findFreePort() {
       server.close(() => resolve(port));
     });
   });
+}
+
+function portIsFree(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.unref();
+    server.once("error", () => resolve(false));
+    server.listen(port, "127.0.0.1", () => server.close(() => resolve(true)));
+  });
+}
+
+/**
+ * Reuse the port from the last launch, then the fixed default, and only fall
+ * back to a random free port if another program holds both. The choice is
+ * remembered so a fallback port also stays stable from then on.
+ */
+async function choosePort() {
+  const file = path.join(app.getPath("userData"), "backend-port.json");
+  let saved = null;
+  try {
+    saved = JSON.parse(fs.readFileSync(file, "utf8")).port;
+  } catch { /* first launch, or unreadable — use the default */ }
+
+  let port = null;
+  for (const candidate of [saved, PREFERRED_PORT]) {
+    if (Number.isInteger(candidate) && candidate > 0 && await portIsFree(candidate)) {
+      port = candidate;
+      break;
+    }
+  }
+  if (port === null) port = await findFreePort();
+
+  if (port !== saved) {
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ port }));
+    } catch { /* not fatal: next launch just tries the default again */ }
+  }
+  return port;
 }
 
 /**
@@ -220,7 +264,7 @@ async function createWindow() {
   mainWindow.show();
 
   try {
-    const port = await findFreePort();
+    const port = await choosePort();
     startBackend(port);
     await waitForBackend(port);
     await mainWindow.loadURL(`http://127.0.0.1:${port}/`);
