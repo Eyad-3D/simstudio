@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from . import storage
+from . import security, storage
 from .library import load_library, unit_groups
 from .paths import static_dir
 from .schemas import DataCheck, Project, SimResult, SimulateRequest, ValidateRequest
@@ -37,11 +37,25 @@ app = FastAPI(title="SimStudio API", version=VERSION)
 # at its own copy; otherwise this resolves to the repo's frontend/dist.
 FRONTEND_DIST = static_dir()
 
+# Set by the desktop shell: a per-launch secret every /api call must carry.
+LAUNCH_TOKEN = security.launch_token()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # dev tool — the Vite dev server proxies /api anyway
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Only the Vite dev server calls from another origin (and it proxies /api
+    # anyway). The desktop app and a built bundle are served from this origin
+    # and need no CORS at all.
+    allow_origins=[] if LAUNCH_TOKEN else list(security.DEV_ORIGINS),
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
+)
+# Added last so it runs first: other hosts, other origins and (in the desktop
+# app) requests without the launch token never reach CORS or the routes.
+app.add_middleware(
+    security.LocalOnlyMiddleware,
+    token=LAUNCH_TOKEN,
+    hosts=security.allowed_hosts(),
+    origins=() if LAUNCH_TOKEN else security.DEV_ORIGINS,
 )
 
 

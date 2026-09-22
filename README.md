@@ -190,13 +190,15 @@ backend/   Python + FastAPI
   ├─ app/validation.py             "Data Checks" pre-run validation
   ├─ app/storage.py                one JSON file per project
   ├─ app/paths.py                  bundled vs. user-writable location resolution
+  ├─ app/security.py               Host / Origin / launch-token checks on every request
   ├─ app/server.py                 entrypoint the desktop shell launches
   ├─ simstudio-backend.spec        PyInstaller recipe for the frozen backend
   └─ projects/bev-car.json         demo project
 
 desktop/   Electron shell
-  ├─ src/main.js                   starts the backend on a stable loopback port,
-  │                                waits for /api/health, then opens the window
+  ├─ src/main.js                   starts the backend on a stable loopback port
+  │                                with a per-launch token, waits for
+  │                                /api/health, then opens the window
   ├─ src/loading.html              splash shown while the engine starts
   └─ electron-builder.yml          installer definitions (NSIS / AppImage / deb)
 ```
@@ -207,6 +209,16 @@ window talks to a single local origin and the frontend's relative `/api` calls
 off the machine: the server binds to 127.0.0.1. Each installation picks a free
 port on first launch and keeps it (choosing a new one only if another program
 takes it), so the UI's saved layout and settings persist across restarts.
+
+Web pages the user visits can still reach a loopback port, so the engine
+answers only requests addressed to `127.0.0.1` / `localhost` (no DNS
+rebinding), refuses any request whose `Origin` is not its own (the Vite dev
+server's is allowed in development), and in the desktop app requires a
+random per-launch token: the shell passes it to the engine in
+`SIMSTUDIO_TOKEN`, and the window receives it as an HttpOnly, SameSite=Strict
+cookie on its first page load. Without `SIMSTUDIO_TOKEN` (development) there
+is no token check. To reach a development engine through another host name
+(e.g. a forwarded port), list it in `SIMSTUDIO_ALLOWED_HOSTS` (comma-separated).
 
 ### API
 
