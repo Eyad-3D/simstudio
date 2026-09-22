@@ -1,6 +1,6 @@
 appId: com.simstudio.app
 productName: SimStudio
-copyright: SimStudio
+copyright: Copyright © 2026 Eyad Abualkhair. All rights reserved.
 
 directories:
   output: release
@@ -18,6 +18,10 @@ extraResources:
     to: backend
   - from: ../frontend/dist
     to: frontend
+  - from: ../LICENSE
+    to: LICENSE
+  - from: ../EULA.txt
+    to: EULA.txt
 
 win:
   target:
@@ -33,6 +37,8 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: SimStudio
+  # shown on the installer's licence page
+  license: ../EULA.txt
 
 linux:
   executableName: simstudio

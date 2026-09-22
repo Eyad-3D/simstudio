@@ -265,3 +265,11 @@ and say so in Messages.
 - Sub-system containers are organizational: physical connections cannot cross
   a container boundary (signals can, via the Data Bus).
 - The bookmark tool and Optimization/Parameters ribbon tabs are visual stubs.
+
+## License
+
+SimStudio is proprietary software: Copyright © 2026 Eyad Abualkhair, all
+rights reserved (see [`LICENSE`](LICENSE)). The desktop app is free to use for
+evaluation, learning, research and other non-commercial purposes under the
+[End-User Licence Agreement](EULA.txt); commercial use needs a separate
+licence. Third-party components keep their own licences.

@@ -3,6 +3,7 @@
   "productName": "SimStudio",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
   "description": "SimStudio \u2014 CRUISE M-style system simulation tool",
   "main": "src/main.js",
   "scripts": {
