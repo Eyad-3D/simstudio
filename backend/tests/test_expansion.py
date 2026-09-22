@@ -1,11 +1,11 @@
 """Expansion components: engine/fuel, gearbox, clutch, transfer case,
 fuel cell + DC-DC setpoint, PID, lookup, road profile."""
+from helpers import bev_axle, conn, dbc, driver_wiring, el, project, series, sig_port
+
 from app.schemas import ElementInstance
 from app.solver import simulate
 from app.solver.network import build_model
 from app.validation import validate_project
-
-from helpers import bev_axle, conn, dbc, driver_wiring, el, project, series, sig_port
 
 
 def test_electrical_two_terminal_roles_and_implicit_return():

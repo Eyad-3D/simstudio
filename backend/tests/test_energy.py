@@ -8,10 +8,9 @@ first-order integrator's residual. A leak or double-count anywhere along
 battery → bus → motor → gears → wheels → vehicle shows up here.
 """
 import pytest
+from helpers import bev_axle, series
 
 from app.solver import simulate
-
-from helpers import bev_axle, series
 
 # catalog defaults for the rotating inertias in the bev_axle chain
 J_MOTOR = 0.045       # motor.emotor inertia_kgm2 (motor axis)

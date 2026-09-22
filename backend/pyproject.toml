@@ -1,0 +1,22 @@
+# Lint config for the backend. Ruff replaces flake8 + isort.
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Deliberately a small, high-signal set: real defects (pyflakes), basic style
+# (pycodestyle) and import order. A gate people trust beats a broad one they
+# learn to ignore.
+#
+# Considered and left off for now, each a wide mechanical diff rather than a
+# bug: "UP" (Optional[x] → x | None, 19 sites), "SIM"/"C4" (4 sites) and "B".
+# Note "B023" flags the record()/segment_for() closures in the solver, but
+# those are called inside the same loop iteration and never deferred, so they
+# are false positives — check that before enabling B.
+# `ruff format` is likewise not a gate yet: it would reformat 29 files.
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]  # line length is formatter territory, not a build failure
+
+[tool.ruff.lint.per-file-ignores]
+# Tests import shared builders as a set; one going unused is not a defect.
+"tests/*" = ["F401"]

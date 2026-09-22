@@ -7,7 +7,6 @@ Regenerate deliberately after an intended change: python tests/update_golden.py
 import json
 
 import pytest
-
 from update_golden import CASES, fixture_path, snapshot
 
 

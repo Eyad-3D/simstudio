@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,16 +23,19 @@ from pydantic import ValidationError
 
 from . import storage
 from .library import load_library, unit_groups
+from .paths import static_dir
 from .schemas import DataCheck, Project, SimResult, SimulateRequest, ValidateRequest
 from .solver import simulate
 from .validation import validate_project
+from .version import VERSION
 
-app = FastAPI(title="SimStudio API", version="0.1.0")
+app = FastAPI(title="SimStudio API", version=VERSION)
 
 # Built frontend bundle (produced by `npm run build` → frontend/dist). When it
 # exists we serve it below so the whole app runs from this one process at :8000
-# with no Vite dev server. Path: backend/app/main.py → repo root → frontend/dist.
-FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+# with no Vite dev server. The packaged desktop app points SIMSTUDIO_STATIC_DIR
+# at its own copy; otherwise this resolves to the repo's frontend/dist.
+FRONTEND_DIST = static_dir()
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,7 +47,7 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "service": "simstudio-backend"}
+    return {"status": "ok", "service": "simstudio-backend", "version": VERSION}
 
 
 @app.get("/api/library")
@@ -210,5 +212,5 @@ async def run_simulation_live(ws: WebSocket) -> None:
 # WebSocket above are matched first; StaticFiles(html=True) then serves index.html
 # at "/" and hashed assets from /assets/*. Skipped when the bundle hasn't been
 # built (dev runs Vite separately; the test suite has no dist) so nothing breaks.
-if FRONTEND_DIST.is_dir():
+if FRONTEND_DIST is not None:
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="spa")

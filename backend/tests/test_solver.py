@@ -3,6 +3,7 @@ battery ECM, scripts, and the bundled BEV example."""
 import math
 
 import pytest
+from helpers import bev_axle, conn, dbc, el, project, series, sig_port
 
 from app.schemas import ElementInstance
 from app.solver import (
@@ -19,9 +20,6 @@ from app.solver import (
 from app.solver.maps import TableError
 from app.storage import load_project
 from app.validation import validate_project
-
-from helpers import bev_axle, conn, dbc, el, project, series, sig_port
-
 
 # ---- maps -------------------------------------------------------------------
 

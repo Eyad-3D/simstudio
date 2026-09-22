@@ -1,6 +1,7 @@
 // Local autosave of the working project. This is a crash/tab-close safety net
 // kept in localStorage; it is separate from "Save" (which persists to the
 // backend). The draft is the current working copy and is restored on reload.
+// A clean draft only records which project was open: nothing in it is unsaved.
 
 import type { Project } from "./types";
 
@@ -9,13 +10,15 @@ const DRAFT_KEY = "simstudio-draft-v1";
 export interface Draft {
   project: Project;
   savedAt: number;
+  /** true when the copy matches what was last saved/opened (no unsaved edits) */
+  clean?: boolean;
 }
 
-export function saveDraft(project: Project): void {
+export function saveDraft(project: Project, clean = false): void {
   try {
     window.localStorage.setItem(
       DRAFT_KEY,
-      JSON.stringify({ project, savedAt: Date.now() } satisfies Draft),
+      JSON.stringify({ project, savedAt: Date.now(), clean } satisfies Draft),
     );
   } catch {
     /* storage unavailable / quota exceeded — non-fatal */

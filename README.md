@@ -31,7 +31,65 @@ desktop-grade, dockable-panel UI.
 ![Results view](docs/doc-results.png)
 ![Data bus connections](docs/doc-databus.png)
 
-## Quickstart
+## Install the desktop app
+
+SimStudio ships as a normal desktop application — download, install, launch.
+Python and Node are **not** required: the simulation engine is bundled inside.
+
+| Platform | Download |
+|---|---|
+| Windows 10/11 (x64) | `SimStudio-Setup-<version>.exe` |
+| Linux (x64) | `SimStudio-<version>-x86_64.AppImage` or `SimStudio-<version>-amd64.deb` |
+
+Grab them from the repository's **Releases** page, or from the artifacts of a
+**Build desktop app** run under the Actions tab. On Linux, mark the AppImage
+executable once (`chmod +x SimStudio-*.AppImage`) and run it.
+
+> These builds are unsigned, so Windows SmartScreen warns on first launch —
+> choose *More info → Run anyway*, or sign them with your own certificate
+> before distributing.
+
+The **Battery Electric Car** example loads on first launch: HV Battery Pack →
+HV Bus → (Power Consumer, E-Motor) → Final Drive → Differential → Node FL/FR →
+Brake + Wheel per corner (rear corners unpowered), with a Vehicle body, a
+Driver element, a target-speed Vehicle Task, and Vehicle/BMS monitors. A **P2
+Hybrid Car** example (engine, clutch, gearbox, HCU script) is available via
+Open. Press **Run** — pick the *City Cycle (live, 10×)* case to watch it
+stream in real time and tune parameters (try the driver gains on the Vehicle,
+or lock the Differential) while it runs.
+
+### Where your work is saved
+
+Projects are stored one JSON file each, in your own user folder, so they
+survive reinstalls and upgrades. **File → Open Projects Folder** opens it.
+
+| Platform | Location |
+|---|---|
+| Windows | `%APPDATA%\\SimStudio\\projects` |
+| Linux | `~/.config/SimStudio/projects` |
+
+The examples are copied in on first launch only — delete one and it stays
+deleted.
+
+## Building the app from source
+
+One command builds the UI, freezes the backend, and produces an installer for
+whichever OS you run it on. Requires Python ≥ 3.11 and Node ≥ 20.
+
+```bash
+./scripts/build-desktop.sh          # macOS / Linux
+.\scripts\build-desktop.ps1         # Windows
+```
+
+Installers land in `desktop/release/`. Add `--dir` (or `-Dir`) for just the
+unpacked app, which is much faster while iterating.
+
+Neither half cross-compiles — the frozen Python backend and the Electron
+package are both platform-specific — so `.github/workflows/desktop-build.yml`
+builds Windows and Linux on GitHub's runners. Push a `v*` tag to draft a
+release with the installers attached.
+
+## Developing
 
 Two processes: a FastAPI backend (solver, validation, library, persistence)
 and a Vite dev server (UI). The Vite server proxies `/api` (HTTP and
@@ -49,29 +107,66 @@ npm install
 npm run dev            # → http://localhost:5173
 ```
 
-The demo project **Battery Electric Car** loads automatically: HV Battery
-Pack → HV Bus → (Power Consumer, E-Motor) → Final Drive → Differential →
-Node FL/FR → Brake + Wheel per corner (rear corners unpowered), with a
-Vehicle body, a Driver element, a target-speed Vehicle Task, and
-Vehicle/BMS monitors. A **P2 Hybrid Car** example (engine, clutch,
-gearbox, HCU script) is available via Open. Open the **Simulations** ribbon tab and press **Run** — pick the
-*City Cycle (live, 10×)* case to watch it stream in real time and tune
-parameters (try the driver gains on the Vehicle, or lock the Differential)
-while it runs.
+In this mode projects are read from and written to `backend/projects/`, not
+your user folder. If the backend is not running the UI still works from
+bundled data (topology editing only); save / checks / simulation are disabled
+and a warning appears in Messages.
 
-If the backend is not running the UI still works from bundled data
-(topology editing only); save / checks / simulation are disabled and a
-warning appears in Messages.
+Building the frontend once (`cd frontend && npm run build`) also lets the
+backend serve the whole app at `:8000` with no Vite process. To run the
+Electron shell against your working tree, do that and then `cd desktop && npm
+install && npm start` — the shell prefers the frozen backend in
+`backend/dist/` when present and otherwise falls back to `python3` on PATH, so
+no packaging step is needed while developing.
 
-### Tests
+### Tests and checks
 
 ```bash
 cd backend
-pip install -r requirements-dev.txt
+pip install -r requirements-dev.txt ruff
 python -m pytest tests/     # maps, dynamics, differential modes, scripts, API + WS
-cd frontend
+ruff check .                # lint (config in backend/pyproject.toml)
+
+cd ../frontend
+npm run lint                # ESLint (config in frontend/eslint.config.js)
 npm run build               # type-check + production build
 ```
+
+Two smoke tests exercise what unit tests cannot — they run the *built*
+artefacts rather than the source (Node ≥ 22, for its built-in WebSocket):
+
+```bash
+node scripts/smoke-backend.mjs    # the frozen executable: library, seeding,
+                                  # a REST run and a live WebSocket run
+xvfb-run -a node scripts/smoke-app.mjs \
+  desktop/release/linux-unpacked/simstudio   # the packaged app reaches its engine
+```
+
+These exist because a frozen build can be missing a module that every unit
+test passes without — that is exactly how a broken live-run WebSocket nearly
+shipped.
+
+### Versioning
+
+The root `VERSION` file is the single source of truth. `scripts/sync-version.mjs`
+copies it into the npm manifests (electron-builder and Vite each insist on
+reading their own `package.json`), and the backend reports it at
+`/api/health`. CI fails if they drift.
+
+```bash
+node scripts/sync-version.mjs           # write VERSION into the manifests
+node scripts/sync-version.mjs --check   # what CI runs
+```
+
+### Continuous integration
+
+| Workflow | Runs on | Does |
+|---|---|---|
+| `ci.yml` | every push and PR (~3 min) | backend lint + 62 tests, frontend lint + typecheck + build, version-sync check |
+| `desktop-build.yml` | `main`, `v*` tags, manual, and PRs touching packaging (~12 min) | builds Windows and Linux installers, smoke-tests both the frozen backend and the packaged app, uploads artefacts with SHA-256 checksums |
+
+Push a `v*` tag to draft a release with the installers attached. Dependabot
+opens grouped dependency PRs monthly.
 
 ## Architecture
 
@@ -94,8 +189,24 @@ backend/   Python + FastAPI
   │    └─ core.py                  stepping loop: driver → mechanics → tire/vehicle → electrical
   ├─ app/validation.py             "Data Checks" pre-run validation
   ├─ app/storage.py                one JSON file per project
+  ├─ app/paths.py                  bundled vs. user-writable location resolution
+  ├─ app/server.py                 entrypoint the desktop shell launches
+  ├─ simstudio-backend.spec        PyInstaller recipe for the frozen backend
   └─ projects/bev-car.json         demo project
+
+desktop/   Electron shell
+  ├─ src/main.js                   starts the backend on a stable loopback port,
+  │                                waits for /api/health, then opens the window
+  ├─ src/loading.html              splash shown while the engine starts
+  └─ electron-builder.yml          installer definitions (NSIS / AppImage / deb)
 ```
+
+In the packaged app the backend serves the built UI as well as the API, so the
+window talks to a single local origin and the frontend's relative `/api` calls
+— including the live-simulation WebSocket — work unchanged. Nothing is exposed
+off the machine: the server binds to 127.0.0.1. Each installation picks a free
+port on first launch and keeps it (choosing a new one only if another program
+takes it), so the UI's saved layout and settings persist across restarts.
 
 ### API
 
@@ -154,3 +265,11 @@ and say so in Messages.
 - Sub-system containers are organizational: physical connections cannot cross
   a container boundary (signals can, via the Data Bus).
 - The bookmark tool and Optimization/Parameters ribbon tabs are visual stubs.
+
+## License
+
+SimStudio is proprietary software: Copyright © 2026 Eyad Abualkhair, all
+rights reserved (see [`LICENSE`](LICENSE)). The desktop app is free to use for
+evaluation, learning, research and other non-commercial purposes under the
+[End-User Licence Agreement](EULA.txt); commercial use needs a separate
+licence. Third-party components keep their own licences.

@@ -2,9 +2,9 @@
 "fixed" (structural) params defer to the next run with a message,
 "tunable" ones apply silently.
 """
-from app.solver import simulate
-
 from helpers import bev_axle
+
+from app.solver import simulate
 
 
 def _run_with_edit(element_id: str, key: str, value):

@@ -1,0 +1,42 @@
+SimStudio End-User Licence Agreement
+
+Copyright (c) 2026 Eyad Abualkhair. All rights reserved.
+
+By installing or using SimStudio ("the Software") you agree to these terms.
+
+1. Free use. You may install and use the Software free of charge, on any
+   number of your own computers, for evaluation, learning, research and
+   other non-commercial purposes.
+
+2. Commercial use. Using the Software in the course of a business or for
+   paid work requires a separate written licence from the copyright holder.
+   To ask for one, open an issue at https://github.com/Eyad-3D/simstudio.
+
+3. Restrictions. You may not sell, rent, sublicense or redistribute the
+   Software, or remove its copyright notices. Except where the law allows
+   it, you may not modify, decompile or make derivative works of the
+   Software.
+
+4. Your work. Models, projects and results you create with the Software
+   belong to you.
+
+5. Simulation results. The Software's physical models are simplified and
+   have not been validated against measured data. Do not rely on its results
+   for safety-critical, regulatory or financial decisions without your own
+   independent verification.
+
+6. No warranty. The Software is provided "as is", without warranty of any
+   kind, express or implied, including fitness for a particular purpose and
+   non-infringement.
+
+7. Limitation of liability. To the extent the law allows, the copyright
+   holder is not liable for any damages arising from the use of, or the
+   inability to use, the Software.
+
+8. Third-party components. Components listed in the third-party notices
+   shipped with the Software remain under their own licences, which govern
+   those components.
+
+9. Changes and termination. Future versions of the Software may come with
+   different terms. This licence ends automatically if you break these
+   terms.

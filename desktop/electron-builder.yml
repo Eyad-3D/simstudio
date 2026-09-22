@@ -1,0 +1,60 @@
+appId: com.simstudio.app
+productName: SimStudio
+copyright: Copyright © 2026 Eyad Abualkhair. All rights reserved.
+
+directories:
+  output: release
+  buildResources: build
+
+# Only the shell itself goes inside the asar archive. The frozen backend and
+# the built UI ride along as plain files under resources/ so the backend stays
+# an executable the OS can actually launch.
+files:
+  - src/**
+  - package.json
+
+extraResources:
+  - from: ../backend/dist/simstudio-backend
+    to: backend
+  - from: ../frontend/dist
+    to: frontend
+  - from: ../LICENSE
+    to: LICENSE
+  - from: ../EULA.txt
+    to: EULA.txt
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+
+nsis:
+  artifactName: SimStudio-Setup-${version}.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: SimStudio
+  # shown on the installer's licence page
+  license: ../EULA.txt
+
+linux:
+  executableName: simstudio
+  syncDesktopName: true
+  artifactName: SimStudio-${version}-${arch}.${ext}
+  # Required by the .deb format; change if you publish under another name.
+  maintainer: Eyad Abualkhair <eyad.abualkhair@gmail.com>
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  icon: build/icon.png
+  category: Science
+  synopsis: CRUISE M-style system simulation tool
+  desktop:
+    entry:
+      Name: SimStudio
+      Comment: Build, simulate and inspect system topologies

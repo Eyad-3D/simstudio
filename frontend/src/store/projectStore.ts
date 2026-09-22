@@ -468,7 +468,17 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const libraryById = Object.fromEntries(lib.components.map((c) => [c.id, c]));
       // restore the autosaved working copy if one exists, else open the demo
       const draft = loadDraft();
-      const project = draft?.project ?? demo.project;
+      const unsaved = Boolean(draft && !draft.clean);
+      let project = draft?.project ?? demo.project;
+      if (draft?.clean && !lib.offline) {
+        // nothing was unsaved: reopen the project from disk (it may be newer
+        // than the kept copy), falling back to the copy if it is gone
+        try {
+          project = await api.fetchProject(draft.project.id);
+        } catch {
+          /* keep the copy */
+        }
+      }
       set({
         library: lib.components,
         libraryById,
@@ -478,14 +488,14 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         project,
         activeSystemId: rootSystemOf(project).id,
         activeCaseId: project.cases[0]?.id ?? null,
-        dirty: Boolean(draft),
+        dirty: unsaved,
       });
       const log = get().log;
       log("info", `Component library loaded (${lib.components.length} components).`);
-      if (draft) {
+      if (draft && unsaved) {
         log("info", `Restored your unsaved draft from ${new Date(draft.savedAt).toLocaleString()}.`);
       } else {
-        log("info", `Project '${demo.project.name}' opened.`);
+        log("info", `Project '${project.name}' opened.`);
       }
       if (lib.offline) {
         log(

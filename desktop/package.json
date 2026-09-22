@@ -1,0 +1,29 @@
+{
+  "name": "simstudio-desktop",
+  "productName": "SimStudio",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "SimStudio \u2014 CRUISE M-style system simulation tool",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack:dir": "electron-builder --dir",
+    "dist:linux": "electron-builder --linux",
+    "dist:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^44.4.0",
+    "electron-builder": "^26.15.3"
+  },
+  "author": {
+    "name": "Eyad Abualkhair",
+    "email": "eyad.abualkhair@gmail.com"
+  },
+  "homepage": "https://github.com/Eyad-3D/simstudio",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Eyad-3D/simstudio.git"
+  },
+  "desktopName": "simstudio.desktop"
+}

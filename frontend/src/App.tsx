@@ -33,15 +33,21 @@ export default function App() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const unsub = useProjectStore.subscribe((state, prev) => {
       // skip the initial null→project population (init / draft restore)
-      if (state.project && prev.project && state.project !== prev.project) {
-        edited = true;
-        clearTimeout(timer);
+      if (!state.project || !prev.project) return;
+      if (state.project === prev.project && state.dirty === prev.dirty) return;
+      edited = true;
+      clearTimeout(timer);
+      if (state.dirty) {
         timer = setTimeout(() => saveDraft(state.project!), 800);
+      } else {
+        // saved / opened / new: record which project is open, but mark it clean
+        // so the next launch doesn't report unsaved work that was already saved
+        saveDraft(state.project, true);
       }
     });
     const flush = () => {
-      const p = useProjectStore.getState().project;
-      if (edited && p) saveDraft(p);
+      const { project: p, dirty } = useProjectStore.getState();
+      if (edited && p) saveDraft(p, !dirty);
     };
     window.addEventListener("beforeunload", flush);
     return () => {
