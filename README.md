@@ -195,7 +195,7 @@ backend/   Python + FastAPI
   └─ projects/bev-car.json         demo project
 
 desktop/   Electron shell
-  ├─ src/main.js                   starts the backend on a free loopback port,
+  ├─ src/main.js                   starts the backend on a stable loopback port,
   │                                waits for /api/health, then opens the window
   ├─ src/loading.html              splash shown while the engine starts
   └─ electron-builder.yml          installer definitions (NSIS / AppImage / deb)
@@ -204,7 +204,9 @@ desktop/   Electron shell
 In the packaged app the backend serves the built UI as well as the API, so the
 window talks to a single local origin and the frontend's relative `/api` calls
 — including the live-simulation WebSocket — work unchanged. Nothing is exposed
-off the machine: the server binds to 127.0.0.1 on a port chosen at launch.
+off the machine: the server binds to 127.0.0.1. The port stays the same between
+launches (47815 unless another program holds it, in which case a free one is
+picked and remembered), so the UI's saved layout and settings persist.
 
 ### API
 
