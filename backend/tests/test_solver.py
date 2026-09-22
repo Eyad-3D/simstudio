@@ -58,6 +58,79 @@ def test_profile_parsing():
     assert interp_profile(pts, 999, False) == 95.0
 
 
+def _interp_linear_scan(points, t, repeat):
+    """The original linear-scan lookup, kept as the reference."""
+    if not points:
+        return 0.0
+    t0, tn = points[0][0], points[-1][0]
+    if repeat and tn > t0:
+        t = t0 + (t - t0) % (tn - t0)
+    if t <= t0:
+        return points[0][1]
+    if t >= tn:
+        return points[-1][1]
+    for (ta, va), (tb, vb) in zip(points, points[1:]):
+        if ta <= t <= tb:
+            return vb if tb == ta else va + (vb - va) * (t - ta) / (tb - ta)
+    return points[-1][1]
+
+
+def test_profile_lookup_matches_linear_scan():
+    # repeated times (steps), a lone point, exact knots and repeat wrapping
+    profiles = [
+        "0:0; 10:0; 10:50; 20:50; 20:20; 35:80; 40:0",
+        "5:7",
+        "; ".join(f"{i * 0.5:g}:{(i * 37) % 11}" for i in range(400)),
+    ]
+    for text in profiles:
+        pts = parse_profile(text)
+        for repeat in (False, True):
+            for k in range(-20, 900):
+                t = k * 0.25
+                assert interp_profile(pts, t, repeat) == _interp_linear_scan(pts, t, repeat), (
+                    text[:30], t, repeat)
+
+
+def test_profiles_are_parsed_once_per_run(monkeypatch):
+    """The drive cycle and road profile are parsed when first used, not on
+    every control step (a 1,801-point WLTC string costs ~0.8 ms to parse)."""
+    import app.solver.domains as domains
+
+    calls = []
+
+    def counting_parse(text):
+        calls.append(text)
+        return parse_profile(text)
+
+    monkeypatch.setattr(domains, "parse_profile", counting_parse)
+    proj = bev_axle(profile="0:0; 5:60; 20:60")
+    proj.systems[0].elements.append(
+        el("road", "signal.road_profile", "Road", profile="0:0; 50:2; 200:2"))
+    proj.dataBusConnections.append(dbc(50, "road", "sig_grade", "veh", "sig_grade_in"))
+    proj.cases[0].duration = 20
+    proj.cases[0].timeStep = 0.1
+    result = simulate(proj, "case")
+    assert result.status in ("success", "warning"), [m.text for m in result.messages]
+    assert len(calls) == 2, f"parsed {len(calls)} times"
+
+
+def test_live_profile_edit_takes_effect():
+    proj = bev_axle(profile="0:0; 5:60; 10:60")
+    proj.cases[0].duration = 10
+    sent = {"n": 0}
+
+    def control():
+        sent["n"] += 1
+        if sent["n"] == 3:  # a few recorded steps in
+            return [{"type": "set_param", "elementId": "task", "key": "profile",
+                     "value": "0:30; 10:30"}]
+        return []
+
+    result = simulate(proj, "case", control=control)
+    demand = series(result, "task", "sig_demand")
+    assert demand[-1]["value"] == pytest.approx(30.0)
+
+
 # ---- recording controls (outputEvery + smaller step) -------------------------
 
 def _bev_30s(**case_over):

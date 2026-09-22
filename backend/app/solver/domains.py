@@ -85,6 +85,7 @@ class RunContext:
         self.fuelcells: dict[str, FuelCellCache] = {}
         self.tanks: dict[str, TankState] = {}
         self.lookup_cache: dict[str, tuple[list, list]] = {}
+        self.profile_cache: dict[str, list[tuple[float, float]]] = {}
         self.pid_state: dict[str, dict[str, float]] = {}
         table_errors: list[str] = []
         for el_id, cdef in model.cdef_of.items():
@@ -201,6 +202,15 @@ class RunContext:
     def params(self, el_id: str) -> dict:
         return self.model.params_of[el_id]
 
+    def profile_points(self, el_id: str) -> list[tuple[float, float]]:
+        """A Driving Task / Road Profile's points — parsed on first use and
+        again only after a live edit of its profile, not on every step."""
+        pts = self.profile_cache.get(el_id)
+        if pts is None:
+            pts = parse_profile(str(self.params(el_id).get("profile", "")))
+            self.profile_cache[el_id] = pts
+        return pts
+
     def anchor_of_group(self, dl: Driveline, plan: DrivePlan, coord: int) -> tuple[str, float] | None:
         root = plan.coord_root[coord]
         for s, seg in enumerate(dl.segments):
@@ -250,6 +260,8 @@ class RunContext:
             return "invalid"
         model.params_of[el_id][key] = value
         label = model.elements[el_id].label
+        if key == "profile":
+            self.profile_cache.pop(el_id, None)  # re-parse on next use
         if key == "locked":
             for st in self.dls:
                 if any(j.el_id == el_id for j in st.dl.joints):
@@ -496,7 +508,7 @@ class ControlSlave(_CtxSlave):
             if cdef.id == "signal.constant":
                 rt.publish(el_id, "sig_out", float(p.get("value", 0)))
             elif cdef.id == "signal.driving_task":
-                pts = parse_profile(str(p.get("profile", "")))
+                pts = ctx.profile_points(el_id)
                 scale = float(p.get("scale_pct", 100)) / 100.0
                 rt.publish(el_id, "sig_demand",
                            interp_profile(pts, t, bool(p.get("repeat", False))) * scale)
@@ -551,7 +563,7 @@ class ControlSlave(_CtxSlave):
                 else:
                     rt.publish(el_id, "sig_out", interp1(t1, x_in))
             elif kind == "signal.road_profile":
-                pts = parse_profile(str(p.get("profile", "")))
+                pts = ctx.profile_points(el_id)
                 mode = str(p.get("mode", "distance"))
                 if mode == "distance":
                     x_in = rt.read_signal(el_id, "sig_distance_in")
