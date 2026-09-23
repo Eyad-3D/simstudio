@@ -37,9 +37,14 @@ for (const rel of manifests) {
     drifted++;
     continue;
   }
-  pkg.version = version;
-  // Match npm's own formatting so the diff stays to the one line.
-  writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+  // Change only the top-level "version" line, so escapes such as \u2014
+  // elsewhere in the file survive and the diff stays to the one line.
+  const updated = raw.replace(/^(  "version": )"[^"]*"/m, `$1"${version}"`);
+  if (updated === raw) {
+    console.error(`${rel}: no top-level "version" line to update`);
+    process.exit(1);
+  }
+  writeFileSync(path, updated);
   console.log(`${rel} → ${version}`);
 }
 

@@ -1,10 +1,10 @@
 # LightSim — Vehicle System Simulation
 
-A desktop app for simulating vehicle energy use, range and powertrains. It
-runs entirely on your computer and works offline: build a system topology
-from a component library, wire elements together (including signal /
-data-bus connections), run a dynamic simulation, watch it live, and
-inspect results — all in a dockable-panel UI.
+LightSim simulates how much energy a vehicle uses, how far it goes and how
+fast it accelerates. You build the car from parts on a diagram (battery,
+motor, engine, gearbox, wheels, a driver), pick a driving cycle, press
+**Run**, and watch the results come in. It is a desktop app for Windows and
+Linux, runs entirely on your computer, and works offline.
 
 > **Status:** early version. The workflow works, but the component physics
 > are simplified, nothing has been validated against measured vehicles yet,
@@ -14,7 +14,39 @@ inspect results — all in a dockable-panel UI.
 > checked and how. What changed in each version, and which results moved:
 > [Release notes](docs/RELEASE-NOTES.md).
 
-![Topology editor](docs/doc-topology.png)
+![The electric-car example on the diagram, with the E-Motor's values on the right](docs/screenshots/lightsim-0.2.0-topology.png)
+
+## Quick start
+
+1. **Download** the installer for your computer from the
+   [latest release](https://github.com/Eyad-3D/simstudio/releases/latest):
+   `LightSim-Setup-<version>.exe` for Windows 10/11, or the `.AppImage` or
+   `.deb` for Linux. Nothing else is needed: the simulation engine is inside.
+2. **Install and open it.** The installers are not signed yet, so Windows
+   warns the first time: choose *More info → Run anyway*. On Linux, make the
+   AppImage runnable once (`chmod +x LightSim-*.AppImage`).
+3. **Run the example.** LightSim opens with an electric car modelled on the
+   2021 Cupra Born. Click any part on the diagram to see and change its
+   values on the right, then press **Run** at the top right.
+4. **Read the results.** The *Results* tab shows the run: tick channels on
+   the left to plot them, and read energy use, consumption and distance in
+   the summary under the chart.
+
+   ![A finished run: battery power and charge over the City Cycle, with the summary below](docs/screenshots/lightsim-0.2.0-results.png)
+
+5. **Ask "what if?".** In *Cases & Parameters* (Home tab, right-hand side),
+   choose a part and a value to sweep, here the car's mass, and press
+   *Run sweep*. *Results → Sweep* plots a summary figure against it.
+
+   ![Energy use of the electric car against its mass, from a three-point sweep](docs/screenshots/lightsim-0.2.0-sweep.png)
+
+**Open** lists a second example, a P2 hybrid sized after the Hyundai Ioniq
+Hybrid and driven on the EPA city and highway cycles, next to your own
+projects; each example's entry lists the results to expect. Examples open as
+copies, so change them freely: **Save** keeps your copy as a project of your
+own. To watch a run as it happens, pick the *City Cycle (live, 10×)* case and
+change values while it runs (try the Driver's P and I gains, or lock the
+Differential).
 
 ## Features
 
@@ -37,8 +69,7 @@ inspect results — all in a dockable-panel UI.
 | **Persistence** | Save/load projects on the backend (single JSON file per project), plus browser Export / Import; the last 20 saved versions of each project can be restored as a copy (Project → Restore…) |
 | **UI shell** | Ribbon tabs act as full-page workspaces (Home = topology + panels; Results = its own page); light/dark theme (persisted); dockable & resizable panels (Dockview) around a large diagram, with Messages, Data Checks, layers, Data Bus and Signal Plot in a collapsible bottom tray (double-click a tab to maximise its group); status bar with live progress |
 
-![Results view](docs/doc-results.png)
-![Data bus connections](docs/doc-databus.png)
+![The P2 Hybrid Car example in the dark theme](docs/screenshots/lightsim-0.2.0-hybrid-dark.png)
 
 ## Install the desktop app
 
@@ -50,32 +81,21 @@ Python and Node are **not** required: the simulation engine is bundled inside.
 | Windows 10/11 (x64) | `LightSim-Setup-<version>.exe` |
 | Linux (x64) | `LightSim-<version>-x86_64.AppImage` or `LightSim-<version>-amd64.deb` |
 
-No release has been published yet, so for now the installers come from the
-**Build desktop app** workflow: on the repository's **Actions** tab, open the
-latest successful *Build desktop app* run on `main` and download the
-`lightsim-windows` or `lightsim-linux` artifact (a zip with the installers
-and their `.sha256` checksums; you need to be signed in to GitHub, and
-artifacts expire after 90 days). On Linux, mark the AppImage executable once
-(`chmod +x LightSim-*.AppImage`) and run it.
+Download the installers from the
+[Releases page](https://github.com/Eyad-3D/simstudio/releases), with a
+`.sha256` checksum for each file. On Linux, mark the AppImage executable once
+(`chmod +x LightSim-*.AppImage`) and run it. To install a newer version,
+download it and install it over the old one: there are no automatic updates
+yet, and your projects stay where they are.
 
 > These builds are unsigned, so Windows SmartScreen warns on first launch —
-> choose *More info → Run anyway*, or sign them with your own certificate
-> before distributing.
+> choose *More info → Run anyway*.
 
-The **Battery Electric Car** example loads on first launch: HV Battery Pack →
-HV Bus → (Power Consumer, E-Motor) → Final Drive → Differential → Node FL/FR →
-Brake + Wheel per corner (rear corners unpowered), with a Vehicle body, a
-Driver element, a target-speed Driving Task (labelled *Vehicle Task*), and
-Vehicle/BMS monitors. It is modelled on the 2021 Cupra Born (values from
-FASTSim's vehicle file) and has WLTC cases next to the quick *City Cycle*. A
-**P2 Hybrid Car** example (engine, clutch, gearbox, HCU script), sized after
-the Hyundai Ioniq Hybrid with EPA road-load data and run on the EPA city and
-highway cycles, is available via Open. Each example's entry in the Open menu
-lists the results to expect. Press **Run** — pick the *City Cycle
-(live, 10×)* case to watch it stream in real time and tune parameters (try
-the P and I gains on the Driver, or lock the Differential) while it runs.
-An example opens as an unsaved copy: change it freely, and **Save** keeps
-your copy as a new project of your own.
+Builds of changes not released yet come from the **Build desktop app**
+workflow: on the repository's **Actions** tab, open the latest successful
+*Build desktop app* run on `main` and download the `lightsim-windows` or
+`lightsim-linux` artifact (a zip with the installers and their checksums; you
+need to be signed in to GitHub, and artifacts expire after 90 days).
 
 ### Where your work is saved
 
@@ -115,6 +135,23 @@ Every save also keeps the version it replaced in the hidden `.backups/<id>/`
 folder, the last 20 per project. **Project → Restore…** lists them by the
 time each was saved and opens the one you pick as an unsaved copy: the
 project file is left as it is, and saving the copy makes a new project.
+
+## Known limitations
+
+[docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md) is the maintained list,
+including the open bugs that change results and how to work around them; the
+desktop app installs a copy (**Help → Known Limits**). The structural limits
+in short:
+
+- One differential and one E-Motor per driveline subgraph (multiple
+  independent drivelines — e.g. dual-motor AWD as two axles — work).
+- One battery or voltage source per electrical bus; DC-DC is unidirectional.
+- Forward driving only (no reverse), no thermal/fluid solving.
+- Sub-system containers are organizational: physical connections cannot cross
+  a container boundary (signals can, via the Data Bus).
+- The canvas bookmark tool is disabled, and the Optimization tab is hidden
+  until it is implemented. (Parameters — per-case overrides and sweeps —
+  works.)
 
 ## Building the app from source
 
@@ -495,23 +532,6 @@ valid*, with the reason, in the results table:
 A success means the car followed its target and nothing warned. It does not
 mean the numbers match a real vehicle: see
 [Known limits](docs/KNOWN-LIMITS.md).
-
-## Known limitations
-
-[docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md) is the maintained list,
-including the open bugs that change results and how to work around them; the
-desktop app installs a copy (**Help → Known Limits**). The structural limits
-in short:
-
-- One differential and one E-Motor per driveline subgraph (multiple
-  independent drivelines — e.g. dual-motor AWD as two axles — work).
-- One battery or voltage source per electrical bus; DC-DC is unidirectional.
-- Forward driving only (no reverse), no thermal/fluid solving.
-- Sub-system containers are organizational: physical connections cannot cross
-  a container boundary (signals can, via the Data Bus).
-- The canvas bookmark tool is disabled, and the Optimization tab is hidden
-  until it is implemented. (Parameters — per-case overrides and sweeps —
-  works.)
 
 ## License
 

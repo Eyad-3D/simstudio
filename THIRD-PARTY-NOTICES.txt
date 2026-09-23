@@ -1,5 +1,5 @@
 THIRD-PARTY SOFTWARE NOTICES
-LightSim 0.1.0
+LightSim 0.2.0
 
 LightSim includes the third-party software and data listed below. Each
 component is used under its own licence, reproduced after the list.

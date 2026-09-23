@@ -9,7 +9,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { openApp, ribbonTab, runActiveCase, selectElement, showPanel } from "./app";
+import { openApp, ribbonTab, runActiveCase, showPanel } from "./app";
 import { openExample } from "./ui-helpers";
 
 test.skip(!process.env.DOCS_SHOTS, "writes the README pictures; set DOCS_SHOTS=1 to take them");
@@ -26,7 +26,10 @@ test("README pictures", async ({ page }) => {
 
   // 1. the electric-car example on the diagram, with a part's parameters
   await openApp(page);
-  await selectElement(page, "E-Motor");
+  // select it on the diagram, so the left panel keeps its parts library
+  await page.locator(".react-flow__node", { hasText: "E-Motor" }).first().click();
+  await showPanel(page, "Properties");
+  await expect(page.getByText("Parameters — E-Motor")).toBeVisible();
   await page.waitForTimeout(800);
   await page.screenshot({ path: shot("topology") });
 

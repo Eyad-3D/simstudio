@@ -1,6 +1,6 @@
 # LightSim: known issues and limits
 
-LightSim 0.1.0 is an early version. You can build, run and inspect models,
+LightSim 0.2.0 is an early version. You can build, run and inspect models,
 but the component physics are simplified, **nothing has been validated
 against measured vehicles yet**, and some results are known to be wrong.
 This page lists what we know, what you can do about it today, and which
@@ -16,7 +16,7 @@ how the example cars compare with real ones.
   that tracks the fix, so the release notes can say when it is resolved.
 - *Being fixed* means the work is under way for an upcoming release. Until
   the release notes say it is done, the problem and the workaround apply.
-- Last reviewed: 23 September 2026, for version 0.1.0. This page is updated
+- Last reviewed: 23 September 2026, for version 0.2.0. This page is updated
   with every release.
 
 ## Results that can be wrong today
@@ -254,12 +254,12 @@ minimum or an average, for example from the CSV export.
   *More info → Run anyway*). *Roadmap:* PLT-13.
 - **No macOS version.** Builds exist for Windows 10/11 (x64) and Linux (x64)
   only. *Roadmap:* PLT-13.
-- **No published release and no automatic updates yet.** Installers come from
-  the *Build desktop app* workflow on GitHub; install a newer build by hand.
+- **No automatic updates yet.** Download a newer version from the GitHub
+  Releases page and install it over the old one; your projects are kept.
   *Roadmap:* PLT-18.
 - **Little help in the app.** There is no user manual, tutorial or
-  explanation of individual parameters yet, and the README screenshots show
-  an older version. *Roadmap:* LRN-04, LRN-05, LRN-03 (being fixed).
+  explanation of individual parameters yet; the README's quick start is the
+  only walk-through. *Roadmap:* LRN-04, LRN-05.
 - **Licence.** LightSim is proprietary (`LICENSE`). The desktop app is free
   for evaluation, learning, research and other non-commercial use under its
   end-user licence agreement (`EULA.txt`, installed with the app);

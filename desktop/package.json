@@ -1,7 +1,7 @@
 {
   "name": "lightsim-desktop",
   "productName": "LightSim",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "UNLICENSED",
   "description": "LightSim \u2014 desktop app for simulating vehicle energy use, range and powertrains",
