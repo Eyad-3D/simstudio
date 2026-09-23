@@ -9,6 +9,8 @@ import type {
   Project,
   SimMessage,
   SimResult,
+  SimRun,
+  StoredRunInfo,
 } from "./types";
 import fallbackLibrary from "./data/componentLibrary.json";
 import fallbackProject from "./data/demoProject.json";
@@ -84,6 +86,44 @@ export function saveProject(project: Project): Promise<{ saved: string }> {
     method: "PUT",
     body: JSON.stringify(project),
   });
+}
+
+// ---- run history (stored on disk next to the project by the engine) -------
+
+const runsPath = (projectId: string) => `/projects/${encodeURIComponent(projectId)}/runs`;
+
+/** The project's stored runs, newest first (no channel data). */
+export function listRuns(projectId: string): Promise<StoredRunInfo[]> {
+  return request(runsPath(projectId));
+}
+
+export function fetchRun(projectId: string, runId: string): Promise<SimRun> {
+  return request(`${runsPath(projectId)}/${encodeURIComponent(runId)}`);
+}
+
+export interface StoreRunReply {
+  saved: string;
+  /** runs the project now has on disk, and their size in bytes */
+  stored: number;
+  bytes: number;
+  /** per-project disk budget; the oldest runs are deleted to stay within it */
+  budget: number;
+  pruned: string[];
+}
+
+export function storeRun(projectId: string, run: SimRun): Promise<StoreRunReply> {
+  return request(`${runsPath(projectId)}/${encodeURIComponent(run.id)}`, {
+    method: "PUT",
+    body: JSON.stringify(run),
+  });
+}
+
+export function deleteRun(projectId: string, runId: string): Promise<{ deleted: string; stored: number }> {
+  return request(`${runsPath(projectId)}/${encodeURIComponent(runId)}`, { method: "DELETE" });
+}
+
+export function deleteRuns(projectId: string): Promise<{ deleted: number; stored: number }> {
+  return request(runsPath(projectId), { method: "DELETE" });
 }
 
 export function validateProject(project: Project): Promise<DataCheck[]> {

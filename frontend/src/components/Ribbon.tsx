@@ -319,7 +319,8 @@ function ResultsTab() {
   const stopRun = useProjectStore((s) => s.stopRun);
   const project = useProjectStore((s) => s.project);
   const clearRuns = useProjectStore((s) => s.clearRuns);
-  const count = useProjectStore((s) => s.runs.length);
+  const shown = useProjectStore((s) => s.runs.length);
+  const stored = useProjectStore((s) => s.storedRunCount);
   return (
     <>
       <RibbonGroup label="Simulation">
@@ -334,21 +335,29 @@ function ResultsTab() {
       </RibbonGroup>
       <RibbonGroup label="Results">
         <div className="flex h-full flex-col justify-center gap-1 px-2 text-[11px] text-[color:var(--ss-text-dim)]">
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1" title="Runs are stored on disk with the project">
             <Gauge size={13} />
-            {count === 0 ? "No stored runs yet" : `${count} stored run${count > 1 ? "s" : ""}`}
-            {count >= 20 && <span className="text-[10px]">(max)</span>}
+            {stored > 0
+              ? `${stored} stored run${stored > 1 ? "s" : ""}`
+              : shown > 0
+                ? `${shown} run${shown > 1 ? "s" : ""} (not stored on disk)`
+                : "No stored runs yet"}
+            {stored > shown && shown > 0 && <span className="text-[10px]">· newest {shown} shown</span>}
           </span>
           <button
             className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[11px] disabled:opacity-40"
-            disabled={count === 0 || running}
+            disabled={(stored === 0 && shown === 0) || running}
             onClick={() => {
+              const n = Math.max(stored, shown);
+              const what = n === 1 ? "the stored run" : `all ${n} stored runs`;
               void confirmDialog({
                 title: "Clear results history?",
-                message: "This removes all stored runs. Their data cannot be recovered.",
+                message: `This deletes ${what} of '${project?.name ?? "this project"}' from disk. ${n === 1 ? "It" : "They"} cannot be recovered.`,
                 confirmLabel: "Clear history",
                 danger: true,
-              }).then((ok) => ok && clearRuns());
+              }).then((ok) => {
+                if (ok) void clearRuns();
+              });
             }}
           >
             <Trash2 size={12} /> Clear history

@@ -21,6 +21,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
+import { confirmDialog } from "../../dialog";
 import { useActiveRun, useOverlayRuns, useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import type { Channel, SimResult, SimRun } from "../../types";
@@ -118,6 +119,8 @@ export function ResultsPanel() {
   const setOverlayRuns = useProjectStore((s) => s.setOverlayRuns);
   const clearOverlays = useProjectStore((s) => s.clearOverlays);
   const removeRun = useProjectStore((s) => s.removeRun);
+  const storedRunCount = useProjectStore((s) => s.storedRunCount);
+  const runsLoading = useProjectStore((s) => s.runsLoading);
   const running = useProjectStore((s) => s.running);
   const run = useProjectStore((s) => s.run);
   const theme = useUIStore((s) => s.theme);
@@ -367,6 +370,17 @@ export function ResultsPanel() {
     });
   };
 
+  if (runs.length === 0 && runsLoading) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-[color:var(--ss-text-dim)]">
+        <LineChartIcon size={36} strokeWidth={1} />
+        <div className="text-[13px]">
+          Loading {storedRunCount} stored run{storedRunCount > 1 ? "s" : ""}…
+        </div>
+      </div>
+    );
+  }
+
   if (runs.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-[color:var(--ss-text-dim)]">
@@ -406,9 +420,20 @@ export function ResultsPanel() {
             </select>
             <button
               className="ss-toolbtn"
-              title="Remove this run from history"
+              title="Delete this run (also from disk)"
               disabled={!activeRun || running}
-              onClick={() => activeRun && removeRun(activeRun.id)}
+              onClick={() => {
+                if (!activeRun) return;
+                const id = activeRun.id;
+                void confirmDialog({
+                  title: "Delete this run?",
+                  message: `This deletes '${runLabel(activeRun)}' from disk. It cannot be recovered.`,
+                  confirmLabel: "Delete run",
+                  danger: true,
+                }).then((ok) => {
+                  if (ok) void removeRun(id);
+                });
+              }}
             >
               <X size={13} />
             </button>

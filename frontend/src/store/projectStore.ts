@@ -16,6 +16,7 @@ import type {
   Project,
   SimResult,
   SimRun,
+  StoredRunInfo,
   SystemNode,
 } from "../types";
 import { useUIStore } from "./uiStore";
@@ -136,7 +137,9 @@ function cloneElementsInto(
 
 const HISTORY_LIMIT = 50;
 const LIVE_FLUSH_MS = 120;
-const MAX_RUNS = 20; // rolling result-history depth (client-side only; holds a full sweep family)
+// Runs held in memory and listed in Results (holds a full sweep family). Every
+// finished run is also stored on disk with its project; older ones stay there.
+const MAX_RUNS = 20;
 
 /** A parameter sweep: run `caseId` once per value, overriding one element param. */
 export interface SweepConfig {
@@ -177,6 +180,8 @@ let activeRun: api.LiveRunHandle | null = null;
 let sweepAborted = false;
 // set by stopRun while a run is in flight; reset when the next run starts
 let stopRequested = false;
+// bumped per run-history load, so an answer for an earlier load is dropped
+let runHistorySeq = 0;
 
 /** Why a finished run is not a complete result, or undefined when it is.
  *  A stop only counts if the solver confirms it cut the run short (a stop
@@ -214,8 +219,12 @@ interface ProjectState {
 
   messages: LogMessage[];
   dataChecks: DataCheck[] | null;
-  /** rolling history of simulation runs (newest first, capped at MAX_RUNS) */
+  /** the project's newest runs (newest first, at most MAX_RUNS) */
   runs: SimRun[];
+  /** how many runs of the open project are stored on disk */
+  storedRunCount: number;
+  /** true while the open project's stored runs are being read */
+  runsLoading: boolean;
   activeCaseId: string | null;
   /** run shown in Results (primary); additional runs overlaid on the chart */
   activeRunId: string | null;
@@ -309,8 +318,10 @@ interface ProjectState {
   /** Replace the overlay set outright (used to overlay a whole sweep family). */
   setOverlayRuns: (runIds: string[]) => void;
   clearOverlays: () => void;
-  removeRun: (runId: string) => void;
-  clearRuns: () => void;
+  /** Delete a run from the history and from disk. */
+  removeRun: (runId: string) => Promise<void>;
+  /** Delete every stored run of the open project. */
+  clearRuns: () => Promise<void>;
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => {
@@ -354,10 +365,106 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     return project.systems.find((s) => s.parentId === null) ?? project.systems[0];
   }
 
+  /** Drop runs from the in-memory history (and from the chart selection). */
+  function dropRuns(s: ProjectState, runIds: string[]): Partial<ProjectState> {
+    const gone = new Set(runIds);
+    const runs = s.runs.filter((r) => !gone.has(r.id));
+    return {
+      runs,
+      activeRunId: s.activeRunId && gone.has(s.activeRunId) ? (runs[0]?.id ?? null) : s.activeRunId,
+      overlayRunIds: s.overlayRunIds.filter((id) => !gone.has(id)),
+    };
+  }
+
+  /**
+   * List the project's stored runs: the newest MAX_RUNS are read from disk
+   * and merged with runs in memory that are not stored (one still running,
+   * or one whose store failed). The newest is read first so it is on screen
+   * while the older ones load. An answer that arrives after another project
+   * was opened, or after a newer load started, is dropped.
+   */
+  async function loadRunHistory(projectId: string): Promise<void> {
+    const seq = ++runHistorySeq;
+    const current = () => seq === runHistorySeq && get().project?.id === projectId;
+    let index: StoredRunInfo[];
+    try {
+      index = await api.listRuns(projectId);
+    } catch (e) {
+      if (current()) {
+        set({ runsLoading: false });
+        get().log("warning", `Stored runs could not be listed: ${(e as Error).message}`);
+      }
+      return;
+    }
+    if (!current()) return;
+    set({ storedRunCount: index.length, runsLoading: true });
+    const shown = index.slice(0, MAX_RUNS);
+    const onDisk = new Set(index.map((e) => e.id));
+    const inMemory = new Set(get().runs.map((r) => r.id));
+    const toRead = shown.filter((e) => !inMemory.has(e.id));
+    const loaded = new Map<string, SimRun>();
+    const read = (e: StoredRunInfo) =>
+      api.fetchRun(projectId, e.id).then(
+        (r) => void loaded.set(e.id, r),
+        () => undefined,
+      );
+    const merge = (done: boolean) => {
+      if (!current()) return;
+      set((s) => {
+        const byId = new Map(s.runs.map((r) => [r.id, r]));
+        const runs = [
+          ...s.runs.filter((r) => !onDisk.has(r.id)),
+          ...shown.map((e) => byId.get(e.id) ?? loaded.get(e.id)).filter((r): r is SimRun => Boolean(r)),
+        ]
+          .sort((a, b) => b.startedAt - a.startedAt)
+          .slice(0, MAX_RUNS);
+        const ids = new Set(runs.map((r) => r.id));
+        return {
+          runs,
+          runsLoading: !done,
+          activeRunId: s.activeRunId && ids.has(s.activeRunId) ? s.activeRunId : (runs[0]?.id ?? null),
+          overlayRunIds: s.overlayRunIds.filter((id) => ids.has(id)),
+        };
+      });
+    };
+    const [newest, ...older] = toRead;
+    if (newest) {
+      await read(newest);
+      merge(false);
+    }
+    await Promise.all(older.map(read));
+    merge(true);
+    const unreadable = toRead.filter((e) => !loaded.has(e.id)).length;
+    if (unreadable > 0 && current()) {
+      get().log("warning", `${unreadable} stored run(s) could not be read and are not listed.`);
+    }
+  }
+
+  /** Store a finished run on disk with its project. A run that cannot be
+   *  stored stays listed for this session only. */
+  async function storeRun(projectId: string, run: SimRun): Promise<void> {
+    const { log } = get();
+    try {
+      const reply = await api.storeRun(projectId, run);
+      if (get().project?.id !== projectId) return;
+      set((s) => ({ storedRunCount: reply.stored, ...dropRuns(s, reply.pruned) }));
+      if (reply.pruned.length > 0) {
+        log(
+          "warning",
+          `Stored runs of this project reached the ${Math.round(reply.budget / 2 ** 20)} MB disk budget: ` +
+            `deleted the ${reply.pruned.length} oldest run(s).`,
+        );
+      }
+    } catch (e) {
+      log("warning", `Run '${run.caseName}' could not be stored on disk (${(e as Error).message}); it is kept for this session only.`);
+    }
+  }
+
   /**
    * Register a run at the head of the rolling history, stream the live result
-   * into it, and resolve with the final SimResult. Shared by `run` (one call)
-   * and `runSweep` (one call per swept value). Does NOT run the validation
+   * into it, store it on disk once it ends, and resolve with the final
+   * SimResult. Shared by `run` (one call) and `runSweep` (one call per swept
+   * value). Does NOT run the validation
    * gate, toggle `running`, or switch ribbon tabs — the callers own that.
    */
   async function executeRun(
@@ -439,16 +546,24 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const result = await handle.done;
       if (flushTimer) clearTimeout(flushTimer);
       const incomplete = incompleteReason(result, stopRequested);
+      const finished: SimRun = {
+        ...newRun,
+        result,
+        status: result.status,
+        ...(incomplete ? { incomplete } : {}),
+      };
       set((s) => ({
-        runs: s.runs.map((r) =>
-          r.id === runId ? { ...r, result, status: result.status, ...(incomplete ? { incomplete } : {}) } : r,
-        ),
+        runs: s.runs.map((r) => (r.id === runId ? finished : r)),
         activeRunId: runId,
       }));
+      await storeRun(projectToRun.id, finished);
       return result;
     } catch (e) {
       if (flushTimer) clearTimeout(flushTimer);
       patchRun({ status: "failed", incomplete: "connection lost" });
+      // keep what arrived before the connection dropped, if the engine is still there
+      const lost = get().runs.find((r) => r.id === runId);
+      if (lost) await storeRun(projectToRun.id, lost);
       throw e;
     } finally {
       activeRun = null;
@@ -472,6 +587,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     messages: [],
     dataChecks: null,
     runs: [],
+    storedRunCount: 0,
+    runsLoading: false,
     activeCaseId: null,
     activeRunId: null,
     overlayRunIds: [],
@@ -521,6 +638,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           "warning",
           "Backend not reachable — running from bundled data. Start the FastAPI service to enable save, data checks and simulation.",
         );
+      } else {
+        void loadRunHistory(project.id);
       }
     },
 
@@ -928,6 +1047,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         past: [],
         future: [],
         runs: [],
+        storedRunCount: 0,
+        runsLoading: false,
         dataChecks: null,
         dirty: false,
       });
@@ -947,10 +1068,13 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           past: [],
           future: [],
           runs: [],
+          storedRunCount: 0,
+          runsLoading: false,
           dataChecks: null,
           dirty: false,
         });
         get().log("info", `Project '${project.name}' opened.`);
+        void loadRunHistory(project.id);
       } catch (e) {
         get().log("error", `Failed to open project: ${(e as Error).message}`);
       }
@@ -999,10 +1123,13 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           past: [],
           future: [],
           runs: [],
+          storedRunCount: 0,
+          runsLoading: false,
           dataChecks: null,
           dirty: true,
         });
         get().log("info", `Project '${project.name}' imported.`);
+        void loadRunHistory(project.id);
       } catch (e) {
         get().log("error", `Import failed: ${(e as Error).message}`);
       }
@@ -1293,16 +1420,36 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     setOverlayRuns: (runIds) =>
       set((s) => ({ overlayRunIds: runIds.filter((id) => id !== s.activeRunId) })),
     clearOverlays: () => set({ overlayRunIds: [] }),
-    removeRun: (runId) =>
-      set((s) => {
-        const runs = s.runs.filter((r) => r.id !== runId);
-        return {
-          runs,
-          activeRunId: s.activeRunId === runId ? (runs[0]?.id ?? null) : s.activeRunId,
-          overlayRunIds: s.overlayRunIds.filter((id) => id !== runId),
-        };
-      }),
-    clearRuns: () => set({ runs: [], activeRunId: null, overlayRunIds: [] }),
+    removeRun: async (runId) => {
+      const { project, log } = get();
+      runHistorySeq++; // a load still in flight must not list the run again
+      set((s) => dropRuns(s, [runId]));
+      if (!project) return;
+      try {
+        const reply = await api.deleteRun(project.id, runId);
+        if (get().project?.id === project.id) set({ storedRunCount: reply.stored });
+      } catch (e) {
+        // 404: the run was never stored (its store failed), so it is gone already
+        if (!(e as Error).message.startsWith("404")) {
+          log("error", `Could not delete the stored run: ${(e as Error).message}`);
+        }
+      }
+      // list the next older stored run in its place (or put back one not deleted)
+      await loadRunHistory(project.id);
+    },
+    clearRuns: async () => {
+      const { project, log } = get();
+      runHistorySeq++; // a load still in flight must not list the runs again
+      set({ runs: [], activeRunId: null, overlayRunIds: [], storedRunCount: 0, runsLoading: false });
+      if (!project) return;
+      try {
+        const reply = await api.deleteRuns(project.id);
+        log("info", `Deleted ${reply.deleted} stored run(s) of '${project.name}'.`);
+      } catch (e) {
+        log("error", `Could not delete the stored runs: ${(e as Error).message}`);
+        await loadRunHistory(project.id);
+      }
+    },
   };
 });
 
