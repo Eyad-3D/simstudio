@@ -28,7 +28,10 @@ export default defineConfig({
   timeout: 90_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
-  workers: 2,
+  // One at a time: every test shares one engine and its projects folder, and
+  // runs are stored on disk per project (RES-02), so a test running beside
+  // another saw that test's runs appear and vanish ("1 stored run" not found).
+  workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
