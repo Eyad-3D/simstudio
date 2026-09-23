@@ -225,6 +225,12 @@ let stopRequested = false;
 // bumped per run-history load, so an answer for an earlier load is dropped
 let runHistorySeq = 0;
 
+/** The run Results opens on: the newest complete run that is not a sweep
+ *  point, or the newest run when there is none (runs are newest first). */
+function mainRunOf<R extends Pick<SimRun, "status" | "incomplete" | "sweepId">>(runs: R[]): R | undefined {
+  return runs.find((r) => !r.incomplete && r.status !== "failed" && !r.sweepId) ?? runs[0];
+}
+
 /** Why a finished run is not a complete result, or undefined when it is.
  *  A stop only counts if the solver confirms it cut the run short (a stop
  *  pressed as the run ends leaves a complete result). */
@@ -424,9 +430,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
   /**
    * List the project's stored runs: the newest MAX_RUNS are read from disk
    * and merged with runs in memory that are not stored (one still running,
-   * or one whose store failed). The newest is read first so it is on screen
-   * while the older ones load. An answer that arrives after another project
-   * was opened, or after a newer load started, is dropped.
+   * or one whose store failed). Unless a run is already shown, Results opens
+   * on the newest complete run that is not a sweep point (mainRunOf); that
+   * one is read first so it is on screen while the others load. An answer
+   * that arrives after another project was opened, or after a newer load
+   * started, is dropped.
    */
   async function loadRunHistory(projectId: string): Promise<void> {
     const seq = ++runHistorySeq;
@@ -467,17 +475,17 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         return {
           runs,
           runsLoading: !done,
-          activeRunId: s.activeRunId && ids.has(s.activeRunId) ? s.activeRunId : (runs[0]?.id ?? null),
+          activeRunId: s.activeRunId && ids.has(s.activeRunId) ? s.activeRunId : (mainRunOf(runs)?.id ?? null),
           overlayRunIds: s.overlayRunIds.filter((id) => ids.has(id)),
         };
       });
     };
-    const [newest, ...older] = toRead;
-    if (newest) {
-      await read(newest);
+    const lead = toRead.find((e) => e.id === mainRunOf(shown)?.id);
+    if (lead) {
+      await read(lead);
       merge(false);
     }
-    await Promise.all(older.map(read));
+    await Promise.all(toRead.filter((e) => e !== lead).map(read));
     merge(true);
     const unreadable = toRead.filter((e) => !loaded.has(e.id)).length;
     if (unreadable > 0 && current()) {

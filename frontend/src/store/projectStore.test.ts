@@ -761,6 +761,33 @@ describe("stored runs", () => {
     expect(shownIds()).toEqual(["run-1", "run-0"]);
   });
 
+  it("after a reload the run shown is the newest complete run that is not a sweep point", async () => {
+    const sweep = { sweepId: "sweep-1", sweepParam: "Mass", sweepUnit: "kg" };
+    stored("fixture", [
+      run("single-old", 1_000),
+      run("single", 2_000),
+      run("single-failed", 3_000, { status: "failed", incomplete: "failed" }),
+      run("single-stopped", 4_000, { incomplete: "stopped at t = 12 s" }),
+      run("point-1", 5_000, { ...sweep, sweepValue: 1 }),
+      run("point-2", 6_000, { ...sweep, sweepValue: 2, incomplete: "stopped at t = 3 s" }),
+    ]);
+    await store().init();
+    await settled();
+    expect(shownIds()[0]).toBe("point-2");
+    expect(store().activeRunId).toBe("single");
+  });
+
+  it("with no such run, the newest run is shown", async () => {
+    const sweep = { sweepId: "sweep-1", sweepParam: "Mass", sweepUnit: "kg" };
+    stored("fixture", [
+      run("point-1", 5_000, { ...sweep, sweepValue: 1 }),
+      run("point-2", 6_000, { ...sweep, sweepValue: 2, incomplete: "stopped at t = 3 s" }),
+    ]);
+    await store().init();
+    await settled();
+    expect(store().activeRunId).toBe("point-2");
+  });
+
   it("stored runs that arrive after another project was opened are dropped", async () => {
     stored("fixture", history(2));
     let answer!: (index: StoredRunInfo[]) => void;
