@@ -185,16 +185,29 @@ function TopologyCanvasInner() {
     [fitView, getNodes, getNodesBounds, getViewport, rfStore, setViewport, store],
   );
 
-  // Fit when another project is opened or a subsystem entered. Keyed on the
-  // project id as well: both examples use the root system id "sys-root".
-  // Returning to a subsystem already visited in this project restores its view.
-  const projectId = project?.id;
-  const shown = useRef<{ projectId?: string; systemId?: string | null }>({});
+  // Count project loads (New, Open, Import). A load replaces the project
+  // together with a fresh, empty undo history, while edits, undo and redo
+  // always leave one. The project id alone misses re-opening the open project
+  // (to revert it) and importing a file with the same id; both examples also
+  // share the root system id "sys-root".
+  const [loads, setLoads] = useState(0);
+  useEffect(
+    () =>
+      store.subscribe((s, prev) => {
+        if (s.project !== prev.project && s.past !== prev.past && s.past.length === 0 && s.future.length === 0)
+          setLoads((n) => n + 1);
+      }),
+    [store],
+  );
+
+  // Fit when a project is loaded or a subsystem entered. Returning to a
+  // subsystem already visited since the load restores its view.
+  const shown = useRef<{ loads?: number; systemId?: string | null }>({});
   const views = useRef<Record<string, Viewport>>({});
   useEffect(() => {
     const prev = shown.current;
-    shown.current = { projectId, systemId: activeSystemId };
-    if (prev.projectId !== projectId) views.current = {};
+    shown.current = { loads, systemId: activeSystemId };
+    if (prev.loads !== loads) views.current = {};
     else if (prev.systemId && prev.systemId !== activeSystemId) views.current[prev.systemId] = getViewport();
     const saved = activeSystemId ? views.current[activeSystemId] : undefined;
     const t = setTimeout(() => {
@@ -202,7 +215,7 @@ function TopologyCanvasInner() {
       else autoFit(200);
     }, 120);
     return () => clearTimeout(t);
-  }, [projectId, activeSystemId, autoFit, getViewport, setViewport]);
+  }, [loads, activeSystemId, autoFit, getViewport, setViewport]);
 
   // re-fit while the dock layout settles after initial mount (panel widths are
   // applied a few frames after the flow instance measures itself)
