@@ -20,7 +20,16 @@ on:
       - "backend/app/paths.py"
       - "backend/requirements*.txt"
       - ".github/workflows/desktop-build.yml"
+  # Actions → Build desktop app → Run workflow on main, with "release" ticked,
+  # builds the installers and drafts the release for the version in VERSION.
+  # The v<VERSION> tag is created on this commit when the draft is published,
+  # so nothing is public before then.
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Draft a release of the version in VERSION from this commit (tagged when you publish it)"
+        type: boolean
+        default: false
 
 concurrency:
   group: desktop-${{ github.ref }}
@@ -124,7 +133,9 @@ jobs:
 
   release:
     name: Draft release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.release && github.ref == 'refs/heads/main')
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -141,13 +152,27 @@ jobs:
       # (which results changed and why), not a list of pull requests. Its
       # relative links are pointed at the files as tagged.
       - name: Release notes for this version
+        id: notes
         run: |
-          v="${GITHUB_REF_NAME#v}"
-          if [ "$v" != "$(tr -d '[:space:]' < VERSION)" ]; then
-            echo "::error::tag $GITHUB_REF_NAME does not match VERSION ($(cat VERSION))"
-            exit 1
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="$GITHUB_REF_NAME"
+            if [ "${tag#v}" != "$version" ]; then
+              echo "::error::tag $tag does not match VERSION ($version)"
+              exit 1
+            fi
+          else
+            # drafted from main: the tag is made when the draft is published,
+            # so it must not exist yet
+            tag="v$version"
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" > /dev/null; then
+              echo "::error::tag $tag already exists: raise VERSION for a new release"
+              exit 1
+            fi
           fi
-          blob="https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          v="$version"
+          blob="https://github.com/$GITHUB_REPOSITORY/blob/$tag"
           awk -v v="$v" '
             /^## / { if (found) exit; if (index($0, "## " v " ") == 1 || $0 == "## " v) found = 1; next }
             found' docs/RELEASE-NOTES.md |
@@ -167,6 +192,8 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
-          name: LightSim ${{ github.ref_name }}
+          tag_name: ${{ steps.notes.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: LightSim ${{ steps.notes.outputs.tag }}
           body_path: release-body.md
           files: artifacts/**/*
