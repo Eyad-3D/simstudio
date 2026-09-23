@@ -199,6 +199,12 @@ function channelMetaResolver(
   };
 }
 
+/** An element's ports: its library ones plus any it carries itself (Monitor
+ *  and Script ports are added per element in Properties). */
+export function portsOf(el: ElementInstance, libraryById: Record<string, ComponentDef>): PortDef[] {
+  return [...(libraryById[el.componentDefId]?.ports ?? []), ...(el.dynamicPorts ?? [])];
+}
+
 /** The signal output already feeding input `elementId.portId` (through a data
  *  bus link or a canvas wire), as "Element.Port", or null. */
 function signalSourceOf(
@@ -210,10 +216,7 @@ function signalSourceOf(
   const elements = new Map(project.systems.flatMap((s) => s.elements.map((e) => [e.id, e] as const)));
   const output = (elId: string, pId: string) => {
     const el = elements.get(elId);
-    const port =
-      el &&
-      (libraryById[el.componentDefId]?.ports.find((p) => p.id === pId) ??
-        el.dynamicPorts?.find((p) => p.id === pId));
+    const port = el && portsOf(el, libraryById).find((p) => p.id === pId);
     return el && port?.direction === "output" ? `${el.label}.${port.name}` : null;
   };
   const links = [
@@ -1119,8 +1122,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const elements = project.systems.flatMap((s) => s.elements);
       const e1 = elements.find((e) => e.id === el1);
       const e2 = elements.find((e) => e.id === el2);
-      const port1 = e1 && libraryById[e1.componentDefId]?.ports.find((p) => p.id === p1);
-      const port2 = e2 && libraryById[e2.componentDefId]?.ports.find((p) => p.id === p2);
+      const port1 = e1 && portsOf(e1, libraryById).find((p) => p.id === p1);
+      const port2 = e2 && portsOf(e2, libraryById).find((p) => p.id === p2);
       if (!e1 || !e2 || !port1 || !port2) return;
       if (port1.kind !== "signal" || port2.kind !== "signal") {
         log("error", "Data bus connections must link two signal ports.");
