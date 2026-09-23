@@ -57,12 +57,21 @@ export function ComponentsPanel() {
     return [...byCat.entries()];
   }, [library, query]);
 
-  // Enter / Space / double-click: add the part in the middle of the diagram
+  // Enter / Space / double-click: add the part in the middle of the diagram.
+  // A diagram behind another tab (Monitors) or a maximised group has no size:
+  // bring it to the front and add the part once React Flow has measured it
+  // again (its ResizeObserver reports after the next layout, so two frames).
   const insert = (def: ComponentDef) => {
     const ui = useUIStore.getState();
     ui.setPlacingComponent(null);
+    const announce = (label: string | null | undefined) =>
+      setAnnouncement(label ? `Added ${label} to the diagram.` : "Show the Topology panel to add parts.");
     const label = ui.insertComponent?.(def.id);
-    setAnnouncement(label ? `Added ${label} to the diagram.` : "Show the Topology panel to add parts.");
+    if (label) return announce(label);
+    ui.focusPanel("topology");
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => announce(useUIStore.getState().insertComponent?.(def.id))),
+    );
   };
 
   // arrow keys move between the rows (and category headers) of the list
@@ -120,8 +129,10 @@ export function ComponentsPanel() {
                       className={`ss-tree-row cursor-grab pl-6 active:cursor-grabbing${placing ? " selected" : ""}`}
                       draggable
                       data-component-id={def.id}
+                      // not aria-pressed: Enter adds the part rather than
+                      // arming it; the diagram's banner announces an armed part
+                      data-placing={placing || undefined}
                       aria-label={`Add ${def.name}`}
-                      aria-pressed={placing}
                       title={`${def.description ?? def.name}\n\nDrag onto the diagram, double-click or press Enter to add it in the middle, or click it and then click where it goes.`}
                       onDragStart={(e) => {
                         useUIStore.getState().setPlacingComponent(null);

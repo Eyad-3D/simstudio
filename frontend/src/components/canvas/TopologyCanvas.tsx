@@ -201,7 +201,8 @@ function TopologyCanvasInner() {
   );
 
   // Fit when a project is loaded or a subsystem entered. Returning to a
-  // subsystem already visited since the load restores its view.
+  // subsystem already visited since the load restores its view. An armed
+  // library part belongs to the diagram it was armed on.
   const shown = useRef<{ loads?: number; systemId?: string | null }>({});
   const views = useRef<Record<string, Viewport>>({});
   useEffect(() => {
@@ -209,6 +210,7 @@ function TopologyCanvasInner() {
     shown.current = { loads, systemId: activeSystemId };
     if (prev.loads !== loads) views.current = {};
     else if (prev.systemId && prev.systemId !== activeSystemId) views.current[prev.systemId] = getViewport();
+    useUIStore.getState().setPlacingComponent(null);
     const saved = activeSystemId ? views.current[activeSystemId] : undefined;
     const t = setTimeout(() => {
       if (saved) void setViewport(saved, { duration: 200 });
