@@ -74,8 +74,9 @@ export interface ElementInstance {
   portSides?: Record<string, PortSide>;
   /** Per-instance pin offset along its side, 0..1 (set by Shift+drag). */
   portOffsets?: Record<string, number>;
-  /** Per-instance canvas node size in flow units (drag a node's edges to resize). */
-  size?: { width: number; height: number };
+  /** Per-instance canvas node size in flow units (drag a node's edges to resize);
+   *  the engine sends null for elements left at the default size. */
+  size?: { width: number; height: number } | null;
   isSubSystem?: boolean;
   subSystemId?: string | null;
 }
@@ -108,9 +109,9 @@ export interface SimCase {
   id: string;
   name: string;
   duration: number;
-  /** Solver step in seconds; signals/blocks evaluate here, mechanics sub-step internally. */
+  /** Output step in seconds (results stored, live edits applied); the solver runs at ≤10 ms. */
   timeStep: number;
-  /** Record a data point every N solver steps (output decimation); 1 = every step. */
+  /** Record a data point every N output steps (further decimation); 1 = every step. */
   outputEvery?: number;
   /** 0 = as fast as possible; N > 0 = pace at N× real time (live tuning). */
   realtimeFactor?: number;
@@ -123,6 +124,46 @@ export interface SimCase {
   parameterOverrides?: Record<string, Record<string, ParamValue>>;
 }
 
+/** One swept parameter of a study, with its labels as they were when it ran
+ *  (the element may be renamed or removed since). */
+export interface StudyFactor {
+  elementId: string;
+  paramKey: string;
+  elementLabel: string;
+  paramLabel: string;
+  unit: string;
+  values: number[];
+}
+
+/** A row of a study's results table: one point and its answers. */
+export interface StudyPoint {
+  /** the factor values of this point, in factor order */
+  values: number[];
+  /** the run that produced it (it may since have left the run history) */
+  runId?: string | null;
+  status: SimResult["status"] | "not run";
+  /** why the point's run did not finish normally */
+  incomplete?: string | null;
+  /** summary value label → value */
+  kpis: Record<string, number>;
+  /** summary value label → why the run's checks rule that value out */
+  notValid?: Record<string, string>;
+}
+
+/** A parameter study saved with its project (STU-03): what was swept on which
+ *  case, and its compact results table (it outlives the runs it came from). */
+export interface Study {
+  id: string;
+  /** epoch ms */
+  startedAt: number;
+  caseId: string;
+  caseName: string;
+  factors: StudyFactor[];
+  /** the table's KPI columns: run summary values */
+  kpis: { label: string; unit: string }[];
+  points: StudyPoint[];
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -133,6 +174,8 @@ export interface Project {
   systems: SystemNode[];
   dataBusConnections: DataBusConnection[];
   cases: SimCase[];
+  /** Parameter studies run on this project, oldest first. */
+  studies?: Study[];
 }
 
 export interface SimMessage {
@@ -153,6 +196,8 @@ export interface SummaryValue {
   label: string;
   value: number;
   unit: string;
+  /** Why the run verdict says this number is not valid, e.g. "cycle not followed". */
+  notValid?: string | null;
 }
 
 export interface SimResult {
@@ -163,7 +208,33 @@ export interface SimResult {
   summary: SummaryValue[];
 }
 
-/** One recorded simulation run (client-side history; not persisted server-side). */
+/** A scalar parameter change sent to the engine while a run was going. */
+export interface LiveEdit {
+  /** simulated time the run had reached when the edit was sent, s */
+  t: number;
+  elementId: string;
+  key: string;
+  value: ScalarValue;
+}
+
+/** What made a run (RES-09): enough to tell which model and settings
+ *  produced a result, and to open that model again. */
+export interface RunSnapshot {
+  /** the project exactly as it was run (a sweep's value included) */
+  project: Project;
+  /** the case settings it ran with */
+  case: SimCase;
+  /** the LightSim version that ran it (null: the engine did not say) */
+  appVersion: string | null;
+  /** SHA-256 of the project as canonical JSON, hex (absent where the
+   *  browser offers no Web Crypto) */
+  modelHash?: string;
+  /** scalar parameter edits made while it ran, in order */
+  liveEdits: LiveEdit[];
+}
+
+/** One recorded simulation run. Finished runs are stored on disk with their
+ *  project by the engine and listed again when the project is opened. */
 export interface SimRun {
   id: string;
   caseId: string;
@@ -178,6 +249,22 @@ export interface SimRun {
   sweepParam?: string; // display label of the swept parameter
   sweepValue?: number; // the value used for this run
   sweepUnit?: string;
+  /** Why the run did not finish normally (stopped, failed, connection lost).
+   *  Its numbers are partial, so sweeps leave it out of their curve and
+   *  tables unless the user asks to see it. */
+  incomplete?: string;
+  /** The model, settings and version that made it; absent on runs stored
+   *  before runs kept one. */
+  snapshot?: RunSnapshot;
+}
+
+/** A project's stored run as the engine lists it: the run without its
+ *  channel data or snapshot, plus its summary values and its compressed size
+ *  on disk. */
+export interface StoredRunInfo extends Omit<SimRun, "status" | "result" | "snapshot"> {
+  status: SimResult["status"];
+  summary: SummaryValue[];
+  bytes: number;
 }
 
 export interface DataCheck {

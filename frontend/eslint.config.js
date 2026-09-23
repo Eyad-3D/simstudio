@@ -6,7 +6,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "node_modules/**", "src/data/**"] },
+  { ignores: ["dist/**", "node_modules/**", "src/data/**", "playwright-report/**", "test-results/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -23,7 +23,7 @@ export default tseslint.config(
   },
   {
     // Build scripts are plain Node modules, not part of the app's TS project.
-    files: ["scripts/**/*.mjs"],
+    files: ["scripts/**/*.mjs", "e2e/**/*.mjs"],
     languageOptions: { globals: { process: "readonly", console: "readonly" } },
   },
 );

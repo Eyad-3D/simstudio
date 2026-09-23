@@ -1,4 +1,4 @@
-"""SimStudio solver package — causal multi-pass solver with explicit states.
+"""LightSim solver package — causal multi-pass solver with explicit states.
 
 Public surface:
 - simulate(project, case_id, emit=None, control=None) → SimResult
@@ -8,8 +8,8 @@ Public surface:
 from .core import simulate
 from .maps import TableError, interp1, interp2, parse_table1d, parse_table2d
 from .network import Model, ModelError, build_model
-from .profiles import interp_profile, parse_profile
-from .scripting import ScriptError, compile_script
+from .profiles import interp_profile, parse_profile, profile_problems
+from .scripting import ScriptError, check_script, compile_script
 
 __all__ = [
     "simulate",
@@ -23,6 +23,8 @@ __all__ = [
     "parse_table2d",
     "interp_profile",
     "parse_profile",
+    "profile_problems",
     "ScriptError",
+    "check_script",
     "compile_script",
 ]

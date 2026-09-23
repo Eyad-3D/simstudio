@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import * as api from "../api";
+import { confirmDialog, unsavedChangesDialog } from "../dialog";
 import { loadDraft } from "../persist";
+import { modelFingerprint } from "../provenance";
 import type {
   Channel,
   ComponentDef,
@@ -9,13 +11,18 @@ import type {
   DataBusConnection,
   DataCheck,
   ElementInstance,
+  LiveEdit,
   LogMessage,
   ParamValue,
   PortDef,
   PortSide,
   Project,
+  RunSnapshot,
   SimResult,
   SimRun,
+  StoredRunInfo,
+  Study,
+  StudyPoint,
   SystemNode,
 } from "../types";
 import { useUIStore } from "./uiStore";
@@ -27,6 +34,25 @@ export function uid(prefix: string): string {
 function now(): string {
   return new Date().toLocaleTimeString([], { hour12: false });
 }
+
+/** An example opened as an unsaved copy: the example with an id of its own
+ *  (named after it), so saving the copy makes a new project, never writes the
+ *  example, and the copy's runs and backups are kept apart from a project of
+ *  the example's id (such as a copy an earlier version put in the projects
+ *  folder). */
+function exampleCopy(example: Project): Project {
+  return { ...structuredClone(example), id: uid(example.id.slice(0, 120)) };
+}
+
+/** Split a project read from disk into the project and its file revision. */
+function fromDisk(stored: api.StoredProject): { project: Project; revision: string | null } {
+  const { revision, ...project } = stored;
+  return { project, revision: revision ?? null };
+}
+
+// Saves run one after another, so a second Save starts from the revision the
+// first one returned instead of looking like a conflict with it.
+let saveQueue: Promise<void> = Promise.resolve();
 
 /** A snapshot of elements + the wiring wholly contained within them. */
 interface ClipboardData {
@@ -136,7 +162,9 @@ function cloneElementsInto(
 
 const HISTORY_LIMIT = 50;
 const LIVE_FLUSH_MS = 120;
-const MAX_RUNS = 20; // rolling result-history depth (client-side only; holds a full sweep family)
+// Runs held in memory and listed in Results (holds a full sweep family). Every
+// finished run is also stored on disk with its project; older ones stay there.
+const MAX_RUNS = 20;
 
 /** A parameter sweep: run `caseId` once per value, overriding one element param. */
 export interface SweepConfig {
@@ -171,10 +199,86 @@ function channelMetaResolver(
   };
 }
 
+/** The signal output already feeding input `elementId.portId` (through a data
+ *  bus link or a canvas wire), as "Element.Port", or null. */
+function signalSourceOf(
+  project: Project,
+  libraryById: Record<string, ComponentDef>,
+  elementId: string,
+  portId: string,
+): string | null {
+  const elements = new Map(project.systems.flatMap((s) => s.elements.map((e) => [e.id, e] as const)));
+  const output = (elId: string, pId: string) => {
+    const el = elements.get(elId);
+    const port =
+      el &&
+      (libraryById[el.componentDefId]?.ports.find((p) => p.id === pId) ??
+        el.dynamicPorts?.find((p) => p.id === pId));
+    return el && port?.direction === "output" ? `${el.label}.${port.name}` : null;
+  };
+  const links = [
+    ...project.dataBusConnections.map((d) => [d.element1Id, d.port1Id, d.element2Id, d.port2Id]),
+    ...project.systems.flatMap((s) =>
+      s.connections.map((c) => [c.sourceElementId, c.sourcePortId, c.targetElementId, c.targetPortId]),
+    ),
+  ];
+  for (const [e1, p1, e2, p2] of links) {
+    const src =
+      e1 === elementId && p1 === portId ? output(e2, p2) : e2 === elementId && p2 === portId ? output(e1, p1) : null;
+    if (src) return src;
+  }
+  return null;
+}
+
 // handle for the in-flight live run (not in reactive state on purpose)
 let activeRun: api.LiveRunHandle | null = null;
+// live parameter edits sent to the in-flight run, for its snapshot
+let liveLog: { runId: string; edits: LiveEdit[] } | null = null;
 // set by stopRun so an in-flight parameter sweep aborts after the current point
 let sweepAborted = false;
+// set by stopRun while a run is in flight; reset when the next run starts
+let stopRequested = false;
+// bumped per run-history load, so an answer for an earlier load is dropped
+let runHistorySeq = 0;
+
+/** The run Results opens on: the newest complete run that is not a sweep
+ *  point, or the newest run when there is none (runs are newest first). */
+function mainRunOf<R extends Pick<SimRun, "status" | "incomplete" | "sweepId">>(runs: R[]): R | undefined {
+  return runs.find((r) => !r.incomplete && r.status !== "failed" && !r.sweepId) ?? runs[0];
+}
+
+/** A study's table row for a point that ran: its status and summary values. */
+function studyPoint(run: SimRun, values: number[]): StudyPoint {
+  const notValid = run.result.summary.filter((v) => v.notValid);
+  return {
+    values,
+    runId: run.id,
+    status: run.status === "running" ? "failed" : run.status,
+    ...(run.incomplete ? { incomplete: run.incomplete } : {}),
+    // (a value JSON cannot carry would make the project unsavable)
+    kpis: Object.fromEntries(run.result.summary.filter((v) => Number.isFinite(v.value)).map((v) => [v.label, v.value])),
+    ...(notValid.length ? { notValid: Object.fromEntries(notValid.map((v) => [v.label, v.notValid!])) } : {}),
+  };
+}
+
+/** Undo and redo step through edits, not studies: a project from the
+ *  history gets the studies the project has now. */
+function keepStudies(target: Project, current: Project): Project {
+  return target.studies === current.studies ? target : { ...target, studies: current.studies };
+}
+
+/** Why a finished run is not a complete result, or undefined when it is.
+ *  A stop only counts if the solver confirms it cut the run short (a stop
+ *  pressed as the run ends leaves a complete result). */
+function incompleteReason(result: SimResult, stopped: boolean): string | undefined {
+  if (result.status === "failed") return "failed";
+  const cancel = stopped ? result.messages.find((m) => /cancel/i.test(m.text)) : undefined;
+  if (cancel) {
+    const at = cancel.text.match(/t = ([^ ]+ s)/);
+    return at ? `stopped at t = ${at[1]}` : "stopped";
+  }
+  return undefined;
+}
 
 interface ProjectState {
   library: ComponentDef[];
@@ -183,8 +287,16 @@ interface ProjectState {
   unitGroups: Record<string, string>;
   offline: boolean;
   loaded: boolean;
+  /** the app's version as the engine reports it (recorded with each run) */
+  appVersion: string | null;
 
   project: Project | null;
+  /** Revision of the project file the open copy was loaded from or last saved
+   *  as; a save is refused if the file changed since. null: not on disk yet. */
+  revision: string | null;
+  /** The example the open project is an unsaved copy of (its id), else null.
+   *  Save keeps the copy as a new project; the example is never written. */
+  exampleId: string | null;
   activeSystemId: string | null;
   selectedElementId: string | null;
   dirty: boolean;
@@ -199,8 +311,12 @@ interface ProjectState {
 
   messages: LogMessage[];
   dataChecks: DataCheck[] | null;
-  /** rolling history of simulation runs (newest first, capped at MAX_RUNS) */
+  /** the project's newest runs (newest first, at most MAX_RUNS) */
   runs: SimRun[];
+  /** how many runs of the open project are stored on disk */
+  storedRunCount: number;
+  /** true while the open project's stored runs are being read */
+  runsLoading: boolean;
   activeCaseId: string | null;
   /** run shown in Results (primary); additional runs overlaid on the chart */
   activeRunId: string | null;
@@ -258,9 +374,18 @@ interface ProjectState {
   // project lifecycle
   newProject: () => void;
   openProject: (id: string) => Promise<void>;
+  /** Open an example as an unsaved copy with an id of its own. */
+  openExample: (id: string) => Promise<void>;
+  /** Leave an example out of the Open menu; resolves false when that failed. */
+  hideExample: (id: string, name: string) => Promise<boolean>;
+  /** Show every hidden example in the Open menu again. */
+  restoreExamples: () => Promise<void>;
   saveRemote: () => Promise<void>;
   exportProject: () => void;
   importProject: (json: string) => void;
+  /** Open `project` as a new, unsaved project named `name`: it gets an id of
+   *  its own, so saving it never replaces another project's file. */
+  openAsCopy: (project: Project, name: string, note: string) => void;
 
   // cases & simulation
   setActiveCase: (id: string) => void;
@@ -285,8 +410,11 @@ interface ProjectState {
   /** Error-level data-check gate; resolves true when a run/sweep may proceed. */
   passesRunGate: () => Promise<boolean>;
   run: () => Promise<void>;
-  /** Sequentially run a case once per swept value, each landing in run history. */
+  /** Sequentially run a case once per swept value, each landing in run
+   *  history; the study and its results table are saved with the project. */
   runSweep: (config: SweepConfig) => Promise<void>;
+  /** Delete a saved study (its runs stay in the history). */
+  removeStudy: (studyId: string) => void;
   stopRun: () => void;
   setActiveRun: (runId: string | null) => void;
   /** Toggle a run in the overlay set (ignored for the active run). */
@@ -294,8 +422,12 @@ interface ProjectState {
   /** Replace the overlay set outright (used to overlay a whole sweep family). */
   setOverlayRuns: (runIds: string[]) => void;
   clearOverlays: () => void;
-  removeRun: (runId: string) => void;
-  clearRuns: () => void;
+  /** Delete a run from the history and from disk. */
+  removeRun: (runId: string) => Promise<void>;
+  /** Delete every stored run of the open project. */
+  clearRuns: () => Promise<void>;
+  /** Open the model a run was made with (its snapshot) as an unsaved copy. */
+  openRunModel: (runId: string) => void;
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => {
@@ -339,10 +471,128 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     return project.systems.find((s) => s.parentId === null) ?? project.systems[0];
   }
 
+  /** Drop runs from the in-memory history (and from the chart selection). */
+  function dropRuns(s: ProjectState, runIds: string[]): Partial<ProjectState> {
+    const gone = new Set(runIds);
+    const runs = s.runs.filter((r) => !gone.has(r.id));
+    return {
+      runs,
+      activeRunId: s.activeRunId && gone.has(s.activeRunId) ? (runs[0]?.id ?? null) : s.activeRunId,
+      overlayRunIds: s.overlayRunIds.filter((id) => !gone.has(id)),
+    };
+  }
+
+  /**
+   * List the project's stored runs: the newest MAX_RUNS are read from disk
+   * and merged with runs in memory that are not stored (one still running,
+   * or one whose store failed). Unless a run is already shown, Results opens
+   * on the newest complete run that is not a sweep point (mainRunOf); that
+   * one is read first so it is on screen while the others load. An answer
+   * that arrives after another project was opened, or after a newer load
+   * started, is dropped.
+   */
+  async function loadRunHistory(projectId: string): Promise<void> {
+    const seq = ++runHistorySeq;
+    const current = () => seq === runHistorySeq && get().project?.id === projectId;
+    let index: StoredRunInfo[];
+    try {
+      index = await api.listRuns(projectId);
+    } catch (e) {
+      if (current()) {
+        set({ runsLoading: false });
+        get().log("warning", `Stored runs could not be listed: ${(e as Error).message}`);
+      }
+      return;
+    }
+    if (!current()) return;
+    set({ storedRunCount: index.length, runsLoading: true });
+    const shown = index.slice(0, MAX_RUNS);
+    const onDisk = new Set(index.map((e) => e.id));
+    const inMemory = new Set(get().runs.map((r) => r.id));
+    const toRead = shown.filter((e) => !inMemory.has(e.id));
+    const loaded = new Map<string, SimRun>();
+    const read = (e: StoredRunInfo) =>
+      api.fetchRun(projectId, e.id).then(
+        (r) => void loaded.set(e.id, r),
+        () => undefined,
+      );
+    const merge = (done: boolean) => {
+      if (!current()) return;
+      set((s) => {
+        const byId = new Map(s.runs.map((r) => [r.id, r]));
+        const runs = [
+          ...s.runs.filter((r) => !onDisk.has(r.id)),
+          ...shown.map((e) => byId.get(e.id) ?? loaded.get(e.id)).filter((r): r is SimRun => Boolean(r)),
+        ]
+          .sort((a, b) => b.startedAt - a.startedAt)
+          .slice(0, MAX_RUNS);
+        const ids = new Set(runs.map((r) => r.id));
+        return {
+          runs,
+          runsLoading: !done,
+          activeRunId: s.activeRunId && ids.has(s.activeRunId) ? s.activeRunId : (mainRunOf(runs)?.id ?? null),
+          overlayRunIds: s.overlayRunIds.filter((id) => ids.has(id)),
+        };
+      });
+    };
+    const lead = toRead.find((e) => e.id === mainRunOf(shown)?.id);
+    if (lead) {
+      await read(lead);
+      merge(false);
+    }
+    await Promise.all(toRead.filter((e) => e !== lead).map(read));
+    merge(true);
+    const unreadable = toRead.filter((e) => !loaded.has(e.id)).length;
+    if (unreadable > 0 && current()) {
+      get().log("warning", `${unreadable} stored run(s) could not be read and are not listed.`);
+    }
+  }
+
+  /** Add a live edit to the in-flight run's snapshot. Edits of one parameter
+   *  at one simulated time (typing a number) keep only the last value. */
+  function logLiveEdit(edit: LiveEdit): void {
+    if (!liveLog) return;
+    const { runId, edits } = liveLog;
+    const last = edits.at(-1);
+    if (last && last.t === edit.t && last.elementId === edit.elementId && last.key === edit.key) {
+      edits[edits.length - 1] = edit;
+    } else {
+      edits.push(edit);
+    }
+    set((s) => ({
+      runs: s.runs.map((r) =>
+        r.id === runId && r.snapshot ? { ...r, snapshot: { ...r.snapshot, liveEdits: [...edits] } } : r,
+      ),
+    }));
+  }
+
+  /** Store a finished run on disk with its project. A run that cannot be
+   *  stored stays listed for this session only. */
+  async function storeRun(projectId: string, run: SimRun): Promise<void> {
+    const { log } = get();
+    try {
+      const reply = await api.storeRun(projectId, run);
+      if (get().project?.id !== projectId) return;
+      set((s) => ({ storedRunCount: reply.stored, ...dropRuns(s, reply.pruned) }));
+      if (reply.pruned.length > 0) {
+        log(
+          "warning",
+          `Stored runs of this project reached the ${Math.round(reply.budget / 2 ** 20)} MB disk budget: ` +
+            `deleted the ${reply.pruned.length} oldest run(s).`,
+        );
+      }
+    } catch (e) {
+      log("warning", `Run '${run.caseName}' could not be stored on disk (${(e as Error).message}); it is kept for this session only.`);
+    }
+  }
+
   /**
    * Register a run at the head of the rolling history, stream the live result
-   * into it, and resolve with the final SimResult. Shared by `run` (one call)
-   * and `runSweep` (one call per swept value). Does NOT run the validation
+   * into it, store it on disk once it ends, and resolve with the final
+   * SimResult. The run carries a snapshot of what made it: `projectToRun`
+   * and its case, the app version, the project's fingerprint and the live
+   * edits made while it ran. Shared by `run` (one call) and `runSweep` (one
+   * call per swept value). Does NOT run the validation
    * gate, toggle `running`, or switch ribbon tabs — the callers own that.
    */
   async function executeRun(
@@ -351,8 +601,19 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     caseName: string,
     extra?: Partial<SimRun>,
   ): Promise<SimResult> {
-    const { libraryById, log } = get();
+    const { libraryById, log, appVersion } = get();
     const runId = uid("run");
+    const simCase = projectToRun.cases.find((c) => c.id === caseId);
+    // the model is the project without its saved studies (results, not
+    // model): the engine runs it and the snapshot keeps it
+    const { studies: _studies, ...model } = projectToRun;
+    const snapshot: RunSnapshot | undefined = simCase && {
+      project: model,
+      case: simCase,
+      appVersion,
+      liveEdits: [],
+    };
+    const fingerprint = modelFingerprint(model).catch(() => undefined);
     const partial: SimResult = {
       caseId,
       status: "success",
@@ -367,6 +628,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       startedAt: Date.now(),
       status: "running",
       result: partial,
+      ...(snapshot ? { snapshot } : {}),
       ...extra,
     };
     set((s) => ({
@@ -411,7 +673,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }));
     };
 
-    const handle = api.runSimulationLive(projectToRun, caseId, {
+    const handle = api.runSimulationLive(model, caseId, {
       onStep: (ev) => {
         buffer.push(ev);
         if (!flushTimer) flushTimer = setTimeout(flush, LIVE_FLUSH_MS);
@@ -419,20 +681,42 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       onMessage: (m) => log(m.level, m.text),
     });
     activeRun = handle;
+    liveLog = { runId, edits: [] };
+    stopRequested = false;
+    // the snapshot as the run ends: its live edits and the model's fingerprint
+    const finalSnapshot = async (): Promise<Partial<SimRun>> => {
+      if (!snapshot) return {};
+      const edits = liveLog?.runId === runId ? [...liveLog.edits] : [];
+      const modelHash = await fingerprint;
+      return { snapshot: { ...snapshot, liveEdits: edits, ...(modelHash ? { modelHash } : {}) } };
+    };
     try {
       const result = await handle.done;
       if (flushTimer) clearTimeout(flushTimer);
+      const incomplete = incompleteReason(result, stopRequested);
+      const finished: SimRun = {
+        ...newRun,
+        result,
+        status: result.status,
+        ...(incomplete ? { incomplete } : {}),
+        ...(await finalSnapshot()),
+      };
       set((s) => ({
-        runs: s.runs.map((r) => (r.id === runId ? { ...r, result, status: result.status } : r)),
+        runs: s.runs.map((r) => (r.id === runId ? finished : r)),
         activeRunId: runId,
       }));
+      await storeRun(projectToRun.id, finished);
       return result;
     } catch (e) {
       if (flushTimer) clearTimeout(flushTimer);
-      patchRun({ status: "failed" });
+      patchRun({ status: "failed", incomplete: "connection lost", ...(await finalSnapshot()) });
+      // keep what arrived before the connection dropped, if the engine is still there
+      const lost = get().runs.find((r) => r.id === runId);
+      if (lost) await storeRun(projectToRun.id, lost);
       throw e;
     } finally {
       activeRun = null;
+      liveLog = null;
     }
   }
 
@@ -442,7 +726,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     unitGroups: {},
     offline: false,
     loaded: false,
+    appVersion: null,
     project: null,
+    revision: null,
+    exampleId: null,
     activeSystemId: null,
     selectedElementId: null,
     dirty: false,
@@ -453,6 +740,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     messages: [],
     dataChecks: null,
     runs: [],
+    storedRunCount: 0,
+    runsLoading: false,
     activeCaseId: null,
     activeRunId: null,
     overlayRunIds: [],
@@ -463,18 +752,28 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     livePct: 0,
 
     init: async () => {
-      const lib = await api.fetchLibrary();
+      const [lib, appVersion] = await Promise.all([api.fetchLibrary(), api.fetchVersion()]);
       const demo = await api.fetchDemoProject();
       const libraryById = Object.fromEntries(lib.components.map((c) => [c.id, c]));
       // restore the autosaved working copy if one exists, else open the demo
+      // example as a copy
       const draft = loadDraft();
       const unsaved = Boolean(draft && !draft.clean);
-      let project = draft?.project ?? demo.project;
+      const exampleId = draft ? (draft.example ?? null) : demo.project.id;
+      let { project, revision } = draft
+        ? { project: draft.project, revision: draft.revision ?? null }
+        : { project: exampleCopy(demo.project), revision: null };
       if (draft?.clean && !lib.offline) {
         // nothing was unsaved: reopen the project from disk (it may be newer
-        // than the kept copy), falling back to the copy if it is gone
+        // than the kept copy), or an example's current version (an update may
+        // have corrected it) under the copy's id, which its runs are stored
+        // under; falling back to the copy if it is gone
         try {
-          project = await api.fetchProject(draft.project.id);
+          if (exampleId) {
+            project = { ...(await api.fetchExample(exampleId)), id: draft.project.id };
+          } else {
+            ({ project, revision } = fromDisk(await api.fetchProject(draft.project.id)));
+          }
         } catch {
           /* keep the copy */
         }
@@ -485,7 +784,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         unitGroups: lib.unitGroups,
         offline: lib.offline,
         loaded: true,
+        appVersion,
         project,
+        revision,
+        exampleId,
         activeSystemId: rootSystemOf(project).id,
         activeCaseId: project.cases[0]?.id ?? null,
         dirty: unsaved,
@@ -502,6 +804,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           "warning",
           "Backend not reachable — running from bundled data. Start the FastAPI service to enable save, data checks and simulation.",
         );
+      } else {
+        void loadRunHistory(project.id);
       }
     },
 
@@ -688,6 +992,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       // scalar edits stream into a running simulation (tables/code apply next run)
       if (activeRun && typeof value !== "object") {
         activeRun.setParam(elementId, key, value);
+        logLiveEdit({ t: get().liveT, elementId, key, value });
       }
     },
 
@@ -838,6 +1143,23 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         log("info", "This data bus connection already exists.");
         return;
       }
+      // an input takes one signal (the engine would silently keep only the
+      // last link), so a second source is refused
+      const [inEl, inPort] =
+        port1.direction === "output" && port2.direction !== "output"
+          ? [e2, port2]
+          : port2.direction === "output" && port1.direction !== "output"
+            ? [e1, port1]
+            : [null, null];
+      const existing = inEl && inPort && signalSourceOf(project, libraryById, inEl.id, inPort.id);
+      if (inEl && inPort && existing) {
+        log(
+          "error",
+          `'${inEl.label}.${inPort.name}' already takes its signal from '${existing}' — an input ` +
+            "can have only one source. Remove that link first to connect a different one.",
+        );
+        return;
+      }
       updateProject((draft) => {
         draft.dataBusConnections.push({
           id: uid("dbc"),
@@ -871,7 +1193,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (past.length === 0 || !project) return;
       const prev = past[past.length - 1];
       set({
-        project: prev,
+        project: keepStudies(prev, project),
         past: past.slice(0, -1),
         future: [project, ...future].slice(0, HISTORY_LIMIT),
         dirty: true,
@@ -882,7 +1204,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (future.length === 0 || !project) return;
       const next = future[0];
       set({
-        project: next,
+        project: keepStudies(next, project),
         future: future.slice(1),
         past: [...past.slice(-(HISTORY_LIMIT - 1)), project],
         dirty: true,
@@ -901,6 +1223,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       };
       set({
         project,
+        revision: null,
+        exampleId: null,
         activeSystemId: rootId,
         activeCaseId: caseId,
         activeRunId: null,
@@ -909,6 +1233,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         past: [],
         future: [],
         runs: [],
+        storedRunCount: 0,
+        runsLoading: false,
         dataChecks: null,
         dirty: false,
       });
@@ -917,9 +1243,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
     openProject: async (id) => {
       try {
-        const project = await api.fetchProject(id);
+        const { project, revision } = fromDisk(await api.fetchProject(id));
         set({
           project,
+          revision,
+          exampleId: null,
           activeSystemId: project.systems.find((s) => s.parentId === null)?.id ?? project.systems[0]?.id,
           activeCaseId: project.cases[0]?.id ?? null,
           activeRunId: null,
@@ -928,25 +1256,124 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           past: [],
           future: [],
           runs: [],
+          storedRunCount: 0,
+          runsLoading: false,
           dataChecks: null,
           dirty: false,
         });
         get().log("info", `Project '${project.name}' opened.`);
+        void loadRunHistory(project.id);
       } catch (e) {
         get().log("error", `Failed to open project: ${(e as Error).message}`);
       }
     },
 
-    saveRemote: async () => {
-      const { project, log } = get();
-      if (!project) return;
+    openExample: async (id) => {
+      let example: Project;
       try {
-        await api.saveProject(project);
-        set({ dirty: false });
-        log("info", `Project '${project.name}' saved to the server.`);
+        example = await api.fetchExample(id);
       } catch (e) {
-        log("error", `Save failed: ${(e as Error).message}. Use Export to download the project file instead.`);
+        get().log("error", `Failed to open the example: ${(e as Error).message}`);
+        return;
       }
+      const project = exampleCopy(example);
+      runHistorySeq++; // runs still loading for the project it replaces are dropped
+      set({
+        project,
+        revision: null,
+        exampleId: id,
+        activeSystemId: rootSystemOf(project).id,
+        activeCaseId: project.cases[0]?.id ?? null,
+        activeRunId: null,
+        overlayRunIds: [],
+        selectedElementId: null,
+        past: [],
+        future: [],
+        runs: [],
+        storedRunCount: 0,
+        runsLoading: false,
+        dataChecks: null,
+        dirty: false,
+      });
+      get().log(
+        "info",
+        `Example '${project.name}' opened as a copy. Save keeps it as a new project of yours; the example stays as it is.`,
+      );
+    },
+
+    hideExample: async (id, name) => {
+      try {
+        await api.hideExample(id);
+      } catch (e) {
+        get().log("error", `Could not hide the example: ${(e as Error).message}`);
+        return false;
+      }
+      get().log("info", `Example '${name}' hidden from the Open menu (Restore hidden examples brings it back).`);
+      return true;
+    },
+
+    restoreExamples: async () => {
+      try {
+        const { restored } = await api.restoreExamples();
+        get().log("info", `${restored.length} hidden example(s) are back in the Open menu.`);
+      } catch (e) {
+        get().log("error", `Could not restore the examples: ${(e as Error).message}`);
+      }
+    },
+
+    saveRemote: () => {
+      const save = async () => {
+        const { project, revision, exampleId, log } = get();
+        if (!project) return;
+        try {
+          const res = await api.saveProject(project, revision);
+          // an edit made while the save was in flight is still unsaved
+          set({ dirty: get().project !== project, revision: res.revision ?? revision, exampleId: null });
+          log(
+            "info",
+            exampleId
+              ? `Project '${project.name}' saved to the server as a new project; the example it was copied from is unchanged.`
+              : `Project '${project.name}' saved to the server.`,
+          );
+        } catch (e) {
+          if ((e as { status?: number }).status !== 409) {
+            log("error", `Save failed: ${(e as Error).message}. Use Export to download the project file instead.`);
+            return;
+          }
+          // the file on disk is not the version this copy started from
+          const why =
+            revision === null
+              ? `A project with the id '${project.id}' already exists on disk.`
+              : `'${project.name}' was changed on disk after you opened it (saved from another window or by another program).`;
+          log("warning", `Not saved yet: ${why}`);
+          const overwrite = await confirmDialog({
+            title: revision === null ? "Project already on disk" : "Project changed on disk",
+            message:
+              `${why} Saving now would replace that version with yours. ` +
+              "Cancel keeps the file on disk as it is; your changes stay open here, " +
+              "and Export saves a copy of them.",
+            confirmLabel: "Overwrite",
+            cancelLabel: "Cancel",
+            danger: true,
+          });
+          if (!overwrite) {
+            log("warning", "Save cancelled — the file on disk was left unchanged; your changes are still unsaved.");
+            return;
+          }
+          try {
+            const res = await api.saveProject(project);
+            // edits made while the dialog was open were not in this save
+            set({ dirty: get().project !== project, revision: res.revision ?? null, exampleId: null });
+            log("info", `Project '${project.name}' saved to the server, replacing the version on disk ` +
+              "(Project → Restore opens that version again).");
+          } catch (e2) {
+            log("error", `Save failed: ${(e2 as Error).message}. Use Export to download the project file instead.`);
+          }
+        }
+      };
+      const next = saveQueue.then(save);
+      saveQueue = next;
+      return next;
     },
 
     exportProject: () => {
@@ -964,14 +1391,17 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
     importProject: (json) => {
       try {
-        const project = JSON.parse(json) as Project;
+        // a file saved from the engine's API may carry its revision: drop it
+        const { project } = fromDisk(JSON.parse(json) as api.StoredProject);
         if (!project.id || !Array.isArray(project.systems)) {
-          throw new Error("not a SimStudio project file");
+          throw new Error("not a LightSim project file");
         }
         project.dataBusConnections ??= [];
         project.cases ??= [];
         set({
           project,
+          revision: null,
+          exampleId: null,
           activeSystemId: project.systems.find((s) => s.parentId === null)?.id ?? project.systems[0]?.id,
           activeCaseId: project.cases[0]?.id ?? null,
           activeRunId: null,
@@ -980,13 +1410,39 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           past: [],
           future: [],
           runs: [],
+          storedRunCount: 0,
+          runsLoading: false,
           dataChecks: null,
           dirty: true,
         });
         get().log("info", `Project '${project.name}' imported.`);
+        void loadRunHistory(project.id);
       } catch (e) {
         get().log("error", `Import failed: ${(e as Error).message}`);
       }
+    },
+
+    openAsCopy: (source, name, note) => {
+      const project: Project = { ...structuredClone(source), id: uid("project"), name };
+      runHistorySeq++; // runs still loading for the project it replaces are dropped
+      set({
+        project,
+        revision: null,
+        exampleId: null,
+        activeSystemId: rootSystemOf(project).id,
+        activeCaseId: project.cases[0]?.id ?? null,
+        activeRunId: null,
+        overlayRunIds: [],
+        selectedElementId: null,
+        past: [],
+        future: [],
+        runs: [],
+        storedRunCount: 0,
+        runsLoading: false,
+        dataChecks: null,
+        dirty: true,
+      });
+      get().log("info", note);
     },
 
     setActiveCase: (id) => set({ activeCaseId: id }),
@@ -1156,6 +1612,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const paramUnit = pdef && pdef.unit !== "-" ? pdef.unit : "";
       const unit = paramUnit ? ` ${paramUnit}` : "";
       const sweepId = uid("sweep");
+      const startedAt = Date.now();
+      // the study's table: a row per value run, in run order, and its columns
+      const points: StudyPoint[] = [];
+      const kpiUnits = new Map<string, string>();
 
       set({ running: true });
       if (!(await get().passesRunGate())) {
@@ -1168,7 +1628,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         "info",
         `Sweep: ${el?.label ?? elementId} · ${paramLabel} over ${values.length} value(s) …`,
       );
-      let completed = 0;
       try {
         for (const value of values) {
           if (sweepAborted) break;
@@ -1188,36 +1647,77 @@ export const useProjectStore = create<ProjectState>((set, get) => {
               sweepValue: value,
               sweepUnit: paramUnit,
             });
-            completed += 1;
           } catch (e) {
             log("error", `Sweep point ${paramLabel}=${value} failed: ${(e as Error).message}`);
             // keep going with the remaining points
           }
+          // this point's run: the newest run of the sweep not in the table yet
+          const tabled = new Set(points.map((p) => p.runId));
+          const pointRun = get().runs.find((r) => r.sweepId === sweepId && !tabled.has(r.id));
+          points.push(pointRun ? studyPoint(pointRun, [value]) : { values: [value], status: "failed", kpis: {} });
+          for (const v of pointRun?.result.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
         }
       } finally {
         set({ running: false });
       }
-      if (completed > 0) {
+      const family = get()
+        .runs.filter((r) => r.sweepId === sweepId)
+        .sort((a, b) => (a.sweepValue ?? 0) - (b.sweepValue ?? 0));
+      // a point counts only if its run finished normally; stopped or failed
+      // points keep their partial data in the history but stay off the curve
+      const complete = family.filter((r) => !r.incomplete);
+      const incomplete = family.filter((r) => r.incomplete);
+      if (family.length > 0) {
+        const notes = [
+          ...incomplete.map((r) => `${paramLabel}=${r.sweepValue}${unit} ${r.incomplete}`),
+          ...(family.length < values.length ? [`${values.length - family.length} not run`] : []),
+        ];
         log(
-          "info",
-          `Sweep finished — ${completed} of ${values.length} run(s) stored in Results.`,
+          notes.length ? "warning" : "info",
+          `Sweep finished — ${complete.length} of ${values.length} point(s) complete` +
+            (notes.length ? ` (${notes.join("; ")}). Incomplete points are left out of the sweep chart and table.` : "."),
         );
-        // overlay the whole family: lowest swept value is the primary run, the
-        // rest are overlaid, so all N appear together in Results by default.
-        const family = get()
-          .runs.filter((r) => r.sweepId === sweepId)
-          .sort((a, b) => (a.sweepValue ?? 0) - (b.sweepValue ?? 0));
-        if (family.length > 0) {
-          set({
-            activeRunId: family[0].id,
-            overlayRunIds: family.slice(1).map((r) => r.id),
-          });
+        // save the study with the project (unless another one was opened
+        // meanwhile), with a row for every value, run or not
+        if (get().project?.id === project.id) {
+          const notRun = values.slice(points.length).map((v): StudyPoint => ({ values: [v], status: "not run", kpis: {} }));
+          const study: Study = {
+            id: sweepId,
+            startedAt,
+            caseId,
+            caseName: simCase.name,
+            factors: [
+              { elementId, paramKey, elementLabel: el?.label ?? elementId, paramLabel, unit: paramUnit, values },
+            ],
+            kpis: [...kpiUnits].map(([label, kpiUnit]) => ({ label, unit: kpiUnit })),
+            points: [...points, ...notRun],
+          };
+          updateProject((draft) => {
+            draft.studies = [...(draft.studies ?? []), study];
+          }, false);
+          log(
+            "info",
+            `Sweep saved as a study of '${project.name}' (Cases & Parameters → Saved studies); ` +
+              "save the project to keep it on disk.",
+          );
         }
+        // overlay the complete family: lowest swept value is the primary run,
+        // the rest are overlaid, so all appear together in Results by default.
+        const shown = complete.length > 0 ? complete : family.slice(0, 1);
+        set({
+          activeRunId: shown[0].id,
+          overlayRunIds: shown.slice(1).map((r) => r.id),
+        });
         useUIStore.getState().setRibbonTab("results");
       } else {
         log("warning", "Sweep produced no runs.");
       }
     },
+
+    removeStudy: (studyId) =>
+      updateProject((draft) => {
+        draft.studies = (draft.studies ?? []).filter((st) => st.id !== studyId);
+      }, false),
 
     /** Error-level data-check gate shared by run + runSweep. */
     passesRunGate: async () => {
@@ -1244,6 +1744,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     stopRun: () => {
       sweepAborted = true;
       if (activeRun) {
+        stopRequested = true;
         activeRun.cancel();
         get().log("info", "Stop requested — waiting for the solver to wind down …");
       }
@@ -1267,18 +1768,70 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     setOverlayRuns: (runIds) =>
       set((s) => ({ overlayRunIds: runIds.filter((id) => id !== s.activeRunId) })),
     clearOverlays: () => set({ overlayRunIds: [] }),
-    removeRun: (runId) =>
-      set((s) => {
-        const runs = s.runs.filter((r) => r.id !== runId);
-        return {
-          runs,
-          activeRunId: s.activeRunId === runId ? (runs[0]?.id ?? null) : s.activeRunId,
-          overlayRunIds: s.overlayRunIds.filter((id) => id !== runId),
-        };
-      }),
-    clearRuns: () => set({ runs: [], activeRunId: null, overlayRunIds: [] }),
+    removeRun: async (runId) => {
+      const { project, log } = get();
+      runHistorySeq++; // a load still in flight must not list the run again
+      set((s) => dropRuns(s, [runId]));
+      if (!project) return;
+      try {
+        const reply = await api.deleteRun(project.id, runId);
+        if (get().project?.id === project.id) set({ storedRunCount: reply.stored });
+      } catch (e) {
+        // 404: the run was never stored (its store failed), so it is gone already
+        if (!(e as Error).message.startsWith("404")) {
+          log("error", `Could not delete the stored run: ${(e as Error).message}`);
+        }
+      }
+      // list the next older stored run in its place (or put back one not deleted)
+      await loadRunHistory(project.id);
+    },
+    openRunModel: (runId) => {
+      const run = get().runs.find((r) => r.id === runId);
+      const snap = run?.snapshot;
+      if (!run || !snap) return;
+      const when = new Date(run.startedAt).toLocaleString();
+      const edits = snap.liveEdits.length;
+      get().openAsCopy(
+        snap.project,
+        `${snap.project.name} (run of ${when})`,
+        `Opened the model of run '${run.caseName}' (${when}) as an unsaved copy; the project it came from is unchanged.` +
+          (edits
+            ? ` It is the model as the run started: the ${edits} live edit(s) made during the run are listed in its Run info.`
+            : ""),
+      );
+      if (snap.project.cases.some((c) => c.id === run.caseId)) set({ activeCaseId: run.caseId });
+    },
+    clearRuns: async () => {
+      const { project, log } = get();
+      runHistorySeq++; // a load still in flight must not list the runs again
+      set({ runs: [], activeRunId: null, overlayRunIds: [], storedRunCount: 0, runsLoading: false });
+      if (!project) return;
+      try {
+        const reply = await api.deleteRuns(project.id);
+        log("info", `Deleted ${reply.deleted} stored run(s) of '${project.name}'.`);
+      } catch (e) {
+        log("error", `Could not delete the stored runs: ${(e as Error).message}`);
+        await loadRunHistory(project.id);
+      }
+    },
   };
 });
+
+/** Ask before `action` (New, Open, Import) replaces a project with unsaved
+ *  changes. Resolves true when it may go ahead: nothing was unsaved, the save
+ *  worked, or the user chose not to save. A failed save keeps the project
+ *  open; its error is in Messages. */
+export async function confirmReplaceProject(action: string): Promise<boolean> {
+  const { dirty, project } = useProjectStore.getState();
+  if (!dirty || !project) return true;
+  const choice = await unsavedChangesDialog({
+    title: `Save changes to '${project.name}'?`,
+    message: `${action} replaces the open project. Changes you don't save are lost.`,
+  });
+  if (choice !== "save") return choice === "discard";
+  await useProjectStore.getState().saveRemote();
+  return !useProjectStore.getState().dirty;
+}
 
 // -- convenience selectors ----------------------------------------------------
 

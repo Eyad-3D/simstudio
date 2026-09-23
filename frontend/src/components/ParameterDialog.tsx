@@ -33,7 +33,11 @@ export function ParameterDialog() {
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/35"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) closeParamDialog();
+        if (e.target !== e.currentTarget) return;
+        // a click outside while a table cell is being edited only ends that
+        // edit (the cell commits on blur); the next outside click closes
+        if (document.activeElement?.classList.contains("ss-cell-input")) return;
+        closeParamDialog();
       }}
     >
       <div className="flex max-h-[82vh] w-[440px] flex-col overflow-hidden rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] shadow-2xl">

@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Build the SimStudio desktop app end to end.
+# Build the LightSim desktop app end to end.
 #
 #   ./scripts/build-desktop.sh            # installers for the current OS
 #   ./scripts/build-desktop.sh --dir      # unpacked app only (fast, for testing)
 #
-# Runs on Linux and macOS. Windows users: see scripts/build-desktop.ps1.
+# Runs on Linux. Windows users: see scripts/build-desktop.ps1. macOS is not
+# supported: the licence check stops the build there, because
+# scripts/licenses/bundled-runtime.json lists no macOS libraries.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,11 +21,13 @@ echo "==> 2/3  Freezing the backend"
 cd "$ROOT/backend"
 "$PYTHON" -m pip install -r requirements-build.txt
 rm -rf build dist
-"$PYTHON" -m PyInstaller --noconfirm --distpath dist --workpath build simstudio-backend.spec
+"$PYTHON" -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
 
 echo "==> 3/3  Packaging the desktop app"
 cd "$ROOT/desktop"
 npm install
+# Licence check, and THIRD-PARTY-NOTICES.txt for the installer.
+"$PYTHON" "$ROOT/scripts/third-party-notices.py"
 if [ "${1:-}" = "--dir" ]; then
   npx electron-builder --dir
 else

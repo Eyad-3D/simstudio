@@ -18,7 +18,7 @@ from app.solver import (
     simulate,
 )
 from app.solver.maps import TableError
-from app.storage import load_project
+from app.storage import load_example
 from app.validation import validate_project
 
 # ---- maps -------------------------------------------------------------------
@@ -51,11 +51,117 @@ def test_table2d_bilinear_and_clamp():
     assert interp2(sheets, 300, 10) == 40.0
 
 
+def _interp1_linear_scan(points, x):
+    """interp1 as it was before bisection: the first segment holding x."""
+    if x <= points[0][0]:
+        return points[0][1]
+    if x >= points[-1][0]:
+        return points[-1][1]
+    for (xa, ya), (xb, yb) in zip(points, points[1:]):
+        if xa <= x <= xb:
+            return ya + (yb - ya) * (x - xa) / (xb - xa)
+    return points[-1][1]
+
+
+def test_table_lookup_matches_linear_scan():
+    """The bisection finds the segment the old scan found, to the bit: at
+    every grid point, between them, outside the grid and for NaN."""
+    import random
+
+    rng = random.Random(7)
+    for size in (1, 2, 3, 5, 8, 13):
+        xs = sorted(rng.sample(range(-50, 5000), size))
+        pts = parse_table1d({str(x / 7): rng.uniform(-3, 3) for x in xs})
+        probes = [p[0] for p in pts] + [rng.uniform(-100, 800) for _ in range(300)]
+        probes += [pts[0][0] - 1, pts[-1][0] + 1, math.nextafter(pts[0][0], math.inf)]
+        for x in probes:
+            assert interp1(pts, x) == _interp1_linear_scan(pts, x), (size, x)
+        assert interp1(pts, math.nan) == pts[-1][1]
+        sheets = [(x_out, pts) for x_out in (0.0, 1.0, 2.5)] if size > 1 else [(0.0, pts)]
+        for x_out in (-1.0, 0.0, 0.3, 1.0, 1.7, 2.5, 9.0, math.nan):
+            for x in probes[:20]:
+                expected = _interp1_linear_scan(pts, x)  # every sheet is the same table
+                assert interp2(sheets, x_out, x) == pytest.approx(expected, rel=1e-12)
+
+
 def test_profile_parsing():
     pts = parse_profile("0:15; 30:110; 120:95")
     assert pts == [(0.0, 15.0), (30.0, 110.0), (120.0, 95.0)]
     assert interp_profile(pts, 15, False) == 62.5
     assert interp_profile(pts, 999, False) == 95.0
+
+
+def _interp_linear_scan(points, t, repeat):
+    """The original linear-scan lookup, kept as the reference."""
+    if not points:
+        return 0.0
+    t0, tn = points[0][0], points[-1][0]
+    if repeat and tn > t0:
+        t = t0 + (t - t0) % (tn - t0)
+    if t <= t0:
+        return points[0][1]
+    if t >= tn:
+        return points[-1][1]
+    for (ta, va), (tb, vb) in zip(points, points[1:]):
+        if ta <= t <= tb:
+            return vb if tb == ta else va + (vb - va) * (t - ta) / (tb - ta)
+    return points[-1][1]
+
+
+def test_profile_lookup_matches_linear_scan():
+    # repeated times (steps), a lone point, exact knots and repeat wrapping
+    profiles = [
+        "0:0; 10:0; 10:50; 20:50; 20:20; 35:80; 40:0",
+        "5:7",
+        "; ".join(f"{i * 0.5:g}:{(i * 37) % 11}" for i in range(400)),
+    ]
+    for text in profiles:
+        pts = parse_profile(text)
+        for repeat in (False, True):
+            for k in range(-20, 900):
+                t = k * 0.25
+                assert interp_profile(pts, t, repeat) == _interp_linear_scan(pts, t, repeat), (
+                    text[:30], t, repeat)
+
+
+def test_profiles_are_parsed_once_per_run(monkeypatch):
+    """The drive cycle and road profile are parsed when first used, not on
+    every control step (a 1,801-point WLTC string costs ~0.8 ms to parse)."""
+    import app.solver.domains as domains
+
+    calls = []
+
+    def counting_parse(text):
+        calls.append(text)
+        return parse_profile(text)
+
+    monkeypatch.setattr(domains, "parse_profile", counting_parse)
+    proj = bev_axle(profile="0:0; 5:60; 20:60")
+    proj.systems[0].elements.append(
+        el("road", "signal.road_profile", "Road", profile="0:0; 50:2; 200:2"))
+    proj.dataBusConnections.append(dbc(50, "road", "sig_grade", "veh", "sig_grade_in"))
+    proj.cases[0].duration = 20
+    proj.cases[0].timeStep = 0.1
+    result = simulate(proj, "case")
+    assert result.status in ("success", "warning"), [m.text for m in result.messages]
+    assert len(calls) == 2, f"parsed {len(calls)} times"
+
+
+def test_live_profile_edit_takes_effect():
+    proj = bev_axle(profile="0:0; 5:60; 10:60")
+    proj.cases[0].duration = 10
+    sent = {"n": 0}
+
+    def control():
+        sent["n"] += 1
+        if sent["n"] == 3:  # a few recorded steps in
+            return [{"type": "set_param", "elementId": "task", "key": "profile",
+                     "value": "0:30; 10:30"}]
+        return []
+
+    result = simulate(proj, "case", control=control)
+    demand = series(result, "task", "sig_demand")
+    assert demand[-1]["value"] == pytest.approx(30.0)
 
 
 # ---- recording controls (outputEvery + smaller step) -------------------------
@@ -169,8 +275,9 @@ def test_standstill_holds_at_zero():
 
 
 def test_motor_steady_state_matches_road_load():
-    """At constant 50 km/h the motor torque must equal road load through
-    the gear chain — the physics regression anchor."""
+    """At constant 50 km/h the motor's shaft torque must equal road load
+    through the gear chain — the physics regression anchor. A powered motor
+    has no drag torque on top: its spin losses are in the loss map."""
     proj = bev_axle(profile="0:0; 5:50; 60:50")
     proj.cases[0].duration = 60
     result = simulate(proj, "case")
@@ -178,13 +285,11 @@ def test_motor_steady_state_matches_road_load():
 
     v = 50 / 3.6
     mass = 1800.0
-    f_roll = 0.012 * mass * 9.81 * 0.5  # two wheels à 25 % share
+    f_roll = 0.012 * mass * 9.81  # the two wheels' shares are scaled to carry it all
     f_aero = 0.5 * 1.2 * (0.28 * 2.2) * v * v  # Cd × frontal area
     wheel_torque = (f_roll + f_aero) * 0.33
-    rpm = v / 0.33 * 9.7 * 60 / (2 * math.pi)
-    drag = interp1(parse_table1d({"0": 0, "3000": 1.2, "6000": 2.6, "9000": 4.2, "12000": 6.0}), rpm)
-    expected = wheel_torque / (9.7 * 0.97 * 0.98) + drag
-    assert abs(t_motor - expected) < 1.5, f"{t_motor} vs {expected}"
+    expected = wheel_torque / (9.7 * 0.97 * 0.98)
+    assert abs(t_motor - expected) < 0.5, f"{t_motor} vs {expected}"
 
 
 # ---- differential ------------------------------------------------------------
@@ -207,6 +312,31 @@ def test_diff_modes_differ_on_split_mu():
     v_lock, _ = _final_speed(True, 0.1)
     assert slip_open > 0.5, "open diff must spin up the icy wheel"
     assert v_lock > v_open + 3, "locked diff must out-accelerate open on split-mu"
+
+
+@pytest.mark.parametrize("locked", [False, True])
+def test_driveline_starts_at_the_vehicle_speed(locked):
+    """A run that starts at 100 km/h starts every rotating part at that
+    speed: both wheels roll without slip and the motor turns at the final
+    drive's ratio times their speed, from point 0 on. Before, the open
+    differential's motor started at 0 rpm and one wheel turned backwards."""
+    proj = bev_axle(locked=locked, profile="0:100; 1:100")
+    proj.cases[0].duration, proj.cases[0].timeStep = 0.02, 0.01
+    for e in proj.systems[0].elements:
+        if e.id == "veh":
+            e.parameterOverrides["initial_speed_kmh"] = 100
+        if e.id == "fd":
+            e.parameterOverrides["ratio"] = 8.0
+    result = simulate(proj, "case")
+    assert result.status in ("success", "warning"), [m.text for m in result.messages]
+    for i, tol in ((0, 1e-6), (1, 1e-3)):  # t = 0 and after the first 10 ms step
+        wheel_rpm = series(result, "whl", "sig_speed")[i]["value"]
+        for w in ("whl", "whr"):
+            assert series(result, w, "sig_slip")[i]["value"] == pytest.approx(0, abs=tol)
+            assert series(result, w, "sig_speed")[i]["value"] == pytest.approx(wheel_rpm, rel=tol)
+        assert series(result, "fd", "sig_speed_out")[i]["value"] == pytest.approx(wheel_rpm, rel=tol)
+        assert series(result, "mot", "sig_speed")[i]["value"] == pytest.approx(
+            8.0 * wheel_rpm, rel=tol)
 
 
 def test_diff_open_torque_split_is_equal():
@@ -313,10 +443,32 @@ def test_bad_table_is_reported():
     assert any("not numeric" in c.text for c in checks if c.level == "error")
 
 
+def _task_checks(profile: str):
+    proj = bev_axle(profile=profile)
+    return [(c.level, c.text) for c in validate_project(proj) if c.elementId == "task"]
+
+
+def test_malformed_profile_entries_are_errors():
+    # '30;50' lost its colon: the parser used to skip both halves silently
+    checks = _task_checks("0:0; 30;50; 60:0")
+    assert ("error", "'Task' profile: '30' and one other entry are not 'x:value' pairs "
+                     "of numbers and would be ignored.") in checks
+    checks = _task_checks("0:0; 30:50; 20:10")
+    assert ("error", "'Task' profile: points are not in ascending order "
+                     "(20 comes after 30).") in checks
+    assert any(level == "error" for level, _ in _task_checks("0:0; 10:nan"))
+
+
+def test_profile_step_is_a_warning_and_clean_profile_passes():
+    checks = _task_checks("0:0; 10:0; 10:50; 20:50")
+    assert checks == [("warning", "'Task' profile: two points at 10 — the value jumps there.")]
+    assert _task_checks("0:0; 5:60; 30:60") == []
+
+
 # ---- bundled example -----------------------------------------------------------
 
 def test_bev_demo_validates_and_runs():
-    proj = load_project("bev-car")
+    proj = load_example("bev-car")
     checks = validate_project(proj)
     assert not [c for c in checks if c.level == "error"], [c.text for c in checks]
 
@@ -334,3 +486,56 @@ def test_bev_demo_validates_and_runs():
     labels = [s.label for s in result.summary]
     assert any("Consumption" in label for label in labels)
     assert any("Distance driven" in label for label in labels)
+
+
+# ---- wheel loads (MOD-06) ----------------------------------------------------
+
+def _cruise_power(shares, edit=None) -> tuple[float, float]:
+    """Battery power at a steady 100 km/h for the two wheels' load shares,
+    at 30 s and at the end (60 s); ``edit`` is a live edit sent at t = 30 s."""
+    proj = bev_axle(profile="0:100; 100:100")
+    proj.cases[0].duration, proj.cases[0].timeStep = 60, 0.5
+    for e in proj.systems[0].elements:
+        if e.id == "veh":
+            e.parameterOverrides["initial_speed_kmh"] = 100
+        if e.id in ("whl", "whr"):
+            e.parameterOverrides["vehicle_load_share_pct"] = shares[e.id == "whr"]
+    calls = {"n": 0}
+
+    def control():
+        calls["n"] += 1
+        return [edit] if edit and calls["n"] == 61 else []
+
+    power = {p["t"]: p["value"] for p in series(simulate(proj, "case", control=control),
+                                                "batt", "sig_power")}
+    return power[30.0], power[60.0]
+
+
+def test_wheel_loads_always_add_up_to_the_weight():
+    """ml/phys_tests.py T3: two wheels left at the default 25 % rested half
+    the car on the road, so rolling resistance was halved: 12.84 kW at
+    100 km/h against 16.02 kW with 50/50. The shares of the connected wheels
+    are now scaled to carry the whole weight, live edits included."""
+    reference = _cruise_power((50, 50))[1]
+    assert _cruise_power((25, 25))[1] == reference  # 0.25 / 0.5 = 0.5 exactly
+    assert _cruise_power((30, 50))[1] == pytest.approx(reference, rel=1e-3)
+    before, after = _cruise_power((50, 50), {"type": "set_param", "elementId": "whl",
+                                             "key": "vehicle_load_share_pct", "value": 20})
+    assert after == pytest.approx(before, rel=1e-3)
+
+
+def test_wheel_load_share_data_checks():
+    def checks(left, right):
+        proj = bev_axle()
+        for e in proj.systems[0].elements:
+            if e.id in ("whl", "whr"):
+                e.parameterOverrides["vehicle_load_share_pct"] = left if e.id == "whl" else right
+        return [c for c in validate_project(proj) if "load shares" in c.text]
+
+    assert checks(50, 50) == [] and checks(49.6, 50) == []  # within 100 ± 1 %
+    (warn,) = checks(25, 25)
+    assert warn.level == "warning"
+    assert warn.text.startswith("Wheel load shares add up to 50 %, not 100 % — the solver scales")
+    assert "'Wheel L' 50 %, 'Wheel R' 50 %" in warn.text
+    (err,) = checks(0, 0)
+    assert err.level == "error" and "add up to 0 %" in err.text

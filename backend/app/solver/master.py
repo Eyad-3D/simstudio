@@ -94,14 +94,16 @@ class Master:
             n = max(1, int(s.rate_divisor))
             if self._k % n:
                 continue  # not this slave's communication point (ZOH)
-            payload: dict[str, float] = {}
-            for name, src in self._inputs_of[s.slave_id]:
-                val = self._pool.get(src)
-                if val is not None:
-                    payload[name] = val
-            if payload:
-                s.set_inputs(payload)
-            result = s.do_step(t, dt * n)
+            inputs = self._inputs_of[s.slave_id]
+            if inputs:
+                payload: dict[str, float] = {}
+                for name, src in inputs:
+                    val = self._pool.get(src)
+                    if val is not None:
+                        payload[name] = val
+                if payload:
+                    s.set_inputs(payload)
+            result = s.do_step(t, dt if n == 1 else dt * n)
             if result.status != "ok":
                 raise SlaveStepError(s.slave_id, result.detail or "do_step failed")
             if result.events:
@@ -109,7 +111,9 @@ class Master:
                 if self.on_event:
                     for ev in result.events:
                         self.on_event(s.slave_id, ev)
-            self._pool.update(s.get_outputs())
+            outputs = s.get_outputs()
+            if outputs:
+                self._pool.update(outputs)
         self._k += 1
         return events
 

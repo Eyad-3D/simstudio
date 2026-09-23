@@ -73,6 +73,14 @@ export function DialogHost() {
           )}
         </div>
         <div className="flex justify-end gap-2 border-t border-[color:var(--ss-border)] px-4 py-2.5">
+          {dialog.altLabel && (
+            <button
+              className="ss-toolbtn mr-auto border border-[color:var(--ss-border)] px-3"
+              onClick={() => settle("alt")}
+            >
+              {dialog.altLabel}
+            </button>
+          )}
           <button
             className="ss-toolbtn border border-[color:var(--ss-border)] px-3"
             onClick={onCancel}

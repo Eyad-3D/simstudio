@@ -17,8 +17,16 @@ __pycache__/
 
 # Runtime artifacts
 *.log
+# projects (and their runs) saved while developing
+backend/dev-projects/
+# where the engine kept runs in development before examples became read-only
+backend/projects/runs/
 
 # Desktop app build output
 desktop/release/
 backend/build/
 .smoke-projects/
+
+# Frontend test output
+frontend/playwright-report/
+frontend/test-results/

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Callable, Optional
 
 from ..library import library_by_id
 from ..schemas import ComponentDef, ElementInstance, PortDef, Project
@@ -30,6 +31,13 @@ from ..schemas import ComponentDef, ElementInstance, PortDef, Project
 JOINT_TYPES = {"mech.differential", "mech.transfer_case", "mech.clutch"}
 SOURCE_TYPES = {"motor.emotor": "motor", "engine.combustion": "engine"}
 SIGNAL_BLOCK_TYPES = ("signal.script", "control.pid", "signal.lookup", "signal.road_profile")
+
+# Model advisories that Data Checks treat as errors, because the vehicle
+# cannot move (the run itself only reports them as warnings).
+NO_VEHICLE = ("Wheels present but no Vehicle element — wheels carry no load "
+              "and produce no traction.")
+NO_WHEELS = "Vehicle present but no connected wheels — it will not move."
+NO_DRIVER = "No Driver element — nothing commands the powertrain unless you wire demands yourself."
 
 
 class ModelError(Exception):
@@ -71,7 +79,19 @@ class SourceRef:
     el_id: str
     kind: str  # "motor" | "engine"
     m: float  # ω_source = m · ω_ref
-    eff: float  # gear-chain efficiency source → ref
+    region: int  # the segment region it sits in (Segment.stages)
+    eff: float = 1.0  # gear-chain efficiency source → segment output
+
+
+@dataclass
+class GearStage:
+    """A lossy element (gear, final drive, shaft with an efficiency) seen
+    from the segment region behind it: power crossing it towards the
+    segment's output passes ``eff`` of itself on to region ``parent``;
+    power crossing it back needs 1/``eff`` of what reaches the region."""
+    el_id: str
+    eff: float
+    parent: int
 
 
 @dataclass
@@ -92,6 +112,47 @@ class Segment:
     gearboxes: list[GearboxRef] = field(default_factory=list)
     element_ms: dict[str, float] = field(default_factory=dict)  # el_id → m
     port_ms: dict[tuple[str, str], float] = field(default_factory=dict)
+    # Its lossy elements cut a segment into regions (0 = the walk entry's).
+    # Power leaves it at its output (a split's input, a wheel, a clutch …),
+    # so each other region reaches the output through its stage and its
+    # parents' stages: stages[r] is region r's (None at the output), and
+    # stage_order lists the regions outside in.
+    port_region: dict[tuple[str, str], int] = field(default_factory=dict)
+    links: list[tuple[str, float, int, int]] = field(default_factory=list)  # (el, eff, r, r2)
+    out_region: int = 0
+    stages: list[Optional[GearStage]] = field(default_factory=lambda: [None])
+    stage_order: list[int] = field(default_factory=list)
+
+    def path_eff(self, region: int) -> float:
+        """Efficiency of the way from ``region`` to the segment's output."""
+        eff = 1.0
+        stage = self.stages[region]
+        while stage is not None:
+            eff *= stage.eff
+            stage = self.stages[stage.parent]
+        return eff
+
+    def orient(self, out_port: tuple[str, str] | None) -> None:
+        """Take ``out_port``'s region as the output (the entry's region
+        without one) and point every stage towards it."""
+        out = self.port_region.get(out_port, 0) if out_port else 0
+        adj: dict[int, list[tuple[int, str, float]]] = defaultdict(list)
+        for el_id, eff, r, r2 in self.links:
+            adj[r].append((r2, el_id, eff))
+            adj[r2].append((r, el_id, eff))
+        self.out_region = out
+        self.stages = [None] * (len(self.links) + 1)
+        self.stage_order = []
+        seen, frontier = {out}, [out]
+        for r in frontier:  # breadth-first from the output; grows while iterating
+            for r2, el_id, eff in adj[r]:
+                if r2 not in seen:
+                    seen.add(r2)
+                    frontier.append(r2)
+                    self.stages[r2] = GearStage(el_id=el_id, eff=eff, parent=r)
+                    self.stage_order.append(r2)
+        for src in self.sources:
+            src.eff = self.path_eff(src.region)
 
 
 @dataclass
@@ -109,6 +170,9 @@ class Joint:
     child_a_m: float = 1.0
     child_b: int = -1
     child_b_m: float = 1.0
+    # region of the child segments' ports attached to it (Segment.stages)
+    child_a_region: int = 0
+    child_b_region: int = 0
     # clutch: sides a/b reuse child_a/child_b (+ their m's); capacity from params
 
 
@@ -156,6 +220,8 @@ class Model:
     signal_blocks: list[str]  # Script/PID/Lookup/RoadProfile ids in eval order
     floating_returns: list[str] = field(default_factory=list)  # unwired − terminals
     warnings: list[str] = field(default_factory=list)
+    # re-extracts a driveline for new gears from the current (live) params_of
+    rewalk: Optional[Callable[[Driveline, dict[str, float]], Optional[Driveline]]] = None
 
 
 def resolve_params(el: ElementInstance, cdef: ComponentDef) -> dict:
@@ -189,8 +255,9 @@ def build_model(
     gear_of: dict[str, float] | None = None,
     case_overrides: dict[str, dict] | None = None,
 ) -> Model:
-    """Reduce the project. `gear_of` optionally overrides gearbox gears
-    (used by the core to rebuild drivelines after a shift). `case_overrides`
+    """Reduce the project. `gear_of` optionally overrides gearbox gears;
+    after a shift the solver re-extracts a driveline with `Model.rewalk`,
+    which reads the live parameter set. `case_overrides`
     ({elementId: {paramKey: value}}) layers per-case parameter values on top
     of each element's own overrides (used by parameter sweeps / per-case tweaks)."""
     defs = library_by_id()
@@ -279,26 +346,34 @@ def build_model(
                     stack.append(nxt)
         return seen
 
-    def walk_segment(entries: list[tuple[str, str]]) -> Segment:
+    def walk_segment(entries: list[tuple[str, str]], gears: dict[str, float]) -> Segment:
         """Collapse a rigid region into a Segment. `entries` are (el, port)
         vertices on the reference axis (m = 1); joint elements are never
-        crossed."""
+        crossed. Each lossy element crossed starts a new region
+        (``Segment.links``); ``Segment.orient`` later points them towards
+        the segment's output."""
         seg = Segment()
-        seen_ports: dict[tuple[str, str], tuple[float, float]] = {}
-        queue: list[tuple[str, str, float, float]] = [(e, p, 1.0, 1.0) for e, p in entries]
+        seen_ports = seg.port_region
+        # (element, port, m, region it is reached from, efficiency of the
+        # element crossed to reach it — None when none was crossed)
+        queue: list[tuple[str, str, float, int, float | None]] = [
+            (e, p, 1.0, 0, None) for e, p in entries]
         visited_el: set[str] = set()
 
-        def enqueue_peers(el_id: str, pid: str, m: float, eff: float) -> None:
+        def enqueue_peers(el_id: str, pid: str, m: float, region: int) -> None:
             for peer in mech_adj.get((el_id, pid), ()):  # rigid joint: same axis
                 if peer[0] not in joint_ids and peer not in seen_ports:
-                    queue.append((peer[0], peer[1], m, eff))
+                    queue.append((peer[0], peer[1], m, region, None))
 
         while queue:
-            el_id, pid, m, eff = queue.pop()
+            el_id, pid, m, region, crossed = queue.pop()
             key = (el_id, pid)
             if key in seen_ports or el_id in joint_ids:
                 continue
-            seen_ports[key] = (m, eff)
+            if crossed is not None and crossed < 1.0:  # a lossy element: new region
+                seg.links.append((el_id, crossed, region, len(seg.links) + 1))
+                region = len(seg.links)
+            seen_ports[key] = region
             seg.port_ms[key] = m
             cdef = cdef_of.get(el_id)
             if cdef is None:
@@ -313,13 +388,13 @@ def build_model(
                 if first_visit:
                     seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
                 other = "flange_b" if pid == "flange_a" else "flange_a"
-                eff2 = eff * max(1e-3, float(p.get("efficiency_pct", 100)) / 100.0)
+                eta = max(1e-3, float(p.get("efficiency_pct", 100)) / 100.0)
                 if (el_id, other) not in seen_ports:
-                    queue.append((el_id, other, m, eff2))
-                enqueue_peers(el_id, pid, m, eff)
+                    queue.append((el_id, other, m, region, eta))
+                enqueue_peers(el_id, pid, m, region)
             elif t in ("mech.final_drive", "mech.gearbox"):
                 if t == "mech.gearbox":
-                    ratio = gearbox_ratio(p, gear_of.get(el_id))
+                    ratio = gearbox_ratio(p, gears.get(el_id))
                     if first_visit:
                         seg.gearboxes.append(GearboxRef(el_id=el_id, ratio=ratio))
                 else:
@@ -336,19 +411,19 @@ def build_model(
                     seg.inertia += float(p.get("inertia_out_kgm2", 0)) * m_out * m_out
                     seg.element_ms[el_id] = m_out  # record output-axis speed
                 if (el_id, other) not in seen_ports:
-                    queue.append((el_id, other, m_other, eff * eta))
-                enqueue_peers(el_id, pid, m, eff)
+                    queue.append((el_id, other, m_other, region, eta))
+                enqueue_peers(el_id, pid, m, region)
             elif t == "mech.node":
                 for pid2 in ("f1", "f2", "f3", "f4"):
                     if (el_id, pid2) not in seen_ports:
-                        queue.append((el_id, pid2, m, eff))
-                enqueue_peers(el_id, pid, m, eff)
+                        queue.append((el_id, pid2, m, region, None))
+                enqueue_peers(el_id, pid, m, region)
             elif t in SOURCE_TYPES:
                 if first_visit:
                     seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
                     seg.sources.append(SourceRef(
-                        el_id=el_id, kind=SOURCE_TYPES[t], m=m, eff=eff))
-                enqueue_peers(el_id, pid, m, eff)
+                        el_id=el_id, kind=SOURCE_TYPES[t], m=m, region=region))
+                enqueue_peers(el_id, pid, m, region)
             elif t == "propulsion.wheel":
                 if first_visit:
                     seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
@@ -361,7 +436,7 @@ def build_model(
                         c_slip=max(0.1, float(p.get("slip_stiffness", 10))),
                         c_rr=max(0.0, float(p.get("rolling_resistance", 0.012))),
                     ))
-                enqueue_peers(el_id, pid, m, eff)
+                enqueue_peers(el_id, pid, m, region)
             elif t == "mech.brake":
                 if first_visit:
                     seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
@@ -369,7 +444,7 @@ def build_model(
                         el_id=el_id, m=m,
                         max_torque=max(0.0, float(p.get("max_torque_Nm", 0))),
                     ))
-                enqueue_peers(el_id, pid, m, eff)
+                enqueue_peers(el_id, pid, m, region)
             elif t == "propulsion.propeller":
                 if first_visit:
                     seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
@@ -378,18 +453,17 @@ def build_model(
                         t_ref=max(0.0, float(p.get("torque_ref_Nm", 0))),
                         n_ref=max(1.0, float(p.get("ref_speed_rpm", 1000))),
                     ))
-                enqueue_peers(el_id, pid, m, eff)
+                enqueue_peers(el_id, pid, m, region)
             else:
-                enqueue_peers(el_id, pid, m, eff)
+                enqueue_peers(el_id, pid, m, region)
         return seg
 
-    drivelines: list[Driveline] = []
-    assigned: set[str] = set()
-    for start_el in sorted(wired_mech):
-        if start_el in assigned:
-            continue
-        group = mech_component(start_el)
-        assigned |= group
+    def extract_driveline(group: set[str], gears: dict[str, float],
+                          errors: list[str]) -> Driveline | None:
+        """One mechanical connected group as a Driveline, with its gearboxes
+        in ``gears`` (their default gear where absent). Reads the parameters
+        from ``params_of``, so a later call (a gear shift during a run) sees
+        the live values."""
         dl = Driveline(element_group=sorted(group))
         group_joints = sorted(g for g in group if g in joint_ids)
 
@@ -409,7 +483,7 @@ def build_model(
                 for peer in mech_adj.get(entry, ()):  # the requesting joint's port
                     seg.port_ms[peer] = 1.0
             else:
-                seg = walk_segment([entry])
+                seg = walk_segment([entry], gears)
             idx = len(dl.segments)
             dl.segments.append(seg)
             for key in seg.port_ms:
@@ -417,6 +491,8 @@ def build_model(
             return idx
 
         ok = True
+        split_in: dict[int, tuple[str, str]] = {}  # segment → its port on a split's input
+        clutch_ports: dict[int, list[tuple[str, str]]] = defaultdict(list)
         for j_el in group_joints:
             cdef = cdef_of[j_el]
             p = params_of[j_el]
@@ -437,7 +513,11 @@ def build_model(
                     el_id=j_el, kind="clutch",
                     child_a=sa, child_a_m=dl.segments[sa].port_ms[pa[0]],
                     child_b=sb, child_b_m=dl.segments[sb].port_ms[pb[0]],
+                    child_a_region=dl.segments[sa].port_region.get(pa[0], 0),
+                    child_b_region=dl.segments[sb].port_region.get(pb[0], 0),
                 ))
+                clutch_ports[sa].append(pa[0])
+                clutch_ports[sb].append(pb[0])
             else:  # differential / transfer case → split
                 pin = mech_adj.get((j_el, "flange_in"), [])
                 pa = mech_adj.get((j_el, "flange_out_a"), [])
@@ -466,14 +546,17 @@ def build_model(
                     parent_m=dl.segments[sp].port_ms[pin[0]] if pin else 1.0,
                     child_a=sa, child_a_m=dl.segments[sa].port_ms[pa[0]],
                     child_b=sb, child_b_m=dl.segments[sb].port_ms[pb[0]],
+                    child_a_region=dl.segments[sa].port_region.get(pa[0], 0),
+                    child_b_region=dl.segments[sb].port_region.get(pb[0], 0),
                 )
                 # split carrier inertia lives on the input axis of its parent segment
                 if sp >= 0:
                     dl.segments[sp].inertia += (float(p.get("inertia_kgm2", 0))
                                                 * joint.parent_m ** 2)
+                    split_in.setdefault(sp, pin[0])
                 dl.joints.append(joint)
         if not ok:
-            continue
+            return None
         if not group_joints:
             # joint-free driveline: one segment; pick a stable reference axis
             entry: tuple[str, str] | None = None
@@ -494,8 +577,22 @@ def build_model(
                         entry = key
                         break
             if entry is None:
-                continue
-            dl.segments.append(walk_segment([entry]))
+                return None
+            dl.segments.append(walk_segment([entry], gears))
+
+        # gear losses follow the power, whichever port a segment was walked
+        # from: each segment's output is where its power leaves towards the
+        # road (a split's input, else a wheel, propeller or brake, else a
+        # clutch)
+        for s_idx, seg in enumerate(dl.segments):
+            out = split_in.get(s_idx)
+            if out is None:
+                loads = [x.el_id for x in (*seg.wheels, *seg.props, *seg.brakes)]
+                out = next((key for el_id in loads for key in seg.port_region
+                            if key[0] == el_id), None)
+            if out is None and clutch_ports.get(s_idx):
+                out = clutch_ports[s_idx][0]
+            seg.orient(out)
 
         # sanity: a segment must not be the parent of two open splits (its
         # speed would be doubly determined) — checked here structurally,
@@ -509,7 +606,18 @@ def build_model(
                 errors.append("A rigid section feeds the input of two splits "
                               "(differential/transfer case) — that is kinematically "
                               "over-constrained and not supported.")
-        drivelines.append(dl)
+        return dl
+
+    drivelines: list[Driveline] = []
+    assigned: set[str] = set()
+    for start_el in sorted(wired_mech):
+        if start_el in assigned:
+            continue
+        group = mech_component(start_el)
+        assigned |= group
+        dl = extract_driveline(group, gear_of, errors)
+        if dl is not None:
+            drivelines.append(dl)
 
     # ---- electrical buses --------------------------------------------------
     parent: dict[tuple[str, str], tuple[str, str]] = {}
@@ -663,13 +771,11 @@ def build_model(
 
     any_wheels = any(seg.wheels for dl in drivelines for seg in dl.segments)
     if any_wheels and not vehicle:
-        warnings.append("Wheels present but no Vehicle element — wheels carry no load "
-                        "and produce no traction.")
+        warnings.append(NO_VEHICLE)
     if vehicle and not any_wheels:
-        warnings.append("Vehicle present but no connected wheels — it will not move.")
+        warnings.append(NO_WHEELS)
     if vehicle and any_wheels and not driver:
-        warnings.append("No Driver element — nothing commands the powertrain unless "
-                        "you wire demands yourself.")
+        warnings.append(NO_DRIVER)
     has_engine = any(cdef.id == "engine.combustion" for cdef in cdef_of.values())
     if has_engine and not fuel_tank:
         warnings.append("Combustion engine without a Fuel Tank — running on infinite fuel.")
@@ -712,4 +818,5 @@ def build_model(
         signal_blocks=ordered,
         floating_returns=floating_returns,
         warnings=warnings,
+        rewalk=lambda dl, gears: extract_driveline(set(dl.element_group), gears, []),
     )

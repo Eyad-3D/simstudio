@@ -9,6 +9,13 @@ import { useProjectStore } from "./store/projectStore";
 import { useUIStore } from "./store/uiStore";
 import { saveDraft } from "./persist";
 
+declare global {
+  interface Window {
+    /** Saves the open project; resolves true when nothing is left unsaved. */
+    lightsimSave?: () => Promise<boolean>;
+  }
+}
+
 let initStarted = false;
 
 export default function App() {
@@ -25,35 +32,64 @@ export default function App() {
 
   // autosave the working project to localStorage (debounced) and flush on
   // tab close, so unsaved work survives a refresh or crash. This is separate
-  // from Save (server); see persist.ts. A draft is only ever written once the
-  // user genuinely edits/switches the project — a pristine demo never creates
-  // one (so returning users aren't told they "restored a draft" they never made).
+  // from Save (server); see persist.ts. Unsaved work is only ever recorded once
+  // the user genuinely edits the project, so returning users aren't told they
+  // "restored a draft" they never made.
   useEffect(() => {
     let edited = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const unsub = useProjectStore.subscribe((state, prev) => {
-      // skip the initial null→project population (init / draft restore)
-      if (!state.project || !prev.project) return;
+      if (!state.project) return;
+      if (!prev.project) {
+        // the initial null→project population (init / draft restore): an
+        // example opened as a copy is recorded, clean, so that the next launch
+        // opens the same copy again, with the runs made on it
+        if (state.exampleId && !state.dirty) {
+          saveDraft(state.project, true, state.revision, state.exampleId);
+        }
+        return;
+      }
       if (state.project === prev.project && state.dirty === prev.dirty) return;
       edited = true;
       clearTimeout(timer);
       if (state.dirty) {
-        timer = setTimeout(() => saveDraft(state.project!), 800);
+        timer = setTimeout(() => saveDraft(state.project!, false, state.revision, state.exampleId), 800);
       } else {
         // saved / opened / new: record which project is open, but mark it clean
         // so the next launch doesn't report unsaved work that was already saved
-        saveDraft(state.project, true);
+        saveDraft(state.project, true, state.revision, state.exampleId);
       }
     });
     const flush = () => {
-      const { project: p, dirty } = useProjectStore.getState();
-      if (edited && p) saveDraft(p, !dirty);
+      const { project: p, dirty, revision, exampleId } = useProjectStore.getState();
+      if (edited && p) saveDraft(p, !dirty, revision, exampleId);
     };
     window.addEventListener("beforeunload", flush);
     return () => {
       unsub();
       clearTimeout(timer);
       window.removeEventListener("beforeunload", flush);
+    };
+  }, []);
+
+  // closing or reloading with unsaved changes asks first: the browser's
+  // leave-page prompt, which the desktop shell turns into Save / Don't save /
+  // Cancel (desktop/src/main.js) and answers "Save" through lightsimSave.
+  // Leaving anyway still keeps the recovery draft written above.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!useProjectStore.getState().dirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    window.lightsimSave = async () => {
+      await useProjectStore.getState().saveRemote();
+      return !useProjectStore.getState().dirty;
+    };
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      delete window.lightsimSave;
     };
   }, []);
 
@@ -96,11 +132,12 @@ export default function App() {
         {loaded ? (
           <>
             {/* Home / model workspace — kept mounted (hidden on the Results
-                page) so its dock layout and live state survive tab switches. */}
+                page) so its dock layout and live state survive tab switches.
+                It stays laid out while hidden, so it follows window resizes;
+                `inert` keeps clicks, focus and screen readers out of it. */}
             <div
-              className="absolute inset-1"
-              style={{ visibility: onResultsPage ? "hidden" : "visible" }}
-              aria-hidden={onResultsPage}
+              className={`absolute inset-1${onResultsPage ? " ss-dock-hidden" : ""}`}
+              inert={onResultsPage}
             >
               <DockLayout />
             </div>
@@ -112,7 +149,7 @@ export default function App() {
           </>
         ) : (
           <div className="flex h-full items-center justify-center text-[13px] text-[color:var(--ss-text-dim)]">
-            Loading SimStudio…
+            Loading LightSim…
           </div>
         )}
       </div>

@@ -1,20 +1,22 @@
 {
-  "name": "simstudio-desktop",
-  "productName": "SimStudio",
-  "version": "0.1.0",
+  "name": "lightsim-desktop",
+  "productName": "LightSim",
+  "version": "0.2.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "SimStudio \u2014 CRUISE M-style system simulation tool",
+  "description": "LightSim \u2014 desktop app for simulating vehicle energy use, range and powertrains",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node --test \"test/*.test.js\"",
     "pack:dir": "electron-builder --dir",
     "dist:linux": "electron-builder --linux",
     "dist:win": "electron-builder --win"
   },
   "devDependencies": {
     "electron": "^44.4.0",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "license-checker-rseidelsohn": "4.4.2"
   },
   "author": {
     "name": "Eyad Abualkhair",
@@ -25,5 +27,5 @@
     "type": "git",
     "url": "https://github.com/Eyad-3D/simstudio.git"
   },
-  "desktopName": "simstudio.desktop"
+  "desktopName": "lightsim.desktop"
 }

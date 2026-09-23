@@ -1,0 +1,4526 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "scripts/third-party-notices.py"
+        }
+      ]
+    },
+    "component": {
+      "type": "application",
+      "bom-ref": "lightsim",
+      "name": "LightSim",
+      "version": "0.2.0",
+      "licenses": [
+        {
+          "license": {
+            "name": "Proprietary; see LICENSE and EULA.txt"
+          }
+        }
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40reduxjs/toolkit@2.12.0",
+      "name": "@reduxjs/toolkit",
+      "version": "2.12.0",
+      "purl": "pkg:npm/%40reduxjs/toolkit@2.12.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/reduxjs/redux-toolkit"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40standard-schema/spec@1.1.0",
+      "name": "@standard-schema/spec",
+      "version": "1.1.0",
+      "purl": "pkg:npm/%40standard-schema/spec@1.1.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/standard-schema/standard-schema"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40standard-schema/utils@0.3.0",
+      "name": "@standard-schema/utils",
+      "version": "0.3.0",
+      "purl": "pkg:npm/%40standard-schema/utils@0.3.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/standard-schema/standard-schema"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40xyflow/react@12.11.1",
+      "name": "@xyflow/react",
+      "version": "12.11.1",
+      "purl": "pkg:npm/%40xyflow/react@12.11.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/xyflow/xyflow"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/%40xyflow/system@0.0.78",
+      "name": "@xyflow/system",
+      "version": "0.0.78",
+      "purl": "pkg:npm/%40xyflow/system@0.0.78",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/xyflow/xyflow"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/classcat@5.0.5",
+      "name": "classcat",
+      "version": "5.0.5",
+      "purl": "pkg:npm/classcat@5.0.5",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/jorgebucaran/classcat"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/clsx@2.1.1",
+      "name": "clsx",
+      "version": "2.1.1",
+      "purl": "pkg:npm/clsx@2.1.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/lukeed/clsx"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/csstype@3.2.3",
+      "name": "csstype",
+      "version": "3.2.3",
+      "purl": "pkg:npm/csstype@3.2.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/frenic/csstype"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-array@3.2.4",
+      "name": "d3-array",
+      "version": "3.2.4",
+      "purl": "pkg:npm/d3-array@3.2.4",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-array"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-color@3.1.0",
+      "name": "d3-color",
+      "version": "3.1.0",
+      "purl": "pkg:npm/d3-color@3.1.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-color"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-dispatch@3.0.1",
+      "name": "d3-dispatch",
+      "version": "3.0.1",
+      "purl": "pkg:npm/d3-dispatch@3.0.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-dispatch"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-drag@3.0.0",
+      "name": "d3-drag",
+      "version": "3.0.0",
+      "purl": "pkg:npm/d3-drag@3.0.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-drag"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-ease@3.0.1",
+      "name": "d3-ease",
+      "version": "3.0.1",
+      "purl": "pkg:npm/d3-ease@3.0.1",
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-ease"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-format@3.1.2",
+      "name": "d3-format",
+      "version": "3.1.2",
+      "purl": "pkg:npm/d3-format@3.1.2",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-format"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-interpolate@3.0.1",
+      "name": "d3-interpolate",
+      "version": "3.0.1",
+      "purl": "pkg:npm/d3-interpolate@3.0.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-interpolate"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-path@3.1.0",
+      "name": "d3-path",
+      "version": "3.1.0",
+      "purl": "pkg:npm/d3-path@3.1.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-path"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-scale@4.0.2",
+      "name": "d3-scale",
+      "version": "4.0.2",
+      "purl": "pkg:npm/d3-scale@4.0.2",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-scale"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-selection@3.0.0",
+      "name": "d3-selection",
+      "version": "3.0.0",
+      "purl": "pkg:npm/d3-selection@3.0.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-selection"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-shape@3.2.0",
+      "name": "d3-shape",
+      "version": "3.2.0",
+      "purl": "pkg:npm/d3-shape@3.2.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-shape"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-time@3.1.0",
+      "name": "d3-time",
+      "version": "3.1.0",
+      "purl": "pkg:npm/d3-time@3.1.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-time"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-time-format@4.1.0",
+      "name": "d3-time-format",
+      "version": "4.1.0",
+      "purl": "pkg:npm/d3-time-format@4.1.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-time-format"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-timer@3.0.1",
+      "name": "d3-timer",
+      "version": "3.0.1",
+      "purl": "pkg:npm/d3-timer@3.0.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-timer"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-transition@3.0.1",
+      "name": "d3-transition",
+      "version": "3.0.1",
+      "purl": "pkg:npm/d3-transition@3.0.1",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-transition"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/d3-zoom@3.0.0",
+      "name": "d3-zoom",
+      "version": "3.0.0",
+      "purl": "pkg:npm/d3-zoom@3.0.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/d3/d3-zoom"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/decimal.js-light@2.5.1",
+      "name": "decimal.js-light",
+      "version": "2.5.1",
+      "purl": "pkg:npm/decimal.js-light@2.5.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/MikeMcl/decimal.js-light"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/dockview@7.0.2",
+      "name": "dockview",
+      "version": "7.0.2",
+      "purl": "pkg:npm/dockview@7.0.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/mathuo/dockview"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/dockview-core@7.0.2",
+      "name": "dockview-core",
+      "version": "7.0.2",
+      "purl": "pkg:npm/dockview-core@7.0.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/mathuo/dockview"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/dockview-react@7.0.2",
+      "name": "dockview-react",
+      "version": "7.0.2",
+      "purl": "pkg:npm/dockview-react@7.0.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/mathuo/dockview"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/es-toolkit@1.49.0",
+      "name": "es-toolkit",
+      "version": "1.49.0",
+      "purl": "pkg:npm/es-toolkit@1.49.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/toss/es-toolkit"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/eventemitter3@5.0.4",
+      "name": "eventemitter3",
+      "version": "5.0.4",
+      "purl": "pkg:npm/eventemitter3@5.0.4",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/primus/eventemitter3"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/immer@11.1.9",
+      "name": "immer",
+      "version": "11.1.9",
+      "purl": "pkg:npm/immer@11.1.9",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/immerjs/immer"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/internmap@2.0.3",
+      "name": "internmap",
+      "version": "2.0.3",
+      "purl": "pkg:npm/internmap@2.0.3",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/mbostock/internmap"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/lucide-react@1.23.0",
+      "name": "lucide-react",
+      "version": "1.23.0",
+      "purl": "pkg:npm/lucide-react@1.23.0",
+      "licenses": [
+        {
+          "expression": "ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/lucide-icons/lucide"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/react@19.2.7",
+      "name": "react",
+      "version": "19.2.7",
+      "purl": "pkg:npm/react@19.2.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/facebook/react"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/react-dom@19.2.7",
+      "name": "react-dom",
+      "version": "19.2.7",
+      "purl": "pkg:npm/react-dom@19.2.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/facebook/react"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/react-is@19.2.7",
+      "name": "react-is",
+      "version": "19.2.7",
+      "purl": "pkg:npm/react-is@19.2.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/facebook/react"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/react-redux@9.3.0",
+      "name": "react-redux",
+      "version": "9.3.0",
+      "purl": "pkg:npm/react-redux@9.3.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/reduxjs/react-redux"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/recharts@3.9.1",
+      "name": "recharts",
+      "version": "3.9.1",
+      "purl": "pkg:npm/recharts@3.9.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/recharts/recharts"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/redux@5.0.1",
+      "name": "redux",
+      "version": "5.0.1",
+      "purl": "pkg:npm/redux@5.0.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/reduxjs/redux"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/redux-thunk@3.1.0",
+      "name": "redux-thunk",
+      "version": "3.1.0",
+      "purl": "pkg:npm/redux-thunk@3.1.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/reduxjs/redux-thunk"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/reselect@5.2.0",
+      "name": "reselect",
+      "version": "5.2.0",
+      "purl": "pkg:npm/reselect@5.2.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/reduxjs/reselect"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/rolldown@1.1.4",
+      "name": "rolldown",
+      "version": "1.1.4",
+      "purl": "pkg:npm/rolldown@1.1.4",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/rolldown/rolldown"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/scheduler@0.27.0",
+      "name": "scheduler",
+      "version": "0.27.0",
+      "purl": "pkg:npm/scheduler@0.27.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/facebook/react"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/tailwindcss@4.3.2",
+      "name": "tailwindcss",
+      "version": "4.3.2",
+      "purl": "pkg:npm/tailwindcss@4.3.2",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/tailwindlabs/tailwindcss"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/tiny-invariant@1.3.3",
+      "name": "tiny-invariant",
+      "version": "1.3.3",
+      "purl": "pkg:npm/tiny-invariant@1.3.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/alexreardon/tiny-invariant"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/use-sync-external-store@1.6.0",
+      "name": "use-sync-external-store",
+      "version": "1.6.0",
+      "purl": "pkg:npm/use-sync-external-store@1.6.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/facebook/react"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/victory-vendor@37.3.6",
+      "name": "victory-vendor",
+      "version": "37.3.6",
+      "purl": "pkg:npm/victory-vendor@37.3.6",
+      "licenses": [
+        {
+          "expression": "MIT AND ISC"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/FormidableLabs/victory"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/vite@8.1.3",
+      "name": "vite",
+      "version": "8.1.3",
+      "purl": "pkg:npm/vite@8.1.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/vitejs/vite"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/zustand@4.5.7",
+      "name": "zustand",
+      "version": "4.5.7",
+      "purl": "pkg:npm/zustand@4.5.7",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pmndrs/zustand"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/zustand@5.0.14",
+      "name": "zustand",
+      "version": "5.0.14",
+      "purl": "pkg:npm/zustand@5.0.14",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pmndrs/zustand"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "User interface"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:npm/electron@44.4.0",
+      "name": "electron",
+      "version": "44.4.0",
+      "purl": "pkg:npm/electron@44.4.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/electron/electron"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Desktop shell"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/annotated-doc@0.0.5",
+      "name": "annotated-doc",
+      "version": "0.0.5",
+      "purl": "pkg:pypi/annotated-doc@0.0.5",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/fastapi/annotated-doc"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/annotated-types@0.8.0",
+      "name": "annotated-types",
+      "version": "0.8.0",
+      "purl": "pkg:pypi/annotated-types@0.8.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/annotated-types/annotated-types"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/anyio@4.15.1",
+      "name": "anyio",
+      "version": "4.15.1",
+      "purl": "pkg:pypi/anyio@4.15.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://anyio.readthedocs.io/en/stable/versionhistory.html"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/click@8.5.0",
+      "name": "click",
+      "version": "8.5.0",
+      "purl": "pkg:pypi/click@8.5.0",
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pallets/click/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/fastapi@0.141.1",
+      "name": "fastapi",
+      "version": "0.141.1",
+      "purl": "pkg:pypi/fastapi@0.141.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/fastapi/fastapi"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/h11@0.16.0",
+      "name": "h11",
+      "version": "0.16.0",
+      "purl": "pkg:pypi/h11@0.16.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/python-hyper/h11"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/httptools@0.8.0",
+      "name": "httptools",
+      "version": "0.8.0",
+      "purl": "pkg:pypi/httptools@0.8.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/MagicStack/httptools"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/idna@3.20",
+      "name": "idna",
+      "version": "3.20",
+      "purl": "pkg:pypi/idna@3.20",
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/kjd/idna"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/packaging@26.3",
+      "name": "packaging",
+      "version": "26.3",
+      "purl": "pkg:pypi/packaging@26.3",
+      "licenses": [
+        {
+          "expression": "Apache-2.0 OR BSD-2-Clause"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pypa/packaging"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pydantic@2.13.5",
+      "name": "pydantic",
+      "version": "2.13.5",
+      "purl": "pkg:pypi/pydantic@2.13.5",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pydantic/pydantic"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pydantic-core@2.46.5",
+      "name": "pydantic_core",
+      "version": "2.46.5",
+      "purl": "pkg:pypi/pydantic-core@2.46.5",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pydantic"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ],
+      "components": [
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/ahash@0.8.12",
+          "name": "ahash",
+          "version": "0.8.12",
+          "purl": "pkg:cargo/ahash@0.8.12",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/aho-corasick@1.1.3",
+          "name": "aho-corasick",
+          "version": "1.1.3",
+          "purl": "pkg:cargo/aho-corasick@1.1.3",
+          "licenses": [
+            {
+              "expression": "Unlicense OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/allocator-api2@0.2.21",
+          "name": "allocator-api2",
+          "version": "0.2.21",
+          "purl": "pkg:cargo/allocator-api2@0.2.21",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/autocfg@1.3.0",
+          "name": "autocfg",
+          "version": "1.3.0",
+          "purl": "pkg:cargo/autocfg@1.3.0",
+          "licenses": [
+            {
+              "expression": "Apache-2.0 OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/base64@0.22.1",
+          "name": "base64",
+          "version": "0.22.1",
+          "purl": "pkg:cargo/base64@0.22.1",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/bitflags@2.9.1",
+          "name": "bitflags",
+          "version": "2.9.1",
+          "purl": "pkg:cargo/bitflags@2.9.1",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/bitvec@1.0.1",
+          "name": "bitvec",
+          "version": "1.0.1",
+          "purl": "pkg:cargo/bitvec@1.0.1",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/bumpalo@3.19.0",
+          "name": "bumpalo",
+          "version": "3.19.0",
+          "purl": "pkg:cargo/bumpalo@3.19.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/cc@1.0.101",
+          "name": "cc",
+          "version": "1.0.101",
+          "purl": "pkg:cargo/cc@1.0.101",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/cfg-if@1.0.0",
+          "name": "cfg-if",
+          "version": "1.0.0",
+          "purl": "pkg:cargo/cfg-if@1.0.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/displaydoc@0.2.5",
+          "name": "displaydoc",
+          "version": "0.2.5",
+          "purl": "pkg:cargo/displaydoc@0.2.5",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/enum_dispatch@0.3.13",
+          "name": "enum_dispatch",
+          "version": "0.3.13",
+          "purl": "pkg:cargo/enum_dispatch@0.3.13",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/equivalent@1.0.2",
+          "name": "equivalent",
+          "version": "1.0.2",
+          "purl": "pkg:cargo/equivalent@1.0.2",
+          "licenses": [
+            {
+              "expression": "Apache-2.0 OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/foldhash@0.2.0",
+          "name": "foldhash",
+          "version": "0.2.0",
+          "purl": "pkg:cargo/foldhash@0.2.0",
+          "licenses": [
+            {
+              "expression": "Zlib"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/form_urlencoded@1.2.2",
+          "name": "form_urlencoded",
+          "version": "1.2.2",
+          "purl": "pkg:cargo/form_urlencoded@1.2.2",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/funty@2.0.0",
+          "name": "funty",
+          "version": "2.0.0",
+          "purl": "pkg:cargo/funty@2.0.0",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/getrandom@0.3.3",
+          "name": "getrandom",
+          "version": "0.3.3",
+          "purl": "pkg:cargo/getrandom@0.3.3",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/hashbrown@0.16.1",
+          "name": "hashbrown",
+          "version": "0.16.1",
+          "purl": "pkg:cargo/hashbrown@0.16.1",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/heck@0.5.0",
+          "name": "heck",
+          "version": "0.5.0",
+          "purl": "pkg:cargo/heck@0.5.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/hex@0.4.3",
+          "name": "hex",
+          "version": "0.4.3",
+          "purl": "pkg:cargo/hex@0.4.3",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/icu_collections@1.5.0",
+          "name": "icu_collections",
+          "version": "1.5.0",
+          "purl": "pkg:cargo/icu_collections@1.5.0",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/icu_locid@1.5.0",
+          "name": "icu_locid",
+          "version": "1.5.0",
+          "purl": "pkg:cargo/icu_locid@1.5.0",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/icu_locid_transform@1.5.0",
+          "name": "icu_locid_transform",
+          "version": "1.5.0",
+          "purl": "pkg:cargo/icu_locid_transform@1.5.0",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/icu_locid_transform_data@1.5.0",
+          "name": "icu_locid_transform_data",
+          "version": "1.5.0",
+          "purl": "pkg:cargo/icu_locid_transform_data@1.5.0",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/icu_normalizer@1.5.0",
+          "name": "icu_normalizer",
+          "version": "1.5.0",
+          "purl": "pkg:cargo/icu_normalizer@1.5.0",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/icu_normalizer_data@1.5.0",
+          "name": "icu_normalizer_data",
+          "version": "1.5.0",
+          "purl": "pkg:cargo/icu_normalizer_data@1.5.0",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/icu_properties@1.5.1",
+          "name": "icu_properties",
+          "version": "1.5.1",
+          "purl": "pkg:cargo/icu_properties@1.5.1",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/icu_properties_data@1.5.0",
+          "name": "icu_properties_data",
+          "version": "1.5.0",
+          "purl": "pkg:cargo/icu_properties_data@1.5.0",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/icu_provider@1.5.0",
+          "name": "icu_provider",
+          "version": "1.5.0",
+          "purl": "pkg:cargo/icu_provider@1.5.0",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/icu_provider_macros@1.5.0",
+          "name": "icu_provider_macros",
+          "version": "1.5.0",
+          "purl": "pkg:cargo/icu_provider_macros@1.5.0",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/idna@1.1.0",
+          "name": "idna",
+          "version": "1.1.0",
+          "purl": "pkg:cargo/idna@1.1.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/idna_adapter@1.2.0",
+          "name": "idna_adapter",
+          "version": "1.2.0",
+          "purl": "pkg:cargo/idna_adapter@1.2.0",
+          "licenses": [
+            {
+              "expression": "Apache-2.0 OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/itoa@1.0.11",
+          "name": "itoa",
+          "version": "1.0.11",
+          "purl": "pkg:cargo/itoa@1.0.11",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/jiter@0.14.0",
+          "name": "jiter",
+          "version": "0.14.0",
+          "purl": "pkg:cargo/jiter@0.14.0",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/js-sys@0.3.77",
+          "name": "js-sys",
+          "version": "0.3.77",
+          "purl": "pkg:cargo/js-sys@0.3.77",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/lexical-parse-float@1.0.5",
+          "name": "lexical-parse-float",
+          "version": "1.0.5",
+          "purl": "pkg:cargo/lexical-parse-float@1.0.5",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/lexical-parse-integer@1.0.5",
+          "name": "lexical-parse-integer",
+          "version": "1.0.5",
+          "purl": "pkg:cargo/lexical-parse-integer@1.0.5",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/lexical-util@1.0.6",
+          "name": "lexical-util",
+          "version": "1.0.6",
+          "purl": "pkg:cargo/lexical-util@1.0.6",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/libc@0.2.185",
+          "name": "libc",
+          "version": "0.2.185",
+          "purl": "pkg:cargo/libc@0.2.185",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/litemap@0.7.3",
+          "name": "litemap",
+          "version": "0.7.3",
+          "purl": "pkg:cargo/litemap@0.7.3",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/log@0.4.27",
+          "name": "log",
+          "version": "0.4.27",
+          "purl": "pkg:cargo/log@0.4.27",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/lru@0.16.3",
+          "name": "lru",
+          "version": "0.16.3",
+          "purl": "pkg:cargo/lru@0.16.3",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/memchr@2.7.4",
+          "name": "memchr",
+          "version": "2.7.4",
+          "purl": "pkg:cargo/memchr@2.7.4",
+          "licenses": [
+            {
+              "expression": "Unlicense OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/num-bigint@0.4.6",
+          "name": "num-bigint",
+          "version": "0.4.6",
+          "purl": "pkg:cargo/num-bigint@0.4.6",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/num-integer@0.1.46",
+          "name": "num-integer",
+          "version": "0.1.46",
+          "purl": "pkg:cargo/num-integer@0.1.46",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/num-traits@0.2.19",
+          "name": "num-traits",
+          "version": "0.2.19",
+          "purl": "pkg:cargo/num-traits@0.2.19",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/once_cell@1.21.3",
+          "name": "once_cell",
+          "version": "1.21.3",
+          "purl": "pkg:cargo/once_cell@1.21.3",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/percent-encoding@2.3.2",
+          "name": "percent-encoding",
+          "version": "2.3.2",
+          "purl": "pkg:cargo/percent-encoding@2.3.2",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/portable-atomic@1.6.0",
+          "name": "portable-atomic",
+          "version": "1.6.0",
+          "purl": "pkg:cargo/portable-atomic@1.6.0",
+          "licenses": [
+            {
+              "expression": "Apache-2.0 OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/proc-macro2@1.0.86",
+          "name": "proc-macro2",
+          "version": "1.0.86",
+          "purl": "pkg:cargo/proc-macro2@1.0.86",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/pyo3-build-config@0.28.3",
+          "name": "pyo3-build-config",
+          "version": "0.28.3",
+          "purl": "pkg:cargo/pyo3-build-config@0.28.3",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/pyo3-ffi@0.28.3",
+          "name": "pyo3-ffi",
+          "version": "0.28.3",
+          "purl": "pkg:cargo/pyo3-ffi@0.28.3",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/pyo3-macros-backend@0.28.3",
+          "name": "pyo3-macros-backend",
+          "version": "0.28.3",
+          "purl": "pkg:cargo/pyo3-macros-backend@0.28.3",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/pyo3-macros@0.28.3",
+          "name": "pyo3-macros",
+          "version": "0.28.3",
+          "purl": "pkg:cargo/pyo3-macros@0.28.3",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/pyo3@0.28.3",
+          "name": "pyo3",
+          "version": "0.28.3",
+          "purl": "pkg:cargo/pyo3@0.28.3",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/python3-dll-a@0.2.14",
+          "name": "python3-dll-a",
+          "version": "0.2.14",
+          "purl": "pkg:cargo/python3-dll-a@0.2.14",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/quote@1.0.44",
+          "name": "quote",
+          "version": "1.0.44",
+          "purl": "pkg:cargo/quote@1.0.44",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/r-efi@5.2.0",
+          "name": "r-efi",
+          "version": "5.2.0",
+          "purl": "pkg:cargo/r-efi@5.2.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0 OR LGPL-2.1-or-later"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/radium@0.7.0",
+          "name": "radium",
+          "version": "0.7.0",
+          "purl": "pkg:cargo/radium@0.7.0",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/regex-automata@0.4.13",
+          "name": "regex-automata",
+          "version": "0.4.13",
+          "purl": "pkg:cargo/regex-automata@0.4.13",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/regex-syntax@0.8.5",
+          "name": "regex-syntax",
+          "version": "0.8.5",
+          "purl": "pkg:cargo/regex-syntax@0.8.5",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/regex@1.12.3",
+          "name": "regex",
+          "version": "1.12.3",
+          "purl": "pkg:cargo/regex@1.12.3",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/rustversion@1.0.17",
+          "name": "rustversion",
+          "version": "1.0.17",
+          "purl": "pkg:cargo/rustversion@1.0.17",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/serde@1.0.228",
+          "name": "serde",
+          "version": "1.0.228",
+          "purl": "pkg:cargo/serde@1.0.228",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/serde_core@1.0.228",
+          "name": "serde_core",
+          "version": "1.0.228",
+          "purl": "pkg:cargo/serde_core@1.0.228",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/serde_derive@1.0.228",
+          "name": "serde_derive",
+          "version": "1.0.228",
+          "purl": "pkg:cargo/serde_derive@1.0.228",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/serde_json@1.0.149",
+          "name": "serde_json",
+          "version": "1.0.149",
+          "purl": "pkg:cargo/serde_json@1.0.149",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/smallvec@1.15.1",
+          "name": "smallvec",
+          "version": "1.15.1",
+          "purl": "pkg:cargo/smallvec@1.15.1",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/speedate@0.17.0",
+          "name": "speedate",
+          "version": "0.17.0",
+          "purl": "pkg:cargo/speedate@0.17.0",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/stable_deref_trait@1.2.0",
+          "name": "stable_deref_trait",
+          "version": "1.2.0",
+          "purl": "pkg:cargo/stable_deref_trait@1.2.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/static_assertions@1.1.0",
+          "name": "static_assertions",
+          "version": "1.1.0",
+          "purl": "pkg:cargo/static_assertions@1.1.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/strum@0.27.2",
+          "name": "strum",
+          "version": "0.27.2",
+          "purl": "pkg:cargo/strum@0.27.2",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/strum_macros@0.27.2",
+          "name": "strum_macros",
+          "version": "0.27.2",
+          "purl": "pkg:cargo/strum_macros@0.27.2",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/syn@2.0.82",
+          "name": "syn",
+          "version": "2.0.82",
+          "purl": "pkg:cargo/syn@2.0.82",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/synstructure@0.13.1",
+          "name": "synstructure",
+          "version": "0.13.1",
+          "purl": "pkg:cargo/synstructure@0.13.1",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/tap@1.0.1",
+          "name": "tap",
+          "version": "1.0.1",
+          "purl": "pkg:cargo/tap@1.0.1",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/target-lexicon@0.13.4",
+          "name": "target-lexicon",
+          "version": "0.13.4",
+          "purl": "pkg:cargo/target-lexicon@0.13.4",
+          "licenses": [
+            {
+              "expression": "Apache-2.0 WITH LLVM-exception"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/tinystr@0.7.6",
+          "name": "tinystr",
+          "version": "0.7.6",
+          "purl": "pkg:cargo/tinystr@0.7.6",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/unicode-ident@1.0.12",
+          "name": "unicode-ident",
+          "version": "1.0.12",
+          "purl": "pkg:cargo/unicode-ident@1.0.12",
+          "licenses": [
+            {
+              "expression": "(MIT OR Apache-2.0) AND Unicode-DFS-2016"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/url@2.5.8",
+          "name": "url",
+          "version": "2.5.8",
+          "purl": "pkg:cargo/url@2.5.8",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/utf16_iter@1.0.5",
+          "name": "utf16_iter",
+          "version": "1.0.5",
+          "purl": "pkg:cargo/utf16_iter@1.0.5",
+          "licenses": [
+            {
+              "expression": "Apache-2.0 OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/utf8_iter@1.0.4",
+          "name": "utf8_iter",
+          "version": "1.0.4",
+          "purl": "pkg:cargo/utf8_iter@1.0.4",
+          "licenses": [
+            {
+              "expression": "Apache-2.0 OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/uuid@1.23.0",
+          "name": "uuid",
+          "version": "1.23.0",
+          "purl": "pkg:cargo/uuid@1.23.0",
+          "licenses": [
+            {
+              "expression": "Apache-2.0 OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/version_check@0.9.5",
+          "name": "version_check",
+          "version": "0.9.5",
+          "purl": "pkg:cargo/version_check@0.9.5",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/wasi@0.14.2+wasi-0.2.4",
+          "name": "wasi",
+          "version": "0.14.2+wasi-0.2.4",
+          "purl": "pkg:cargo/wasi@0.14.2+wasi-0.2.4",
+          "licenses": [
+            {
+              "expression": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/wasm-bindgen-backend@0.2.100",
+          "name": "wasm-bindgen-backend",
+          "version": "0.2.100",
+          "purl": "pkg:cargo/wasm-bindgen-backend@0.2.100",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/wasm-bindgen-macro-support@0.2.100",
+          "name": "wasm-bindgen-macro-support",
+          "version": "0.2.100",
+          "purl": "pkg:cargo/wasm-bindgen-macro-support@0.2.100",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/wasm-bindgen-macro@0.2.100",
+          "name": "wasm-bindgen-macro",
+          "version": "0.2.100",
+          "purl": "pkg:cargo/wasm-bindgen-macro@0.2.100",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/wasm-bindgen-shared@0.2.100",
+          "name": "wasm-bindgen-shared",
+          "version": "0.2.100",
+          "purl": "pkg:cargo/wasm-bindgen-shared@0.2.100",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/wasm-bindgen@0.2.100",
+          "name": "wasm-bindgen",
+          "version": "0.2.100",
+          "purl": "pkg:cargo/wasm-bindgen@0.2.100",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/wit-bindgen-rt@0.39.0",
+          "name": "wit-bindgen-rt",
+          "version": "0.39.0",
+          "purl": "pkg:cargo/wit-bindgen-rt@0.39.0",
+          "licenses": [
+            {
+              "expression": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/write16@1.0.0",
+          "name": "write16",
+          "version": "1.0.0",
+          "purl": "pkg:cargo/write16@1.0.0",
+          "licenses": [
+            {
+              "expression": "Apache-2.0 OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/writeable@0.5.5",
+          "name": "writeable",
+          "version": "0.5.5",
+          "purl": "pkg:cargo/writeable@0.5.5",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/wyz@0.5.1",
+          "name": "wyz",
+          "version": "0.5.1",
+          "purl": "pkg:cargo/wyz@0.5.1",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/yoke-derive@0.7.4",
+          "name": "yoke-derive",
+          "version": "0.7.4",
+          "purl": "pkg:cargo/yoke-derive@0.7.4",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/yoke@0.7.4",
+          "name": "yoke",
+          "version": "0.7.4",
+          "purl": "pkg:cargo/yoke@0.7.4",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/zerocopy-derive@0.8.25",
+          "name": "zerocopy-derive",
+          "version": "0.8.25",
+          "purl": "pkg:cargo/zerocopy-derive@0.8.25",
+          "licenses": [
+            {
+              "expression": "BSD-2-Clause OR Apache-2.0 OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/zerocopy@0.8.25",
+          "name": "zerocopy",
+          "version": "0.8.25",
+          "purl": "pkg:cargo/zerocopy@0.8.25",
+          "licenses": [
+            {
+              "expression": "BSD-2-Clause OR Apache-2.0 OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/zerofrom-derive@0.1.4",
+          "name": "zerofrom-derive",
+          "version": "0.1.4",
+          "purl": "pkg:cargo/zerofrom-derive@0.1.4",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/zerofrom@0.1.4",
+          "name": "zerofrom",
+          "version": "0.1.4",
+          "purl": "pkg:cargo/zerofrom@0.1.4",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/zerovec-derive@0.10.3",
+          "name": "zerovec-derive",
+          "version": "0.10.3",
+          "purl": "pkg:cargo/zerovec-derive@0.10.3",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/zerovec@0.10.4",
+          "name": "zerovec",
+          "version": "0.10.4",
+          "purl": "pkg:cargo/zerovec@0.10.4",
+          "licenses": [
+            {
+              "expression": "Unicode-3.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/pydantic-core@2.46.5/pkg:cargo/zmij@1.0.6",
+          "name": "zmij",
+          "version": "1.0.6",
+          "purl": "pkg:cargo/zmij@1.0.6",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pyinstaller@6.22.3",
+      "name": "pyinstaller",
+      "version": "6.22.3",
+      "purl": "pkg:pypi/pyinstaller@6.22.3",
+      "licenses": [
+        {
+          "expression": "GPL-2.0-or-later WITH Bootloader-exception AND Apache-2.0"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://pyinstaller.org"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/python-dotenv@1.2.3",
+      "name": "python-dotenv",
+      "version": "1.2.3",
+      "purl": "pkg:pypi/python-dotenv@1.2.3",
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/theskumar/python-dotenv"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pyyaml@6.0.3",
+      "name": "PyYAML",
+      "version": "6.0.3",
+      "purl": "pkg:pypi/pyyaml@6.0.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://pyyaml.org/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/setuptools@79.0.1",
+      "name": "setuptools",
+      "version": "79.0.1",
+      "purl": "pkg:pypi/setuptools@79.0.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pypa/setuptools"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ],
+      "components": [
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/setuptools@79.0.1/pkg:pypi/backports-tarfile@1.2.0",
+          "name": "backports.tarfile",
+          "version": "1.2.0",
+          "purl": "pkg:pypi/backports-tarfile@1.2.0",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/setuptools@79.0.1/pkg:pypi/importlib-metadata@8.0.0",
+          "name": "importlib_metadata",
+          "version": "8.0.0",
+          "purl": "pkg:pypi/importlib-metadata@8.0.0",
+          "licenses": [
+            {
+              "expression": "Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/setuptools@79.0.1/pkg:pypi/jaraco-context@5.3.0",
+          "name": "jaraco.context",
+          "version": "5.3.0",
+          "purl": "pkg:pypi/jaraco-context@5.3.0",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/setuptools@79.0.1/pkg:pypi/jaraco-functools@4.0.1",
+          "name": "jaraco.functools",
+          "version": "4.0.1",
+          "purl": "pkg:pypi/jaraco-functools@4.0.1",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/setuptools@79.0.1/pkg:pypi/jaraco-text@3.12.1",
+          "name": "jaraco.text",
+          "version": "3.12.1",
+          "purl": "pkg:pypi/jaraco-text@3.12.1",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/setuptools@79.0.1/pkg:pypi/more-itertools@10.3.0",
+          "name": "more-itertools",
+          "version": "10.3.0",
+          "purl": "pkg:pypi/more-itertools@10.3.0",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/setuptools@79.0.1/pkg:pypi/packaging@24.2",
+          "name": "packaging",
+          "version": "24.2",
+          "purl": "pkg:pypi/packaging@24.2",
+          "licenses": [
+            {
+              "expression": "Apache-2.0 OR BSD-2-Clause"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/setuptools@79.0.1/pkg:pypi/platformdirs@4.2.2",
+          "name": "platformdirs",
+          "version": "4.2.2",
+          "purl": "pkg:pypi/platformdirs@4.2.2",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/setuptools@79.0.1/pkg:pypi/tomli@2.0.1",
+          "name": "tomli",
+          "version": "2.0.1",
+          "purl": "pkg:pypi/tomli@2.0.1",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/setuptools@79.0.1/pkg:pypi/wheel@0.45.1",
+          "name": "wheel",
+          "version": "0.45.1",
+          "purl": "pkg:pypi/wheel@0.45.1",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/setuptools@79.0.1/pkg:pypi/zipp@3.19.2",
+          "name": "zipp",
+          "version": "3.19.2",
+          "purl": "pkg:pypi/zipp@3.19.2",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/starlette@1.6.0",
+      "name": "starlette",
+      "version": "1.6.0",
+      "purl": "pkg:pypi/starlette@1.6.0",
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/Kludex/starlette"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/typing-extensions@4.16.0",
+      "name": "typing_extensions",
+      "version": "4.16.0",
+      "purl": "pkg:pypi/typing-extensions@4.16.0",
+      "licenses": [
+        {
+          "expression": "PSF-2.0"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/python/typing_extensions"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/typing-inspection@0.4.4",
+      "name": "typing-inspection",
+      "version": "0.4.4",
+      "purl": "pkg:pypi/typing-inspection@0.4.4",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pydantic/typing-inspection"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/uvicorn@0.53.0",
+      "name": "uvicorn",
+      "version": "0.53.0",
+      "purl": "pkg:pypi/uvicorn@0.53.0",
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://uvicorn.dev/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/uvloop@0.22.1",
+      "name": "uvloop",
+      "version": "0.22.1",
+      "purl": "pkg:pypi/uvloop@0.22.1",
+      "licenses": [
+        {
+          "expression": "Apache-2.0 OR MIT"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/watchfiles@1.3.0",
+      "name": "watchfiles",
+      "version": "1.3.0",
+      "purl": "pkg:pypi/watchfiles@1.3.0",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/samuelcolvin/watchfiles"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ],
+      "components": [
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/bitflags@2.7.0",
+          "name": "bitflags",
+          "version": "2.7.0",
+          "purl": "pkg:cargo/bitflags@2.7.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/cfg-if@1.0.0",
+          "name": "cfg-if",
+          "version": "1.0.0",
+          "purl": "pkg:cargo/cfg-if@1.0.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/crossbeam-channel@0.5.15",
+          "name": "crossbeam-channel",
+          "version": "0.5.15",
+          "purl": "pkg:cargo/crossbeam-channel@0.5.15",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/crossbeam-utils@0.8.19",
+          "name": "crossbeam-utils",
+          "version": "0.8.19",
+          "purl": "pkg:cargo/crossbeam-utils@0.8.19",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/filetime@0.2.24",
+          "name": "filetime",
+          "version": "0.2.24",
+          "purl": "pkg:cargo/filetime@0.2.24",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/heck@0.5.0",
+          "name": "heck",
+          "version": "0.5.0",
+          "purl": "pkg:cargo/heck@0.5.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/inotify-sys@0.1.5",
+          "name": "inotify-sys",
+          "version": "0.1.5",
+          "purl": "pkg:cargo/inotify-sys@0.1.5",
+          "licenses": [
+            {
+              "expression": "ISC"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/inotify@0.11.0",
+          "name": "inotify",
+          "version": "0.11.0",
+          "purl": "pkg:cargo/inotify@0.11.0",
+          "licenses": [
+            {
+              "expression": "ISC"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/libc@0.2.169",
+          "name": "libc",
+          "version": "0.2.169",
+          "purl": "pkg:cargo/libc@0.2.169",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/log@0.4.22",
+          "name": "log",
+          "version": "0.4.22",
+          "purl": "pkg:cargo/log@0.4.22",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/mio@1.0.3",
+          "name": "mio",
+          "version": "1.0.3",
+          "purl": "pkg:cargo/mio@1.0.3",
+          "licenses": [
+            {
+              "expression": "MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/notify-types@2.0.0",
+          "name": "notify-types",
+          "version": "2.0.0",
+          "purl": "pkg:cargo/notify-types@2.0.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/notify@8.0.0",
+          "name": "notify",
+          "version": "8.0.0",
+          "purl": "pkg:cargo/notify@8.0.0",
+          "licenses": [
+            {
+              "expression": "CC0-1.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/once_cell@1.21.3",
+          "name": "once_cell",
+          "version": "1.21.3",
+          "purl": "pkg:cargo/once_cell@1.21.3",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/proc-macro2@1.0.81",
+          "name": "proc-macro2",
+          "version": "1.0.81",
+          "purl": "pkg:cargo/proc-macro2@1.0.81",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/pyo3-build-config@0.29.0",
+          "name": "pyo3-build-config",
+          "version": "0.29.0",
+          "purl": "pkg:cargo/pyo3-build-config@0.29.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/pyo3-ffi@0.29.0",
+          "name": "pyo3-ffi",
+          "version": "0.29.0",
+          "purl": "pkg:cargo/pyo3-ffi@0.29.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/pyo3-macros-backend@0.29.0",
+          "name": "pyo3-macros-backend",
+          "version": "0.29.0",
+          "purl": "pkg:cargo/pyo3-macros-backend@0.29.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/pyo3-macros@0.29.0",
+          "name": "pyo3-macros",
+          "version": "0.29.0",
+          "purl": "pkg:cargo/pyo3-macros@0.29.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/pyo3@0.29.0",
+          "name": "pyo3",
+          "version": "0.29.0",
+          "purl": "pkg:cargo/pyo3@0.29.0",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/quote@1.0.45",
+          "name": "quote",
+          "version": "1.0.45",
+          "purl": "pkg:cargo/quote@1.0.45",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/same-file@1.0.6",
+          "name": "same-file",
+          "version": "1.0.6",
+          "purl": "pkg:cargo/same-file@1.0.6",
+          "licenses": [
+            {
+              "expression": "Unlicense OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/syn@2.0.60",
+          "name": "syn",
+          "version": "2.0.60",
+          "purl": "pkg:cargo/syn@2.0.60",
+          "licenses": [
+            {
+              "expression": "MIT OR Apache-2.0"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/target-lexicon@0.13.5",
+          "name": "target-lexicon",
+          "version": "0.13.5",
+          "purl": "pkg:cargo/target-lexicon@0.13.5",
+          "licenses": [
+            {
+              "expression": "Apache-2.0 WITH LLVM-exception"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/unicode-ident@1.0.12",
+          "name": "unicode-ident",
+          "version": "1.0.12",
+          "purl": "pkg:cargo/unicode-ident@1.0.12",
+          "licenses": [
+            {
+              "expression": "(MIT OR Apache-2.0) AND Unicode-DFS-2016"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        },
+        {
+          "type": "library",
+          "bom-ref": "pkg:pypi/watchfiles@1.3.0/pkg:cargo/walkdir@2.5.0",
+          "name": "walkdir",
+          "version": "2.5.0",
+          "purl": "pkg:cargo/walkdir@2.5.0",
+          "licenses": [
+            {
+              "expression": "Unlicense OR MIT"
+            }
+          ],
+          "properties": [
+            {
+              "name": "lightsim:part",
+              "value": "Simulation engine"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/websockets@17.1",
+      "name": "websockets",
+      "version": "17.1",
+      "purl": "pkg:pypi/websockets@17.1",
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/python-websockets/websockets"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:generic/cpython@3.11.15",
+      "name": "CPython (Python runtime and standard library)",
+      "version": "3.11.15",
+      "purl": "pkg:generic/cpython@3.11.15",
+      "licenses": [
+        {
+          "expression": "PSF-2.0"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.python.org/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "Simulation engine/OpenSSL",
+      "name": "OpenSSL",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.openssl.org/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "Simulation engine/libffi",
+      "name": "libffi",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://sourceware.org/libffi/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "Simulation engine/zlib",
+      "name": "zlib",
+      "licenses": [
+        {
+          "expression": "Zlib"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://zlib.net/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "Simulation engine/bzip2 (libbz2)",
+      "name": "bzip2 (libbz2)",
+      "licenses": [
+        {
+          "expression": "bzip2-1.0.6"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://sourceware.org/bzip2/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "Simulation engine/XZ Utils (liblzma)",
+      "name": "XZ Utils (liblzma)",
+      "licenses": [
+        {
+          "expression": "0BSD"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://tukaani.org/xz/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "Simulation engine/Expat",
+      "name": "Expat",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://libexpat.github.io/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "Simulation engine/libuuid (util-linux)",
+      "name": "libuuid (util-linux)",
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/util-linux/util-linux"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "Simulation engine/GCC runtime libraries (libgcc_s, libstdc++)",
+      "name": "GCC runtime libraries (libgcc_s, libstdc++)",
+      "licenses": [
+        {
+          "expression": "GPL-3.0-or-later WITH GCC-exception-3.1"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://gcc.gnu.org/"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Simulation engine"
+        }
+      ]
+    },
+    {
+      "type": "data",
+      "bom-ref": "pkg:pypi/fastsim@2.1.5",
+      "name": "FASTSim vehicle and drive-cycle data",
+      "version": "2.1.5",
+      "purl": "pkg:pypi/fastsim@2.1.5",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/NatLabRockies/fastsim"
+        }
+      ],
+      "properties": [
+        {
+          "name": "lightsim:part",
+          "value": "Example data"
+        }
+      ]
+    }
+  ]
+}

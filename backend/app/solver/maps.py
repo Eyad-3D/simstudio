@@ -55,14 +55,22 @@ def interp1(points: Points1D, x: float) -> float:
         return 0.0
     if x <= points[0][0]:
         return points[0][1]
-    if x >= points[-1][0]:
+    if x >= points[-1][0] or x != x:  # NaN: no segment holds it
         return points[-1][1]
-    for (xa, ya), (xb, yb) in zip(points, points[1:]):
-        if xa <= x <= xb:
-            if xb == xa:
-                return yb
-            return ya + (yb - ya) * (x - xa) / (xb - xa)
-    return points[-1][1]
+    # bisection for the first point at or beyond x: it ends the segment that
+    # holds x (an interior grid point belongs to the segment it ends)
+    lo, hi = 1, len(points) - 1
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if points[mid][0] < x:
+            lo = mid + 1
+        else:
+            hi = mid
+    xa, ya = points[lo - 1]
+    xb, yb = points[lo]
+    if xb == xa:
+        return yb
+    return ya + (yb - ya) * (x - xa) / (xb - xa)
 
 
 def interp2(sheets: Sheets2D, x_outer: float, x_inner: float) -> float:
@@ -73,13 +81,19 @@ def interp2(sheets: Sheets2D, x_outer: float, x_inner: float) -> float:
         return 0.0
     if x_outer <= sheets[0][0]:
         return interp1(sheets[0][1], x_inner)
-    if x_outer >= sheets[-1][0]:
+    if x_outer >= sheets[-1][0] or x_outer != x_outer:
         return interp1(sheets[-1][1], x_inner)
-    for (xa, pa), (xb, pb) in zip(sheets, sheets[1:]):
-        if xa <= x_outer <= xb:
-            ya = interp1(pa, x_inner)
-            yb = interp1(pb, x_inner)
-            if xb == xa:
-                return yb
-            return ya + (yb - ya) * (x_outer - xa) / (xb - xa)
-    return interp1(sheets[-1][1], x_inner)
+    lo, hi = 1, len(sheets) - 1  # bisection, as in interp1
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if sheets[mid][0] < x_outer:
+            lo = mid + 1
+        else:
+            hi = mid
+    xa, pa = sheets[lo - 1]
+    xb, pb = sheets[lo]
+    ya = interp1(pa, x_inner)
+    yb = interp1(pb, x_inner)
+    if xb == xa:
+        return yb
+    return ya + (yb - ya) * (x_outer - xa) / (xb - xa)

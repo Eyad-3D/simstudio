@@ -1,6 +1,8 @@
-"""Pydantic models mirroring the SimStudio project data model (spec §4).
+"""Pydantic models mirroring the LightSim project data model (spec §4).
 
 Field names use camelCase to match the frontend/JSON representation 1:1.
+The models a project file is made of accept fields they do not know and keep
+them, so a save through the engine never drops what a (newer) UI stored.
 """
 from __future__ import annotations
 
@@ -15,6 +17,10 @@ ScalarValue = Union[bool, int, float, str]
 Table1D = dict[str, float]
 Table2D = dict[str, dict[str, float]]
 ParamValue = Union[ScalarValue, Table2D, Table1D]
+
+# Project-file models keep unknown fields (canvas layout, newer UI data) on a
+# load → save round trip instead of silently dropping them.
+PERSISTED = ConfigDict(extra="allow")
 
 
 class PortDef(BaseModel):
@@ -66,7 +72,7 @@ class ComponentDef(BaseModel):
 
 
 class ElementInstance(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
     id: str
     componentDefId: str
@@ -78,11 +84,17 @@ class ElementInstance(BaseModel):
     dynamicPorts: list[PortDef] = Field(default_factory=list)
     # Per-instance canvas pin placement overrides: port id → left/right/top/bottom.
     portSides: dict[str, Literal["left", "right", "top", "bottom"]] = Field(default_factory=dict)
+    # Per-instance pin offset along its side, 0..1 (Shift+drag a pin).
+    portOffsets: dict[str, float] = Field(default_factory=dict)
+    # Canvas node size in flow units ({width, height}); None = default size.
+    size: Optional[dict[str, float]] = None
     isSubSystem: bool = False
     subSystemId: Optional[str] = None  # SystemNode this element drills into
 
 
 class Connection(BaseModel):
+    model_config = PERSISTED
+
     id: str
     sourceElementId: str
     sourcePortId: str
@@ -91,6 +103,8 @@ class Connection(BaseModel):
 
 
 class DataBusConnection(BaseModel):
+    model_config = PERSISTED
+
     id: str
     element1Id: str
     port1Id: str
@@ -99,6 +113,8 @@ class DataBusConnection(BaseModel):
 
 
 class SystemNode(BaseModel):
+    model_config = PERSISTED
+
     id: str
     name: str
     parentId: Optional[str] = None
@@ -107,11 +123,15 @@ class SystemNode(BaseModel):
 
 
 class SimCase(BaseModel):
+    model_config = PERSISTED
+
     id: str
     name: str
     duration: float = 600.0
-    timeStep: float = 1.0  # solver step; signals/blocks evaluate here, mechanics sub-step internally
-    # record a data point every N solver steps (output decimation); 1 = every step
+    # output step: results are stored and live edits applied at this interval;
+    # controllers, signal blocks and physics all run at the solver step (≤ 10 ms)
+    timeStep: float = 1.0
+    # record a data point every N output steps (further decimation); 1 = every step
     outputEvery: int = 1
     # 0 = run as fast as possible; N > 0 = pace at N× real time (for live tuning)
     realtimeFactor: float = 0.0
@@ -122,7 +142,60 @@ class SimCase(BaseModel):
     parameterOverrides: dict[str, dict[str, ParamValue]] = Field(default_factory=dict)
 
 
+class StudyFactor(BaseModel):
+    """One swept parameter of a study, with its labels as they were when it
+    ran (the element may be renamed or removed since)."""
+
+    model_config = PERSISTED
+
+    elementId: str
+    paramKey: str
+    elementLabel: str = ""
+    paramLabel: str = ""
+    unit: str = ""
+    values: list[float] = Field(default_factory=list)
+
+
+class StudyKpi(BaseModel):
+    """A column of a study's results table: a run summary value."""
+
+    model_config = PERSISTED
+
+    label: str
+    unit: str = ""
+
+
+class StudyPoint(BaseModel):
+    """A row of a study's results table: one point and its answers."""
+
+    model_config = PERSISTED
+
+    values: list[float]  # the factor values, in factor order
+    runId: Optional[str] = None  # the run may since have left the history
+    status: Literal["success", "failed", "warning", "not run"]
+    incomplete: Optional[str] = None  # why its run did not finish normally
+    kpis: dict[str, float] = Field(default_factory=dict)  # KPI label → value
+    notValid: dict[str, str] = Field(default_factory=dict)  # KPI label → why
+
+
+class Study(BaseModel):
+    """A parameter study saved with its project (STU-03): what was swept on
+    which case, and its compact results table."""
+
+    model_config = PERSISTED
+
+    id: str
+    startedAt: int  # epoch ms
+    caseId: str
+    caseName: str = ""
+    factors: list[StudyFactor]
+    kpis: list[StudyKpi] = Field(default_factory=list)
+    points: list[StudyPoint] = Field(default_factory=list)
+
+
 class Project(BaseModel):
+    model_config = PERSISTED
+
     id: str
     name: str
     # Project-file format version; bump when the shape changes so loaders can
@@ -134,6 +207,8 @@ class Project(BaseModel):
     systems: list[SystemNode]
     dataBusConnections: list[DataBusConnection] = Field(default_factory=list)
     cases: list[SimCase] = Field(default_factory=list)
+    # parameter studies run on this project, oldest first
+    studies: list[Study] = Field(default_factory=list)
 
 
 class SimMessage(BaseModel):
@@ -154,6 +229,8 @@ class SummaryValue(BaseModel):
     label: str
     value: float
     unit: str
+    # why this number is not valid (the run verdict), e.g. "cycle not followed"
+    notValid: Optional[str] = None
 
 
 class SimResult(BaseModel):
@@ -162,6 +239,53 @@ class SimResult(BaseModel):
     messages: list[SimMessage]
     channels: list[Channel]
     summary: list[SummaryValue] = Field(default_factory=list)
+
+
+class LiveEdit(BaseModel):
+    """A scalar parameter change sent to the engine while a run was going."""
+
+    model_config = PERSISTED
+
+    t: float  # simulated time the run had reached when it was sent, s
+    elementId: str
+    key: str
+    value: ScalarValue
+
+
+class RunSnapshot(BaseModel):
+    """What made a run (RES-09): the project and case exactly as they were
+    run (a sweep's value included), the app version, a fingerprint of the
+    project, and the live parameter edits made while it ran."""
+
+    model_config = PERSISTED
+
+    project: Project
+    case: SimCase
+    appVersion: Optional[str] = None
+    # SHA-256 of the project as canonical JSON (keys sorted), hex
+    modelHash: Optional[str] = None
+    liveEdits: list[LiveEdit] = Field(default_factory=list)
+
+
+class StoredRun(BaseModel):
+    """A finished run as the UI keeps it in its run history (``SimRun`` in
+    frontend/src/types.ts); stored on disk by :mod:`app.run_store`."""
+
+    id: str
+    caseId: str
+    caseName: str
+    startedAt: int  # epoch ms
+    status: Literal["success", "failed", "warning"]
+    result: SimResult
+    # sweep membership and the swept value (parameter sweeps only)
+    sweepId: Optional[str] = None
+    sweepParam: Optional[str] = None
+    sweepValue: Optional[float] = None
+    sweepUnit: Optional[str] = None
+    # why the run is not a complete result (stopped, failed, connection lost)
+    incomplete: Optional[str] = None
+    # absent on runs stored before runs kept one
+    snapshot: Optional[RunSnapshot] = None
 
 
 class DataCheck(BaseModel):

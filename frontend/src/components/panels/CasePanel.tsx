@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Play, Plus, Sliders, Square, X } from "lucide-react";
 import { useProjectStore } from "../../store/projectStore";
 import type { ComponentDef, ElementInstance, ParamValue, ParameterDef } from "../../types";
+import { StudiesList } from "./StudiesList";
 
 // Only scalar parameters are editable as per-case overrides here; tables and
 // code are edited in Properties. Sweeps additionally require a numeric param.
@@ -240,7 +241,7 @@ export function CasePanel() {
           </label>
           <label
             className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-            title="Solver step in seconds (min 0.0001). Signals & control blocks evaluate here; mechanics sub-step to ≤10 ms internally."
+            title="Output step in seconds (min 0.0001): results are stored and live edits applied at this interval. Controllers, scripts, the drive cycle and the physics run at the solver step (≤10 ms) whatever this is set to."
           >
             Step (s)
             <input
@@ -258,7 +259,7 @@ export function CasePanel() {
           </label>
           <label
             className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-            title="Record a result point every N solver steps (1 = every step). Keeps results small at fine step sizes."
+            title="Store a result point every N output steps (1 = every step). Keeps results small at fine step sizes."
           >
             Store every (steps)
             <input
@@ -496,6 +497,8 @@ export function CasePanel() {
             <Play size={13} /> Run sweep ({sweepValues.length})
           </button>
         </div>
+
+        <StudiesList />
       </div>
     </div>
   );

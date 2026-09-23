@@ -36,3 +36,20 @@ export function promptDialog(opts: {
     });
   });
 }
+
+/** Save / Don't save / Cancel. Esc or a click outside counts as Cancel. */
+export function unsavedChangesDialog(opts: {
+  title: string;
+  message?: string;
+}): Promise<"save" | "discard" | "cancel"> {
+  return new Promise((resolve) => {
+    useUIStore.getState().openDialog({
+      kind: "confirm",
+      ...opts,
+      confirmLabel: "Save",
+      altLabel: "Don't save",
+      cancelLabel: "Cancel",
+      resolve: (v) => resolve(v === true ? "save" : v === "alt" ? "discard" : "cancel"),
+    });
+  });
+}

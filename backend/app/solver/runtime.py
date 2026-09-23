@@ -33,8 +33,30 @@ class SingularMatrixError(RuntimeError):
 
 
 def solve_linear(m: list[list[float]], q: list[float]) -> list[float]:
-    """Gaussian elimination with partial pivoting (systems are tiny)."""
+    """Gaussian elimination with partial pivoting (systems are tiny). One-
+    and two-coordinate systems, the common drivelines, are solved inline
+    with exactly the operations of the general loop below."""
     n = len(q)
+    if n == 1:
+        a00 = m[0][0]
+        if abs(a00) < 1e-12:
+            raise SingularMatrixError(f"pivot {a00:.3e} in column 1 of 1")
+        return [q[0] / a00]
+    if n == 2:
+        (a00, a01), (a10, a11) = m
+        q0, q1 = q
+        if abs(a10) > abs(a00):  # pivot; a tie keeps the first row, as max() does
+            a00, a01, q0, a10, a11, q1 = a10, a11, q1, a00, a01, q0
+        if abs(a00) < 1e-12:
+            raise SingularMatrixError(f"pivot {a00:.3e} in column 1 of 2")
+        fac = a10 / a00
+        if fac:
+            a11 -= fac * a01
+            q1 -= fac * q0
+        if abs(a11) < 1e-12:
+            raise SingularMatrixError(f"pivot {a11:.3e} in column 2 of 2")
+        x1 = q1 / a11
+        return [(q0 - (0.0 + a01 * x1)) / a00, x1]
     a = [row[:] + [q[i]] for i, row in enumerate(m)]
     for col in range(n):
         piv = max(range(col, n), key=lambda r: abs(a[r][col]))
@@ -90,6 +112,17 @@ class MotorCache:
     p_mech_w: float = 0.0
     p_loss_w: float = 0.0
     p_elec_w: float = 0.0
+    # source-limit handshake: this step's electrical power window (W) and the
+    # time the supply held the torque below the command
+    p_lo_w: float = -math.inf
+    p_hi_w: float = math.inf
+    limited_s: float = 0.0
+    # regeneration the command asked for that the supply could not take
+    # (electrical energy the motor was not allowed to feed back)
+    regen_lost_wh: float = 0.0
+    # (command, speed, torque, inverter on, electrical W) evaluated by the
+    # handshake this step, reused when the mechanics apply the same command
+    request: Optional[tuple] = None
 
 
 @dataclass
@@ -99,6 +132,7 @@ class EngineCache:
     drag: list
     fuel_map: list
     idle_rpm: float
+    reentry_rpm: float  # zero throttle above this speed cuts the fuel
     rpm: float = 0.0
     torque: float = 0.0
     fuel_kgh: float = 0.0
@@ -154,6 +188,11 @@ class DrivelineState:
     clutch_torque: dict[str, float] = field(default_factory=dict)
     clutch_slip: dict[str, float] = field(default_factory=dict)
     chain_power_w: float = 0.0
+    # solver-step view of the plan (domains.DrivelineLayout), built on first
+    # use and dropped whenever the plan is rebuilt
+    layout: Optional[object] = None
+    # segment speeds at the end of the last solver step
+    omega_end: list[float] = field(default_factory=list)
 
 
 class Runtime:
@@ -312,7 +351,8 @@ def make_plan(dl: Driveline, params_of: dict, gear_of: dict[str, float]) -> Driv
     ]
     plan.x = [0.0] * plan.n
 
-    # torque-weighted split-efficiency chain below each segment
+    # torque-weighted split-efficiency chain below each segment: the split,
+    # then each child's gears from the split to its own output, and so on
     split_below: dict[int, object] = {}
     for j in dl.joints:
         if j.kind == "split" and j.parent_seg >= 0:
@@ -324,8 +364,11 @@ def make_plan(dl: Driveline, params_of: dict, gear_of: dict[str, float]) -> Driv
         j = split_below.get(seg_idx)
         if j is None:
             return 1.0
-        return j.eff * ((1.0 - j.f_b) * eff_chain(j.child_a, depth + 1)
-                        + j.f_b * eff_chain(j.child_b, depth + 1))
+        seg_a, seg_b = dl.segments[j.child_a], dl.segments[j.child_b]
+        return j.eff * ((1.0 - j.f_b) * seg_a.path_eff(j.child_a_region)
+                        * eff_chain(j.child_a, depth + 1)
+                        + j.f_b * seg_b.path_eff(j.child_b_region)
+                        * eff_chain(j.child_b, depth + 1))
 
     plan.eff_chain = [eff_chain(s) for s in range(n_seg)]
     return plan

@@ -5,7 +5,8 @@
  * Unit tests run against source Python, so they cannot see what PyInstaller
  * left out of the bundle. This starts the real executable and exercises the
  * paths that depend on the bundle being complete: the component library, the
- * example projects, a REST simulation, and a live run over the WebSocket.
+ * example projects, a REST simulation, a live run over the WebSocket, and a
+ * run with a Script block (its worker process is a copy of the executable).
  * (A missing websockets module passed every unit test and would have shipped
  * a broken "Run" button — hence this script.)
  *
@@ -18,8 +19,8 @@ import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const isWindows = process.platform === "win32";
-const exeName = isWindows ? "simstudio-backend.exe" : "simstudio-backend";
-const exe = process.argv[2] ?? join(root, "backend", "dist", "simstudio-backend", exeName);
+const exeName = isWindows ? "lightsim-backend.exe" : "lightsim-backend";
+const exe = process.argv[2] ?? join(root, "backend", "dist", "lightsim-backend", exeName);
 const PORT = 8971;
 const base = `http://127.0.0.1:${PORT}`;
 
@@ -30,7 +31,7 @@ if (!existsSync(exe)) {
 
 let log = "";
 const child = spawn(exe, ["--port", String(PORT), "--host", "127.0.0.1"], {
-  env: { ...process.env, SIMSTUDIO_PROJECTS_DIR: join(root, ".smoke-projects") },
+  env: { ...process.env, LIGHTSIM_PROJECTS_DIR: join(root, ".smoke-projects") },
 });
 child.stdout.on("data", (d) => (log += d));
 child.stderr.on("data", (d) => (log += d));
@@ -81,13 +82,13 @@ try {
   if (!lib.components?.length) fail("component library came back empty");
   console.log(`✓ library: ${lib.components.length} components`);
 
-  const projects = await (await fetch(`${base}/api/projects`)).json();
-  if (!projects.length) fail("no example projects were seeded");
-  console.log(`✓ projects seeded: ${projects.map((p) => p.id).join(", ")}`);
+  const examples = await (await fetch(`${base}/api/examples`)).json();
+  if (!examples.length) fail("no example projects in the bundle");
+  console.log(`✓ examples: ${examples.map((p) => p.id).join(", ")}`);
 
-  const project = await (await fetch(`${base}/api/projects/${projects[0].id}`)).json();
+  const project = await (await fetch(`${base}/api/examples/${examples[0].id}`)).json();
   const caseId = project.cases?.[0]?.id;
-  if (!caseId) fail(`project '${projects[0].id}' has no simulation case`);
+  if (!caseId) fail(`example '${examples[0].id}' has no simulation case`);
 
   const rest = await (await fetch(`${base}/api/simulate`, {
     method: "POST",
@@ -101,6 +102,30 @@ try {
   if (live.result.status !== "success") fail(`live run returned '${live.result.status}'`);
   if (live.steps < 1) fail("live run streamed no steps — the WebSocket path is broken");
   console.log(`✓ live run: ${live.steps} streamed steps, ${live.result.channels.length} channels`);
+
+  // Script blocks run in a separate worker process that the frozen executable
+  // starts as a copy of itself, which only a frozen build can show works.
+  // Two minutes of an example with a Script block is enough.
+  let scripted = null;
+  for (const ex of examples) {
+    const p = await (await fetch(`${base}/api/examples/${ex.id}`)).json();
+    const hasScript = (p.systems ?? []).some((sys) =>
+      (sys.elements ?? []).some((el) => el.componentDefId === "signal.script"));
+    if (hasScript) { scripted = p; break; }
+  }
+  if (!scripted) fail("no example with a Script block to test the script worker with");
+  const sCase = { ...scripted.cases[0], duration: 120, realtimeFactor: 0 };
+  scripted.cases = [sCase, ...scripted.cases.slice(1)];
+  const sRun = await (await fetch(`${base}/api/simulate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project: scripted, caseId: sCase.id }),
+  })).json();
+  const errors = (sRun.messages ?? []).filter((m) => m.level === "error").map((m) => m.text);
+  if (sRun.status === "failed" || errors.length) {
+    fail(`scripted run of '${scripted.name}' returned '${sRun.status}': ${errors.join("; ")}`);
+  }
+  console.log(`✓ scripted run: '${scripted.name}' ${sRun.status}, script worker ok`);
 
   console.log("\nfrozen backend smoke test passed");
   stop();

@@ -1,6 +1,8 @@
 """Builders for solver test projects."""
 from __future__ import annotations
 
+from functools import lru_cache
+
 from app.schemas import (
     Connection,
     DataBusConnection,
@@ -8,8 +10,11 @@ from app.schemas import (
     PortDef,
     Project,
     SimCase,
+    SimResult,
     SystemNode,
 )
+from app.solver import simulate
+from app.storage import load_example
 
 
 def el(id_: str, def_id: str, label: str, **overrides) -> ElementInstance:
@@ -86,3 +91,10 @@ def series(result, el_id: str, port_id: str):
         if c.elementId == el_id and c.portId == port_id:
             return c.timeSeries
     raise KeyError(f"channel {el_id}:{port_id} not in result")
+
+
+@lru_cache(maxsize=None)
+def example_result(project_id: str, case_id: str) -> SimResult:
+    """A shipped example's case, run once per test session (read-only: the
+    result is shared by every test that asks for it)."""
+    return simulate(load_example(project_id), case_id)

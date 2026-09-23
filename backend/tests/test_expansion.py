@@ -172,8 +172,9 @@ def test_transfer_case_awd_locked_vs_open_on_icy_front_axle():
     r_open = simulate(_awd(False, 0.1), "case")
     r_lock = simulate(_awd(True, 0.1), "case")
     assert r_open.status in ("success", "warning"), [m.text for m in r_open.messages]
-    v_open = series(r_open, "veh", "sig_speed")[-1]["value"]
-    v_lock = series(r_lock, "veh", "sig_speed")[-1]["value"]
+    # compared while accelerating: both reach the 100 km/h plateau by t = 30 s
+    v_open = {p["t"]: p["value"] for p in series(r_open, "veh", "sig_speed")}[10.0]
+    v_lock = {p["t"]: p["value"] for p in series(r_lock, "veh", "sig_speed")}[10.0]
     slip_front_open = max(abs(p["value"]) for p in series(r_open, "wfl", "sig_slip"))
     assert slip_front_open > 0.5, "open center: icy front axle spins up"
     assert v_lock > v_open + 3, "locked center pushes torque to the gripping rear axle"

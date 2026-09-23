@@ -14,29 +14,34 @@ from pathlib import Path
 #: the temporary extraction dir; in a source checkout it is ``backend/``.
 BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent.parent))
 
-#: Demo/starter projects shipped with the app. Never written to.
-SEED_PROJECTS_DIR = BUNDLE_DIR / "projects"
+#: Example projects shipped with the app. The engine serves them read-only
+#: (app/storage.py) and never writes to this folder: in a source checkout it
+#: holds the repo's examples, which the golden tests also read.
+EXAMPLES_DIR = BUNDLE_DIR / "projects"
+
+#: Where projects are saved during development (ignored by git): beside the
+#: examples, never among them.
+DEV_PROJECTS_DIR = BUNDLE_DIR / "dev-projects"
 
 
 def projects_dir() -> Path:
     """Where user projects are read from and written to.
 
-    The desktop shell sets ``SIMSTUDIO_PROJECTS_DIR`` to a per-user app-data
-    path. Without it we fall back to the repo's ``backend/projects``, which is
-    what the development quickstart expects.
+    The desktop shell sets ``LIGHTSIM_PROJECTS_DIR`` to a per-user app-data
+    path. Without it (development) we fall back to ``backend/dev-projects``.
     """
-    override = os.environ.get("SIMSTUDIO_PROJECTS_DIR")
-    return Path(override).expanduser() if override else BUNDLE_DIR / "projects"
+    override = os.environ.get("LIGHTSIM_PROJECTS_DIR")
+    return Path(override).expanduser() if override else DEV_PROJECTS_DIR
 
 
 def static_dir() -> Path | None:
     """Built frontend to serve, or ``None`` when running API-only.
 
-    ``SIMSTUDIO_STATIC_DIR`` is set by the desktop shell; otherwise we look for
+    ``LIGHTSIM_STATIC_DIR`` is set by the desktop shell; otherwise we look for
     a local ``frontend/dist`` so ``uvicorn app.main:app`` also serves a UI once
     the frontend has been built.
     """
-    override = os.environ.get("SIMSTUDIO_STATIC_DIR")
+    override = os.environ.get("LIGHTSIM_STATIC_DIR")
     candidate = (
         Path(override).expanduser()
         if override

@@ -1,0 +1,11 @@
+Microsoft Visual C++ and Universal C runtime libraries
+
+Copyright (c) Microsoft Corporation. All rights reserved.
+
+These DLLs are the C and C++ runtime of the Python for Windows build that
+runs the simulation engine. Microsoft allows software vendors to
+redistribute them, unmodified, with their applications ("Distributable
+Code" under the Microsoft Visual Studio licence terms,
+https://visualstudio.microsoft.com/license-terms/). They remain the
+property of Microsoft Corporation and are not covered by LightSim's
+licence.

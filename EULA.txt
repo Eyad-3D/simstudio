@@ -1,8 +1,8 @@
-SimStudio End-User Licence Agreement
+LightSim End-User Licence Agreement
 
 Copyright (c) 2026 Eyad Abualkhair. All rights reserved.
 
-By installing or using SimStudio ("the Software") you agree to these terms.
+By installing or using LightSim ("the Software") you agree to these terms.
 
 1. Free use. You may install and use the Software free of charge, on any
    number of your own computers, for evaluation, learning, research and

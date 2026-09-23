@@ -13,6 +13,7 @@ import {
   ChartScatter,
   Download,
   Image as ImageIcon,
+  Info,
   Layers,
   LineChart as LineChartIcon,
   Play,
@@ -21,13 +22,20 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
+import { confirmDialog } from "../../dialog";
 import { useActiveRun, useOverlayRuns, useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import type { Channel, SimResult, SimRun } from "../../types";
-import { PALETTE, channelKey, decimate, useHasSize } from "./chartUtils";
+import { PALETTE, channelKey, minMaxIndices, useHasSize } from "./chartUtils";
+import { RunInfo } from "./RunInfo";
 
 // dash patterns to distinguish channels when several runs are overlaid at once
 const DASHES = ["", "5 3", "2 2", "7 3 2 3", "9 4"];
+
+// Table view rows have a fixed height, so only the rows in view are drawn
+const TABLE_ROW_H = 26; // px
+const TABLE_PAGE_ROWS = 80; // drawn before the first scroll event
+const TABLE_OVERSCAN = 10;
 
 function runTime(r: SimRun): string {
   return new Date(r.startedAt).toLocaleTimeString([], {
@@ -38,14 +46,18 @@ function runTime(r: SimRun): string {
 }
 
 function runLabel(r: SimRun): string {
-  return `${r.caseName} · ${runTime(r)} · ${r.status}`;
+  // "success" is the usual case and the chart header shows it: leave it out
+  // so the label fits the 280 px picker; any other outcome stays visible
+  const outcome = r.incomplete ? `incomplete (${r.incomplete})` : r.status === "success" ? "" : r.status;
+  return [r.caseName, runTime(r), outcome].filter(Boolean).join(" · ");
 }
 
 /** Compact run label for legends/overlay chips — swept value if present. */
 function runShort(r: SimRun): string {
+  const mark = r.incomplete ? " (incomplete)" : "";
   if (r.sweepValue !== undefined)
-    return `${r.sweepValue}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}`;
-  return runTime(r);
+    return `${r.sweepValue}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}${mark}`;
+  return `${runTime(r)}${mark}`;
 }
 
 function exportCsv(result: SimResult, keys: Set<string>, name: string) {
@@ -112,6 +124,8 @@ export function ResultsPanel() {
   const setOverlayRuns = useProjectStore((s) => s.setOverlayRuns);
   const clearOverlays = useProjectStore((s) => s.clearOverlays);
   const removeRun = useProjectStore((s) => s.removeRun);
+  const storedRunCount = useProjectStore((s) => s.storedRunCount);
+  const runsLoading = useProjectStore((s) => s.runsLoading);
   const running = useProjectStore((s) => s.running);
   const run = useProjectStore((s) => s.run);
   const theme = useUIStore((s) => s.theme);
@@ -124,11 +138,14 @@ export function ResultsPanel() {
   const [search, setSearch] = useState("");
   const [sweepMetric, setSweepMetric] = useState("");
   const [xyXKey, setXyXKey] = useState(""); // channel used as the X axis in the X-Y view
-  const { ref: chartHost, hasSize } = useHasSize<HTMLDivElement>();
+  const [showRunInfo, setShowRunInfo] = useState(false);
+  const { ref: chartHost, hasSize, element: chartEl } = useHasSize<HTMLDivElement>();
 
   // sensible default channel selection the first time a case's results are shown
+  // (wait for channels: a live run starts with none, and an empty pick would
+  // stick for the rest of the session)
   useEffect(() => {
-    if (!result || !selKey || selected[selKey]) return;
+    if (!result || !selKey || selected[selKey] || result.channels.length === 0) return;
     const defaults = result.channels
       .filter((c) => c.portId === "sig_soc" || (c.portId === "sig_power" && c.label.includes("Battery")))
       .slice(0, 4)
@@ -152,6 +169,10 @@ export function ResultsPanel() {
       .filter((r) => r.sweepId === activeRun.sweepId)
       .sort((a, b) => (a.sweepValue ?? 0) - (b.sweepValue ?? 0));
   }, [runs, activeRun]);
+  // stopped/failed points are only drawn (hollow) when the user asks for them
+  const [showIncomplete, setShowIncomplete] = useState(false);
+  const completeFamily = useMemo(() => family.filter((r) => !r.incomplete), [family]);
+  const incompleteCount = family.length - completeFamily.length;
 
   const byElement = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -215,37 +236,60 @@ export function ResultsPanel() {
   const units = useMemo(() => [...new Set(seriesDefs.map((d) => d.unit))], [seriesDefs]);
 
   const chartData = useMemo(() => {
-    const map = new Map<number, Record<string, number | null>>();
+    // series on the same time grid (the channels of a run, and overlaid runs
+    // of the same case) are thinned together so their rows stay aligned
+    const grids = new Map<string, typeof seriesDefs>();
     for (const d of seriesDefs) {
-      for (const pt of decimate(d.channel.timeSeries)) {
-        let row = map.get(pt.t);
-        if (!row) {
-          row = { t: pt.t };
-          map.set(pt.t, row);
+      const ts = d.channel.timeSeries;
+      const grid = `${ts.length}:${ts[0]?.t}:${ts[ts.length - 1]?.t}`;
+      grids.set(grid, [...(grids.get(grid) ?? []), d]);
+    }
+    const map = new Map<number, Record<string, number | null>>();
+    for (const defs of grids.values()) {
+      for (const i of minMaxIndices(defs.map((d) => d.channel.timeSeries))) {
+        for (const d of defs) {
+          const pt = d.channel.timeSeries[i];
+          let row = map.get(pt.t);
+          if (!row) {
+            row = { t: pt.t };
+            map.set(pt.t, row);
+          }
+          row[d.dataKey] = pt.value;
         }
-        row[d.dataKey] = pt.value;
       }
     }
     return [...map.values()].sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
   }, [seriesDefs]);
 
-  // table shows only the active run (aligned time grid)
+  // table shows only the active run (aligned time grid), every sample; only
+  // the rows scrolled into view are drawn (see onTableScroll)
   const activeChannels = useMemo(
     () => result?.channels.filter((c) => selectedKeys.has(channelKey(c))) ?? [],
     [result, selectedKeys],
   );
   const tableData = useMemo(() => {
     if (activeChannels.length === 0) return [];
-    const cols = activeChannels.map((c) => decimate(c.timeSeries));
-    return cols[0].map((pt, i) => {
+    return activeChannels[0].timeSeries.map((pt, i) => {
       const row: Record<string, number | null> = { t: pt.t };
-      activeChannels.forEach((c, ci) => {
-        const p = cols[ci][i];
+      activeChannels.forEach((c) => {
+        const p = c.timeSeries[i];
         if (p) row[channelKey(c)] = p.value;
       });
       return row;
     });
   }, [activeChannels]);
+  const [tableWindow, setTableWindow] = useState({ first: 0, count: TABLE_PAGE_ROWS });
+  const onTableScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    // work in fractions of the scroll height so the UI zoom cannot skew it
+    const rows = ((tableData.length + 1) * el.scrollTop) / el.scrollHeight;
+    const shown = ((tableData.length + 1) * el.clientHeight) / el.scrollHeight;
+    const first = Math.max(0, Math.floor(rows) - TABLE_OVERSCAN);
+    const count = Math.max(TABLE_PAGE_ROWS, Math.ceil(shown) + 2 * TABLE_OVERSCAN);
+    if (first !== tableWindow.first || count !== tableWindow.count) setTableWindow({ first, count });
+  };
+  const tableFirst = Math.min(tableWindow.first, tableData.length);
+  const tableLast = Math.min(tableData.length, tableFirst + tableWindow.count);
 
   // --- X-Y (channel-vs-channel) plot: active run only, samples aligned by index.
   // The left-hand checkboxes pick the channels; one of them is the X axis, the
@@ -274,13 +318,13 @@ export function ResultsPanel() {
   const xyXShort = xyXChannel ? (xyXChannel.label.split(" · ")[1] ?? xyXChannel.label) : "";
   const xyData = useMemo(() => {
     if (!xyXChannel || xyYChannels.length === 0) return [];
-    const xs = decimate(xyXChannel.timeSeries);
-    const ys = xyYChannels.map((c) => decimate(c.timeSeries));
-    return xs.map((pt, i) => {
-      const row: Record<string, number | null> = { x: pt.value };
-      xyYChannels.forEach((c, ci) => {
-        const p = ys[ci][i];
-        if (p) row[channelKey(c)] = p.value;
+    // the same sample indices for X and every Y, so each point is a real pair
+    const xs = xyXChannel.timeSeries;
+    const idx = minMaxIndices([xs, ...xyYChannels.map((c) => c.timeSeries)]);
+    return idx.map((i) => {
+      const row: Record<string, number | null> = { x: xs[i].value };
+      xyYChannels.forEach((c) => {
+        row[channelKey(c)] = c.timeSeries[i].value;
       });
       return row;
     });
@@ -302,15 +346,24 @@ export function ResultsPanel() {
   }, [sweepMetrics, sweepMetric]);
   const sweepUnit = family[0]?.sweepUnit ?? "";
   const sweepParam = family[0]?.sweepParam ?? "value";
+  // complete points form the curve (y); incomplete ones, when shown, are
+  // separate hollow markers (yIncomplete) that the curve does not pass through
   const sweepData = useMemo(
     () =>
-      family
+      (showIncomplete ? family : completeFamily)
         .map((r) => {
           const sv = r.result.summary.find((s) => s.label === sweepMetric);
-          return { x: r.sweepValue ?? 0, y: sv ? sv.value : null, unit: sv?.unit ?? "" };
+          const v = sv ? sv.value : null;
+          return {
+            x: r.sweepValue ?? 0,
+            y: r.incomplete ? null : v,
+            yIncomplete: r.incomplete ? v : null,
+            reason: r.incomplete ?? "",
+            unit: sv?.unit ?? "",
+          };
         })
-        .filter((d) => d.y !== null),
-    [family, sweepMetric],
+        .filter((d) => d.y !== null || d.yIncomplete !== null),
+    [family, completeFamily, showIncomplete, sweepMetric],
   );
   const metricUnit = sweepData[0]?.unit ?? "";
 
@@ -324,6 +377,17 @@ export function ResultsPanel() {
       };
     });
   };
+
+  if (runs.length === 0 && runsLoading) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-[color:var(--ss-text-dim)]">
+        <LineChartIcon size={36} strokeWidth={1} />
+        <div className="text-[13px]">
+          Loading {storedRunCount} stored run{storedRunCount > 1 ? "s" : ""}…
+        </div>
+      </div>
+    );
+  }
 
   if (runs.length === 0) {
     return (
@@ -352,9 +416,10 @@ export function ResultsPanel() {
           <div className="flex items-center gap-1">
             <select
               className="ss-input min-w-0 flex-1"
+              aria-label="Primary run"
               value={activeRun?.id ?? ""}
               onChange={(e) => setActiveRun(e.target.value)}
-              title="Primary run (drives the channel list, table and summary)"
+              title={`${activeRun ? `${runLabel(activeRun)}${activeRun.incomplete || activeRun.status !== "success" ? "" : " · success"} — ` : ""}primary run (drives the channel list, table and summary)`}
             >
               {runs.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -364,13 +429,34 @@ export function ResultsPanel() {
             </select>
             <button
               className="ss-toolbtn"
-              title="Remove this run from history"
+              title="Delete this run (also from disk)"
               disabled={!activeRun || running}
-              onClick={() => activeRun && removeRun(activeRun.id)}
+              onClick={() => {
+                if (!activeRun) return;
+                const id = activeRun.id;
+                void confirmDialog({
+                  title: "Delete this run?",
+                  message: `This deletes '${runLabel(activeRun)}' from disk. It cannot be recovered.`,
+                  confirmLabel: "Delete run",
+                  danger: true,
+                }).then((ok) => {
+                  if (ok) void removeRun(id);
+                });
+              }}
             >
               <X size={13} />
             </button>
+            <button
+              className={`ss-toolbtn ${showRunInfo ? "bg-[color:var(--ss-active)]" : ""}`}
+              title="Run info: the model, settings and version this run was made with"
+              aria-pressed={showRunInfo}
+              disabled={!activeRun}
+              onClick={() => setShowRunInfo(!showRunInfo)}
+            >
+              <Info size={13} />
+            </button>
           </div>
+          {showRunInfo && activeRun && <RunInfo run={activeRun} />}
 
           {/* overlay set */}
           <div className="rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)]">
@@ -379,9 +465,13 @@ export function ResultsPanel() {
               {family.length >= 2 && (
                 <button
                   className="ml-auto rounded px-1 hover:bg-[color:var(--ss-hover)]"
-                  title="Overlay every run in this sweep family"
+                  title={
+                    incompleteCount > 0
+                      ? "Overlay every complete run in this sweep family (stopped or failed points are left out)"
+                      : "Overlay every run in this sweep family"
+                  }
                   onClick={() =>
-                    setOverlayRuns(family.filter((r) => r.id !== activeRun?.id).map((r) => r.id))
+                    setOverlayRuns(completeFamily.filter((r) => r.id !== activeRun?.id).map((r) => r.id))
                   }
                 >
                   Overlay family
@@ -486,7 +576,15 @@ export function ResultsPanel() {
         <div className="ss-panel-toolbar">
           <span className="text-[11px] text-[color:var(--ss-text-dim)]">
             {view === "sweep" ? (
-              <>Sweep · {family.length} run(s)</>
+              <>
+                Sweep · {completeFamily.length} complete run(s)
+                {incompleteCount > 0 && (
+                  <span className="text-amber-600">
+                    {" "}
+                    · {incompleteCount} incomplete {showIncomplete ? "shown hollow" : "not plotted"}
+                  </span>
+                )}
+              </>
             ) : view === "xy" ? (
               <>X-Y · {xyYChannels.length} series vs {xyXShort || "—"}</>
             ) : (
@@ -502,19 +600,36 @@ export function ResultsPanel() {
                   className={
                     running && activeRun?.status === "running"
                       ? "text-[color:var(--ss-accent)]"
-                      : result.status === "success"
+                      : result.status === "success" && !activeRun?.incomplete
                         ? "text-emerald-700"
-                        : result.status === "warning"
+                        : result.status !== "failed"
                           ? "text-amber-600"
                           : "text-red-600"
                   }
                 >
-                  {activeRun?.status === "running" ? "running…" : result.status}
+                  {activeRun?.status === "running"
+                    ? "running…"
+                    : activeRun?.incomplete
+                      ? `incomplete (${activeRun.incomplete})`
+                      : result.status}
                 </b>
               </>
             )}
           </span>
           <div className="ml-auto flex items-center gap-1">
+            {view === "sweep" && incompleteCount > 0 && (
+              <label
+                className="flex items-center gap-1 text-[11px] text-[color:var(--ss-text-dim)]"
+                title="Show stopped or failed sweep points as hollow markers (their numbers are partial)"
+              >
+                <input
+                  type="checkbox"
+                  checked={showIncomplete}
+                  onChange={(e) => setShowIncomplete(e.target.checked)}
+                />
+                Show incomplete ({incompleteCount})
+              </label>
+            )}
             {view === "sweep" && sweepMetrics.length > 0 && (
               <select
                 className="ss-input max-w-[190px] py-0.5 text-[11px]"
@@ -598,9 +713,9 @@ export function ResultsPanel() {
               title="Export the chart as a PNG image"
               onClick={() =>
                 exportPng(
-                  chartHost.current,
+                  chartEl.current,
                   theme === "dark" ? "#1b1f26" : "#ffffff",
-                  `simstudio-${activeRun?.caseName ?? "chart"}`,
+                  `lightsim-${activeRun?.caseName ?? "chart"}`,
                 )
               }
             >
@@ -609,7 +724,7 @@ export function ResultsPanel() {
             <button
               className="ss-toolbtn border border-[color:var(--ss-border)]"
               disabled={!result || selectedKeys.size === 0}
-              onClick={() => result && exportCsv(result, selectedKeys, `simstudio-${activeRun?.caseName ?? "results"}`)}
+              onClick={() => result && exportCsv(result, selectedKeys, `lightsim-${activeRun?.caseName ?? "results"}`)}
             >
               <Download size={12} /> CSV
             </button>
@@ -617,11 +732,11 @@ export function ResultsPanel() {
         </div>
 
         {view === "table" ? (
-          <div className="min-h-0 flex-[3] overflow-auto">
+          <div className="min-h-0 flex-[3] overflow-auto" onScroll={onTableScroll}>
             {activeChannels.length > 0 && tableData.length > 0 ? (
-              <table className="w-full border-collapse">
+              <table className="w-full border-collapse" aria-rowcount={tableData.length + 1}>
                 <thead className="sticky top-0 z-10">
-                  <tr>
+                  <tr style={{ height: TABLE_ROW_H }}>
                     <th className="ss-th w-[70px] text-right">t [s]</th>
                     {activeChannels.map((c) => (
                       <th key={channelKey(c)} className="ss-th text-right" title={c.label}>
@@ -631,15 +746,21 @@ export function ResultsPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {tableData.map((row, i) => (
-                    <tr key={i} className="hover:bg-[color:var(--ss-hover)]">
-                      <td className="ss-td text-right font-mono text-[color:var(--ss-text-dim)]">
+                  {tableFirst > 0 && <tr aria-hidden style={{ height: tableFirst * TABLE_ROW_H }} />}
+                  {tableData.slice(tableFirst, tableLast).map((row, j) => (
+                    <tr
+                      key={tableFirst + j}
+                      aria-rowindex={tableFirst + j + 2}
+                      style={{ height: TABLE_ROW_H }}
+                      className="hover:bg-[color:var(--ss-hover)]"
+                    >
+                      <td className="ss-td whitespace-nowrap text-right font-mono text-[color:var(--ss-text-dim)]">
                         {typeof row.t === "number" ? row.t.toLocaleString() : row.t}
                       </td>
                       {activeChannels.map((c) => {
                         const v = row[channelKey(c)];
                         return (
-                          <td key={channelKey(c)} className="ss-td text-right font-mono">
+                          <td key={channelKey(c)} className="ss-td whitespace-nowrap text-right font-mono">
                             {typeof v === "number"
                               ? v.toLocaleString(undefined, { maximumFractionDigits: 4 })
                               : "—"}
@@ -648,6 +769,9 @@ export function ResultsPanel() {
                       })}
                     </tr>
                   ))}
+                  {tableLast < tableData.length && (
+                    <tr aria-hidden style={{ height: (tableData.length - tableLast) * TABLE_ROW_H }} />
+                  )}
                 </tbody>
               </table>
             ) : (
@@ -694,8 +818,9 @@ export function ResultsPanel() {
                       color: "var(--ss-text)",
                     }}
                     labelFormatter={(x) => `${sweepParam} = ${x}${sweepUnit ? ` ${sweepUnit}` : ""}`}
-                    formatter={(value) => [
-                      `${typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : value} ${metricUnit}`,
+                    formatter={(value, name, item) => [
+                      `${typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : value} ${metricUnit}` +
+                        (name === "yIncomplete" ? ` — incomplete run (${item.payload.reason}), partial value` : ""),
                       sweepMetric,
                     ]}
                   />
@@ -705,8 +830,18 @@ export function ResultsPanel() {
                     stroke={PALETTE[0]}
                     strokeWidth={1.8}
                     dot={{ r: 3, fill: PALETTE[0] }}
+                    connectNulls
                     isAnimationActive={false}
                   />
+                  {showIncomplete && (
+                    <Line
+                      dataKey="yIncomplete"
+                      stroke="none"
+                      dot={{ r: 4, fill: "none", stroke: PALETTE[0], strokeWidth: 1.5 }}
+                      activeDot={{ r: 5, fill: "none", stroke: PALETTE[0], strokeWidth: 1.5 }}
+                      isAnimationActive={false}
+                    />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             ) : (
@@ -900,13 +1035,22 @@ export function ResultsPanel() {
                   <tr key={i} className="hover:bg-[color:var(--ss-hover)]">
                     <td className="ss-td">{s.label}</td>
                     {plotRuns.map((r, ri) => {
-                      const v = r.result.summary.find((x) => x.label === s.label)?.value;
+                      const sv = r.result.summary.find((x) => x.label === s.label);
+                      const v = sv?.value;
                       return (
                         <td
                           key={r.id}
                           className={`ss-td text-right font-mono ${ri > 0 ? "text-[color:var(--ss-text-dim)]" : ""}`}
                         >
                           {typeof v === "number" ? v.toLocaleString() : "—"}
+                          {sv?.notValid && (
+                            <div
+                              className="font-sans text-[10px] text-amber-600"
+                              title={`Not valid: ${sv.notValid}`}
+                            >
+                              not valid: {sv.notValid}
+                            </div>
+                          )}
                         </td>
                       );
                     })}

@@ -1,4 +1,4 @@
-// REST client for the SimStudio backend. Every call has a bundled-data
+// REST client for the LightSim backend. Every call has a bundled-data
 // fallback so the UI stays usable when the FastAPI service is not running
 // (the fallback is flagged to the caller so it can surface a warning).
 
@@ -9,11 +9,28 @@ import type {
   Project,
   SimMessage,
   SimResult,
+  SimRun,
+  StoredRunInfo,
 } from "./types";
 import fallbackLibrary from "./data/componentLibrary.json";
 import fallbackProject from "./data/demoProject.json";
 
 const BASE = "/api";
+
+/** An error answer from the engine; `status` is its HTTP status (409 = the
+ *  project file changed on disk since it was loaded). */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** A project as read from disk. `revision` names that version of the file (it
+ *  is bookkeeping for conflict-checked saves, not part of the project). */
+export type StoredProject = Project & { revision?: string };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -28,7 +45,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* keep statusText */
     }
-    throw new Error(`${res.status} ${detail}`);
+    throw new ApiError(res.status, `${res.status} ${detail}`);
   }
   return res.json() as Promise<T>;
 }
@@ -57,33 +74,153 @@ export async function fetchLibrary(): Promise<{
   }
 }
 
+/** The engine's version, which is the app's (both come from the repo's
+ *  VERSION file); null when the engine cannot be reached. */
+export async function fetchVersion(): Promise<string | null> {
+  try {
+    return (await request<{ version?: string }>("/health")).version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The example a new user starts on (also bundled as the offline fallback). */
+export const DEMO_EXAMPLE = "bev-car";
+
+/** The demo example as the app ships it; the store opens it as a copy. */
 export async function fetchDemoProject(): Promise<{
   project: Project;
   offline: boolean;
 }> {
   try {
-    const project = await request<Project>("/projects/bev-car");
-    return { project, offline: false };
+    return { project: await fetchExample(DEMO_EXAMPLE), offline: false };
   } catch {
     return { project: fallbackProject as unknown as Project, offline: true };
   }
 }
 
-export function listProjects(): Promise<
-  { id: string; name: string; description?: string | null }[]
-> {
+/** A project or example as the engine lists it. */
+export interface ProjectEntry {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
+/** An example, and whether the user hid it from the Open menu. */
+export interface ExampleEntry extends ProjectEntry {
+  hidden: boolean;
+}
+
+/** The user's saved projects (not the examples). */
+export function listProjects(): Promise<ProjectEntry[]> {
   return request("/projects");
 }
 
-export function fetchProject(id: string): Promise<Project> {
+// ---- examples (shipped with the app, read-only) ----------------------------
+
+export function listExamples(): Promise<ExampleEntry[]> {
+  return request("/examples");
+}
+
+/** An example as the app ships it. It has no revision: it is not a file the
+ *  user can save over, so it is opened as a copy with an id of its own. */
+export function fetchExample(id: string): Promise<Project> {
+  return request(`/examples/${encodeURIComponent(id)}`);
+}
+
+/** Leave an example out of the Open menu until the examples are restored. */
+export function hideExample(id: string): Promise<{ hidden: string }> {
+  return request(`/examples/${encodeURIComponent(id)}/hide`, { method: "POST" });
+}
+
+/** Show every hidden example again; `restored` lists their ids. */
+export function restoreExamples(): Promise<{ restored: string[] }> {
+  return request("/examples/restore", { method: "POST" });
+}
+
+export function fetchProject(id: string): Promise<StoredProject> {
   return request(`/projects/${encodeURIComponent(id)}`);
 }
 
-export function saveProject(project: Project): Promise<{ saved: string }> {
+/**
+ * Save a project to disk. `base` is the revision the copy was loaded from: the
+ * engine refuses the save (ApiError 409) if the file changed since. `null`
+ * means the project is not on disk yet (refused if a file with its id
+ * exists); leave it out to overwrite whatever is there.
+ */
+export function saveProject(
+  project: Project,
+  base?: string | null,
+): Promise<{ saved: string; revision?: string }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (base) headers["If-Match"] = `"${base}"`;
+  else if (base === null) headers["If-None-Match"] = "*";
   return request(`/projects/${encodeURIComponent(project.id)}`, {
     method: "PUT",
+    headers,
     body: JSON.stringify(project),
   });
+}
+
+// ---- backups (earlier versions the engine keeps when a save replaces one) --
+
+/** An earlier version of a project, kept when a save replaced it. `savedAt`
+ *  is when that version was saved; `name` and `elements` are null when the
+ *  backup cannot be read. */
+export interface BackupInfo {
+  id: string;
+  savedAt: number;
+  revision: string;
+  bytes: number;
+  name: string | null;
+  elements: number | null;
+}
+
+/** The project's backups, newest first (none for a project never saved over). */
+export function listBackups(projectId: string): Promise<BackupInfo[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/backups`);
+}
+
+export function fetchBackup(projectId: string, backupId: string): Promise<Project> {
+  return request(`/projects/${encodeURIComponent(projectId)}/backups/${encodeURIComponent(backupId)}`);
+}
+
+// ---- run history (stored on disk next to the project by the engine) -------
+
+const runsPath = (projectId: string) => `/projects/${encodeURIComponent(projectId)}/runs`;
+
+/** The project's stored runs, newest first (no channel data). */
+export function listRuns(projectId: string): Promise<StoredRunInfo[]> {
+  return request(runsPath(projectId));
+}
+
+export function fetchRun(projectId: string, runId: string): Promise<SimRun> {
+  return request(`${runsPath(projectId)}/${encodeURIComponent(runId)}`);
+}
+
+export interface StoreRunReply {
+  saved: string;
+  /** runs the project now has on disk, and their size in bytes */
+  stored: number;
+  bytes: number;
+  /** per-project disk budget; the oldest runs are deleted to stay within it */
+  budget: number;
+  pruned: string[];
+}
+
+export function storeRun(projectId: string, run: SimRun): Promise<StoreRunReply> {
+  return request(`${runsPath(projectId)}/${encodeURIComponent(run.id)}`, {
+    method: "PUT",
+    body: JSON.stringify(run),
+  });
+}
+
+export function deleteRun(projectId: string, runId: string): Promise<{ deleted: string; stored: number }> {
+  return request(`${runsPath(projectId)}/${encodeURIComponent(runId)}`, { method: "DELETE" });
+}
+
+export function deleteRuns(projectId: string): Promise<{ deleted: number; stored: number }> {
+  return request(runsPath(projectId), { method: "DELETE" });
 }
 
 export function validateProject(project: Project): Promise<DataCheck[]> {

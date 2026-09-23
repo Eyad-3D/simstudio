@@ -1,8 +1,9 @@
-import { memo, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   Handle,
   NodeResizer,
   Position,
+  useUpdateNodeInternals,
   type NodeProps,
   type Node,
 } from "@xyflow/react";
@@ -127,6 +128,9 @@ function PhysicalPort({
   // Shift+drag repositions the pin. We intercept in the capture phase and stop
   // propagation so React Flow (which starts a connection on the handle's
   // onMouseDown) never fires; a plain drag falls through to start a connection.
+  // Shift is also the canvas's box-select key: the handle's `nokey` class
+  // keeps React Flow from starting a box selection (and swallowing the press)
+  // when it lands on a pin.
   const startShiftDrag = (e: React.MouseEvent) => {
     if (!e.shiftKey) return;
     e.stopPropagation();
@@ -143,6 +147,10 @@ function PhysicalPort({
     const onUp = (ev: MouseEvent) => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp, true);
+      // the click that ends the press would Shift-select the node: drop it
+      const swallow = (click: MouseEvent) => click.stopPropagation();
+      window.addEventListener("click", swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener("click", swallow, true));
       const moved = Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY);
       if (moved < 4 || !last) onCycle(port, NEXT_SIDE[side]);
       else onDragCommit(port, last);
@@ -165,10 +173,10 @@ function PhysicalPort({
         type="source"
         position={pos}
         style={{ ...style, touchAction: "none" }}
-        className={handleClass(port.kind)}
+        className={`${handleClass(port.kind)} nokey`}
         isConnectableStart
         isConnectableEnd
-        title={`${port.name} (${port.kind}) — Shift+drag to move the pin, Shift+click to flip side`}
+        title={`${port.name} (${port.kind}) — Shift+click: move to the next side · Shift+drag: move along the node's edges`}
         onMouseDownCapture={startShiftDrag}
       />
       {port.polarity && (
@@ -232,6 +240,20 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
   };
 
   const onCycle = (port: PortDef, next: PortSide) => setPortSide(element.id, port.id, next);
+
+  // React Flow re-measures a node's pins only when the node's size changes
+  // (TopologyCanvas keeps measured sizes on the nodes), so tell it when a pin
+  // moves or flips side, or the node now shows another part's ports.
+  const updateNodeInternals = useUpdateNodeInternals();
+  const pinLayout = (Object.keys(bySide) as PortSide[])
+    .flatMap((sd) => bySide[sd].map((p, i) => `${p.id}@${sd}:${fracOf(p, i, bySide[sd].length)}`))
+    .join(" ");
+  const measuredPinLayout = useRef(pinLayout);
+  useEffect(() => {
+    if (measuredPinLayout.current === pinLayout) return;
+    measuredPinLayout.current = pinLayout;
+    updateNodeInternals(element.id);
+  }, [pinLayout, element.id, updateNodeInternals]);
 
   const portRows = Math.max(bySide.left.length, bySide.right.length, 1);
   const defaultHeight = Math.max(54, portRows * 18 + 18);

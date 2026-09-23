@@ -11,6 +11,7 @@ import pytest
 from helpers import bev_axle, series
 
 from app.solver import simulate
+from app.solver.runtime import V_EPS
 
 # catalog defaults for the rotating inertias in the bev_axle chain
 J_MOTOR = 0.045       # motor.emotor inertia_kgm2 (motor axis)
@@ -41,8 +42,35 @@ def _lossless_accel_project():
     return proj
 
 
+def _tire_slip_loss_j(result, dt):
+    """Energy the tires dissipate by slipping: force × slip speed, where the
+    recorded slip is (ω·r − v) / max(|v|, V_EPS). The force a point records
+    is the one held over its step, computed at the step's start, while the
+    slip speed moves from the previous point's value to this one's: the
+    step's loss is the force times the mean of the two (pairing it with
+    either end alone is off by about 1 % of the launch energy once the tires
+    carry the whole car and do not saturate)."""
+    speed = series(result, "veh", "sig_speed")
+    total = 0.0
+    for w in ("whl", "whr"):
+        force = series(result, w, "sig_force")
+        slip = series(result, w, "sig_slip")
+        slip_speed = [slip[i]["value"] * max(speed[i]["value"] / 3.6, V_EPS)
+                      for i in range(len(slip))]
+        total += sum(force[i]["value"] * 0.5 * (slip_speed[i - 1] + slip_speed[i])
+                     for i in range(1, len(force))) * dt
+    return total
+
+
 def test_battery_energy_matches_kinetic_energy():
-    result = simulate(_lossless_accel_project(), "case")
+    """Recorded at the solver step, so the recorded powers are exactly the
+    ones each step used. The battery's net output must equal the kinetic
+    energy plus the tire-slip loss within 0.5 %: a 5 % leak anywhere along
+    battery → bus → motor → gears → wheels → vehicle fails here (before,
+    the bound allowed the battery to deliver up to 10 % more)."""
+    proj = _lossless_accel_project()
+    proj.cases[0].timeStep = 0.01
+    result = simulate(proj, "case")
     assert result.status in ("success", "warning"), [m.text for m in result.messages]
 
     v = series(result, "veh", "sig_speed")[-1]["value"] / 3.6  # m/s
@@ -57,22 +85,28 @@ def test_battery_energy_matches_kinetic_energy():
         + 0.5 * (J_FD_OUT + J_DIFF) * w_diff_in * w_diff_in
         + 0.5 * J_WHEEL * (w_wheel_l * w_wheel_l + w_wheel_r * w_wheel_r)
     )
+    slip = _tire_slip_loss_j(result, 0.01)
+    assert 0.0 < slip < 0.05 * ke  # stiff tires: a small, positive loss
 
-    delivered_kwh = next(
-        s.value for s in result.summary if s.label.endswith("energy delivered"))
-    recuperated_kwh = next(
-        s.value for s in result.summary if s.label.endswith("energy recuperated"))
-    e_battery = (delivered_kwh - recuperated_kwh) * 3.6e6  # J
+    e_battery = sum(p["value"] for p in series(result, "batt", "sig_power")[1:]) * 1000.0 * 0.01
+    e_motor = sum(p["value"] for p in series(result, "mot", "sig_elec_power")[1:]) * 1000.0 * 0.01
+    assert e_motor == pytest.approx(e_battery, rel=1e-4)  # no loss on the bus or in R0 ≈ 0
 
-    # battery output must cover the kinetic energy exactly, plus only the
-    # (small, positive) tire-slip dissipation and integrator residual
-    ratio = e_battery / ke
-    assert 0.995 < ratio < 1.10, f"battery {e_battery:.0f} J vs kinetic {ke:.0f} J (ratio {ratio:.4f})"
+    ratio = e_battery / (ke + slip)
+    assert 0.995 < ratio < 1.005, (
+        f"battery {e_battery:.0f} J vs kinetic {ke:.0f} J + tire slip {slip:.0f} J "
+        f"(ratio {ratio:.4f})")
+
+    s = {x.label: x.value for x in result.summary}
+    net_kwh = s["Battery — energy delivered"] - s["Battery — energy recuperated"]
+    assert net_kwh * 3.6e6 == pytest.approx(e_battery, abs=0.0011 * 3.6e6)  # 3-decimal rounding
+    assert s["Electrical energy balance error"] == 0.0
 
 
 def test_summary_energy_matches_integrated_power_channel():
-    """The summarized battery energy must equal the trapezoidal integral of the
-    recorded battery power channel — recording and accounting must agree.
+    """The summarized battery energy must equal the integral of the
+    recorded battery power channel — recording and accounting must agree
+    to the summary's 3-decimal rounding (0.3 % here; before, 2 %).
 
     Recorded at substep resolution (timeStep = MAX_SUBSTEP): coarser recording
     samples the launch transient too sparsely for the integral to close."""
@@ -87,4 +121,4 @@ def test_summary_energy_matches_integrated_power_channel():
         e_wh += 0.5 * (pa + pb) * (b["t"] - a["t"]) / 3600.0
     delivered_wh = next(
         s.value for s in result.summary if s.label.endswith("energy delivered")) * 1000.0
-    assert delivered_wh == pytest.approx(e_wh, rel=0.02), (delivered_wh, e_wh)
+    assert delivered_wh == pytest.approx(e_wh, abs=0.6), (delivered_wh, e_wh)

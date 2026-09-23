@@ -15,9 +15,24 @@ export interface GridRange {
   c1: number;
 }
 
+/** A problem with text typed into a cell: an error is never committed; a
+ *  warning is shown while typing and the value is still accepted. */
+export interface GridIssue {
+  level: "error" | "warning";
+  text: string;
+}
+
 interface Sel {
   anchor: { r: number; c: number };
   active: { r: number; c: number };
+}
+
+/** A cell being edited; `typed` when the edit began with a typed character. */
+interface Edit {
+  r: number;
+  c: number;
+  value: string;
+  typed?: boolean;
 }
 
 function normRange(s: Sel): GridRange {
@@ -40,6 +55,8 @@ export function parseClipboardMatrix(text: string): string[][] {
  * Excel-like grid over a matrix of cells. Supports single/range selection
  * (click, shift-click, drag, arrow keys), block copy (Ctrl+C → TSV) and
  * block paste (Ctrl+V from Excel), in-cell editing, and Delete to clear.
+ * Text that `validate` rejects is never committed: the cell turns red and a
+ * message under the grid says why, so no value is dropped silently.
  */
 export function SpreadsheetGrid({
   matrix,
@@ -47,13 +64,16 @@ export function SpreadsheetGrid({
   onPasteBlock,
   onClearRange,
   onSelectionChange,
+  validate,
   columnClass,
 }: {
   matrix: GridCell[][];
   onCommit: (r: number, c: number, text: string) => void;
-  onPasteBlock: (r: number, c: number, block: string[][]) => void;
+  /** returns a message when the block cannot be pasted (nothing changes) */
+  onPasteBlock: (r: number, c: number, block: string[][]) => string | void;
   onClearRange?: (cells: { r: number; c: number }[]) => void;
   onSelectionChange?: (range: GridRange) => void;
+  validate?: (r: number, c: number, text: string) => GridIssue | null;
   /** optional per-column className (by column index) for width control */
   columnClass?: (c: number) => string | undefined;
 }) {
@@ -61,7 +81,15 @@ export function SpreadsheetGrid({
   const cols = matrix[0]?.length ?? 0;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [sel, setSel] = useState<Sel>({ anchor: { r: 1, c: 0 }, active: { r: 1, c: 0 } });
-  const [editing, setEditing] = useState<{ r: number; c: number; value: string } | null>(null);
+  const [editing, setEditingState] = useState<Edit | null>(null);
+  // mirrors `editing` so a blur that fires as the editor goes away sees the
+  // edit already finished instead of committing it a second time
+  const editRef = useRef<Edit | null>(null);
+  const setEditing = (e: Edit | null) => {
+    editRef.current = e;
+    setEditingState(e);
+  };
+  const [notice, setNotice] = useState<GridIssue | null>(null);
   const dragging = useRef(false);
 
   const range = normRange(sel);
@@ -94,21 +122,45 @@ export function SpreadsheetGrid({
 
   const startEdit = (r: number, c: number, seed?: string) => {
     if (!isEditable(r, c)) return;
-    setEditing({ r, c, value: seed ?? cellAt(r, c)?.text ?? "" });
+    setNotice(null);
+    setEditing({ r, c, value: seed ?? cellAt(r, c)?.text ?? "", typed: seed !== undefined });
   };
 
-  const commitEdit = (move?: "down" | "right") => {
-    if (!editing) return;
-    const { r, c, value } = editing;
-    if (cellAt(r, c)?.text !== value) onCommit(r, c, value);
-    setEditing(null);
-    if (move === "down") {
-      const n = clamp(r + 1, c);
-      setSel({ anchor: n, active: n });
-    } else if (move === "right") {
-      const n = clamp(r, c + 1);
-      setSel({ anchor: n, active: n });
+  /** What is wrong with an edit's text, if anything (unchanged text never is). */
+  const issueFor = (edit: Edit | null): GridIssue | null => {
+    if (!edit || cellAt(edit.r, edit.c)?.text === edit.value) return null;
+    return validate?.(edit.r, edit.c, edit.value) ?? null;
+  };
+
+  /** Finish the edit in progress. Rejected text keeps the editor open when
+   *  the edit ends from the keyboard; when focus leaves the cell instead, the
+   *  old value stays and the message says so. */
+  const commitEdit = (how: "down" | "right" | "blur") => {
+    const edit = editRef.current;
+    if (!edit) return;
+    const { r, c, value } = edit;
+    const issue = issueFor(edit);
+    if (issue?.level === "error") {
+      if (how !== "blur") {
+        setNotice(issue);
+        return;
+      }
+      setNotice({ level: "error", text: `${issue.text} Kept ${cellAt(r, c)?.text || "the empty cell"}.` });
+      setEditing(null);
+      return;
     }
+    if (cellAt(r, c)?.text !== value) onCommit(r, c, value);
+    setNotice(issue);
+    setEditing(null);
+    if (how === "blur") return; // focus has already gone elsewhere
+    const n = how === "down" ? clamp(r + 1, c) : clamp(r, c + 1);
+    setSel({ anchor: n, active: n });
+    setTimeout(focusGrid, 0);
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setNotice(null);
     setTimeout(focusGrid, 0);
   };
 
@@ -196,12 +248,24 @@ export function SpreadsheetGrid({
     const block = parseClipboardMatrix(text);
     if (block.length === 0) return;
     e.preventDefault();
+    const { r, c } = sel.active;
     if (block.length === 1 && block[0].length === 1) {
-      if (isEditable(sel.active.r, sel.active.c)) onCommit(sel.active.r, sel.active.c, block[0][0]);
+      if (!isEditable(r, c)) return;
+      const issue = issueFor({ r, c, value: block[0][0] });
+      if (issue?.level === "error") {
+        setNotice({ level: "error", text: `Paste not applied: ${issue.text}` });
+        return;
+      }
+      if (cellAt(r, c)?.text !== block[0][0]) onCommit(r, c, block[0][0]);
+      setNotice(issue);
     } else {
-      onPasteBlock(sel.active.r, sel.active.c, block);
+      const problem = onPasteBlock(r, c, block);
+      setNotice(problem ? { level: "error", text: problem } : null);
     }
   };
+
+  const liveIssue = issueFor(editing);
+  const shownNotice = liveIssue ?? notice;
 
   const cellClass = (cell: GridCell) => {
     switch (cell.kind) {
@@ -217,79 +281,100 @@ export function SpreadsheetGrid({
   };
 
   return (
-    <div
-      className="ss-grid-frame"
-      ref={containerRef}
-      tabIndex={0}
-      onKeyDown={onKeyDown}
-      onCopy={onCopy}
-      onPaste={onPaste}
-      style={{ outline: "none" }}
-    >
-      <table className="ss-grid">
-        <tbody>
-          {matrix.map((row, r) => (
-            <tr key={r}>
-              {row.map((cell, c) => {
-                const active = sel.active.r === r && sel.active.c === c;
-                const isEditingCell = editing?.r === r && editing?.c === c;
-                return (
-                  <td
-                    key={c}
-                    className={`${inRange(r, c) ? "ss-selected " : ""}${active ? "ss-active " : ""}${
-                      columnClass?.(c) ?? ""
-                    }`}
-                    onMouseDown={(e) => {
-                      if (isEditingCell) return;
-                      e.preventDefault();
-                      focusGrid();
-                      if (e.shiftKey) setSel((prev) => ({ ...prev, active: { r, c } }));
-                      else {
-                        setSel({ anchor: { r, c }, active: { r, c } });
-                        dragging.current = true;
-                      }
-                    }}
-                    onMouseEnter={() => {
-                      if (dragging.current) setSel((prev) => ({ ...prev, active: { r, c } }));
-                    }}
-                    onDoubleClick={() => startEdit(r, c)}
-                  >
-                    {isEditingCell ? (
-                      <input
-                        className="ss-cell-input"
-                        autoFocus
-                        value={editing.value}
-                        onChange={(e) => setEditing({ r, c, value: e.target.value })}
-                        onFocus={(e) => e.target.select()}
-                        onBlur={() => commitEdit()}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            commitEdit("down");
-                          } else if (e.key === "Tab") {
-                            e.preventDefault();
-                            commitEdit("right");
-                          } else if (e.key === "Escape") {
-                            e.preventDefault();
-                            setEditing(null);
-                            setTimeout(focusGrid, 0);
-                          } else {
-                            e.stopPropagation();
-                          }
-                        }}
-                      />
-                    ) : (
-                      <div className={cellClass(cell)} title={cell.text}>
-                        {cell.text || " "}
-                      </div>
-                    )}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <>
+      <div
+        className="ss-grid-frame"
+        ref={containerRef}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        onCopy={onCopy}
+        onPaste={onPaste}
+        style={{ outline: "none" }}
+      >
+        <table className="ss-grid">
+          <tbody>
+            {matrix.map((row, r) => (
+              <tr key={r}>
+                {row.map((cell, c) => {
+                  const active = sel.active.r === r && sel.active.c === c;
+                  const isEditingCell = editing?.r === r && editing?.c === c;
+                  return (
+                    <td
+                      key={c}
+                      className={`${inRange(r, c) ? "ss-selected " : ""}${active ? "ss-active " : ""}${
+                        isEditingCell && liveIssue ? `ss-cell-${liveIssue.level} ` : ""
+                      }${columnClass?.(c) ?? ""}`}
+                      onMouseDown={(e) => {
+                        if (isEditingCell) return;
+                        e.preventDefault();
+                        focusGrid();
+                        if (e.shiftKey) setSel((prev) => ({ ...prev, active: { r, c } }));
+                        else {
+                          setSel({ anchor: { r, c }, active: { r, c } });
+                          dragging.current = true;
+                        }
+                      }}
+                      onMouseEnter={() => {
+                        if (dragging.current) setSel((prev) => ({ ...prev, active: { r, c } }));
+                      }}
+                      onDoubleClick={() => startEdit(r, c)}
+                    >
+                      {isEditingCell ? (
+                        <input
+                          className="ss-cell-input"
+                          autoFocus
+                          value={editing.value}
+                          title={liveIssue?.text}
+                          aria-invalid={liveIssue?.level === "error" || undefined}
+                          onChange={(e) => setEditing({ ...editing, value: e.target.value })}
+                          onFocus={(e) => {
+                            // keep a typed first character: caret after it, not selected
+                            const end = e.target.value.length;
+                            if (editing.typed) e.target.setSelectionRange(end, end);
+                            else e.target.select();
+                          }}
+                          onBlur={() => commitEdit("blur")}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              commitEdit("down");
+                            } else if (e.key === "Tab") {
+                              e.preventDefault();
+                              commitEdit("right");
+                            } else if (e.key === "Escape") {
+                              // cancel this edit only; the dialog must not see the key
+                              e.preventDefault();
+                              e.stopPropagation();
+                              cancelEdit();
+                            } else {
+                              e.stopPropagation();
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div className={cellClass(cell)} title={cell.text}>
+                          {cell.text || " "}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {shownNotice && (
+        <div
+          data-grid-notice
+          role={shownNotice.level === "error" ? "alert" : "status"}
+          className={`text-[10px] leading-tight ${
+            shownNotice.level === "error" ? "text-red-600" : "text-amber-600"
+          }`}
+        >
+          {shownNotice.text}
+        </div>
+      )}
+    </>
   );
 }
