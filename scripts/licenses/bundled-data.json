@@ -1,6 +1,6 @@
 {
   "_about": [
-    "Third-party data inside SimStudio's example projects and component catalogue.",
+    "Third-party data inside LightSim's example projects and component catalogue.",
     "docs/data-register.csv lists every dataset with its source and licence; the",
     "sources whose licence asks for credit or a NOTICE are listed here, and",
     "scripts/third-party-notices.py credits them in THIRD-PARTY-NOTICES.txt (the",
@@ -18,7 +18,7 @@
       "purl": "pkg:pypi/fastsim@2.1.5",
       "used": [
         "Values from FASTSim (NREL, now the National Laboratory of the Rockies), taken",
-        "from the fastsim 2.1.5 package and converted to SimStudio's parameters and",
+        "from the fastsim 2.1.5 package and converted to LightSim's parameters and",
         "units; no FASTSim file is included. The Battery Electric Car example's vehicle",
         "values come from its 2021_Cupra_Born.csv and its motor loss map is calibrated",
         "to its default motor efficiency curve; the drive cycles WLTC class 3b (Battery",

@@ -14,7 +14,7 @@ on:
     paths:
       - "desktop/**"
       - "scripts/**"
-      - "backend/simstudio-backend.spec"
+      - "backend/lightsim-backend.spec"
       - "backend/run_backend.py"
       - "backend/app/server.py"
       - "backend/app/paths.py"
@@ -70,7 +70,7 @@ jobs:
         working-directory: backend
         run: |
           python -m pip install -r requirements-build.txt
-          python -m PyInstaller --noconfirm --distpath dist --workpath build simstudio-backend.spec
+          python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
 
       # Unit tests run against source Python and cannot see what PyInstaller
       # left out of the bundle. This exercises the real executable, including
@@ -100,7 +100,7 @@ jobs:
         working-directory: desktop
         # xvfb gives the headless runner a display. Confirms the packaged
         # shell starts its engine and reaches a rendered window.
-        run: xvfb-run -a node ../scripts/smoke-app.mjs release/linux-unpacked/simstudio
+        run: xvfb-run -a node ../scripts/smoke-app.mjs release/linux-unpacked/lightsim
 
       - name: Checksums
         shell: bash
@@ -114,7 +114,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: simstudio-${{ matrix.name }}
+          name: lightsim-${{ matrix.name }}
           path: |
             desktop/release/*.exe
             desktop/release/*.AppImage

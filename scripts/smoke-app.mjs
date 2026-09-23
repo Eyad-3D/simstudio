@@ -9,7 +9,7 @@
  * backend-only test can see.
  *
  * Needs a display; run under xvfb on a headless machine:
- *   xvfb-run -a node scripts/smoke-app.mjs desktop/release/linux-unpacked/simstudio
+ *   xvfb-run -a node scripts/smoke-app.mjs desktop/release/linux-unpacked/lightsim
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";

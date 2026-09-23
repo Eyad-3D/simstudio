@@ -1,16 +1,16 @@
-# SimStudio: known issues and limits
+# LightSim: known issues and limits
 
-SimStudio 0.1.0 is an early version. You can build, run and inspect models,
+LightSim 0.1.0 is an early version. You can build, run and inspect models,
 but the component physics are simplified, **nothing has been validated
 against measured vehicles yet**, and some results are known to be wrong.
 This page lists what we know, what you can do about it today, and which
 roadmap item tracks the fix.
 
-Use SimStudio to learn the workflow and to compare variants of one model
+Use LightSim to learn the workflow and to compare variants of one model
 with each other. Do not use its absolute numbers (consumption, range, top
 speed, acceleration) for decisions about a real vehicle yet.
 
-- *Roadmap* gives the ID of the item on the SimStudio development roadmap
+- *Roadmap* gives the ID of the item on the LightSim development roadmap
   that tracks the fix, so the release notes can say when it is resolved.
 - *Being fixed* means the work is under way for an upcoming release. Until
   the release notes say it is done, the problem and the workaround apply.
@@ -52,7 +52,7 @@ either. Also:
   *Consumption* is marked *not valid*.
 - A cancelled run ends as *warning*; there is no separate status for it. Its
   per-distance figures are marked *not valid: run cancelled at t = …*.
-- The tolerance (1 % of the run, at least 2 s) is SimStudio's own choice:
+- The tolerance (1 % of the run, at least 2 s) is LightSim's own choice:
   test procedures such as WLTP set no allowance for a simulation.
 
 *Workaround:* read the Messages panel and the *not valid* notes in the
@@ -184,7 +184,7 @@ minimum or an average, for example from the CSV export.
   rear-wheel drive and has an 11.5:1 reduction gear with an electronic
   160 km/h limit; the example drives the front axle (only the load share
   matters without weight transfer) and uses a 12.8 ratio so that the motor's
-  maximum speed sets the 160 km/h, because SimStudio has no speed limiter.
+  maximum speed sets the 160 km/h, because LightSim has no speed limiter.
   *Roadmap:* MOD-18 (maximum-speed limit), MOD-12.
 - **Runs made on an example stay with the copy you ran.** An example opens
   as an unsaved copy, and its runs are stored with that copy: they are
@@ -229,7 +229,7 @@ minimum or an average, for example from the CSV export.
   Python code inside the local engine. Data Checks only compile them, never
   run them; during a run a script can import only `math`, cannot open files
   or reach Python's internals, and must return within 2 s; and the engine
-  answers only the SimStudio window. But these restrictions work inside the
+  answers only the LightSim window. But these restrictions work inside the
   engine's own process: a single huge calculation or a very large list can
   still freeze the engine or use up the computer's memory, and a way around
   them may exist. Open projects only from people you trust. *Roadmap:*
@@ -256,7 +256,7 @@ minimum or an average, for example from the CSV export.
 - **Little help in the app.** There is no user manual, tutorial or
   explanation of individual parameters yet, and the README screenshots show
   an older version. *Roadmap:* LRN-04, LRN-05, LRN-03 (being fixed).
-- **Licence.** SimStudio is proprietary (`LICENSE`). The desktop app is free
+- **Licence.** LightSim is proprietary (`LICENSE`). The desktop app is free
   for evaluation, learning, research and other non-commercial use under its
   end-user licence agreement (`EULA.txt`, installed with the app);
   commercial use needs a separate licence from the owner. The owner sets

@@ -22,7 +22,7 @@ test("RES-09: Run info shows what made a run and opens its model as an unsaved c
   await expect(info).toContainText("City Cycle");
   await expect(info).toContainText("60 s · step 1 s · max speed");
   await expect(info).toContainText(`${name} · 22 element(s) · #`);
-  await expect(info).toContainText(`SimStudio ${version}`);
+  await expect(info).toContainText(`LightSim ${version}`);
   await expect(info).toContainText(/Live edits\s*none/);
 
   // stored on disk with the run; the run list stays small

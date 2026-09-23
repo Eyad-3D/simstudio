@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { DockviewApi } from "dockview-react";
+import { FONT_SCALE_KEY, THEME_KEY } from "../storageKeys";
 
 export type RibbonTab =
   | "project"
@@ -30,9 +31,6 @@ export interface DialogRequest {
   placeholder?: string; // prompt only
   resolve: (value: boolean | string | null) => void;
 }
-
-const THEME_KEY = "simstudio-theme";
-const FONT_SCALE_KEY = "simstudio-font-scale";
 
 /** UI scale steps for the font-size setting. Applied as CSS `zoom` on the
  *  chrome/panels (never the canvas — see index.css / DockLayout). */

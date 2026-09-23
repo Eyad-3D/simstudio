@@ -11,6 +11,7 @@ import {
   type IDockviewPanelProps,
 } from "dockview-react";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { LAYOUT_KEY } from "../storageKeys";
 import { useProjectStore } from "../store/projectStore";
 import { useUIStore } from "../store/uiStore";
 import { ComponentsPanel } from "./panels/ComponentsPanel";
@@ -30,7 +31,7 @@ const TAB_STRIP = 34;
 
 const ssTheme: DockviewTheme = {
   ...themeLight,
-  name: "simstudio",
+  name: "lightsim",
   className: `${themeLight.className} dockview-theme-ss`,
   edgeGroupCollapsedSize: TAB_STRIP,
 };
@@ -151,7 +152,6 @@ const components = {
 
 // bump when the panel set / default arrangement changes so stale saved layouts
 // are discarded rather than restored into a broken state.
-const LAYOUT_KEY = "simstudio-layout-v1";
 const LAYOUT_VERSION = 4;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));

@@ -1,4 +1,4 @@
-// REST client for the SimStudio backend. Every call has a bundled-data
+// REST client for the LightSim backend. Every call has a bundled-data
 // fallback so the UI stays usable when the FastAPI service is not running
 // (the fallback is flagged to the caller so it can surface a warning).
 

@@ -629,7 +629,7 @@ function StubTab({ name }: { name: string }) {
   return (
     <div className="flex items-center gap-2 px-3 text-[12px] text-[color:var(--ss-text-dim)]">
       <CheckCircle2 size={14} />
-      {name} is not part of SimStudio v1 — this ribbon tab is a visual stub.
+      {name} is not part of LightSim v1 — this ribbon tab is a visual stub.
     </div>
   );
 }
@@ -732,7 +732,7 @@ export function Ribbon() {
     <div className="ss-zoom shrink-0 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-chrome)]">
       <div className="flex items-center gap-1 px-2 pt-1">
         <div className="mr-1 flex items-center gap-1.5 rounded bg-[color:var(--ss-accent)] px-2 py-0.5 text-[12px] font-semibold text-white">
-          SimStudio
+          LightSim
         </div>
         {TABS.map((t) => (
           <button

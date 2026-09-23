@@ -130,7 +130,7 @@ test.describe("1920x1080", () => {
     await dockTab(page, "Messages").click();
     await expect.poll(async () => (await trayAndDock(page)).tray).toBeGreaterThanOrEqual(250);
     await page.waitForTimeout(900); // past the 500 ms save delay
-    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("simstudio-layout-v1")!));
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("lightsim-layout-v1")!));
     expect(saved.layout.edgeGroups.bottom.size, "saved tray height").toBeGreaterThanOrEqual(250);
     await page.close();
     // a new window on the same profile, on a 1366x768 screen

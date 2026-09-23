@@ -70,7 +70,7 @@ for (const theme of THEMES) {
 
       test(`topology, parameter dialog and Results (${theme}, ${size})`, async ({ page }) => {
         await page.clock.setFixedTime(new Date("2026-01-05T09:30:00Z")); // log and run times
-        await page.addInitScript((t) => localStorage.setItem("simstudio-theme", t), theme);
+        await page.addInitScript((t) => localStorage.setItem("lightsim-theme", t), theme);
         await openApp(page);
         const font = await uiFont(page);
         // every glyph would differ; say why instead of failing 18 images

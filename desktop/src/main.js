@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * SimStudio desktop shell.
+ * LightSim desktop shell.
  *
  * The app is the existing web stack wrapped in a window: a frozen copy of the
  * FastAPI backend runs as a child process on a stable loopback port and serves
@@ -15,6 +15,7 @@ const crypto = require("node:crypto");
 const net = require("node:net");
 const path = require("node:path");
 const fs = require("node:fs");
+const { copyOldProjects } = require("./old-projects");
 
 const HEALTH_TIMEOUT_MS = 40_000;
 const isWindows = process.platform === "win32";
@@ -86,6 +87,15 @@ async function choosePort() {
   return port;
 }
 
+/** Record a one-off event in main.log in the app's data folder. */
+function logEvent(message) {
+  console.log(message);
+  try {
+    const line = `${new Date().toISOString()} ${message}\n`;
+    fs.appendFileSync(path.join(app.getPath("userData"), "main.log"), line);
+  } catch { /* not fatal */ }
+}
+
 /**
  * Locate the backend executable and the built UI.
  *
@@ -94,7 +104,7 @@ async function choosePort() {
  * has been built, otherwise the interpreter on PATH.
  */
 function resolveBackend() {
-  const exeName = isWindows ? "simstudio-backend.exe" : "simstudio-backend";
+  const exeName = isWindows ? "lightsim-backend.exe" : "lightsim-backend";
   const packagedDir = path.join(process.resourcesPath || "", "backend");
   const packagedExe = path.join(packagedDir, exeName);
   const staticPackaged = path.join(process.resourcesPath || "", "frontend");
@@ -105,7 +115,7 @@ function resolveBackend() {
 
   const repoRoot = path.resolve(__dirname, "..", "..");
   const frozenExe = path.join(
-    repoRoot, "backend", "dist", "simstudio-backend", exeName,
+    repoRoot, "backend", "dist", "lightsim-backend", exeName,
   );
   const staticDev = path.join(repoRoot, "frontend", "dist");
 
@@ -149,9 +159,9 @@ function startBackend(port) {
     windowsHide: true,
     env: {
       ...process.env,
-      SIMSTUDIO_PROJECTS_DIR: projectsDir,
-      SIMSTUDIO_STATIC_DIR: staticDir,
-      SIMSTUDIO_TOKEN: launchToken,
+      LIGHTSIM_PROJECTS_DIR: projectsDir,
+      LIGHTSIM_STATIC_DIR: staticDir,
+      LIGHTSIM_TOKEN: launchToken,
       PYTHONUNBUFFERED: "1",
     },
   });
@@ -172,8 +182,8 @@ function startBackend(port) {
     if (quitting || code === 0) return;
     dialog.showErrorBox(
       "Simulation engine stopped",
-      `SimStudio's background engine exited unexpectedly (code ${code}).\n\n` +
-        `Saved projects are safe in:\n${projectsDir}\n\nRestart SimStudio to continue.\n\n${backendLog.slice(-1500)}`,
+      `LightSim's background engine exited unexpectedly (code ${code}).\n\n` +
+        `Saved projects are safe in:\n${projectsDir}\n\nRestart LightSim to continue.\n\n${backendLog.slice(-1500)}`,
     );
   });
 }
@@ -256,12 +266,12 @@ function buildMenu() {
         },
         { type: "separator" },
         {
-          label: "About SimStudio",
+          label: "About LightSim",
           click: async () => {
             const { response } = await dialog.showMessageBox({
               type: "info",
-              title: "About SimStudio",
-              message: `SimStudio ${app.getVersion()}`,
+              title: "About LightSim",
+              message: `LightSim ${app.getVersion()}`,
               detail:
                 "A desktop app for simulating vehicle energy use, range and powertrains.\n\n" +
                 "This is an early version: the physics are simplified, nothing is " +
@@ -307,14 +317,14 @@ function askBeforeUnsavedUnload(win) {
       title: "Unsaved changes",
       message: `Save changes to the project before ${wasClosing ? "closing" : "reloading"}?`,
       detail:
-        "If you don't save, SimStudio keeps your changes only as a recovery " +
+        "If you don't save, LightSim keeps your changes only as a recovery " +
         "draft, which it offers again the next time it opens.",
     });
     if (choice === 1) {
       event.preventDefault(); // unload without saving
     } else if (choice === 0) {
       win.webContents
-        .executeJavaScript("window.simstudioSave ? window.simstudioSave() : false")
+        .executeJavaScript("window.lightsimSave ? window.lightsimSave() : false")
         .then((saved) => {
           if (!saved || win.isDestroyed()) return;
           if (wasClosing) win.close();
@@ -333,7 +343,7 @@ async function createWindow() {
     minHeight: 700,
     show: false,
     backgroundColor: "#1e1e1e",
-    title: "SimStudio",
+    title: "LightSim",
     icon: path.join(__dirname, "..", "build", "icon.png"),
     webPreferences: {
       contextIsolation: true,
@@ -360,6 +370,8 @@ async function createWindow() {
   mainWindow.show();
 
   try {
+    // before the engine starts (it creates the projects folder)
+    await copyOldProjects(app.getPath("appData"), app.getPath("userData"), logEvent);
     const port = await choosePort();
     startBackend(port);
     await waitForBackend(port);
@@ -368,7 +380,7 @@ async function createWindow() {
       extraHeaders: `Authorization: Bearer ${launchToken}\n`,
     });
   } catch (err) {
-    dialog.showErrorBox("SimStudio could not start", String(err.message || err));
+    dialog.showErrorBox("LightSim could not start", String(err.message || err));
     app.quit();
   }
 }

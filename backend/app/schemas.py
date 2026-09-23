@@ -1,4 +1,4 @@
-"""Pydantic models mirroring the SimStudio project data model (spec §4).
+"""Pydantic models mirroring the LightSim project data model (spec §4).
 
 Field names use camelCase to match the frontend/JSON representation 1:1.
 The models a project file is made of accept fields they do not know and keep

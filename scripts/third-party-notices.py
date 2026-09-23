@@ -1,4 +1,4 @@
-"""Write THIRD-PARTY-NOTICES.txt and enforce SimStudio's licence policy.
+"""Write THIRD-PARTY-NOTICES.txt and enforce LightSim's licence policy.
 
 Everything inside the desktop app that someone else wrote is listed with its
 licence and licence text:
@@ -8,7 +8,7 @@ licence and licence text:
   license-checker-rseidelsohn (a dev dependency of desktop/);
 - Electron, from desktop/. The notices for Chromium, Node.js and the other
   parts built into Electron ship as LICENSES.chromium.html next to the
-  SimStudio executable (electron-builder copies it from Electron);
+  LightSim executable (electron-builder copies it from Electron);
 - everything PyInstaller froze into the engine, taken from the build's own
   table of contents: Python packages (licences read with pip-licenses), the
   Python runtime, the PyInstaller bootloader and native libraries
@@ -50,7 +50,7 @@ ROOT = Path(__file__).resolve().parent.parent
 POLICY = ROOT / "scripts" / "licenses"
 NOTICES = ROOT / "THIRD-PARTY-NOTICES.txt"
 SBOM = ROOT / "sbom.cdx.json"
-WORK = ROOT / "backend" / "build" / "simstudio-backend"
+WORK = ROOT / "backend" / "build" / "lightsim-backend"
 
 # A dev dependency of desktop/, so desktop/package-lock.json pins it and all
 # of its dependencies, and `npm ci` there installs it.
@@ -58,14 +58,14 @@ LICENSE_CHECKER = ROOT / "desktop" / "node_modules" / "license-checker-rseidelso
 # Dev dependencies whose own code still ends up in the UI bundle: Tailwind's
 # base styles, Vite's module-preload polyfill and Rolldown's runtime helpers.
 UI_BUILD_OUTPUT = ["tailwindcss", "vite", "rolldown"]
-# SimStudio's own files inside the frozen engine.
+# LightSim's own files inside the frozen engine.
 OWN_FILES = [ROOT / "backend" / "app", ROOT / "backend" / "projects",
              ROOT / "backend" / "run_backend.py", ROOT / "VERSION"]
 # PyInstaller table-of-contents entries that are files in the bundle.
 FILE_KINDS = {"PYMODULE", "PYSOURCE", "EXTENSION", "BINARY", "DATA", "EXECUTABLE"}
 
 # Refused even if someone lists them in allowed.txt: copyleft that would
-# reach SimStudio's own code. A "X WITH exception" term is judged as a whole.
+# reach LightSim's own code. A "X WITH exception" term is judged as a whole.
 REFUSED = re.compile(r"(A?GPL|SSPL|EUPL)-", re.IGNORECASE)
 LICENSE_FILE = re.compile(r"(LICEN[CS]E|COPYING|NOTICE)", re.IGNORECASE)
 UNKNOWN = {"", "UNKNOWN", "UNLICENSED"}
@@ -110,7 +110,7 @@ class Component:
     # A native library: its copyright file, where there is one, names the
     # authors but refers to the standard licence text instead of holding it.
     native: bool = False
-    # The licence terms SimStudio uses it under, set by check().
+    # The licence terms LightSim uses it under, set by check().
     terms: list[str] = field(default_factory=list)
     # Data rather than software: its texts are the NOTICE the source asks
     # to reproduce, and the licence itself is the standard text.
@@ -329,7 +329,7 @@ def npm_components() -> list[Component]:
                 note = "Build tool; the part of its code that is generated into the UI is covered."
             if name == "electron":
                 note = ("The notices for Chromium, Node.js and the other components built into "
-                        "Electron are in LICENSES.chromium.html, next to the SimStudio executable.")
+                        "Electron are in LICENSES.chromium.html, next to the LightSim executable.")
             purl = f"pkg:npm/{name.replace('@', '%40', 1)}@{version}"
             components.append(Component(part, name, version, declared, purl=purl,
                                         url=info.get("repository", ""), texts=texts, note=note))
@@ -357,7 +357,7 @@ def frozen_files(work: Path) -> list[tuple[str, str, str]]:
     if not (work / "COLLECT-00.toc").is_file():
         sys.exit(f"No PyInstaller build in {work}: freeze the engine first "
                  "(python -m PyInstaller --noconfirm --distpath dist --workpath build "
-                 "simstudio-backend.spec, in backend/)")
+                 "lightsim-backend.spec, in backend/)")
     found: dict[tuple[str, str], str] = {}
 
     def walk(node) -> None:
@@ -591,15 +591,15 @@ def render(components: list[Component]) -> str:
             inside.setdefault(c.within, []).append(c)
     lines = [
         "THIRD-PARTY SOFTWARE NOTICES",
-        f"SimStudio {version}",
+        f"LightSim {version}",
         "",
-        "SimStudio includes the third-party software and data listed below. Each",
+        "LightSim includes the third-party software and data listed below. Each",
         "component is used under its own licence, reproduced after the list.",
-        "SimStudio's own terms (LICENSE and EULA.txt) do not apply to these",
+        "LightSim's own terms (LICENSE and EULA.txt) do not apply to these",
         "components.",
         "",
         "Chromium, Node.js and the other components built into Electron are listed",
-        "with their licences in LICENSES.chromium.html, next to the SimStudio",
+        "with their licences in LICENSES.chromium.html, next to the LightSim",
         "executable.",
         "",
         f"Generated by scripts/third-party-notices.py from the {system} build.",
@@ -668,7 +668,7 @@ def bill_of_materials(components: list[Component]) -> dict:
         item["licenses"] = [{"expression": c.license}]
         if c.url:
             item["externalReferences"] = [{"type": "website", "url": c.url}]
-        item["properties"] = [{"name": "simstudio:part", "value": c.part}]
+        item["properties"] = [{"name": "lightsim:part", "value": c.part}]
         subs = [entry(s, ref) for s in components if s.within == c.name and s.part == c.part]
         if subs:
             item["components"] = subs
@@ -681,7 +681,7 @@ def bill_of_materials(components: list[Component]) -> dict:
         "metadata": {
             "tools": {"components": [{"type": "application",
                                       "name": "scripts/third-party-notices.py"}]},
-            "component": {"type": "application", "bom-ref": "simstudio", "name": "SimStudio",
+            "component": {"type": "application", "bom-ref": "lightsim", "name": "LightSim",
                           "version": read(ROOT / "VERSION"),
                           "licenses": [{"license": {"name": "Proprietary; see LICENSE and EULA.txt"}}]},
         },

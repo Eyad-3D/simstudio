@@ -20,7 +20,7 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def _projects_dir(tmp_path, monkeypatch):
-    monkeypatch.setenv("SIMSTUDIO_PROJECTS_DIR", str(tmp_path))
+    monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(tmp_path))
 
 
 def _example(name: str) -> dict:

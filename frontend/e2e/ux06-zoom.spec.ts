@@ -63,7 +63,7 @@ test("UX-06: every project load re-fits at a readable zoom", async ({ page }) =>
   // importing a file with the open project's id (an example opens as a copy
   // with an id of its own, which the recovery draft records)
   await wheelZoomOut(page, 1200);
-  const openId = await page.evaluate(() => JSON.parse(localStorage.getItem("simstudio-draft-v1")!).project.id);
+  const openId = await page.evaluate(() => JSON.parse(localStorage.getItem("lightsim-draft-v1")!).project.id);
   const bev = await (await page.request.get("/api/examples/bev-car")).json();
   await importProject(page, { ...bev, id: openId });
   await expectReadable("importing the open project");

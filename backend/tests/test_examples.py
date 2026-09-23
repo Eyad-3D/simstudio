@@ -29,7 +29,7 @@ EXAMPLES = {"bev-car", "hybrid-car"}
 def user_dir(tmp_path, monkeypatch) -> Path:
     """The projects folder of a new install (not created yet)."""
     target = tmp_path / "userdata" / "projects"
-    monkeypatch.setenv("SIMSTUDIO_PROJECTS_DIR", str(target))
+    monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(target))
     return target
 
 
@@ -126,7 +126,7 @@ def seeded_install(user_dir, tmp_path, monkeypatch, run) -> Path:
     user_dir.mkdir(parents=True)
     for name in EXAMPLES:
         shutil.copyfile(paths.EXAMPLES_DIR / f"{name}.json", user_dir / f"{name}.json")
-    (user_dir / ".seeded").write_text("SimStudio copied its example projects here on first run.\n")
+    (user_dir / ".seeded").write_text("LightSim copied its example projects here on first run.\n")
     old = json.loads((user_dir / "bev-car.json").read_bytes())
     old["name"] = "My old BEV"
     (user_dir / "bev-car.json").write_text(json.dumps(old))
@@ -208,7 +208,7 @@ def test_a_damaged_list_of_hidden_examples_hides_nothing(user_dir):
 
 
 def test_development_saves_outside_the_examples(monkeypatch):
-    monkeypatch.delenv("SIMSTUDIO_PROJECTS_DIR", raising=False)
+    monkeypatch.delenv("LIGHTSIM_PROJECTS_DIR", raising=False)
     folder = paths.projects_dir().resolve()
     examples = paths.EXAMPLES_DIR.resolve()
     assert folder != examples and examples not in folder.parents and folder not in examples.parents
@@ -216,8 +216,8 @@ def test_development_saves_outside_the_examples(monkeypatch):
 
 def test_development_writes_nothing_to_the_examples(tmp_path, monkeypatch, run):
     """The whole save, backup, run and hide cycle in development (no
-    SIMSTUDIO_PROJECTS_DIR) leaves backend/projects exactly as it was."""
-    monkeypatch.delenv("SIMSTUDIO_PROJECTS_DIR", raising=False)
+    LIGHTSIM_PROJECTS_DIR) leaves backend/projects exactly as it was."""
+    monkeypatch.delenv("LIGHTSIM_PROJECTS_DIR", raising=False)
     dev = tmp_path / "dev-projects"
     monkeypatch.setattr(paths, "DEV_PROJECTS_DIR", dev)
     before = _snapshot(paths.EXAMPLES_DIR)

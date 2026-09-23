@@ -200,6 +200,22 @@ jobs:
           git commit -m "Regenerate the screenshot baselines on the CI runner image"
           git push
 
+  # The shell's own logic that runs without Electron (src/old-projects.js):
+  # plain Node, no npm ci. Windows too, for its file-system rules.
+  desktop:
+    name: Desktop shell (unit tests)
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Unit tests
+        working-directory: desktop
+        run: npm test
+
   version:
     name: Version manifests in sync
     runs-on: ubuntu-latest
@@ -237,7 +253,7 @@ jobs:
       # the way the desktop build does and read the result.
       - name: Freeze the engine
         working-directory: backend
-        run: python -m PyInstaller --noconfirm --distpath dist --workpath build simstudio-backend.spec
+        run: python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
 
       # Fails on any shipped component whose licence is unknown or not in
       # scripts/licenses/allowed.txt (GPL, AGPL, SSPL and EUPL never are).

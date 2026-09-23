@@ -1,4 +1,4 @@
-# Licences SimStudio may ship, one SPDX identifier per line.
+# Licences LightSim may ship, one SPDX identifier per line.
 #
 # scripts/third-party-notices.py fails when anything that goes into the
 # desktop app (UI packages, Electron, the frozen engine and the native
@@ -10,7 +10,7 @@
 # "MIT AND GPL-3.0-only" does not. A "X WITH Y" term must be listed as a
 # whole, so listing an exception does not allow the licence without it.
 #
-# Adding a line is a licensing decision, not a build fix. SimStudio is
+# Adding a line is a licensing decision, not a build fix. LightSim is
 # proprietary: never add GPL, AGPL, SSPL or EUPL (the script refuses them
 # even if listed). LGPL and MPL are possible only for unmodified,
 # separately replaceable files; check with the owner before adding them.

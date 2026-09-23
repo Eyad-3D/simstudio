@@ -66,7 +66,7 @@ test("reload brings back unsaved work, but not after it was saved", async ({ pag
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const draft = JSON.parse(localStorage.getItem("simstudio-draft-v1") ?? "null");
+        const draft = JSON.parse(localStorage.getItem("lightsim-draft-v1") ?? "null");
         return draft && `${draft.project.name} clean=${draft.clean}`;
       }),
     )

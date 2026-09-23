@@ -59,7 +59,7 @@ export function RunInfo({ run }: { run: SimRun }) {
           {snap.modelHash && <span className="font-mono text-[color:var(--ss-text-dim)]"> · #{snap.modelHash.slice(0, 12)}</span>}
         </dd>
         <dt>Version</dt>
-        <dd>SimStudio {snap.appVersion ?? "(unknown)"}</dd>
+        <dd>LightSim {snap.appVersion ?? "(unknown)"}</dd>
         <dt>Live edits</dt>
         <dd>
           {snap.liveEdits.length === 0 ? (

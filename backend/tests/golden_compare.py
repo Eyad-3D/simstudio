@@ -18,7 +18,7 @@ passes when
   some new point within ±TUBE_T recorded steps is within TUBE_REL of the
   channel's range (the csv-compare method used for Modelica libraries).
 
-With SIMSTUDIO_GOLDEN_EXACT=1 every stored number must also match to 1e-6,
+With LIGHTSIM_GOLDEN_EXACT=1 every stored number must also match to 1e-6,
 as before v2: use it to prove a pure refactor changes nothing.
 """
 from __future__ import annotations
@@ -60,7 +60,7 @@ EXACT = 1e-6  # the exact mode's relative and absolute tolerance
 
 
 def exact_mode() -> bool:
-    return os.environ.get("SIMSTUDIO_GOLDEN_EXACT", "") not in ("", "0")
+    return os.environ.get("LIGHTSIM_GOLDEN_EXACT", "") not in ("", "0")
 
 
 def fixture_path(project_id: str, case_id: str, variant: str = "shipped") -> Path:

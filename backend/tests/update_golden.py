@@ -9,7 +9,7 @@ it becomes the heading of a new entry in tests/golden/CHANGES.md, with the
 headline numbers that moved (old -> new) filled in, and every fixture
 records it (test_golden checks that the entry exists). Add the why in prose
 under the heading. See golden_compare.py for what the tests compare and
-with which tolerances; SIMSTUDIO_GOLDEN_EXACT=1 demands identical results.
+with which tolerances; LIGHTSIM_GOLDEN_EXACT=1 demands identical results.
 """
 from __future__ import annotations
 

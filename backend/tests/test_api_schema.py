@@ -90,7 +90,7 @@ CHECKS = [
 def projects_dir(tmp_path_factory):
     # saves, hidden examples and runs land here, not in the user's folder
     with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("SIMSTUDIO_PROJECTS_DIR", str(tmp_path_factory.mktemp("projects")))
+        mp.setenv("LIGHTSIM_PROJECTS_DIR", str(tmp_path_factory.mktemp("projects")))
         yield
 
 

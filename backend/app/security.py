@@ -1,23 +1,23 @@
-"""Keep the local engine private to the SimStudio window.
+"""Keep the local engine private to the LightSim window.
 
 The engine listens on a loopback port, and any web page the user opens can
 aim requests at loopback addresses. So every request is checked:
 
-* Host must be 127.0.0.1 or localhost (plus SIMSTUDIO_ALLOWED_HOSTS). A page
+* Host must be 127.0.0.1 or localhost (plus LIGHTSIM_ALLOWED_HOSTS). A page
   that rebinds its own domain name to 127.0.0.1 still sends that name as the
   Host, so DNS rebinding is refused.
 * A request with an Origin header must come from the engine's own origin (in
   development also from the Vite dev server). This covers the live-run
   WebSocket too, which browsers open to any site without a CORS check.
 * The desktop shell starts the engine with a random per-launch secret in
-  SIMSTUDIO_TOKEN and sends it as a bearer token on the window's first page
+  LIGHTSIM_TOKEN and sends it as a bearer token on the window's first page
   load. The engine answers that load with the secret in an HttpOnly,
   SameSite=Strict cookie, and every /api request and WebSocket must carry
   the cookie or the bearer header. Other sites can neither read the cookie
   nor make the browser send it, and loading the page without the secret
   does not hand it out.
 
-Without SIMSTUDIO_TOKEN (development, tests) there is no token check; the
+Without LIGHTSIM_TOKEN (development, tests) there is no token check; the
 Host and Origin checks always apply.
 """
 from __future__ import annotations
@@ -32,9 +32,9 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from starlette.websockets import WebSocketClose
 
-TOKEN_ENV = "SIMSTUDIO_TOKEN"
-HOSTS_ENV = "SIMSTUDIO_ALLOWED_HOSTS"
-COOKIE_NAME = "simstudio_token"
+TOKEN_ENV = "LIGHTSIM_TOKEN"
+HOSTS_ENV = "LIGHTSIM_ALLOWED_HOSTS"
+COOKIE_NAME = "lightsim_token"
 
 LOCAL_HOSTS = ("127.0.0.1", "localhost")
 #: The Vite dev server (`npm run dev`); only trusted when there is no token.

@@ -1394,7 +1394,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         // a file saved from the engine's API may carry its revision: drop it
         const { project } = fromDisk(JSON.parse(json) as api.StoredProject);
         if (!project.id || !Array.isArray(project.systems)) {
-          throw new Error("not a SimStudio project file");
+          throw new Error("not a LightSim project file");
         }
         project.dataBusConnections ??= [];
         project.cases ??= [];

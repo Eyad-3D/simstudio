@@ -8,7 +8,7 @@ import { useProjectStore } from "./store/projectStore";
 
 if (import.meta.env.DEV) {
   // handy for debugging / E2E tests
-  (window as unknown as Record<string, unknown>).__simstudio = useProjectStore;
+  (window as unknown as Record<string, unknown>).__lightsim = useProjectStore;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

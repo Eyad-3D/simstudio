@@ -1,4 +1,4 @@
-# SimStudio — Vehicle System Simulation
+# LightSim — Vehicle System Simulation
 
 A desktop app for simulating vehicle energy use, range and powertrains. It
 runs entirely on your computer and works offline: build a system topology
@@ -39,21 +39,21 @@ inspect results — all in a dockable-panel UI.
 
 ## Install the desktop app
 
-SimStudio ships as a normal desktop application — download, install, launch.
+LightSim ships as a normal desktop application — download, install, launch.
 Python and Node are **not** required: the simulation engine is bundled inside.
 
 | Platform | Download |
 |---|---|
-| Windows 10/11 (x64) | `SimStudio-Setup-<version>.exe` |
-| Linux (x64) | `SimStudio-<version>-x86_64.AppImage` or `SimStudio-<version>-amd64.deb` |
+| Windows 10/11 (x64) | `LightSim-Setup-<version>.exe` |
+| Linux (x64) | `LightSim-<version>-x86_64.AppImage` or `LightSim-<version>-amd64.deb` |
 
 No release has been published yet, so for now the installers come from the
 **Build desktop app** workflow: on the repository's **Actions** tab, open the
 latest successful *Build desktop app* run on `main` and download the
-`simstudio-windows` or `simstudio-linux` artifact (a zip with the installers
+`lightsim-windows` or `lightsim-linux` artifact (a zip with the installers
 and their `.sha256` checksums; you need to be signed in to GitHub, and
 artifacts expire after 90 days). On Linux, mark the AppImage executable once
-(`chmod +x SimStudio-*.AppImage`) and run it.
+(`chmod +x LightSim-*.AppImage`) and run it.
 
 > These builds are unsigned, so Windows SmartScreen warns on first launch —
 > choose *More info → Run anyway*, or sign them with your own certificate
@@ -81,8 +81,8 @@ survive reinstalls and upgrades. **File → Open Projects Folder** opens it.
 
 | Platform | Location |
 |---|---|
-| Windows | `%APPDATA%\SimStudio\projects` |
-| Linux | `~/.config/SimStudio/projects` |
+| Windows | `%APPDATA%\LightSim\projects` |
+| Linux | `~/.config/LightSim/projects` |
 
 The examples are not copied there: they are part of the app, read-only,
 and every update brings the current ones. The Open menu lists them under
@@ -93,6 +93,15 @@ of the menu, hide it (the eye icon next to it); *Restore hidden examples*
 lists it again. Copies of the examples that earlier versions put in your
 projects folder stay there as your own projects, as you left them; an
 example whose copy you had deleted starts out hidden.
+
+Before version 0.2.0 the app was called SimStudio and kept its projects in
+`%APPDATA%\SimStudio\projects` (Windows) or `~/.config/SimStudio/projects`
+(Linux). On its first launch LightSim copies that folder, with the runs,
+backups and hidden examples, into its own, as long as its own has nothing in
+it yet (`main.log` in LightSim's folder records the copy). The old folder is
+left as it was: delete it once you have checked your projects in LightSim.
+The window's settings (theme, font size, panel layout) and an unsaved
+recovery draft stay behind, so save your work in SimStudio before you switch.
 
 A save replaces the file in one step, so a crash or a full disk mid-save never
 leaves a half-written project, and the version it replaced is kept next to it
@@ -117,7 +126,7 @@ whichever OS you run it on. Requires Python ≥ 3.11 and Node ≥ 20.
 Installers land in `desktop/release/`. Add `--dir` (or `-Dir`) for just the
 unpacked app, which is much faster while iterating. Before packaging, the
 build writes `THIRD-PARTY-NOTICES.txt` and `sbom.cdx.json`, and stops if
-anything it would ship is under a licence SimStudio does not allow (see
+anything it would ship is under a licence LightSim does not allow (see
 [Third-party licences](#third-party-licences)).
 
 Neither half cross-compiles — the frozen Python backend and the Electron
@@ -173,10 +182,13 @@ npm test                    # unit tests (Vitest)
 npm run build               # type-check + production build
 npx playwright install chromium   # once
 npm run test:e2e            # browser + accessibility tests of the built UI
+
+cd ../desktop
+npm test                    # the shell's unit tests (plain Node, no install needed)
 ```
 
 The browser tests start the engine themselves with `python3` (set
-`SIMSTUDIO_PYTHON` to use another interpreter; it needs the backend's
+`LIGHTSIM_PYTHON` to use another interpreter; it needs the backend's
 requirements) and a throw-away projects folder. They include screenshot
 comparisons: after a deliberate UI change, regenerate the baselines on CI
 (Actions → CI → Run workflow, tick *Regenerate the screenshot baselines*),
@@ -189,7 +201,7 @@ artefacts rather than the source (Node ≥ 22, for its built-in WebSocket):
 node scripts/smoke-backend.mjs    # the frozen executable: library, examples,
                                   # a REST run and a live WebSocket run
 xvfb-run -a node scripts/smoke-app.mjs \
-  desktop/release/linux-unpacked/simstudio   # the packaged app reaches its engine
+  desktop/release/linux-unpacked/lightsim   # the packaged app reaches its engine
 ```
 
 These exist because a frozen build can be missing a module that every unit
@@ -237,7 +249,7 @@ when the dependencies change:
 ```bash
 cd backend
 pip install -r requirements-build.txt   # includes pip-licenses
-python -m PyInstaller --noconfirm --distpath dist --workpath build simstudio-backend.spec
+python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
 cd ..
 npm ci --prefix frontend && npm ci --prefix desktop   # desktop/ pins the npm licence reader
 python scripts/third-party-notices.py   # add --check to only check
@@ -291,7 +303,7 @@ backend/   Python + FastAPI
   ├─ app/paths.py                  bundled vs. user-writable location resolution
   ├─ app/security.py               Host / Origin / launch-token checks on every request
   ├─ app/server.py                 entrypoint the desktop shell launches
-  ├─ simstudio-backend.spec        PyInstaller recipe for the frozen backend
+  ├─ lightsim-backend.spec         PyInstaller recipe for the frozen backend
   └─ projects/                     example projects (bev-car.json, hybrid-car.json)
 
 desktop/   Electron shell
@@ -299,6 +311,7 @@ desktop/   Electron shell
   │                                with a per-launch token, waits for
   │                                /api/health, then opens the window
   ├─ src/loading.html              splash shown while the engine starts
+  ├─ src/old-projects.js           first launch: copies the projects saved under the old name
   └─ electron-builder.yml          installer definitions (NSIS / AppImage / deb)
 ```
 
@@ -314,10 +327,10 @@ answers only requests addressed to `127.0.0.1` / `localhost` (no DNS
 rebinding), refuses any request whose `Origin` is not its own (the Vite dev
 server's is allowed in development), and in the desktop app requires a
 random per-launch token: the shell passes it to the engine in
-`SIMSTUDIO_TOKEN`, and the window receives it as an HttpOnly, SameSite=Strict
-cookie on its first page load. Without `SIMSTUDIO_TOKEN` (development) there
+`LIGHTSIM_TOKEN`, and the window receives it as an HttpOnly, SameSite=Strict
+cookie on its first page load. Without `LIGHTSIM_TOKEN` (development) there
 is no token check. To reach a development engine through another host name
-(e.g. a forwarded port), list it in `SIMSTUDIO_ALLOWED_HOSTS` (comma-separated).
+(e.g. a forwarded port), list it in `LIGHTSIM_ALLOWED_HOSTS` (comma-separated).
 
 ### API
 
@@ -499,7 +512,7 @@ in short:
 
 ## License
 
-SimStudio is proprietary software: Copyright © 2026 Eyad Abualkhair, all
+LightSim is proprietary software: Copyright © 2026 Eyad Abualkhair, all
 rights reserved (see [`LICENSE`](LICENSE)). The desktop app is free to use for
 evaluation, learning, research and other non-commercial purposes under the
 [End-User Licence Agreement](EULA.txt); commercial use needs a separate

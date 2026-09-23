@@ -1,7 +1,7 @@
 # Data licence register
 
 Drive cycles, vehicle parameters and component maps can carry their own
-licences, separate from SimStudio's code. One wrongly licensed file could force
+licences, separate from LightSim's code. One wrongly licensed file could force
 a takedown of a release. [`data-register.csv`](data-register.csv) records,
 for every dataset in the repository, where it came from, its licence, the
 credit it requires, whether the installer ships it and whether the owner has
@@ -15,11 +15,11 @@ cleared it for shipping.
 | `file` | Repository path of the file that holds the data. |
 | `dataset` | `*` for the file as a whole. Inside the component catalogue it is `<component>.<parameter>`; inside an example project it is `<element>.<parameter>`, or `<case>/<element>.<parameter>` for a value one case sets (such as a case's own drive cycle). Every map, curve and drive or grade profile has its own row. |
 | `kind` | `example-project`, `component-defaults`, `drive-cycle`, `grade-profile`, `map`, `curve`, `table`, `generated-copy` or `test-fixture`. |
-| `source` | Where the numbers come from: a URL or document, `Synthetic / created for SimStudio` (only when the history shows it), or `Provenance unknown`. |
+| `source` | Where the numbers come from: a URL or document, `Synthetic / created for LightSim` (only when the history shows it), or `Provenance unknown`. |
 | `history` | What git history and the research notes say about the source. |
 | `licence`, `credit` | The licence the data is under and the credit text it requires. |
-| `ships_in_installer` | `yes` or `no`. The engine bundle carries `backend/projects/` and the component catalogue (`backend/simstudio-backend.spec`). The UI bundle inlines `frontend/src/data/` as its offline fallback. |
-| `cleared` | The owner's sign-off that SimStudio may ship the data: `yes` (the licence is known and allows it), `no` (it must not ship) or `pending` (not yet confirmed). |
+| `ships_in_installer` | `yes` or `no`. The engine bundle carries `backend/projects/` and the component catalogue (`backend/lightsim-backend.spec`). The UI bundle inlines `frontend/src/data/` as its offline fallback. |
+| `cleared` | The owner's sign-off that LightSim may ship the data: `yes` (the licence is known and allows it), `no` (it must not ship) or `pending` (not yet confirmed). |
 | `notes` | Caveats and open actions. |
 
 ## Status (2026-09-23)
@@ -41,7 +41,7 @@ cleared it for shipping.
   unece.org could not be reached when they were added; re-check them against
   the tables when they can.
 - The examples' new engine, motor and battery maps are synthetic, created
-  for SimStudio in that change; their rows say what they are calibrated to.
+  for LightSim in that change; their rows say what they are calibrated to.
 - **Every other shipped map, curve, profile and default value still has
   unknown provenance.** All of them except the fuel density (a textbook
   value added in `4af7f9c`) first appear in the root commit of the main
@@ -54,11 +54,11 @@ cleared it for shipping.
   example.
 - Every shipped row is `cleared = pending`: the register records that the
   data exists and what its licence is, not yet the owner's sign-off that
-  SimStudio may ship it.
+  LightSim may ship it.
 - **Open actions:**
   - The owner should confirm that the unknown-provenance values were written
-    for SimStudio. Each row can then say `Synthetic / created for SimStudio`,
-    name the SimStudio LICENSE and become `cleared = yes`. Any value that was
+    for LightSim. Each row can then say `Synthetic / created for LightSim`,
+    name the LightSim LICENSE and become `cleared = yes`. Any value that was
     taken from somewhere else needs its source recorded instead, or it should
     be replaced.
   - The owner should sign off the FASTSim (Apache-2.0) and EPA rows.

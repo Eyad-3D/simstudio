@@ -3,9 +3,8 @@
 // backend). The draft is the current working copy and is restored on reload.
 // A clean draft only records which project was open: nothing in it is unsaved.
 
+import { DRAFT_KEY } from "./storageKeys";
 import type { Project } from "./types";
-
-const DRAFT_KEY = "simstudio-draft-v1";
 
 export interface Draft {
   project: Project;

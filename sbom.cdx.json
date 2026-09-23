@@ -13,8 +13,8 @@
     },
     "component": {
       "type": "application",
-      "bom-ref": "simstudio",
-      "name": "SimStudio",
+      "bom-ref": "lightsim",
+      "name": "LightSim",
       "version": "0.1.0",
       "licenses": [
         {
@@ -45,7 +45,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -69,7 +69,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -93,7 +93,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -117,7 +117,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -141,7 +141,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -165,7 +165,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -189,7 +189,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -213,7 +213,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -237,7 +237,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -261,7 +261,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -285,7 +285,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -309,7 +309,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -333,7 +333,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -357,7 +357,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -381,7 +381,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -405,7 +405,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -429,7 +429,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -453,7 +453,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -477,7 +477,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -501,7 +501,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -525,7 +525,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -549,7 +549,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -573,7 +573,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -597,7 +597,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -621,7 +621,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -645,7 +645,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -669,7 +669,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -693,7 +693,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -717,7 +717,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -741,7 +741,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -765,7 +765,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -789,7 +789,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -813,7 +813,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -837,7 +837,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -861,7 +861,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -885,7 +885,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -909,7 +909,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -933,7 +933,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -957,7 +957,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -981,7 +981,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -1005,7 +1005,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -1029,7 +1029,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -1053,7 +1053,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -1077,7 +1077,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -1101,7 +1101,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -1125,7 +1125,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -1149,7 +1149,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -1173,7 +1173,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -1197,7 +1197,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -1221,7 +1221,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "User interface"
         }
       ]
@@ -1245,7 +1245,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Desktop shell"
         }
       ]
@@ -1269,7 +1269,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -1293,7 +1293,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -1317,7 +1317,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -1341,7 +1341,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -1365,7 +1365,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -1389,7 +1389,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -1413,7 +1413,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -1437,7 +1437,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -1461,7 +1461,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -1485,7 +1485,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -1509,7 +1509,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ],
@@ -1527,7 +1527,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1545,7 +1545,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1563,7 +1563,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1581,7 +1581,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1599,7 +1599,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1617,7 +1617,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1635,7 +1635,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1653,7 +1653,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1671,7 +1671,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1689,7 +1689,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1707,7 +1707,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1725,7 +1725,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1743,7 +1743,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1761,7 +1761,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1779,7 +1779,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1797,7 +1797,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1815,7 +1815,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1833,7 +1833,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1851,7 +1851,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1869,7 +1869,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1887,7 +1887,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1905,7 +1905,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1923,7 +1923,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1941,7 +1941,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1959,7 +1959,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1977,7 +1977,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -1995,7 +1995,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2013,7 +2013,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2031,7 +2031,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2049,7 +2049,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2067,7 +2067,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2085,7 +2085,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2103,7 +2103,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2121,7 +2121,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2139,7 +2139,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2157,7 +2157,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2175,7 +2175,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2193,7 +2193,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2211,7 +2211,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2229,7 +2229,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2247,7 +2247,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2265,7 +2265,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2283,7 +2283,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2301,7 +2301,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2319,7 +2319,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2337,7 +2337,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2355,7 +2355,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2373,7 +2373,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2391,7 +2391,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2409,7 +2409,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2427,7 +2427,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2445,7 +2445,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2463,7 +2463,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2481,7 +2481,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2499,7 +2499,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2517,7 +2517,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2535,7 +2535,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2553,7 +2553,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2571,7 +2571,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2589,7 +2589,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2607,7 +2607,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2625,7 +2625,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2643,7 +2643,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2661,7 +2661,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2679,7 +2679,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2697,7 +2697,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2715,7 +2715,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2733,7 +2733,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2751,7 +2751,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2769,7 +2769,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2787,7 +2787,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2805,7 +2805,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2823,7 +2823,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2841,7 +2841,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2859,7 +2859,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2877,7 +2877,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2895,7 +2895,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2913,7 +2913,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2931,7 +2931,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2949,7 +2949,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2967,7 +2967,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -2985,7 +2985,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3003,7 +3003,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3021,7 +3021,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3039,7 +3039,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3057,7 +3057,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3075,7 +3075,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3093,7 +3093,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3111,7 +3111,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3129,7 +3129,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3147,7 +3147,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3165,7 +3165,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3183,7 +3183,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3201,7 +3201,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3219,7 +3219,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3237,7 +3237,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3255,7 +3255,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3273,7 +3273,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3291,7 +3291,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3309,7 +3309,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3327,7 +3327,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3345,7 +3345,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3363,7 +3363,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3389,7 +3389,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -3413,7 +3413,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -3437,7 +3437,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -3461,7 +3461,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ],
@@ -3479,7 +3479,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3497,7 +3497,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3515,7 +3515,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3533,7 +3533,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3551,7 +3551,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3569,7 +3569,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3587,7 +3587,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3605,7 +3605,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3623,7 +3623,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3641,7 +3641,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3659,7 +3659,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3685,7 +3685,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -3709,7 +3709,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -3733,7 +3733,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -3757,7 +3757,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -3775,7 +3775,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -3799,7 +3799,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ],
@@ -3817,7 +3817,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3835,7 +3835,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3853,7 +3853,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3871,7 +3871,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3889,7 +3889,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3907,7 +3907,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3925,7 +3925,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3943,7 +3943,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3961,7 +3961,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3979,7 +3979,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -3997,7 +3997,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4015,7 +4015,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4033,7 +4033,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4051,7 +4051,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4069,7 +4069,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4087,7 +4087,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4105,7 +4105,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4123,7 +4123,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4141,7 +4141,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4159,7 +4159,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4177,7 +4177,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4195,7 +4195,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4213,7 +4213,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4231,7 +4231,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4249,7 +4249,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4267,7 +4267,7 @@
           ],
           "properties": [
             {
-              "name": "simstudio:part",
+              "name": "lightsim:part",
               "value": "Simulation engine"
             }
           ]
@@ -4293,7 +4293,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -4317,7 +4317,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -4339,7 +4339,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -4361,7 +4361,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -4383,7 +4383,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -4405,7 +4405,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -4427,7 +4427,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -4449,7 +4449,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -4471,7 +4471,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -4493,7 +4493,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Simulation engine"
         }
       ]
@@ -4517,7 +4517,7 @@
       ],
       "properties": [
         {
-          "name": "simstudio:part",
+          "name": "lightsim:part",
           "value": "Example data"
         }
       ]
