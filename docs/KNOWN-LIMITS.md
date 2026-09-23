@@ -92,7 +92,7 @@ state of charge, tank levels and the Constant and Driving Task outputs are
 right there, but values that blocks, the Driver or the physics compute
 (pedal and traction commands, Script, PID and Lookup outputs, motor and
 engine torque, powers, road grade) read 0, because nothing has computed them
-yet. Motor and engine speed also read 0 at t = 0 when a run starts at speed.
+yet.
 At later points these values come from the last solver step before the
 point, at most 10 ms earlier.
 
@@ -109,9 +109,10 @@ minimum or an average, for example from the CSV export.
   is open, as the P2 Hybrid Car example's script does.
   Turbo lag, restart cost and warm-up are not modelled either.
   *Roadmap:* MOD-13.
-- **Gear losses are applied per motor or engine, not to the power actually
-  flowing through each gear.** When a motor and an engine push against each
-  other (hybrids), this creates phantom braking. *Roadmap:* MOD-03.
+- **Gear losses leave out inertia.** Each gear's loss now acts on the net
+  power through it, in both directions, but the torque that accelerates the
+  driveline's own inertia is not part of that net, and a locked clutch's
+  torque is taken from the previous 10 ms step. *Roadmap:* MOD-03.
 - **Shaft and Final Drive power is the total of all motors and engines.**
   Their *Transmitted Power* channel shows the summed mechanical power of
   every motor and engine on the driveline, not the power through that part:
@@ -134,9 +135,10 @@ minimum or an average, for example from the CSV export.
   Each wheel carries a fixed share of the vehicle weight (*Vehicle Load
   Share*); the shares of the connected wheels are scaled to add up to
   100 %, and Data Checks say when they had to be. *Roadmap:* MOD-16.
-- **An initial speed only spins the wheels.** A car that starts at speed has
-  its motor at 0 rpm and heavy tyre slip in the first instant. Start runs
-  from standstill. *Roadmap:* MOD-19.
+- **An engine behind a script-controlled clutch starts at rest.** A run that
+  starts at speed starts every wheel, gear and motor at that speed, and an
+  engine behind a closed clutch too; a clutch a Script controls counts as
+  open at t = 0, so the engine behind it starts at rest. *Roadmap:* MOD-19.
 - **Stiff settings can cause short wheel-spin spikes at launch.** This is a
   numerical effect of how the solver steps the tyres: a high tyre *Slip
   Stiffness*, a very light inertia or a strong clutch can push the solver
@@ -170,7 +172,7 @@ minimum or an average, for example from the CSV export.
 - **P2 Hybrid Car:** sized after the Hyundai Ioniq Hybrid, with its test
   mass and road load from EPA data, but its engine, motor and battery maps
   are generic, not the car's. With its charge-sustaining control script it
-  uses about 2.7 l/100 km on the EPA city cycle and 3.1 on the highway
+  uses about 3.0 l/100 km on the EPA city cycle and 3.3 on the highway
   cycle, against 2.91 and 2.94 for the real car in EPA's tests. The model
   has no cold start, engine warm-up or start-up fuel, and it counts the
   driveline drag that EPA's road-load coefficients already include a second

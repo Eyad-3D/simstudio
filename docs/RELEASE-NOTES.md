@@ -32,6 +32,8 @@ below makes results more correct; none is a tuning.
 | Wheel load shares of the connected wheels are scaled to add up to 100 % | Models whose shares did not add up change: a single axle left at the default 25 % per wheel now has twice the rolling resistance and grip | MOD-06 |
 | The Driver recuperates up to what the battery can take (before, 80 % of a charge limit with the default settings), and regeneration a motor's supply cannot take is reported in a new summary row | Recuperation can rise in models with a charge-power limit (23 % in a 20 kW test); the examples do not change | MOD-02 |
 | A parameter changed during a live run stays in force when the gearbox shifts | Before, the first shift quietly restored the saved value | ENG-04 |
+| Gear, final-drive and differential losses act on the power actually flowing through each gear, in both directions, wherever the driveline starts | Hybrids use more fuel (the hybrid example +5 to +10 %); before, a hybrid's gearbox and final drive could lose nothing | MOD-03 |
+| A run that starts at speed starts every wheel, gear, motor and closed-clutch engine at that speed | The first seconds of such runs change; before, a motor behind an open differential started at 0 rpm | MOD-19 |
 
 Runs of models with Script blocks take somewhat longer than in 0.1.0 at the
 default 1 s step (the hybrid example about 9.7 s against 7.9 s on a test
@@ -44,8 +46,8 @@ as long as before, and runs with fine steps are much faster.
   Apache-2.0): 14.0 kWh/100 km on WLTC at the battery, 0–100 km/h in 7.2 s,
   160 km/h top speed. A second case adds heating or air-conditioning.
 - **P2 Hybrid Car** — now sized after the Hyundai Ioniq Hybrid with EPA
-  road-load data and a charge-sustaining control strategy: 2.67 l/100 km on
-  the EPA city cycle and 3.13 on the highway cycle, against 2.91 and 2.94
+  road-load data and a charge-sustaining control strategy: 2.95 l/100 km on
+  the EPA city cycle and 3.30 on the highway cycle, against 2.91 and 2.94
   for the real car in EPA's tests.
 - Examples now come with the app instead of being copied once, so fixed and
   new examples reach you when you update. Opening an example gives you an

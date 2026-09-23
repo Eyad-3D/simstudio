@@ -5,7 +5,7 @@
  "variant": "fine",
  "case_step_s": 0.005,
  "store_every": 200,
- "change": "Recuperation held to what the supply takes, the rest reported (MOD-02)",
+ "change": "The hybrid's cases start at the charge they end with again",
  "status": "success",
  "messages": [
   "info: Case 'City Cycle' solved: 120000 steps × 0.005 s (1 sub-steps each), 601 points recorded, stored every 200, 45 result channels."
