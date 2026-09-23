@@ -31,6 +31,13 @@ JOINT_TYPES = {"mech.differential", "mech.transfer_case", "mech.clutch"}
 SOURCE_TYPES = {"motor.emotor": "motor", "engine.combustion": "engine"}
 SIGNAL_BLOCK_TYPES = ("signal.script", "control.pid", "signal.lookup", "signal.road_profile")
 
+# Model advisories that Data Checks treat as errors, because the vehicle
+# cannot move (the run itself only reports them as warnings).
+NO_VEHICLE = ("Wheels present but no Vehicle element — wheels carry no load "
+              "and produce no traction.")
+NO_WHEELS = "Vehicle present but no connected wheels — it will not move."
+NO_DRIVER = "No Driver element — nothing commands the powertrain unless you wire demands yourself."
+
 
 class ModelError(Exception):
     """Topology cannot be reduced to a solvable model."""
@@ -663,13 +670,11 @@ def build_model(
 
     any_wheels = any(seg.wheels for dl in drivelines for seg in dl.segments)
     if any_wheels and not vehicle:
-        warnings.append("Wheels present but no Vehicle element — wheels carry no load "
-                        "and produce no traction.")
+        warnings.append(NO_VEHICLE)
     if vehicle and not any_wheels:
-        warnings.append("Vehicle present but no connected wheels — it will not move.")
+        warnings.append(NO_WHEELS)
     if vehicle and any_wheels and not driver:
-        warnings.append("No Driver element — nothing commands the powertrain unless "
-                        "you wire demands yourself.")
+        warnings.append(NO_DRIVER)
     has_engine = any(cdef.id == "engine.combustion" for cdef in cdef_of.values())
     if has_engine and not fuel_tank:
         warnings.append("Combustion engine without a Fuel Tank — running on infinite fuel.")
