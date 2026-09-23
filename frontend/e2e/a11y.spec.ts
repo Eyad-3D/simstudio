@@ -1,8 +1,9 @@
 // Accessibility gate (axe-core) on three screens: the topology workspace, the
-// Results page and a parameter dialog. It fails on any serious or critical
-// violation that is not in a11y-baseline.json, the list of issues the app had
-// when the gate was introduced. Fixing one of those is reported (so the
-// baseline can shrink) but never fails the test.
+// Results page and a parameter dialog, each in the light and the dark theme.
+// It fails on any serious or critical violation that is not in
+// a11y-baseline.json, the list of issues the app had when the gate was
+// introduced, kept per screen and theme ("topology-dark"). Fixing one of
+// those is reported (so the baseline can shrink) but never fails the test.
 //
 // Baseline entries are "rule-id  element", where the element is named by what
 // a user sees on it (see describeElement), not by axe's CSS selector: those
@@ -85,21 +86,30 @@ test.afterAll(() => {
   if (updating) writeFileSync(BASELINE_FILE, JSON.stringify({ ...baseline, ...found }, null, 2) + "\n");
 });
 
-test("topology workspace", async ({ page }) => {
-  await openApp(page);
-  await check(page, "topology");
-});
+for (const theme of ["light", "dark"] as const) {
+  test.describe(`${theme} theme`, () => {
+    // the saved preference, the way the app starts when a user last chose it
+    test.beforeEach(async ({ page }) => {
+      await page.addInitScript((t) => localStorage.setItem("simstudio-theme", t), theme);
+    });
 
-test("results page", async ({ page }) => {
-  await openApp(page);
-  await runActiveCase(page);
-  await expect(drawnLines(page).first()).toBeVisible();
-  await check(page, "results");
-});
+    test("topology workspace", async ({ page }) => {
+      await openApp(page);
+      await check(page, `topology-${theme}`);
+    });
 
-test("parameter dialog", async ({ page }) => {
-  await openApp(page);
-  await page.locator(".react-flow__node", { hasText: "E-Motor" }).first().dblclick();
-  await expect(page.getByTitle("Close (Esc)")).toBeVisible();
-  await check(page, "parameter-dialog");
-});
+    test("results page", async ({ page }) => {
+      await openApp(page);
+      await runActiveCase(page);
+      await expect(drawnLines(page).first()).toBeVisible();
+      await check(page, `results-${theme}`);
+    });
+
+    test("parameter dialog", async ({ page }) => {
+      await openApp(page);
+      await page.locator(".react-flow__node", { hasText: "E-Motor" }).first().dblclick();
+      await expect(page.getByTitle("Close (Esc)")).toBeVisible();
+      await check(page, `parameter-dialog-${theme}`);
+    });
+  });
+}
