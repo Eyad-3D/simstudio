@@ -342,7 +342,8 @@ interface ProjectState {
   moveElement: (id: string, position: { x: number; y: number }) => void;
   resizeElement: (id: string, size: { width: number; height: number }) => void;
   beginHistory: () => void;
-  removeElements: (ids: string[]) => void;
+  /** Delete parts (with every wire on them) and the given wires, as one undo step. */
+  removeElements: (ids: string[], connectionIds?: string[]) => void;
   copyElements: (ids: string[]) => void;
   duplicateElements: (ids: string[]) => void;
   pasteClipboard: (position?: { x: number; y: number }) => void;
@@ -881,8 +882,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       set({ past: [...past.slice(-(HISTORY_LIMIT - 1)), project], future: [] });
     },
 
-    removeElements: (ids) => {
-      if (ids.length === 0) return;
+    removeElements: (ids, connectionIds = []) => {
+      if (ids.length === 0 && connectionIds.length === 0) return;
       updateProject((draft) => {
         // collect sub-system trees rooted at removed container elements
         const doomedSystems = new Set<string>();
@@ -906,11 +907,17 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         for (const s of draft.systems) {
           s.elements = s.elements.filter((e) => !doomedElements.has(e.id));
           s.connections = s.connections.filter(
-            (c) => !doomedElements.has(c.sourceElementId) && !doomedElements.has(c.targetElementId),
+            (c) =>
+              !connectionIds.includes(c.id) &&
+              !doomedElements.has(c.sourceElementId) &&
+              !doomedElements.has(c.targetElementId),
           );
         }
         draft.dataBusConnections = draft.dataBusConnections.filter(
-          (d) => !doomedElements.has(d.element1Id) && !doomedElements.has(d.element2Id),
+          (d) =>
+            !connectionIds.includes(d.id) &&
+            !doomedElements.has(d.element1Id) &&
+            !doomedElements.has(d.element2Id),
         );
       });
       const { selectedElementId, activeSystemId, project } = get();
@@ -1104,15 +1111,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       });
     },
 
-    removeConnections: (ids) => {
-      if (ids.length === 0) return;
-      updateProject((draft) => {
-        for (const s of draft.systems) {
-          s.connections = s.connections.filter((c) => !ids.includes(c.id));
-        }
-        draft.dataBusConnections = draft.dataBusConnections.filter((d) => !ids.includes(d.id));
-      });
-    },
+    removeConnections: (ids) => get().removeElements([], ids),
 
     addDataBus: (el1, p1, el2, p2) => {
       const { project, libraryById, log } = get();

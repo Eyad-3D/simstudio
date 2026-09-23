@@ -497,9 +497,7 @@ function TopologyCanvasInner() {
   );
 
   const deleteSelection = useCallback(() => {
-    const st = store.getState();
-    if (selectedEdges.size > 0) st.removeConnections([...selectedEdges]);
-    if (selectedNodes.size > 0) st.removeElements([...selectedNodes]);
+    store.getState().removeElements([...selectedNodes], [...selectedEdges]);
     setSelectedEdges(new Set());
     setSelectedNodes(new Set());
   }, [selectedEdges, selectedNodes, store]);
@@ -763,11 +761,13 @@ function TopologyCanvasInner() {
               useUIStore.getState().openParamDialog(el.id);
             }
           }}
-          onNodesDelete={(deleted) =>
-            store.getState().removeElements(deleted.map((n) => n.id))
-          }
-          onEdgesDelete={(deleted) =>
-            store.getState().removeConnections(deleted.map((e) => e.id))
+          // one store call for the parts and wires React Flow deletes (Del,
+          // Backspace), so a single undo brings them all back
+          onDelete={({ nodes: parts, edges: wires }) =>
+            store.getState().removeElements(
+              parts.map((n) => n.id),
+              wires.map((e) => e.id),
+            )
           }
           onPaneClick={(e) => {
             if (placingId) {
