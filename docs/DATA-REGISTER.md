@@ -4,7 +4,8 @@ Drive cycles, vehicle parameters and component maps can carry their own
 licences, separate from SimStudio's code. One wrongly licensed file could force
 a takedown of a release. [`data-register.csv`](data-register.csv) records,
 for every dataset in the repository, where it came from, its licence, the
-credit it requires and whether the installer ships it.
+credit it requires, whether the installer ships it and whether the owner has
+cleared it for shipping.
 
 ## Columns
 
@@ -18,6 +19,7 @@ credit it requires and whether the installer ships it.
 | `history` | What git history and the research notes say about the source. |
 | `licence`, `credit` | The licence the data is under and the credit text it requires. |
 | `ships_in_installer` | `yes` or `no`. The engine bundle carries `backend/projects/` and the component catalogue (`backend/simstudio-backend.spec`). The UI bundle inlines `frontend/src/data/` as its offline fallback. |
+| `cleared` | The owner's sign-off that SimStudio may ship the data: `yes` (the licence is known and allows it), `no` (it must not ship) or `pending` (not yet confirmed). |
 | `notes` | Caveats and open actions. |
 
 ## Status (2026-09-23)
@@ -36,10 +38,17 @@ credit it requires and whether the installer ships it.
 - Only the generated files have a known origin: the golden test fixtures (the
   solver's own output) and the UI's synced copies of the catalogue and the BEV
   example.
-- **Open action:** the owner should confirm that these values were written for
-  SimStudio. Each row can then say `Synthetic / created for SimStudio` and
-  name the SimStudio LICENSE. Any value that was taken from somewhere else
-  needs its source recorded instead, or it should be replaced (see CON-03).
+- Every row is therefore `cleared = pending`: the register records that the
+  data exists, not yet that SimStudio may ship it.
+- **Open actions:**
+  - The owner should confirm that these values were written for SimStudio.
+    Each row can then say `Synthetic / created for SimStudio`, name the
+    SimStudio LICENSE and become `cleared = yes`. Any value that was taken
+    from somewhere else needs its source recorded instead, or it should be
+    replaced (see CON-03).
+  - Once every shipped row is cleared, make `pending` fail for shipped rows
+    in the check (see below), so that later data cannot ship unconfirmed.
+  - The About or credits screen (rule 6) is not built yet.
 
 ## Adding or changing data
 
@@ -78,6 +87,9 @@ fails when:
 - a row is missing its source, licence or credit, or points at a file or
   dataset that no longer exists.
 - `ships_in_installer` does not match what the packaging bundles.
+- a shipped row is `cleared = no`, or a `cleared = yes` row has an unknown
+  licence. Shipped rows that are still `pending` are listed as a warning in
+  every test run.
 
 The check reads the files git tracks, so `git add` a new data file before you
 run it. Projects you save while developing (the engine saves into

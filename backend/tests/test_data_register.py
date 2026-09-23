@@ -2,7 +2,7 @@
 dataset: each data file in the trees the app is built from, and inside the
 component catalogue and the example projects each map, curve and drive/grade
 profile. A file or dataset added without a row (source, licence, credit,
-shipped or not) fails here, and so does a row whose file or
+shipped or not, cleared or not) fails here, and so does a row whose file or
 dataset no longer exists. See docs/DATA-REGISTER.md.
 """
 from __future__ import annotations
@@ -11,6 +11,7 @@ import csv
 import json
 import os
 import subprocess
+import warnings
 from fnmatch import fnmatch
 from pathlib import Path
 
@@ -22,7 +23,7 @@ LIBRARY = "backend/app/library/components.json"
 
 COLUMNS = [
     "id", "file", "dataset", "kind", "description", "source", "history",
-    "licence", "credit", "ships_in_installer", "notes",
+    "licence", "credit", "ships_in_installer", "cleared", "notes",
 ]
 REQUIRED = ["id", "file", "dataset", "kind", "description", "source", "licence", "credit"]
 
@@ -122,6 +123,7 @@ def test_every_row_is_complete(rows):
         missing = [c for c in REQUIRED if not row[c].strip()]
         assert not missing, f"{row['id'] or row['file']}: empty {missing}"
         assert row["ships_in_installer"] in ("yes", "no"), row["id"]
+        assert row["cleared"] in ("yes", "no", "pending"), row["id"]
     ids = [r["id"] for r in rows]
     assert len(ids) == len(set(ids)), "duplicate register ids"
     keys = [(r["file"], r["dataset"]) for r in rows]
@@ -162,3 +164,25 @@ def test_shipping_column_matches_the_packaging(rows):
             f"{row['id']}: {row['file']} ships_in_installer should be {expected}"
         )
 
+
+def test_nothing_ships_that_is_not_cleared(rows):
+    """'cleared' is the owner's sign-off that SimStudio may ship the data. A row
+    marked 'no' must not ship, and 'yes' needs a known licence. 'pending' is
+    allowed until the owner has confirmed provenance; it is listed as a warning
+    so the open sign-offs stay visible in every test run."""
+    for row in rows:
+        if row["cleared"] == "yes":
+            assert not row["licence"].startswith("Unknown"), (
+                f"{row['id']}: cleared, but its licence is unknown"
+            )
+        if row["ships_in_installer"] == "yes":
+            assert row["cleared"] != "no", (
+                f"{row['id']}: {row['file']} ships but is not cleared for shipping"
+            )
+    pending = [r["id"] for r in rows if r["ships_in_installer"] == "yes" and r["cleared"] == "pending"]
+    if pending:
+        warnings.warn(
+            f"{len(pending)} shipped datasets await the owner's licence sign-off: "
+            f"{', '.join(pending)} (docs/DATA-REGISTER.md)",
+            stacklevel=1,
+        )
