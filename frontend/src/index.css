@@ -151,6 +151,11 @@ body,
 }
 
 /* ---- React Flow tuning ---- */
+/* a library part is armed for click-to-place (TopologyCanvas) */
+.ss-placing .react-flow__pane,
+.ss-placing .react-flow__pane.draggable {
+  cursor: crosshair;
+}
 .react-flow__attribution {
   font-size: 9px;
   opacity: 0.6;
@@ -212,6 +217,10 @@ body,
 }
 .ss-tree-row {
   @apply flex w-full cursor-default items-center gap-1.5 truncate px-1.5 py-[3px] text-left text-[12px] hover:bg-[color:var(--ss-hover)];
+}
+.ss-tree-row:focus-visible {
+  outline: 2px solid var(--ss-accent);
+  outline-offset: -2px;
 }
 .ss-tree-row.selected {
   background: var(--ss-accent-soft);

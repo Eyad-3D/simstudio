@@ -85,6 +85,15 @@ interface UIState {
   visibleKinds: Record<EdgeKindFilter, boolean>;
   toggleKind: (kind: EdgeKindFilter) => void;
 
+  /** Library part armed for click-to-place: the next click on the empty
+   *  diagram adds it there (Components panel: click a part, then the canvas). */
+  placingComponentId: string | null;
+  setPlacingComponent: (defId: string | null) => void;
+  /** Registered by the topology canvas: add a library part in the middle of the
+   *  visible diagram and select it; returns the new element's label. */
+  insertComponent: ((defId: string) => string | null) | null;
+  setInsertComponent: (fn: ((defId: string) => string | null) | null) => void;
+
   /** Live-value overlay chips on canvas nodes (fed from the live run stream). */
   showLiveValues: boolean;
   toggleLiveValues: () => void;
@@ -138,6 +147,11 @@ export const useUIStore = create<UIState>((set, get) => ({
     set((s) => ({
       visibleKinds: { ...s.visibleKinds, [kind]: !s.visibleKinds[kind] },
     })),
+
+  placingComponentId: null,
+  setPlacingComponent: (defId) => set({ placingComponentId: defId }),
+  insertComponent: null,
+  setInsertComponent: (fn) => set({ insertComponent: fn }),
 
   showLiveValues: true,
   toggleLiveValues: () => set((s) => ({ showLiveValues: !s.showLiveValues })),

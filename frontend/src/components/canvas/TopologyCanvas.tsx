@@ -115,8 +115,10 @@ function TopologyCanvasInner() {
     screenToFlowPosition,
     getViewport,
     setViewport,
+    setCenter,
     getNodes,
     getNodesBounds,
+    getInternalNode,
   } = useReactFlow();
   const rfStore = useStoreApi();
 
@@ -135,6 +137,8 @@ function TopologyCanvasInner() {
   const [measured, setMeasured] = useState<Record<string, { width: number; height: number }>>({});
   const theme = useUIStore((s) => s.theme);
 
+  const placingId = useUIStore((s) => s.placingComponentId);
+  const placingDef = placingId ? libraryById[placingId] : undefined;
   const pendingSelection = useProjectStore((s) => s.pendingCanvasSelection);
   const clipboard = useProjectStore((s) => s.clipboard);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -207,6 +211,72 @@ function TopologyCanvasInner() {
     return () => timers.forEach(clearTimeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Parts added from the library by keyboard or double-click go in the middle
+  // of the visible diagram, on the nearest free spot, so repeated inserts do
+  // not pile up; the view pans if that spot is off screen.
+  const insertAtCentre = useCallback(
+    (defId: string): string | null => {
+      const st = store.getState();
+      const sys = st.project?.systems.find((sy) => sy.id === st.activeSystemId);
+      const rect = wrapperRef.current?.getBoundingClientRect();
+      if (!sys || !rect || rect.width === 0) return null;
+      const centre = screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+      const gap = 2 * GRID;
+      const taken = sys.elements.map((el) => {
+        const m = getInternalNode(el.id)?.measured;
+        return {
+          x: el.position.x - gap / 2,
+          y: el.position.y - gap / 2,
+          w: (m?.width ?? el.size?.width ?? DEFAULT_W) + gap,
+          h: (m?.height ?? el.size?.height ?? DEFAULT_H) + gap,
+        };
+      });
+      const free = (x: number, y: number) =>
+        taken.every((b) => x + DEFAULT_W <= b.x || x >= b.x + b.w || y + DEFAULT_H <= b.y || y >= b.y + b.h);
+      // grid cells around the centre, nearest first; sideways before up/down
+      // and right/below before left/above, as models are drawn left to right
+      const steps = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6];
+      const cells: [number, number][] = [];
+      for (const j of steps) for (const i of steps) cells.push([i, j]);
+      const cw = DEFAULT_W + gap;
+      const ch = DEFAULT_H + gap;
+      const dist = ([i, j]: [number, number]) => Math.hypot(i * cw, j * ch * 1.25);
+      cells.sort((a, b) => dist(a) - dist(b));
+      const snap = (v: number) => Math.round(v / GRID) * GRID;
+      let pos = { x: snap(centre.x - DEFAULT_W / 2), y: snap(centre.y - DEFAULT_H / 2) };
+      for (const [i, j] of cells) {
+        const x = snap(centre.x - DEFAULT_W / 2 + i * cw);
+        const y = snap(centre.y - DEFAULT_H / 2 + j * ch);
+        if (free(x, y)) {
+          pos = { x, y };
+          break;
+        }
+      }
+      st.addElement(defId, pos);
+      const topLeft = screenToFlowPosition({ x: rect.left, y: rect.top });
+      const bottomRight = screenToFlowPosition({ x: rect.right, y: rect.bottom });
+      if (pos.x < topLeft.x || pos.y < topLeft.y || pos.x + DEFAULT_W > bottomRight.x || pos.y + DEFAULT_H > bottomRight.y) {
+        void setCenter(pos.x + DEFAULT_W / 2, pos.y + DEFAULT_H / 2, { zoom: getViewport().zoom, duration: 200 });
+      }
+      const next = store.getState();
+      return next.project?.systems.flatMap((sy) => sy.elements).find((el) => el.id === next.selectedElementId)?.label ?? null;
+    },
+    [getInternalNode, getViewport, screenToFlowPosition, setCenter, store],
+  );
+  useEffect(() => {
+    const ui = useUIStore.getState();
+    ui.setInsertComponent(insertAtCentre);
+    return () => ui.setInsertComponent(null);
+  }, [insertAtCentre]);
+
+  // click-to-place: Esc cancels an armed library part
+  useEffect(() => {
+    if (!placingId) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && useUIStore.getState().setPlacingComponent(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [placingId]);
 
   /** Fit everything on request (toolbar / context menu); a no-op when empty. */
   const fitAll = useCallback(() => {
@@ -577,7 +647,7 @@ function TopologyCanvasInner() {
       </div>
       <div
         ref={wrapperRef}
-        className="relative min-h-0 flex-1"
+        className={`relative min-h-0 flex-1${placingDef ? " ss-placing" : ""}`}
         onMouseEnter={() => (hovered.current = true)}
         onMouseLeave={() => (hovered.current = false)}
         onMouseMove={(e) => {
@@ -652,7 +722,17 @@ function TopologyCanvasInner() {
           onEdgesDelete={(deleted) =>
             store.getState().removeConnections(deleted.map((e) => e.id))
           }
-          onPaneClick={() => {
+          onPaneClick={(e) => {
+            if (placingId) {
+              // click-to-place: drop the armed library part where clicked, after
+              // React Flow's own pane-click handling (which clears the selection)
+              const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+              const defId = placingId;
+              setTimeout(() => store.getState().addElement(defId, { x: pos.x - 46, y: pos.y - 27 }));
+              useUIStore.getState().setPlacingComponent(null);
+              closeMenu();
+              return;
+            }
             setSelectedNodes(new Set());
             setSelectedEdges(new Set());
             store.getState().select(null);
@@ -757,6 +837,15 @@ function TopologyCanvasInner() {
             />
           )}
         </ReactFlow>
+        {placingDef && (
+          <div
+            role="status"
+            className="pointer-events-none absolute left-1/2 top-2 z-10 -translate-x-1/2 whitespace-nowrap rounded border border-[color:var(--ss-accent)] bg-[color:var(--ss-panel)] px-2.5 py-1 text-[12px] text-[color:var(--ss-text)] shadow-sm"
+          >
+            Click the diagram to place <span className="font-semibold">{placingDef.name}</span> · Esc
+            to cancel
+          </div>
+        )}
         {system && system.elements.length === 0 && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6">
             <div className="max-w-[340px] rounded-lg border border-dashed border-[color:var(--ss-border)] bg-[color:var(--ss-panel)]/70 px-6 py-5 text-center">
@@ -765,8 +854,8 @@ function TopologyCanvasInner() {
                 Build your topology
               </div>
               <p className="mt-1 text-[12px] leading-relaxed text-[color:var(--ss-text-dim)]">
-                Drag components from the <span className="font-medium">Components</span> panel onto
-                the canvas, then wire matching ports together.
+                Add components from the <span className="font-medium">Components</span> panel: drag
+                one here, double-click it or press Enter on it. Then wire matching ports together.
               </p>
               <ul className="mt-3 space-y-1 text-left text-[11px] text-[color:var(--ss-text-dim)]">
                 <li className="flex items-center gap-1.5">
