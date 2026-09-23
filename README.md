@@ -9,7 +9,10 @@ inspect results — all in a dockable-panel UI.
 > **Status:** early version. The workflow works, but the component physics
 > are simplified, nothing has been validated against measured vehicles yet,
 > and some results are known to be wrong. Read
-> [Known issues and limits](docs/KNOWN-LIMITS.md) before relying on a number.
+> [Known issues and limits](docs/KNOWN-LIMITS.md) before relying on a number,
+> and [What is validated](docs/VALIDATION-STATUS.md) for what has been
+> checked and how. What changed in each version, and which results moved:
+> [Release notes](docs/RELEASE-NOTES.md).
 
 ![Topology editor](docs/doc-topology.png)
 

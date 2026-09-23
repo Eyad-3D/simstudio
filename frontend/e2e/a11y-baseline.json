@@ -21,7 +21,6 @@
     "color-contrast  span \"# elements\"",
     "color-contrast  span \"Battery Electric Car\"",
     "label-title-only  select \"Active simulation case\"",
-    "label-title-only  select \"Primary run (drives the channel list, ta\"",
     "scrollable-region-focusable  div \"Summary value Value Unit HV Battery Pack\""
   ],
   "parameter-dialog-light": [
@@ -67,7 +66,6 @@
     "color-contrast  div \"LightSim\"",
     "color-contrast  span \"backend connected\"",
     "label-title-only  select \"Active simulation case\"",
-    "label-title-only  select \"Primary run (drives the channel list, ta\"",
     "scrollable-region-focusable  div \"Summary value Value Unit HV Battery Pack\""
   ],
   "parameter-dialog-dark": [

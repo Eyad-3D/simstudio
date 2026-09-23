@@ -8,7 +8,9 @@ roadmap item tracks the fix.
 
 Use LightSim to learn the workflow and to compare variants of one model
 with each other. Do not use its absolute numbers (consumption, range, top
-speed, acceleration) for decisions about a real vehicle yet.
+speed, acceleration) for decisions about a real vehicle yet. [What is
+validated](VALIDATION-STATUS.md) says what the automatic tests check and
+how the example cars compare with real ones.
 
 - *Roadmap* gives the ID of the item on the LightSim development roadmap
   that tracks the fix, so the release notes can say when it is resolved.

@@ -46,7 +46,10 @@ function runTime(r: SimRun): string {
 }
 
 function runLabel(r: SimRun): string {
-  return `${r.caseName} · ${runTime(r)} · ${r.incomplete ? `incomplete (${r.incomplete})` : r.status}`;
+  // "success" is the usual case and the chart header shows it: leave it out
+  // so the label fits the 280 px picker; any other outcome stays visible
+  const outcome = r.incomplete ? `incomplete (${r.incomplete})` : r.status === "success" ? "" : r.status;
+  return [r.caseName, runTime(r), outcome].filter(Boolean).join(" · ");
 }
 
 /** Compact run label for legends/overlay chips — swept value if present. */
@@ -413,9 +416,10 @@ export function ResultsPanel() {
           <div className="flex items-center gap-1">
             <select
               className="ss-input min-w-0 flex-1"
+              aria-label="Primary run"
               value={activeRun?.id ?? ""}
               onChange={(e) => setActiveRun(e.target.value)}
-              title="Primary run (drives the channel list, table and summary)"
+              title={`${activeRun ? `${runLabel(activeRun)}${activeRun.incomplete || activeRun.status !== "success" ? "" : " · success"} — ` : ""}primary run (drives the channel list, table and summary)`}
             >
               {runs.map((r) => (
                 <option key={r.id} value={r.id}>
