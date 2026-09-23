@@ -80,6 +80,64 @@ test.fixme("UX-04: a number field can be cleared and retyped", async ({ page }) 
   await expect(mass).toHaveValue("1.2"); // today: "01.2"
 });
 
+/** The share of the window the diagram gets, and its zoom. */
+async function diagramView(page: Page): Promise<{ share: number; zoom: number }> {
+  return page.evaluate(() => {
+    const box = document.querySelector(".react-flow")!.getBoundingClientRect();
+    const viewport = document.querySelector(".react-flow__viewport")!;
+    return {
+      share: (box.width * box.height) / (window.innerWidth * window.innerHeight),
+      zoom: new DOMMatrixReadOnly(getComputedStyle(viewport).transform).a,
+    };
+  });
+}
+
+// GUI-01's target. Today the diagram gets 9.8 % of a 1366x768 window at a fit
+// zoom of 0.16, and 28.7 % of a 1920x1080 one.
+for (const { width, height, percent, zoom } of [
+  { width: 1366, height: 768, percent: 45, zoom: 0.4 },
+  { width: 1920, height: 1080, percent: 55, zoom: 0 },
+]) {
+  test.describe(`at ${width}x${height}`, () => {
+    test.use({ viewport: { width, height } });
+
+    test.fixme(`GUI-01: the diagram gets at least ${percent} % of a ${width}x${height} window`, async ({
+      page,
+    }) => {
+      await openApp(page);
+      await expect.poll(async () => (await diagramView(page)).share * 100).toBeGreaterThanOrEqual(percent);
+      if (zoom) await expect.poll(async () => (await diagramView(page)).zoom).toBeGreaterThanOrEqual(zoom);
+    });
+  });
+}
+
+/** The smallest node name on screen, in px: font size times every scale
+ *  applied to it (the diagram's zoom included). */
+async function smallestNodeName(page: Page, names: string[]): Promise<number> {
+  return page.evaluate((names) => {
+    const sizes = [...document.querySelectorAll(".react-flow__node *")]
+      .filter((el) => el.children.length === 0 && names.includes(el.textContent!.trim()))
+      .map((el) => {
+        const scale = el.getBoundingClientRect().height / (el as HTMLElement).offsetHeight;
+        return parseFloat(getComputedStyle(el).fontSize) * scale;
+      });
+    return sizes.length ? Math.min(...sizes) : NaN;
+  }, names);
+}
+
+// GUI-03's target. Today names are 3.5 px on screen when the example is
+// fitted to a 1600x900 window (1.8 px at 1366x768).
+test.fixme("GUI-03: node names are at least 11 px on screen, fitted and zoomed out", async ({ page }) => {
+  await openApp(page);
+  const project = await (await page.request.get("/api/projects/bev-car")).json();
+  const names: string[] = project.systems.flatMap((s: { elements: { label: string }[] }) =>
+    s.elements.map((e) => e.label),
+  );
+  await expect.poll(() => smallestNodeName(page, names)).toBeGreaterThanOrEqual(11);
+  for (let i = 0; i < 3; i++) await page.getByTitle("Zoom out").click();
+  await expect.poll(() => smallestNodeName(page, names)).toBeGreaterThanOrEqual(11);
+});
+
 test.describe("UX-02: replacing a project with unsaved changes asks first", () => {
   test.beforeEach(async ({ page }) => {
     await openApp(page);
