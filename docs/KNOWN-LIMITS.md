@@ -128,12 +128,10 @@ minimum or an average, for example from the CSV export.
   at a 10 % grade and 3 % at 25 %. To model cold or thin air, multiply the
   Vehicle's *Drag Coefficient (Cd)* by the real density divided by 1.2, and
   keep grades moderate. *Roadmap:* MOD-11.
-- **Wheel load shares are typed in by hand.** Each wheel's share of the
-  vehicle weight (*Vehicle Load Share*) is a fixed number. Data Checks warn
-  when the shares of the connected wheels do not add up to 100 %, but the
-  run still uses them as typed, and then tyre grip and rolling resistance
-  are wrong. Make them add up to 100 %.
-  *Roadmap:* MOD-06.
+- **Wheel loads do not shift when braking, accelerating or cornering.**
+  Each wheel carries a fixed share of the vehicle weight (*Vehicle Load
+  Share*); the shares of the connected wheels are scaled to add up to
+  100 %, and Data Checks say when they had to be. *Roadmap:* MOD-16.
 - **An initial speed only spins the wheels.** A car that starts at speed has
   its motor at 0 rpm and heavy tyre slip in the first instant. Start runs
   from standstill. *Roadmap:* MOD-19.
@@ -150,9 +148,6 @@ minimum or an average, for example from the CSV export.
 
 ### Live edits, charts, sweeps and export
 
-- **A live parameter edit is undone at the next gear shift** in models with a
-  gearbox. Set the value before the run instead (as a case override).
-  *Roadmap:* ENG-04.
 - **Values between recorded points are not stored.** Charts keep the
   highest and lowest value of each stretch they thin for drawing, but with
   *Store every* above 1 the values in between recorded points are never
@@ -240,11 +235,11 @@ minimum or an average, for example from the CSV export.
   them may exist. Open projects only from people you trust. *Roadmap:*
   PLT-02 (running scripts in a separate, locked-down process is still to
   do).
-- **Runs take longer than in earlier builds.** Controllers now run every
-  10 ms and every step checks what the battery or fuel cell can supply, so
-  at the default 1 s case step a run takes about 30-40 % more CPU time than
-  before (on a test machine, the Battery Electric Car's City Cycle went from
-  6.6 to 8.7 s and the P2 Hybrid Car's Mixed Cycle from 7.9 to 11.3 s). A
+- **Runs with Script blocks take a little longer than in 0.1.0.**
+  Controllers and scripts now run every 10 ms, so a model with scripts
+  does more work per second of driving: on a test machine the P2 Hybrid
+  Car's Mixed Cycle takes about 9.7 s against 7.9 s in 0.1.0, while the
+  Battery Electric Car's City Cycle takes about as long as before. A
   coarser case step does not make a run faster: the solver steps every
   10 ms whatever it is. *Roadmap:* ENG-10.
 - **Some colours are too faint in the dark theme.** The ribbon title, the

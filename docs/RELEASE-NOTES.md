@@ -26,10 +26,14 @@ below makes results more correct; none is a tuning.
 | The electric motor's spin losses are counted once, and the library's default motor maps were corrected | Models using the default E-Motor use about 15 % less energy | MOD-04 |
 | The combustion engine delivers its full rated power, cuts fuel when coasting, and stops at a rev limiter; a CO₂ figure is added | Engines now reach their full-load curve (the old model fell 28 % short of it) and use no fuel when coasting in gear | MOD-05 |
 | A run where the car did not follow its cycle, did not move, or ran out of energy is no longer called a success, and figures that cannot be trusted are flagged "not valid" with the reason | Some runs that said "success" now say "warning" or "failed" | VAL-02 |
+| Wheel load shares of the connected wheels are scaled to add up to 100 % | Models whose shares did not add up change: a single axle left at the default 25 % per wheel now has twice the rolling resistance and grip | MOD-06 |
+| The Driver recuperates up to what the battery can take (before, 80 % of a charge limit with the default settings), and regeneration a motor's supply cannot take is reported in a new summary row | Recuperation can rise in models with a charge-power limit (23 % in a 20 kW test); the examples do not change | MOD-02 |
+| A parameter changed during a live run stays in force when the gearbox shifts | Before, the first shift quietly restored the saved value | ENG-04 |
 
-Runs take about 30–40 % more computer time at the default 1 s step, because
-control now runs every 10 ms; runs with fine steps are much faster than
-before.
+Runs of models with Script blocks take somewhat longer than in 0.1.0 at the
+default 1 s step (the hybrid example about 9.7 s against 7.9 s on a test
+machine), because controllers now run every 10 ms; other models take about
+as long as before, and runs with fine steps are much faster.
 
 ### New example cars
 
