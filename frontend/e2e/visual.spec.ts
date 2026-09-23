@@ -7,12 +7,14 @@
 // decides, and the clock, time zone and locale are fixed. The comparison is
 // strict (see SHOT), so that a stray divider fails.
 //
-// The baselines are Linux renders with the fonts Playwright installs
+// The baselines are Ubuntu 24.04 renders with the fonts Playwright installs
 // (`npx playwright install --with-deps chromium`, as CI does), where the UI's
 // font stack falls back to DejaVu Sans, so the spec runs on Linux only. After
 // a deliberate UI change, regenerate them on Linux and review the new images
 // in the pull request:
 //   npm run build && npm run test:visual:update
+// CI's e2e job is pinned to ubuntu-24.04 for them: moving it to a newer image
+// (or a newer Playwright) means regenerating all 18 in the same PR.
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { openApp, runActiveCase, runButton } from "./app";
