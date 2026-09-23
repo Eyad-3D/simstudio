@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Mocked } from "vitest";
+import type { MockedObject } from "vitest";
 import libraryJson from "../data/componentLibrary.json";
 import type { ComponentDef, DataCheck, ElementInstance, Project } from "../types";
 
@@ -22,7 +22,7 @@ const library = libraryJson as unknown as {
 };
 const defName = (id: string) => library.components.find((c) => c.id === id)!.name;
 
-let api: Mocked<typeof import("../api")>;
+let api: MockedObject<typeof import("../api")>;
 let persist: typeof import("../persist");
 let useProjectStore: typeof import("./projectStore").useProjectStore;
 const store = () => useProjectStore.getState();
