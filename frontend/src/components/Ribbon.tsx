@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   AArrowDown,
   AArrowUp,
@@ -29,6 +29,7 @@ import {
 import * as api from "../api";
 import type { Project } from "../types";
 import { resetDockLayout } from "./DockLayout";
+import { useDismiss } from "./useDismiss";
 import { confirmDialog } from "../dialog";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
 import {
@@ -68,6 +69,7 @@ function BigButton({
   disabled,
   accent,
   title,
+  ref,
 }: {
   icon: React.ComponentType<{ size?: number; className?: string }>;
   label: string;
@@ -75,9 +77,11 @@ function BigButton({
   disabled?: boolean;
   accent?: boolean;
   title?: string;
+  ref?: React.Ref<HTMLButtonElement>;
 }) {
   return (
     <button
+      ref={ref}
       className={`flex h-[52px] w-[58px] flex-col items-center justify-center gap-0.5 rounded text-[11px] leading-tight
         ${accent ? "text-[color:var(--ss-accent)]" : ""}
         hover:bg-[color:var(--ss-hover)] active:bg-[color:var(--ss-active)] disabled:opacity-40 disabled:hover:bg-transparent`}
@@ -135,20 +139,13 @@ function OpenProjectButton() {
   const [projects, setProjects] = useState<api.ProjectEntry[]>([]);
   const [examples, setExamples] = useState<api.ExampleEntry[]>([]);
   const ref = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
   const openProject = useProjectStore((s) => s.openProject);
   const openExample = useProjectStore((s) => s.openExample);
   const hideExample = useProjectStore((s) => s.hideExample);
   const restoreExamples = useProjectStore((s) => s.restoreExamples);
   const log = useProjectStore((s) => s.log);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [open]);
+  useDismiss(open, () => setOpen(false), ref, button);
 
   const listExamples = async () => {
     try {
@@ -170,6 +167,7 @@ function OpenProjectButton() {
   return (
     <div className="relative" ref={ref}>
       <BigButton
+        ref={button}
         icon={FolderOpen}
         label="Open"
         onClick={async () => {
@@ -504,19 +502,12 @@ function RestoreVersionButton() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<api.BackupInfo[]>([]);
   const ref = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
   const project = useProjectStore((s) => s.project);
   const offline = useProjectStore((s) => s.offline);
   const log = useProjectStore((s) => s.log);
   const openAsCopy = useProjectStore((s) => s.openAsCopy);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [open]);
+  useDismiss(open, () => setOpen(false), ref, button);
 
   const restore = async (backup: api.BackupInfo) => {
     setOpen(false);
@@ -543,6 +534,7 @@ function RestoreVersionButton() {
   return (
     <div className="relative" ref={ref}>
       <BigButton
+        ref={button}
         icon={History}
         label="Restore…"
         title="Restore an earlier version of this project (opens it as an unsaved copy)"
