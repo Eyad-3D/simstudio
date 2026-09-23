@@ -1154,7 +1154,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         if (!project) return;
         try {
           const res = await api.saveProject(project, revision);
-          set({ dirty: false, revision: res.revision ?? revision });
+          // an edit made while the save was in flight is still unsaved
+          set({ dirty: get().project !== project, revision: res.revision ?? revision });
           log("info", `Project '${project.name}' saved to the server.`);
         } catch (e) {
           if ((e as { status?: number }).status !== 409) {
@@ -1183,8 +1184,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           }
           try {
             const res = await api.saveProject(project);
-            set({ dirty: false, revision: res.revision ?? null });
-            log("info", `Project '${project.name}' saved to the server, replacing the version on disk (kept as ${project.id}.json.bak).`);
+            // edits made while the dialog was open were not in this save
+            set({ dirty: get().project !== project, revision: res.revision ?? null });
+            log("info", `Project '${project.name}' saved to the server, replacing the version on disk ` +
+              `(it is kept as ${project.id}.json.bak until your next save).`);
           } catch (e2) {
             log("error", `Save failed: ${(e2 as Error).message}. Use Export to download the project file instead.`);
           }

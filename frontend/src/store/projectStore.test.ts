@@ -168,6 +168,20 @@ describe("dirty tracking and save", () => {
     expect(messages().some((m) => m.startsWith("error: Save failed: 500 disk full"))).toBe(true);
   });
 
+  it("an edit made while a save is in flight stays unsaved", async () => {
+    await store().init();
+    store().renameElement("el-bat", "Pack");
+    let finish!: (value: { saved: string }) => void;
+    api.saveProject.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const saving = store().saveRemote();
+    await Promise.resolve();
+    store().renameElement("el-bat", "Pack 2"); // e.g. while the 409 dialog is open
+    finish({ saved: "fixture" });
+    await saving;
+    expect(api.saveProject.mock.calls[0][0].systems[0].elements[0].label).toBe("Pack");
+    expect(store().dirty).toBe(true);
+  });
+
   it("selection and case switching do not count as edits", async () => {
     await store().init();
     store().select("el-bat");
