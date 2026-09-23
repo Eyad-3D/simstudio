@@ -137,3 +137,19 @@ def test_npm_licence_arrays_must_all_be_allowed(notices, allowed, monkeypatch):
     problems = notices.check(list(components.values()), allowed, {})
     assert [p.split(" ", 1)[0] for p in problems] == ["mixed"]
     assert components["dual"].terms == ["MIT", "Apache-2.0"]
+
+
+def test_the_desktop_shells_runtime_dependencies_are_checked(notices, allowed, monkeypatch):
+    # electron-builder ships every runtime dependency of desktop/ inside
+    # app.asar, so the gate must see them, not just Electron.
+    def fake(folder, *args):
+        if folder.name == "desktop" and "--production" in args:
+            return {"gpl-updater@1.0.0": {"licenses": "GPL-3.0-only"}}
+        if folder.name == "desktop":
+            return {"electron@38.0.0": {"licenses": "MIT"}}
+        return {}
+    monkeypatch.setattr(notices, "license_checker", fake)
+    components = {c.name: c for c in notices.npm_components()}
+    assert components["gpl-updater"].part == notices.SHELL
+    problems = notices.check(list(components.values()), allowed, {})
+    assert [p.split(" ", 1)[0] for p in problems] == ["gpl-updater"]

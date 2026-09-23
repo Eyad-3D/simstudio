@@ -45,7 +45,9 @@ for (const rel of manifests) {
 
 const limitsRel = "docs/KNOWN-LIMITS.md";
 const limits = readFileSync(join(root, limitsRel), "utf8");
-const reviewed = /Last reviewed:[\s\S]*?for version (\S+?)\.?(?:\s|$)/.exec(limits)?.[1];
+// The "Last reviewed" bullet may wrap; stay inside it (continuation lines are
+// indented) so a later "for version" elsewhere on the page cannot match.
+const reviewed = /Last reviewed:[^\n]*(?:\n +[^\n]*)*?\bfor\s+version\s+(\S+?)\.?(?:\s|$)/.exec(limits)?.[1];
 const unreviewed = reviewed !== version;
 if (unreviewed) {
   const say = check ? console.error : console.warn;

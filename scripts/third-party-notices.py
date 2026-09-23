@@ -288,10 +288,18 @@ def npm_components() -> list[Component]:
     found = [(UI, license_checker(ui, "--production", "--excludePrivatePackages",
                                   "--excludePackagesStartingWith", "@types/")),
              (UI, license_checker(ui, "--includePackages", ";".join(UI_BUILD_OUTPUT))),
+             # electron-builder packs the shell's runtime dependencies into
+             # app.asar; Electron itself is a devDependency, so it is asked
+             # for by name.
+             (SHELL, license_checker(ROOT / "desktop", "--production", "--excludePrivatePackages")),
              (SHELL, license_checker(ROOT / "desktop", "--includePackages", "electron"))]
     components = []
+    seen = set()
     for part, packages in found:
         for key, info in sorted(packages.items()):
+            if (part, key) in seen:
+                continue
+            seen.add((part, key))
             name, _, version = key.rpartition("@")
             declared = info.get("licenses", "")
             if isinstance(declared, list):

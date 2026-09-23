@@ -75,19 +75,14 @@ a battery, motor or differential.
 target speed, and compare *Distance driven* with the cycle's length.
 *Roadmap:* VAL-02 and VAL-01 (both being fixed).
 
-### Signal wiring mistakes are not caught
+### Signal units are not checked
 
-When two signals are wired into the same input, the run silently uses only
-one of them, and Data Checks do not report it. Units are not checked either:
-a battery's *SOC* output is in % (0-100), and a Script, Lookup or PID block
-that expects 0-1 gets 0-100 without a warning. The Battery Electric Car
-example with a constant 30 km/h wired into the Driver's *Target Speed* input
-next to the drive cycle drives at a steady 30 km/h and covers 5.0 instead of
-7.3 km; Data Checks pass and the run is reported as a success.
+Data Checks now report two signals wired into the same input (UX-37), but
+units are not checked: a battery's *SOC* output is in % (0-100), and a
+Script, Lookup or PID block that expects 0-1 gets 0-100 without a warning.
 
-*Workaround:* in the Data Bus panel, check that each input has exactly one
-source and that the units at both ends of each link match; divide
-percentages by 100 where a block expects 0-1.
+*Workaround:* in the Data Bus panel, check that the units at both ends of
+each link match; divide percentages by 100 where a block expects 0-1.
 *Roadmap:* VAL-17.
 
 ### Result time stamps are one step early
@@ -122,8 +117,8 @@ at t = 0.
   the driveline shows the same value. In the P2 Hybrid Car example with a
   Shaft added between the engine and the clutch, at t = 342 s the engine
   delivers 19.2 kW and the motor takes 17.1 kW to charge the battery, and
-  the Shaft and the Final Drive both show 2.2 kW. Read the *Mechanical Power* of each motor
-  and engine instead. *Roadmap:* MOD-10.
+  the Shaft and the Final Drive both show 2.2 kW. Read the *Mechanical
+  Power* of each motor and engine instead. *Roadmap:* MOD-10.
 - **Air density is fixed, and steep grades are overstated.** Air drag always
   uses 1.2 kg/m³: the Ambient block's temperature and pressure are ignored,
   and there is no wind. Real air is about 10 % denser at −7 °C, and about
@@ -164,7 +159,7 @@ at t = 0.
   (being fixed), RES-17, ENG-16.
 - **Stored values are rounded.** Every stored value is rounded to 5 decimal
   places, so small values keep few digits (a tyre slip of 0.0018 keeps two).
-  The summary rounds energies to 1 Wh, fuel to 1 g and consumption to 0.01
+  The summary rounds energies to 1 Wh (battery losses to 0.1 Wh), fuel to 1 g and consumption to 0.01
   per 100 km. CSV export has the same rounding. Treat smaller differences
   between runs as noise; to compare two close variants, lengthen the run
   (for example, repeat the cycle) so that the difference adds up.

@@ -176,7 +176,8 @@ node scripts/sync-version.mjs --check   # what CI runs
 ### Third-party licences
 
 The app ships other people's open-source code: the UI's npm packages,
-Electron, and everything PyInstaller freezes into the engine (Python
+Electron and any runtime dependencies of the desktop shell, and everything
+PyInstaller freezes into the engine (Python
 packages, the Python runtime and native libraries such as OpenSSL).
 `scripts/third-party-notices.py` lists all of it, with the licence texts, in
 `THIRD-PARTY-NOTICES.txt` (**Help → Third-Party Notices** in the app), and as
