@@ -144,6 +144,25 @@ def test_non_finite_values_fail_the_run():
     assert s["Simulated duration"].notValid is None
 
 
+def test_a_cancelled_run_flags_its_figures_per_distance():
+    """A run stopped part-way still ends "warning" (a separate "cancelled"
+    status needs the app's run history to follow), but its Consumption no
+    longer shows as a plain number for a cycle it did not finish."""
+    proj = load_project("bev-car")
+    calls = {"n": 0}
+
+    def control():
+        calls["n"] += 1
+        return [{"type": "cancel"}] if calls["n"] == 31 else []
+
+    result = simulate(proj, proj.cases[0].id, control=control)
+    assert result.status == "warning"
+    s = _summary(result)
+    assert s["Simulated duration"].value == 30
+    assert s["Consumption"].notValid == "run cancelled at t = 30 s"
+    assert s["Distance driven"].notValid is None
+
+
 def test_bundled_examples_follow_their_cycles():
     for pid in ("bev-car", "hybrid-car"):
         proj = load_project(pid)

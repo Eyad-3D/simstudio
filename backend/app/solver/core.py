@@ -306,6 +306,10 @@ def simulate(
     if verdict.cycle_not_followed:
         for label in ("Consumption", "Fuel consumption", "CO₂ emissions"):
             not_valid[label] = "cycle not followed"
+    if cancelled and times:
+        # figures per distance cover only the part of the cycle driven so far
+        for label in ("Consumption", "Fuel consumption", "CO₂ emissions"):
+            not_valid.setdefault(label, f"run cancelled at t = {times[-1]:g} s")
     if ctx.throughput_wh > 0 and ctx.residual_wh > 1e-3 * ctx.throughput_wh:
         for s in summary:
             if s.unit in ("kWh", "kWh/100km", "%") and s.label != "Electrical energy balance error":
