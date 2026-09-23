@@ -285,7 +285,7 @@ def test_motor_steady_state_matches_road_load():
 
     v = 50 / 3.6
     mass = 1800.0
-    f_roll = 0.012 * mass * 9.81 * 0.5  # two wheels à 25 % share
+    f_roll = 0.012 * mass * 9.81  # the two wheels' shares are scaled to carry it all
     f_aero = 0.5 * 1.2 * (0.28 * 2.2) * v * v  # Cd × frontal area
     wheel_torque = (f_roll + f_aero) * 0.33
     expected = wheel_torque / (9.7 * 0.97 * 0.98)
@@ -461,3 +461,56 @@ def test_bev_demo_validates_and_runs():
     labels = [s.label for s in result.summary]
     assert any("Consumption" in label for label in labels)
     assert any("Distance driven" in label for label in labels)
+
+
+# ---- wheel loads (MOD-06) ----------------------------------------------------
+
+def _cruise_power(shares, edit=None) -> tuple[float, float]:
+    """Battery power at a steady 100 km/h for the two wheels' load shares,
+    at 30 s and at the end (60 s); ``edit`` is a live edit sent at t = 30 s."""
+    proj = bev_axle(profile="0:100; 100:100")
+    proj.cases[0].duration, proj.cases[0].timeStep = 60, 0.5
+    for e in proj.systems[0].elements:
+        if e.id == "veh":
+            e.parameterOverrides["initial_speed_kmh"] = 100
+        if e.id in ("whl", "whr"):
+            e.parameterOverrides["vehicle_load_share_pct"] = shares[e.id == "whr"]
+    calls = {"n": 0}
+
+    def control():
+        calls["n"] += 1
+        return [edit] if edit and calls["n"] == 61 else []
+
+    power = {p["t"]: p["value"] for p in series(simulate(proj, "case", control=control),
+                                                "batt", "sig_power")}
+    return power[30.0], power[60.0]
+
+
+def test_wheel_loads_always_add_up_to_the_weight():
+    """ml/phys_tests.py T3: two wheels left at the default 25 % rested half
+    the car on the road, so rolling resistance was halved: 12.84 kW at
+    100 km/h against 16.02 kW with 50/50. The shares of the connected wheels
+    are now scaled to carry the whole weight, live edits included."""
+    reference = _cruise_power((50, 50))[1]
+    assert _cruise_power((25, 25))[1] == reference  # 0.25 / 0.5 = 0.5 exactly
+    assert _cruise_power((30, 50))[1] == pytest.approx(reference, rel=1e-3)
+    before, after = _cruise_power((50, 50), {"type": "set_param", "elementId": "whl",
+                                             "key": "vehicle_load_share_pct", "value": 20})
+    assert after == pytest.approx(before, rel=1e-3)
+
+
+def test_wheel_load_share_data_checks():
+    def checks(left, right):
+        proj = bev_axle()
+        for e in proj.systems[0].elements:
+            if e.id in ("whl", "whr"):
+                e.parameterOverrides["vehicle_load_share_pct"] = left if e.id == "whl" else right
+        return [c for c in validate_project(proj) if "load shares" in c.text]
+
+    assert checks(50, 50) == [] and checks(49.6, 50) == []  # within 100 ± 1 %
+    (warn,) = checks(25, 25)
+    assert warn.level == "warning"
+    assert warn.text.startswith("Wheel load shares add up to 50 %, not 100 % — the solver scales")
+    assert "'Wheel L' 50 %, 'Wheel R' 50 %" in warn.text
+    (err,) = checks(0, 0)
+    assert err.level == "error" and "add up to 0 %" in err.text

@@ -204,6 +204,7 @@ class RunContext:
                     gear_of.setdefault(gb.el_id, float(
                         self.params(gb.el_id).get("default_gear", 1) or 1))
         self.gears_checked = False  # the first gear check is initialisation
+        self.normalize_wheel_loads()
         self.el_axis_speed: dict[str, float] = {}  # anchor speeds for plan rebuilds
         # bumped whenever a driveline or its plan changes (gear shift, lock
         # toggle), so cached views of them (routed state getters) refresh
@@ -272,6 +273,18 @@ class RunContext:
 
     def params(self, el_id: str) -> dict:
         return self.model.params_of[el_id]
+
+    def normalize_wheel_loads(self) -> None:
+        """Rest the vehicle's whole weight on its wheels: each connected
+        wheel carries its Vehicle Load Share of the sum over all of them.
+        Shares that already add up to 100 % are used as they are."""
+        wheels = [w for st in self.dls for seg in st.dl.segments for w in seg.wheels]
+        raw = [max(0.0, float(self.params(w.el_id).get("vehicle_load_share_pct", 25)) / 100.0)
+               for w in wheels]
+        total = sum(raw)
+        scale = total > 0 and abs(total - 1.0) > 1e-9
+        for w, share in zip(wheels, raw):
+            w.load_share = share / total if scale else share
 
     def profile_points(self, el_id: str) -> list[tuple[float, float]]:
         """A Driving Task / Road Profile's points — parsed on first use and
@@ -452,10 +465,11 @@ class RunContext:
                         w.mu = max(0.0, float(p.get("mu", w.mu)))
                         w.c_slip = max(0.1, float(p.get("slip_stiffness", w.c_slip)))
                         w.c_rr = max(0.0, float(p.get("rolling_resistance", w.c_rr)))
-                        w.load_share = max(0.0, float(p.get("vehicle_load_share_pct", 25)) / 100.0)
                 for br in seg.brakes:
                     if br.el_id == el_id:
                         br.max_torque = max(0.0, float(p.get("max_torque_Nm", br.max_torque)))
+        if key == "vehicle_load_share_pct":
+            self.normalize_wheel_loads()
         return "applied"
 
     # ---- behaviors -------------------------------------------------------------
@@ -902,6 +916,7 @@ class RunContext:
                                        "— it keeps its previous gear.")
                 continue
             st.dl = new_dl
+            self.normalize_wheel_loads()  # the new wheels hold their raw shares
             self.rebuild_plan(st, initial=first)
             shifted = shifted or not first
         return shifted

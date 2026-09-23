@@ -44,13 +44,20 @@ def _lossless_accel_project():
 
 def _tire_slip_loss_j(result, dt):
     """Energy the tires dissipate by slipping: force × slip speed, where the
-    recorded slip is (ω·r − v) / max(|v|, V_EPS)."""
+    recorded slip is (ω·r − v) / max(|v|, V_EPS). The force a point records
+    is the one held over its step, computed at the step's start, while the
+    slip speed moves from the previous point's value to this one's: the
+    step's loss is the force times the mean of the two (pairing it with
+    either end alone is off by about 1 % of the launch energy once the tires
+    carry the whole car and do not saturate)."""
     speed = series(result, "veh", "sig_speed")
     total = 0.0
     for w in ("whl", "whr"):
         force = series(result, w, "sig_force")
         slip = series(result, w, "sig_slip")
-        total += sum(force[i]["value"] * slip[i]["value"] * max(speed[i]["value"] / 3.6, V_EPS)
+        slip_speed = [slip[i]["value"] * max(speed[i]["value"] / 3.6, V_EPS)
+                      for i in range(len(slip))]
+        total += sum(force[i]["value"] * 0.5 * (slip_speed[i - 1] + slip_speed[i])
                      for i in range(1, len(force))) * dt
     return total
 

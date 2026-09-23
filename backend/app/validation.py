@@ -66,6 +66,7 @@ VEHICLE_MASS_KG = (30.0, 60_000.0)
 BATTERY_KWH = (0.1, 2_000.0)
 AUX_LOAD_MAX_KW = 50.0  # a constant load beyond this is not an auxiliary
 FINAL_DRIVE_MAX_RATIO = 25.0
+WHEEL_SHARE_TOL_PCT = 1.0  # wheel load shares within 100 ± this are left unremarked
 
 Add = Callable[..., None]
 
@@ -562,9 +563,15 @@ def _plausibility_checks(model: Model, add: Add) -> None:
                 add("warning", f"'{el.label}' has a ratio of {ratio:g}, far above road "
                                f"vehicles' final drives (about 2–15) — check the value.", el)
 
-    shares = [w.load_share for dl in model.drivelines for seg in dl.segments for w in seg.wheels]
-    total = sum(shares) * 100.0
-    if model.vehicle is not None and shares and abs(total - 100.0) > 0.5:
-        add("warning", f"Wheel load shares add up to {total:g} %, not 100 % — the solver rests "
-                       f"only that share of the vehicle's weight on the wheels, which scales "
-                       f"rolling resistance and grip.")
+    wheels = [w for dl in model.drivelines for seg in dl.segments for w in seg.wheels]
+    total = sum(w.load_share for w in wheels) * 100.0
+    if model.vehicle is not None and wheels and total <= 0:
+        add("error", "Wheel load shares add up to 0 % — no wheel carries the vehicle's "
+                     "weight, so it has no grip and cannot move. Give the wheels their share "
+                     "of the weight (together 100 %).")
+    elif model.vehicle is not None and wheels and abs(total - 100.0) > WHEEL_SHARE_TOL_PCT:
+        split = ", ".join(f"'{model.elements[w.el_id].label}' {w.load_share * 1e4 / total:.3g} %"
+                          for w in wheels)
+        add("warning", f"Wheel load shares add up to {total:g} %, not 100 % — the solver scales "
+                       f"them so the wheels carry the vehicle's whole weight: {split}. Set "
+                       f"them to add up to 100 % to choose the split yourself.")
