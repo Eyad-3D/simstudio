@@ -12,13 +12,15 @@ export interface Draft {
   savedAt: number;
   /** true when the copy matches what was last saved/opened (no unsaved edits) */
   clean?: boolean;
+  /** revision of the project file the copy is based on (null: not on disk) */
+  revision?: string | null;
 }
 
-export function saveDraft(project: Project, clean = false): void {
+export function saveDraft(project: Project, clean = false, revision?: string | null): void {
   try {
     window.localStorage.setItem(
       DRAFT_KEY,
-      JSON.stringify({ project, savedAt: Date.now(), clean } satisfies Draft),
+      JSON.stringify({ project, savedAt: Date.now(), clean, revision } satisfies Draft),
     );
   } catch {
     /* storage unavailable / quota exceeded — non-fatal */

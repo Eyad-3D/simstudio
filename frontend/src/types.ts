@@ -74,8 +74,9 @@ export interface ElementInstance {
   portSides?: Record<string, PortSide>;
   /** Per-instance pin offset along its side, 0..1 (set by Shift+drag). */
   portOffsets?: Record<string, number>;
-  /** Per-instance canvas node size in flow units (drag a node's edges to resize). */
-  size?: { width: number; height: number };
+  /** Per-instance canvas node size in flow units (drag a node's edges to resize);
+   *  the engine sends null for elements left at the default size. */
+  size?: { width: number; height: number } | null;
   isSubSystem?: boolean;
   subSystemId?: string | null;
 }

@@ -3,8 +3,10 @@
 Endpoints:
   GET  /api/library            component library definitions
   GET  /api/projects           saved project list
-  GET  /api/projects/{id}      load a project
-  PUT  /api/projects/{id}      save a project
+  GET  /api/projects/{id}      load a project (+ its file revision, also as ETag)
+  PUT  /api/projects/{id}      save a project (If-Match: the revision it was
+                               loaded from → 409 if the file changed since;
+                               If-None-Match: * → 409 if it already exists)
   DELETE /api/projects/{id}    delete a project
   POST /api/validate           run Data Checks on a project
   POST /api/simulate           run a simulation case, returns SimResult
@@ -16,12 +18,12 @@ from __future__ import annotations
 import asyncio
 import threading
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from . import storage
+from . import security, storage
 from .library import load_library, unit_groups
 from .paths import static_dir
 from .schemas import DataCheck, Project, SimResult, SimulateRequest, ValidateRequest
@@ -37,11 +39,26 @@ app = FastAPI(title="SimStudio API", version=VERSION)
 # at its own copy; otherwise this resolves to the repo's frontend/dist.
 FRONTEND_DIST = static_dir()
 
+# Set by the desktop shell: a per-launch secret every /api call must carry.
+LAUNCH_TOKEN = security.launch_token()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # dev tool — the Vite dev server proxies /api anyway
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Only the Vite dev server calls from another origin (and it proxies /api
+    # anyway). The desktop app and a built bundle are served from this origin
+    # and need no CORS at all.
+    allow_origins=[] if LAUNCH_TOKEN else list(security.DEV_ORIGINS),
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type", "Authorization", "If-Match", "If-None-Match"],
+    expose_headers=["ETag"],
+)
+# Added last so it runs first: other hosts, other origins and (in the desktop
+# app) requests without the launch token never reach CORS or the routes.
+app.add_middleware(
+    security.LocalOnlyMiddleware,
+    token=LAUNCH_TOKEN,
+    hosts=security.allowed_hosts(),
+    origins=() if LAUNCH_TOKEN else security.DEV_ORIGINS,
 )
 
 
@@ -63,25 +80,60 @@ def get_projects() -> list[dict]:
     return storage.list_projects()
 
 
+def _etag(revision: str) -> str:
+    return f'"{revision}"'
+
+
+def _revisions(header: str) -> list[str]:
+    """Entity tags listed in an If-Match / If-None-Match header, unquoted."""
+    tags = [t.strip() for t in header.split(",")]
+    return [t.removeprefix("W/").strip('"') for t in tags if t]
+
+
 @app.get("/api/projects/{project_id}")
-def get_project(project_id: str) -> Project:
+def get_project(project_id: str, response: Response) -> dict:
+    """The project plus `revision`, which identifies this version of its file.
+    Send it back on save (If-Match) so a save never overwrites newer work."""
     try:
-        return storage.load_project(project_id)
+        project, revision = storage.load_project_file(project_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    response.headers["ETag"] = _etag(revision)
+    return {**project.model_dump(mode="json"), "revision": revision}
 
 
 @app.put("/api/projects/{project_id}")
-def put_project(project_id: str, project: Project) -> dict:
+def put_project(
+    project_id: str,
+    project: Project,
+    response: Response,
+    if_match: str | None = Header(None),
+    if_none_match: str | None = Header(None),
+) -> dict:
     if project.id != project_id:
         raise HTTPException(status_code=400, detail="Project id mismatch")
+    # the revision GET returned is bookkeeping, never part of the file; a
+    # client that sends it back in the body gets it checked like If-Match
+    body_revision = (project.model_extra or {}).pop("revision", None)
+    expected = None
+    if if_match:
+        tags = _revisions(if_match)
+        expected = "*" if "*" in tags else (tags[0] if len(tags) == 1 else None)
+        if expected is None:
+            raise HTTPException(status_code=400, detail="If-Match must name one revision")
+    elif isinstance(body_revision, str):
+        expected = body_revision
+    create_only = bool(if_none_match) and "*" in _revisions(if_none_match)
     try:
-        storage.save_project(project)
+        revision = storage.save_project(project, expected, create_only=create_only)
+    except storage.ConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {"saved": project_id}
+    response.headers["ETag"] = _etag(revision)
+    return {"saved": project_id, "revision": revision}
 
 
 @app.delete("/api/projects/{project_id}")

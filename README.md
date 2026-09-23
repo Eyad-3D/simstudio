@@ -18,9 +18,9 @@ inspect results — all in a dockable-panel UI.
 | **Driver** | Separate Driver component (speed-following PI): wire a target-speed profile and the Vehicle's speed into it; braking blends recuperation (motor generator quadrant, battery charge limit) before friction brakes |
 | **Live simulation** | Runs stream over a WebSocket: progress + all channels update live, the solver can be paced against real time (Pacing selector), cancelled, and scalar parameters (e.g. driver PI gains) can be edited mid-run from the Properties panel |
 | **Monitors** | Display-only Monitor component: add named signal inputs, wire anything into them, get live readout cards + sparklines in the Monitors panel |
-| **Scripting** | Script (Function) component: user-written Python `step(t, dt, inputs, state, params)` with named per-instance ports — for hybrid control strategies, custom recuperation logic, signal math |
+| **Scripting** | Script (Function) component: user-written Python `step(t, dt, inputs, state, params)` with named per-instance ports — for hybrid control strategies, custom recuperation logic, signal math. Scripts get `math`, `clamp()` and `interp()` and a small set of builtins; other imports, file access, class definitions and dunder attributes are refused, and each call must return within 2 s |
 | **Maps** | E-Motor with voltage-dependent full-load torque map, power-loss map, drag torque; battery OCV(SOC) table — all edited in table grids in the Properties panel |
-| **Data Checks** | Pre-run validation: reference integrity, port-kind mismatches, parameter ranges, table data, script compilation, driveline solvability (delegated to the solver's model extraction) |
+| **Data Checks** | Pre-run validation: reference integrity, port-kind mismatches, parameter ranges, table data, script compilation (compile only — script code never runs during checks), driveline solvability (delegated to the solver's model extraction). Errors that block the run when the model cannot drive: an E-Motor with no power source, a motor or engine that reaches no wheel, an open differential with a free output, a missing command or target-speed signal, a speed demand that reaches no motor or engine, two signals wired into one input. Warnings for parts the solver would leave out (unconnected, or an input that silently reads 0) and for implausible values (vehicle mass, battery size, auxiliary load, final-drive ratio, wheel load shares, a battery that starts empty). An all-clear says what was checked; it does not vouch for the results |
 | **Results** | Dedicated full-page Results workspace (own ribbon tab): channel picker grouped per element, multi-channel time-series **chart or table view** that fills in live during the run, summary table (SOC, energy, recuperation, distance, consumption), CSV export |
 | **Electrical** | Two-terminal components: every electrical element has explicit positive (+, red) and negative (−, blue) pins; the solver balances power on the supply rail with the negative terminals as the return (wire to Ground, or leave implicit) |
 | **Canvas** | Signal/data-bus wiring lives only in the Data Bus panel (not drawn on canvas); background-grid toggle; double-click an element for a modal parameter dialog; Shift+click a pin to move it around the node |
@@ -69,6 +69,11 @@ survive reinstalls and upgrades. **File → Open Projects Folder** opens it.
 
 The examples are copied in on first launch only — delete one and it stays
 deleted.
+
+A save replaces the file in one step, so a crash or a full disk mid-save never
+leaves a half-written project, and the version it replaced is kept next to it
+as `<id>.json.bak`. If the file changed after you opened it (saved from a
+second window, or edited by another program), Save asks before overwriting it.
 
 ## Building the app from source
 
@@ -189,13 +194,15 @@ backend/   Python + FastAPI
   ├─ app/validation.py             "Data Checks" pre-run validation
   ├─ app/storage.py                one JSON file per project
   ├─ app/paths.py                  bundled vs. user-writable location resolution
+  ├─ app/security.py               Host / Origin / launch-token checks on every request
   ├─ app/server.py                 entrypoint the desktop shell launches
   ├─ simstudio-backend.spec        PyInstaller recipe for the frozen backend
   └─ projects/bev-car.json         demo project
 
 desktop/   Electron shell
-  ├─ src/main.js                   starts the backend on a stable loopback port,
-  │                                waits for /api/health, then opens the window
+  ├─ src/main.js                   starts the backend on a stable loopback port
+  │                                with a per-launch token, waits for
+  │                                /api/health, then opens the window
   ├─ src/loading.html              splash shown while the engine starts
   └─ electron-builder.yml          installer definitions (NSIS / AppImage / deb)
 ```
@@ -207,13 +214,23 @@ off the machine: the server binds to 127.0.0.1. Each installation picks a free
 port on first launch and keeps it (choosing a new one only if another program
 takes it), so the UI's saved layout and settings persist across restarts.
 
+Web pages the user visits can still reach a loopback port, so the engine
+answers only requests addressed to `127.0.0.1` / `localhost` (no DNS
+rebinding), refuses any request whose `Origin` is not its own (the Vite dev
+server's is allowed in development), and in the desktop app requires a
+random per-launch token: the shell passes it to the engine in
+`SIMSTUDIO_TOKEN`, and the window receives it as an HttpOnly, SameSite=Strict
+cookie on its first page load. Without `SIMSTUDIO_TOKEN` (development) there
+is no token check. To reach a development engine through another host name
+(e.g. a forwarded port), list it in `SIMSTUDIO_ALLOWED_HOSTS` (comma-separated).
+
 ### API
 
 | Method & path | Purpose |
 |---|---|
 | `GET /api/library` | Component definitions |
 | `GET /api/projects` | List saved projects |
-| `GET/PUT/DELETE /api/projects/{id}` | Load / save / delete a project |
+| `GET/PUT/DELETE /api/projects/{id}` | Load / save / delete a project. GET adds the file's `revision` (also sent as the `ETag`); a PUT with `If-Match: "<revision>"` is refused with 409 if the file changed since, and `If-None-Match: *` refuses to replace an existing project |
 | `POST /api/validate` | Run Data Checks on a project payload |
 | `POST /api/simulate` | Validate + solve one case synchronously |
 | `WS /api/simulate/run` | Live run: client sends `start`, then optional `set_param` / `cancel`; server streams `step` / `message` events and a final `done` with the full result |

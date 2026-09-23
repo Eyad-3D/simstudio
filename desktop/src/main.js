@@ -11,6 +11,7 @@
 
 const { app, BrowserWindow, Menu, dialog, shell } = require("electron");
 const { spawn } = require("node:child_process");
+const crypto = require("node:crypto");
 const net = require("node:net");
 const path = require("node:path");
 const fs = require("node:fs");
@@ -24,6 +25,15 @@ let backend = null;
 let mainWindow = null;
 let backendLog = "";
 let quitting = false;
+
+// A fresh secret for each launch. The engine refuses /api calls that do not
+// carry it, so the web pages the user visits cannot drive the engine even
+// though they can reach its loopback port. The window presents it once, on
+// its first page load, and the engine answers with an HttpOnly cookie that
+// the UI then sends by itself (see backend/app/security.py).
+const launchToken = crypto.randomBytes(32).toString("hex");
+/** The engine's origin once it is running; the window never leaves it. */
+let appOrigin = null;
 
 // The UI keeps its settings (theme, dock layout, crash-recovery draft) in
 // localStorage, which is keyed by origin — so the port must stay the same
@@ -141,6 +151,7 @@ function startBackend(port) {
       ...process.env,
       SIMSTUDIO_PROJECTS_DIR: projectsDir,
       SIMSTUDIO_STATIC_DIR: staticDir,
+      SIMSTUDIO_TOKEN: launchToken,
       PYTHONUNBUFFERED: "1",
     },
   });
@@ -252,8 +263,15 @@ async function createWindow() {
 
   // Keep external links in the user's browser rather than inside the app.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: "deny" };
+  });
+  // The window only ever shows the engine's UI; a link or a dropped file
+  // that would navigate it elsewhere opens in the browser, or not at all.
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (appOrigin && new URL(url).origin === appOrigin) return;
+    event.preventDefault();
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
   });
 
   await mainWindow.loadFile(path.join(__dirname, "loading.html"));
@@ -263,7 +281,10 @@ async function createWindow() {
     const port = await choosePort();
     startBackend(port);
     await waitForBackend(port);
-    await mainWindow.loadURL(`http://127.0.0.1:${port}/`);
+    appOrigin = `http://127.0.0.1:${port}`;
+    await mainWindow.loadURL(`${appOrigin}/`, {
+      extraHeaders: `Authorization: Bearer ${launchToken}\n`,
+    });
   } catch (err) {
     dialog.showErrorBox("SimStudio could not start", String(err.message || err));
     app.quit();
