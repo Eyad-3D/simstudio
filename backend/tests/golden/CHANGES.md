@@ -105,3 +105,28 @@ new CO₂ factor (default 3.17 kg per kg, petrol).
   engine to its 6,000 1/min limiter (before, the drag held it near 4,900).
   That is 0.087 kg of the fuel. The script belongs to the example (CON-02
   rewrites it to stop the engine free-revving).
+
+## Run verdict (VAL-02)
+
+Both fixtures are unchanged: both demos follow their cycles, so the new
+verdict adds no message. The status rules changed for other runs: a run
+whose speed leaves the ±2 km/h, ±1 s band for more than 1 % of its
+duration is at best "warning" ("Cycle not followed: ..."), and one that
+covers under 5 % of the cycle's distance or records NaN "failed". Summary
+values carry an optional notValid reason, which the fixtures do not store.
+
+## Net effect of the engine-lane step 2 on the demos
+
+| Demo | Number | Before step 2 | After |
+|---|---|---|---|
+| bev-car City Cycle | Consumption | 19.88 kWh/100 km | 18.16 kWh/100 km (MOD-04) |
+| | energy delivered / recuperated | 1.479 / 0.029 kWh | 1.361 / 0.036 kWh |
+| | final SOC | 87.56 % | 87.78 % |
+| | status | success | success |
+| hybrid-car Mixed Cycle | Fuel consumption | 7.76 l/100 km | 6.45 l/100 km (MOD-04 7.58, MOD-05 6.45) |
+| | fuel used | 0.553 kg | 0.459 kg |
+| | CO₂ emissions | — | 152.3 g/km (new) |
+| | final SOC (starts at 55 %) | 52.92 % | 55.83 % |
+| | battery Consumption row | 2.49 kWh/100 km | gone (the battery ends above its start) |
+| | status | success | warning (rev limiter, see MOD-05) |
+| both | Electrical energy balance error | — | 0.0 % (new) |
