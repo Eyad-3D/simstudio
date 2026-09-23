@@ -460,3 +460,59 @@ describe("data checks gate", () => {
     expect(messages()).toContain("error: Run blocked — fix 1 data-check error(s) first.");
   });
 });
+
+describe("run history", () => {
+  /** The engine passes the checks and finishes every run at once. */
+  function engineFinishesRuns() {
+    api.validateProject.mockResolvedValue([]);
+    api.runSimulationLive.mockImplementation((_project, caseId) => ({
+      setParam: vi.fn(),
+      cancel: vi.fn(),
+      done: Promise.resolve({ caseId, status: "success", messages: [], channels: [], summary: [] }),
+    }));
+  }
+
+  /** Run the active case `n` times; the ids of the runs, oldest first. */
+  async function runTimes(n: number): Promise<string[]> {
+    const ids: string[] = [];
+    for (let i = 0; i < n; i++) {
+      await store().run();
+      ids.push(store().activeRunId!);
+    }
+    return ids;
+  }
+
+  it("a finished run is stored newest first and becomes the active run", async () => {
+    await store().init();
+    engineFinishesRuns();
+    const [first, second] = await runTimes(2);
+    const s = store();
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(2);
+    expect(s.runs.map((r) => r.id)).toEqual([second, first]);
+    expect(s.activeRunId).toBe(second);
+    expect(s.runs[0]).toMatchObject({ caseId: "case-1", caseName: "Case 1", status: "success" });
+    expect(s.running).toBe(false);
+  });
+
+  it("keeps only the 20 newest runs", async () => {
+    await store().init();
+    engineFinishesRuns();
+    const ids = await runTimes(22);
+    expect(store().runs.map((r) => r.id)).toEqual(ids.slice(2).reverse());
+  });
+
+  it("removing the active run falls back to the newest one left; Clear empties the history", async () => {
+    await store().init();
+    engineFinishesRuns();
+    const [oldest, middle, newest] = await runTimes(3);
+    store().setActiveRun(middle);
+    store().removeRun(oldest);
+    expect(store().activeRunId).toBe(middle); // another run's removal leaves it be
+    store().removeRun(middle);
+    expect(store().runs.map((r) => r.id)).toEqual([newest]);
+    expect(store().activeRunId).toBe(newest);
+    store().clearRuns();
+    expect(store().runs).toEqual([]);
+    expect(store().activeRunId).toBeNull();
+  });
+});
