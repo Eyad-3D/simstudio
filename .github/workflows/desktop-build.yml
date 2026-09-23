@@ -130,11 +130,43 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            VERSION
+            docs/RELEASE-NOTES.md
+          sparse-checkout-cone-mode: false
+
+      # The release page shows this version's section of docs/RELEASE-NOTES.md
+      # (which results changed and why), not a list of pull requests. Its
+      # relative links are pointed at the files as tagged.
+      - name: Release notes for this version
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          if [ "$v" != "$(tr -d '[:space:]' < VERSION)" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match VERSION ($(cat VERSION))"
+            exit 1
+          fi
+          blob="https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME"
+          awk -v v="$v" '
+            /^## / { if (found) exit; if (index($0, "## " v " ") == 1 || $0 == "## " v) found = 1; next }
+            found' docs/RELEASE-NOTES.md |
+            sed -E -e "s#\]\(\.\./([^)]*)\)#]($blob/\1)#g" \
+                   -e "s#\]\(\#([^)]*)\)#]($blob/docs/RELEASE-NOTES.md\#\1)#g" \
+                   -e "s#\]\(([A-Za-z0-9_./-]+\.md[^)]*)\)#]($blob/docs/\1)#g" \
+            > release-body.md
+          if [ ! -s release-body.md ]; then
+            echo "::error::docs/RELEASE-NOTES.md has no section for $v"
+            exit 1
+          fi
+          cat release-body.md
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
-          generate_release_notes: true
+          name: LightSim ${{ github.ref_name }}
+          body_path: release-body.md
           files: artifacts/**/*
