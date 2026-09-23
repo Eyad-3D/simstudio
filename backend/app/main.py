@@ -2,7 +2,7 @@
 
 Endpoints:
   GET  /api/library            component library definitions
-  GET  /api/projects           saved project list
+  GET  /api/projects           the user's saved projects
   GET  /api/projects/{id}      load a project (+ its file revision, also as ETag)
   PUT  /api/projects/{id}      save a project (If-Match: the revision it was
                                loaded from → 409 if the file changed since;
@@ -15,6 +15,10 @@ Endpoints:
   PUT  /api/projects/{id}/runs/{run}   store a finished run
   DELETE /api/projects/{id}/runs/{run} delete one stored run
   DELETE /api/projects/{id}/runs       delete all of the project's stored runs
+  GET  /api/examples           the examples shipped with the app (+ hidden flag)
+  GET  /api/examples/{id}      one example, read-only (opened as a copy)
+  POST /api/examples/{id}/hide leave an example out of the Open menu
+  POST /api/examples/restore   show every hidden example again
   POST /api/validate           run Data Checks on a project
   POST /api/simulate           run a simulation case, returns SimResult
   WS   /api/simulate/run       live run: streams progress/steps, accepts
@@ -94,6 +98,40 @@ def get_library() -> dict:
 @app.get("/api/projects")
 def get_projects() -> list[dict]:
     return storage.list_projects()
+
+
+@app.get("/api/examples")
+def get_examples() -> list[dict]:
+    return storage.list_examples()
+
+
+@app.get("/api/examples/{example_id}")
+def get_example(example_id: str) -> dict:
+    """An example as the app ships it. It carries no revision: it is not a
+    file of the user's, and the UI opens it as an unsaved copy with an id of
+    its own, so saving it makes a new project and never writes the example."""
+    try:
+        return storage.load_example(example_id).model_dump(mode="json")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Example '{example_id}' not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/examples/restore")
+def restore_examples() -> dict:
+    return {"restored": storage.restore_examples()}
+
+
+@app.post("/api/examples/{example_id}/hide")
+def hide_example(example_id: str) -> dict:
+    try:
+        storage.hide_example(example_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Example '{example_id}' not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"hidden": example_id}
 
 
 def _etag(revision: str) -> str:

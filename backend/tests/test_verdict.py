@@ -9,7 +9,7 @@ from helpers import bev_axle, dbc, el, example_result, series, sig_port
 from app.schemas import ElementInstance
 from app.solver import simulate
 from app.solver.verdict import trace_metrics
-from app.storage import load_project
+from app.storage import load_example
 
 
 def _summary(result):
@@ -92,7 +92,7 @@ def test_the_verdict_does_not_depend_on_the_output_step(profile, duration):
 def test_a_car_that_does_not_move_fails_and_says_so_early():
     """The bundled BEV with its E-Motor deleted: before, 'success' after
     driving 0.0 of 7.29 km."""
-    proj = _without(load_project("bev-car"), "el-motor")
+    proj = _without(load_example("bev-car"), "el-motor")
     proj.cases[0].duration = 120
     streamed = []
     result = simulate(proj, proj.cases[0].id, emit=streamed.append)
@@ -111,7 +111,7 @@ def test_an_empty_battery_flags_the_consumption():
     since the Cupra Born rework): before, it drove the whole cycle on energy
     it did not have and reported a consumption 13 times too low with only a
     warning."""
-    proj = load_project("bev-car")
+    proj = load_example("bev-car")
     battery = next(e for e in proj.systems[0].elements if e.id == "el-battery")
     floor = float(battery.parameterOverrides.get("min_soc_pct", 10))
     proj.cases[0].duration = 120
@@ -151,7 +151,7 @@ def test_a_cancelled_run_flags_its_figures_per_distance():
     """A run stopped part-way still ends "warning" (a separate "cancelled"
     status needs the app's run history to follow), but its Consumption no
     longer shows as a plain number for a cycle it did not finish."""
-    proj = load_project("bev-car")
+    proj = load_example("bev-car")
     calls = {"n": 0}
 
     def control():
@@ -168,7 +168,7 @@ def test_a_cancelled_run_flags_its_figures_per_distance():
 
 def test_bundled_examples_follow_their_cycles():
     for pid in ("bev-car", "hybrid-car"):
-        result = example_result(pid, load_project(pid).cases[0].id)
+        result = example_result(pid, load_example(pid).cases[0].id)
         assert result.status != "failed", pid
         assert not any(m.text.startswith("Cycle not followed") for m in result.messages), pid
         assert _summary(result)["Distance driven"].value > 7.0

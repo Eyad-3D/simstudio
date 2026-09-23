@@ -19,7 +19,7 @@ import zlib
 from pathlib import Path
 
 from .schemas import StoredRun
-from .storage import _ensure_dir, _write_atomic, project_path, safe_id
+from .storage import _write_atomic, project_path, safe_id, user_dir
 
 #: Disk budget for one project's stored runs. When a new run takes the project
 #: over it, its oldest runs are deleted and the caller is told which.
@@ -38,7 +38,7 @@ _safe_id = safe_id
 
 
 def _runs_dir(project_id: str) -> Path:
-    return _ensure_dir() / "runs" / _safe_id(project_id, "project")
+    return user_dir() / "runs" / _safe_id(project_id, "project")
 
 
 def _valid_entry(e: object, files: dict) -> bool:
@@ -139,7 +139,7 @@ def _trim_total(keep: Path) -> list[tuple[Path, str]]:
     """Delete runs, never `keep`, until all projects' runs fit
     :data:`TOTAL_BUDGET_BYTES`; call with _lock held. Returns (folder, run id)
     of each deleted run. Folders' indexes repair themselves on the next read."""
-    runs = [(p, p.stat()) for p in (_ensure_dir() / "runs").glob(f"*/*{_SUFFIX}")]
+    runs = [(p, p.stat()) for p in (user_dir() / "runs").glob(f"*/*{_SUFFIX}")]
     total = sum(st.st_size for _, st in runs)
     if total <= TOTAL_BUDGET_BYTES:
         return []

@@ -9,8 +9,9 @@ import pytest
 from fastapi.testclient import TestClient
 from helpers import bev_axle
 
-from app import run_store, storage
+from app import run_store
 from app.main import app
+from app.paths import EXAMPLES_DIR
 from app.solver import simulate
 
 client = TestClient(app)
@@ -18,11 +19,13 @@ client = TestClient(app)
 
 @pytest.fixture
 def projects_dir(tmp_path, monkeypatch):
+    """A projects folder holding two saved projects, copies of the examples."""
     target = tmp_path / "userdata" / "projects"
+    target.mkdir(parents=True)
     monkeypatch.setenv("SIMSTUDIO_PROJECTS_DIR", str(target))
-    storage._seeded.clear()
-    yield target
-    storage._seeded.clear()
+    for name in ("bev-car", "hybrid-car"):
+        (target / f"{name}.json").write_bytes((EXAMPLES_DIR / f"{name}.json").read_bytes())
+    return target
 
 
 @pytest.fixture(scope="module")
@@ -122,9 +125,8 @@ def test_runs_belong_to_their_project(projects_dir, result):
 def test_runs_survive_a_restart(projects_dir, result):
     put("bev-car", make_run(result, "run-a", 1000))
     put("bev-car", make_run(result, "run-b", 2000))
-    storage._seeded.clear()  # simulate the next launch
 
-    fresh = TestClient(app)
+    fresh = TestClient(app)  # the next launch
     assert [r["id"] for r in fresh.get("/api/projects/bev-car/runs").json()] == ["run-b", "run-a"]
     assert fresh.get("/api/projects/bev-car/runs/run-a").json()["result"] == result
 
@@ -255,7 +257,6 @@ def test_runs_of_never_saved_projects_go_first_past_the_total_budget(projects_di
 
 
 def test_projects_with_ids_the_api_cannot_serve_are_not_listed(projects_dir):
-    storage._ensure_dir()
     (projects_dir / "odd.json").write_text(json.dumps({"id": "../../x", "name": "Odd"}))
     (projects_dir / "dot.json").write_text(json.dumps({"id": ".", "name": "Dot"}))
     ids = [p["id"] for p in client.get("/api/projects").json()]

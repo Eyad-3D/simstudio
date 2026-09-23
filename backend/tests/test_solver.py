@@ -18,7 +18,7 @@ from app.solver import (
     simulate,
 )
 from app.solver.maps import TableError
-from app.storage import load_project
+from app.storage import load_example
 from app.validation import validate_project
 
 # ---- maps -------------------------------------------------------------------
@@ -410,7 +410,7 @@ def test_profile_step_is_a_warning_and_clean_profile_passes():
 # ---- bundled example -----------------------------------------------------------
 
 def test_bev_demo_validates_and_runs():
-    proj = load_project("bev-car")
+    proj = load_example("bev-car")
     checks = validate_project(proj)
     assert not [c for c in checks if c.level == "error"], [c.text for c in checks]
 

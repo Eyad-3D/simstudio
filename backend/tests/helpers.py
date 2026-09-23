@@ -14,7 +14,7 @@ from app.schemas import (
     SystemNode,
 )
 from app.solver import simulate
-from app.storage import load_project
+from app.storage import load_example
 
 
 def el(id_: str, def_id: str, label: str, **overrides) -> ElementInstance:
@@ -97,4 +97,4 @@ def series(result, el_id: str, port_id: str):
 def example_result(project_id: str, case_id: str) -> SimResult:
     """A shipped example's case, run once per test session (read-only: the
     result is shared by every test that asks for it)."""
-    return simulate(load_project(project_id), case_id)
+    return simulate(load_example(project_id), case_id)

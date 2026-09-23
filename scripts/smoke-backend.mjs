@@ -81,13 +81,13 @@ try {
   if (!lib.components?.length) fail("component library came back empty");
   console.log(`✓ library: ${lib.components.length} components`);
 
-  const projects = await (await fetch(`${base}/api/projects`)).json();
-  if (!projects.length) fail("no example projects were seeded");
-  console.log(`✓ projects seeded: ${projects.map((p) => p.id).join(", ")}`);
+  const examples = await (await fetch(`${base}/api/examples`)).json();
+  if (!examples.length) fail("no example projects in the bundle");
+  console.log(`✓ examples: ${examples.map((p) => p.id).join(", ")}`);
 
-  const project = await (await fetch(`${base}/api/projects/${projects[0].id}`)).json();
+  const project = await (await fetch(`${base}/api/examples/${examples[0].id}`)).json();
   const caseId = project.cases?.[0]?.id;
-  if (!caseId) fail(`project '${projects[0].id}' has no simulation case`);
+  if (!caseId) fail(`example '${examples[0].id}' has no simulation case`);
 
   const rest = await (await fetch(`${base}/api/simulate`, {
     method: "POST",

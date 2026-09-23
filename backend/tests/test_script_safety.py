@@ -178,7 +178,7 @@ def test_names_a_script_defines_itself_are_not_flagged():
 
 
 def test_example_hybrid_controller_passes():
-    proj = client.get("/api/projects/hybrid-car").json()
+    proj = client.get("/api/examples/hybrid-car").json()
     checks = client.post("/api/validate", json={"project": proj}).json()
     assert not [c for c in checks if c["level"] == "error"]
 

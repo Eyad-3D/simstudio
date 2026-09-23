@@ -6,7 +6,7 @@ from helpers import bev_axle, dbc, el, project, series, sig_port
 
 from app.schemas import ElementInstance
 from app.solver import simulate
-from app.storage import load_project
+from app.storage import load_example
 from app.validation import validate_project
 
 
@@ -17,7 +17,7 @@ def _kpis(result) -> dict[str, float]:
 def _hybrid(step: float):
     """The bundled hybrid, started just above its engine-on SOC threshold so
     200 s cover engine starts, clutch engagement and gear shifts."""
-    proj = load_project("hybrid-car")
+    proj = load_example("hybrid-car")
     case = proj.cases[0]
     case.duration = 200
     case.timeStep = step
@@ -27,7 +27,7 @@ def _hybrid(step: float):
 
 def _bev(step: float):
     """The bundled BEV on a compressed cycle that also brakes to a stop."""
-    proj = load_project("bev-car")
+    proj = load_example("bev-car")
     case = proj.cases[0]
     case.duration = 100
     case.timeStep = step
