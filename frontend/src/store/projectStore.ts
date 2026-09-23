@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import * as api from "../api";
+import { confirmDialog } from "../dialog";
 import { loadDraft } from "../persist";
 import type {
   Channel,
@@ -27,6 +28,16 @@ export function uid(prefix: string): string {
 function now(): string {
   return new Date().toLocaleTimeString([], { hour12: false });
 }
+
+/** Split a project read from disk into the project and its file revision. */
+function fromDisk(stored: api.StoredProject): { project: Project; revision: string | null } {
+  const { revision, ...project } = stored;
+  return { project, revision: revision ?? null };
+}
+
+// Saves run one after another, so a second Save starts from the revision the
+// first one returned instead of looking like a conflict with it.
+let saveQueue: Promise<void> = Promise.resolve();
 
 /** A snapshot of elements + the wiring wholly contained within them. */
 interface ClipboardData {
@@ -185,6 +196,9 @@ interface ProjectState {
   loaded: boolean;
 
   project: Project | null;
+  /** Revision of the project file the open copy was loaded from or last saved
+   *  as; a save is refused if the file changed since. null: not on disk yet. */
+  revision: string | null;
   activeSystemId: string | null;
   selectedElementId: string | null;
   dirty: boolean;
@@ -443,6 +457,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     offline: false,
     loaded: false,
     project: null,
+    revision: null,
     activeSystemId: null,
     selectedElementId: null,
     dirty: false,
@@ -469,12 +484,14 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       // restore the autosaved working copy if one exists, else open the demo
       const draft = loadDraft();
       const unsaved = Boolean(draft && !draft.clean);
-      let project = draft?.project ?? demo.project;
+      let { project, revision } = draft
+        ? { project: draft.project, revision: draft.revision ?? null }
+        : fromDisk(demo.project);
       if (draft?.clean && !lib.offline) {
         // nothing was unsaved: reopen the project from disk (it may be newer
         // than the kept copy), falling back to the copy if it is gone
         try {
-          project = await api.fetchProject(draft.project.id);
+          ({ project, revision } = fromDisk(await api.fetchProject(draft.project.id)));
         } catch {
           /* keep the copy */
         }
@@ -486,6 +503,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         offline: lib.offline,
         loaded: true,
         project,
+        revision,
         activeSystemId: rootSystemOf(project).id,
         activeCaseId: project.cases[0]?.id ?? null,
         dirty: unsaved,
@@ -901,6 +919,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       };
       set({
         project,
+        revision: null,
         activeSystemId: rootId,
         activeCaseId: caseId,
         activeRunId: null,
@@ -917,9 +936,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
     openProject: async (id) => {
       try {
-        const project = await api.fetchProject(id);
+        const { project, revision } = fromDisk(await api.fetchProject(id));
         set({
           project,
+          revision,
           activeSystemId: project.systems.find((s) => s.parentId === null)?.id ?? project.systems[0]?.id,
           activeCaseId: project.cases[0]?.id ?? null,
           activeRunId: null,
@@ -937,16 +957,51 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
     },
 
-    saveRemote: async () => {
-      const { project, log } = get();
-      if (!project) return;
-      try {
-        await api.saveProject(project);
-        set({ dirty: false });
-        log("info", `Project '${project.name}' saved to the server.`);
-      } catch (e) {
-        log("error", `Save failed: ${(e as Error).message}. Use Export to download the project file instead.`);
-      }
+    saveRemote: () => {
+      const save = async () => {
+        const { project, revision, log } = get();
+        if (!project) return;
+        try {
+          const res = await api.saveProject(project, revision);
+          set({ dirty: false, revision: res.revision ?? revision });
+          log("info", `Project '${project.name}' saved to the server.`);
+        } catch (e) {
+          if ((e as { status?: number }).status !== 409) {
+            log("error", `Save failed: ${(e as Error).message}. Use Export to download the project file instead.`);
+            return;
+          }
+          // the file on disk is not the version this copy started from
+          const why =
+            revision === null
+              ? `A project with the id '${project.id}' already exists on disk.`
+              : `'${project.name}' was changed on disk after you opened it (saved from another window or by another program).`;
+          log("warning", `Not saved yet: ${why}`);
+          const overwrite = await confirmDialog({
+            title: revision === null ? "Project already on disk" : "Project changed on disk",
+            message:
+              `${why} Saving now would replace that version with yours. ` +
+              "Cancel keeps the file on disk as it is; your changes stay open here, " +
+              "and Export saves a copy of them.",
+            confirmLabel: "Overwrite",
+            cancelLabel: "Cancel",
+            danger: true,
+          });
+          if (!overwrite) {
+            log("warning", "Save cancelled — the file on disk was left unchanged; your changes are still unsaved.");
+            return;
+          }
+          try {
+            const res = await api.saveProject(project);
+            set({ dirty: false, revision: res.revision ?? null });
+            log("info", `Project '${project.name}' saved to the server, replacing the version on disk (kept as ${project.id}.json.bak).`);
+          } catch (e2) {
+            log("error", `Save failed: ${(e2 as Error).message}. Use Export to download the project file instead.`);
+          }
+        }
+      };
+      const next = saveQueue.then(save);
+      saveQueue = next;
+      return next;
     },
 
     exportProject: () => {
@@ -964,7 +1019,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
     importProject: (json) => {
       try {
-        const project = JSON.parse(json) as Project;
+        // a file saved from the engine's API may carry its revision: drop it
+        const { project } = fromDisk(JSON.parse(json) as api.StoredProject);
         if (!project.id || !Array.isArray(project.systems)) {
           throw new Error("not a SimStudio project file");
         }
@@ -972,6 +1028,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         project.cases ??= [];
         set({
           project,
+          revision: null,
           activeSystemId: project.systems.find((s) => s.parentId === null)?.id ?? project.systems[0]?.id,
           activeCaseId: project.cases[0]?.id ?? null,
           activeRunId: null,

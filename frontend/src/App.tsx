@@ -38,16 +38,16 @@ export default function App() {
       edited = true;
       clearTimeout(timer);
       if (state.dirty) {
-        timer = setTimeout(() => saveDraft(state.project!), 800);
+        timer = setTimeout(() => saveDraft(state.project!, false, state.revision), 800);
       } else {
         // saved / opened / new: record which project is open, but mark it clean
         // so the next launch doesn't report unsaved work that was already saved
-        saveDraft(state.project, true);
+        saveDraft(state.project, true, state.revision);
       }
     });
     const flush = () => {
-      const { project: p, dirty } = useProjectStore.getState();
-      if (edited && p) saveDraft(p, !dirty);
+      const { project: p, dirty, revision } = useProjectStore.getState();
+      if (edited && p) saveDraft(p, !dirty, revision);
     };
     window.addEventListener("beforeunload", flush);
     return () => {

@@ -71,6 +71,11 @@ survive reinstalls and upgrades. **File → Open Projects Folder** opens it.
 The examples are copied in on first launch only — delete one and it stays
 deleted.
 
+A save replaces the file in one step, so a crash or a full disk mid-save never
+leaves a half-written project, and the version it replaced is kept next to it
+as `<id>.json.bak`. If the file changed after you opened it (saved from a
+second window, or edited by another program), Save asks before overwriting it.
+
 ## Building the app from source
 
 One command builds the UI, freezes the backend, and produces an installer for
@@ -226,7 +231,7 @@ is no token check. To reach a development engine through another host name
 |---|---|
 | `GET /api/library` | Component definitions |
 | `GET /api/projects` | List saved projects |
-| `GET/PUT/DELETE /api/projects/{id}` | Load / save / delete a project |
+| `GET/PUT/DELETE /api/projects/{id}` | Load / save / delete a project. GET adds the file's `revision` (also sent as the `ETag`); a PUT with `If-Match: "<revision>"` is refused with 409 if the file changed since, and `If-None-Match: *` refuses to replace an existing project |
 | `POST /api/validate` | Run Data Checks on a project payload |
 | `POST /api/simulate` | Validate + solve one case synchronously |
 | `WS /api/simulate/run` | Live run: client sends `start`, then optional `set_param` / `cancel`; server streams `step` / `message` events and a final `done` with the full result |

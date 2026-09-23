@@ -15,6 +15,21 @@ import fallbackProject from "./data/demoProject.json";
 
 const BASE = "/api";
 
+/** An error answer from the engine; `status` is its HTTP status (409 = the
+ *  project file changed on disk since it was loaded). */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** A project as read from disk. `revision` names that version of the file (it
+ *  is bookkeeping for conflict-checked saves, not part of the project). */
+export type StoredProject = Project & { revision?: string };
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
@@ -28,7 +43,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       /* keep statusText */
     }
-    throw new Error(`${res.status} ${detail}`);
+    throw new ApiError(res.status, `${res.status} ${detail}`);
   }
   return res.json() as Promise<T>;
 }
@@ -58,11 +73,11 @@ export async function fetchLibrary(): Promise<{
 }
 
 export async function fetchDemoProject(): Promise<{
-  project: Project;
+  project: StoredProject;
   offline: boolean;
 }> {
   try {
-    const project = await request<Project>("/projects/bev-car");
+    const project = await request<StoredProject>("/projects/bev-car");
     return { project, offline: false };
   } catch {
     return { project: fallbackProject as unknown as Project, offline: true };
@@ -75,13 +90,26 @@ export function listProjects(): Promise<
   return request("/projects");
 }
 
-export function fetchProject(id: string): Promise<Project> {
+export function fetchProject(id: string): Promise<StoredProject> {
   return request(`/projects/${encodeURIComponent(id)}`);
 }
 
-export function saveProject(project: Project): Promise<{ saved: string }> {
+/**
+ * Save a project to disk. `base` is the revision the copy was loaded from: the
+ * engine refuses the save (ApiError 409) if the file changed since. `null`
+ * means the project is not on disk yet (refused if a file with its id
+ * exists); leave it out to overwrite whatever is there.
+ */
+export function saveProject(
+  project: Project,
+  base?: string | null,
+): Promise<{ saved: string; revision?: string }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (base) headers["If-Match"] = `"${base}"`;
+  else if (base === null) headers["If-None-Match"] = "*";
   return request(`/projects/${encodeURIComponent(project.id)}`, {
     method: "PUT",
+    headers,
     body: JSON.stringify(project),
   });
 }
