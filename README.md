@@ -5,6 +5,11 @@ from a component library, wire elements together (including signal /
 data-bus connections), run a dynamic simulation, watch it live, and
 inspect results — all in a dockable-panel UI.
 
+> **Status:** early version. The workflow works, but the component physics
+> are simplified, nothing has been validated against measured vehicles yet,
+> and some results are known to be wrong. Read
+> [Known issues and limits](docs/KNOWN-LIMITS.md) before relying on a number.
+
 ![Topology editor](docs/doc-topology.png)
 
 ## Features (v2)
@@ -257,13 +262,20 @@ and say so in Messages.
 
 ## Known limitations
 
+[docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md) is the maintained list,
+including the open bugs that change results and how to work around them; the
+desktop app installs a copy (**Help → Known Limits**). The structural limits
+in short:
+
 - One differential and one E-Motor per driveline subgraph (multiple
   independent drivelines — e.g. dual-motor AWD as two axles — work).
 - One battery or voltage source per electrical bus; DC-DC is unidirectional.
 - Forward driving only (no reverse), no thermal/fluid solving.
 - Sub-system containers are organizational: physical connections cannot cross
   a container boundary (signals can, via the Data Bus).
-- The bookmark tool and Optimization/Parameters ribbon tabs are visual stubs.
+- The canvas bookmark tool is disabled, and the Optimization tab is hidden
+  until it is implemented. (Parameters — per-case overrides and sweeps —
+  works.)
 
 ## License
 
