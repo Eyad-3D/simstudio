@@ -197,7 +197,7 @@ cd backend
 pip install -r requirements-build.txt   # includes pip-licenses
 python -m PyInstaller --noconfirm --distpath dist --workpath build simstudio-backend.spec
 cd ..
-npm ci --prefix frontend && npm ci --prefix desktop
+npm ci --prefix frontend && npm ci --prefix desktop   # desktop/ pins the npm licence reader
 python scripts/third-party-notices.py   # add --check to only check
 ```
 

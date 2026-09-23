@@ -6,7 +6,7 @@ licence and licence text:
 
 - the UI's npm packages: the production dependencies of frontend/ plus the
   build tools whose own code lands in the bundle (UI_BUILD_OUTPUT), read with
-  license-checker-rseidelsohn;
+  license-checker-rseidelsohn (a dev dependency of desktop/);
 - Electron, from desktop/. The notices for Chromium, Node.js and the other
   parts built into Electron ship as LICENSES.chromium.html next to the
   SimStudio executable (electron-builder copies it from Electron);
@@ -50,7 +50,9 @@ NOTICES = ROOT / "THIRD-PARTY-NOTICES.txt"
 SBOM = ROOT / "sbom.cdx.json"
 WORK = ROOT / "backend" / "build" / "simstudio-backend"
 
-LICENSE_CHECKER = "license-checker-rseidelsohn@4.4.2"
+# A dev dependency of desktop/, so desktop/package-lock.json pins it and all
+# of its dependencies, and `npm ci` there installs it.
+LICENSE_CHECKER = ROOT / "desktop" / "node_modules" / "license-checker-rseidelsohn"
 # Dev dependencies whose own code still ends up in the UI bundle: Tailwind's
 # base styles, Vite's module-preload polyfill and Rolldown's runtime helpers.
 UI_BUILD_OUTPUT = ["tailwindcss", "vite", "rolldown"]
@@ -263,11 +265,16 @@ def check(components: list[Component], allowed: dict[str, str], clarified: dict)
 def license_checker(folder: Path, *args: str) -> dict:
     if not (folder / "node_modules").is_dir():
         sys.exit(f"{folder.name}/node_modules is missing: run `npm ci` in {folder.name}/ first")
-    npx = shutil.which("npx")
-    if npx is None:
-        sys.exit("npx not found: install Node.js 22 or later")
-    run = subprocess.run([npx, "--yes", LICENSE_CHECKER, *args, "--json"], cwd=folder,
-                         capture_output=True, text=True, encoding="utf-8")
+    if not (LICENSE_CHECKER / "package.json").is_file():
+        sys.exit(f"{LICENSE_CHECKER.name} is missing: run `npm ci` in desktop/ first")
+    node = shutil.which("node")
+    if node is None:
+        sys.exit("node not found: install Node.js 22 or later")
+    # Its bin script, run with node: node_modules/.bin holds a symlink on
+    # Linux but .cmd and .ps1 wrappers on Windows.
+    tool = json.loads(read(LICENSE_CHECKER / "package.json"))["bin"][LICENSE_CHECKER.name]
+    run = subprocess.run([node, str(LICENSE_CHECKER / tool), *args, "--json"], cwd=folder,
+                         capture_output=True, text=True, encoding="utf-8", check=False)
     if run.returncode != 0:
         sys.exit(f"license-checker failed in {folder.name}/:\n{run.stderr}")
     return json.loads(run.stdout)
