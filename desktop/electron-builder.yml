@@ -55,8 +55,8 @@ linux:
       arch: [x64]
   icon: build/icon.png
   category: Science
-  synopsis: Vehicle system simulation tool
+  synopsis: Simulate vehicle energy use, range and powertrains
   desktop:
     entry:
       Name: SimStudio
-      Comment: Build, simulate and inspect system topologies
+      Comment: Simulate vehicle energy use, range and powertrains

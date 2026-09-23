@@ -1,6 +1,7 @@
 # SimStudio — Vehicle System Simulation
 
-A desktop tool for simulating vehicle systems: build a system topology
+A desktop app for simulating vehicle energy use, range and powertrains. It
+runs entirely on your computer and works offline: build a system topology
 from a component library, wire elements together (including signal /
 data-bus connections), run a dynamic simulation, watch it live, and
 inspect results — all in a dockable-panel UI.
@@ -12,7 +13,7 @@ inspect results — all in a dockable-panel UI.
 
 ![Topology editor](docs/doc-topology.png)
 
-## Features (v2)
+## Features
 
 | Area | What works |
 |---|---|
