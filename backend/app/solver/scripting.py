@@ -2,9 +2,10 @@
 
 User code defines `def step(t, dt, inputs, state, params)` and returns a
 dict of output values keyed by output-port id. The code is compiled once
-per run and executed once per recorded step. It runs with normal Python
-semantics on the local backend — this is trusted user code, the same
-trust level as editing the backend itself, not a security sandbox.
+per run and executed every solver step (dt = the solver step, ≤ 10 ms).
+It runs with normal Python semantics on the local backend — this is
+trusted user code, the same trust level as editing the backend itself,
+not a security sandbox.
 """
 from __future__ import annotations
 

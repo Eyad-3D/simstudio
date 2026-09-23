@@ -1,17 +1,18 @@
 """Wholesale-wrapped domain slaves (Phase 1.4).
 
-The former monolithic step loop is decomposed into five slaves stepped by
-the co-simulation master in today's exact order:
+The former monolithic step loop is decomposed into five slaves, all stepped
+by the co-simulation master at every solver step (≤ MAX_SUBSTEP) in this
+order:
 
-    control (÷n_sub) → gear (÷n_sub) → driver → mechanical+vehicle → electrical
+    control → gear → driver → mechanical+vehicle → electrical
 
 The pass bodies are moved verbatim; shared physics state lives in a single
 :class:`RunContext` that every slave reads and writes — the honest wrap
 stage. True decoupling (declared variables exchanged through the master's
 pool, per-component model extraction, tanks as their own slaves) is the
-next phase; until then slaves deliberately use ``ctx.t_rec`` / ``ctx.dt`` /
-``ctx.dt_rec`` instead of their ``do_step(t, h)`` arguments so results stay
-bit-identical to the pre-refactor solver (golden fixtures).
+next phase; until then the physics slaves integrate with ``ctx.dt`` (the
+current solver step, equal to their ``h``) and the control slave uses its
+``do_step(t, h)`` arguments.
 """
 from __future__ import annotations
 
@@ -64,19 +65,13 @@ class RunContext:
         rt: Runtime,
         gear_of: dict[str, float],
         case_overrides: dict,
-        dt_rec: float,
-        n_sub: int,
-        dt: float,
     ):
         self.project = project
         self.model = model
         self.rt = rt
         self.gear_of = gear_of
         self.case_overrides = case_overrides
-        self.dt_rec = dt_rec
-        self.n_sub = n_sub
-        self.dt = dt
-        self.t_rec = 0.0  # current recorded-step time (set by simulate per step)
+        self.dt = 0.0  # current solver step (set by simulate before stepping)
 
         # ---- element caches --------------------------------------------------
         self.batteries: dict[str, BatteryState] = {}
@@ -86,6 +81,8 @@ class RunContext:
         self.tanks: dict[str, TankState] = {}
         self.lookup_cache: dict[str, tuple[list, list]] = {}
         self.profile_cache: dict[str, list[tuple[float, float]]] = {}
+        self.sources = [(el_id, cdef.id) for el_id, cdef in model.cdef_of.items()
+                        if cdef.id in ("signal.constant", "signal.driving_task")]
         self.pid_state: dict[str, dict[str, float]] = {}
         table_errors: list[str] = []
         for el_id, cdef in model.cdef_of.items():
@@ -256,10 +253,10 @@ class RunContext:
         """Signal sources (Constant, Driving Task) — pure functions of time,
         so they can be evaluated at any instant without side effects."""
         rt = self.rt
-        for el_id, cdef in self.model.cdef_of.items():
-            if cdef.id == "signal.constant":
+        for el_id, kind in self.sources:
+            if kind == "signal.constant":
                 rt.publish(el_id, "sig_out", float(self.params(el_id).get("value", 0)))
-            elif cdef.id == "signal.driving_task":
+            else:
                 p = self.params(el_id)
                 scale = float(p.get("scale_pct", 100)) / 100.0
                 rt.publish(el_id, "sig_demand", interp_profile(
@@ -497,14 +494,10 @@ class _CtxSlave(Slave):
 
 class ControlSlave(_CtxSlave):
     """Signal sources + signal blocks (Script, PID, Lookup, Road Profile),
-    evaluated once per recorded step in the model's topological order.
+    evaluated every solver step in the model's topological order.
     Also claims live parameter writes for the whole context (broadcast)."""
 
     slave_id = "control"
-
-    def __init__(self, ctx: RunContext):
-        super().__init__(ctx)
-        self.rate_divisor = ctx.n_sub
 
     def set_parameter(self, name: str, value: object) -> ParamResult:
         el_id, key = split_var(name)
@@ -513,22 +506,22 @@ class ControlSlave(_CtxSlave):
     def do_step(self, t: float, h: float) -> StepResult:
         ctx = self.ctx
         model, rt = ctx.model, ctx.rt
-        t = ctx.t_rec
 
         ctx.publish_sources(t)
 
-        # -- signal blocks (topological order, once per recorded step) ----------
+        # -- signal blocks (topological order, every solver step) ---------------
         for el_id in model.signal_blocks:
             el = model.elements[el_id]
             kind = model.cdef_of[el_id].id
             p = ctx.params(el_id)
+            dt = h  # the block's time step, passed to scripts and the PID
             if kind == "signal.script":
                 inputs = {}
                 for port in (el.dynamicPorts or []):
                     if port.direction == "input":
                         inputs[port.id] = rt.read_signal(el_id, port.id) or 0.0
                 try:
-                    outs = run_script(ctx.script_fns[el_id], el.label, t, ctx.dt_rec, inputs,
+                    outs = run_script(ctx.script_fns[el_id], el.label, t, dt, inputs,
                                       ctx.script_states[el_id], dict(p))
                 except ScriptError as e:
                     rt.message("error", str(e))
@@ -551,10 +544,10 @@ class ControlSlave(_CtxSlave):
                 kd = float(p.get("kd", 0.0))
                 lo = float(p.get("out_min", -1.0))
                 hi = float(p.get("out_max", 1.0))
-                deriv = (err - st_pid["prev_err"]) / ctx.dt_rec
-                out_unsat = kp * err + ki * (st_pid["integral"] + err * ctx.dt_rec) + kd * deriv
+                deriv = (err - st_pid["prev_err"]) / dt
+                out_unsat = kp * err + ki * (st_pid["integral"] + err * dt) + kd * deriv
                 if lo <= out_unsat <= hi or err * out_unsat < 0:  # anti-windup
-                    st_pid["integral"] += err * ctx.dt_rec
+                    st_pid["integral"] += err * dt
                 out = max(lo, min(hi, kp * err + ki * st_pid["integral"] + kd * deriv))
                 st_pid["prev_err"] = err
                 rt.publish(el_id, "sig_out", out)
@@ -582,14 +575,10 @@ class ControlSlave(_CtxSlave):
 
 
 class GearSlave(_CtxSlave):
-    """Gear-selection check at recorded-step cadence (after signals, before
-    the driver) — a driveline rebuild surfaces as a 'reconfigured' event."""
+    """Gear-selection check every solver step (after signals, before the
+    driver) — a driveline rebuild surfaces as a 'reconfigured' event."""
 
     slave_id = "gear"
-
-    def __init__(self, ctx: RunContext):
-        super().__init__(ctx)
-        self.rate_divisor = ctx.n_sub
 
     def do_step(self, t: float, h: float) -> StepResult:
         changed = self.ctx.check_gear_shifts()
@@ -789,7 +778,7 @@ class MechanicalSlave(_CtxSlave):
                 alpha = solve_linear(m_mat, q_vec)
             except SingularMatrixError:
                 detail = (
-                    f"Driveline equations became numerically singular at t = {ctx.t_rec:g} s "
+                    f"Driveline equations became numerically singular at t = {t:g} s "
                     "(check gear ratios, inertias and joint configuration) — "
                     "solve aborted."
                 )
@@ -922,7 +911,7 @@ class ElectricalSlave(_CtxSlave):
                         b.depleted_flagged = True
                         rt.message("warning",
                                    f"Battery '{model.elements[b.el_id].label}' reached minimum "
-                                   f"SOC ({b.min_soc * 100:.0f} %) at t = {ctx.t_rec:.0f} s — no further discharge.")
+                                   f"SOC ({b.min_soc * 100:.0f} %) at t = {t:.0f} s — no further discharge.")
                     p_w = 0.0
                 if p_w < -b.max_charge_w:
                     rt.warn_once(f"chg:{b.el_id}",

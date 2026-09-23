@@ -110,8 +110,10 @@ class SimCase(BaseModel):
     id: str
     name: str
     duration: float = 600.0
-    timeStep: float = 1.0  # solver step; signals/blocks evaluate here, mechanics sub-step internally
-    # record a data point every N solver steps (output decimation); 1 = every step
+    # output step: results are stored and live edits applied at this interval;
+    # controllers, signal blocks and physics all run at the solver step (≤ 10 ms)
+    timeStep: float = 1.0
+    # record a data point every N output steps (further decimation); 1 = every step
     outputEvery: int = 1
     # 0 = run as fast as possible; N > 0 = pace at N× real time (for live tuning)
     realtimeFactor: float = 0.0
