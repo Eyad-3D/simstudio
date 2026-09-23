@@ -246,7 +246,8 @@ function studyPoint(run: SimRun, values: number[]): StudyPoint {
     runId: run.id,
     status: run.status === "running" ? "failed" : run.status,
     ...(run.incomplete ? { incomplete: run.incomplete } : {}),
-    kpis: Object.fromEntries(run.result.summary.map((v) => [v.label, v.value])),
+    // (a value JSON cannot carry would make the project unsavable)
+    kpis: Object.fromEntries(run.result.summary.filter((v) => Number.isFinite(v.value)).map((v) => [v.label, v.value])),
     ...(notValid.length ? { notValid: Object.fromEntries(notValid.map((v) => [v.label, v.notValid!])) } : {}),
   };
 }
@@ -585,7 +586,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     const { libraryById, log, appVersion } = get();
     const runId = uid("run");
     const simCase = projectToRun.cases.find((c) => c.id === caseId);
-    // the model is the project without its saved studies (results, not model)
+    // the model is the project without its saved studies (results, not
+    // model): the engine runs it and the snapshot keeps it
     const { studies: _studies, ...model } = projectToRun;
     const snapshot: RunSnapshot | undefined = simCase && {
       project: model,
@@ -653,7 +655,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }));
     };
 
-    const handle = api.runSimulationLive(projectToRun, caseId, {
+    const handle = api.runSimulationLive(model, caseId, {
       onStep: (ev) => {
         buffer.push(ev);
         if (!flushTimer) flushTimer = setTimeout(flush, LIVE_FLUSH_MS);

@@ -906,6 +906,7 @@ describe("run snapshots", () => {
     const { studies: _studies, ...model } = store().project!;
     expect(store().runs[0].snapshot!.project).toEqual(model);
     expect(store().runs[0].snapshot!.project.studies).toBeUndefined();
+    expect(api.runSimulationLive.mock.lastCall![0]).toEqual(model); // what the engine ran
   });
 
   it("a run's model opens as an unsaved copy, on the run's case", async () => {
@@ -1051,6 +1052,27 @@ describe("studies", () => {
       { values: [90], status: "not run", kpis: {} },
       { values: [95], status: "not run", kpis: {} },
     ]);
+  });
+
+  it("a summary value that is not a finite number is left out of the table", async () => {
+    await store().init();
+    api.validateProject.mockResolvedValue([]);
+    api.runSimulationLive.mockImplementation((_project, caseId) => ({
+      setParam: vi.fn(),
+      cancel: vi.fn(),
+      done: Promise.resolve({
+        caseId,
+        status: "success" as const,
+        messages: [],
+        channels: [],
+        summary: [
+          { label: "Energy", value: 1, unit: "kWh" },
+          { label: "Broken", value: null as unknown as number, unit: "-" },
+        ],
+      }),
+    }));
+    await sweep([80]);
+    expect(store().project!.studies![0].points[0].kpis).toEqual({ Energy: 1 });
   });
 
   it("undo and redo leave studies alone; a study can be deleted", async () => {
