@@ -33,8 +33,30 @@ class SingularMatrixError(RuntimeError):
 
 
 def solve_linear(m: list[list[float]], q: list[float]) -> list[float]:
-    """Gaussian elimination with partial pivoting (systems are tiny)."""
+    """Gaussian elimination with partial pivoting (systems are tiny). One-
+    and two-coordinate systems, the common drivelines, are solved inline
+    with exactly the operations of the general loop below."""
     n = len(q)
+    if n == 1:
+        a00 = m[0][0]
+        if abs(a00) < 1e-12:
+            raise SingularMatrixError(f"pivot {a00:.3e} in column 1 of 1")
+        return [q[0] / a00]
+    if n == 2:
+        (a00, a01), (a10, a11) = m
+        q0, q1 = q
+        if abs(a10) > abs(a00):  # pivot; a tie keeps the first row, as max() does
+            a00, a01, q0, a10, a11, q1 = a10, a11, q1, a00, a01, q0
+        if abs(a00) < 1e-12:
+            raise SingularMatrixError(f"pivot {a00:.3e} in column 1 of 2")
+        fac = a10 / a00
+        if fac:
+            a11 -= fac * a01
+            q1 -= fac * q0
+        if abs(a11) < 1e-12:
+            raise SingularMatrixError(f"pivot {a11:.3e} in column 2 of 2")
+        x1 = q1 / a11
+        return [(q0 - (0.0 + a01 * x1)) / a00, x1]
     a = [row[:] + [q[i]] for i, row in enumerate(m)]
     for col in range(n):
         piv = max(range(col, n), key=lambda r: abs(a[r][col]))
@@ -163,6 +185,11 @@ class DrivelineState:
     clutch_torque: dict[str, float] = field(default_factory=dict)
     clutch_slip: dict[str, float] = field(default_factory=dict)
     chain_power_w: float = 0.0
+    # solver-step view of the plan (domains.DrivelineLayout), built on first
+    # use and dropped whenever the plan is rebuilt
+    layout: Optional[object] = None
+    # segment speeds at the end of the last solver step
+    omega_end: list[float] = field(default_factory=list)
 
 
 class Runtime:

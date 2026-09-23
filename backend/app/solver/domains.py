@@ -23,9 +23,10 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
+from dataclasses import dataclass
 
 from .maps import TableError, interp1, interp2, parse_table1d, parse_table2d
-from .network import Driveline, Model, ModelError, Segment, build_model
+from .network import BrakeRef, Driveline, Joint, Model, ModelError, Segment, SourceRef, build_model
 from .profiles import interp_profile, parse_profile
 from .runtime import (
     AIR_DENSITY,
@@ -57,6 +58,28 @@ class ModelInitError(Exception):
     def __init__(self, messages: list[str]):
         super().__init__("; ".join(messages))
         self.messages = messages
+
+
+@dataclass
+class DrivelineLayout:
+    """What the solver step needs from a driveline's plan that changes only
+    when the plan is rebuilt (gear shift, lock toggle), worked out once per
+    plan instead of every solver step."""
+
+    # per segment: (i, k, J·g_i·g_k) for i ≤ k with g_i ≠ 0 — its inertia in
+    # the mass matrix
+    inertia: list[list[tuple[int, int, float]]]
+    # per segment: (i, k, g_i, g_k) for i ≤ k with g_i ≠ 0 — for tire damping
+    pairs: list[list[tuple[int, int, float, float]]]
+    # per segment: the coordinate a static brake hold acts on, if any
+    hold_coord: list[int | None]
+    # per coordinate: a segment with brakes moves with it
+    braked: list[bool]
+    # clutches: (joint, g of side a, g of side b, (i, k, r_i, r_k) of a − b)
+    clutches: list[tuple[Joint, list[float], list[float], list[tuple[int, int, float, float]]]]
+    has_wheels: bool
+    # motors for the driver's recuperation estimate: (segment, motor, ratio)
+    motors: list[tuple[int, SourceRef, float]]
 
 
 class RunContext:
@@ -173,6 +196,9 @@ class RunContext:
 
         self.dls = [DrivelineState(dl=dl) for dl in model.drivelines]
         self.el_axis_speed: dict[str, float] = {}  # anchor speeds for plan rebuilds
+        # bumped whenever a driveline or its plan changes (gear shift, lock
+        # toggle), so cached views of them (routed state getters) refresh
+        self.layout_version = 0
         for st in self.dls:
             self.rebuild_plan(st, initial=True)
 
@@ -262,6 +288,8 @@ class RunContext:
 
     def rebuild_plan(self, st: DrivelineState, initial: bool = False) -> None:
         st.plan = make_plan(st.dl, self.model.params_of, self.gear_of)
+        st.layout = None
+        self.layout_version += 1
         if st.plan.over_constrained:
             self.rt.warn_once("overconstrained",
                               "Driveline became kinematically over-constrained — "
@@ -284,9 +312,54 @@ class RunContext:
             else:
                 st.plan.x[k] = self.el_axis_speed.get(el_id, 0.0) / factor if factor else 0.0
 
-    def seg_speed(self, st: DrivelineState, s: int) -> float:
-        g = st.plan.gvec[s]
-        return sum(g[i] * st.plan.x[i] for i in range(st.plan.n))
+    @staticmethod
+    def seg_speed(st: DrivelineState, s: int) -> float:
+        plan = st.plan
+        g, x, n = plan.gvec[s], plan.x, plan.n
+        # the same sums, in the same order, as sum() below
+        if n == 1:
+            return 0.0 + g[0] * x[0]
+        if n == 2:
+            return 0.0 + g[0] * x[0] + g[1] * x[1]
+        if n == 3:
+            return 0.0 + g[0] * x[0] + g[1] * x[1] + g[2] * x[2]
+        return sum(g[i] * x[i] for i in range(n))
+
+    def layout(self, st: DrivelineState) -> DrivelineLayout:
+        """The driveline's layout for its current plan (plan not
+        over-constrained, n > 0)."""
+        if st.layout is not None:
+            return st.layout
+        plan = st.plan
+        n, segs = plan.n, st.dl.segments
+        inertia, pairs, hold = [], [], []
+        for s_idx, seg in enumerate(segs):
+            g = plan.gvec[s_idx]
+            j_seg = max(1e-4, seg.inertia)
+            nz = [(i, k, g[i], g[k]) for i in range(n) if g[i] != 0.0 for k in range(i, n)]
+            inertia.append([(i, k, j_seg * gi * gk) for i, k, gi, gk in nz])
+            pairs.append(nz)
+            hold.append(next((kk for kk in range(n)
+                              if plan.coord_root[kk] == plan.root_of_seg[s_idx]), None))
+        braked = [any(seg.brakes and plan.root_of_seg[s2] == plan.coord_root[i]
+                      for s2, seg in enumerate(segs)) for i in range(n)]
+        clutches = []
+        for j in st.dl.joints:
+            if j.kind != "clutch":
+                continue
+            ga = [j.child_a_m * x for x in plan.gvec[j.child_a]]
+            gb = [j.child_b_m * x for x in plan.gvec[j.child_b]]
+            rel = [ga[i] - gb[i] for i in range(n)]
+            clutches.append((j, ga, gb, [(i, k, rel[i], rel[k]) for i in range(n)
+                                         if rel[i] != 0.0 for k in range(i, n)]))
+        ones = [1.0] * n
+        motors = [(s_idx, src, abs(src.m * sum(plan.gvec[s_idx][i] * ones[i] for i in range(n))))
+                  for s_idx, seg in enumerate(segs) for src in seg.sources
+                  if src.kind == "motor" and src.el_id in self.motors]
+        st.layout = DrivelineLayout(
+            inertia=inertia, pairs=pairs, hold_coord=hold, braked=braked, clutches=clutches,
+            has_wheels=any(seg.wheels for seg in segs), motors=motors)
+        return st.layout
 
     def source_value(self, el_id: str, kind: str, t: float) -> float:
         """A signal source's output (Constant, Driving Task) at time ``t`` —
@@ -739,18 +812,22 @@ class RunContext:
         ec.p_mech_w = t_net * omega_e
         return t_net
 
-    def wheel_force(self, w, omega_ref: float) -> tuple[float, float, float]:
+    def wheel_force(self, w, omega_ref: float,
+                    damping: bool = True) -> tuple[float, float, float]:
+        """(tire force, its torque at the reference axis, slip damping for
+        the implicit solve — 0 when not asked for)."""
         n_load = w.load_share * self.veh_mass * GRAVITY if self.veh_id else 0.0
         if n_load <= 0:
             return 0.0, 0.0, 0.0
-        omega_w = w.m * omega_ref
-        v_den = max(abs(self.v), V_EPS)
-        slip = (omega_w * w.radius - self.v) / v_den
-        fx_over_n = max(-w.mu, min(w.mu, w.c_slip * slip))
-        force = n_load * fx_over_n
-        saturated = abs(w.c_slip * slip) >= w.mu
-        damping = 0.0 if saturated else n_load * w.c_slip * w.radius ** 2 * w.m ** 2 / v_den
-        return force, -force * w.radius * w.m, damping
+        v = self.v
+        v_den = max(abs(v), V_EPS)
+        slip = (w.m * omega_ref * w.radius - v) / v_den
+        mu, k_slip = w.mu, w.c_slip * slip
+        force = n_load * max(-mu, min(mu, k_slip))
+        if not damping or abs(k_slip) >= mu:  # saturated: no damping
+            return force, -force * w.radius * w.m, 0.0
+        return (force, -force * w.radius * w.m,
+                n_load * w.c_slip * w.radius ** 2 * w.m ** 2 / v_den)
 
     def brake_capacity(self, seg: Segment) -> float:
         cap = 0.0
@@ -958,6 +1035,12 @@ class DriverSlave(_CtxSlave):
 
     slave_id = "driver"
 
+    def __init__(self, ctx: RunContext):
+        super().__init__(ctx)
+        self.layout_seen = -1  # ctx.layout_version the lists below belong to
+        self.brakes: list[BrakeRef] = []
+        self.r_avg = 0.33
+
     def do_step(self, t: float, h: float) -> StepResult:
         ctx = self.ctx
         model, rt, dt = ctx.model, ctx.rt, ctx.dt
@@ -989,27 +1072,25 @@ class DriverSlave(_CtxSlave):
         for st in ctx.dls:
             if st.plan.over_constrained or not st.plan.n:
                 continue
-            has_wheels = any(seg.wheels for seg in st.dl.segments)
-            if not has_wheels:
+            lay = ctx.layout(st)
+            if not lay.has_wheels:
                 continue
-            ones = [1.0] * st.plan.n
-            for s_idx, seg in enumerate(st.dl.segments):
-                for src in seg.sources:
-                    if src.kind != "motor" or src.el_id not in ctx.motors:
-                        continue
-                    mc = ctx.motors[src.el_id]
-                    g = st.plan.gvec[s_idx]
-                    r_eff = abs(src.m * sum(g[i] * ones[i] for i in range(st.plan.n)))
-                    omega_m = src.m * ctx.seg_speed(st, s_idx)
-                    volts = (ctx.bus_voltage.get(ctx.motor_bus[mc.el_id].id, 0.0)
-                             if mc.el_id in ctx.motor_bus else 0.0)
-                    t_q4 = interp2(mc.full_load, volts, abs(omega_m) * RPM) * mc.q4_scale
-                    t_motor_cap += t_q4 * r_eff * src.eff * st.plan.eff_chain[s_idx]
-                    if mc.el_id in ctx.motor_bus:
-                        bus = ctx.motor_bus[mc.el_id]
-                        motor_buses[bus.id] = bus
-        fr_cap = sum(br.max_torque * br.m
-                     for st in ctx.dls for seg in st.dl.segments for br in seg.brakes)
+            for s_idx, src, r_eff in lay.motors:
+                mc = ctx.motors[src.el_id]
+                omega_m = src.m * ctx.seg_speed(st, s_idx)
+                volts = (ctx.bus_voltage.get(ctx.motor_bus[mc.el_id].id, 0.0)
+                         if mc.el_id in ctx.motor_bus else 0.0)
+                t_q4 = interp2(mc.full_load, volts, abs(omega_m) * RPM) * mc.q4_scale
+                t_motor_cap += t_q4 * r_eff * src.eff * st.plan.eff_chain[s_idx]
+                if mc.el_id in ctx.motor_bus:
+                    bus = ctx.motor_bus[mc.el_id]
+                    motor_buses[bus.id] = bus
+        if self.layout_seen != ctx.layout_version:  # brakes and wheels of every driveline
+            self.layout_seen = ctx.layout_version
+            self.brakes = [br for st in ctx.dls for seg in st.dl.segments for br in seg.brakes]
+            radii = [w.radius for st in ctx.dls for seg in st.dl.segments for w in seg.wheels]
+            self.r_avg = sum(radii) / len(radii) if radii else 0.33
+        fr_cap = sum(br.max_torque * br.m for br in self.brakes)
         taper = max(0.0, min(1.0, ctx.v / 3.0))
         # recuperation the sources can take this step (source-limit handshake);
         # the friction brakes get the rest of the braking demand
@@ -1020,8 +1101,7 @@ class DriverSlave(_CtxSlave):
                     rt.warn_once(f"fullbrake:{bus.battery}",
                                  f"Battery '{model.elements[bus.battery].label}' is full — no "
                                  f"recuperation while braking (t = {t:.0f} s).", level="info")
-        radii = [w.radius for st in ctx.dls for seg in st.dl.segments for w in seg.wheels]
-        r_avg = sum(radii) / len(radii) if radii else 0.33
+        r_avg = self.r_avg
         t_batt_cap = batt_cap_w * r_avg / max(ctx.v, V_EPS)
         regen_avail = min(t_motor_cap, t_batt_cap) * taper
 
@@ -1058,42 +1138,38 @@ class MechanicalSlave(_CtxSlave):
     def do_step(self, t: float, h: float) -> StepResult:
         ctx = self.ctx
         rt, dt = ctx.rt, ctx.dt
+        active = [st for st in ctx.dls if not st.plan.over_constrained and st.plan.n]
 
-        # source-limit handshake: every motor's request against its bus first
+        # segment speeds at the start of the step, and every motor's command
+        omegas = [[ctx.seg_speed(st, s) for s in range(len(st.dl.segments))] for st in active]
         requests: dict[str, tuple[float, float]] = {}
-        for st in ctx.dls:
-            if st.plan.over_constrained or st.plan.n == 0:
-                continue
+        for st, omega_seg in zip(active, omegas):
             for s_idx, seg in enumerate(st.dl.segments):
                 for src in seg.sources:
                     if src.kind == "motor" and src.el_id in ctx.motors:
                         requests[src.el_id] = (rt.read_signal(src.el_id, "sig_demand_in") or 0.0,
-                                               src.m * ctx.seg_speed(st, s_idx))
+                                               src.m * omega_seg[s_idx])
+        # source-limit handshake: every motor's request against its bus first
         ctx.allocate_motor_power(requests, t)
 
         # mechanics ------------------------------------------------------------
-        for st in ctx.dls:
+        for st, omega_seg in zip(active, omegas):
             plan = st.plan
-            if plan.over_constrained or plan.n == 0:
-                continue
+            lay = ctx.layout(st)
             n = plan.n
             m_mat = [[0.0] * n for _ in range(n)]
             q_vec = [0.0] * n
-            omega_seg = [ctx.seg_speed(st, s) for s in range(len(st.dl.segments))]
+            x = plan.x
             # torque-source bookkeeping for joint channels
             torque_above: dict[int, float] = defaultdict(float)  # root seg → torque at axis
             for s_idx, seg in enumerate(st.dl.segments):
                 g = plan.gvec[s_idx]
-                j_seg = max(1e-4, seg.inertia)
-                for i in range(n):
-                    gi = g[i]
-                    if gi == 0.0:
-                        continue
-                    for k in range(i, n):
-                        m_mat[i][k] += j_seg * gi * g[k]
+                for i, k, val in lay.inertia[s_idx]:
+                    m_mat[i][k] += val
+                omega = omega_seg[s_idx]
                 tau = 0.0
                 for src in seg.sources:
-                    omega_src = src.m * omega_seg[s_idx]
+                    omega_src = src.m * omega
                     if src.kind == "motor" and src.el_id in ctx.motors:
                         demand = rt.read_signal(src.el_id, "sig_demand_in") or 0.0
                         t_net = ctx.motor_torque(ctx.motors[src.el_id], demand, omega_src)
@@ -1108,42 +1184,31 @@ class MechanicalSlave(_CtxSlave):
                     torque_above[plan.root_of_seg[s_idx]] += (
                         t_at_ref / max(1e-9, plan.scale_of_seg[s_idx]))
                 for w in seg.wheels:
-                    f, tq, dmp = ctx.wheel_force(w, omega_seg[s_idx])
+                    f, tq, dmp = ctx.wheel_force(w, omega)
                     tau += tq
                     ctx.last_forces[w.el_id] = f
                     if dmp > 0:
-                        for i in range(n):
-                            gi = g[i]
-                            if gi == 0.0:
-                                continue
-                            for k in range(i, n):
-                                m_mat[i][k] += dt * dmp * gi * g[k]
-                tau += ctx.prop_torque(seg, omega_seg[s_idx])
-                cap = ctx.brake_capacity(seg)
+                        c = dt * dmp
+                        for i, k, gi, gk in lay.pairs[s_idx]:
+                            m_mat[i][k] += c * gi * gk
+                tau += ctx.prop_torque(seg, omega) if seg.props else 0.0
+                cap = ctx.brake_capacity(seg) if seg.brakes else 0.0
                 if cap > 0:
                     # static hold only when this segment carries a coordinate
-                    coord = None
-                    for kk in range(n):
-                        if plan.coord_root[kk] == plan.root_of_seg[s_idx]:
-                            coord = kk
-                            break
-                    if coord is not None and abs(omega_seg[s_idx]) <= W_EPS:
+                    coord = lay.hold_coord[s_idx]
+                    if coord is not None and abs(omega) <= W_EPS:
                         j_over_dt = max(m_mat[coord][coord], 1e-4) / dt
-                        tau += ctx.apply_brake(tau, omega_seg[s_idx], cap, j_over_dt)
+                        tau += ctx.apply_brake(tau, omega, cap, j_over_dt)
                     else:
-                        tau += -_sign(omega_seg[s_idx]) * cap
+                        tau += -_sign(omega) * cap
                 for i in range(n):
                     q_vec[i] += g[i] * tau
 
             # clutches: smooth Coulomb coupling, implicit in Δω
-            for j in st.dl.joints:
-                if j.kind != "clutch":
-                    continue
+            for j, ga, gb, rel_pairs in lay.clutches:
                 engage = rt.read_signal(j.el_id, "sig_engage_in")
                 engage = max(0.0, min(1.0, engage if engage is not None else 1.0))
                 cap_c = engage * max(0.0, float(ctx.params(j.el_id).get("max_torque_Nm", 0)))
-                ga = [j.child_a_m * x for x in plan.gvec[j.child_a]]
-                gb = [j.child_b_m * x for x in plan.gvec[j.child_b]]
                 d_omega = (j.child_a_m * omega_seg[j.child_a]
                            - j.child_b_m * omega_seg[j.child_b])
                 st.clutch_slip[j.el_id] = d_omega
@@ -1153,15 +1218,12 @@ class MechanicalSlave(_CtxSlave):
                 k_c = cap_c / CLUTCH_BAND
                 t_c = max(-cap_c, min(cap_c, k_c * d_omega))
                 st.clutch_torque[j.el_id] = t_c
-                rel = [ga[i] - gb[i] for i in range(n)]
                 for i in range(n):
                     q_vec[i] += -t_c * ga[i] + t_c * gb[i]
-                    if abs(k_c * d_omega) < cap_c:  # unclamped → implicit
-                        ri = rel[i]
-                        if ri == 0.0:
-                            continue
-                        for k in range(i, n):
-                            m_mat[i][k] += dt * k_c * ri * rel[k]
+                if abs(k_c * d_omega) < cap_c:  # unclamped → implicit
+                    c = dt * k_c
+                    for i, k, ri, rk in rel_pairs:
+                        m_mat[i][k] += c * ri * rk
 
             for i in range(n):  # symmetrize
                 for k in range(i + 1, n):
@@ -1177,19 +1239,14 @@ class MechanicalSlave(_CtxSlave):
                 rt.message("error", detail)
                 return StepResult(status="error", detail=detail)
             for i in range(n):
-                x_new = plan.x[i] + alpha[i] * dt
+                x_new = x[i] + alpha[i] * dt
                 # brake zero-crossing clamp on braked coordinates
-                root = plan.coord_root[i]
-                braked = any(
-                    seg.brakes and plan.root_of_seg[s2] == root
-                    for s2, seg in enumerate(st.dl.segments)
-                )
-                if braked and plan.x[i] * x_new < 0:
+                if lay.braked[i] and x[i] * x_new < 0:
                     x_new = 0.0
-                plan.x[i] = x_new
+                x[i] = x_new
 
             # update anchors + joint channels
-            omega_seg = [ctx.seg_speed(st, s) for s in range(len(st.dl.segments))]
+            omega_seg = st.omega_end = [ctx.seg_speed(st, s) for s in range(len(st.dl.segments))]
             st.chain_power_w = 0.0
             for s_idx, seg in enumerate(st.dl.segments):
                 for w in seg.wheels:
@@ -1236,14 +1293,10 @@ class MechanicalSlave(_CtxSlave):
             grade_pct = rt.read_signal(ctx.veh_id, "sig_grade_in") or 0.0
             f_tire = 0.0
             f_roll = 0.0
-            for st in ctx.dls:
-                if st.plan.over_constrained or not st.plan.n:
-                    continue
+            for st in active:  # at the wheel speeds just integrated
                 for s_idx, seg in enumerate(st.dl.segments):
-                    omega_ref = ctx.seg_speed(st, s_idx)
                     for w in seg.wheels:
-                        f, _, _ = ctx.wheel_force(w, omega_ref)
-                        f_tire += f
+                        f_tire += ctx.wheel_force(w, st.omega_end[s_idx], damping=False)[0]
                         n_load = w.load_share * ctx.veh_mass * GRAVITY
                         f_roll += w.c_rr * n_load
             f_aero = 0.5 * AIR_DENSITY * cda * ctx.v * ctx.v

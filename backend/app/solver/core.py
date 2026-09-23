@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 import time
 from itertools import chain
-from typing import Iterator, Optional
+from typing import Callable, Iterator, Optional
 
 from ..library import unit_groups
 from ..schemas import Channel, Project, SimMessage, SimResult, SummaryValue
@@ -108,12 +108,22 @@ def simulate(
     # Signals that feed a block input: the slaves publish their own outputs,
     # and the ones computed from states (SOC, speeds, levels …) are refreshed
     # after every solver step so controllers never read a stale value.
+    # Only the wired ports are evaluated; the list is rebuilt when a gear
+    # shift or a lock toggle changes the drivelines.
     routed = set(model.signal_route.values())
     routed_els = {el_id for el_id, _ in routed}
+    routed_fns: list[ChannelFn] = []
+    routed_layout = -1
 
     def publish_routed_states() -> None:
-        for el_id, port_id, value in _state_channels(ctx, gear_of, routed_els):
-            if (el_id, port_id) in routed:
+        nonlocal routed_fns, routed_layout
+        if routed_layout != ctx.layout_version:
+            routed_layout = ctx.layout_version
+            routed_fns = [c for c in _state_channel_fns(ctx, gear_of, routed_els)
+                          if (c[0], c[1]) in routed]
+        for el_id, port_id, fn in routed_fns:
+            value = fn()
+            if value is not None:
                 rt.publish(el_id, port_id, value)
 
     publish_routed_states()
@@ -379,6 +389,20 @@ def _state_channels(ctx: RunContext, gear_of: dict[str, float],
                     only: Optional[set[str]] = None) -> Iterator[ChannelValue]:
     """Recorded channels computed from states and element caches (batteries,
     machines, tanks, driveline). ``only`` limits them to those elements."""
+    for el_id, port_id, fn in _state_channel_fns(ctx, gear_of, only):
+        value = fn()
+        if value is not None:
+            yield el_id, port_id, value
+
+
+ChannelFn = tuple[str, str, Callable[[], Optional[float]]]  # value getter, None = no data yet
+
+
+def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
+                       only: Optional[set[str]] = None) -> Iterator[ChannelFn]:
+    """The state channels as getters, so a caller can keep the ones it needs
+    and read them again: valid until the drivelines change
+    (``ctx.layout_version``)."""
     model = ctx.model
     for el_id in (model.cdef_of if only is None else only):
         cdef = model.cdef_of.get(el_id)
@@ -387,38 +411,37 @@ def _state_channels(ctx: RunContext, gear_of: dict[str, float],
         tdef = cdef.id
         if tdef == "battery.generic" and el_id in ctx.batteries:
             b = ctx.batteries[el_id]
-            yield el_id, "sig_soc", b.soc * 100.0
-            yield el_id, "sig_voltage", b.v_term
-            yield el_id, "sig_current", b.current
-            yield el_id, "sig_power", b.power_w / 1000.0
+            yield el_id, "sig_soc", lambda b=b: b.soc * 100.0
+            yield el_id, "sig_voltage", lambda b=b: b.v_term
+            yield el_id, "sig_current", lambda b=b: b.current
+            yield el_id, "sig_power", lambda b=b: b.power_w / 1000.0
         elif tdef == "motor.emotor" and el_id in ctx.motors:
             mc = ctx.motors[el_id]
-            yield el_id, "sig_speed", mc.rpm
-            yield el_id, "sig_torque", mc.torque
-            yield el_id, "sig_mech_power", mc.p_mech_w / 1000.0
-            yield el_id, "sig_elec_power", mc.p_elec_w / 1000.0
-            yield el_id, "sig_losses", mc.p_loss_w / 1000.0
+            yield el_id, "sig_speed", lambda mc=mc: mc.rpm
+            yield el_id, "sig_torque", lambda mc=mc: mc.torque
+            yield el_id, "sig_mech_power", lambda mc=mc: mc.p_mech_w / 1000.0
+            yield el_id, "sig_elec_power", lambda mc=mc: mc.p_elec_w / 1000.0
+            yield el_id, "sig_losses", lambda mc=mc: mc.p_loss_w / 1000.0
         elif tdef == "engine.combustion" and el_id in ctx.engines:
             ec = ctx.engines[el_id]
-            yield el_id, "sig_speed", ec.rpm
-            yield el_id, "sig_torque", ec.torque
-            yield el_id, "sig_fuel_rate", ec.fuel_kgh
-            yield el_id, "sig_power", ec.p_mech_w / 1000.0
+            yield el_id, "sig_speed", lambda ec=ec: ec.rpm
+            yield el_id, "sig_torque", lambda ec=ec: ec.torque
+            yield el_id, "sig_fuel_rate", lambda ec=ec: ec.fuel_kgh
+            yield el_id, "sig_power", lambda ec=ec: ec.p_mech_w / 1000.0
         elif tdef == "fuelcell.stack" and el_id in ctx.fuelcells:
             fc = ctx.fuelcells[el_id]
-            yield el_id, "sig_voltage", fc.voltage
-            yield el_id, "sig_current", fc.current
-            yield el_id, "sig_power", fc.power_w / 1000.0
-            yield el_id, "sig_h2_rate", fc.h2_kgh
+            yield el_id, "sig_voltage", lambda fc=fc: fc.voltage
+            yield el_id, "sig_current", lambda fc=fc: fc.current
+            yield el_id, "sig_power", lambda fc=fc: fc.power_w / 1000.0
+            yield el_id, "sig_h2_rate", lambda fc=fc: fc.h2_kgh
         elif tdef in ("fuel.tank", "fuel.h2_tank") and el_id in ctx.tanks:
             tk = ctx.tanks[el_id]
-            yield el_id, "sig_level", 100.0 * tk.mass_kg / tk.capacity_kg
-            yield el_id, "sig_mass", tk.mass_kg
-        elif tdef == "controller.dcdc" and el_id in ctx.dcdc_flows:
-            p_in, p_out = ctx.dcdc_flows[el_id]
-            yield el_id, "sig_power_in", p_in / 1000.0
-            yield el_id, "sig_power_out", p_out / 1000.0
-            yield el_id, "sig_losses", (p_in - p_out) / 1000.0
+            yield el_id, "sig_level", lambda tk=tk: 100.0 * tk.mass_kg / tk.capacity_kg
+            yield el_id, "sig_mass", lambda tk=tk: tk.mass_kg
+        elif tdef == "controller.dcdc":  # no data until the converter first runs
+            yield el_id, "sig_power_in", lambda el_id=el_id: _dcdc_kw(ctx, el_id, "in")
+            yield el_id, "sig_power_out", lambda el_id=el_id: _dcdc_kw(ctx, el_id, "out")
+            yield el_id, "sig_losses", lambda el_id=el_id: _dcdc_kw(ctx, el_id, "loss")
 
     for st in ctx.dls:
         if only is not None and only.isdisjoint(st.dl.element_group):
@@ -428,49 +451,69 @@ def _state_channels(ctx: RunContext, gear_of: dict[str, float],
             if only is not None and j.el_id not in only:
                 continue
             if j.kind == "split":
-                yield j.el_id, "sig_torque_a", st.joint_torque_a.get(j.el_id, 0.0)
-                yield j.el_id, "sig_torque_b", st.joint_torque_b.get(j.el_id, 0.0)
-                yield j.el_id, "sig_speed_in", abs(st.joint_speed_in.get(j.el_id, 0.0)) * RPM
+                yield j.el_id, "sig_torque_a", lambda st=st, j=j: st.joint_torque_a.get(j.el_id, 0.0)
+                yield j.el_id, "sig_torque_b", lambda st=st, j=j: st.joint_torque_b.get(j.el_id, 0.0)
+                yield j.el_id, "sig_speed_in", (
+                    lambda st=st, j=j: abs(st.joint_speed_in.get(j.el_id, 0.0)) * RPM)
             else:
-                yield j.el_id, "sig_torque", st.clutch_torque.get(j.el_id, 0.0)
-                yield j.el_id, "sig_slip_speed", st.clutch_slip.get(j.el_id, 0.0) * RPM
+                yield j.el_id, "sig_torque", lambda st=st, j=j: st.clutch_torque.get(j.el_id, 0.0)
+                yield j.el_id, "sig_slip_speed", (
+                    lambda st=st, j=j: st.clutch_slip.get(j.el_id, 0.0) * RPM)
         if plan.over_constrained or not plan.n:
             continue
         for s_idx, seg in enumerate(st.dl.segments):
             if only is not None and only.isdisjoint(seg.element_ms):
                 continue
-            omega_ref = ctx.seg_speed(st, s_idx)
+
+            def omega_ref(st=st, s_idx=s_idx) -> float:
+                return ctx.seg_speed(st, s_idx)
+
             for w in seg.wheels:
                 if only is not None and w.el_id not in only:
                     continue
-                omega_w = w.m * omega_ref
-                force = ctx.last_forces.get(w.el_id, 0.0)
-                v_den = max(abs(ctx.v), V_EPS)
-                slip = (omega_w * w.radius - ctx.v) / v_den if ctx.veh_id else 0.0
-                yield w.el_id, "sig_speed", abs(omega_w) * RPM
+
+                def slip(w=w, omega_ref=omega_ref) -> float:
+                    omega_w = w.m * omega_ref()
+                    v_den = max(abs(ctx.v), V_EPS)
+                    return (omega_w * w.radius - ctx.v) / v_den if ctx.veh_id else 0.0
+                yield w.el_id, "sig_speed", lambda w=w, o=omega_ref: abs(w.m * o()) * RPM
                 yield w.el_id, "sig_slip", slip
-                yield w.el_id, "sig_force", force
-                yield w.el_id, "sig_torque", force * w.radius
+                yield w.el_id, "sig_force", lambda w=w: ctx.last_forces.get(w.el_id, 0.0)
+                yield w.el_id, "sig_torque", (
+                    lambda w=w: ctx.last_forces.get(w.el_id, 0.0) * w.radius)
             for el_id2, m2 in seg.element_ms.items():
                 if only is not None and el_id2 not in only:
                     continue
                 tdef2 = model.cdef_of[el_id2].id
+
+                def speed(m2=m2, omega_ref=omega_ref) -> float:
+                    return abs(m2 * omega_ref()) * RPM
                 if tdef2 == "mech.node":
-                    yield el_id2, "sig_speed", abs(m2 * omega_ref) * RPM
+                    yield el_id2, "sig_speed", speed
                 elif tdef2 == "mech.final_drive":
-                    yield el_id2, "sig_speed_out", abs(m2 * omega_ref) * RPM
-                    yield el_id2, "sig_power", st.chain_power_w / 1000.0
+                    yield el_id2, "sig_speed_out", speed
+                    yield el_id2, "sig_power", lambda st=st: st.chain_power_w / 1000.0
                 elif tdef2 == "mech.gearbox":
-                    yield el_id2, "sig_speed_out", abs(m2 * omega_ref) * RPM
-                    yield el_id2, "sig_gear", gear_of.get(
+                    yield el_id2, "sig_speed_out", speed
+                    yield el_id2, "sig_gear", lambda el_id2=el_id2: gear_of.get(
                         el_id2, float(ctx.params(el_id2).get("default_gear", 1) or 1))
                 elif tdef2 == "mech.shaft":
-                    yield el_id2, "sig_power", st.chain_power_w / 1000.0
+                    yield el_id2, "sig_power", lambda st=st: st.chain_power_w / 1000.0
             for pr in seg.props:
                 if only is not None and pr.el_id not in only:
                     continue
-                omega_p = pr.m * omega_ref
-                rpm_p = abs(omega_p) * RPM
-                yield pr.el_id, "sig_speed", rpm_p
-                yield pr.el_id, "sig_shaft_power", abs(
-                    pr.t_ref * (rpm_p / pr.n_ref) ** 2 * omega_p) / 1000.0
+                yield pr.el_id, "sig_speed", lambda pr=pr, o=omega_ref: abs(pr.m * o()) * RPM
+
+                def shaft_power(pr=pr, omega_ref=omega_ref) -> float:
+                    omega_p = pr.m * omega_ref()
+                    rpm_p = abs(omega_p) * RPM
+                    return abs(pr.t_ref * (rpm_p / pr.n_ref) ** 2 * omega_p) / 1000.0
+                yield pr.el_id, "sig_shaft_power", shaft_power
+
+
+def _dcdc_kw(ctx: RunContext, el_id: str, which: str) -> Optional[float]:
+    flows = ctx.dcdc_flows.get(el_id)
+    if flows is None:
+        return None
+    p_in, p_out = flows
+    return (p_in if which == "in" else p_out if which == "out" else p_in - p_out) / 1000.0

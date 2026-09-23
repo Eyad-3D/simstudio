@@ -51,6 +51,39 @@ def test_table2d_bilinear_and_clamp():
     assert interp2(sheets, 300, 10) == 40.0
 
 
+def _interp1_linear_scan(points, x):
+    """interp1 as it was before bisection: the first segment holding x."""
+    if x <= points[0][0]:
+        return points[0][1]
+    if x >= points[-1][0]:
+        return points[-1][1]
+    for (xa, ya), (xb, yb) in zip(points, points[1:]):
+        if xa <= x <= xb:
+            return ya + (yb - ya) * (x - xa) / (xb - xa)
+    return points[-1][1]
+
+
+def test_table_lookup_matches_linear_scan():
+    """The bisection finds the segment the old scan found, to the bit: at
+    every grid point, between them, outside the grid and for NaN."""
+    import random
+
+    rng = random.Random(7)
+    for size in (1, 2, 3, 5, 8, 13):
+        xs = sorted(rng.sample(range(-50, 5000), size))
+        pts = parse_table1d({str(x / 7): rng.uniform(-3, 3) for x in xs})
+        probes = [p[0] for p in pts] + [rng.uniform(-100, 800) for _ in range(300)]
+        probes += [pts[0][0] - 1, pts[-1][0] + 1, math.nextafter(pts[0][0], math.inf)]
+        for x in probes:
+            assert interp1(pts, x) == _interp1_linear_scan(pts, x), (size, x)
+        assert interp1(pts, math.nan) == pts[-1][1]
+        sheets = [(x_out, pts) for x_out in (0.0, 1.0, 2.5)] if size > 1 else [(0.0, pts)]
+        for x_out in (-1.0, 0.0, 0.3, 1.0, 1.7, 2.5, 9.0, math.nan):
+            for x in probes[:20]:
+                expected = _interp1_linear_scan(pts, x)  # every sheet is the same table
+                assert interp2(sheets, x_out, x) == pytest.approx(expected, rel=1e-12)
+
+
 def test_profile_parsing():
     pts = parse_profile("0:15; 30:110; 120:95")
     assert pts == [(0.0, 15.0), (30.0, 110.0), (120.0, 95.0)]
