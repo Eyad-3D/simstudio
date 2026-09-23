@@ -87,10 +87,16 @@ as long as before, and runs with fine steps are much faster.
 - The simulation engine now answers only the app's own window: websites
   cannot reach it, and in the desktop app every request needs a key that
   changes each time the app starts.
-- Data Checks never run a model's Script code, and during a run Scripts can
-  only do calculations (they cannot open files, start programs or reach the
-  network). This is a restriction, not a full sandbox: only open projects
-  from people you trust.
+- Data Checks never run a model's Script code, and during a run every Script
+  block executes in a separate, locked-down worker process — on Linux with no
+  filesystem or network access (kernel-enforced Landlock) and a memory cap; on
+  Windows with a memory cap and a process that dies with the engine. The engine
+  kills the worker if a script overruns its time limit, so an endless loop that
+  the in-process check cannot stop now fails the run, and a memory blow-up hits
+  the cap instead of the machine. What each platform does and does not
+  guarantee is written up in [Known issues and limits](KNOWN-LIMITS.md); it is
+  a strong second layer, not a perfect jail, so still open projects only from
+  people you trust.
 - Saves are crash-proof, and a project changed on disk by another window is
   not overwritten without asking.
 
