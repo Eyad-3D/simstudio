@@ -515,7 +515,9 @@ class RunContext:
 
         The torque is cut back until the electrical power fits the window the
         source-limit handshake gave this motor for the step; when not even the
-        spin losses fit, the inverter shuts off."""
+        spin losses fit, the inverter shuts off. Regeneration cut this way is
+        booked as not recovered (the generator power the command asked for
+        minus what the bus took), so none of it disappears unreported."""
         rpm = abs(omega_m) * RPM
         req, mc.request = mc.request, None
         if req is not None and req[0] == demand and req[1] == omega_m:
@@ -523,8 +525,11 @@ class RunContext:
         else:
             t_net, powered = self.motor_command(mc, demand, omega_m)
             p_elec = self.motor_power(mc, t_net, omega_m) if powered else 0.0
+        p_asked = None  # the command's electrical power, when the window cut it
         if powered:
             if not mc.p_lo_w <= p_elec <= mc.p_hi_w:
+                p_asked = p_elec
+
                 def fits(frac: float) -> bool:
                     return mc.p_lo_w <= self.motor_power(mc, frac * t_net, omega_m) <= mc.p_hi_w
 
@@ -541,6 +546,8 @@ class RunContext:
         if not powered:  # inverter off: unpowered, drag only
             t_net = -_sign(omega_m) * interp1(mc.drag, rpm)
             p_elec = 0.0
+        if p_asked is not None and p_asked < 0:
+            mc.regen_lost_wh += (p_elec - p_asked) * self.dt / 3600.0
         mc.rpm = rpm
         mc.torque = t_net
         mc.p_mech_w = t_net * omega_m
@@ -1069,15 +1076,42 @@ class SourceLimitSlave(_CtxSlave):
 
 
 class DriverSlave(_CtxSlave):
-    """Speed-following PI with capability-aware recuperation blending."""
+    """Speed-following PI with capability-aware recuperation blending: when
+    braking, the motors recuperate what their supplies can take this step
+    (up to the Recuperation Weight) and the friction brakes do the rest."""
 
     slave_id = "driver"
 
     def __init__(self, ctx: RunContext):
         super().__init__(ctx)
-        self.layout_seen = -1  # ctx.layout_version the lists below belong to
+        self.layout_seen = -1  # ctx.layout_version the list below belongs to
         self.brakes: list[BrakeRef] = []
-        self.r_avg = 0.33
+
+    def regen_share(self, motors: list[tuple[MotorCache, float, object]], want: float) -> float:
+        """The share k ≤ ``want`` of full regeneration — a traction command
+        of −k to every motor — to ask for: ``want`` itself when each motor's
+        bus can absorb its electrical output over this step (the handshake's
+        regen room: what the source takes plus the loads it serves),
+        otherwise the largest share below it that they can, found on the
+        motors' own loss maps. (At low speed more command can mean less
+        power fed back, so the command actually sent is what is checked.)"""
+        ctx = self.ctx
+
+        def fits(k: float) -> bool:
+            fed: dict[int, float] = defaultdict(float)
+            for mc, omega, bus in motors:
+                torque, powered = ctx.motor_command(mc, -k, omega)
+                if powered:
+                    fed[bus.id] += ctx.motor_power(mc, torque, omega)
+            return all(p >= -ctx.regen_room_w.get(b, 0.0) for b, p in fed.items())
+
+        if want <= 0.0 or fits(want):
+            return max(0.0, want)
+        lo, hi = 0.0, want  # a command of 0 is always accepted (inverter off)
+        for _ in range(20):
+            mid = 0.5 * (lo + hi)
+            lo, hi = (mid, hi) if fits(mid) else (lo, mid)
+        return lo
 
     def do_step(self, t: float, h: float) -> StepResult:
         ctx = self.ctx
@@ -1105,8 +1139,11 @@ class DriverSlave(_CtxSlave):
         if cmd == cmd_unsat or err * cmd_unsat < 0:
             ctx.driver_integral += err * dt
 
+        # full regeneration at the wheels: every live motor's generator torque
+        # limit, reflected through its gears — regenerating, the gear losses
+        # come off the torque that reaches the motor, as in the mechanics
         t_motor_cap = 0.0
-        motor_buses: dict[int, object] = {}
+        regen_motors: list[tuple[MotorCache, float, object]] = []
         for st in ctx.dls:
             if st.plan.over_constrained or not st.plan.n:
                 continue
@@ -1115,43 +1152,43 @@ class DriverSlave(_CtxSlave):
                 continue
             for s_idx, src, r_eff in lay.motors:
                 mc = ctx.motors[src.el_id]
+                bus = ctx.motor_bus.get(mc.el_id)
+                volts = ctx.bus_voltage.get(bus.id, 0.0) if bus is not None else 0.0
+                if volts <= 1.0:
+                    continue  # no live supply: it cannot regenerate
                 omega_m = src.m * ctx.seg_speed(st, s_idx)
-                volts = (ctx.bus_voltage.get(ctx.motor_bus[mc.el_id].id, 0.0)
-                         if mc.el_id in ctx.motor_bus else 0.0)
                 t_q4 = interp2(mc.full_load, volts, abs(omega_m) * RPM) * mc.q4_scale
-                t_motor_cap += t_q4 * r_eff * src.eff * st.plan.eff_chain[s_idx]
-                if mc.el_id in ctx.motor_bus:
-                    bus = ctx.motor_bus[mc.el_id]
-                    motor_buses[bus.id] = bus
-        if self.layout_seen != ctx.layout_version:  # brakes and wheels of every driveline
+                t_motor_cap += t_q4 * r_eff / max(1e-3, src.eff * st.plan.eff_chain[s_idx])
+                regen_motors.append((mc, omega_m, bus))
+        if self.layout_seen != ctx.layout_version:  # brakes of every driveline
             self.layout_seen = ctx.layout_version
             self.brakes = [br for st in ctx.dls for seg in st.dl.segments for br in seg.brakes]
-            radii = [w.radius for st in ctx.dls for seg in st.dl.segments for w in seg.wheels]
-            self.r_avg = sum(radii) / len(radii) if radii else 0.33
         fr_cap = sum(br.max_torque * br.m for br in self.brakes)
         taper = max(0.0, min(1.0, ctx.v / 3.0))
-        # recuperation the sources can take this step (source-limit handshake);
-        # the friction brakes get the rest of the braking demand
-        batt_cap_w = sum(ctx.regen_room_w.get(b_id, 0.0) for b_id in motor_buses)
-        if cmd < 0 and taper >= 1.0:
-            for bus in motor_buses.values():
-                if bus.battery and ctx.battery_full(ctx.batteries[bus.battery]):
-                    rt.warn_once(f"fullbrake:{bus.battery}",
-                                 f"Battery '{model.elements[bus.battery].label}' is full — no "
-                                 f"recuperation while braking (t = {t:.0f} s).", level="info")
-        r_avg = self.r_avg
-        t_batt_cap = batt_cap_w * r_avg / max(ctx.v, V_EPS)
-        regen_avail = min(t_motor_cap, t_batt_cap) * taper
 
         if cmd >= 0:
             traction_cmd, brake_cmd = cmd, 0.0
         else:
+            if taper >= 1.0:
+                for _, _, bus in regen_motors:
+                    if bus.battery and ctx.battery_full(ctx.batteries[bus.battery]):
+                        rt.warn_once(f"fullbrake:{bus.battery}",
+                                     f"Battery '{model.elements[bus.battery].label}' is full — "
+                                     f"no recuperation while braking (t = {t:.0f} s).",
+                                     level="info")
+            regen_avail = t_motor_cap * taper
             d = -cmd
             t_req = d * (fr_cap + regen_w * regen_avail)
             t_rg = min(regen_w * regen_avail, t_req)
+            # no more recuperation than the supplies can take this step
+            # (source-limit handshake: state of charge, charge limit, one-way
+            # DC-DC, fuel cell), checked on the motors' own maps so the
+            # handshake never has to cut it; the friction brakes take the rest
+            share = (self.regen_share(regen_motors, min(1.0, t_rg / t_motor_cap))
+                     if t_motor_cap > 0 else 0.0)
+            t_rg = share * t_motor_cap
             t_fr = min(fr_cap, t_req - t_rg)
-            traction_cmd = -t_rg / max(t_motor_cap, 1e-6) if t_motor_cap > 0 else 0.0
-            traction_cmd = max(-1.0, traction_cmd)
+            traction_cmd = -share
             brake_cmd = t_fr / max(fr_cap, 1e-6) if fr_cap > 0 else 0.0
         rt.publish(drv_id, "sig_traction_cmd", traction_cmd)
         rt.publish(drv_id, "sig_brake_cmd", brake_cmd)

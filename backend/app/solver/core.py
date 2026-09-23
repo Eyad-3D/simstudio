@@ -258,6 +258,13 @@ def simulate(
             summary.append(SummaryValue(
                 label=f"{model.elements[mc.el_id].label} — time limited by supply",
                 value=round(mc.limited_s, 2), unit="s"))
+        if mc.regen_lost_wh > 0:
+            # recuperation its command asked for that the supply could not
+            # take (a full or charge-limited battery, a fuel cell, a one-way
+            # DC-DC): the motor braked that much less
+            summary.append(SummaryValue(
+                label=f"{model.elements[mc.el_id].label} — regeneration not recovered",
+                value=round(mc.regen_lost_wh / 1000.0, 4), unit="kWh"))
     for ec in ctx.engines.values():
         summary.append(SummaryValue(
             label=f"{model.elements[ec.el_id].label} — fuel used",

@@ -269,3 +269,34 @@ stored and compared (see the top of this file):
 - The tests compare with tolerance bands instead of 1e-6 everywhere, and
   print a diff report when they fail; `update_golden.py` prints the same
   report and needs `--reason` to write.
+
+## Recuperation held to what the supply takes, the rest reported (MOD-02)
+
+- A motor whose regeneration command asks for more than its bus can take
+  (a full or charge-limited battery, a fuel-cell-only bus, a bus behind a
+  one-way DC-DC) was already held to what the bus takes (ENG-02); what it
+  asked for beyond that is now reported in a new summary row, "<motor> —
+  regeneration not recovered" (kWh). Neither example reaches such a limit,
+  so the fixtures do not have the row.
+- The Driver's blending checks the recuperation command it sends against
+  what the motors' buses can take this step, on the motors' own loss maps,
+  and reflects motor torque to the wheels through the drivetrain in the
+  generating direction, as the mechanics do. Before, it multiplied by the
+  efficiency, so regeneration braked 1/η² harder than planned (4 % in the
+  BEV). The recuperation weight now applies to the motors' capability
+  only, so a charge limit is used in full (before, 80 % of it by default).
+
+- bev-car City Cycle: no headline number moved (consumption 11.11
+  kWh/100 km, recuperated 0.071 kWh). The brake pedal is slightly lower
+  while braking (0.0259 → 0.0247 at 320 s) and the friction torque holding
+  the car at the end slightly higher (11.0 → 11.4 N·m per brake at
+  600 s): 6 channels (8 at 5 ms) left their tubes.
+- hybrid-car Mixed Cycle: identical. Its motor sits on its segment's
+  reference axis, so its drivetrain efficiency factor is 1 and the new
+  reflection changes nothing (its gearbox and final-drive losses are not
+  applied to any torque: a separate, older issue).
+
+| Fixture | Number | Old | New | Change |
+|---|---|---|---|---|
+| bev-car City Cycle (shipped step) | channels that moved | | 37 | 6 outside their tube |
+| bev-car City Cycle (fine step) | channels that moved | | 39 | 8 outside their tube |

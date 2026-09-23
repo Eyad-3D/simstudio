@@ -117,6 +117,9 @@ class MotorCache:
     p_lo_w: float = -math.inf
     p_hi_w: float = math.inf
     limited_s: float = 0.0
+    # regeneration the command asked for that the supply could not take
+    # (electrical energy the motor was not allowed to feed back)
+    regen_lost_wh: float = 0.0
     # (command, speed, torque, inverter on, electrical W) evaluated by the
     # handshake this step, reused when the mechanics apply the same command
     request: Optional[tuple] = None
