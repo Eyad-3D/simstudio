@@ -288,18 +288,22 @@ class RunContext:
         g = st.plan.gvec[s]
         return sum(g[i] * st.plan.x[i] for i in range(st.plan.n))
 
+    def source_value(self, el_id: str, kind: str, t: float) -> float:
+        """A signal source's output (Constant, Driving Task) at time ``t`` —
+        a pure function of time, so it can be evaluated at any instant
+        without side effects."""
+        p = self.params(el_id)
+        if kind == "signal.constant":
+            return float(p.get("value", 0))
+        scale = float(p.get("scale_pct", 100)) / 100.0
+        return interp_profile(self.profile_points(el_id), t, bool(p.get("repeat", False))) * scale
+
     def publish_sources(self, t: float) -> None:
-        """Signal sources (Constant, Driving Task) — pure functions of time,
-        so they can be evaluated at any instant without side effects."""
+        """Publish every signal source's output at time ``t``."""
         rt = self.rt
         for el_id, kind in self.sources:
-            if kind == "signal.constant":
-                rt.publish(el_id, "sig_out", float(self.params(el_id).get("value", 0)))
-            else:
-                p = self.params(el_id)
-                scale = float(p.get("scale_pct", 100)) / 100.0
-                rt.publish(el_id, "sig_demand", interp_profile(
-                    self.profile_points(el_id), t, bool(p.get("repeat", False))) * scale)
+            rt.publish(el_id, "sig_out" if kind == "signal.constant" else "sig_demand",
+                       self.source_value(el_id, kind, t))
 
     # ---- live parameter updates ---------------------------------------------------
 

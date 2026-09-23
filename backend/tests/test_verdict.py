@@ -65,6 +65,30 @@ def test_a_car_that_cannot_keep_up_is_not_a_success():
     assert s["Distance driven"].notValid is None
 
 
+@pytest.mark.parametrize("profile, duration", [
+    # lags each 4 s ramp to 40 km/h by less than 1 s: inside the band
+    ("; ".join(f"{20 * k}:0; {20 * k + 4}:40; {20 * k + 14}:40; {20 * k + 18}:0"
+               for k in range(5)) + "; 100:0", 100),
+    ("0:0; 3:200; 30:200", 30),  # cannot keep up: outside the band
+])
+def test_the_verdict_does_not_depend_on_the_output_step(profile, duration):
+    """The trace is sampled every 0.1 s of solver time, whatever the case
+    step. Before, it was sampled at the case step, so the ±1 s band came from
+    stored points up to 2 s apart: the lagging ramps were a success at 0.1 s
+    and 1 s but 'Cycle not followed' at 1.5 s and 2 s."""
+    verdicts = {}
+    for step in (0.1, 1.0, 1.5, 2.0):
+        proj = bev_axle(profile=profile)
+        proj.cases[0].duration = duration
+        proj.cases[0].timeStep = step
+        result = simulate(proj, "case")
+        verdicts[step] = (result.status,
+                          [m.text for m in result.messages if m.level != "info"],
+                          {s.label: s.notValid for s in result.summary})
+    for step in (1.0, 1.5, 2.0):
+        assert verdicts[step] == verdicts[0.1], step
+
+
 def test_a_car_that_does_not_move_fails_and_says_so_early():
     """The bundled BEV with its E-Motor deleted: before, 'success' after
     driving 0.0 of 7.29 km."""

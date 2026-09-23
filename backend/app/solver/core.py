@@ -118,6 +118,7 @@ def simulate(
 
     publish_routed_states()
     trace = CycleTrace(ctx)  # target vs vehicle speed, for the run verdict
+    trace.sample(0.0)
 
     def apply_control_msg(msg: dict) -> None:
         master.set_parameter(
@@ -159,6 +160,7 @@ def simulate(
                 for j in range(n):
                     master.step(t_prev + j * h_sub, h_sub)
                     publish_routed_states()
+                    trace.sample(t_prev + (j + 1) * h_sub, last=step == steps and j == n - 1)
             except SlaveStepError:
                 # the failing slave already emitted its error message
                 break
@@ -179,7 +181,6 @@ def simulate(
 
         # signal sources are stored with their value at the point's own time
         ctx.publish_sources(t)
-        trace.sample(t)
         problem = trace.live_problem()
         if problem:
             rt.message("warning", problem)

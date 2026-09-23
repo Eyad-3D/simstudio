@@ -8,7 +8,9 @@ light version of it while the run goes, so a live run warns early):
 - speed trace against the Driver's target: largest and RMS error, and the
   time outside the WLTP tolerance band (±2 km/h, ±1 s) and the EPA band
   (±2 mph, ±1 s). Each point's band spans the target's lowest and highest
-  value within ±1 s of it, widened by the speed tolerance;
+  value within ±1 s of it, widened by the speed tolerance. The trace is
+  sampled every TRACE_STEP_S of solver time, not at the case step, so the
+  verdict does not depend on how often results are stored;
 - distance driven against the distance the target asks for;
 - non-finite (NaN / inf) values in any channel.
 
@@ -30,6 +32,7 @@ OUTSIDE_SHARE = 0.01  # share of the duration the trace may spend outside the ba
 OUTSIDE_MIN_S = 2.0
 NOT_DRIVEN_SHARE = 0.05  # below this share of the cycle distance the car did not drive
 LIVE_AFTER_S = 60.0  # the live check waits this long before it judges
+TRACE_STEP_S = 0.1  # the trace's sampling cadence, independent of the case step
 
 
 @dataclass
@@ -44,25 +47,38 @@ class TraceMetrics:
 
 
 class CycleTrace:
-    """Samples the Driver's target and the vehicle speed at every output
-    step of a run that has both (the case step, before any decimation of
-    what is stored)."""
+    """Samples the Driver's target and the vehicle speed of a run that has
+    both, every TRACE_STEP_S of solver time (at the first solver step on or
+    after each multiple of it) and at the run's first and last instant."""
 
     def __init__(self, ctx):
         model = ctx.model
         self.ctx = ctx
         self.src = (model.signal_route.get((model.driver, "sig_target_in"))
                     if model.driver and ctx.veh_id else None)
+        # a Constant or Driving Task target is evaluated at the sample's own
+        # time; any other source is read as last published (≤ 1 solver step old)
+        self.src_kind = dict(ctx.sources).get(self.src[0]) if self.src else None
         self.times: list[float] = []
         self.target: list[float] = []
         self.speed: list[float] = []
+        self.next_t = 0.0
         self.cycle_m = 0.0  # distance the target asks for so far
         self.live_warned = False
 
-    def sample(self, t: float) -> None:
+    def sample(self, t: float, last: bool = False) -> None:
+        """Called after every solver step with its end time ``t``; records a
+        sample when ``t`` reaches the next multiple of TRACE_STEP_S, or when
+        ``last`` (the run's final instant)."""
         if self.src is None:
             return
-        target = self.ctx.rt.signal_values.get(self.src)
+        if t < self.next_t - 1e-9 and not (last and self.times and t > self.times[-1] + 1e-9):
+            return
+        self.next_t = (math.floor(t / TRACE_STEP_S + 1e-6) + 1) * TRACE_STEP_S
+        if self.src_kind is not None:
+            target = self.ctx.source_value(self.src[0], self.src_kind, t)
+        else:
+            target = self.ctx.rt.signal_values.get(self.src)
         if target is None:
             return
         if self.times:
