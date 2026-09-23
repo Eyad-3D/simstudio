@@ -75,6 +75,21 @@ a battery, motor or differential.
 target speed, and compare *Distance driven* with the cycle's length.
 *Roadmap:* VAL-02 and VAL-01 (both being fixed).
 
+### Signal wiring mistakes are not caught
+
+When two signals are wired into the same input, the run silently uses only
+one of them, and Data Checks do not report it. Units are not checked either:
+a battery's *SOC* output is in % (0-100), and a Script, Lookup or PID block
+that expects 0-1 gets 0-100 without a warning. The Battery Electric Car
+example with a constant 30 km/h wired into the Driver's *Target Speed* input
+next to the drive cycle drives at a steady 30 km/h and covers 5.0 instead of
+7.3 km; Data Checks pass and the run is reported as a success.
+
+*Workaround:* in the Data Bus panel, check that each input has exactly one
+source and that the units at both ends of each link match; divide
+percentages by 100 where a block expects 0-1.
+*Roadmap:* VAL-17.
+
 ### Result time stamps are one step early
 
 Each stored value is labelled with the time at the start of the step that
@@ -100,6 +115,24 @@ at t = 0.
 - **Gear losses are applied per motor or engine, not to the power actually
   flowing through each gear.** When a motor and an engine push against each
   other (hybrids), this creates phantom braking. *Roadmap:* MOD-03.
+- **Shaft and Final Drive power is the total of all motors and engines.**
+  Their *Transmitted Power* channel shows the summed mechanical power of
+  every motor and engine on the driveline, not the power through that part:
+  gear and clutch losses are left out, and every Shaft and Final Drive on
+  the driveline shows the same value. In the P2 Hybrid Car example with a
+  Shaft added between the engine and the clutch, at t = 342 s the engine
+  delivers 19.2 kW and the motor takes 17.1 kW to charge the battery, and
+  the Shaft and the Final Drive both show 2.2 kW. Read the *Mechanical Power* of each motor
+  and engine instead. *Roadmap:* MOD-10.
+- **Air density is fixed, and steep grades are overstated.** Air drag always
+  uses 1.2 kg/m³: the Ambient block's temperature and pressure are ignored,
+  and there is no wind. Real air is about 10 % denser at −7 °C, and about
+  20 % thinner at 35 °C and 85 kPa (about 1,500 m altitude). The slope
+  force uses the grade in % divided by 100 instead of the sine of the slope
+  angle, and rolling resistance ignores the slope, so both are 0.5 % too high
+  at a 10 % grade and 3 % at 25 %. To model cold or thin air, multiply the
+  Vehicle's *Drag Coefficient (Cd)* by the real density divided by 1.2, and
+  keep grades moderate. *Roadmap:* MOD-11.
 - **Wheel load shares are not checked.** Each wheel's share of the vehicle
   weight (*Vehicle Load Share*) is typed in by hand; if the shares do not add
   up to 100 %, tyre grip and rolling resistance are wrong. Make them add up
@@ -108,9 +141,12 @@ at t = 0.
 - **An initial speed only spins the wheels.** A car that starts at speed has
   its motor at 0 rpm and heavy tyre slip in the first instant. Start runs
   from standstill. *Roadmap:* MOD-19.
-- **Stiff tyres can cause short wheel-spin spikes at launch.** This is a
-  numerical effect of how the solver steps the tyres. Keep *Slip Stiffness*
-  near its default. *Roadmap:* ENG-09.
+- **Stiff settings can cause short wheel-spin spikes at launch.** This is a
+  numerical effect of how the solver steps the tyres: a high tyre *Slip
+  Stiffness*, a very light inertia or a strong clutch can push the solver
+  past its stability limit, and nothing warns when that happens. Keep *Slip
+  Stiffness* near its default, and after changing these settings plot the
+  wheels' *Longitudinal Slip* at launch. *Roadmap:* ENG-09, ENG-14.
 - **Fuel-cell hydrogen use is a fixed figure per kWh** (*Specific H₂
   Consumption*, 55 g/kWh by default), which overstates it at part load by up
   to about a third and understates it at full load.
@@ -125,7 +161,14 @@ at t = 0.
   thinned for drawing, and *Store every* above 1 does not record the values
   in between, so short spikes and dips may not show. Use *Store every* 1
   when peaks matter, and export to CSV for the full data. *Roadmap:* RES-01
-  (being fixed), RES-17.
+  (being fixed), RES-17, ENG-16.
+- **Stored values are rounded.** Every stored value is rounded to 5 decimal
+  places, so small values keep few digits (a tyre slip of 0.0018 keeps two).
+  The summary rounds energies to 1 Wh, fuel to 1 g and consumption to 0.01
+  per 100 km. CSV export has the same rounding. Treat smaller differences
+  between runs as noise; to compare two close variants, lengthen the run
+  (for example, repeat the cycle) so that the difference adds up.
+  *Roadmap:* ENG-16.
 - **Stopped or failed sweep points are plotted as if they were results.**
   Check each run's status before reading a sweep. *Roadmap:* STU-02 (being
   fixed).
@@ -158,10 +201,11 @@ at t = 0.
 
 - **No heat or cooling.** There is no thermal solver: temperatures do not
   change and do not affect batteries, motors or engines. The Ambient
-  component is a placeholder, and thermal or fluid connections are ignored
-  during a run. *Roadmap:* MOD-09.
+  component is a placeholder (it does not set the air density either; see
+  above), and thermal or fluid connections are ignored during a run.
+  *Roadmap:* MOD-09.
 - **Forward driving only.** No reverse, and no rolling back: a car on a steep
-  hill stays put even with no brakes. *Roadmap:* MOD-21.
+  hill stays put even with no brakes. *Roadmap:* MOD-21, ENG-21.
 - **Longitudinal dynamics only.** No cornering and no weight transfer between
   axles. Tyre force rises with slip and then stays flat (no peak and drop).
   *Roadmap:* MOD-16.
