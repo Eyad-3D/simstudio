@@ -37,10 +37,20 @@ class ConflictError(Exception):
     """The file on disk is not the version the save was based on."""
 
 
+#: A project or run id: it names a file or folder, so it is a plain name of
+#: at most 128 characters that does not start or end with a dot (that rules
+#: out "." and "..", and names Windows would shorten).
+SAFE_ID = re.compile(r"[A-Za-z0-9_-](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9_-])?")
+
+
+def safe_id(value: str, what: str) -> str:
+    if not isinstance(value, str) or not SAFE_ID.fullmatch(value):
+        raise ValueError(f"Invalid {what} id: {value!r}")
+    return value
+
+
 def _safe_name(project_id: str) -> str:
-    if not re.fullmatch(r"[A-Za-z0-9._-]+", project_id):
-        raise ValueError(f"Invalid project id: {project_id!r}")
-    return project_id
+    return safe_id(project_id, "project")
 
 
 def _ensure_dir() -> Path:
@@ -78,12 +88,15 @@ def list_projects() -> list[dict]:
     for f in sorted(_ensure_dir().glob("*.json")):
         try:
             raw = json.loads(f.read_text(encoding="utf-8"))
+            project_id = raw.get("id", f.stem)
+            if not isinstance(project_id, str) or not SAFE_ID.fullmatch(project_id):
+                continue  # a hand-edited id the API could not serve safely
             out.append({
-                "id": raw.get("id", f.stem),
+                "id": project_id,
                 "name": raw.get("name", f.stem),
                 "description": raw.get("description"),
             })
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError, AttributeError):
             continue
     return out
 

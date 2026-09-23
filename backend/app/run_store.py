@@ -13,20 +13,20 @@ from __future__ import annotations
 
 import gzip
 import json
-import os
-import re
 import shutil
-import tempfile
 import threading
 import zlib
 from pathlib import Path
 
 from .schemas import StoredRun
-from .storage import _ensure_dir
+from .storage import _ensure_dir, _write_atomic, project_path, safe_id
 
 #: Disk budget for one project's stored runs. When a new run takes the project
 #: over it, its oldest runs are deleted and the caller is told which.
 BUDGET_BYTES = 500 * 1024 * 1024
+#: Budget for all projects' runs together. Past it, runs of projects that were
+#: never saved (New, imported, deleted) go first, then the oldest of the rest.
+TOTAL_BUDGET_BYTES = 2 * 1024 * 1024 * 1024
 
 _INDEX = "index.json"
 _SUFFIX = ".json.gz"
@@ -34,28 +34,20 @@ _SUFFIX = ".json.gz"
 _lock = threading.Lock()
 
 
-def _safe_id(value: str, what: str) -> str:
-    # These ids name folders and files, so a leading or trailing dot is refused
-    # too: that rules out "." and "..", and names Windows would shorten.
-    if not re.fullmatch(r"[A-Za-z0-9_-]([A-Za-z0-9._-]*[A-Za-z0-9_-])?", value):
-        raise ValueError(f"Invalid {what} id: {value!r}")
-    return value
+_safe_id = safe_id
 
 
 def _runs_dir(project_id: str) -> Path:
     return _ensure_dir() / "runs" / _safe_id(project_id, "project")
 
 
-def _write_atomic(path: Path, data: bytes) -> None:
-    """Write via a temp file and a rename, so a crash never leaves half a file."""
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-", suffix=".part")
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+def _valid_entry(e: object, files: dict) -> bool:
+    """An index entry this module can use: anything else (a hand edit, another
+    version's format) is dropped and rebuilt from its run file."""
+    return (isinstance(e, dict) and isinstance(e.get("id"), str) and e["id"] in files
+            and isinstance(e.get("startedAt", 0), (int, float))
+            and not isinstance(e.get("startedAt", 0), bool)
+            and isinstance(e.get("bytes", 0), int) and not isinstance(e.get("bytes", 0), bool))
 
 
 def _entry(run: StoredRun, size: int) -> dict:
@@ -77,7 +69,7 @@ def _load_index(folder: Path) -> list[dict]:
     except (OSError, ValueError, KeyError, TypeError):
         entries = []
     files = {p.name[: -len(_SUFFIX)]: p for p in folder.glob(f"*{_SUFFIX}")}
-    kept = [e for e in entries if isinstance(e, dict) and e.get("id") in files]
+    kept = [e for e in entries if _valid_entry(e, files)]
     changed = len(kept) != len(entries)
     known = {e["id"] for e in kept}
     for run_id, path in files.items():
@@ -135,7 +127,42 @@ def save_run(project_id: str, run: StoredRun) -> tuple[list[dict], list[str]]:
             pruned.append(e["id"])
         entries = [e for e in entries if e["id"] not in pruned]
         _write_index(folder, entries)
+        for other, run_id in _trim_total(folder / name):
+            if other == folder:
+                pruned.append(run_id)
+                entries = [e for e in entries if e["id"] != run_id]
     return _newest_first(entries), pruned
+
+
+def _trim_total(keep: Path) -> list[tuple[Path, str]]:
+    """Delete runs, never `keep`, until all projects' runs fit
+    :data:`TOTAL_BUDGET_BYTES`; call with _lock held. Returns (folder, run id)
+    of each deleted run. Folders' indexes repair themselves on the next read."""
+    runs = [(p, p.stat()) for p in (_ensure_dir() / "runs").glob(f"*/*{_SUFFIX}")]
+    total = sum(st.st_size for _, st in runs)
+    if total <= TOTAL_BUDGET_BYTES:
+        return []
+
+    def unsaved(folder: Path) -> bool:
+        try:
+            return not project_path(folder.name).is_file()
+        except ValueError:
+            return True
+
+    # never-saved projects first, then oldest first
+    runs.sort(key=lambda r: (not unsaved(r[0].parent), r[1].st_mtime))
+    deleted = []
+    for path, st in runs:
+        if total <= TOTAL_BUDGET_BYTES:
+            break
+        if path == keep:
+            continue
+        path.unlink(missing_ok=True)
+        total -= st.st_size
+        deleted.append((path.parent, path.name[: -len(_SUFFIX)]))
+    for folder in {f for f, _ in deleted}:
+        _load_index(folder)
+    return deleted
 
 
 def run_path(project_id: str, run_id: str) -> Path:

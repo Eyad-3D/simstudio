@@ -192,3 +192,43 @@ def test_clients_without_gzip_get_plain_json(projects_dir, result):
     res = client.get("/api/projects/bev-car/runs/run-a", headers={"Accept-Encoding": "identity"})
     assert "content-encoding" not in res.headers
     assert json.loads(res.content)["id"] == "run-a"
+
+
+def test_over_long_ids_are_refused_not_a_server_error(projects_dir):
+    # a 300-character id made the file system refuse the name: a 500 before
+    long_id = "a" * 300
+    assert client.get(f"/api/projects/{long_id}").status_code == 400
+    assert client.get(f"/api/projects/{long_id}/runs").status_code == 400
+    assert client.get(f"/api/projects/bev-car/runs/{long_id}").status_code == 400
+
+
+def test_a_hand_edited_index_with_wrong_types_is_rebuilt(projects_dir, result):
+    put("bev-car", make_run(result, "run-a", 1000))
+    index = projects_dir / "runs" / "bev-car" / "index.json"
+    index.write_text(json.dumps({"runs": [{"id": ["run-a"], "startedAt": "soon", "bytes": "big"}]}))
+    res = client.get("/api/projects/bev-car/runs")
+    assert res.status_code == 200
+    assert [r["id"] for r in res.json()] == ["run-a"]
+
+
+def test_runs_of_never_saved_projects_go_first_past_the_total_budget(projects_dir, result, monkeypatch):
+    size = put("bev-car", make_run(result, "saved-old", 1000))["bytes"]
+    put("unsaved-new", make_run(result, "orphan", 2000))  # no project file
+    monkeypatch.setattr(run_store, "TOTAL_BUDGET_BYTES", int(size * 2.5))
+    res = put("bev-car", make_run(result, "saved-new", 3000))
+    assert res["pruned"] == [] and res["stored"] == 2
+    assert client.get("/api/projects/unsaved-new/runs").json() == []
+
+    # then the oldest of the saved projects' runs, never the one just stored
+    res = put("hybrid-car", make_run(result, "hybrid", 4000))
+    assert [r["id"] for r in client.get("/api/projects/bev-car/runs").json()] == ["saved-new"]
+    assert [r["id"] for r in client.get("/api/projects/hybrid-car/runs").json()] == ["hybrid"]
+
+
+def test_projects_with_ids_the_api_cannot_serve_are_not_listed(projects_dir):
+    storage._ensure_dir()
+    (projects_dir / "odd.json").write_text(json.dumps({"id": "../../x", "name": "Odd"}))
+    (projects_dir / "dot.json").write_text(json.dumps({"id": ".", "name": "Dot"}))
+    ids = [p["id"] for p in client.get("/api/projects").json()]
+    assert "../../x" not in ids and "." not in ids
+    assert "bev-car" in ids
