@@ -693,6 +693,22 @@ describe("elements and wiring", () => {
     expect(rootSystem().connections.map((c) => c.id)).toEqual(["c-1"]);
   });
 
+  it("deleting parts together with other wires is one undo step (UX-39)", async () => {
+    await start();
+    store().addConnection("el-node", "t2", "el-motor", "pos");
+    const wire = rootSystem().connections[1].id;
+    const steps = store().past.length;
+
+    store().removeElements(["el-bat"], [wire]);
+    expect(allElementIds()).not.toContain("el-bat");
+    expect(rootSystem().connections).toHaveLength(0);
+    expect(store().past).toHaveLength(steps + 1);
+
+    store().undo();
+    expect(allElementIds()).toContain("el-bat");
+    expect(rootSystem().connections).toHaveLength(2);
+  });
+
   it("wires two compatible ports", async () => {
     await start();
     store().addConnection("el-node", "t2", "el-motor", "pos");
