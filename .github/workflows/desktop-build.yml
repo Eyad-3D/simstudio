@@ -78,11 +78,22 @@ jobs:
       - name: Smoke-test the frozen backend
         run: node scripts/smoke-backend.mjs
 
+      - name: Install the desktop shell
+        working-directory: desktop
+        run: npm ci
+
+      # Lists everything this build ships, with licence texts, in
+      # THIRD-PARTY-NOTICES.txt and as an SBOM in sbom.cdx.json (the
+      # installer includes both), and fails the build on any licence that
+      # scripts/licenses/allowed.txt does not allow.
+      # Its own step, because a multi-line Windows step only fails on its
+      # last command.
+      - name: Third-party notices
+        run: python scripts/third-party-notices.py
+
       - name: Package the desktop app
         working-directory: desktop
-        run: |
-          npm ci
-          npx electron-builder ${{ matrix.builder }} --publish never
+        run: npx electron-builder ${{ matrix.builder }} --publish never
 
       - name: Check the app launches
         if: matrix.name == 'linux'

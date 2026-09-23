@@ -1,0 +1,90 @@
+{
+  "_about": [
+    "Parts of the frozen engine that no package manager knows about: the Python",
+    "runtime and the native libraries PyInstaller copies next to it from the",
+    "build machine. scripts/third-party-notices.py matches every such file in",
+    "the build against 'files' (file-name patterns) and fails on a file that",
+    "matches nothing here, so a new native library cannot ship unnoticed. The",
+    "licence is checked against allowed.txt like any other. Several patterns",
+    "cover one platform only; entries whose files are not in a build are left",
+    "out of that build's notices."
+  ],
+  "python": {
+    "name": "CPython (Python runtime and standard library)",
+    "license": "PSF-2.0",
+    "url": "https://www.python.org/",
+    "files": ["libpython3*.so*", "python3*.dll"]
+  },
+  "native": [
+    {
+      "name": "OpenSSL",
+      "license": "Apache-2.0",
+      "url": "https://www.openssl.org/",
+      "copyright": "Copyright The OpenSSL Project Authors. All Rights Reserved.",
+      "files": ["libssl.so*", "libcrypto.so*", "libssl-*.dll", "libcrypto-*.dll"]
+    },
+    {
+      "name": "libffi",
+      "license": "MIT",
+      "url": "https://sourceware.org/libffi/",
+      "copyright": "Copyright (c) Anthony Green, Red Hat, Inc and others.",
+      "files": ["libffi.so*", "libffi-*.dll"]
+    },
+    {
+      "name": "zlib",
+      "license": "Zlib",
+      "url": "https://zlib.net/",
+      "copyright": "Copyright (C) Jean-loup Gailly and Mark Adler.",
+      "files": ["libz.so*", "zlib*.dll"]
+    },
+    {
+      "name": "bzip2 (libbz2)",
+      "license": "bzip2-1.0.6",
+      "url": "https://sourceware.org/bzip2/",
+      "copyright": "Copyright (C) Julian R Seward.",
+      "files": ["libbz2.so*"]
+    },
+    {
+      "name": "XZ Utils (liblzma)",
+      "license": "0BSD",
+      "url": "https://tukaani.org/xz/",
+      "copyright": "liblzma was in the public domain before XZ Utils 5.6.0 and is under the BSD Zero Clause License since.",
+      "files": ["liblzma.so*"]
+    },
+    {
+      "name": "Expat",
+      "license": "MIT",
+      "url": "https://libexpat.github.io/",
+      "copyright": "Copyright (c) Thai Open Source Software Center Ltd, Clark Cooper and the Expat maintainers.",
+      "files": ["libexpat.so*"]
+    },
+    {
+      "name": "libuuid (util-linux)",
+      "license": "BSD-3-Clause",
+      "url": "https://github.com/util-linux/util-linux",
+      "copyright": "Copyright (C) Theodore Ts'o and the util-linux contributors.",
+      "files": ["libuuid.so*"]
+    },
+    {
+      "name": "mpdecimal (libmpdec)",
+      "license": "BSD-2-Clause",
+      "url": "https://www.bytereef.org/mpdecimal/",
+      "copyright": "Copyright (c) Stefan Krah.",
+      "files": ["libmpdec.so*"]
+    },
+    {
+      "name": "GCC runtime libraries (libgcc_s, libstdc++)",
+      "license": "GPL-3.0-or-later WITH GCC-exception-3.1",
+      "url": "https://gcc.gnu.org/",
+      "copyright": "Copyright (C) Free Software Foundation, Inc. Shipped unmodified under the GCC Runtime Library Exception, which allows it in proprietary programs.",
+      "files": ["libgcc_s.so*", "libstdc++.so*"]
+    },
+    {
+      "name": "Microsoft Visual C++ and Universal C runtimes",
+      "license": "LicenseRef-Microsoft-VC-Redistributable",
+      "url": "https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist",
+      "copyright": "Copyright (c) Microsoft Corporation. All rights reserved.",
+      "files": ["vcruntime140*.dll", "msvcp140*.dll", "concrt140.dll", "ucrtbase.dll", "api-ms-win-*.dll"]
+    }
+  ]
+}

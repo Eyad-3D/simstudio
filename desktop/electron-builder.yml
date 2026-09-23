@@ -22,6 +22,13 @@ extraResources:
     to: LICENSE
   - from: ../EULA.txt
     to: EULA.txt
+  # Both written by scripts/third-party-notices.py just before packaging.
+  - from: ../THIRD-PARTY-NOTICES.txt
+    to: THIRD-PARTY-NOTICES.txt
+  - from: ../sbom.cdx.json
+    to: sbom.cdx.json
+  - from: ../docs/KNOWN-LIMITS.md
+    to: KNOWN-LIMITS.md
 
 win:
   target:
@@ -53,8 +60,8 @@ linux:
       arch: [x64]
   icon: build/icon.png
   category: Science
-  synopsis: Vehicle system simulation tool
+  synopsis: Simulate vehicle energy use, range and powertrains
   desktop:
     entry:
       Name: SimStudio
-      Comment: Build, simulate and inspect system topologies
+      Comment: Simulate vehicle energy use, range and powertrains

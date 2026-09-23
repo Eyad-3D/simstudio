@@ -1,19 +1,25 @@
 # SimStudio — Vehicle System Simulation
 
-A desktop tool for simulating vehicle systems: build a system topology
+A desktop app for simulating vehicle energy use, range and powertrains. It
+runs entirely on your computer and works offline: build a system topology
 from a component library, wire elements together (including signal /
 data-bus connections), run a dynamic simulation, watch it live, and
 inspect results — all in a dockable-panel UI.
 
+> **Status:** early version. The workflow works, but the component physics
+> are simplified, nothing has been validated against measured vehicles yet,
+> and some results are known to be wrong. Read
+> [Known issues and limits](docs/KNOWN-LIMITS.md) before relying on a number.
+
 ![Topology editor](docs/doc-topology.png)
 
-## Features (v2)
+## Features
 
 | Area | What works |
 |---|---|
 | **Topology builder** | Drag components from the searchable library tree onto a React Flow canvas, connect ports (kind-checked), pan/zoom, multi-select, delete, undo/redo (Ctrl+Z / Ctrl+Y), minimap toggle |
 | **Component library** | Declarative catalog in `backend/app/library/components.json` with mandatory units on every parameter (dimensionless = `-`) and first-class lookup tables (`table1d` / `table2d`, dict-keyed by the independent variable) |
-| **Dynamic solver** | Causal multi-pass solver with real states: vehicle speed integrates from net tire force, per-wheel speeds with a longitudinal slip tire model, battery SOC from an equivalent-circuit model, semi-implicit Euler with internal sub-stepping (case `timeStep` is only the recording interval) |
+| **Dynamic solver** | Causal multi-pass solver with real states: vehicle speed integrates from net tire force, per-wheel speeds with a longitudinal slip tire model, battery SOC from an equivalent-circuit model, semi-implicit Euler with internal sub-steps of at most 10 ms. Results currently depend on the case time step (see [Known limits](docs/KNOWN-LIMITS.md#results-depend-on-the-case-time-step)); how the time step is used is being reworked |
 | **Differential** | Locked/unlocked with genuinely different dynamics: unlocked = equal torque split with free output speeds (one wheel on ice spins up), locked = common speed with grip-dependent emergent torque split |
 | **Driver** | Separate Driver component (speed-following PI): wire a target-speed profile and the Vehicle's speed into it; braking blends recuperation (motor generator quadrant, battery charge limit) before friction brakes |
 | **Live simulation** | Runs stream over a WebSocket: progress + all channels update live, the solver can be paced against real time (Pacing selector), cancelled, and scalar parameters (e.g. driver PI gains) can be edited mid-run from the Properties panel |
@@ -23,7 +29,7 @@ inspect results — all in a dockable-panel UI.
 | **Data Checks** | Pre-run validation: reference integrity, port-kind mismatches, parameter ranges, table data, script compilation (compile only — script code never runs during checks), driveline solvability (delegated to the solver's model extraction). Errors that block the run when the model cannot drive: an E-Motor with no power source, a motor or engine that reaches no wheel, an open differential with a free output, a missing command or target-speed signal, a speed demand that reaches no motor or engine, two signals wired into one input. Warnings for parts the solver would leave out (unconnected, or an input that silently reads 0) and for implausible values (vehicle mass, battery size, auxiliary load, final-drive ratio, wheel load shares, a battery that starts empty). An all-clear says what was checked; it does not vouch for the results |
 | **Results** | Dedicated full-page Results workspace (own ribbon tab): channel picker grouped per element, multi-channel time-series **chart or table view** that fills in live during the run, summary table (SOC, energy, recuperation, distance, consumption), CSV export |
 | **Electrical** | Two-terminal components: every electrical element has explicit positive (+, red) and negative (−, blue) pins; the solver balances power on the supply rail with the negative terminals as the return (wire to Ground, or leave implicit) |
-| **Canvas** | Signal/data-bus wiring lives only in the Data Bus panel (not drawn on canvas); background-grid toggle; double-click an element for a modal parameter dialog; Shift+click a pin to move it around the node |
+| **Canvas** | Signal/data-bus wiring is edited in the Data Bus panel; an optional dashed overlay draws those links on the canvas (the *signal* layer in Layer Configurations, off by default); background-grid toggle; double-click an element for a modal parameter dialog; Shift+click a pin to move it around the node |
 | **Persistence** | Save/load projects on the backend (single JSON file per project), plus browser Export / Import |
 | **UI shell** | Ribbon tabs act as full-page workspaces (Home = topology + panels; Results = its own page); light/dark theme (persisted); dockable & resizable panels (Dockview); status bar with live progress |
 
@@ -40,9 +46,13 @@ Python and Node are **not** required: the simulation engine is bundled inside.
 | Windows 10/11 (x64) | `SimStudio-Setup-<version>.exe` |
 | Linux (x64) | `SimStudio-<version>-x86_64.AppImage` or `SimStudio-<version>-amd64.deb` |
 
-Grab them from the repository's **Releases** page, or from the artifacts of a
-**Build desktop app** run under the Actions tab. On Linux, mark the AppImage
-executable once (`chmod +x SimStudio-*.AppImage`) and run it.
+No release has been published yet, so for now the installers come from the
+**Build desktop app** workflow: on the repository's **Actions** tab, open the
+latest successful *Build desktop app* run on `main` and download the
+`simstudio-windows` or `simstudio-linux` artifact (a zip with the installers
+and their `.sha256` checksums; you need to be signed in to GitHub, and
+artifacts expire after 90 days). On Linux, mark the AppImage executable once
+(`chmod +x SimStudio-*.AppImage`) and run it.
 
 > These builds are unsigned, so Windows SmartScreen warns on first launch —
 > choose *More info → Run anyway*, or sign them with your own certificate
@@ -51,11 +61,11 @@ executable once (`chmod +x SimStudio-*.AppImage`) and run it.
 The **Battery Electric Car** example loads on first launch: HV Battery Pack →
 HV Bus → (Power Consumer, E-Motor) → Final Drive → Differential → Node FL/FR →
 Brake + Wheel per corner (rear corners unpowered), with a Vehicle body, a
-Driver element, a target-speed Vehicle Task, and Vehicle/BMS monitors. A **P2
-Hybrid Car** example (engine, clutch, gearbox, HCU script) is available via
-Open. Press **Run** — pick the *City Cycle (live, 10×)* case to watch it
-stream in real time and tune parameters (try the driver gains on the Vehicle,
-or lock the Differential) while it runs.
+Driver element, a target-speed Driving Task (labelled *Vehicle Task*), and
+Vehicle/BMS monitors. A **P2 Hybrid Car** example (engine, clutch, gearbox,
+HCU script) is available via Open. Press **Run** — pick the *City Cycle
+(live, 10×)* case to watch it stream in real time and tune parameters (try
+the P and I gains on the Driver, or lock the Differential) while it runs.
 
 ### Where your work is saved
 
@@ -64,7 +74,7 @@ survive reinstalls and upgrades. **File → Open Projects Folder** opens it.
 
 | Platform | Location |
 |---|---|
-| Windows | `%APPDATA%\\SimStudio\\projects` |
+| Windows | `%APPDATA%\SimStudio\projects` |
 | Linux | `~/.config/SimStudio/projects` |
 
 The examples are copied in on first launch only — delete one and it stays
@@ -81,12 +91,15 @@ One command builds the UI, freezes the backend, and produces an installer for
 whichever OS you run it on. Requires Python ≥ 3.11 and Node ≥ 20.
 
 ```bash
-./scripts/build-desktop.sh          # macOS / Linux
+./scripts/build-desktop.sh          # Linux (macOS is not supported)
 .\scripts\build-desktop.ps1         # Windows
 ```
 
 Installers land in `desktop/release/`. Add `--dir` (or `-Dir`) for just the
-unpacked app, which is much faster while iterating.
+unpacked app, which is much faster while iterating. Before packaging, the
+build writes `THIRD-PARTY-NOTICES.txt` and `sbom.cdx.json`, and stops if
+anything it would ship is under a licence SimStudio does not allow (see
+[Third-party licences](#third-party-licences)).
 
 Neither half cross-compiles — the frozen Python backend and the Electron
 package are both platform-specific — so `.github/workflows/desktop-build.yml`
@@ -155,19 +168,62 @@ shipped.
 The root `VERSION` file is the single source of truth. `scripts/sync-version.mjs`
 copies it into the npm manifests (electron-builder and Vite each insist on
 reading their own `package.json`), and the backend reports it at
-`/api/health`. CI fails if they drift.
+`/api/health`. CI fails if they drift, and also when
+[docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md) was last reviewed for another
+version: review the page for each release and update its *Last reviewed*
+line (the script checks that line but never rewrites it).
 
 ```bash
 node scripts/sync-version.mjs           # write VERSION into the manifests
 node scripts/sync-version.mjs --check   # what CI runs
 ```
 
+### Third-party licences
+
+The app ships other people's open-source code: the UI's npm packages,
+Electron and any runtime dependencies of the desktop shell, and everything
+PyInstaller freezes into the engine (Python
+packages, the Python runtime and native libraries such as OpenSSL).
+`scripts/third-party-notices.py` lists all of it, with the licence texts, in
+`THIRD-PARTY-NOTICES.txt` (**Help → Third-Party Notices** in the app), and as
+a CycloneDX software bill of materials in `sbom.cdx.json`; the installers
+include both. It fails if any of it is under a licence that
+[`scripts/licenses/allowed.txt`](scripts/licenses/allowed.txt) does not
+allow, or under a licence it cannot determine. GPL, AGPL, SSPL and EUPL are
+always refused; the two GPL-licensed parts that do ship come with an
+exception that permits it (the PyInstaller bootloader and, on Linux, the GCC
+runtime library). What is built into Electron itself (Chromium, Node.js) is
+not checked here: Electron ships those notices as `LICENSES.chromium.html`
+next to the executable.
+
+The desktop builds (the workflow and both build scripts) write both files
+afresh before packaging, and the CI licence check runs on every pull request
+and every push to `main`. To regenerate them by hand, and commit the result
+when the dependencies change:
+
+```bash
+cd backend
+pip install -r requirements-build.txt   # includes pip-licenses
+python -m PyInstaller --noconfirm --distpath dist --workpath build simstudio-backend.spec
+cd ..
+npm ci --prefix frontend && npm ci --prefix desktop   # desktop/ pins the npm licence reader
+python scripts/third-party-notices.py   # add --check to only check
+```
+
+If the check fails on a package whose metadata names no licence the script
+can read, or names several without an SPDX expression (the script then
+requires all of them, since the list does not say whether they are a
+choice), check its licence file and record it in
+`scripts/licenses/clarifications.json`. A native library it does not know
+goes in `scripts/licenses/bundled-runtime.json`. Adding a licence to
+`allowed.txt` is a licensing decision for the owner, not a build fix.
+
 ### Continuous integration
 
 | Workflow | Runs on | Does |
 |---|---|---|
-| `ci.yml` | every push and PR (~3 min) | backend lint + 62 tests, frontend lint + typecheck + build, version-sync check |
-| `desktop-build.yml` | `main`, `v*` tags, manual, and PRs touching packaging (~12 min) | builds Windows and Linux installers, smoke-tests both the frozen backend and the packaged app, uploads artefacts with SHA-256 checksums |
+| `ci.yml` | every push and PR (~3 min) | backend lint + tests, frontend lint + typecheck + build, version-sync check, third-party licence check |
+| `desktop-build.yml` | `main`, `v*` tags, manual, and PRs touching packaging (~12 min) | builds Windows and Linux installers (with their third-party notices), smoke-tests both the frozen backend and the packaged app, uploads artefacts with SHA-256 checksums |
 
 Push a `v*` tag to draft a release with the installers attached. Dependabot
 opens grouped dependency PRs monthly.
@@ -183,6 +239,7 @@ frontend/  React 19 + TypeScript + Vite
   └─ Tailwind CSS    dense engineering-tool styling
 
 backend/   Python + FastAPI
+  ├─ app/main.py                   HTTP + WebSocket API (FastAPI app)
   ├─ app/library/components.json   declarative component catalog (ports, params, maps)
   ├─ app/schemas.py                pydantic models mirroring the shared JSON data model
   ├─ app/solver/                   causal multi-pass solver package
@@ -190,14 +247,18 @@ backend/   Python + FastAPI
   │    ├─ profiles.py              driving-task profile parsing
   │    ├─ network.py               model extraction: rigid segments, buses, signal routes
   │    ├─ scripting.py             Script component compile/run
-  │    └─ core.py                  stepping loop: driver → mechanics → tire/vehicle → electrical
+  │    ├─ runtime.py               shared constants, signal routing, small linear solver
+  │    ├─ slave.py                 FMI-style co-simulation slave interface
+  │    ├─ master.py                co-simulation master: steps the slaves on a shared grid
+  │    ├─ domains.py               domain slaves: control → gear → driver → mechanics + vehicle → electrical
+  │    └─ core.py                  simulate(): runs the master, records channels, streams progress
   ├─ app/validation.py             "Data Checks" pre-run validation
   ├─ app/storage.py                one JSON file per project
   ├─ app/paths.py                  bundled vs. user-writable location resolution
   ├─ app/security.py               Host / Origin / launch-token checks on every request
   ├─ app/server.py                 entrypoint the desktop shell launches
   ├─ simstudio-backend.spec        PyInstaller recipe for the frozen backend
-  └─ projects/bev-car.json         demo project
+  └─ projects/                     example projects (bev-car.json, hybrid-car.json)
 
 desktop/   Electron shell
   ├─ src/main.js                   starts the backend on a stable loopback port
@@ -248,9 +309,9 @@ voltage → speed → torque). Elements of components with `allowDynamicPorts`
 
 ## Solver
 
-Each recorded step evaluates signal sources and Script blocks (topological
-order over the signal graph, one-step delay on loops), then runs internal
-sub-steps (≤ 10 ms, semi-implicit Euler):
+Each case time step (*Step (s)* in Cases & Parameters) evaluates signal
+sources and Script blocks (topological order over the signal graph, one-step
+delay on loops), then runs internal sub-steps (≤ 10 ms, semi-implicit Euler):
 
 1. **Driver** — PI on target vs. actual speed → traction command ∈ [−1, 1]
    and brake command, with capability-aware regen blending (motor Q4 map ×
@@ -268,11 +329,23 @@ sub-steps (≤ 10 ms, semi-implicit Euler):
    (OCV(SOC) table, R0, optional RC pair) solved closed-form per sub-step;
    SOC integrates; the terminal voltage feeds next step's motor map.
 
-Live `set_param` messages apply at recording-step boundaries; structural
-parameters (ratios, inertias, code, table axes) take effect on the next run
-and say so in Messages.
+Because the drive-cycle target, Script, PID and Lookup blocks and the gear
+choice are evaluated only once per case time step, results depend on that
+step. *Store every* only sets how many of those steps are stored, so a small
+step with a larger *Store every* gives better results at the same result
+size. This is being reworked; until then see
+[Known limits](docs/KNOWN-LIMITS.md#results-depend-on-the-case-time-step).
+
+Live `set_param` messages apply at the start of the next case time step;
+structural parameters (ratios, inertias, code, table axes) take effect on the
+next run and say so in Messages.
 
 ## Known limitations
+
+[docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md) is the maintained list,
+including the open bugs that change results and how to work around them; the
+desktop app installs a copy (**Help → Known Limits**). The structural limits
+in short:
 
 - One differential and one E-Motor per driveline subgraph (multiple
   independent drivelines — e.g. dual-motor AWD as two axles — work).
@@ -280,7 +353,9 @@ and say so in Messages.
 - Forward driving only (no reverse), no thermal/fluid solving.
 - Sub-system containers are organizational: physical connections cannot cross
   a container boundary (signals can, via the Data Bus).
-- The bookmark tool and Optimization/Parameters ribbon tabs are visual stubs.
+- The canvas bookmark tool is disabled, and the Optimization tab is hidden
+  until it is implemented. (Parameters — per-case overrides and sweeps —
+  works.)
 
 ## License
 
@@ -288,4 +363,5 @@ SimStudio is proprietary software: Copyright © 2026 Eyad Abualkhair, all
 rights reserved (see [`LICENSE`](LICENSE)). The desktop app is free to use for
 evaluation, learning, research and other non-commercial purposes under the
 [End-User Licence Agreement](EULA.txt); commercial use needs a separate
-licence. Third-party components keep their own licences.
+licence. Third-party components keep their own licences; they are listed,
+with their licence texts, in `THIRD-PARTY-NOTICES.txt`.

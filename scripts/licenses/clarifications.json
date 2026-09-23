@@ -1,0 +1,36 @@
+{
+  "_about": [
+    "Licences recorded by hand for packages whose metadata does not state one",
+    "that the scanners can read. 'expect' is text that must appear in the",
+    "licence file the package ships: if a new release changes its licence",
+    "file, the check fails and the entry has to be reviewed again."
+  ],
+  "python": {
+    "colorama": {
+      "license": "BSD-3-Clause",
+      "expect": "Neither the name of the copyright holders",
+      "reason": "Windows builds only (click needs it there). Its metadata has only the classifier \"BSD License\"; its LICENSE.txt is the BSD 3-Clause licence."
+    },
+    "packaging": {
+      "license": "Apache-2.0 OR BSD-2-Clause",
+      "expect": "under the terms of *either* of the licenses",
+      "reason": "Dual-licensed (LICENSE.APACHE or LICENSE.BSD). The copy vendored inside setuptools declares only the classifier \"BSD License\", which does not say which BSD licence."
+    },
+    "pyinstaller": {
+      "license": "GPL-2.0-or-later WITH Bootloader-exception AND Apache-2.0",
+      "expect": "Bootloader Exception",
+      "reason": "Its metadata says GPLv2-or-later with an exception. Only the bootloader and loader (GPL-2.0-or-later with the Bootloader Exception) and the run-time hooks (Apache-2.0) are embedded in the frozen engine; see its COPYING.txt."
+    },
+    "uvloop": {
+      "license": "Apache-2.0 OR MIT",
+      "expect": "Permission is hereby granted, free of charge",
+      "reason": "Linux builds only (uvicorn uses it there). Dual-licensed: its README says \"uvloop is dual-licensed under MIT and Apache 2.0 licenses\" and it ships LICENSE-MIT and LICENSE-APACHE. Its metadata has only the two classifiers, which do not say that they are a choice."
+    },
+    "setuptools": {
+      "license": "MIT",
+      "expect": "Permission is hereby granted, free of charge",
+      "reason": "Its metadata names no licence; its LICENSE file is the MIT licence. PyInstaller pulls parts of it into the engine."
+    }
+  },
+  "npm": {}
+}
