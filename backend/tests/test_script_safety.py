@@ -85,6 +85,8 @@ ESCAPES = {
                         "'.__class__' is not allowed"),
     "class": ("class A:\n    pass\n", "class definitions are not supported"),
     "patch math": ("math.sqrt = abs\n", "changing '.sqrt' is not allowed"),
+    # .mro() reaches BaseException, which could catch the time limit
+    "mro": ("BE = ValueError.mro()[-2]\n", "'.mro' is not allowed"),
 }
 
 
@@ -139,6 +141,31 @@ def test_ordinary_scripts_keep_working():
     assert _errors(validate_project(_scripted(code))) == []
     result = simulate(_scripted(code), "case")
     assert result.status in ("success", "warning")
+
+
+def test_harmless_builtins_are_available():
+    code = ("def step(t, dt, inputs, state, params):\n"
+            "    if not hasattr(state, 'get') or not callable(clamp):\n"
+            "        raise NotImplementedError('unreachable')\n"
+            "    code = ord(chr(65)) + int(hex(1), 16) + int(bin(1), 2) + int(oct(1), 8)\n"
+            "    try:\n"
+            "        assert code == 68\n"
+            "    except (AssertionError, AttributeError, NameError):\n"
+            "        code = 0\n"
+            "    return {'cmd_out': abs(complex(code, 0)) / 1000}\n")
+    assert scripting.run_script(compile_script(code, "S"), "S", 0.0, 0.01, {}, {}, {}) == {"cmd_out": 0.068}
+
+
+def test_a_deeply_nested_script_is_reported_not_crashed():
+    # ast.parse gives up at about 1000 levels; that must be a Data Check
+    # error, not a 500 from /api/validate and /api/simulate
+    chain = "".join(f"    elif x == {i}:\n        pass\n" for i in range(1100))
+    code = "def step(t, dt, inputs, state, params):\n    x = 0\n    if x == -1:\n        pass\n" + chain + "    return {}\n"
+    with pytest.raises(ScriptError, match="too deeply nested"):
+        check_script(code, "Deep")
+    response = client.post("/api/validate", json={"project": _scripted(code).model_dump()})
+    assert response.status_code == 200
+    assert any("too deeply nested" in c["text"] for c in response.json() if c["level"] == "error")
 
 
 def test_names_a_script_defines_itself_are_not_flagged():

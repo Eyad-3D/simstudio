@@ -46,21 +46,25 @@ ALLOWED_IMPORTS = frozenset({"math"})
 TIME_LIMIT_S = 2.0
 
 #: Attributes without a leading underscore that still hand out interpreter
-#: internals (a frame reaches every module's globals).
+#: internals (a frame reaches every module's globals). `mro` hands out
+#: BaseException: a script that catches the time limit once stops being
+#: traced (Python drops a frame's tracer when it raises) and runs forever.
 _FORBIDDEN_ATTRS = frozenset({
     "gi_frame", "gi_code", "gi_yieldfrom", "cr_frame", "cr_code", "cr_await",
     "ag_frame", "ag_code", "ag_await", "f_back", "f_builtins", "f_code",
-    "f_globals", "f_locals", "tb_frame", "tb_next",
+    "f_globals", "f_locals", "tb_frame", "tb_next", "mro",
 })
 
 _SAFE_BUILTIN_NAMES = (
-    "abs", "all", "any", "bool", "dict", "divmod", "enumerate", "filter", "float",
-    "format", "frozenset", "int", "isinstance", "iter", "len", "list", "map", "max",
-    "min", "next", "pow", "print", "range", "repr", "reversed", "round", "set",
+    "abs", "all", "any", "bin", "bool", "callable", "chr", "complex", "dict",
+    "divmod", "enumerate", "filter", "float", "format", "frozenset", "hasattr",
+    "hex", "int", "isinstance", "iter", "len", "list", "map", "max", "min", "next",
+    "oct", "ord", "pow", "print", "range", "repr", "reversed", "round", "set",
     "slice", "sorted", "str", "sum", "tuple", "zip",
-    "ArithmeticError", "Exception", "IndexError", "KeyError", "LookupError",
-    "OverflowError", "RuntimeError", "StopIteration", "TypeError", "ValueError",
-    "ZeroDivisionError",
+    "ArithmeticError", "AssertionError", "AttributeError", "Exception",
+    "FloatingPointError", "IndexError", "KeyError", "LookupError", "NameError",
+    "NotImplementedError", "OverflowError", "RuntimeError", "StopIteration",
+    "TypeError", "ValueError", "ZeroDivisionError",
 )
 
 
@@ -182,9 +186,13 @@ def check_script(code: str, label: str):
                 # cannot swallow the time limit (_Overrun)
                 node.type = ast.copy_location(ast.Name("Exception", ast.Load()), node)
         compiled = compile(tree, filename, "exec")
+        problems = _problems(tree)
     except (SyntaxError, ValueError) as e:
         raise ScriptError(f"Script '{label}' failed to compile: {e}") from e
-    problems = _problems(tree)
+    except (RecursionError, MemoryError):
+        raise ScriptError(
+            f"Script '{label}' is too deeply nested to check — split long "
+            "if/elif chains or expressions into smaller parts.") from None
     if problems:
         (line, _, _), text = problems[0]
         raise ScriptError(f"Script '{label}' line {line}: {text}.")
