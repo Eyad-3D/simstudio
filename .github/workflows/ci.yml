@@ -35,6 +35,10 @@ jobs:
         working-directory: backend
         run: ruff check .
 
+      # scripts/ has no ruff settings of its own: hold it to the backend's.
+      - name: Lint scripts
+        run: ruff check --config backend/pyproject.toml scripts/
+
       - name: Tests
         working-directory: backend
         # Includes the golden fixtures — the regression net for solver changes.

@@ -86,7 +86,7 @@ One command builds the UI, freezes the backend, and produces an installer for
 whichever OS you run it on. Requires Python ≥ 3.11 and Node ≥ 20.
 
 ```bash
-./scripts/build-desktop.sh          # Linux (macOS is untested)
+./scripts/build-desktop.sh          # Linux (macOS is not supported)
 .\scripts\build-desktop.ps1         # Windows
 ```
 

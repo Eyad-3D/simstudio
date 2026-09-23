@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Write THIRD-PARTY-NOTICES.txt and enforce SimStudio's licence policy.
 
 Everything inside the desktop app that someone else wrote is listed with its
@@ -450,7 +449,7 @@ def identify(expression: str, classifiers: str, declared: str) -> str:
 def pip_licenses(names: list[str]) -> dict[str, dict]:
     run = subprocess.run([sys.executable, "-m", "piplicenses", "--from=all", "--format=json",
                           "--with-urls", "--with-system", "--packages", *names],
-                         capture_output=True, text=True, encoding="utf-8")
+                         capture_output=True, text=True, encoding="utf-8", check=False)
     if run.returncode != 0:
         sys.exit("pip-licenses failed (install backend/requirements-build.txt into this "
                  f"Python):\n{run.stderr}")
@@ -463,7 +462,7 @@ def system_copyright(src: str) -> tuple[str, str] | None:
     if not shutil.which("dpkg"):
         return None
     for path in (src, os.path.realpath(src)):
-        run = subprocess.run(["dpkg", "-S", path], capture_output=True, text=True)
+        run = subprocess.run(["dpkg", "-S", path], capture_output=True, text=True, check=False)
         if run.returncode == 0:
             package = run.stdout.split(":", 1)[0].strip()
             copyright_ = Path("/usr/share/doc", package, "copyright")
@@ -606,8 +605,8 @@ def render(components: list[Component]) -> str:
             lines += ["", f"[{heading}]", "", text]
         if c.needs_standard_text:
             shipped = "" if c.texts else "It ships no licence file of its own. "
-            lines += ["", f"{shipped}The standard text of {' and '.join(c.terms)} "
-                      "is in the appendix."]
+            lines += ["", (f"{shipped}The standard text of {' and '.join(c.terms)} "
+                           "is in the appendix.")]
         subs = inside.get(c.name, [])
         for s in (s for s in subs if s.texts):
             lines += ["", THIN, f"{s.label}, vendored inside {c.name}",
