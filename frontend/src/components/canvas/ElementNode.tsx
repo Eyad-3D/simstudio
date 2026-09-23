@@ -1,8 +1,9 @@
-import { memo, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   Handle,
   NodeResizer,
   Position,
+  useUpdateNodeInternals,
   type NodeProps,
   type Node,
 } from "@xyflow/react";
@@ -232,6 +233,20 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
   };
 
   const onCycle = (port: PortDef, next: PortSide) => setPortSide(element.id, port.id, next);
+
+  // React Flow re-measures a node's pins only when the node's size changes
+  // (TopologyCanvas keeps measured sizes on the nodes), so tell it when a pin
+  // moves or flips side, or the node now shows another part's ports.
+  const updateNodeInternals = useUpdateNodeInternals();
+  const pinLayout = (Object.keys(bySide) as PortSide[])
+    .flatMap((sd) => bySide[sd].map((p, i) => `${p.id}@${sd}:${fracOf(p, i, bySide[sd].length)}`))
+    .join(" ");
+  const measuredPinLayout = useRef(pinLayout);
+  useEffect(() => {
+    if (measuredPinLayout.current === pinLayout) return;
+    measuredPinLayout.current = pinLayout;
+    updateNodeInternals(element.id);
+  }, [pinLayout, element.id, updateNodeInternals]);
 
   const portRows = Math.max(bySide.left.length, bySide.right.length, 1);
   const defaultHeight = Math.max(54, portRows * 18 + 18);
