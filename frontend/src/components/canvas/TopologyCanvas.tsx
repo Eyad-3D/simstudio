@@ -219,6 +219,38 @@ function TopologyCanvasInner() {
     return () => clearTimeout(t);
   }, [loads, activeSystemId, autoFit, getViewport, setViewport]);
 
+  // When the diagram gets smaller (the bottom tray opens, the window shrinks)
+  // and that cuts off part of a model that was entirely in view, re-fit once
+  // the size settles. A view the user zoomed into is left alone.
+  useEffect(() => {
+    let before: { width: number; height: number } | null = null;
+    let settle: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = rfStore.subscribe((s, prev) => {
+      if (s.width === prev.width && s.height === prev.height) return;
+      if (!before && prev.width > 0 && prev.height > 0) before = { width: prev.width, height: prev.height };
+      clearTimeout(settle);
+      settle = setTimeout(() => {
+        const was = before;
+        before = null;
+        const { width, height, transform } = rfStore.getState();
+        const nodes = getNodes();
+        if (!was || width === 0 || height === 0 || nodes.length === 0) return;
+        const [x, y, zoom] = transform;
+        const b = getNodesBounds(nodes);
+        const inView = (w: number, h: number) =>
+          b.x * zoom + x >= 0 &&
+          b.y * zoom + y >= 0 &&
+          (b.x + b.width) * zoom + x <= w &&
+          (b.y + b.height) * zoom + y <= h;
+        if (inView(was.width, was.height) && !inView(width, height)) autoFit(200);
+      }, 150);
+    });
+    return () => {
+      unsubscribe();
+      clearTimeout(settle);
+    };
+  }, [rfStore, getNodes, getNodesBounds, autoFit]);
+
   // re-fit while the dock layout settles after initial mount (panel widths are
   // applied a few frames after the flow instance measures itself)
   useEffect(() => {

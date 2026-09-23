@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DockviewDefaultTab,
   DockviewReact,
   themeLight,
+  type DockviewApi,
   type DockviewReadyEvent,
   type DockviewTheme,
   type IDockviewHeaderActionsProps,
@@ -155,6 +156,29 @@ const LAYOUT_VERSION = 4;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
+// An open tray takes at most this share of the dock's height. dockview keeps
+// an edge group's pixel size when the window shrinks (the grid above takes
+// the change) and restores a saved layout's pixel size at any window size.
+const TRAY_MAX_SHARE = 0.35;
+const TRAY_MIN = 120;
+
+type ShellInternals = {
+  component?: { _shellManager?: { _middleColumn?: { resizeView?: (at: "bottom", size: number) => void } } };
+};
+
+/** Shrink an open tray that is taller than TRAY_MAX_SHARE of the dock (the
+ *  grid plus the tray). dockview 7 has no API to resize an edge group, so this
+ *  goes through its shell's middle column, which dockview itself uses to open
+ *  and restore the tray. The internals are feature-checked: without them the
+ *  tray just keeps its size. */
+function clampTray(api: DockviewApi) {
+  const tray = api.getEdgeGroup("bottom");
+  if (!tray || tray.isCollapsed()) return;
+  const max = Math.max(TRAY_MIN, Math.round((api.height + tray.height) * TRAY_MAX_SHARE));
+  if (tray.height <= max) return;
+  (api as unknown as ShellInternals).component?._shellManager?._middleColumn?.resizeView?.("bottom", max);
+}
+
 // Default arrangement, built so the diagram gets most of the window at every
 // size: the library (left) and properties (right) columns take a share of the
 // width with a floor, and the log, checks, layers, data bus and signal plot
@@ -217,7 +241,7 @@ function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
   api.addEdgeGroup("bottom", {
     id: "tray",
     initialSize: clamp(Math.round(height * 0.3), 180, 360),
-    minimumSize: 120,
+    minimumSize: TRAY_MIN,
     collapsed: true,
   });
   const tray = [
@@ -296,7 +320,10 @@ function onReady(event: DockviewReadyEvent) {
     }, 500);
   };
   api.onDidLayoutChange(scheduleSave);
-  api.getEdgeGroup("bottom")?.onDidCollapsedChange(scheduleSave);
+  api.getEdgeGroup("bottom")?.onDidCollapsedChange((e) => {
+    if (!e.isCollapsed) clampTray(api);
+    scheduleSave();
+  });
 
   api.onDidMaximizedGroupChange((e) => {
     if (e.isMaximized) return;
@@ -321,8 +348,30 @@ export function DockLayout() {
     });
   }, []);
 
+  // keep an open tray within its share of the dock as the window is resized
+  // (and after a saved layout is restored); a frame later, once dockview has
+  // laid itself out for the new size
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const api = useUIStore.getState().dockApi;
+        if (api) clampTray(api);
+      });
+    });
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+
   return (
-    <div className="h-full w-full" role="region" aria-label="Model workspace panels">
+    <div ref={ref} className="h-full w-full" role="region" aria-label="Model workspace panels">
       <DockviewReact
         components={components}
         defaultTabComponent={SsTab}
