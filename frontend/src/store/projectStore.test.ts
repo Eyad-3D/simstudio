@@ -25,6 +25,8 @@ const defName = (id: string) => library.components.find((c) => c.id === id)!.nam
 let api: MockedObject<typeof import("../api")>;
 let persist: typeof import("../persist");
 let useProjectStore: typeof import("./projectStore").useProjectStore;
+let confirmReplaceProject: typeof import("./projectStore").confirmReplaceProject;
+let useUIStore: typeof import("./uiStore").useUIStore;
 const store = () => useProjectStore.getState();
 
 function el(id: string, componentDefId: string, label: string): ElementInstance {
@@ -78,7 +80,8 @@ beforeEach(async () => {
   localStorage.clear();
   api = vi.mocked(await import("../api"));
   persist = await import("../persist");
-  useProjectStore = (await import("./projectStore")).useProjectStore;
+  ({ useProjectStore, confirmReplaceProject } = await import("./projectStore"));
+  useUIStore = (await import("./uiStore")).useUIStore;
 
   api.fetchLibrary.mockResolvedValue({
     components: library.components,
@@ -261,6 +264,46 @@ describe("project lifecycle", () => {
     expect(store().project?.id).toBe("fixture");
     expect(store().dirty).toBe(false);
     expect(messages().filter((m) => m.startsWith("error: Import failed"))).toHaveLength(2);
+  });
+});
+
+describe("asking before a project is replaced", () => {
+  /** Answer the open Save / Don't save / Cancel dialog. */
+  function answer(choice: "save" | "discard" | "cancel") {
+    const dialog = useUIStore.getState().dialog;
+    expect(dialog?.title).toBe("Save changes to 'Fixture'?");
+    dialog!.resolve(choice === "save" ? true : choice === "discard" ? "alt" : null);
+  }
+
+  it("goes ahead without asking when nothing is unsaved", async () => {
+    await store().init();
+    expect(await confirmReplaceProject("Opening 'Other'")).toBe(true);
+    expect(useUIStore.getState().dialog).toBeNull();
+  });
+
+  it("Don't save goes ahead, Cancel does not, and neither saves", async () => {
+    await store().init();
+    store().renameElement("el-bat", "Pack");
+    const discard = confirmReplaceProject("Opening 'Other'");
+    answer("discard");
+    expect(await discard).toBe(true);
+    const cancel = confirmReplaceProject("Opening 'Other'");
+    answer("cancel");
+    expect(await cancel).toBe(false);
+    expect(api.saveProject).not.toHaveBeenCalled();
+  });
+
+  it("Save goes ahead once the save worked, and not when it failed", async () => {
+    await store().init();
+    store().renameElement("el-bat", "Pack");
+    api.saveProject.mockRejectedValueOnce(new Error("500 disk full"));
+    const failed = confirmReplaceProject("Opening 'Other'");
+    answer("save");
+    expect(await failed).toBe(false);
+    const saved = confirmReplaceProject("Opening 'Other'");
+    answer("save");
+    expect(await saved).toBe(true);
+    expect(api.saveProject).toHaveBeenCalledTimes(2);
   });
 });
 

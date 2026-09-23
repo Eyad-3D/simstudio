@@ -26,8 +26,8 @@ import {
 } from "lucide-react";
 import * as api from "../api";
 import { resetDockLayout } from "./DockLayout";
-import { confirmDialog, confirmReplaceProject } from "../dialog";
-import { useProjectStore } from "../store/projectStore";
+import { confirmDialog } from "../dialog";
+import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
 import {
   FONT_SCALE_MAX,
   FONT_SCALE_MIN,

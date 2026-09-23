@@ -1,6 +1,5 @@
 import { CloudOff, Loader2, Plus } from "lucide-react";
-import { useProjectStore } from "../store/projectStore";
-import { confirmReplaceProject } from "../dialog";
+import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
 
 export function StatusBar() {
   const project = useProjectStore((s) => s.project);
