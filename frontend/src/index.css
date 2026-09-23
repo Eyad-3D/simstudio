@@ -257,6 +257,25 @@ body,
 .ss-td {
   @apply border-b border-[color:var(--ss-td-border)] px-2 py-1 text-[12px];
 }
+/* Properties' label/value/unit table, laid out as a grid: the label column
+   keeps at least 72 px and takes what the value and unit leave; a value field
+   grows to show its digits until the label is down to that, then scrolls
+   inside itself rather than pushing the panel sideways */
+.ss-param-grid {
+  display: grid;
+  grid-template-columns: minmax(72px, 1fr) minmax(0, auto) auto;
+}
+.ss-param-grid :is(thead, tbody, tr) {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+.ss-param-grid :is(th, td) {
+  align-content: center;
+}
+.ss-param-grid :is(input, select) {
+  max-width: 100%;
+}
 
 /* ---- Excel-like spreadsheet grid (table editors) ---- */
 .ss-grid {

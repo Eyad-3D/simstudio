@@ -156,7 +156,7 @@ const components = {
 
 // bump when the panel set / default arrangement changes so stale saved layouts
 // are discarded rather than restored into a broken state.
-const LAYOUT_VERSION = 5;
+const LAYOUT_VERSION = 4;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -292,6 +292,8 @@ function onReady(event: DockviewReadyEvent) {
       const saved = JSON.parse(raw) as { version?: number; layout?: unknown };
       if (saved.version === LAYOUT_VERSION && saved.layout) {
         api.fromJSON(saved.layout as Parameters<typeof api.fromJSON>[0]);
+        // a layout saved before GUI-34 titles the tab in full
+        api.getPanel("cases")?.api.setTitle("Cases");
         restored = api.panels.length > 0;
       }
     }

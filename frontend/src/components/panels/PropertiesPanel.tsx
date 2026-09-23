@@ -682,7 +682,9 @@ export function ElementForm({
       </div>
       <div className="flex items-center gap-2 text-[11px] text-[color:var(--ss-text-dim)]">
         <span className="w-[72px] shrink-0">Type</span>
-        <span className="text-[color:var(--ss-text)]">{def.name}</span>
+        <span className="truncate text-[color:var(--ss-text)]" title={def.name}>
+          {def.name}
+        </span>
         {running && (
           <span
             className="flex items-center gap-1 rounded bg-[#e5f5eb] px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"
@@ -705,11 +707,11 @@ export function ElementForm({
       )}
       {scalarParams.length > 0 && (
         // the value and unit take the width they need; the label gets the
-        // rest, on one line, with the full text in its tooltip
-        <table className="w-full border-collapse">
+        // rest (at least 72 px), on one line, with the full text in its tooltip
+        <table className="ss-param-grid w-full">
           <thead>
             <tr>
-              <th className="ss-th w-full max-w-0 truncate">Parameter</th>
+              <th className="ss-th truncate">Parameter</th>
               <th className="ss-th">Value</th>
               <th className="ss-th">Unit</th>
             </tr>
@@ -717,11 +719,11 @@ export function ElementForm({
           <tbody>
             {scalarParams.map((p) => (
               <tr key={p.key}>
-                <td className="ss-td max-w-0 truncate text-[11px]" title={p.label}>
-                  {p.label}
+                <td className="ss-td flex items-center text-[11px]" title={p.label}>
+                  <span className="truncate">{p.label}</span>
                   {running && p.variability === "fixed" && (
                     <span
-                      className="ml-1 text-[10px] italic text-[color:var(--ss-text-dim)]"
+                      className="ml-1 shrink-0 text-[10px] italic text-[color:var(--ss-text-dim)]"
                       title="Structural parameter — a live edit takes effect on the next run"
                     >
                       (next run)
