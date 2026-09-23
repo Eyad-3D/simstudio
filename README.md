@@ -34,9 +34,9 @@ Linux, runs entirely on your computer, and works offline.
 
    ![A finished run: battery power and charge over the City Cycle, with the summary below](docs/screenshots/lightsim-0.2.0-results.png)
 
-5. **Ask "what if?".** In *Cases & Parameters* (Home tab, right-hand side),
-   choose a part and a value to sweep, here the car's mass, and press
-   *Run sweep*. *Results → Sweep* plots a summary figure against it.
+5. **Ask "what if?".** In *Cases & Parameters* (the *Cases* tab, Home,
+   right-hand side), choose a part and a value to sweep, here the car's mass,
+   and press *Run sweep*. *Results → Sweep* plots a summary figure against it.
 
    ![Energy use of the electric car against its mass, from a three-point sweep](docs/screenshots/lightsim-0.2.0-sweep.png)
 

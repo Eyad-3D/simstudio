@@ -107,6 +107,16 @@ body,
   border-top: 2px solid transparent;
   /* larger hit target for the panel tabs */
   padding: 0 10px;
+  /* a group narrower than its tabs shortens their titles with an ellipsis
+     (the full title is in the tooltip) rather than scrolling tabs out of
+     sight */
+  flex-shrink: 1;
+  min-width: 0;
+}
+.dockview-theme-ss .dv-default-tab-content {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .dockview-theme-ss .dv-tab.dv-active-tab {
   border-top: 2px solid var(--ss-accent);
@@ -218,6 +228,14 @@ body,
 .ss-input[aria-invalid="true"] {
   border-color: #dc2626;
 }
+/* numbers line up right-aligned in equal-width digits, and a field grows to
+   show every digit of its value rather than clipping it (no fixed width) */
+.ss-input[type="number"] {
+  min-width: 72px;
+  field-sizing: content;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .ss-tree-row {
   @apply flex w-full cursor-default items-center gap-1.5 truncate px-1.5 py-[3px] text-left text-[12px] hover:bg-[color:var(--ss-hover)];
 }
@@ -238,6 +256,25 @@ body,
 }
 .ss-td {
   @apply border-b border-[color:var(--ss-td-border)] px-2 py-1 text-[12px];
+}
+/* Properties' label/value/unit table, laid out as a grid: the label column
+   keeps at least 72 px and takes what the value and unit leave; a value field
+   grows to show its digits until the label is down to that, then scrolls
+   inside itself rather than pushing the panel sideways */
+.ss-param-grid {
+  display: grid;
+  grid-template-columns: minmax(72px, 1fr) minmax(0, auto) auto;
+}
+.ss-param-grid :is(thead, tbody, tr) {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+.ss-param-grid :is(th, td) {
+  align-content: center;
+}
+.ss-param-grid :is(input, select) {
+  max-width: 100%;
 }
 
 /* ---- Excel-like spreadsheet grid (table editors) ---- */

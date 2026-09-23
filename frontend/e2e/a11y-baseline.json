@@ -1,6 +1,6 @@
 {
   "topology-light": [
-    "aria-required-parent  div[role=tab] \"Cases & Parameters\"",
+    "aria-required-parent  div[role=tab] \"Cases\"",
     "aria-required-parent  div[role=tab] \"Components\"",
     "aria-required-parent  div[role=tab] \"Data Bus Connections\"",
     "aria-required-parent  div[role=tab] \"Data Checks\"",
@@ -24,7 +24,7 @@
     "scrollable-region-focusable  div \"Summary value Value Unit HV Battery Pack\""
   ],
   "parameter-dialog-light": [
-    "aria-required-parent  div[role=tab] \"Cases & Parameters\"",
+    "aria-required-parent  div[role=tab] \"Cases\"",
     "aria-required-parent  div[role=tab] \"Components\"",
     "aria-required-parent  div[role=tab] \"Data Bus Connections\"",
     "aria-required-parent  div[role=tab] \"Data Checks\"",
@@ -44,7 +44,7 @@
     "label-title-only  select \"Active simulation case\""
   ],
   "topology-dark": [
-    "aria-required-parent  div[role=tab] \"Cases & Parameters\"",
+    "aria-required-parent  div[role=tab] \"Cases\"",
     "aria-required-parent  div[role=tab] \"Components\"",
     "aria-required-parent  div[role=tab] \"Data Bus Connections\"",
     "aria-required-parent  div[role=tab] \"Data Checks\"",
@@ -69,7 +69,7 @@
     "scrollable-region-focusable  div \"Summary value Value Unit HV Battery Pack\""
   ],
   "parameter-dialog-dark": [
-    "aria-required-parent  div[role=tab] \"Cases & Parameters\"",
+    "aria-required-parent  div[role=tab] \"Cases\"",
     "aria-required-parent  div[role=tab] \"Components\"",
     "aria-required-parent  div[role=tab] \"Data Bus Connections\"",
     "aria-required-parent  div[role=tab] \"Data Checks\"",
