@@ -121,6 +121,13 @@ body,
   padding: 3px;
   border-radius: 3px;
 }
+/* The Home dock under the Results page (App.tsx). dockview forces its views
+   back to `visibility: visible` (.dv-view.visible), so hiding the wrapper
+   alone let its splitters (z-index 99) draw over Results and catch drags. */
+.ss-dock-hidden,
+.ss-dock-hidden * {
+  visibility: hidden !important;
+}
 
 /* ---- React Flow tuning ---- */
 .react-flow__attribution {
