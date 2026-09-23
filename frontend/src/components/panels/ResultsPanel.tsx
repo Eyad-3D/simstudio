@@ -24,10 +24,15 @@ import {
 import { useActiveRun, useOverlayRuns, useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import type { Channel, SimResult, SimRun } from "../../types";
-import { PALETTE, channelKey, decimate, useHasSize } from "./chartUtils";
+import { PALETTE, channelKey, minMaxIndices, useHasSize } from "./chartUtils";
 
 // dash patterns to distinguish channels when several runs are overlaid at once
 const DASHES = ["", "5 3", "2 2", "7 3 2 3", "9 4"];
+
+// Table view rows have a fixed height, so only the rows in view are drawn
+const TABLE_ROW_H = 26; // px
+const TABLE_PAGE_ROWS = 80; // drawn before the first scroll event
+const TABLE_OVERSCAN = 10;
 
 function runTime(r: SimRun): string {
   return new Date(r.startedAt).toLocaleTimeString([], {
@@ -215,37 +220,60 @@ export function ResultsPanel() {
   const units = useMemo(() => [...new Set(seriesDefs.map((d) => d.unit))], [seriesDefs]);
 
   const chartData = useMemo(() => {
-    const map = new Map<number, Record<string, number | null>>();
+    // series on the same time grid (the channels of a run, and overlaid runs
+    // of the same case) are thinned together so their rows stay aligned
+    const grids = new Map<string, typeof seriesDefs>();
     for (const d of seriesDefs) {
-      for (const pt of decimate(d.channel.timeSeries)) {
-        let row = map.get(pt.t);
-        if (!row) {
-          row = { t: pt.t };
-          map.set(pt.t, row);
+      const ts = d.channel.timeSeries;
+      const grid = `${ts.length}:${ts[0]?.t}:${ts[ts.length - 1]?.t}`;
+      grids.set(grid, [...(grids.get(grid) ?? []), d]);
+    }
+    const map = new Map<number, Record<string, number | null>>();
+    for (const defs of grids.values()) {
+      for (const i of minMaxIndices(defs.map((d) => d.channel.timeSeries))) {
+        for (const d of defs) {
+          const pt = d.channel.timeSeries[i];
+          let row = map.get(pt.t);
+          if (!row) {
+            row = { t: pt.t };
+            map.set(pt.t, row);
+          }
+          row[d.dataKey] = pt.value;
         }
-        row[d.dataKey] = pt.value;
       }
     }
     return [...map.values()].sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
   }, [seriesDefs]);
 
-  // table shows only the active run (aligned time grid)
+  // table shows only the active run (aligned time grid), every sample; only
+  // the rows scrolled into view are drawn (see onTableScroll)
   const activeChannels = useMemo(
     () => result?.channels.filter((c) => selectedKeys.has(channelKey(c))) ?? [],
     [result, selectedKeys],
   );
   const tableData = useMemo(() => {
     if (activeChannels.length === 0) return [];
-    const cols = activeChannels.map((c) => decimate(c.timeSeries));
-    return cols[0].map((pt, i) => {
+    return activeChannels[0].timeSeries.map((pt, i) => {
       const row: Record<string, number | null> = { t: pt.t };
-      activeChannels.forEach((c, ci) => {
-        const p = cols[ci][i];
+      activeChannels.forEach((c) => {
+        const p = c.timeSeries[i];
         if (p) row[channelKey(c)] = p.value;
       });
       return row;
     });
   }, [activeChannels]);
+  const [tableWindow, setTableWindow] = useState({ first: 0, count: TABLE_PAGE_ROWS });
+  const onTableScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    // work in fractions of the scroll height so the UI zoom cannot skew it
+    const rows = ((tableData.length + 1) * el.scrollTop) / el.scrollHeight;
+    const shown = ((tableData.length + 1) * el.clientHeight) / el.scrollHeight;
+    const first = Math.max(0, Math.floor(rows) - TABLE_OVERSCAN);
+    const count = Math.max(TABLE_PAGE_ROWS, Math.ceil(shown) + 2 * TABLE_OVERSCAN);
+    if (first !== tableWindow.first || count !== tableWindow.count) setTableWindow({ first, count });
+  };
+  const tableFirst = Math.min(tableWindow.first, tableData.length);
+  const tableLast = Math.min(tableData.length, tableFirst + tableWindow.count);
 
   // --- X-Y (channel-vs-channel) plot: active run only, samples aligned by index.
   // The left-hand checkboxes pick the channels; one of them is the X axis, the
@@ -274,13 +302,13 @@ export function ResultsPanel() {
   const xyXShort = xyXChannel ? (xyXChannel.label.split(" · ")[1] ?? xyXChannel.label) : "";
   const xyData = useMemo(() => {
     if (!xyXChannel || xyYChannels.length === 0) return [];
-    const xs = decimate(xyXChannel.timeSeries);
-    const ys = xyYChannels.map((c) => decimate(c.timeSeries));
-    return xs.map((pt, i) => {
-      const row: Record<string, number | null> = { x: pt.value };
-      xyYChannels.forEach((c, ci) => {
-        const p = ys[ci][i];
-        if (p) row[channelKey(c)] = p.value;
+    // the same sample indices for X and every Y, so each point is a real pair
+    const xs = xyXChannel.timeSeries;
+    const idx = minMaxIndices([xs, ...xyYChannels.map((c) => c.timeSeries)]);
+    return idx.map((i) => {
+      const row: Record<string, number | null> = { x: xs[i].value };
+      xyYChannels.forEach((c) => {
+        row[channelKey(c)] = c.timeSeries[i].value;
       });
       return row;
     });
@@ -617,11 +645,11 @@ export function ResultsPanel() {
         </div>
 
         {view === "table" ? (
-          <div className="min-h-0 flex-[3] overflow-auto">
+          <div className="min-h-0 flex-[3] overflow-auto" onScroll={onTableScroll}>
             {activeChannels.length > 0 && tableData.length > 0 ? (
-              <table className="w-full border-collapse">
+              <table className="w-full border-collapse" aria-rowcount={tableData.length + 1}>
                 <thead className="sticky top-0 z-10">
-                  <tr>
+                  <tr style={{ height: TABLE_ROW_H }}>
                     <th className="ss-th w-[70px] text-right">t [s]</th>
                     {activeChannels.map((c) => (
                       <th key={channelKey(c)} className="ss-th text-right" title={c.label}>
@@ -631,15 +659,21 @@ export function ResultsPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {tableData.map((row, i) => (
-                    <tr key={i} className="hover:bg-[color:var(--ss-hover)]">
-                      <td className="ss-td text-right font-mono text-[color:var(--ss-text-dim)]">
+                  {tableFirst > 0 && <tr aria-hidden style={{ height: tableFirst * TABLE_ROW_H }} />}
+                  {tableData.slice(tableFirst, tableLast).map((row, j) => (
+                    <tr
+                      key={tableFirst + j}
+                      aria-rowindex={tableFirst + j + 2}
+                      style={{ height: TABLE_ROW_H }}
+                      className="hover:bg-[color:var(--ss-hover)]"
+                    >
+                      <td className="ss-td whitespace-nowrap text-right font-mono text-[color:var(--ss-text-dim)]">
                         {typeof row.t === "number" ? row.t.toLocaleString() : row.t}
                       </td>
                       {activeChannels.map((c) => {
                         const v = row[channelKey(c)];
                         return (
-                          <td key={channelKey(c)} className="ss-td text-right font-mono">
+                          <td key={channelKey(c)} className="ss-td whitespace-nowrap text-right font-mono">
                             {typeof v === "number"
                               ? v.toLocaleString(undefined, { maximumFractionDigits: 4 })
                               : "—"}
@@ -648,6 +682,9 @@ export function ResultsPanel() {
                       })}
                     </tr>
                   ))}
+                  {tableLast < tableData.length && (
+                    <tr aria-hidden style={{ height: (tableData.length - tableLast) * TABLE_ROW_H }} />
+                  )}
                 </tbody>
               </table>
             ) : (
