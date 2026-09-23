@@ -21,6 +21,8 @@ import type {
   SimResult,
   SimRun,
   StoredRunInfo,
+  Study,
+  StudyPoint,
   SystemNode,
 } from "../types";
 import { useUIStore } from "./uiStore";
@@ -236,6 +238,25 @@ function mainRunOf<R extends Pick<SimRun, "status" | "incomplete" | "sweepId">>(
   return runs.find((r) => !r.incomplete && r.status !== "failed" && !r.sweepId) ?? runs[0];
 }
 
+/** A study's table row for a point that ran: its status and summary values. */
+function studyPoint(run: SimRun, values: number[]): StudyPoint {
+  const notValid = run.result.summary.filter((v) => v.notValid);
+  return {
+    values,
+    runId: run.id,
+    status: run.status === "running" ? "failed" : run.status,
+    ...(run.incomplete ? { incomplete: run.incomplete } : {}),
+    kpis: Object.fromEntries(run.result.summary.map((v) => [v.label, v.value])),
+    ...(notValid.length ? { notValid: Object.fromEntries(notValid.map((v) => [v.label, v.notValid!])) } : {}),
+  };
+}
+
+/** Undo and redo step through edits, not studies: a project from the
+ *  history gets the studies the project has now. */
+function keepStudies(target: Project, current: Project): Project {
+  return target.studies === current.studies ? target : { ...target, studies: current.studies };
+}
+
 /** Why a finished run is not a complete result, or undefined when it is.
  *  A stop only counts if the solver confirms it cut the run short (a stop
  *  pressed as the run ends leaves a complete result). */
@@ -370,8 +391,11 @@ interface ProjectState {
   /** Error-level data-check gate; resolves true when a run/sweep may proceed. */
   passesRunGate: () => Promise<boolean>;
   run: () => Promise<void>;
-  /** Sequentially run a case once per swept value, each landing in run history. */
+  /** Sequentially run a case once per swept value, each landing in run
+   *  history; the study and its results table are saved with the project. */
   runSweep: (config: SweepConfig) => Promise<void>;
+  /** Delete a saved study (its runs stay in the history). */
+  removeStudy: (studyId: string) => void;
   stopRun: () => void;
   setActiveRun: (runId: string | null) => void;
   /** Toggle a run in the overlay set (ignored for the active run). */
@@ -1137,7 +1161,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (past.length === 0 || !project) return;
       const prev = past[past.length - 1];
       set({
-        project: prev,
+        project: keepStudies(prev, project),
         past: past.slice(0, -1),
         future: [project, ...future].slice(0, HISTORY_LIMIT),
         dirty: true,
@@ -1148,7 +1172,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (future.length === 0 || !project) return;
       const next = future[0];
       set({
-        project: next,
+        project: keepStudies(next, project),
         future: future.slice(1),
         past: [...past.slice(-(HISTORY_LIMIT - 1)), project],
         dirty: true,
@@ -1494,6 +1518,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const paramUnit = pdef && pdef.unit !== "-" ? pdef.unit : "";
       const unit = paramUnit ? ` ${paramUnit}` : "";
       const sweepId = uid("sweep");
+      const startedAt = Date.now();
+      // the study's table: a row per value run, in run order, and its columns
+      const points: StudyPoint[] = [];
+      const kpiUnits = new Map<string, string>();
 
       set({ running: true });
       if (!(await get().passesRunGate())) {
@@ -1529,6 +1557,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             log("error", `Sweep point ${paramLabel}=${value} failed: ${(e as Error).message}`);
             // keep going with the remaining points
           }
+          // this point's run: the newest run of the sweep not in the table yet
+          const tabled = new Set(points.map((p) => p.runId));
+          const pointRun = get().runs.find((r) => r.sweepId === sweepId && !tabled.has(r.id));
+          points.push(pointRun ? studyPoint(pointRun, [value]) : { values: [value], status: "failed", kpis: {} });
+          for (const v of pointRun?.result.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
         }
       } finally {
         set({ running: false });
@@ -1550,6 +1583,30 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           `Sweep finished — ${complete.length} of ${values.length} point(s) complete` +
             (notes.length ? ` (${notes.join("; ")}). Incomplete points are left out of the sweep chart and table.` : "."),
         );
+        // save the study with the project (unless another one was opened
+        // meanwhile), with a row for every value, run or not
+        if (get().project?.id === project.id) {
+          const notRun = values.slice(points.length).map((v): StudyPoint => ({ values: [v], status: "not run", kpis: {} }));
+          const study: Study = {
+            id: sweepId,
+            startedAt,
+            caseId,
+            caseName: simCase.name,
+            factors: [
+              { elementId, paramKey, elementLabel: el?.label ?? elementId, paramLabel, unit: paramUnit, values },
+            ],
+            kpis: [...kpiUnits].map(([label, kpiUnit]) => ({ label, unit: kpiUnit })),
+            points: [...points, ...notRun],
+          };
+          updateProject((draft) => {
+            draft.studies = [...(draft.studies ?? []), study];
+          }, false);
+          log(
+            "info",
+            `Sweep saved as a study of '${project.name}' (Cases & Parameters → Saved studies); ` +
+              "save the project to keep it on disk.",
+          );
+        }
         // overlay the complete family: lowest swept value is the primary run,
         // the rest are overlaid, so all appear together in Results by default.
         const shown = complete.length > 0 ? complete : family.slice(0, 1);
@@ -1562,6 +1619,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         log("warning", "Sweep produced no runs.");
       }
     },
+
+    removeStudy: (studyId) =>
+      updateProject((draft) => {
+        draft.studies = (draft.studies ?? []).filter((st) => st.id !== studyId);
+      }, false),
 
     /** Error-level data-check gate shared by run + runSweep. */
     passesRunGate: async () => {

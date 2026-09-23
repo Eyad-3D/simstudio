@@ -931,3 +931,141 @@ describe("run snapshots", () => {
     expect(store().project?.id).toBe("fixture");
   });
 });
+
+describe("studies", () => {
+  const sweep = (values: number[]) =>
+    store().runSweep({ caseId: "case-1", elementId: "el-shaft", paramKey: "efficiency_pct", values });
+  const range = (n: number, from: number) => Array.from({ length: n }, (_, i) => from + i);
+
+  /** The engine answers each run with an energy figure of twice the swept efficiency. */
+  function engineAnswers() {
+    api.validateProject.mockResolvedValue([]);
+    api.runSimulationLive.mockImplementation((project, caseId) => {
+      const eff = Number(project.cases[0].parameterOverrides?.["el-shaft"]?.efficiency_pct ?? 0);
+      const summary = [
+        { label: "Energy", value: eff * 2, unit: "kWh" },
+        { label: "Final SOC", value: 50, unit: "%", notValid: eff > 90 ? "cycle not followed" : null },
+      ];
+      return {
+        setParam: vi.fn(),
+        cancel: vi.fn(),
+        done: Promise.resolve({ caseId, status: "success" as const, messages: [], channels: [], summary }),
+      };
+    });
+  }
+
+  it("a finished sweep is saved with the project as a study with its results table", async () => {
+    await store().init();
+    engineAnswers();
+    await sweep([80, 95]);
+    const [study] = store().project!.studies!;
+    const runIds = store()
+      .runs.slice()
+      .reverse()
+      .map((r) => r.id);
+    expect(study).toMatchObject({
+      caseId: "case-1",
+      caseName: "Case 1",
+      factors: [
+        {
+          elementId: "el-shaft",
+          paramKey: "efficiency_pct",
+          elementLabel: "Shaft",
+          paramLabel: "Mechanical Efficiency",
+          unit: "%",
+          values: [80, 95],
+        },
+      ],
+      kpis: [
+        { label: "Energy", unit: "kWh" },
+        { label: "Final SOC", unit: "%" },
+      ],
+      points: [
+        { values: [80], runId: runIds[0], status: "success", kpis: { Energy: 160, "Final SOC": 50 } },
+        {
+          values: [95],
+          runId: runIds[1],
+          status: "success",
+          kpis: { Energy: 190, "Final SOC": 50 },
+          notValid: { "Final SOC": "cycle not followed" },
+        },
+      ],
+    });
+    expect(study.id).toBe(store().runs[0].sweepId);
+    // part of the project, so it is saved (and kept in the recovery draft) with it
+    expect(store().dirty).toBe(true);
+    expect(store().past).toHaveLength(0); // not an edit to undo
+    await store().saveRemote();
+    expect(api.saveProject.mock.calls[0][0].studies).toEqual([study]);
+  });
+
+  it("a second 16-point sweep leaves the first study's table intact", async () => {
+    await store().init();
+    engineAnswers();
+    await sweep(range(16, 60));
+    const first = structuredClone(store().project!.studies![0]);
+    await sweep(range(16, 80));
+    const studies = store().project!.studies!;
+    expect(studies).toHaveLength(2);
+    expect(studies[0]).toEqual(first);
+    expect(studies[1].points.map((p) => p.kpis.Energy)).toEqual(range(16, 80).map((v) => v * 2));
+    // most of the first sweep's runs have left the 20-run history; its table has not
+    expect(store().runs.filter((r) => r.sweepId === first.id)).toHaveLength(4);
+    expect(first.points.map((p) => p.kpis.Energy)).toEqual(range(16, 60).map((v) => v * 2));
+  });
+
+  it("a stopped sweep lists the stopped point and the points not run", async () => {
+    await store().init();
+    api.validateProject.mockResolvedValue([]);
+    api.runSimulationLive.mockImplementation((_project, caseId) => {
+      let stop!: () => void;
+      const done = new Promise<SimResult>((resolve) => {
+        stop = () =>
+          resolve({
+            caseId,
+            status: "success",
+            messages: [{ level: "warning", text: "Run cancelled at t = 3 s." }],
+            channels: [],
+            summary: [{ label: "Energy", value: 1, unit: "kWh" }],
+          });
+      });
+      return { setParam: vi.fn(), cancel: vi.fn(() => stop()), done };
+    });
+    const running = sweep([80, 90, 95]);
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalled());
+    store().stopRun();
+    await running;
+    expect(store().project!.studies![0].points).toEqual([
+      expect.objectContaining({ values: [80], status: "success", incomplete: "stopped at t = 3 s" }),
+      { values: [90], status: "not run", kpis: {} },
+      { values: [95], status: "not run", kpis: {} },
+    ]);
+  });
+
+  it("undo and redo leave studies alone; a study can be deleted", async () => {
+    await store().init();
+    engineAnswers();
+    store().renameElement("el-bat", "Pack");
+    await sweep([80, 90]);
+    const studies = store().project!.studies;
+    store().undo();
+    expect(findElement("el-bat")?.label).toBe("Battery");
+    expect(store().project!.studies).toBe(studies);
+    store().redo();
+    expect(store().project!.studies).toBe(studies);
+
+    store().removeStudy(studies![0].id);
+    expect(store().project!.studies).toEqual([]);
+    expect(store().runs).toHaveLength(2); // its runs stay in the history
+  });
+
+  it("a study saved with a project comes back when it is opened again", async () => {
+    await store().init();
+    engineAnswers();
+    await sweep([80, 90]);
+    const saved = store().project!;
+    api.fetchProject.mockResolvedValue(structuredClone(saved));
+    await store().openProject(saved.id);
+    expect(store().project!.studies).toEqual(saved.studies);
+  });
+});

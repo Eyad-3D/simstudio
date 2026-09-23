@@ -124,6 +124,46 @@ export interface SimCase {
   parameterOverrides?: Record<string, Record<string, ParamValue>>;
 }
 
+/** One swept parameter of a study, with its labels as they were when it ran
+ *  (the element may be renamed or removed since). */
+export interface StudyFactor {
+  elementId: string;
+  paramKey: string;
+  elementLabel: string;
+  paramLabel: string;
+  unit: string;
+  values: number[];
+}
+
+/** A row of a study's results table: one point and its answers. */
+export interface StudyPoint {
+  /** the factor values of this point, in factor order */
+  values: number[];
+  /** the run that produced it (it may since have left the run history) */
+  runId?: string | null;
+  status: SimResult["status"] | "not run";
+  /** why the point's run did not finish normally */
+  incomplete?: string | null;
+  /** summary value label → value */
+  kpis: Record<string, number>;
+  /** summary value label → why the run's checks rule that value out */
+  notValid?: Record<string, string>;
+}
+
+/** A parameter study saved with its project (STU-03): what was swept on which
+ *  case, and its compact results table (it outlives the runs it came from). */
+export interface Study {
+  id: string;
+  /** epoch ms */
+  startedAt: number;
+  caseId: string;
+  caseName: string;
+  factors: StudyFactor[];
+  /** the table's KPI columns: run summary values */
+  kpis: { label: string; unit: string }[];
+  points: StudyPoint[];
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -134,6 +174,8 @@ export interface Project {
   systems: SystemNode[];
   dataBusConnections: DataBusConnection[];
   cases: SimCase[];
+  /** Parameter studies run on this project, oldest first. */
+  studies?: Study[];
 }
 
 export interface SimMessage {
