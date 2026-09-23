@@ -259,16 +259,25 @@ def simulate(
         fuel_kg = sum(ec.fuel_used_kg for ec in ctx.engines.values())
         if ctx.distance > 100 and fuel_kg > 0:
             density = 0.745  # gasoline default when no tank declares one
+            co2_per_kg = 3.17  # kg CO₂ per kg of gasoline, likewise
             if model.fuel_tank:
+                tank_p = ctx.params(model.fuel_tank)
                 try:
-                    density = max(1e-3, float(
-                        ctx.params(model.fuel_tank).get("density_kg_per_l", density)))
+                    density = max(1e-3, float(tank_p.get("density_kg_per_l", density)))
+                except (TypeError, ValueError):
+                    pass
+                try:
+                    co2_per_kg = max(0.0, float(tank_p.get("co2_kg_per_kg", co2_per_kg)))
                 except (TypeError, ValueError):
                     pass
             liters = fuel_kg / density
             summary.append(SummaryValue(
                 label="Fuel consumption",
                 value=round(liters * 100.0 / (ctx.distance / 1000.0), 2), unit="l/100km"))
+            summary.append(SummaryValue(
+                label="CO₂ emissions",
+                value=round(fuel_kg * co2_per_kg * 1000.0 / (ctx.distance / 1000.0), 1),
+                unit="g/km"))
     if ctx.throughput_wh > 0:
         # energy no source supplied or absorbed (last-resort clamps), as a
         # share of all the energy that went through the buses

@@ -107,6 +107,7 @@ class EngineCache:
     drag: list
     fuel_map: list
     idle_rpm: float
+    reentry_rpm: float  # zero throttle above this speed cuts the fuel
     rpm: float = 0.0
     torque: float = 0.0
     fuel_kgh: float = 0.0

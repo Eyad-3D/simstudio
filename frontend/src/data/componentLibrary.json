@@ -1381,7 +1381,7 @@
       "name": "Combustion Engine",
       "icon": "flame",
       "domain": "mechanical",
-      "description": "Internal combustion engine: full-load torque curve, drag (motoring) torque, and a fuel-consumption map (speed × torque → kg/h). Built-in idle governor holds idle speed when enabled. Enable input allows hybrid start/stop control (unwired = always on); consumes from the Fuel Tank automatically.",
+      "description": "Internal combustion engine: full-load torque curve, drag (motoring) torque, and a fuel-consumption map (speed × torque → kg/h). The full-load curve and fuel map are brake (net, flywheel) values, as on a datasheet; the drag torque applies only while the engine is not fired: switched off, out of fuel, in overrun fuel cut-off (zero throttle above the re-entry speed) or above the full-load curve's last speed (rev limiter). Built-in idle governor holds idle speed at zero throttle. Enable input allows hybrid start/stop control (unwired = always on); consumes from the Fuel Tank automatically.",
       "ports": [
         {
           "id": "shaft",
@@ -1458,7 +1458,7 @@
         },
         {
           "key": "drag_torque",
-          "label": "Drag Torque",
+          "label": "Drag Torque (unfired)",
           "unit": "N·m",
           "type": "table1d",
           "axes": [{ "name": "Speed", "unit": "1/min" }],
@@ -1498,6 +1498,13 @@
           "type": "number"
         },
         {
+          "key": "fuel_cut_reentry_rpm",
+          "label": "Fuel Cut-Off Re-Entry Speed",
+          "unit": "1/min",
+          "default": 1100,
+          "type": "number"
+        },
+        {
           "key": "inertia_kgm2",
           "variability": "fixed",
           "label": "Inertia",
@@ -1513,7 +1520,7 @@
       "name": "Fuel Tank",
       "icon": "fuel",
       "domain": "fluid",
-      "description": "Fuel reservoir. Combustion engines draw from it automatically; when it runs dry the engine shuts off. One tank per model.",
+      "description": "Fuel reservoir. Combustion engines draw from it automatically; when it runs dry the engine shuts off. Its density turns the fuel burnt into litres and its CO₂ factor (3.17 kg per kg for petrol) into the CO₂ emissions in the run summary. One tank per model.",
       "ports": [
         {
           "id": "sig_level",
@@ -1552,6 +1559,13 @@
           "label": "Fuel Density",
           "unit": "kg/l",
           "default": 0.745,
+          "type": "number"
+        },
+        {
+          "key": "co2_kg_per_kg",
+          "label": "CO₂ per kg of Fuel",
+          "unit": "kg/kg",
+          "default": 3.17,
           "type": "number"
         }
       ]

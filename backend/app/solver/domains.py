@@ -123,6 +123,7 @@ class RunContext:
                         drag=parse_table1d(p.get("drag_torque", {"0": 20})),
                         fuel_map=parse_table2d(p.get("fuel_map", {"1000": {"0": 1}})),
                         idle_rpm=max(1.0, float(p.get("idle_speed_rpm", 800))),
+                        reentry_rpm=float(p.get("fuel_cut_reentry_rpm", 1100)),
                     )
                 elif cdef.id == "fuelcell.stack":
                     self.fuelcells[el_id] = FuelCellCache(
@@ -336,6 +337,7 @@ class RunContext:
                 ec = self.engines[el_id]
                 p = self.params(el_id)
                 ec.idle_rpm = max(1.0, float(p.get("idle_speed_rpm", ec.idle_rpm)))
+                ec.reentry_rpm = float(p.get("fuel_cut_reentry_rpm", ec.reentry_rpm))
                 ec.full_load = parse_table1d(p.get("full_load_torque", {}))
                 ec.drag = parse_table1d(p.get("drag_torque", {}))
                 ec.fuel_map = parse_table2d(p.get("fuel_map", {}))
@@ -670,6 +672,17 @@ class RunContext:
                          "An electrical bus has load but no source — demand is unmet.")
 
     def engine_torque(self, ec: EngineCache, omega_e: float) -> float:
+        """Shaft torque of the combustion engine.
+
+        The full-load curve and fuel map are brake (net, flywheel) maps, as on
+        a datasheet: fired, the engine delivers throttle × full-load torque
+        and burns map(speed, torque). The drag table applies only while it is
+        not fired — switched off, out of fuel, in overrun fuel cut-off (zero
+        throttle above the re-entry speed) or above the full-load curve's
+        last speed (rev limiter) — and then it burns nothing. At zero
+        throttle below the re-entry speed the idle governor holds idle: below
+        idle it adds torque, above it trims the fuel down to the drag torque,
+        with fuel falling linearly from map(speed, 0) to 0 (a Willans line)."""
         rt, model = self.rt, self.model
         rpm = abs(omega_e) * RPM
         throttle = rt.read_signal(ec.el_id, "sig_throttle_in")
@@ -683,20 +696,31 @@ class RunContext:
                 ec.stalled_flagged = True
                 rt.message("warning",
                            f"Fuel tank empty — engine '{model.elements[ec.el_id].label}' shut off.")
-        t_prod = 0.0
+        t_drag = interp1(ec.drag, rpm)
+        t_brake = None  # stays None while the engine is not fired
         if on:
+            t_full = interp1(ec.full_load, rpm)
+            governor = (ec.idle_rpm - rpm) / (0.25 * ec.idle_rpm)
             if rpm > ec.full_load[-1][0] + 1e-9:
                 rt.warn_once(
-                    f"mapclamp:{ec.el_id}:rpm",
-                    f"Engine '{model.elements[ec.el_id].label}' exceeds its full-load "
-                    f"curve's speed range ({rpm:.0f} 1/min) — torque clamped to the "
-                    f"curve edge.",
+                    f"revlimit:{ec.el_id}",
+                    f"Engine '{model.elements[ec.el_id].label}' reached its maximum speed "
+                    f"({ec.full_load[-1][0]:.0f} 1/min, the full-load curve's last point) — "
+                    f"the rev limiter cuts fuel and torque above it.",
                 )
-            # idle governor: throttle floor rises as speed falls below idle
-            governor = max(0.0, min(1.0, (ec.idle_rpm - rpm) / (0.25 * ec.idle_rpm)))
-            t_prod = max(throttle, governor) * interp1(ec.full_load, rpm)
-        t_net = t_prod - _sign(omega_e) * interp1(ec.drag, rpm)
-        fuel = interp2(ec.fuel_map, rpm, max(0.0, t_prod)) if on else 0.0
+            elif throttle > 0:
+                t_brake = max(throttle, min(1.0, governor)) * t_full
+            elif rpm <= ec.reentry_rpm:
+                t_brake = max(-t_drag, min(t_full, governor * t_full))
+        if t_brake is None:
+            t_net = -_sign(omega_e) * t_drag
+            fuel = 0.0
+        elif t_brake >= 0:
+            t_net = t_brake
+            fuel = interp2(ec.fuel_map, rpm, t_brake)
+        else:
+            t_net = t_brake
+            fuel = interp2(ec.fuel_map, rpm, 0.0) * (1.0 + t_brake / t_drag)
         if tank is not None and fuel > 0:
             burn = fuel / 3600.0 * self.dt
             tank.mass_kg = max(0.0, tank.mass_kg - burn)
@@ -704,9 +728,9 @@ class RunContext:
         elif tank is None and fuel > 0:
             ec.fuel_used_kg += fuel / 3600.0 * self.dt
         ec.rpm = rpm
-        ec.torque = t_prod
+        ec.torque = t_net
         ec.fuel_kgh = fuel
-        ec.p_mech_w = t_prod * omega_e
+        ec.p_mech_w = t_net * omega_e
         return t_net
 
     def wheel_force(self, w, omega_ref: float) -> tuple[float, float, float]:

@@ -78,3 +78,30 @@ energy no source covered as a share of all energy through the buses.
 
 - Neither demo reaches a source limit, so every channel and number is
   unchanged; both fixtures gain "Electrical energy balance error 0.0 %".
+
+## Engine: brake-torque maps, fuel cut-off, rev limiter and CO₂ (MOD-05)
+
+The engine subtracted its drag (friction) table even while fired, so it
+fell 28 % short of its own full-load curve (59 kW peak instead of 82 kW),
+burned map(speed, 0) with the pedal lifted, and ran on past the curve's
+last speed with its torque held flat. The full-load curve and fuel map are
+now brake (net) maps: fired, the engine gives throttle × full-load torque
+and burns map(speed, torque); drag applies only when it is not fired. Zero
+throttle above the new Fuel Cut-Off Re-Entry Speed (default 1,100 1/min)
+cuts the fuel, the idle governor trims the fuel down to the drag torque
+above idle, and above the full-load curve's last speed a rev limiter cuts
+fuel and torque. Engine Torque now records the net shaft torque. The run
+summary gains "CO₂ emissions" (g/km) from the fuel burnt and the tank's
+new CO₂ factor (default 3.17 kg per kg, petrol).
+
+- bev-car City Cycle: unchanged (no engine).
+- hybrid-car Mixed Cycle: fuel 0.540 -> 0.459 kg, 7.58 -> 6.45 l/100 km,
+  new CO₂ emissions 152.3 g/km; final SOC 53.00 -> 55.83 % (from 55 %),
+  recuperated 0.606 -> 0.949 kWh, internal losses 0.0118 -> 0.0164 kWh;
+  the battery "Consumption" row (2.39 kWh/100 km) is gone because the
+  battery now ends above its start. Status success -> warning: from 544 s
+  the car stops with the engine on and the clutch open, and the example's
+  Hybrid Control Unit script holds throttle 0.3 there, which now revs the
+  engine to its 6,000 1/min limiter (before, the drag held it near 4,900).
+  That is 0.087 kg of the fuel. The script belongs to the example (CON-02
+  rewrites it to stop the engine free-revving).
