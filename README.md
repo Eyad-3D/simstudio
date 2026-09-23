@@ -202,7 +202,9 @@ python scripts/third-party-notices.py   # add --check to only check
 ```
 
 If the check fails on a package whose metadata names no licence the script
-can read, check its licence file and record it in
+can read, or names several without an SPDX expression (the script then
+requires all of them, since the list does not say whether they are a
+choice), check its licence file and record it in
 `scripts/licenses/clarifications.json`. A native library it does not know
 goes in `scripts/licenses/bundled-runtime.json`. Adding a licence to
 `allowed.txt` is a licensing decision for the owner, not a build fix.

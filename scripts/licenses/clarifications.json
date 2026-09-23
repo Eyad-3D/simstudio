@@ -21,6 +21,11 @@
       "expect": "Bootloader Exception",
       "reason": "Its metadata says GPLv2-or-later with an exception. Only the bootloader and loader (GPL-2.0-or-later with the Bootloader Exception) and the run-time hooks (Apache-2.0) are embedded in the frozen engine; see its COPYING.txt."
     },
+    "uvloop": {
+      "license": "Apache-2.0 OR MIT",
+      "expect": "Permission is hereby granted, free of charge",
+      "reason": "Linux builds only (uvicorn uses it there). Dual-licensed: its README says \"uvloop is dual-licensed under MIT and Apache 2.0 licenses\" and it ships LICENSE-MIT and LICENSE-APACHE. Its metadata has only the two classifiers, which do not say that they are a choice."
+    },
     "setuptools": {
       "license": "MIT",
       "expect": "Permission is hereby granted, free of charge",

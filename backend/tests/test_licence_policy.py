@@ -83,7 +83,11 @@ def test_copyleft_is_refused_even_if_listed(notices, allowed):
 
 @pytest.mark.parametrize("expression, classifiers, declared, spdx", [
     ("MIT", "UNKNOWN", "UNKNOWN", "MIT"),
-    ("UNKNOWN", "Apache Software License; MIT License", "MIT License", "Apache-2.0 OR MIT"),
+    # Several classifiers do not say whether they are a choice or all apply,
+    # so all of them must be allowed.
+    ("UNKNOWN", "Apache Software License; MIT License", "MIT License", "Apache-2.0 AND MIT"),
+    ("UNKNOWN", "GNU General Public License v3 (GPLv3); MIT License", "UNKNOWN",
+     "GPL-3.0-only AND MIT"),
     ("UNKNOWN", "UNKNOWN", "BSD-3-Clause", "BSD-3-Clause"),
     # "BSD License" does not say which BSD licence, so it is not a licence.
     ("UNKNOWN", "BSD License", "UNKNOWN", ""),
@@ -110,3 +114,26 @@ def test_unknown_and_disallowed_components_fail_the_check(notices, allowed):
     assert "licence unknown" in problems[0] and "licence unknown" in problems[1]
     assert "is not allowed" in problems[2]
     assert "clarifications.json" in problems[3]
+
+
+def test_several_licences_without_an_expression_must_all_be_allowed(notices, allowed):
+    # A package whose parts are GPL but that also lists MIT must not pass as
+    # MIT: without an SPDX expression it needs a clarifications.json entry.
+    engine = notices.ENGINE
+    spdx = notices.identify("UNKNOWN", "GNU General Public License v3 (GPLv3); MIT License",
+                            "UNKNOWN")
+    assert verdict(notices, allowed, spdx) is None
+    problems = notices.check([notices.Component(engine, "mixed", "1.0", spdx)], allowed, {})
+    assert len(problems) == 1 and "is not allowed" in problems[0]
+
+
+def test_npm_licence_arrays_must_all_be_allowed(notices, allowed, monkeypatch):
+    # Old package.json "licenses" arrays are just as ambiguous.
+    found = {"mixed@1.0.0": {"licenses": ["GPL-3.0-only", "MIT"]},
+             "dual@2.0.0": {"licenses": ["MIT", "Apache-2.0"]}}
+    monkeypatch.setattr(notices, "license_checker", lambda folder, *args: found)
+    components = {c.name: c for c in notices.npm_components()}
+    assert components["mixed"].license == "GPL-3.0-only AND MIT"
+    problems = notices.check(list(components.values()), allowed, {})
+    assert [p.split(" ", 1)[0] for p in problems] == ["mixed"]
+    assert components["dual"].terms == ["MIT", "Apache-2.0"]

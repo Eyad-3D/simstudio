@@ -288,8 +288,10 @@ def npm_components() -> list[Component]:
         for key, info in sorted(packages.items()):
             name, _, version = key.rpartition("@")
             declared = info.get("licenses", "")
-            if isinstance(declared, list):  # old "licenses" arrays list alternatives
-                declared = " OR ".join(declared)
+            if isinstance(declared, list):
+                # Old "licenses" arrays do not say whether they list a choice
+                # or licences that all apply, so all of them must be allowed.
+                declared = " AND ".join(f"({d})" if " " in d else d for d in declared)
             texts = []
             for kind in ("licenseFile", "noticeFile"):
                 path = info.get(kind)
@@ -422,14 +424,17 @@ def embedded_sbom(dist: metadata.Distribution, part: str) -> list[Component]:
 
 def identify(expression: str, classifiers: str, declared: str) -> str:
     """A Python package's licence as an SPDX expression: its
-    License-Expression, else its licence classifiers (several mean a choice),
-    else its License field if that is an expression; "" if none of these."""
+    License-Expression, else its licence classifiers, else its License field
+    if that is an expression; "" if none of these. Several classifiers do not
+    say whether they are a choice or all apply, so they are read as all
+    applying; a package that offers a choice needs a clarifications.json
+    entry."""
     if expression and expression != "UNKNOWN":
         return expression
     if classifiers and classifiers != "UNKNOWN":
         spdx = [CLASSIFIERS.get(c.strip()) for c in classifiers.split(";")]
         if all(spdx):
-            return " OR ".join(spdx)
+            return " AND ".join(spdx)
     if declared and declared != "UNKNOWN" and parse_expression(declared):
         return declared
     return ""
