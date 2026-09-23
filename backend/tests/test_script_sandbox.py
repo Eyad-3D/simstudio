@@ -133,9 +133,11 @@ def test_windows_worker_is_in_the_engines_job():
 # ---- runaway scripts fail the run within the limit ----------------------------
 
 def test_c_level_endless_loop_fails_within_the_limit():
-    # list(iter(int, 1)) loops in C; the in-process tracer can never stop it, so
-    # only the worker being killed can. It passes the AST filter, so this runs
-    # as an ordinary (checked) script through simulate().
+    # any(iter(int, 1)) loops in C (int() is always 0) without allocating, so
+    # only the time limit can end it; the in-process tracer never could, so only
+    # the worker being killed can. It passes the AST filter, so this runs as an
+    # ordinary (checked) script through simulate(). (A growing loop such as
+    # list(iter(int, 1)) may hit the memory cap first, which fails the run too.)
     import app.solver.scripting as scripting
     orig = scripting.TIME_LIMIT_S
     scripting.TIME_LIMIT_S = 0.3
@@ -143,7 +145,7 @@ def test_c_level_endless_loop_fails_within_the_limit():
         t0 = time.perf_counter()
         result = simulate(_scripted(
             "def step(t, dt, inputs, state, params):\n"
-            "    return {'cmd_out': float(len(list(iter(int, 1))))}\n"), "case")
+            "    return {'cmd_out': float(any(iter(int, 1)))}\n"), "case")
         assert time.perf_counter() - t0 < 10
     finally:
         scripting.TIME_LIMIT_S = orig
