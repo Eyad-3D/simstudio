@@ -30,7 +30,7 @@ inspect results — all in a dockable-panel UI.
 | **Results** | Dedicated full-page Results workspace (own ribbon tab): channel picker grouped per element, multi-channel time-series **chart or table view** that fills in live during the run, summary table (SOC, energy, recuperation, distance, consumption, fuel and CO₂ per km, electrical energy balance error, time a motor was held back by its supply) with a *not valid* note on figures the run's checks rule out (see [Run status](#run-status-and-not-valid-figures)), CSV export. Point 0 is the initial state at t = 0, each later point holds the state at its own time, and the run ends exactly at the case duration |
 | **Electrical** | Two-terminal components: every electrical element has explicit positive (+, red) and negative (−, blue) pins; the solver balances power on the supply rail with the negative terminals as the return (wire to Ground, or leave implicit) |
 | **Canvas** | Signal/data-bus wiring is edited in the Data Bus panel; an optional dashed overlay draws those links on the canvas (the *signal* layer in Layer Configurations, off by default); background-grid toggle; double-click an element for a modal parameter dialog; Shift+click a pin to move it to the next side of its node, Shift+drag a pin to slide it anywhere along the node's edges (Shift+drag elsewhere draws a selection box) |
-| **Persistence** | Save/load projects on the backend (single JSON file per project), plus browser Export / Import |
+| **Persistence** | Save/load projects on the backend (single JSON file per project), plus browser Export / Import; the last 20 saved versions of each project can be restored as a copy (Project → Restore…) |
 | **UI shell** | Ribbon tabs act as full-page workspaces (Home = topology + panels; Results = its own page); light/dark theme (persisted); dockable & resizable panels (Dockview) around a large diagram, with Messages, Data Checks, layers, Data Bus and Signal Plot in a collapsible bottom tray (double-click a tab to maximise its group); status bar with live progress |
 
 ![Results view](docs/doc-results.png)
@@ -84,6 +84,11 @@ A save replaces the file in one step, so a crash or a full disk mid-save never
 leaves a half-written project, and the version it replaced is kept next to it
 as `<id>.json.bak`. If the file changed after you opened it (saved from a
 second window, or edited by another program), Save asks before overwriting it.
+
+Every save also keeps the version it replaced in the hidden `.backups/<id>/`
+folder, the last 20 per project. **Project → Restore…** lists them by the
+time each was saved and opens the one you pick as an unsaved copy: the
+project file is left as it is, and saving the copy makes a new project.
 
 ## Building the app from source
 

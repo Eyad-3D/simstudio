@@ -336,6 +336,9 @@ interface ProjectState {
   saveRemote: () => Promise<void>;
   exportProject: () => void;
   importProject: (json: string) => void;
+  /** Open `project` as a new, unsaved project named `name`: it gets an id of
+   *  its own, so saving it never replaces another project's file. */
+  openAsCopy: (project: Project, name: string, note: string) => void;
 
   // cases & simulation
   setActiveCase: (id: string) => void;
@@ -1195,7 +1198,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             // edits made while the dialog was open were not in this save
             set({ dirty: get().project !== project, revision: res.revision ?? null });
             log("info", `Project '${project.name}' saved to the server, replacing the version on disk ` +
-              `(it is kept as ${project.id}.json.bak until your next save).`);
+              "(Project → Restore opens that version again).");
           } catch (e2) {
             log("error", `Save failed: ${(e2 as Error).message}. Use Export to download the project file instead.`);
           }
@@ -1249,6 +1252,28 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       } catch (e) {
         get().log("error", `Import failed: ${(e as Error).message}`);
       }
+    },
+
+    openAsCopy: (source, name, note) => {
+      const project: Project = { ...structuredClone(source), id: uid("project"), name };
+      runHistorySeq++; // runs still loading for the project it replaces are dropped
+      set({
+        project,
+        revision: null,
+        activeSystemId: rootSystemOf(project).id,
+        activeCaseId: project.cases[0]?.id ?? null,
+        activeRunId: null,
+        overlayRunIds: [],
+        selectedElementId: null,
+        past: [],
+        future: [],
+        runs: [],
+        storedRunCount: 0,
+        runsLoading: false,
+        dataChecks: null,
+        dirty: true,
+      });
+      get().log("info", note);
     },
 
     setActiveCase: (id) => set({ activeCaseId: id }),

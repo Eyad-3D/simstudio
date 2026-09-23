@@ -116,6 +116,29 @@ export function saveProject(
   });
 }
 
+// ---- backups (earlier versions the engine keeps when a save replaces one) --
+
+/** An earlier version of a project, kept when a save replaced it. `savedAt`
+ *  is when that version was saved; `name` and `elements` are null when the
+ *  backup cannot be read. */
+export interface BackupInfo {
+  id: string;
+  savedAt: number;
+  revision: string;
+  bytes: number;
+  name: string | null;
+  elements: number | null;
+}
+
+/** The project's backups, newest first (none for a project never saved over). */
+export function listBackups(projectId: string): Promise<BackupInfo[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/backups`);
+}
+
+export function fetchBackup(projectId: string, backupId: string): Promise<Project> {
+  return request(`/projects/${encodeURIComponent(projectId)}/backups/${encodeURIComponent(backupId)}`);
+}
+
 // ---- run history (stored on disk next to the project by the engine) -------
 
 const runsPath = (projectId: string) => `/projects/${encodeURIComponent(projectId)}/runs`;

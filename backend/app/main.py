@@ -8,6 +8,8 @@ Endpoints:
                                loaded from → 409 if the file changed since;
                                If-None-Match: * → 409 if it already exists)
   DELETE /api/projects/{id}    delete a project (and its stored runs)
+  GET  /api/projects/{id}/backups          earlier versions kept by saves, newest first
+  GET  /api/projects/{id}/backups/{backup} one earlier version of the project
   GET  /api/projects/{id}/runs         the project's stored runs, newest first
   GET  /api/projects/{id}/runs/{run}   one stored run (gzip-encoded JSON)
   PUT  /api/projects/{id}/runs/{run}   store a finished run
@@ -163,6 +165,26 @@ def remove_project(project_id: str) -> dict:
     except ValueError:
         pass  # an id no run could have been stored under
     return {"deleted": project_id}
+
+
+@app.get("/api/projects/{project_id}/backups")
+def get_backups(project_id: str) -> list[dict]:
+    try:
+        return storage.list_backups(project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/projects/{project_id}/backups/{backup_id}")
+def get_backup(project_id: str, backup_id: str) -> dict:
+    """An earlier version of the project. It carries no revision: it is not
+    the file on disk, and a save of it must not replace that file unasked."""
+    try:
+        return storage.load_backup(project_id, backup_id).model_dump(mode="json")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Backup '{backup_id}' not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/projects/{project_id}/runs")

@@ -7,7 +7,10 @@ projects are copied in, so a new install never opens empty.
 
 Saves are all-or-nothing: the new file is written next to the old one and
 swapped in with an atomic rename, and the version it replaces is kept as
-``<id>.json.bak``. Each file version has a *revision* (a hash of its bytes);
+``<id>.json.bak``. That version is also added to the project's backups in
+``.backups/<id>/``, which keep the last :data:`KEEP_BACKUPS` versions for
+the UI to restore (as a copy: a restore never writes the project file).
+Each file version has a *revision* (a hash of its bytes);
 a save can name the revision it was based on and is refused with
 :class:`ConflictError` if the file changed since, so two windows (or another
 program) never silently overwrite each other.
@@ -41,6 +44,14 @@ class ConflictError(Exception):
 #: at most 128 characters that does not start or end with a dot (that rules
 #: out "." and "..", and names Windows would shorten).
 SAFE_ID = re.compile(r"[A-Za-z0-9_-](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9_-])?")
+
+
+#: Earlier versions kept per project, and the name of their folder (hidden,
+#: and outside the project list, which only reads ``*.json`` at the top).
+KEEP_BACKUPS = 20
+_BACKUPS = ".backups"
+#: A backup's id: when it was taken (epoch ms) and the revision it holds.
+BACKUP_ID = re.compile(r"(\d{13})-([0-9a-f]{16})")
 
 
 def safe_id(value: str, what: str) -> str:
@@ -174,8 +185,75 @@ def save_project(
                     f"(another window or program saved it).")
         if current is not None:
             _write_atomic(path.with_name(path.name + ".bak"), current)
+            if current != data:
+                _keep_backup(project.id, path, current)
         _write_atomic(path, data)
     return revision_of(data)
+
+
+def _backups_dir(project_id: str) -> Path:
+    return _ensure_dir() / _BACKUPS / _safe_name(project_id)
+
+
+def _backup_files(folder: Path) -> list[Path]:
+    """The backups in `folder`, oldest first."""
+    return sorted(f for f in folder.glob("*.json") if BACKUP_ID.fullmatch(f.stem))
+
+
+def _keep_backup(project_id: str, path: Path, previous: bytes) -> None:
+    """Add `previous`, the version at `path` a save is about to replace, to
+    the project's backups and drop all but the newest KEEP_BACKUPS. The copy
+    keeps the file's time, so it is listed by when that version was saved.
+    Call with _save_lock held."""
+    folder = _backups_dir(project_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    kept = _backup_files(folder)
+    revision = revision_of(previous)
+    if kept and kept[-1].stem.endswith(revision):
+        return  # the newest backup holds these bytes already
+    saved_ns = path.stat().st_mtime_ns
+    backup = folder / f"{time.time_ns() // 1_000_000:013d}-{revision}.json"
+    _write_atomic(backup, previous)
+    os.utime(backup, ns=(saved_ns, saved_ns))
+    for old in kept[: max(0, len(kept) + 1 - KEEP_BACKUPS)]:
+        with contextlib.suppress(OSError):
+            old.unlink()
+
+
+def list_backups(project_id: str) -> list[dict]:
+    """The project's backups, newest first: each one's id, when that version
+    was saved (epoch ms), its revision and size, and the project name and
+    element count it holds (None where the file cannot be read)."""
+    folder = _backups_dir(project_id)
+    out = []
+    for f in reversed(_backup_files(folder)) if folder.is_dir() else []:
+        st = f.stat()
+        entry = {
+            "id": f.stem,
+            "savedAt": st.st_mtime_ns // 1_000_000,
+            "revision": BACKUP_ID.fullmatch(f.stem).group(2),
+            "bytes": st.st_size,
+            "name": None,
+            "elements": None,
+        }
+        try:
+            raw = json.loads(f.read_bytes())
+            entry["name"] = raw["name"] if isinstance(raw.get("name"), str) else None
+            entry["elements"] = sum(len(s["elements"]) for s in raw["systems"])
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            pass
+        out.append(entry)
+    return out
+
+
+def load_backup(project_id: str, backup_id: str) -> Project:
+    """One earlier version of the project, as it was saved."""
+    if not isinstance(backup_id, str) or not BACKUP_ID.fullmatch(backup_id):
+        raise ValueError(f"Invalid backup id: {backup_id!r}")
+    path = _backups_dir(project_id) / f"{backup_id}.json"
+    if not path.is_file():
+        raise FileNotFoundError(backup_id)
+    return Project.model_validate_json(path.read_bytes())
 
 
 def delete_project(project_id: str) -> bool:

@@ -306,6 +306,25 @@ describe("project lifecycle", () => {
     expect(store().dirty).toBe(true);
   });
 
+  it("a copy opens as a new, unsaved project with an id of its own", async () => {
+    await store().init();
+    const source = fixture({ name: "Old version", cases: [{ id: "case-9", name: "Old case", duration: 5, timeStep: 1 }] });
+    store().openAsCopy(source, "Old version (copy)", "Opened a copy.");
+    const s = store();
+    expect(s.project?.id).not.toBe("fixture");
+    expect(s.project?.name).toBe("Old version (copy)");
+    expect(s.project?.systems).toEqual(source.systems);
+    expect(s.revision).toBeNull(); // Save creates a file and never replaces one
+    expect(s.dirty).toBe(true);
+    expect(s.activeCaseId).toBe("case-9");
+    expect(s.runs).toEqual([]);
+    expect(s.past).toEqual([]);
+    expect(messages()).toContain("info: Opened a copy.");
+
+    await store().saveRemote();
+    expect(api.saveProject).toHaveBeenCalledWith(expect.objectContaining({ id: s.project!.id }), null);
+  });
+
   it("Import rejects files that are not projects and keeps the current one", async () => {
     await store().init();
     store().importProject("{broken");
