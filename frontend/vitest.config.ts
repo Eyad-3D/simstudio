@@ -8,6 +8,8 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     include: ["src/**/*.test.{ts,tsx}"],
+    // every test starts with fresh mocks: no calls recorded, no leftover return values
+    mockReset: true,
     restoreMocks: true,
   },
 });
