@@ -1,9 +1,42 @@
 # Golden fixture changes
 
-The fixtures in this folder freeze the bundled demo results. They are only
-regenerated (`python tests/update_golden.py`) for an intended behaviour
-change, and each regeneration is recorded here with the reason and how the
-headline numbers moved.
+The fixtures in this folder freeze the bundled examples' results: the BEV
+City Cycle and the hybrid Mixed Cycle, each at the shipped case step (a
+10 ms solver step) and at a 5 ms solver step (the `__fine` files), both
+recorded every second. `tests/test_golden.py` compares new runs with them:
+
+- status and messages must be the same;
+- each headline (summary) number must stay within 0.2 % of its value, and
+  never less than a few steps of the summary's rounding (percentages such as
+  SOC: ±0.02 points);
+- each channel must pass through a tube around its stored curve: every
+  stored point within 0.5 % of the channel's range of a new point at most
+  one recorded step away;
+- the shipped step's headline numbers must agree with the 5 ms step's
+  within the same bands (the shipped step is converged).
+
+A failing test prints a diff report: what moved, old → new, by how much and
+against which band. `SIMSTUDIO_GOLDEN_EXACT=1` demands identical results
+instead (to 1e-6): use it for refactors that must not change anything. In
+CI the reports of every run go to the job summary.
+
+These tests ask whether behaviour changed, not whether it is right: that is
+the plausibility tests' job (`tests/test_examples_plausible.py`).
+
+## How to regenerate
+
+Only for an intended behaviour change:
+
+    cd backend
+    python tests/update_golden.py                   # the diff report; writes nothing
+    python tests/update_golden.py --reason "Title"  # rewrites every fixture
+
+`--reason` is required. It becomes a new `## Title` entry at the end of
+this file, with the headline numbers that moved (old → new) filled in:
+write under it why they moved. Each fixture records its entry's title, and
+`test_golden` fails when the entry is missing.
+
+# Changes
 
 ## Recorded times match the state they hold (ENG-03)
 
@@ -216,3 +249,23 @@ preconditioning drive would leave it (Mixed Cycle 52.5 %).
   test_examples_plausible.py): EPA city (UDDS) 2.67 l/100 km, EPA highway
   (HWFET) 3.13 l/100 km, against the real car's 2.91 and 2.94 in EPA's
   tests.
+
+## Golden fixtures v2: tolerance bands, a 5 ms variant, readable diffs (VAL-18)
+
+No behaviour change: the solver is the same, and the shipped-step fixtures
+hold exactly the numbers of the previous ones (status, messages, every
+summary value and every stored channel point). What changed is how they are
+stored and compared (see the top of this file):
+
+- The fixtures are now one line per message, summary row and channel, with
+  one shared time grid, so a regeneration's diff shows what moved (the BEV
+  file went from 106 to 28 KB, the hybrid's from 144 to 36 KB). Each names
+  the entry here that produced it.
+- New `__fine` fixtures run each case at a 5 ms solver step (case step
+  5 ms, stored every 200th step, so on the same 1 s grid). Every headline
+  number equals the shipped step's (10 ms solver step) except the hybrid's
+  final SOC, 52.50 % against 52.49 %: the examples are converged, and a
+  test keeps them so.
+- The tests compare with tolerance bands instead of 1e-6 everywhere, and
+  print a diff report when they fail; `update_golden.py` prints the same
+  report and needs `--reason` to write.
