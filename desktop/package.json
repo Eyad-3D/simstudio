@@ -8,6 +8,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node --test \"test/*.test.js\"",
     "pack:dir": "electron-builder --dir",
     "dist:linux": "electron-builder --linux",
     "dist:win": "electron-builder --win"

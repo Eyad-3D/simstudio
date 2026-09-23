@@ -94,6 +94,15 @@ lists it again. Copies of the examples that earlier versions put in your
 projects folder stay there as your own projects, as you left them; an
 example whose copy you had deleted starts out hidden.
 
+Before version 0.2.0 the app was called SimStudio and kept its projects in
+`%APPDATA%\SimStudio\projects` (Windows) or `~/.config/SimStudio/projects`
+(Linux). On its first launch LightSim copies that folder, with the runs,
+backups and hidden examples, into its own, as long as its own has nothing in
+it yet (`main.log` in LightSim's folder records the copy). The old folder is
+left as it was: delete it once you have checked your projects in LightSim.
+The window's settings (theme, font size, panel layout) and an unsaved
+recovery draft stay behind, so save your work in SimStudio before you switch.
+
 A save replaces the file in one step, so a crash or a full disk mid-save never
 leaves a half-written project, and the version it replaced is kept next to it
 as `<id>.json.bak`. If the file changed after you opened it (saved from a
@@ -173,6 +182,9 @@ npm test                    # unit tests (Vitest)
 npm run build               # type-check + production build
 npx playwright install chromium   # once
 npm run test:e2e            # browser + accessibility tests of the built UI
+
+cd ../desktop
+npm test                    # the shell's unit tests (plain Node, no install needed)
 ```
 
 The browser tests start the engine themselves with `python3` (set
@@ -299,6 +311,7 @@ desktop/   Electron shell
   │                                with a per-launch token, waits for
   │                                /api/health, then opens the window
   ├─ src/loading.html              splash shown while the engine starts
+  ├─ src/old-projects.js           first launch: copies the projects saved under the old name
   └─ electron-builder.yml          installer definitions (NSIS / AppImage / deb)
 ```
 

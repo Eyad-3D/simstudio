@@ -7,7 +7,8 @@ still holds. The full record of every change to the reference results is in
 
 ## 0.2.0 — first public release (early version)
 
-The app is renamed from SimStudio to LightSim.
+The app is renamed from SimStudio to LightSim; your projects come along
+(see [Upgrading from 0.1.0](#upgrading-from-010)).
 
 This release is about trust: results that no longer depend on hidden
 settings, a run status you can rely on, and example cars that behave like
@@ -95,10 +96,18 @@ as long as before, and runs with fine steps are much faster.
 
 ### Upgrading from 0.1.0
 
-- Your projects stay where they are. Examples you had are kept as your own
+- On its first launch LightSim copies your projects from SimStudio's folder
+  into its own (see
+  [Where your work is saved](../README.md#where-your-work-is-saved));
+  SimStudio's folder is left as it was. Examples you had are kept as your own
   projects; the updated examples are listed separately.
-- The window layout resets once, because the default layout changed.
+- The window layout, theme and font size start from their defaults, and a
+  recovery draft of unsaved changes is not carried over: save your work in
+  SimStudio before you switch.
 - Runs from 0.1.0 were not saved, so the run history starts empty.
+- LightSim installs as a new app beside SimStudio. Uninstall SimStudio once
+  your projects open in LightSim; uninstalling it leaves its projects folder
+  in place.
 
 ### Licence
 

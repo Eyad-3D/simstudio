@@ -15,6 +15,7 @@ const crypto = require("node:crypto");
 const net = require("node:net");
 const path = require("node:path");
 const fs = require("node:fs");
+const { copyOldProjects } = require("./old-projects");
 
 const HEALTH_TIMEOUT_MS = 40_000;
 const isWindows = process.platform === "win32";
@@ -84,6 +85,15 @@ async function choosePort() {
     } catch { /* not fatal: settings just won't carry over to the next launch */ }
   }
   return port;
+}
+
+/** Record a one-off event in main.log in the app's data folder. */
+function logEvent(message) {
+  console.log(message);
+  try {
+    const line = `${new Date().toISOString()} ${message}\n`;
+    fs.appendFileSync(path.join(app.getPath("userData"), "main.log"), line);
+  } catch { /* not fatal */ }
 }
 
 /**
@@ -360,6 +370,8 @@ async function createWindow() {
   mainWindow.show();
 
   try {
+    // before the engine starts (it creates the projects folder)
+    await copyOldProjects(app.getPath("appData"), app.getPath("userData"), logEvent);
     const port = await choosePort();
     startBackend(port);
     await waitForBackend(port);
