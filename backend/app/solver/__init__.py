@@ -8,7 +8,7 @@ Public surface:
 from .core import simulate
 from .maps import TableError, interp1, interp2, parse_table1d, parse_table2d
 from .network import Model, ModelError, build_model
-from .profiles import interp_profile, parse_profile
+from .profiles import interp_profile, parse_profile, profile_problems
 from .scripting import ScriptError, compile_script
 
 __all__ = [
@@ -23,6 +23,7 @@ __all__ = [
     "parse_table2d",
     "interp_profile",
     "parse_profile",
+    "profile_problems",
     "ScriptError",
     "compile_script",
 ]

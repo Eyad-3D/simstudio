@@ -7,6 +7,7 @@ from helpers import bev_axle, dbc, el, project, series, sig_port
 from app.schemas import ElementInstance
 from app.solver import simulate
 from app.storage import load_project
+from app.validation import validate_project
 
 
 def _kpis(result) -> dict[str, float]:
@@ -38,7 +39,7 @@ def test_hybrid_kpis_do_not_depend_on_the_output_step():
         assert coarse[label] == pytest.approx(value, rel=5e-3, abs=1e-3), label
 
 
-def _script_probe(step: float, duration: float = 2.0):
+def _script_probe(step: float, duration: float = 2.0, sample_time: float | None = None):
     """A Script that counts its calls and reports the dt it is given, plus
     the battery SOC it reads (a state computed by the solver)."""
     code = ("def step(t, dt, inputs, state, params):\n"
@@ -53,6 +54,8 @@ def _script_probe(step: float, duration: float = 2.0):
         dynamicPorts=[sig_port("soc", "input"), sig_port("calls", "output"),
                       sig_port("dt_seen", "output"), sig_port("socs_seen", "output")],
     ))
+    if sample_time is not None:
+        proj.systems[0].elements[-1].parameterOverrides["sample_time_s"] = sample_time
     proj.dataBusConnections.append(dbc(60, "batt", "sig_soc", "scr", "soc"))
     proj.cases[0].duration = duration
     proj.cases[0].timeStep = step
@@ -84,3 +87,30 @@ def test_pid_integrates_with_the_solver_step():
         for p in series(result, "pid", "sig_out"):
             if p["t"] >= 1.0:
                 assert p["value"] == pytest.approx(0.05 * p["t"] ** 2, rel=0.02), (step, p)
+
+
+def test_block_with_a_sample_time_runs_at_that_rate_and_holds():
+    result = _script_probe(step=0.05, sample_time=0.1)
+    assert result.status in ("success", "warning"), [m.text for m in result.messages]
+    calls = series(result, "scr", "calls")
+    assert calls[-1]["value"] == 20  # t = 0, 0.1, … 1.9
+    assert series(result, "scr", "dt_seen")[-1]["value"] == pytest.approx(0.1)
+    # between samples the output holds: it changes only every other point
+    # (a run at t = 0.1 k first shows in the point recorded at 0.1 k + 0.05)
+    changes = [p["t"] for p, q in zip(calls[1:], calls) if p["value"] != q["value"]]
+    assert changes == pytest.approx([0.1 * k + 0.05 for k in range(20)])
+
+
+def test_sample_time_data_checks():
+    def checks_for(sample_time):
+        proj = bev_axle()
+        proj.systems[0].elements.append(
+            el("pid", "control.pid", "Speed PID", sample_time_s=sample_time))
+        return [(c.level, c.text) for c in validate_project(proj) if c.elementId == "pid"]
+
+    assert checks_for(0) == []
+    assert checks_for(0.05) == []
+    assert checks_for(0.5) == [(
+        "warning", "'Speed PID' runs only every 0.5 s (its Sample Time); real vehicle "
+                   "controllers run every 10-100 ms, so results may depend on this setting.")]
+    assert [lv for lv, _ in checks_for(-1)] == ["error"]

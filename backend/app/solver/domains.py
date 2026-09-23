@@ -492,12 +492,25 @@ class _CtxSlave(Slave):
         return {}
 
 
+# blocks that may run slower than the solver step (their Sample Time)
+SAMPLED_BLOCKS = ("signal.script", "control.pid", "signal.lookup")
+
+
 class ControlSlave(_CtxSlave):
     """Signal sources + signal blocks (Script, PID, Lookup, Road Profile),
-    evaluated every solver step in the model's topological order.
-    Also claims live parameter writes for the whole context (broadcast)."""
+    evaluated every solver step in the model's topological order. A Script,
+    PID or Lookup whose Sample Time is longer than the solver step runs only
+    at multiples of it and holds its outputs in between. Also claims live
+    parameter writes for the whole context (broadcast)."""
 
     slave_id = "control"
+
+    def __init__(self, ctx: RunContext):
+        super().__init__(ctx)
+        self.next_sample: dict[str, float] = {}  # sampled blocks' next run time
+
+    def setup(self, t0: float) -> None:
+        self.next_sample.clear()
 
     def set_parameter(self, name: str, value: object) -> ParamResult:
         el_id, key = split_var(name)
@@ -515,6 +528,13 @@ class ControlSlave(_CtxSlave):
             kind = model.cdef_of[el_id].id
             p = ctx.params(el_id)
             dt = h  # the block's time step, passed to scripts and the PID
+            if kind in SAMPLED_BLOCKS:
+                ts = float(p.get("sample_time_s", 0) or 0)
+                if ts > h:
+                    if t < self.next_sample.get(el_id, t) - 1e-6 * h:
+                        continue  # between samples: outputs hold
+                    self.next_sample[el_id] = (math.floor(t / ts + 1e-6) + 1) * ts
+                    dt = ts
             if kind == "signal.script":
                 inputs = {}
                 for port in (el.dynamicPorts or []):

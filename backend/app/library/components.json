@@ -1300,7 +1300,7 @@
       "icon": "code",
       "domain": "signal",
       "allowDynamicPorts": true,
-      "description": "User-written Python function evaluated every solver step (≤ 10 ms, passed in as dt). Add named signal input/output ports in the Properties panel; the step() function receives inputs and a persistent state dict and returns a dict of output values. Use for hybrid control strategies, custom recuperation logic, signal math, etc.",
+      "description": "User-written Python function evaluated every solver step (≤ 10 ms), or at its Sample Time if that is longer; the step is passed in as dt. Add named signal input/output ports in the Properties panel; the step() function receives inputs and a persistent state dict and returns a dict of output values. Use for hybrid control strategies, custom recuperation logic, signal math, etc.",
       "ports": [],
       "parameters": [
         {
@@ -1310,6 +1310,13 @@
           "unit": "-",
           "type": "code",
           "default": "def step(t, dt, inputs, state, params):\n    # inputs: dict of input-port values (by port id)\n    # state:  dict persisting across steps\n    # return: dict of output-port values (by port id)\n    return {}\n"
+        },
+        {
+          "key": "sample_time_s",
+          "label": "Sample Time (0 = solver step)",
+          "unit": "s",
+          "default": 0,
+          "type": "number"
         }
       ]
     },
@@ -1936,7 +1943,7 @@
       "name": "PID Controller",
       "icon": "activity",
       "domain": "signal",
-      "description": "Generic PID feedback controller with output clamping and anti-windup, evaluated every solver step (≤ 10 ms). Use it for custom control loops without writing a script.",
+      "description": "Generic PID feedback controller with output clamping and anti-windup, evaluated every solver step (≤ 10 ms), or at its Sample Time if that is longer. Use it for custom control loops without writing a script.",
       "ports": [
         {
           "id": "sig_setpoint_in",
@@ -1965,7 +1972,8 @@
         { "key": "ki", "label": "Integral Gain", "unit": "1/s", "default": 0, "type": "number" },
         { "key": "kd", "label": "Derivative Gain", "unit": "s", "default": 0, "type": "number" },
         { "key": "out_min", "label": "Output Minimum", "unit": "-", "default": -1, "type": "number" },
-        { "key": "out_max", "label": "Output Maximum", "unit": "-", "default": 1, "type": "number" }
+        { "key": "out_max", "label": "Output Maximum", "unit": "-", "default": 1, "type": "number" },
+        { "key": "sample_time_s", "label": "Sample Time (0 = solver step)", "unit": "s", "default": 0, "type": "number" }
       ]
     },
     {
@@ -2027,7 +2035,8 @@
             { "name": "Input Y", "unit": "-" }
           ],
           "default": { "0": { "0": 0, "1": 0 }, "1": { "0": 0, "1": 1 } }
-        }
+        },
+        { "key": "sample_time_s", "label": "Sample Time (0 = solver step)", "unit": "s", "default": 0, "type": "number" }
       ]
     },
     {

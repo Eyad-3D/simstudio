@@ -18,6 +18,7 @@ from .solver import (
     compile_script,
     parse_table1d,
     parse_table2d,
+    profile_problems,
 )
 
 # param key → (label, min exclusive, max inclusive)
@@ -38,6 +39,11 @@ POSITIVE_PARAMS = {
     "radius_m": "wheel radius",
     "ratio": "transmission ratio",
 }
+
+# Script / PID / Lookup blocks may run slower than the solver step; above
+# this their sampling starts to shape the results (real vehicle controllers
+# run every 10-100 ms).
+COARSE_SAMPLE_TIME_S = 0.1
 
 
 def validate_project(project: Project) -> list[DataCheck]:
@@ -164,6 +170,23 @@ def validate_project(project: Project) -> list[DataCheck]:
                     compile_script(str(value or ""), el.label)
                 except ScriptError as e:
                     add("error", str(e), el)
+
+        if cdef.id in ("signal.driving_task", "signal.road_profile"):
+            for level, text in profile_problems(str(params.get("profile", ""))):
+                add(level, f"'{el.label}' profile: {text}.", el)
+        if "sample_time_s" in pdef_by_key:
+            try:
+                ts = float(params.get("sample_time_s", 0) or 0)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                add("error", f"Sample Time of '{el.label}' is not a number.", el)
+            else:
+                if ts < 0:
+                    add("error", f"Sample Time of '{el.label}' must not be negative — got {ts:g} s.", el)
+                elif ts > COARSE_SAMPLE_TIME_S:
+                    add("warning",
+                        f"'{el.label}' runs only every {ts:g} s (its Sample Time); real vehicle "
+                        f"controllers run every 10-100 ms, so results may depend on this "
+                        f"setting.", el)
 
     # -- structural solvability (delegated to model extraction) ------------------
     model = None

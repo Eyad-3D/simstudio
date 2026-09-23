@@ -386,6 +386,28 @@ def test_bad_table_is_reported():
     assert any("not numeric" in c.text for c in checks if c.level == "error")
 
 
+def _task_checks(profile: str):
+    proj = bev_axle(profile=profile)
+    return [(c.level, c.text) for c in validate_project(proj) if c.elementId == "task"]
+
+
+def test_malformed_profile_entries_are_errors():
+    # '30;50' lost its colon: the parser used to skip both halves silently
+    checks = _task_checks("0:0; 30;50; 60:0")
+    assert ("error", "'Task' profile: '30' and one other entry are not 'x:value' pairs "
+                     "of numbers and would be ignored.") in checks
+    checks = _task_checks("0:0; 30:50; 20:10")
+    assert ("error", "'Task' profile: points are not in ascending order "
+                     "(20 comes after 30).") in checks
+    assert any(level == "error" for level, _ in _task_checks("0:0; 10:nan"))
+
+
+def test_profile_step_is_a_warning_and_clean_profile_passes():
+    checks = _task_checks("0:0; 10:0; 10:50; 20:50")
+    assert checks == [("warning", "'Task' profile: two points at 10 — the value jumps there.")]
+    assert _task_checks("0:0; 5:60; 30:60") == []
+
+
 # ---- bundled example -----------------------------------------------------------
 
 def test_bev_demo_validates_and_runs():
