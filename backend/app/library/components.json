@@ -1233,7 +1233,7 @@
       "name": "Driving Task",
       "icon": "route",
       "domain": "signal",
-      "description": "Time-based target-speed profile (piecewise-linear). Points are given as 't:speed' pairs separated by ';'. Wire the output to the Vehicle's Target Speed input.",
+      "description": "Time-based target-speed profile (piecewise-linear). Points are given as 't:speed' pairs separated by ';'. Wire the output to the Driver's Target Speed input.",
       "ports": [
         {
           "id": "sig_demand",
