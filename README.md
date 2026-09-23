@@ -171,8 +171,10 @@ anything it would ship is under a licence LightSim does not allow (see
 
 Neither half cross-compiles — the frozen Python backend and the Electron
 package are both platform-specific — so `.github/workflows/desktop-build.yml`
-builds Windows and Linux on GitHub's runners. Push a `v*` tag to draft a
-release with the installers attached.
+builds Windows and Linux on GitHub's runners. To draft a release with the
+installers attached, run it on `main` from the **Actions** tab with
+*release* ticked (the `v<VERSION>` tag is made when the draft is published),
+or push a `v*` tag that matches `VERSION`.
 
 ## Developing
 
