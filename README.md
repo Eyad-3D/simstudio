@@ -18,7 +18,7 @@ inspect results — all in a dockable-panel UI.
 |---|---|
 | **Topology builder** | Drag components from the searchable library tree onto a React Flow canvas, connect ports (kind-checked), pan/zoom, multi-select, delete, undo/redo (Ctrl+Z / Ctrl+Y), minimap toggle |
 | **Component library** | Declarative catalog in `backend/app/library/components.json` with mandatory units on every parameter (dimensionless = `-`) and first-class lookup tables (`table1d` / `table2d`, dict-keyed by the independent variable) |
-| **Dynamic solver** | Causal multi-pass solver with real states: vehicle speed integrates from net tire force, per-wheel speeds with a longitudinal slip tire model, battery SOC from an equivalent-circuit model, semi-implicit Euler with internal sub-stepping (case `timeStep` is only the recording interval) |
+| **Dynamic solver** | Causal multi-pass solver with real states: vehicle speed integrates from net tire force, per-wheel speeds with a longitudinal slip tire model, battery SOC from an equivalent-circuit model, semi-implicit Euler with internal sub-steps of at most 10 ms. Results currently depend on the case time step (see [Known limits](docs/KNOWN-LIMITS.md#results-depend-on-the-case-time-step)); how the time step is used is being reworked |
 | **Differential** | Locked/unlocked with genuinely different dynamics: unlocked = equal torque split with free output speeds (one wheel on ice spins up), locked = common speed with grip-dependent emergent torque split |
 | **Driver** | Separate Driver component (speed-following PI): wire a target-speed profile and the Vehicle's speed into it; braking blends recuperation (motor generator quadrant, battery charge limit) before friction brakes |
 | **Live simulation** | Runs stream over a WebSocket: progress + all channels update live, the solver can be paced against real time (Pacing selector), cancelled, and scalar parameters (e.g. driver PI gains) can be edited mid-run from the Properties panel |
@@ -28,7 +28,7 @@ inspect results — all in a dockable-panel UI.
 | **Data Checks** | Pre-run validation: reference integrity, port-kind mismatches, parameter ranges, table data, script compilation, driveline solvability (delegated to the solver's model extraction) |
 | **Results** | Dedicated full-page Results workspace (own ribbon tab): channel picker grouped per element, multi-channel time-series **chart or table view** that fills in live during the run, summary table (SOC, energy, recuperation, distance, consumption), CSV export |
 | **Electrical** | Two-terminal components: every electrical element has explicit positive (+, red) and negative (−, blue) pins; the solver balances power on the supply rail with the negative terminals as the return (wire to Ground, or leave implicit) |
-| **Canvas** | Signal/data-bus wiring lives only in the Data Bus panel (not drawn on canvas); background-grid toggle; double-click an element for a modal parameter dialog; Shift+click a pin to move it around the node |
+| **Canvas** | Signal/data-bus wiring is edited in the Data Bus panel; an optional dashed overlay draws those links on the canvas (the *signal* layer in Layer Configurations, off by default); background-grid toggle; double-click an element for a modal parameter dialog; Shift+click a pin to move it around the node |
 | **Persistence** | Save/load projects on the backend (single JSON file per project), plus browser Export / Import |
 | **UI shell** | Ribbon tabs act as full-page workspaces (Home = topology + panels; Results = its own page); light/dark theme (persisted); dockable & resizable panels (Dockview); status bar with live progress |
 
@@ -45,9 +45,13 @@ Python and Node are **not** required: the simulation engine is bundled inside.
 | Windows 10/11 (x64) | `SimStudio-Setup-<version>.exe` |
 | Linux (x64) | `SimStudio-<version>-x86_64.AppImage` or `SimStudio-<version>-amd64.deb` |
 
-Grab them from the repository's **Releases** page, or from the artifacts of a
-**Build desktop app** run under the Actions tab. On Linux, mark the AppImage
-executable once (`chmod +x SimStudio-*.AppImage`) and run it.
+No release has been published yet, so for now the installers come from the
+**Build desktop app** workflow: on the repository's **Actions** tab, open the
+latest successful *Build desktop app* run on `main` and download the
+`simstudio-windows` or `simstudio-linux` artifact (a zip with the installers
+and their `.sha256` checksums; you need to be signed in to GitHub, and
+artifacts expire after 90 days). On Linux, mark the AppImage executable once
+(`chmod +x SimStudio-*.AppImage`) and run it.
 
 > These builds are unsigned, so Windows SmartScreen warns on first launch —
 > choose *More info → Run anyway*, or sign them with your own certificate
@@ -56,11 +60,11 @@ executable once (`chmod +x SimStudio-*.AppImage`) and run it.
 The **Battery Electric Car** example loads on first launch: HV Battery Pack →
 HV Bus → (Power Consumer, E-Motor) → Final Drive → Differential → Node FL/FR →
 Brake + Wheel per corner (rear corners unpowered), with a Vehicle body, a
-Driver element, a target-speed Vehicle Task, and Vehicle/BMS monitors. A **P2
-Hybrid Car** example (engine, clutch, gearbox, HCU script) is available via
-Open. Press **Run** — pick the *City Cycle (live, 10×)* case to watch it
-stream in real time and tune parameters (try the driver gains on the Vehicle,
-or lock the Differential) while it runs.
+Driver element, a target-speed Driving Task (labelled *Vehicle Task*), and
+Vehicle/BMS monitors. A **P2 Hybrid Car** example (engine, clutch, gearbox,
+HCU script) is available via Open. Press **Run** — pick the *City Cycle
+(live, 10×)* case to watch it stream in real time and tune parameters (try
+the P and I gains on the Driver, or lock the Differential) while it runs.
 
 ### Where your work is saved
 
@@ -69,7 +73,7 @@ survive reinstalls and upgrades. **File → Open Projects Folder** opens it.
 
 | Platform | Location |
 |---|---|
-| Windows | `%APPDATA%\\SimStudio\\projects` |
+| Windows | `%APPDATA%\SimStudio\projects` |
 | Linux | `~/.config/SimStudio/projects` |
 
 The examples are copied in on first launch only — delete one and it stays
@@ -81,7 +85,7 @@ One command builds the UI, freezes the backend, and produces an installer for
 whichever OS you run it on. Requires Python ≥ 3.11 and Node ≥ 20.
 
 ```bash
-./scripts/build-desktop.sh          # macOS / Linux
+./scripts/build-desktop.sh          # Linux (macOS is untested)
 .\scripts\build-desktop.ps1         # Windows
 ```
 
@@ -183,6 +187,7 @@ frontend/  React 19 + TypeScript + Vite
   └─ Tailwind CSS    dense engineering-tool styling
 
 backend/   Python + FastAPI
+  ├─ app/main.py                   HTTP + WebSocket API (FastAPI app)
   ├─ app/library/components.json   declarative component catalog (ports, params, maps)
   ├─ app/schemas.py                pydantic models mirroring the shared JSON data model
   ├─ app/solver/                   causal multi-pass solver package
@@ -190,13 +195,17 @@ backend/   Python + FastAPI
   │    ├─ profiles.py              driving-task profile parsing
   │    ├─ network.py               model extraction: rigid segments, buses, signal routes
   │    ├─ scripting.py             Script component compile/run
-  │    └─ core.py                  stepping loop: driver → mechanics → tire/vehicle → electrical
+  │    ├─ runtime.py               shared constants, signal routing, small linear solver
+  │    ├─ slave.py                 FMI-style co-simulation slave interface
+  │    ├─ master.py                co-simulation master: steps the slaves on a shared grid
+  │    ├─ domains.py               domain slaves: control → gear → driver → mechanics + vehicle → electrical
+  │    └─ core.py                  simulate(): runs the master, records channels, streams progress
   ├─ app/validation.py             "Data Checks" pre-run validation
   ├─ app/storage.py                one JSON file per project
   ├─ app/paths.py                  bundled vs. user-writable location resolution
   ├─ app/server.py                 entrypoint the desktop shell launches
   ├─ simstudio-backend.spec        PyInstaller recipe for the frozen backend
-  └─ projects/bev-car.json         demo project
+  └─ projects/                     example projects (bev-car.json, hybrid-car.json)
 
 desktop/   Electron shell
   ├─ src/main.js                   starts the backend on a stable loopback port,
@@ -255,6 +264,11 @@ sub-steps (≤ 10 ms, semi-implicit Euler):
    solved in dependency order (DC-DC bridges); battery equivalent circuit
    (OCV(SOC) table, R0, optional RC pair) solved closed-form per sub-step;
    SOC integrates; the terminal voltage feeds next step's motor map.
+
+Because the drive-cycle target, Script, PID and Lookup blocks and the gear
+choice are evaluated only once per recorded step, results depend on the case
+time step. This is being reworked; until then see
+[Known limits](docs/KNOWN-LIMITS.md#results-depend-on-the-case-time-step).
 
 Live `set_param` messages apply at recording-step boundaries; structural
 parameters (ratios, inertias, code, table axes) take effect on the next run
