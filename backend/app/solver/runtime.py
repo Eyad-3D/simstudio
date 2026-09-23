@@ -351,7 +351,8 @@ def make_plan(dl: Driveline, params_of: dict, gear_of: dict[str, float]) -> Driv
     ]
     plan.x = [0.0] * plan.n
 
-    # torque-weighted split-efficiency chain below each segment
+    # torque-weighted split-efficiency chain below each segment: the split,
+    # then each child's gears from the split to its own output, and so on
     split_below: dict[int, object] = {}
     for j in dl.joints:
         if j.kind == "split" and j.parent_seg >= 0:
@@ -363,8 +364,11 @@ def make_plan(dl: Driveline, params_of: dict, gear_of: dict[str, float]) -> Driv
         j = split_below.get(seg_idx)
         if j is None:
             return 1.0
-        return j.eff * ((1.0 - j.f_b) * eff_chain(j.child_a, depth + 1)
-                        + j.f_b * eff_chain(j.child_b, depth + 1))
+        seg_a, seg_b = dl.segments[j.child_a], dl.segments[j.child_b]
+        return j.eff * ((1.0 - j.f_b) * seg_a.path_eff(j.child_a_region)
+                        * eff_chain(j.child_a, depth + 1)
+                        + j.f_b * seg_b.path_eff(j.child_b_region)
+                        * eff_chain(j.child_b, depth + 1))
 
     plan.eff_chain = [eff_chain(s) for s in range(n_seg)]
     return plan

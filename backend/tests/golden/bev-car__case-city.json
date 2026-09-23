@@ -5,7 +5,7 @@
  "variant": "shipped",
  "case_step_s": 1.0,
  "store_every": 1,
- "change": "Recuperation held to what the supply takes, the rest reported (MOD-02)",
+ "change": "Gear losses act on the power through each gear, wherever the driveline walk starts",
  "status": "success",
  "messages": [
   "info: Case 'City Cycle' solved: 600 steps × 1 s (100 sub-steps each), 601 points recorded, 45 result channels."

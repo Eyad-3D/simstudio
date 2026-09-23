@@ -79,7 +79,19 @@ class SourceRef:
     el_id: str
     kind: str  # "motor" | "engine"
     m: float  # ω_source = m · ω_ref
-    eff: float  # gear-chain efficiency source → ref
+    region: int  # the segment region it sits in (Segment.stages)
+    eff: float = 1.0  # gear-chain efficiency source → segment output
+
+
+@dataclass
+class GearStage:
+    """A lossy element (gear, final drive, shaft with an efficiency) seen
+    from the segment region behind it: power crossing it towards the
+    segment's output passes ``eff`` of itself on to region ``parent``;
+    power crossing it back needs 1/``eff`` of what reaches the region."""
+    el_id: str
+    eff: float
+    parent: int
 
 
 @dataclass
@@ -100,6 +112,47 @@ class Segment:
     gearboxes: list[GearboxRef] = field(default_factory=list)
     element_ms: dict[str, float] = field(default_factory=dict)  # el_id → m
     port_ms: dict[tuple[str, str], float] = field(default_factory=dict)
+    # Its lossy elements cut a segment into regions (0 = the walk entry's).
+    # Power leaves it at its output (a split's input, a wheel, a clutch …),
+    # so each other region reaches the output through its stage and its
+    # parents' stages: stages[r] is region r's (None at the output), and
+    # stage_order lists the regions outside in.
+    port_region: dict[tuple[str, str], int] = field(default_factory=dict)
+    links: list[tuple[str, float, int, int]] = field(default_factory=list)  # (el, eff, r, r2)
+    out_region: int = 0
+    stages: list[Optional[GearStage]] = field(default_factory=lambda: [None])
+    stage_order: list[int] = field(default_factory=list)
+
+    def path_eff(self, region: int) -> float:
+        """Efficiency of the way from ``region`` to the segment's output."""
+        eff = 1.0
+        stage = self.stages[region]
+        while stage is not None:
+            eff *= stage.eff
+            stage = self.stages[stage.parent]
+        return eff
+
+    def orient(self, out_port: tuple[str, str] | None) -> None:
+        """Take ``out_port``'s region as the output (the entry's region
+        without one) and point every stage towards it."""
+        out = self.port_region.get(out_port, 0) if out_port else 0
+        adj: dict[int, list[tuple[int, str, float]]] = defaultdict(list)
+        for el_id, eff, r, r2 in self.links:
+            adj[r].append((r2, el_id, eff))
+            adj[r2].append((r, el_id, eff))
+        self.out_region = out
+        self.stages = [None] * (len(self.links) + 1)
+        self.stage_order = []
+        seen, frontier = {out}, [out]
+        for r in frontier:  # breadth-first from the output; grows while iterating
+            for r2, el_id, eff in adj[r]:
+                if r2 not in seen:
+                    seen.add(r2)
+                    frontier.append(r2)
+                    self.stages[r2] = GearStage(el_id=el_id, eff=eff, parent=r)
+                    self.stage_order.append(r2)
+        for src in self.sources:
+            src.eff = self.path_eff(src.region)
 
 
 @dataclass
@@ -117,6 +170,9 @@ class Joint:
     child_a_m: float = 1.0
     child_b: int = -1
     child_b_m: float = 1.0
+    # region of the child segments' ports attached to it (Segment.stages)
+    child_a_region: int = 0
+    child_b_region: int = 0
     # clutch: sides a/b reuse child_a/child_b (+ their m's); capacity from params
 
 
@@ -293,23 +349,31 @@ def build_model(
     def walk_segment(entries: list[tuple[str, str]], gears: dict[str, float]) -> Segment:
         """Collapse a rigid region into a Segment. `entries` are (el, port)
         vertices on the reference axis (m = 1); joint elements are never
-        crossed."""
+        crossed. Each lossy element crossed starts a new region
+        (``Segment.links``); ``Segment.orient`` later points them towards
+        the segment's output."""
         seg = Segment()
-        seen_ports: dict[tuple[str, str], tuple[float, float]] = {}
-        queue: list[tuple[str, str, float, float]] = [(e, p, 1.0, 1.0) for e, p in entries]
+        seen_ports = seg.port_region
+        # (element, port, m, region it is reached from, efficiency of the
+        # element crossed to reach it — None when none was crossed)
+        queue: list[tuple[str, str, float, int, float | None]] = [
+            (e, p, 1.0, 0, None) for e, p in entries]
         visited_el: set[str] = set()
 
-        def enqueue_peers(el_id: str, pid: str, m: float, eff: float) -> None:
+        def enqueue_peers(el_id: str, pid: str, m: float, region: int) -> None:
             for peer in mech_adj.get((el_id, pid), ()):  # rigid joint: same axis
                 if peer[0] not in joint_ids and peer not in seen_ports:
-                    queue.append((peer[0], peer[1], m, eff))
+                    queue.append((peer[0], peer[1], m, region, None))
 
         while queue:
-            el_id, pid, m, eff = queue.pop()
+            el_id, pid, m, region, crossed = queue.pop()
             key = (el_id, pid)
             if key in seen_ports or el_id in joint_ids:
                 continue
-            seen_ports[key] = (m, eff)
+            if crossed is not None and crossed < 1.0:  # a lossy element: new region
+                seg.links.append((el_id, crossed, region, len(seg.links) + 1))
+                region = len(seg.links)
+            seen_ports[key] = region
             seg.port_ms[key] = m
             cdef = cdef_of.get(el_id)
             if cdef is None:
@@ -324,10 +388,10 @@ def build_model(
                 if first_visit:
                     seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
                 other = "flange_b" if pid == "flange_a" else "flange_a"
-                eff2 = eff * max(1e-3, float(p.get("efficiency_pct", 100)) / 100.0)
+                eta = max(1e-3, float(p.get("efficiency_pct", 100)) / 100.0)
                 if (el_id, other) not in seen_ports:
-                    queue.append((el_id, other, m, eff2))
-                enqueue_peers(el_id, pid, m, eff)
+                    queue.append((el_id, other, m, region, eta))
+                enqueue_peers(el_id, pid, m, region)
             elif t in ("mech.final_drive", "mech.gearbox"):
                 if t == "mech.gearbox":
                     ratio = gearbox_ratio(p, gears.get(el_id))
@@ -347,19 +411,19 @@ def build_model(
                     seg.inertia += float(p.get("inertia_out_kgm2", 0)) * m_out * m_out
                     seg.element_ms[el_id] = m_out  # record output-axis speed
                 if (el_id, other) not in seen_ports:
-                    queue.append((el_id, other, m_other, eff * eta))
-                enqueue_peers(el_id, pid, m, eff)
+                    queue.append((el_id, other, m_other, region, eta))
+                enqueue_peers(el_id, pid, m, region)
             elif t == "mech.node":
                 for pid2 in ("f1", "f2", "f3", "f4"):
                     if (el_id, pid2) not in seen_ports:
-                        queue.append((el_id, pid2, m, eff))
-                enqueue_peers(el_id, pid, m, eff)
+                        queue.append((el_id, pid2, m, region, None))
+                enqueue_peers(el_id, pid, m, region)
             elif t in SOURCE_TYPES:
                 if first_visit:
                     seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
                     seg.sources.append(SourceRef(
-                        el_id=el_id, kind=SOURCE_TYPES[t], m=m, eff=eff))
-                enqueue_peers(el_id, pid, m, eff)
+                        el_id=el_id, kind=SOURCE_TYPES[t], m=m, region=region))
+                enqueue_peers(el_id, pid, m, region)
             elif t == "propulsion.wheel":
                 if first_visit:
                     seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
@@ -372,7 +436,7 @@ def build_model(
                         c_slip=max(0.1, float(p.get("slip_stiffness", 10))),
                         c_rr=max(0.0, float(p.get("rolling_resistance", 0.012))),
                     ))
-                enqueue_peers(el_id, pid, m, eff)
+                enqueue_peers(el_id, pid, m, region)
             elif t == "mech.brake":
                 if first_visit:
                     seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
@@ -380,7 +444,7 @@ def build_model(
                         el_id=el_id, m=m,
                         max_torque=max(0.0, float(p.get("max_torque_Nm", 0))),
                     ))
-                enqueue_peers(el_id, pid, m, eff)
+                enqueue_peers(el_id, pid, m, region)
             elif t == "propulsion.propeller":
                 if first_visit:
                     seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
@@ -389,9 +453,9 @@ def build_model(
                         t_ref=max(0.0, float(p.get("torque_ref_Nm", 0))),
                         n_ref=max(1.0, float(p.get("ref_speed_rpm", 1000))),
                     ))
-                enqueue_peers(el_id, pid, m, eff)
+                enqueue_peers(el_id, pid, m, region)
             else:
-                enqueue_peers(el_id, pid, m, eff)
+                enqueue_peers(el_id, pid, m, region)
         return seg
 
     def extract_driveline(group: set[str], gears: dict[str, float],
@@ -427,6 +491,8 @@ def build_model(
             return idx
 
         ok = True
+        split_in: dict[int, tuple[str, str]] = {}  # segment → its port on a split's input
+        clutch_ports: dict[int, list[tuple[str, str]]] = defaultdict(list)
         for j_el in group_joints:
             cdef = cdef_of[j_el]
             p = params_of[j_el]
@@ -447,7 +513,11 @@ def build_model(
                     el_id=j_el, kind="clutch",
                     child_a=sa, child_a_m=dl.segments[sa].port_ms[pa[0]],
                     child_b=sb, child_b_m=dl.segments[sb].port_ms[pb[0]],
+                    child_a_region=dl.segments[sa].port_region.get(pa[0], 0),
+                    child_b_region=dl.segments[sb].port_region.get(pb[0], 0),
                 ))
+                clutch_ports[sa].append(pa[0])
+                clutch_ports[sb].append(pb[0])
             else:  # differential / transfer case → split
                 pin = mech_adj.get((j_el, "flange_in"), [])
                 pa = mech_adj.get((j_el, "flange_out_a"), [])
@@ -476,11 +546,14 @@ def build_model(
                     parent_m=dl.segments[sp].port_ms[pin[0]] if pin else 1.0,
                     child_a=sa, child_a_m=dl.segments[sa].port_ms[pa[0]],
                     child_b=sb, child_b_m=dl.segments[sb].port_ms[pb[0]],
+                    child_a_region=dl.segments[sa].port_region.get(pa[0], 0),
+                    child_b_region=dl.segments[sb].port_region.get(pb[0], 0),
                 )
                 # split carrier inertia lives on the input axis of its parent segment
                 if sp >= 0:
                     dl.segments[sp].inertia += (float(p.get("inertia_kgm2", 0))
                                                 * joint.parent_m ** 2)
+                    split_in.setdefault(sp, pin[0])
                 dl.joints.append(joint)
         if not ok:
             return None
@@ -506,6 +579,20 @@ def build_model(
             if entry is None:
                 return None
             dl.segments.append(walk_segment([entry], gears))
+
+        # gear losses follow the power, whichever port a segment was walked
+        # from: each segment's output is where its power leaves towards the
+        # road (a split's input, else a wheel, propeller or brake, else a
+        # clutch)
+        for s_idx, seg in enumerate(dl.segments):
+            out = split_in.get(s_idx)
+            if out is None:
+                loads = [x.el_id for x in (*seg.wheels, *seg.props, *seg.brakes)]
+                out = next((key for el_id in loads for key in seg.port_region
+                            if key[0] == el_id), None)
+            if out is None and clutch_ports.get(s_idx):
+                out = clutch_ports[s_idx][0]
+            seg.orient(out)
 
         # sanity: a segment must not be the parent of two open splits (its
         # speed would be doubly determined) — checked here structurally,

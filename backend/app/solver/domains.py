@@ -77,9 +77,29 @@ class DrivelineLayout:
     braked: list[bool]
     # clutches: (joint, g of side a, g of side b, (i, k, r_i, r_k) of a − b)
     clutches: list[tuple[Joint, list[float], list[float], list[tuple[int, int, float, float]]]]
+    # per segment: the clutch torques acting on it, for its gear losses —
+    # (clutch index, clutch torque → torque at the reference axis, region)
+    clutch_arms: list[list[tuple[int, float, int]]]
     has_wheels: bool
     # motors for the driver's recuperation estimate: (segment, motor, ratio)
     motors: list[tuple[int, SourceRef, float]]
+
+
+def through_gears(seg: Segment, t_at: list[float], omega: float) -> float:
+    """The net torque that reaches a segment's output from the torques
+    entering its regions (``t_at``, at the reference axis, which it uses
+    up), after the losses of the gear stages on the way. Each stage passes
+    on ``eff`` × the net torque through it when that power flows towards
+    the output, and asks 1/``eff`` × when it flows back (regeneration, a
+    dragged engine), so the losses do not depend on the axis the segment
+    was walked from."""
+    stages = seg.stages
+    for r in reversed(seg.stage_order):  # the outermost regions first
+        t = t_at[r]
+        if t:
+            stage = stages[r]
+            t_at[stage.parent] += t * stage.eff if t * omega >= 0 else t / stage.eff
+    return t_at[seg.out_region]
 
 
 class RunContext:
@@ -366,12 +386,15 @@ class RunContext:
         braked = [any(seg.brakes and plan.root_of_seg[s2] == plan.coord_root[i]
                       for s2, seg in enumerate(segs)) for i in range(n)]
         clutches = []
+        clutch_arms: list[list[tuple[int, float, int]]] = [[] for _ in segs]
         for j in st.dl.joints:
             if j.kind != "clutch":
                 continue
             ga = [j.child_a_m * x for x in plan.gvec[j.child_a]]
             gb = [j.child_b_m * x for x in plan.gvec[j.child_b]]
             rel = [ga[i] - gb[i] for i in range(n)]
+            clutch_arms[j.child_a].append((len(clutches), -j.child_a_m, j.child_a_region))
+            clutch_arms[j.child_b].append((len(clutches), j.child_b_m, j.child_b_region))
             clutches.append((j, ga, gb, [(i, k, rel[i], rel[k]) for i in range(n)
                                          if rel[i] != 0.0 for k in range(i, n)]))
         ones = [1.0] * n
@@ -380,7 +403,7 @@ class RunContext:
                   if src.kind == "motor" and src.el_id in self.motors]
         st.layout = DrivelineLayout(
             inertia=inertia, pairs=pairs, hold_coord=hold, braked=braked, clutches=clutches,
-            has_wheels=any(seg.wheels for seg in segs), motors=motors)
+            clutch_arms=clutch_arms, has_wheels=any(seg.wheels for seg in segs), motors=motors)
         return st.layout
 
     def source_value(self, el_id: str, kind: str, t: float) -> float:
@@ -1235,6 +1258,21 @@ class MechanicalSlave(_CtxSlave):
             m_mat = [[0.0] * n for _ in range(n)]
             q_vec = [0.0] * n
             x = plan.x
+            # clutch torques at the step's start (their implicit part is
+            # added below), for the gear losses of the segments they drive
+            clutch_t: list[float] = []
+            clutch_cap: list[float] = []
+            for j, ga, gb, rel_pairs in lay.clutches:
+                engage = rt.read_signal(j.el_id, "sig_engage_in")
+                engage = max(0.0, min(1.0, engage if engage is not None else 1.0))
+                cap_c = engage * max(0.0, float(ctx.params(j.el_id).get("max_torque_Nm", 0)))
+                d_omega = (j.child_a_m * omega_seg[j.child_a]
+                           - j.child_b_m * omega_seg[j.child_b])
+                st.clutch_slip[j.el_id] = d_omega
+                t_c = max(-cap_c, min(cap_c, cap_c / CLUTCH_BAND * d_omega)) if cap_c > 0 else 0.0
+                st.clutch_torque[j.el_id] = t_c
+                clutch_t.append(t_c)
+                clutch_cap.append(cap_c)
             # torque-source bookkeeping for joint channels
             torque_above: dict[int, float] = defaultdict(float)  # root seg → torque at axis
             for s_idx, seg in enumerate(st.dl.segments):
@@ -1243,21 +1281,32 @@ class MechanicalSlave(_CtxSlave):
                     m_mat[i][k] += val
                 omega = omega_seg[s_idx]
                 tau = 0.0
-                for src in seg.sources:
-                    omega_src = src.m * omega
-                    if src.kind == "motor" and src.el_id in ctx.motors:
-                        demand = rt.read_signal(src.el_id, "sig_demand_in") or 0.0
-                        t_net = ctx.motor_torque(ctx.motors[src.el_id], demand, omega_src)
-                    elif src.kind == "engine" and src.el_id in ctx.engines:
-                        t_net = ctx.engine_torque(ctx.engines[src.el_id], omega_src)
-                    else:
-                        continue
-                    driving = t_net * omega_src >= 0
-                    eff = src.eff * plan.eff_chain[s_idx]
-                    t_at_ref = t_net * src.m * (eff if driving else 1.0 / max(1e-3, eff))
-                    tau += t_at_ref
+                arms = lay.clutch_arms[s_idx]
+                if seg.sources or arms:
+                    # the sources' and clutches' torques reach the segment's
+                    # output through its gears, then the road through the
+                    # splits below: each loss acts on the net torque through it
+                    t_at = [0.0] * len(seg.stages)
+                    for src in seg.sources:
+                        omega_src = src.m * omega
+                        if src.kind == "motor" and src.el_id in ctx.motors:
+                            demand = rt.read_signal(src.el_id, "sig_demand_in") or 0.0
+                            t_net = ctx.motor_torque(ctx.motors[src.el_id], demand, omega_src)
+                        elif src.kind == "engine" and src.el_id in ctx.engines:
+                            t_net = ctx.engine_torque(ctx.engines[src.el_id], omega_src)
+                        else:
+                            continue
+                        t_at[src.region] += t_net * src.m
+                    t_clutch = 0.0
+                    for c_idx, arm, region in arms:
+                        t_at[region] += clutch_t[c_idx] * arm
+                        t_clutch += clutch_t[c_idx] * arm
+                    t_out = through_gears(seg, t_at, omega)
+                    eff = plan.eff_chain[s_idx]
+                    # the clutches' own torques are applied with their implicit part
+                    tau += (t_out * eff if t_out * omega >= 0 else t_out / eff) - t_clutch
                     torque_above[plan.root_of_seg[s_idx]] += (
-                        t_at_ref / max(1e-9, plan.scale_of_seg[s_idx]))
+                        t_out / max(1e-9, plan.scale_of_seg[s_idx]))
                 for w in seg.wheels:
                     f, tq, dmp = ctx.wheel_force(w, omega)
                     tau += tq
@@ -1280,19 +1329,11 @@ class MechanicalSlave(_CtxSlave):
                     q_vec[i] += g[i] * tau
 
             # clutches: smooth Coulomb coupling, implicit in Δω
-            for j, ga, gb, rel_pairs in lay.clutches:
-                engage = rt.read_signal(j.el_id, "sig_engage_in")
-                engage = max(0.0, min(1.0, engage if engage is not None else 1.0))
-                cap_c = engage * max(0.0, float(ctx.params(j.el_id).get("max_torque_Nm", 0)))
-                d_omega = (j.child_a_m * omega_seg[j.child_a]
-                           - j.child_b_m * omega_seg[j.child_b])
-                st.clutch_slip[j.el_id] = d_omega
+            for (j, ga, gb, rel_pairs), t_c, cap_c in zip(lay.clutches, clutch_t, clutch_cap):
                 if cap_c <= 0:
-                    st.clutch_torque[j.el_id] = 0.0
                     continue
                 k_c = cap_c / CLUTCH_BAND
-                t_c = max(-cap_c, min(cap_c, k_c * d_omega))
-                st.clutch_torque[j.el_id] = t_c
+                d_omega = st.clutch_slip[j.el_id]
                 for i in range(n):
                     q_vec[i] += -t_c * ga[i] + t_c * gb[i]
                 if abs(k_c * d_omega) < cap_c:  # unclamped → implicit
