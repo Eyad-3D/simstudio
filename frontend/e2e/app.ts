@@ -79,11 +79,15 @@ export async function dragComponent(page: Page, name: string, at: { x: number; y
   await page.getByPlaceholder("Search components…").fill("");
 }
 
-/** Pick a project from the ribbon's Open menu. */
+/** Pick a project from the ribbon's Open menu by its exact name (an entry
+ *  also shows the project's id and description). */
 export async function openFromMenu(page: Page, name: string): Promise<void> {
   await ribbonTab(page, "Home").click();
   await page.getByRole("button", { name: "Open", exact: true }).click();
-  await page.getByRole("menuitem", { name: new RegExp(name) }).click();
+  await page
+    .getByRole("menuitem")
+    .filter({ has: page.getByText(name, { exact: true }) })
+    .click();
 }
 
 /** Select an element through the Elements tree and show its Properties. */
