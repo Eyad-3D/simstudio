@@ -22,3 +22,7 @@ __pycache__/
 desktop/release/
 backend/build/
 .smoke-projects/
+
+# Frontend test output
+frontend/playwright-report/
+frontend/test-results/

@@ -1,0 +1,47 @@
+{
+  "topology": [
+    "aria-required-parent  .dv-default-tab[aria-label=\"Properties\"][title=\"Properties\"]",
+    "aria-required-parent  .dv-default-tab[aria-label=\"Topology\"][title=\"Topology\"]",
+    "aria-required-parent  div[aria-label=\"Cases & Parameters\"]",
+    "aria-required-parent  div[aria-label=\"Data Bus Connections\"]",
+    "aria-required-parent  div[aria-label=\"Data Checks\"]",
+    "aria-required-parent  div[aria-label=\"Elements\"]",
+    "aria-required-parent  div[aria-label=\"Layer Configurations\"]",
+    "aria-required-parent  div[aria-label=\"Monitors\"]",
+    "aria-required-parent  div[title=\"Components\"]",
+    "aria-required-parent  div[title=\"Messages\"]",
+    "aria-required-parent  div[title=\"Signal Plot\"]",
+    "color-contrast  .gap-3 > span:nth-child(1)",
+    "color-contrast  .max-w-\\[160px\\]",
+    "color-contrast  .min-w-\\[38px\\]",
+    "label-title-only  select"
+  ],
+  "results": [
+    "color-contrast  .gap-3 > span:nth-child(1)",
+    "color-contrast  .max-w-\\[160px\\]",
+    "color-contrast  .min-w-\\[38px\\]",
+    "label-title-only  .bg-\\[color\\:var\\(--ss-panel-alt\\)\\] > .gap-1.items-center.flex:nth-child(1) > select",
+    "label-title-only  .max-w-\\[150px\\]",
+    "scrollable-region-focusable  .max-h-\\[130px\\]"
+  ],
+  "parameter-dialog": [
+    "aria-required-parent  .dv-default-tab[aria-label=\"Properties\"][title=\"Properties\"]",
+    "aria-required-parent  .dv-default-tab[aria-label=\"Topology\"][title=\"Topology\"]",
+    "aria-required-parent  div[aria-label=\"Cases & Parameters\"]",
+    "aria-required-parent  div[aria-label=\"Data Bus Connections\"]",
+    "aria-required-parent  div[aria-label=\"Data Checks\"]",
+    "aria-required-parent  div[aria-label=\"Elements\"]",
+    "aria-required-parent  div[aria-label=\"Layer Configurations\"]",
+    "aria-required-parent  div[aria-label=\"Monitors\"]",
+    "aria-required-parent  div[title=\"Components\"]",
+    "aria-required-parent  div[title=\"Messages\"]",
+    "aria-required-parent  div[title=\"Signal Plot\"]",
+    "color-contrast  .gap-3 > span:nth-child(1)",
+    "color-contrast  .max-w-\\[160px\\]",
+    "color-contrast  .min-w-\\[38px\\]",
+    "label  input[value=\"0.045\"]",
+    "label  input[value=\"100\"]",
+    "label  input[value=\"E-Motor\"]",
+    "label-title-only  select"
+  ]
+}
