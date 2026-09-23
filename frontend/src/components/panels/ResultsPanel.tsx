@@ -27,6 +27,7 @@ import { useActiveRun, useOverlayRuns, useProjectStore } from "../../store/proje
 import { useUIStore } from "../../store/uiStore";
 import type { Channel, SimResult, SimRun } from "../../types";
 import { PALETTE, channelKey, minMaxIndices, useHasSize } from "./chartUtils";
+import { csvText } from "./csv";
 import { RunInfo } from "./RunInfo";
 
 // dash patterns to distinguish channels when several runs are overlaid at once
@@ -68,8 +69,7 @@ function exportCsv(result: SimResult, keys: Set<string>, name: string) {
     pt.t,
     ...channels.map((c) => c.timeSeries[i]?.value ?? ""),
   ]);
-  const csv = [header, ...rows].map((r) => r.join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
+  const blob = new Blob([csvText([header, ...rows])], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -78,27 +78,54 @@ function exportCsv(result: SimResult, keys: Set<string>, name: string) {
   URL.revokeObjectURL(url);
 }
 
-/** Rasterize the chart's SVG to a PNG download (2× for crispness). */
+/** Rasterize the chart to a PNG download at twice its on-screen size.
+ *  Recharts 3 draws the legend as HTML over the chart's SVG, with a small SVG
+ *  icon per entry (the first <svg> in the chart area, which this used to
+ *  save), so each entry's icon and name are copied into the SVG first. */
 function exportPng(host: HTMLElement | null, bg: string, name: string) {
-  const svg = host?.querySelector("svg");
-  if (!svg) return;
+  const svg = host?.querySelector<SVGSVGElement>(".recharts-wrapper > svg");
+  if (!host || !svg) return;
   const rect = svg.getBoundingClientRect();
-  const clone = svg.cloneNode(true) as SVGElement;
-  clone.setAttribute("width", String(rect.width));
-  clone.setAttribute("height", String(rect.height));
+  // on-screen px to the SVG's own units (they differ when the UI is scaled)
+  const k = svg.viewBox.baseVal.width / rect.width;
+  const width = Math.round(rect.width * 2);
+  const height = Math.round(rect.height * 2);
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  clone.removeAttribute("style"); // its 100% size means nothing in an image
+  clone.setAttribute("width", String(width));
+  clone.setAttribute("height", String(height));
+  // the page's font is set in CSS, which the image does not see
+  clone.setAttribute("font-family", getComputedStyle(svg).fontFamily);
+  for (const item of host.querySelectorAll(".recharts-legend-item")) {
+    const icon = item.querySelector("svg");
+    const label = item.querySelector(".recharts-legend-item-text");
+    if (!icon || !label) continue;
+    const at = icon.getBoundingClientRect();
+    const copy = icon.cloneNode(true) as SVGSVGElement;
+    copy.setAttribute("x", String((at.left - rect.left) * k));
+    copy.setAttribute("y", String((at.top - rect.top) * k));
+    const box = label.getBoundingClientRect();
+    const font = getComputedStyle(label.firstElementChild ?? label);
+    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    text.setAttribute("x", String((box.left - rect.left) * k));
+    text.setAttribute("y", String((box.top + box.height / 2 - rect.top) * k));
+    text.setAttribute("dominant-baseline", "central");
+    text.setAttribute("font-size", font.fontSize);
+    text.setAttribute("fill", font.color);
+    text.textContent = label.textContent;
+    clone.append(copy, text);
+  }
   const xml = new XMLSerializer().serializeToString(clone);
   const url = URL.createObjectURL(new Blob([xml], { type: "image/svg+xml;charset=utf-8" }));
   const img = new Image();
   img.onload = () => {
-    const scale = 2;
     const canvas = document.createElement("canvas");
-    canvas.width = rect.width * scale;
-    canvas.height = rect.height * scale;
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext("2d");
     if (ctx) {
       ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.scale(scale, scale);
+      ctx.fillRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0);
     }
     URL.revokeObjectURL(url);
