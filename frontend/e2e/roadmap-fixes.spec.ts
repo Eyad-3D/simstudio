@@ -5,6 +5,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import {
   dragComponent,
+  drawnLines,
   expectProject,
   openApp,
   openFromMenu,
@@ -20,7 +21,7 @@ test.fixme("RES-03: the Signal Plot draws a line after the first run", async ({ 
   await ribbonTab(page, "Home").click();
   await showPanel(page, "Signal Plot");
   // the Results page is unmounted on Home, so this is the Signal Plot's chart
-  await expect(page.locator(".recharts-line-curve").first()).toBeVisible();
+  await expect(drawnLines(page).first()).toBeVisible();
 });
 
 test.fixme("RES-03: a run started from the empty Results page is drawn", async ({ page }) => {
@@ -28,7 +29,7 @@ test.fixme("RES-03: a run started from the empty Results page is drawn", async (
   await ribbonTab(page, "Results").click();
   await page.getByRole("button", { name: "Run active case" }).click();
   await expect(page.getByText("1 stored run", { exact: true })).toBeVisible({ timeout: 60_000 });
-  await expect(page.locator(".recharts-line-curve").first()).toBeVisible();
+  await expect(drawnLines(page).first()).toBeVisible();
 });
 
 test.fixme("RES-04: no hidden splitter lies on top of the Results page", async ({ page }) => {

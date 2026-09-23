@@ -2,7 +2,7 @@
 // Results lists channels → export CSV.
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
-import { expectProject, openApp, ribbonTab, runActiveCase } from "./app";
+import { drawnLines, expectProject, openApp, ribbonTab, runActiveCase } from "./app";
 
 test("BEV example: data checks, run, results channels and CSV export", async ({ page }) => {
   const pageErrors: string[] = [];
@@ -27,7 +27,7 @@ test("BEV example: data checks, run, results channels and CSV export", async ({ 
   expect(await channels.count()).toBeGreaterThan(10);
   const ticked = await page.getByRole("checkbox", { checked: true }).count();
   expect(ticked).toBeGreaterThan(0);
-  await expect(page.locator(".recharts-line-curve").first()).toBeVisible();
+  await expect(drawnLines(page).first()).toBeVisible();
 
   // CSV export: a time column plus one column per ticked channel
   const [download] = await Promise.all([

@@ -13,9 +13,25 @@ export function ribbonTab(page: Page, name: string): Locator {
   return page.getByRole("button", { name, exact: true });
 }
 
-/** Bring a dock panel (Messages, Data Checks, Signal Plot, …) to the front. */
+/** Bring a dock panel (Messages, Data Checks, Signal Plot, …) to the front.
+ *  A tab that already shows its panel is left alone, because clicking the
+ *  active tab of a collapsible panel group can fold it away. The tab's name
+ *  may carry a suffix such as a problem count ("Data Checks (2 …)"). */
 export async function showPanel(page: Page, title: string): Promise<void> {
-  await page.getByRole("tab", { name: title, exact: true }).first().click();
+  const name = new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?: \\(|$)`);
+  const tab = page.getByRole("tab", { name }).first();
+  const showing = await tab.evaluate((el) => {
+    const content = el.closest(".dv-groupview")?.querySelector(".dv-content-container");
+    return Boolean(el.closest(".dv-active-tab")) && (content?.getBoundingClientRect().height ?? 0) > 0;
+  });
+  if (!showing) await tab.click();
+}
+
+/** Chart lines drawn on screen. Hidden panels (such as the model workspace
+ *  kept behind the Results page) can hold charts too, so only visible lines
+ *  count. */
+export function drawnLines(page: Page): Locator {
+  return page.locator(".recharts-line-curve").filter({ visible: true });
 }
 
 /** The global Run button in the ribbon header (runs the active case). */
