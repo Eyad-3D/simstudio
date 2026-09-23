@@ -19,61 +19,55 @@ speed, acceleration) for decisions about a real vehicle yet.
 
 ## Results that can be wrong today
 
-### Results depend on the case time step
-
-The drive-cycle target, Script, PID and Lookup blocks and the gear choice are
-evaluated only once per case time step (*Step (s)* in the Cases & Parameters
-panel). Both examples use 1 s, and at that step the controllers react late.
-The P2 Hybrid Car example reports 19.34 l/100 km at 1 s and 12.28 l/100 km
-at 0.1 s, and at 1 s it misses its speed trace and drives only 8.98 of the
-cycle's 9.56 km. The Battery Electric Car uses 5-22 % more energy on
-standard test cycles at 1 s than at 0.1 s.
-
-*Workaround:* set *Step (s)* to 0.1 and *Store every* to 10. That still
-stores one result point per second, so results stay the same size; a run
-takes at most about twice as long.
-*Roadmap:* ENG-01 (being fixed), VAL-04 (warning), CON-01 (examples).
-
-### Motors and engines can run past the end of their maps without a warning
+### Motors can run past the end of their maps without a warning
 
 Maps are extended flat beyond their last point (the edge value is held), and
-motors and engines have no maximum-speed limit. The Battery Electric Car
-example with a 300 km/h target reaches 257 km/h with its motor at
-20,476 rpm, on a torque map that ends at 12,000 rpm, and the run is still
-reported as a success.
+E-Motors have no maximum-speed limit. The Battery Electric Car example with
+a 300 km/h target reaches 267 km/h with its motor at 21,333 rpm, on a torque
+map that ends at 12,000 rpm. The run ends with a warning only because the
+car could not keep up with the target; nothing mentions the motor speed.
+Combustion engines are held at the last speed of their full-load curve by a
+rev limiter, which says so in Messages.
 
-*Workaround:* plot the motor and engine speed and compare it with the last
-speed point of their maps; keep target speeds within what the real vehicle
-can do.
+*Workaround:* plot the motor speed and compare it with the last speed point
+of its maps; keep target speeds within what the real vehicle can do.
 *Roadmap:* MOD-18.
 
-### A battery or fuel cell at its limit still delivers full power
+### A "success" checks the speed trace, not the physics
 
-When a battery reaches its minimum state of charge or its power limit, or a
-fuel cell its current limit, the motor keeps getting the power it asks for,
-so the car drives on energy that does not exist. Braking energy that the
-battery cannot accept (full battery, charge-power limit, a DC-DC converter
-or fuel-cell-only bus) disappears, and *energy recuperated* can be
-overstated. For example, the Battery Electric Car example started at 10.2 %
-charge completes its cycle and reports 1.57 kWh/100 km, 13 times too low.
+A run is a *success* when the vehicle stayed within ±2 km/h and ±1 s of its
+target speed for all but 1 % of the run (at least 2 s), covered the cycle's
+distance, and nothing raised a warning. It does not check that motors stayed
+within their maps (see above) or that the numbers are plausible for a real
+vehicle, and the Data Checks all-clear does not vouch for the results
+either. Also:
 
-*Workaround:* watch the battery's state of charge and power channels and the
-Messages panel. If the charge reaches its minimum or a power-limit warning
-appears, do not use the energy and consumption figures of that run. Do not
-start runs at 100 % charge.
-*Roadmap:* ENG-02 (being fixed), MOD-01, MOD-02, VAL-03.
+- An acceleration or top-speed test driven by a step in the target speed
+  (for example `0:100; 600:100` from standstill) is outside that band while
+  the car accelerates. It ends with a *Cycle not followed* warning, and its
+  *Consumption* is marked *not valid*.
+- A cancelled run ends as *warning*; there is no separate status for it. Its
+  per-distance figures are marked *not valid: run cancelled at t = …*.
+- The tolerance (1 % of the run, at least 2 s) is SimStudio's own choice:
+  test procedures such as WLTP set no allowance for a simulation.
 
-### "Success" does not mean the car followed the cycle
+*Workaround:* read the Messages panel and the *not valid* notes in the
+summary table. Read step-target tests for their speeds and times, not their
+consumption, or ramp the target up instead.
+*Roadmap:* MOD-18, VAL-08.
 
-A run is reported as a success even when the vehicle missed its speed trace,
-covered no distance (for example because the motor is not connected), or
-kept driving after the battery was empty. Data Checks can also report
-*All data checks passed* for a model that cannot drive, such as one without
-a battery, motor or differential.
+### Only its internal resistance limits what a battery delivers
 
-*Workaround:* after each run, plot the vehicle speed together with the
-target speed, and compare *Distance driven* with the cycle's length.
-*Roadmap:* VAL-02 and VAL-01 (both being fixed).
+A battery delivers power up to its maximum-power point (the most its
+internal resistance lets through: about 420 kW for the default pack at 90 %
+charge) and takes back up to its *Max Charge Power*. There are no current or
+voltage limits, fuel cells have no ramp rate, and DC-DC converters have no
+power rating, so a model is never held back by these.
+
+*Workaround:* check the battery's *Discharge Power* channel against what the
+real pack or its management system allows, and reduce the motor's torque
+map or add a limit in a Script if needed.
+*Roadmap:* ENG-02 (follow-up).
 
 ### Signal units are not checked
 
@@ -85,28 +79,30 @@ Script, Lookup or PID block that expects 0-1 gets 0-100 without a warning.
 each link match; divide percentages by 100 where a block expects 0-1.
 *Roadmap:* VAL-17.
 
-### Result time stamps are one step early
+### Computed values read 0 in the first result point
 
-Each stored value is labelled with the time at the start of the step that
-produced it, and a run simulates one extra step (a 600 s case integrates
-601 s). At a 1 s step, a car moving at 36 km/h shows about 10 m of distance
-at t = 0.
+Point 0 of every run is the initial state at t = 0. Vehicle speed, distance,
+state of charge, tank levels and the Constant and Driving Task outputs are
+right there, but values that blocks, the Driver or the physics compute
+(pedal and traction commands, Script, PID and Lookup outputs, motor and
+engine torque, powers, road grade) read 0, because nothing has computed them
+yet. Motor and engine speed also read 0 at t = 0 when a run starts at speed.
+At later points these values come from the last solver step before the
+point, at most 10 ms earlier.
 
-*Workaround:* use a small time step (see above); the shift is one step.
-*Roadmap:* ENG-03 (being fixed).
+*Workaround:* leave out point 0 of computed channels when you take a
+minimum or an average, for example from the CSV export.
 
 ### Component models with known errors
 
-- **E-Motor losses are counted twice.** No-load losses are in the loss map
-  and are subtracted again as drag torque, so electric drives look less
-  efficient than they are. If your loss map already contains the no-load
-  losses, set the E-Motor's *Drag Torque* table to zero.
-  *Roadmap:* MOD-04 (being fixed).
-- **The combustion engine is short of power and keeps burning fuel when
-  coasting.** Friction is subtracted even at full throttle (the default
-  engine delivers about 59 of its nominal 82 kW), and there is no fuel
-  cut-off when the driver lifts off. There is no CO2 output.
-  *Roadmap:* MOD-05 (being fixed).
+- **A declutched engine with any throttle runs to its rev limiter.** The
+  engine has no speed governor above idle: with the clutch open, any
+  throttle above 0 revs it up to the last speed of its full-load curve,
+  where it runs on the rev limiter at high fuel flow. The P2 Hybrid Car
+  example does this when it stops (see below). Control scripts should set
+  the throttle to 0, or switch the engine off, while the clutch is open.
+  Turbo lag, restart cost and warm-up are not modelled either.
+  *Roadmap:* MOD-13.
 - **Gear losses are applied per motor or engine, not to the power actually
   flowing through each gear.** When a motor and an engine push against each
   other (hybrids), this creates phantom braking. *Roadmap:* MOD-03.
@@ -115,9 +111,9 @@ at t = 0.
   every motor and engine on the driveline, not the power through that part:
   gear and clutch losses are left out, and every Shaft and Final Drive on
   the driveline shows the same value. In the P2 Hybrid Car example with a
-  Shaft added between the engine and the clutch, at t = 342 s the engine
-  delivers 19.2 kW and the motor takes 17.1 kW to charge the battery, and
-  the Shaft and the Final Drive both show 2.2 kW. Read the *Mechanical
+  Shaft added between the engine and the clutch, at t = 281 s the engine
+  delivers 20.9 kW and the motor takes 8.8 kW to charge the battery, and
+  the Shaft and the Final Drive both show 12.1 kW. Read the *Mechanical
   Power* of each motor and engine instead. *Roadmap:* MOD-10.
 - **Air density is fixed, and steep grades are overstated.** Air drag always
   uses 1.2 kg/m³: the Ambient block's temperature and pressure are ignored,
@@ -128,10 +124,11 @@ at t = 0.
   at a 10 % grade and 3 % at 25 %. To model cold or thin air, multiply the
   Vehicle's *Drag Coefficient (Cd)* by the real density divided by 1.2, and
   keep grades moderate. *Roadmap:* MOD-11.
-- **Wheel load shares are not checked.** Each wheel's share of the vehicle
-  weight (*Vehicle Load Share*) is typed in by hand; if the shares do not add
-  up to 100 %, tyre grip and rolling resistance are wrong. Make them add up
-  to 100 %.
+- **Wheel load shares are typed in by hand.** Each wheel's share of the
+  vehicle weight (*Vehicle Load Share*) is a fixed number. Data Checks warn
+  when the shares of the connected wheels do not add up to 100 %, but the
+  run still uses them as typed, and then tyre grip and rolling resistance
+  are wrong. Make them add up to 100 %.
   *Roadmap:* MOD-06.
 - **An initial speed only spins the wheels.** A car that starts at speed has
   its motor at 0 rpm and heavy tyre slip in the first instant. Start runs
@@ -172,17 +169,25 @@ at t = 0.
 
 ## The examples
 
-- **P2 Hybrid Car:** its fuel figure is not realistic. It reports
-  19.3 l/100 km at the shipped 1 s step and 12.3 l/100 km at 0.1 s, while a
-  comparable real hybrid uses about 3 l/100 km on the US EPA city test. In
-  the shipped case its control script never switches the engine off.
+- **P2 Hybrid Car:** its fuel figure is not realistic, and its run ends
+  with a warning. It reports 6.32 l/100 km on its Mixed Cycle and
+  10.2 l/100 km on the US EPA city cycle (UDDS), while a comparable real
+  hybrid uses about 3 l/100 km on the EPA city test. Once its control
+  script starts the engine (at about 280 s in the shipped case), it never
+  switches it off. From about 542 s, when the car slows below 15 km/h, the
+  script opens the clutch but keeps the throttle at 0.3, so the engine revs
+  up to its rev limiter and stays there to the end of the run: that is
+  about 19 % of the run's fuel, and the reason for the warning ("reached
+  its maximum speed").
   *Roadmap:* CON-02 (being fixed).
-- **Battery Electric Car:** about 20-25 kWh/100 km on standard test cycles
-  (WLTC, UDDS, HWFET, US06), measured at the battery even at a 0.1 s step,
-  where comparable real cars use roughly 10-16 kWh/100 km. Part of that is the
-  default 2.5 kW auxiliary load (heating or air-conditioning level), about
-  28 % of the City Cycle energy; set the Power Consumer's *Constant Power
-  Draw* to about 0.3 kW for a mild-weather figure. *Roadmap:* CON-03 (being
+- **Battery Electric Car:** about 17-21 kWh/100 km on standard test cycles
+  (WLTC, UDDS, HWFET, US06), measured at the battery, where comparable real
+  cars use roughly 10-16 kWh/100 km. Part of that is the default 2.5 kW
+  auxiliary load (heating or air-conditioning level), about a third of the
+  City Cycle energy; with the Power Consumer's *Constant Power Draw* set to
+  about 0.3 kW for mild weather it uses about 13-18 kWh/100 km on the same
+  cycles. Its E-Motor uses the library's default maps, which are generic
+  values rather than data for a real motor. *Roadmap:* CON-03 (being
   fixed), CON-14.
 - **Updated examples do not reach existing installations.** Examples are
   copied into your projects folder on first launch only. To get the current
@@ -225,14 +230,27 @@ at t = 0.
   restarting or opening another project discards them, and only the last 20
   runs are kept. Export what you need to CSV. *Roadmap:* RES-02 (being
   fixed).
-- **Saving is being reworked.** Today a save can drop resized node sizes and
-  moved pin positions, and a crash during a save can damage the file. Keep an
-  exported copy (*Export*) of important projects. *Roadmap:* PLT-01, PLT-04
-  (being fixed).
-- **Security hardening is in progress.** A project's Script blocks run
-  Python code on your computer, and the local engine that runs them is being
-  hardened. Until that ships, open projects only from people you trust.
-  *Roadmap:* PLT-02, PLT-03 (being fixed).
+- **Scripts are restricted, not sandboxed.** A project's Script blocks run
+  Python code inside the local engine. Data Checks only compile them, never
+  run them; during a run a script can import only `math`, cannot open files
+  or reach Python's internals, and must return within 2 s; and the engine
+  answers only the SimStudio window. But these restrictions work inside the
+  engine's own process: a single huge calculation or a very large list can
+  still freeze the engine or use up the computer's memory, and a way around
+  them may exist. Open projects only from people you trust. *Roadmap:*
+  PLT-02 (running scripts in a separate, locked-down process is still to
+  do).
+- **Runs take longer than in earlier builds.** Controllers now run every
+  10 ms and every step checks what the battery or fuel cell can supply, so
+  at the default 1 s case step a run takes about 30-40 % more CPU time than
+  before (on a test machine, the Battery Electric Car's City Cycle went from
+  6.6 to 8.7 s and the P2 Hybrid Car's Mixed Cycle from 7.9 to 11.3 s). A
+  coarser case step does not make a run faster: the solver steps every
+  10 ms whatever it is. *Roadmap:* ENG-10.
+- **Some colours are too faint in the dark theme.** The ribbon title, the
+  Run button, the status bar's "backend connected" and "success" in the log
+  fall short of the WCAG AA contrast minimum. Switch to the light theme if
+  they are hard to read. *Roadmap:* GUI-02.
 - **Unsigned installers.** Windows SmartScreen warns on first launch (choose
   *More info → Run anyway*). *Roadmap:* PLT-13.
 - **No macOS version.** Builds exist for Windows 10/11 (x64) and Linux (x64)
