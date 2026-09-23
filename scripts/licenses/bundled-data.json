@@ -20,9 +20,11 @@
         "Values from FASTSim (NREL, now the National Laboratory of the Rockies), taken",
         "from the fastsim 2.1.5 package and converted to SimStudio's parameters and",
         "units; no FASTSim file is included. The Battery Electric Car example's vehicle",
-        "values come from its 2021_Cupra_Born.csv, the example's motor loss map is",
-        "calibrated to its default motor efficiency curve, and its WLTC class 3b drive",
-        "cycle comes from its cycle files."
+        "values come from its 2021_Cupra_Born.csv and its motor loss map is calibrated",
+        "to its default motor efficiency curve; the drive cycles WLTC class 3b (Battery",
+        "Electric Car), UDDS and HWFET (P2 Hybrid Car) come from its cycle files; and",
+        "the P2 Hybrid Car's auxiliary load, transmission efficiency and wheel inertia",
+        "follow its vehicle database."
       ],
       "notice": [
         "Copyright 2020 Alliance for Sustainable Energy, LLC",
@@ -41,9 +43,12 @@
       ],
       "register": [
         "DR-01",
+        "DR-02",
         "DR-22",
         "DR-23",
-        "DR-25"
+        "DR-25",
+        "DR-34",
+        "DR-35"
       ]
     }
   ]

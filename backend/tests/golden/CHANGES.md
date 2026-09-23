@@ -187,3 +187,32 @@ checked by test_examples_plausible.py).
   every 10 ms): WLTC class 3b 14.04 kWh/100 km at the battery, 18.88 with
   2.5 kW heating/air-con; full power 0-100 km/h 7.16 s, 0-60 mph 6.74 s,
   top speed 160.2 km/h at 15,723 1/min.
+
+## P2 Hybrid Car rebuilt as a charge-sustaining hybrid (CON-02)
+
+The example is now sized after the Hyundai Ioniq Hybrid Blue
+(docs/data-register.csv DR-02): EPA test mass 1,474 kg and road load
+(rolling resistance 0.0064, Cd·A 0.70 m², fitted to the EPA 2022 Test Car
+List coefficients), final drive 3.38 from EPA's N/V ratio, a 77 kW engine
+with a generic Atkinson-cycle fuel map (best 220 g/kWh, was 274-331 g/kWh
+everywhere), a 32 kW / 170 N·m motor, a 1.56 kWh 240 V battery (was 12 kWh
+at the library's 300-376 V) and a new 0.5 kW "12 V Loads" consumer. The
+Hybrid Control Unit script is rewritten: electric launch, engine off at
+standstill, when coasting and at low demand (minimum on/off times 8 / 4 s),
+engine started by bringing it up to the input-shaft speed before the clutch
+closes, load-point shifting around 55 % SOC (engine forced on below 51 %),
+and a shift map with 6 km/h hysteresis. It reads two new inputs (engine and input-shaft speed, links
+db-19 and db-20). Each case starts at the SOC the cycle ends with, as a
+preconditioning drive would leave it (Mixed Cycle 52.5 %).
+
+- hybrid-car Mixed Cycle: fuel 0.450 -> 0.198 kg, 6.32 -> 2.79 l/100 km,
+  CO₂ 149.3 -> 65.8 g/km; SOC 55 -> 55.84 % before, 52.5 -> 52.5 % now;
+  battery energy delivered 0.834 -> 0.202 kWh, recuperated 0.951 -> 0.205
+  kWh, internal losses 0.0165 -> 0.0030 kWh; distance 9.556 km unchanged.
+  Status warning -> success: the engine no longer runs declutched at the
+  rev limiter at standstill (it is off whenever the car stops). One new
+  channel, the 12 V Loads' power (60 -> 61 channels).
+- New headline numbers (charge balanced, not fixtures; checked by
+  test_examples_plausible.py): EPA city (UDDS) 2.67 l/100 km, EPA highway
+  (HWFET) 3.13 l/100 km, against the real car's 2.91 and 2.94 in EPA's
+  tests.

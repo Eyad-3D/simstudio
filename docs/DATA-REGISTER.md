@@ -24,21 +24,24 @@ cleared it for shipping.
 
 ## Status (2026-09-23)
 
-- The register has 26 rows.
-- **Third-party data is now bundled.** The Battery Electric Car rebuild
-  (CON-03) took its vehicle values from FASTSim's 2021_Cupra_Born.csv,
-  calibrated its motor loss map to FASTSim's default motor efficiency curve,
-  and took the WLTC class 3b drive cycle from FASTSim's cycle files (all
-  Apache-2.0, rules 2 and 3). FASTSim's credit and NOTICE are in
-  THIRD-PARTY-NOTICES.txt (Help > Third-Party Notices), listed in
-  `scripts/licenses/bundled-data.json`.
-- The WLTC trace is FASTSim's copy, converted to km/h and checked against the
-  regulation's own figures (duration, distance, top speed, 0.1 km/h grid,
-  phase distances). It was not re-typed from the regulation table as rule 2
-  asks, because unece.org could not be reached when it was added; re-check it
-  against the table when it can.
-- The example's new motor maps are synthetic, created for SimStudio in that
-  change; their rows say what they are calibrated to.
+- The register has 35 rows.
+- **Third-party data is now bundled.** The example rebuild (CON-02, CON-03)
+  took the Battery Electric Car's vehicle values from FASTSim's
+  2021_Cupra_Born.csv, calibrated its motor loss map to FASTSim's default
+  motor efficiency curve, and took the WLTC class 3b, UDDS and HWFET drive
+  cycles from FASTSim's cycle files (all Apache-2.0, rules 2 and 3). The P2
+  Hybrid Car's test mass, road load and gearing come from the EPA 2022 Test
+  Car List (a US Government work; EPA's own terms were not re-checked, rule
+  5). FASTSim's credit and NOTICE are in THIRD-PARTY-NOTICES.txt (Help >
+  Third-Party Notices), listed in `scripts/licenses/bundled-data.json`.
+- The three regulatory cycles are FASTSim's copies, converted to km/h and
+  checked against the regulations' own figures (duration, distance, top
+  speed, 0.1 km/h or 0.1 mph grid, WLTC phase distances). They were not
+  re-typed from the regulation tables as rule 2 asks, because epa.gov and
+  unece.org could not be reached when they were added; re-check them against
+  the tables when they can.
+- The examples' new engine, motor and battery maps are synthetic, created
+  for SimStudio in that change; their rows say what they are calibrated to.
 - **Every other shipped map, curve, profile and default value still has
   unknown provenance.** All of them except the fuel density (a textbook
   value added in `4af7f9c`) first appear in the root commit of the main
@@ -58,7 +61,7 @@ cleared it for shipping.
     name the SimStudio LICENSE and become `cleared = yes`. Any value that was
     taken from somewhere else needs its source recorded instead, or it should
     be replaced.
-  - The owner should sign off the FASTSim (Apache-2.0) rows.
+  - The owner should sign off the FASTSim (Apache-2.0) and EPA rows.
   - Once every shipped row is cleared, make `pending` fail for shipped rows
     in the check (see below), so that later data cannot ship unconfirmed.
 

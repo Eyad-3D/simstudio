@@ -45,9 +45,9 @@ motor's full-load curve falls to zero at the motor's 16,000 rpm, so the car
 tops out at 160 km/h.
 
 *Workaround:* end a motor's full-load curve with zero torque at its maximum
-speed, as the Battery Electric Car example does; plot the motor and engine
-speed and compare it with the last speed point of their maps; keep target
-speeds within what the real vehicle can do.
+speed, as the examples do; plot the motor and engine speed and compare it with
+the last speed point of their maps; keep target speeds within what the real
+vehicle can do.
 *Roadmap:* MOD-18.
 
 ### A battery or fuel cell at its limit still delivers full power
@@ -175,11 +175,17 @@ at t = 0.
 
 ## The examples
 
-- **P2 Hybrid Car:** its fuel figure is not realistic. It reports
-  19.3 l/100 km at the shipped 1 s step and 12.3 l/100 km at 0.1 s, while a
-  comparable real hybrid uses about 3 l/100 km on the US EPA city test. In
-  the shipped case its control script never switches the engine off.
-  *Roadmap:* CON-02 (being fixed).
+- **P2 Hybrid Car:** sized after the Hyundai Ioniq Hybrid, with its test
+  mass and road load from EPA data, but its engine, motor and battery maps
+  are generic, not the car's. With its charge-sustaining control script it
+  uses about 2.7 l/100 km on the EPA city cycle and 3.1 on the highway
+  cycle, against 2.91 and 2.94 for the real car in EPA's tests. The model
+  has no cold start, engine warm-up or start-up fuel, and it counts the
+  driveline drag that EPA's road-load coefficients already include a second
+  time. Each case starts at the charge the cycle ends with (as a
+  preconditioning drive would leave it), so the fuel figure needs no
+  battery-charge correction; start it elsewhere and the figure includes the
+  charge the strategy restores. *Roadmap:* CON-14 (sourced maps).
 - **Battery Electric Car:** modelled on the 2021 Cupra Born with FASTSim's
   values; about 14 kWh/100 km on WLTC at the battery (a car of this class is
   rated about 15-16 kWh/100 km at the charging socket, charging losses
