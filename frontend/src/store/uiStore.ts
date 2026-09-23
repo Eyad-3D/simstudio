@@ -23,6 +23,8 @@ export interface DialogRequest {
   message?: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  /** confirm only: a third button, left of Cancel; resolves with "alt" */
+  altLabel?: string;
   danger?: boolean;
   defaultValue?: string; // prompt only
   placeholder?: string; // prompt only

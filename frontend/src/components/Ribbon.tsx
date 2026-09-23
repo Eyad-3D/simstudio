@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import * as api from "../api";
 import { resetDockLayout } from "./DockLayout";
-import { confirmDialog } from "../dialog";
+import { confirmDialog, confirmReplaceProject } from "../dialog";
 import { useProjectStore } from "../store/projectStore";
 import {
   FONT_SCALE_MAX,
@@ -144,7 +144,9 @@ function OpenProjectButton() {
               className="block w-full px-3 py-2 text-left hover:bg-[color:var(--ss-accent-soft)]"
               onClick={() => {
                 setOpen(false);
-                void openProject(p.id);
+                void confirmReplaceProject(`Opening '${p.name}'`).then((ok) => {
+                  if (ok) void openProject(p.id);
+                });
               }}
             >
               <div className="flex items-baseline justify-between gap-2">
@@ -170,7 +172,11 @@ function HomeTab() {
   return (
     <>
       <RibbonGroup label="Project">
-        <BigButton icon={FilePlus2} label="New" onClick={store.newProject} />
+        <BigButton
+          icon={FilePlus2}
+          label="New"
+          onClick={() => void confirmReplaceProject("Creating a new project").then((ok) => ok && store.newProject())}
+        />
         <OpenProjectButton />
         <BigButton icon={Save} label="Save" onClick={() => void store.saveRemote()} />
         <BigButton icon={Download} label="Export" onClick={store.exportProject} title="Download project as JSON" />
@@ -181,9 +187,12 @@ function HomeTab() {
           accept=".json,application/json"
           className="hidden"
           onChange={async (e) => {
-            const f = e.target.files?.[0];
-            if (f) store.importProject(await f.text());
-            e.target.value = "";
+            const input = e.target;
+            const f = input.files?.[0];
+            input.value = "";
+            if (!f) return;
+            const text = await f.text();
+            if (await confirmReplaceProject(`Importing '${f.name}'`)) store.importProject(text);
           }}
         />
       </RibbonGroup>
