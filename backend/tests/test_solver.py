@@ -58,6 +58,79 @@ def test_profile_parsing():
     assert interp_profile(pts, 999, False) == 95.0
 
 
+def _interp_linear_scan(points, t, repeat):
+    """The original linear-scan lookup, kept as the reference."""
+    if not points:
+        return 0.0
+    t0, tn = points[0][0], points[-1][0]
+    if repeat and tn > t0:
+        t = t0 + (t - t0) % (tn - t0)
+    if t <= t0:
+        return points[0][1]
+    if t >= tn:
+        return points[-1][1]
+    for (ta, va), (tb, vb) in zip(points, points[1:]):
+        if ta <= t <= tb:
+            return vb if tb == ta else va + (vb - va) * (t - ta) / (tb - ta)
+    return points[-1][1]
+
+
+def test_profile_lookup_matches_linear_scan():
+    # repeated times (steps), a lone point, exact knots and repeat wrapping
+    profiles = [
+        "0:0; 10:0; 10:50; 20:50; 20:20; 35:80; 40:0",
+        "5:7",
+        "; ".join(f"{i * 0.5:g}:{(i * 37) % 11}" for i in range(400)),
+    ]
+    for text in profiles:
+        pts = parse_profile(text)
+        for repeat in (False, True):
+            for k in range(-20, 900):
+                t = k * 0.25
+                assert interp_profile(pts, t, repeat) == _interp_linear_scan(pts, t, repeat), (
+                    text[:30], t, repeat)
+
+
+def test_profiles_are_parsed_once_per_run(monkeypatch):
+    """The drive cycle and road profile are parsed when first used, not on
+    every control step (a 1,801-point WLTC string costs ~0.8 ms to parse)."""
+    import app.solver.domains as domains
+
+    calls = []
+
+    def counting_parse(text):
+        calls.append(text)
+        return parse_profile(text)
+
+    monkeypatch.setattr(domains, "parse_profile", counting_parse)
+    proj = bev_axle(profile="0:0; 5:60; 20:60")
+    proj.systems[0].elements.append(
+        el("road", "signal.road_profile", "Road", profile="0:0; 50:2; 200:2"))
+    proj.dataBusConnections.append(dbc(50, "road", "sig_grade", "veh", "sig_grade_in"))
+    proj.cases[0].duration = 20
+    proj.cases[0].timeStep = 0.1
+    result = simulate(proj, "case")
+    assert result.status in ("success", "warning"), [m.text for m in result.messages]
+    assert len(calls) == 2, f"parsed {len(calls)} times"
+
+
+def test_live_profile_edit_takes_effect():
+    proj = bev_axle(profile="0:0; 5:60; 10:60")
+    proj.cases[0].duration = 10
+    sent = {"n": 0}
+
+    def control():
+        sent["n"] += 1
+        if sent["n"] == 3:  # a few recorded steps in
+            return [{"type": "set_param", "elementId": "task", "key": "profile",
+                     "value": "0:30; 10:30"}]
+        return []
+
+    result = simulate(proj, "case", control=control)
+    demand = series(result, "task", "sig_demand")
+    assert demand[-1]["value"] == pytest.approx(30.0)
+
+
 # ---- recording controls (outputEvery + smaller step) -------------------------
 
 def _bev_30s(**case_over):
@@ -169,8 +242,9 @@ def test_standstill_holds_at_zero():
 
 
 def test_motor_steady_state_matches_road_load():
-    """At constant 50 km/h the motor torque must equal road load through
-    the gear chain — the physics regression anchor."""
+    """At constant 50 km/h the motor's shaft torque must equal road load
+    through the gear chain — the physics regression anchor. A powered motor
+    has no drag torque on top: its spin losses are in the loss map."""
     proj = bev_axle(profile="0:0; 5:50; 60:50")
     proj.cases[0].duration = 60
     result = simulate(proj, "case")
@@ -181,10 +255,8 @@ def test_motor_steady_state_matches_road_load():
     f_roll = 0.012 * mass * 9.81 * 0.5  # two wheels à 25 % share
     f_aero = 0.5 * 1.2 * (0.28 * 2.2) * v * v  # Cd × frontal area
     wheel_torque = (f_roll + f_aero) * 0.33
-    rpm = v / 0.33 * 9.7 * 60 / (2 * math.pi)
-    drag = interp1(parse_table1d({"0": 0, "3000": 1.2, "6000": 2.6, "9000": 4.2, "12000": 6.0}), rpm)
-    expected = wheel_torque / (9.7 * 0.97 * 0.98) + drag
-    assert abs(t_motor - expected) < 1.5, f"{t_motor} vs {expected}"
+    expected = wheel_torque / (9.7 * 0.97 * 0.98)
+    assert abs(t_motor - expected) < 0.5, f"{t_motor} vs {expected}"
 
 
 # ---- differential ------------------------------------------------------------
@@ -311,6 +383,28 @@ def test_bad_table_is_reported():
             e.parameterOverrides["drag_torque"] = {"not-a-number": 1.0}
     checks = validate_project(proj)
     assert any("not numeric" in c.text for c in checks if c.level == "error")
+
+
+def _task_checks(profile: str):
+    proj = bev_axle(profile=profile)
+    return [(c.level, c.text) for c in validate_project(proj) if c.elementId == "task"]
+
+
+def test_malformed_profile_entries_are_errors():
+    # '30;50' lost its colon: the parser used to skip both halves silently
+    checks = _task_checks("0:0; 30;50; 60:0")
+    assert ("error", "'Task' profile: '30' and one other entry are not 'x:value' pairs "
+                     "of numbers and would be ignored.") in checks
+    checks = _task_checks("0:0; 30:50; 20:10")
+    assert ("error", "'Task' profile: points are not in ascending order "
+                     "(20 comes after 30).") in checks
+    assert any(level == "error" for level, _ in _task_checks("0:0; 10:nan"))
+
+
+def test_profile_step_is_a_warning_and_clean_profile_passes():
+    checks = _task_checks("0:0; 10:0; 10:50; 20:50")
+    assert checks == [("warning", "'Task' profile: two points at 10 — the value jumps there.")]
+    assert _task_checks("0:0; 5:60; 30:60") == []
 
 
 # ---- bundled example -----------------------------------------------------------

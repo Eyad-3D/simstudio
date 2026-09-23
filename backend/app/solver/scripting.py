@@ -2,7 +2,8 @@
 
 User code defines `def step(t, dt, inputs, state, params)` and returns a
 dict of output values keyed by output-port id. The code is compiled once
-per run and executed once per recorded step.
+per run and executed every solver step (dt = the solver step, ≤ 10 ms),
+or at the block's Sample Time if that is longer.
 
 Scripts are for signal math, and are held to that:
 

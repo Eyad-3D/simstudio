@@ -287,7 +287,7 @@
       "name": "E-Motor",
       "icon": "fan",
       "domain": "electrical",
-      "description": "Electric machine with voltage-dependent full-load torque map, power-loss map (motor + inverter) and drag torque. Motoring and generating (recuperation) quadrants; generator limit mirrors the full-load map scaled by the Q4 scale parameter. Traction command input is a normalized demand in [-1, 1].",
+      "description": "Electric machine with voltage-dependent full-load torque map, power-loss map (motor + inverter) and drag torque. The loss map covers every loss while the inverter is powered, spin losses at zero torque included; the drag torque applies only when the motor coasts unpowered (zero command or no supply). Motoring and generating (recuperation) quadrants; generator limit mirrors the full-load map scaled by the Q4 scale parameter. Traction command input is a normalized demand in [-1, 1].",
       "ports": [
         {
           "id": "pos",
@@ -435,25 +435,25 @@
             { "name": "Torque", "unit": "N·m" }
           ],
           "default": {
-            "0": { "0": 0.2, "100": 1.6, "200": 3.2, "350": 8.5 },
-            "3000": { "0": 0.8, "100": 2.0, "200": 4.2, "350": 10.4 },
-            "6000": { "0": 1.8, "100": 2.8, "200": 5.6, "350": 12.8 },
-            "9000": { "0": 3.0, "100": 4.0, "200": 7.4, "350": 15.6 },
-            "12000": { "0": 4.6, "100": 5.6, "200": 9.6, "350": 18.9 }
+            "0": { "0": 0.1, "100": 1.6, "200": 3.2, "350": 8.5 },
+            "3000": { "0": 0.35, "100": 2.0, "200": 4.2, "350": 10.4 },
+            "6000": { "0": 0.7, "100": 2.8, "200": 5.6, "350": 12.8 },
+            "9000": { "0": 1.2, "100": 4.0, "200": 7.4, "350": 15.6 },
+            "12000": { "0": 1.9, "100": 5.6, "200": 9.6, "350": 18.9 }
           }
         },
         {
           "key": "drag_torque",
-          "label": "Drag Torque",
+          "label": "Drag Torque (unpowered)",
           "unit": "N·m",
           "type": "table1d",
           "axes": [{ "name": "Speed", "unit": "1/min" }],
           "default": {
             "0": 0,
-            "3000": 1.2,
-            "6000": 2.6,
-            "9000": 4.2,
-            "12000": 6.0
+            "3000": 0.7,
+            "6000": 0.8,
+            "9000": 1.0,
+            "12000": 1.2
           }
         },
         {
@@ -1300,7 +1300,7 @@
       "icon": "code",
       "domain": "signal",
       "allowDynamicPorts": true,
-      "description": "User-written Python function evaluated once per case time step (Step (s) in Cases & Parameters, passed in as dt). Add named signal input/output ports in the Properties panel; the step() function receives inputs and a persistent state dict and returns a dict of output values. Use for hybrid control strategies, custom recuperation logic, signal math, etc.",
+      "description": "User-written Python function evaluated every solver step (≤ 10 ms), or at its Sample Time if that is longer; the step is passed in as dt. Add named signal input/output ports in the Properties panel; the step() function receives inputs and a persistent state dict and returns a dict of output values. Use for hybrid control strategies, custom recuperation logic, signal math, etc.",
       "ports": [],
       "parameters": [
         {
@@ -1310,6 +1310,13 @@
           "unit": "-",
           "type": "code",
           "default": "def step(t, dt, inputs, state, params):\n    # inputs: dict of input-port values (by port id)\n    # state:  dict persisting across steps\n    # return: dict of output-port values (by port id)\n    return {}\n"
+        },
+        {
+          "key": "sample_time_s",
+          "label": "Sample Time (0 = solver step)",
+          "unit": "s",
+          "default": 0,
+          "type": "number"
         }
       ]
     },
@@ -1374,7 +1381,7 @@
       "name": "Combustion Engine",
       "icon": "flame",
       "domain": "mechanical",
-      "description": "Internal combustion engine: full-load torque curve, drag (motoring) torque, and a fuel-consumption map (speed × torque → kg/h). Built-in idle governor holds idle speed when enabled. Enable input allows hybrid start/stop control (unwired = always on); consumes from the Fuel Tank automatically.",
+      "description": "Internal combustion engine: full-load torque curve, drag (motoring) torque, and a fuel-consumption map (speed × torque → kg/h). The full-load curve and fuel map are brake (net, flywheel) values, as on a datasheet; the drag torque applies only while the engine is not fired: switched off, out of fuel, in overrun fuel cut-off (zero throttle above the re-entry speed) or above the full-load curve's last speed (rev limiter). Built-in idle governor holds idle speed at zero throttle. Enable input allows hybrid start/stop control (unwired = always on); consumes from the Fuel Tank automatically.",
       "ports": [
         {
           "id": "shaft",
@@ -1451,7 +1458,7 @@
         },
         {
           "key": "drag_torque",
-          "label": "Drag Torque",
+          "label": "Drag Torque (unfired)",
           "unit": "N·m",
           "type": "table1d",
           "axes": [{ "name": "Speed", "unit": "1/min" }],
@@ -1491,6 +1498,13 @@
           "type": "number"
         },
         {
+          "key": "fuel_cut_reentry_rpm",
+          "label": "Fuel Cut-Off Re-Entry Speed",
+          "unit": "1/min",
+          "default": 1100,
+          "type": "number"
+        },
+        {
           "key": "inertia_kgm2",
           "variability": "fixed",
           "label": "Inertia",
@@ -1506,7 +1520,7 @@
       "name": "Fuel Tank",
       "icon": "fuel",
       "domain": "fluid",
-      "description": "Fuel reservoir. Combustion engines draw from it automatically; when it runs dry the engine shuts off. One tank per model.",
+      "description": "Fuel reservoir. Combustion engines draw from it automatically; when it runs dry the engine shuts off. Its density turns the fuel burnt into litres and its CO₂ factor (3.17 kg per kg for petrol) into the CO₂ emissions in the run summary. One tank per model.",
       "ports": [
         {
           "id": "sig_level",
@@ -1545,6 +1559,13 @@
           "label": "Fuel Density",
           "unit": "kg/l",
           "default": 0.745,
+          "type": "number"
+        },
+        {
+          "key": "co2_kg_per_kg",
+          "label": "CO₂ per kg of Fuel",
+          "unit": "kg/kg",
+          "default": 3.17,
           "type": "number"
         }
       ]
@@ -1936,7 +1957,7 @@
       "name": "PID Controller",
       "icon": "activity",
       "domain": "signal",
-      "description": "Generic PID feedback controller with output clamping and anti-windup, evaluated once per case time step (Step (s) in Cases & Parameters). Use it for custom control loops without writing a script.",
+      "description": "Generic PID feedback controller with output clamping and anti-windup, evaluated every solver step (≤ 10 ms), or at its Sample Time if that is longer. Use it for custom control loops without writing a script.",
       "ports": [
         {
           "id": "sig_setpoint_in",
@@ -1965,7 +1986,8 @@
         { "key": "ki", "label": "Integral Gain", "unit": "1/s", "default": 0, "type": "number" },
         { "key": "kd", "label": "Derivative Gain", "unit": "s", "default": 0, "type": "number" },
         { "key": "out_min", "label": "Output Minimum", "unit": "-", "default": -1, "type": "number" },
-        { "key": "out_max", "label": "Output Maximum", "unit": "-", "default": 1, "type": "number" }
+        { "key": "out_max", "label": "Output Maximum", "unit": "-", "default": 1, "type": "number" },
+        { "key": "sample_time_s", "label": "Sample Time (0 = solver step)", "unit": "s", "default": 0, "type": "number" }
       ]
     },
     {
@@ -2027,7 +2049,8 @@
             { "name": "Input Y", "unit": "-" }
           ],
           "default": { "0": { "0": 0, "1": 0 }, "1": { "0": 0, "1": 1 } }
-        }
+        },
+        { "key": "sample_time_s", "label": "Sample Time (0 = solver step)", "unit": "s", "default": 0, "type": "number" }
       ]
     },
     {

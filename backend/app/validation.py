@@ -11,6 +11,7 @@ plausibility of key vehicle parameters.
 """
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from typing import Callable
 
@@ -25,6 +26,7 @@ from .solver import (
     check_script,
     parse_table1d,
     parse_table2d,
+    profile_problems,
 )
 from .solver.network import NO_DRIVER, NO_VEHICLE, NO_WHEELS, SIGNAL_BLOCK_TYPES, ports_of
 
@@ -66,6 +68,11 @@ AUX_LOAD_MAX_KW = 50.0  # a constant load beyond this is not an auxiliary
 FINAL_DRIVE_MAX_RATIO = 25.0
 
 Add = Callable[..., None]
+
+# Script / PID / Lookup blocks may run slower than the solver step; above
+# this their sampling starts to shape the results (real vehicle controllers
+# run every 10-100 ms).
+COARSE_SAMPLE_TIME_S = 0.1
 
 
 def validate_project(project: Project) -> list[DataCheck]:
@@ -229,6 +236,25 @@ def validate_project(project: Project) -> list[DataCheck]:
                     check_script(str(value or ""), el.label)
                 except ScriptError as e:
                     add("error", str(e), el)
+
+        if cdef.id in ("signal.driving_task", "signal.road_profile"):
+            for level, text in profile_problems(str(params.get("profile", ""))):
+                add(level, f"'{el.label}' profile: {text}.", el)
+        if "sample_time_s" in pdef_by_key:
+            try:
+                ts = float(params.get("sample_time_s", 0) or 0)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                add("error", f"Sample Time of '{el.label}' is not a number.", el)
+            else:
+                if not math.isfinite(ts):
+                    add("error", f"Sample Time of '{el.label}' must be a finite number — got {ts:g}.", el)
+                elif ts < 0:
+                    add("error", f"Sample Time of '{el.label}' must not be negative — got {ts:g} s.", el)
+                elif ts > COARSE_SAMPLE_TIME_S:
+                    add("warning",
+                        f"'{el.label}' runs only every {ts:g} s (its Sample Time); real vehicle "
+                        f"controllers run every 10-100 ms, so results may depend on this "
+                        f"setting.", el)
 
     # -- structural solvability (delegated to model extraction) ------------------
     model = None

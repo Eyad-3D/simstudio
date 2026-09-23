@@ -109,9 +109,9 @@ export interface SimCase {
   id: string;
   name: string;
   duration: number;
-  /** Solver step in seconds; signals/blocks evaluate here, mechanics sub-step internally. */
+  /** Output step in seconds (results stored, live edits applied); the solver runs at ≤10 ms. */
   timeStep: number;
-  /** Record a data point every N solver steps (output decimation); 1 = every step. */
+  /** Record a data point every N output steps (further decimation); 1 = every step. */
   outputEvery?: number;
   /** 0 = as fast as possible; N > 0 = pace at N× real time (live tuning). */
   realtimeFactor?: number;
@@ -154,6 +154,8 @@ export interface SummaryValue {
   label: string;
   value: number;
   unit: string;
+  /** Why the run verdict says this number is not valid, e.g. "cycle not followed". */
+  notValid?: string | null;
 }
 
 export interface SimResult {
