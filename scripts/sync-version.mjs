@@ -7,6 +7,10 @@
 // The root VERSION file is the source of truth. electron-builder and npm both
 // insist on reading their own package.json, so those are kept in step here
 // rather than being hand-edited and silently diverging.
+//
+// docs/KNOWN-LIMITS.md names the version it was last reviewed for. That line
+// is checked but never written: a new version needs the page reviewed, not
+// just relabelled.
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,8 +43,18 @@ for (const rel of manifests) {
   console.log(`${rel} → ${version}`);
 }
 
+const limitsRel = "docs/KNOWN-LIMITS.md";
+const limits = readFileSync(join(root, limitsRel), "utf8");
+const reviewed = /Last reviewed:[\s\S]*?for version (\S+?)\.?(?:\s|$)/.exec(limits)?.[1];
+const unreviewed = reviewed !== version;
+if (unreviewed) {
+  const say = check ? console.error : console.warn;
+  say(`${limitsRel}: last reviewed for ${reviewed ?? "no version"}, VERSION is ${version}.` +
+      ` Review the page, then update its "Last reviewed" line.`);
+}
+
 if (check && drifted) {
   console.error(`\n${drifted} manifest(s) out of sync. Run: node scripts/sync-version.mjs`);
-  process.exit(1);
 }
-if (check) console.log(`all manifests at ${version}`);
+if (check && (drifted || unreviewed)) process.exit(1);
+if (check) console.log(`all manifests and ${limitsRel} at ${version}`);

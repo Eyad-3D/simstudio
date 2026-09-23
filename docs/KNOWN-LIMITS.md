@@ -194,7 +194,10 @@ at t = 0.
   version, close SimStudio, delete the example's file and the hidden
   `.seeded` file in the projects folder (*File → Open Projects Folder*),
   and start SimStudio again. Your own projects are not touched, but
-  examples you deleted earlier come back as well.
+  examples you deleted earlier come back as well. If you changed the
+  example and want to keep your version, Export it first (*Home → Export*);
+  the export keeps the example's file name, so importing and saving it
+  later replaces the updated example again.
   *Roadmap:* CON-10.
 
 ## Not modelled yet

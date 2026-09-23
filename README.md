@@ -163,7 +163,10 @@ shipped.
 The root `VERSION` file is the single source of truth. `scripts/sync-version.mjs`
 copies it into the npm manifests (electron-builder and Vite each insist on
 reading their own `package.json`), and the backend reports it at
-`/api/health`. CI fails if they drift.
+`/api/health`. CI fails if they drift, and also when
+[docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md) was last reviewed for another
+version: review the page for each release and update its *Last reviewed*
+line (the script checks that line but never rewrites it).
 
 ```bash
 node scripts/sync-version.mjs           # write VERSION into the manifests
