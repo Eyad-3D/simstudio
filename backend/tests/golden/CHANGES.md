@@ -115,18 +115,46 @@ duration is at best "warning" ("Cycle not followed: ..."), and one that
 covers under 5 % of the cycle's distance or records NaN "failed". Summary
 values carry an optional notValid reason, which the fixtures do not store.
 
+## E-Motor default loss and drag tables (MOD-04, review round 1)
+
+With the spin losses counted once, the library's default E-Motor still
+lost 2.6 kW at zero torque near 8,000 1/min, so the BEV example turned only
+79.8 % of its battery power (net of the 2.5 kW auxiliary load) into road
+load at a steady 100 km/h. The zero-torque column of "Power Loss (Motor +
+Inverter)" is now 0.1 / 0.35 / 0.7 / 1.2 / 1.9 kW at 0 / 3,000 / 6,000 /
+9,000 / 12,000 1/min (was 0.2 / 0.8 / 1.8 / 3.0 / 4.6), about 1.0 kW near
+8,000 1/min; the loaded columns (100 N·m and up) are unchanged. "Drag Torque
+(unpowered)" is now 0.7 / 0.8 / 1.0 / 1.2 N·m at 3,000 / 6,000 / 9,000 /
+12,000 1/min (was 1.2 / 2.6 / 4.2 / 6.0), so a coasting, unpowered motor
+never loses more than a powered one at zero torque (before, 7.5 kW against
+4.6 kW at 12,000 1/min). These are generic values for a motor of this size
+(background knowledge, not from a datasheet); the sourced maps of the
+example rework (CON-03) and the library defaults (CON-14) replace them. The
+BEV example at a steady 100 km/h is now 86.0 % battery-to-wheel.
+
+- bev-car City Cycle: energy delivered 1.361 -> 1.279 kWh, recuperated
+  0.036 -> 0.041 kWh, internal losses 0.0098 -> 0.0088 kWh, consumption
+  18.16 -> 16.97 kWh/100 km, final SOC 87.78 -> 87.92 %; distance and
+  status unchanged.
+- hybrid-car Mixed Cycle: fuel 0.459 -> 0.450 kg, 6.45 -> 6.32 l/100 km,
+  CO₂ emissions 152.3 -> 149.3 g/km, final SOC 55.83 -> 55.84 %,
+  recuperated 0.949 -> 0.951 kWh; status still warning (rev limiter, see
+  MOD-05).
+- Any user model that keeps the default E-Motor maps moves the same way;
+  models with their own loss or drag table are unchanged.
+
 ## Net effect of the engine-lane step 2 on the demos
 
 | Demo | Number | Before step 2 | After |
 |---|---|---|---|
-| bev-car City Cycle | Consumption | 19.88 kWh/100 km | 18.16 kWh/100 km (MOD-04) |
-| | energy delivered / recuperated | 1.479 / 0.029 kWh | 1.361 / 0.036 kWh |
-| | final SOC | 87.56 % | 87.78 % |
+| bev-car City Cycle | Consumption | 19.88 kWh/100 km | 16.97 kWh/100 km (MOD-04 18.16, default maps 16.97) |
+| | energy delivered / recuperated | 1.479 / 0.029 kWh | 1.279 / 0.041 kWh |
+| | final SOC | 87.56 % | 87.92 % |
 | | status | success | success |
-| hybrid-car Mixed Cycle | Fuel consumption | 7.76 l/100 km | 6.45 l/100 km (MOD-04 7.58, MOD-05 6.45) |
-| | fuel used | 0.553 kg | 0.459 kg |
-| | CO₂ emissions | — | 152.3 g/km (new) |
-| | final SOC (starts at 55 %) | 52.92 % | 55.83 % |
+| hybrid-car Mixed Cycle | Fuel consumption | 7.76 l/100 km | 6.32 l/100 km (MOD-04 7.58, MOD-05 6.45, default maps 6.32) |
+| | fuel used | 0.553 kg | 0.450 kg |
+| | CO₂ emissions | — | 149.3 g/km (new) |
+| | final SOC (starts at 55 %) | 52.92 % | 55.84 % |
 | | battery Consumption row | 2.49 kWh/100 km | gone (the battery ends above its start) |
 | | status | success | warning (rev limiter, see MOD-05) |
 | both | Electrical energy balance error | — | 0.0 % (new) |
