@@ -1,6 +1,8 @@
 """Pydantic models mirroring the SimStudio project data model (spec §4).
 
 Field names use camelCase to match the frontend/JSON representation 1:1.
+The models a project file is made of accept fields they do not know and keep
+them, so a save through the engine never drops what a (newer) UI stored.
 """
 from __future__ import annotations
 
@@ -15,6 +17,10 @@ ScalarValue = Union[bool, int, float, str]
 Table1D = dict[str, float]
 Table2D = dict[str, dict[str, float]]
 ParamValue = Union[ScalarValue, Table2D, Table1D]
+
+# Project-file models keep unknown fields (canvas layout, newer UI data) on a
+# load → save round trip instead of silently dropping them.
+PERSISTED = ConfigDict(extra="allow")
 
 
 class PortDef(BaseModel):
@@ -66,7 +72,7 @@ class ComponentDef(BaseModel):
 
 
 class ElementInstance(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
     id: str
     componentDefId: str
@@ -78,11 +84,17 @@ class ElementInstance(BaseModel):
     dynamicPorts: list[PortDef] = Field(default_factory=list)
     # Per-instance canvas pin placement overrides: port id → left/right/top/bottom.
     portSides: dict[str, Literal["left", "right", "top", "bottom"]] = Field(default_factory=dict)
+    # Per-instance pin offset along its side, 0..1 (Shift+drag a pin).
+    portOffsets: dict[str, float] = Field(default_factory=dict)
+    # Canvas node size in flow units ({width, height}); None = default size.
+    size: Optional[dict[str, float]] = None
     isSubSystem: bool = False
     subSystemId: Optional[str] = None  # SystemNode this element drills into
 
 
 class Connection(BaseModel):
+    model_config = PERSISTED
+
     id: str
     sourceElementId: str
     sourcePortId: str
@@ -91,6 +103,8 @@ class Connection(BaseModel):
 
 
 class DataBusConnection(BaseModel):
+    model_config = PERSISTED
+
     id: str
     element1Id: str
     port1Id: str
@@ -99,6 +113,8 @@ class DataBusConnection(BaseModel):
 
 
 class SystemNode(BaseModel):
+    model_config = PERSISTED
+
     id: str
     name: str
     parentId: Optional[str] = None
@@ -107,6 +123,8 @@ class SystemNode(BaseModel):
 
 
 class SimCase(BaseModel):
+    model_config = PERSISTED
+
     id: str
     name: str
     duration: float = 600.0
@@ -123,6 +141,8 @@ class SimCase(BaseModel):
 
 
 class Project(BaseModel):
+    model_config = PERSISTED
+
     id: str
     name: str
     # Project-file format version; bump when the shape changes so loaders can
