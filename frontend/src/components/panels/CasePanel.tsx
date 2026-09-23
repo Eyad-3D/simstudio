@@ -80,7 +80,7 @@ function ValueEditor({
     return (
       <input
         type="number"
-        className="ss-input w-[110px]"
+        className="ss-input"
         value={Number(value)}
         step="any"
         onChange={(e) => onChange(Number(e.target.value))}
@@ -188,7 +188,8 @@ export function CasePanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="ss-panel-toolbar">
+      {/* in a narrow panel the Run/Stop buttons wrap below the case */}
+      <div className="ss-panel-toolbar flex-wrap">
         <span className="text-[11px] text-[color:var(--ss-text-dim)]">Case</span>
         <select
           className="ss-input w-[150px]"
@@ -226,12 +227,13 @@ export function CasePanel() {
         <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
           Case settings
         </div>
-        <div className="mb-4 grid grid-cols-2 gap-x-3 gap-y-1.5 rounded bg-[color:var(--ss-panel-alt)] p-2">
+        {/* one setting a row: side by side, a side panel left each label ~10 px */}
+        <div className="mb-4 grid gap-y-1.5 rounded bg-[color:var(--ss-panel-alt)] p-2">
           <label className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]">
             Duration (s)
             <input
               type="number"
-              className="ss-input w-[80px]"
+              className="ss-input"
               min={1}
               value={activeCase.duration}
               onChange={(e) =>
@@ -246,7 +248,7 @@ export function CasePanel() {
             Step (s)
             <input
               type="number"
-              className="ss-input w-[80px]"
+              className="ss-input"
               step="any"
               min={0.0001}
               value={activeCase.timeStep}
@@ -264,7 +266,7 @@ export function CasePanel() {
             Store every (steps)
             <input
               type="number"
-              className="ss-input w-[80px]"
+              className="ss-input"
               min={1}
               step={1}
               value={activeCase.outputEvery ?? 1}
@@ -281,7 +283,7 @@ export function CasePanel() {
           >
             Pacing
             <select
-              className="ss-input w-[80px]"
+              className="ss-input w-[72px]"
               value={activeCase.realtimeFactor ?? 0}
               onChange={(e) =>
                 setCaseField(activeCase.id, { realtimeFactor: Number(e.target.value) })
@@ -450,7 +452,7 @@ export function CasePanel() {
             <span>From</span>
             <input
               type="number"
-              className="ss-input w-[80px]"
+              className="ss-input"
               value={swStart}
               step="any"
               onChange={(e) => setSwStart(Number(e.target.value))}
@@ -458,7 +460,7 @@ export function CasePanel() {
             <span>to</span>
             <input
               type="number"
-              className="ss-input w-[80px]"
+              className="ss-input"
               value={swStop}
               step="any"
               onChange={(e) => setSwStop(Number(e.target.value))}
@@ -466,7 +468,7 @@ export function CasePanel() {
             <span>in</span>
             <input
               type="number"
-              className="ss-input w-[56px]"
+              className="ss-input"
               value={swSteps}
               min={1}
               max={16}

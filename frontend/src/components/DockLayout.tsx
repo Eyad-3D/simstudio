@@ -90,13 +90,17 @@ function toggleMaximise({ api, containerApi }: IDockviewPanelHeaderProps) {
   }
 }
 
+// Panels whose tab shows a shorter title, so the side columns fit their tabs
+// on a 1366-px screen; the tooltip and the accessible name keep the full one.
+const FULL_TITLES: Record<string, string> = { cases: "Cases & Parameters" };
+
 // Accessible panel tabs: the default dockview tab is a plain div with no role or
 // discernible name. Wrap it so assistive tech announces each tab by its title.
 // Messages / Data Checks carry a count badge (drawn by CSS from data-badge) so
 // problems show while the tray is collapsed. Double-clicking a tab in the main
 // grid maximises its group (e.g. the diagram) and double-clicking again restores.
 function SsTab(props: IDockviewPanelHeaderProps) {
-  const title = props.api.title ?? "";
+  const title = FULL_TITLES[props.api.id] ?? props.api.title ?? "";
   const [level, count] = useAttention(props.api.id).split(":");
   const label = count ? `${title} (${count} ${count === "1" ? "warning or error" : "warnings or errors"})` : title;
   return (
@@ -152,7 +156,7 @@ const components = {
 
 // bump when the panel set / default arrangement changes so stale saved layouts
 // are discarded rather than restored into a broken state.
-const LAYOUT_VERSION = 4;
+const LAYOUT_VERSION = 5;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -229,7 +233,7 @@ function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
   api.addPanel({
     id: "cases",
     component: "cases",
-    title: "Cases & Parameters",
+    title: "Cases",
     position: { referencePanel: "properties", direction: "within" },
     minimumWidth: 200,
   });

@@ -484,7 +484,7 @@ function NumberInput({ value, onChange }: { value: number; onChange: (v: number)
   return (
     <input
       type="number"
-      className="ss-input w-full"
+      className="ss-input"
       value={text}
       step="any"
       aria-invalid={invalid || undefined}
@@ -520,7 +520,7 @@ function ParameterInput({
     case "enum":
       return (
         <select
-          className="ss-input w-full"
+          className="ss-input"
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
         >
@@ -675,7 +675,7 @@ export function ElementForm({
       <div className="flex items-center gap-2">
         <span className="w-[72px] shrink-0 text-[11px] text-[color:var(--ss-text-dim)]">Name</span>
         <input
-          className="ss-input flex-1"
+          className="ss-input min-w-0 flex-1"
           value={element.label}
           onChange={(e) => renameElement(element.id, e.target.value)}
         />
@@ -704,18 +704,20 @@ export function ElementForm({
         </button>
       )}
       {scalarParams.length > 0 && (
+        // the value and unit take the width they need; the label gets the
+        // rest, on one line, with the full text in its tooltip
         <table className="w-full border-collapse">
           <thead>
             <tr>
-              <th className="ss-th">Parameter</th>
-              <th className="ss-th w-[110px]">Value</th>
-              <th className="ss-th w-[52px]">Unit</th>
+              <th className="ss-th w-full max-w-0 truncate">Parameter</th>
+              <th className="ss-th">Value</th>
+              <th className="ss-th">Unit</th>
             </tr>
           </thead>
           <tbody>
             {scalarParams.map((p) => (
               <tr key={p.key}>
-                <td className="ss-td text-[11px]">
+                <td className="ss-td max-w-0 truncate text-[11px]" title={p.label}>
                   {p.label}
                   {running && p.variability === "fixed" && (
                     <span
@@ -733,7 +735,7 @@ export function ElementForm({
                     onChange={(v) => setParameter(element.id, p.key, v)}
                   />
                 </td>
-                <td className="ss-td text-[11px] text-[color:var(--ss-text-dim)]">{p.unit}</td>
+                <td className="ss-td whitespace-nowrap text-[11px] text-[color:var(--ss-text-dim)]">{p.unit}</td>
               </tr>
             ))}
           </tbody>
@@ -746,16 +748,16 @@ export function ElementForm({
               key={p.key}
               className="ss-toolbtn justify-between border border-[color:var(--ss-border)] px-2 py-1"
               onClick={() => openParamDialog(element.id)}
-              title="Open the full editor in a dialog"
+              title={`${isProfile(p) ? "Profile" : p.label}: open the full editor in a dialog`}
             >
-              <span className="flex items-center gap-1.5">
+              <span className="flex min-w-0 items-center gap-1.5">
                 {p.type === "code" ? <Pencil size={12} /> : <Table2 size={12} />}
-                {isProfile(p) ? "Profile" : p.label}
+                <span className="truncate">{isProfile(p) ? "Profile" : p.label}</span>
                 {p.type !== "code" && !isProfile(p) ? (
-                  <span className="text-[10px] text-[color:var(--ss-text-dim)]">({p.unit})</span>
+                  <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">({p.unit})</span>
                 ) : null}
               </span>
-              <span className="text-[10px] text-[color:var(--ss-accent)]">Edit…</span>
+              <span className="shrink-0 text-[10px] text-[color:var(--ss-accent)]">Edit…</span>
             </button>
           ))}
         </div>

@@ -107,6 +107,16 @@ body,
   border-top: 2px solid transparent;
   /* larger hit target for the panel tabs */
   padding: 0 10px;
+  /* a group narrower than its tabs shortens their titles with an ellipsis
+     (the full title is in the tooltip) rather than scrolling tabs out of
+     sight */
+  flex-shrink: 1;
+  min-width: 0;
+}
+.dockview-theme-ss .dv-default-tab-content {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .dockview-theme-ss .dv-tab.dv-active-tab {
   border-top: 2px solid var(--ss-accent);
@@ -217,6 +227,14 @@ body,
 }
 .ss-input[aria-invalid="true"] {
   border-color: #dc2626;
+}
+/* numbers line up right-aligned in equal-width digits, and a field grows to
+   show every digit of its value rather than clipping it (no fixed width) */
+.ss-input[type="number"] {
+  min-width: 72px;
+  field-sizing: content;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 .ss-tree-row {
   @apply flex w-full cursor-default items-center gap-1.5 truncate px-1.5 py-[3px] text-left text-[12px] hover:bg-[color:var(--ss-hover)];
