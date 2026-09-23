@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:visual:update": "playwright test visual --update-snapshots"
   },
   "dependencies": {
     "@xyflow/react": "^12.11.1",

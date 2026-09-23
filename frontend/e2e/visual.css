@@ -1,0 +1,10 @@
+/* Applied only while e2e/visual.spec.ts takes its screenshots. They check
+   layout and theme, not results, so what the solver decides is hidden: the
+   plotted curves, the axis numbers and the summary values. A solver change
+   then does not fail them; a change to anything around the numbers does. */
+.recharts-line-curve,
+.recharts-line-dots,
+.recharts-cartesian-axis-tick-value,
+td.ss-td.font-mono {
+  visibility: hidden;
+}
