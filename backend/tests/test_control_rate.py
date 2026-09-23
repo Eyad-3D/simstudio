@@ -25,16 +25,30 @@ def _hybrid(step: float):
     return proj, case.id
 
 
-def test_hybrid_kpis_do_not_depend_on_the_output_step():
+def _bev(step: float):
+    """The bundled BEV on a compressed cycle that also brakes to a stop."""
+    proj = load_project("bev-car")
+    case = proj.cases[0]
+    case.duration = 100
+    case.timeStep = step
+    case.parameterOverrides = {"el-task": {"profile": "0:0; 15:60; 50:60; 65:0; 100:0"}}
+    return proj, case.id
+
+
+@pytest.mark.parametrize("make,active", [
+    (_hybrid, "Engine — fuel used"),
+    (_bev, "HV Battery Pack — energy recuperated"),
+])
+def test_demo_kpis_do_not_depend_on_the_output_step(make, active):
     results = {}
     for step in (1.0, 0.02):
-        proj, case_id = _hybrid(step)
+        proj, case_id = make(step)
         result = simulate(proj, case_id)
         assert result.status in ("success", "warning"), [m.text for m in result.messages]
         results[step] = _kpis(result)
     coarse, fine = results[1.0], results[0.02]
     assert coarse.keys() == fine.keys()
-    assert fine["Engine — fuel used"] > 0.05  # the engine really ran
+    assert fine[active] > 0.01  # the engine ran / the car recuperated
     for label, value in fine.items():
         assert coarse[label] == pytest.approx(value, rel=5e-3, abs=1e-3), label
 
