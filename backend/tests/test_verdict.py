@@ -107,12 +107,15 @@ def test_a_car_that_does_not_move_fails_and_says_so_early():
 
 
 def test_an_empty_battery_flags_the_consumption():
-    """The bundled BEV started just above its 10 % floor: before, it drove
-    the whole cycle on energy it did not have and reported a consumption
-    13 times too low with only a warning."""
+    """The bundled BEV started just above its minimum SOC (10 % then, 4 %
+    since the Cupra Born rework): before, it drove the whole cycle on energy
+    it did not have and reported a consumption 13 times too low with only a
+    warning."""
     proj = load_project("bev-car")
+    battery = next(e for e in proj.systems[0].elements if e.id == "el-battery")
+    floor = float(battery.parameterOverrides.get("min_soc_pct", 10))
     proj.cases[0].duration = 120
-    proj.cases[0].parameterOverrides = {"el-battery": {"initial_soc_pct": 10.2}}
+    proj.cases[0].parameterOverrides = {"el-battery": {"initial_soc_pct": floor + 0.2}}
     result = simulate(proj, proj.cases[0].id)
     assert result.status == "warning"
     s = _summary(result)

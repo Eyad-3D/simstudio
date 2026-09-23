@@ -178,7 +178,7 @@ def test_a_locked_differential_may_have_a_free_output():
     ("el-battery", "capacity_kWh", 0.05, "has a capacity of 0.05 kWh, too small"),
     ("el-consumer", "power_kW", 250, "draws a constant 250 kW"),
     ("el-final-drive", "ratio", 97, "has a ratio of 97, far above"),
-    ("el-battery", "initial_soc_pct", 10, "starts at 10 % SOC, at or below its minimum of 10 %"),
+    ("el-battery", "initial_soc_pct", 4, "starts at 4 % SOC, at or below its minimum of 4 %"),
 ])
 def test_implausible_parameters_are_warned_about(element, key, value, expected):
     proj = load_project("bev-car")

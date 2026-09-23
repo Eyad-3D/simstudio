@@ -127,7 +127,7 @@ function OpenProjectButton() {
         <div
           role="menu"
           aria-label="Open project"
-          className="absolute left-0 top-[54px] z-50 max-h-[60vh] w-[320px] overflow-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] py-1 shadow-lg"
+          className="absolute left-0 top-[54px] z-50 max-h-[60vh] w-[400px] overflow-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] py-1 shadow-lg"
         >
           <div className="px-3 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
             Example & saved projects
@@ -152,7 +152,7 @@ function OpenProjectButton() {
                 <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">{p.id}</span>
               </div>
               {p.description && (
-                <p className="mt-0.5 text-[11px] leading-snug text-[color:var(--ss-text-dim)]">
+                <p className="mt-0.5 whitespace-pre-line text-[11px] leading-snug text-[color:var(--ss-text-dim)]">
                   {p.description}
                 </p>
               )}

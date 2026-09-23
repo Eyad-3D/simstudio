@@ -13,7 +13,7 @@ cleared it for shipping.
 | --- | --- |
 | `id` | Stable row id (`DR-nn`). Other rows refer to it. |
 | `file` | Repository path of the file that holds the data. |
-| `dataset` | `*` for the file as a whole. Inside the component catalogue it is `<component>.<parameter>`; inside an example project it is `<element>.<parameter>`. Every map, curve and drive or grade profile has its own row. |
+| `dataset` | `*` for the file as a whole. Inside the component catalogue it is `<component>.<parameter>`; inside an example project it is `<element>.<parameter>`, or `<case>/<element>.<parameter>` for a value one case sets (such as a case's own drive cycle). Every map, curve and drive or grade profile has its own row. |
 | `kind` | `example-project`, `component-defaults`, `drive-cycle`, `grade-profile`, `map`, `curve`, `table`, `generated-copy` or `test-fixture`. |
 | `source` | Where the numbers come from: a URL or document, `Synthetic / created for SimStudio` (only when the history shows it), or `Provenance unknown`. |
 | `history` | What git history and the research notes say about the source. |
@@ -24,31 +24,43 @@ cleared it for shipping.
 
 ## Status (2026-09-23)
 
-- The register has 21 rows. No dataset from a third party is known to be
-  bundled.
-- **Every shipped map, curve, profile and default value has unknown
-  provenance.** All of them except the fuel density (a textbook value added
-  in `4af7f9c`) first appear in the root commit of the main history
-  (`064301a` "Second version", 2026-07-07), which imported the whole app with
-  no notes on where the numbers came from. Their licence and credit are
-  therefore recorded as unknown.
-- The two drive cycles ("City Cycle" and "Mixed Cycle") are hand-typed
-  trapezoids of 9 round-number points. They are not regulatory cycles, so
-  there is no WLTC or EPA licence question yet.
-- Only the generated files have a known origin: the golden test fixtures (the
+- The register has 26 rows.
+- **Third-party data is now bundled.** The Battery Electric Car rebuild
+  (CON-03) took its vehicle values from FASTSim's 2021_Cupra_Born.csv,
+  calibrated its motor loss map to FASTSim's default motor efficiency curve,
+  and took the WLTC class 3b drive cycle from FASTSim's cycle files (all
+  Apache-2.0, rules 2 and 3). FASTSim's credit and NOTICE are in
+  THIRD-PARTY-NOTICES.txt (Help > Third-Party Notices), listed in
+  `scripts/licenses/bundled-data.json`.
+- The WLTC trace is FASTSim's copy, converted to km/h and checked against the
+  regulation's own figures (duration, distance, top speed, 0.1 km/h grid,
+  phase distances). It was not re-typed from the regulation table as rule 2
+  asks, because unece.org could not be reached when it was added; re-check it
+  against the table when it can.
+- The example's new motor maps are synthetic, created for SimStudio in that
+  change; their rows say what they are calibrated to.
+- **Every other shipped map, curve, profile and default value still has
+  unknown provenance.** All of them except the fuel density (a textbook
+  value added in `4af7f9c`) first appear in the root commit of the main
+  history (`064301a` "Second version", 2026-07-07), which imported the whole
+  app with no notes on where the numbers came from. Their licence and credit
+  are therefore recorded as unknown. The "City Cycle" and "Mixed Cycle" are
+  hand-typed trapezoids of 9 round-number points, not regulatory cycles.
+- The generated files have a known origin: the golden test fixtures (the
   solver's own output) and the UI's synced copies of the catalogue and the BEV
   example.
-- Every row is therefore `cleared = pending`: the register records that the
-  data exists, not yet that SimStudio may ship it.
+- Every shipped row is `cleared = pending`: the register records that the
+  data exists and what its licence is, not yet the owner's sign-off that
+  SimStudio may ship it.
 - **Open actions:**
-  - The owner should confirm that these values were written for SimStudio.
-    Each row can then say `Synthetic / created for SimStudio`, name the
-    SimStudio LICENSE and become `cleared = yes`. Any value that was taken
-    from somewhere else needs its source recorded instead, or it should be
-    replaced (see CON-03).
+  - The owner should confirm that the unknown-provenance values were written
+    for SimStudio. Each row can then say `Synthetic / created for SimStudio`,
+    name the SimStudio LICENSE and become `cleared = yes`. Any value that was
+    taken from somewhere else needs its source recorded instead, or it should
+    be replaced.
+  - The owner should sign off the FASTSim (Apache-2.0) rows.
   - Once every shipped row is cleared, make `pending` fail for shipped rows
     in the check (see below), so that later data cannot ship unconfirmed.
-  - The About or credits screen (rule 6) is not built yet.
 
 ## Adding or changing data
 
@@ -64,8 +76,11 @@ cleared it for shipping.
    terms.
 5. US government data, such as fueleconomy.gov, counts as public domain only
    after the terms of that specific source have been checked.
-6. Any row with a credit text must also appear on the app's About or credits
-   screen. There is no such screen yet, because nothing needs credit today.
+6. Any row with a credit text must also appear on the app's credits screen,
+   Help > Third-Party Notices: list its id under its source in
+   `scripts/licenses/bundled-data.json`, with the source's NOTICE text, and
+   `scripts/third-party-notices.py` writes the credit into
+   THIRD-PARTY-NOTICES.txt and the SBOM.
 
 Rules 2–5 come from the roadmap research of September 2026 (`open-source-repos`
 §3.1, not kept in this repository). Check them again when the data is added.
@@ -85,7 +100,10 @@ fails when:
   `requirements*.txt` files are exempt. If data ever ships from another
   folder, add it to `DATA_ROOTS` in the test.
 - a map, curve or profile in the component catalogue's defaults or in an
-  example project's parameters has no row.
+  example project's parameters, its elements' or its cases', has no row.
+- a shipped row with a credit text of its own (not "None ..." or "Same as
+  DR-nn") is not listed in `scripts/licenses/bundled-data.json`, or that file
+  lists a row that does not exist or credits nothing.
 - a row is missing its source, licence or credit, or points at a file or
   dataset that no longer exists.
 - `ships_in_installer` does not match what the packaging bundles.

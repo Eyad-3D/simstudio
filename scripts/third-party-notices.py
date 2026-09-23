@@ -12,7 +12,10 @@ licence and licence text:
 - everything PyInstaller froze into the engine, taken from the build's own
   table of contents: Python packages (licences read with pip-licenses), the
   Python runtime, the PyInstaller bootloader and native libraries
-  (scripts/licenses/bundled-runtime.json).
+  (scripts/licenses/bundled-runtime.json);
+- third-party data in the example projects whose licence asks for credit or
+  a NOTICE (scripts/licenses/bundled-data.json, kept in step with
+  docs/data-register.csv).
 
 The same list goes into sbom.cdx.json, a CycloneDX software bill of
 materials that the installers also include. The run fails if any of these is
@@ -87,6 +90,7 @@ CLASSIFIERS = {
 }
 
 UI, SHELL, ENGINE = "User interface", "Desktop shell", "Simulation engine"
+DATA = "Example data"
 
 
 @dataclass
@@ -108,6 +112,9 @@ class Component:
     native: bool = False
     # The licence terms SimStudio uses it under, set by check().
     terms: list[str] = field(default_factory=list)
+    # Data rather than software: its texts are the NOTICE the source asks
+    # to reproduce, and the licence itself is the standard text.
+    data: bool = False
 
     @property
     def label(self) -> str:
@@ -115,7 +122,7 @@ class Component:
 
     @property
     def needs_standard_text(self) -> bool:
-        return self.native or not self.texts
+        return self.native or self.data or not self.texts
 
 
 # --- SPDX expressions --------------------------------------------------------
@@ -557,6 +564,18 @@ def engine_components(work: Path, runtime: dict, problems: list[str]) -> list[Co
     return components
 
 
+# --- third-party data ---------------------------------------------------------
+
+def data_components() -> list[Component]:
+    """Third-party data in the example projects that needs credit or a NOTICE
+    (scripts/licenses/bundled-data.json)."""
+    listed = json.loads((POLICY / "bundled-data.json").read_text(encoding="utf-8"))
+    return [Component(DATA, d["name"], d["version"], d["license"], url=d.get("url", ""),
+                      purl=d.get("purl", ""), texts=[("NOTICE", "\n".join(d["notice"]))],
+                      note="\n".join(d["used"]), data=True)
+            for d in listed["data"]]
+
+
 # --- the notices file ---------------------------------------------------------
 
 RULE, THIN = "=" * 78, "-" * 78
@@ -574,9 +593,10 @@ def render(components: list[Component]) -> str:
         "THIRD-PARTY SOFTWARE NOTICES",
         f"SimStudio {version}",
         "",
-        "SimStudio includes the third-party software listed below. Each component",
-        "is used under its own licence, reproduced after the list. SimStudio's own",
-        "terms (LICENSE and EULA.txt) do not apply to these components.",
+        "SimStudio includes the third-party software and data listed below. Each",
+        "component is used under its own licence, reproduced after the list.",
+        "SimStudio's own terms (LICENSE and EULA.txt) do not apply to these",
+        "components.",
         "",
         "Chromium, Node.js and the other components built into Electron are listed",
         "with their licences in LICENSES.chromium.html, next to the SimStudio",
@@ -586,7 +606,7 @@ def render(components: list[Component]) -> str:
         "Do not edit by hand.",
         "",
     ]
-    for part in (UI, SHELL, ENGINE):
+    for part in (UI, SHELL, ENGINE, DATA):
         members = [c for c in top if c.part == part]
         if not members:
             continue
@@ -640,7 +660,7 @@ def bill_of_materials(components: list[Component]) -> dict:
     unchanged build gives an unchanged file."""
     def entry(c: Component, parent: str = "") -> dict:
         ref = f"{parent}/{c.purl or c.name}" if parent else (c.purl or f"{c.part}/{c.name}")
-        item = {"type": "library", "bom-ref": ref, "name": c.name}
+        item = {"type": "data" if c.data else "library", "bom-ref": ref, "name": c.name}
         if c.version:
             item["version"] = c.version
         if c.purl:
@@ -687,9 +707,11 @@ def main() -> int:
     args = parser.parse_args()
 
     allowed, clarified, runtime, problems = load_policy()
-    components = npm_components() + engine_components(args.work, runtime, problems)
-    problems += check([c for c in components if c.part != ENGINE], allowed, clarified["npm"])
+    components = (npm_components() + engine_components(args.work, runtime, problems)
+                  + data_components())
+    problems += check([c for c in components if c.part in (UI, SHELL)], allowed, clarified["npm"])
     problems += check([c for c in components if c.part == ENGINE], allowed, clarified["python"])
+    problems += check([c for c in components if c.part == DATA], allowed, {})
 
     counts: dict[str, int] = {}
     for c in components:

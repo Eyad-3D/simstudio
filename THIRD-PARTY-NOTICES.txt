@@ -1,9 +1,10 @@
 THIRD-PARTY SOFTWARE NOTICES
 SimStudio 0.1.0
 
-SimStudio includes the third-party software listed below. Each component
-is used under its own licence, reproduced after the list. SimStudio's own
-terms (LICENSE and EULA.txt) do not apply to these components.
+SimStudio includes the third-party software and data listed below. Each
+component is used under its own licence, reproduced after the list.
+SimStudio's own terms (LICENSE and EULA.txt) do not apply to these
+components.
 
 Chromium, Node.js and the other components built into Electron are listed
 with their licences in LICENSES.chromium.html, next to the SimStudio
@@ -243,6 +244,10 @@ Simulation engine
   Expat — MIT
   libuuid (util-linux) — BSD-3-Clause
   GCC runtime libraries (libgcc_s, libstdc++) — GPL-3.0-or-later WITH GCC-exception-3.1
+
+Example data
+------------
+  FASTSim vehicle and drive-cycle data 2.1.5 — Apache-2.0
 
 ==============================================================================
 @reduxjs/toolkit 2.12.0
@@ -7783,6 +7788,37 @@ contrib/unicode/from_glibc:
 # <https://www.gnu.org/licenses/>.
 
 The standard text of GPL-3.0-or-later WITH GCC-exception-3.1 is in the appendix.
+
+==============================================================================
+FASTSim vehicle and drive-cycle data 2.1.5
+Licence: Apache-2.0
+Source: https://github.com/NatLabRockies/fastsim
+Used in: example data
+Values from FASTSim (NREL, now the National Laboratory of the Rockies), taken
+from the fastsim 2.1.5 package and converted to SimStudio's parameters and
+units; no FASTSim file is included. The Battery Electric Car example's vehicle
+values come from its 2021_Cupra_Born.csv, the example's motor loss map is
+calibrated to its default motor efficiency curve, and its WLTC class 3b drive
+cycle comes from its cycle files.
+------------------------------------------------------------------------------
+
+[NOTICE]
+
+Copyright 2020 Alliance for Sustainable Energy, LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+The standard text of Apache-2.0 is in the appendix.
 
 ==============================================================================
 APPENDIX: STANDARD LICENCE TEXTS

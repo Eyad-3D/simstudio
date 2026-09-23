@@ -158,3 +158,32 @@ BEV example at a steady 100 km/h is now 86.0 % battery-to-wheel.
 | | battery Consumption row | 2.49 kWh/100 km | gone (the battery ends above its start) |
 | | status | success | warning (rev limiter, see MOD-05) |
 | both | Electrical energy balance error | — | 0.0 % (new) |
+
+## Battery Electric Car rebuilt on the 2021 Cupra Born (CON-03)
+
+The example is now a named compact electric car with FASTSim's values for
+the 2021 Cupra Born 58 kWh (docs/data-register.csv DR-01): 1,927 kg (was
+1,800), Cd 0.27 x 2.31 m² (0.28 x 2.2), rolling resistance 0.011 (0.012),
+61 % of the weight on the driven axle (55 %), 0.25 kW auxiliaries (2.5 kW),
+wheel radius 0.3488 m (0.33), a 62 kWh battery with a 4 % floor (60 kWh,
+10 %), 98 % transmission efficiency (97 % x 98 %) and 98 % recuperation
+weight (80 %). The motor has its own maps: 150 kW, 310 N·m, falling to zero
+torque at its 16,000 1/min maximum speed, and a loss map calibrated to
+FASTSim's motor efficiency curve (about 95 % peak). The final drive is 12.8
+(9.7), so that the motor's maximum speed is reached at the car's 160 km/h.
+The City Cycle case and its speed profile are unchanged; new cases "WLTC
+Class 3b" and "WLTC, heating/air-con on" are not fixtures (their numbers are
+checked by test_examples_plausible.py).
+
+- bev-car City Cycle: consumption 16.97 -> 11.11 kWh/100 km, energy
+  delivered 1.279 -> 0.881 kWh, recuperated 0.041 -> 0.071 kWh, internal
+  losses 0.0088 -> 0.0057 kWh, final SOC 87.92 -> 88.68 % (of a larger
+  battery, from the same 90 %); distance 7.292 km and status unchanged.
+  The auxiliary load alone accounts for 5.14 of the 5.86 kWh/100 km drop
+  (2.25 kW less for 600 s over 7.29 km); the higher driveline efficiency,
+  the lower rolling resistance and the higher recuperation weight save more
+  than the extra 127 kg costs.
+- New headline numbers (1 s case step, verified converged: controllers run
+  every 10 ms): WLTC class 3b 14.04 kWh/100 km at the battery, 18.88 with
+  2.5 kW heating/air-con; full power 0-100 km/h 7.16 s, 0-60 mph 6.74 s,
+  top speed 160.2 km/h at 15,723 1/min.

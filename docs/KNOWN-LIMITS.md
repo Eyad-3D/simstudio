@@ -37,14 +37,17 @@ takes at most about twice as long.
 ### Motors and engines can run past the end of their maps without a warning
 
 Maps are extended flat beyond their last point (the edge value is held), and
-motors and engines have no maximum-speed limit. The Battery Electric Car
-example with a 300 km/h target reaches 257 km/h with its motor at
-20,476 rpm, on a torque map that ends at 12,000 rpm, and the run is still
-reported as a success.
+motors and engines have no maximum-speed limit. With the library's default
+E-Motor map, a car with a 300 km/h target reached 257 km/h with its motor at
+20,476 rpm, on a torque map that ends at 12,000 rpm, and the run was still
+reported as a success. The Battery Electric Car example no longer does: its
+motor's full-load curve falls to zero at the motor's 16,000 rpm, so the car
+tops out at 160 km/h.
 
-*Workaround:* plot the motor and engine speed and compare it with the last
-speed point of their maps; keep target speeds within what the real vehicle
-can do.
+*Workaround:* end a motor's full-load curve with zero torque at its maximum
+speed, as the Battery Electric Car example does; plot the motor and engine
+speed and compare it with the last speed point of their maps; keep target
+speeds within what the real vehicle can do.
 *Roadmap:* MOD-18.
 
 ### A battery or fuel cell at its limit still delivers full power
@@ -177,13 +180,16 @@ at t = 0.
   comparable real hybrid uses about 3 l/100 km on the US EPA city test. In
   the shipped case its control script never switches the engine off.
   *Roadmap:* CON-02 (being fixed).
-- **Battery Electric Car:** about 20-25 kWh/100 km on standard test cycles
-  (WLTC, UDDS, HWFET, US06), measured at the battery even at a 0.1 s step,
-  where comparable real cars use roughly 10-16 kWh/100 km. Part of that is the
-  default 2.5 kW auxiliary load (heating or air-conditioning level), about
-  28 % of the City Cycle energy; set the Power Consumer's *Constant Power
-  Draw* to about 0.3 kW for a mild-weather figure. *Roadmap:* CON-03 (being
-  fixed), CON-14.
+- **Battery Electric Car:** modelled on the 2021 Cupra Born with FASTSim's
+  values; about 14 kWh/100 km on WLTC at the battery (a car of this class is
+  rated about 15-16 kWh/100 km at the charging socket, charging losses
+  included), 18.9 with heating or air-conditioning on (the 2.5 kW case).
+  Its motor loss map is generic, not the car's measured map. The real car is
+  rear-wheel drive and has an 11.5:1 reduction gear with an electronic
+  160 km/h limit; the example drives the front axle (only the load share
+  matters without weight transfer) and uses a 12.8 ratio so that the motor's
+  maximum speed sets the 160 km/h, because SimStudio has no speed limiter.
+  *Roadmap:* MOD-18 (maximum-speed limit), MOD-12.
 - **Updated examples do not reach existing installations.** Examples are
   copied into your projects folder on first launch only. To get the current
   version, close SimStudio, delete the example's file and the hidden
