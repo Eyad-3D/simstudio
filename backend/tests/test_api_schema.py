@@ -95,6 +95,12 @@ def projects_dir(tmp_path_factory):
 
 
 @schema.exclude(path="/api/simulate").parametrize()
-@settings(max_examples=50, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+# filter_too_much: a whole valid project body (PUT /api/projects/{id}) is
+# hard to generate, and on some random draws Hypothesis discards so many
+# attempts that its health check stops the test (seen on CI and locally
+# about once in a few dozen runs). The examples it does generate are still
+# checked; the check is about the generator's efficiency, not the API.
+@settings(max_examples=50, deadline=None,
+          suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much])
 def test_api_answers_as_its_schema_says(case, projects_dir):
     case.call_and_validate(checks=CHECKS)
