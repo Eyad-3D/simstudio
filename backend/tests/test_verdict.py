@@ -4,7 +4,7 @@ printed, so a car with its motor deleted "succeeded" after 0 km."""
 import copy
 
 import pytest
-from helpers import bev_axle, dbc, el, series, sig_port
+from helpers import bev_axle, dbc, el, example_result, series, sig_port
 
 from app.schemas import ElementInstance
 from app.solver import simulate
@@ -168,8 +168,7 @@ def test_a_cancelled_run_flags_its_figures_per_distance():
 
 def test_bundled_examples_follow_their_cycles():
     for pid in ("bev-car", "hybrid-car"):
-        proj = load_project(pid)
-        result = simulate(proj, proj.cases[0].id)
+        result = example_result(pid, load_project(pid).cases[0].id)
         assert result.status != "failed", pid
         assert not any(m.text.startswith("Cycle not followed") for m in result.messages), pid
         assert _summary(result)["Distance driven"].value > 7.0
