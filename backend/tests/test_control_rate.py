@@ -128,3 +128,9 @@ def test_sample_time_data_checks():
         "warning", "'Speed PID' runs only every 0.5 s (its Sample Time); real vehicle "
                    "controllers run every 10-100 ms, so results may depend on this setting.")]
     assert [lv for lv, _ in checks_for(-1)] == ["error"]
+    # before, NaN passed silently (the block then ran every solver step) and
+    # infinity ran the block once at t = 0
+    assert checks_for(float("nan")) == [
+        ("error", "Sample Time of 'Speed PID' must be a finite number — got nan.")]
+    assert [lv for lv, _ in checks_for(float("inf"))] == ["error"]
+    assert [lv for lv, _ in checks_for("nan")] == ["error"]

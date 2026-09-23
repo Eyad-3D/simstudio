@@ -310,6 +310,10 @@ def simulate(
         for s in summary:
             if s.unit in ("kWh", "kWh/100km", "%") and s.label != "Electrical energy balance error":
                 not_valid.setdefault(s.label, "the electrical energy balance does not close")
+    if verdict.broke_down:
+        for s in summary:
+            if s.label != "Simulated duration":
+                not_valid[s.label] = "the solution broke down"
     for s in summary:
         s.notValid = not_valid.get(s.label)
 

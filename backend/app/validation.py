@@ -8,6 +8,8 @@ script compilation) and wiring conventions.
 """
 from __future__ import annotations
 
+import math
+
 from .library import library_by_id
 from .schemas import DataCheck, ElementInstance, Project
 from .solver import (
@@ -180,7 +182,9 @@ def validate_project(project: Project) -> list[DataCheck]:
             except (TypeError, ValueError):
                 add("error", f"Sample Time of '{el.label}' is not a number.", el)
             else:
-                if ts < 0:
+                if not math.isfinite(ts):
+                    add("error", f"Sample Time of '{el.label}' must be a finite number — got {ts:g}.", el)
+                elif ts < 0:
                     add("error", f"Sample Time of '{el.label}' must not be negative — got {ts:g} s.", el)
                 elif ts > COARSE_SAMPLE_TIME_S:
                     add("warning",

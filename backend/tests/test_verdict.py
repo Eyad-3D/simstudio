@@ -135,6 +135,13 @@ def test_non_finite_values_fail_the_run():
     assert result.status == "failed"
     assert any("Non-finite values" in m.text and "nan:y" in m.text for m in result.messages)
     assert series(result, "nan", "y")[-1]["value"] != series(result, "nan", "y")[-1]["value"]
+    # no headline number is shown unflagged (before: Consumption, energies
+    # and the rest showed plain numbers); how far the run got stays valid
+    s = _summary(result)
+    assert any(label.endswith("energy delivered") for label in s)
+    assert {label: row.notValid for label, row in s.items() if label != "Simulated duration"} == {
+        label: "the solution broke down" for label in s if label != "Simulated duration"}
+    assert s["Simulated duration"].notValid is None
 
 
 def test_bundled_examples_follow_their_cycles():

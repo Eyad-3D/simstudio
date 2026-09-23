@@ -155,6 +155,7 @@ class Verdict:
     # (level, text): an "error" fails the run, a "warning" keeps it from success
     messages: tuple[tuple[str, str], ...] = ()
     cycle_not_followed: bool = False
+    broke_down: bool = False  # non-finite values: no number of the run is valid
 
 
 def judge(trace: CycleTrace, distance_m: float, series: dict) -> Verdict:
@@ -187,4 +188,4 @@ def judge(trace: CycleTrace, distance_m: float, series: dict) -> Verdict:
                 f"{'above' if m.max_err_kmh > 0 else 'below'} the target at "
                 f"t = {m.t_max_err:g} s (RMS {m.rms_kmh:.2f} km/h); it drove {km:.2f} of "
                 f"{m.cycle_km:.2f} km. Consumption figures per distance are not valid.")))
-    return Verdict(messages=tuple(messages), cycle_not_followed=not_followed)
+    return Verdict(messages=tuple(messages), cycle_not_followed=not_followed, broke_down=bool(bad))
