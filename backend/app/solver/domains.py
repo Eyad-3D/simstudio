@@ -48,7 +48,8 @@ from .runtime import (
     make_plan,
     solve_linear,
 )
-from .scripting import ScriptError, compile_script, run_script
+from .sandbox import ScriptSandbox, ScriptSpec
+from .scripting import ScriptError
 from .slave import ParamResult, Slave, StepResult, VarDef, split_var
 
 
@@ -173,18 +174,29 @@ class RunContext:
         if table_errors:
             raise ModelInitError(table_errors)
 
-        self.script_fns: dict[str, object] = {}
-        self.script_states: dict[str, dict] = {}
+        # Script blocks run in a locked-down worker process (app/solver/
+        # sandbox.py): one worker for the whole run, reused every step, with the
+        # block's state kept in the worker. Only built when the model has Script
+        # blocks, so a model without them starts no worker.
+        self.sandbox: ScriptSandbox | None = None
+        script_specs: list[ScriptSpec] = []
         for el_id in model.signal_blocks:
             if model.cdef_of[el_id].id != "signal.script":
                 continue
-            label = model.elements[el_id].label
+            el = model.elements[el_id]
+            script_specs.append(ScriptSpec(
+                el_id=el_id,
+                label=el.label,
+                code=str(self.params(el_id).get("code", "")),
+                input_keys=[p.id for p in (el.dynamicPorts or [])
+                            if p.direction == "input"],
+                params=dict(self.params(el_id)),
+            ))
+        if script_specs:
             try:
-                self.script_fns[el_id] = compile_script(
-                    str(self.params(el_id).get("code", "")), label)
+                self.sandbox = ScriptSandbox(script_specs)
             except ScriptError as e:
                 raise ModelInitError([str(e)])
-            self.script_states[el_id] = {}
 
         # ---- driveline & vehicle states --------------------------------------
         self.veh_id = model.vehicle
@@ -999,8 +1011,7 @@ class ControlSlave(_CtxSlave):
                     if port.direction == "input":
                         inputs[port.id] = rt.read_signal(el_id, port.id) or 0.0
                 try:
-                    outs = run_script(ctx.script_fns[el_id], el.label, t, dt, inputs,
-                                      ctx.script_states[el_id], dict(p))
+                    outs = ctx.sandbox.run(el_id, el.label, t, dt, inputs, dict(p))
                 except ScriptError as e:
                     rt.message("error", str(e))
                     return StepResult(status="error", detail=str(e))

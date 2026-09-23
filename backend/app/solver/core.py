@@ -99,263 +99,267 @@ def simulate(
             messages=[SimMessage(level="error", text=t) for t in e.messages],
         )
 
-    # Phase 1.4: the wholesale-wrapped slaves share all coupling through the
-    # RunContext, so the master runs with an empty route table for now; the
-    # declared-variable pool takes over as per-component models are extracted.
-    master = Master(build_slaves(ctx), routes={})
-    master.initialize(0.0)
+    try:
+        # Phase 1.4: the wholesale-wrapped slaves share all coupling through the
+        # RunContext, so the master runs with an empty route table for now; the
+        # declared-variable pool takes over as per-component models are extracted.
+        master = Master(build_slaves(ctx), routes={})
+        master.initialize(0.0)
 
-    # Signals that feed a block input: the slaves publish their own outputs,
-    # and the ones computed from states (SOC, speeds, levels …) are refreshed
-    # after every solver step so controllers never read a stale value.
-    # Only the wired ports are evaluated; the list is rebuilt when a gear
-    # shift or a lock toggle changes the drivelines.
-    routed = set(model.signal_route.values())
-    routed_els = {el_id for el_id, _ in routed}
-    routed_fns: list[ChannelFn] = []
-    routed_layout = -1
+        # Signals that feed a block input: the slaves publish their own outputs,
+        # and the ones computed from states (SOC, speeds, levels …) are refreshed
+        # after every solver step so controllers never read a stale value.
+        # Only the wired ports are evaluated; the list is rebuilt when a gear
+        # shift or a lock toggle changes the drivelines.
+        routed = set(model.signal_route.values())
+        routed_els = {el_id for el_id, _ in routed}
+        routed_fns: list[ChannelFn] = []
+        routed_layout = -1
 
-    def publish_routed_states() -> None:
-        nonlocal routed_fns, routed_layout
-        if routed_layout != ctx.layout_version:
-            routed_layout = ctx.layout_version
-            routed_fns = [c for c in _state_channel_fns(ctx, gear_of, routed_els)
-                          if (c[0], c[1]) in routed]
-        for el_id, port_id, fn in routed_fns:
-            value = fn()
-            if value is not None:
-                rt.publish(el_id, port_id, value)
+        def publish_routed_states() -> None:
+            nonlocal routed_fns, routed_layout
+            if routed_layout != ctx.layout_version:
+                routed_layout = ctx.layout_version
+                routed_fns = [c for c in _state_channel_fns(ctx, gear_of, routed_els)
+                              if (c[0], c[1]) in routed]
+            for el_id, port_id, fn in routed_fns:
+                value = fn()
+                if value is not None:
+                    rt.publish(el_id, port_id, value)
 
-    publish_routed_states()
-    trace = CycleTrace(ctx)  # target vs vehicle speed, for the run verdict
-    trace.sample(0.0)
+        publish_routed_states()
+        trace = CycleTrace(ctx)  # target vs vehicle speed, for the run verdict
+        trace.sample(0.0)
 
-    def apply_control_msg(msg: dict) -> None:
-        master.set_parameter(
-            var_name(str(msg.get("elementId")), str(msg.get("key"))), msg.get("value"))
+        def apply_control_msg(msg: dict) -> None:
+            master.set_parameter(
+                var_name(str(msg.get("elementId")), str(msg.get("key"))), msg.get("value"))
 
-    # ---- main loop -----------------------------------------------------------
-    # Point 0 is the initial state at t = 0; every later point is recorded at
-    # the end time of the step that produced it, and the last step ends
-    # exactly at the case duration.
-    cancelled = False
-    times: list[float] = []
-    t_start_wall = time.monotonic()
-    h_last = t_end - (steps - 1) * dt_rec if steps else 0.0
-    short_last = abs(h_last - dt_rec) > 1e-9 * dt_rec
-    t = 0.0
+        # ---- main loop -----------------------------------------------------------
+        # Point 0 is the initial state at t = 0; every later point is recorded at
+        # the end time of the step that produced it, and the last step ends
+        # exactly at the case duration.
+        cancelled = False
+        times: list[float] = []
+        t_start_wall = time.monotonic()
+        h_last = t_end - (steps - 1) * dt_rec if steps else 0.0
+        short_last = abs(h_last - dt_rec) > 1e-9 * dt_rec
+        t = 0.0
 
-    for step in range(steps + 1):
-        if step > 0:
-            t_prev = t
-            t = t_end if step == steps else step * dt_rec
+        for step in range(steps + 1):
+            if step > 0:
+                t_prev = t
+                t = t_end if step == steps else step * dt_rec
 
-            if control:
-                for msg in control():
-                    if msg.get("type") == "cancel":
-                        cancelled = True
-                    elif msg.get("type") == "set_param":
-                        apply_control_msg(msg)
-            if cancelled:
-                rt.message("info", f"Simulation cancelled by user at t = {t_prev:g} s.")
-                break
+                if control:
+                    for msg in control():
+                        if msg.get("type") == "cancel":
+                            cancelled = True
+                        elif msg.get("type") == "set_param":
+                            apply_control_msg(msg)
+                if cancelled:
+                    rt.message("info", f"Simulation cancelled by user at t = {t_prev:g} s.")
+                    break
 
-            # -- solver steps ---------------------------------------------------
-            n, h_sub = n_sub, dt
-            if step == steps and short_last:
-                n = max(1, math.ceil(h_last / MAX_SUBSTEP - 1e-9))
-                h_sub = h_last / n
-            ctx.dt = h_sub
-            try:
-                for j in range(n):
-                    master.step(t_prev + j * h_sub, h_sub)
-                    publish_routed_states()
-                    trace.sample(t_prev + (j + 1) * h_sub, last=step == steps and j == n - 1)
-            except SlaveStepError:
-                # the failing slave already emitted its error message
-                break
+                # -- solver steps ---------------------------------------------------
+                n, h_sub = n_sub, dt
+                if step == steps and short_last:
+                    n = max(1, math.ceil(h_last / MAX_SUBSTEP - 1e-9))
+                    h_sub = h_last / n
+                ctx.dt = h_sub
+                try:
+                    for j in range(n):
+                        master.step(t_prev + j * h_sub, h_sub)
+                        publish_routed_states()
+                        trace.sample(t_prev + (j + 1) * h_sub, last=step == steps and j == n - 1)
+                except SlaveStepError:
+                    # the failing slave already emitted its error message
+                    break
 
-            if pace > 0:
-                target_wall = t / pace
-                while not cancelled:
-                    lag = target_wall - (time.monotonic() - t_start_wall)
-                    if lag <= 0:
-                        break
-                    time.sleep(min(0.05, lag))
-                    if control:
-                        for msg in control():
-                            if msg.get("type") == "cancel":
-                                cancelled = True
-                            elif msg.get("type") == "set_param":
-                                apply_control_msg(msg)
+                if pace > 0:
+                    target_wall = t / pace
+                    while not cancelled:
+                        lag = target_wall - (time.monotonic() - t_start_wall)
+                        if lag <= 0:
+                            break
+                        time.sleep(min(0.05, lag))
+                        if control:
+                            for msg in control():
+                                if msg.get("type") == "cancel":
+                                    cancelled = True
+                                elif msg.get("type") == "set_param":
+                                    apply_control_msg(msg)
 
-        # signal sources are stored with their value at the point's own time
-        ctx.publish_sources(t)
-        problem = trace.live_problem()
-        if problem:
-            rt.message("warning", problem)
+            # signal sources are stored with their value at the point's own time
+            ctx.publish_sources(t)
+            problem = trace.live_problem()
+            if problem:
+                rt.message("warning", problem)
 
-        # -- record ----------------------------------------------------------
-        # Only recorded steps are stored and streamed ("store every N steps"
-        # decimates the output); the last step is always kept.
-        if not (step % output_every == 0 or step == steps):
-            continue
-        times.append(t)
-        rec_index = len(times) - 1
-        rec = rt.series
-        for el_id, port_id, value in chain(_bus_channels(ctx), _state_channels(ctx, gear_of)):
-            lst = rec[(el_id, port_id)]
-            while len(lst) < rec_index:
-                lst.append(None)  # no data yet — a gap, not a zero
-            lst.append(value)
+            # -- record ----------------------------------------------------------
+            # Only recorded steps are stored and streamed ("store every N steps"
+            # decimates the output); the last step is always kept.
+            if not (step % output_every == 0 or step == steps):
+                continue
+            times.append(t)
+            rec_index = len(times) - 1
+            rec = rt.series
+            for el_id, port_id, value in chain(_bus_channels(ctx), _state_channels(ctx, gear_of)):
+                lst = rec[(el_id, port_id)]
+                while len(lst) < rec_index:
+                    lst.append(None)  # no data yet — a gap, not a zero
+                lst.append(value)
 
-        if emit:
-            emit({
-                "type": "step",
-                "t": t,
-                "pct": round(100.0 * step / steps, 1) if steps else 100.0,
-                "values": {f"{el}:{port}": round(val[-1], 5)
-                           for (el, port), val in rec.items() if len(val) == rec_index + 1},
-            })
+            if emit:
+                emit({
+                    "type": "step",
+                    "t": t,
+                    "pct": round(100.0 * step / steps, 1) if steps else 100.0,
+                    "values": {f"{el}:{port}": round(val[-1], 5)
+                               for (el, port), val in rec.items() if len(val) == rec_index + 1},
+                })
 
-    # ---- assemble result -------------------------------------------------------
-    verdict = judge(trace, ctx.distance, rt.series)
-    for level, text in verdict.messages:
-        rt.message(level, text)
-    unit_map = unit_groups()
-    channels: list[Channel] = []
-    port_lookup: dict[tuple[str, str], object] = {}
-    for el_id, cdef in model.cdef_of.items():
-        el = model.elements[el_id]
-        for p in (list(cdef.ports) + list(el.dynamicPorts or [])):
-            port_lookup[(el_id, p.id)] = p
-    for (el_id, port_id), values in sorted(rt.series.items()):
-        el = model.elements.get(el_id)
-        pdef = port_lookup.get((el_id, port_id))
-        if el is None or pdef is None:
-            continue
-        unit = unit_map.get(getattr(pdef, "unitGroup", None) or "No Unit", "-")
-        channels.append(Channel(
-            elementId=el_id,
-            portId=port_id,
-            label=f"{el.label} · {pdef.name}",
-            unit=unit,
-            timeSeries=[
-                {"t": times[i], "value": None if vv is None else round(vv, 5)}
-                for i, vv in enumerate(values)
-            ],
+        # ---- assemble result -------------------------------------------------------
+        verdict = judge(trace, ctx.distance, rt.series)
+        for level, text in verdict.messages:
+            rt.message(level, text)
+        unit_map = unit_groups()
+        channels: list[Channel] = []
+        port_lookup: dict[tuple[str, str], object] = {}
+        for el_id, cdef in model.cdef_of.items():
+            el = model.elements[el_id]
+            for p in (list(cdef.ports) + list(el.dynamicPorts or [])):
+                port_lookup[(el_id, p.id)] = p
+        for (el_id, port_id), values in sorted(rt.series.items()):
+            el = model.elements.get(el_id)
+            pdef = port_lookup.get((el_id, port_id))
+            if el is None or pdef is None:
+                continue
+            unit = unit_map.get(getattr(pdef, "unitGroup", None) or "No Unit", "-")
+            channels.append(Channel(
+                elementId=el_id,
+                portId=port_id,
+                label=f"{el.label} · {pdef.name}",
+                unit=unit,
+                timeSeries=[
+                    {"t": times[i], "value": None if vv is None else round(vv, 5)}
+                    for i, vv in enumerate(values)
+                ],
+            ))
+
+        summary: list[SummaryValue] = []
+        for b in ctx.batteries.values():
+            label = model.elements[b.el_id].label
+            summary.append(SummaryValue(label=f"{label} — final SOC", value=round(b.soc * 100.0, 2), unit="%"))
+            summary.append(SummaryValue(label=f"{label} — energy delivered", value=round(b.energy_out_wh / 1000.0, 3), unit="kWh"))
+            summary.append(SummaryValue(label=f"{label} — energy recuperated", value=round(b.energy_in_wh / 1000.0, 3), unit="kWh"))
+            summary.append(SummaryValue(label=f"{label} — internal losses", value=round(b.loss_wh / 1000.0, 4), unit="kWh"))
+        for mc in ctx.motors.values():
+            if mc.limited_s > 0:
+                summary.append(SummaryValue(
+                    label=f"{model.elements[mc.el_id].label} — time limited by supply",
+                    value=round(mc.limited_s, 2), unit="s"))
+            if mc.regen_lost_wh > 0:
+                # recuperation its command asked for that the supply could not
+                # take (a full or charge-limited battery, a fuel cell, a one-way
+                # DC-DC): the motor braked that much less
+                summary.append(SummaryValue(
+                    label=f"{model.elements[mc.el_id].label} — regeneration not recovered",
+                    value=round(mc.regen_lost_wh / 1000.0, 4), unit="kWh"))
+        for ec in ctx.engines.values():
+            summary.append(SummaryValue(
+                label=f"{model.elements[ec.el_id].label} — fuel used",
+                value=round(ec.fuel_used_kg, 3), unit="kg"))
+        for fc in ctx.fuelcells.values():
+            summary.append(SummaryValue(
+                label=f"{model.elements[fc.el_id].label} — energy supplied",
+                value=round(fc.energy_wh / 1000.0, 3), unit="kWh"))
+        for vs_id, e_wh in ctx.vsource_energy_wh.items():
+            summary.append(SummaryValue(
+                label=f"{model.elements[vs_id].label} — energy supplied",
+                value=round(e_wh / 1000.0, 3), unit="kWh"))
+        if ctx.veh_id:
+            summary.append(SummaryValue(label="Distance driven", value=round(ctx.distance / 1000.0, 3), unit="km"))
+            net_wh = sum(b.energy_out_wh - b.energy_in_wh for b in ctx.batteries.values())
+            if ctx.distance > 100 and net_wh > 0:
+                summary.append(SummaryValue(
+                    label="Consumption", value=round(net_wh / 10.0 / (ctx.distance / 1000.0), 2),
+                    unit="kWh/100km"))
+            fuel_kg = sum(ec.fuel_used_kg for ec in ctx.engines.values())
+            if ctx.distance > 100 and fuel_kg > 0:
+                density = 0.745  # gasoline default when no tank declares one
+                co2_per_kg = 3.17  # kg CO₂ per kg of gasoline, likewise
+                if model.fuel_tank:
+                    tank_p = ctx.params(model.fuel_tank)
+                    try:
+                        density = max(1e-3, float(tank_p.get("density_kg_per_l", density)))
+                    except (TypeError, ValueError):
+                        pass
+                    try:
+                        co2_per_kg = max(0.0, float(tank_p.get("co2_kg_per_kg", co2_per_kg)))
+                    except (TypeError, ValueError):
+                        pass
+                liters = fuel_kg / density
+                summary.append(SummaryValue(
+                    label="Fuel consumption",
+                    value=round(liters * 100.0 / (ctx.distance / 1000.0), 2), unit="l/100km"))
+                summary.append(SummaryValue(
+                    label="CO₂ emissions",
+                    value=round(fuel_kg * co2_per_kg * 1000.0 / (ctx.distance / 1000.0), 1),
+                    unit="g/km"))
+        if ctx.throughput_wh > 0:
+            # energy no source supplied or absorbed (last-resort clamps), as a
+            # share of all the energy that went through the buses
+            summary.append(SummaryValue(
+                label="Electrical energy balance error",
+                value=round(100.0 * ctx.residual_wh / ctx.throughput_wh, 4), unit="%"))
+        summary.append(SummaryValue(label="Simulated duration", value=times[-1] if times else 0.0, unit="s"))
+
+        # headline numbers that a failed check makes meaningless say why
+        not_valid: dict[str, str] = {}
+        if any(b.depleted_flagged for b in ctx.batteries.values()):
+            not_valid["Consumption"] = "the battery reached its minimum SOC"
+        if any(ec.stalled_flagged for ec in ctx.engines.values()):
+            not_valid["Fuel consumption"] = not_valid["CO₂ emissions"] = "the fuel tank ran empty"
+        if verdict.cycle_not_followed:
+            for label in ("Consumption", "Fuel consumption", "CO₂ emissions"):
+                not_valid[label] = "cycle not followed"
+        if cancelled and times:
+            # figures per distance cover only the part of the cycle driven so far
+            for label in ("Consumption", "Fuel consumption", "CO₂ emissions"):
+                not_valid.setdefault(label, f"run cancelled at t = {times[-1]:g} s")
+        if ctx.throughput_wh > 0 and ctx.residual_wh > 1e-3 * ctx.throughput_wh:
+            for s in summary:
+                if s.unit in ("kWh", "kWh/100km", "%") and s.label != "Electrical energy balance error":
+                    not_valid.setdefault(s.label, "the electrical energy balance does not close")
+        if verdict.broke_down:
+            for s in summary:
+                if s.label != "Simulated duration":
+                    not_valid[s.label] = "the solution broke down"
+        for s in summary:
+            s.notValid = not_valid.get(s.label)
+
+        has_error = any(m.level == "error" for m in rt.messages)
+        has_warning = any(m.level == "warning" for m in rt.messages) or cancelled
+        status = "failed" if has_error else ("warning" if has_warning else "success")
+        rec_note = f", stored every {output_every}" if output_every > 1 else ""
+        last_note = f", the last one {h_last:g} s" if steps and short_last else ""
+        rt.messages.insert(0, SimMessage(
+            level="info",
+            text=f"Case '{case.name}' solved: {steps} steps × {dt_rec:g} s{last_note} "
+                 f"({n_sub} sub-steps each), {len(times)} points recorded{rec_note}, "
+                 f"{len(channels)} result channels.",
         ))
-
-    summary: list[SummaryValue] = []
-    for b in ctx.batteries.values():
-        label = model.elements[b.el_id].label
-        summary.append(SummaryValue(label=f"{label} — final SOC", value=round(b.soc * 100.0, 2), unit="%"))
-        summary.append(SummaryValue(label=f"{label} — energy delivered", value=round(b.energy_out_wh / 1000.0, 3), unit="kWh"))
-        summary.append(SummaryValue(label=f"{label} — energy recuperated", value=round(b.energy_in_wh / 1000.0, 3), unit="kWh"))
-        summary.append(SummaryValue(label=f"{label} — internal losses", value=round(b.loss_wh / 1000.0, 4), unit="kWh"))
-    for mc in ctx.motors.values():
-        if mc.limited_s > 0:
-            summary.append(SummaryValue(
-                label=f"{model.elements[mc.el_id].label} — time limited by supply",
-                value=round(mc.limited_s, 2), unit="s"))
-        if mc.regen_lost_wh > 0:
-            # recuperation its command asked for that the supply could not
-            # take (a full or charge-limited battery, a fuel cell, a one-way
-            # DC-DC): the motor braked that much less
-            summary.append(SummaryValue(
-                label=f"{model.elements[mc.el_id].label} — regeneration not recovered",
-                value=round(mc.regen_lost_wh / 1000.0, 4), unit="kWh"))
-    for ec in ctx.engines.values():
-        summary.append(SummaryValue(
-            label=f"{model.elements[ec.el_id].label} — fuel used",
-            value=round(ec.fuel_used_kg, 3), unit="kg"))
-    for fc in ctx.fuelcells.values():
-        summary.append(SummaryValue(
-            label=f"{model.elements[fc.el_id].label} — energy supplied",
-            value=round(fc.energy_wh / 1000.0, 3), unit="kWh"))
-    for vs_id, e_wh in ctx.vsource_energy_wh.items():
-        summary.append(SummaryValue(
-            label=f"{model.elements[vs_id].label} — energy supplied",
-            value=round(e_wh / 1000.0, 3), unit="kWh"))
-    if ctx.veh_id:
-        summary.append(SummaryValue(label="Distance driven", value=round(ctx.distance / 1000.0, 3), unit="km"))
-        net_wh = sum(b.energy_out_wh - b.energy_in_wh for b in ctx.batteries.values())
-        if ctx.distance > 100 and net_wh > 0:
-            summary.append(SummaryValue(
-                label="Consumption", value=round(net_wh / 10.0 / (ctx.distance / 1000.0), 2),
-                unit="kWh/100km"))
-        fuel_kg = sum(ec.fuel_used_kg for ec in ctx.engines.values())
-        if ctx.distance > 100 and fuel_kg > 0:
-            density = 0.745  # gasoline default when no tank declares one
-            co2_per_kg = 3.17  # kg CO₂ per kg of gasoline, likewise
-            if model.fuel_tank:
-                tank_p = ctx.params(model.fuel_tank)
-                try:
-                    density = max(1e-3, float(tank_p.get("density_kg_per_l", density)))
-                except (TypeError, ValueError):
-                    pass
-                try:
-                    co2_per_kg = max(0.0, float(tank_p.get("co2_kg_per_kg", co2_per_kg)))
-                except (TypeError, ValueError):
-                    pass
-            liters = fuel_kg / density
-            summary.append(SummaryValue(
-                label="Fuel consumption",
-                value=round(liters * 100.0 / (ctx.distance / 1000.0), 2), unit="l/100km"))
-            summary.append(SummaryValue(
-                label="CO₂ emissions",
-                value=round(fuel_kg * co2_per_kg * 1000.0 / (ctx.distance / 1000.0), 1),
-                unit="g/km"))
-    if ctx.throughput_wh > 0:
-        # energy no source supplied or absorbed (last-resort clamps), as a
-        # share of all the energy that went through the buses
-        summary.append(SummaryValue(
-            label="Electrical energy balance error",
-            value=round(100.0 * ctx.residual_wh / ctx.throughput_wh, 4), unit="%"))
-    summary.append(SummaryValue(label="Simulated duration", value=times[-1] if times else 0.0, unit="s"))
-
-    # headline numbers that a failed check makes meaningless say why
-    not_valid: dict[str, str] = {}
-    if any(b.depleted_flagged for b in ctx.batteries.values()):
-        not_valid["Consumption"] = "the battery reached its minimum SOC"
-    if any(ec.stalled_flagged for ec in ctx.engines.values()):
-        not_valid["Fuel consumption"] = not_valid["CO₂ emissions"] = "the fuel tank ran empty"
-    if verdict.cycle_not_followed:
-        for label in ("Consumption", "Fuel consumption", "CO₂ emissions"):
-            not_valid[label] = "cycle not followed"
-    if cancelled and times:
-        # figures per distance cover only the part of the cycle driven so far
-        for label in ("Consumption", "Fuel consumption", "CO₂ emissions"):
-            not_valid.setdefault(label, f"run cancelled at t = {times[-1]:g} s")
-    if ctx.throughput_wh > 0 and ctx.residual_wh > 1e-3 * ctx.throughput_wh:
-        for s in summary:
-            if s.unit in ("kWh", "kWh/100km", "%") and s.label != "Electrical energy balance error":
-                not_valid.setdefault(s.label, "the electrical energy balance does not close")
-    if verdict.broke_down:
-        for s in summary:
-            if s.label != "Simulated duration":
-                not_valid[s.label] = "the solution broke down"
-    for s in summary:
-        s.notValid = not_valid.get(s.label)
-
-    has_error = any(m.level == "error" for m in rt.messages)
-    has_warning = any(m.level == "warning" for m in rt.messages) or cancelled
-    status = "failed" if has_error else ("warning" if has_warning else "success")
-    rec_note = f", stored every {output_every}" if output_every > 1 else ""
-    last_note = f", the last one {h_last:g} s" if steps and short_last else ""
-    rt.messages.insert(0, SimMessage(
-        level="info",
-        text=f"Case '{case.name}' solved: {steps} steps × {dt_rec:g} s{last_note} "
-             f"({n_sub} sub-steps each), {len(times)} points recorded{rec_note}, "
-             f"{len(channels)} result channels.",
-    ))
-    return SimResult(
-        caseId=case_id,
-        status=status,
-        messages=rt.messages,
-        channels=channels,
-        summary=summary,
-    )
+        return SimResult(
+            caseId=case_id,
+            status=status,
+            messages=rt.messages,
+            channels=channels,
+            summary=summary,
+        )
+    finally:
+        if ctx.sandbox is not None:
+            ctx.sandbox.close()
 
 
 ChannelValue = tuple[str, str, float]  # (element id, port id, value)
