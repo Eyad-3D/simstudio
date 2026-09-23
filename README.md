@@ -91,7 +91,10 @@ whichever OS you run it on. Requires Python ≥ 3.11 and Node ≥ 20.
 ```
 
 Installers land in `desktop/release/`. Add `--dir` (or `-Dir`) for just the
-unpacked app, which is much faster while iterating.
+unpacked app, which is much faster while iterating. Before packaging, the
+build writes `THIRD-PARTY-NOTICES.txt` and `sbom.cdx.json`, and stops if
+anything it would ship is under a licence SimStudio does not allow (see
+[Third-party licences](#third-party-licences)).
 
 Neither half cross-compiles — the frozen Python backend and the Electron
 package are both platform-specific — so `.github/workflows/desktop-build.yml`
@@ -167,12 +170,49 @@ node scripts/sync-version.mjs           # write VERSION into the manifests
 node scripts/sync-version.mjs --check   # what CI runs
 ```
 
+### Third-party licences
+
+The app ships other people's open-source code: the UI's npm packages,
+Electron, and everything PyInstaller freezes into the engine (Python
+packages, the Python runtime and native libraries such as OpenSSL).
+`scripts/third-party-notices.py` lists all of it, with the licence texts, in
+`THIRD-PARTY-NOTICES.txt` (**Help → Third-Party Notices** in the app), and as
+a CycloneDX software bill of materials in `sbom.cdx.json`; the installers
+include both. It fails if any of it is under a licence that
+[`scripts/licenses/allowed.txt`](scripts/licenses/allowed.txt) does not
+allow, or under a licence it cannot determine. GPL, AGPL, SSPL and EUPL are
+always refused; the two GPL-licensed parts that do ship come with an
+exception that permits it (the PyInstaller bootloader and, on Linux, the GCC
+runtime library). What is built into Electron itself (Chromium, Node.js) is
+not checked here: Electron ships those notices as `LICENSES.chromium.html`
+next to the executable.
+
+The desktop builds (the workflow and both build scripts) write both files
+afresh before packaging, and the CI licence check runs on every pull request
+and every push to `main`. To regenerate them by hand, and commit the result
+when the dependencies change:
+
+```bash
+cd backend
+pip install -r requirements-build.txt   # includes pip-licenses
+python -m PyInstaller --noconfirm --distpath dist --workpath build simstudio-backend.spec
+cd ..
+npm ci --prefix frontend && npm ci --prefix desktop
+python scripts/third-party-notices.py   # add --check to only check
+```
+
+If the check fails on a package whose metadata names no licence the script
+can read, check its licence file and record it in
+`scripts/licenses/clarifications.json`. A native library it does not know
+goes in `scripts/licenses/bundled-runtime.json`. Adding a licence to
+`allowed.txt` is a licensing decision for the owner, not a build fix.
+
 ### Continuous integration
 
 | Workflow | Runs on | Does |
 |---|---|---|
-| `ci.yml` | every push and PR (~3 min) | backend lint + 62 tests, frontend lint + typecheck + build, version-sync check |
-| `desktop-build.yml` | `main`, `v*` tags, manual, and PRs touching packaging (~12 min) | builds Windows and Linux installers, smoke-tests both the frozen backend and the packaged app, uploads artefacts with SHA-256 checksums |
+| `ci.yml` | every push and PR (~3 min) | backend lint + tests, frontend lint + typecheck + build, version-sync check, third-party licence check |
+| `desktop-build.yml` | `main`, `v*` tags, manual, and PRs touching packaging (~12 min) | builds Windows and Linux installers (with their third-party notices), smoke-tests both the frozen backend and the packaged app, uploads artefacts with SHA-256 checksums |
 
 Push a `v*` tag to draft a release with the installers attached. Dependabot
 opens grouped dependency PRs monthly.
@@ -298,4 +338,5 @@ SimStudio is proprietary software: Copyright © 2026 Eyad Abualkhair, all
 rights reserved (see [`LICENSE`](LICENSE)). The desktop app is free to use for
 evaluation, learning, research and other non-commercial purposes under the
 [End-User Licence Agreement](EULA.txt); commercial use needs a separate
-licence. Third-party components keep their own licences.
+licence. Third-party components keep their own licences; they are listed,
+with their licence texts, in `THIRD-PARTY-NOTICES.txt`.

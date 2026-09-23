@@ -201,7 +201,10 @@ at t = 0.
 - **Little help in the app.** There is no user manual, tutorial or
   explanation of individual parameters yet, and the README screenshots show
   an older version. *Roadmap:* LRN-04, LRN-05, LRN-03 (being fixed).
-- **Licence.** SimStudio is proprietary. The desktop app is free for
-  evaluation, learning, research and other non-commercial use under its
+- **Licence.** SimStudio is proprietary (`LICENSE`). The desktop app is free
+  for evaluation, learning, research and other non-commercial use under its
   end-user licence agreement (`EULA.txt`, installed with the app);
-  commercial use needs a separate licence from the owner. *Roadmap:* BIZ-01.
+  commercial use needs a separate licence from the owner. The owner sets
+  these terms, and they may change in a later release. The open-source parts
+  inside the app keep their own licences, listed in `THIRD-PARTY-NOTICES.txt`
+  (*Help → Third-Party Notices*). *Roadmap:* BIZ-01, BIZ-03.

@@ -1,0 +1,45 @@
+# Licences SimStudio may ship, one SPDX identifier per line.
+#
+# scripts/third-party-notices.py fails when anything that goes into the
+# desktop app (UI packages, Electron, the frozen engine and the native
+# libraries inside it) is under a licence that is not listed here, or under
+# a licence it cannot determine.
+#
+# An SPDX expression passes when one of its OR choices consists only of
+# listed terms: "MIT OR GPL-3.0-only" passes (we use it under MIT),
+# "MIT AND GPL-3.0-only" does not. A "X WITH Y" term must be listed as a
+# whole, so listing an exception does not allow the licence without it.
+#
+# Adding a line is a licensing decision, not a build fix. SimStudio is
+# proprietary: never add GPL, AGPL, SSPL or EUPL (the script refuses them
+# even if listed). LGPL and MPL are possible only for unmodified,
+# separately replaceable files; check with the owner before adding them.
+
+# Permissive licences
+0BSD
+Apache-2.0
+BSD-2-Clause
+BSD-3-Clause
+bzip2-1.0.6
+# A public-domain dedication (grants no patent rights; fine for the few
+# small parts that use it, such as the notify crate inside watchfiles)
+CC0-1.0
+ISC
+MIT
+PSF-2.0
+Python-2.0
+Unicode-3.0
+Unicode-DFS-2016
+Unlicense
+Zlib
+
+# Exceptions that allow shipping inside a proprietary app
+Apache-2.0 WITH LLVM-exception
+# The PyInstaller bootloader that starts the frozen engine
+GPL-2.0-or-later WITH Bootloader-exception
+# libgcc_s, the GCC runtime library the Linux engine links
+GPL-3.0-or-later WITH GCC-exception-3.1
+
+# Not SPDX: the Microsoft Visual C++ runtime DLLs that the Windows build of
+# Python ships and PyInstaller copies next to it (redistributable).
+LicenseRef-Microsoft-VC-Redistributable

@@ -24,6 +24,8 @@ rm -rf build dist
 echo "==> 3/3  Packaging the desktop app"
 cd "$ROOT/desktop"
 npm install
+# Licence check, and THIRD-PARTY-NOTICES.txt for the installer.
+"$PYTHON" "$ROOT/scripts/third-party-notices.py"
 if [ "${1:-}" = "--dir" ]; then
   npx electron-builder --dir
 else

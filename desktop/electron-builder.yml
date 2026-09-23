@@ -22,6 +22,11 @@ extraResources:
     to: LICENSE
   - from: ../EULA.txt
     to: EULA.txt
+  # Both written by scripts/third-party-notices.py just before packaging.
+  - from: ../THIRD-PARTY-NOTICES.txt
+    to: THIRD-PARTY-NOTICES.txt
+  - from: ../sbom.cdx.json
+    to: sbom.cdx.json
   - from: ../docs/KNOWN-LIMITS.md
     to: KNOWN-LIMITS.md
 

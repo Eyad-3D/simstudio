@@ -24,6 +24,9 @@ Pop-Location
 Write-Host "==> 3/3  Packaging the desktop app"
 Push-Location "$root\desktop"
 npm install
+# Licence check, and THIRD-PARTY-NOTICES.txt for the installer.
+& $python "$root\scripts\third-party-notices.py"
+if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
 if ($Dir) { npx electron-builder --dir } else { npx electron-builder --win }
 Pop-Location
 
