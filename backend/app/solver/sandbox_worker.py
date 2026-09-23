@@ -10,8 +10,8 @@ Isolation. Before it runs any user code the worker drops the privileges it does
 not need, as strongly as each platform allows without root:
 
 * **Linux** — closes every inherited file descriptor except the engine socket;
-  caps address space, CPU time, file size (to 0 — nothing can be written to a
-  regular file) and the open-file count with ``resource.setrlimit``; clears the
+  caps address space, file size (to 0 — nothing can be written to a regular
+  file) and the open-file count with ``resource.setrlimit``; clears the
   environment; and, when the kernel offers it (Landlock, Linux ≥ 5.13, via
   ``ctypes`` — no root, no seccomp), forbids the process every filesystem
   access and every outbound/*listening* TCP connection. Landlock is inherited
@@ -19,13 +19,14 @@ not need, as strongly as each platform allows without root:
   What Landlock does *not* cover: UDP and Unix-domain sockets, and, on kernels
   without Landlock, only the resource limits, the closed descriptors and the
   restricted namespace apply — see ``docs/KNOWN-LIMITS.md``.
-* **Windows** — assigns the process to a Job object (via ``ctypes``) with a
-  memory cap and kill-on-close, so the worker and anything it starts die with
-  it. The Windows standard library offers no portable way to filter filesystem
-  or network syscalls, so there the real guarantees are the memory cap, the
-  parent's kill-on-timeout, and the in-process restriction (the allow-listed
-  builtins and import block, which the engine applies before this layer). This
-  is stated honestly rather than papered over.
+* **Windows** — the engine puts the worker in a Job object (via ``ctypes``)
+  with a memory cap and kill-on-close, holding its only handle, so the worker
+  and anything it starts die with the engine; the worker clears its
+  environment. The Windows standard library offers no portable way to filter
+  filesystem or network syscalls, so there the real guarantees are the memory
+  cap, the parent's kill-on-timeout, and the in-process restriction (the
+  allow-listed builtins and import block, which the engine applies before this
+  layer). This is stated honestly rather than papered over.
 
 Seccomp is deliberately *not* used: a syscall-level allow-list strict enough to
 matter is easy to get wrong (one missing syscall kills the worker with SIGSYS
@@ -75,12 +76,14 @@ _U16 = struct.Struct(">H")
 _F64 = struct.Struct(">d")
 
 
-# Scripts run every ~10 ms and a solver step's other work is only tens of
-# microseconds, so the worker is idle for very short spells between requests. A
-# process that blocks pays the scheduler a wake-up (tens of µs) on every reply;
-# a short busy-wait first keeps both ends "hot" so a round trip costs a few µs.
-# The window is bounded, so a run that is paced (real-time) or between distant
-# requests falls back to a blocking read and does not burn a core needlessly.
+# Scripts run every 10 ms of simulated time, and between two requests the
+# engine spends only a couple of hundred microseconds on the rest of the step. A
+# process that blocks pays the scheduler a wake-up (tens of µs) on every
+# request; a short busy-wait first keeps both ends "hot" so a round trip costs a
+# few µs. The window is bounded, so a paced (real-time) run, which sleeps
+# between recorded steps, falls back to a blocking read there. A run going flat
+# out never waits that long, so a spinning worker keeps one core busy for the
+# whole run (see worker_main for when it spins).
 SPIN_WINDOW_S = 0.001
 
 
@@ -181,10 +184,10 @@ def unpack_outputs(body: memoryview) -> dict:
 # The memory cap: enough for ordinary signal math and the interpreter, small
 # enough that a runaway allocation fails instead of taking the machine down.
 DEFAULT_MEM_BYTES = 512 * 1024 * 1024
-# A last-resort CPU backstop should the engine ever fail to kill a runaway
-# worker. The engine's wall-clock kill is the real per-step limit; a whole run's
-# script CPU is far below this even for heavy controllers.
-CPU_SECONDS_CAP = 300
+# No CPU-time cap: the worker busy-waits briefly between steps (see Conn), so
+# its CPU time grows with the run's length, and a cap would end long runs that
+# are fine. A runaway step is stopped by the engine's wall-clock kill, and the
+# worker dies with the engine (PR_SET_PDEATHSIG / the Windows job).
 MAX_OPEN_FILES = 64
 
 # Modules pulled in transitively that user code has no business reaching. The
@@ -231,7 +234,6 @@ def _set_rlimits(mem_bytes: int) -> None:
             pass
 
     _cap(resource.RLIMIT_AS, mem_bytes)          # address space (memory)
-    _cap(resource.RLIMIT_CPU, CPU_SECONDS_CAP)   # CPU-time backstop
     _cap(resource.RLIMIT_FSIZE, 0)               # cannot write a regular file
     _cap(resource.RLIMIT_NOFILE, MAX_OPEN_FILES)  # few open files
     try:
@@ -301,7 +303,12 @@ def _apply_landlock(note) -> str:
     return f"landlock ABI {abi}: no filesystem access, {net}"
 
 
-def _apply_windows_job(mem_bytes: int) -> str:
+def windows_job(process_handle: int, mem_bytes: int):
+    """Put the worker in a Windows Job object that caps its memory and kills it
+    when the job's last handle closes. Called by the *engine* with the worker's
+    process handle, so the engine holds that handle: when the engine exits, even
+    by a crash, Windows closes it and the worker (and anything it started) dies
+    too. Returns (job handle or None, a one-line note)."""
     import ctypes
     from ctypes import wintypes
 
@@ -339,9 +346,14 @@ def _apply_windows_job(mem_bytes: int) -> str:
             ("PeakJobMemoryUsed", ctypes.c_size_t),
         ]
 
+    k32.CreateJobObjectW.restype = wintypes.HANDLE
+    k32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+    k32.SetInformationJobObject.argtypes = (
+        wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD)
+    k32.CloseHandle.argtypes = (wintypes.HANDLE,)
     job = k32.CreateJobObjectW(None, None)
     if not job:
-        return "windows job: CreateJobObject failed"
+        return None, "windows job: CreateJobObject failed"
     info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
     info.BasicLimitInformation.LimitFlags = (
         JOB_OBJECT_LIMIT_PROCESS_MEMORY | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
@@ -349,10 +361,21 @@ def _apply_windows_job(mem_bytes: int) -> str:
     if not k32.SetInformationJobObject(
             job, JobObjectExtendedLimitInformation, ctypes.byref(info),
             ctypes.sizeof(info)):
-        return "windows job: SetInformationJobObject failed"
-    if not k32.AssignProcessToJobObject(job, k32.GetCurrentProcess()):
-        return "windows job: AssignProcessToJobObject failed"
-    return "windows job: memory-capped, kill-on-close"
+        k32.CloseHandle(job)
+        return None, f"windows job: SetInformationJobObject failed ({ctypes.get_last_error()})"
+    if not k32.AssignProcessToJobObject(job, process_handle):
+        k32.CloseHandle(job)
+        return None, f"windows job: AssignProcessToJobObject failed ({ctypes.get_last_error()})"
+    return job, "windows job: memory-capped, killed with the engine"
+
+
+def close_windows_job(job) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    k32.CloseHandle(job)
 
 
 def harden(sock_fd: int, mem_bytes: int) -> str:
@@ -360,17 +383,17 @@ def harden(sock_fd: int, mem_bytes: int) -> str:
     what was enforced (the engine logs it for the record)."""
     notes = []
     if sys.platform == "win32":
-        try:
-            notes.append(_apply_windows_job(mem_bytes))
-        except Exception as e:  # noqa: BLE001 — best effort, never fatal
-            notes.append(f"windows job: not applied ({e})")
-        return "; ".join(notes)
+        # The memory cap and kill-with-the-engine come from the job object the
+        # engine put this process in (windows_job); the rest is done here.
+        os.environ.clear()  # no secrets from the engine's environment
+        _drop_modules()
+        return "windows: environment cleared, modules dropped"
 
     # POSIX
     _close_inherited_fds(keep={0, 1, 2, sock_fd})
     try:
         _set_rlimits(mem_bytes)
-        notes.append("rlimits: mem/cpu/fsize=0/nofile")
+        notes.append("rlimits: mem/fsize=0/nofile")
     except Exception as e:  # noqa: BLE001
         notes.append(f"rlimits: not applied ({e})")
 
@@ -472,6 +495,12 @@ def worker_main(sock, mem_bytes: int = DEFAULT_MEM_BYTES) -> None:
     import json
 
     sock_fd = sock.fileno()
+    # Busy-waiting between requests keeps this process on a core for the whole
+    # run: about 20 % faster for a scripted run going flat out, for a second
+    # busy core (a paced run sleeps between recorded steps, so it spins little).
+    # On a machine with fewer than 4 cores that core is needed by the engine and
+    # the app's window, so there the worker blocks instead.
+    spin = (os.cpu_count() or 1) >= 4
     summary = harden(sock_fd, mem_bytes)
     try:
         sys.stderr.write(f"[sandbox] {summary}\n")
@@ -483,7 +512,7 @@ def worker_main(sock, mem_bytes: int = DEFAULT_MEM_BYTES) -> None:
     # loaded here, so nothing has to be opened from disk once Landlock is on.
     from . import scripting
 
-    conn = Conn(sock, spin=True)
+    conn = Conn(sock, spin=spin)
     scripts: list[_Script] = []
     try:
         while True:

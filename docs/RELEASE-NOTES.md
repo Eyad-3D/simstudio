@@ -35,10 +35,12 @@ below makes results more correct; none is a tuning.
 | Gear, final-drive and differential losses act on the power actually flowing through each gear, in both directions, wherever the driveline starts | Hybrids use more fuel (the hybrid example +5 to +10 %); before, a hybrid's gearbox and final drive could lose nothing | MOD-03 |
 | A run that starts at speed starts every wheel, gear, motor and closed-clutch engine at that speed | The first seconds of such runs change; before, a motor behind an open differential started at 0 rpm | MOD-19 |
 
-Runs of models with Script blocks take somewhat longer than in 0.1.0 at the
-default 1 s step (the hybrid example about 9.7 s against 7.9 s on a test
-machine), because controllers now run every 10 ms; other models take about
-as long as before, and runs with fine steps are much faster.
+Runs of models with Script blocks take longer than in 0.1.0 at the default
+1 s step (the hybrid example about 11 s against 7.9 s on a test machine),
+because controllers now run every 10 ms and scripts run in a process of
+their own; on computers with 4 or more cores that process keeps a second
+core busy while such a run goes at full speed. Other models take about as
+long as before, and runs with fine steps are much faster.
 
 ### New example cars
 
@@ -89,16 +91,13 @@ as long as before, and runs with fine steps are much faster.
 - The simulation engine now answers only the app's own window: websites
   cannot reach it, and in the desktop app every request needs a key that
   changes each time the app starts.
-- Data Checks never run a model's Script code, and during a run every Script
-  block executes in a separate, locked-down worker process — on Linux with no
-  filesystem or network access (kernel-enforced Landlock) and a memory cap; on
-  Windows with a memory cap and a process that dies with the engine. The engine
-  kills the worker if a script overruns its time limit, so an endless loop that
-  the in-process check cannot stop now fails the run, and a memory blow-up hits
-  the cap instead of the machine. What each platform does and does not
-  guarantee is written up in [Known issues and limits](KNOWN-LIMITS.md); it is
-  a strong second layer, not a perfect jail, so still open projects only from
-  people you trust.
+- Data Checks never run a model's Script code. During a run, scripts can
+  only do calculations, and they now run in a process of their own: the
+  engine stops it if a step takes more than 2 s, it has a memory cap, and on
+  Linux the system also blocks its file and network access. This is much
+  harder to get around than before, but not a full sandbox, least of all on
+  Windows ([details](KNOWN-LIMITS.md)): only open projects from people you
+  trust.
 - Saves are crash-proof, and a project changed on disk by another window is
   not overwritten without asking.
 

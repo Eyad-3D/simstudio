@@ -58,8 +58,14 @@ landlock = pytest.mark.skipif(
     reason="filesystem/network confinement needs Landlock (Linux >= 5.13)")
 
 
+posix = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Windows has no file-size limit to block writes; see KNOWN-LIMITS")
+
+
 # ---- the worker cannot touch the filesystem or network ------------------------
 
+@posix
 def test_worker_cannot_write_a_file(tmp_path):
     marker = tmp_path / "marker.txt"
     with pytest.raises(ScriptError):
@@ -99,6 +105,29 @@ def test_worker_cannot_read_the_environment(monkeypatch):
         "    import os\n"
         "    return {'y': 1.0 if os.getenv('LIGHTSIM_SANDBOX_SECRET') else 0.0}\n")
     assert out == {"y": 0.0}
+
+
+@posix
+def test_worker_has_no_cpu_time_cap():
+    # The worker busy-waits between steps, so its CPU time tracks the run's
+    # length; a CPU cap would end a long run that is fine.
+    out = _trusted_run(
+        "    import resource\n"
+        "    soft, hard = resource.getrlimit(resource.RLIMIT_CPU)\n"
+        "    return {'y': 1.0 if soft == resource.RLIM_INFINITY else 0.0}\n")
+    assert out == {"y": 1.0}
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows job object")
+def test_windows_worker_is_in_the_engines_job():
+    # The engine holds the job, so the worker is capped and dies with it.
+    sb = ScriptSandbox([ScriptSpec("s", "P", STEP, [], {})])
+    try:
+        assert sb._job is not None
+        assert sb.run("s", "P", 0.0, 0.01, {}, {}) == {"cmd_out": 0.1}
+    finally:
+        sb.close()
+    assert sb._job is None
 
 
 # ---- runaway scripts fail the run within the limit ----------------------------

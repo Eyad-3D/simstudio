@@ -64,6 +64,28 @@ jobs:
               || echo "No report: the tests did not reach the golden fixtures."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # Script blocks run in a worker process that Windows starts its own way (a
+  # loopback socket pair, and a job object the engine holds). Run the worker's
+  # tests and the example cars, whose hybrid has a Script block, there too.
+  backend-windows:
+    name: Backend on Windows (script process)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install
+        working-directory: backend
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Tests
+        working-directory: backend
+        run: python -m pytest tests/test_script_sandbox.py tests/test_script_safety.py tests/test_examples_plausible.py -q
+
   frontend:
     name: Frontend (lint + typecheck + build)
     runs-on: ubuntu-latest

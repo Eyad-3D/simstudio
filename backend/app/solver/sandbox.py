@@ -19,8 +19,10 @@ them never starts a worker.
 from __future__ import annotations
 
 import json
+import logging
 import multiprocessing
 import socket
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -39,6 +41,8 @@ class ScriptSpec:
     input_keys: list[str] = field(default_factory=list)
     params: dict = field(default_factory=dict)
 
+
+log = logging.getLogger(__name__)
 
 # How long past the script time limit the engine waits before giving up on the
 # worker. Covers scheduling jitter and the round trip; well under the test
@@ -65,7 +69,9 @@ class ScriptSandbox:
         self._deadline: float | None = None
 
         ctx = multiprocessing.get_context("spawn")
-        parent, child = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        # The platform's default pair: Unix-domain on Linux, a loopback TCP pair
+        # on Windows (whose Python has no AF_UNIX).
+        parent, child = socket.socketpair()
         self._sock = parent
         self._conn = _w.Conn(parent)
         self._step_timeout = self._time_limit + _KILL_MARGIN_S
@@ -74,6 +80,16 @@ class ScriptSandbox:
             name="lightsim-script-sandbox", daemon=True)
         self._proc.start()
         child.close()  # the worker holds the only other end now
+        # Windows: the engine holds the worker's job object (memory cap, and
+        # the worker dies when the engine does). Set before any script runs.
+        self._job = None
+        if sys.platform == "win32":
+            try:
+                self._job, note = _w.windows_job(self._proc.sentinel, mem_bytes)
+            except Exception as e:  # noqa: BLE001 — best effort, never fatal
+                note = f"windows job: not applied ({e})"
+            if self._job is None:
+                log.warning("script sandbox: %s", note)
 
         self._init(trusted)  # uses a socket timeout; the loop below does not
 
@@ -147,6 +163,15 @@ class ScriptSandbox:
                 self._sock.close()
             except OSError:
                 pass
+            self._release_job()
+
+    def _release_job(self) -> None:
+        job, self._job = getattr(self, "_job", None), None
+        if job is not None:
+            try:
+                _w.close_windows_job(job)  # kill-on-close: ends a worker still running
+            except Exception:  # noqa: BLE001
+                pass
 
     def _kill(self) -> None:
         self._dead = True
@@ -166,6 +191,7 @@ class ScriptSandbox:
             self._sock.close()
         except OSError:
             pass
+        self._release_job()
 
     def __enter__(self) -> "ScriptSandbox":
         return self

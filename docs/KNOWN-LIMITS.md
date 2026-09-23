@@ -229,46 +229,35 @@ minimum or an average, for example from the CSV export.
   oldest are deleted (runs of projects that were never saved go first), and
   the app shows at most the 20 newest. Export runs you need to keep for
   good to CSV. *Roadmap:* RES-02, RES-09.
-- **Scripts run in a locked-down worker process — with limits that differ by
-  platform.** A project's Script blocks are held two ways. First, as before,
-  the engine checks them: Data Checks only compile a script, never run it, and
-  during a run a script gets only `math`, an allow-listed set of builtins, and
-  no way to name files, processes or Python's internals. Second, and new in
-  this release, the run's scripts execute in a *separate* worker process that
-  drops the privileges it does not need before any script runs, and the engine
-  kills that worker if a step overruns the 2 s limit — so an endless loop the
-  in-process check cannot stop (for example one written in C, `list(iter(int,
-  1))`) now fails the run within the limit, and a runaway allocation hits a
-  memory cap instead of the machine. What the worker guarantees depends on the
-  operating system, and we would rather state it plainly than overclaim:
-  - *Linux.* No filesystem access and no outgoing/listening TCP connections
-    (enforced by the kernel's Landlock, on Linux 5.13 and newer); a memory cap,
-    a file-size limit of zero (nothing can be written to a file), a CPU-time
-    backstop and a small open-file limit; the environment is cleared, and all
-    inherited file descriptors bar the engine link are closed. Not covered:
-    UDP and Unix-domain sockets, and, on kernels older than 5.13 (no Landlock),
-    the filesystem/network block is absent — only the memory/file-size/CPU
-    limits, the closed descriptors and the in-process restriction apply there.
-  - *Windows.* The worker is put in a Job object that caps its memory and dies
-    with the engine. The Windows standard library offers no portable way to
-    block filesystem or network calls from inside a process, so on Windows the
-    real protections are that memory cap, the engine's kill-on-overrun, and the
-    in-process restriction above — not an OS-enforced filesystem/network wall.
-  Either way this is a strong second layer, not a perfect jail, and the engine
-  still answers only the LightSim window. Open projects only from people you
-  trust. *Roadmap:* PLT-02 (for a hostile-input server, still escalate to a
-  real sandbox such as gVisor or a WASM runner).
-- **Runs with Script blocks take a little longer than in 0.1.0.**
-  Controllers and scripts now run every 10 ms, so a model with scripts
-  does more work per second of driving; and, new in this release, each
-  script step makes a short round trip to the worker process. On a test
-  machine the P2 Hybrid Car's Mixed Cycle takes about 11 s (against 9.7 s
-  when scripts ran in-process, and 7.9 s in 0.1.0); the worker adds under
-  15 %, and to keep that latency low the worker briefly busy-waits between
-  steps, so a scripted run uses a little more CPU. The Battery Electric Car
-  (no Script blocks) starts no worker and takes about as long as before. A
-  coarser case step does not make a run faster: the solver steps every
-  10 ms whatever it is. *Roadmap:* ENG-10.
+- **Scripts run in a separate, locked-down process, but how locked-down
+  depends on your system.** Script blocks hold Python code that comes with
+  the project. LightSim checks that code first: Data Checks only compile it,
+  never run it, and during a run a script can use `math` and a short list of
+  basic functions, and cannot name files, programs or Python's internals.
+  Since 0.2.0 scripts also run in a process of their own, apart from the
+  engine. If a script step takes longer than 2 s, the engine stops that
+  process and the run fails, even for loops the first check cannot
+  interrupt; a script that asks for too much memory hits a 512 MB cap.
+  - *Linux 5.13 or newer:* the system also stops that process from opening
+    any file and from making or accepting TCP connections. Not blocked:
+    other network traffic (UDP) and local sockets. On older Linux, only the
+    memory cap and a limit that stops it writing data into files apply; it
+    could still delete files.
+  - *Windows:* the process has the memory cap and ends when LightSim ends,
+    but Windows has no simple way to block its files or network, so there
+    the first check is the main protection.
+
+  This makes a harmful script much harder to write, not impossible. Open
+  projects only from people you trust. *Roadmap:* PLT-02.
+- **Runs with Script blocks take longer than in 0.1.0.** Controllers and
+  scripts now run every 10 ms, and every script step is a round trip to the
+  script process. On a test machine the P2 Hybrid Car's Mixed Cycle takes
+  about 11 s, against 7.9 s in 0.1.0; the Battery Electric Car has no Script
+  blocks and takes about as long as before. On computers with 4 or more
+  processor cores, the script process keeps a second core busy while a run
+  goes at full speed, which makes that run about 20 % faster; a paced (live)
+  run hardly uses it. A coarser case step does not make a run faster: the
+  solver steps every 10 ms whatever it is. *Roadmap:* ENG-10.
 - **Some colours are too faint in the dark theme.** The ribbon title, the
   Run button, the status bar's "backend connected" and "success" in the log
   fall short of the WCAG AA contrast minimum. Switch to the light theme if
