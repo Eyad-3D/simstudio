@@ -55,15 +55,17 @@ test("UX-06: every project load re-fits at a readable zoom", async ({ page }) =>
     await openExample(page, name);
     await expectReadable(`opening ${name}`);
   }
-  // opening the project that is already open (e.g. to revert it)
+  // opening the example that is already open (e.g. to revert it)
   await wheelZoomOut(page, 1200);
   expect(await zoomOf(page)).toBeLessThan(0.5);
   await openExample(page, "Battery Electric");
   await expectReadable("re-opening the open project");
-  // importing a file with the open project's id
+  // importing a file with the open project's id (an example opens as a copy
+  // with an id of its own, which the recovery draft records)
   await wheelZoomOut(page, 1200);
-  const bev = await (await page.request.get("/api/projects/bev-car")).json();
-  await importProject(page, bev);
+  const openId = await page.evaluate(() => JSON.parse(localStorage.getItem("simstudio-draft-v1")!).project.id);
+  const bev = await (await page.request.get("/api/examples/bev-car")).json();
+  await importProject(page, { ...bev, id: openId });
   await expectReadable("importing the open project");
 });
 
@@ -83,7 +85,7 @@ test("UX-06: '.' frames the selected part at up to 100 %", async ({ page }) => {
 
 /** The BEV example copied 16 times on a 4x4 grid: 352 parts. */
 async function bigModel(page: Page) {
-  const bev = await (await page.request.get("/api/projects/bev-car")).json();
+  const bev = await (await page.request.get("/api/examples/bev-car")).json();
   const root = bev.systems[0];
   const xs = root.elements.map((e: { position: { x: number } }) => e.position.x);
   const ys = root.elements.map((e: { position: { y: number } }) => e.position.y);

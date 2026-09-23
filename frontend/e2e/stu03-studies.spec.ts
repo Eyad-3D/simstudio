@@ -38,8 +38,7 @@ test("STU-03: two sweeps give two saved studies that survive a reload and a save
   const id = `e2e-stu03-${n}`;
   const name = `E2E studies ${n}`;
   await openApp(page);
-  const example = await (await page.request.get("/api/projects/bev-car")).json();
-  delete example.revision;
+  const example = await (await page.request.get("/api/examples/bev-car")).json();
   example.cases[0].duration = 20;
   await importProject(page, { ...example, id, name });
   // the sweep form seeds 50-150 % of the example's own mass

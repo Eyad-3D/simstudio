@@ -32,29 +32,37 @@ export default function App() {
 
   // autosave the working project to localStorage (debounced) and flush on
   // tab close, so unsaved work survives a refresh or crash. This is separate
-  // from Save (server); see persist.ts. A draft is only ever written once the
-  // user genuinely edits/switches the project — a pristine demo never creates
-  // one (so returning users aren't told they "restored a draft" they never made).
+  // from Save (server); see persist.ts. Unsaved work is only ever recorded once
+  // the user genuinely edits the project, so returning users aren't told they
+  // "restored a draft" they never made.
   useEffect(() => {
     let edited = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const unsub = useProjectStore.subscribe((state, prev) => {
-      // skip the initial null→project population (init / draft restore)
-      if (!state.project || !prev.project) return;
+      if (!state.project) return;
+      if (!prev.project) {
+        // the initial null→project population (init / draft restore): an
+        // example opened as a copy is recorded, clean, so that the next launch
+        // opens the same copy again, with the runs made on it
+        if (state.exampleId && !state.dirty) {
+          saveDraft(state.project, true, state.revision, state.exampleId);
+        }
+        return;
+      }
       if (state.project === prev.project && state.dirty === prev.dirty) return;
       edited = true;
       clearTimeout(timer);
       if (state.dirty) {
-        timer = setTimeout(() => saveDraft(state.project!, false, state.revision), 800);
+        timer = setTimeout(() => saveDraft(state.project!, false, state.revision, state.exampleId), 800);
       } else {
         // saved / opened / new: record which project is open, but mark it clean
         // so the next launch doesn't report unsaved work that was already saved
-        saveDraft(state.project, true, state.revision);
+        saveDraft(state.project, true, state.revision, state.exampleId);
       }
     });
     const flush = () => {
-      const { project: p, dirty, revision } = useProjectStore.getState();
-      if (edited && p) saveDraft(p, !dirty, revision);
+      const { project: p, dirty, revision, exampleId } = useProjectStore.getState();
+      if (edited && p) saveDraft(p, !dirty, revision, exampleId);
     };
     window.addEventListener("beforeunload", flush);
     return () => {

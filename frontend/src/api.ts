@@ -84,22 +84,58 @@ export async function fetchVersion(): Promise<string | null> {
   }
 }
 
+/** The example a new user starts on (also bundled as the offline fallback). */
+export const DEMO_EXAMPLE = "bev-car";
+
+/** The demo example as the app ships it; the store opens it as a copy. */
 export async function fetchDemoProject(): Promise<{
-  project: StoredProject;
+  project: Project;
   offline: boolean;
 }> {
   try {
-    const project = await request<StoredProject>("/projects/bev-car");
-    return { project, offline: false };
+    return { project: await fetchExample(DEMO_EXAMPLE), offline: false };
   } catch {
     return { project: fallbackProject as unknown as Project, offline: true };
   }
 }
 
-export function listProjects(): Promise<
-  { id: string; name: string; description?: string | null }[]
-> {
+/** A project or example as the engine lists it. */
+export interface ProjectEntry {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
+/** An example, and whether the user hid it from the Open menu. */
+export interface ExampleEntry extends ProjectEntry {
+  hidden: boolean;
+}
+
+/** The user's saved projects (not the examples). */
+export function listProjects(): Promise<ProjectEntry[]> {
   return request("/projects");
+}
+
+// ---- examples (shipped with the app, read-only) ----------------------------
+
+export function listExamples(): Promise<ExampleEntry[]> {
+  return request("/examples");
+}
+
+/** An example as the app ships it. It has no revision: it is not a file the
+ *  user can save over, so it is opened as a copy with an id of its own. */
+export function fetchExample(id: string): Promise<Project> {
+  return request(`/examples/${encodeURIComponent(id)}`);
+}
+
+/** Leave an example out of the Open menu until the examples are restored. */
+export function hideExample(id: string): Promise<{ hidden: string }> {
+  return request(`/examples/${encodeURIComponent(id)}/hide`, { method: "POST" });
+}
+
+/** Show every hidden example again; `restored` lists their ids. */
+export function restoreExamples(): Promise<{ restored: string[] }> {
+  return request("/examples/restore", { method: "POST" });
 }
 
 export function fetchProject(id: string): Promise<StoredProject> {

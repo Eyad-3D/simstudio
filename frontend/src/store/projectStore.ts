@@ -35,6 +35,15 @@ function now(): string {
   return new Date().toLocaleTimeString([], { hour12: false });
 }
 
+/** An example opened as an unsaved copy: the example with an id of its own
+ *  (named after it), so saving the copy makes a new project, never writes the
+ *  example, and the copy's runs and backups are kept apart from a project of
+ *  the example's id (such as a copy an earlier version put in the projects
+ *  folder). */
+function exampleCopy(example: Project): Project {
+  return { ...structuredClone(example), id: uid(example.id.slice(0, 120)) };
+}
+
 /** Split a project read from disk into the project and its file revision. */
 function fromDisk(stored: api.StoredProject): { project: Project; revision: string | null } {
   const { revision, ...project } = stored;
@@ -285,6 +294,9 @@ interface ProjectState {
   /** Revision of the project file the open copy was loaded from or last saved
    *  as; a save is refused if the file changed since. null: not on disk yet. */
   revision: string | null;
+  /** The example the open project is an unsaved copy of (its id), else null.
+   *  Save keeps the copy as a new project; the example is never written. */
+  exampleId: string | null;
   activeSystemId: string | null;
   selectedElementId: string | null;
   dirty: boolean;
@@ -362,6 +374,12 @@ interface ProjectState {
   // project lifecycle
   newProject: () => void;
   openProject: (id: string) => Promise<void>;
+  /** Open an example as an unsaved copy with an id of its own. */
+  openExample: (id: string) => Promise<void>;
+  /** Leave an example out of the Open menu; resolves false when that failed. */
+  hideExample: (id: string, name: string) => Promise<boolean>;
+  /** Show every hidden example in the Open menu again. */
+  restoreExamples: () => Promise<void>;
   saveRemote: () => Promise<void>;
   exportProject: () => void;
   importProject: (json: string) => void;
@@ -711,6 +729,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     appVersion: null,
     project: null,
     revision: null,
+    exampleId: null,
     activeSystemId: null,
     selectedElementId: null,
     dirty: false,
@@ -737,16 +756,24 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const demo = await api.fetchDemoProject();
       const libraryById = Object.fromEntries(lib.components.map((c) => [c.id, c]));
       // restore the autosaved working copy if one exists, else open the demo
+      // example as a copy
       const draft = loadDraft();
       const unsaved = Boolean(draft && !draft.clean);
+      const exampleId = draft ? (draft.example ?? null) : demo.project.id;
       let { project, revision } = draft
         ? { project: draft.project, revision: draft.revision ?? null }
-        : fromDisk(demo.project);
+        : { project: exampleCopy(demo.project), revision: null };
       if (draft?.clean && !lib.offline) {
         // nothing was unsaved: reopen the project from disk (it may be newer
-        // than the kept copy), falling back to the copy if it is gone
+        // than the kept copy), or an example's current version (an update may
+        // have corrected it) under the copy's id, which its runs are stored
+        // under; falling back to the copy if it is gone
         try {
-          ({ project, revision } = fromDisk(await api.fetchProject(draft.project.id)));
+          if (exampleId) {
+            project = { ...(await api.fetchExample(exampleId)), id: draft.project.id };
+          } else {
+            ({ project, revision } = fromDisk(await api.fetchProject(draft.project.id)));
+          }
         } catch {
           /* keep the copy */
         }
@@ -760,6 +787,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         appVersion,
         project,
         revision,
+        exampleId,
         activeSystemId: rootSystemOf(project).id,
         activeCaseId: project.cases[0]?.id ?? null,
         dirty: unsaved,
@@ -1196,6 +1224,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       set({
         project,
         revision: null,
+        exampleId: null,
         activeSystemId: rootId,
         activeCaseId: caseId,
         activeRunId: null,
@@ -1218,6 +1247,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         set({
           project,
           revision,
+          exampleId: null,
           activeSystemId: project.systems.find((s) => s.parentId === null)?.id ?? project.systems[0]?.id,
           activeCaseId: project.cases[0]?.id ?? null,
           activeRunId: null,
@@ -1238,15 +1268,73 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
     },
 
+    openExample: async (id) => {
+      let example: Project;
+      try {
+        example = await api.fetchExample(id);
+      } catch (e) {
+        get().log("error", `Failed to open the example: ${(e as Error).message}`);
+        return;
+      }
+      const project = exampleCopy(example);
+      runHistorySeq++; // runs still loading for the project it replaces are dropped
+      set({
+        project,
+        revision: null,
+        exampleId: id,
+        activeSystemId: rootSystemOf(project).id,
+        activeCaseId: project.cases[0]?.id ?? null,
+        activeRunId: null,
+        overlayRunIds: [],
+        selectedElementId: null,
+        past: [],
+        future: [],
+        runs: [],
+        storedRunCount: 0,
+        runsLoading: false,
+        dataChecks: null,
+        dirty: false,
+      });
+      get().log(
+        "info",
+        `Example '${project.name}' opened as a copy. Save keeps it as a new project of yours; the example stays as it is.`,
+      );
+    },
+
+    hideExample: async (id, name) => {
+      try {
+        await api.hideExample(id);
+      } catch (e) {
+        get().log("error", `Could not hide the example: ${(e as Error).message}`);
+        return false;
+      }
+      get().log("info", `Example '${name}' hidden from the Open menu (Restore hidden examples brings it back).`);
+      return true;
+    },
+
+    restoreExamples: async () => {
+      try {
+        const { restored } = await api.restoreExamples();
+        get().log("info", `${restored.length} hidden example(s) are back in the Open menu.`);
+      } catch (e) {
+        get().log("error", `Could not restore the examples: ${(e as Error).message}`);
+      }
+    },
+
     saveRemote: () => {
       const save = async () => {
-        const { project, revision, log } = get();
+        const { project, revision, exampleId, log } = get();
         if (!project) return;
         try {
           const res = await api.saveProject(project, revision);
           // an edit made while the save was in flight is still unsaved
-          set({ dirty: get().project !== project, revision: res.revision ?? revision });
-          log("info", `Project '${project.name}' saved to the server.`);
+          set({ dirty: get().project !== project, revision: res.revision ?? revision, exampleId: null });
+          log(
+            "info",
+            exampleId
+              ? `Project '${project.name}' saved to the server as a new project; the example it was copied from is unchanged.`
+              : `Project '${project.name}' saved to the server.`,
+          );
         } catch (e) {
           if ((e as { status?: number }).status !== 409) {
             log("error", `Save failed: ${(e as Error).message}. Use Export to download the project file instead.`);
@@ -1275,7 +1363,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           try {
             const res = await api.saveProject(project);
             // edits made while the dialog was open were not in this save
-            set({ dirty: get().project !== project, revision: res.revision ?? null });
+            set({ dirty: get().project !== project, revision: res.revision ?? null, exampleId: null });
             log("info", `Project '${project.name}' saved to the server, replacing the version on disk ` +
               "(Project → Restore opens that version again).");
           } catch (e2) {
@@ -1313,6 +1401,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         set({
           project,
           revision: null,
+          exampleId: null,
           activeSystemId: project.systems.find((s) => s.parentId === null)?.id ?? project.systems[0]?.id,
           activeCaseId: project.cases[0]?.id ?? null,
           activeRunId: null,
@@ -1339,6 +1428,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       set({
         project,
         revision: null,
+        exampleId: null,
         activeSystemId: rootSystemOf(project).id,
         activeCaseId: project.cases[0]?.id ?? null,
         activeRunId: null,
