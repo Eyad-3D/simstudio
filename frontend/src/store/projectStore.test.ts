@@ -322,6 +322,18 @@ describe("undo / redo", () => {
     // the oldest 10 steps were dropped, so undo stops 10 cases short
     expect(store().project?.cases).toHaveLength(11);
   });
+
+  it("keeps at most 50 drag steps too", async () => {
+    await store().init();
+    for (let x = 1; x <= 60; x++) {
+      store().beginHistory();
+      store().moveElement("el-bat", { x, y: 0 });
+    }
+    expect(store().past).toHaveLength(50);
+    for (let i = 0; i < 60; i++) store().undo();
+    // the oldest 10 drags were dropped
+    expect(findElement("el-bat")?.position).toEqual({ x: 10, y: 0 });
+  });
 });
 
 describe("elements and wiring", () => {
