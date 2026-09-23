@@ -1,7 +1,9 @@
 // One test per known P0 bug, written against the fixed behaviour. Each is
 // test.fixme (skipped, listed as "fixme" in the report) until its fix lands:
 // the fix's pull request switches it to test() so the bug cannot come back.
-// Every one of these fails on today's code; the roadmap id is in the title.
+// Every fixme test fails on today's code; the roadmap id is in the title.
+// The one plain test() here (UX-02's status-bar New) passes before and after
+// its fix.
 import { expect, test, type Page } from "@playwright/test";
 import {
   dragComponent,
@@ -93,6 +95,23 @@ test.describe("UX-02: replacing a project with unsaved changes asks first", () =
     await expectProject(page, "Battery Electric Car", { unsaved: true });
     await expect(page.locator(".react-flow__node", { hasText: "Constant 1" })).toHaveCount(1);
   }
+
+  // The status-bar "+" asks already ("Discard unsaved changes?": Cancel or
+  // New project); the UX-02 fix makes it Save / Don't save / Cancel like the
+  // rest. This test holds for both prompts, so it runs before and after.
+  test("UX-02: the status-bar New asks, and its discard choice replaces the project", async ({
+    page,
+  }) => {
+    const plus = page.getByRole("button", { name: "New project", exact: true });
+    await plus.click();
+    await expectPromptThenCancel(page);
+    await plus.click();
+    // "New project" in today's prompt, "Don't save" in UX-02's; the dialog
+    // comes after the status bar in the page
+    await page.getByRole("button", { name: /^(New project|Don't save)$/ }).last().click();
+    await expectProject(page, "New Project", { unsaved: false });
+    await expect(page.locator(".react-flow__node")).toHaveCount(0);
+  });
 
   test.fixme("UX-02: ribbon New", async ({ page }) => {
     await page.getByRole("button", { name: "New", exact: true }).click();

@@ -85,18 +85,3 @@ test("reload brings back unsaved work, but not after it was saved", async ({ pag
   await expect(await logLines(page, `Project '${name}' opened.`)).toBeVisible();
   await expect(await logLines(page, /Restored your unsaved draft/)).toHaveCount(0);
 });
-
-test("the status-bar New asks before discarding unsaved work", async ({ page }) => {
-  await openApp(page);
-  await dragComponent(page, "Constant", { x: 60, y: 60 });
-  await expectProject(page, "Battery Electric Car", { unsaved: true });
-
-  await page.getByRole("button", { name: "New project", exact: true }).click();
-  await expect(page.getByText("Discard unsaved changes?")).toBeVisible();
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expectProject(page, "Battery Electric Car", { unsaved: true });
-
-  await page.getByRole("button", { name: "New project", exact: true }).click();
-  await page.getByRole("button", { name: "New project", exact: true }).last().click();
-  await expectProject(page, "New Project", { unsaved: false });
-});
