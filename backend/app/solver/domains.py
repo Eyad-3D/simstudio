@@ -333,16 +333,24 @@ class RunContext:
     # ---- behaviors -------------------------------------------------------------
 
     def motor_torque(self, mc: MotorCache, demand: float, omega_m: float) -> float:
+        """Shaft torque of an E-Motor for a traction command in [-1, 1].
+
+        The loss map (motor + inverter) holds every loss of the powered
+        drive, including the spin losses at zero torque, so electrical power
+        = torque · speed + map loss. The drag table applies only while the
+        inverter is off (a zero command or no live supply): the motor then
+        coasts unpowered, draws nothing and brakes the shaft with its drag
+        torque. Losses are always electrical minus shaft power."""
         rt, model = self.rt, self.model
         rpm = abs(omega_m) * RPM
         volts = (self.bus_voltage.get(self.motor_bus[mc.el_id].id, 0.0)
                  if mc.el_id in self.motor_bus else 0.0)
+        t_cmd = 0.0
         if volts <= 1.0:
             rt.warn_once(f"deadbus:{mc.el_id}",
                          f"E-Motor '{model.elements[mc.el_id].label}' has no live electrical "
                          f"supply — it produces no torque.")
-            t_raw = 0.0
-        else:
+        elif demand != 0.0:
             if volts < mc.full_load[0][0] - 1e-9 or volts > mc.full_load[-1][0] + 1e-9:
                 rt.warn_once(
                     f"mapclamp:{mc.el_id}:volt",
@@ -352,15 +360,18 @@ class RunContext:
                 )
             t_full = interp2(mc.full_load, volts, rpm)
             demand = max(-1.0, min(1.0, demand))
-            t_raw = demand * t_full * (mc.q4_scale if demand < 0 else 1.0)
-        t_drag = interp1(mc.drag, rpm)
-        t_net = t_raw - _sign(omega_m) * t_drag
-        p_loss = interp2(mc.loss, rpm, abs(t_raw)) * 1000.0
+            t_cmd = demand * t_full * (mc.q4_scale if demand < 0 else 1.0)
+        if volts > 1.0 and demand != 0.0:  # inverter on
+            t_net = t_cmd
+            p_elec = t_cmd * omega_m + interp2(mc.loss, rpm, abs(t_cmd)) * 1000.0
+        else:  # inverter off: unpowered, drag only
+            t_net = -_sign(omega_m) * interp1(mc.drag, rpm)
+            p_elec = 0.0
         mc.rpm = rpm
-        mc.torque = t_raw
-        mc.p_mech_w = t_raw * omega_m
-        mc.p_loss_w = p_loss
-        mc.p_elec_w = mc.p_mech_w + p_loss
+        mc.torque = t_net
+        mc.p_mech_w = t_net * omega_m
+        mc.p_elec_w = p_elec
+        mc.p_loss_w = p_elec - mc.p_mech_w
         return t_net
 
     def engine_torque(self, ec: EngineCache, omega_e: float) -> float:

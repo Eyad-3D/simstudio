@@ -45,3 +45,22 @@ numbers at 1 s as at 0.02 s.
   on its first step, so it does not start the engine at t = 0 to charge the
   battery to 62 %; the engine now first starts at 268 s, when SOC falls
   below 48 %.
+
+## E-Motor spin losses counted once (MOD-04)
+
+The motor's loss map ("Power Loss (Motor + Inverter)") already holds the
+losses of a motor spinning at zero torque, yet the drag table was also
+subtracted from the shaft torque at all times, so a powered motor paid its
+spin losses twice. Now the loss map covers every loss while the inverter is
+powered, and the drag table applies only when the motor coasts unpowered
+(a command of exactly 0, or no live supply), when it draws nothing. The
+recorded Shaft Torque and Mechanical Power are now the net shaft values
+(before: the torque before drag), and Losses is always electrical minus
+shaft power.
+
+- bev-car City Cycle: energy delivered 1.479 -> 1.361 kWh, recuperated
+  0.029 -> 0.036 kWh, consumption 19.88 -> 18.16 kWh/100 km, final SOC
+  87.56 -> 87.78 %; distance 7.292 km unchanged.
+- hybrid-car Mixed Cycle: fuel 0.553 -> 0.540 kg, 7.76 -> 7.58 l/100 km,
+  final SOC 52.92 -> 53.00 %, battery consumption row 2.49 -> 2.39
+  kWh/100 km; distance 9.556 km unchanged.

@@ -242,8 +242,9 @@ def test_standstill_holds_at_zero():
 
 
 def test_motor_steady_state_matches_road_load():
-    """At constant 50 km/h the motor torque must equal road load through
-    the gear chain — the physics regression anchor."""
+    """At constant 50 km/h the motor's shaft torque must equal road load
+    through the gear chain — the physics regression anchor. A powered motor
+    has no drag torque on top: its spin losses are in the loss map."""
     proj = bev_axle(profile="0:0; 5:50; 60:50")
     proj.cases[0].duration = 60
     result = simulate(proj, "case")
@@ -254,10 +255,8 @@ def test_motor_steady_state_matches_road_load():
     f_roll = 0.012 * mass * 9.81 * 0.5  # two wheels à 25 % share
     f_aero = 0.5 * 1.2 * (0.28 * 2.2) * v * v  # Cd × frontal area
     wheel_torque = (f_roll + f_aero) * 0.33
-    rpm = v / 0.33 * 9.7 * 60 / (2 * math.pi)
-    drag = interp1(parse_table1d({"0": 0, "3000": 1.2, "6000": 2.6, "9000": 4.2, "12000": 6.0}), rpm)
-    expected = wheel_torque / (9.7 * 0.97 * 0.98) + drag
-    assert abs(t_motor - expected) < 1.5, f"{t_motor} vs {expected}"
+    expected = wheel_torque / (9.7 * 0.97 * 0.98)
+    assert abs(t_motor - expected) < 0.5, f"{t_motor} vs {expected}"
 
 
 # ---- differential ------------------------------------------------------------

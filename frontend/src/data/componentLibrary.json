@@ -287,7 +287,7 @@
       "name": "E-Motor",
       "icon": "fan",
       "domain": "electrical",
-      "description": "Electric machine with voltage-dependent full-load torque map, power-loss map (motor + inverter) and drag torque. Motoring and generating (recuperation) quadrants; generator limit mirrors the full-load map scaled by the Q4 scale parameter. Traction command input is a normalized demand in [-1, 1].",
+      "description": "Electric machine with voltage-dependent full-load torque map, power-loss map (motor + inverter) and drag torque. The loss map covers every loss while the inverter is powered, spin losses at zero torque included; the drag torque applies only when the motor coasts unpowered (zero command or no supply). Motoring and generating (recuperation) quadrants; generator limit mirrors the full-load map scaled by the Q4 scale parameter. Traction command input is a normalized demand in [-1, 1].",
       "ports": [
         {
           "id": "pos",
@@ -444,7 +444,7 @@
         },
         {
           "key": "drag_torque",
-          "label": "Drag Torque",
+          "label": "Drag Torque (unpowered)",
           "unit": "N·m",
           "type": "table1d",
           "axes": [{ "name": "Speed", "unit": "1/min" }],
