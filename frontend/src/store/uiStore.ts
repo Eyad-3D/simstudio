@@ -77,7 +77,8 @@ interface UIState {
 
   dockApi: DockviewApi | null;
   setDockApi: (api: DockviewApi) => void;
-  /** Bring a dockview panel to the front of its group. */
+  /** Bring a dockview panel to the front of its group (opening the bottom
+   *  tray or leaving a maximised diagram when needed). */
   focusPanel: (id: string) => void;
 
   /** Layer Configurations: per-kind edge visibility on the canvas. */
@@ -119,8 +120,17 @@ export const useUIStore = create<UIState>((set, get) => ({
   dockApi: null,
   setDockApi: (api) => set({ dockApi: api }),
   focusPanel: (id) => {
-    const panel = get().dockApi?.getPanel(id);
-    panel?.api.setActive();
+    const dock = get().dockApi;
+    const panel = dock?.getPanel(id);
+    if (!dock || !panel) return;
+    const group = panel.group.api;
+    // a maximised diagram would hide the other grid panels
+    if (group.location.type === "grid" && dock.hasMaximizedGroup() && !group.isMaximized()) {
+      dock.exitMaximizedGroup();
+    }
+    panel.api.setActive();
+    // panels in the bottom tray: open the tray if it is collapsed to its tabs
+    if (group.location.type === "edge" && group.isCollapsed()) group.expand();
   },
 
   visibleKinds: { electrical: true, mechanical: true, signal: false },
