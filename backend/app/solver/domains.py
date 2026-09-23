@@ -337,22 +337,73 @@ class RunContext:
                               "Driveline became kinematically over-constrained — "
                               "its motion is frozen.")
             return
+        if initial:
+            self.start_at_vehicle_speed(st)
+            return
         for k in range(st.plan.n):
             anchor = self.anchor_of_group(st.dl, st.plan, k)
             if anchor is None:
                 st.plan.x[k] = 0.0
                 continue
             el_id, factor = anchor
-            if initial:
-                # initialize wheel-bearing groups from the vehicle speed
-                omega = 0.0
-                for seg in st.dl.segments:
-                    for w in seg.wheels:
-                        if w.el_id == el_id and self.v > 0:
-                            omega = self.v / w.radius
-                st.plan.x[k] = omega / factor if factor else 0.0
-            else:
-                st.plan.x[k] = self.el_axis_speed.get(el_id, 0.0) / factor if factor else 0.0
+            st.plan.x[k] = self.el_axis_speed.get(el_id, 0.0) / factor if factor else 0.0
+
+    def clutch_closed_at_start(self, j: Joint) -> bool:
+        """A clutch closes at t = 0 when unwired, or when a Constant or
+        Driving Task engages it; one a block sets (a Script, a PID …) has
+        had no say yet, so it counts as open."""
+        if float(self.params(j.el_id).get("max_torque_Nm", 0)) <= 0:
+            return False
+        route = self.model.signal_route.get((j.el_id, "sig_engage_in"))
+        if route is None:
+            return True
+        engage = self.rt.signal_values.get(route)
+        kind = dict(self.sources).get(route[0])
+        if engage is None and kind is not None:
+            engage = self.source_value(route[0], kind, 0.0)
+        return (engage or 0.0) > 0
+
+    def start_at_vehicle_speed(self, st: DrivelineState) -> None:
+        """Set a driveline's coordinates so that every wheel rolls at the
+        vehicle's speed without slip and every clutch closed at the start
+        turns both its sides together (least squares over those conditions,
+        which agree for any buildable driveline); what none of them moves,
+        such as an engine behind an open clutch, starts at rest."""
+        plan, n = st.plan, st.plan.n
+        rows: list[tuple[list[float], float]] = []  # (a, b): a · x = b, |a| = 1
+
+        def condition(a: list[float], b: float) -> None:
+            norm = math.sqrt(sum(v * v for v in a))
+            if norm > 0:
+                rows.append(([v / norm for v in a], b / norm))
+
+        for s, seg in enumerate(st.dl.segments):
+            for w in seg.wheels:
+                condition([w.m * g for g in plan.gvec[s]], self.v / w.radius)
+        for j in st.dl.joints:
+            if j.kind == "clutch" and self.clutch_closed_at_start(j):
+                condition([j.child_a_m * ga - j.child_b_m * gb for ga, gb
+                           in zip(plan.gvec[j.child_a], plan.gvec[j.child_b])], 0.0)
+        ata = [[sum(a[i] * a[k] for a, _ in rows) for k in range(n)] for i in range(n)]
+        atb = [sum(a[i] * b for a, b in rows) for i in range(n)]
+        # a small ridge keeps an under-determined driveline solvable; a
+        # coordinate no condition touches stays at 0
+        for i in range(n):
+            ata[i][i] += 1e-9 if ata[i][i] > 0 else 1.0
+        plan.x[:] = solve_linear(ata, atb)
+        # the rotating parts' speeds are right from point 0 on (recorded
+        # speeds, a script's first reading)
+        for s, seg in enumerate(st.dl.segments):
+            omega = self.seg_speed(st, s)
+            for w in seg.wheels:
+                self.el_axis_speed[w.el_id] = w.m * omega
+            for src in seg.sources:
+                self.el_axis_speed[src.el_id] = src.m * omega
+                cache = self.motors.get(src.el_id) or self.engines.get(src.el_id)
+                if cache is not None:
+                    cache.rpm = abs(src.m * omega) * RPM
+            for pr in seg.props:
+                self.el_axis_speed[pr.el_id] = pr.m * omega
 
     @staticmethod
     def seg_speed(st: DrivelineState, s: int) -> float:

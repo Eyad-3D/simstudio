@@ -106,6 +106,26 @@ def _ice_car(profile: str, duration: float, speed: float = 100.0, **tank):
     return project(elements, connections, databus, duration=duration, time_step=0.1)
 
 
+def test_engine_starts_at_the_vehicle_speed_behind_a_closed_clutch():
+    """At 100 km/h from the start, an engine behind a closed clutch turns
+    with the wheels from t = 0 (4th gear 1.15 x final drive 4.1); behind a
+    clutch a Constant holds open it starts at rest, as it would with the
+    engine off. Before, it always started at rest and the closed clutch
+    tore it up to speed in the first steps."""
+    closed = simulate(_ice_car("0:100; 1:100", 0.2), "case")
+    wheel_rpm = series(closed, "whl", "sig_speed")[0]["value"]
+    assert wheel_rpm > 800
+    assert series(closed, "eng", "sig_speed")[0]["value"] == pytest.approx(1.15 * 4.1 * wheel_rpm)
+    assert abs(series(closed, "cl", "sig_slip_speed")[1]["value"]) < 10.0
+
+    proj = _ice_car("0:100; 1:100", 0.2)
+    proj.systems[0].elements.append(el("open", "signal.constant", "Open", value=0))
+    proj.dataBusConnections.append(dbc(3, "open", "sig_out", "cl", "sig_engage_in"))
+    opened = simulate(proj, "case")
+    assert series(opened, "eng", "sig_speed")[0]["value"] == 0.0
+    assert series(opened, "whl", "sig_speed")[0]["value"] == pytest.approx(wheel_rpm)
+
+
 def test_coasting_in_gear_burns_no_fuel_and_co2_follows_the_fuel():
     result = simulate(_ice_car("0:100; 5:100; 25:60; 40:60", 40), "case")
     assert result.status in ("success", "warning"), [m.text for m in result.messages]

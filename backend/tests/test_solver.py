@@ -314,6 +314,31 @@ def test_diff_modes_differ_on_split_mu():
     assert v_lock > v_open + 3, "locked diff must out-accelerate open on split-mu"
 
 
+@pytest.mark.parametrize("locked", [False, True])
+def test_driveline_starts_at_the_vehicle_speed(locked):
+    """A run that starts at 100 km/h starts every rotating part at that
+    speed: both wheels roll without slip and the motor turns at the final
+    drive's ratio times their speed, from point 0 on. Before, the open
+    differential's motor started at 0 rpm and one wheel turned backwards."""
+    proj = bev_axle(locked=locked, profile="0:100; 1:100")
+    proj.cases[0].duration, proj.cases[0].timeStep = 0.02, 0.01
+    for e in proj.systems[0].elements:
+        if e.id == "veh":
+            e.parameterOverrides["initial_speed_kmh"] = 100
+        if e.id == "fd":
+            e.parameterOverrides["ratio"] = 8.0
+    result = simulate(proj, "case")
+    assert result.status in ("success", "warning"), [m.text for m in result.messages]
+    for i, tol in ((0, 1e-6), (1, 1e-3)):  # t = 0 and after the first 10 ms step
+        wheel_rpm = series(result, "whl", "sig_speed")[i]["value"]
+        for w in ("whl", "whr"):
+            assert series(result, w, "sig_slip")[i]["value"] == pytest.approx(0, abs=tol)
+            assert series(result, w, "sig_speed")[i]["value"] == pytest.approx(wheel_rpm, rel=tol)
+        assert series(result, "fd", "sig_speed_out")[i]["value"] == pytest.approx(wheel_rpm, rel=tol)
+        assert series(result, "mot", "sig_speed")[i]["value"] == pytest.approx(
+            8.0 * wheel_rpm, rel=tol)
+
+
 def test_diff_open_torque_split_is_equal():
     result = simulate(bev_axle(locked=False, mu_left=0.1), "case")
     ta = series(result, "diff", "sig_torque_a")
