@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import Callable, Optional
 
 from ..library import library_by_id
 from ..schemas import ComponentDef, ElementInstance, PortDef, Project
@@ -163,6 +164,8 @@ class Model:
     signal_blocks: list[str]  # Script/PID/Lookup/RoadProfile ids in eval order
     floating_returns: list[str] = field(default_factory=list)  # unwired − terminals
     warnings: list[str] = field(default_factory=list)
+    # re-extracts a driveline for new gears from the current (live) params_of
+    rewalk: Optional[Callable[[Driveline, dict[str, float]], Optional[Driveline]]] = None
 
 
 def resolve_params(el: ElementInstance, cdef: ComponentDef) -> dict:
@@ -196,8 +199,9 @@ def build_model(
     gear_of: dict[str, float] | None = None,
     case_overrides: dict[str, dict] | None = None,
 ) -> Model:
-    """Reduce the project. `gear_of` optionally overrides gearbox gears
-    (used by the core to rebuild drivelines after a shift). `case_overrides`
+    """Reduce the project. `gear_of` optionally overrides gearbox gears;
+    after a shift the solver re-extracts a driveline with `Model.rewalk`,
+    which reads the live parameter set. `case_overrides`
     ({elementId: {paramKey: value}}) layers per-case parameter values on top
     of each element's own overrides (used by parameter sweeps / per-case tweaks)."""
     defs = library_by_id()
@@ -286,7 +290,7 @@ def build_model(
                     stack.append(nxt)
         return seen
 
-    def walk_segment(entries: list[tuple[str, str]]) -> Segment:
+    def walk_segment(entries: list[tuple[str, str]], gears: dict[str, float]) -> Segment:
         """Collapse a rigid region into a Segment. `entries` are (el, port)
         vertices on the reference axis (m = 1); joint elements are never
         crossed."""
@@ -326,7 +330,7 @@ def build_model(
                 enqueue_peers(el_id, pid, m, eff)
             elif t in ("mech.final_drive", "mech.gearbox"):
                 if t == "mech.gearbox":
-                    ratio = gearbox_ratio(p, gear_of.get(el_id))
+                    ratio = gearbox_ratio(p, gears.get(el_id))
                     if first_visit:
                         seg.gearboxes.append(GearboxRef(el_id=el_id, ratio=ratio))
                 else:
@@ -390,13 +394,12 @@ def build_model(
                 enqueue_peers(el_id, pid, m, eff)
         return seg
 
-    drivelines: list[Driveline] = []
-    assigned: set[str] = set()
-    for start_el in sorted(wired_mech):
-        if start_el in assigned:
-            continue
-        group = mech_component(start_el)
-        assigned |= group
+    def extract_driveline(group: set[str], gears: dict[str, float],
+                          errors: list[str]) -> Driveline | None:
+        """One mechanical connected group as a Driveline, with its gearboxes
+        in ``gears`` (their default gear where absent). Reads the parameters
+        from ``params_of``, so a later call (a gear shift during a run) sees
+        the live values."""
         dl = Driveline(element_group=sorted(group))
         group_joints = sorted(g for g in group if g in joint_ids)
 
@@ -416,7 +419,7 @@ def build_model(
                 for peer in mech_adj.get(entry, ()):  # the requesting joint's port
                     seg.port_ms[peer] = 1.0
             else:
-                seg = walk_segment([entry])
+                seg = walk_segment([entry], gears)
             idx = len(dl.segments)
             dl.segments.append(seg)
             for key in seg.port_ms:
@@ -480,7 +483,7 @@ def build_model(
                                                 * joint.parent_m ** 2)
                 dl.joints.append(joint)
         if not ok:
-            continue
+            return None
         if not group_joints:
             # joint-free driveline: one segment; pick a stable reference axis
             entry: tuple[str, str] | None = None
@@ -501,8 +504,8 @@ def build_model(
                         entry = key
                         break
             if entry is None:
-                continue
-            dl.segments.append(walk_segment([entry]))
+                return None
+            dl.segments.append(walk_segment([entry], gears))
 
         # sanity: a segment must not be the parent of two open splits (its
         # speed would be doubly determined) — checked here structurally,
@@ -516,7 +519,18 @@ def build_model(
                 errors.append("A rigid section feeds the input of two splits "
                               "(differential/transfer case) — that is kinematically "
                               "over-constrained and not supported.")
-        drivelines.append(dl)
+        return dl
+
+    drivelines: list[Driveline] = []
+    assigned: set[str] = set()
+    for start_el in sorted(wired_mech):
+        if start_el in assigned:
+            continue
+        group = mech_component(start_el)
+        assigned |= group
+        dl = extract_driveline(group, gear_of, errors)
+        if dl is not None:
+            drivelines.append(dl)
 
     # ---- electrical buses --------------------------------------------------
     parent: dict[tuple[str, str], tuple[str, str]] = {}
@@ -717,4 +731,5 @@ def build_model(
         signal_blocks=ordered,
         floating_returns=floating_returns,
         warnings=warnings,
+        rewalk=lambda dl, gears: extract_driveline(set(dl.element_group), gears, []),
     )

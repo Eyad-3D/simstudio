@@ -26,7 +26,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from .maps import TableError, interp1, interp2, parse_table1d, parse_table2d
-from .network import BrakeRef, Driveline, Joint, Model, ModelError, Segment, SourceRef, build_model
+from .network import BrakeRef, Driveline, Joint, Model, Segment, SourceRef
 from .profiles import interp_profile, parse_profile
 from .runtime import (
     AIR_DENSITY,
@@ -195,6 +195,15 @@ class RunContext:
         self.driver_integral = 0.0
 
         self.dls = [DrivelineState(dl=dl) for dl in model.drivelines]
+        # the gear each gearbox's driveline was built in (its default gear
+        # unless the caller chose one); a first control sample asking for it
+        # changes nothing
+        for dl in model.drivelines:
+            for seg in dl.segments:
+                for gb in seg.gearboxes:
+                    gear_of.setdefault(gb.el_id, float(
+                        self.params(gb.el_id).get("default_gear", 1) or 1))
+        self.gears_checked = False  # the first gear check is initialisation
         self.el_axis_speed: dict[str, float] = {}  # anchor speeds for plan rebuilds
         # bumped whenever a driveline or its plan changes (gear shift, lock
         # toggle), so cached views of them (routed state getters) refresh
@@ -384,8 +393,19 @@ class RunContext:
         model, rt = self.model, self.rt
         if el_id not in model.params_of:
             return "invalid"
-        model.params_of[el_id][key] = value
         label = model.elements[el_id].label
+        pdef = next(
+            (pp for pp in model.cdef_of[el_id].parameters if pp.key == key), None)
+        if pdef is not None and pdef.variability == "fixed":
+            # kept out of the live set, so a later gear shift (which re-walks
+            # the driveline from it) cannot apply it early either
+            rt.warn_once(
+                f"live-structural:{el_id}:{key}",
+                f"'{label}.{key}' changed — structural parameters take effect on the next run.",
+                level="info",
+            )
+            return "deferred"
+        model.params_of[el_id][key] = value
         if key == "profile":
             self.profile_cache.pop(el_id, None)  # re-parse on next use
         if key == "locked":
@@ -393,15 +413,6 @@ class RunContext:
                 if any(j.el_id == el_id for j in st.dl.joints):
                     self.rebuild_plan(st)
             return "applied"
-        pdef = next(
-            (pp for pp in model.cdef_of[el_id].parameters if pp.key == key), None)
-        if pdef is not None and pdef.variability == "fixed":
-            rt.warn_once(
-                f"live-structural:{el_id}:{key}",
-                f"'{label}.{key}' changed — structural parameters take effect on the next run.",
-                level="info",
-            )
-            return "deferred"
         try:
             if el_id in self.motors:
                 mc = self.motors[el_id]
@@ -854,12 +865,25 @@ class RunContext:
             return -_sign(omega) * cap
         return -max(-cap, min(cap, tau_other + j_over_dt * omega))
 
-    # ---- gear selection (rebuild plans on shift) ------------------------------
+    # ---- gear selection ---------------------------------------------------------
 
     def check_gear_shifts(self) -> bool:
-        """Re-extract the drivelines when a gearbox's selected gear changed.
-        Returns True when a rebuild happened (a 'reconfigured' event)."""
+        """Re-walk every driveline whose gearbox changed gear, in the same
+        solver step. Returns True when a driveline shifted (a 'reconfigured'
+        event).
+
+        A shift changes the gearbox's speed factors and the inertia and
+        efficiency reflected through it, so the driveline is walked again
+        from the run's live parameter set: edits made during the run (grip,
+        brake torque, locks …) stay in force; edits deferred to the next
+        run stay deferred. The rotating speeds carry over through the
+        per-element anchors. The first check, at t = 0, only takes the gear
+        the controller asks for as the starting gear: when that is the gear
+        the model was built in nothing is rebuilt, otherwise the driveline
+        is set up in it from the vehicle speed, as at the start of the run."""
         rt = self.rt
+        first, self.gears_checked = not self.gears_checked, True
+        shifted = False
         for st in self.dls:
             changed = False
             for seg in st.dl.segments:
@@ -868,20 +892,19 @@ class RunContext:
                     gear = round(sig) if sig is not None else float(
                         self.params(gb.el_id).get("default_gear", 1) or 1)
                     if self.gear_of.get(gb.el_id) != gear:
-                        self.gear_of[gb.el_id] = gear
                         changed = True
-            if changed:
-                # ratios are baked into segment reflections — re-extract them
-                try:
-                    new_model = build_model(self.project, self.gear_of, self.case_overrides)
-                except ModelError:
-                    new_model = None
-                if new_model is not None:
-                    for st2, new_dl in zip(self.dls, new_model.drivelines):
-                        st2.dl = new_dl
-                        self.rebuild_plan(st2)
-                return True
-        return False
+                    self.gear_of[gb.el_id] = gear
+            if not changed:
+                continue
+            new_dl = self.model.rewalk(st.dl, self.gear_of) if self.model.rewalk else None
+            if new_dl is None:  # cannot happen for a model that built
+                rt.warn_once("regear", "A driveline could not be rebuilt for a gear change "
+                                       "— it keeps its previous gear.")
+                continue
+            st.dl = new_dl
+            self.rebuild_plan(st, initial=first)
+            shifted = shifted or not first
+        return shifted
 
 
 class _CtxSlave(Slave):
