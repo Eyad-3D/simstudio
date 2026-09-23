@@ -609,7 +609,7 @@
           "label": "Ground",
           "position": {
             "x": 300,
-            "y": 500
+            "y": 540
           },
           "parameterOverrides": {}
         },
@@ -618,8 +618,8 @@
           "componentDefId": "propulsion.wheel",
           "label": "Wheel FL",
           "position": {
-            "x": 900,
-            "y": 140
+            "x": 1045,
+            "y": 90
           },
           "parameterOverrides": {
             "radius_m": 0.31,
@@ -633,8 +633,8 @@
           "componentDefId": "propulsion.wheel",
           "label": "Wheel FR",
           "position": {
-            "x": 900,
-            "y": 300
+            "x": 1045,
+            "y": 350
           },
           "parameterOverrides": {
             "radius_m": 0.31,
@@ -648,8 +648,8 @@
           "componentDefId": "mech.brake",
           "label": "Brake FL",
           "position": {
-            "x": 780,
-            "y": 90
+            "x": 930,
+            "y": -20
           },
           "parameterOverrides": {}
         },
@@ -658,8 +658,8 @@
           "componentDefId": "mech.brake",
           "label": "Brake FR",
           "position": {
-            "x": 780,
-            "y": 350
+            "x": 930,
+            "y": 460
           },
           "parameterOverrides": {}
         },
@@ -668,7 +668,7 @@
           "componentDefId": "mech.node",
           "label": "Node FL",
           "position": {
-            "x": 860,
+            "x": 930,
             "y": 90
           },
           "parameterOverrides": {}
@@ -678,7 +678,7 @@
           "componentDefId": "mech.node",
           "label": "Node FR",
           "position": {
-            "x": 860,
+            "x": 930,
             "y": 350
           },
           "parameterOverrides": {}
@@ -739,7 +739,7 @@
           "label": "12 V Loads",
           "position": {
             "x": 430,
-            "y": 490
+            "y": 530
           },
           "parameterOverrides": {
             "power_kW": 0.5
