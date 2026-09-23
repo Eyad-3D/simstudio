@@ -166,6 +166,31 @@ export interface SimResult {
   summary: SummaryValue[];
 }
 
+/** A scalar parameter change sent to the engine while a run was going. */
+export interface LiveEdit {
+  /** simulated time the run had reached when the edit was sent, s */
+  t: number;
+  elementId: string;
+  key: string;
+  value: ScalarValue;
+}
+
+/** What made a run (RES-09): enough to tell which model and settings
+ *  produced a result, and to open that model again. */
+export interface RunSnapshot {
+  /** the project exactly as it was run (a sweep's value included) */
+  project: Project;
+  /** the case settings it ran with */
+  case: SimCase;
+  /** the SimStudio version that ran it (null: the engine did not say) */
+  appVersion: string | null;
+  /** SHA-256 of the project as canonical JSON, hex (absent where the
+   *  browser offers no Web Crypto) */
+  modelHash?: string;
+  /** scalar parameter edits made while it ran, in order */
+  liveEdits: LiveEdit[];
+}
+
 /** One recorded simulation run. Finished runs are stored on disk with their
  *  project by the engine and listed again when the project is opened. */
 export interface SimRun {
@@ -186,11 +211,15 @@ export interface SimRun {
    *  Its numbers are partial, so sweeps leave it out of their curve and
    *  tables unless the user asks to see it. */
   incomplete?: string;
+  /** The model, settings and version that made it; absent on runs stored
+   *  before runs kept one. */
+  snapshot?: RunSnapshot;
 }
 
 /** A project's stored run as the engine lists it: the run without its
- *  channel data, plus its summary values and its compressed size on disk. */
-export interface StoredRunInfo extends Omit<SimRun, "status" | "result"> {
+ *  channel data or snapshot, plus its summary values and its compressed size
+ *  on disk. */
+export interface StoredRunInfo extends Omit<SimRun, "status" | "result" | "snapshot"> {
   status: SimResult["status"];
   summary: SummaryValue[];
   bytes: number;

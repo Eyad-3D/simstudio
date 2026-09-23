@@ -51,8 +51,9 @@ def _valid_entry(e: object, files: dict) -> bool:
 
 
 def _entry(run: StoredRun, size: int) -> dict:
-    """Index entry: the run without its channel data, plus key results."""
-    meta = run.model_dump(exclude={"result"}, exclude_none=True)
+    """Index entry: the run without its channel data or model snapshot, plus
+    key results."""
+    meta = run.model_dump(exclude={"result", "snapshot"}, exclude_none=True)
     return {**meta, "summary": [s.model_dump() for s in run.result.summary], "bytes": size}
 
 

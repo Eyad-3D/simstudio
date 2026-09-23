@@ -3,6 +3,7 @@ import { create } from "zustand";
 import * as api from "../api";
 import { confirmDialog, unsavedChangesDialog } from "../dialog";
 import { loadDraft } from "../persist";
+import { modelFingerprint } from "../provenance";
 import type {
   Channel,
   ComponentDef,
@@ -10,11 +11,13 @@ import type {
   DataBusConnection,
   DataCheck,
   ElementInstance,
+  LiveEdit,
   LogMessage,
   ParamValue,
   PortDef,
   PortSide,
   Project,
+  RunSnapshot,
   SimResult,
   SimRun,
   StoredRunInfo,
@@ -218,6 +221,8 @@ function signalSourceOf(
 
 // handle for the in-flight live run (not in reactive state on purpose)
 let activeRun: api.LiveRunHandle | null = null;
+// live parameter edits sent to the in-flight run, for its snapshot
+let liveLog: { runId: string; edits: LiveEdit[] } | null = null;
 // set by stopRun so an in-flight parameter sweep aborts after the current point
 let sweepAborted = false;
 // set by stopRun while a run is in flight; reset when the next run starts
@@ -251,6 +256,8 @@ interface ProjectState {
   unitGroups: Record<string, string>;
   offline: boolean;
   loaded: boolean;
+  /** the app's version as the engine reports it (recorded with each run) */
+  appVersion: string | null;
 
   project: Project | null;
   /** Revision of the project file the open copy was loaded from or last saved
@@ -376,6 +383,8 @@ interface ProjectState {
   removeRun: (runId: string) => Promise<void>;
   /** Delete every stored run of the open project. */
   clearRuns: () => Promise<void>;
+  /** Open the model a run was made with (its snapshot) as an unsaved copy. */
+  openRunModel: (runId: string) => void;
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => {
@@ -496,6 +505,24 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     }
   }
 
+  /** Add a live edit to the in-flight run's snapshot. Edits of one parameter
+   *  at one simulated time (typing a number) keep only the last value. */
+  function logLiveEdit(edit: LiveEdit): void {
+    if (!liveLog) return;
+    const { runId, edits } = liveLog;
+    const last = edits.at(-1);
+    if (last && last.t === edit.t && last.elementId === edit.elementId && last.key === edit.key) {
+      edits[edits.length - 1] = edit;
+    } else {
+      edits.push(edit);
+    }
+    set((s) => ({
+      runs: s.runs.map((r) =>
+        r.id === runId && r.snapshot ? { ...r, snapshot: { ...r.snapshot, liveEdits: [...edits] } } : r,
+      ),
+    }));
+  }
+
   /** Store a finished run on disk with its project. A run that cannot be
    *  stored stays listed for this session only. */
   async function storeRun(projectId: string, run: SimRun): Promise<void> {
@@ -519,8 +546,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
   /**
    * Register a run at the head of the rolling history, stream the live result
    * into it, store it on disk once it ends, and resolve with the final
-   * SimResult. Shared by `run` (one call) and `runSweep` (one call per swept
-   * value). Does NOT run the validation
+   * SimResult. The run carries a snapshot of what made it: `projectToRun`
+   * and its case, the app version, the project's fingerprint and the live
+   * edits made while it ran. Shared by `run` (one call) and `runSweep` (one
+   * call per swept value). Does NOT run the validation
    * gate, toggle `running`, or switch ribbon tabs — the callers own that.
    */
   async function executeRun(
@@ -529,8 +558,16 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     caseName: string,
     extra?: Partial<SimRun>,
   ): Promise<SimResult> {
-    const { libraryById, log } = get();
+    const { libraryById, log, appVersion } = get();
     const runId = uid("run");
+    const simCase = projectToRun.cases.find((c) => c.id === caseId);
+    const snapshot: RunSnapshot | undefined = simCase && {
+      project: projectToRun,
+      case: simCase,
+      appVersion,
+      liveEdits: [],
+    };
+    const fingerprint = modelFingerprint(projectToRun).catch(() => undefined);
     const partial: SimResult = {
       caseId,
       status: "success",
@@ -545,6 +582,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       startedAt: Date.now(),
       status: "running",
       result: partial,
+      ...(snapshot ? { snapshot } : {}),
       ...extra,
     };
     set((s) => ({
@@ -597,7 +635,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       onMessage: (m) => log(m.level, m.text),
     });
     activeRun = handle;
+    liveLog = { runId, edits: [] };
     stopRequested = false;
+    // the snapshot as the run ends: its live edits and the model's fingerprint
+    const finalSnapshot = async (): Promise<Partial<SimRun>> => {
+      if (!snapshot) return {};
+      const edits = liveLog?.runId === runId ? [...liveLog.edits] : [];
+      const modelHash = await fingerprint;
+      return { snapshot: { ...snapshot, liveEdits: edits, ...(modelHash ? { modelHash } : {}) } };
+    };
     try {
       const result = await handle.done;
       if (flushTimer) clearTimeout(flushTimer);
@@ -607,6 +653,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         result,
         status: result.status,
         ...(incomplete ? { incomplete } : {}),
+        ...(await finalSnapshot()),
       };
       set((s) => ({
         runs: s.runs.map((r) => (r.id === runId ? finished : r)),
@@ -616,13 +663,14 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       return result;
     } catch (e) {
       if (flushTimer) clearTimeout(flushTimer);
-      patchRun({ status: "failed", incomplete: "connection lost" });
+      patchRun({ status: "failed", incomplete: "connection lost", ...(await finalSnapshot()) });
       // keep what arrived before the connection dropped, if the engine is still there
       const lost = get().runs.find((r) => r.id === runId);
       if (lost) await storeRun(projectToRun.id, lost);
       throw e;
     } finally {
       activeRun = null;
+      liveLog = null;
     }
   }
 
@@ -632,6 +680,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     unitGroups: {},
     offline: false,
     loaded: false,
+    appVersion: null,
     project: null,
     revision: null,
     activeSystemId: null,
@@ -656,7 +705,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     livePct: 0,
 
     init: async () => {
-      const lib = await api.fetchLibrary();
+      const [lib, appVersion] = await Promise.all([api.fetchLibrary(), api.fetchVersion()]);
       const demo = await api.fetchDemoProject();
       const libraryById = Object.fromEntries(lib.components.map((c) => [c.id, c]));
       // restore the autosaved working copy if one exists, else open the demo
@@ -680,6 +729,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         unitGroups: lib.unitGroups,
         offline: lib.offline,
         loaded: true,
+        appVersion,
         project,
         revision,
         activeSystemId: rootSystemOf(project).id,
@@ -886,6 +936,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       // scalar edits stream into a running simulation (tables/code apply next run)
       if (activeRun && typeof value !== "object") {
         activeRun.setParam(elementId, key, value);
+        logLiveEdit({ t: get().liveT, elementId, key, value });
       }
     },
 
@@ -1577,6 +1628,22 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
       // list the next older stored run in its place (or put back one not deleted)
       await loadRunHistory(project.id);
+    },
+    openRunModel: (runId) => {
+      const run = get().runs.find((r) => r.id === runId);
+      const snap = run?.snapshot;
+      if (!run || !snap) return;
+      const when = new Date(run.startedAt).toLocaleString();
+      const edits = snap.liveEdits.length;
+      get().openAsCopy(
+        snap.project,
+        `${snap.project.name} (run of ${when})`,
+        `Opened the model of run '${run.caseName}' (${when}) as an unsaved copy; the project it came from is unchanged.` +
+          (edits
+            ? ` It is the model as the run started: the ${edits} live edit(s) made during the run are listed in its Run info.`
+            : ""),
+      );
+      if (snap.project.cases.some((c) => c.id === run.caseId)) set({ activeCaseId: run.caseId });
     },
     clearRuns: async () => {
       const { project, log } = get();

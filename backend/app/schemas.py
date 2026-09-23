@@ -188,6 +188,32 @@ class SimResult(BaseModel):
     summary: list[SummaryValue] = Field(default_factory=list)
 
 
+class LiveEdit(BaseModel):
+    """A scalar parameter change sent to the engine while a run was going."""
+
+    model_config = PERSISTED
+
+    t: float  # simulated time the run had reached when it was sent, s
+    elementId: str
+    key: str
+    value: ScalarValue
+
+
+class RunSnapshot(BaseModel):
+    """What made a run (RES-09): the project and case exactly as they were
+    run (a sweep's value included), the app version, a fingerprint of the
+    project, and the live parameter edits made while it ran."""
+
+    model_config = PERSISTED
+
+    project: Project
+    case: SimCase
+    appVersion: Optional[str] = None
+    # SHA-256 of the project as canonical JSON (keys sorted), hex
+    modelHash: Optional[str] = None
+    liveEdits: list[LiveEdit] = Field(default_factory=list)
+
+
 class StoredRun(BaseModel):
     """A finished run as the UI keeps it in its run history (``SimRun`` in
     frontend/src/types.ts); stored on disk by :mod:`app.run_store`."""
@@ -205,6 +231,8 @@ class StoredRun(BaseModel):
     sweepUnit: Optional[str] = None
     # why the run is not a complete result (stopped, failed, connection lost)
     incomplete: Optional[str] = None
+    # absent on runs stored before runs kept one
+    snapshot: Optional[RunSnapshot] = None
 
 
 class DataCheck(BaseModel):

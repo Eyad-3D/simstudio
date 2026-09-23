@@ -1,12 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockedObject } from "vitest";
 import libraryJson from "../data/componentLibrary.json";
-import type { ComponentDef, DataCheck, ElementInstance, Project, SimRun, StoredRunInfo } from "../types";
+import type {
+  ComponentDef,
+  DataCheck,
+  ElementInstance,
+  Project,
+  SimResult,
+  SimRun,
+  StoredRunInfo,
+} from "../types";
 
 // The store talks to the engine only through api.ts; every call is mocked so
 // these tests never touch the network.
 vi.mock("../api", () => ({
   fetchLibrary: vi.fn(),
+  fetchVersion: vi.fn(),
   fetchDemoProject: vi.fn(),
   fetchProject: vi.fn(),
   listProjects: vi.fn(),
@@ -114,6 +123,7 @@ beforeEach(async () => {
     unitGroups: library.unitGroups,
     offline: false,
   });
+  api.fetchVersion.mockResolvedValue("0.1.0");
   api.fetchDemoProject.mockResolvedValue({ project: fixture(), offline: false });
   api.saveProject.mockResolvedValue({ saved: "fixture" });
 
@@ -819,5 +829,105 @@ describe("stored runs", () => {
     expect(store().project?.id).toBe("other");
     expect(store().runs).toEqual([]);
     expect(api.fetchRun).not.toHaveBeenCalledWith("fixture", expect.anything());
+  });
+});
+
+describe("run snapshots", () => {
+  /** A live run the test finishes by hand, like the engine at the end of a run. */
+  function liveRun() {
+    let finish!: () => void;
+    const handle = { setParam: vi.fn(), cancel: vi.fn(), done: undefined as unknown as Promise<SimResult> };
+    api.validateProject.mockResolvedValue([]);
+    api.runSimulationLive.mockImplementation((_project, caseId) => {
+      handle.done = new Promise((resolve) => {
+        finish = () => resolve({ caseId, status: "success", messages: [], channels: [], summary: [] });
+      });
+      return handle;
+    });
+    return { handle, finish: () => finish() };
+  }
+
+  it("a run carries the model, case settings, app version and fingerprint it was made with", async () => {
+    await store().init();
+    engineFinishesRuns();
+    const model = store().project!;
+    await store().run();
+    const snap = store().runs[0].snapshot!;
+    expect(snap.project).toEqual(model);
+    expect(snap.case).toEqual(model.cases[0]);
+    expect(snap.appVersion).toBe("0.1.0");
+    expect(snap.modelHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(snap.liveEdits).toEqual([]);
+    expect(api.storeRun.mock.calls[0][1].snapshot).toEqual(snap); // stored on disk with it
+  });
+
+  it("live edits made while it runs are logged; the model stays as the run started", async () => {
+    await store().init();
+    const { handle, finish } = liveRun();
+    const running = store().run();
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalled());
+    useProjectStore.setState({ liveT: 12 });
+    store().setParameter("el-shaft", "efficiency_pct", 9);
+    store().setParameter("el-shaft", "efficiency_pct", 90); // typing: same moment, one edit
+    store().setParameter("el-bat", "soc_init", { 0: 1 } as never); // a table is not sent live
+    useProjectStore.setState({ liveT: 30 });
+    store().setParameter("el-shaft", "efficiency_pct", 91);
+    expect(store().runs[0].snapshot!.liveEdits).toHaveLength(2); // shown while it runs
+    finish();
+    await running;
+
+    expect(handle.setParam).toHaveBeenCalledTimes(3);
+    const snap = store().runs[0].snapshot!;
+    expect(snap.liveEdits).toEqual([
+      { t: 12, elementId: "el-shaft", key: "efficiency_pct", value: 90 },
+      { t: 30, elementId: "el-shaft", key: "efficiency_pct", value: 91 },
+    ]);
+    expect(findElement("el-shaft")?.parameterOverrides.efficiency_pct).toBe(91);
+    expect(snap.project.systems[0].elements.find((e) => e.id === "el-shaft")?.parameterOverrides).toEqual({});
+  });
+
+  it("each sweep point's snapshot holds its swept value", async () => {
+    await store().init();
+    engineFinishesRuns();
+    await store().runSweep({ caseId: "case-1", elementId: "el-shaft", paramKey: "efficiency_pct", values: [80, 90] });
+    const swept = store()
+      .runs.map((r) => r.snapshot!.case.parameterOverrides?.["el-shaft"]?.efficiency_pct)
+      .sort();
+    expect(swept).toEqual([80, 90]);
+    expect(store().project!.cases[0].parameterOverrides).toBeUndefined(); // the project is untouched
+  });
+
+  it("a run's model opens as an unsaved copy, on the run's case", async () => {
+    await store().init();
+    engineFinishesRuns();
+    store().addCase();
+    await store().run();
+    const run = store().runs[0];
+    store().renameElement("el-bat", "Edited after the run");
+    store().openRunModel(run.id);
+    const s = store();
+    expect(s.project?.id).not.toBe("fixture");
+    expect(s.project?.name).toMatch(/^Fixture \(run of .+\)$/);
+    expect(s.project?.systems).toEqual(run.snapshot!.project.systems);
+    expect(findElement("el-bat")?.label).toBe("Battery");
+    expect(s.activeCaseId).toBe(run.caseId);
+    expect(s.dirty).toBe(true);
+    expect(s.revision).toBeNull();
+    expect(messages().some((m) => m.startsWith("info: Opened the model of run 'Case 2'"))).toBe(true);
+  });
+
+  it("a run stored before runs kept a snapshot cannot be opened as a model", async () => {
+    folder("fixture").set("old", {
+      id: "old",
+      caseId: "case-1",
+      caseName: "Case 1",
+      startedAt: 1_000,
+      status: "success",
+      result: { caseId: "case-1", status: "success", messages: [], channels: [], summary: [] },
+    });
+    await store().init();
+    await settled();
+    store().openRunModel("old");
+    expect(store().project?.id).toBe("fixture");
   });
 });

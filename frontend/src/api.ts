@@ -74,6 +74,16 @@ export async function fetchLibrary(): Promise<{
   }
 }
 
+/** The engine's version, which is the app's (both come from the repo's
+ *  VERSION file); null when the engine cannot be reached. */
+export async function fetchVersion(): Promise<string | null> {
+  try {
+    return (await request<{ version?: string }>("/health")).version ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchDemoProject(): Promise<{
   project: StoredProject;
   offline: boolean;

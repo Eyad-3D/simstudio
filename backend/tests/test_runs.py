@@ -79,6 +79,35 @@ def test_the_index_lists_key_results_without_channel_data(projects_dir, result):
     assert "incomplete" not in runs[1]  # unset fields stay unset
 
 
+def test_a_runs_snapshot_comes_back_with_it_and_stays_out_of_the_index(projects_dir, result):
+    """RES-09: a run carries the project and case it was run with, the app
+    version, a fingerprint and its live edits; runs stored without one (the
+    test above) still load as they were."""
+    project = bev_axle().model_dump(mode="json")
+    snapshot = {
+        "project": project,
+        "case": next(c for c in project["cases"] if c["id"] == result["caseId"]),
+        "appVersion": "0.1.0",
+        "modelHash": "ab" * 32,
+        "liveEdits": [
+            {"t": 12.0, "elementId": "drv", "key": "kp", "value": 0.5},
+            {"t": 30.0, "elementId": "diff", "key": "locked", "value": True},
+        ],
+    }
+    put("bev-car", make_run(result, "run-plain", 1000))
+    run = make_run(result, "run-snap", 2000, snapshot=snapshot)
+    put("bev-car", run)
+
+    back = client.get("/api/projects/bev-car/runs/run-snap").json()
+    assert back == json.loads(json.dumps(run))
+    assert back["snapshot"]["liveEdits"][1]["value"] is True
+    listed = client.get("/api/projects/bev-car/runs").json()
+    assert all("snapshot" not in r for r in listed), "the index stays small"
+    # compact: gzipped, the model copy adds about 1 kB to the run on disk
+    size = {r["id"]: r["bytes"] for r in listed}
+    assert size["run-snap"] - size["run-plain"] < 2_000
+
+
 def test_runs_belong_to_their_project(projects_dir, result):
     put("bev-car", make_run(result, "run-bev", 1000))
     put("hybrid-car", make_run(result, "run-hyb", 2000))
