@@ -144,7 +144,7 @@
           "label": "HV Battery Pack",
           "position": {
             "x": 40,
-            "y": 350
+            "y": 385
           },
           "parameterOverrides": {
             "capacity_kWh": 62,
@@ -157,7 +157,7 @@
           "label": "Power Consumer",
           "position": {
             "x": 180,
-            "y": 350
+            "y": 385
           },
           "parameterOverrides": {
             "power_kW": 0.25
@@ -169,7 +169,7 @@
           "label": "E-Motor",
           "position": {
             "x": 320,
-            "y": 350
+            "y": 385
           },
           "parameterOverrides": {
             "full_load_torque": {
@@ -390,7 +390,7 @@
           "label": "Final Drive",
           "position": {
             "x": 450,
-            "y": 350
+            "y": 385
           },
           "parameterOverrides": {
             "ratio": 12.8,
@@ -403,7 +403,7 @@
           "label": "Differential",
           "position": {
             "x": 570,
-            "y": 350
+            "y": 385
           },
           "parameterOverrides": {
             "efficiency_pct": 100
@@ -415,7 +415,7 @@
           "label": "Ground",
           "position": {
             "x": 180,
-            "y": 470
+            "y": 505
           },
           "parameterOverrides": {}
         },
@@ -495,7 +495,7 @@
           "label": "BMS Monitor",
           "position": {
             "x": 740,
-            "y": 350
+            "y": 385
           },
           "parameterOverrides": {},
           "dynamicPorts": [
