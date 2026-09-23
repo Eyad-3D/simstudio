@@ -74,6 +74,16 @@ export async function fetchLibrary(): Promise<{
   }
 }
 
+/** The engine's version, which is the app's (both come from the repo's
+ *  VERSION file); null when the engine cannot be reached. */
+export async function fetchVersion(): Promise<string | null> {
+  try {
+    return (await request<{ version?: string }>("/health")).version ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchDemoProject(): Promise<{
   project: StoredProject;
   offline: boolean;
@@ -114,6 +124,29 @@ export function saveProject(
     headers,
     body: JSON.stringify(project),
   });
+}
+
+// ---- backups (earlier versions the engine keeps when a save replaces one) --
+
+/** An earlier version of a project, kept when a save replaced it. `savedAt`
+ *  is when that version was saved; `name` and `elements` are null when the
+ *  backup cannot be read. */
+export interface BackupInfo {
+  id: string;
+  savedAt: number;
+  revision: string;
+  bytes: number;
+  name: string | null;
+  elements: number | null;
+}
+
+/** The project's backups, newest first (none for a project never saved over). */
+export function listBackups(projectId: string): Promise<BackupInfo[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/backups`);
+}
+
+export function fetchBackup(projectId: string, backupId: string): Promise<Project> {
+  return request(`/projects/${encodeURIComponent(projectId)}/backups/${encodeURIComponent(backupId)}`);
 }
 
 // ---- run history (stored on disk next to the project by the engine) -------

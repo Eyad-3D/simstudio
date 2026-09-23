@@ -111,3 +111,49 @@ def test_saved_file_keeps_the_fields(tmp_path):
     assert project.model_extra == {"uiLayout": {"zoom": 1.25, "panels": ["results", "checks"]}}
     assert validate_project(project) == validate_project(
         Project.model_validate(_example("bev-car")))
+
+
+def _study(study_id: str, values: list[float]) -> dict:
+    """A finished one-factor study as the UI saves it (STU-03)."""
+    return {
+        "id": study_id,
+        "startedAt": 1_758_000_000_000,
+        "caseId": "case-city",
+        "caseName": "City Cycle",
+        "factors": [{"elementId": "el-vehicle", "paramKey": "mass_kg", "elementLabel": "Vehicle",
+                     "paramLabel": "Vehicle Mass", "unit": "kg", "values": values}],
+        "kpis": [{"label": "HV Battery Pack — final SOC", "unit": "%"}],
+        "points": [
+            {"values": [values[0]], "runId": "run-1", "status": "success",
+             "kpis": {"HV Battery Pack — final SOC": 88.5}, "notValid": {}},
+            {"values": [values[1]], "runId": "run-2", "status": "warning", "incomplete": "stopped at t = 12 s",
+             "kpis": {"HV Battery Pack — final SOC": 97.25},
+             "notValid": {"HV Battery Pack — final SOC": "cycle not followed"}},
+            *({"values": [v], "status": "not run", "kpis": {}, "notValid": {}} for v in values[2:]),
+        ],
+    }
+
+
+def test_studies_are_saved_with_the_project(tmp_path):
+    """STU-03: every study and its results table come back after a save."""
+    body = Project.model_validate(_example("bev-car")).model_dump(mode="json")
+    body["id"] = "studies"
+    assert body["studies"] == [], "a project without studies has an empty list"
+    body["studies"] = [_study("sweep-1", [1500.0, 1800.0]), _study("sweep-2", [1200.0, 1400.0, 1600.0])]
+    full = Project.model_validate(body).model_dump(mode="json")
+    assert _roundtrip(full) == full
+    assert full["studies"][1]["points"][2]["kpis"] == {}
+    on_disk = json.loads((tmp_path / "studies.json").read_text(encoding="utf-8"))
+    assert [len(s["points"]) for s in on_disk["studies"]] == [2, 3]
+    assert on_disk["studies"][1]["points"][2]["status"] == "not run"
+
+
+def test_study_tables_are_typed():
+    body = _example("bev-car")
+    body["id"] = "studies"
+    body["studies"] = [_study("sweep-1", [1500.0, 1800.0])]
+    body["studies"][0]["points"][0]["kpis"]["HV Battery Pack — final SOC"] = "high"
+    assert client.put("/api/projects/studies", json=body).status_code == 422
+    body["studies"] = [_study("sweep-1", [1500.0, 1800.0])]
+    body["studies"][0]["points"][0]["status"] = "done"
+    assert client.put("/api/projects/studies", json=body).status_code == 422

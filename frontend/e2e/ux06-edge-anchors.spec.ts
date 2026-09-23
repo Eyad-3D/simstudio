@@ -60,8 +60,8 @@ function pinCentre(page: Page, id: string) {
 }
 
 /** Shift+drag an E-Motor pin by dy (dy 0: a Shift+click). The events go to
- *  the pin directly: a real Shift+press never reaches it, because React
- *  Flow's Shift box-select cancels the pointerdown (an older, separate bug). */
+ *  the pin directly, which keeps the pin under test exactly where it is; the
+ *  same gestures with a real mouse are covered in pin-gestures.spec.ts. */
 function shiftDrag(page: Page, id: string, p: { x: number; y: number }, dy: number) {
   return page.evaluate(
     async ({ id, p, dy }) => {

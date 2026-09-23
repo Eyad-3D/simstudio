@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Play, Plus, Sliders, Square, X } from "lucide-react";
 import { useProjectStore } from "../../store/projectStore";
 import type { ComponentDef, ElementInstance, ParamValue, ParameterDef } from "../../types";
+import { StudiesList } from "./StudiesList";
 
 // Only scalar parameters are editable as per-case overrides here; tables and
 // code are edited in Properties. Sweeps additionally require a numeric param.
@@ -496,6 +497,8 @@ export function CasePanel() {
             <Play size={13} /> Run sweep ({sweepValues.length})
           </button>
         </div>
+
+        <StudiesList />
       </div>
     </div>
   );

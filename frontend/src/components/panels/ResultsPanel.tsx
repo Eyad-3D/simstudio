@@ -13,6 +13,7 @@ import {
   ChartScatter,
   Download,
   Image as ImageIcon,
+  Info,
   Layers,
   LineChart as LineChartIcon,
   Play,
@@ -26,6 +27,7 @@ import { useActiveRun, useOverlayRuns, useProjectStore } from "../../store/proje
 import { useUIStore } from "../../store/uiStore";
 import type { Channel, SimResult, SimRun } from "../../types";
 import { PALETTE, channelKey, minMaxIndices, useHasSize } from "./chartUtils";
+import { RunInfo } from "./RunInfo";
 
 // dash patterns to distinguish channels when several runs are overlaid at once
 const DASHES = ["", "5 3", "2 2", "7 3 2 3", "9 4"];
@@ -133,6 +135,7 @@ export function ResultsPanel() {
   const [search, setSearch] = useState("");
   const [sweepMetric, setSweepMetric] = useState("");
   const [xyXKey, setXyXKey] = useState(""); // channel used as the X axis in the X-Y view
+  const [showRunInfo, setShowRunInfo] = useState(false);
   const { ref: chartHost, hasSize, element: chartEl } = useHasSize<HTMLDivElement>();
 
   // sensible default channel selection the first time a case's results are shown
@@ -439,7 +442,17 @@ export function ResultsPanel() {
             >
               <X size={13} />
             </button>
+            <button
+              className={`ss-toolbtn ${showRunInfo ? "bg-[color:var(--ss-active)]" : ""}`}
+              title="Run info: the model, settings and version this run was made with"
+              aria-pressed={showRunInfo}
+              disabled={!activeRun}
+              onClick={() => setShowRunInfo(!showRunInfo)}
+            >
+              <Info size={13} />
+            </button>
           </div>
+          {showRunInfo && activeRun && <RunInfo run={activeRun} />}
 
           {/* overlay set */}
           <div className="rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)]">

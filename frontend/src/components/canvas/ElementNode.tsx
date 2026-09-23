@@ -128,6 +128,9 @@ function PhysicalPort({
   // Shift+drag repositions the pin. We intercept in the capture phase and stop
   // propagation so React Flow (which starts a connection on the handle's
   // onMouseDown) never fires; a plain drag falls through to start a connection.
+  // Shift is also the canvas's box-select key: the handle's `nokey` class
+  // keeps React Flow from starting a box selection (and swallowing the press)
+  // when it lands on a pin.
   const startShiftDrag = (e: React.MouseEvent) => {
     if (!e.shiftKey) return;
     e.stopPropagation();
@@ -144,6 +147,10 @@ function PhysicalPort({
     const onUp = (ev: MouseEvent) => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp, true);
+      // the click that ends the press would Shift-select the node: drop it
+      const swallow = (click: MouseEvent) => click.stopPropagation();
+      window.addEventListener("click", swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener("click", swallow, true));
       const moved = Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY);
       if (moved < 4 || !last) onCycle(port, NEXT_SIDE[side]);
       else onDragCommit(port, last);
@@ -166,10 +173,10 @@ function PhysicalPort({
         type="source"
         position={pos}
         style={{ ...style, touchAction: "none" }}
-        className={handleClass(port.kind)}
+        className={`${handleClass(port.kind)} nokey`}
         isConnectableStart
         isConnectableEnd
-        title={`${port.name} (${port.kind}) — Shift+drag to move the pin, Shift+click to flip side`}
+        title={`${port.name} (${port.kind}) — Shift+click: move to the next side · Shift+drag: move along the node's edges`}
         onMouseDownCapture={startShiftDrag}
       />
       {port.polarity && (

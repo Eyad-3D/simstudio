@@ -142,6 +142,57 @@ class SimCase(BaseModel):
     parameterOverrides: dict[str, dict[str, ParamValue]] = Field(default_factory=dict)
 
 
+class StudyFactor(BaseModel):
+    """One swept parameter of a study, with its labels as they were when it
+    ran (the element may be renamed or removed since)."""
+
+    model_config = PERSISTED
+
+    elementId: str
+    paramKey: str
+    elementLabel: str = ""
+    paramLabel: str = ""
+    unit: str = ""
+    values: list[float] = Field(default_factory=list)
+
+
+class StudyKpi(BaseModel):
+    """A column of a study's results table: a run summary value."""
+
+    model_config = PERSISTED
+
+    label: str
+    unit: str = ""
+
+
+class StudyPoint(BaseModel):
+    """A row of a study's results table: one point and its answers."""
+
+    model_config = PERSISTED
+
+    values: list[float]  # the factor values, in factor order
+    runId: Optional[str] = None  # the run may since have left the history
+    status: Literal["success", "failed", "warning", "not run"]
+    incomplete: Optional[str] = None  # why its run did not finish normally
+    kpis: dict[str, float] = Field(default_factory=dict)  # KPI label → value
+    notValid: dict[str, str] = Field(default_factory=dict)  # KPI label → why
+
+
+class Study(BaseModel):
+    """A parameter study saved with its project (STU-03): what was swept on
+    which case, and its compact results table."""
+
+    model_config = PERSISTED
+
+    id: str
+    startedAt: int  # epoch ms
+    caseId: str
+    caseName: str = ""
+    factors: list[StudyFactor]
+    kpis: list[StudyKpi] = Field(default_factory=list)
+    points: list[StudyPoint] = Field(default_factory=list)
+
+
 class Project(BaseModel):
     model_config = PERSISTED
 
@@ -156,6 +207,8 @@ class Project(BaseModel):
     systems: list[SystemNode]
     dataBusConnections: list[DataBusConnection] = Field(default_factory=list)
     cases: list[SimCase] = Field(default_factory=list)
+    # parameter studies run on this project, oldest first
+    studies: list[Study] = Field(default_factory=list)
 
 
 class SimMessage(BaseModel):
@@ -188,6 +241,32 @@ class SimResult(BaseModel):
     summary: list[SummaryValue] = Field(default_factory=list)
 
 
+class LiveEdit(BaseModel):
+    """A scalar parameter change sent to the engine while a run was going."""
+
+    model_config = PERSISTED
+
+    t: float  # simulated time the run had reached when it was sent, s
+    elementId: str
+    key: str
+    value: ScalarValue
+
+
+class RunSnapshot(BaseModel):
+    """What made a run (RES-09): the project and case exactly as they were
+    run (a sweep's value included), the app version, a fingerprint of the
+    project, and the live parameter edits made while it ran."""
+
+    model_config = PERSISTED
+
+    project: Project
+    case: SimCase
+    appVersion: Optional[str] = None
+    # SHA-256 of the project as canonical JSON (keys sorted), hex
+    modelHash: Optional[str] = None
+    liveEdits: list[LiveEdit] = Field(default_factory=list)
+
+
 class StoredRun(BaseModel):
     """A finished run as the UI keeps it in its run history (``SimRun`` in
     frontend/src/types.ts); stored on disk by :mod:`app.run_store`."""
@@ -205,6 +284,8 @@ class StoredRun(BaseModel):
     sweepUnit: Optional[str] = None
     # why the run is not a complete result (stopped, failed, connection lost)
     incomplete: Optional[str] = None
+    # absent on runs stored before runs kept one
+    snapshot: Optional[RunSnapshot] = None
 
 
 class DataCheck(BaseModel):

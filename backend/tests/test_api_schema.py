@@ -48,6 +48,11 @@ UNDECLARED = {
     ("get", "/api/projects/{project_id}/runs/{run_id}"): {"400": "Invalid id", "404": "No such run"},
     ("put", "/api/projects/{project_id}/runs/{run_id}"): {"400": "Invalid id or id mismatch"},
     ("delete", "/api/projects/{project_id}/runs/{run_id}"): {"400": "Invalid id", "404": "No such run"},
+    ("get", "/api/projects/{project_id}/backups"): {"400": "Invalid project id"},
+    ("get", "/api/projects/{project_id}/backups/{backup_id}"): {
+        "400": "Invalid id or unreadable backup",
+        "404": "No such backup",
+    },
 }
 ERROR_BODY = {
     "application/json": {

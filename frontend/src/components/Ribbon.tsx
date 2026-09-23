@@ -8,6 +8,7 @@ import {
   FilePlus2,
   FolderOpen,
   Gauge,
+  History,
   LayoutGrid,
   ListChecks,
   Moon,
@@ -25,9 +26,10 @@ import {
   Upload,
 } from "lucide-react";
 import * as api from "../api";
+import type { Project } from "../types";
 import { resetDockLayout } from "./DockLayout";
-import { confirmDialog, confirmReplaceProject } from "../dialog";
-import { useProjectStore } from "../store/projectStore";
+import { confirmDialog } from "../dialog";
+import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
 import {
   FONT_SCALE_MAX,
   FONT_SCALE_MIN,
@@ -422,24 +424,131 @@ function ParametersTab() {
   );
 }
 
+/** Earlier versions of the open project, kept each time a save replaced one
+ *  (the engine keeps the last 20). Picking one opens it as an unsaved copy:
+ *  the project file on disk is never touched. */
+function RestoreVersionButton() {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<api.BackupInfo[]>([]);
+  const ref = useRef<HTMLDivElement>(null);
+  const project = useProjectStore((s) => s.project);
+  const offline = useProjectStore((s) => s.offline);
+  const log = useProjectStore((s) => s.log);
+  const openAsCopy = useProjectStore((s) => s.openAsCopy);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [open]);
+
+  const restore = async (backup: api.BackupInfo) => {
+    setOpen(false);
+    if (!project) return;
+    const when = new Date(backup.savedAt).toLocaleString();
+    let version: Project;
+    try {
+      // read it before a Save in the prompt below adds a backup (and drops the oldest)
+      version = await api.fetchBackup(project.id, backup.id);
+    } catch (e) {
+      log("error", `Could not open the version saved ${when}: ${(e as Error).message}`);
+      return;
+    }
+    if (!(await confirmReplaceProject(`Restoring the version saved ${when}`))) return;
+    const name = `${version.name} (version of ${when})`;
+    openAsCopy(
+      version,
+      name,
+      `Opened the version of '${version.name}' saved ${when} as an unsaved copy, '${name}'. ` +
+        "The project on disk is unchanged; Save keeps the copy as a new project.",
+    );
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <BigButton
+        icon={History}
+        label="Restore…"
+        title="Restore an earlier version of this project (opens it as an unsaved copy)"
+        disabled={!project || offline}
+        onClick={async () => {
+          if (!open && project) {
+            try {
+              setItems(await api.listBackups(project.id));
+            } catch (e) {
+              log("error", `Cannot list earlier versions: ${(e as Error).message}`);
+              setItems([]);
+            }
+          }
+          setOpen(!open);
+        }}
+      />
+      {open && (
+        <div
+          role="menu"
+          aria-label="Earlier versions"
+          className="absolute left-0 top-[54px] z-50 max-h-[60vh] w-[320px] overflow-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] py-1 shadow-lg"
+        >
+          <div className="px-3 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
+            Earlier versions, newest first
+          </div>
+          {items.length === 0 && (
+            <div className="px-3 py-1.5 text-[12px] text-[color:var(--ss-text-dim)]">
+              None yet. Each save over this project keeps the version it replaces (the last 20).
+            </div>
+          )}
+          {items.map((b) => (
+            <button
+              key={b.id}
+              role="menuitem"
+              className="block w-full px-3 py-2 text-left hover:bg-[color:var(--ss-accent-soft)]"
+              onClick={() => void restore(b)}
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[12px] font-medium text-[color:var(--ss-text)]">
+                  {new Date(b.savedAt).toLocaleString()}
+                </span>
+                <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">
+                  {Math.max(1, Math.round(b.bytes / 1024))} kB
+                </span>
+              </div>
+              <p className="mt-0.5 text-[11px] leading-snug text-[color:var(--ss-text-dim)]">
+                {b.name === null ? "Unreadable file" : `${b.name} · ${b.elements} element(s)`}
+              </p>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProjectTab() {
   const project = useProjectStore((s) => s.project);
   const renameSystem = useProjectStore((s) => s.renameSystem);
   const root = project?.systems.find((s) => s.parentId === null);
   return (
-    <RibbonGroup label="Project Settings">
-      <div className="flex items-center gap-2 px-1 py-2">
-        <span className="text-[11px] text-[color:var(--ss-text-dim)]">Project name</span>
-        <input
-          className="ss-input w-[220px]"
-          value={project?.name ?? ""}
-          onChange={(e) => root && renameSystem(root.id, e.target.value)}
-        />
-        <span className="text-[11px] text-[color:var(--ss-text-dim)]">
-          {project ? `${project.systems.length} system(s), ${project.cases.length} case(s)` : ""}
-        </span>
-      </div>
-    </RibbonGroup>
+    <>
+      <RibbonGroup label="Project Settings">
+        <div className="flex items-center gap-2 px-1 py-2">
+          <span className="text-[11px] text-[color:var(--ss-text-dim)]">Project name</span>
+          <input
+            className="ss-input w-[220px]"
+            value={project?.name ?? ""}
+            onChange={(e) => root && renameSystem(root.id, e.target.value)}
+          />
+          <span className="text-[11px] text-[color:var(--ss-text-dim)]">
+            {project ? `${project.systems.length} system(s), ${project.cases.length} case(s)` : ""}
+          </span>
+        </div>
+      </RibbonGroup>
+      <RibbonGroup label="Versions">
+        <RestoreVersionButton />
+      </RibbonGroup>
+    </>
   );
 }
 
