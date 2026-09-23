@@ -1300,7 +1300,7 @@
       "icon": "code",
       "domain": "signal",
       "allowDynamicPorts": true,
-      "description": "User-written Python function evaluated every step. Add named signal input/output ports in the Properties panel; the step() function receives inputs and a persistent state dict and returns a dict of output values. Use for hybrid control strategies, custom recuperation logic, signal math, etc.",
+      "description": "User-written Python function evaluated once per case time step (Step (s) in Cases & Parameters, passed in as dt). Add named signal input/output ports in the Properties panel; the step() function receives inputs and a persistent state dict and returns a dict of output values. Use for hybrid control strategies, custom recuperation logic, signal math, etc.",
       "ports": [],
       "parameters": [
         {
@@ -1936,7 +1936,7 @@
       "name": "PID Controller",
       "icon": "activity",
       "domain": "signal",
-      "description": "Generic PID feedback controller with output clamping and anti-windup, evaluated once per recording step. Use it for custom control loops without writing a script.",
+      "description": "Generic PID feedback controller with output clamping and anti-windup, evaluated once per case time step (Step (s) in Cases & Parameters). Use it for custom control loops without writing a script.",
       "ports": [
         {
           "id": "sig_setpoint_in",

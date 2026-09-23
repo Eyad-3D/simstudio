@@ -288,9 +288,9 @@ voltage → speed → torque). Elements of components with `allowDynamicPorts`
 
 ## Solver
 
-Each recorded step evaluates signal sources and Script blocks (topological
-order over the signal graph, one-step delay on loops), then runs internal
-sub-steps (≤ 10 ms, semi-implicit Euler):
+Each case time step (*Step (s)* in Cases & Parameters) evaluates signal
+sources and Script blocks (topological order over the signal graph, one-step
+delay on loops), then runs internal sub-steps (≤ 10 ms, semi-implicit Euler):
 
 1. **Driver** — PI on target vs. actual speed → traction command ∈ [−1, 1]
    and brake command, with capability-aware regen blending (motor Q4 map ×
@@ -309,13 +309,15 @@ sub-steps (≤ 10 ms, semi-implicit Euler):
    SOC integrates; the terminal voltage feeds next step's motor map.
 
 Because the drive-cycle target, Script, PID and Lookup blocks and the gear
-choice are evaluated only once per recorded step, results depend on the case
-time step. This is being reworked; until then see
+choice are evaluated only once per case time step, results depend on that
+step. *Store every* only sets how many of those steps are stored, so a small
+step with a larger *Store every* gives better results at the same result
+size. This is being reworked; until then see
 [Known limits](docs/KNOWN-LIMITS.md#results-depend-on-the-case-time-step).
 
-Live `set_param` messages apply at recording-step boundaries; structural
-parameters (ratios, inertias, code, table axes) take effect on the next run
-and say so in Messages.
+Live `set_param` messages apply at the start of the next case time step;
+structural parameters (ratios, inertias, code, table axes) take effect on the
+next run and say so in Messages.
 
 ## Known limitations
 
