@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearDraft, loadDraft, saveDraft } from "./persist";
 import type { Project } from "./types";
 
-const DRAFT_KEY = "simstudio-draft-v1";
+const DRAFT_KEY = "lightsim-draft-v1";
 
 function project(name = "P"): Project {
   return {

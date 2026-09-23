@@ -90,7 +90,7 @@ for (const theme of ["light", "dark"] as const) {
   test.describe(`${theme} theme`, () => {
     // the saved preference, the way the app starts when a user last chose it
     test.beforeEach(async ({ page }) => {
-      await page.addInitScript((t) => localStorage.setItem("simstudio-theme", t), theme);
+      await page.addInitScript((t) => localStorage.setItem("lightsim-theme", t), theme);
     });
 
     test("topology workspace", async ({ page }) => {
