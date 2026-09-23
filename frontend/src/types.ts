@@ -153,6 +153,8 @@ export interface SummaryValue {
   label: string;
   value: number;
   unit: string;
+  /** Why the run verdict says this number is not valid, e.g. "cycle not followed". */
+  notValid?: string | null;
 }
 
 export interface SimResult {

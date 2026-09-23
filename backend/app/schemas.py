@@ -156,6 +156,8 @@ class SummaryValue(BaseModel):
     label: str
     value: float
     unit: str
+    # why this number is not valid (the run verdict), e.g. "cycle not followed"
+    notValid: Optional[str] = None
 
 
 class SimResult(BaseModel):

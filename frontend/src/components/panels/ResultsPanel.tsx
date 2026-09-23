@@ -900,13 +900,22 @@ export function ResultsPanel() {
                   <tr key={i} className="hover:bg-[color:var(--ss-hover)]">
                     <td className="ss-td">{s.label}</td>
                     {plotRuns.map((r, ri) => {
-                      const v = r.result.summary.find((x) => x.label === s.label)?.value;
+                      const sv = r.result.summary.find((x) => x.label === s.label);
+                      const v = sv?.value;
                       return (
                         <td
                           key={r.id}
                           className={`ss-td text-right font-mono ${ri > 0 ? "text-[color:var(--ss-text-dim)]" : ""}`}
                         >
                           {typeof v === "number" ? v.toLocaleString() : "—"}
+                          {sv?.notValid && (
+                            <div
+                              className="font-sans text-[10px] text-amber-600"
+                              title={`Not valid: ${sv.notValid}`}
+                            >
+                              not valid: {sv.notValid}
+                            </div>
+                          )}
                         </td>
                       );
                     })}

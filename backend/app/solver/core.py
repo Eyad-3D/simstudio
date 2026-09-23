@@ -52,6 +52,7 @@ from .runtime import (  # noqa: F401 — re-exported for backward compatibility
     solve_linear,
 )
 from .slave import var_name
+from .verdict import CycleTrace, judge
 
 
 def simulate(
@@ -116,6 +117,7 @@ def simulate(
                 rt.publish(el_id, port_id, value)
 
     publish_routed_states()
+    trace = CycleTrace(ctx)  # target vs vehicle speed, for the run verdict
 
     def apply_control_msg(msg: dict) -> None:
         master.set_parameter(
@@ -175,13 +177,18 @@ def simulate(
                             elif msg.get("type") == "set_param":
                                 apply_control_msg(msg)
 
+        # signal sources are stored with their value at the point's own time
+        ctx.publish_sources(t)
+        trace.sample(t)
+        problem = trace.live_problem()
+        if problem:
+            rt.message("warning", problem)
+
         # -- record ----------------------------------------------------------
         # Only recorded steps are stored and streamed ("store every N steps"
         # decimates the output); the last step is always kept.
         if not (step % output_every == 0 or step == steps):
             continue
-        # signal sources are stored with their value at the point's own time
-        ctx.publish_sources(t)
         times.append(t)
         rec_index = len(times) - 1
         rec = rt.series
@@ -201,6 +208,9 @@ def simulate(
             })
 
     # ---- assemble result -------------------------------------------------------
+    verdict = judge(trace, ctx.distance, rt.series)
+    for level, text in verdict.messages:
+        rt.message(level, text)
     unit_map = unit_groups()
     channels: list[Channel] = []
     port_lookup: dict[tuple[str, str], object] = {}
@@ -285,6 +295,22 @@ def simulate(
             label="Electrical energy balance error",
             value=round(100.0 * ctx.residual_wh / ctx.throughput_wh, 4), unit="%"))
     summary.append(SummaryValue(label="Simulated duration", value=times[-1] if times else 0.0, unit="s"))
+
+    # headline numbers that a failed check makes meaningless say why
+    not_valid: dict[str, str] = {}
+    if any(b.depleted_flagged for b in ctx.batteries.values()):
+        not_valid["Consumption"] = "the battery reached its minimum SOC"
+    if any(ec.stalled_flagged for ec in ctx.engines.values()):
+        not_valid["Fuel consumption"] = not_valid["CO₂ emissions"] = "the fuel tank ran empty"
+    if verdict.cycle_not_followed:
+        for label in ("Consumption", "Fuel consumption", "CO₂ emissions"):
+            not_valid[label] = "cycle not followed"
+    if ctx.throughput_wh > 0 and ctx.residual_wh > 1e-3 * ctx.throughput_wh:
+        for s in summary:
+            if s.unit in ("kWh", "kWh/100km", "%") and s.label != "Electrical energy balance error":
+                not_valid.setdefault(s.label, "the electrical energy balance does not close")
+    for s in summary:
+        s.notValid = not_valid.get(s.label)
 
     has_error = any(m.level == "error" for m in rt.messages)
     has_warning = any(m.level == "warning" for m in rt.messages) or cancelled
