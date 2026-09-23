@@ -1817,6 +1817,35 @@ export const useProjectStore = create<ProjectState>((set, get) => {
   };
 });
 
+// Once the model has been checked (Data Checks, or the gate before a run), its
+// checks follow it: a quiet re-check runs RECHECK_MS after the last edit, so
+// part badges and the status-bar count clear as soon as the problems are
+// fixed. A model nobody checked is left alone, and a re-check due while a run
+// is in progress waits for the run to end.
+const RECHECK_MS = 600;
+let recheckTimer: ReturnType<typeof setTimeout> | undefined;
+useProjectStore.subscribe((s, prev) => {
+  if (s.project === prev.project || !s.dataChecks) return;
+  clearTimeout(recheckTimer);
+  recheckTimer = setTimeout(recheck, RECHECK_MS);
+});
+
+async function recheck(): Promise<void> {
+  const { project, dataChecks, running } = useProjectStore.getState();
+  if (!project || !dataChecks) return;
+  if (running) {
+    recheckTimer = setTimeout(recheck, RECHECK_MS);
+    return;
+  }
+  try {
+    const checks = await api.validateProject(project);
+    // an edit made meanwhile has a re-check of its own coming
+    if (useProjectStore.getState().project === project) useProjectStore.setState({ dataChecks: checks });
+  } catch {
+    /* engine unreachable: keep the last checks */
+  }
+}
+
 /** Ask before `action` (New, Open, Import) replaces a project with unsaved
  *  changes. Resolves true when it may go ahead: nothing was unsaved, the save
  *  worked, or the user chose not to save. A failed save keeps the project
