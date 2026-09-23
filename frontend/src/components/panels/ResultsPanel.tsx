@@ -124,11 +124,13 @@ export function ResultsPanel() {
   const [search, setSearch] = useState("");
   const [sweepMetric, setSweepMetric] = useState("");
   const [xyXKey, setXyXKey] = useState(""); // channel used as the X axis in the X-Y view
-  const { ref: chartHost, hasSize } = useHasSize<HTMLDivElement>();
+  const { ref: chartHost, hasSize, element: chartEl } = useHasSize<HTMLDivElement>();
 
   // sensible default channel selection the first time a case's results are shown
+  // (wait for channels: a live run starts with none, and an empty pick would
+  // stick for the rest of the session)
   useEffect(() => {
-    if (!result || !selKey || selected[selKey]) return;
+    if (!result || !selKey || selected[selKey] || result.channels.length === 0) return;
     const defaults = result.channels
       .filter((c) => c.portId === "sig_soc" || (c.portId === "sig_power" && c.label.includes("Battery")))
       .slice(0, 4)
@@ -598,7 +600,7 @@ export function ResultsPanel() {
               title="Export the chart as a PNG image"
               onClick={() =>
                 exportPng(
-                  chartHost.current,
+                  chartEl.current,
                   theme === "dark" ? "#1b1f26" : "#ffffff",
                   `simstudio-${activeRun?.caseName ?? "chart"}`,
                 )
