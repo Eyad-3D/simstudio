@@ -164,6 +164,25 @@ class SimResult(BaseModel):
     summary: list[SummaryValue] = Field(default_factory=list)
 
 
+class StoredRun(BaseModel):
+    """A finished run as the UI keeps it in its run history (``SimRun`` in
+    frontend/src/types.ts); stored on disk by :mod:`app.run_store`."""
+
+    id: str
+    caseId: str
+    caseName: str
+    startedAt: int  # epoch ms
+    status: Literal["success", "failed", "warning"]
+    result: SimResult
+    # sweep membership and the swept value (parameter sweeps only)
+    sweepId: Optional[str] = None
+    sweepParam: Optional[str] = None
+    sweepValue: Optional[float] = None
+    sweepUnit: Optional[str] = None
+    # why the run is not a complete result (stopped, failed, connection lost)
+    incomplete: Optional[str] = None
+
+
 class DataCheck(BaseModel):
     level: Literal["info", "warning", "error"]
     elementId: Optional[str] = None

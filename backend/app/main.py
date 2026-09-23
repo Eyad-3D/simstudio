@@ -5,7 +5,12 @@ Endpoints:
   GET  /api/projects           saved project list
   GET  /api/projects/{id}      load a project
   PUT  /api/projects/{id}      save a project
-  DELETE /api/projects/{id}    delete a project
+  DELETE /api/projects/{id}    delete a project (and its stored runs)
+  GET  /api/projects/{id}/runs         the project's stored runs, newest first
+  GET  /api/projects/{id}/runs/{run}   one stored run (gzip-encoded JSON)
+  PUT  /api/projects/{id}/runs/{run}   store a finished run
+  DELETE /api/projects/{id}/runs/{run} delete one stored run
+  DELETE /api/projects/{id}/runs       delete all of the project's stored runs
   POST /api/validate           run Data Checks on a project
   POST /api/simulate           run a simulation case, returns SimResult
   WS   /api/simulate/run       live run: streams progress/steps, accepts
@@ -14,17 +19,18 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import gzip
 import threading
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from . import storage
+from . import run_store, storage
 from .library import load_library, unit_groups
 from .paths import static_dir
-from .schemas import DataCheck, Project, SimResult, SimulateRequest, ValidateRequest
+from .schemas import DataCheck, Project, SimResult, SimulateRequest, StoredRun, ValidateRequest
 from .solver import simulate
 from .validation import validate_project
 from .version import VERSION
@@ -92,7 +98,71 @@ def remove_project(project_id: str) -> dict:
         raise HTTPException(status_code=400, detail=str(e))
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+    try:
+        run_store.clear_runs(project_id)
+    except ValueError:
+        pass  # an id no run could have been stored under
     return {"deleted": project_id}
+
+
+@app.get("/api/projects/{project_id}/runs")
+def get_runs(project_id: str) -> list[dict]:
+    try:
+        return run_store.list_runs(project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/projects/{project_id}/runs/{run_id}")
+def get_run(project_id: str, run_id: str, request: Request) -> Response:
+    try:
+        data = run_store.run_path(project_id, run_id).read_bytes()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    # stored gzip-compressed: send it as is and let the client inflate it
+    if "gzip" in request.headers.get("accept-encoding", ""):
+        return Response(data, media_type="application/json", headers={"Content-Encoding": "gzip"})
+    return Response(gzip.decompress(data), media_type="application/json")
+
+
+@app.put("/api/projects/{project_id}/runs/{run_id}")
+def put_run(project_id: str, run_id: str, run: StoredRun) -> dict:
+    if run.id != run_id:
+        raise HTTPException(status_code=400, detail="Run id mismatch")
+    try:
+        runs, pruned = run_store.save_run(project_id, run)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "saved": run_id,
+        "stored": len(runs),
+        "bytes": sum(r.get("bytes", 0) for r in runs),
+        "budget": run_store.BUDGET_BYTES,
+        "pruned": pruned,
+    }
+
+
+@app.delete("/api/projects/{project_id}/runs/{run_id}")
+def remove_run(project_id: str, run_id: str) -> dict:
+    try:
+        deleted = run_store.delete_run(project_id, run_id)
+        stored = len(run_store.list_runs(project_id))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+    return {"deleted": run_id, "stored": stored}
+
+
+@app.delete("/api/projects/{project_id}/runs")
+def remove_runs(project_id: str) -> dict:
+    try:
+        count = run_store.clear_runs(project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"deleted": count, "stored": 0}
 
 
 @app.post("/api/validate")
