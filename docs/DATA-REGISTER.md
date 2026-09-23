@@ -75,13 +75,15 @@ Rules 2–5 come from the roadmap research of September 2026 (`open-source-repos
 `backend/tests/test_data_register.py` runs with the backend tests in CI. It
 fails when:
 
-- a tracked data file (`.json`, `.csv`, `.yaml`, `.mat`, `.xlsx`, `.parquet`
-  and similar) under `backend/`, `frontend/src/`, `frontend/public/` or
-  `desktop/src/` has no row. These are the trees the app is built from.
-  Tooling elsewhere in the repository, such as the SBOM, the licence lists in
-  `scripts/licenses/` or the CI workflows, is not data and is not scanned.
-  Inside those trees, `package.json` and `tsconfig.json` files are exempt. If
-  data ever ships from another folder, add it to `DATA_ROOTS` in the test.
+- a tracked data file (`.json`, `.csv`, `.tsv`, `.txt`, `.yaml`, `.mat`,
+  `.xlsx`, `.parquet` and similar; `.txt` because EPA publishes its driving
+  schedules as text tables) under `backend/`, `frontend/src/`,
+  `frontend/public/` or `desktop/src/` has no row. These are the trees the app
+  is built from. Tooling elsewhere in the repository, such as the SBOM, the
+  licence lists in `scripts/licenses/` or the CI workflows, is not data and is
+  not scanned. Inside those trees, `package.json`, `tsconfig.json` and
+  `requirements*.txt` files are exempt. If data ever ships from another
+  folder, add it to `DATA_ROOTS` in the test.
 - a map, curve or profile in the component catalogue's defaults or in an
   example project's parameters has no row.
 - a row is missing its source, licence or credit, or points at a file or
@@ -94,3 +96,6 @@ fails when:
 The check reads the files git tracks, so `git add` a new data file before you
 run it. Projects you save while developing (the engine saves into
 `backend/projects/` in development) are not checked until you add them.
+
+Data written into code, such as a cycle typed as a Python or TypeScript array,
+is not detected. Add its row by hand, with the source file as `file`.

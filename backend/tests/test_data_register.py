@@ -33,13 +33,18 @@ REQUIRED = ["id", "file", "dataset", "kind", "description", "source", "licence",
 # SBOM, CI workflows, docs, editor settings) is not scanned, so a tooling JSON
 # needs no exemption. Data that ships from anywhere else must be added here.
 DATA_ROOTS = ["backend/", "frontend/src/", "frontend/public/", "desktop/src/"]
-# File types that hold data rather than code.
+# File types that hold data rather than code (.txt: EPA publishes its driving
+# schedules as text tables, such as uddscol.txt). Data typed into source code
+# (a Python or TypeScript array) is not detected; it needs a row by hand.
 DATA_SUFFIXES = {
-    ".json", ".csv", ".tsv", ".yaml", ".yml", ".xlsx", ".xls", ".mat", ".dat",
-    ".parquet", ".h5", ".hdf5", ".mf4", ".npy", ".npz",
+    ".json", ".csv", ".tsv", ".txt", ".yaml", ".yml", ".xlsx", ".xls", ".mat",
+    ".dat", ".parquet", ".h5", ".hdf5", ".mf4", ".npy", ".npz",
 }
 # Files of those types inside DATA_ROOTS that are configuration, not datasets.
-NOT_DATA = ["**/package.json", "**/package-lock.json", "**/tsconfig*.json"]
+NOT_DATA = [
+    "**/package.json", "**/package-lock.json", "**/tsconfig*.json",
+    "**/requirements*.txt",
+]
 # What the installer carries: the engine bundle takes backend/projects and the
 # catalogue (simstudio-backend.spec); the UI bundle inlines frontend/src/data
 # and copies frontend/public; the shell's asar holds desktop/src.
