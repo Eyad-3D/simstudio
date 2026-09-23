@@ -5,7 +5,7 @@
  "variant": "fine",
  "case_step_s": 0.005,
  "store_every": 200,
- "change": "Gear losses act on the power through each gear, wherever the driveline walk starts",
+ "change": "The hybrid's cases start at the charge they end with again",
  "status": "success",
  "messages": [
   "info: Case 'City Cycle' solved: 120000 steps × 0.005 s (1 sub-steps each), 601 points recorded, stored every 200, 45 result channels."

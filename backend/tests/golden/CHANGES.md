@@ -359,3 +359,41 @@ counted twice).
 | hybrid-car Mixed Cycle (fine step) | CO₂ emissions | 65.8 g/km | 68.1 g/km | +2.3 (+3.50 %) |
 | hybrid-car Mixed Cycle (fine step) | Consumption | — | 0.08 kWh/100km | new row |
 | hybrid-car Mixed Cycle (fine step) | channels that moved | | 55 | 46 outside their tube |
+
+## The hybrid's cases start at the charge they end with again
+
+With the gear losses above, the P2 Hybrid Car's cycles no longer end at the
+charge they start with, which its example card and the fuel figures assume.
+Each case again starts at the charge the cycle ends with, as a
+preconditioning drive would leave it: EPA city (UDDS) 56.42 -> 56.7 %, EPA
+highway (HWFET) 59.14 -> 58.9 %, Mixed Cycle and its live copy 52.5 ->
+51.79 % (found by running each case from the charge it last ended at
+until the two agree within 0.01 %). The example card's figures follow.
+
+- hybrid-car Mixed Cycle: fuel 2.89 -> 2.93 l/100 km, final SOC 51.79 %
+  unchanged (the strategy holds it wherever the cycle starts); the battery
+  again takes back what it gives out, so the Consumption row is gone.
+- Charge-balanced headline numbers (not fixtures), against the 0.2.0
+  figures before both entries: EPA city (UDDS) 2.67 -> 2.95 l/100 km
+  (Ioniq Blue, EPA: 2.91), EPA highway (HWFET) 3.13 -> 3.30 l/100 km
+  (EPA: 2.94), Mixed Cycle 2.79 -> 2.93 l/100 km; 32 engine starts on UDDS
+  (was 31).
+
+| Fixture | Number | Old | New | Change |
+|---|---|---|---|---|
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — energy delivered | 0.21 kWh | 0.207 kWh | -0.003 (-1.43 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — energy recuperated | 0.201 kWh | 0.21 kWh | +0.009 (+4.48 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — internal losses | 0.0031 kWh | 0.0032 kWh | +0.0001 (+3.23 %) |
+| hybrid-car Mixed Cycle (shipped step) | Engine — fuel used | 0.206 kg | 0.208 kg | +0.002 (+0.97 %) |
+| hybrid-car Mixed Cycle (shipped step) | Consumption | 0.08 kWh/100km | — | row gone |
+| hybrid-car Mixed Cycle (shipped step) | Fuel consumption | 2.89 l/100km | 2.93 l/100km | +0.04 (+1.38 %) |
+| hybrid-car Mixed Cycle (shipped step) | CO₂ emissions | 68.2 g/km | 69.1 g/km | +0.9 (+1.32 %) |
+| hybrid-car Mixed Cycle (shipped step) | channels that moved | | 49 | 20 outside their tube |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — energy delivered | 0.21 kWh | 0.207 kWh | -0.003 (-1.43 %) |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — energy recuperated | 0.201 kWh | 0.21 kWh | +0.009 (+4.48 %) |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — internal losses | 0.0031 kWh | 0.0032 kWh | +0.0001 (+3.23 %) |
+| hybrid-car Mixed Cycle (fine step) | Engine — fuel used | 0.205 kg | 0.208 kg | +0.003 (+1.46 %) |
+| hybrid-car Mixed Cycle (fine step) | Consumption | 0.08 kWh/100km | — | row gone |
+| hybrid-car Mixed Cycle (fine step) | Fuel consumption | 2.88 l/100km | 2.92 l/100km | +0.04 (+1.39 %) |
+| hybrid-car Mixed Cycle (fine step) | CO₂ emissions | 68.1 g/km | 69 g/km | +0.9 (+1.32 %) |
+| hybrid-car Mixed Cycle (fine step) | channels that moved | | 49 | 20 outside their tube |
