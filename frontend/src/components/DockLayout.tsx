@@ -304,11 +304,14 @@ function onReady(event: DockviewReadyEvent) {
   }
 
   // persist rearrangements (debounced) so the workspace survives reloads;
-  // opening/collapsing the tray is not a layout change, so watch it too
+  // opening/collapsing the tray is not a layout change, so watch it too. A
+  // maximised group is not saved: the sizes to go back to live in memory
+  // only, so the last layout from before the maximise is kept.
   let timer: ReturnType<typeof setTimeout> | undefined;
   const scheduleSave = () => {
     clearTimeout(timer);
     timer = setTimeout(() => {
+      if (api.hasMaximizedGroup()) return;
       try {
         window.localStorage.setItem(
           LAYOUT_KEY,
@@ -332,6 +335,7 @@ function onReady(event: DockviewReadyEvent) {
       if (size) g.api.setSize(size);
     }
     sizesBeforeMaximise.clear();
+    scheduleSave();
   });
 }
 
