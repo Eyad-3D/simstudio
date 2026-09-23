@@ -4,7 +4,7 @@ at the shipped step and at a finer solver step — within tolerance bands
 
 Regenerate deliberately, after an intended change, with a reason that
 becomes a CHANGES.md entry: python tests/update_golden.py --reason '<why>'
-Set SIMSTUDIO_GOLDEN_EXACT=1 to demand identical results (pure refactors).
+Set LIGHTSIM_GOLDEN_EXACT=1 to demand identical results (pure refactors).
 Set GOLDEN_REPORT=<file> to collect the diff reports (CI's job summary).
 """
 import os

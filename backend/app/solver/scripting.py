@@ -25,7 +25,7 @@ in-process Python cannot be fully contained: a single huge operation
 endless loop inside a `finally:` block that runs after the time limit
 fired keeps going. It stops the obvious ways a script could reach files,
 processes or the network; the real protection is that only the
-SimStudio window can reach the engine (see app/security.py).
+LightSim window can reach the engine (see app/security.py).
 """
 from __future__ import annotations
 

@@ -40,7 +40,7 @@ function exportStudyCsv(study: Study) {
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = `simstudio-study-${study.factors[0]?.paramKey ?? "sweep"}-${study.id}.csv`;
+  a.download = `lightsim-study-${study.factors[0]?.paramKey ?? "sweep"}-${study.id}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

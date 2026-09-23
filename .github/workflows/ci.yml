@@ -237,7 +237,7 @@ jobs:
       # the way the desktop build does and read the result.
       - name: Freeze the engine
         working-directory: backend
-        run: python -m PyInstaller --noconfirm --distpath dist --workpath build simstudio-backend.spec
+        run: python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
 
       # Fails on any shipped component whose licence is unknown or not in
       # scripts/licenses/allowed.txt (GPL, AGPL, SSPL and EUPL never are).

@@ -27,21 +27,21 @@ DEV_PROJECTS_DIR = BUNDLE_DIR / "dev-projects"
 def projects_dir() -> Path:
     """Where user projects are read from and written to.
 
-    The desktop shell sets ``SIMSTUDIO_PROJECTS_DIR`` to a per-user app-data
+    The desktop shell sets ``LIGHTSIM_PROJECTS_DIR`` to a per-user app-data
     path. Without it (development) we fall back to ``backend/dev-projects``.
     """
-    override = os.environ.get("SIMSTUDIO_PROJECTS_DIR")
+    override = os.environ.get("LIGHTSIM_PROJECTS_DIR")
     return Path(override).expanduser() if override else DEV_PROJECTS_DIR
 
 
 def static_dir() -> Path | None:
     """Built frontend to serve, or ``None`` when running API-only.
 
-    ``SIMSTUDIO_STATIC_DIR`` is set by the desktop shell; otherwise we look for
+    ``LIGHTSIM_STATIC_DIR`` is set by the desktop shell; otherwise we look for
     a local ``frontend/dist`` so ``uvicorn app.main:app`` also serves a UI once
     the frontend has been built.
     """
-    override = os.environ.get("SIMSTUDIO_STATIC_DIR")
+    override = os.environ.get("LIGHTSIM_STATIC_DIR")
     candidate = (
         Path(override).expanduser()
         if override

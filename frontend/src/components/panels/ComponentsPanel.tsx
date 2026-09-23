@@ -136,7 +136,7 @@ export function ComponentsPanel() {
                       title={`${def.description ?? def.name}\n\nDrag onto the diagram, double-click or press Enter to add it in the middle, or click it and then click where it goes.`}
                       onDragStart={(e) => {
                         useUIStore.getState().setPlacingComponent(null);
-                        e.dataTransfer.setData("application/simstudio", def.id);
+                        e.dataTransfer.setData("application/lightsim", def.id);
                         e.dataTransfer.effectAllowed = "copy";
                       }}
                       onClick={(e) => {

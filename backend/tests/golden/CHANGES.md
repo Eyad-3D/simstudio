@@ -16,7 +16,7 @@ recorded every second. `tests/test_golden.py` compares new runs with them:
   within the same bands (the shipped step is converged).
 
 A failing test prints a diff report: what moved, old → new, by how much and
-against which band. `SIMSTUDIO_GOLDEN_EXACT=1` demands identical results
+against which band. `LIGHTSIM_GOLDEN_EXACT=1` demands identical results
 instead (to 1e-6): use it for refactors that must not change anything. In
 CI the reports of every run go to the job summary.
 

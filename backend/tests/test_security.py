@@ -132,10 +132,10 @@ def desktop(tmp_path, monkeypatch):
     """The engine as desktop/src/main.js starts it: a launch token and a UI."""
     dist = tmp_path / "dist"
     (dist / "assets").mkdir(parents=True)
-    (dist / "index.html").write_text("<!doctype html><title>SimStudio</title>")
+    (dist / "index.html").write_text("<!doctype html><title>LightSim</title>")
     (dist / "assets" / "app.js").write_text("export default 1;")
-    monkeypatch.setenv("SIMSTUDIO_TOKEN", TOKEN)
-    monkeypatch.setenv("SIMSTUDIO_STATIC_DIR", str(dist))
+    monkeypatch.setenv("LIGHTSIM_TOKEN", TOKEN)
+    monkeypatch.setenv("LIGHTSIM_STATIC_DIR", str(dist))
 
     import app.main
 
@@ -154,7 +154,7 @@ def test_desktop_refuses_api_calls_without_the_token(desktop):
     assert client.post("/api/simulate", json={"project": project, "caseId": "case"}).status_code == 401
     assert _ws_refused(client)
 
-    wrong = {"Cookie": "simstudio_token=" + "0" * 64}
+    wrong = {"Cookie": "lightsim_token=" + "0" * 64}
     assert client.get("/api/library", headers=wrong).status_code == 401
     assert _ws_refused(client, headers=wrong)
     assert client.get("/api/library", headers={"Authorization": "Bearer nope"}).status_code == 401
@@ -167,7 +167,7 @@ def test_desktop_refuses_api_calls_without_the_token(desktop):
 def test_desktop_page_load_without_the_token_gets_no_cookie(desktop):
     client = TestClient(desktop, base_url="http://127.0.0.1:47815")
     r = client.get("/")
-    assert r.status_code == 200 and "SimStudio" in r.text
+    assert r.status_code == 200 and "LightSim" in r.text
     assert "set-cookie" not in r.headers
     assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
     assert r.headers["cache-control"] == "no-store"
@@ -179,7 +179,7 @@ def test_desktop_window_gets_the_cookie_and_then_works(desktop):
     # the window's first load carries the token (loadURL extraHeaders)
     r = client.get("/", headers={"Authorization": f"Bearer {TOKEN}"})
     cookie = r.headers["set-cookie"]
-    assert cookie.startswith(f"simstudio_token={TOKEN};")
+    assert cookie.startswith(f"lightsim_token={TOKEN};")
     assert "HttpOnly" in cookie and "SameSite=Strict" in cookie and "Path=/" in cookie
 
     # every later call is the UI's own: same origin, cookie sent by the browser

@@ -19,7 +19,7 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def projects(tmp_path, monkeypatch):
-    monkeypatch.setenv("SIMSTUDIO_PROJECTS_DIR", str(tmp_path))
+    monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(tmp_path))
     for name in ("bev-car", "hybrid-car"):
         (tmp_path / f"{name}.json").write_bytes((EXAMPLES_DIR / f"{name}.json").read_bytes())
     return tmp_path

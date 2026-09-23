@@ -1,4 +1,4 @@
-"""SimStudio solver package — causal multi-pass solver with explicit states.
+"""LightSim solver package — causal multi-pass solver with explicit states.
 
 Public surface:
 - simulate(project, case_id, emit=None, control=None) → SimResult

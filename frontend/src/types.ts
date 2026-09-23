@@ -224,7 +224,7 @@ export interface RunSnapshot {
   project: Project;
   /** the case settings it ran with */
   case: SimCase;
-  /** the SimStudio version that ran it (null: the engine did not say) */
+  /** the LightSim version that ran it (null: the engine did not say) */
   appVersion: string | null;
   /** SHA-256 of the project as canonical JSON, hex (absent where the
    *  browser offers no Web Crypto) */

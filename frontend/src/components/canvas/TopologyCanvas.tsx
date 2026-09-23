@@ -791,7 +791,7 @@ function TopologyCanvasInner() {
           }}
           onDrop={(e) => {
             e.preventDefault();
-            const defId = e.dataTransfer.getData("application/simstudio");
+            const defId = e.dataTransfer.getData("application/lightsim");
             if (!defId) return;
             const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
             store.getState().addElement(defId, { x: pos.x - 46, y: pos.y - 27 });

@@ -22,7 +22,7 @@ def projects_dir(tmp_path, monkeypatch):
     """A projects folder holding two saved projects, copies of the examples."""
     target = tmp_path / "userdata" / "projects"
     target.mkdir(parents=True)
-    monkeypatch.setenv("SIMSTUDIO_PROJECTS_DIR", str(target))
+    monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(target))
     for name in ("bev-car", "hybrid-car"):
         (target / f"{name}.json").write_bytes((EXAMPLES_DIR / f"{name}.json").read_bytes())
     return target

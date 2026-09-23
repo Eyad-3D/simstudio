@@ -3,7 +3,7 @@
 - Last reviewed: 23 September 2026, for version 0.1.0. This page is updated
   with every release, together with [Known issues and limits](KNOWN-LIMITS.md).
 
-**In one line:** SimStudio's results have **not** been validated against
+**In one line:** LightSim's results have **not** been validated against
 measured vehicle data yet. The engine is tested against exact answers, and
 the two example cars are checked for believable numbers, but that is not
 the same as validation.
@@ -42,7 +42,7 @@ real cars of their class. Their test mass and road load come from public
 data; their motor, engine and battery maps are generic (invented, marked
 *synthetic* in [the data register](DATA-REGISTER.md)).
 
-| Example | Figure | SimStudio | Reference | Band in the test |
+| Example | Figure | LightSim | Reference | Band in the test |
 |---|---|---|---|---|
 | Battery Electric Car (2021 Cupra Born values from FASTSim) | WLTC energy at the battery | 14.0 kWh/100 km | about 15–16 kWh/100 km rated at the charging socket, charging losses included (background knowledge, unverified) | 13–17 kWh/100 km |
 | | 0–100 km/h | 7.2 s | 7.3 s (maker's figure, background knowledge) | ±10 % |
@@ -70,7 +70,7 @@ known to be wrong or missing.
 
 ## Rules for any accuracy claim
 
-Until a figure on this page is marked *validated*, SimStudio's README,
+Until a figure on this page is marked *validated*, LightSim's README,
 website, store listings and papers do not claim accuracy. When they do,
 every claim states:
 
@@ -88,4 +88,4 @@ production electric cars within ±5 % after calibrating the e-drive; blind
 predictions within ±15 %."*
 
 Not to be claimed until then: "accurate", "validated", "certified", or that
-SimStudio replaces any named commercial tool.
+LightSim replaces any named commercial tool.

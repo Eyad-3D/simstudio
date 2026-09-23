@@ -7,5 +7,5 @@ runs the simulation engine. Microsoft allows software vendors to
 redistribute them, unmodified, with their applications ("Distributable
 Code" under the Microsoft Visual Studio licence terms,
 https://visualstudio.microsoft.com/license-terms/). They remain the
-property of Microsoft Corporation and are not covered by SimStudio's
+property of Microsoft Corporation and are not covered by LightSim's
 licence.

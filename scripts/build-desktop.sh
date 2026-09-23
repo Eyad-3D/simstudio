@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the SimStudio desktop app end to end.
+# Build the LightSim desktop app end to end.
 #
 #   ./scripts/build-desktop.sh            # installers for the current OS
 #   ./scripts/build-desktop.sh --dir      # unpacked app only (fast, for testing)
@@ -21,7 +21,7 @@ echo "==> 2/3  Freezing the backend"
 cd "$ROOT/backend"
 "$PYTHON" -m pip install -r requirements-build.txt
 rm -rf build dist
-"$PYTHON" -m PyInstaller --noconfirm --distpath dist --workpath build simstudio-backend.spec
+"$PYTHON" -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
 
 echo "==> 3/3  Packaging the desktop app"
 cd "$ROOT/desktop"

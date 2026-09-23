@@ -4,7 +4,7 @@
 //
 // The web server below starts the engine only (e2e/serve-engine.mjs); it does
 // not build anything, so a stale dist/ tests stale code. The engine listens on
-// a free port unless SIMSTUDIO_E2E_PORT pins one.
+// a free port unless LIGHTSIM_E2E_PORT pins one.
 import { defineConfig, devices } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 
@@ -18,8 +18,8 @@ function freePort(): number {
 
 // Workers re-load this file; exporting the port through the environment keeps
 // them on the engine the main process started.
-process.env.SIMSTUDIO_E2E_PORT ||= String(freePort());
-const port = Number(process.env.SIMSTUDIO_E2E_PORT);
+process.env.LIGHTSIM_E2E_PORT ||= String(freePort());
+const port = Number(process.env.LIGHTSIM_E2E_PORT);
 const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({

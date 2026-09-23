@@ -30,7 +30,7 @@ const TAB_STRIP = 34;
 
 const ssTheme: DockviewTheme = {
   ...themeLight,
-  name: "simstudio",
+  name: "lightsim",
   className: `${themeLight.className} dockview-theme-ss`,
   edgeGroupCollapsedSize: TAB_STRIP,
 };

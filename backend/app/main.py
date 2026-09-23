@@ -1,4 +1,4 @@
-"""SimStudio backend — FastAPI app.
+"""LightSim backend — FastAPI app.
 
 Endpoints:
   GET  /api/library            component library definitions
@@ -51,11 +51,11 @@ from .solver import simulate
 from .validation import validate_project
 from .version import VERSION
 
-app = FastAPI(title="SimStudio API", version=VERSION)
+app = FastAPI(title="LightSim API", version=VERSION)
 
 # Built frontend bundle (produced by `npm run build` → frontend/dist). When it
 # exists we serve it below so the whole app runs from this one process at :8000
-# with no Vite dev server. The packaged desktop app points SIMSTUDIO_STATIC_DIR
+# with no Vite dev server. The packaged desktop app points LIGHTSIM_STATIC_DIR
 # at its own copy; otherwise this resolves to the repo's frontend/dist.
 FRONTEND_DIST = static_dir()
 
@@ -84,7 +84,7 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "service": "simstudio-backend", "version": VERSION}
+    return {"status": "ok", "service": "lightsim-backend", "version": VERSION}
 
 
 @app.get("/api/library")

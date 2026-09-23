@@ -1,10 +1,10 @@
 {
-  "name": "simstudio-desktop",
-  "productName": "SimStudio",
+  "name": "lightsim-desktop",
+  "productName": "LightSim",
   "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "SimStudio \u2014 desktop app for simulating vehicle energy use, range and powertrains",
+  "description": "LightSim \u2014 desktop app for simulating vehicle energy use, range and powertrains",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -26,5 +26,5 @@
     "type": "git",
     "url": "https://github.com/Eyad-3D/simstudio.git"
   },
-  "desktopName": "simstudio.desktop"
+  "desktopName": "lightsim.desktop"
 }

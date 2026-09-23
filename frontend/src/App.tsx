@@ -12,7 +12,7 @@ import { saveDraft } from "./persist";
 declare global {
   interface Window {
     /** Saves the open project; resolves true when nothing is left unsaved. */
-    simstudioSave?: () => Promise<boolean>;
+    lightsimSave?: () => Promise<boolean>;
   }
 }
 
@@ -74,7 +74,7 @@ export default function App() {
 
   // closing or reloading with unsaved changes asks first: the browser's
   // leave-page prompt, which the desktop shell turns into Save / Don't save /
-  // Cancel (desktop/src/main.js) and answers "Save" through simstudioSave.
+  // Cancel (desktop/src/main.js) and answers "Save" through lightsimSave.
   // Leaving anyway still keeps the recovery draft written above.
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -83,13 +83,13 @@ export default function App() {
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", onBeforeUnload);
-    window.simstudioSave = async () => {
+    window.lightsimSave = async () => {
       await useProjectStore.getState().saveRemote();
       return !useProjectStore.getState().dirty;
     };
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
-      delete window.simstudioSave;
+      delete window.lightsimSave;
     };
   }, []);
 
@@ -149,7 +149,7 @@ export default function App() {
           </>
         ) : (
           <div className="flex h-full items-center justify-center text-[13px] text-[color:var(--ss-text-dim)]">
-            Loading SimStudio…
+            Loading LightSim…
           </div>
         )}
       </div>

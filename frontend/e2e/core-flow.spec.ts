@@ -34,7 +34,7 @@ test("BEV example: data checks, run, results channels and CSV export", async ({ 
     page.waitForEvent("download"),
     page.getByRole("button", { name: "CSV", exact: true }).click(),
   ]);
-  expect(download.suggestedFilename()).toMatch(/^simstudio-.+\.csv$/);
+  expect(download.suggestedFilename()).toMatch(/^lightsim-.+\.csv$/);
   const lines = (await readFile(await download.path(), "utf8")).trim().split("\n");
   const header = lines[0].split(",");
   expect(header[0]).toBe("t_s");

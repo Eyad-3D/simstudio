@@ -11,7 +11,7 @@
  *
  *   node e2e/serve-engine.mjs --port 8916
  *
- * SIMSTUDIO_PYTHON picks the interpreter (default: python3, or python on
+ * LIGHTSIM_PYTHON picks the interpreter (default: python3, or python on
  * Windows); it needs backend/requirements.txt installed.
  */
 import { spawn } from "node:child_process";
@@ -39,7 +39,7 @@ if (!existsSync(join(dist, "index.html"))) {
  *  (on Windows Playwright stops the web server with a hard kill). */
 function removeStaleFolders() {
   for (const name of readdirSync(tmpdir())) {
-    const pid = Number(/^simstudio-e2e-(\d+)-/.exec(name)?.[1]);
+    const pid = Number(/^lightsim-e2e-(\d+)-/.exec(name)?.[1]);
     if (!pid || pid === process.pid) continue;
     try {
       process.kill(pid, 0); // still running: another test run's folder
@@ -50,9 +50,9 @@ function removeStaleFolders() {
 }
 
 removeStaleFolders();
-const projects = mkdtempSync(join(tmpdir(), `simstudio-e2e-${process.pid}-`));
+const projects = mkdtempSync(join(tmpdir(), `lightsim-e2e-${process.pid}-`));
 
-const python = process.env.SIMSTUDIO_PYTHON || (process.platform === "win32" ? "python" : "python3");
+const python = process.env.LIGHTSIM_PYTHON || (process.platform === "win32" ? "python" : "python3");
 // Same event loop, HTTP parser and WebSocket stack as the packaged engine
 // (app/server.py), so the tests see what the desktop app ships.
 const child = spawn(
@@ -66,7 +66,7 @@ const child = spawn(
   {
     cwd: backend,
     stdio: "inherit",
-    env: { ...process.env, SIMSTUDIO_PROJECTS_DIR: projects, SIMSTUDIO_STATIC_DIR: dist },
+    env: { ...process.env, LIGHTSIM_PROJECTS_DIR: projects, LIGHTSIM_STATIC_DIR: dist },
   },
 );
 console.log(`engine pid ${child.pid} on http://127.0.0.1:${port} (projects in ${projects})`);

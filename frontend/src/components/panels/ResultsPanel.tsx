@@ -711,7 +711,7 @@ export function ResultsPanel() {
                 exportPng(
                   chartEl.current,
                   theme === "dark" ? "#1b1f26" : "#ffffff",
-                  `simstudio-${activeRun?.caseName ?? "chart"}`,
+                  `lightsim-${activeRun?.caseName ?? "chart"}`,
                 )
               }
             >
@@ -720,7 +720,7 @@ export function ResultsPanel() {
             <button
               className="ss-toolbtn border border-[color:var(--ss-border)]"
               disabled={!result || selectedKeys.size === 0}
-              onClick={() => result && exportCsv(result, selectedKeys, `simstudio-${activeRun?.caseName ?? "results"}`)}
+              onClick={() => result && exportCsv(result, selectedKeys, `lightsim-${activeRun?.caseName ?? "results"}`)}
             >
               <Download size={12} /> CSV
             </button>

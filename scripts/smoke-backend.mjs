@@ -18,8 +18,8 @@ import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const isWindows = process.platform === "win32";
-const exeName = isWindows ? "simstudio-backend.exe" : "simstudio-backend";
-const exe = process.argv[2] ?? join(root, "backend", "dist", "simstudio-backend", exeName);
+const exeName = isWindows ? "lightsim-backend.exe" : "lightsim-backend";
+const exe = process.argv[2] ?? join(root, "backend", "dist", "lightsim-backend", exeName);
 const PORT = 8971;
 const base = `http://127.0.0.1:${PORT}`;
 
@@ -30,7 +30,7 @@ if (!existsSync(exe)) {
 
 let log = "";
 const child = spawn(exe, ["--port", String(PORT), "--host", "127.0.0.1"], {
-  env: { ...process.env, SIMSTUDIO_PROJECTS_DIR: join(root, ".smoke-projects") },
+  env: { ...process.env, LIGHTSIM_PROJECTS_DIR: join(root, ".smoke-projects") },
 });
 child.stdout.on("data", (d) => (log += d));
 child.stderr.on("data", (d) => (log += d));

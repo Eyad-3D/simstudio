@@ -7,6 +7,8 @@ still holds. The full record of every change to the reference results is in
 
 ## 0.2.0 — first public release (early version)
 
+The app is renamed from SimStudio to LightSim.
+
 This release is about trust: results that no longer depend on hidden
 settings, a run status you can rely on, and example cars that behave like
 real ones. It is still an early version: nothing is validated against
@@ -100,7 +102,7 @@ as long as before, and runs with fine steps are much faster.
 
 ### Licence
 
-SimStudio is free for evaluation, learning, research and other
+LightSim is free for evaluation, learning, research and other
 non-commercial use under the end-user licence agreement (`EULA.txt`);
 commercial use needs a separate licence. It includes open-source software
 under its own licences (Help → Third-Party Notices).

@@ -13,7 +13,7 @@ import uvicorn
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="simstudio-backend")
+    parser = argparse.ArgumentParser(prog="lightsim-backend")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args(argv)
@@ -25,7 +25,7 @@ def main(argv: list[str] | None = None) -> int:
 
         async def startup(self, sockets=None):  # type: ignore[override]
             await super().startup(sockets=sockets)
-            print(f"SIMSTUDIO_READY http://{args.host}:{args.port}", flush=True)
+            print(f"LIGHTSIM_READY http://{args.host}:{args.port}", flush=True)
 
     # Pinned to the pure-Python event loop and HTTP parser: the frozen build
     # ships exactly these, so it behaves the same as a source checkout. The

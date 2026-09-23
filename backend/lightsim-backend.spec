@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller build of the SimStudio backend.
+"""PyInstaller build of the LightSim backend.
 
-Produces a self-contained ``simstudio-backend`` folder (one directory, not one
+Produces a self-contained ``lightsim-backend`` folder (one directory, not one
 file — it starts faster and electron-builder ships directories happily) that
 the desktop app launches as a child process. Users never install Python.
 """
@@ -54,7 +54,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="simstudio-backend",
+    name="lightsim-backend",
     debug=False,
     strip=False,
     upx=False,
@@ -67,5 +67,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="simstudio-backend",
+    name="lightsim-backend",
 )

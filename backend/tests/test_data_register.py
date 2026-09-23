@@ -49,7 +49,7 @@ NOT_DATA = [
     "**/requirements*.txt",
 ]
 # What the installer carries: the engine bundle takes backend/projects and the
-# catalogue (simstudio-backend.spec); the UI bundle inlines frontend/src/data
+# catalogue (lightsim-backend.spec); the UI bundle inlines frontend/src/data
 # and copies frontend/public; the shell's asar holds desktop/src.
 SHIPPED = [
     "backend/projects/*", "backend/app/library/*", "frontend/src/data/*",
@@ -184,7 +184,7 @@ def test_shipping_column_matches_the_packaging(rows):
 
 
 def test_nothing_ships_that_is_not_cleared(rows):
-    """'cleared' is the owner's sign-off that SimStudio may ship the data. A row
+    """'cleared' is the owner's sign-off that LightSim may ship the data. A row
     marked 'no' must not ship, and 'yes' needs a known licence. 'pending' is
     allowed until the owner has confirmed provenance; it is listed as a warning
     so the open sign-offs stay visible in every test run."""
