@@ -8,6 +8,9 @@ import { expect, type Page } from "@playwright/test";
 /** Load the app, wait for the example model and for the mount-time fits
  *  (the canvas re-fits 400 and 900 ms after it mounts). */
 export async function openApp(page: Page): Promise<void> {
+  // runs are stored on disk with their project (RES-02): start every test
+  // from an empty history on the shared test engine
+  for (const id of ["bev-car", "hybrid-car"]) await page.request.delete(`/api/projects/${id}/runs`);
   await page.goto("/");
   await expect(page.locator(".react-flow__node").first()).toBeVisible();
   await page.waitForTimeout(1200);

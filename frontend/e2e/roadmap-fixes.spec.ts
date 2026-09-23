@@ -17,7 +17,7 @@ import {
   showPanel,
 } from "./app";
 
-test.fixme("RES-03: the Signal Plot draws a line after the first run", async ({ page }) => {
+test("RES-03: the Signal Plot draws a line after the first run", async ({ page }) => {
   await openApp(page);
   await runActiveCase(page);
   await ribbonTab(page, "Home").click();
@@ -26,7 +26,7 @@ test.fixme("RES-03: the Signal Plot draws a line after the first run", async ({ 
   await expect(drawnLines(page).first()).toBeVisible();
 });
 
-test.fixme("RES-03: a run started from the empty Results page is drawn", async ({ page }) => {
+test("RES-03: a run started from the empty Results page is drawn", async ({ page }) => {
   await openApp(page);
   await ribbonTab(page, "Results").click();
   await page.getByRole("button", { name: "Run active case" }).click();
@@ -34,7 +34,7 @@ test.fixme("RES-03: a run started from the empty Results page is drawn", async (
   await expect(drawnLines(page).first()).toBeVisible();
 });
 
-test.fixme("RES-04: no hidden splitter lies on top of the Results page", async ({ page }) => {
+test("RES-04: no hidden splitter lies on top of the Results page", async ({ page }) => {
   await openApp(page);
   await ribbonTab(page, "Results").click();
   for (const width of [1280, 1600, 1920]) {
@@ -52,7 +52,7 @@ test.fixme("RES-04: no hidden splitter lies on top of the Results page", async (
   }
 });
 
-test.fixme("UX-05: Esc while editing a map cell keeps the parameter dialog open", async ({ page }) => {
+test("UX-05: Esc while editing a map cell keeps the parameter dialog open", async ({ page }) => {
   await openApp(page);
   await page.locator(".react-flow__node", { hasText: "E-Motor" }).first().dblclick();
   const close = page.getByTitle("Close (Esc)");
@@ -69,7 +69,7 @@ test.fixme("UX-05: Esc while editing a map cell keeps the parameter dialog open"
   await expect(page.locator(".ss-grid .ss-cell-body").first()).toHaveText(before);
 });
 
-test.fixme("UX-04: a number field can be cleared and retyped", async ({ page }) => {
+test("UX-04: a number field can be cleared and retyped", async ({ page }) => {
   await openApp(page);
   await selectElement(page, "Vehicle");
   const mass = page.locator("tr", { hasText: "Vehicle Mass" }).locator("input");
@@ -101,7 +101,7 @@ for (const { width, height, percent, zoom } of [
   test.describe(`at ${width}x${height}`, () => {
     test.use({ viewport: { width, height } });
 
-    test.fixme(`GUI-01: the diagram gets at least ${percent} % of a ${width}x${height} window`, async ({
+    test(`GUI-01: the diagram gets at least ${percent} % of a ${width}x${height} window`, async ({
       page,
     }) => {
       await openApp(page);
@@ -171,17 +171,17 @@ test.describe("UX-02: replacing a project with unsaved changes asks first", () =
     await expect(page.locator(".react-flow__node")).toHaveCount(0);
   });
 
-  test.fixme("UX-02: ribbon New", async ({ page }) => {
+  test("UX-02: ribbon New", async ({ page }) => {
     await page.getByRole("button", { name: "New", exact: true }).click();
     await expectPromptThenCancel(page);
   });
 
-  test.fixme("UX-02: Open another project", async ({ page }) => {
+  test("UX-02: Open another project", async ({ page }) => {
     await openFromMenu(page, "P2 Hybrid Car");
     await expectPromptThenCancel(page);
   });
 
-  test.fixme("UX-02: Import a project file", async ({ page }) => {
+  test("UX-02: Import a project file", async ({ page }) => {
     // answer the file picker if it opens before the prompt
     page.on("filechooser", (chooser) =>
       chooser.setFiles({

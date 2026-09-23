@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import * as api from "../api";
 import { resetDockLayout } from "./DockLayout";
-import { confirmDialog } from "../dialog";
+import { confirmDialog, confirmReplaceProject } from "../dialog";
 import { useProjectStore } from "../store/projectStore";
 import {
   FONT_SCALE_MAX,
@@ -144,7 +144,9 @@ function OpenProjectButton() {
               className="block w-full px-3 py-2 text-left hover:bg-[color:var(--ss-accent-soft)]"
               onClick={() => {
                 setOpen(false);
-                void openProject(p.id);
+                void confirmReplaceProject(`Opening '${p.name}'`).then((ok) => {
+                  if (ok) void openProject(p.id);
+                });
               }}
             >
               <div className="flex items-baseline justify-between gap-2">
@@ -170,7 +172,11 @@ function HomeTab() {
   return (
     <>
       <RibbonGroup label="Project">
-        <BigButton icon={FilePlus2} label="New" onClick={store.newProject} />
+        <BigButton
+          icon={FilePlus2}
+          label="New"
+          onClick={() => void confirmReplaceProject("Creating a new project").then((ok) => ok && store.newProject())}
+        />
         <OpenProjectButton />
         <BigButton icon={Save} label="Save" onClick={() => void store.saveRemote()} />
         <BigButton icon={Download} label="Export" onClick={store.exportProject} title="Download project as JSON" />
@@ -181,9 +187,12 @@ function HomeTab() {
           accept=".json,application/json"
           className="hidden"
           onChange={async (e) => {
-            const f = e.target.files?.[0];
-            if (f) store.importProject(await f.text());
-            e.target.value = "";
+            const input = e.target;
+            const f = input.files?.[0];
+            input.value = "";
+            if (!f) return;
+            const text = await f.text();
+            if (await confirmReplaceProject(`Importing '${f.name}'`)) store.importProject(text);
           }}
         />
       </RibbonGroup>
@@ -310,7 +319,8 @@ function ResultsTab() {
   const stopRun = useProjectStore((s) => s.stopRun);
   const project = useProjectStore((s) => s.project);
   const clearRuns = useProjectStore((s) => s.clearRuns);
-  const count = useProjectStore((s) => s.runs.length);
+  const shown = useProjectStore((s) => s.runs.length);
+  const stored = useProjectStore((s) => s.storedRunCount);
   return (
     <>
       <RibbonGroup label="Simulation">
@@ -325,21 +335,29 @@ function ResultsTab() {
       </RibbonGroup>
       <RibbonGroup label="Results">
         <div className="flex h-full flex-col justify-center gap-1 px-2 text-[11px] text-[color:var(--ss-text-dim)]">
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1" title="Runs are stored on disk with the project">
             <Gauge size={13} />
-            {count === 0 ? "No stored runs yet" : `${count} stored run${count > 1 ? "s" : ""}`}
-            {count >= 20 && <span className="text-[10px]">(max)</span>}
+            {stored > 0
+              ? `${stored} stored run${stored > 1 ? "s" : ""}`
+              : shown > 0
+                ? `${shown} run${shown > 1 ? "s" : ""} (not stored on disk)`
+                : "No stored runs yet"}
+            {stored > shown && shown > 0 && <span className="text-[10px]">· newest {shown} shown</span>}
           </span>
           <button
             className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[11px] disabled:opacity-40"
-            disabled={count === 0 || running}
+            disabled={(stored === 0 && shown === 0) || running}
             onClick={() => {
+              const n = Math.max(stored, shown);
+              const what = n === 1 ? "the stored run" : `all ${n} stored runs`;
               void confirmDialog({
                 title: "Clear results history?",
-                message: "This removes all stored runs. Their data cannot be recovered.",
+                message: `This deletes ${what} of '${project?.name ?? "this project"}' from disk. ${n === 1 ? "It" : "They"} cannot be recovered.`,
                 confirmLabel: "Clear history",
                 danger: true,
-              }).then((ok) => ok && clearRuns());
+              }).then((ok) => {
+                if (ok) void clearRuns();
+              });
             }}
           >
             <Trash2 size={12} /> Clear history

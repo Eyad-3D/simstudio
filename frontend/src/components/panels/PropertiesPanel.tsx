@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Box, Columns3, CornerDownRight, Pencil, Plus, Radio, Rows3, Table2, Trash2 } from "lucide-react";
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
-import { SpreadsheetGrid, type GridCell, type GridRange } from "../SpreadsheetGrid";
+import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "../SpreadsheetGrid";
 import type {
   AxisDef,
   ComponentDef,
@@ -27,6 +27,55 @@ function nextAxisKey(keys: string[], fallback: number): number {
 }
 
 const GRID_HINT = "Click a cell to edit · drag or Shift+click to select a range · Ctrl+C / Ctrl+V to copy & paste from Excel";
+
+/** Why `text` cannot be stored as a number, or null when it can. */
+function numberIssue(text: string): GridIssue | null {
+  const t = text.trim();
+  if (Number.isFinite(Number(t))) return null;
+  const hint = /^-?\d+,\d+$/.test(t) ? " (use a point for decimals)" : "";
+  return { level: "error", text: `'${t}' is not a number${hint}.` };
+}
+
+/** Check a typed breakpoint against the others on its axis (`keys`, in
+ *  order; `index` is its own position): it must be a new number, and one out
+ *  of order is flagged because the row or column will move. */
+function axisIssue(
+  name: string,
+  what: "row" | "column",
+  text: string,
+  keys: string[],
+  index: number,
+): GridIssue | null {
+  const t = text.trim();
+  if (t === "") return { level: "error", text: `Enter a ${name} value.` };
+  const bad = numberIssue(t);
+  if (bad) return bad;
+  const n = Number(t);
+  if (keys.some((k, i) => i !== index && Number(k) === n))
+    return { level: "error", text: `${name} ${n} is already in the table.` };
+  const prev = index > 0 ? Number(keys[index - 1]) : -Infinity;
+  const next = index < keys.length - 1 ? Number(keys[index + 1]) : Infinity;
+  if (n < prev || n > next)
+    return { level: "warning", text: `${name} ${n} is out of order: the ${what} moves so ${name} keeps increasing.` };
+  return null;
+}
+
+/** First problem among axis cells about to be pasted, or null. Empty cells
+ *  are allowed only where the paste adds a new row/column (auto-numbered). */
+function pastedAxisIssue(name: string, cells: string[], existing: number): GridIssue | null {
+  const seen = new Set<number>();
+  for (let i = 0; i < cells.length; i++) {
+    const t = cells[i].trim();
+    if (t === "" && i >= existing) continue;
+    if (t === "") return { level: "error", text: `a ${name} value is empty.` };
+    const bad = numberIssue(t);
+    if (bad) return bad;
+    const n = Number(t);
+    if (seen.has(n)) return { level: "error", text: `${name} ${n} would appear twice.` };
+    seen.add(n);
+  }
+  return null;
+}
 
 /** Excel-style editable grid for a 1D lookup table {x: y}. */
 function Table1DEditor({
@@ -71,6 +120,13 @@ function Table1DEditor({
     ),
   ];
 
+  const validate = (r: number, c: number, text: string): GridIssue | null => {
+    if (r === 0) return null;
+    if (c === 0) return axisIssue(axis.name, "row", text, keys, r - 1);
+    if (text.trim() === "") return { level: "error", text: `Enter a ${valueLabel} value (Delete sets 0).` };
+    return numberIssue(text);
+  };
+
   const commit = (r: number, c: number, text: string) => {
     if (r === 0) return;
     const rows = pairs.map((p) => [...p] as [string, string]);
@@ -79,7 +135,7 @@ function Table1DEditor({
     onChange(rebuild(rows));
   };
 
-  const pasteBlock = (r: number, c: number, block: string[][]) => {
+  const pasteBlock = (r: number, c: number, block: string[][]): string | void => {
     const rows = pairs.map((p) => [...p] as [string, string]);
     const startRow = r <= 0 ? 0 : r - 1;
     const startCol = Math.min(1, Math.max(0, c));
@@ -95,6 +151,14 @@ function Table1DEditor({
         rows[tr][tc] = val;
       });
     });
+    const problem =
+      pastedAxisIssue(axis.name, rows.map((row) => row[0]), rows.length) ??
+      rows
+        .map((row): GridIssue | null =>
+          row[1].trim() === "" ? { level: "error", text: `a ${valueLabel} value is empty.` } : numberIssue(row[1]),
+        )
+        .find(Boolean);
+    if (problem) return `Paste not applied: ${problem.text}`;
     onChange(rebuild(rows));
   };
 
@@ -128,6 +192,7 @@ function Table1DEditor({
         onPasteBlock={pasteBlock}
         onClearRange={clearRange}
         onSelectionChange={setSelRange}
+        validate={validate}
       />
       <div className="flex items-center gap-1">
         <button className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[11px]" onClick={addRow}>
@@ -222,6 +287,14 @@ function Table2DEditor({
     ]),
   ];
 
+  // a body cell may be left empty (no value at that point, like Delete)
+  const validate = (r: number, c: number, text: string): GridIssue | null => {
+    if (r === 0 && c === 0) return null;
+    if (r === 0) return axisIssue(axes[0].name, "column", text, outerKeys, c - 1);
+    if (c === 0) return axisIssue(axes[1].name, "row", text, innerKeys, r - 1);
+    return text.trim() === "" ? null : numberIssue(text);
+  };
+
   const commit = (r: number, c: number, text: string) => {
     if (r === 0 && c === 0) return;
     const g = gridText();
@@ -229,7 +302,7 @@ function Table2DEditor({
     onChange(parseGrid(g));
   };
 
-  const pasteBlock = (r: number, c: number, block: string[][]) => {
+  const pasteBlock = (r: number, c: number, block: string[][]): string | void => {
     const g = gridText();
     const needRows = r + block.length;
     const needCols = c + Math.max(...block.map((b) => b.length));
@@ -239,6 +312,15 @@ function Table2DEditor({
       if (r + bi === 0 && c + bj === 0) return; // don't overwrite the corner
       g[r + bi][c + bj] = val;
     }));
+    const problem =
+      pastedAxisIssue(axes[0].name, g[0].slice(1), outerKeys.length) ??
+      pastedAxisIssue(axes[1].name, g.slice(1).map((row) => row[0]), innerKeys.length) ??
+      g
+        .slice(1)
+        .flatMap((row) => row.slice(1))
+        .map((t) => (t.trim() === "" ? null : numberIssue(t)))
+        .find(Boolean);
+    if (problem) return `Paste not applied: ${problem.text}`;
     onChange(parseGrid(g));
   };
 
@@ -294,6 +376,7 @@ function Table2DEditor({
         onPasteBlock={pasteBlock}
         onClearRange={clearRange}
         onSelectionChange={setSelRange}
+        validate={validate}
       />
       <div className="flex flex-wrap items-center gap-1">
         <button className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[11px]" onClick={addColumn} title={`Add a ${axes[0].name} column`}>
@@ -386,6 +469,36 @@ function ProfileGridEditor({
   );
 }
 
+/** Number field that stores only what is a number: clearing it or a half-typed
+ *  value is never stored as 0, and leaving the field without a number puts the
+ *  stored value back. */
+function NumberInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const [text, setText] = useState(String(value));
+  const [shown, setShown] = useState(value);
+  // the stored value changed elsewhere (undo, another view): show it
+  if (!Object.is(value, shown)) {
+    setShown(value);
+    if (Number(text) !== value || text.trim() === "") setText(String(value));
+  }
+  const invalid = text.trim() === "" || !Number.isFinite(Number(text));
+  return (
+    <input
+      type="number"
+      className="ss-input w-full"
+      value={text}
+      step="any"
+      aria-invalid={invalid || undefined}
+      title={invalid ? `Enter a number (leaving the field keeps ${value})` : undefined}
+      onChange={(e) => {
+        setText(e.target.value);
+        const t = e.target.value.trim();
+        if (t !== "" && Number.isFinite(Number(t))) onChange(Number(t));
+      }}
+      onBlur={() => invalid && setText(String(value))}
+    />
+  );
+}
+
 function ParameterInput({
   def,
   value,
@@ -419,18 +532,7 @@ function ParameterInput({
         </select>
       );
     case "number":
-      return (
-        <input
-          type="number"
-          className="ss-input w-full"
-          value={Number(value)}
-          step="any"
-          onChange={(e) => {
-            const n = Number(e.target.value);
-            if (!Number.isNaN(n)) onChange(n);
-          }}
-        />
-      );
+      return <NumberInput value={Number(value)} onChange={onChange} />;
     case "code":
       return (
         <textarea

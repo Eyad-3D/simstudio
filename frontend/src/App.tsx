@@ -9,6 +9,13 @@ import { useProjectStore } from "./store/projectStore";
 import { useUIStore } from "./store/uiStore";
 import { saveDraft } from "./persist";
 
+declare global {
+  interface Window {
+    /** Saves the open project; resolves true when nothing is left unsaved. */
+    simstudioSave?: () => Promise<boolean>;
+  }
+}
+
 let initStarted = false;
 
 export default function App() {
@@ -54,6 +61,27 @@ export default function App() {
       unsub();
       clearTimeout(timer);
       window.removeEventListener("beforeunload", flush);
+    };
+  }, []);
+
+  // closing or reloading with unsaved changes asks first: the browser's
+  // leave-page prompt, which the desktop shell turns into Save / Don't save /
+  // Cancel (desktop/src/main.js) and answers "Save" through simstudioSave.
+  // Leaving anyway still keeps the recovery draft written above.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!useProjectStore.getState().dirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    window.simstudioSave = async () => {
+      await useProjectStore.getState().saveRemote();
+      return !useProjectStore.getState().dirty;
+    };
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      delete window.simstudioSave;
     };
   }, []);
 

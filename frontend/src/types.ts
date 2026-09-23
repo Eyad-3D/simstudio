@@ -166,7 +166,8 @@ export interface SimResult {
   summary: SummaryValue[];
 }
 
-/** One recorded simulation run (client-side history; not persisted server-side). */
+/** One recorded simulation run. Finished runs are stored on disk with their
+ *  project by the engine and listed again when the project is opened. */
 export interface SimRun {
   id: string;
   caseId: string;
@@ -181,6 +182,18 @@ export interface SimRun {
   sweepParam?: string; // display label of the swept parameter
   sweepValue?: number; // the value used for this run
   sweepUnit?: string;
+  /** Why the run did not finish normally (stopped, failed, connection lost).
+   *  Its numbers are partial, so sweeps leave it out of their curve and
+   *  tables unless the user asks to see it. */
+  incomplete?: string;
+}
+
+/** A project's stored run as the engine lists it: the run without its
+ *  channel data, plus its summary values and its compressed size on disk. */
+export interface StoredRunInfo extends Omit<SimRun, "status" | "result"> {
+  status: SimResult["status"];
+  summary: SummaryValue[];
+  bytes: number;
 }
 
 export interface DataCheck {
