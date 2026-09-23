@@ -556,6 +556,8 @@ class RunContext:
                             rt.warn_once(f"shed:{c_id}",
                                          f"Power consumer '{model.elements[c_id].label}' cut back "
                                          f"at t = {t:.0f} s — its source cannot supply it.")
+                    if root.battery:
+                        self.limit_message(root, True, t)  # say which battery limit
             for c_id, p_w in demand.items():
                 self.consumer_w[c_id] = p_w * k
             for d, sp in setpoint.items():
