@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Cable, Trash2 } from "lucide-react";
-import { useProjectStore } from "../../store/projectStore";
+import { portsOf, useProjectStore } from "../../store/projectStore";
 import { componentIcon } from "../../icons";
 import type { ElementInstance, PortDef } from "../../types";
 
@@ -28,8 +28,9 @@ function ElementColumn({
     return project.systems
       .flatMap((s) => s.elements)
       .filter((el) => {
+        // a Monitor or Script is listed before it has ports of its own
         const def = libraryById[el.componentDefId];
-        if (!def?.ports.some((p) => p.kind === "signal")) return false;
+        if (!def?.allowDynamicPorts && !def?.ports.some((p) => p.kind === "signal")) return false;
         return !q || el.label.toLowerCase().includes(q);
       });
   }, [project, libraryById, filter]);
@@ -76,7 +77,7 @@ function PortColumn({
 }) {
   const libraryById = useProjectStore((s) => s.libraryById);
   const ports: PortDef[] = element
-    ? (libraryById[element.componentDefId]?.ports.filter((p) => p.kind === "signal") ?? [])
+    ? portsOf(element, libraryById).filter((p) => p.kind === "signal")
     : [];
   return (
     <div className="flex min-w-0 flex-1 flex-col border-r border-[color:var(--ss-border)]">
@@ -106,10 +107,10 @@ function PortColumn({
               </td>
             </tr>
           ))}
-          {!element && (
+          {ports.length === 0 && (
             <tr>
               <td className="ss-td text-[11px] text-[color:var(--ss-text-dim)]" colSpan={3}>
-                Select an element.
+                {element ? "No ports yet: add one in Properties." : "Select an element."}
               </td>
             </tr>
           )}
@@ -135,8 +136,7 @@ export function DataBusPanel() {
 
   const portName = (elId: string, portId: string) => {
     const el = allElements.get(elId);
-    const def = el && libraryById[el.componentDefId];
-    return def?.ports.find((p) => p.id === portId)?.name ?? portId;
+    return (el && portsOf(el, libraryById).find((p) => p.id === portId)?.name) ?? portId;
   };
 
   const canConnect = sel1.elementId && sel1.portId && sel2.elementId && sel2.portId;

@@ -739,6 +739,19 @@ describe("elements and wiring", () => {
     ]);
   });
 
+  it("links a signal to a port added on a Monitor (UX-40)", async () => {
+    await start();
+    store().addElement("signal.monitor", { x: 0, y: 0 });
+    const monitor = store().selectedElementId!;
+    store().setDynamicPorts(monitor, [
+      { id: "in_1", name: "in_1", direction: "input", kind: "signal", unitGroup: "No Unit" },
+    ]);
+    store().addDataBus("el-const", "sig_out", monitor, "in_1");
+    expect(store().project!.dataBusConnections).toEqual([
+      expect.objectContaining({ element1Id: "el-const", port1Id: "sig_out", element2Id: monitor, port2Id: "in_1" }),
+    ]);
+  });
+
   it("removes wires and data-bus links by id, undoably", async () => {
     await start();
     store().addConnection("el-const", "sig_out", "el-motor", "sig_demand_in");
