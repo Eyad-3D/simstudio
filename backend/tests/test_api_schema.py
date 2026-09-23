@@ -53,6 +53,8 @@ UNDECLARED = {
         "400": "Invalid id or unreadable backup",
         "404": "No such backup",
     },
+    ("get", "/api/examples/{example_id}"): {"400": "Invalid example id", "404": "No such example"},
+    ("post", "/api/examples/{example_id}/hide"): {"400": "Invalid example id", "404": "No such example"},
 }
 ERROR_BODY = {
     "application/json": {
@@ -86,7 +88,7 @@ CHECKS = [
 
 @pytest.fixture(scope="module")
 def projects_dir(tmp_path_factory):
-    # the engine copies the example projects in on first use
+    # saves, hidden examples and runs land here, not in the user's folder
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv("SIMSTUDIO_PROJECTS_DIR", str(tmp_path_factory.mktemp("projects")))
         yield

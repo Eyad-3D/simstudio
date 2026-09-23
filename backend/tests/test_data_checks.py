@@ -5,7 +5,7 @@ from helpers import bev_axle, conn, dbc, el, project
 
 from app.main import app
 from app.schemas import Connection, Project
-from app.storage import load_project
+from app.storage import load_example
 from app.validation import validate_project
 
 client = TestClient(app)
@@ -18,7 +18,7 @@ def _errors(project):
 # ---- UX-37: two signals wired into one input ----------------------------------------
 
 def test_two_sources_on_one_input_is_an_error_naming_both_links():
-    proj = load_project("bev-car")
+    proj = load_example("bev-car")
     proj.dataBusConnections.append(dbc(99, "el-vehicle", "sig_speed", "el-driver", "sig_target_in"))
     errors = [e for e in _errors(proj) if "sources" in e]
     assert errors == [
@@ -30,7 +30,7 @@ def test_two_sources_on_one_input_is_an_error_naming_both_links():
 
 
 def test_the_run_is_refused_instead_of_driving_zero_km():
-    proj = load_project("bev-car")
+    proj = load_example("bev-car")
     proj.dataBusConnections.append(dbc(99, "el-vehicle", "sig_speed", "el-driver", "sig_target_in"))
     result = client.post("/api/simulate",
                          json={"project": proj.model_dump(), "caseId": "case-city"}).json()
@@ -39,7 +39,7 @@ def test_the_run_is_refused_instead_of_driving_zero_km():
 
 
 def test_fan_in_is_found_across_canvas_wires_and_data_bus_links():
-    proj = load_project("hybrid-car")
+    proj = load_example("hybrid-car")
     # an older file kept a signal link as a canvas wire, input side first
     proj.systems[0].connections.append(Connection(
         id="c-sig", sourceElementId="el-hcu", sourcePortId="soc",
@@ -52,7 +52,7 @@ def test_fan_in_is_found_across_canvas_wires_and_data_bus_links():
 
 
 def test_repeated_link_and_fan_out_are_fine():
-    proj = load_project("bev-car")
+    proj = load_example("bev-car")
     # the same link twice feeds the input from one source only
     proj.dataBusConnections.append(dbc(98, "el-task", "sig_demand", "el-driver", "sig_target_in"))
     # one output feeding many inputs (brake command → four brakes) is normal
@@ -61,14 +61,14 @@ def test_repeated_link_and_fan_out_are_fine():
 
 def test_shipped_examples_have_no_fan_in():
     for name in ("bev-car", "hybrid-car"):
-        assert not [e for e in _errors(load_project(name)) if "sources" in e]
+        assert not [e for e in _errors(load_example(name)) if "sources" in e]
 
 
 # ---- VAL-01: models that cannot drive must not pass -------------------------------
 
 def _without(name: str, *faults: str) -> Project:
     """The example with elements (and their wires/links), wires or links deleted."""
-    d = load_project(name).model_dump()
+    d = load_example(name).model_dump()
     for s in d["systems"]:
         s["elements"] = [e for e in s["elements"] if e["id"] not in faults]
         s["connections"] = [c for c in s["connections"] if not set(faults) &
@@ -128,7 +128,7 @@ def test_the_run_is_refused_instead_of_success_with_zero_km():
 
 
 def test_all_clear_says_what_was_and_was_not_checked():
-    texts = [c.text for c in validate_project(load_project("bev-car"))]
+    texts = [c.text for c in validate_project(load_example("bev-car"))]
     assert len(texts) == 1 and texts[0].startswith("All data checks passed: wiring, power supply")
     assert "ready to run" not in texts[0] and "cannot tell whether the results" in texts[0]
 
@@ -184,7 +184,7 @@ def test_a_locked_differential_may_have_a_free_output():
     ("el-battery", "initial_soc_pct", 4, "starts at 4 % SOC, at or below its minimum of 4 %"),
 ])
 def test_implausible_parameters_are_warned_about(element, key, value, expected):
-    proj = load_project("bev-car")
+    proj = load_example("bev-car")
     target = next(e for e in proj.systems[0].elements if e.id == element)
     target.parameterOverrides[key] = value
     new = [c for c in validate_project(proj) if c.level != "info"]
@@ -192,7 +192,7 @@ def test_implausible_parameters_are_warned_about(element, key, value, expected):
 
 
 def test_wheel_load_shares_must_add_up():
-    proj = load_project("bev-car")
+    proj = load_example("bev-car")
     for e in proj.systems[0].elements:
         if e.componentDefId == "propulsion.wheel":
             e.parameterOverrides["vehicle_load_share_pct"] = 5

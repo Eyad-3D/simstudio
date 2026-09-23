@@ -18,7 +18,9 @@ vi.mock("../api", () => ({
   fetchVersion: vi.fn(),
   fetchDemoProject: vi.fn(),
   fetchProject: vi.fn(),
-  listProjects: vi.fn(),
+  fetchExample: vi.fn(),
+  hideExample: vi.fn(),
+  restoreExamples: vi.fn(),
   saveProject: vi.fn(),
   validateProject: vi.fn(),
   runSimulation: vi.fn(),
@@ -86,6 +88,14 @@ const allElementIds = () => store().project!.systems.flatMap((s) => s.elements.m
 const findElement = (id: string) =>
   store().project!.systems.flatMap((s) => s.elements).find((e) => e.id === id);
 const messages = () => store().messages.map((m) => `${m.level}: ${m.text}`);
+/** Start the app and open the fixture, a project saved on disk. (Start-up
+ *  itself opens the demo example as an unsaved copy: see "start-up".) */
+async function start(): Promise<void> {
+  await store().init();
+  api.fetchProject.mockResolvedValueOnce(fixture());
+  await store().openProject("fixture");
+}
+
 /** Let the store's background work (reading stored runs) finish. */
 const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -152,17 +162,44 @@ beforeEach(async () => {
 });
 
 describe("start-up", () => {
-  it("opens the example project, clean, when there is no recovery draft", async () => {
+  it("opens the demo example as an unsaved copy, clean, when there is no recovery draft", async () => {
     await store().init();
     const s = store();
     expect(s.loaded).toBe(true);
     expect(s.offline).toBe(false);
     expect(s.library).toHaveLength(library.components.length);
-    expect(s.project?.id).toBe("fixture");
+    // an id of its own: Save makes a new project, and its runs are its own
+    expect(s.project?.id).toMatch(/^fixture-[a-z0-9]+$/);
+    expect(s.project?.name).toBe("Fixture");
+    expect(s.exampleId).toBe("fixture");
+    expect(s.revision).toBeNull();
     expect(s.activeSystemId).toBe("sys-root");
     expect(s.activeCaseId).toBe("case-1");
     expect(s.dirty).toBe(false);
     expect(messages()).toContain("info: Project 'Fixture' opened.");
+    expect(api.listRuns).toHaveBeenCalledWith(s.project?.id);
+    expect(api.listRuns).not.toHaveBeenCalledWith("fixture");
+  });
+
+  it("reopens a clean copy of an example as the example's current version, under the copy's id", async () => {
+    persist.saveDraft(fixture({ id: "bev-car-abc1234", name: "Example as it was" }), true, null, "bev-car");
+    api.fetchExample.mockResolvedValue(fixture({ id: "bev-car", name: "Example as updated" }));
+    await store().init();
+    expect(api.fetchExample).toHaveBeenCalledWith("bev-car");
+    expect(api.fetchProject).not.toHaveBeenCalled();
+    expect(store().project).toMatchObject({ id: "bev-car-abc1234", name: "Example as updated" });
+    expect(store()).toMatchObject({ exampleId: "bev-car", revision: null, dirty: false });
+    expect(api.listRuns).toHaveBeenCalledWith("bev-car-abc1234"); // the runs made on the copy
+  });
+
+  it("keeps an unsaved copy of an example as it was, still to be saved as a new project", async () => {
+    persist.saveDraft(fixture({ id: "bev-car-abc1234", name: "Edited" }), false, null, "bev-car");
+    await store().init();
+    expect(api.fetchExample).not.toHaveBeenCalled();
+    expect(store().project).toMatchObject({ id: "bev-car-abc1234", name: "Edited" });
+    expect(store()).toMatchObject({ exampleId: "bev-car", dirty: true });
+    await store().saveRemote();
+    expect(api.saveProject).toHaveBeenCalledWith(expect.objectContaining({ id: "bev-car-abc1234" }), null);
   });
 
   it("restores an unsaved draft and keeps it flagged as unsaved", async () => {
@@ -205,11 +242,141 @@ describe("start-up", () => {
     expect(store().project?.name).toBe("Kept copy");
     expect(messages().some((m) => m.startsWith("warning: Backend not reachable"))).toBe(true);
   });
+
+  it("offline with no draft: the bundled demo opens as a copy", async () => {
+    api.fetchLibrary.mockResolvedValue({
+      components: library.components,
+      unitGroups: library.unitGroups,
+      offline: true,
+    });
+    api.fetchDemoProject.mockResolvedValue({ project: fixture({ id: "bev-car", name: "Demo" }), offline: true });
+    await store().init();
+    expect(store().project?.id).toMatch(/^bev-car-/);
+    expect(store()).toMatchObject({ exampleId: "bev-car", dirty: false });
+  });
+});
+
+describe("examples", () => {
+  const example = () => fixture({ id: "bev-car", name: "BEV example" });
+
+  it("an example opens as a clean, unsaved copy with an id of its own", async () => {
+    await start();
+    store().renameElement("el-bat", "Pack");
+    api.fetchExample.mockResolvedValue(example());
+    await store().openExample("bev-car");
+    const s = store();
+    expect(api.fetchExample).toHaveBeenCalledWith("bev-car");
+    expect(s.project?.id).toMatch(/^bev-car-[a-z0-9]+$/);
+    expect(s.project?.name).toBe("BEV example");
+    expect(s.project?.systems).toEqual(example().systems);
+    expect(s).toMatchObject({ exampleId: "bev-car", revision: null, dirty: false, runs: [], past: [] });
+    expect(s.activeSystemId).toBe("sys-root");
+    expect(messages()).toContain(
+      "info: Example 'BEV example' opened as a copy. Save keeps it as a new project of yours; the example stays as it is.",
+    );
+  });
+
+  it("Save keeps the copy as a new project and never writes the example", async () => {
+    await start();
+    api.fetchExample.mockResolvedValue(example());
+    await store().openExample("bev-car");
+    const copyId = store().project!.id;
+    store().renameElement("el-bat", "Pack");
+    api.saveProject.mockResolvedValue({ saved: copyId, revision: "rev-1" });
+
+    await store().saveRemote();
+    // a new file (If-None-Match: *) under the copy's id
+    expect(api.saveProject).toHaveBeenLastCalledWith(expect.objectContaining({ id: copyId }), null);
+    expect(store()).toMatchObject({ exampleId: null, revision: "rev-1", dirty: false });
+    expect(messages()).toContain(
+      "info: Project 'BEV example' saved to the server as a new project; the example it was copied from is unchanged.",
+    );
+
+    // from now on it is a project of the user's, saved over like any other
+    store().renameElement("el-bat", "Pack 2");
+    await store().saveRemote();
+    expect(api.saveProject).toHaveBeenLastCalledWith(expect.objectContaining({ id: copyId }), "rev-1");
+    expect(messages()).toContain("info: Project 'BEV example' saved to the server.");
+    expect(api.saveProject).not.toHaveBeenCalledWith(expect.objectContaining({ id: "bev-car" }), expect.anything());
+  });
+
+  it("the copy's runs are its own, apart from a project of the example's id", async () => {
+    // an earlier version copied the example into the projects folder, and it was run there
+    folder("bev-car").set("run-old", {
+      id: "run-old",
+      caseId: "case-1",
+      caseName: "Case 1",
+      startedAt: 1_000,
+      status: "success",
+      result: { caseId: "case-1", status: "success", messages: [], channels: [], summary: [] },
+    });
+    await start();
+    api.fetchExample.mockResolvedValue(example());
+    await store().openExample("bev-car");
+    await settled();
+    expect(store().runs).toEqual([]);
+    expect(api.listRuns).not.toHaveBeenCalledWith("bev-car");
+
+    engineFinishesRuns();
+    await store().run();
+    await settled();
+    const copyId = store().project!.id;
+    expect(api.storeRun).toHaveBeenCalledWith(copyId, expect.anything());
+    expect([...folder("bev-car").keys()]).toEqual(["run-old"]);
+  });
+
+  it("an example that cannot be read leaves the open project as it was", async () => {
+    await start();
+    store().renameElement("el-bat", "Pack");
+    api.fetchExample.mockRejectedValue(new Error("404 Example 'gone' not found"));
+    await store().openExample("gone");
+    expect(store()).toMatchObject({ exampleId: null, dirty: true });
+    expect(store().project?.id).toBe("fixture");
+    expect(messages()).toContain("error: Failed to open the example: 404 Example 'gone' not found");
+  });
+
+  it("opening, creating or importing another project ends the copy's tie to its example", async () => {
+    await start();
+    api.fetchExample.mockResolvedValue(example());
+    for (const other of [
+      () => store().newProject(),
+      () => store().importProject(JSON.stringify(fixture({ id: "imported" }))),
+      () => store().openAsCopy(fixture(), "Copy", "Opened a copy."),
+      () => store().openProject("fixture"),
+    ]) {
+      await store().openExample("bev-car");
+      expect(store().exampleId).toBe("bev-car");
+      api.fetchProject.mockResolvedValueOnce(fixture());
+      await other();
+      expect(store().exampleId).toBeNull();
+    }
+  });
+
+  it("hides an example from the Open menu and restores the hidden ones", async () => {
+    await start();
+    api.hideExample.mockResolvedValue({ hidden: "bev-car" });
+    expect(await store().hideExample("bev-car", "BEV example")).toBe(true);
+    expect(api.hideExample).toHaveBeenCalledWith("bev-car");
+    expect(messages()).toContain(
+      "info: Example 'BEV example' hidden from the Open menu (Restore hidden examples brings it back).",
+    );
+
+    api.restoreExamples.mockResolvedValue({ restored: ["bev-car"] });
+    await store().restoreExamples();
+    expect(messages()).toContain("info: 1 hidden example(s) are back in the Open menu.");
+
+    api.hideExample.mockRejectedValue(new Error("500 disk full"));
+    expect(await store().hideExample("bev-car", "BEV example")).toBe(false);
+    api.restoreExamples.mockRejectedValue(new Error("500 disk full"));
+    await store().restoreExamples();
+    expect(messages()).toContain("error: Could not hide the example: 500 disk full");
+    expect(messages()).toContain("error: Could not restore the examples: 500 disk full");
+  });
 });
 
 describe("dirty tracking and save", () => {
   it("an edit marks the project unsaved and Save clears the flag", async () => {
-    await store().init();
+    await start();
     store().renameElement("el-bat", "Pack");
     expect(store().dirty).toBe(true);
 
@@ -222,7 +389,7 @@ describe("dirty tracking and save", () => {
   });
 
   it("a failed save keeps the project flagged as unsaved", async () => {
-    await store().init();
+    await start();
     store().renameElement("el-bat", "Pack");
     api.saveProject.mockRejectedValue(new Error("500 disk full"));
     await store().saveRemote();
@@ -231,7 +398,7 @@ describe("dirty tracking and save", () => {
   });
 
   it("an edit made while a save is in flight stays unsaved", async () => {
-    await store().init();
+    await start();
     store().renameElement("el-bat", "Pack");
     let finish!: (value: { saved: string }) => void;
     api.saveProject.mockReturnValue(new Promise((resolve) => (finish = resolve)));
@@ -245,7 +412,7 @@ describe("dirty tracking and save", () => {
   });
 
   it("selection and case switching do not count as edits", async () => {
-    await store().init();
+    await start();
     store().select("el-bat");
     store().setActiveCase("case-1");
     expect(store().dirty).toBe(false);
@@ -255,7 +422,7 @@ describe("dirty tracking and save", () => {
 
 describe("project lifecycle", () => {
   it("Open replaces the project and resets history, selection, runs and checks", async () => {
-    await store().init();
+    await start();
     store().addElement("signal.constant", { x: 10, y: 10 });
     useProjectStore.setState({ dataChecks: [] });
     api.fetchProject.mockResolvedValue(
@@ -279,7 +446,7 @@ describe("project lifecycle", () => {
   });
 
   it("a failed Open keeps the current project and its unsaved edits", async () => {
-    await store().init();
+    await start();
     store().renameElement("el-bat", "Pack");
     api.fetchProject.mockRejectedValue(new Error("404 Project 'nope' not found"));
     await store().openProject("nope");
@@ -290,7 +457,7 @@ describe("project lifecycle", () => {
   });
 
   it("New starts an empty, clean project with one case", async () => {
-    await store().init();
+    await start();
     store().renameElement("el-bat", "Pack");
     store().newProject();
     const s = store();
@@ -305,7 +472,7 @@ describe("project lifecycle", () => {
   });
 
   it("Import loads a project file as unsaved work and fills in missing lists", async () => {
-    await store().init();
+    await start();
     const file = fixture({ id: "imported", name: "Imported" }) as Partial<Project>;
     delete file.dataBusConnections;
     delete file.cases;
@@ -317,7 +484,7 @@ describe("project lifecycle", () => {
   });
 
   it("a copy opens as a new, unsaved project with an id of its own", async () => {
-    await store().init();
+    await start();
     const source = fixture({ name: "Old version", cases: [{ id: "case-9", name: "Old case", duration: 5, timeStep: 1 }] });
     store().openAsCopy(source, "Old version (copy)", "Opened a copy.");
     const s = store();
@@ -336,7 +503,7 @@ describe("project lifecycle", () => {
   });
 
   it("Import rejects files that are not projects and keeps the current one", async () => {
-    await store().init();
+    await start();
     store().importProject("{broken");
     store().importProject(JSON.stringify({ name: "no id or systems" }));
     expect(store().project?.id).toBe("fixture");
@@ -354,13 +521,13 @@ describe("asking before a project is replaced", () => {
   }
 
   it("goes ahead without asking when nothing is unsaved", async () => {
-    await store().init();
+    await start();
     expect(await confirmReplaceProject("Opening 'Other'")).toBe(true);
     expect(useUIStore.getState().dialog).toBeNull();
   });
 
   it("Don't save goes ahead, Cancel does not, and neither saves", async () => {
-    await store().init();
+    await start();
     store().renameElement("el-bat", "Pack");
     const discard = confirmReplaceProject("Opening 'Other'");
     answer("discard");
@@ -372,7 +539,7 @@ describe("asking before a project is replaced", () => {
   });
 
   it("Save goes ahead once the save worked, and not when it failed", async () => {
-    await store().init();
+    await start();
     store().renameElement("el-bat", "Pack");
     api.saveProject.mockRejectedValueOnce(new Error("500 disk full"));
     const failed = confirmReplaceProject("Opening 'Other'");
@@ -387,7 +554,7 @@ describe("asking before a project is replaced", () => {
 
 describe("undo / redo", () => {
   it("steps back and forward through edits", async () => {
-    await store().init();
+    await start();
     const before = allElementIds().length;
     store().addElement("signal.constant", { x: 10, y: 10 });
     expect(allElementIds()).toHaveLength(before + 1);
@@ -403,7 +570,7 @@ describe("undo / redo", () => {
   });
 
   it("a new edit after undo discards the redo branch", async () => {
-    await store().init();
+    await start();
     store().renameElement("el-bat", "A");
     store().undo();
     store().renameElement("el-node", "B");
@@ -413,7 +580,7 @@ describe("undo / redo", () => {
   });
 
   it("undo and redo with no history do nothing", async () => {
-    await store().init();
+    await start();
     const project = store().project;
     store().undo();
     store().redo();
@@ -422,7 +589,7 @@ describe("undo / redo", () => {
   });
 
   it("rapid edits to one field share an undo step; a pause starts a new one", async () => {
-    await store().init();
+    await start();
     let t = 1_000_000;
     vi.spyOn(Date, "now").mockImplementation(() => t);
     store().setParameter("el-shaft", "efficiency_pct", 9);
@@ -440,7 +607,7 @@ describe("undo / redo", () => {
   });
 
   it("a drag is one undo step (beginHistory + moves)", async () => {
-    await store().init();
+    await start();
     store().beginHistory();
     for (const x of [5, 10, 15]) store().moveElement("el-bat", { x, y: 0 });
     expect(store().past).toHaveLength(1);
@@ -450,7 +617,7 @@ describe("undo / redo", () => {
   });
 
   it("keeps at most 50 undo steps", async () => {
-    await store().init();
+    await start();
     for (let i = 0; i < 60; i++) store().addCase();
     expect(store().past).toHaveLength(50);
     for (let i = 0; i < 60; i++) store().undo();
@@ -459,7 +626,7 @@ describe("undo / redo", () => {
   });
 
   it("keeps at most 50 drag steps too", async () => {
-    await store().init();
+    await start();
     for (let x = 1; x <= 60; x++) {
       store().beginHistory();
       store().moveElement("el-bat", { x, y: 0 });
@@ -473,7 +640,7 @@ describe("undo / redo", () => {
 
 describe("elements and wiring", () => {
   it("adds an element with a numbered label and selects it", async () => {
-    await store().init();
+    await start();
     store().addElement("battery.generic", { x: 40, y: 60 });
     const added = rootSystem().elements.at(-1)!;
     expect(added.componentDefId).toBe("battery.generic");
@@ -484,14 +651,14 @@ describe("elements and wiring", () => {
   });
 
   it("ignores unknown component types", async () => {
-    await store().init();
+    await start();
     store().addElement("no.such.component", { x: 0, y: 0 });
     expect(allElementIds()).toHaveLength(5);
     expect(store().dirty).toBe(false);
   });
 
   it("a System container gets its own sub-system, and deleting it removes the whole subtree", async () => {
-    await store().init();
+    await start();
     store().addElement("container.system", { x: 0, y: 0 });
     const container = rootSystem().elements.at(-1)!;
     expect(container.isSubSystem).toBe(true);
@@ -510,7 +677,7 @@ describe("elements and wiring", () => {
   });
 
   it("deleting an element drops the wires and data-bus links on it and clears the selection", async () => {
-    await store().init();
+    await start();
     store().addConnection("el-const", "sig_out", "el-motor", "sig_demand_in");
     expect(store().project!.dataBusConnections).toHaveLength(1);
 
@@ -527,7 +694,7 @@ describe("elements and wiring", () => {
   });
 
   it("wires two compatible ports", async () => {
-    await store().init();
+    await start();
     store().addConnection("el-node", "t2", "el-motor", "pos");
     const wires = rootSystem().connections;
     expect(wires).toHaveLength(2);
@@ -541,7 +708,7 @@ describe("elements and wiring", () => {
   });
 
   it("refuses to wire ports of different kinds and says why", async () => {
-    await store().init();
+    await start();
     store().addConnection("el-motor", "shaft", "el-node", "t2");
     store().addConnection("el-const", "sig_out", "el-node", "t2");
     expect(rootSystem().connections).toHaveLength(1);
@@ -551,7 +718,7 @@ describe("elements and wiring", () => {
   });
 
   it("ignores a duplicate wire drawn in either direction", async () => {
-    await store().init();
+    await start();
     store().addConnection("el-bat", "pos", "el-node", "t1");
     store().addConnection("el-node", "t1", "el-bat", "pos");
     expect(rootSystem().connections).toHaveLength(1);
@@ -559,7 +726,7 @@ describe("elements and wiring", () => {
   });
 
   it("stores signal wiring as a data-bus link", async () => {
-    await store().init();
+    await start();
     store().addConnection("el-const", "sig_out", "el-motor", "sig_demand_in");
     expect(rootSystem().connections).toHaveLength(1);
     expect(store().project!.dataBusConnections).toEqual([
@@ -573,7 +740,7 @@ describe("elements and wiring", () => {
   });
 
   it("removes wires and data-bus links by id, undoably", async () => {
-    await store().init();
+    await start();
     store().addConnection("el-const", "sig_out", "el-motor", "sig_demand_in");
     const dbc = store().project!.dataBusConnections[0].id;
     store().removeConnections(["c-1", dbc]);
@@ -589,7 +756,7 @@ describe("data checks gate", () => {
   const error: DataCheck = { level: "error", text: "Port 'pos' is not connected." };
 
   it("Data Checks stores the engine's findings", async () => {
-    await store().init();
+    await start();
     api.validateProject.mockResolvedValue([error]);
     const checks = await store().runDataChecks();
     expect(checks).toEqual([error]);
@@ -599,7 +766,7 @@ describe("data checks gate", () => {
   });
 
   it("an error-level check blocks the run before it reaches the engine", async () => {
-    await store().init();
+    await start();
     api.validateProject.mockResolvedValue([error]);
     await store().run();
     expect(api.runSimulationLive).not.toHaveBeenCalled();
@@ -620,7 +787,7 @@ describe("run history", () => {
   }
 
   it("a finished run is stored newest first and becomes the active run", async () => {
-    await store().init();
+    await start();
     engineFinishesRuns();
     const [first, second] = await runTimes(2);
     const s = store();
@@ -632,14 +799,14 @@ describe("run history", () => {
   });
 
   it("keeps only the 20 newest runs", async () => {
-    await store().init();
+    await start();
     engineFinishesRuns();
     const ids = await runTimes(22);
     expect(store().runs.map((r) => r.id)).toEqual(ids.slice(2).reverse());
   });
 
   it("removing the active run falls back to the newest one left; Clear empties the history", async () => {
-    await store().init();
+    await start();
     engineFinishesRuns();
     const [oldest, middle, newest] = await runTimes(3);
     store().setActiveRun(middle);
@@ -670,7 +837,7 @@ describe("stored runs", () => {
 
   it("opening a project lists its stored runs and reads the newest 20", async () => {
     stored("fixture", history(22));
-    await store().init();
+    await start();
     await settled();
     expect(api.listRuns).toHaveBeenCalledWith("fixture");
     expect(store().storedRunCount).toBe(22);
@@ -687,7 +854,7 @@ describe("stored runs", () => {
       if (runId === "run-1") throw new Error("500 corrupt file");
       return run(runId, 1_000 + Number(runId.slice(4)));
     });
-    await store().init();
+    await start();
     await settled();
     expect(shownIds()).toEqual(["run-2", "run-0"]);
     expect(messages()).toContain("warning: 1 stored run(s) could not be read and are not listed.");
@@ -695,7 +862,7 @@ describe("stored runs", () => {
 
   it("a project whose runs cannot be listed opens without them, with a warning", async () => {
     api.listRuns.mockRejectedValue(new Error("500 disk unreadable"));
-    await store().init();
+    await start();
     await settled();
     expect(store().runs).toEqual([]);
     expect(store().runsLoading).toBe(false);
@@ -703,7 +870,7 @@ describe("stored runs", () => {
   });
 
   it("a finished run is stored with its project", async () => {
-    await store().init();
+    await start();
     engineFinishesRuns();
     await store().run();
     const id = store().activeRunId!;
@@ -717,7 +884,7 @@ describe("stored runs", () => {
 
   it("runs the disk budget deleted drop out of the history, with a warning", async () => {
     stored("fixture", history(2));
-    await store().init();
+    await start();
     await settled();
     engineFinishesRuns();
     api.storeRun.mockResolvedValueOnce({ saved: "x", stored: 2, bytes: 0, budget: 500 * 2 ** 20, pruned: ["run-0"] });
@@ -730,7 +897,7 @@ describe("stored runs", () => {
   });
 
   it("a run that cannot be stored stays listed for this session, with a warning", async () => {
-    await store().init();
+    await start();
     engineFinishesRuns();
     api.storeRun.mockRejectedValueOnce(new Error("507 disk full"));
     await store().run();
@@ -743,7 +910,7 @@ describe("stored runs", () => {
 
   it("deleting a run deletes it on disk and lists the next older stored run in its place", async () => {
     stored("fixture", history(21));
-    await store().init();
+    await start();
     await settled();
     expect(shownIds()).not.toContain("run-0");
     await store().removeRun("run-20");
@@ -757,7 +924,7 @@ describe("stored runs", () => {
   });
 
   it("deleting a run that was never stored is not an error; other failures are", async () => {
-    await store().init();
+    await start();
     engineFinishesRuns();
     api.storeRun.mockRejectedValueOnce(new Error("507 disk full"));
     await store().run();
@@ -774,7 +941,7 @@ describe("stored runs", () => {
 
   it("Clear deletes every stored run; when that fails they are listed again", async () => {
     stored("fixture", history(3));
-    await store().init();
+    await start();
     await settled();
     await store().clearRuns();
     expect(api.deleteRuns).toHaveBeenCalledWith("fixture");
@@ -800,7 +967,7 @@ describe("stored runs", () => {
       run("point-1", 5_000, { ...sweep, sweepValue: 1 }),
       run("point-2", 6_000, { ...sweep, sweepValue: 2, incomplete: "stopped at t = 3 s" }),
     ]);
-    await store().init();
+    await start();
     await settled();
     expect(shownIds()[0]).toBe("point-2");
     expect(store().activeRunId).toBe("single");
@@ -812,16 +979,18 @@ describe("stored runs", () => {
       run("point-1", 5_000, { ...sweep, sweepValue: 1 }),
       run("point-2", 6_000, { ...sweep, sweepValue: 2, incomplete: "stopped at t = 3 s" }),
     ]);
-    await store().init();
+    await start();
     await settled();
     expect(store().activeRunId).toBe("point-2");
   });
 
   it("stored runs that arrive after another project was opened are dropped", async () => {
     stored("fixture", history(2));
+    await store().init();
     let answer!: (index: StoredRunInfo[]) => void;
     api.listRuns.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
-    await store().init();
+    api.fetchProject.mockResolvedValueOnce(fixture());
+    await store().openProject("fixture");
     api.fetchProject.mockResolvedValue(fixture({ id: "other", name: "Other" }));
     await store().openProject("other");
     answer(history(2).map(info));
@@ -848,7 +1017,7 @@ describe("run snapshots", () => {
   }
 
   it("a run carries the model, case settings, app version and fingerprint it was made with", async () => {
-    await store().init();
+    await start();
     engineFinishesRuns();
     const model = store().project!;
     await store().run();
@@ -862,7 +1031,7 @@ describe("run snapshots", () => {
   });
 
   it("live edits made while it runs are logged; the model stays as the run started", async () => {
-    await store().init();
+    await start();
     const { handle, finish } = liveRun();
     const running = store().run();
     await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalled());
@@ -887,7 +1056,7 @@ describe("run snapshots", () => {
   });
 
   it("each sweep point's snapshot holds its swept value", async () => {
-    await store().init();
+    await start();
     engineFinishesRuns();
     await store().runSweep({ caseId: "case-1", elementId: "el-shaft", paramKey: "efficiency_pct", values: [80, 90] });
     const swept = store()
@@ -898,7 +1067,7 @@ describe("run snapshots", () => {
   });
 
   it("the model left out of a snapshot is only the project's saved studies", async () => {
-    await store().init();
+    await start();
     engineFinishesRuns();
     await store().runSweep({ caseId: "case-1", elementId: "el-shaft", paramKey: "efficiency_pct", values: [80] });
     expect(store().project!.studies).toHaveLength(1);
@@ -910,7 +1079,7 @@ describe("run snapshots", () => {
   });
 
   it("a run's model opens as an unsaved copy, on the run's case", async () => {
-    await store().init();
+    await start();
     engineFinishesRuns();
     store().addCase();
     await store().run();
@@ -937,7 +1106,7 @@ describe("run snapshots", () => {
       status: "success",
       result: { caseId: "case-1", status: "success", messages: [], channels: [], summary: [] },
     });
-    await store().init();
+    await start();
     await settled();
     store().openRunModel("old");
     expect(store().project?.id).toBe("fixture");
@@ -967,7 +1136,7 @@ describe("studies", () => {
   }
 
   it("a finished sweep is saved with the project as a study with its results table", async () => {
-    await store().init();
+    await start();
     engineAnswers();
     await sweep([80, 95]);
     const [study] = store().project!.studies!;
@@ -1012,7 +1181,7 @@ describe("studies", () => {
   });
 
   it("a second 16-point sweep leaves the first study's table intact", async () => {
-    await store().init();
+    await start();
     engineAnswers();
     await sweep(range(16, 60));
     const first = structuredClone(store().project!.studies![0]);
@@ -1027,7 +1196,7 @@ describe("studies", () => {
   });
 
   it("a stopped sweep lists the stopped point and the points not run", async () => {
-    await store().init();
+    await start();
     api.validateProject.mockResolvedValue([]);
     api.runSimulationLive.mockImplementation((_project, caseId) => {
       let stop!: () => void;
@@ -1055,7 +1224,7 @@ describe("studies", () => {
   });
 
   it("a summary value that is not a finite number is left out of the table", async () => {
-    await store().init();
+    await start();
     api.validateProject.mockResolvedValue([]);
     api.runSimulationLive.mockImplementation((_project, caseId) => ({
       setParam: vi.fn(),
@@ -1076,7 +1245,7 @@ describe("studies", () => {
   });
 
   it("undo and redo leave studies alone; a study can be deleted", async () => {
-    await store().init();
+    await start();
     engineAnswers();
     store().renameElement("el-bat", "Pack");
     await sweep([80, 90]);
@@ -1093,7 +1262,7 @@ describe("studies", () => {
   });
 
   it("a study saved with a project comes back when it is opened again", async () => {
-    await store().init();
+    await start();
     engineAnswers();
     await sweep([80, 90]);
     const saved = store().project!;

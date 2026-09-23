@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from app import storage
 from app.main import app
-from app.paths import SEED_PROJECTS_DIR
+from app.paths import EXAMPLES_DIR
 from app.schemas import Project
 from app.validation import validate_project
 
@@ -21,11 +21,10 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def _projects_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("SIMSTUDIO_PROJECTS_DIR", str(tmp_path))
-    (tmp_path / ".seeded").write_text("test")  # no examples copied in
 
 
 def _example(name: str) -> dict:
-    return json.loads((SEED_PROJECTS_DIR / f"{name}.json").read_text(encoding="utf-8"))
+    return json.loads((EXAMPLES_DIR / f"{name}.json").read_text(encoding="utf-8"))
 
 
 def _with_ui_fields(raw: dict) -> dict:

@@ -185,7 +185,7 @@ def test_desktop_window_gets_the_cookie_and_then_works(desktop):
     # every later call is the UI's own: same origin, cookie sent by the browser
     own = {"Origin": "http://127.0.0.1:47815"}
     assert client.get("/api/library").status_code == 200
-    project = client.get("/api/projects/bev-car").json()
+    project = client.get("/api/examples/bev-car").json()
     r = client.post("/api/validate", json={"project": project}, headers=own)
     assert r.status_code == 200
     assert _ws_runs(client, headers=own) in ("success", "warning")

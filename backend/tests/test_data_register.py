@@ -104,8 +104,8 @@ def embedded_datasets() -> set[tuple[str, str]]:
         for c in library for p in c["parameters"]
         if _is_dataset(p["type"], p["key"], p["default"])
     }
-    # the tracked examples only: in development the engine saves the user's own
-    # projects into backend/projects too
+    # the tracked examples only: a developer's own files there are not shipped
+    # by CI (the engine used to save projects there in development)
     for rel in data_files():
         if not fnmatch(rel, "backend/projects/*.json"):
             continue

@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Copy,
   Download,
+  EyeOff,
   FilePlus2,
   FolderOpen,
   Gauge,
@@ -90,13 +91,54 @@ function BigButton({
   );
 }
 
+/** A menu heading: the Open menu lists the user's projects and the examples
+ *  apart. */
+function MenuHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
+      {children}
+    </div>
+  );
+}
+
+function MenuNote({ children }: { children: React.ReactNode }) {
+  return <div className="px-3 py-1.5 text-[12px] text-[color:var(--ss-text-dim)]">{children}</div>;
+}
+
+/** A project or example in the Open menu: its name, id and description. */
+function ProjectMenuItem({ entry, onClick }: { entry: api.ProjectEntry; onClick: () => void }) {
+  return (
+    <button
+      role="menuitem"
+      className="block w-full min-w-0 flex-1 px-3 py-2 text-left hover:bg-[color:var(--ss-accent-soft)]"
+      onClick={onClick}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[12px] font-medium text-[color:var(--ss-text)]">{entry.name}</span>
+        <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">{entry.id}</span>
+      </div>
+      {entry.description && (
+        <p className="mt-0.5 whitespace-pre-line text-[11px] leading-snug text-[color:var(--ss-text-dim)]">
+          {entry.description}
+        </p>
+      )}
+    </button>
+  );
+}
+
+/** Open: the user's saved projects, then the examples shipped with the app.
+ *  An example opens as an unsaved copy (the example itself is read-only);
+ *  one the user does not want listed is hidden, not deleted, and "Restore
+ *  hidden examples" lists it again. */
 function OpenProjectButton() {
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState<
-    { id: string; name: string; description?: string | null }[]
-  >([]);
+  const [projects, setProjects] = useState<api.ProjectEntry[]>([]);
+  const [examples, setExamples] = useState<api.ExampleEntry[]>([]);
   const ref = useRef<HTMLDivElement>(null);
   const openProject = useProjectStore((s) => s.openProject);
+  const openExample = useProjectStore((s) => s.openExample);
+  const hideExample = useProjectStore((s) => s.hideExample);
+  const restoreExamples = useProjectStore((s) => s.restoreExamples);
   const log = useProjectStore((s) => s.log);
 
   useEffect(() => {
@@ -108,6 +150,23 @@ function OpenProjectButton() {
     return () => window.removeEventListener("mousedown", close);
   }, [open]);
 
+  const listExamples = async () => {
+    try {
+      setExamples(await api.listExamples());
+    } catch (e) {
+      log("error", `Cannot list the examples: ${(e as Error).message}`);
+      setExamples([]);
+    }
+  };
+  const shown = examples.filter((e) => !e.hidden);
+  const hidden = examples.length - shown.length;
+  const choose = (name: string, go: () => Promise<void>) => {
+    setOpen(false);
+    void confirmReplaceProject(`Opening '${name}'`).then((ok) => {
+      if (ok) void go();
+    });
+  };
+
   return (
     <div className="relative" ref={ref}>
       <BigButton
@@ -116,11 +175,12 @@ function OpenProjectButton() {
         onClick={async () => {
           if (!open) {
             try {
-              setItems(await api.listProjects());
+              setProjects(await api.listProjects());
             } catch (e) {
               log("error", `Cannot list projects: ${(e as Error).message}`);
-              setItems([]);
+              setProjects([]);
             }
+            await listExamples();
           }
           setOpen(!open);
         }}
@@ -131,37 +191,45 @@ function OpenProjectButton() {
           aria-label="Open project"
           className="absolute left-0 top-[54px] z-50 max-h-[60vh] w-[400px] overflow-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] py-1 shadow-lg"
         >
-          <div className="px-3 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
-            Example & saved projects
+          <div role="group" aria-label="Your projects">
+            <MenuHeading>Your projects</MenuHeading>
+            {projects.length === 0 && <MenuNote>None saved yet</MenuNote>}
+            {projects.map((p) => (
+              <ProjectMenuItem key={p.id} entry={p} onClick={() => choose(p.name, () => openProject(p.id))} />
+            ))}
           </div>
-          {items.length === 0 && (
-            <div className="px-3 py-1.5 text-[12px] text-[color:var(--ss-text-dim)]">
-              No projects on server
-            </div>
-          )}
-          {items.map((p) => (
-            <button
-              key={p.id}
-              role="menuitem"
-              className="block w-full px-3 py-2 text-left hover:bg-[color:var(--ss-accent-soft)]"
-              onClick={() => {
-                setOpen(false);
-                void confirmReplaceProject(`Opening '${p.name}'`).then((ok) => {
-                  if (ok) void openProject(p.id);
-                });
-              }}
-            >
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[12px] font-medium text-[color:var(--ss-text)]">{p.name}</span>
-                <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">{p.id}</span>
+          <div role="group" aria-label="Examples" className="mt-1 border-t border-[color:var(--ss-border)]">
+            <MenuHeading>Examples · open as a copy</MenuHeading>
+            {shown.length === 0 && <MenuNote>{hidden ? "All examples are hidden" : "No examples"}</MenuNote>}
+            {shown.map((e) => (
+              <div key={e.id} className="flex items-stretch">
+                <ProjectMenuItem entry={e} onClick={() => choose(e.name, () => openExample(e.id))} />
+                <button
+                  role="menuitem"
+                  className="shrink-0 px-2 text-[color:var(--ss-text-dim)] hover:bg-[color:var(--ss-accent-soft)] hover:text-[color:var(--ss-text)]"
+                  title="Hide this example (Restore hidden examples lists it again)"
+                  aria-label={`Hide example '${e.name}'`}
+                  onClick={async () => {
+                    if (await hideExample(e.id, e.name)) await listExamples();
+                  }}
+                >
+                  <EyeOff size={13} />
+                </button>
               </div>
-              {p.description && (
-                <p className="mt-0.5 whitespace-pre-line text-[11px] leading-snug text-[color:var(--ss-text-dim)]">
-                  {p.description}
-                </p>
-              )}
-            </button>
-          ))}
+            ))}
+            {hidden > 0 && (
+              <button
+                role="menuitem"
+                className="block w-full px-3 py-1.5 text-left text-[12px] text-[color:var(--ss-accent)] hover:bg-[color:var(--ss-accent-soft)]"
+                onClick={async () => {
+                  await restoreExamples();
+                  await listExamples();
+                }}
+              >
+                Restore hidden examples ({hidden})
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -180,7 +248,12 @@ function HomeTab() {
           onClick={() => void confirmReplaceProject("Creating a new project").then((ok) => ok && store.newProject())}
         />
         <OpenProjectButton />
-        <BigButton icon={Save} label="Save" onClick={() => void store.saveRemote()} />
+        <BigButton
+          icon={Save}
+          label="Save"
+          title={store.exampleId ? "Save this copy of the example as a new project (the example stays as it is)" : "Save"}
+          onClick={() => void store.saveRemote()}
+        />
         <BigButton icon={Download} label="Export" onClick={store.exportProject} title="Download project as JSON" />
         <BigButton icon={Upload} label="Import" onClick={() => fileRef.current?.click()} title="Import project JSON" />
         <input

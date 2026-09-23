@@ -71,6 +71,8 @@ highway cycles, is available via Open. Each example's entry in the Open menu
 lists the results to expect. Press **Run** — pick the *City Cycle
 (live, 10×)* case to watch it stream in real time and tune parameters (try
 the P and I gains on the Driver, or lock the Differential) while it runs.
+An example opens as an unsaved copy: change it freely, and **Save** keeps
+your copy as a new project of your own.
 
 ### Where your work is saved
 
@@ -82,8 +84,15 @@ survive reinstalls and upgrades. **File → Open Projects Folder** opens it.
 | Windows | `%APPDATA%\SimStudio\projects` |
 | Linux | `~/.config/SimStudio/projects` |
 
-The examples are copied in on first launch only — delete one and it stays
-deleted.
+The examples are not copied there: they are part of the app, read-only,
+and every update brings the current ones. The Open menu lists them under
+*Examples*, apart from *Your projects*. An example opens as an unsaved copy
+with an id of its own, so saving it makes a new project (and its runs and
+backups are its own) and never changes the example. To take an example out
+of the menu, hide it (the eye icon next to it); *Restore hidden examples*
+lists it again. Copies of the examples that earlier versions put in your
+projects folder stay there as your own projects, as you left them; an
+example whose copy you had deleted starts out hidden.
 
 A save replaces the file in one step, so a crash or a full disk mid-save never
 leaves a half-written project, and the version it replaced is kept next to it
@@ -134,10 +143,14 @@ npm install
 npm run dev            # → http://localhost:5173
 ```
 
-In this mode projects are read from and written to `backend/projects/`, not
-your user folder. If the backend is not running the UI still works from
-bundled data (topology editing only); save / checks / simulation are disabled
-and a warning appears in Messages.
+In this mode your projects (with their runs and backups) are saved in
+`backend/dev-projects/`, which git ignores, not in your user folder. The
+examples are read from `backend/projects/`, which the engine never writes (the
+golden tests read them too): to change an example, edit its file there.
+Projects that earlier versions saved into `backend/projects/` now show up as
+examples; move them to `backend/dev-projects/`. If the backend is not running
+the UI still works from bundled data (topology editing only); save / checks /
+simulation are disabled and a warning appears in Messages.
 
 Building the frontend once (`cd frontend && npm run build`) also lets the
 backend serve the whole app at `:8000` with no Vite process. To run the
@@ -173,7 +186,7 @@ Two smoke tests exercise what unit tests cannot — they run the *built*
 artefacts rather than the source (Node ≥ 22, for its built-in WebSocket):
 
 ```bash
-node scripts/smoke-backend.mjs    # the frozen executable: library, seeding,
+node scripts/smoke-backend.mjs    # the frozen executable: library, examples,
                                   # a REST run and a live WebSocket run
 xvfb-run -a node scripts/smoke-app.mjs \
   desktop/release/linux-unpacked/simstudio   # the packaged app reaches its engine
@@ -311,8 +324,11 @@ is no token check. To reach a development engine through another host name
 | Method & path | Purpose |
 |---|---|
 | `GET /api/library` | Component definitions |
-| `GET /api/projects` | List saved projects |
+| `GET /api/projects` | List your saved projects |
 | `GET/PUT/DELETE /api/projects/{id}` | Load / save / delete a project. GET adds the file's `revision` (also sent as the `ETag`); a PUT with `If-Match: "<revision>"` is refused with 409 if the file changed since, and `If-None-Match: *` refuses to replace an existing project |
+| `GET /api/examples` | List the examples shipped with the app, each with `hidden` (hidden from the Open menu) |
+| `GET /api/examples/{id}` | Load an example as shipped (read-only: no `revision`; the UI opens it as a copy with a new id) |
+| `POST /api/examples/{id}/hide`, `POST /api/examples/restore` | Hide an example from the Open menu / list every hidden one again |
 | `POST /api/validate` | Run Data Checks on a project payload |
 | `POST /api/simulate` | Validate + solve one case synchronously |
 | `WS /api/simulate/run` | Live run: client sends `start`, then optional `set_param` / `cancel`; server streams `step` / `message` events and a final `done` with the full result |

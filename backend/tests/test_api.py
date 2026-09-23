@@ -18,7 +18,7 @@ def test_rest_roundtrip():
         for p in c["parameters"]:
             assert p["unit"], f"{c['id']}.{p['key']} has no unit"
 
-    project = client.get("/api/projects/bev-car").json()
+    project = client.get("/api/examples/bev-car").json()
     assert project["name"] == "Battery Electric Car"
 
     checks = client.post("/api/validate", json={"project": project}).json()

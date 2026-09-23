@@ -1,9 +1,13 @@
 """Project persistence — one JSON file per project (spec §1: single-file projects).
 
-Projects live in :func:`app.paths.projects_dir`, which is the repo's
-``backend/projects`` during development and a per-user app-data folder in the
-packaged desktop app. On first use of a fresh location the bundled example
-projects are copied in, so a new install never opens empty.
+The user's projects live in :func:`app.paths.projects_dir`, a per-user
+app-data folder in the packaged desktop app and ``backend/dev-projects``
+during development. The examples are read straight from the app's own
+read-only copy (:data:`app.paths.EXAMPLES_DIR`) and never written: the UI
+opens one as an unsaved copy with an id of its own, so saving it makes a new
+project, and each update of the app brings its new and corrected examples to
+every install. Examples the user does not want in the Open menu are hidden,
+not deleted; ``.hidden-examples`` in the projects folder lists them.
 
 Saves are all-or-nothing: the new file is written next to the old one and
 swapped in with an atomic rename, and the version it replaces is kept as
@@ -23,17 +27,17 @@ import json
 import os
 import re
 import secrets
-import shutil
 import threading
 import time
 from pathlib import Path
 
-from .paths import SEED_PROJECTS_DIR, projects_dir
+from .paths import EXAMPLES_DIR, projects_dir
 from .schemas import Project
 
-_seeded: set[Path] = set()
 # one save at a time, so the revision check and the write cannot interleave
 _save_lock = threading.Lock()
+# hiding and restoring examples read and rewrite one file
+_examples_lock = threading.Lock()
 
 
 class ConflictError(Exception):
@@ -64,39 +68,25 @@ def _safe_name(project_id: str) -> str:
     return safe_id(project_id, "project")
 
 
-def _ensure_dir() -> Path:
-    """Create the projects dir, copying in the examples on first use.
-
-    A marker file records that seeding happened, so a user who deletes an
-    example project does not find it back on the next launch.
-    """
-    target = projects_dir().resolve()
-    target.mkdir(parents=True, exist_ok=True)
-    if target in _seeded:
-        return target
-    _seeded.add(target)
-
-    marker = target / ".seeded"
-    seed = SEED_PROJECTS_DIR.resolve()
-    if marker.exists() or seed == target or not seed.is_dir():
-        return target
-    for src in seed.glob("*.json"):
-        dest = target / src.name
-        if not dest.exists():
-            shutil.copyfile(src, dest)
-    marker.write_text(
-        "SimStudio copied its example projects here on first run.\n", encoding="utf-8"
-    )
-    return target
+def user_dir() -> Path:
+    """The folder the user's projects (and their runs and backups) are kept
+    in. Reading creates nothing in it; the first save creates the folder."""
+    return projects_dir()
 
 
 def project_path(project_id: str) -> Path:
-    return _ensure_dir() / f"{_safe_name(project_id)}.json"
+    return user_dir() / f"{_safe_name(project_id)}.json"
 
 
 def list_projects() -> list[dict]:
+    """The user's projects (the examples are listed by :func:`list_examples`)."""
+    return _listing(user_dir())
+
+
+def _listing(folder: Path) -> list[dict]:
+    """Id, name and description of each project file in `folder`."""
     out = []
-    for f in sorted(_ensure_dir().glob("*.json")):
+    for f in sorted(folder.glob("*.json")):
         try:
             raw = json.loads(f.read_text(encoding="utf-8"))
             project_id = raw.get("id", f.stem)
@@ -110,6 +100,89 @@ def list_projects() -> list[dict]:
         except (json.JSONDecodeError, OSError, AttributeError):
             continue
     return out
+
+
+#: Lists the examples the user hid from the Open menu (in the projects folder).
+_HIDDEN = ".hidden-examples"
+#: Earlier versions copied these examples (all they shipped) into a new
+#: projects folder and wrote this marker, so that one the user deleted did
+#: not come back.
+_SEEDED_MARKER = ".seeded"
+_SEEDED_EXAMPLES = ("bev-car", "hybrid-car")
+
+
+def example_path(example_id: str) -> Path:
+    return EXAMPLES_DIR / f"{safe_id(example_id, 'example')}.json"
+
+
+def load_example(example_id: str) -> Project:
+    """An example as the app ships it."""
+    path = example_path(example_id)
+    if not path.is_file():
+        raise FileNotFoundError(example_id)
+    return Project.model_validate_json(path.read_bytes())
+
+
+def list_examples() -> list[dict]:
+    """The examples shipped with the app, each with `hidden`: the user hid it."""
+    with _examples_lock:
+        hidden = _hidden_examples()
+    return [{**e, "hidden": e["id"] in hidden} for e in _listing(EXAMPLES_DIR)]
+
+
+def hide_example(example_id: str) -> None:
+    """Leave an example out of the Open menu until the examples are restored."""
+    if not example_path(example_id).is_file():
+        raise FileNotFoundError(example_id)
+    with _examples_lock:
+        hidden = _hidden_examples()
+        if example_id not in hidden:
+            _write_hidden(hidden | {example_id})
+
+
+def restore_examples() -> list[str]:
+    """Show every hidden example again; returns the ids of those shipped."""
+    with _examples_lock:
+        hidden = _hidden_examples()
+        if hidden:
+            _write_hidden(set())
+    return sorted(i for i in hidden if example_path(i).is_file())
+
+
+def _hidden_examples() -> set[str]:
+    """Ids of the examples the user hid; call with _examples_lock held.
+
+    A projects folder that earlier versions seeded still holds the copies of
+    the examples it got, which stay the user's own projects. An example whose
+    copy is gone was deleted by the user, who did not want it back, so it
+    starts out hidden. That is decided once and written down, so restoring
+    the examples brings it back for good.
+    """
+    folder = user_dir()
+    try:
+        raw = json.loads((folder / _HIDDEN).read_bytes())
+    except FileNotFoundError:
+        raw = None
+    except (OSError, ValueError):
+        return set()  # unreadable: hide nothing rather than fail the list
+    if raw is not None:
+        ids = raw.get("hidden") if isinstance(raw, dict) else None
+        if not isinstance(ids, list):
+            return set()
+        return {i for i in ids if isinstance(i, str) and SAFE_ID.fullmatch(i)}
+    if not (folder / _SEEDED_MARKER).is_file():
+        return set()
+    hidden = {e for e in _SEEDED_EXAMPLES if not (folder / f"{e}.json").exists()}
+    with contextlib.suppress(OSError):
+        _write_hidden(hidden)
+    return hidden
+
+
+def _write_hidden(hidden: set[str]) -> None:
+    folder = user_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    data = json.dumps({"hidden": sorted(hidden)}, indent=2) + "\n"
+    _write_atomic(folder / _HIDDEN, data.encode("utf-8"))
 
 
 def revision_of(data: bytes) -> str:
@@ -172,6 +245,7 @@ def save_project(
     path = project_path(project.id)
     data = project.model_dump_json(indent=2).encode("utf-8")
     with _save_lock:
+        path.parent.mkdir(parents=True, exist_ok=True)
         current = path.read_bytes() if path.exists() else None
         if create_only and current is not None:
             raise ConflictError(f"A project with id '{project.id}' already exists on disk.")
@@ -192,7 +266,7 @@ def save_project(
 
 
 def _backups_dir(project_id: str) -> Path:
-    return _ensure_dir() / _BACKUPS / _safe_name(project_id)
+    return user_dir() / _BACKUPS / _safe_name(project_id)
 
 
 def _backup_files(folder: Path) -> list[Path]:

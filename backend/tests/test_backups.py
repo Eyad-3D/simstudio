@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from app import storage
 from app.main import app
-from app.paths import SEED_PROJECTS_DIR
+from app.paths import EXAMPLES_DIR
 
 client = TestClient(app)
 
@@ -20,9 +20,8 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def projects(tmp_path, monkeypatch):
     monkeypatch.setenv("SIMSTUDIO_PROJECTS_DIR", str(tmp_path))
-    (tmp_path / ".seeded").write_text("test")
     for name in ("bev-car", "hybrid-car"):
-        (tmp_path / f"{name}.json").write_bytes((SEED_PROJECTS_DIR / f"{name}.json").read_bytes())
+        (tmp_path / f"{name}.json").write_bytes((EXAMPLES_DIR / f"{name}.json").read_bytes())
     return tmp_path
 
 

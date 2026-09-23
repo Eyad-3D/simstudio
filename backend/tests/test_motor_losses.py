@@ -10,7 +10,7 @@ from app.solver.domains import RunContext
 from app.solver.maps import interp1, interp2, parse_table1d, parse_table2d
 from app.solver.network import build_model
 from app.solver.runtime import AIR_DENSITY, RPM, Runtime
-from app.storage import load_project
+from app.storage import load_example
 
 OMEGA_8000 = 8000 / RPM  # rad/s
 
@@ -100,7 +100,7 @@ def test_bundled_bev_cruises_at_100_kmh_with_80_to_90_percent_battery_to_wheel()
     and 79.8 % with the old default loss map; the Cupra Born rework (CON-03)
     gives the example its own motor maps and road load, read here from the
     example itself."""
-    proj = load_project("bev-car")
+    proj = load_example("bev-car")
     for e in proj.systems[0].elements:
         if e.id == "el-task":
             e.parameterOverrides["profile"] = "0:100; 60:100"

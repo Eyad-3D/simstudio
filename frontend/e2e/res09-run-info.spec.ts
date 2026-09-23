@@ -10,8 +10,7 @@ test("RES-09: Run info shows what made a run and opens its model as an unsaved c
   const name = `E2E run info ${n}`;
   await openApp(page);
   // a project of its own, so runs stored by tests running alongside stay apart
-  const example = await (await page.request.get("/api/projects/bev-car")).json();
-  delete example.revision;
+  const example = await (await page.request.get("/api/examples/bev-car")).json();
   example.cases[0].duration = 60;
   await importProject(page, { ...example, id, name });
   await expectProject(page, name, { unsaved: true });

@@ -30,6 +30,13 @@ describe("recovery draft", () => {
     expect(loadDraft()?.clean).toBe(true);
   });
 
+  it("records the example an unsaved copy was opened from", () => {
+    saveDraft(project(), true, null, "bev-car");
+    expect(loadDraft()).toMatchObject({ clean: true, revision: null, example: "bev-car" });
+    saveDraft(project(), true, "rev-1");
+    expect(loadDraft()?.example).toBeUndefined();
+  });
+
   it("the newest write wins, so a save turns an unsaved draft clean", () => {
     saveDraft(project("Edited"));
     saveDraft(project("Edited"), true);

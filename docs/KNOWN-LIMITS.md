@@ -191,16 +191,13 @@ minimum or an average, for example from the CSV export.
   matters without weight transfer) and uses a 12.8 ratio so that the motor's
   maximum speed sets the 160 km/h, because SimStudio has no speed limiter.
   *Roadmap:* MOD-18 (maximum-speed limit), MOD-12.
-- **Updated examples do not reach existing installations.** Examples are
-  copied into your projects folder on first launch only. To get the current
-  version, close SimStudio, delete the example's file and the hidden
-  `.seeded` file in the projects folder (*File → Open Projects Folder*),
-  and start SimStudio again. Your own projects are not touched, but
-  examples you deleted earlier come back as well. If you changed the
-  example and want to keep your version, Export it first (*Home → Export*);
-  the export keeps the example's file name, so importing and saving it
-  later replaces the updated example again.
-  *Roadmap:* CON-10.
+- **Runs made on an example stay with the copy you ran.** An example opens
+  as an unsaved copy, and its runs are stored with that copy: they are
+  listed while it stays open, also after a restart, but opening the example
+  again from the Open menu starts a new copy with no runs listed. Save the
+  copy (*Home → Save*) to keep it and its runs as a project of your own;
+  runs of copies never saved are the first deleted when stored runs reach
+  their disk budget.
 
 ## Not modelled yet
 

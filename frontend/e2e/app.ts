@@ -4,9 +4,8 @@ import { expect, type Locator, type Page } from "@playwright/test";
 
 /** Load the app and wait until the example model is drawn on the canvas. */
 export async function openApp(page: Page): Promise<void> {
-  // runs are stored on disk with their project (RES-02): start every test
-  // from an empty history on the shared test engine
-  for (const id of ["bev-car", "hybrid-car"]) await page.request.delete(`/api/projects/${id}/runs`);
+  // a new browser context opens the example as a new copy, with an id of its
+  // own and so an empty run history (runs are stored per project, RES-02)
   await page.goto("/");
   await expect(page.locator(".react-flow__node").first()).toBeVisible();
 }

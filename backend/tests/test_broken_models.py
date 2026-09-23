@@ -15,7 +15,7 @@ import copy
 import pytest
 
 from app.schemas import Project
-from app.storage import load_project
+from app.storage import load_example
 from app.validation import validate_project
 
 EXAMPLES = ("bev-car", "hybrid-car")
@@ -56,7 +56,7 @@ STOPS_BUT_WARNING_ONLY = {"hybrid-car": {"el-motor"}}
 
 def faults(name: str):
     """(fault id, broken project) for every single deletion."""
-    base = load_project(name).model_dump()
+    base = load_example(name).model_dump()
     for s in base["systems"]:
         for el in s["elements"]:
             d = copy.deepcopy(base)
@@ -126,5 +126,5 @@ def test_check_coverage_is_at_least_90_percent(outcome):
 
 @pytest.mark.parametrize("name", EXAMPLES)
 def test_the_examples_themselves_pass_cleanly(name):
-    checks = validate_project(load_project(name))
+    checks = validate_project(load_example(name))
     assert [(c.level, c.text) for c in checks if c.level != "info"] == []

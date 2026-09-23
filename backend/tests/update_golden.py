@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.solver import simulate  # noqa: E402
-from app.storage import load_project  # noqa: E402
+from app.storage import load_example  # noqa: E402
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 CASES = [("bev-car", "case-city"), ("hybrid-car", "case-mixed")]
@@ -24,7 +24,7 @@ STRIDE = 10  # keep every Nth recorded point (plus the last) in the fixture
 
 def snapshot(project_id: str, case_id: str) -> dict:
     """Run a bundled case and reduce the result to a comparable fixture."""
-    result = simulate(load_project(project_id), case_id)
+    result = simulate(load_example(project_id), case_id)
     channels: dict[str, dict] = {}
     for c in result.channels:
         pts = c.timeSeries

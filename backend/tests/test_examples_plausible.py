@@ -33,7 +33,7 @@ from app.solver.maps import parse_table2d
 from app.solver.network import build_model
 from app.solver.runtime import RPM
 from app.solver.verdict import trace_metrics
-from app.storage import load_project
+from app.storage import load_example
 
 EXAMPLES = ("bev-car", "hybrid-car")
 MPH = 1.609344
@@ -55,14 +55,14 @@ def _case(project: Project, case_id: str):
 def _params(project_id: str, case_id: str) -> dict:
     """Element parameters as the case runs them (element and case overrides
     over the library defaults)."""
-    project = load_project(project_id)
+    project = load_example(project_id)
     return build_model(project, {}, _case(project, case_id).parameterOverrides).params_of
 
 
 def _run_cases():
     """Every shipped case except the live (paced) copies, which the next
     test compares with the case they copy."""
-    return [(pid, c.id) for pid in EXAMPLES for c in load_project(pid).cases
+    return [(pid, c.id) for pid in EXAMPLES for c in load_example(pid).cases
             if not c.realtimeFactor]
 
 
@@ -85,7 +85,7 @@ def test_every_shipped_case_succeeds_and_follows_its_cycle(project_id, case_id):
 
 @pytest.mark.parametrize("project_id", EXAMPLES)
 def test_live_cases_are_paced_copies_of_a_checked_case(project_id):
-    cases = load_project(project_id).cases
+    cases = load_example(project_id).cases
     for live in (c for c in cases if c.realtimeFactor):
         twins = [c for c in cases if not c.realtimeFactor
                  and c.model_dump(exclude={"id", "name", "realtimeFactor"})
@@ -118,7 +118,7 @@ def test_bev_heating_case_adds_its_heating_load():
 @pytest.fixture(scope="module")
 def bev_full_power():
     """The BEV with its target held far above its top speed for 100 s."""
-    project = load_project("bev-car")
+    project = load_example("bev-car")
     case = _case(project, "case-city")
     case.duration, case.timeStep = 100, 0.1
     case.parameterOverrides = {"el-task": {"profile": "0:0; 0.1:250; 100:250"}}
@@ -181,7 +181,7 @@ def test_hybrid_holds_its_charge_from_any_start():
     5 % above its usual start, the Mixed Cycle still ends where it usually
     ends (the shipped cases start there, as a preconditioning drive would
     leave them)."""
-    project = load_project("hybrid-car")
+    project = load_example("hybrid-car")
     case = _case(project, "case-mixed")
     usual = case.parameterOverrides["el-battery"]["initial_soc_pct"]
     case.parameterOverrides = {"el-battery": {"initial_soc_pct": usual + 5}}
