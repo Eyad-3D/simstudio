@@ -178,6 +178,10 @@ export interface SimRun {
   sweepParam?: string; // display label of the swept parameter
   sweepValue?: number; // the value used for this run
   sweepUnit?: string;
+  /** Why the run did not finish normally (stopped, failed, connection lost).
+   *  Its numbers are partial, so sweeps leave it out of their curve and
+   *  tables unless the user asks to see it. */
+  incomplete?: string;
 }
 
 export interface DataCheck {

@@ -43,14 +43,15 @@ function runTime(r: SimRun): string {
 }
 
 function runLabel(r: SimRun): string {
-  return `${r.caseName} · ${runTime(r)} · ${r.status}`;
+  return `${r.caseName} · ${runTime(r)} · ${r.incomplete ? `incomplete (${r.incomplete})` : r.status}`;
 }
 
 /** Compact run label for legends/overlay chips — swept value if present. */
 function runShort(r: SimRun): string {
+  const mark = r.incomplete ? " (incomplete)" : "";
   if (r.sweepValue !== undefined)
-    return `${r.sweepValue}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}`;
-  return runTime(r);
+    return `${r.sweepValue}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}${mark}`;
+  return `${runTime(r)}${mark}`;
 }
 
 function exportCsv(result: SimResult, keys: Set<string>, name: string) {
@@ -157,6 +158,10 @@ export function ResultsPanel() {
       .filter((r) => r.sweepId === activeRun.sweepId)
       .sort((a, b) => (a.sweepValue ?? 0) - (b.sweepValue ?? 0));
   }, [runs, activeRun]);
+  // stopped/failed points are only drawn (hollow) when the user asks for them
+  const [showIncomplete, setShowIncomplete] = useState(false);
+  const completeFamily = useMemo(() => family.filter((r) => !r.incomplete), [family]);
+  const incompleteCount = family.length - completeFamily.length;
 
   const byElement = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -330,15 +335,24 @@ export function ResultsPanel() {
   }, [sweepMetrics, sweepMetric]);
   const sweepUnit = family[0]?.sweepUnit ?? "";
   const sweepParam = family[0]?.sweepParam ?? "value";
+  // complete points form the curve (y); incomplete ones, when shown, are
+  // separate hollow markers (yIncomplete) that the curve does not pass through
   const sweepData = useMemo(
     () =>
-      family
+      (showIncomplete ? family : completeFamily)
         .map((r) => {
           const sv = r.result.summary.find((s) => s.label === sweepMetric);
-          return { x: r.sweepValue ?? 0, y: sv ? sv.value : null, unit: sv?.unit ?? "" };
+          const v = sv ? sv.value : null;
+          return {
+            x: r.sweepValue ?? 0,
+            y: r.incomplete ? null : v,
+            yIncomplete: r.incomplete ? v : null,
+            reason: r.incomplete ?? "",
+            unit: sv?.unit ?? "",
+          };
         })
-        .filter((d) => d.y !== null),
-    [family, sweepMetric],
+        .filter((d) => d.y !== null || d.yIncomplete !== null),
+    [family, completeFamily, showIncomplete, sweepMetric],
   );
   const metricUnit = sweepData[0]?.unit ?? "";
 
@@ -407,9 +421,13 @@ export function ResultsPanel() {
               {family.length >= 2 && (
                 <button
                   className="ml-auto rounded px-1 hover:bg-[color:var(--ss-hover)]"
-                  title="Overlay every run in this sweep family"
+                  title={
+                    incompleteCount > 0
+                      ? "Overlay every complete run in this sweep family (stopped or failed points are left out)"
+                      : "Overlay every run in this sweep family"
+                  }
                   onClick={() =>
-                    setOverlayRuns(family.filter((r) => r.id !== activeRun?.id).map((r) => r.id))
+                    setOverlayRuns(completeFamily.filter((r) => r.id !== activeRun?.id).map((r) => r.id))
                   }
                 >
                   Overlay family
@@ -514,7 +532,15 @@ export function ResultsPanel() {
         <div className="ss-panel-toolbar">
           <span className="text-[11px] text-[color:var(--ss-text-dim)]">
             {view === "sweep" ? (
-              <>Sweep · {family.length} run(s)</>
+              <>
+                Sweep · {completeFamily.length} complete run(s)
+                {incompleteCount > 0 && (
+                  <span className="text-amber-600">
+                    {" "}
+                    · {incompleteCount} incomplete {showIncomplete ? "shown hollow" : "not plotted"}
+                  </span>
+                )}
+              </>
             ) : view === "xy" ? (
               <>X-Y · {xyYChannels.length} series vs {xyXShort || "—"}</>
             ) : (
@@ -530,19 +556,36 @@ export function ResultsPanel() {
                   className={
                     running && activeRun?.status === "running"
                       ? "text-[color:var(--ss-accent)]"
-                      : result.status === "success"
+                      : result.status === "success" && !activeRun?.incomplete
                         ? "text-emerald-700"
-                        : result.status === "warning"
+                        : result.status !== "failed"
                           ? "text-amber-600"
                           : "text-red-600"
                   }
                 >
-                  {activeRun?.status === "running" ? "running…" : result.status}
+                  {activeRun?.status === "running"
+                    ? "running…"
+                    : activeRun?.incomplete
+                      ? `incomplete (${activeRun.incomplete})`
+                      : result.status}
                 </b>
               </>
             )}
           </span>
           <div className="ml-auto flex items-center gap-1">
+            {view === "sweep" && incompleteCount > 0 && (
+              <label
+                className="flex items-center gap-1 text-[11px] text-[color:var(--ss-text-dim)]"
+                title="Show stopped or failed sweep points as hollow markers (their numbers are partial)"
+              >
+                <input
+                  type="checkbox"
+                  checked={showIncomplete}
+                  onChange={(e) => setShowIncomplete(e.target.checked)}
+                />
+                Show incomplete ({incompleteCount})
+              </label>
+            )}
             {view === "sweep" && sweepMetrics.length > 0 && (
               <select
                 className="ss-input max-w-[190px] py-0.5 text-[11px]"
@@ -731,8 +774,9 @@ export function ResultsPanel() {
                       color: "var(--ss-text)",
                     }}
                     labelFormatter={(x) => `${sweepParam} = ${x}${sweepUnit ? ` ${sweepUnit}` : ""}`}
-                    formatter={(value) => [
-                      `${typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : value} ${metricUnit}`,
+                    formatter={(value, name, item) => [
+                      `${typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : value} ${metricUnit}` +
+                        (name === "yIncomplete" ? ` — incomplete run (${item.payload.reason}), partial value` : ""),
                       sweepMetric,
                     ]}
                   />
@@ -742,8 +786,18 @@ export function ResultsPanel() {
                     stroke={PALETTE[0]}
                     strokeWidth={1.8}
                     dot={{ r: 3, fill: PALETTE[0] }}
+                    connectNulls
                     isAnimationActive={false}
                   />
+                  {showIncomplete && (
+                    <Line
+                      dataKey="yIncomplete"
+                      stroke="none"
+                      dot={{ r: 4, fill: "none", stroke: PALETTE[0], strokeWidth: 1.5 }}
+                      activeDot={{ r: 5, fill: "none", stroke: PALETTE[0], strokeWidth: 1.5 }}
+                      isAnimationActive={false}
+                    />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             ) : (

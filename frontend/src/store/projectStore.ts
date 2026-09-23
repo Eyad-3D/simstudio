@@ -175,6 +175,21 @@ function channelMetaResolver(
 let activeRun: api.LiveRunHandle | null = null;
 // set by stopRun so an in-flight parameter sweep aborts after the current point
 let sweepAborted = false;
+// set by stopRun while a run is in flight; reset when the next run starts
+let stopRequested = false;
+
+/** Why a finished run is not a complete result, or undefined when it is.
+ *  A stop only counts if the solver confirms it cut the run short (a stop
+ *  pressed as the run ends leaves a complete result). */
+function incompleteReason(result: SimResult, stopped: boolean): string | undefined {
+  if (result.status === "failed") return "failed";
+  const cancel = stopped ? result.messages.find((m) => /cancel/i.test(m.text)) : undefined;
+  if (cancel) {
+    const at = cancel.text.match(/t = ([^ ]+ s)/);
+    return at ? `stopped at t = ${at[1]}` : "stopped";
+  }
+  return undefined;
+}
 
 interface ProjectState {
   library: ComponentDef[];
@@ -419,17 +434,21 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       onMessage: (m) => log(m.level, m.text),
     });
     activeRun = handle;
+    stopRequested = false;
     try {
       const result = await handle.done;
       if (flushTimer) clearTimeout(flushTimer);
+      const incomplete = incompleteReason(result, stopRequested);
       set((s) => ({
-        runs: s.runs.map((r) => (r.id === runId ? { ...r, result, status: result.status } : r)),
+        runs: s.runs.map((r) =>
+          r.id === runId ? { ...r, result, status: result.status, ...(incomplete ? { incomplete } : {}) } : r,
+        ),
         activeRunId: runId,
       }));
       return result;
     } catch (e) {
       if (flushTimer) clearTimeout(flushTimer);
-      patchRun({ status: "failed" });
+      patchRun({ status: "failed", incomplete: "connection lost" });
       throw e;
     } finally {
       activeRun = null;
@@ -1168,7 +1187,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         "info",
         `Sweep: ${el?.label ?? elementId} · ${paramLabel} over ${values.length} value(s) …`,
       );
-      let completed = 0;
       try {
         for (const value of values) {
           if (sweepAborted) break;
@@ -1188,7 +1206,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
               sweepValue: value,
               sweepUnit: paramUnit,
             });
-            completed += 1;
           } catch (e) {
             log("error", `Sweep point ${paramLabel}=${value} failed: ${(e as Error).message}`);
             // keep going with the remaining points
@@ -1197,22 +1214,30 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       } finally {
         set({ running: false });
       }
-      if (completed > 0) {
+      const family = get()
+        .runs.filter((r) => r.sweepId === sweepId)
+        .sort((a, b) => (a.sweepValue ?? 0) - (b.sweepValue ?? 0));
+      // a point counts only if its run finished normally; stopped or failed
+      // points keep their partial data in the history but stay off the curve
+      const complete = family.filter((r) => !r.incomplete);
+      const incomplete = family.filter((r) => r.incomplete);
+      if (family.length > 0) {
+        const notes = [
+          ...incomplete.map((r) => `${paramLabel}=${r.sweepValue}${unit} ${r.incomplete}`),
+          ...(family.length < values.length ? [`${values.length - family.length} not run`] : []),
+        ];
         log(
-          "info",
-          `Sweep finished — ${completed} of ${values.length} run(s) stored in Results.`,
+          notes.length ? "warning" : "info",
+          `Sweep finished — ${complete.length} of ${values.length} point(s) complete` +
+            (notes.length ? ` (${notes.join("; ")}). Incomplete points are left out of the sweep chart and table.` : "."),
         );
-        // overlay the whole family: lowest swept value is the primary run, the
-        // rest are overlaid, so all N appear together in Results by default.
-        const family = get()
-          .runs.filter((r) => r.sweepId === sweepId)
-          .sort((a, b) => (a.sweepValue ?? 0) - (b.sweepValue ?? 0));
-        if (family.length > 0) {
-          set({
-            activeRunId: family[0].id,
-            overlayRunIds: family.slice(1).map((r) => r.id),
-          });
-        }
+        // overlay the complete family: lowest swept value is the primary run,
+        // the rest are overlaid, so all appear together in Results by default.
+        const shown = complete.length > 0 ? complete : family.slice(0, 1);
+        set({
+          activeRunId: shown[0].id,
+          overlayRunIds: shown.slice(1).map((r) => r.id),
+        });
         useUIStore.getState().setRibbonTab("results");
       } else {
         log("warning", "Sweep produced no runs.");
@@ -1244,6 +1269,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     stopRun: () => {
       sweepAborted = true;
       if (activeRun) {
+        stopRequested = true;
         activeRun.cancel();
         get().log("info", "Stop requested — waiting for the solver to wind down …");
       }
