@@ -30,6 +30,12 @@ hiddenimports = [
 # the websockets package behind it have to travel with the frozen build.
 hiddenimports += collect_submodules("websockets")
 
+# GNU Readline is GPL-3.0: on Linux the stdlib readline module would pull
+# libreadline into the bundle, which a proprietary app cannot ship. Nothing
+# here reads a terminal, and every importer (site, rlcompleter,
+# websockets.cli) falls back when it is missing.
+excludes = ["tkinter", "matplotlib", "numpy.testing", "pytest", "readline"]
+
 a = Analysis(
     ["run_backend.py"],
     pathex=["."],
@@ -38,7 +44,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib", "numpy.testing", "pytest"],
+    excludes=excludes,
     noarchive=False,
 )
 pyz = PYZ(a.pure)
