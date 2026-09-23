@@ -48,7 +48,21 @@ jobs:
       - name: Tests
         working-directory: backend
         # Includes the golden fixtures — the regression net for solver changes.
+        env:
+          GOLDEN_REPORT: ${{ runner.temp }}/golden-report.md
         run: python -m pytest tests/ -q
+
+      # What the golden fixtures saw on this run: which headline numbers and
+      # channels moved, old -> new and against which band
+      # (backend/tests/golden/CHANGES.md explains the bands).
+      - name: Golden diff report
+        if: always()
+        run: |
+          {
+            echo "## Golden fixtures"
+            cat "${{ runner.temp }}/golden-report.md" 2>/dev/null \
+              || echo "No report: the tests did not reach the golden fixtures."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   frontend:
     name: Frontend (lint + typecheck + build)

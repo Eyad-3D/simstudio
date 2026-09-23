@@ -226,3 +226,46 @@ def test_time_limit_restores_an_existing_tracer():
         assert sys.gettrace() is tracer
     finally:
         sys.settrace(previous)
+
+
+@pytest.mark.parametrize("helpers", [
+    # no loop anywhere: every call into script code checks the clock
+    "def spin(n):\n    return 0 if n == 0 else spin(n - 1) + spin(n - 1)\n",
+    # the loop lives in a generator expression, a code object of its own
+    "def spin(n):\n    return sum(1 for _ in iter(int, 1))\n",
+    # the loop lives in a helper that step() calls
+    "def spin(n):\n    while n >= 0:\n        n += 1\n    return n\n",
+])
+def test_code_without_loops_is_not_line_traced_but_still_time_limited(short_limit, helpers):
+    code = helpers + "def step(t, dt, inputs, state, params):\n    return {'cmd_out': spin(60)}\n"
+    t0 = time.perf_counter()
+    result = simulate(_scripted(code), "case")
+    assert time.perf_counter() - t0 < 10
+    assert result.status == "failed"
+    assert any("did not return within 0.2 s" in m.text for m in result.messages)
+
+
+def test_loop_free_code_is_found_per_code_object():
+    code = check_script(
+        "A = [i for i in range(3)]\n"
+        "def plain(x):\n    return x + 1 if x else 0\n"
+        "def looping(x):\n    while x:\n        x -= 1\n    return x\n" + STEP, "S")
+    names = {c.co_name for c in scripting._loop_free_code(code)}
+    assert names == {"<module>", "plain", "step"}
+
+
+def test_interp_parses_a_table_once_and_follows_edits(monkeypatch):
+    """A table defined at the top of a script is parsed on first use, not
+    on every step; a table the script changes is parsed again."""
+    parsed = []
+    real = scripting.parse_table1d
+    monkeypatch.setattr(scripting, "parse_table1d", lambda raw: parsed.append(1) or real(raw))
+    fn = compile_script(
+        "TABLE = {'0': 0, '10': 1}\n"
+        "def step(t, dt, inputs, state, params):\n"
+        "    if t >= 5:\n"
+        "        TABLE['10'] = 2\n"
+        "    return {'y': interp(TABLE, 5)}\n", "S")
+    ys = [scripting.run_script(fn, "S", float(t), 1.0, {}, {}, {})["y"] for t in range(10)]
+    assert ys == [0.5] * 5 + [1.0] * 5
+    assert len(parsed) == 2

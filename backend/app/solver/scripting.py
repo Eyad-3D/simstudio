@@ -15,7 +15,9 @@ Scripts are for signal math, and are held to that:
 * At run time the code gets only a small allow-listed set of builtins,
   imports go through the same allow-list, and every call into user code
   has a wall-clock limit, so an endless loop fails the run instead of
-  hanging the engine.
+  hanging the engine. The clock is checked whenever script code is
+  entered and on every line of script code that contains a loop; code
+  without a loop always reaches its end or its next call.
 
 This is NOT a security sandbox. It runs inside the engine process, and
 in-process Python cannot be fully contained: a single huge operation
@@ -29,9 +31,12 @@ from __future__ import annotations
 
 import ast
 import builtins
+import dis
 import math
 import sys
 import time
+import types
+import weakref
 from contextlib import contextmanager
 from typing import Callable
 
@@ -81,11 +86,33 @@ def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
 
-def _interp(table: dict, x: float, y: float | None = None) -> float:
-    """Convenience lookup for scripts: 1D {x: v} or 2D {x: {y: v}} tables."""
-    if y is None:
-        return interp1(parse_table1d(table), x)
-    return interp2(parse_table2d(table), x, y)
+#: Tables one script's interp() keeps parsed; the cache is emptied when full.
+_INTERP_CACHE_SIZE = 32
+
+
+def _make_interp() -> Callable:
+    """interp() for one compiled script. A table is parsed once and reused
+    while the same dict still holds the same entries, so a table defined at
+    the top of a script is not parsed again on every step."""
+    cache: dict[tuple[int, bool], tuple[dict, dict, list]] = {}
+
+    def interp(table: dict, x: float, y: float | None = None) -> float:
+        """Convenience lookup for scripts: 1D {x: v} or 2D {x: {y: v}} tables."""
+        two_d = y is not None
+        key = (id(table), two_d)
+        hit = cache.get(key)
+        if hit is not None and hit[0] is table and hit[1] == table:
+            points = hit[2]
+        else:
+            points = parse_table2d(table) if two_d else parse_table1d(table)
+            if len(cache) >= _INTERP_CACHE_SIZE:
+                cache.clear()
+            # a copy to compare with: the script may change the table later
+            copy = {k: dict(v) for k, v in table.items()} if two_d else dict(table)
+            cache[key] = (table, copy, points)  # holding the table keeps its id unique
+        return interp2(points, x, y) if two_d else interp1(points, x)
+
+    return interp
 
 
 def _guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
@@ -97,8 +124,26 @@ def _guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
 _SAFE_BUILTINS: dict = {name: getattr(builtins, name) for name in _SAFE_BUILTIN_NAMES}
 _SAFE_BUILTINS["__import__"] = _guarded_import
 
-#: Names every script can use without defining them.
-_PROVIDED = {"math": math, "clamp": _clamp, "interp": _interp}
+#: Names every script can use without defining them (each compiled script
+#: gets its own interp()).
+_PROVIDED = {"math": math, "clamp": _clamp, "interp": _make_interp()}
+
+_JUMPS = frozenset(dis.hasjrel) | frozenset(dis.hasjabs)
+
+
+def _loop_free_code(compiled: types.CodeType) -> frozenset:
+    """The code objects of a compiled script (its top level and every
+    function, lambda and comprehension in it) that hold no loop, i.e. no
+    backward jump: such code runs straight to its end or its next call."""
+    found = set()
+    stack = [compiled]
+    while stack:
+        code = stack.pop()
+        stack.extend(c for c in code.co_consts if isinstance(c, types.CodeType))
+        if not any(ins.opcode in _JUMPS and isinstance(ins.argval, int) and ins.argval <= ins.offset
+                   for ins in dis.get_instructions(code)):
+            found.add(code)
+    return frozenset(found)
 
 
 def _bound_names(tree: ast.AST) -> set[str]:
@@ -202,27 +247,33 @@ def check_script(code: str, label: str):
 
 
 @contextmanager
-def _time_limit(seconds: float):
+def _time_limit(seconds: float, loop_free: frozenset = frozenset()):
     """Raise _Overrun inside user code once `seconds` have passed.
 
-    A line tracer on the script's own frames watches the clock; the helpers
-    it calls (interp, math) run untraced. Whatever tracer the thread had
-    before (a debugger, coverage) is put back afterwards.
+    The clock is checked each time a frame of the script's own code starts
+    (every call, so recursion is covered) and on every line of its frames
+    that contain a loop. Frames in ``loop_free`` (see _loop_free_code) are
+    not line-traced: they cannot run on without a new call. The helpers a
+    script calls (interp, math) run untraced. Whatever tracer the thread
+    had before (a debugger, coverage) is put back afterwards.
     """
-    deadline = time.perf_counter() + seconds
+    clock = time.perf_counter
+    deadline = clock() + seconds
     overran = False
 
     def local(frame, event, arg):
         nonlocal overran
-        if time.perf_counter() > deadline:
+        if clock() > deadline:
             overran = True
             raise _Overrun
         return local
 
     def trace(frame, event, arg):
-        if not frame.f_code.co_filename.startswith("<script:"):
+        code = frame.f_code
+        if not code.co_filename.startswith("<script:"):
             return None
-        return local(frame, event, arg)
+        local(frame, event, arg)
+        return None if code in loop_free else local
 
     previous = sys.gettrace()
     sys.settrace(trace)
@@ -234,13 +285,19 @@ def _time_limit(seconds: float):
         raise _Overrun
 
 
+#: step() of each compiled script → its loop-free code objects (unknown
+#: functions are line-traced throughout)
+_LOOP_FREE: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
 def compile_script(code: str, label: str) -> Callable:
     """Check a Script, run its top-level code in the restricted namespace and
     return its step(). Only the solver calls this, at the start of a run."""
     compiled = check_script(code, label)
-    namespace: dict = {"__builtins__": _SAFE_BUILTINS, **_PROVIDED}
+    namespace: dict = {"__builtins__": _SAFE_BUILTINS, **_PROVIDED, "interp": _make_interp()}
+    loop_free = _loop_free_code(compiled)
     try:
-        with _time_limit(TIME_LIMIT_S):
+        with _time_limit(TIME_LIMIT_S, loop_free):
             exec(compiled, namespace)
     except _Overrun:
         raise ScriptError(
@@ -250,6 +307,7 @@ def compile_script(code: str, label: str) -> Callable:
     fn = namespace.get("step")
     if not callable(fn):
         raise ScriptError(f"Script '{label}' must define a function 'step(t, dt, inputs, state, params)'.")
+    _LOOP_FREE[fn] = loop_free
     return fn
 
 
@@ -263,7 +321,7 @@ def run_script(
     params: dict,
 ) -> dict[str, float]:
     try:
-        with _time_limit(TIME_LIMIT_S):
+        with _time_limit(TIME_LIMIT_S, _LOOP_FREE.get(fn, frozenset())):
             out = fn(t, dt, inputs, state, params)
     except _Overrun:
         raise ScriptError(

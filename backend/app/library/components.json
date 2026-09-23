@@ -1034,7 +1034,7 @@
       "name": "Wheel",
       "icon": "circle",
       "domain": "mechanical",
-      "description": "Wheel with longitudinal slip tire model: traction force = slip stiffness × slip × normal load, saturated at μ × normal load. Normal load comes from the Vehicle mass × this wheel's load share. Rolling resistance acts on the vehicle body.",
+      "description": "Wheel with longitudinal slip tire model: traction force = slip stiffness × slip × normal load, saturated at μ × normal load. Normal load comes from the Vehicle mass × this wheel's load share; the shares of all connected wheels are scaled to add up to 100 %, so together they always carry the whole vehicle. Rolling resistance acts on the vehicle body.",
       "ports": [
         {
           "id": "shaft",

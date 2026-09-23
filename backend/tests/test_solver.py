@@ -51,6 +51,39 @@ def test_table2d_bilinear_and_clamp():
     assert interp2(sheets, 300, 10) == 40.0
 
 
+def _interp1_linear_scan(points, x):
+    """interp1 as it was before bisection: the first segment holding x."""
+    if x <= points[0][0]:
+        return points[0][1]
+    if x >= points[-1][0]:
+        return points[-1][1]
+    for (xa, ya), (xb, yb) in zip(points, points[1:]):
+        if xa <= x <= xb:
+            return ya + (yb - ya) * (x - xa) / (xb - xa)
+    return points[-1][1]
+
+
+def test_table_lookup_matches_linear_scan():
+    """The bisection finds the segment the old scan found, to the bit: at
+    every grid point, between them, outside the grid and for NaN."""
+    import random
+
+    rng = random.Random(7)
+    for size in (1, 2, 3, 5, 8, 13):
+        xs = sorted(rng.sample(range(-50, 5000), size))
+        pts = parse_table1d({str(x / 7): rng.uniform(-3, 3) for x in xs})
+        probes = [p[0] for p in pts] + [rng.uniform(-100, 800) for _ in range(300)]
+        probes += [pts[0][0] - 1, pts[-1][0] + 1, math.nextafter(pts[0][0], math.inf)]
+        for x in probes:
+            assert interp1(pts, x) == _interp1_linear_scan(pts, x), (size, x)
+        assert interp1(pts, math.nan) == pts[-1][1]
+        sheets = [(x_out, pts) for x_out in (0.0, 1.0, 2.5)] if size > 1 else [(0.0, pts)]
+        for x_out in (-1.0, 0.0, 0.3, 1.0, 1.7, 2.5, 9.0, math.nan):
+            for x in probes[:20]:
+                expected = _interp1_linear_scan(pts, x)  # every sheet is the same table
+                assert interp2(sheets, x_out, x) == pytest.approx(expected, rel=1e-12)
+
+
 def test_profile_parsing():
     pts = parse_profile("0:15; 30:110; 120:95")
     assert pts == [(0.0, 15.0), (30.0, 110.0), (120.0, 95.0)]
@@ -252,7 +285,7 @@ def test_motor_steady_state_matches_road_load():
 
     v = 50 / 3.6
     mass = 1800.0
-    f_roll = 0.012 * mass * 9.81 * 0.5  # two wheels à 25 % share
+    f_roll = 0.012 * mass * 9.81  # the two wheels' shares are scaled to carry it all
     f_aero = 0.5 * 1.2 * (0.28 * 2.2) * v * v  # Cd × frontal area
     wheel_torque = (f_roll + f_aero) * 0.33
     expected = wheel_torque / (9.7 * 0.97 * 0.98)
@@ -428,3 +461,56 @@ def test_bev_demo_validates_and_runs():
     labels = [s.label for s in result.summary]
     assert any("Consumption" in label for label in labels)
     assert any("Distance driven" in label for label in labels)
+
+
+# ---- wheel loads (MOD-06) ----------------------------------------------------
+
+def _cruise_power(shares, edit=None) -> tuple[float, float]:
+    """Battery power at a steady 100 km/h for the two wheels' load shares,
+    at 30 s and at the end (60 s); ``edit`` is a live edit sent at t = 30 s."""
+    proj = bev_axle(profile="0:100; 100:100")
+    proj.cases[0].duration, proj.cases[0].timeStep = 60, 0.5
+    for e in proj.systems[0].elements:
+        if e.id == "veh":
+            e.parameterOverrides["initial_speed_kmh"] = 100
+        if e.id in ("whl", "whr"):
+            e.parameterOverrides["vehicle_load_share_pct"] = shares[e.id == "whr"]
+    calls = {"n": 0}
+
+    def control():
+        calls["n"] += 1
+        return [edit] if edit and calls["n"] == 61 else []
+
+    power = {p["t"]: p["value"] for p in series(simulate(proj, "case", control=control),
+                                                "batt", "sig_power")}
+    return power[30.0], power[60.0]
+
+
+def test_wheel_loads_always_add_up_to_the_weight():
+    """ml/phys_tests.py T3: two wheels left at the default 25 % rested half
+    the car on the road, so rolling resistance was halved: 12.84 kW at
+    100 km/h against 16.02 kW with 50/50. The shares of the connected wheels
+    are now scaled to carry the whole weight, live edits included."""
+    reference = _cruise_power((50, 50))[1]
+    assert _cruise_power((25, 25))[1] == reference  # 0.25 / 0.5 = 0.5 exactly
+    assert _cruise_power((30, 50))[1] == pytest.approx(reference, rel=1e-3)
+    before, after = _cruise_power((50, 50), {"type": "set_param", "elementId": "whl",
+                                             "key": "vehicle_load_share_pct", "value": 20})
+    assert after == pytest.approx(before, rel=1e-3)
+
+
+def test_wheel_load_share_data_checks():
+    def checks(left, right):
+        proj = bev_axle()
+        for e in proj.systems[0].elements:
+            if e.id in ("whl", "whr"):
+                e.parameterOverrides["vehicle_load_share_pct"] = left if e.id == "whl" else right
+        return [c for c in validate_project(proj) if "load shares" in c.text]
+
+    assert checks(50, 50) == [] and checks(49.6, 50) == []  # within 100 ± 1 %
+    (warn,) = checks(25, 25)
+    assert warn.level == "warning"
+    assert warn.text.startswith("Wheel load shares add up to 50 %, not 100 % — the solver scales")
+    assert "'Wheel L' 50 %, 'Wheel R' 50 %" in warn.text
+    (err,) = checks(0, 0)
+    assert err.level == "error" and "add up to 0 %" in err.text

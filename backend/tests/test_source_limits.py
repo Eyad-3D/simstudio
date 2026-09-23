@@ -214,3 +214,116 @@ def test_empty_battery_sheds_its_consumers():
     assert aux[-1] == pytest.approx(0.0, abs=1e-9)
     assert min(_values(result, "batt", "sig_soc")) >= 10.0 - 1e-6
     assert any("cut back" in m.text for m in result.messages)
+
+
+# ---- regeneration the supply cannot take (MOD-02) ---------------------------
+
+def _asked_generator_kwh(result, demand: float, volts: list[float]) -> float:
+    """Generator energy a constant regen command asked for, worked out here
+    from the E-Motor's catalog maps: each step, torque = command × full-load
+    torque (at the step's speed and the bus voltage it started with) ×
+    generator scale, electrical power = torque × speed + map loss."""
+    import math
+
+    from app.library import library_by_id
+    from app.solver.maps import interp2, parse_table2d
+
+    defaults = {p.key: p.default for p in library_by_id()["motor.emotor"].parameters}
+    full = parse_table2d(defaults["full_load_torque"])
+    loss = parse_table2d(defaults["power_loss"])
+    q4 = defaults["q4_torque_scale_pct"] / 100.0
+    rpm = _values(result, "mot", "sig_speed")
+    total = 0.0
+    for i in range(1, len(rpm)):
+        torque = demand * interp2(full, volts[i - 1], rpm[i]) * q4
+        total += min(0.0, torque * rpm[i] * math.pi / 30.0 + interp2(loss, rpm[i], abs(torque)) * 1000.0)
+    return -total * DT / 3.6e6
+
+
+def _kwh(result, el_id, port):
+    return sum(_values(result, el_id, port)[1:]) * DT / 3600.0
+
+
+REGEN_LIMITS = {
+    # name: (sources, their connections, what the motor's bus took, bus voltage)
+    "full battery": (
+        [el("batt", "battery.generic", "Battery", initial_soc_pct=100)],
+        [conn(1, "batt", "pos", "bus", "t1")],
+        lambda r: -_kwh(r, "batt", "sig_power"), lambda r: _values(r, "batt", "sig_voltage")),
+    "charge-power limit": (
+        [el("batt", "battery.generic", "Battery", max_charge_power_kW=10, initial_soc_pct=50)],
+        [conn(1, "batt", "pos", "bus", "t1")],
+        lambda r: -_kwh(r, "batt", "sig_power"), lambda r: _values(r, "batt", "sig_voltage")),
+    "one-way DC-DC": (
+        [el("batt", "battery.generic", "Battery", initial_soc_pct=50), el("hv", "electric.node", "HV"),
+         el("dc", "controller.dcdc", "DC-DC", output_voltage_V=350),
+         el("aux", "electric.constant_drive", "Aux", power_kW=2.0)],
+        [conn(1, "batt", "pos", "hv", "t1"), conn(10, "hv", "t2", "dc", "a_pos"),
+         conn(11, "dc", "b_pos", "bus", "t1"), conn(12, "bus", "t3", "aux", "pos")],
+        lambda r: _kwh(r, "aux", "sig_power") - _kwh(r, "dc", "sig_power_out"),
+        lambda r: [350.0] * len(_values(r, "mot", "sig_speed"))),
+    "fuel-cell-only bus": (
+        [el("fc", "fuelcell.stack", "Fuel Cell"), el("h2", "fuel.h2_tank", "H2 Tank")],
+        [conn(1, "fc", "pos", "bus", "t1")],
+        lambda r: -_kwh(r, "fc", "sig_power"),
+        lambda r: [400.0] + _values(r, "fc", "sig_voltage")[1:]),  # open-circuit voltage at t = 0
+}
+
+
+@pytest.mark.parametrize("case", list(REGEN_LIMITS))
+def test_regeneration_the_supply_cannot_take_is_reported(case):
+    """ml/phys_tests5.py T5, phys_tests6.py, mod/regen_sinks.py: a controller
+    asks for regeneration its bus cannot take. The motor is held to what the
+    bus takes; the rest of what the command asked for is reported as "not
+    recovered" (before: only a warning, 91-100 % of it unaccounted). The
+    generator energy asked for = what the bus took + not recovered, within
+    0.1 %, and a full battery recuperates nothing."""
+    sources, wires, taken, volts = REGEN_LIMITS[case]
+    demand = -1.0 if case == "charge-power limit" else -0.5
+    proj = _constant_demand_axle(sources, wires, demand, initial_speed_kmh=100, cd=0.0)
+    result = _run(proj, 10)
+    summary = _summary(result)
+    asked = _asked_generator_kwh(result, demand, volts(result))
+    lost = summary["E-Motor — regeneration not recovered"]
+    assert asked > 0.1
+    assert taken(result) + lost == pytest.approx(asked, rel=1e-3), (taken(result), lost, asked)
+    if case == "full battery":
+        assert summary["Battery — energy recuperated"] == 0.0
+        assert max(_values(result, "batt", "sig_soc")) <= 100.0
+
+
+def test_driver_recuperates_up_to_the_charge_limit_and_brakes_the_rest():
+    """The Driver's blending checks the recuperation it asks for against what
+    the battery can take this step, on the motor's own maps and through the
+    drivetrain's efficiency: braking from 100 km/h into a 20 kW charge limit
+    now charges at the limit (before: 15.4 kW at most, the recuperation
+    weight was applied to the limit too) and never needs the handshake to
+    cut it; the friction brakes take the rest and the car stops on time.
+    (A locked differential: the driveline starts at the vehicle speed.)"""
+    proj = _with_brakes(bev_axle(locked=True, profile="0:100; 5:100; 25:0; 40:0"))
+    _set(proj, batt={"max_charge_power_kW": 20}, veh={"initial_speed_kmh": 100})
+    result = _run(proj, 30)
+    # while braking needs more than 20 kW (below about 35 km/h it needs less)
+    charge = [-p["value"] for p in series(result, "batt", "sig_power") if 6.0 <= p["t"] <= 15.0]
+    assert max(charge) <= 20.0 + 1e-6
+    assert min(charge) > 0.98 * 20.0
+    assert "E-Motor — regeneration not recovered" not in _summary(result)
+    assert "E-Motor — time limited by supply" not in _summary(result)
+    assert max(_values(result, "brl", "sig_torque")) > 50.0
+    speed = {p["t"]: p["value"] for p in series(result, "veh", "sig_speed")}
+    assert speed[25.0] < 1.0
+
+
+def test_a_full_battery_recuperates_nothing_under_the_driver():
+    """Braking from the first instant with the battery at 100 %: nothing is
+    recuperated, nothing is cut and the friction brakes stop the car."""
+    proj = _with_brakes(bev_axle(locked=True, profile="0:90; 18:0; 30:0"))
+    _set(proj, batt={"initial_soc_pct": 100}, veh={"initial_speed_kmh": 100})
+    result = _run(proj, 25)
+    summary = _summary(result)
+    assert summary["Battery — energy recuperated"] == 0.0
+    assert max(_values(result, "batt", "sig_soc")) <= 100.0
+    assert "E-Motor — regeneration not recovered" not in summary
+    speed = {p["t"]: p["value"] for p in series(result, "veh", "sig_speed")}
+    assert speed[19.0] < 1.0
+    assert max(_values(result, "brl", "sig_torque")) > 100.0
