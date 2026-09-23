@@ -1,8 +1,9 @@
 """The data licence register (docs/data-register.csv) must cover every bundled
-dataset: each data file in the repo, and inside the component catalogue and the
-example projects each map, curve and drive/grade profile. A file or dataset
-added without a row (source, licence, credit, shipped or not) fails here, and
-so does a row whose file or dataset no longer exists. See docs/DATA-REGISTER.md.
+dataset: each data file in the trees the app is built from, and inside the
+component catalogue and the example projects each map, curve and drive/grade
+profile. A file or dataset added without a row (source, licence, credit,
+shipped or not) fails here, and so does a row whose file or
+dataset no longer exists. See docs/DATA-REGISTER.md.
 """
 from __future__ import annotations
 
@@ -25,20 +26,26 @@ COLUMNS = [
 ]
 REQUIRED = ["id", "file", "dataset", "kind", "description", "source", "licence", "credit"]
 
+# Where datasets live: the engine (its package, the example projects and the
+# test fixtures), the UI source and static files, and the desktop shell's
+# files. Everything else in the repo (build and licence tooling such as the
+# SBOM, CI workflows, docs, editor settings) is not scanned, so a tooling JSON
+# needs no exemption. Data that ships from anywhere else must be added here.
+DATA_ROOTS = ["backend/", "frontend/src/", "frontend/public/", "desktop/src/"]
 # File types that hold data rather than code.
 DATA_SUFFIXES = {
     ".json", ".csv", ".tsv", ".yaml", ".yml", ".xlsx", ".xls", ".mat", ".dat",
     ".parquet", ".h5", ".hdf5", ".mf4", ".npy", ".npz",
 }
-# Files of those types that are tooling or configuration, not datasets.
-NOT_DATA = [
-    "**/package.json", "**/package-lock.json", "**/tsconfig*.json", ".claude/*",
-    ".github/*", "desktop/electron-builder.yml", "docs/data-register.csv",
-    "frontend/e2e/a11y-baseline.json",
-]
+# Files of those types inside DATA_ROOTS that are configuration, not datasets.
+NOT_DATA = ["**/package.json", "**/package-lock.json", "**/tsconfig*.json"]
 # What the installer carries: the engine bundle takes backend/projects and the
-# catalogue (simstudio-backend.spec); the UI bundle inlines frontend/src/data.
-SHIPPED = ["backend/projects/*", "backend/app/library/*", "frontend/src/data/*"]
+# catalogue (simstudio-backend.spec); the UI bundle inlines frontend/src/data
+# and copies frontend/public; the shell's asar holds desktop/src.
+SHIPPED = [
+    "backend/projects/*", "backend/app/library/*", "frontend/src/data/*",
+    "frontend/public/*", "desktop/src/*",
+]
 
 _SKIP_DIRS = {".git", "node_modules", "dist", "build", "release", "__pycache__",
               ".venv", ".pytest_cache", "test-results", "playwright-report"}
@@ -67,8 +74,8 @@ def _matches(path: str, patterns: list[str]) -> bool:
 def data_files() -> list[str]:
     return sorted(
         f for f in _repo_files()
-        if Path(f).suffix.lower() in DATA_SUFFIXES and not _matches(f, NOT_DATA)
-        and (ROOT / f).is_file()
+        if f.startswith(tuple(DATA_ROOTS)) and Path(f).suffix.lower() in DATA_SUFFIXES
+        and not _matches(f, NOT_DATA) and (ROOT / f).is_file()
     )
 
 
@@ -87,10 +94,13 @@ def embedded_datasets() -> set[tuple[str, str]]:
         for c in library for p in c["parameters"]
         if _is_dataset(p["type"], p["key"], p["default"])
     }
-    for path in sorted((ROOT / "backend" / "projects").glob("*.json")):
-        project = json.loads(path.read_text(encoding="utf-8"))
-        rel = path.relative_to(ROOT).as_posix()
-        for system in project["systems"]:
+    # the tracked examples only: in development the engine saves the user's own
+    # projects into backend/projects too
+    for rel in data_files():
+        if not fnmatch(rel, "backend/projects/*.json"):
+            continue
+        project = json.loads((ROOT / rel).read_text(encoding="utf-8"))
+        for system in project.get("systems", []):
             for el in system["elements"]:
                 ptypes = types.get(el["componentDefId"], {})
                 for key, value in el.get("parameterOverrides", {}).items():
@@ -151,3 +161,4 @@ def test_shipping_column_matches_the_packaging(rows):
         assert row["ships_in_installer"] == expected, (
             f"{row['id']}: {row['file']} ships_in_installer should be {expected}"
         )
+

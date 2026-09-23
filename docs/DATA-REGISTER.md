@@ -67,8 +67,12 @@ Rules 2–5 come from the roadmap research of September 2026 (`open-source-repos
 fails when:
 
 - a tracked data file (`.json`, `.csv`, `.yaml`, `.mat`, `.xlsx`, `.parquet`
-  and similar) has no row. Tooling files such as `package.json` and the CI
-  workflows are exempt; the list is in the test.
+  and similar) under `backend/`, `frontend/src/`, `frontend/public/` or
+  `desktop/src/` has no row. These are the trees the app is built from.
+  Tooling elsewhere in the repository, such as the SBOM, the licence lists in
+  `scripts/licenses/` or the CI workflows, is not data and is not scanned.
+  Inside those trees, `package.json` and `tsconfig.json` files are exempt. If
+  data ever ships from another folder, add it to `DATA_ROOTS` in the test.
 - a map, curve or profile in the component catalogue's defaults or in an
   example project's parameters has no row.
 - a row is missing its source, licence or credit, or points at a file or
@@ -76,4 +80,5 @@ fails when:
 - `ships_in_installer` does not match what the packaging bundles.
 
 The check reads the files git tracks, so `git add` a new data file before you
-run it.
+run it. Projects you save while developing (the engine saves into
+`backend/projects/` in development) are not checked until you add them.
