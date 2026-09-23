@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Download, FlaskConical, X } from "lucide-rea
 import { confirmDialog } from "../../dialog";
 import { useProjectStore } from "../../store/projectStore";
 import type { Study, StudyPoint } from "../../types";
+import { csvText } from "./csv";
 
 const NO_STUDIES: Study[] = [];
 
@@ -23,7 +24,6 @@ function defaultKpi(study: Study): string {
 /** Download a study's whole table: a row per point with its value, status,
  *  run id and every summary value. */
 function exportStudyCsv(study: Study) {
-  const quote = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   const header = [
     ...study.factors.map((f) => `${f.elementLabel} ${f.paramLabel}${f.unit ? ` [${f.unit}]` : ""}`),
     "status",
@@ -36,8 +36,7 @@ function exportStudyCsv(study: Study) {
     p.runId ?? "",
     ...study.kpis.map((k) => (k.label in p.kpis ? String(p.kpis[k.label]) : "")),
   ]);
-  const csv = [header, ...rows].map((r) => r.map(quote).join(",")).join("\n");
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const url = URL.createObjectURL(new Blob([csvText([header, ...rows])], { type: "text/csv" }));
   const a = document.createElement("a");
   a.href = url;
   a.download = `lightsim-study-${study.factors[0]?.paramKey ?? "sweep"}-${study.id}.csv`;
