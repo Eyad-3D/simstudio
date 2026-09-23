@@ -4497,6 +4497,30 @@
           "value": "Simulation engine"
         }
       ]
+    },
+    {
+      "type": "data",
+      "bom-ref": "pkg:pypi/fastsim@2.1.5",
+      "name": "FASTSim vehicle and drive-cycle data",
+      "version": "2.1.5",
+      "purl": "pkg:pypi/fastsim@2.1.5",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/NatLabRockies/fastsim"
+        }
+      ],
+      "properties": [
+        {
+          "name": "simstudio:part",
+          "value": "Example data"
+        }
+      ]
     }
   ]
 }

@@ -270,7 +270,7 @@ function buildMenu() {
                 `Projects folder:\n${projectsDir}\n\n` +
                 "Copyright © 2026 Eyad Abualkhair. All rights reserved.\n" +
                 "Free for non-commercial use; commercial use needs a licence (see EULA.txt).\n" +
-                "Includes open-source software under its own licences (Help → Third-Party Notices).",
+                "Includes open-source software and data under their own licences (Help → Third-Party Notices).",
               buttons: ["OK", "Known Limits"],
               defaultId: 0,
               cancelId: 0,

@@ -73,7 +73,8 @@ test("UX-04: a number field can be cleared and retyped", async ({ page }) => {
   await openApp(page);
   await selectElement(page, "Vehicle");
   const mass = page.locator("tr", { hasText: "Vehicle Mass" }).locator("input");
-  await expect(mass).toHaveValue("1800");
+  // any saved value: the test is about clearing and retyping it
+  await expect(mass).toHaveValue(/^\d+(\.\d+)?$/);
   await mass.fill("");
   await expect(mass).toHaveValue(""); // today: snaps to "0"
   await mass.pressSequentially("1.2");

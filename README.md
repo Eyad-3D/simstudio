@@ -62,8 +62,12 @@ The **Battery Electric Car** example loads on first launch: HV Battery Pack →
 HV Bus → (Power Consumer, E-Motor) → Final Drive → Differential → Node FL/FR →
 Brake + Wheel per corner (rear corners unpowered), with a Vehicle body, a
 Driver element, a target-speed Driving Task (labelled *Vehicle Task*), and
-Vehicle/BMS monitors. A **P2 Hybrid Car** example (engine, clutch, gearbox,
-HCU script) is available via Open. Press **Run** — pick the *City Cycle
+Vehicle/BMS monitors. It is modelled on the 2021 Cupra Born (values from
+FASTSim's vehicle file) and has WLTC cases next to the quick *City Cycle*. A
+**P2 Hybrid Car** example (engine, clutch, gearbox, HCU script), sized after
+the Hyundai Ioniq Hybrid with EPA road-load data and run on the EPA city and
+highway cycles, is available via Open. Each example's entry in the Open menu
+lists the results to expect. Press **Run** — pick the *City Cycle
 (live, 10×)* case to watch it stream in real time and tune parameters (try
 the P and I gains on the Driver, or lock the Differential) while it runs.
 

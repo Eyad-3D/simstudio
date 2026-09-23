@@ -26,6 +26,9 @@ COLUMNS = [
     "licence", "credit", "ships_in_installer", "cleared", "notes",
 ]
 REQUIRED = ["id", "file", "dataset", "kind", "description", "source", "licence", "credit"]
+# Third-party data credited in THIRD-PARTY-NOTICES.txt (Help > Third-Party
+# Notices), with the register rows that use it.
+BUNDLED_DATA = ROOT / "scripts" / "licenses" / "bundled-data.json"
 
 # Where datasets live: the engine (its package, the example projects and the
 # test fixtures), the UI source and static files, and the desktop shell's
@@ -92,7 +95,8 @@ def _is_dataset(ptype: str | None, key: str, value) -> bool:
 
 def embedded_datasets() -> set[tuple[str, str]]:
     """(file, "<component or element id>.<parameter>") for every map, curve and
-    profile in the catalogue defaults and the example projects' overrides."""
+    profile in the catalogue defaults and the example projects' overrides; a
+    case's own override is "<case id>/<element id>.<parameter>"."""
     library = json.loads((ROOT / LIBRARY).read_text(encoding="utf-8"))["components"]
     types = {c["id"]: {p["key"]: p["type"] for p in c["parameters"]} for c in library}
     found = {
@@ -106,12 +110,21 @@ def embedded_datasets() -> set[tuple[str, str]]:
         if not fnmatch(rel, "backend/projects/*.json"):
             continue
         project = json.loads((ROOT / rel).read_text(encoding="utf-8"))
+        component_of = {}
         for system in project.get("systems", []):
             for el in system["elements"]:
+                component_of[el["id"]] = el["componentDefId"]
                 ptypes = types.get(el["componentDefId"], {})
                 for key, value in el.get("parameterOverrides", {}).items():
                     if _is_dataset(ptypes.get(key), key, value):
                         found.add((rel, f"{el['id']}.{key}"))
+        # a case can carry its own drive cycle or map (parameterOverrides)
+        for case in project.get("cases", []):
+            for el_id, overrides in (case.get("parameterOverrides") or {}).items():
+                ptypes = types.get(component_of.get(el_id), {})
+                for key, value in overrides.items():
+                    if _is_dataset(ptypes.get(key), key, value):
+                        found.add((rel, f"{case['id']}/{el_id}.{key}"))
     return found
 
 
@@ -191,3 +204,30 @@ def test_nothing_ships_that_is_not_cleared(rows):
             f"{', '.join(pending)} (docs/DATA-REGISTER.md)",
             stacklevel=1,
         )
+
+
+def _needs_credit(credit: str) -> bool:
+    """A credit text of its own, rather than "None ..." or "Same as DR-nn"
+    (that row's credit then covers it)."""
+    return not credit.startswith(("None", "Same as"))
+
+
+def test_credited_data_appears_in_the_third_party_notices(rows):
+    """Rule 6: data whose licence asks for credit is credited on the app's
+    credits screen, Help > Third-Party Notices. scripts/third-party-notices.py
+    writes that from scripts/licenses/bundled-data.json, so every shipped row
+    with a credit text must be listed there, and every listed row must exist
+    and carry that credit."""
+    listed = {}
+    for source in json.loads(BUNDLED_DATA.read_text(encoding="utf-8"))["data"]:
+        for rid in source["register"]:
+            listed[rid] = source["name"]
+    by_id = {r["id"]: r for r in rows}
+    missing = sorted(r["id"] for r in rows
+                     if r["ships_in_installer"] == "yes" and _needs_credit(r["credit"])
+                     and r["id"] not in listed)
+    assert not missing, (f"shipped rows that need credit but are not in "
+                         f"scripts/licenses/bundled-data.json: {missing}")
+    for rid in listed:
+        assert rid in by_id, f"bundled-data.json lists {rid}, which the register does not have"
+        assert _needs_credit(by_id[rid]["credit"]), f"{rid} is listed but credits nothing"

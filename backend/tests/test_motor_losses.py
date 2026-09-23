@@ -97,7 +97,9 @@ def test_bundled_bev_cruises_at_100_kmh_with_80_to_90_percent_battery_to_wheel()
     """MOD-04 metric: the bundled BEV at a steady 100 km/h turns 80-90 % of
     the battery's power, net of its auxiliary load, into road load (aero
     plus rolling resistance). It was 68.1 % with the spin loss counted twice
-    and 79.8 % with the old default loss map."""
+    and 79.8 % with the old default loss map; the Cupra Born rework (CON-03)
+    gives the example its own motor maps and road load, read here from the
+    example itself."""
     proj = load_project("bev-car")
     for e in proj.systems[0].elements:
         if e.id == "el-task":
@@ -112,11 +114,13 @@ def test_bundled_bev_cruises_at_100_kmh_with_80_to_90_percent_battery_to_wheel()
     def last(el_id, port):
         return series(result, el_id, port)[-1]["value"]
 
+    params = build_model(proj).params_of
+    veh = params["el-vehicle"]
     v = last("el-vehicle", "sig_speed") / 3.6
     assert v * 3.6 == pytest.approx(100, abs=0.5)
-    area = _default("vehicle.body", "cd") * _default("vehicle.body", "frontal_area_m2")
-    road_w = (0.5 * AIR_DENSITY * area * v * v
-              + _default("propulsion.wheel", "rolling_resistance")
-              * _default("vehicle.body", "mass_kg") * 9.81) * v
+    rolling_n = sum(params[w]["rolling_resistance"] * params[w]["vehicle_load_share_pct"] / 100.0
+                    for w in ("el-wheel-fl", "el-wheel-fr", "el-wheel-rl", "el-wheel-rr"))
+    road_w = (0.5 * AIR_DENSITY * veh["cd"] * veh["frontal_area_m2"] * v * v
+              + rolling_n * veh["mass_kg"] * 9.81) * v
     net_w = (last("el-battery", "sig_power") - last("el-consumer", "sig_power")) * 1000.0
     assert 0.80 <= road_w / net_w <= 0.90

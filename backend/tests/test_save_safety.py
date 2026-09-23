@@ -179,18 +179,19 @@ def test_failed_replace_leaves_the_file_and_no_debris(projects, monkeypatch):
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="uses RLIMIT_FSIZE")
 def test_write_cut_off_midway_never_corrupts_the_project(projects):
-    """Run a save in a process whose writes stop after 20 kB (as when the disk
-    fills up or the power fails mid-write): the project must stay loadable."""
+    """Run a save in a process whose writes stop 20 kB above the project's
+    current size (as when the disk fills up or the power fails mid-write):
+    the project must stay loadable."""
     before = (projects / "bev-car.json").read_bytes()
-    assert len(before) < 20_000
+    limit = len(before) + 20_000  # room for the current version, not the new one
     script = f"""
 import resource, signal, sys
 sys.path.insert(0, {str(BACKEND)!r})
 from app import storage
 p = storage.load_project("bev-car")
-p.description = "x" * 200_000  # the new version is far larger than the limit
+p.description = "x" * {10 * limit}  # the new version is far larger than the limit
 signal.signal(signal.SIGXFSZ, signal.SIG_IGN)
-resource.setrlimit(resource.RLIMIT_FSIZE, (20_000, 20_000))
+resource.setrlimit(resource.RLIMIT_FSIZE, ({limit}, {limit}))
 try:
     storage.save_project(p)
 except OSError as e:

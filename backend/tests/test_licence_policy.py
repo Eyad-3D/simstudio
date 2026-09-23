@@ -153,3 +153,29 @@ def test_the_desktop_shells_runtime_dependencies_are_checked(notices, allowed, m
     assert components["gpl-updater"].part == notices.SHELL
     problems = notices.check(list(components.values()), allowed, {})
     assert [p.split(" ", 1)[0] for p in problems] == ["gpl-updater"]
+
+
+def test_example_data_is_credited_with_its_notice(notices, allowed):
+    """Third-party data in the examples (scripts/licenses/bundled-data.json)
+    goes through the same licence gate, and the notices reproduce the NOTICE
+    its Apache-2.0 licence asks for, with the licence text in the appendix."""
+    data = notices.data_components()
+    assert data and all(c.part == notices.DATA and c.data for c in data)
+    assert notices.check(data, allowed, {}) == []
+    fastsim = next(c for c in data if c.name.startswith("FASTSim"))
+    assert fastsim.terms == ["Apache-2.0"]
+    notice = dict(fastsim.texts)["NOTICE"]
+    assert notice.startswith("Copyright 2020 Alliance for Sustainable Energy, LLC")
+
+    text = notices.render(data)
+    assert f"  {fastsim.label} — Apache-2.0" in text.split(notices.RULE, 1)[0]
+    assert notice in text
+    appendix = text.split("APPENDIX: STANDARD LICENCE TEXTS", 1)[1]
+    assert "Apache License" in appendix and "Version 2.0" in appendix
+    bom = notices.bill_of_materials(data)["components"]
+    assert [(c["type"], c["licenses"]) for c in bom] == [("data", [{"expression": "Apache-2.0"}])]
+
+    # the committed notices file (Help → Third-Party Notices) carries it too
+    committed = (SCRIPT.parents[1] / "THIRD-PARTY-NOTICES.txt").read_text(encoding="utf-8")
+    assert fastsim.name in notices.contents(committed)
+    assert notice in committed

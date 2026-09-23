@@ -1,0 +1,55 @@
+{
+  "_about": [
+    "Third-party data inside SimStudio's example projects and component catalogue.",
+    "docs/data-register.csv lists every dataset with its source and licence; the",
+    "sources whose licence asks for credit or a NOTICE are listed here, and",
+    "scripts/third-party-notices.py credits them in THIRD-PARTY-NOTICES.txt (the",
+    "app's Help > Third-Party Notices) and in the SBOM. 'register' names the rows",
+    "of docs/data-register.csv that use the source; backend/tests/test_data_register.py",
+    "fails when a shipped row that needs credit is not listed here. 'notice' is the",
+    "source's NOTICE text, reproduced as its licence requires."
+  ],
+  "data": [
+    {
+      "name": "FASTSim vehicle and drive-cycle data",
+      "version": "2.1.5",
+      "license": "Apache-2.0",
+      "url": "https://github.com/NatLabRockies/fastsim",
+      "purl": "pkg:pypi/fastsim@2.1.5",
+      "used": [
+        "Values from FASTSim (NREL, now the National Laboratory of the Rockies), taken",
+        "from the fastsim 2.1.5 package and converted to SimStudio's parameters and",
+        "units; no FASTSim file is included. The Battery Electric Car example's vehicle",
+        "values come from its 2021_Cupra_Born.csv and its motor loss map is calibrated",
+        "to its default motor efficiency curve; the drive cycles WLTC class 3b (Battery",
+        "Electric Car), UDDS and HWFET (P2 Hybrid Car) come from its cycle files; and",
+        "the P2 Hybrid Car's auxiliary load, transmission efficiency and wheel inertia",
+        "follow its vehicle database."
+      ],
+      "notice": [
+        "Copyright 2020 Alliance for Sustainable Energy, LLC",
+        "",
+        "Licensed under the Apache License, Version 2.0 (the \"License\");",
+        "you may not use this file except in compliance with the License.",
+        "You may obtain a copy of the License at",
+        "",
+        "      http://www.apache.org/licenses/LICENSE-2.0",
+        "",
+        "Unless required by applicable law or agreed to in writing, software",
+        "distributed under the License is distributed on an \"AS IS\" BASIS,",
+        "WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+        "See the License for the specific language governing permissions and",
+        "limitations under the License."
+      ],
+      "register": [
+        "DR-01",
+        "DR-02",
+        "DR-22",
+        "DR-23",
+        "DR-25",
+        "DR-34",
+        "DR-35"
+      ]
+    }
+  ]
+}

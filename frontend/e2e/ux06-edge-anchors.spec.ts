@@ -103,7 +103,7 @@ test("UX-06: wires stay on a pin that is moved, flipped or put back by undo", as
   expect((await detached(page)).off, "wire ends off their pin after undo").toEqual([]);
 
   // the examples share 12 element ids; switching must re-measure the nodes
-  for (const [name, wires] of [["Hybrid", 18], ["Battery Electric", 16]] as const) {
+  for (const [name, wires] of [["Hybrid", 20], ["Battery Electric", 16]] as const) {
     await openExample(page, name);
     const after = await detached(page);
     expect(after.wires, `wires drawn after opening ${name}`).toBe(wires);

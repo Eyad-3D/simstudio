@@ -22,15 +22,19 @@ speed, acceleration) for decisions about a real vehicle yet.
 ### Motors can run past the end of their maps without a warning
 
 Maps are extended flat beyond their last point (the edge value is held), and
-E-Motors have no maximum-speed limit. The Battery Electric Car example with
-a 300 km/h target reaches 267 km/h with its motor at 21,333 rpm, on a torque
-map that ends at 12,000 rpm. The run ends with a warning only because the
-car could not keep up with the target; nothing mentions the motor speed.
-Combustion engines are held at the last speed of their full-load curve by a
-rev limiter, which says so in Messages.
+E-Motors have no maximum-speed limit. With the library's default E-Motor
+map, a car with a 300 km/h target reaches 267 km/h with its motor at
+21,333 rpm, on a torque map that ends at 12,000 rpm; the run ends with a
+warning only because the car could not keep up with the target, and nothing
+mentions the motor speed. The Battery Electric Car example no longer does
+this: its motor's full-load curve falls to zero at the motor's 16,000 rpm,
+so the car tops out at 160 km/h. Combustion engines are held at the last
+speed of their full-load curve by a rev limiter, which says so in Messages.
 
-*Workaround:* plot the motor speed and compare it with the last speed point
-of its maps; keep target speeds within what the real vehicle can do.
+*Workaround:* end a motor's full-load curve with zero torque at its maximum
+speed, as the examples do; plot the motor speed and compare it with the last
+speed point of its maps; keep target speeds within what the real vehicle can
+do.
 *Roadmap:* MOD-18.
 
 ### A "success" checks the speed trace, not the physics
@@ -98,9 +102,9 @@ minimum or an average, for example from the CSV export.
 - **A declutched engine with any throttle runs to its rev limiter.** The
   engine has no speed governor above idle: with the clutch open, any
   throttle above 0 revs it up to the last speed of its full-load curve,
-  where it runs on the rev limiter at high fuel flow. The P2 Hybrid Car
-  example does this when it stops (see below). Control scripts should set
-  the throttle to 0, or switch the engine off, while the clutch is open.
+  where it runs on the rev limiter at high fuel flow. Control scripts
+  should set the throttle to 0, or switch the engine off, while the clutch
+  is open, as the P2 Hybrid Car example's script does.
   Turbo lag, restart cost and warm-up are not modelled either.
   *Roadmap:* MOD-13.
 - **Gear losses are applied per motor or engine, not to the power actually
@@ -149,46 +153,44 @@ minimum or an average, for example from the CSV export.
 - **A live parameter edit is undone at the next gear shift** in models with a
   gearbox. Set the value before the run instead (as a case override).
   *Roadmap:* ENG-04.
-- **Charts can hide short peaks.** Signals with more than 2,000 points are
-  thinned for drawing, and *Store every* above 1 does not record the values
-  in between, so short spikes and dips may not show. Use *Store every* 1
-  when peaks matter, and export to CSV for the full data. *Roadmap:* RES-01
-  (being fixed), RES-17, ENG-16.
+- **Values between recorded points are not stored.** Charts keep the
+  highest and lowest value of each stretch they thin for drawing, but with
+  *Store every* above 1 the values in between recorded points are never
+  stored, so a short spike or dip between them does not show. Use *Store
+  every* 1 when peaks matter. *Roadmap:* RES-17, ENG-16.
 - **Stored values are rounded.** Every stored value is rounded to 5 decimal
   places, so small values keep few digits (a tyre slip of 0.0018 keeps two).
-  The summary rounds energies to 1 Wh (battery losses to 0.1 Wh), fuel to 1 g and consumption to 0.01
-  per 100 km. CSV export has the same rounding. Treat smaller differences
+  The summary rounds energies to 1 Wh (battery losses to 0.1 Wh), fuel to
+  1 g and consumption to 0.01 per 100 km. CSV export has the same rounding. Treat smaller differences
   between runs as noise; to compare two close variants, lengthen the run
   (for example, repeat the cycle) so that the difference adds up.
   *Roadmap:* ENG-16.
-- **Stopped or failed sweep points are plotted as if they were results.**
-  Check each run's status before reading a sweep. *Roadmap:* STU-02 (being
-  fixed).
 - **CSV export does not quote fields**, so an element label that contains a
   comma shifts the columns. Avoid commas in labels. *Roadmap:* STD-03.
 
 ## The examples
 
-- **P2 Hybrid Car:** its fuel figure is not realistic, and its run ends
-  with a warning. It reports 6.32 l/100 km on its Mixed Cycle and
-  10.2 l/100 km on the US EPA city cycle (UDDS), while a comparable real
-  hybrid uses about 3 l/100 km on the EPA city test. Once its control
-  script starts the engine (at about 280 s in the shipped case), it never
-  switches it off. From about 542 s, when the car slows below 15 km/h, the
-  script opens the clutch but keeps the throttle at 0.3, so the engine revs
-  up to its rev limiter and stays there to the end of the run: that is
-  about 19 % of the run's fuel, and the reason for the warning ("reached
-  its maximum speed").
-  *Roadmap:* CON-02 (being fixed).
-- **Battery Electric Car:** about 17-21 kWh/100 km on standard test cycles
-  (WLTC, UDDS, HWFET, US06), measured at the battery, where comparable real
-  cars use roughly 10-16 kWh/100 km. Part of that is the default 2.5 kW
-  auxiliary load (heating or air-conditioning level), about a third of the
-  City Cycle energy; with the Power Consumer's *Constant Power Draw* set to
-  about 0.3 kW for mild weather it uses about 13-18 kWh/100 km on the same
-  cycles. Its E-Motor uses the library's default maps, which are generic
-  values rather than data for a real motor. *Roadmap:* CON-03 (being
-  fixed), CON-14.
+- **P2 Hybrid Car:** sized after the Hyundai Ioniq Hybrid, with its test
+  mass and road load from EPA data, but its engine, motor and battery maps
+  are generic, not the car's. With its charge-sustaining control script it
+  uses about 2.7 l/100 km on the EPA city cycle and 3.1 on the highway
+  cycle, against 2.91 and 2.94 for the real car in EPA's tests. The model
+  has no cold start, engine warm-up or start-up fuel, and it counts the
+  driveline drag that EPA's road-load coefficients already include a second
+  time. Each case starts at the charge the cycle ends with (as a
+  preconditioning drive would leave it), so the fuel figure needs no
+  battery-charge correction; start it elsewhere and the figure includes the
+  charge the strategy restores. *Roadmap:* CON-14 (sourced maps).
+- **Battery Electric Car:** modelled on the 2021 Cupra Born with FASTSim's
+  values; about 14 kWh/100 km on WLTC at the battery (a car of this class is
+  rated about 15-16 kWh/100 km at the charging socket, charging losses
+  included), 18.9 with heating or air-conditioning on (the 2.5 kW case).
+  Its motor loss map is generic, not the car's measured map. The real car is
+  rear-wheel drive and has an 11.5:1 reduction gear with an electronic
+  160 km/h limit; the example drives the front axle (only the load share
+  matters without weight transfer) and uses a 12.8 ratio so that the motor's
+  maximum speed sets the 160 km/h, because SimStudio has no speed limiter.
+  *Roadmap:* MOD-18 (maximum-speed limit), MOD-12.
 - **Updated examples do not reach existing installations.** Examples are
   copied into your projects folder on first launch only. To get the current
   version, close SimStudio, delete the example's file and the hidden
@@ -226,10 +228,11 @@ minimum or an average, for example from the CSV export.
 
 ## Using and installing the app
 
-- **Results are not kept.** Runs live only in the open window: reloading,
-  restarting or opening another project discards them, and only the last 20
-  runs are kept. Export what you need to CSV. *Roadmap:* RES-02 (being
-  fixed).
+- **Stored runs have a disk budget.** Finished runs are kept on disk with
+  their project, up to 500 MB per project and 2 GB in all; past that the
+  oldest are deleted (runs of projects that were never saved go first), and
+  the app shows at most the 20 newest. Export runs you need to keep for
+  good to CSV. *Roadmap:* RES-02, RES-09.
 - **Scripts are restricted, not sandboxed.** A project's Script blocks run
   Python code inside the local engine. Data Checks only compile them, never
   run them; during a run a script can import only `math`, cannot open files

@@ -66,15 +66,15 @@ def test_shipped_examples_have_no_fan_in():
 
 # ---- VAL-01: models that cannot drive must not pass -------------------------------
 
-def _without(name: str, fault: str) -> Project:
-    """The example with one element (and its wires/links), wire or link deleted."""
+def _without(name: str, *faults: str) -> Project:
+    """The example with elements (and their wires/links), wires or links deleted."""
     d = load_project(name).model_dump()
     for s in d["systems"]:
-        s["elements"] = [e for e in s["elements"] if e["id"] != fault]
-        s["connections"] = [c for c in s["connections"] if fault not in
-                            (c["id"], c["sourceElementId"], c["targetElementId"])]
-    d["dataBusConnections"] = [c for c in d["dataBusConnections"] if fault not in
-                               (c["id"], c["element1Id"], c["element2Id"])]
+        s["elements"] = [e for e in s["elements"] if e["id"] not in faults]
+        s["connections"] = [c for c in s["connections"] if not set(faults) &
+                            {c["id"], c["sourceElementId"], c["targetElementId"]}]
+    d["dataBusConnections"] = [c for c in d["dataBusConnections"] if not set(faults) &
+                               {c["id"], c["element1Id"], c["element2Id"]}]
     return Project.model_validate(d)
 
 
@@ -107,10 +107,13 @@ def test_a_model_that_cannot_drive_is_blocked(name, fault, expected):
     ("hybrid-car", "db-3", "'Hybrid Control Unit' input 'speed' is not connected"),
     ("hybrid-car", "db-9", "Gearbox 'Gearbox' has no Gear Select signal — it stays in gear 1"),
     ("hybrid-car", "db-8", "Clutch 'Clutch' has no Engagement signal"),
-    ("hybrid-car", "el-motor", "'HV Battery' supplies nothing"),
+    # the hybrid's battery also feeds its 12 V loads (CON-02), so without its
+    # E-Motor it is the control script's speed input that reads 0
+    ("hybrid-car", "el-motor", "'Hybrid Control Unit' input 'motor_rpm' is not connected"),
+    ("hybrid-car", ("el-motor", "el-aux"), "'HV Battery' supplies nothing"),
 ])
 def test_parts_that_silently_do_nothing_are_warned_about(name, fault, expected):
-    checks = validate_project(_without(name, fault))
+    checks = validate_project(_without(name, *([fault] if isinstance(fault, str) else fault)))
     assert any(c.level == "warning" and c.text.startswith(expected) for c in checks), \
         [c.text for c in checks]
 
@@ -178,7 +181,7 @@ def test_a_locked_differential_may_have_a_free_output():
     ("el-battery", "capacity_kWh", 0.05, "has a capacity of 0.05 kWh, too small"),
     ("el-consumer", "power_kW", 250, "draws a constant 250 kW"),
     ("el-final-drive", "ratio", 97, "has a ratio of 97, far above"),
-    ("el-battery", "initial_soc_pct", 10, "starts at 10 % SOC, at or below its minimum of 10 %"),
+    ("el-battery", "initial_soc_pct", 4, "starts at 4 % SOC, at or below its minimum of 4 %"),
 ])
 def test_implausible_parameters_are_warned_about(element, key, value, expected):
     proj = load_project("bev-car")
