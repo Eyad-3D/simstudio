@@ -897,6 +897,17 @@ describe("run snapshots", () => {
     expect(store().project!.cases[0].parameterOverrides).toBeUndefined(); // the project is untouched
   });
 
+  it("the model left out of a snapshot is only the project's saved studies", async () => {
+    await store().init();
+    engineFinishesRuns();
+    await store().runSweep({ caseId: "case-1", elementId: "el-shaft", paramKey: "efficiency_pct", values: [80] });
+    expect(store().project!.studies).toHaveLength(1);
+    await store().run();
+    const { studies: _studies, ...model } = store().project!;
+    expect(store().runs[0].snapshot!.project).toEqual(model);
+    expect(store().runs[0].snapshot!.project.studies).toBeUndefined();
+  });
+
   it("a run's model opens as an unsaved copy, on the run's case", async () => {
     await store().init();
     engineFinishesRuns();

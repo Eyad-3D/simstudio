@@ -585,13 +585,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     const { libraryById, log, appVersion } = get();
     const runId = uid("run");
     const simCase = projectToRun.cases.find((c) => c.id === caseId);
+    // the model is the project without its saved studies (results, not model)
+    const { studies: _studies, ...model } = projectToRun;
     const snapshot: RunSnapshot | undefined = simCase && {
-      project: projectToRun,
+      project: model,
       case: simCase,
       appVersion,
       liveEdits: [],
     };
-    const fingerprint = modelFingerprint(projectToRun).catch(() => undefined);
+    const fingerprint = modelFingerprint(model).catch(() => undefined);
     const partial: SimResult = {
       caseId,
       status: "success",
