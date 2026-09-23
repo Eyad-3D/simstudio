@@ -121,6 +121,43 @@ def validate_project(project: Project) -> list[DataCheck]:
                 f"('{all_elements[dbc.element1Id].label}.{p1.name}' ↔ "
                 f"'{all_elements[dbc.element2Id].label}.{p2.name}') — no data will flow.")
 
+    # -- signal fan-in: an input takes one source; the solver keeps the last ----
+    sources_of: dict[tuple[str, str], list[tuple[str, str]]] = {}
+
+    def note_signal(a: tuple[str, str], b: tuple[str, str]) -> None:
+        pa, pb = port_of(*a), port_of(*b)
+        if pa is None or pb is None or "signal" not in (pa.kind, pb.kind):
+            return
+        if pa.direction == "output" and pb.direction != "output":
+            src, dst = a, b
+        elif pb.direction == "output" and pa.direction != "output":
+            src, dst = b, a
+        else:
+            return
+        srcs = sources_of.setdefault(dst, [])
+        if src not in srcs:
+            srcs.append(src)
+
+    # same order as the solver's model extraction: canvas wires, then data bus
+    for system in project.systems:
+        for conn in system.connections:
+            note_signal((conn.sourceElementId, conn.sourcePortId),
+                        (conn.targetElementId, conn.targetPortId))
+    for dbc in project.dataBusConnections:
+        note_signal((dbc.element1Id, dbc.port1Id), (dbc.element2Id, dbc.port2Id))
+
+    def signal_name(el_id: str, port_id: str) -> str:
+        return f"'{all_elements[el_id].label}.{port_of(el_id, port_id).name}'"
+
+    for (el_id, port_id), srcs in sources_of.items():
+        if len(srcs) > 1:
+            names = ", ".join(signal_name(*s) for s in srcs[:-1]) + f" and {signal_name(*srcs[-1])}"
+            add("error",
+                f"{signal_name(el_id, port_id)} has {len(srcs)} sources: {names} — an input "
+                f"takes one signal and the run would silently use only the last link. "
+                f"Remove all but one of them.",
+                all_elements[el_id])
+
     # -- parameter sanity --------------------------------------------------------
     for el in all_elements.values():
         cdef = defs.get(el.componentDefId)

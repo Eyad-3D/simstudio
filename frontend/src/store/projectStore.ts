@@ -182,6 +182,37 @@ function channelMetaResolver(
   };
 }
 
+/** The signal output already feeding input `elementId.portId` (through a data
+ *  bus link or a canvas wire), as "Element.Port", or null. */
+function signalSourceOf(
+  project: Project,
+  libraryById: Record<string, ComponentDef>,
+  elementId: string,
+  portId: string,
+): string | null {
+  const elements = new Map(project.systems.flatMap((s) => s.elements.map((e) => [e.id, e] as const)));
+  const output = (elId: string, pId: string) => {
+    const el = elements.get(elId);
+    const port =
+      el &&
+      (libraryById[el.componentDefId]?.ports.find((p) => p.id === pId) ??
+        el.dynamicPorts?.find((p) => p.id === pId));
+    return el && port?.direction === "output" ? `${el.label}.${port.name}` : null;
+  };
+  const links = [
+    ...project.dataBusConnections.map((d) => [d.element1Id, d.port1Id, d.element2Id, d.port2Id]),
+    ...project.systems.flatMap((s) =>
+      s.connections.map((c) => [c.sourceElementId, c.sourcePortId, c.targetElementId, c.targetPortId]),
+    ),
+  ];
+  for (const [e1, p1, e2, p2] of links) {
+    const src =
+      e1 === elementId && p1 === portId ? output(e2, p2) : e2 === elementId && p2 === portId ? output(e1, p1) : null;
+    if (src) return src;
+  }
+  return null;
+}
+
 // handle for the in-flight live run (not in reactive state on purpose)
 let activeRun: api.LiveRunHandle | null = null;
 // set by stopRun so an in-flight parameter sweep aborts after the current point
@@ -854,6 +885,23 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       );
       if (dup) {
         log("info", "This data bus connection already exists.");
+        return;
+      }
+      // an input takes one signal (the engine would silently keep only the
+      // last link), so a second source is refused
+      const [inEl, inPort] =
+        port1.direction === "output" && port2.direction !== "output"
+          ? [e2, port2]
+          : port2.direction === "output" && port1.direction !== "output"
+            ? [e1, port1]
+            : [null, null];
+      const existing = inEl && inPort && signalSourceOf(project, libraryById, inEl.id, inPort.id);
+      if (inEl && inPort && existing) {
+        log(
+          "error",
+          `'${inEl.label}.${inPort.name}' already takes its signal from '${existing}' — an input ` +
+            "can have only one source. Remove that link first to connect a different one.",
+        );
         return;
       }
       updateProject((draft) => {
