@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockedObject } from "vitest";
 import libraryJson from "../data/componentLibrary.json";
-import type { ComponentDef, DataCheck, ElementInstance, Project } from "../types";
+import type { ComponentDef, DataCheck, ElementInstance, Project, SimRun, StoredRunInfo } from "../types";
 
 // The store talks to the engine only through api.ts; every call is mocked so
 // these tests never touch the network.
@@ -14,6 +14,11 @@ vi.mock("../api", () => ({
   validateProject: vi.fn(),
   runSimulation: vi.fn(),
   runSimulationLive: vi.fn(),
+  listRuns: vi.fn(),
+  fetchRun: vi.fn(),
+  storeRun: vi.fn(),
+  deleteRun: vi.fn(),
+  deleteRuns: vi.fn(),
 }));
 
 const library = libraryJson as unknown as {
@@ -72,6 +77,27 @@ const allElementIds = () => store().project!.systems.flatMap((s) => s.elements.m
 const findElement = (id: string) =>
   store().project!.systems.flatMap((s) => s.elements).find((e) => e.id === id);
 const messages = () => store().messages.map((m) => `${m.level}: ${m.text}`);
+/** Let the store's background work (reading stored runs) finish. */
+const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+/** The engine's run store as the api mocks see it: project id → run id → run. */
+let disk: Map<string, Map<string, SimRun>>;
+const folder = (projectId: string) => disk.get(projectId) ?? disk.set(projectId, new Map()).get(projectId)!;
+
+/** What the engine lists for a stored run: the run without its channel data. */
+function info({ result, status, ...run }: SimRun): StoredRunInfo {
+  return { ...run, status: status as StoredRunInfo["status"], summary: result.summary, bytes: 1000 };
+}
+
+/** The engine passes the checks and finishes every run at once. */
+function engineFinishesRuns() {
+  api.validateProject.mockResolvedValue([]);
+  api.runSimulationLive.mockImplementation((_project, caseId) => ({
+    setParam: vi.fn(),
+    cancel: vi.fn(),
+    done: Promise.resolve({ caseId, status: "success", messages: [], channels: [], summary: [] }),
+  }));
+}
 
 beforeEach(async () => {
   // fresh module instances per test: the store keeps module-level state
@@ -90,6 +116,29 @@ beforeEach(async () => {
   });
   api.fetchDemoProject.mockResolvedValue({ project: fixture(), offline: false });
   api.saveProject.mockResolvedValue({ saved: "fixture" });
+
+  disk = new Map();
+  api.listRuns.mockImplementation(async (projectId) =>
+    [...folder(projectId).values()].sort((a, b) => b.startedAt - a.startedAt).map(info),
+  );
+  api.fetchRun.mockImplementation(async (projectId, runId) => {
+    const run = folder(projectId).get(runId);
+    if (!run) throw new Error(`404 Run '${runId}' not found`);
+    return structuredClone(run);
+  });
+  api.storeRun.mockImplementation(async (projectId, run) => {
+    folder(projectId).set(run.id, structuredClone(run));
+    return { saved: run.id, stored: folder(projectId).size, bytes: 0, budget: 500 * 2 ** 20, pruned: [] };
+  });
+  api.deleteRun.mockImplementation(async (projectId, runId) => {
+    if (!folder(projectId).delete(runId)) throw new Error(`404 Run '${runId}' not found`);
+    return { deleted: runId, stored: folder(projectId).size };
+  });
+  api.deleteRuns.mockImplementation(async (projectId) => {
+    const deleted = folder(projectId).size;
+    folder(projectId).clear();
+    return { deleted, stored: 0 };
+  });
 });
 
 describe("start-up", () => {
@@ -531,16 +580,6 @@ describe("data checks gate", () => {
 });
 
 describe("run history", () => {
-  /** The engine passes the checks and finishes every run at once. */
-  function engineFinishesRuns() {
-    api.validateProject.mockResolvedValue([]);
-    api.runSimulationLive.mockImplementation((_project, caseId) => ({
-      setParam: vi.fn(),
-      cancel: vi.fn(),
-      done: Promise.resolve({ caseId, status: "success", messages: [], channels: [], summary: [] }),
-    }));
-  }
-
   /** Run the active case `n` times; the ids of the runs, oldest first. */
   async function runTimes(n: number): Promise<string[]> {
     const ids: string[] = [];
@@ -583,5 +622,156 @@ describe("run history", () => {
     store().clearRuns();
     expect(store().runs).toEqual([]);
     expect(store().activeRunId).toBeNull();
+  });
+});
+
+describe("stored runs", () => {
+  /** A finished run of the fixture's case that started at `startedAt`. */
+  function run(id: string, startedAt: number, extra: Partial<SimRun> = {}): SimRun {
+    const result = { caseId: "case-1", status: "success" as const, messages: [], channels: [], summary: [] };
+    return { id, caseId: "case-1", caseName: "Case 1", startedAt, status: "success", result, ...extra };
+  }
+  /** Put runs on the engine's disk for a project. */
+  function stored(projectId: string, runs: SimRun[]) {
+    for (const r of runs) folder(projectId).set(r.id, r);
+  }
+  /** `n` stored runs of the fixture, run-0 the oldest. */
+  const history = (n: number) => Array.from({ length: n }, (_, i) => run(`run-${i}`, 1_000 + i));
+  const shownIds = () => store().runs.map((r) => r.id);
+
+  it("opening a project lists its stored runs and reads the newest 20", async () => {
+    stored("fixture", history(22));
+    await store().init();
+    await settled();
+    expect(api.listRuns).toHaveBeenCalledWith("fixture");
+    expect(store().storedRunCount).toBe(22);
+    expect(shownIds()).toEqual(history(22).slice(2).reverse().map((r) => r.id));
+    expect(api.fetchRun).toHaveBeenCalledTimes(20);
+    expect(api.fetchRun).not.toHaveBeenCalledWith("fixture", "run-0");
+    expect(store().activeRunId).toBe("run-21");
+    expect(store().runsLoading).toBe(false);
+  });
+
+  it("a stored run that cannot be read is left out and reported", async () => {
+    stored("fixture", history(3));
+    api.fetchRun.mockImplementation(async (_projectId, runId) => {
+      if (runId === "run-1") throw new Error("500 corrupt file");
+      return run(runId, 1_000 + Number(runId.slice(4)));
+    });
+    await store().init();
+    await settled();
+    expect(shownIds()).toEqual(["run-2", "run-0"]);
+    expect(messages()).toContain("warning: 1 stored run(s) could not be read and are not listed.");
+  });
+
+  it("a project whose runs cannot be listed opens without them, with a warning", async () => {
+    api.listRuns.mockRejectedValue(new Error("500 disk unreadable"));
+    await store().init();
+    await settled();
+    expect(store().runs).toEqual([]);
+    expect(store().runsLoading).toBe(false);
+    expect(messages()).toContain("warning: Stored runs could not be listed: 500 disk unreadable");
+  });
+
+  it("a finished run is stored with its project", async () => {
+    await store().init();
+    engineFinishesRuns();
+    await store().run();
+    const id = store().activeRunId!;
+    expect(api.storeRun).toHaveBeenCalledTimes(1);
+    expect(api.storeRun.mock.calls[0][0]).toBe("fixture");
+    expect(api.storeRun.mock.calls[0][1]).toMatchObject({ id, caseId: "case-1", status: "success" });
+    expect(api.storeRun.mock.calls[0][1].incomplete).toBeUndefined();
+    expect(store().storedRunCount).toBe(1);
+    expect(folder("fixture").has(id)).toBe(true);
+  });
+
+  it("runs the disk budget deleted drop out of the history, with a warning", async () => {
+    stored("fixture", history(2));
+    await store().init();
+    await settled();
+    engineFinishesRuns();
+    api.storeRun.mockResolvedValueOnce({ saved: "x", stored: 2, bytes: 0, budget: 500 * 2 ** 20, pruned: ["run-0"] });
+    await store().run();
+    expect(shownIds()).toEqual([store().activeRunId, "run-1"]);
+    expect(store().storedRunCount).toBe(2);
+    expect(messages()).toContain(
+      "warning: Stored runs of this project reached the 500 MB disk budget: deleted the 1 oldest run(s).",
+    );
+  });
+
+  it("a run that cannot be stored stays listed for this session, with a warning", async () => {
+    await store().init();
+    engineFinishesRuns();
+    api.storeRun.mockRejectedValueOnce(new Error("507 disk full"));
+    await store().run();
+    expect(store().runs).toHaveLength(1);
+    expect(store().storedRunCount).toBe(0);
+    expect(messages()).toContain(
+      "warning: Run 'Case 1' could not be stored on disk (507 disk full); it is kept for this session only.",
+    );
+  });
+
+  it("deleting a run deletes it on disk and lists the next older stored run in its place", async () => {
+    stored("fixture", history(21));
+    await store().init();
+    await settled();
+    expect(shownIds()).not.toContain("run-0");
+    await store().removeRun("run-20");
+    expect(api.deleteRun).toHaveBeenCalledWith("fixture", "run-20");
+    expect(folder("fixture").has("run-20")).toBe(false);
+    expect(shownIds()).toHaveLength(20);
+    expect(shownIds()).not.toContain("run-20");
+    expect(shownIds().at(-1)).toBe("run-0");
+    expect(store().activeRunId).toBe("run-19");
+    expect(store().storedRunCount).toBe(20);
+  });
+
+  it("deleting a run that was never stored is not an error; other failures are", async () => {
+    await store().init();
+    engineFinishesRuns();
+    api.storeRun.mockRejectedValueOnce(new Error("507 disk full"));
+    await store().run();
+    await store().removeRun(store().activeRunId!);
+    expect(store().runs).toEqual([]);
+    expect(messages().filter((m) => m.startsWith("error:"))).toEqual([]);
+
+    stored("fixture", history(1));
+    api.deleteRun.mockRejectedValueOnce(new Error("500 file locked"));
+    await store().removeRun("run-0");
+    expect(messages()).toContain("error: Could not delete the stored run: 500 file locked");
+    expect(shownIds()).toEqual(["run-0"]); // still on disk, so listed again
+  });
+
+  it("Clear deletes every stored run; when that fails they are listed again", async () => {
+    stored("fixture", history(3));
+    await store().init();
+    await settled();
+    await store().clearRuns();
+    expect(api.deleteRuns).toHaveBeenCalledWith("fixture");
+    expect(folder("fixture").size).toBe(0);
+    expect(store().runs).toEqual([]);
+    expect(store().storedRunCount).toBe(0);
+    expect(messages()).toContain("info: Deleted 3 stored run(s) of 'Fixture'.");
+
+    stored("fixture", history(2));
+    api.deleteRuns.mockRejectedValueOnce(new Error("500 file locked"));
+    await store().clearRuns();
+    expect(messages()).toContain("error: Could not delete the stored runs: 500 file locked");
+    expect(shownIds()).toEqual(["run-1", "run-0"]);
+  });
+
+  it("stored runs that arrive after another project was opened are dropped", async () => {
+    stored("fixture", history(2));
+    let answer!: (index: StoredRunInfo[]) => void;
+    api.listRuns.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    await store().init();
+    api.fetchProject.mockResolvedValue(fixture({ id: "other", name: "Other" }));
+    await store().openProject("other");
+    answer(history(2).map(info));
+    await settled();
+    expect(store().project?.id).toBe("other");
+    expect(store().runs).toEqual([]);
+    expect(api.fetchRun).not.toHaveBeenCalledWith("fixture", expect.anything());
   });
 });
