@@ -120,9 +120,42 @@ body,
 .dockview-theme-ss .dv-tab .dv-default-tab-action {
   padding: 3px;
   border-radius: 3px;
+  order: 2;
+}
+/* problem count on the Messages / Data Checks tabs (DockLayout SsTab), drawn
+   between the title and the close button */
+.dockview-theme-ss .dv-default-tab[data-badge]::after {
+  content: attr(data-badge);
+  order: 1;
+  min-width: 16px;
+  height: 16px;
+  margin-right: 2px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #b45309;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+.dockview-theme-ss .dv-default-tab[data-badge-level="error"]::after {
+  background: #c81e1e;
+}
+/* The Home dock under the Results page (App.tsx). dockview forces its views
+   back to `visibility: visible` (.dv-view.visible), so hiding the wrapper
+   alone let its splitters (z-index 99) draw over Results and catch drags. */
+.ss-dock-hidden,
+.ss-dock-hidden * {
+  visibility: hidden !important;
 }
 
 /* ---- React Flow tuning ---- */
+/* a library part is armed for click-to-place (TopologyCanvas) */
+.ss-placing .react-flow__pane,
+.ss-placing .react-flow__pane.draggable {
+  cursor: crosshair;
+}
 .react-flow__attribution {
   font-size: 9px;
   opacity: 0.6;
@@ -184,6 +217,10 @@ body,
 }
 .ss-tree-row {
   @apply flex w-full cursor-default items-center gap-1.5 truncate px-1.5 py-[3px] text-left text-[12px] hover:bg-[color:var(--ss-hover)];
+}
+.ss-tree-row:focus-visible {
+  outline: 2px solid var(--ss-accent);
+  outline-offset: -2px;
 }
 .ss-tree-row.selected {
   background: var(--ss-accent-soft);

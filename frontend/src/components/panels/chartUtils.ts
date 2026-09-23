@@ -1,5 +1,5 @@
 // Shared chart helpers used by the Results panel and the dockable mini-chart.
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { Channel } from "../../types";
 
 export const PALETTE = [
@@ -32,19 +32,26 @@ export function decimate<T>(arr: T[], max = MAX_PLOT_POINTS): T[] {
 }
 
 /** True once the element has a real size — dockview keeps hidden tabs at 0×0,
- *  and recharts warns loudly if asked to render there. */
+ *  and recharts warns loudly if asked to render there. `ref` is a callback ref,
+ *  so the observer attaches whenever the chart area mounts: the panels render
+ *  it only after their "no runs yet" placeholder, or swap it between views.
+ *  `element` holds the currently attached node (for PNG export). */
 export function useHasSize<T extends HTMLElement>() {
-  const ref = useRef<T | null>(null);
+  const element = useRef<T | null>(null);
   const [hasSize, setHasSize] = useState(false);
-  useEffect(() => {
-    const node = ref.current;
+  const ref = useCallback((node: T | null) => {
     if (!node) return;
+    element.current = node;
     const obs = new ResizeObserver((entries) => {
       const r = entries[0]?.contentRect;
       setHasSize(!!r && r.width > 0 && r.height > 0);
     });
     obs.observe(node);
-    return () => obs.disconnect();
+    return () => {
+      obs.disconnect();
+      element.current = null;
+      setHasSize(false);
+    };
   }, []);
-  return { ref, hasSize };
+  return { ref, hasSize, element };
 }

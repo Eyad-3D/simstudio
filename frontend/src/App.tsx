@@ -96,11 +96,12 @@ export default function App() {
         {loaded ? (
           <>
             {/* Home / model workspace — kept mounted (hidden on the Results
-                page) so its dock layout and live state survive tab switches. */}
+                page) so its dock layout and live state survive tab switches.
+                It stays laid out while hidden, so it follows window resizes;
+                `inert` keeps clicks, focus and screen readers out of it. */}
             <div
-              className="absolute inset-1"
-              style={{ visibility: onResultsPage ? "hidden" : "visible" }}
-              aria-hidden={onResultsPage}
+              className={`absolute inset-1${onResultsPage ? " ss-dock-hidden" : ""}`}
+              inert={onResultsPage}
             >
               <DockLayout />
             </div>
