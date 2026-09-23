@@ -7,14 +7,16 @@
 // decides, and the clock, time zone and locale are fixed. The comparison is
 // strict (see SHOT), so that a stray divider fails.
 //
-// The baselines are Ubuntu 24.04 renders with the fonts Playwright installs
-// (`npx playwright install --with-deps chromium`, as CI does), where the UI's
-// font stack falls back to DejaVu Sans, so the spec runs on Linux only. After
-// a deliberate UI change, regenerate them on Linux and review the new images
-// in the pull request:
-//   npm run build && npm run test:visual:update
+// The baselines are renders from CI's ubuntu-24.04 runner with the fonts
+// Playwright installs (`npx playwright install --with-deps chromium`), where
+// the UI's font stack falls back to DejaVu Sans. Other machines, even other
+// Ubuntu 24.04 ones, anti-alias about 1 % of pixels differently, so the spec
+// only runs on CI (set VISUAL=1 to run it anyway). After a deliberate UI
+// change, regenerate them on CI (Actions → CI → Run workflow on your branch,
+// tick "Regenerate the screenshot baselines"; see the screenshots job in
+// .github/workflows/ci.yml) and review the new images in the pull request.
 // CI's e2e job is pinned to ubuntu-24.04 for them: moving it to a newer image
-// (or a newer Playwright) means regenerating all 18 in the same PR.
+// (or a newer Playwright) means regenerating all 18.
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 import { openApp, runActiveCase, runButton } from "./app";
@@ -37,6 +39,7 @@ const SHOT = {
 const BASELINE_FONT = "DejaVu Sans";
 
 test.skip(process.platform !== "linux", "the screenshot baselines are Linux renders");
+test.skip(!process.env.CI && !process.env.VISUAL, "the screenshot baselines are CI renders; set VISUAL=1 to compare anyway");
 test.describe.configure({ mode: "parallel" });
 test.use({ locale: "en-US", timezoneId: "UTC" });
 

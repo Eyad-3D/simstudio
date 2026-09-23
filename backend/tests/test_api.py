@@ -53,7 +53,10 @@ def test_ws_stream_and_live_set_param():
 
 def test_ws_cancel_stops_early():
     project = bev_axle().model_dump()
-    project["cases"][0]["duration"] = 600
+    # Long enough that the solver cannot finish before the cancel arrives:
+    # a fast CI runner completed a 600 s case while the first five steps
+    # were still in flight.
+    project["cases"][0]["duration"] = 36000
     project["cases"][0]["timeStep"] = 1.0
     with client.websocket_connect("/api/simulate/run") as ws:
         ws.send_json({"type": "start", "project": project, "caseId": "case"})
@@ -67,7 +70,7 @@ def test_ws_cancel_stops_early():
             elif msg["type"] == "done":
                 result = msg["result"]
                 break
-        assert n < 600
+        assert n < 36000
         assert any("cancelled" in m["text"] for m in result["messages"])
 
 
