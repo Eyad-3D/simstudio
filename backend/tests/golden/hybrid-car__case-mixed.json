@@ -36,6 +36,10 @@
    7.58,
    "l/100km"
   ],
+  "Electrical energy balance error": [
+   0.0,
+   "%"
+  ],
   "Simulated duration": [
    600.0,
    "s"

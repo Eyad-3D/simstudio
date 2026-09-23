@@ -90,6 +90,14 @@ class MotorCache:
     p_mech_w: float = 0.0
     p_loss_w: float = 0.0
     p_elec_w: float = 0.0
+    # source-limit handshake: this step's electrical power window (W) and the
+    # time the supply held the torque below the command
+    p_lo_w: float = -math.inf
+    p_hi_w: float = math.inf
+    limited_s: float = 0.0
+    # (command, speed, torque, inverter on, electrical W) evaluated by the
+    # handshake this step, reused when the mechanics apply the same command
+    request: Optional[tuple] = None
 
 
 @dataclass

@@ -64,3 +64,17 @@ shaft power.
 - hybrid-car Mixed Cycle: fuel 0.553 -> 0.540 kg, 7.76 -> 7.58 l/100 km,
   final SOC 52.92 -> 53.00 %, battery consumption row 2.49 -> 2.39
   kWh/100 km; distance 9.556 km unchanged.
+
+## Source-limit handshake (ENG-02 / MOD-01)
+
+Motors could draw power their source did not have (an empty battery, a
+battery past its maximum-power point, a fuel cell over its maximum), and
+recuperated power could vanish into a full battery, a charge limit or a
+one-way DC-DC. Every solver step now starts with a handshake: each bus
+states what its source can deliver and absorb, consumers and DC-DC
+setpoints are served first, and motor torque is cut so the motors fit what
+is left. A new summary row, "Electrical energy balance error", reports the
+energy no source covered as a share of all energy through the buses.
+
+- Neither demo reaches a source limit, so every channel and number is
+  unchanged; both fixtures gain "Electrical energy balance error 0.0 %".

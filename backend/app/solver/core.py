@@ -3,8 +3,9 @@
 Each recorded step (the case timeStep) is split into n_sub solver steps of
 at most MAX_SUBSTEP (semi-implicit Euler). Every solver step the master
 runs the wrapped domain slaves — control (signals and blocks) → gear →
-driver → mechanical + vehicle → electrical — and this module then refreshes
-the state-derived signals that feed block inputs. At the end of a recorded
+source limits → driver → mechanical + vehicle → electrical — and this
+module then refreshes the state-derived signals that feed block inputs.
+At the end of a recorded
 step it records channels, streams progress, paces against real time and
 applies live control messages, so the case timeStep sets only how often
 results are stored and live edits apply, not how often controllers run.
@@ -231,6 +232,11 @@ def simulate(
         summary.append(SummaryValue(label=f"{label} — energy delivered", value=round(b.energy_out_wh / 1000.0, 3), unit="kWh"))
         summary.append(SummaryValue(label=f"{label} — energy recuperated", value=round(b.energy_in_wh / 1000.0, 3), unit="kWh"))
         summary.append(SummaryValue(label=f"{label} — internal losses", value=round(b.loss_wh / 1000.0, 4), unit="kWh"))
+    for mc in ctx.motors.values():
+        if mc.limited_s > 0:
+            summary.append(SummaryValue(
+                label=f"{model.elements[mc.el_id].label} — time limited by supply",
+                value=round(mc.limited_s, 2), unit="s"))
     for ec in ctx.engines.values():
         summary.append(SummaryValue(
             label=f"{model.elements[ec.el_id].label} — fuel used",
@@ -263,6 +269,12 @@ def simulate(
             summary.append(SummaryValue(
                 label="Fuel consumption",
                 value=round(liters * 100.0 / (ctx.distance / 1000.0), 2), unit="l/100km"))
+    if ctx.throughput_wh > 0:
+        # energy no source supplied or absorbed (last-resort clamps), as a
+        # share of all the energy that went through the buses
+        summary.append(SummaryValue(
+            label="Electrical energy balance error",
+            value=round(100.0 * ctx.residual_wh / ctx.throughput_wh, 4), unit="%"))
     summary.append(SummaryValue(label="Simulated duration", value=times[-1] if times else 0.0, unit="s"))
 
     has_error = any(m.level == "error" for m in rt.messages)
