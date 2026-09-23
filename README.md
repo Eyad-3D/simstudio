@@ -17,21 +17,21 @@ inspect results — all in a dockable-panel UI.
 
 | Area | What works |
 |---|---|
-| **Topology builder** | Drag components from the searchable library tree onto a React Flow canvas, connect ports (kind-checked), pan/zoom, multi-select, delete, undo/redo (Ctrl+Z / Ctrl+Y), minimap toggle |
+| **Topology builder** | Drag components from the searchable library tree onto a React Flow canvas, or add one with Enter, a double-click or click-to-place; connect ports (kind-checked), pan/zoom, multi-select, delete, undo/redo (Ctrl+Z / Ctrl+Y), minimap toggle |
 | **Component library** | Declarative catalog in `backend/app/library/components.json` with mandatory units on every parameter (dimensionless = `-`) and first-class lookup tables (`table1d` / `table2d`, dict-keyed by the independent variable) |
-| **Dynamic solver** | Causal multi-pass solver with real states: vehicle speed integrates from net tire force, per-wheel speeds with a longitudinal slip tire model, battery SOC from an equivalent-circuit model, semi-implicit Euler with internal sub-steps of at most 10 ms. Results currently depend on the case time step (see [Known limits](docs/KNOWN-LIMITS.md#results-depend-on-the-case-time-step)); how the time step is used is being reworked |
+| **Dynamic solver** | Causal multi-pass solver with real states: vehicle speed integrates from net tire force, per-wheel speeds with a longitudinal slip tire model, battery SOC from an equivalent-circuit model, semi-implicit Euler with solver steps of at most 10 ms. Controllers, scripts, the drive cycle, gear choice and the physics all run at every solver step (Script, PID and Lookup blocks can be given a slower *Sample Time*), and motors are held to what their battery, fuel cell or voltage source can supply. The case time step only sets how often results are stored (see [Solver](#solver)) |
 | **Differential** | Locked/unlocked with genuinely different dynamics: unlocked = equal torque split with free output speeds (one wheel on ice spins up), locked = common speed with grip-dependent emergent torque split |
-| **Driver** | Separate Driver component (speed-following PI): wire a target-speed profile and the Vehicle's speed into it; braking blends recuperation (motor generator quadrant, battery charge limit) before friction brakes |
+| **Driver** | Separate Driver component (speed-following PI): wire a target-speed profile and the Vehicle's speed into it; braking blends recuperation (motor generator quadrant, what the battery or other source can take back) before friction brakes |
 | **Live simulation** | Runs stream over a WebSocket: progress + all channels update live, the solver can be paced against real time (Pacing selector), cancelled, and scalar parameters (e.g. driver PI gains) can be edited mid-run from the Properties panel |
 | **Monitors** | Display-only Monitor component: add named signal inputs, wire anything into them, get live readout cards + sparklines in the Monitors panel |
-| **Scripting** | Script (Function) component: user-written Python `step(t, dt, inputs, state, params)` with named per-instance ports — for hybrid control strategies, custom recuperation logic, signal math. Scripts get `math`, `clamp()` and `interp()` and a small set of builtins; other imports, file access, class definitions and dunder attributes are refused, and each call must return within 2 s |
-| **Maps** | E-Motor with voltage-dependent full-load torque map, power-loss map, drag torque; battery OCV(SOC) table — all edited in table grids in the Properties panel |
-| **Data Checks** | Pre-run validation: reference integrity, port-kind mismatches, parameter ranges, table data, script compilation (compile only — script code never runs during checks), driveline solvability (delegated to the solver's model extraction). Errors that block the run when the model cannot drive: an E-Motor with no power source, a motor or engine that reaches no wheel, an open differential with a free output, a missing command or target-speed signal, a speed demand that reaches no motor or engine, two signals wired into one input. Warnings for parts the solver would leave out (unconnected, or an input that silently reads 0) and for implausible values (vehicle mass, battery size, auxiliary load, final-drive ratio, wheel load shares, a battery that starts empty). An all-clear says what was checked; it does not vouch for the results |
-| **Results** | Dedicated full-page Results workspace (own ribbon tab): channel picker grouped per element, multi-channel time-series **chart or table view** that fills in live during the run, summary table (SOC, energy, recuperation, distance, consumption), CSV export |
+| **Scripting** | Script (Function) component: user-written Python `step(t, dt, inputs, state, params)` with named per-instance ports — for hybrid control strategies, custom recuperation logic, signal math. `step()` is called every solver step with `dt` = that step (0.01 s unless the case time step is shorter), or at the block's *Sample Time* with `dt` = the Sample Time when that is longer; wired inputs are fresh on every call. Scripts get `math`, `clamp()` and `interp()` and a small set of builtins; other imports, file access, class definitions and dunder attributes are refused, and each call must return within 2 s |
+| **Maps** | E-Motor with voltage-dependent full-load torque map, power-loss map and unpowered drag torque; combustion engine full-load curve, fuel map and unfired drag torque; battery OCV(SOC) table — all edited in table grids in the Properties panel |
+| **Data Checks** | Pre-run validation: reference integrity, port-kind mismatches, parameter ranges, table data, drive-cycle and road-profile entries (an entry that is not an `x:value` pair of numbers, or points out of order, is an error; a repeated x is a warning), Sample Times (negative or not a finite number is an error, above 0.1 s a warning), script compilation (compile only — script code never runs during checks), driveline solvability (delegated to the solver's model extraction). Errors that block the run when the model cannot drive: an E-Motor with no power source, a motor or engine that reaches no wheel, an open differential with a free output, a missing command or target-speed signal, a speed demand that reaches no motor or engine, two signals wired into one input. Warnings for parts the solver would leave out (unconnected, or an input that silently reads 0) and for implausible values (vehicle mass, battery size, auxiliary load, final-drive ratio, wheel load shares, a battery that starts empty). An all-clear says what was checked; it does not vouch for the results |
+| **Results** | Dedicated full-page Results workspace (own ribbon tab): channel picker grouped per element, multi-channel time-series **chart or table view** that fills in live during the run, summary table (SOC, energy, recuperation, distance, consumption, fuel and CO₂ per km, electrical energy balance error, time a motor was held back by its supply) with a *not valid* note on figures the run's checks rule out (see [Run status](#run-status-and-not-valid-figures)), CSV export. Point 0 is the initial state at t = 0, each later point holds the state at its own time, and the run ends exactly at the case duration |
 | **Electrical** | Two-terminal components: every electrical element has explicit positive (+, red) and negative (−, blue) pins; the solver balances power on the supply rail with the negative terminals as the return (wire to Ground, or leave implicit) |
 | **Canvas** | Signal/data-bus wiring is edited in the Data Bus panel; an optional dashed overlay draws those links on the canvas (the *signal* layer in Layer Configurations, off by default); background-grid toggle; double-click an element for a modal parameter dialog; Shift+click a pin to move it around the node |
 | **Persistence** | Save/load projects on the backend (single JSON file per project), plus browser Export / Import |
-| **UI shell** | Ribbon tabs act as full-page workspaces (Home = topology + panels; Results = its own page); light/dark theme (persisted); dockable & resizable panels (Dockview); status bar with live progress |
+| **UI shell** | Ribbon tabs act as full-page workspaces (Home = topology + panels; Results = its own page); light/dark theme (persisted); dockable & resizable panels (Dockview) around a large diagram, with Messages, Data Checks, layers, Data Bus and Signal Plot in a collapsible bottom tray (double-click a tab to maximise its group); status bar with live progress |
 
 ![Results view](docs/doc-results.png)
 ![Data bus connections](docs/doc-databus.png)
@@ -146,8 +146,18 @@ ruff check .                # lint (config in backend/pyproject.toml)
 
 cd ../frontend
 npm run lint                # ESLint (config in frontend/eslint.config.js)
+npm test                    # unit tests (Vitest)
 npm run build               # type-check + production build
+npx playwright install chromium   # once
+npm run test:e2e            # browser + accessibility tests of the built UI
 ```
+
+The browser tests start the engine themselves with `python3` (set
+`SIMSTUDIO_PYTHON` to use another interpreter; it needs the backend's
+requirements) and a throw-away projects folder. They include screenshot
+comparisons: after a deliberate UI change, regenerate the baselines on CI
+(Actions → CI → Run workflow, tick *Regenerate the screenshot baselines*),
+since renders from another machine do not match the runner's.
 
 Two smoke tests exercise what unit tests cannot — they run the *built*
 artefacts rather than the source (Node ≥ 22, for its built-in WebSocket):
@@ -222,7 +232,7 @@ goes in `scripts/licenses/bundled-runtime.json`. Adding a licence to
 
 | Workflow | Runs on | Does |
 |---|---|---|
-| `ci.yml` | every push and PR (~3 min) | backend lint + tests, frontend lint + typecheck + build, version-sync check, third-party licence check |
+| `ci.yml` | every push and PR (~3 min; the browser tests ~6 min, in parallel) | backend lint + tests, frontend lint + unit tests + typecheck + build, browser + accessibility tests, version-sync check, third-party licence check |
 | `desktop-build.yml` | `main`, `v*` tags, manual, and PRs touching packaging (~12 min) | builds Windows and Linux installers (with their third-party notices), smoke-tests both the frozen backend and the packaged app, uploads artefacts with SHA-256 checksums |
 
 Push a `v*` tag to draft a release with the installers attached. Dependabot
@@ -250,7 +260,8 @@ backend/   Python + FastAPI
   │    ├─ runtime.py               shared constants, signal routing, small linear solver
   │    ├─ slave.py                 FMI-style co-simulation slave interface
   │    ├─ master.py                co-simulation master: steps the slaves on a shared grid
-  │    ├─ domains.py               domain slaves: control → gear → driver → mechanics + vehicle → electrical
+  │    ├─ domains.py               domain slaves: control → gear → source limits → driver → mechanics + vehicle → electrical
+  │    ├─ verdict.py               run verdict: speed trace vs. target, distance, non-finite values
   │    └─ core.py                  simulate(): runs the master, records channels, streams progress
   ├─ app/validation.py             "Data Checks" pre-run validation
   ├─ app/storage.py                one JSON file per project
@@ -296,6 +307,12 @@ is no token check. To reach a development engine through another host name
 | `POST /api/simulate` | Validate + solve one case synchronously |
 | `WS /api/simulate/run` | Live run: client sends `start`, then optional `set_param` / `cancel`; server streams `step` / `message` events and a final `done` with the full result |
 
+A result (`SimResult`) has a `status` of `success`, `warning` or `failed`, its
+`messages`, the recorded `channels` and a `summary` of `SummaryValue`s
+(`label`, `value`, `unit`). A summary value that the run's checks rule out
+also carries `notValid`, the reason as text (for example
+`"cycle not followed"`); it is absent or `null` otherwise.
+
 ## Data model
 
 A project is a single JSON document (see `backend/projects/bev-car.json`):
@@ -309,36 +326,132 @@ voltage → speed → torque). Elements of components with `allowDynamicPorts`
 
 ## Solver
 
-Each case time step (*Step (s)* in Cases & Parameters) evaluates signal
-sources and Script blocks (topological order over the signal graph, one-step
-delay on loops), then runs internal sub-steps (≤ 10 ms, semi-implicit Euler):
+The solver steps with semi-implicit Euler at a fixed solver step of at most
+10 ms: each case time step (*Step (s)* in Cases & Parameters) is split into
+equal solver steps. Every solver step runs, in this order:
 
-1. **Driver** — PI on target vs. actual speed → traction command ∈ [−1, 1]
+1. **Control** — signal sources (Constant, Driving Task, Road Profile) and
+   blocks (Script, PID, Lookup) in topological order over the signal graph,
+   with a one-solver-step delay on loops. A Script, PID or Lookup whose
+   *Sample Time* is longer than the solver step runs only at multiples of
+   it and holds its outputs in between.
+2. **Gear** — each gearbox reads its Gear Select signal; a shift rebuilds
+   the driveline at that step.
+3. **Source limits** — each electrical bus with its battery, fuel cell or
+   voltage source, plus the buses DC-DC converters feed from it, states what
+   the source can deliver and take back over the step. A battery delivers up
+   to its maximum-power point and takes back up to its max charge power,
+   never past its minimum SOC or 100 %; a fuel cell delivers up to its power
+   at maximum current, and nothing once its hydrogen tank is empty; a voltage
+   source has no limit. A fuel cell, and a bus fed through a one-way DC-DC,
+   take nothing back. Power Consumers and DC-DC setpoints are served first
+   and are cut back, with a message, when the source cannot carry them; the
+   motors share what is left.
+4. **Driver** — PI on target vs. actual speed → traction command ∈ [−1, 1]
    and brake command, with capability-aware regen blending (motor Q4 map ×
-   recuperation weight, battery max charge power, fade-out near standstill).
-2. **Mechanics** — motor torque from the voltage-dependent full-load map,
-   reflected through the gear chain (direction-aware efficiencies) into the
-   differential; per-segment equations of motion (2×2 coupled mass matrix
-   for an open diff, merged inertia when locked); brakes with proper
-   static-friction standstill hold; tire slip term integrated implicitly
-   (it is numerically stiff at low speed).
-3. **Vehicle** — net tire force − aero − rolling − grade integrates speed
+   recuperation weight, what the sources can take back this step, fade-out
+   near standstill); the friction brakes take the rest of the braking.
+5. **Mechanics** — before any torque is applied, each motor gets an
+   electrical-power window: motors that draw share the room in proportion
+   to what they ask for, and a motor's torque is cut until its electrical
+   power fits (a message names the limit, and the summary shows how long
+   the motor was held back). Motor torque comes from the voltage-dependent
+   full-load map, engine torque from the throttle and the full-load curve;
+   both are reflected through the gear chain (direction-aware
+   efficiencies) into the differential; per-segment equations of motion
+   (2×2 coupled mass matrix for an open diff, merged inertia when locked);
+   brakes with proper static-friction standstill hold; tire slip term
+   integrated implicitly (it is numerically stiff at low speed).
+6. **Vehicle** — net tire force − aero − rolling − grade integrates speed
    and distance.
-4. **Electrical** — motor electrical power = mechanical + loss map; buses
+7. **Electrical** — motor electrical power = shaft power + loss map; buses
    solved in dependency order (DC-DC bridges); battery equivalent circuit
-   (OCV(SOC) table, R0, optional RC pair) solved closed-form per sub-step;
-   SOC integrates; the terminal voltage feeds next step's motor map.
+   (OCV(SOC) table, R0, optional RC pair) solved closed-form per step; SOC
+   integrates; the terminal voltage feeds the next step's motor map.
+8. The state signals wired into block inputs (SOC, speeds, torques, tank
+   level …) are refreshed, so the next control pass reads current values.
 
-Because the drive-cycle target, Script, PID and Lookup blocks and the gear
-choice are evaluated only once per case time step, results depend on that
-step. *Store every* only sets how many of those steps are stored, so a small
-step with a larger *Store every* gives better results at the same result
-size. This is being reworked; until then see
-[Known limits](docs/KNOWN-LIMITS.md#results-depend-on-the-case-time-step).
+Results are recorded at the end of each case time step: point 0 is the
+initial state at t = 0, every later point holds the state at its own time,
+and a last, shorter step makes the run end exactly at the case duration.
+*Store every* keeps every Nth of those points. Changing the case time step
+does not change the results (the solver step stays at 10 ms whenever the
+case step is a multiple of 10 ms), only how many points are stored and when
+live edits apply. At point 0, values that blocks, the Driver or the physics
+compute (commands, torques, powers) read 0, because nothing has computed
+them yet; at later points they come from the last solver step before the
+point.
 
 Live `set_param` messages apply at the start of the next case time step;
 structural parameters (ratios, inertias, code, table axes) take effect on the
 next run and say so in Messages.
+
+### Motors, engines and fuel
+
+- **E-Motor** — the *Power Loss (Motor + Inverter)* map holds every loss
+  while the inverter is powered, spin losses at zero torque included, so
+  electrical power = shaft torque × speed + map loss. *Drag Torque
+  (unpowered)* applies only when the motor coasts unpowered: a command of
+  exactly 0, no live supply, or a source that cannot cover even the spin
+  loss. It then draws nothing. *Shaft Torque* and *Mechanical Power* are
+  net shaft values, and *Losses* is electrical minus shaft power. The
+  library defaults are generic values for a motor of this size, not data
+  for a real one: about 1 kW of spin loss near 8,000 1/min, with the
+  unpowered drag below it at every speed.
+- **Combustion Engine** — the full-load curve and fuel map are brake (net)
+  values, as on a datasheet: fired, the engine gives throttle × full-load
+  torque and burns map(speed, torque). *Drag Torque (unfired)* applies only
+  when it is not fired: switched off, out of fuel, in overrun fuel cut-off
+  (zero throttle above the *Fuel Cut-Off Re-Entry Speed*, 1,100 1/min by
+  default), or above the full-load curve's last speed, where a rev limiter
+  cuts fuel and torque and says so in Messages. At zero throttle below the
+  re-entry speed an idle governor holds idle speed: below idle it adds
+  torque, above it trims the fuel down to the drag torque, with fuel
+  falling linearly from map(speed, 0) to 0. There is no speed governor
+  above idle, so a declutched engine given any throttle above 0 runs up to
+  its rev limiter: control scripts should set the throttle to 0, or switch
+  the engine off, while the clutch is open. *Engine Torque* is the net
+  shaft torque.
+- **Fuel Tank** — its density turns the fuel burnt into litres, and its
+  *CO₂ per kg of Fuel* (3.17 by default, for petrol) gives the *CO₂
+  emissions* row of the summary. Without a tank, 0.745 kg/l and 3.17 are
+  used.
+
+### Run status and not-valid figures
+
+Each run ends as *success*, *warning* or *failed*:
+
+- **failed** — an error was raised, for example: the model could not be
+  built, a script failed, the vehicle covered less than 5 % of the distance
+  its target speed asks for, or a result went NaN or infinite. When no
+  distance has been covered after 60 s, a warning already says so while the
+  run goes on.
+- **warning** — a warning was raised, or the run was cancelled. This
+  includes *Cycle not followed*: the vehicle speed was outside ±2 km/h and
+  ±1 s of the target for more than 1 % of the run (at least 2 s). The trace
+  is checked every 0.1 s of simulated time, whatever the case time step. A
+  step in the target (for example `0:100; 600:100` from standstill) is
+  outside that band while the car accelerates, so acceleration and
+  top-speed tests end with this warning.
+- **success** — neither of the above.
+
+Summary figures that a failed check makes meaningless are marked *not
+valid*, with the reason, in the results table:
+
+- Consumption, Fuel consumption and CO₂ emissions when the cycle was not
+  followed ("cycle not followed") or the run was cancelled ("run cancelled
+  at t = …");
+- Consumption once the battery reached its minimum SOC, and the fuel
+  figures once the tank ran empty;
+- battery, energy and consumption figures when the *Electrical energy
+  balance error* (energy that no source supplied or absorbed, as a share
+  of all the energy through the buses) is above 0.1 %;
+- every figure except the simulated duration when a result went NaN or
+  infinite ("the solution broke down").
+
+A success means the car followed its target and nothing warned. It does not
+mean the numbers match a real vehicle: see
+[Known limits](docs/KNOWN-LIMITS.md).
 
 ## Known limitations
 

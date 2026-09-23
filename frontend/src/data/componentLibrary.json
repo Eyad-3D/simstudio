@@ -1576,7 +1576,7 @@
       "name": "Gearbox",
       "icon": "settings-2",
       "domain": "mechanical",
-      "description": "Multi-speed gearbox. The ratio table maps gear number → ratio; the Gear Select signal picks the active gear (nearest defined gear wins, unwired = default gear). Shifts apply at recording-step boundaries.",
+      "description": "Multi-speed gearbox. The ratio table maps gear number → ratio; the Gear Select signal picks the active gear (nearest defined gear wins, unwired = default gear). A shift takes effect at the solver step (≤ 10 ms) in which Gear Select changes.",
       "ports": [
         {
           "id": "flange_in",
