@@ -1,6 +1,6 @@
 // RES-03: the Signal Plot follows a paced run while it runs. Its data used to
 // be memoised on the channel object, which the live run grows in place, so the
-// plot kept the first flush (a flat line on a 0 to 1 s axis) until the run ended.
+// plot stayed on the first flush (one point at t = 0) until the run ended.
 import { expect, test, type Page } from "@playwright/test";
 import { runButton, showPanel } from "./app";
 import { openApp } from "./ui-helpers";
