@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  DockviewDefaultTab,
   DockviewReact,
   themeLight,
   type DockviewApi,
@@ -94,36 +93,62 @@ function toggleMaximise({ api, containerApi }: IDockviewPanelHeaderProps) {
 // on a 1366-px screen; the tooltip and the accessible name keep the full one.
 const FULL_TITLES: Record<string, string> = { cases: "Cases & Parameters" };
 
-// Panel tabs. dockview's own tab element (the "tab" in each group's tab list)
-// is named after the panel title; name it in full instead, with the problem
-// count that Messages / Data Checks also show as a badge (drawn by CSS from
-// data-badge) so problems show while the tray is collapsed. dockview names a
-// new tab element whenever the panel moves or is retitled, so the name is set
-// again after every layout change. Double-clicking a tab in the main grid
-// maximises its group (e.g. the diagram) and double-clicking again restores.
+// Panel tabs, drawn with dockview's default-tab markup and styles. dockview's
+// own tab element (the "tab" in each group's tab list) is named after the
+// panel title; name it in full instead, with the problem count that Messages /
+// Data Checks also show as a badge (drawn by CSS from data-badge) so problems
+// show while the tray is collapsed. dockview names its tab element after the
+// panel title when it creates it (a moved panel gets a new one) and again when
+// the title changes; both are followed by a layout change, so the full name is
+// set again after every layout change. The close X is a plain span, as in
+// dockview 7, not the button dockview-react 8's default tab draws: a button
+// inside the tab is a second Tab stop that screen readers do not announce
+// (axe nested-interactive). Double-clicking a tab in the main grid maximises
+// its group (e.g. the diagram) and double-clicking again restores.
 function SsTab(props: IDockviewPanelHeaderProps) {
-  const title = FULL_TITLES[props.api.id] ?? props.api.title ?? "";
-  const [level, count] = useAttention(props.api.id).split(":");
-  const label = count ? `${title} (${count} ${count === "1" ? "warning or error" : "warnings or errors"})` : title;
-  // DockviewDefaultTab takes no ref: this hidden span finds the tab element
-  const anchor = useRef<HTMLSpanElement>(null);
+  const { api } = props;
+  const [shown, setShown] = useState(api.title ?? "");
   useEffect(() => {
-    const name = () => anchor.current?.closest(".dv-tab")?.setAttribute("aria-label", label);
+    // onReady may retitle the panel between the first render and this effect
+    setShown(api.title ?? "");
+    const d = api.onDidTitleChange((e) => setShown(e.title));
+    return () => d.dispose();
+  }, [api]);
+  const title = FULL_TITLES[api.id] ?? shown;
+  const [level, count] = useAttention(api.id).split(":");
+  const label = count ? `${title} (${count} ${count === "1" ? "warning or error" : "warnings or errors"})` : title;
+  const tab = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const name = () => tab.current?.closest(".dv-tab")?.setAttribute("aria-label", label);
     name();
     const d = props.containerApi.onDidLayoutChange(name);
     return () => d.dispose();
   }, [props.containerApi, label]);
+  // preventDefault: dockview's tab then ignores the press or click (it would
+  // activate the panel, or open or close the tray)
+  const close = (e: React.MouseEvent) => {
+    e.preventDefault();
+    api.close();
+  };
   return (
-    <>
-      <DockviewDefaultTab
-        {...props}
-        title={props.api.group.api.location.type === "grid" ? `${label} — double-click to maximise` : label}
-        data-badge={count || undefined}
-        data-badge-level={level || undefined}
-        onDoubleClick={() => toggleMaximise(props)}
-      />
-      <span ref={anchor} hidden />
-    </>
+    <div
+      ref={tab}
+      className="dv-default-tab"
+      title={api.group.api.location.type === "grid" ? `${label} — double-click to maximise` : label}
+      data-badge={count || undefined}
+      data-badge-level={level || undefined}
+      onDoubleClick={() => toggleMaximise(props)}
+      // a middle-click closes the panel, as on dockview's default tab
+      onAuxClick={(e) => e.button === 1 && close(e)}
+    >
+      <span className="dv-default-tab-content">{shown}</span>
+      <span className="dv-default-tab-action" onPointerDown={(e) => e.preventDefault()} onClick={close}>
+        {/* dockview's own close icon, so the tab looks as it did */}
+        <svg className="dv-svg" width="11" height="11" viewBox="0 0 28 28">
+          <path d="M2.1 27.3L0 25.2L11.55 13.65L0 2.1L2.1 0L13.65 11.55L25.2 0L27.3 2.1L15.75 13.65L27.3 25.2L25.2 27.3L13.65 15.75L2.1 27.3Z" />
+        </svg>
+      </span>
+    </div>
   );
 }
 

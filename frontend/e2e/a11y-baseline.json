@@ -3,11 +3,7 @@
     "color-contrast  button \"#%\"",
     "color-contrast  span \"# elements\"",
     "color-contrast  span \"Battery Electric Car\"",
-    "label-title-only  select \"Active simulation case\"",
-    "nested-interactive  div[role=tab] \"Components\"",
-    "nested-interactive  div[role=tab] \"Messages\"",
-    "nested-interactive  div[role=tab] \"Properties\"",
-    "nested-interactive  div[role=tab] \"Topology\""
+    "label-title-only  select \"Active simulation case\""
   ],
   "results-light": [
     "color-contrast  button \"#%\"",
@@ -21,21 +17,13 @@
     "color-contrast  span \"# elements\"",
     "color-contrast  span \"Battery Electric Car\"",
     "label  input[type=text] \"Name\"",
-    "label-title-only  select \"Active simulation case\"",
-    "nested-interactive  div[role=tab] \"Components\"",
-    "nested-interactive  div[role=tab] \"Messages\"",
-    "nested-interactive  div[role=tab] \"Properties\"",
-    "nested-interactive  div[role=tab] \"Topology\""
+    "label-title-only  select \"Active simulation case\""
   ],
   "topology-dark": [
     "color-contrast  button \"Run\"",
     "color-contrast  div \"LightSim\"",
     "color-contrast  span \"backend connected\"",
-    "label-title-only  select \"Active simulation case\"",
-    "nested-interactive  div[role=tab] \"Components\"",
-    "nested-interactive  div[role=tab] \"Messages\"",
-    "nested-interactive  div[role=tab] \"Properties\"",
-    "nested-interactive  div[role=tab] \"Topology\""
+    "label-title-only  select \"Active simulation case\""
   ],
   "results-dark": [
     "color-contrast  b \"success\"",
@@ -50,10 +38,6 @@
     "color-contrast  div \"LightSim\"",
     "color-contrast  span \"backend connected\"",
     "label  input[type=text] \"Name\"",
-    "label-title-only  select \"Active simulation case\"",
-    "nested-interactive  div[role=tab] \"Components\"",
-    "nested-interactive  div[role=tab] \"Messages\"",
-    "nested-interactive  div[role=tab] \"Properties\"",
-    "nested-interactive  div[role=tab] \"Topology\""
+    "label-title-only  select \"Active simulation case\""
   ]
 }
