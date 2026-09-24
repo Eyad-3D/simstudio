@@ -606,44 +606,53 @@ Now the script acts on a start or stop only once it has been asked for
 0.2 s in a row (`HOLD`); at standstill the engine still stops at once. A
 ringing shaft asks and stops asking from one step to the next, so it no
 longer decides, and neither does a demand that crosses the start or stop
-threshold for less than 0.2 s. Run with the example as MOD-18 left it,
-every brake inertia from 0.10 to 0.20 kg·m² now gives the same three
-starts and 0.206 kWh delivered at 10, 5 and 2.5 ms (before: four starts
-and 0.210 kWh at 0.14 kg·m² and below, at 10 ms). MOD-11 had already moved
-the example off that edge (its first clutch closes at 1680 1/min, where
-the ring stays above 1000): with the old script, brake inertias from 0.02
-to 0.60 kg·m² and start charges 0.3 % either side gave the same starts at
-10 and 5 ms. With the hold, from 0.10 to 0.20 kg·m² at 10, 5 and 2.5 ms,
-every case keeps its starts (30 on UDDS, 21 on HWFET, 3 on the Mixed
-Cycle) and its fuel figure stays within 0.007 l/100 km at 10 ms (UDDS
-2.834-2.841, HWFET 3.237-3.239, Mixed 2.877-2.880) and within 0.003 at 5
-and 2.5 ms; at 0.18 kg·m² the shipped step is within 0.005 l/100 km of
-5 ms on the Mixed Cycle and 0.012 of 2.5 ms on UDDS. The brake default
-stays at 0.18 kg·m², the value of a disc whose mass sits in its friction
-ring: it no longer stands in for a margin in the script.
+threshold for less than 0.2 s. The hold and the minimum on and off times
+are measured to within half a step: t is a sum of float steps that rounds
+differently with each case step, and a time compared exactly with 0.2 s
+or 8 s tips over a step later at some case steps only (the hold did on
+UDDS, which then read 2.834 at a 1 s and 2.837 l/100 km at a 0.01 s case
+step). At case steps of 1, 0.1, 0.02 and 0.01 s every case now switches
+at the same solver steps and burns the same fuel to 1e-15 kg, and
+`test_control_rate` checks this on the first 120 s of UDDS.
+
+Run with the example as MOD-18 left it, every brake inertia from 0.10 to
+0.20 kg·m² now gives the same three starts and 0.206 kWh delivered at 10,
+5 and 2.5 ms (before: four starts and 0.210 kWh at 0.14 kg·m² and below,
+at 10 ms). MOD-11 had already moved the example off that edge (its first
+clutch closes at 1680 1/min, where the ring stays above 1000): with the
+old script, brake inertias from 0.02 to 0.60 kg·m² and start charges
+0.3 % either side gave the same starts at 10 and 5 ms. With the hold,
+from 0.10 to 0.20 kg·m² at 10, 5 and 2.5 ms, every case keeps its starts
+(30 on UDDS, 21 on HWFET, 3 on the Mixed Cycle) and its fuel figure stays
+within 0.004 l/100 km at 10 ms (UDDS 2.834-2.837, HWFET 3.236-3.237,
+Mixed 2.877-2.880) and within 0.003 at 5 and 2.5 ms; at 0.18 kg·m² the
+shipped step is within 0.005 l/100 km of 5 ms on the Mixed Cycle and
+0.015 of 2.5 ms on UDDS (the ring, see Known issues and limits). The
+brake default stays at 0.18 kg·m², the value of a disc whose mass sits in
+its friction ring: it no longer stands in for a margin in the script.
 
 - hybrid-car Mixed Cycle: the engine starts at 5.8, 73.2 and 120.4 s
   instead of 5.6, 71.9 and 120.2 s; fuel 0.205 kg, 2.88 l/100 km and
-  68.0 g/km unchanged. The case starts at 51.96 % instead of 51.92 %,
-  where it now ends. The second run starts 1.4 s later and stops 1.6 s
+  68.0 g/km unchanged. The case starts at 51.96 % instead of 51.92 % and
+  ends at 51.95 %. The second run starts 1.3 s later and stops 1.6 s
   later (91.9 instead of 90.3 s), both slow crossings of the thresholds,
-  which follow the SOC: the SOC channel is 0.24 % lower around 80 s and
-  0.12 % higher from 100 s, so at 130 s the engine charges a little less;
-  these channels left their tubes. At the 5 ms step 2.87 -> 2.88 l/100 km
-  (2.8749 -> 2.8752: the rounding tips).
-- Not fixtures, charge-balanced: EPA city (UDDS) 2.84 -> 2.83 l/100 km
-  (2.840 -> 2.834) with 30 engine starts instead of 32 (the hold drops a
+  which follow the SOC: the SOC channel is 0.23 % lower around 80 s and
+  0.12 % higher around 110 s, so at 130 s the engine charges a little
+  less; these channels left their tubes. At the 5 ms step 2.87 -> 2.88
+  l/100 km (2.8749 -> 2.8751: the rounding tips).
+- Not fixtures, charge-balanced: EPA city (UDDS) 2.84 l/100 km unchanged
+  (2.840 -> 2.837) with 30 engine starts instead of 32 (the hold drops a
   start at 1298.9 s that a demand peak shorter than 0.2 s had asked for,
   and a stop at 231.0 s on a demand dip shorter than 0.05 s, whose restart
   followed 4 s later); highway (HWFET) 3.23 -> 3.24 l/100 km (3.234 ->
-  3.239), 21 starts unchanged. Start charges, found as in MOD-11: UDDS
-  56.74 -> 56.34 %, HWFET 58.87 -> 58.92 %, Mixed Cycle and its live copy
-  51.92 -> 51.96 %.
+  3.237), 21 starts unchanged. Start charges, found as in MOD-11 (each
+  case now ends within 0.006 points of its start): UDDS 56.74 -> 56.34 %,
+  HWFET 58.87 -> 58.92 %, Mixed Cycle and its live copy 51.92 -> 51.96 %.
 
 | Fixture | Number | Old | New | Change |
 |---|---|---|---|---|
-| hybrid-car Mixed Cycle (shipped step) | HV Battery — final SOC | 51.92 % | 51.96 % | +0.04 (+0.08 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — final SOC | 51.92 % | 51.95 % | +0.03 (+0.06 %) |
 | hybrid-car Mixed Cycle (shipped step) | channels that moved | | 47 | 10 outside their tube |
 | hybrid-car Mixed Cycle (fine step) | HV Battery — final SOC | 51.92 % | 51.95 % | +0.03 (+0.06 %) |
 | hybrid-car Mixed Cycle (fine step) | Fuel consumption | 2.87 l/100km | 2.88 l/100km | +0.01 (+0.35 %) |
-| hybrid-car Mixed Cycle (fine step) | channels that moved | | 45 | 13 outside their tube |
+| hybrid-car Mixed Cycle (fine step) | channels that moved | | 45 | 11 outside their tube |
