@@ -189,12 +189,8 @@ function channelMetaResolver(
     const elementId = key.slice(0, sep);
     const portId = key.slice(sep + 1);
     const el = elements.get(elementId);
-    const def = el ? libraryById[el.componentDefId] : undefined;
-    if (!el || !def) return null;
-    const port =
-      def.ports.find((p) => p.id === portId) ??
-      el.dynamicPorts?.find((p) => p.id === portId);
-    if (!port) return null;
+    const port = el && portsOf(el, libraryById).find((p) => p.id === portId);
+    if (!el || !port) return null;
     const unit = unitGroups[port.unitGroup ?? "No Unit"] ?? "-";
     return { elementId, portId, label: `${el.label} · ${port.name}`, unit };
   };
@@ -368,7 +364,6 @@ interface ProjectState {
     targetPortId: string,
     replaceId?: string,
   ) => void;
-  removeConnections: (ids: string[]) => void;
   addDataBus: (el1: string, p1: string, el2: string, p2: string) => void;
   removeDataBus: (id: string) => void;
   renameSystem: (systemId: string, name: string) => void;
@@ -1130,8 +1125,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         });
       });
     },
-
-    removeConnections: (ids) => get().removeElements([], ids),
 
     addDataBus: (el1, p1, el2, p2) => {
       const { project, libraryById, log } = get();

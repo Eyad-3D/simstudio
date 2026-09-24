@@ -149,8 +149,11 @@ class MapUse:
         return first
 
 
-def _span(xs: list[float]) -> tuple[float, float] | None:
-    return (xs[0], xs[-1]) if len(xs) > 1 else None
+def inner_range(sheets: Sheets2D) -> tuple[float, float] | None:
+    """A 2D table's inner range on every sheet (its narrowest), so no sheet
+    is read beyond its own data; None when no sheet has two points."""
+    rows = [p for _, p in sheets if len(p) > 1]
+    return (max(p[0][0] for p in rows), min(p[-1][0] for p in rows)) if rows else None
 
 
 class Map:
@@ -164,39 +167,40 @@ class Map:
         self.policy = policy
         self.uses = uses
         self.linear = tuple(p == "linear" for p in policy)
-        self.error = "error" in policy
+        self.error_axes = [i for i, p in enumerate(policy) if p == "error"]
+        self.counted = [i for i, p in enumerate(policy) if p != "error"]
         self.set(pts)
 
     def set(self, pts: list) -> None:
         """New data (a live edit); the counts carry on."""
         self.pts = pts
-        # the data's range per axis; a 2D table's inner range is its
-        # narrowest sheet's, so no sheet is read beyond its own data
-        self.ranges = [_span([x for x, _ in pts])]
+        # the data's range per axis (a 2D table's inner one on every sheet),
+        # and the bounds past which a value is outside it: float noise at an
+        # edge, such as a motor at its last speed point, is inside
+        self.ranges = [(pts[0][0], pts[-1][0]) if len(pts) > 1 else None]
         if len(self.policy) == 2:
-            inner = [p for _, p in pts if len(p) > 1]
-            self.ranges.append((max(p[0][0] for p in inner), min(p[-1][0] for p in inner))
-                               if inner else None)
+            self.ranges.append(inner_range(pts))
+        self.bounds = []
+        for r in self.ranges:
+            tol = 1e-9 * max(abs(r[0]), abs(r[1])) if r else 0.0
+            self.bounds.append((r[0] - tol, r[1] + tol) if r else None)
 
     def edge(self, i: int, x: float) -> float | None:
-        """The edge of axis i's data that x lies past, or None inside it
-        (float noise at an edge, such as a motor at its last speed point,
-        is inside)."""
-        r = self.ranges[i]
-        if r is None:
+        """The edge of axis i's data that x lies past, or None inside it."""
+        b = self.bounds[i]
+        if b is None:
             return None
-        tol = 1e-9 * max(abs(r[0]), abs(r[1]))
-        return r[0] if x < r[0] - tol else r[1] if x > r[1] + tol else None
+        return self.ranges[i][0] if x < b[0] else self.ranges[i][1] if x > b[1] else None
 
     def at(self, x: float, y: float | None = None) -> float:
-        if self.error:
-            for i, v in enumerate((x,) if y is None else (x, y)):
-                if self.policy[i] == "error" and self.edge(i, v) is not None:
-                    lo, hi = self.ranges[i]
-                    use = self.uses[i]
-                    raise OutsideDataError(
-                        f"{self.name}: {use.axis} {v:.6g} {use.unit} is outside its data "
-                        f"({lo:g} to {hi:g} {use.unit})")
+        for i in self.error_axes:
+            v = y if i else x
+            if self.edge(i, v) is not None:
+                lo, hi = self.ranges[i]
+                use = self.uses[i]
+                raise OutsideDataError(
+                    f"{self.name}: {use.axis} {v:.6g} {use.unit} is outside its data "
+                    f"({lo:g} to {hi:g} {use.unit})")
         if y is None:
             return interp1(self.pts, x, self.linear[0])
         return interp2(self.pts, x, y, self.linear)  # type: ignore[arg-type]
@@ -206,8 +210,9 @@ class Map:
         records first left now. (An Error axis never gets here outside its
         data: ``at`` stopped the run.)"""
         first = []
-        for i, v in enumerate(point):
+        for i in self.counted:
+            v = point[i]
             e = self.edge(i, v)
-            if e is not None and self.policy[i] != "error" and self.uses[i].count(v, e, t, dt):
+            if e is not None and self.uses[i].count(v, e, t, dt):
                 first.append(self.uses[i])
         return first

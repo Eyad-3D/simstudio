@@ -30,6 +30,7 @@ from .solver import (
     parse_table2d,
     profile_problems,
 )
+from .solver.maps import inner_range
 from .solver.network import (
     AXLE_GEAR_TYPES,
     NO_DRIVER,
@@ -39,7 +40,7 @@ from .solver.network import (
     SIGNAL_BLOCK_TYPES,
     ports_of,
 )
-from .solver.runtime import air_density
+from .solver.runtime import AMBIENT_C, AMBIENT_KPA, air_density
 
 # param key → (label, min exclusive, max inclusive)
 NUMERIC_RANGES: dict[str, tuple[str, float, float]] = {
@@ -54,6 +55,10 @@ NUMERIC_RANGES: dict[str, tuple[str, float, float]] = {
     "coulombic_efficiency_pct": ("Coulombic efficiency", 0.0, 100.0),
     "capacity_Ah": ("Charge capacity", -0.001, 1e5),
     "temperature_C": ("Temperature", -273.15, 1000.0),
+    "max_speed_rpm": ("Maximum speed", -0.001, math.inf),
+    "road_load_a_N": ("Road load A", -math.inf, math.inf),
+    "road_load_b_N_per_kmh": ("Road load B", -math.inf, math.inf),
+    "road_load_c_N_per_kmh2": ("Road load C", -math.inf, math.inf),
 }
 
 POSITIVE_PARAMS = {
@@ -82,10 +87,6 @@ BATTERY_KWH = (0.1, 2_000.0)
 AUX_LOAD_MAX_KW = 50.0  # a constant load beyond this is not an auxiliary
 FINAL_DRIVE_MAX_RATIO = 25.0
 WHEEL_SHARE_TOL_PCT = 1.0  # wheel load shares within 100 ± this are left unremarked
-# The air vehicles drive in (sea level to about 5,500 m): beyond it a value is
-# more likely typed in the wrong unit (bar, Pa, °F, K) than meant.
-AMBIENT_C = (-60.0, 60.0)
-AMBIENT_KPA = (50.0, 110.0)
 
 Add = Callable[..., None]
 
@@ -662,11 +663,6 @@ def _map_checks(model: Model, add: Add) -> None:
     def span(lo: float, hi: float) -> str:
         return fmt(lo) if lo == hi else f"{fmt(lo)}–{fmt(hi)}"
 
-    def inner_span(sheets: list) -> tuple[float, float] | None:
-        """A 2D table's inner range on every sheet (its narrowest)."""
-        rows = [p for _, p in sheets if len(p) > 1]
-        return (max(p[0][0] for p in rows), min(p[-1][0] for p in rows)) if rows else None
-
     for el_id, cdef in model.cdef_of.items():
         el, label = elements[el_id], elements[el_id].label
         for key, own in el.tableOutside.items():
@@ -694,7 +690,7 @@ def _map_checks(model: Model, add: Add) -> None:
                 add("warning", f"E-Motor '{label}': its Maximum Speed ({fmt(n_max)} 1/min) is "
                                f"beyond its full-load data, which ends at {fmt(n_curve)} 1/min — "
                                f"lower it or extend the map.", el)
-            rng = inner_span(fl)
+            rng = inner_range(fl)
             if rng and rng[0] > 0:
                 add("warning", f"E-Motor '{label}': its full-load data starts at "
                                f"{fmt(rng[0])} 1/min but the motor starts from 0 — extend the "
@@ -703,7 +699,7 @@ def _map_checks(model: Model, add: Add) -> None:
                 add("warning", f"E-Motor '{label}': its loss map covers {span(loss[0][0], loss[-1][0])} "
                                f"1/min but the motor runs from 0 to its maximum speed of "
                                f"{fmt(n_max)} 1/min — extend the map.", el)
-            rng = inner_span(loss)
+            rng = inner_range(loss)
             need = max(v for _, p in fl for _, v in p) * max(
                 1.0, num(el_id, "q4_torque_scale_pct", 100.0) / 100.0)
             if rng and (rng[0] > 0 or rng[1] < need):
@@ -718,7 +714,7 @@ def _map_checks(model: Model, add: Add) -> None:
                 add("warning", f"Engine '{label}': its fuel map covers {span(fm[0][0], fm[-1][0])} "
                                f"1/min but its full-load curve runs "
                                f"{span(efl[0][0], efl[-1][0])} 1/min — extend the map.", el)
-            rng, peak = inner_span(fm), max(v for _, v in efl)
+            rng, peak = inner_range(fm), max(v for _, v in efl)
             if rng and (rng[0] > 0 or rng[1] < peak):
                 add("warning", f"Engine '{label}': its fuel map covers {span(*rng)} N·m but the "
                                f"engine gives up to {fmt(peak)} N·m — extend the map.", el)

@@ -226,7 +226,7 @@ def judge(trace: CycleTrace, distance_m: float, series: dict, performance: bool 
           duration_s: float = 0.0, uses: Iterable[MapUse] = (), stopped: bool = False) -> Verdict:
     """The checks a finished run must pass to be called a success; ``uses``
     are the run's MapUse records, ``duration_s`` the time it solved and
-    ``stopped`` whether a stop cut it short."""
+    ``stopped`` whether a stop or an error cut it short."""
     messages: list[tuple[str, str]] = []
     rows: list[tuple[str, float, str]] = []
     not_followed = False

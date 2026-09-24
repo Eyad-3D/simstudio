@@ -242,23 +242,6 @@ def test_a_lookup_set_to_error_stops_the_run():
                             "(0 to 1 -) at t = 0.00 s") for t in _texts(result, "error"))
 
 
-def test_a_motor_on_a_voltage_past_its_map_is_counted_not_warned():
-    """The voltage axis holds its edge (Clamp). Before, this was a warning at
-    first touch, which made the run 'warning' however briefly it happened;
-    now it is counted and the verdict judges the time (test_verdict)."""
-    proj = bev_axle(profile="0:0; 5:60; 30:60")
-    _el(proj, "batt").parameterOverrides["ocv_table"] = {"0": 430, "100": 440}
-    result = simulate(proj, "case")
-    assert not [t for t in _texts(result, "warning") if "Full-Load Torque: Voltage" in t]
-    assert any("Full-Load Torque: Voltage 4" in t and "(396 V)" in t
-               for t in _texts(result, "info"))
-    summary = _summary(result)
-    # once per solver step: the handshake's and the Driver's trial reads of
-    # the map would take it past 100 %
-    assert 80 < summary["E-Motor — time outside its 'Full-Load Torque' table (Voltage)"] <= 100
-    assert summary["E-Motor — furthest Voltage outside its 'Full-Load Torque' table"] > 420
-
-
 def test_a_loss_map_narrower_than_the_full_load_map_stops_the_run():
     """Before, the loss was held at its 200 N·m value up to 345 N·m."""
     proj = bev_axle()
@@ -271,6 +254,26 @@ def test_a_loss_map_narrower_than_the_full_load_map_stops_the_run():
     [error] = _texts(result, "error")
     assert error.startswith("E-Motor 'E-Motor' Power Loss (Motor + Inverter): Torque ")
     assert "(0 to 200 N·m)" in error
+
+
+def test_a_run_an_error_stops_has_its_figures_marked_not_valid():
+    """Cruising at 40 km/h, then past the loss map's 6,000 1/min on the way
+    to 120: the consumption covers only the part driven, as for a stop.
+    Before, it was shown as a plain value."""
+    proj = bev_axle(profile="0:0; 5:40; 60:40; 70:120; 90:120")
+    proj.cases[0].duration = 90
+    loss = next(p.default for p in library_by_id()["motor.emotor"].parameters
+                if p.key == "power_loss")
+    _el(proj, "mot").parameterOverrides["power_loss"] = {
+        n: sheet for n, sheet in loss.items() if float(n) <= 6000}
+    result = simulate(proj, "case")
+    assert result.status == "failed"
+    [error] = _texts(result, "error")
+    at = error.split(" at t = ")[1].split(" s ")[0]
+    assert 60 < float(at) < 70
+    [consumption] = [s for s in result.summary if s.label == "Consumption"]
+    assert consumption.value > 0
+    assert consumption.notValid == f"run stopped by an error at t = {at} s"
 
 
 # ---- the examples and the counters -------------------------------------------------

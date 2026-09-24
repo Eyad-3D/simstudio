@@ -276,6 +276,12 @@ body,
 .ss-param-grid :is(input, select) {
   max-width: 100%;
 }
+/* a choice's text can be long ("Drag and rolling resistance"): its select
+   is as wide as a number field and leaves the rest to the labels (its full
+   text is in its tooltip and its open list) */
+.ss-param-grid select {
+  width: 5.5rem;
+}
 
 /* ---- Excel-like spreadsheet grid (table editors) ---- */
 .ss-grid {

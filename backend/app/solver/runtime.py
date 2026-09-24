@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from ..schemas import SimMessage
-from .maps import Map, MapUse, Sheets2D, interp1
+from .maps import Map, MapUse, Sheets2D, inner_range, interp1
 from .network import Driveline, Model
 
 GRAVITY = 9.81
@@ -25,6 +25,10 @@ def air_density(temperature_c: float = 20.0, pressure_kpa: float = 101.325) -> f
     return pressure_kpa * 1000.0 / (R_AIR * (temperature_c + 273.15))
 
 
+# The air vehicles drive in (sea level to about 5,500 m): beyond it a value is
+# more likely typed in the wrong unit (bar, Pa, °F, K) than meant.
+AMBIENT_C = (-60.0, 60.0)
+AMBIENT_KPA = (50.0, 110.0)
 # the air density without an Ambient block (20 °C, 101.325 kPa: 1.2041 kg/m³),
 # and the density a Vehicle's road-load coefficient C is taken at
 AIR_DENSITY = air_density()
@@ -138,7 +142,8 @@ def motor_max_rpm(full_load: Sheets2D, value: object) -> float:
         n = float(value or 0)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         n = 0.0
-    return n if n > 0 else min((p[-1][0] for _, p in full_load if len(p) > 1), default=math.inf)
+    r = inner_range(full_load)
+    return n if n > 0 else r[1] if r else math.inf
 
 
 @dataclass

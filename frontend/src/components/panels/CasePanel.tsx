@@ -43,16 +43,19 @@ function round(v: number): number {
 function ValueEditor({
   def,
   value,
+  label,
   onChange,
 }: {
   def: ParameterDef;
   value: ParamValue;
+  label: string;
   onChange: (v: ParamValue) => void;
 }) {
   if (def.type === "boolean") {
     return (
       <select
-        className="ss-input w-[110px]"
+        className="ss-input min-w-0"
+        aria-label={label}
         value={String(value)}
         onChange={(e) => onChange(e.target.value === "true")}
       >
@@ -64,7 +67,9 @@ function ValueEditor({
   if (def.type === "enum") {
     return (
       <select
-        className="ss-input w-[130px]"
+        className="ss-input min-w-0 flex-1"
+        aria-label={label}
+        title={String(value)}
         value={String(value)}
         onChange={(e) => onChange(e.target.value)}
       >
@@ -81,6 +86,7 @@ function ValueEditor({
       <input
         type="number"
         className="ss-input"
+        aria-label={label}
         value={Number(value)}
         step="any"
         onChange={(e) => onChange(Number(e.target.value))}
@@ -89,7 +95,9 @@ function ValueEditor({
   }
   return (
     <input
-      className="ss-input w-[130px]"
+      className="ss-input min-w-0 flex-1"
+      aria-label={label}
+      title={String(value)}
       value={String(value)}
       onChange={(e) => onChange(e.target.value)}
     />
@@ -324,53 +332,49 @@ export function CasePanel() {
         </p>
 
         {overrideRows.length > 0 ? (
-          <table className="mb-2 w-full border-collapse">
-            <thead>
-              <tr>
-                <th className="ss-th">Element</th>
-                <th className="ss-th">Parameter</th>
-                <th className="ss-th w-[120px]">Value</th>
-                <th className="ss-th w-[30px]"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {overrideRows.map(({ elId, key, value }) => {
-                const ed = elemById.get(elId);
-                const pdef = ed?.def.parameters.find((p) => p.key === key);
-                return (
-                  <tr key={`${elId}:${key}`}>
-                    <td className="ss-td truncate">{ed?.el.label ?? elId}</td>
-                    <td className="ss-td truncate">{pdef?.label ?? key}</td>
-                    <td className="ss-td">
-                      {pdef && ed ? (
-                        <ValueEditor
-                          def={pdef}
-                          value={value}
-                          onChange={(v) => setCaseOverride(activeCase.id, elId, key, v)}
-                        />
-                      ) : (
-                        String(value)
-                      )}
-                      {pdef && pdef.unit !== "-" && (
-                        <span className="ml-1 text-[10px] text-[color:var(--ss-text-dim)]">
-                          {pdef.unit}
-                        </span>
-                      )}
-                    </td>
-                    <td className="ss-td text-center">
-                      <button
-                        className="ss-toolbtn justify-center"
-                        title="Remove this override"
-                        onClick={() => clearCaseOverride(activeCase.id, elId, key)}
-                      >
-                        <X size={13} />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          // one block per override, its name on a line of its own and its
+          // value below, so a narrow panel shows both without scrolling sideways
+          <ul className="mb-2 flex flex-col gap-1">
+            {overrideRows.map(({ elId, key, value }) => {
+              const ed = elemById.get(elId);
+              const pdef = ed?.def.parameters.find((p) => p.key === key);
+              const name = `${ed?.el.label ?? elId} · ${pdef?.label ?? key}`;
+              return (
+                <li
+                  key={`${elId}:${key}`}
+                  className="rounded border border-[color:var(--ss-border)] px-1.5 py-1"
+                >
+                  <div className="truncate text-[11px]" title={name}>
+                    {name}
+                  </div>
+                  <div className="mt-0.5 flex min-w-0 items-center gap-1">
+                    {pdef && ed ? (
+                      <ValueEditor
+                        def={pdef}
+                        value={value}
+                        label={name}
+                        onChange={(v) => setCaseOverride(activeCase.id, elId, key, v)}
+                      />
+                    ) : (
+                      <span className="truncate text-[11px]">{String(value)}</span>
+                    )}
+                    {pdef && pdef.unit !== "-" && (
+                      <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">
+                        {pdef.unit}
+                      </span>
+                    )}
+                    <button
+                      className="ss-toolbtn ml-auto shrink-0 justify-center"
+                      title="Remove this override"
+                      onClick={() => clearCaseOverride(activeCase.id, elId, key)}
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         ) : (
           <div className="mb-2 rounded border border-dashed border-[color:var(--ss-border)] px-2 py-1.5 text-[11px] text-[color:var(--ss-text-dim)]">
             No overrides — this case uses the base parameters.

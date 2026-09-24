@@ -5,7 +5,7 @@
 // 2, pushing Stop out of the panel; and the side tabs read "Eleme" and
 // "Cases & Parame".
 import { expect, test, type Page } from "@playwright/test";
-import { openApp, selectElement, showPanel } from "./app";
+import { expectProject, openApp, openFromMenu, selectElement, showPanel } from "./app";
 
 test.use({ viewport: { width: 1366, height: 768 } });
 
@@ -106,3 +106,30 @@ for (const theme of ["light", "dark"] as const) {
     await page.getByTitle("Stop the running simulation", { exact: true }).click();
   });
 }
+
+test("GUI-34: road-load rows, table buttons and case overrides in a 1366x768 window", async ({ page }) => {
+  await openApp(page);
+  // a narrow panel's table button opens the parameter dialog at that table
+  await selectElement(page, "E-Motor");
+  await page.getByTitle("Power Loss (Motor + Inverter): open the full editor in a dialog").click();
+  await expect(page.locator('[data-param="power_loss"]')).toBeInViewport();
+  await page.keyboard.press("Escape");
+
+  // the Road Load From choice ("Drag and rolling resistance") is no wider
+  // than a number field, so it leaves the labels their room
+  await selectElement(page, "Vehicle");
+  expect.soft(await misfits(page), "Vehicle's properties").toEqual([]);
+  const width = (name: string) =>
+    page.locator("tr", { hasText: name }).locator("input, select").evaluate((el) => el.getBoundingClientRect().width);
+  expect(await width("Road Load From")).toBeLessThanOrEqual((await width("Vehicle Mass")) + 1);
+
+  // every hybrid case starts at its own charge: an override per case, whose
+  // value, unit and remove button stay in the panel (a speed profile too
+  // long for its field scrolls inside it)
+  await openFromMenu(page, "P2 Hybrid Car");
+  await expectProject(page, "P2 Hybrid Car", { unsaved: false });
+  await showPanel(page, "Cases & Parameters");
+  await expect(page.getByTitle("HV Battery · Initial SOC")).toBeVisible();
+  const cases = (await misfits(page)).filter((m) => !m.includes("is clipped"));
+  expect.soft(cases, "the hybrid's Cases").toEqual([]);
+});

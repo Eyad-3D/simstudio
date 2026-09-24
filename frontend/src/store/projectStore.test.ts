@@ -797,7 +797,7 @@ describe("elements and wiring", () => {
     await start();
     store().addConnection("el-const", "sig_out", "el-motor", "sig_demand_in");
     const dbc = store().project!.dataBusConnections[0].id;
-    store().removeConnections(["c-1", dbc]);
+    store().removeElements([], ["c-1", dbc]);
     expect(rootSystem().connections).toHaveLength(0);
     expect(store().project!.dataBusConnections).toHaveLength(0);
     store().undo();

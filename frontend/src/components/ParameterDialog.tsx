@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { useProjectStore } from "../store/projectStore";
 import { useUIStore } from "../store/uiStore";
@@ -8,6 +8,7 @@ import { ElementForm } from "./panels/PropertiesPanel";
 /** Modal parameter editor opened by double-clicking an element on the canvas. */
 export function ParameterDialog() {
   const paramDialogId = useUIStore((s) => s.paramDialogId);
+  const paramDialogKey = useUIStore((s) => s.paramDialogKey);
   const closeParamDialog = useUIStore((s) => s.closeParamDialog);
   const project = useProjectStore((s) => s.project);
   const libraryById = useProjectStore((s) => s.libraryById);
@@ -31,6 +32,13 @@ export function ParameterDialog() {
   useEffect(() => {
     if (paramDialogId && !def) closeParamDialog();
   }, [paramDialogId, def, closeParamDialog]);
+
+  // opened from a table's button: show that table
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (paramDialogKey)
+      body.current?.querySelector(`[data-param="${paramDialogKey}"]`)?.scrollIntoView({ block: "start" });
+  }, [paramDialogId, paramDialogKey]);
 
   if (!paramDialogId || !element || !def) return null;
   const Icon = componentIcon(def.icon);
@@ -59,7 +67,7 @@ export function ParameterDialog() {
             <X size={14} />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={body} className="min-h-0 flex-1 overflow-y-auto">
           <ElementForm element={element} def={def} />
         </div>
       </div>

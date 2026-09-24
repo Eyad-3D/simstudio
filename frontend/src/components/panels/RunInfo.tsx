@@ -28,7 +28,7 @@ export function RunInfo({ run }: { run: SimRun }) {
     `${c.duration} s`,
     `step ${c.timeStep} s`,
     ...((c.outputEvery ?? 1) > 1 ? [`store ×${c.outputEvery}`] : []),
-    (c.realtimeFactor ?? 0) > 0 ? `${c.realtimeFactor}× pacing` : "max speed",
+    (c.realtimeFactor ?? 0) > 0 ? `${c.realtimeFactor}× pacing` : "no pacing",
     ...(c.kind === "performance" ? ["performance test"] : []),
   ].join(" · ");
   const overrides = Object.entries(c.parameterOverrides ?? {}).flatMap(([elementId, params]) =>

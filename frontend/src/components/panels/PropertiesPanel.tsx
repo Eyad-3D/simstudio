@@ -533,6 +533,7 @@ function ParameterInput({
         <select
           className="ss-input"
           aria-label={def.label}
+          title={String(value)}
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
         >
@@ -801,7 +802,7 @@ export function ElementForm({
             <button
               key={p.key}
               className="ss-toolbtn justify-between border border-[color:var(--ss-border)] px-2 py-1"
-              onClick={() => openParamDialog(element.id)}
+              onClick={() => openParamDialog(element.id, p.key)}
               title={`${isProfile(p) ? "Profile" : p.label}: open the full editor in a dialog`}
             >
               <span className="flex min-w-0 items-center gap-1.5">
@@ -818,7 +819,7 @@ export function ElementForm({
       )}
       {!compact &&
         bigParams.map((p) => (
-        <div key={p.key}>
+        <div key={p.key} data-param={p.key}>
           <div className="mb-1 text-[11px] font-semibold text-[color:var(--ss-text-dim)]">
             {isProfile(p) ? "Profile" : p.label}
             {!isProfile(p) && p.type !== "code" ? ` (${p.unit})` : ""}

@@ -56,6 +56,26 @@ def test_ambient_sets_the_air_density():
     assert coast({"temperature_C": -7}, second={"temperature_C": 40}) == pytest.approx(cold, abs=1e-9)
 
 
+@pytest.mark.parametrize("case_values, where", [
+    ({}, None),
+    ({"pressure_kPa": 1.0}, "at 20 °C and 1 kPa at t = 0.00 s"),  # typed in bar
+    ({"temperature_C": -300}, "at -300 °C and 101.325 kPa"),  # held at -273 °C
+])
+def test_a_case_value_outside_the_usual_air_is_warned_about_by_the_run(case_values, where):
+    """Data Checks see only the Ambient's own values, so the run itself
+    warns about a case value (or sweep, or live edit) outside the usual air."""
+    proj = coast_project({"cd": 0.3}, {"rolling_resistance": 0.0}, ambient={},
+                         v0=110.0, duration=1.0, dt=0.01)
+    proj.cases[0].parameterOverrides = {"amb": case_values}
+    result = simulate(proj, "case")
+    about_air = [(m.level, m.text) for m in result.messages if "'Ambient'" in m.text]
+    if where is None:
+        assert about_air == []
+    else:
+        assert len(about_air) == 1 and about_air[0][0] == "warning"
+        assert f"'Ambient' is {where}" in about_air[0][1]
+
+
 @pytest.mark.parametrize("rolling, abc_a", [(0.0, None), (0.01, None), (0.0, 300.0)])
 @pytest.mark.parametrize("grade", [10.0, 25.0])
 def test_slope_force_and_rolling_resistance_are_exact(grade, rolling, abc_a):

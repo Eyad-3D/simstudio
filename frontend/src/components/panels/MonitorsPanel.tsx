@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Gauge } from "lucide-react";
-import { useActiveRun, useProjectStore } from "../../store/projectStore";
+import { portsOf, useActiveRun, useProjectStore } from "../../store/projectStore";
 import type { Channel } from "../../types";
 
 /** Tiny inline sparkline over a channel's recent history. */
@@ -72,10 +72,7 @@ export function MonitorsPanel() {
           const [srcEl, srcPort] =
             dbc.element1Id === mon.id ? [dbc.element2Id, dbc.port2Id] : [dbc.element1Id, dbc.port1Id];
           const src = byId.get(srcEl);
-          const srcDef = src ? libraryById[src.componentDefId] : undefined;
-          const pdef =
-            srcDef?.ports.find((p) => p.id === srcPort) ??
-            src?.dynamicPorts?.find((p) => p.id === srcPort);
+          const pdef = src && portsOf(src, libraryById).find((p) => p.id === srcPort);
           const unit = unitGroups[pdef?.unitGroup ?? "No Unit"] ?? "-";
           inputs.push({
             portName: port.name,

@@ -1060,7 +1060,14 @@ export function ResultsPanel() {
               <tbody>
                 {result.summary.map((s, i) => (
                   <tr key={i} className="hover:bg-[color:var(--ss-hover)]">
-                    <td className="ss-td">{s.label}</td>
+                    <td className="ss-td">
+                      {s.label}
+                      {/* the reason under the label, where there is room; the
+                          value cells keep a short marker (reason in its tooltip) */}
+                      {s.notValid && (
+                        <div className="text-[10px] text-amber-600">not valid: {s.notValid}</div>
+                      )}
+                    </td>
                     {plotRuns.map((r, ri) => {
                       const sv = r.result.summary.find((x) => x.label === s.label);
                       const v = sv?.value;
@@ -1075,7 +1082,7 @@ export function ResultsPanel() {
                               className="font-sans text-[10px] text-amber-600"
                               title={`Not valid: ${sv.notValid}`}
                             >
-                              not valid: {sv.notValid}
+                              not valid
                             </div>
                           )}
                         </td>

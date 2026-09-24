@@ -515,7 +515,8 @@ Each run ends as *success*, *warning*, *cancelled* or *failed*:
   run goes on.
 - **cancelled** — a stop cut the run short (a stop that arrives as the
   run ends leaves a complete run). A stopped run that failed a check is
-  *failed*.
+  *failed*. The run list, Results and study tables show a cancelled run
+  as *incomplete (stopped at t = …)*.
 - **warning** — a warning was raised. This includes *Cycle not followed*:
   the vehicle speed was outside ±2 km/h and ±1 s of the target for more
   than 1 % of the run (at least 2 s). The trace is checked every 0.1 s of
@@ -540,8 +541,9 @@ Summary figures that a failed check makes meaningless are marked *not
 valid*, with the reason, in the results table:
 
 - Consumption, Fuel consumption and CO₂ emissions when the cycle was not
-  followed ("cycle not followed") or the run was cancelled ("run cancelled
-  at t = …", which also marks a performance test's *Maximum speed*);
+  followed ("cycle not followed"), the run was cancelled ("run cancelled
+  at t = …") or an error stopped it part-way ("run stopped by an error at
+  t = …"), the last two also marking a performance test's *Maximum speed*;
 - Consumption, Fuel consumption, CO₂ emissions and a performance test's
   rows when a part ran past its data longer than allowed (the reason names
   the part, for example "E-Motor 'E-Motor' ran 43 V past its 'Full-Load

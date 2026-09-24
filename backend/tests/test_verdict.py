@@ -235,7 +235,9 @@ def test_beyond_data_allowance_is_one_percent_of_the_run_and_at_least_2_s():
 def test_a_motor_run_past_its_voltage_data_is_named_with_excess_and_time():
     """A battery above the motor map's 396 V for the whole run. Before, it
     was a success (its voltage axis holds the edge value, MOD-18), with
-    Consumption shown as valid."""
+    Consumption shown as valid. The first touch is info, not a warning
+    (which made a run 'warning' however briefly it happened): the verdict
+    judges the time outside."""
     proj = bev_axle(profile="0:0; 5:60; 30:60")
     batt = next(e for e in proj.systems[0].elements if e.id == "batt")
     batt.parameterOverrides["ocv_table"] = {"0": 430, "100": 440}
@@ -248,6 +250,12 @@ def test_a_motor_run_past_its_voltage_data_is_named_with_excess_and_time():
     s = _summary(result)
     assert s["Consumption"].notValid.startswith("E-Motor 'E-Motor' ran")
     assert s["Distance driven"].notValid is None
+    assert any("Full-Load Torque: Voltage 4" in m.text and "(396 V)" in m.text
+               for m in result.messages if m.level == "info")
+    # once per solver step: the handshake's and the Driver's trial reads of
+    # the map would take it past 100 %
+    assert 80 < s["E-Motor — time outside its 'Full-Load Torque' table (Voltage)"].value <= 100
+    assert s["E-Motor — furthest Voltage outside its 'Full-Load Torque' table"].value > 420
 
 
 def test_a_motor_above_its_maximum_speed_is_named():

@@ -143,6 +143,7 @@ def simulate(
         # exactly at the case duration.
         cancelled = False  # a stop was asked for
         stopped = False  # ... and cut the run short (not one that came as it ended)
+        failed_at: float | None = None  # the time an error cut the run short
         solved = 0.0  # time solved (a stopped run ends before its last point)
         times: list[float] = []
         t_start_wall = time.monotonic()
@@ -181,12 +182,14 @@ def simulate(
                         trace.sample(solved, last=step == steps and j == n - 1)
                 except SlaveStepError:
                     # the failing slave already emitted its error message
+                    failed_at = ctx.t
                     break
                 except OutsideDataError as e:
                     rt.message("error",
                                f"{e} at t = {ctx.t:.2f} s — the run stopped because this "
                                f"axis is set to stop the run (Error): extend the table, or set "
                                f"its outside-the-data setting to Clamp or Linear.")
+                    failed_at = ctx.t
                     break
 
                 if pace > 0:
@@ -238,7 +241,7 @@ def simulate(
         # data, so only its summary rows say it left the table
         verdict = judge(trace, ctx.distance, rt.series, ctx.performance, solved,
                         [u for u in ctx.map_use if model.cdef_of[u.el_id].id != "signal.lookup"],
-                        stopped)
+                        stopped or failed_at is not None)
         for level, text in verdict.messages:
             rt.message(level, text)
         unit_map = unit_groups()
@@ -365,11 +368,13 @@ def simulate(
         if verdict.cycle_not_followed:
             for label in ("Consumption", "Fuel consumption", "CO₂ emissions"):
                 not_valid[label] = "cycle not followed"
-        if stopped and times:
+        if (stopped or failed_at is not None) and times:
             # figures per distance cover only the part of the cycle driven so
             # far, and a performance test's top speed only its speed so far
+            why = (f"run cancelled at t = {times[-1]:g} s" if stopped
+                   else f"run stopped by an error at t = {failed_at:.2f} s")
             for label in ("Consumption", "Fuel consumption", "CO₂ emissions", "Maximum speed"):
-                not_valid.setdefault(label, f"run cancelled at t = {times[-1]:g} s")
+                not_valid.setdefault(label, why)
         if verdict.beyond_reason:
             # a machine or source ran past its data: what depends on how it ran
             for label in ("Consumption", "Fuel consumption", "CO₂ emissions",

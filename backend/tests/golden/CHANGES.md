@@ -477,7 +477,8 @@ into spinning the brakes up, and less comes back when braking:
   (energy delivered 4.381 -> 4.368 kWh), with heating/air-con 18.88 ->
   18.87 kWh/100 km; hybrid EPA city (UDDS) 2.95 -> 2.94 and highway
   (HWFET) 3.30 -> 3.29 l/100 km, final SOC 56.68 -> 56.65 % and 58.84 ->
-  58.79 %. Every example case is still a success.
+  58.79 %; BEV full power 0-100 km/h 7.16 -> 7.11 s and 0-60 mph 6.74 ->
+  6.70 s. Every example case is still a success.
 
 The rest of MOD-18 changes nothing in the examples: with the old brake
 inertia every fixture is identical to 1e-6 (`LIGHTSIM_GOLDEN_EXACT=1`). An
@@ -529,8 +530,8 @@ Three changes, of which two reach the fixtures:
   (98 %) now runs lossless; the differential was already at 100 % and the
   gearbox keeps its 97 %. The coefficients alone change little: with the
   tick off the charge-balanced figures are UDDS 2.94, HWFET 3.30 and Mixed
-  2.94 l/100 km, as with the fit (it matched their road-load energy within
-  0.3 %). Not counting the axle's drag twice gives the rest.
+  2.93 l/100 km, within 0.01 l/100 km of the fit's 2.93, 3.30 and 2.94 (it
+  matched their road-load energy within 0.3 %). Not counting the axle's drag twice gives the rest.
 - Each hybrid case again starts at the charge it ends with: EPA city
   (UDDS) 56.7 -> 56.74 %, EPA highway (HWFET) 58.9 -> 58.87 %, Mixed Cycle
   and its live copy 51.79 -> 51.92 % (found by running each case from the
@@ -550,7 +551,7 @@ nothing on a flat road.
   where the engine drives (t = 150 s) more of its output is left over to
   charge the battery (motor -2.7 -> -5.4 N·m); these and the channels that
   follow them left their tubes. The engine still starts and stops three
-  times, within the same recorded steps. At the 5 ms step: 2.87 l/100 km
+  times; its start near 72 s moves from 72.1 to 71.9 s. At the 5 ms step: 2.87 l/100 km
   and 67.9 g/km, so the shipped step still agrees.
 - Headline numbers that are not fixtures: BEV WLTC 14.03 -> 14.05 kWh/100 km
   (energy delivered 4.368 -> 4.372 kWh), with heating/air-con 18.87 ->

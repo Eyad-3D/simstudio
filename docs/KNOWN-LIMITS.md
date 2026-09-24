@@ -1,6 +1,6 @@
 # LightSim: known issues and limits
 
-LightSim 0.2.0 is an early version. You can build, run and inspect models,
+LightSim 0.3.0 is an early version. You can build, run and inspect models,
 but the component physics are simplified, **nothing has been validated
 against measured vehicles yet**, and some results are known to be wrong.
 This page lists what we know, what you can do about it today, and which
@@ -16,7 +16,7 @@ how the example cars compare with real ones.
   that tracks the fix, so the release notes can say when it is resolved.
 - *Being fixed* means the work is under way for an upcoming release. Until
   the release notes say it is done, the problem and the workaround apply.
-- Last reviewed: 23 September 2026, for version 0.2.0. This page is updated
+- Last reviewed: 24 September 2026, for version 0.3.0. This page is updated
   with every release.
 
 ## Results that can be wrong today
@@ -32,8 +32,8 @@ setting, shown in the table editor of the parameter dialog: *Error* stops
 the run with a message naming the table, the axis, the value, the data's
 range and the time; *Clamp* holds the edge value (what every table did
 before 0.3); *Linear* extends the edge slope. The speed and torque axes of
-motor and engine full-load, loss and fuel maps, and the fuel cell's current,
-stop the run by default. When a run
+the motor's full-load and loss maps and the engine's fuel map, and the fuel
+cell's current, stop the run by default. When a run
 reads a table outside its data, or a motor or engine goes above its maximum
 speed, Messages says so once and the run summary lists for how long (as a
 share of the run) and how far; these rows appear only when that happened.
@@ -151,10 +151,10 @@ minimum or an average, for example from the CSV export.
   Their *Transmitted Power* channel shows the summed mechanical power of
   every motor and engine on the driveline, not the power through that part:
   gear and clutch losses are left out, and every Shaft and Final Drive on
-  the driveline shows the same value. In the P2 Hybrid Car example with a
-  Shaft added between the engine and the clutch, at t = 281 s the engine
-  delivers 20.9 kW and the motor takes 8.8 kW to charge the battery, and
-  the Shaft and the Final Drive both show 12.1 kW. Read the *Mechanical
+  the driveline shows the same value. In the P2 Hybrid Car example's Mixed
+  Cycle with a Shaft added between the engine and the clutch, at t = 281 s
+  the engine delivers 9.8 kW and the motor takes 0.6 kW to charge the
+  battery, and the Shaft and the Final Drive both show 9.2 kW. Read the *Mechanical
   Power* of each motor and engine instead. *Roadmap:* MOD-10.
 - **The air is dry, still and the same along the road.** Air drag uses the
   density the Ambient block's temperature and pressure give (1.204 kg/m³,

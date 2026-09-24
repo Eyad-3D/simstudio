@@ -155,9 +155,7 @@ def test_braking_distance_is_v0_squared_over_2a():
 
 def test_coasting_up_a_grade_turns_kinetic_energy_into_m_g_h():
     """A 25 % grade (tan and sin differ by 3 %): the body stops after rising
-    h = v0² / 2g, i.e. after v0² / (2 g sin(atan 0.25)) along the road.
-    Today the slope force is m g grade/100, 3.1 % too strong; the change
-    that makes it m g sin(atan(grade/100)) removes the marker."""
+    h = v0² / 2g, i.e. after v0² / (2 g sin(atan 0.25)) along the road."""
     grade, v0 = 25.0, 72 / 3.6
     proj = _lone_body(0.01, duration=12.0, cd=0.0, initial_speed_kmh=72)
     proj.systems[0].elements.append(el("g", "signal.constant", "Grade", value=grade))
@@ -206,8 +204,7 @@ def test_clutch_engagement_loses_the_two_inertia_energy():
 
 # ---- battery -------------------------------------------------------------------
 # The constant-current discharge check (1C empties a full battery in 3600 s)
-# is MOD-38's, in test_battery_charge.py: it passes only once SOC counts
-# amp-hours instead of watt-hours.
+# is in test_battery_charge.py (MOD-38).
 
 def _battery_at_constant_current(amps, ocv, step, duration, **battery):
     """A battery feeding a Constant Drive whose power a Lookup sets to

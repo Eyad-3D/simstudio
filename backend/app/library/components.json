@@ -1501,7 +1501,7 @@
           "label": "Full-Load Torque",
           "unit": "N·m",
           "type": "table1d",
-          "axes": [{ "name": "Speed", "unit": "1/min", "outside": "error" }],
+          "axes": [{ "name": "Speed", "unit": "1/min" }],
           "default": {
             "800": 95,
             "1000": 110,

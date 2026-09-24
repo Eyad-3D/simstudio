@@ -30,6 +30,8 @@ from .network import ROAD_LOAD_ABC, BrakeRef, Driveline, Joint, Model, Segment, 
 from .profiles import interp_profile, parse_profile
 from .runtime import (
     AIR_DENSITY,
+    AMBIENT_C,
+    AMBIENT_KPA,
     CLUTCH_BAND,
     GRAVITY,
     RPM,
@@ -1012,6 +1014,7 @@ class RunContext:
         t_drag = 0.0  # read only where it is used
         t_brake = None  # stays None while the engine is not fired
         if on:
+            governor = (ec.idle_rpm - rpm) / (0.25 * ec.idle_rpm)
             if rpm > n_top + 1e-9:
                 rt.warn_once(
                     f"revlimit:{ec.el_id}",
@@ -1021,10 +1024,8 @@ class RunContext:
                     level="info",
                 )
             elif throttle > 0:
-                governor = (ec.idle_rpm - rpm) / (0.25 * ec.idle_rpm)
                 t_brake = max(throttle, min(1.0, governor)) * ec.full_load.at(n_map)
             elif rpm <= ec.reentry_rpm:
-                governor = (ec.idle_rpm - rpm) / (0.25 * ec.idle_rpm)
                 t_full = ec.full_load.at(n_map)
                 t_drag = ec.drag.at(rpm)
                 t_brake = max(-t_drag, min(t_full, governor * t_full))
@@ -1629,11 +1630,23 @@ class MechanicalSlave(_CtxSlave):
             vp = ctx.params(ctx.veh_id)
             rho = AIR_DENSITY
             if ctx.amb_id:  # read every step: live edits, case values and sweeps apply
-                # (Data Checks refuse air at or below absolute zero or 0 kPa;
-                # a case value or live edit they do not see must not crash)
+                # (Data Checks refuse air at or below absolute zero or 0 kPa
+                # and warn outside the usual air, but see only the block's own
+                # values: a case value, sweep or live edit must not crash and
+                # is warned about here)
                 ap = ctx.params(ctx.amb_id)
-                rho = air_density(max(-273.0, float(ap.get("temperature_C", 20))),
-                                  max(0.0, float(ap.get("pressure_kPa", 101.325))))
+                t_c = float(ap.get("temperature_C", 20))
+                p_kpa = float(ap.get("pressure_kPa", 101.325))
+                rho = air_density(max(-273.0, t_c), max(0.0, p_kpa))
+                if not (AMBIENT_C[0] <= t_c <= AMBIENT_C[1]
+                        and AMBIENT_KPA[0] <= p_kpa <= AMBIENT_KPA[1]):
+                    rt.warn_once(
+                        f"ambient:{ctx.amb_id}",
+                        f"'{ctx.model.elements[ctx.amb_id].label}' is at {t_c:g} °C and "
+                        f"{p_kpa:g} kPa at t = {t:.2f} s, outside the usual {AMBIENT_C[0]:g} to "
+                        f"{AMBIENT_C[1]:g} °C and {AMBIENT_KPA[0]:g} to {AMBIENT_KPA[1]:g} kPa "
+                        f"(1 bar = 100 kPa), which gives the Vehicle's drag an air density "
+                        f"of {rho:.3g} kg/m³ — check the value and its unit.")
             f_tire = 0.0
             f_roll = 0.0
             for st in active:  # at the wheel speeds just integrated
@@ -1712,7 +1725,8 @@ class ElectricalSlave(_CtxSlave):
                 deliver, absorb = ctx.source_window.get(bus.id, (math.inf, math.inf))
                 p_w = max(-absorb, min(deliver, load_w))
                 residual_w = load_w - p_w
-                a_volt = b.ocv() - b.v_rc
+                ocv = b.ocv()
+                a_volt = ocv - b.v_rc
                 ctx.used(b.ocv_map, b.soc_pct())
                 disc = max(0.0, a_volt * a_volt - 4.0 * b.r0 * p_w)
                 current = (a_volt - math.sqrt(disc)) / (2.0 * b.r0)
@@ -1721,7 +1735,6 @@ class ElectricalSlave(_CtxSlave):
                     b.v_rc = (b.v_rc + dt * current * b.r1 / b.tau) / (1.0 + dt / b.tau)
                 # the SOC counts charge (A·h); only a share of the charging
                 # current is stored
-                ocv = b.ocv()
                 eta = b.eta_charge if current < 0 else 1.0
                 soc = b.soc - eta * current * dt / (3600.0 * b.q_ah)
                 b.soc = max(0.0, min(1.0, soc))
