@@ -13,7 +13,7 @@ from helpers import bev_axle, conn, dbc, el, project, series
 
 import app.solver.core as core
 from app.solver import simulate
-from app.solver.runtime import AIR_DENSITY, GRAVITY
+from app.solver.runtime import AIR_DENSITY, CLUTCH_BAND, GRAVITY
 
 RPM = 60.0 / (2.0 * math.pi)
 # Loss-free maps over the whole range a motor runs in (0-12000 1/min,
@@ -176,7 +176,9 @@ def test_clutch_engagement_loses_the_two_inertia_energy():
     slip moved linearly between the two points: that sum is the energy lost
     to within 0.1 %, where a slip one step late (the step's start instead
     of its end) is 0.6 % off. The slip is the motor's speed minus the
-    load's at every point."""
+    load's at every point, and below its capacity the clutch's torque is
+    capacity / band × that slip: the part the implicit solve adds as the
+    clutch locks, which the energy sum alone hardly sees."""
     j1, j2 = 0.045, 0.5
     els = [el("src", "electric.voltage_source", "Supply", voltage_V=350),
            el("bus", "electric.node", "Bus"),
@@ -206,6 +208,10 @@ def test_clutch_engagement_loses_the_two_inertia_energy():
         assert s * RPM == pytest.approx(m["value"] - ld["value"], abs=1e-3), m["t"]
     in_clutch = sum(torque[k] * (slip[k - 1] + slip[k]) / 2 for k in range(1, len(slip))) * 0.01
     assert in_clutch == pytest.approx(loss, rel=0.001)
+    locking = [(t_c, s) for t_c, s in zip(torque, slip) if 1e-4 < abs(t_c) < 1.0 - 1e-4]
+    assert len(locking) > 5
+    for t_c, s in locking:  # without the implicit part 0.598 instead of 0.403 N·m
+        assert t_c == pytest.approx(1.0 / CLUTCH_BAND * s, abs=1e-4)
 
 
 # ---- battery -------------------------------------------------------------------

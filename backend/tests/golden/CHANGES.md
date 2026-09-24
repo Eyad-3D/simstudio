@@ -663,17 +663,18 @@ ENG-03 stored every point under the end time of its step, but four
 channels still held the state the step started from, one solver step
 (10 ms) old: the E-Motor's and the Engine's Speed, the clutch's Slip Speed
 and the battery's Terminal Voltage. At t = 0.01 s of a 100 A discharge the
-voltage still read the open-circuit voltage; a motor spun up from rest
-read 0 1/min at 0.01 s and its 0.01 s speed at 0.02 s. Now they hold the
-state at their own time, as the wheel, shaft and vehicle speeds and the
-SOC already did: the speeds and the slip the step left, and the voltage
-from this step's current on the SOC and RC voltage it left. A clutch that
-starts open with slip (a car given an initial speed, its engine at rest)
-shows that slip from point 0 on, instead of 0. The clutch's Torque is the
-torque that acted over the step, now with the part the implicit solve
-adds as the clutch locks (before: the part set at the step's start only).
-Torques, powers, currents and fuel rates are unchanged: they are what
-acted over the step, as before.
+voltage already read the open-circuit voltage minus the R0 drop, but
+without the RC branch's part or the OCV's fall with SOC; a motor spun up
+from rest read 0 1/min at 0.01 s and its 0.01 s speed at 0.02 s. Now they
+hold the state at their own time, as the wheel, shaft and vehicle speeds
+and the SOC already did: the speeds and the slip the step left, and the
+voltage from this step's current on the SOC and RC voltage it left. A
+clutch that starts open with slip (a car given an initial speed, its
+engine at rest) shows that slip from point 0 on, instead of 0. The
+clutch's Torque is the torque that acted over the step, now with the part
+the implicit solve adds as the clutch locks (before: the part set at the
+step's start only). Torques, powers, currents and fuel rates are
+unchanged: they are what acted over the step, as before.
 
 Scripts and PIDs that read these signals now get the value at the step
 they run in instead of one step earlier, and the next step's motor maps
@@ -707,7 +708,9 @@ moves at all.
   kinetic energy lost, against 0.62 % with the old channels) and the RC
   branch's step response (0.035 %, against 0.20 %) are held to 0.1 %, and
   the clutch's slip must equal the motor's speed minus the load's at every
-  point.
+  point. Below its capacity the clutch's torque must be capacity / band ×
+  that slip, which holds the implicit part (without it 0.598 instead of
+  0.403 N·m, while the energy sum moves by only 7e-6 of the loss).
 
 | Fixture | Number | Old | New | Change |
 |---|---|---|---|---|
