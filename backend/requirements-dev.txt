@@ -1,4 +1,4 @@
 -r requirements.txt
-pytest>=8
+pytest>=9.1.1
 httpx2  # required by starlette TestClient
 schemathesis>=4.28,<5  # API checks against the OpenAPI schema (tests/test_api_schema.py)
