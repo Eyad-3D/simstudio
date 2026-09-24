@@ -18,12 +18,30 @@ A run whose trace leaves the WLTP band for more than 1 % of its duration
 (at least 2 s) did not follow the cycle: its status is at best "warning"
 and the figures per distance are flagged not valid. A run that covers less
 than 5 % of the cycle's distance, or produces non-finite values, "failed".
+
+A performance-test case (SimCase.kind "performance": a step in the target
+speed, driven at full throttle until the car gets there) is not judged on
+the band: it reports its maximum speed and the time from t = 0 to the
+target's highest value, or says that it never got there. Its trace is
+sampled at every solver step, so that time is read where the speed crosses
+the target, not on a line to a 0.1 s sample taken after the Driver lifted
+off.
+
+The physics stayed in range: a motor, engine, battery or fuel cell that ran
+past the data of one of its tables, or above its maximum speed (the
+counters in RunContext.map_use), for longer than the trace's allowance
+(1 % of the run, at least 2 s) makes the run at best "warning", and the
+figures per distance and a performance test's rows are flagged not valid,
+naming the element, how far past and for how long.
 """
 from __future__ import annotations
 
 import math
 from collections import deque
 from dataclasses import dataclass
+from typing import Callable, Iterable
+
+from .maps import MapUse
 
 WLTP_TOL_KMH = 2.0
 EPA_TOL_KMH = 2.0 * 1.609344  # ±2 mph
@@ -49,7 +67,8 @@ class TraceMetrics:
 class CycleTrace:
     """Samples the Driver's target and the vehicle speed of a run that has
     both, every TRACE_STEP_S of solver time (at the first solver step on or
-    after each multiple of it) and at the run's first and last instant."""
+    after each multiple of it; at every solver step in a performance test)
+    and at the run's first and last instant."""
 
     def __init__(self, ctx):
         model = ctx.model
@@ -72,7 +91,8 @@ class CycleTrace:
         ``last`` (the run's final instant)."""
         if self.src is None:
             return
-        if t < self.next_t - 1e-9 and not (last and self.times and t > self.times[-1] + 1e-9):
+        if (t < self.next_t - 1e-9 and not self.ctx.performance
+                and not (last and self.times and t > self.times[-1] + 1e-9)):
             return
         self.next_t = (math.floor(t / TRACE_STEP_S + 1e-6) + 1) * TRACE_STEP_S
         if self.src_kind is not None:
@@ -156,11 +176,59 @@ class Verdict:
     messages: tuple[tuple[str, str], ...] = ()
     cycle_not_followed: bool = False
     broke_down: bool = False  # non-finite values: no number of the run is valid
+    # summary rows of a performance test: (label, value, unit)
+    rows: tuple[tuple[str, float, str], ...] = ()
+    beyond_reason: str = ""  # why data-dependent figures are not valid, or ""
 
 
-def judge(trace: CycleTrace, distance_m: float, series: dict) -> Verdict:
-    """The checks a finished run must pass to be called a success."""
+def _num(x: float) -> str:
+    return f"{x:,.0f}" if abs(x) >= 10 else f"{x:.2g}"
+
+
+def beyond_data(uses: Iterable[MapUse], duration_s: float,
+                name: Callable[[str], str]) -> list[tuple[str, str]]:
+    """(warning, reason) for each element that spent longer outside one of
+    its tables' data, or above its maximum speed, than the trace may spend
+    outside its band; judged on the element's longest record (its tables
+    share one operating point, so their times are not added up)."""
+    allowance = max(OUTSIDE_MIN_S, OUTSIDE_SHARE * duration_s)
+    longest: dict[str, MapUse] = {}
+    for use in sorted(uses, key=lambda u: u.outside_s):
+        longest[use.el_id] = use
+    out = []
+    for use in longest.values():
+        if use.outside_s <= allowance:
+            continue
+        up = use.value > use.edge
+        reason = (f"{name(use.el_id)} ran {_num(abs(use.value - use.edge))} {use.unit} past "
+                  f"its {use.what} for {_num(use.outside_s)} s")
+        limit = ("its maximum speed is" if use.what == "maximum speed"
+                 else f"its data {'ends' if up else 'starts'} at")
+        out.append((f"{reason} of {_num(duration_s)} s ({use.axis} {'up' if up else 'down'} to "
+                    f"{_num(use.value)} {use.unit} at t = {use.t:.1f} s; {limit} "
+                    f"{_num(use.edge)} {use.unit}). Consumption figures per distance are not "
+                    f"valid.", reason))
+    return out
+
+
+def _time_to(ts: list[float], spd: list[float], level: float) -> float | None:
+    """When the speed first reaches ``level``: linear between the sample
+    before and the first one at or above it."""
+    for k, v in enumerate(spd):
+        if v >= level:
+            if k == 0:
+                return ts[0]
+            return ts[k - 1] + (level - spd[k - 1]) / (v - spd[k - 1]) * (ts[k] - ts[k - 1])
+    return None
+
+
+def judge(trace: CycleTrace, distance_m: float, series: dict, performance: bool = False,
+          duration_s: float = 0.0, uses: Iterable[MapUse] = (), stopped: bool = False) -> Verdict:
+    """The checks a finished run must pass to be called a success; ``uses``
+    are the run's MapUse records, ``duration_s`` the time it solved and
+    ``stopped`` whether a stop or an error cut it short."""
     messages: list[tuple[str, str]] = []
+    rows: list[tuple[str, float, str]] = []
     not_followed = False
 
     bad = sorted({f"{el}:{port}" for (el, port), values in series.items()
@@ -179,7 +247,8 @@ def judge(trace: CycleTrace, distance_m: float, series: dict) -> Verdict:
                                       f"{m.cycle_km:.2f} km covered. Check that a motor or engine "
                                       f"drives the wheels and gets a command; no result of this "
                                       f"run is valid."))
-        elif m.outside_wltp_s > max(OUTSIDE_MIN_S, OUTSIDE_SHARE * m.duration_s):
+        elif not performance and m.outside_wltp_s > max(OUTSIDE_MIN_S,
+                                                       OUTSIDE_SHARE * m.duration_s):
             not_followed = True
             messages.append(("warning", (
                 f"Cycle not followed: the speed was outside the ±2 km/h, ±1 s trace tolerance "
@@ -188,4 +257,20 @@ def judge(trace: CycleTrace, distance_m: float, series: dict) -> Verdict:
                 f"{'above' if m.max_err_kmh > 0 else 'below'} the target at "
                 f"t = {m.t_max_err:g} s (RMS {m.rms_kmh:.2f} km/h); it drove {km:.2f} of "
                 f"{m.cycle_km:.2f} km. Consumption figures per distance are not valid.")))
-    return Verdict(messages=tuple(messages), cycle_not_followed=not_followed, broke_down=bool(bad))
+    if performance and trace.times:
+        level, v_max = max(trace.target), max(trace.speed)
+        rows.append(("Maximum speed", round(v_max, 2), "km/h"))
+        t_level = _time_to(trace.times, trace.speed, level)
+        if t_level is None:
+            if not stopped:  # a stopped run only did not get there yet
+                messages.append(("info", f"Performance test: the vehicle did not reach the "
+                                         f"{level:.4g} km/h target; its maximum speed was "
+                                         f"{v_max:.1f} km/h."))
+        elif t_level > trace.times[0]:  # no time when it started at the target or above
+            rows.append((f"Time to {level:.4g} km/h", round(t_level, 2), "s"))
+    model = trace.ctx.model
+    beyond = beyond_data(uses, duration_s,
+                         lambda el: f"{model.cdef_of[el].name} '{model.elements[el].label}'")
+    messages += [("warning", text) for text, _ in beyond]
+    return Verdict(messages=tuple(messages), cycle_not_followed=not_followed, broke_down=bool(bad),
+                   rows=tuple(rows), beyond_reason="; ".join(reason for _, reason in beyond))

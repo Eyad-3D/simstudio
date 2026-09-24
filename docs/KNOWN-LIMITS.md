@@ -1,6 +1,6 @@
 # LightSim: known issues and limits
 
-LightSim 0.2.0 is an early version. You can build, run and inspect models,
+LightSim is still an early version. You can build, run and inspect models,
 but the component physics are simplified, **nothing has been validated
 against measured vehicles yet**, and some results are known to be wrong.
 This page lists what we know, what you can do about it today, and which
@@ -16,51 +16,85 @@ how the example cars compare with real ones.
   that tracks the fix, so the release notes can say when it is resolved.
 - *Being fixed* means the work is under way for an upcoming release. Until
   the release notes say it is done, the problem and the workaround apply.
-- Last reviewed: 23 September 2026, for version 0.2.0. This page is updated
+- Last reviewed: 24 September 2026, for version 0.2.0. This page is updated
   with every release.
 
 ## Results that can be wrong today
 
-### Motors can run past the end of their maps without a warning
+### Machines and maps at the edge of their data
 
-Maps are extended flat beyond their last point (the edge value is held), and
-E-Motors have no maximum-speed limit. With the library's default E-Motor
-map, a car with a 300 km/h target reaches 267 km/h with its motor at
-21,333 rpm, on a torque map that ends at 12,000 rpm; the run ends with a
-warning only because the car could not keep up with the target, and nothing
-mentions the motor speed. The Battery Electric Car example no longer does
-this: its motor's full-load curve falls to zero at the motor's 16,000 rpm,
-so the car tops out at 160 km/h. Combustion engines are held at the last
-speed of their full-load curve by a rev limiter, which says so in Messages.
+Since 0.3 an E-Motor has a *Maximum Speed* (left at 0, the last speed point
+of its full-load curve): its drive torque falls to zero over the last 2 %
+below it, and above it the inverter is off. A car with a 300 km/h target
+now tops out at 152 km/h with its motor at 11,921 of 12,000 rpm, and
+Messages names the maximum speed. Each table axis has an *outside the data*
+setting, shown in the table editor of the parameter dialog: *Error* stops
+the run with a message naming the table, the axis, the value, the data's
+range and the time; *Clamp* holds the edge value (what every table did
+before 0.3); *Linear* extends the edge slope. The speed and torque axes of
+the motor's full-load and loss maps and the engine's fuel map, and the fuel
+cell's current, stop the run by default. When a run
+reads a table outside its data, or a motor or engine goes above its maximum
+speed, Messages says so once and the run summary lists for how long (as a
+share of the run) and how far; these rows appear only when that happened.
+When a motor, engine, battery or fuel cell spends longer there than 1 % of
+the run (at least 2 s, the allowance of the speed trace), the run ends as
+*warning* with a message naming the part, how far past and for how long,
+and its per-distance figures are marked *not valid*. What remains:
 
-*Workaround:* end a motor's full-load curve with zero torque at its maximum
-speed, as the examples do; plot the motor speed and compare it with the last
-speed point of its maps; keep target speeds within what the real vehicle can
-do.
-*Roadmap:* MOD-18.
+- Above its maximum speed a motor gives no regeneration either. A car with
+  no friction brakes running downhill past it speeds up further than before.
+- Battery SOC, motor voltage, drag-torque and Lookup tables hold their edge
+  value by default. Set an axis to *Error* to be stopped there instead.
+- Below the first speed of its full-load curve (starting, stalling) a fired
+  engine gives that point's torque and burns that point's fuel: a start-up
+  rule, not a model of starting.
+- A motor's or engine's speed limit acts from the solver step after the one
+  that reached it, so the machine's own drive can carry it past by up to a
+  step's acceleration (the default engine's hard rev limiter: about 1 %; a
+  light machine further). While it falls back from there it is not counted
+  as over speed; only what drives it higher is.
+- Lookup blocks are not judged: their table is a controller's schedule,
+  and its held edge value is what the controller asks for. Only their
+  summary rows say that the table was left.
+- A project from 0.2.0 whose loss or fuel map is narrower than its
+  full-load map, whose fuel map does not reach the full-load curve's first
+  speed, whose motor full-load map starts above 0 1/min, or whose fuel cell
+  has a Maximum Current beyond its polarization curve, now stops with an
+  error where it used to hold the edge value. Data Checks warn about it
+  before the run.
 
-### A "success" checks the speed trace, not the physics
+*Workaround:* read the summary rows and Messages after a run; where a run
+stops, extend the table or set that axis to *Clamp* or *Linear*.
+
+### A "success" checks the trace and the data edges, not plausibility
 
 A run is a *success* when the vehicle stayed within ±2 km/h and ±1 s of its
 target speed for all but 1 % of the run (at least 2 s), covered the cycle's
-distance, and nothing raised a warning. It does not check that motors stayed
-within their maps (see above) or that the numbers are plausible for a real
+distance, no motor, engine, battery or fuel cell spent longer than that
+outside its data or above its maximum speed (see above), and nothing raised
+a warning. It does not judge that the numbers are plausible for a real
 vehicle, and the Data Checks all-clear does not vouch for the results
 either. Also:
 
-- An acceleration or top-speed test driven by a step in the target speed
-  (for example `0:100; 600:100` from standstill) is outside that band while
-  the car accelerates. It ends with a *Cycle not followed* warning, and its
-  *Consumption* is marked *not valid*.
-- A cancelled run ends as *warning*; there is no separate status for it. Its
-  per-distance figures are marked *not valid: run cancelled at t = …*.
+- A case of kind *Performance* (Cases & Parameters → Kind) is not judged
+  on that band: the Driver holds full throttle until the car first
+  reaches the target (its PI holds the target after that), and the
+  run reports its *Maximum speed* and the *Time to* the target's highest
+  value, timed from t = 0. That is a standing start only: there is no
+  rolling start, no time between two speeds (such as 80-120 km/h) and no
+  second timed speed in one run.
+- A motor held back by its battery or fuel cell, or regeneration that a
+  full or charge-limited battery refuses, makes the run a *warning* at the
+  first touch, however brief; the figures stay valid, because the limit is
+  part of the model. The summary says how long each motor was limited and
+  how much regeneration was not recovered.
 - The tolerance (1 % of the run, at least 2 s) is LightSim's own choice:
   test procedures such as WLTP set no allowance for a simulation.
 
 *Workaround:* read the Messages panel and the *not valid* notes in the
-summary table. Read step-target tests for their speeds and times, not their
-consumption, or ramp the target up instead.
-*Roadmap:* MOD-18, VAL-08.
+summary table.
+*Roadmap:* VAL-08.
 
 ### Only its internal resistance limits what a battery delivers
 
@@ -117,20 +151,30 @@ minimum or an average, for example from the CSV export.
   Their *Transmitted Power* channel shows the summed mechanical power of
   every motor and engine on the driveline, not the power through that part:
   gear and clutch losses are left out, and every Shaft and Final Drive on
-  the driveline shows the same value. In the P2 Hybrid Car example with a
-  Shaft added between the engine and the clutch, at t = 281 s the engine
-  delivers 20.9 kW and the motor takes 8.8 kW to charge the battery, and
-  the Shaft and the Final Drive both show 12.1 kW. Read the *Mechanical
+  the driveline shows the same value. In the P2 Hybrid Car example's Mixed
+  Cycle with a Shaft added between the engine and the clutch, at t = 281 s
+  the engine delivers 9.8 kW and the motor takes 0.6 kW to charge the
+  battery, and the Shaft and the Final Drive both show 9.2 kW. Read the *Mechanical
   Power* of each motor and engine instead. *Roadmap:* MOD-10.
-- **Air density is fixed, and steep grades are overstated.** Air drag always
-  uses 1.2 kg/m³: the Ambient block's temperature and pressure are ignored,
-  and there is no wind. Real air is about 10 % denser at −7 °C, and about
-  20 % thinner at 35 °C and 85 kPa (about 1,500 m altitude). The slope
-  force uses the grade in % divided by 100 instead of the sine of the slope
-  angle, and rolling resistance ignores the slope, so both are 0.5 % too high
-  at a 10 % grade and 3 % at 25 %. To model cold or thin air, multiply the
-  Vehicle's *Drag Coefficient (Cd)* by the real density divided by 1.2, and
-  keep grades moderate. *Roadmap:* MOD-11.
+- **The air is dry, still and the same along the road.** Air drag uses the
+  density the Ambient block's temperature and pressure give (1.204 kg/m³,
+  20 °C and 101.325 kPa, without an Ambient), but not the road's altitude
+  (a 30 m climb makes it 0.35 % thinner), humidity (damp air is up to about
+  1.6 % thinner at 30 °C) or wind. The Ambient holds one temperature and
+  pressure for the run: a case value or a sweep changes them between runs,
+  a live edit during one, but there is no temperature over time or
+  distance. For a road at altitude, set the Ambient's pressure.
+  *Roadmap:* MOD-56 (wind), MOD-57 and CON-11 (altitude along the road),
+  MOD-09 (temperature over time).
+- **Road-load coefficients: the driveline's share is all or nothing.** With
+  *Coefficients Include Driveline Losses* ticked, the final drives,
+  differentials and transfer cases run lossless, as if the coefficients held
+  their whole loss; a coast-down holds only their spin losses, so this leaves
+  out a little. There is no estimate of the driveline's share from target
+  minus dyno-set coefficients (EPA ALPHA's road-load adjustment), and no
+  test-mass mode (equivalent test weight, × 1.015 for a two-wheel-drive
+  dynamometer): enter the test mass as the Vehicle Mass. *Roadmap:* MOD-03
+  (zero-load gear drag), VAL-05 (EPA reference tests).
 - **Wheel loads do not shift when braking, accelerating or cornering.**
   Each wheel carries a fixed share of the vehicle weight (*Vehicle Load
   Share*); the shares of the connected wheels are scaled to add up to
@@ -144,7 +188,10 @@ minimum or an average, for example from the CSV export.
   Stiffness*, a very light inertia or a strong clutch can push the solver
   past its stability limit, and nothing warns when that happens. Keep *Slip
   Stiffness* near its default, and after changing these settings plot the
-  wheels' *Longitudinal Slip* at launch. *Roadmap:* ENG-09, ENG-14.
+  wheels' *Longitudinal Slip* at launch. A car braked to a stop can also
+  creep with the brake fully applied: under 0.2 km/h at the default *Slip
+  Stiffness* of 10, about 2 km/h at 30 and up to 23 km/h at 300, at the
+  10 ms solver step. *Roadmap:* ENG-09, ENG-14.
 - **Fuel-cell hydrogen use is a fixed figure per kWh** (*Specific H₂
   Consumption*, 55 g/kWh by default), which overstates it at part load by up
   to about a third and understates it at full load.
@@ -168,16 +215,18 @@ minimum or an average, for example from the CSV export.
 ## The examples
 
 - **P2 Hybrid Car:** sized after the Hyundai Ioniq Hybrid, with its test
-  mass and road load from EPA data, but its engine, motor and battery maps
+  mass and road load from EPA data (EPA's own coefficients A/B/C, with the
+  axle's losses counted once), but its engine, motor and battery maps
   are generic, not the car's. With its charge-sustaining control script it
-  uses about 3.0 l/100 km on the EPA city cycle and 3.3 on the highway
+  uses about 2.84 l/100 km on the EPA city cycle and 3.23 on the highway
   cycle, against 2.91 and 2.94 for the real car in EPA's tests. The model
-  has no cold start, engine warm-up or start-up fuel, and it counts the
-  driveline drag that EPA's road-load coefficients already include a second
-  time. Each case starts at the charge the cycle ends with (as a
-  preconditioning drive would leave it), so the fuel figure needs no
-  battery-charge correction; start it elsewhere and the figure includes the
-  charge the strategy restores. *Roadmap:* CON-14 (sourced maps).
+  has no cold start, engine warm-up or start-up fuel, so its city figure
+  reads below EPA's, whose city test starts cold; on the highway, with its
+  generic maps, it stays about 10 % above. Each case starts at the charge
+  the cycle ends with (as a preconditioning drive would leave it), so the
+  fuel figure needs no battery-charge correction; start it elsewhere and
+  the figure includes the charge the strategy restores. *Roadmap:* CON-14
+  (sourced maps).
 - **Battery Electric Car:** modelled on the 2021 Cupra Born with FASTSim's
   values; about 14 kWh/100 km on WLTC at the battery (a car of this class is
   rated about 15-16 kWh/100 km at the charging socket, charging losses
@@ -186,8 +235,9 @@ minimum or an average, for example from the CSV export.
   rear-wheel drive and has an 11.5:1 reduction gear with an electronic
   160 km/h limit; the example drives the front axle (only the load share
   matters without weight transfer) and uses a 12.8 ratio so that the motor's
-  maximum speed sets the 160 km/h, because LightSim has no speed limiter.
-  *Roadmap:* MOD-18 (maximum-speed limit), MOD-12.
+  maximum speed sets the 160 km/h. An E-Motor's *Maximum Speed* could now
+  set that limit, but the example still sets it through the ratio.
+  *Roadmap:* MOD-12.
 - **Runs made on an example stay with the copy you ran.** An example opens
   as an unsaved copy, and its runs are stored with that copy: they are
   listed while it stays open, also after a restart, but opening the example
@@ -200,8 +250,8 @@ minimum or an average, for example from the CSV export.
 
 - **No heat or cooling.** There is no thermal solver: temperatures do not
   change and do not affect batteries, motors or engines. The Ambient
-  component is a placeholder (it does not set the air density either; see
-  above), and thermal or fluid connections are ignored during a run.
+  component sets only the air density (see above), and thermal or fluid
+  connections are ignored during a run.
   *Roadmap:* MOD-09.
 - **Forward driving only.** No reverse, and no rolling back: a car on a steep
   hill stays put even with no brakes. *Roadmap:* MOD-21, ENG-21.

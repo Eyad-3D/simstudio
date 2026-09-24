@@ -18,6 +18,7 @@ from app.solver import (
     simulate,
 )
 from app.solver.maps import TableError
+from app.solver.runtime import AIR_DENSITY
 from app.storage import load_example
 from app.validation import validate_project
 
@@ -286,7 +287,7 @@ def test_motor_steady_state_matches_road_load():
     v = 50 / 3.6
     mass = 1800.0
     f_roll = 0.012 * mass * 9.81  # the two wheels' shares are scaled to carry it all
-    f_aero = 0.5 * 1.2 * (0.28 * 2.2) * v * v  # Cd × frontal area
+    f_aero = 0.5 * AIR_DENSITY * (0.28 * 2.2) * v * v  # Cd × frontal area
     wheel_torque = (f_roll + f_aero) * 0.33
     expected = wheel_torque / (9.7 * 0.97 * 0.98)
     assert abs(t_motor - expected) < 0.5, f"{t_motor} vs {expected}"

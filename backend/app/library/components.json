@@ -21,7 +21,7 @@
       "name": "Vehicle",
       "icon": "car",
       "domain": "mechanical",
-      "description": "Longitudinal vehicle body: mass, aerodynamics (drag coefficient × frontal area) and road grade. Binds to all Wheel elements automatically — no canvas wiring needed for the body itself. Pair it with a Driver element to follow a speed profile.",
+      "description": "Longitudinal vehicle body: mass, road load and road grade. Road load comes from the drag coefficient × frontal area and the Wheels' rolling resistance, or, with Road Load From set to coefficients, from A + B·v + C·v² with v in km/h, as coast-down tests publish it (WLTP f0, f1, f2; EPA's lbf, lbf/mph and lbf/mph² values × 4.448, × 2.764 and × 1.717); then Cd, frontal area and the Wheels' rolling resistance are not used. Drag follows the air density the Ambient block sets (1.204 kg/m³ at 20 °C and 101.325 kPa without one), and so does C, which is taken at 1.204 kg/m³. Coast-down (target) coefficients already hold the drag of the gears the wheels turn in neutral: with Coefficients Include Driveline Losses ticked, the final drives, differentials and transfer cases run lossless (gearboxes and motors keep their losses; a coast-down holds only the axle's spin losses, so this leaves out a little); untick it for dyno-set coefficients. The road grade (rise over run, in %) sets the slope angle θ = atan(grade / 100): the weight pulls the car back with m·g·sin θ, and the normal load (rolling resistance, tyre grip) is m·g·cos θ. Binds to all Wheel elements automatically — no canvas wiring needed for the body itself. Pair it with a Driver element to follow a speed profile.",
       "ports": [
         {
           "id": "sig_grade_in",
@@ -67,6 +67,44 @@
           "unit": "m²",
           "default": 2.2,
           "type": "number"
+        },
+        {
+          "key": "road_load_mode",
+          "variability": "fixed",
+          "label": "Road Load From",
+          "unit": "-",
+          "default": "Drag and rolling resistance",
+          "type": "enum",
+          "options": ["Drag and rolling resistance", "Coefficients A/B/C"]
+        },
+        {
+          "key": "road_load_a_N",
+          "label": "Road Load A (f0)",
+          "unit": "N",
+          "default": 212,
+          "type": "number"
+        },
+        {
+          "key": "road_load_b_N_per_kmh",
+          "label": "Road Load B (f1)",
+          "unit": "N/(km/h)",
+          "default": 0,
+          "type": "number"
+        },
+        {
+          "key": "road_load_c_N_per_kmh2",
+          "label": "Road Load C (f2)",
+          "unit": "N/(km/h)²",
+          "default": 0.0286,
+          "type": "number"
+        },
+        {
+          "key": "abc_include_driveline_losses",
+          "variability": "fixed",
+          "label": "Coefficients Include Driveline Losses",
+          "unit": "-",
+          "default": true,
+          "type": "boolean"
         },
         {
           "key": "initial_speed_kmh",
@@ -159,7 +197,7 @@
       "name": "HV Battery Pack",
       "icon": "battery-charging",
       "domain": "electrical",
-      "description": "Equivalent-circuit battery pack: OCV(SOC) lookup table with series resistance R0 and an optional RC pair for voltage transients (RC disabled when either RC parameter is 0). SOC integrates over discharge and recuperation; charging power is limited by the maximum charge power.",
+      "description": "Equivalent-circuit battery pack: OCV(SOC) lookup table with series resistance R0 and an optional RC pair for voltage transients (RC disabled when either RC parameter is 0). SOC counts the charge that flows (amp-hours) and the OCV table is read at that SOC. Charge Capacity sets the amp-hours; left at 0 they come from the Usable Capacity at the OCV table's mean voltage, so a full-to-empty discharge gives out the Usable Capacity. Coulombic Efficiency is the share of the charging current that is stored (Li-ion cells store about 99.9 %, so it defaults to 100 %). Charging power is limited by the maximum charge power.",
       "ports": [
         {
           "id": "pos",
@@ -218,11 +256,27 @@
           "type": "number"
         },
         {
+          "key": "capacity_Ah",
+          "variability": "fixed",
+          "label": "Charge Capacity (0 = from Usable Capacity)",
+          "unit": "Ah",
+          "default": 0,
+          "type": "number"
+        },
+        {
+          "key": "coulombic_efficiency_pct",
+          "variability": "fixed",
+          "label": "Coulombic Efficiency (charging)",
+          "unit": "%",
+          "default": 100,
+          "type": "number"
+        },
+        {
           "key": "ocv_table",
           "label": "Open-Circuit Voltage",
           "unit": "V",
           "type": "table1d",
-          "axes": [{ "name": "SOC", "unit": "%" }],
+          "axes": [{ "name": "SOC", "unit": "%", "outside": "clamp" }],
           "default": {
             "0": 300,
             "10": 318,
@@ -287,7 +341,7 @@
       "name": "E-Motor",
       "icon": "fan",
       "domain": "electrical",
-      "description": "Electric machine with voltage-dependent full-load torque map, power-loss map (motor + inverter) and drag torque. The loss map covers every loss while the inverter is powered, spin losses at zero torque included; the drag torque applies only when the motor coasts unpowered (zero command or no supply). Motoring and generating (recuperation) quadrants; generator limit mirrors the full-load map scaled by the Q4 scale parameter. Traction command input is a normalized demand in [-1, 1].",
+      "description": "Electric machine with voltage-dependent full-load torque map, power-loss map (motor + inverter) and drag torque. The loss map covers every loss while the inverter is powered, spin losses at zero torque included; the drag torque applies only when the motor coasts unpowered (zero command or no supply). Motoring and generating (recuperation) quadrants; generator limit mirrors the full-load map scaled by the Q4 scale parameter. Traction command input is a normalized demand in [-1, 1]. Maximum Speed (0 = the full-load curve's last speed point): the drive torque falls to zero over the last 2 % below it, and above it the inverter is off, so the motor gives no drive torque and no recuperation. Each table axis has an outside-the-data setting: Error stops the run, Clamp holds the edge value, Linear extends the edge slope.",
       "ports": [
         {
           "id": "pos",
@@ -365,8 +419,8 @@
           "unit": "N·m",
           "type": "table2d",
           "axes": [
-            { "name": "Voltage", "unit": "V" },
-            { "name": "Speed", "unit": "1/min" }
+            { "name": "Voltage", "unit": "V", "outside": "clamp" },
+            { "name": "Speed", "unit": "1/min", "outside": "error" }
           ],
           "default": {
             "250": {
@@ -431,8 +485,8 @@
           "unit": "kW",
           "type": "table2d",
           "axes": [
-            { "name": "Speed", "unit": "1/min" },
-            { "name": "Torque", "unit": "N·m" }
+            { "name": "Speed", "unit": "1/min", "outside": "error" },
+            { "name": "Torque", "unit": "N·m", "outside": "error" }
           ],
           "default": {
             "0": { "0": 0.1, "100": 1.6, "200": 3.2, "350": 8.5 },
@@ -447,7 +501,7 @@
           "label": "Drag Torque (unpowered)",
           "unit": "N·m",
           "type": "table1d",
-          "axes": [{ "name": "Speed", "unit": "1/min" }],
+          "axes": [{ "name": "Speed", "unit": "1/min", "outside": "clamp" }],
           "default": {
             "0": 0,
             "3000": 0.7,
@@ -455,6 +509,13 @@
             "9000": 1.0,
             "12000": 1.2
           }
+        },
+        {
+          "key": "max_speed_rpm",
+          "label": "Maximum Speed (0 = full-load curve's last point)",
+          "unit": "1/min",
+          "default": 0,
+          "type": "number"
         },
         {
           "key": "inertia_kgm2",
@@ -558,7 +619,7 @@
           "key": "output_voltage_V",
           "label": "Output Voltage",
           "unit": "V",
-          "default": 800,
+          "default": 350,
           "type": "number"
         },
         {
@@ -616,7 +677,7 @@
           "key": "voltage_V",
           "label": "Nominal Voltage",
           "unit": "V",
-          "default": 400,
+          "default": 350,
           "type": "number"
         }
       ]
@@ -1034,7 +1095,7 @@
       "name": "Wheel",
       "icon": "circle",
       "domain": "mechanical",
-      "description": "Wheel with longitudinal slip tire model: traction force = slip stiffness × slip × normal load, saturated at μ × normal load. Normal load comes from the Vehicle mass × this wheel's load share; the shares of all connected wheels are scaled to add up to 100 %, so together they always carry the whole vehicle. Rolling resistance acts on the vehicle body.",
+      "description": "Wheel with longitudinal slip tire model: traction force = slip stiffness × slip × normal load, saturated at μ × normal load. Normal load comes from the Vehicle mass × this wheel's load share (× the cosine of the road's slope angle); the shares of all connected wheels are scaled to add up to 100 %, so together they always carry the whole vehicle. Rolling resistance acts on the vehicle body; it is not used when the Vehicle takes its road load from coefficients A/B/C.",
       "ports": [
         {
           "id": "shaft",
@@ -1164,7 +1225,7 @@
           "variability": "fixed",
           "label": "Inertia",
           "unit": "kg·m²",
-          "default": 0.6,
+          "default": 0.18,
           "type": "number"
         }
       ]
@@ -1337,7 +1398,7 @@
       "name": "Ambient",
       "icon": "cloud-sun",
       "domain": "thermal",
-      "description": "Ambient environment boundary condition (no thermal solver yet).",
+      "description": "Ambient air. Its temperature and pressure set the air density for the Vehicle's drag, rho = p / (R · T) with R = 287.05 J/(kg·K) for dry air; no wiring needed. Without an Ambient the density is 1.204 kg/m³ (20 °C, 101.325 kPa); in a model with several, the first one counts. There is no thermal solver yet: no part's temperature follows it.",
       "ports": [
         {
           "id": "thermal",
@@ -1360,7 +1421,7 @@
           "key": "pressure_kPa",
           "label": "Pressure",
           "unit": "kPa",
-          "default": 101.3,
+          "default": 101.325,
           "type": "number"
         }
       ]
@@ -1381,7 +1442,7 @@
       "name": "Combustion Engine",
       "icon": "flame",
       "domain": "mechanical",
-      "description": "Internal combustion engine: full-load torque curve, drag (motoring) torque, and a fuel-consumption map (speed × torque → kg/h). The full-load curve and fuel map are brake (net, flywheel) values, as on a datasheet; the drag torque applies only while the engine is not fired: switched off, out of fuel, in overrun fuel cut-off (zero throttle above the re-entry speed) or above the full-load curve's last speed (rev limiter). Built-in idle governor holds idle speed at zero throttle. Enable input allows hybrid start/stop control (unwired = always on); consumes from the Fuel Tank automatically.",
+      "description": "Internal combustion engine: full-load torque curve, drag (motoring) torque, and a fuel-consumption map (speed × torque → kg/h). The full-load curve and fuel map are brake (net, flywheel) values, as on a datasheet; the drag torque applies only while the engine is not fired: switched off, out of fuel, in overrun fuel cut-off (zero throttle above the re-entry speed) or above the full-load curve's last speed (rev limiter). Built-in idle governor holds idle speed at zero throttle. Below the full-load curve's first speed (starting, stalling) a fired engine gives that point's torque and burns that point's fuel (the start-up rule), so the curve and the fuel map are read only between its first and last speed. Enable input allows hybrid start/stop control (unwired = always on); consumes from the Fuel Tank automatically.",
       "ports": [
         {
           "id": "shaft",
@@ -1448,8 +1509,8 @@
             "2000": 155,
             "2500": 168,
             "3000": 175,
-            "3500": 178,
-            "4000": 176,
+            "3500": 175,
+            "4000": 175,
             "4500": 168,
             "5000": 156,
             "5500": 140,
@@ -1461,7 +1522,7 @@
           "label": "Drag Torque (unfired)",
           "unit": "N·m",
           "type": "table1d",
-          "axes": [{ "name": "Speed", "unit": "1/min" }],
+          "axes": [{ "name": "Speed", "unit": "1/min", "outside": "clamp" }],
           "default": {
             "0": 18,
             "1000": 20,
@@ -1478,10 +1539,11 @@
           "unit": "kg/h",
           "type": "table2d",
           "axes": [
-            { "name": "Speed", "unit": "1/min" },
-            { "name": "Torque", "unit": "N·m" }
+            { "name": "Speed", "unit": "1/min", "outside": "error" },
+            { "name": "Torque", "unit": "N·m", "outside": "error" }
           ],
           "default": {
+            "800": { "0": 0.6, "50": 1.6, "100": 3.1, "150": 4.8, "175": 5.8 },
             "1000": { "0": 0.6, "50": 1.6, "100": 3.1, "150": 4.8, "175": 5.8 },
             "2000": { "0": 0.9, "50": 3.0, "100": 5.8, "150": 8.7, "175": 10.2 },
             "3000": { "0": 1.4, "50": 4.5, "100": 8.6, "150": 12.9, "175": 15.2 },
@@ -1880,17 +1942,17 @@
           "label": "Polarization Curve",
           "unit": "V",
           "type": "table1d",
-          "axes": [{ "name": "Current", "unit": "A" }],
+          "axes": [{ "name": "Current", "unit": "A", "outside": "error" }],
           "default": {
-            "0": 420,
-            "50": 392,
-            "100": 370,
-            "150": 352,
-            "200": 336,
-            "250": 320,
-            "300": 304,
-            "350": 286,
-            "400": 264
+            "0": 396.0,
+            "50": 369.8,
+            "100": 349.2,
+            "150": 332.4,
+            "200": 317.4,
+            "250": 302.4,
+            "300": 287.4,
+            "350": 270.6,
+            "400": 250.0
           }
         },
         {
@@ -2035,7 +2097,7 @@
           "label": "1D Table",
           "unit": "-",
           "type": "table1d",
-          "axes": [{ "name": "Input", "unit": "-" }],
+          "axes": [{ "name": "Input", "unit": "-", "outside": "clamp" }],
           "default": { "0": 0, "1": 1 }
         },
         {
@@ -2045,8 +2107,8 @@
           "unit": "-",
           "type": "table2d",
           "axes": [
-            { "name": "Input X", "unit": "-" },
-            { "name": "Input Y", "unit": "-" }
+            { "name": "Input X", "unit": "-", "outside": "clamp" },
+            { "name": "Input Y", "unit": "-", "outside": "clamp" }
           ],
           "default": { "0": { "0": 0, "1": 0 }, "1": { "0": 0, "1": 1 } }
         },

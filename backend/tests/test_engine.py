@@ -29,10 +29,10 @@ def test_full_throttle_delivers_the_full_load_curve():
     against 81.7 kW on the default full-load curve."""
     ctx, ec = _engine(1.0)
     peak_kw = 0.0
-    for rpm, t_full in ec.full_load:
+    for rpm, t_full in ec.full_load.pts:
         torque = ctx.engine_torque(ec, rpm / RPM)
         assert torque == pytest.approx(t_full), rpm
-        assert ec.fuel_kgh == pytest.approx(interp2(ec.fuel_map, rpm, t_full)), rpm
+        assert ec.fuel_kgh == pytest.approx(interp2(ec.fuel_map.pts, rpm, t_full)), rpm
         peak_kw = max(peak_kw, torque * rpm / RPM / 1000.0)
     assert peak_kw >= 80.0
 
@@ -45,7 +45,7 @@ def test_zero_throttle_cuts_fuel_above_the_reentry_speed():
     for rpm in (1200, 2000, 3000, 4500, 6000):
         torque = ctx.engine_torque(ec, rpm / RPM)
         assert ec.fuel_kgh == 0.0, rpm
-        assert torque == pytest.approx(-interp1(ec.drag, rpm)), rpm
+        assert torque == pytest.approx(-interp1(ec.drag.pts, rpm)), rpm
 
 
 def test_idle_governor_holds_idle_on_a_willans_line():
@@ -55,12 +55,12 @@ def test_idle_governor_holds_idle_on_a_willans_line():
     ctx, ec = _engine(0.0)
     idle = ec.idle_rpm
     assert ctx.engine_torque(ec, idle / RPM) == pytest.approx(0.0)
-    assert ec.fuel_kgh == pytest.approx(interp2(ec.fuel_map, idle, 0.0))
+    assert ec.fuel_kgh == pytest.approx(interp2(ec.fuel_map.pts, idle, 0.0))
     # half-way to the drag torque, half the zero-torque fuel
-    rpm = idle + 0.25 * idle * interp1(ec.drag, idle) / 2 / interp1(ec.full_load, idle)
+    rpm = idle + 0.25 * idle * interp1(ec.drag.pts, idle) / 2 / interp1(ec.full_load.pts, idle)
     torque = ctx.engine_torque(ec, rpm / RPM)
-    assert torque == pytest.approx(-interp1(ec.drag, rpm) / 2, rel=0.02)
-    assert ec.fuel_kgh == pytest.approx(interp2(ec.fuel_map, rpm, 0.0) / 2, rel=0.02)
+    assert torque == pytest.approx(-interp1(ec.drag.pts, rpm) / 2, rel=0.02)
+    assert ec.fuel_kgh == pytest.approx(interp2(ec.fuel_map.pts, rpm, 0.0) / 2, rel=0.02)
     assert ctx.engine_torque(ec, 0.9 * idle / RPM) > 0.0
 
 
@@ -80,7 +80,10 @@ def test_rev_limiter_cuts_fuel_and_torque():
     for n, f, tq in zip(rpm, fuel, torque):
         if n > 6000:
             assert f == 0.0 and tq < 0.0
-    assert any("rev limiter" in m.text for m in result.messages)
+    # reaching the limiter is info (MOD-18): the run is judged on how long it
+    # stays there, and overshooting it by a step is not counted as over speed
+    assert [m.level for m in result.messages if "rev limiter" in m.text] == ["info"]
+    assert not [s.label for s in result.summary if "maximum speed" in s.label]
 
 
 def _ice_car(profile: str, duration: float, speed: float = 100.0, **tank):
@@ -104,6 +107,20 @@ def _ice_car(profile: str, duration: float, speed: float = 100.0, **tank):
     ]
     databus = [*driver_wiring(), dbc(2, "drv", "sig_traction_cmd", "eng", "sig_throttle_in")]
     return project(elements, connections, databus, duration=duration, time_step=0.1)
+
+
+def test_an_engine_driven_above_its_maximum_speed_is_counted():
+    """120 km/h in 1st gear turns the engine at 15,400 1/min: the wheels
+    drive it there, not its own fuel (MOD-18)."""
+    proj = _ice_car("0:120; 10:120", 10, speed=120)
+    next(e for e in proj.systems[0].elements if e.id == "gb").parameterOverrides[
+        "default_gear"] = 1
+    result = simulate(proj, "case")
+    assert any("was driven above its maximum speed (6,000 1/min" in m.text and
+               m.level == "info" for m in result.messages)
+    summary = {s.label: s.value for s in result.summary}
+    assert summary["Engine — time above maximum speed"] > 90
+    assert summary["Engine — highest speed"] > 15000
 
 
 def test_engine_starts_at_the_vehicle_speed_behind_a_closed_clutch():

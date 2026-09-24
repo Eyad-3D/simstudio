@@ -31,6 +31,11 @@ from ..schemas import ComponentDef, ElementInstance, PortDef, Project
 JOINT_TYPES = {"mech.differential", "mech.transfer_case", "mech.clutch"}
 SOURCE_TYPES = {"motor.emotor": "motor", "engine.combustion": "engine"}
 SIGNAL_BLOCK_TYPES = ("signal.script", "control.pid", "signal.lookup", "signal.road_profile")
+# The gears a coast-down in neutral turns with the wheels: road-load
+# coefficients measured that way already hold their drag, so with the
+# Vehicle's "Coefficients Include Driveline Losses" they run lossless.
+AXLE_GEAR_TYPES = ("mech.final_drive", "mech.differential", "mech.transfer_case")
+ROAD_LOAD_ABC = "Coefficients A/B/C"
 
 # Model advisories that Data Checks treat as errors, because the vehicle
 # cannot move (the run itself only reports them as warnings).
@@ -220,6 +225,7 @@ class Model:
     signal_blocks: list[str]  # Script/PID/Lookup/RoadProfile ids in eval order
     floating_returns: list[str] = field(default_factory=list)  # unwired − terminals
     warnings: list[str] = field(default_factory=list)
+    ambient: str | None = None  # the Ambient that sets the air density
     # re-extracts a driveline for new gears from the current (live) params_of
     rewalk: Optional[Callable[[Driveline, dict[str, float]], Optional[Driveline]]] = None
 
@@ -285,6 +291,11 @@ def build_model(
     for el_id, ov in case_overrides.items():
         if el_id in params_of and isinstance(ov, dict):
             params_of[el_id].update(ov)
+    # road load from coefficients that hold the axle's drag: the axle gears
+    # run lossless (both settings are fixed, so this holds for the whole run)
+    veh_p = next((params_of[e] for e, c in cdef_of.items() if c.id == "vehicle.body"), {})
+    lossless = (AXLE_GEAR_TYPES if veh_p.get("road_load_mode") == ROAD_LOAD_ABC
+                and veh_p.get("abc_include_driveline_losses", True) else ())
 
     port_def: dict[tuple[str, str], PortDef] = {}
     for el_id, cdef in cdef_of.items():
@@ -399,7 +410,7 @@ def build_model(
                         seg.gearboxes.append(GearboxRef(el_id=el_id, ratio=ratio))
                 else:
                     ratio = float(p.get("ratio", 1.0)) or 1.0
-                eta = max(1e-3, float(p.get("efficiency_pct", 100)) / 100.0)
+                eta = 1.0 if t in lossless else max(1e-3, float(p.get("efficiency_pct", 100)) / 100.0)
                 if pid == "flange_out":
                     m_in, m_out = m * ratio, m
                     other, m_other = "flange_in", m * ratio
@@ -539,7 +550,8 @@ def build_model(
                 joint = Joint(
                     el_id=j_el, kind="split",
                     ratio=float(p.get("ratio", 1.0)) or 1.0,
-                    eff=max(1e-3, float(p.get("efficiency_pct", 100)) / 100.0),
+                    eff=(1.0 if cdef.id in lossless
+                         else max(1e-3, float(p.get("efficiency_pct", 100)) / 100.0)),
                     locked=bool(p.get("locked", False)),
                     f_b=f_b,
                     parent_seg=sp,
@@ -768,6 +780,11 @@ def build_model(
     driver = single("driver.driver", "Driver")
     fuel_tank = single("fuel.tank", "Fuel Tank")
     h2_tank = single("fuel.h2_tank", "Hydrogen Tank")
+    # several Ambients (0.2.0 placeholders) still run: the first one counts
+    ambients = [el_id for el_id, cdef in cdef_of.items() if cdef.id == "boundary.ambient"]
+    if len(ambients) > 1:
+        warnings.append(f"Only the first Ambient ('{elements[ambients[0]].label}') sets the "
+                        f"air density; the others are ignored.")
 
     any_wheels = any(seg.wheels for dl in drivelines for seg in dl.segments)
     if any_wheels and not vehicle:
@@ -818,5 +835,6 @@ def build_model(
         signal_blocks=ordered,
         floating_returns=floating_returns,
         warnings=warnings,
+        ambient=ambients[0] if ambients else None,
         rewalk=lambda dl, gears: extract_driveline(set(dl.element_group), gears, []),
     )

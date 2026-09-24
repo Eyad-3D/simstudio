@@ -71,13 +71,6 @@ def _constant_demand_axle(source_els, source_conns, demand, **vehicle):
     return project(elements, connections, [dbc(1, "cmd", "sig_out", "mot", "sig_demand_in")])
 
 
-def _battery_net_in_kwh(result, r0):
-    """Energy that went into storage: terminal energy in minus I²R losses."""
-    power = _values(result, "batt", "sig_power")[1:]
-    current = _values(result, "batt", "sig_current")[1:]
-    return -sum(p * 1000.0 + i * i * r0 for p, i in zip(power, current)) * DT / 3.6e6
-
-
 def _assert_source_covers_motor(result, source, port="sig_power"):
     """Step by step, the source's power is the motor's electrical power."""
     p_src = _values(result, source, port)
@@ -94,8 +87,8 @@ def test_battery_driven_to_its_limits_closes_the_energy_balance():
     """A small, weak battery: the launch hits its maximum-power point, the
     cruise empties it to its minimum SOC, and the braking at the end runs
     into its charge limit. The battery must supply exactly what the motor
-    draws throughout, its stored energy must match what went in and out,
-    and the car must slow down once it is empty."""
+    draws throughout, the charge it counts must match the current that
+    flowed, and the car must slow down once it is empty."""
     proj = _with_brakes(bev_axle(profile="0:0; 5:100; 60:100; 70:0; 80:0"))
     _set(proj, batt={"capacity_kWh": 0.15, "initial_soc_pct": 30, "internal_resistance_ohm": 1.0,
                      "max_charge_power_kW": 5})
@@ -109,8 +102,9 @@ def test_battery_driven_to_its_limits_closes_the_energy_balance():
     assert min(soc) >= 10.0 - 1e-6, "never below the minimum SOC"
     assert min(_values(result, "batt", "sig_power")) >= -5.0 - 1e-6, "never above the charge limit"
 
-    stored_kwh = (soc[-1] - soc[0]) / 100.0 * 0.15
-    assert stored_kwh == pytest.approx(_battery_net_in_kwh(result, 1.0), rel=1e-3)
+    q_ah = 0.15e3 / 345.0  # Usable Capacity at the library OCV table's SOC-weighted mean
+    current = _values(result, "batt", "sig_current")
+    assert (soc[-1] - soc[0]) / 100.0 * q_ah == pytest.approx(-sum(current[1:]) * DT / 3600.0, rel=1e-6)
     assert _summary(result)["E-Motor — time limited by supply"] > 10.0
 
     speed = {p["t"]: p["value"] for p in series(result, "veh", "sig_speed")}
@@ -170,8 +164,10 @@ def test_full_battery_regen_goes_to_the_friction_brakes():
     _set(proj, batt={"initial_soc_pct": 100}, veh={"initial_speed_kmh": 100})
     result = _run(proj, 30)
     soc = _values(result, "batt", "sig_soc")
-    stored_kwh = (soc[-1] - soc[0]) / 100.0 * 60.0
-    assert stored_kwh == pytest.approx(_battery_net_in_kwh(result, 0.08), abs=1e-5)
+    q_ah = 60e3 / 345.0  # Usable Capacity at the library OCV table's SOC-weighted mean
+    current = _values(result, "batt", "sig_current")
+    # a full battery hardly moves: the band is the stored SOC's 5-decimal rounding
+    assert (soc[-1] - soc[0]) / 100.0 * q_ah == pytest.approx(-sum(current[1:]) * DT / 3600.0, abs=2e-5)
     assert max(soc) <= 100.0
     _assert_source_covers_motor(result, "batt")
     speed = {p["t"]: p["value"] for p in series(result, "veh", "sig_speed")}

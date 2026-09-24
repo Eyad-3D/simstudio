@@ -397,3 +397,191 @@ until the two agree within 0.01 %). The example card's figures follow.
 | hybrid-car Mixed Cycle (fine step) | Fuel consumption | 2.88 l/100km | 2.92 l/100km | +0.04 (+1.39 %) |
 | hybrid-car Mixed Cycle (fine step) | CO₂ emissions | 68.1 g/km | 69 g/km | +0.9 (+1.32 %) |
 | hybrid-car Mixed Cycle (fine step) | channels that moved | | 49 | 20 outside their tube |
+
+## Battery state of charge counts amp-hours (MOD-38)
+
+Before, the battery's SOC was an energy count (OCV × I × dt over the
+capacity in Wh), so a pack whose voltage falls as it empties reached 0 %
+late: a 1C discharge took 3,611 s on the library OCV table instead of
+3,600 s. Now the SOC counts the charge that flows (I × dt over the
+capacity in Ah), as battery management systems and datasheets do, and the
+OCV table is read at that SOC. A battery with no Charge Capacity (both
+examples, and every project from 0.2.0) gets its amp-hours from its Usable
+Capacity divided by the OCV table's SOC-weighted mean voltage (62 kWh /
+345.0 V = 179.7 Ah for the BEV, 1.56 kWh / 238.6 V = 6.54 Ah for the
+hybrid), so a full-to-empty discharge still gives out exactly the Usable
+Capacity. Coulombic efficiency defaults to 100 %, so charging stores all
+of its current as before.
+
+- bev-car City Cycle: final SOC 88.68 -> 88.77 %; energy delivered,
+  recuperated, internal losses and consumption (11.11 kWh/100 km)
+  unchanged. Only the SOC and the terminal voltage it sets move.
+- hybrid-car Mixed Cycle: final SOC 51.79 -> 51.84 % (from a 51.79 %
+  start), fuel 0.208 -> 0.209 kg, 2.93 l/100 km unchanged, CO₂ 69.1 ->
+  69.2 g/km. The engine switches off about 1 s later near t = 90 s,
+  because the control script's thresholds now read the charge-based SOC;
+  the other channels that left their tube follow the script's
+  SOC-dependent torque split (most at t = 130 s).
+- Headline numbers that are not fixtures: BEV WLTC final SOC 84.61 ->
+  84.93 %, 14.04 kWh/100 km unchanged; hybrid EPA city (UDDS) 2.95 and
+  highway (HWFET) 3.30 l/100 km unchanged, final SOC 56.70 -> 56.68 % and
+  58.90 -> 58.84 % from their 56.7 and 58.9 % starts. The hybrid's cases
+  now end within 0.06 points of the charge they start at (under 0.001 l of
+  fuel), so their start SOCs are not re-balanced here; MOD-11 re-tunes
+  the hybrid and re-balances them.
+
+| Fixture | Number | Old | New | Change |
+|---|---|---|---|---|
+| bev-car City Cycle (shipped step) | HV Battery Pack — final SOC | 88.68 % | 88.77 % | +0.09 (+0.10 %) |
+| bev-car City Cycle (shipped step) | channels that moved | | 3 | 2 outside their tube |
+| bev-car City Cycle (fine step) | HV Battery Pack — final SOC | 88.68 % | 88.77 % | +0.09 (+0.10 %) |
+| bev-car City Cycle (fine step) | channels that moved | | 3 | 2 outside their tube |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — final SOC | 51.79 % | 51.84 % | +0.05 (+0.10 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — energy delivered | 0.207 kWh | 0.206 kWh | -0.001 (-0.48 %) |
+| hybrid-car Mixed Cycle (shipped step) | Engine — fuel used | 0.208 kg | 0.209 kg | +0.001 (+0.48 %) |
+| hybrid-car Mixed Cycle (shipped step) | CO₂ emissions | 69.1 g/km | 69.2 g/km | +0.1 (+0.14 %) |
+| hybrid-car Mixed Cycle (shipped step) | channels that moved | | 49 | 16 outside their tube |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — final SOC | 51.79 % | 51.84 % | +0.05 (+0.10 %) |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — energy delivered | 0.207 kWh | 0.206 kWh | -0.001 (-0.48 %) |
+| hybrid-car Mixed Cycle (fine step) | CO₂ emissions | 69 g/km | 69.1 g/km | +0.1 (+0.14 %) |
+| hybrid-car Mixed Cycle (fine step) | channels that moved | | 46 | 13 outside their tube |
+
+## Brake inertia 0.18 kg·m², motor maximum speed and map edges (MOD-18)
+
+Before, the library's friction brake had a rotational inertia of 0.6 kg·m²,
+three to four times that of a real 330 mm disc: a 10 kg disc gives
+0.14 kg·m² solid and 0.18 as a ring from 100 to 165 mm radius (a background
+estimate). Both examples use four default brakes, so each car carried
+1.68 kg·m² too much at its wheels: when accelerating and braking, as if the
+BEV were 14 kg and the hybrid 17 kg heavier (1.68 / r², r = 0.349 and
+0.31 m). Now the default is 0.18 kg·m², the ring value, since a disc's mass
+sits mostly in its friction ring. (With the solid-disc 0.14, at the
+shipped 10 ms step only, the hybrid example's engine started once more at
+9.7 s and its start at 71.8 s moved to 82.7 s; at the 5 ms step it did not,
+so the two steps no longer agreed: energy delivered 0.210 against
+0.206 kWh. From 0.15 kg·m² up both steps start it at the same times: the
+example's start rule sits on a knife-edge there.) Less energy goes
+into spinning the brakes up, and less comes back when braking:
+
+- bev-car City Cycle: energy delivered 0.881 -> 0.880 kWh, recuperated
+  0.071 -> 0.070 kWh; consumption 11.11 kWh/100 km and final SOC 88.77 %
+  unchanged. The channels that left their tube are the wheel torque, force
+  and slip and the brake torque, which no longer carry the brakes' extra
+  inertia torque.
+- hybrid-car Mixed Cycle: final SOC 51.84 -> 51.76 %, recuperated 0.210 ->
+  0.209 kWh, fuel 0.209 -> 0.208 kg, CO₂ 69.2 -> 69.1 g/km at the shipped
+  step; 2.93 l/100 km unchanged. The engine starts 0.3 s later near t = 72 s
+  (72.1 instead of 71.8 s), which moves most of the channels that left
+  their tube. At the 5 ms step: CO₂ 69.1 -> 68.9 g/km.
+- Headline numbers that are not fixtures: BEV WLTC 14.04 -> 14.03 kWh/100 km
+  (energy delivered 4.381 -> 4.368 kWh), with heating/air-con 18.88 ->
+  18.87 kWh/100 km; hybrid EPA city (UDDS) 2.95 -> 2.94 and highway
+  (HWFET) 3.30 -> 3.29 l/100 km, final SOC 56.68 -> 56.65 % and 58.84 ->
+  58.79 %; BEV full power 0-100 km/h 7.16 -> 7.11 s and 0-60 mph 6.74 ->
+  6.70 s. Every example case is still a success.
+
+The rest of MOD-18 changes nothing in the examples: with the old brake
+inertia every fixture is identical to 1e-6 (`LIGHTSIM_GOLDEN_EXACT=1`). An
+E-Motor now has a maximum speed (the last speed point of its full-load curve
+unless set) and each table axis an outside-the-data setting (Error, Clamp or
+Linear). The examples' motors stay below their maximum speed and no table is
+read outside its data: the hybrid's engine fires below its full-load curve's
+first speed (800 1/min) while it starts, and the new start-up rule reads that
+point, which the flat hold did before. They use no voltage source, DC-DC
+converter, fuel cell or default engine, whose defaults also changed (350 V,
+350 V, a 396-250 V polarization curve, a 175 N·m peak and an 800 1/min
+fuel-map row). No summary row or message is added: the rows for time
+outside a table or above a maximum speed appear only when that happens.
+
+| Fixture | Number | Old | New | Change |
+|---|---|---|---|---|
+| bev-car City Cycle (shipped step) | HV Battery Pack — energy delivered | 0.881 kWh | 0.88 kWh | -0.001 (-0.11 %) |
+| bev-car City Cycle (shipped step) | HV Battery Pack — energy recuperated | 0.071 kWh | 0.07 kWh | -0.001 (-1.41 %) |
+| bev-car City Cycle (shipped step) | channels that moved | | 43 | 12 outside their tube |
+| bev-car City Cycle (fine step) | HV Battery Pack — energy delivered | 0.881 kWh | 0.88 kWh | -0.001 (-0.11 %) |
+| bev-car City Cycle (fine step) | HV Battery Pack — energy recuperated | 0.071 kWh | 0.07 kWh | -0.001 (-1.41 %) |
+| bev-car City Cycle (fine step) | channels that moved | | 43 | 12 outside their tube |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — final SOC | 51.84 % | 51.76 % | -0.08 (-0.15 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — energy recuperated | 0.21 kWh | 0.209 kWh | -0.001 (-0.48 %) |
+| hybrid-car Mixed Cycle (shipped step) | Engine — fuel used | 0.209 kg | 0.208 kg | -0.001 (-0.48 %) |
+| hybrid-car Mixed Cycle (shipped step) | CO₂ emissions | 69.2 g/km | 69.1 g/km | -0.1 (-0.14 %) |
+| hybrid-car Mixed Cycle (shipped step) | channels that moved | | 55 | 31 outside their tube |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — final SOC | 51.84 % | 51.76 % | -0.08 (-0.15 %) |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — energy recuperated | 0.21 kWh | 0.209 kWh | -0.001 (-0.48 %) |
+| hybrid-car Mixed Cycle (fine step) | CO₂ emissions | 69.1 g/km | 68.9 g/km | -0.2 (-0.29 %) |
+| hybrid-car Mixed Cycle (fine step) | channels that moved | | 55 | 31 outside their tube |
+
+## Road load: real air density, exact slopes, EPA coefficients for the P2 hybrid (MOD-11)
+
+Three changes, of which two reach the fixtures:
+
+- Air drag now uses the density the Ambient block's temperature and
+  pressure give, rho = p / (R · T). Neither example has an Ambient, and
+  without one the density is that of 20 °C and 101.325 kPa, 1.2041 kg/m³
+  instead of 1.2: 0.34 % more drag. BEV City: energy delivered 0.880 ->
+  0.881 kWh, consumption 11.11 -> 11.12 kWh/100 km, final SOC 88.77 ->
+  88.76 %; the channels that moved stay inside their tubes.
+- The P2 Hybrid Car takes its road load as EPA's own target coefficients
+  (A 68.64 N, B 0.9093 N/(km/h), C 0.025078 N/(km/h)², the Test Car List's
+  15.431 lbf, 0.32897 lbf/mph, 0.014602 lbf/mph²) instead of the fit to
+  them (rolling resistance 0.0064 and Cd · A 0.70 m², which had no B
+  term), with *Coefficients Include Driveline Losses* ticked. A coast-down
+  already holds the drag of the axle the wheels turn, so the final drive
+  (98 %) now runs lossless; the differential was already at 100 % and the
+  gearbox keeps its 97 %. The coefficients alone change little: with the
+  tick off the charge-balanced figures are UDDS 2.94, HWFET 3.30 and Mixed
+  2.93 l/100 km, within 0.01 l/100 km of the fit's 2.93, 3.30 and 2.94 (it
+  matched their road-load energy within 0.3 %). Not counting the axle's drag twice gives the rest.
+- Each hybrid case again starts at the charge it ends with: EPA city
+  (UDDS) 56.7 -> 56.74 %, EPA highway (HWFET) 58.9 -> 58.87 %, Mixed Cycle
+  and its live copy 51.79 -> 51.92 % (found by running each case from the
+  charge it last ended at until the two agree within 0.01 %).
+
+Slopes are now exact (the weight pulls back with m·g·sin of the slope
+angle and presses on the road, for rolling resistance and tyre grip, with
+m·g·cos), but neither fixture has a grade. With the density held at 1.2
+and the 0.2.0 hybrid, every fixture is identical to 1e-6
+(`LIGHTSIM_GOLDEN_EXACT=1`), so the new slope and coefficient code changes
+nothing on a flat road.
+
+- hybrid-car Mixed Cycle: fuel 0.208 -> 0.205 kg, 2.93 -> 2.88 l/100 km,
+  CO₂ 69.1 -> 68.0 g/km; final SOC 51.76 -> 51.92 %, now its start. With
+  less driveline drag the friction brakes do more of the braking (22.1
+  instead of 20.8 N·m each as the car brakes to a stop at t = 570 s), and
+  where the engine drives (t = 150 s) more of its output is left over to
+  charge the battery (motor -2.7 -> -5.4 N·m); these and the channels that
+  follow them left their tubes. The engine still starts and stops three
+  times; its start near 72 s moves from 72.1 to 71.9 s. At the 5 ms step: 2.87 l/100 km
+  and 67.9 g/km, so the shipped step still agrees.
+- Headline numbers that are not fixtures: BEV WLTC 14.03 -> 14.05 kWh/100 km
+  (energy delivered 4.368 -> 4.372 kWh), with heating/air-con 18.87 ->
+  18.89 kWh/100 km; hybrid charge-balanced EPA city (UDDS) 2.94 -> 2.84
+  and highway (HWFET) 3.29 -> 3.23 l/100 km, against EPA's 2.91 and 2.94.
+  The city figure is now below EPA's, whose city test starts cold (this
+  model has no cold start); the highway figure is 9.9 % above EPA's
+  instead of 11.9 %. Engine starts unchanged: 32 on UDDS, 21 on HWFET.
+
+| Fixture | Number | Old | New | Change |
+|---|---|---|---|---|
+| bev-car City Cycle (shipped step) | HV Battery Pack — final SOC | 88.77 % | 88.76 % | -0.01 (-0.01 %) |
+| bev-car City Cycle (shipped step) | HV Battery Pack — energy delivered | 0.88 kWh | 0.881 kWh | +0.001 (+0.11 %) |
+| bev-car City Cycle (shipped step) | Consumption | 11.11 kWh/100km | 11.12 kWh/100km | +0.01 (+0.09 %) |
+| bev-car City Cycle (shipped step) | channels that moved | | 36 | 0 outside their tube |
+| bev-car City Cycle (fine step) | HV Battery Pack — final SOC | 88.77 % | 88.76 % | -0.01 (-0.01 %) |
+| bev-car City Cycle (fine step) | HV Battery Pack — energy delivered | 0.88 kWh | 0.881 kWh | +0.001 (+0.11 %) |
+| bev-car City Cycle (fine step) | Consumption | 11.11 kWh/100km | 11.12 kWh/100km | +0.01 (+0.09 %) |
+| bev-car City Cycle (fine step) | channels that moved | | 39 | 0 outside their tube |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — final SOC | 51.76 % | 51.92 % | +0.16 (+0.31 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — energy delivered | 0.206 kWh | 0.207 kWh | +0.001 (+0.49 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — energy recuperated | 0.209 kWh | 0.21 kWh | +0.001 (+0.48 %) |
+| hybrid-car Mixed Cycle (shipped step) | Engine — fuel used | 0.208 kg | 0.205 kg | -0.003 (-1.44 %) |
+| hybrid-car Mixed Cycle (shipped step) | Fuel consumption | 2.93 l/100km | 2.88 l/100km | -0.05 (-1.71 %) |
+| hybrid-car Mixed Cycle (shipped step) | CO₂ emissions | 69.1 g/km | 68 g/km | -1.1 (-1.59 %) |
+| hybrid-car Mixed Cycle (shipped step) | channels that moved | | 55 | 38 outside their tube |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — final SOC | 51.76 % | 51.92 % | +0.16 (+0.31 %) |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — energy delivered | 0.206 kWh | 0.207 kWh | +0.001 (+0.49 %) |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — energy recuperated | 0.209 kWh | 0.21 kWh | +0.001 (+0.48 %) |
+| hybrid-car Mixed Cycle (fine step) | Engine — fuel used | 0.208 kg | 0.205 kg | -0.003 (-1.44 %) |
+| hybrid-car Mixed Cycle (fine step) | Fuel consumption | 2.92 l/100km | 2.87 l/100km | -0.05 (-1.71 %) |
+| hybrid-car Mixed Cycle (fine step) | CO₂ emissions | 68.9 g/km | 67.9 g/km | -1 (-1.45 %) |
+| hybrid-car Mixed Cycle (fine step) | channels that moved | | 55 | 40 outside their tube |

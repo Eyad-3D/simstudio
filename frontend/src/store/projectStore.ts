@@ -13,6 +13,7 @@ import type {
   ElementInstance,
   LiveEdit,
   LogMessage,
+  OutsidePolicy,
   ParamValue,
   PortDef,
   PortSide,
@@ -188,12 +189,8 @@ function channelMetaResolver(
     const elementId = key.slice(0, sep);
     const portId = key.slice(sep + 1);
     const el = elements.get(elementId);
-    const def = el ? libraryById[el.componentDefId] : undefined;
-    if (!el || !def) return null;
-    const port =
-      def.ports.find((p) => p.id === portId) ??
-      el.dynamicPorts?.find((p) => p.id === portId);
-    if (!port) return null;
+    const port = el && portsOf(el, libraryById).find((p) => p.id === portId);
+    if (!el || !port) return null;
     const unit = unitGroups[port.unitGroup ?? "No Unit"] ?? "-";
     return { elementId, portId, label: `${el.label} · ${port.name}`, unit };
   };
@@ -239,8 +236,6 @@ let activeRun: api.LiveRunHandle | null = null;
 let liveLog: { runId: string; edits: LiveEdit[] } | null = null;
 // set by stopRun so an in-flight parameter sweep aborts after the current point
 let sweepAborted = false;
-// set by stopRun while a run is in flight; reset when the next run starts
-let stopRequested = false;
 // bumped per run-history load, so an answer for an earlier load is dropped
 let runHistorySeq = 0;
 
@@ -271,16 +266,13 @@ function keepStudies(target: Project, current: Project): Project {
 }
 
 /** Why a finished run is not a complete result, or undefined when it is.
- *  A stop only counts if the solver confirms it cut the run short (a stop
- *  pressed as the run ends leaves a complete result). */
-function incompleteReason(result: SimResult, stopped: boolean): string | undefined {
+ *  A stop only counts when the solver says it cut the run short (status
+ *  "cancelled"; a stop pressed as the run ends leaves a complete result). */
+function incompleteReason(result: SimResult): string | undefined {
   if (result.status === "failed") return "failed";
-  const cancel = stopped ? result.messages.find((m) => /cancel/i.test(m.text)) : undefined;
-  if (cancel) {
-    const at = cancel.text.match(/t = ([^ ]+ s)/);
-    return at ? `stopped at t = ${at[1]}` : "stopped";
-  }
-  return undefined;
+  if (result.status !== "cancelled") return undefined;
+  const at = result.messages.find((m) => /cancel/i.test(m.text))?.text.match(/t = ([^ ]+ s)/);
+  return at ? `stopped at t = ${at[1]}` : "stopped";
 }
 
 interface ProjectState {
@@ -353,6 +345,8 @@ interface ProjectState {
   clearPendingSelection: () => void;
   renameElement: (id: string, label: string) => void;
   setParameter: (elementId: string, key: string, value: ParamValue) => void;
+  /** A table's outside-the-data settings, one per axis (applies on the next run). */
+  setTableOutside: (elementId: string, key: string, policies: OutsidePolicy[]) => void;
   setDynamicPorts: (elementId: string, ports: PortDef[]) => void;
   setPortSide: (elementId: string, portId: string, side: PortSide) => void;
   setPortPlacement: (
@@ -370,7 +364,6 @@ interface ProjectState {
     targetPortId: string,
     replaceId?: string,
   ) => void;
-  removeConnections: (ids: string[]) => void;
   addDataBus: (el1: string, p1: string, el2: string, p2: string) => void;
   removeDataBus: (id: string) => void;
   renameSystem: (systemId: string, name: string) => void;
@@ -404,6 +397,7 @@ interface ProjectState {
       timeStep: number;
       outputEvery: number;
       realtimeFactor: number;
+      kind: "cycle" | "performance";
     }>,
   ) => void;
   addCase: () => void;
@@ -693,7 +687,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     });
     activeRun = handle;
     liveLog = { runId, edits: [] };
-    stopRequested = false;
     // the snapshot as the run ends: its live edits and the model's fingerprint
     const finalSnapshot = async (): Promise<Partial<SimRun>> => {
       if (!snapshot) return {};
@@ -704,7 +697,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     try {
       const result = await handle.done;
       if (flushTimer) clearTimeout(flushTimer);
-      const incomplete = incompleteReason(result, stopRequested);
+      const incomplete = incompleteReason(result);
       const finished: SimRun = {
         ...newRun,
         result,
@@ -1013,6 +1006,18 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
     },
 
+    setTableOutside: (elementId, key, policies) =>
+      updateProject(
+        (draft) => {
+          for (const s of draft.systems) {
+            const el = s.elements.find((e) => e.id === elementId);
+            if (el) el.tableOutside = { ...el.tableOutside, [key]: policies };
+          }
+        },
+        true,
+        `outside:${elementId}:${key}`,
+      ),
+
     setPortSide: (elementId, portId, side) =>
       updateProject((draft) => {
         for (const s of draft.systems) {
@@ -1124,8 +1129,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         });
       });
     },
-
-    removeConnections: (ids) => get().removeElements([], ids),
 
     addDataBus: (el1, p1, el2, p2) => {
       const { project, libraryById, log } = get();
@@ -1759,7 +1762,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     stopRun: () => {
       sweepAborted = true;
       if (activeRun) {
-        stopRequested = true;
         activeRun.cancel();
         get().log("info", "Stop requested — waiting for the solver to wind down …");
       }

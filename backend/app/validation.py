@@ -24,11 +24,23 @@ from .solver import (
     TableError,
     build_model,
     check_script,
+    interp1,
+    motor_max_rpm,
     parse_table1d,
     parse_table2d,
     profile_problems,
 )
-from .solver.network import NO_DRIVER, NO_VEHICLE, NO_WHEELS, SIGNAL_BLOCK_TYPES, ports_of
+from .solver.maps import inner_range
+from .solver.network import (
+    AXLE_GEAR_TYPES,
+    NO_DRIVER,
+    NO_VEHICLE,
+    NO_WHEELS,
+    ROAD_LOAD_ABC,
+    SIGNAL_BLOCK_TYPES,
+    ports_of,
+)
+from .solver.runtime import AMBIENT_C, AMBIENT_KPA, air_density
 
 # param key → (label, min exclusive, max inclusive)
 NUMERIC_RANGES: dict[str, tuple[str, float, float]] = {
@@ -40,6 +52,13 @@ NUMERIC_RANGES: dict[str, tuple[str, float, float]] = {
     "vehicle_load_share_pct": ("Vehicle load share", 0.0, 100.0),
     "torque_split_a_pct": ("Torque split", -0.001, 100.0),
     "initial_fill_pct": ("Initial fill", -0.001, 100.0),
+    "coulombic_efficiency_pct": ("Coulombic efficiency", 0.0, 100.0),
+    "capacity_Ah": ("Charge capacity", -0.001, 1e5),
+    "temperature_C": ("Temperature", -273.15, 1000.0),
+    "max_speed_rpm": ("Maximum speed", -0.001, math.inf),
+    "road_load_a_N": ("Road load A", -math.inf, math.inf),
+    "road_load_b_N_per_kmh": ("Road load B", -math.inf, math.inf),
+    "road_load_c_N_per_kmh2": ("Road load C", -math.inf, math.inf),
 }
 
 POSITIVE_PARAMS = {
@@ -47,6 +66,7 @@ POSITIVE_PARAMS = {
     "mass_kg": "mass",
     "radius_m": "wheel radius",
     "ratio": "transmission ratio",
+    "pressure_kPa": "pressure",
 }
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
@@ -279,6 +299,7 @@ def validate_project(project: Project) -> list[DataCheck]:
                     el)
 
         _plausibility_checks(model, add)
+        _map_checks(model, add)
 
         if not model.drivelines and not any(b.consumers for b in model.buses):
             add("info", "Model has no driveline and no electrical loads — nothing will happen.")
@@ -535,6 +556,40 @@ def _plausibility_checks(model: Model, add: Add) -> None:
                 add("warning", f"Vehicle '{el.label}' has a mass of {mass:g} kg, outside the "
                                f"range of road vehicles ({lo:g} kg to {hi / 1000:g} t) — check "
                                f"the value and its unit.", el)
+            pushing = [f"{name} of {v:g} {unit}" for name, key, unit in (
+                ("A", "road_load_a_N", "N"), ("C", "road_load_c_N_per_kmh2", "N/(km/h)²"))
+                if (v := num(p, key)) is not None and v < 0]
+            if p.get("road_load_mode") == ROAD_LOAD_ABC and pushing:
+                add("warning", f"Vehicle '{el.label}' has a road-load {' and '.join(pushing)} "
+                               f"— a negative A or C pushes the car along, so it speeds up "
+                               f"when it coasts. Check the sign.", el)
+            if (p.get("road_load_mode") == ROAD_LOAD_ABC
+                    and not p.get("abc_include_driveline_losses", True)):
+                gears = [(g, num(model.params_of[g], "efficiency_pct"))
+                         for g, c in model.cdef_of.items() if c.id in AXLE_GEAR_TYPES]
+                lossy = [f"'{model.elements[g].label}' {eff:g} %"
+                         for g, eff in gears if eff is not None and eff < 100]
+                if lossy:
+                    add("warning", f"Vehicle '{el.label}' takes its road load from coefficients "
+                                   f"A/B/C, which a coast-down measures with the axle's drag in "
+                                   f"them, and the axle's gears lose it again: "
+                                   f"{', '.join(lossy)}. Tick 'Coefficients Include Driveline "
+                                   f"Losses' unless these are dyno-set coefficients.", el)
+        elif cdef.id == "boundary.ambient" and el_id == model.ambient:  # the others are unused
+            t_c, p_kpa = num(p, "temperature_C"), num(p, "pressure_kPa")
+            if t_c is not None and p_kpa is not None and t_c > -273.15 and p_kpa > 0:
+                out = []
+                if not AMBIENT_C[0] <= t_c <= AMBIENT_C[1]:
+                    out.append(f"a temperature of {t_c:g} °C ({AMBIENT_C[0]:g} to {AMBIENT_C[1]:g} "
+                               f"°C is usual)")
+                if not AMBIENT_KPA[0] <= p_kpa <= AMBIENT_KPA[1]:
+                    out.append(f"a pressure of {p_kpa:g} kPa ({AMBIENT_KPA[0]:g} to "
+                               f"{AMBIENT_KPA[1]:g} kPa is usual; 1 bar = 100 kPa)")
+                if out:
+                    add("warning", f"'{el.label}' has {' and '.join(out)}, which gives the "
+                                   f"Vehicle's drag an air density of "
+                                   f"{air_density(t_c, p_kpa):.3g} kg/m³ — check the value "
+                                   f"and its unit.", el)
         elif cdef.id == "battery.generic":
             cap = num(p, "capacity_kWh")
             lo, hi = BATTERY_KWH
@@ -575,3 +630,127 @@ def _plausibility_checks(model: Model, add: Add) -> None:
         add("warning", f"Wheel load shares add up to {total:g} %, not 100 % — the solver scales "
                        f"them so the wheels carry the vehicle's whole weight: {split}. Set "
                        f"them to add up to 100 % to choose the split yourself.")
+
+
+def _map_checks(model: Model, add: Add) -> None:
+    """Do the maps fit each other and the parts around them? A run stops where
+    it reads a table outside the data of an axis set to Error (the library's
+    setting for motor and engine speed and torque), so these say before the
+    run where the data does not reach: a motor's maximum speed and loss map
+    against its full-load map, each bus's voltage against its motors' voltage
+    axis, an engine's fuel map against its full-load curve and a fuel cell's
+    Maximum Current against its curve. They also name outside-the-data
+    settings that do not fit their table (error) and tables set not to stop
+    where the library stops (info). Tables that do not parse are reported
+    with the other parameters."""
+    elements, params = model.elements, model.params_of
+
+    def table(el_id: str, key: str, two_d: bool) -> list | None:
+        try:
+            return (parse_table2d if two_d else parse_table1d)(params[el_id][key])
+        except (KeyError, TableError):
+            return None
+
+    def num(el_id: str, key: str, default: float) -> float:
+        try:
+            return float(params[el_id].get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    def fmt(x: float) -> str:
+        return f"{x:,.0f}" if abs(x) >= 1000 else f"{x:g}"
+
+    def span(lo: float, hi: float) -> str:
+        return fmt(lo) if lo == hi else f"{fmt(lo)}–{fmt(hi)}"
+
+    for el_id, cdef in model.cdef_of.items():
+        el, label = elements[el_id], elements[el_id].label
+        for key, own in el.tableOutside.items():
+            pdef = next((p for p in cdef.parameters
+                         if p.key == key and p.axes and p.axes[0].outside), None)
+            if pdef is None or len(own) != len(pdef.axes or []):
+                add("error", f"'{label}' has an outside-the-data setting for '{key}' that does "
+                             f"not fit its tables (one setting per axis of a table) — the run "
+                             f"ignores it.", el)
+                continue
+            relaxed = [f"{a.name} ({pol.capitalize()})" for a, pol in zip(pdef.axes, own)
+                       if a.outside == "error" and pol != "error"]
+            if relaxed:
+                add("info", f"'{label}.{pdef.label}' does not stop the run outside its "
+                            f"{' and '.join(relaxed)} data, as the library does — the run "
+                            f"summary says how long and how far it went outside.", el)
+
+        if cdef.id == "motor.emotor":
+            fl, loss = table(el_id, "full_load_torque", True), table(el_id, "power_loss", True)
+            if not fl or not loss:
+                continue
+            n_curve = motor_max_rpm(fl, 0)
+            n_max = motor_max_rpm(fl, params[el_id].get("max_speed_rpm", 0))
+            if n_max > n_curve:
+                add("warning", f"E-Motor '{label}': its Maximum Speed ({fmt(n_max)} 1/min) is "
+                               f"beyond its full-load data, which ends at {fmt(n_curve)} 1/min — "
+                               f"lower it or extend the map.", el)
+            rng = inner_range(fl)
+            if rng and rng[0] > 0:
+                add("warning", f"E-Motor '{label}': its full-load data starts at "
+                               f"{fmt(rng[0])} 1/min but the motor starts from 0 — extend the "
+                               f"map down to 0 1/min.", el)
+            if len(loss) > 1 and math.isfinite(n_max) and (loss[0][0] > 0 or loss[-1][0] < n_max):
+                add("warning", f"E-Motor '{label}': its loss map covers {span(loss[0][0], loss[-1][0])} "
+                               f"1/min but the motor runs from 0 to its maximum speed of "
+                               f"{fmt(n_max)} 1/min — extend the map.", el)
+            rng = inner_range(loss)
+            need = max(v for _, p in fl for _, v in p) * max(
+                1.0, num(el_id, "q4_torque_scale_pct", 100.0) / 100.0)
+            if rng and (rng[0] > 0 or rng[1] < need):
+                add("warning", f"E-Motor '{label}': its loss map covers {span(*rng)} N·m but the "
+                               f"motor gives up to {fmt(need)} N·m (full-load peak × generator "
+                               f"torque scale) — extend the map.", el)
+        elif cdef.id == "engine.combustion":
+            efl, fm = table(el_id, "full_load_torque", False), table(el_id, "fuel_map", True)
+            if not efl or not fm:
+                continue
+            if len(fm) > 1 and (fm[0][0] > efl[0][0] or fm[-1][0] < efl[-1][0]):
+                add("warning", f"Engine '{label}': its fuel map covers {span(fm[0][0], fm[-1][0])} "
+                               f"1/min but its full-load curve runs "
+                               f"{span(efl[0][0], efl[-1][0])} 1/min — extend the map.", el)
+            rng, peak = inner_range(fm), max(v for _, v in efl)
+            if rng and (rng[0] > 0 or rng[1] < peak):
+                add("warning", f"Engine '{label}': its fuel map covers {span(*rng)} N·m but the "
+                               f"engine gives up to {fmt(peak)} N·m — extend the map.", el)
+        elif cdef.id == "fuelcell.stack":
+            pol, i_max = table(el_id, "polarization", False), num(el_id, "max_current_A", 400.0)
+            if pol and len(pol) > 1 and pol[0][0] > 0:
+                add("warning", f"Fuel cell '{label}': its polarization curve starts at "
+                               f"{fmt(pol[0][0])} A but the stack starts from 0 A — extend the "
+                               f"curve down to 0 A.", el)
+            if pol and len(pol) > 1 and pol[-1][0] < i_max:
+                add("warning", f"Fuel cell '{label}': its polarization curve covers "
+                               f"{span(pol[0][0], pol[-1][0])} A but its Maximum Current is "
+                               f"{fmt(i_max)} A — extend the curve or lower the Maximum Current.", el)
+
+    # the voltage each bus's source holds against its motors' voltage axis
+    for bus in model.buses:
+        src = bus.battery or bus.vsource or bus.fuelcell or (bus.dcdc_out or [None])[0]
+        if src is None or not bus.motors:
+            continue
+        if bus.battery:
+            ocv = table(src, "ocv_table", False)
+            if not ocv:
+                continue
+            volts = (min(v for _, v in ocv), max(v for _, v in ocv))
+        elif bus.fuelcell:
+            pol = table(src, "polarization", False)
+            if not pol:
+                continue
+            volts = (interp1(pol, num(src, "max_current_A", 400.0)), interp1(pol, 0.0))
+        else:
+            v = num(src, "voltage_V" if bus.vsource else "output_voltage_V", 0.0)
+            volts = (v, v)
+        for m in bus.motors:
+            fl = table(m, "full_load_torque", True)
+            if fl and len(fl) > 1 and (volts[0] < fl[0][0] or volts[1] > fl[-1][0]):
+                add("warning", f"E-Motor '{elements[m].label}' is fed {span(*volts)} V by "
+                               f"'{elements[src].label}', outside the "
+                               f"{span(fl[0][0], fl[-1][0])} V of its full-load data.",
+                    elements[m])

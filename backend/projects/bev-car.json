@@ -2,7 +2,7 @@
   "id": "bev-car",
   "schemaVersion": 1,
   "name": "Battery Electric Car",
-  "description": "Compact electric car modelled on the 2021 Cupra Born 58 kWh (VW ID.3 class), with the values of FASTSim's vehicle file (Apache-2.0): 1,927 kg, Cd 0.27, 2.31 m², 150 kW e-motor, 62 kWh battery with 58 kWh usable, 0.25 kW auxiliaries. HV battery → inverter → e-motor → single-speed reduction gear → wheels, driven over a speed profile.\nWhat to expect (energy at the battery terminals):\n• WLTC Class 3b: 14.0 kWh/100 km (a car of this class is rated about 15–16 kWh/100 km at the charging socket, charging losses included)\n• WLTC with heating/air-con on (2.5 kW): 18.9 kWh/100 km\n• City Cycle: 11.1 kWh/100 km\n• Full power: 0–100 km/h in 7.2 s, top speed 160 km/h (Cupra: 7.3 s, 160 km/h)",
+  "description": "Compact electric car modelled on the 2021 Cupra Born 58 kWh (VW ID.3 class), with the values of FASTSim's vehicle file (Apache-2.0): 1,927 kg, Cd 0.27, 2.31 m², 150 kW e-motor, 62 kWh battery with 58 kWh usable, 0.25 kW auxiliaries. HV battery → inverter → e-motor → single-speed reduction gear → wheels, driven over a speed profile.\nWhat to expect (energy at the battery terminals):\n• WLTC Class 3b: 14.1 kWh/100 km (a car of this class is rated about 15–16 kWh/100 km at the charging socket, charging losses included)\n• WLTC with heating/air-con on (2.5 kW): 18.9 kWh/100 km\n• City Cycle: 11.1 kWh/100 km\n• Full power: 0–100 km/h in 7.1 s, top speed 160 km/h (Cupra: 7.3 s, 160 km/h)",
   "systems": [
     {
       "id": "sys-root",

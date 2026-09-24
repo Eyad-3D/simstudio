@@ -388,7 +388,8 @@ is no token check. To reach a development engine through another host name
 | `POST /api/simulate` | Validate + solve one case synchronously |
 | `WS /api/simulate/run` | Live run: client sends `start`, then optional `set_param` / `cancel`; server streams `step` / `message` events and a final `done` with the full result |
 
-A result (`SimResult`) has a `status` of `success`, `warning` or `failed`, its
+A result (`SimResult`) has a `status` of `success`, `warning`, `cancelled` or
+`failed`, its
 `messages`, the recorded `channels` and a `summary` of `SummaryValue`s
 (`label`, `value`, `unit`). A summary value that the run's checks rule out
 also carries `notValid`, the reason as text (for example
@@ -443,8 +444,12 @@ equal solver steps. Every solver step runs, in this order:
    (2×2 coupled mass matrix for an open diff, merged inertia when locked);
    brakes with proper static-friction standstill hold; tire slip term
    integrated implicitly (it is numerically stiff at low speed).
-6. **Vehicle** — net tire force − aero − rolling − grade integrates speed
-   and distance.
+6. **Vehicle** — net tire force − aero drag − rolling resistance − grade
+   force integrates speed and distance. Drag and rolling resistance come
+   from Cd × frontal area (at the air density the Ambient block's
+   temperature and pressure give) and the wheels' coefficients, or from
+   road-load coefficients A + B·v + C·v²; the grade acts through the slope
+   angle (m·g·sin on the car, m·g·cos on the tyres).
 7. **Electrical** — motor electrical power = shaft power + loss map; buses
    solved in dependency order (DC-DC bridges); battery equivalent circuit
    (OCV(SOC) table, R0, optional RC pair) solved closed-form per step; SOC
@@ -501,28 +506,48 @@ Messages.
 
 ### Run status and not-valid figures
 
-Each run ends as *success*, *warning* or *failed*:
+Each run ends as *success*, *warning*, *cancelled* or *failed*:
 
 - **failed** — an error was raised, for example: the model could not be
   built, a script failed, the vehicle covered less than 5 % of the distance
   its target speed asks for, or a result went NaN or infinite. When no
   distance has been covered after 60 s, a warning already says so while the
   run goes on.
-- **warning** — a warning was raised, or the run was cancelled. This
-  includes *Cycle not followed*: the vehicle speed was outside ±2 km/h and
-  ±1 s of the target for more than 1 % of the run (at least 2 s). The trace
-  is checked every 0.1 s of simulated time, whatever the case time step. A
-  step in the target (for example `0:100; 600:100` from standstill) is
-  outside that band while the car accelerates, so acceleration and
-  top-speed tests end with this warning.
-- **success** — neither of the above.
+- **cancelled** — a stop cut the run short (a stop that arrives as the
+  run ends leaves a complete run). A stopped run that failed a check is
+  *failed*. The run list, Results and study tables show a cancelled run
+  as *incomplete (stopped at t = …)*.
+- **warning** — a warning was raised. This includes *Cycle not followed*:
+  the vehicle speed was outside ±2 km/h and ±1 s of the target for more
+  than 1 % of the run (at least 2 s). The trace is checked every 0.1 s of
+  simulated time, whatever the case time step. It also includes a motor,
+  engine, battery or fuel cell that spent longer than the same allowance
+  outside the data of one of its tables or above its maximum speed: the
+  message names the part, how far past and for how long (Lookup blocks
+  are not judged; their summary rows still show it).
+- **success** — none of the above.
+
+A case's *Kind* is *Cycle* by default. Set it to *Performance* for an
+acceleration or top-speed test driven by a step in the target (for example
+`0:100` from standstill): the Driver then holds full throttle until the
+car reaches the target and holds the target after that, as in a cycle; the
+trace is not judged, and the summary adds *Maximum speed* and *Time to …
+km/h* (from t = 0 to where the speed first reaches the target's highest
+value, read at every solver step). When the car never reaches the target,
+Messages says so and there is no *Time to* row; a car that starts at the
+target or above has none either.
 
 Summary figures that a failed check makes meaningless are marked *not
 valid*, with the reason, in the results table:
 
 - Consumption, Fuel consumption and CO₂ emissions when the cycle was not
-  followed ("cycle not followed") or the run was cancelled ("run cancelled
-  at t = …");
+  followed ("cycle not followed"), the run was cancelled ("run cancelled
+  at t = …") or an error stopped it part-way ("run stopped by an error at
+  t = …"), the last two also marking a performance test's *Maximum speed*;
+- Consumption, Fuel consumption, CO₂ emissions and a performance test's
+  rows when a part ran past its data longer than allowed (the reason names
+  the part, for example "E-Motor 'E-Motor' ran 43 V past its 'Full-Load
+  Torque' table for 30 s");
 - Consumption once the battery reached its minimum SOC, and the fuel
   figures once the tank ran empty;
 - battery, energy and consumption figures when the *Electrical energy
@@ -531,8 +556,9 @@ valid*, with the reason, in the results table:
 - every figure except the simulated duration when a result went NaN or
   infinite ("the solution broke down").
 
-A success means the car followed its target and nothing warned. It does not
-mean the numbers match a real vehicle: see
+A success means the car followed its target, its parts stayed inside their
+data, and nothing warned. It does not mean the numbers match a real
+vehicle: see
 [Known limits](docs/KNOWN-LIMITS.md).
 
 ## License

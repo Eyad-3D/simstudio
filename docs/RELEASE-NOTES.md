@@ -12,8 +12,116 @@ still holds. The full record of every change to the reference results is in
 for the first time in this release. Coming from SimStudio 0.1.0, read both
 sections.
 
+### Your results will change — here is why
+
+| What changed | Effect on results | Roadmap |
+|---|---|---|
+| Battery state of charge counts the charge that flows (amp-hours), as battery management systems and datasheets do, and the OCV table is read at that SOC | SOC moves by up to about 2 points at mid-charge for the same energy; energies, fuel and consumption move by at most 0.001 kWh or kg (BEV WLTC ends at 84.93 % instead of 84.61 %, 84.92 % with the air density below; hybrid fuel consumption unchanged to 0.01 l/100 km). Control scripts that switch on SOC switch at slightly different moments, and a run from 90 % down to a 4 % floor gets 0.35 % less energy on the default OCV table | MOD-38 |
+| E-Motors stop at their maximum speed: the drive torque falls to zero over the last 2 % below it, and above it the inverter is off (no drive, no regeneration) | A 300 km/h target on the default motor now tops out at 152 km/h with the motor at 11,921 of 12,000 1/min, instead of 269 km/h at 21,238 1/min on made-up torque. The examples do not reach their maximum speeds | MOD-18 |
+| Motor and engine maps no longer extend their data: a run that reads a motor's full-load map outside its speed data, a motor's loss map or an engine's fuel map outside its speed or torque data, or a fuel cell's polarization curve outside its current data stops with an error naming the table, the axis, the value and the time | Models whose maps do not cover where they run now fail instead of finishing on made-up values; Data Checks warn before the run. Engines below their full-load curve's first speed (starting) use that point, as before | MOD-18 |
+| The friction brake's default inertia is 0.18 kg·m² instead of 0.6 (a 330 mm disc) | Cars with default brakes accelerate and brake a little more easily: BEV WLTC 14.04 → 14.03 kWh/100 km and 0-100 km/h 7.16 → 7.11 s, hybrid EPA city 2.95 → 2.94 and highway 3.30 → 3.29 l/100 km | MOD-18 |
+| New library defaults that fit the default E-Motor's 250–396 V map: voltage source and DC-DC output 350 V (were 400 and 800 V), fuel-cell curve 396–250 V (was 420–264 V, now 100 kW at 400 A instead of 105.6 kW); the default engine's full-load peak is 175 N·m (was 178) and its fuel map starts at 800 1/min | Models built on these defaults change; the examples do not use them | MOD-18 |
+| A run you stop part-way ends *cancelled* instead of *warning*; a stop that arrives as the run ends no longer marks a complete run | The run list, Results and study tables show a stopped run as *incomplete (stopped at t = …)*, and its per-distance figures stay marked *not valid: run cancelled at t = …*; the examples do not change | VAL-39 |
+| A new case kind, *Performance*, for 0-100 km/h and top-speed tests: the Driver holds full throttle until the car reaches the target, then holds it there, and the run reports *Time to … km/h* and *Maximum speed* instead of *Cycle not followed* | Such a run can now be a *success* with valid figures. The time is taken where the car's speed crosses the target, at full throttle: a 0-100 km/h step on the Battery Electric Car takes 7.10 s (as a cycle, its Driver never quite reached 100 km/h). Cases set to *Cycle*, the default, do not change | VAL-39 |
+| A *success* also means the physics stayed in range: a motor, engine, battery or fuel cell outside its table data or above its maximum speed for more than 1 % of the run (at least 2 s, the speed trace's allowance) ends the run as *warning* | The message names the part, how far past and for how long (for example *E-Motor 'E-Motor' ran 43 V past its 'Full-Load Torque' table for 30 s of 30 s*), and Consumption, Fuel consumption, CO₂ emissions and a performance test's rows are marked *not valid* with that reason. Runs that followed their cycle on made-up map values used to be a *success*. The examples stay inside their data and do not change | VAL-39 |
+| Air drag uses the air density of the Ambient block's temperature and pressure, rho = p / (R · T) (the first Ambient, if a model has several); without one, 20 °C and 101.325 kPa give 1.204 kg/m³ instead of 1.2 | 0.34 % more drag without an Ambient: BEV City 11.11 → 11.12 and WLTC 14.03 → 14.05 kWh/100 km. With an Ambient, its air counts: −7 °C gives 11 % more drag than 23 °C, 35 °C at 85 kPa 20 % less than without one. If you scaled Cd for cold or thin air, as the 0.2.0 known limits advised, undo that when you add an Ambient | MOD-11 |
+| Slopes are exact: the weight pulls the car back with m·g·sin of the slope angle and presses on the road with m·g·cos (before: grade ÷ 100, and no cos) | On grades the slope force and rolling resistance are 0.5 % lower at 10 % and 3 % lower at 25 %, and so is the tyres' grip; flat roads do not change | MOD-11 |
+| The P2 Hybrid Car example takes its road load as EPA's own coefficients (A 68.64 N, B 0.9093 N/(km/h), C 0.025078 N/(km/h)²) with *Coefficients Include Driveline Losses* ticked, so the driveline drag they hold is no longer counted again in its final drive (98 %); its cases start at re-balanced charges (UDDS 56.74 %, HWFET 58.87 %, Mixed 51.92 %) | EPA city (UDDS) 2.94 → 2.84, highway (HWFET) 3.29 → 3.23, Mixed Cycle 2.93 → 2.88 l/100 km, against EPA's 2.91 and 2.94. The city figure is now below EPA's: the model has no cold start | MOD-11 |
+
+### New
+
+- Battery: *Charge Capacity* (Ah) and *Coulombic Efficiency (charging)*.
+  Left at 0, the Charge Capacity comes from the Usable Capacity. Coulombic
+  efficiency defaults to 100 %, not the 99 % first proposed: Li-ion cells
+  store about 99.9 % of the charge put in (background knowledge,
+  unverified), so 99 % would add a 1 % loss they do not have. Charge that
+  is not stored counts as the battery's internal losses.
+- E-Motor: *Maximum Speed* (1/min). Left at 0, it is the last speed point
+  of the full-load curve, so projects from 0.2.0 get a maximum speed with
+  no change to their files. It can be changed during a live run.
+- Every table axis has an *outside the data* setting in the table editor
+  of the parameter dialog: stop the run (*Error*), hold the edge value
+  (*Clamp*) or extend the edge slope (*Linear*). The library sets Error on
+  the speed and torque axes of the motor's full-load and loss maps and the
+  engine's fuel map and on the fuel cell's current, Clamp on the others
+  (battery SOC, motor voltage, drag tables, Lookup tables); a setting you
+  change is saved with the part. (An engine's full-load curve has no
+  setting: below its first speed it gives that point, above its last the
+  rev limiter cuts in.)
+- Run summary: for a table read outside its data, the share of the run
+  outside it and the furthest point; for a motor or engine above its
+  maximum speed, the share of the run above it and the highest speed (a
+  machine that overshoots its limit on its own drive and falls back, as a
+  limiter does, is not counted). These rows appear only when that happened.
+- Data Checks compare the maps with each other and with the parts around
+  them: a motor's maximum speed and loss map against its full-load map,
+  the bus voltage against each motor's voltage axis, a motor full-load map
+  that does not start at 0 1/min, an engine's fuel map against its
+  full-load curve, and a fuel cell's curve against 0 A and its Maximum
+  Current.
+- Case settings: *Kind* (Cycle or Performance). A performance test is a
+  step in the Driving Task's target from t = 0 (for example `0:100` for
+  0-100 km/h, `0:250` for top speed); Run info says *performance test*. A
+  target the car never reaches gives only the maximum speed and says so
+  in Messages.
+- A run status *cancelled*, for a run a stop cut short (shown as
+  *incomplete (stopped at t = …)*).
+- Vehicle: *Road Load From* (drag and rolling resistance, as before, or
+  coefficients A/B/C), with *Road Load A (f0)* in N, *B (f1)* in N/(km/h)
+  and *C (f2)* in N/(km/h)², as WLTP publishes them (EPA's lbf, lbf/mph and
+  lbf/mph² values × 4.448, × 2.764 and × 1.717). C follows the Ambient's air
+  density. *Coefficients Include Driveline Losses*, on by default: target
+  coefficients from a coast-down already hold the drag of the gears the
+  wheels turn, so the final drives, differentials and transfer cases run
+  lossless (gearboxes and motors keep their losses); untick it for
+  dyno-set coefficients.
+- Ambient: sets the air density for the Vehicle's drag. Its temperature
+  and pressure can be set per case, swept in a study or changed during a
+  live run. Its default pressure is 101.325 kPa (was 101.3), so an Ambient
+  at its defaults gives the air a model without one gets.
+- Data Checks: axle gear losses counted twice (coefficients with the tick
+  off and a final drive, differential or transfer case below 100 %);
+  several Ambients (the first one counts); an Ambient temperature at or
+  below −273.15 °C or a pressure of 0 or less (errors), and one outside
+  −60 to 60 °C or 50 to 110 kPa (a warning: a pressure typed in bar would
+  all but remove the drag; the run warns too, also about such a value set
+  per case, swept in a study or edited live, which Data Checks do not see);
+  a negative coefficient A or C (a warning: it pushes the car along); a
+  road-load coefficient that is not a number or a negative Maximum Speed
+  (errors).
+
 ### Fixed
 
+- A battery's SOC can be compared with measured SOC: a constant 1C
+  discharge now empties it in one hour whatever the shape of its OCV
+  table (before, 3,611 s on the default table and 3,666 s on a steeper
+  one).
+- A motor could run far past the end of its maps with no message (a
+  300 km/h target: 21,238 rpm on a map that ends at 12,000). Reaching the
+  maximum speed and leaving a map's data are now named in Messages; these
+  first-touch messages, the motor's voltage-axis note and the engine's rev
+  limiter are *info*, so a brief touch no longer turns a run into a
+  *warning*.
+- A stop pressed while a paced run was on its last step turned the
+  complete run into a *warning* with no message saying why.
+- A run an error stopped part-way (a table set to *Error*, a failing
+  script) showed its Consumption, Fuel consumption, CO₂ emissions and a
+  performance test's Maximum speed, which cover only the part it ran, as
+  valid; they are now marked *not valid: run stopped by an error at
+  t = …*, as for a stop, and a performance test it cut short no longer
+  says the car fell short of its target.
+- A run whose motor ran on a voltage past its map for the whole cycle, or
+  whose motor the wheels drove above its maximum speed, could be a
+  *success* with valid consumption. The run status now judges the time
+  outside, as above; Lookup blocks are left out, because their table is a
+  controller's schedule, not physics.
+- The Ambient block's temperature and pressure were ignored: air drag
+  always used 1.2 kg/m³.
+- On grades the slope force used the grade ÷ 100 instead of the sine of
+  the slope angle, and rolling resistance and tyre grip ignored the slope
+  (0.5 % too much at a 10 % grade, 3 % at 25 %).
+- The P2 Hybrid Car counted the driveline drag that EPA's road-load
+  coefficients already hold a second time.
 - One Ctrl+Z after deleting with the Delete or Backspace key brings back
   the parts together with their wires, also for a selection of several
   parts and wires. Before, the first Ctrl+Z brought a part back without its
@@ -44,6 +152,36 @@ sections.
 - The Signal Plot below the diagram follows a paced (live) run while it
   runs; before, it stayed on the run's first point until the run ended.
   (RES-03)
+
+### Upgrading from a 0.2.0 build
+
+- A battery without a Charge Capacity gets it from its Usable Capacity ÷
+  the OCV table's mean voltage (the Battery Electric Car's 62 kWh on the
+  default table = 179.7 Ah), so it still gives out its Usable Capacity from
+  full to empty. Project files are not changed.
+- A model whose motor loss map or engine fuel map is narrower than its
+  full-load map, whose fuel map does not reach the full-load curve's first
+  speed, whose motor full-load map starts above 0 1/min, whose motor has a
+  Maximum Speed beyond its full-load data, or whose fuel cell has a Maximum
+  Current beyond its polarization curve (or a curve that starts above 0 A),
+  now stops where it used to hold the map's edge value. Data Checks name each
+  case before the run: extend the map, or set that axis to *Clamp* in the
+  table editor so that the run finishes on the held edge value, as in
+  0.2.0. Unlike 0.2.0, a run that then spends more than 1 % of its time
+  (at least 2 s) outside the data ends as *warning* with its per-distance
+  figures marked *not valid*, and Data Checks keep naming the gap.
+- A voltage source, DC-DC converter, fuel cell, engine or brake left at its
+  library default takes the new default (see the table above).
+- Vehicles keep taking their road load from drag and rolling resistance.
+  An Ambient already in a 0.2.0 project now sets the air density; a
+  project with several Ambients runs, with a warning, on the first one.
+- Runs you stopped in 0.2.0 keep their *warning* status and their
+  *stopped at t = …* note. Cases load as kind *Cycle*.
+- Going back to 0.2.0: it cannot open a project with a study point that
+  says *cancelled*. It still lists and opens stored runs that say
+  *cancelled*, but drops them from the list if it has to rebuild its run
+  index.
+  A case's Kind is kept but ignored.
 
 ## 0.2.0 — not published: its changes ship in 0.3.0
 

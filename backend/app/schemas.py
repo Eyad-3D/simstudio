@@ -35,11 +35,19 @@ class PortDef(BaseModel):
     polarity: Optional[Literal["positive", "negative"]] = None
 
 
+# What a table does outside its data on one axis: stop the run, hold the edge
+# value, or extend the edge segment's slope (MOD-18).
+OutsidePolicy = Literal["error", "clamp", "linear"]
+
+
 class AxisDef(BaseModel):
     """Independent-variable axis of a tabular parameter (fixed per component)."""
 
     name: str
     unit: str
+    # The library's "outside the data" setting for this axis; None for a
+    # table that is not interpolated (gear ratios), which behaves as clamp.
+    outside: Optional[OutsidePolicy] = None
 
 
 class ParameterDef(BaseModel):
@@ -86,6 +94,10 @@ class ElementInstance(BaseModel):
     portSides: dict[str, Literal["left", "right", "top", "bottom"]] = Field(default_factory=dict)
     # Per-instance pin offset along its side, 0..1 (Shift+drag a pin).
     portOffsets: dict[str, float] = Field(default_factory=dict)
+    # Per-instance "outside the data" settings: table key → one per axis,
+    # overriding the library's (AxisDef.outside). Not a parameter, so case
+    # overrides and sweeps cannot change it.
+    tableOutside: dict[str, list[OutsidePolicy]] = Field(default_factory=dict)
     # Canvas node size in flow units ({width, height}); None = default size.
     size: Optional[dict[str, float]] = None
     isSubSystem: bool = False
@@ -135,6 +147,11 @@ class SimCase(BaseModel):
     outputEvery: int = 1
     # 0 = run as fast as possible; N > 0 = pace at N× real time (for live tuning)
     realtimeFactor: float = 0.0
+    # "performance": the Driver holds full throttle until the car reaches its
+    # target (its PI holds the target after that), and the run reports the
+    # time to the target and the maximum speed instead of judging the speed
+    # trace (a 0-100 km/h or top-speed test)
+    kind: Literal["cycle", "performance"] = "cycle"
     # Per-case parameter overrides: {elementId: {paramKey: value}}. Layered on
     # top of each element's own parameterOverrides at model-build time, so a
     # case can tweak values — and a parameter sweep can vary one — without
@@ -172,7 +189,7 @@ class StudyPoint(BaseModel):
 
     values: list[float]  # the factor values, in factor order
     runId: Optional[str] = None  # the run may since have left the history
-    status: Literal["success", "failed", "warning", "not run"]
+    status: Literal["success", "failed", "warning", "cancelled", "not run"]
     incomplete: Optional[str] = None  # why its run did not finish normally
     kpis: dict[str, float] = Field(default_factory=dict)  # KPI label → value
     notValid: dict[str, str] = Field(default_factory=dict)  # KPI label → why
@@ -235,7 +252,7 @@ class SummaryValue(BaseModel):
 
 class SimResult(BaseModel):
     caseId: str
-    status: Literal["success", "failed", "warning"]
+    status: Literal["success", "failed", "warning", "cancelled"]
     messages: list[SimMessage]
     channels: list[Channel]
     summary: list[SummaryValue] = Field(default_factory=list)
@@ -275,7 +292,7 @@ class StoredRun(BaseModel):
     caseId: str
     caseName: str
     startedAt: int  # epoch ms
-    status: Literal["success", "failed", "warning"]
+    status: Literal["success", "failed", "warning", "cancelled"]
     result: SimResult
     # sweep membership and the swept value (parameter sweeps only)
     sweepId: Optional[str] = None

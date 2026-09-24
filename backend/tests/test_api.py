@@ -72,6 +72,7 @@ def test_ws_cancel_stops_early():
                 break
         assert n < 36000
         assert any("cancelled" in m["text"] for m in result["messages"])
+        assert result["status"] == "cancelled"
 
 
 def test_ws_rejects_bad_start():

@@ -38,8 +38,6 @@
     "color-contrast  button \"#%\"",
     "color-contrast  span \"# elements\"",
     "color-contrast  span \"Battery Electric Car\"",
-    "label  input[type=number] \"Generator Torque Limit Scale\"",
-    "label  input[type=number] \"Rotor Inertia\"",
     "label  input[type=text] \"Name\"",
     "label-title-only  select \"Active simulation case\""
   ],
@@ -83,8 +81,6 @@
     "color-contrast  button \"Run\"",
     "color-contrast  div \"LightSim\"",
     "color-contrast  span \"backend connected\"",
-    "label  input[type=number] \"Generator Torque Limit Scale\"",
-    "label  input[type=number] \"Rotor Inertia\"",
     "label  input[type=text] \"Name\"",
     "label-title-only  select \"Active simulation case\""
   ]

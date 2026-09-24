@@ -191,6 +191,24 @@ def test_implausible_parameters_are_warned_about(element, key, value, expected):
     assert len(new) == 1 and new[0].level == "warning" and expected in new[0].text, new
 
 
+@pytest.mark.parametrize("key, value, expected", [
+    ("coulombic_efficiency_pct", 0, "Coulombic efficiency of 'HV Battery Pack' must be in (0, 100]"),
+    ("coulombic_efficiency_pct", 101, "Coulombic efficiency of 'HV Battery Pack' must be in (0, 100]"),
+    ("capacity_Ah", -1, "Charge capacity of 'HV Battery Pack' must be in (-0.001, 100000]"),
+    ("capacity_Ah", 0, None),
+])
+def test_battery_charge_parameters_are_range_checked(key, value, expected):
+    """MOD-38: 0 % would divide by zero and over 100 % would create energy;
+    a Charge Capacity of 0 means 'from the Usable Capacity'."""
+    proj = load_example("bev-car")
+    next(e for e in proj.systems[0].elements if e.id == "el-battery").parameterOverrides[key] = value
+    errors = _errors(proj)
+    if expected is None:
+        assert errors == []
+    else:
+        assert len(errors) == 1 and errors[0].startswith(expected), errors
+
+
 def test_wheel_load_shares_must_add_up():
     proj = load_example("bev-car")
     for e in proj.systems[0].elements:
@@ -198,3 +216,69 @@ def test_wheel_load_shares_must_add_up():
             e.parameterOverrides["vehicle_load_share_pct"] = 5
     new = [c.text for c in validate_project(proj) if c.level != "info"]
     assert len(new) == 1 and new[0].startswith("Wheel load shares add up to 20 %, not 100 %")
+
+
+# ---- MOD-11: road load counted once, and the Ambient's air -------------------------
+
+@pytest.mark.parametrize("mode, included, warned", [
+    ("Coefficients A/B/C", False, True),
+    ("Coefficients A/B/C", True, False),
+    ("Drag and rolling resistance", False, False),
+])
+def test_road_load_double_count_warning(mode, included, warned):
+    """Coast-down coefficients hold the axle's drag; its lossy gears would
+    count it again (the BEV's Final Drive is 98 %)."""
+    proj = load_example("bev-car")
+    next(e for e in proj.systems[0].elements if e.id == "el-vehicle").parameterOverrides.update(
+        road_load_mode=mode, abc_include_driveline_losses=included)
+    new = [c.text for c in validate_project(proj) if c.level != "info"]
+    if warned:
+        assert len(new) == 1 and "'Final Drive' 98 %" in new[0], new
+        assert "Tick 'Coefficients Include Driveline Losses'" in new[0]
+    else:
+        assert new == []
+
+
+@pytest.mark.parametrize("mode, warned", [("Coefficients A/B/C", True),
+                                           ("Drag and rolling resistance", False)])
+def test_negative_road_load_coefficients_warn(mode, warned):
+    """A negative A or C drives the car instead of holding it back (a
+    negative B is real: EPA lists some)."""
+    proj = load_example("bev-car")
+    next(e for e in proj.systems[0].elements if e.id == "el-vehicle").parameterOverrides.update(
+        road_load_mode=mode, road_load_a_N=-50, road_load_b_N_per_kmh=-0.5,
+        road_load_c_N_per_kmh2=-0.03)
+    new = [c.text for c in validate_project(proj) if c.level != "info"]
+    assert new == (["Vehicle 'Vehicle' has a road-load A of -50 N and C of -0.03 N/(km/h)² — a "
+                    "negative A or C pushes the car along, so it speeds up when it coasts. "
+                    "Check the sign."] if warned else [])
+
+
+def _with_ambients(*values):
+    proj = load_example("bev-car")
+    proj.systems[0].elements += [
+        el(f"amb{i}", "boundary.ambient", f"Ambient {i}", temperature_C=t, pressure_kPa=p)
+        for i, (t, p) in enumerate(values)]
+    return [(c.level, c.text) for c in validate_project(proj) if c.level != "info"]
+
+
+@pytest.mark.parametrize("values, expected", [
+    ([(20, 101.325)], []),
+    ([(20, 101.325), (35, 85)],
+     [("warning", "Only the first Ambient ('Ambient 0') sets the air density; "
+                  "the others are ignored.")]),
+    ([(20, 101.325), (20, 1.013)],  # an unused Ambient's air sets no density
+     [("warning", "Only the first Ambient ('Ambient 0') sets the air density; "
+                  "the others are ignored.")]),
+    ([(20, 1.013)], [("warning", "'Ambient 0' has a pressure of 1.013 kPa (50 to 110 kPa is "
+                                 "usual; 1 bar = 100 kPa), which gives the Vehicle's drag an air "
+                                 "density of 0.012 kg/m³ — check the value and its unit.")]),
+    ([(293.15, 101.325)], [("warning", "'Ambient 0' has a temperature of 293.15 °C (-60 to 60 °C "
+                                       "is usual), which gives the Vehicle's drag an air density "
+                                       "of 0.623 kg/m³ — check the value and its unit.")]),
+    ([(20, 0)], [("error", "'Ambient 0' has a non-positive pressure.")]),
+    ([(-300, 101.325)], [("error", "Temperature of 'Ambient 0' must be in (-273.15, 1000] — "
+                                   "got -300.")]),
+])
+def test_ambient_checks(values, expected):
+    assert _with_ambients(*values) == expected

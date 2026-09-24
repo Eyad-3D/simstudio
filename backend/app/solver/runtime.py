@@ -13,16 +13,34 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from ..schemas import SimMessage
-from .maps import interp1
+from .maps import Map, MapUse, Sheets2D, inner_range, interp1
 from .network import Driveline, Model
 
 GRAVITY = 9.81
-AIR_DENSITY = 1.2
+R_AIR = 287.05  # J/(kg·K), specific gas constant of dry air
+
+
+def air_density(temperature_c: float = 20.0, pressure_kpa: float = 101.325) -> float:
+    """Dry air, ideal gas: rho = p / (R · T), in kg/m³."""
+    return pressure_kpa * 1000.0 / (R_AIR * (temperature_c + 273.15))
+
+
+# The air vehicles drive in (sea level to about 5,500 m): beyond it a value is
+# more likely typed in the wrong unit (bar, Pa, °F, K) than meant.
+AMBIENT_C = (-60.0, 60.0)
+AMBIENT_KPA = (50.0, 110.0)
+# the air density without an Ambient block (20 °C, 101.325 kPa: 1.2041 kg/m³),
+# and the density a Vehicle's road-load coefficient C is taken at
+AIR_DENSITY = air_density()
 MAX_SUBSTEP = 0.01  # s
 V_EPS = 0.5  # m/s — slip regularization
 W_EPS = 0.5  # rad/s — static/dynamic brake threshold
 CLUTCH_BAND = 0.5  # rad/s — smooth Coulomb band (residual slip under load)
 RPM = 60.0 / (2.0 * math.pi)
+# an E-Motor's drive torque falls to zero over this share of its maximum
+# speed below it (ponytail: a constant; make it a parameter when users
+# bring their inverter's speed-limit ramp)
+SPEED_LIMIT_BAND = 0.02
 
 EmitFn = Callable[[dict], None]
 ControlFn = Callable[[], list[dict]]
@@ -80,13 +98,14 @@ def solve_linear(m: list[list[float]], q: list[float]) -> list[float]:
 class BatteryState:
     el_id: str
     soc: float
-    capacity_wh: float
+    q_ah: float  # charge capacity, A·h: the SOC counts charge
     min_soc: float
     r0: float
     r1: float
     tau: float
     max_charge_w: float
-    ocv_pts: list
+    ocv_map: Map
+    eta_charge: float = 1.0  # coulombic efficiency: share of charging current stored
     v_rc: float = 0.0
     v_term: float = 0.0
     depleted_flagged: bool = False
@@ -97,16 +116,46 @@ class BatteryState:
     power_w: float = 0.0
 
     def ocv(self) -> float:
-        return interp1(self.ocv_pts, max(0.0, min(1.0, self.soc)) * 100.0)
+        return self.ocv_map.at(self.soc_pct())
+
+    def soc_pct(self) -> float:
+        """The SOC the OCV table is read at, %."""
+        return max(0.0, min(1.0, self.soc)) * 100.0
+
+
+def ocv_mean(points: list, linear: bool = False) -> float:
+    """The OCV table's mean over 0-100 % SOC, weighted by SOC: a full-to-empty
+    discharge at open circuit gives out this voltage times the charge
+    capacity. Exact for the piecewise-linear table, read as ocv() reads it:
+    beyond its ends flat, or on the end slope when its SOC axis is set to
+    Linear (``linear``)."""
+    xs = sorted({0.0, 100.0, *(x for x, _ in points if 0.0 < x < 100.0)})
+    return sum((b - a) * (interp1(points, a, linear) + interp1(points, b, linear))
+               for a, b in zip(xs, xs[1:])) / 200.0
+
+
+def motor_max_rpm(full_load: Sheets2D, value: object) -> float:
+    """An E-Motor's maximum speed, 1/min: its Maximum Speed, or when that is
+    0 (every project before 0.3) the last speed point of its full-load
+    curve, the lowest over its voltage sheets so none is read past its data."""
+    try:
+        n = float(value or 0)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        n = 0.0
+    r = inner_range(full_load)
+    return n if n > 0 else r[1] if r else math.inf
 
 
 @dataclass
 class MotorCache:
     el_id: str
-    full_load: list
-    loss: list
-    drag: list
+    full_load: Map
+    loss: Map
+    drag: Map
     q4_scale: float
+    max_rpm: float  # maximum speed (motor_max_rpm)
+    speed_use: MapUse  # time above the maximum speed and the highest speed
+    overshoot_rpm: float = 0.0  # see RunContext.over_speed
     rpm: float = 0.0
     torque: float = 0.0
     p_mech_w: float = 0.0
@@ -128,11 +177,13 @@ class MotorCache:
 @dataclass
 class EngineCache:
     el_id: str
-    full_load: list
-    drag: list
-    fuel_map: list
+    full_load: Map
+    drag: Map
+    fuel_map: Map
     idle_rpm: float
     reentry_rpm: float  # zero throttle above this speed cuts the fuel
+    speed_use: MapUse  # time above the full-load curve's last speed
+    overshoot_rpm: float = 0.0  # see RunContext.over_speed
     rpm: float = 0.0
     torque: float = 0.0
     fuel_kgh: float = 0.0
@@ -152,7 +203,7 @@ class TankState:
 @dataclass
 class FuelCellCache:
     el_id: str
-    pol: list  # V(I)
+    pol: Map  # V(I)
     i_max: float
     h2_g_per_kwh: float
     voltage: float = 0.0

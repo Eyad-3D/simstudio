@@ -98,9 +98,11 @@ interface UIState {
   showLiveValues: boolean;
   toggleLiveValues: () => void;
 
-  /** Element whose parameters are open in the modal dialog (double-click). */
+  /** Element whose parameters are open in the modal dialog (double-click),
+   *  and the table it opens at (a narrow panel's table button). */
   paramDialogId: string | null;
-  openParamDialog: (elementId: string) => void;
+  paramDialogKey: string | null;
+  openParamDialog: (elementId: string, paramKey?: string) => void;
   closeParamDialog: () => void;
 
   /** Styled confirm/prompt modal (see dialog.ts helpers). */
@@ -157,8 +159,10 @@ export const useUIStore = create<UIState>((set, get) => ({
   toggleLiveValues: () => set((s) => ({ showLiveValues: !s.showLiveValues })),
 
   paramDialogId: null,
-  openParamDialog: (elementId) => set({ paramDialogId: elementId }),
-  closeParamDialog: () => set({ paramDialogId: null }),
+  paramDialogKey: null,
+  openParamDialog: (elementId, paramKey) =>
+    set({ paramDialogId: elementId, paramDialogKey: paramKey ?? null }),
+  closeParamDialog: () => set({ paramDialogId: null, paramDialogKey: null }),
 
   dialog: null,
   openDialog: (req) => set({ dialog: req }),

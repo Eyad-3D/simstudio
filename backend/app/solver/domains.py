@@ -25,14 +25,17 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 
-from .maps import TableError, interp1, interp2, parse_table1d, parse_table2d
-from .network import BrakeRef, Driveline, Joint, Model, Segment, SourceRef
+from .maps import Map, MapUse, TableError, interp1, parse_table1d, parse_table2d
+from .network import ROAD_LOAD_ABC, BrakeRef, Driveline, Joint, Model, Segment, SourceRef
 from .profiles import interp_profile, parse_profile
 from .runtime import (
     AIR_DENSITY,
+    AMBIENT_C,
+    AMBIENT_KPA,
     CLUTCH_BAND,
     GRAVITY,
     RPM,
+    SPEED_LIMIT_BAND,
     V_EPS,
     W_EPS,
     BatteryState,
@@ -45,7 +48,10 @@ from .runtime import (
     SingularMatrixError,
     TankState,
     _sign,
+    air_density,
     make_plan,
+    motor_max_rpm,
+    ocv_mean,
     solve_linear,
 )
 from .sandbox import ScriptSandbox, ScriptSpec
@@ -121,6 +127,13 @@ class RunContext:
         self.gear_of = gear_of
         self.case_overrides = case_overrides
         self.dt = 0.0  # current solver step (set by simulate before stepping)
+        self.t = 0.0  # its start time (set by simulate before stepping)
+        # How far the run went past its data, the one place to read it: a
+        # maps.MapUse per axis of every table the run reads (table()) and one
+        # per E-Motor and Engine for its maximum speed (what = "maximum
+        # speed": a motor's Maximum Speed, an engine's full-load curve's last
+        # speed). The run summary lists the records with outside_s > 0.
+        self.map_use: list[MapUse] = []
 
         # ---- element caches --------------------------------------------------
         self.batteries: dict[str, BatteryState] = {}
@@ -128,7 +141,7 @@ class RunContext:
         self.engines: dict[str, EngineCache] = {}
         self.fuelcells: dict[str, FuelCellCache] = {}
         self.tanks: dict[str, TankState] = {}
-        self.lookup_cache: dict[str, tuple[list, list]] = {}
+        self.lookup_cache: dict[str, tuple[Map, Map]] = {}
         self.profile_cache: dict[str, list[tuple[float, float]]] = {}
         self.sources = [(el_id, cdef.id) for el_id, cdef in model.cdef_of.items()
                         if cdef.id in ("signal.constant", "signal.driving_task")]
@@ -139,40 +152,57 @@ class RunContext:
             label = model.elements[el_id].label
             try:
                 if cdef.id == "battery.generic":
+                    ocv_map = self.table(el_id, "ocv_table")
+                    # Usable Capacity is the open-circuit energy from full to
+                    # empty; without a Charge Capacity (old projects have none)
+                    # the amp-hours come from it at the OCV table's mean voltage
+                    q_ah = max(0.0, float(p.get("capacity_Ah", 0) or 0)) or (
+                        max(1e-3, float(p.get("capacity_kWh", 60))) * 1000.0
+                        / max(1e-6, ocv_mean(ocv_map.pts, ocv_map.linear[0])))
                     b = BatteryState(
                         el_id=el_id,
                         soc=float(p.get("initial_soc_pct", 90)) / 100.0,
-                        capacity_wh=max(1e-3, float(p.get("capacity_kWh", 60))) * 1000.0,
+                        q_ah=q_ah,
                         min_soc=float(p.get("min_soc_pct", 10)) / 100.0,
                         r0=max(1e-6, float(p.get("internal_resistance_ohm", 0.08))),
                         r1=max(0.0, float(p.get("rc_resistance_ohm", 0))),
                         tau=max(0.0, float(p.get("rc_time_constant_s", 0))),
                         max_charge_w=max(0.0, float(p.get("max_charge_power_kW", 120))) * 1000.0,
-                        ocv_pts=parse_table1d(p.get("ocv_table", {"0": 300, "100": 400})),
+                        ocv_map=ocv_map,
+                        eta_charge=min(1.0, max(1e-3, float(
+                            p.get("coulombic_efficiency_pct", 100)) / 100.0)),
                     )
-                    b.v_term = b.ocv()
+                    # read without the Error check: the first step stops the
+                    # run, with its time, if the SOC is outside an Error axis
+                    b.v_term = interp1(ocv_map.pts, b.soc_pct(), ocv_map.linear[0])
                     self.batteries[el_id] = b
                 elif cdef.id == "motor.emotor":
+                    full_load = self.table(el_id, "full_load_torque")
+                    max_rpm = motor_max_rpm(full_load.pts, p.get("max_speed_rpm", 0))
                     self.motors[el_id] = MotorCache(
                         el_id=el_id,
-                        full_load=parse_table2d(p.get("full_load_torque", {"330": {"0": 100}})),
-                        loss=parse_table2d(p.get("power_loss", {"0": {"0": 0}})),
-                        drag=parse_table1d(p.get("drag_torque", {"0": 0})),
+                        full_load=full_load,
+                        loss=self.table(el_id, "power_loss"),
+                        drag=self.table(el_id, "drag_torque"),
                         q4_scale=max(0.0, float(p.get("q4_torque_scale_pct", 100)) / 100.0),
+                        max_rpm=max_rpm,
+                        speed_use=self.speed_use(el_id, max_rpm),
                     )
                 elif cdef.id == "engine.combustion":
+                    full_load = self.table(el_id, "full_load_torque")
                     self.engines[el_id] = EngineCache(
                         el_id=el_id,
-                        full_load=parse_table1d(p.get("full_load_torque", {"1000": 100})),
-                        drag=parse_table1d(p.get("drag_torque", {"0": 20})),
-                        fuel_map=parse_table2d(p.get("fuel_map", {"1000": {"0": 1}})),
+                        full_load=full_load,
+                        drag=self.table(el_id, "drag_torque"),
+                        fuel_map=self.table(el_id, "fuel_map"),
                         idle_rpm=max(1.0, float(p.get("idle_speed_rpm", 800))),
                         reentry_rpm=float(p.get("fuel_cut_reentry_rpm", 1100)),
+                        speed_use=self.speed_use(el_id, full_load.pts[-1][0]),
                     )
                 elif cdef.id == "fuelcell.stack":
                     self.fuelcells[el_id] = FuelCellCache(
                         el_id=el_id,
-                        pol=parse_table1d(p.get("polarization", {"0": 400, "400": 260})),
+                        pol=self.table(el_id, "polarization"),
                         i_max=max(1.0, float(p.get("max_current_A", 400))),
                         h2_g_per_kwh=max(0.0, float(p.get("h2_per_kwh_g", 55))),
                     )
@@ -183,10 +213,8 @@ class RunContext:
                         mass_kg=cap * max(0.0, min(1.0, float(p.get("initial_fill_pct", 90)) / 100.0)),
                     )
                 elif cdef.id == "signal.lookup":
-                    self.lookup_cache[el_id] = (
-                        parse_table1d(p.get("table_1d", {"0": 0, "1": 1})),
-                        parse_table2d(p.get("table_2d", {"0": {"0": 0}})),
-                    )
+                    self.lookup_cache[el_id] = (self.table(el_id, "table_1d"),
+                                                self.table(el_id, "table_2d"))
                 elif cdef.id == "control.pid":
                     self.pid_state[el_id] = {"integral": 0.0, "prev_err": 0.0}
             except TableError as e:
@@ -224,7 +252,12 @@ class RunContext:
         self.veh_mass = max(1.0, float(veh_p.get("mass_kg", 1800))) if self.veh_id else 0.0
         self.v = max(0.0, float(veh_p.get("initial_speed_kmh", 0)) / 3.6) if self.veh_id else 0.0
         self.distance = 0.0
+        self.amb_id = model.ambient  # sets the air density (None: 20 °C, 101.325 kPa)
+        # the road's slope this step (set from the grade at the start of the
+        # mechanical step): the weight's share along and normal to the road
+        self.slope_sin, self.slope_cos = 0.0, 1.0
         self.driver_integral = 0.0
+        self.performance = False  # a performance-test case (set by simulate)
 
         self.dls = [DrivelineState(dl=dl) for dl in model.drivelines]
         # the gear each gearbox's driveline was built in (its default gear
@@ -258,7 +291,8 @@ class RunContext:
             elif bus.vsource:
                 self.bus_voltage[bus.id] = float(self.params(bus.vsource).get("voltage_V", 400))
             elif bus.fuelcell:
-                self.bus_voltage[bus.id] = interp1(self.fuelcells[bus.fuelcell].pol, 0.0)
+                pol = self.fuelcells[bus.fuelcell].pol
+                self.bus_voltage[bus.id] = interp1(pol.pts, 0.0, pol.linear[0])
             elif bus.dcdc_out:
                 self.bus_voltage[bus.id] = float(
                     self.params(bus.dcdc_out[0]).get("output_voltage_V", 400))
@@ -305,6 +339,57 @@ class RunContext:
 
     def params(self, el_id: str) -> dict:
         return self.model.params_of[el_id]
+
+    def table(self, el_id: str, key: str) -> Map:
+        """A table parameter as a Map. Its "outside the data" setting per
+        axis is the element's own (tableOutside) when that names one per
+        axis, else the library's (Clamp where the library names none)."""
+        el, cdef = self.model.elements[el_id], self.model.cdef_of[el_id]
+        pdef = next(pp for pp in cdef.parameters if pp.key == key)
+        axes = pdef.axes or []
+        policy = [a.outside or "clamp" for a in axes]
+        own = (el.tableOutside or {}).get(key)
+        if own and len(own) == len(axes):
+            policy = list(own)
+        raw = self.params(el_id).get(key)
+        pts = parse_table2d(raw) if pdef.type == "table2d" else parse_table1d(raw)
+        uses = [MapUse(el_id, f"'{pdef.label}' table", a.name, a.unit, 0.0) for a in axes]
+        self.map_use += uses
+        return Map(pts, f"{cdef.name} '{el.label}' {pdef.label}", policy, uses)
+
+    def speed_use(self, el_id: str, n_max: float) -> MapUse:
+        use = MapUse(el_id, "maximum speed", "Speed", "1/min", n_max)
+        self.map_use.append(use)
+        return use
+
+    def over_speed(self, m: MotorCache | EngineCache, rpm: float, n_max: float) -> bool:
+        """Book a solver step a motor or engine spent above its maximum speed;
+        True the first time. Its limiter acts from the step after the one
+        that took it past, so a step of its own drive can overshoot the
+        limit: while it falls back from there it is held at its limiter, not
+        driven above it, and that is not counted. Anything that drives it
+        higher is, until it is back below."""
+        if rpm <= n_max * (1.0 + 1e-9):  # (float noise at the limit)
+            m.overshoot_rpm = 0.0
+        elif m.p_mech_w > 0.0:  # the last step's own drive took it here
+            m.overshoot_rpm = rpm
+        elif rpm > m.overshoot_rpm:
+            m.overshoot_rpm = 0.0
+            return m.speed_use.count(rpm, n_max, self.t, self.dt)
+        return False
+
+    def used(self, m: Map, *point: float) -> None:
+        """Book the point this solver step's result read a table at (not the
+        trial lookups before it); the first time an axis set to Clamp or
+        Linear is left, say so (info: the summary says for how long)."""
+        for use in m.count(self.t, self.dt, *point):
+            how = ("its edge slope is extended" if m.linear[m.uses.index(use)]
+                   else "its edge value is held")
+            self.rt.message(
+                "info",
+                f"{m.name}: {use.axis} {use.value:.6g} {use.unit} is past the edge of its data "
+                f"({use.edge:g} {use.unit}) at t = {use.t:.2f} s — {how} there. The run "
+                f"summary says for how long and how far.")
 
     def normalize_wheel_loads(self) -> None:
         """Rest the vehicle's whole weight on its wheels: each connected
@@ -517,30 +602,31 @@ class RunContext:
                 mc = self.motors[el_id]
                 p = self.params(el_id)
                 mc.q4_scale = max(0.0, float(p.get("q4_torque_scale_pct", 100)) / 100.0)
-                mc.full_load = parse_table2d(p.get("full_load_torque", {}))
-                mc.loss = parse_table2d(p.get("power_loss", {}))
-                mc.drag = parse_table1d(p.get("drag_torque", {}))
+                mc.full_load.set(parse_table2d(p.get("full_load_torque", {})))
+                mc.loss.set(parse_table2d(p.get("power_loss", {})))
+                mc.drag.set(parse_table1d(p.get("drag_torque", {})))
+                mc.max_rpm = motor_max_rpm(mc.full_load.pts, p.get("max_speed_rpm", 0))
             if el_id in self.engines:
                 ec = self.engines[el_id]
                 p = self.params(el_id)
                 ec.idle_rpm = max(1.0, float(p.get("idle_speed_rpm", ec.idle_rpm)))
                 ec.reentry_rpm = float(p.get("fuel_cut_reentry_rpm", ec.reentry_rpm))
-                ec.full_load = parse_table1d(p.get("full_load_torque", {}))
-                ec.drag = parse_table1d(p.get("drag_torque", {}))
-                ec.fuel_map = parse_table2d(p.get("fuel_map", {}))
+                ec.full_load.set(parse_table1d(p.get("full_load_torque", {})))
+                ec.drag.set(parse_table1d(p.get("drag_torque", {})))
+                ec.fuel_map.set(parse_table2d(p.get("fuel_map", {})))
             if el_id in self.fuelcells:
                 fc = self.fuelcells[el_id]
                 p = self.params(el_id)
                 fc.i_max = max(1.0, float(p.get("max_current_A", fc.i_max)))
                 fc.h2_g_per_kwh = max(0.0, float(p.get("h2_per_kwh_g", fc.h2_g_per_kwh)))
-                fc.pol = parse_table1d(p.get("polarization", {}))
+                fc.pol.set(parse_table1d(p.get("polarization", {})))
             if el_id in self.batteries:
                 b = self.batteries[el_id]
                 p = self.params(el_id)
                 b.min_soc = float(p.get("min_soc_pct", 10)) / 100.0
                 b.r0 = max(1e-6, float(p.get("internal_resistance_ohm", b.r0)))
                 b.max_charge_w = max(0.0, float(p.get("max_charge_power_kW", 120))) * 1000.0
-                b.ocv_pts = parse_table1d(p.get("ocv_table", {}))
+                b.ocv_map.set(parse_table1d(p.get("ocv_table", {})))
         except TableError:
             rt.warn_once(f"live-table:{el_id}", f"Live table edit on '{label}' is invalid — ignored.")
         p = self.params(el_id)
@@ -560,34 +646,45 @@ class RunContext:
 
     # ---- behaviors -------------------------------------------------------------
 
+    def motor_volts(self, mc: MotorCache) -> float:
+        bus = self.motor_bus.get(mc.el_id)
+        return self.bus_voltage.get(bus.id, 0.0) if bus is not None else 0.0
+
     def motor_command(self, mc: MotorCache, demand: float, omega_m: float) -> tuple[float, bool]:
         """(torque the traction command asks for, inverter on). The inverter
-        is off for a command of exactly 0 or without a live supply."""
+        is off for a command of exactly 0, without a live supply and above
+        the motor's maximum speed (no drive, no regeneration); its drive
+        torque falls to zero over the last 2 % below that speed."""
         rt, model = self.rt, self.model
-        volts = (self.bus_voltage.get(self.motor_bus[mc.el_id].id, 0.0)
-                 if mc.el_id in self.motor_bus else 0.0)
+        volts = self.motor_volts(mc)
         if volts <= 1.0:
             rt.warn_once(f"deadbus:{mc.el_id}",
                          f"E-Motor '{model.elements[mc.el_id].label}' has no live electrical "
                          f"supply — it produces no torque.")
             return 0.0, False
-        if demand == 0.0:
+        rpm = abs(omega_m) * RPM
+        if demand == 0.0 or rpm > mc.max_rpm * (1.0 + 1e-9):  # (float noise at the limit)
             return 0.0, False
-        if volts < mc.full_load[0][0] - 1e-9 or volts > mc.full_load[-1][0] + 1e-9:
-            rt.warn_once(
-                f"mapclamp:{mc.el_id}:volt",
-                f"E-Motor '{model.elements[mc.el_id].label}' is operating outside its "
-                f"full-load map's voltage range ({volts:.0f} V) — torque clamped to "
-                f"the nearest map edge.",
-            )
-        t_full = interp2(mc.full_load, volts, abs(omega_m) * RPM)
+        t_full = mc.full_load.at(volts, rpm)
         demand = max(-1.0, min(1.0, demand))
+        if demand > 0 and rpm > mc.max_rpm * (1.0 - SPEED_LIMIT_BAND):
+            t_full *= max(0.0, mc.max_rpm - rpm) / (SPEED_LIMIT_BAND * mc.max_rpm)
+            if f"maxspeed:{mc.el_id}" not in rt.warned:
+                note = (", the last speed point of its full-load curve"
+                        if mc.max_rpm == motor_max_rpm(mc.full_load.pts, 0) else "")
+                rt.warn_once(
+                    f"maxspeed:{mc.el_id}",
+                    f"E-Motor '{model.elements[mc.el_id].label}' reached its maximum speed "
+                    f"({mc.max_rpm:,.0f} 1/min{note}) at t = {self.t:.2f} s — its drive torque "
+                    f"falls to zero over the last 2 % below it.",
+                    level="info",
+                )
         return demand * t_full * (mc.q4_scale if demand < 0 else 1.0), True
 
     @staticmethod
     def motor_power(mc: MotorCache, torque: float, omega_m: float) -> float:
         """Electrical power of the powered motor: shaft power + map loss."""
-        return torque * omega_m + interp2(mc.loss, abs(omega_m) * RPM, abs(torque)) * 1000.0
+        return torque * omega_m + mc.loss.at(abs(omega_m) * RPM, abs(torque)) * 1000.0
 
     def motor_torque(self, mc: MotorCache, demand: float, omega_m: float) -> float:
         """Shaft torque of an E-Motor for a traction command in [-1, 1].
@@ -630,8 +727,23 @@ class RunContext:
                     powered = False
                 mc.limited_s += self.dt
         if not powered:  # inverter off: unpowered, drag only
-            t_net = -_sign(omega_m) * interp1(mc.drag, rpm)
+            t_net = -_sign(omega_m) * mc.drag.at(rpm)
             p_elec = 0.0
+        # the maps this result was read from, at the point it was read at;
+        # past its maximum speed a motor counts as over speed, not as past a
+        # drag table that reaches that speed
+        if powered:
+            self.used(mc.full_load, self.motor_volts(mc), rpm)
+            self.used(mc.loss, rpm, abs(t_net))
+        else:
+            self.used(mc.drag, rpm if mc.drag.pts[-1][0] < mc.max_rpm else min(rpm, mc.max_rpm))
+        if self.over_speed(mc, rpm, mc.max_rpm):
+            self.rt.message(
+                "info",
+                f"E-Motor '{self.model.elements[mc.el_id].label}' was driven above its maximum "
+                f"speed ({mc.max_rpm:,.0f} 1/min) at t = {self.t:.2f} s; its inverter is off "
+                f"above it, so it gives no drive torque and no regeneration. The run summary "
+                f"says for how long and how far.")
         if p_asked is not None and p_asked < 0:
             mc.regen_lost_wh += (p_elec - p_asked) * self.dt / 3600.0
         mc.rpm = rpm
@@ -650,12 +762,11 @@ class RunContext:
         """(source voltage behind R0, maximum-power-point current, discharge
         current that reaches the minimum SOC within the step, charge current
         that reaches 100 % within it)."""
-        ocv = b.ocv()
-        wh_per_amp = max(1e-9, ocv) * self.dt / 3600.0  # SOC energy per A over the step
-        a_volt = ocv - b.v_rc
+        soc_per_amp = self.dt / 3600.0 / b.q_ah  # SOC one ampere moves over the step
+        a_volt = b.ocv() - b.v_rc
         return (a_volt, max(0.0, a_volt) / (2.0 * b.r0),
-                max(0.0, (b.soc - b.min_soc) * b.capacity_wh / wh_per_amp),
-                max(0.0, (1.0 - b.soc) * b.capacity_wh / wh_per_amp))
+                max(0.0, (b.soc - b.min_soc) / soc_per_amp),
+                max(0.0, (1.0 - b.soc) / (soc_per_amp * b.eta_charge)))
 
     def battery_full(self, b: BatteryState) -> bool:
         """Too full to take its max charge power for a whole solver step."""
@@ -681,7 +792,7 @@ class RunContext:
         if root.fuelcell:
             fc = self.fuelcells[root.fuelcell]
             tank = self.tanks.get(model.h2_tank) if model.h2_tank else None
-            p_max = interp1(fc.pol, fc.i_max) * fc.i_max
+            p_max = fc.pol.at(fc.i_max) * fc.i_max
             if tank is not None:
                 if tank.mass_kg <= 0:
                     if not tank.empty_flagged:
@@ -879,7 +990,11 @@ class RunContext:
         last speed (rev limiter) — and then it burns nothing. At zero
         throttle below the re-entry speed the idle governor holds idle: below
         idle it adds torque, above it trims the fuel down to the drag torque,
-        with fuel falling linearly from map(speed, 0) to 0 (a Willans line)."""
+        with fuel falling linearly from map(speed, 0) to 0 (a Willans line).
+        Below the full-load curve's first speed (starting, stalling) a fired
+        engine gives that point's torque and burns that point's fuel: the
+        start-up rule, so the curve and the fuel map are read only between
+        its first and last speed."""
         rt, model = self.rt, self.model
         rpm = abs(omega_e) * RPM
         throttle = rt.read_signal(ec.el_id, "sig_throttle_in")
@@ -893,31 +1008,52 @@ class RunContext:
                 ec.stalled_flagged = True
                 rt.message("warning",
                            f"Fuel tank empty — engine '{model.elements[ec.el_id].label}' shut off.")
-        t_drag = interp1(ec.drag, rpm)
+        n_top = ec.full_load.pts[-1][0]
+        # the start-up rule, and the rev limiter's 1e-9 1/min allowance
+        n_map = min(max(rpm, ec.full_load.pts[0][0]), n_top)
+        t_drag = 0.0  # read only where it is used
         t_brake = None  # stays None while the engine is not fired
         if on:
-            t_full = interp1(ec.full_load, rpm)
             governor = (ec.idle_rpm - rpm) / (0.25 * ec.idle_rpm)
-            if rpm > ec.full_load[-1][0] + 1e-9:
+            if rpm > n_top + 1e-9:
                 rt.warn_once(
                     f"revlimit:{ec.el_id}",
                     f"Engine '{model.elements[ec.el_id].label}' reached its maximum speed "
-                    f"({ec.full_load[-1][0]:.0f} 1/min, the full-load curve's last point) — "
+                    f"({n_top:,.0f} 1/min, the full-load curve's last point) — "
                     f"the rev limiter cuts fuel and torque above it.",
+                    level="info",
                 )
             elif throttle > 0:
-                t_brake = max(throttle, min(1.0, governor)) * t_full
+                t_brake = max(throttle, min(1.0, governor)) * ec.full_load.at(n_map)
             elif rpm <= ec.reentry_rpm:
+                t_full = ec.full_load.at(n_map)
+                t_drag = ec.drag.at(rpm)
                 t_brake = max(-t_drag, min(t_full, governor * t_full))
         if t_brake is None:
+            t_drag = ec.drag.at(rpm)
             t_net = -_sign(omega_e) * t_drag
             fuel = 0.0
         elif t_brake >= 0:
             t_net = t_brake
-            fuel = interp2(ec.fuel_map, rpm, t_brake)
+            fuel = ec.fuel_map.at(n_map, t_brake)
+            self.used(ec.fuel_map, n_map, t_brake)
         else:
-            t_net = t_brake
-            fuel = interp2(ec.fuel_map, rpm, 0.0) * (1.0 + t_brake / t_drag)
+            t_net = t_brake  # (the idle governor read the drag: t_drag > 0)
+            fuel = ec.fuel_map.at(n_map, 0.0) * (1.0 + t_brake / t_drag)
+            self.used(ec.fuel_map, n_map, 0.0)
+        # the drag table where it set the result (past the rev limit that
+        # counts as over speed, when the table reaches it); the full-load
+        # curve is read only between its first and last speed, so it is
+        # never left
+        if t_brake is None or t_brake < 0:
+            self.used(ec.drag, rpm if ec.drag.pts[-1][0] < n_top else min(rpm, n_top))
+        if self.over_speed(ec, rpm, n_top):
+            rt.message(
+                "info",
+                f"Engine '{model.elements[ec.el_id].label}' was driven above its "
+                f"maximum speed ({n_top:,.0f} 1/min, the full-load curve's last point) at "
+                f"t = {self.t:.2f} s; it is not fired above it. The run summary says for how "
+                f"long and how far.")
         if tank is not None and fuel > 0:
             burn = fuel / 3600.0 * self.dt
             tank.mass_kg = max(0.0, tank.mass_kg - burn)
@@ -934,7 +1070,7 @@ class RunContext:
                     damping: bool = True) -> tuple[float, float, float]:
         """(tire force, its torque at the reference axis, slip damping for
         the implicit solve — 0 when not asked for)."""
-        n_load = w.load_share * self.veh_mass * GRAVITY if self.veh_id else 0.0
+        n_load = w.load_share * self.veh_mass * GRAVITY * self.slope_cos if self.veh_id else 0.0
         if n_load <= 0:
             return 0.0, 0.0, 0.0
         v = self.v
@@ -1052,9 +1188,11 @@ class ControlSlave(_CtxSlave):
     def __init__(self, ctx: RunContext):
         super().__init__(ctx)
         self.next_sample: dict[str, float] = {}  # sampled blocks' next run time
+        self.lookup_at: dict[str, tuple] = {}  # Lookup → (its table, where it read it)
 
     def setup(self, t0: float) -> None:
         self.next_sample.clear()
+        self.lookup_at.clear()
 
     def set_parameter(self, name: str, value: object) -> ParamResult:
         el_id, key = split_var(name)
@@ -1076,6 +1214,9 @@ class ControlSlave(_CtxSlave):
                 ts = float(p.get("sample_time_s", 0) or 0)
                 if ts > h:
                     if t < self.next_sample.get(el_id, t) - 1e-6 * h:
+                        held = self.lookup_at.get(el_id)
+                        if held:  # a Lookup's output holds, read where it was
+                            ctx.used(*held)
                         continue  # between samples: outputs hold
                     self.next_sample[el_id] = (math.floor(t / ts + 1e-6) + 1) * ts
                     dt = ts
@@ -1119,9 +1260,12 @@ class ControlSlave(_CtxSlave):
                 x_in = rt.read_signal(el_id, "sig_x_in") or 0.0
                 if str(p.get("mode", "1D")) == "2D":
                     y_in = rt.read_signal(el_id, "sig_y_in") or 0.0
-                    rt.publish(el_id, "sig_out", interp2(t2, x_in, y_in))
+                    self.lookup_at[el_id] = (t2, x_in, y_in)
                 else:
-                    rt.publish(el_id, "sig_out", interp1(t1, x_in))
+                    self.lookup_at[el_id] = (t1, x_in)
+                table, *point = self.lookup_at[el_id]
+                rt.publish(el_id, "sig_out", table.at(*point))
+                ctx.used(table, *point)
             elif kind == "signal.road_profile":
                 pts = ctx.profile_points(el_id)
                 mode = str(p.get("mode", "distance"))
@@ -1171,6 +1315,8 @@ class DriverSlave(_CtxSlave):
         super().__init__(ctx)
         self.layout_seen = -1  # ctx.layout_version the list below belongs to
         self.brakes: list[BrakeRef] = []
+        self.flat_out = False  # a performance test held full throttle ...
+        self.reached = False  # ... and then reached its target
 
     def regen_share(self, motors: list[tuple[MotorCache, float, object]], want: float) -> float:
         """The share k ≤ ``want`` of full regeneration — a traction command
@@ -1221,39 +1367,51 @@ class DriverSlave(_CtxSlave):
         err = target_kmh - fb_kmh
         cmd_unsat = kp * err + ki * ctx.driver_integral
         cmd = max(-1.0, min(1.0, cmd_unsat))
+        if ctx.performance and not self.reached:
+            if err > 0:
+                # a performance test: full throttle up to the target (a PI
+                # never quite reaches a step target, so no time could be taken
+                # there); set before the anti-windup, so the integral does not
+                # wind up
+                cmd = 1.0
+                self.flat_out = True
+            elif self.flat_out:
+                # there: the PI holds the target from now on, as in a cycle
+                # (full throttle each time the car dipped below it would
+                # switch between throttle and brakes, and make up the energy)
+                self.reached = True
         if cmd == cmd_unsat or err * cmd_unsat < 0:
             ctx.driver_integral += err * dt
-
-        # full regeneration at the wheels: every live motor's generator torque
-        # limit, reflected through its gears — regenerating, the gear losses
-        # come off the torque that reaches the motor, as in the mechanics
-        t_motor_cap = 0.0
-        regen_motors: list[tuple[MotorCache, float, object]] = []
-        for st in ctx.dls:
-            if st.plan.over_constrained or not st.plan.n:
-                continue
-            lay = ctx.layout(st)
-            if not lay.has_wheels:
-                continue
-            for s_idx, src, r_eff in lay.motors:
-                mc = ctx.motors[src.el_id]
-                bus = ctx.motor_bus.get(mc.el_id)
-                volts = ctx.bus_voltage.get(bus.id, 0.0) if bus is not None else 0.0
-                if volts <= 1.0:
-                    continue  # no live supply: it cannot regenerate
-                omega_m = src.m * ctx.seg_speed(st, s_idx)
-                t_q4 = interp2(mc.full_load, volts, abs(omega_m) * RPM) * mc.q4_scale
-                t_motor_cap += t_q4 * r_eff / max(1e-3, src.eff * st.plan.eff_chain[s_idx])
-                regen_motors.append((mc, omega_m, bus))
-        if self.layout_seen != ctx.layout_version:  # brakes of every driveline
-            self.layout_seen = ctx.layout_version
-            self.brakes = [br for st in ctx.dls for seg in st.dl.segments for br in seg.brakes]
-        fr_cap = sum(br.max_torque * br.m for br in self.brakes)
-        taper = max(0.0, min(1.0, ctx.v / 3.0))
 
         if cmd >= 0:
             traction_cmd, brake_cmd = cmd, 0.0
         else:
+            # full regeneration at the wheels: every live motor's generator
+            # torque limit, reflected through its gears — regenerating, the gear
+            # losses come off the torque that reaches the motor, as in the
+            # mechanics (worked out only when braking: a step's hot path)
+            t_motor_cap = 0.0
+            regen_motors: list[tuple[MotorCache, float, object]] = []
+            for st in ctx.dls:
+                if st.plan.over_constrained or not st.plan.n:
+                    continue
+                lay = ctx.layout(st)
+                if not lay.has_wheels:
+                    continue
+                for s_idx, src, r_eff in lay.motors:
+                    mc = ctx.motors[src.el_id]
+                    bus = ctx.motor_bus.get(mc.el_id)
+                    if ctx.motor_volts(mc) <= 1.0:
+                        continue  # no live supply: it cannot regenerate
+                    omega_m = src.m * ctx.seg_speed(st, s_idx)
+                    t_q4 = -ctx.motor_command(mc, -1.0, omega_m)[0]  # 0 above its maximum speed
+                    t_motor_cap += t_q4 * r_eff / max(1e-3, src.eff * st.plan.eff_chain[s_idx])
+                    regen_motors.append((mc, omega_m, bus))
+            if self.layout_seen != ctx.layout_version:  # brakes of every driveline
+                self.layout_seen = ctx.layout_version
+                self.brakes = [br for st in ctx.dls for seg in st.dl.segments for br in seg.brakes]
+            fr_cap = sum(br.max_torque * br.m for br in self.brakes)
+            taper = max(0.0, min(1.0, ctx.v / 3.0))
             if taper >= 1.0:
                 for _, _, bus in regen_motors:
                     if bus.battery and ctx.battery_full(ctx.batteries[bus.battery]):
@@ -1298,6 +1456,9 @@ class MechanicalSlave(_CtxSlave):
     def do_step(self, t: float, h: float) -> StepResult:
         ctx = self.ctx
         rt, dt = ctx.rt, ctx.dt
+        if ctx.veh_id:  # the road's slope angle, for the tyres and the vehicle alike
+            theta = math.atan((rt.read_signal(ctx.veh_id, "sig_grade_in") or 0.0) / 100.0)
+            ctx.slope_sin, ctx.slope_cos = math.sin(theta), math.cos(theta)
         active = [st for st in ctx.dls if not st.plan.over_constrained and st.plan.n]
 
         # segment speeds at the start of the step, and every motor's command
@@ -1467,18 +1628,45 @@ class MechanicalSlave(_CtxSlave):
         # vehicle --------------------------------------------------------------
         if ctx.veh_id:
             vp = ctx.params(ctx.veh_id)
-            cda = max(0.0, float(vp.get("cd", 0.28))) * max(0.0, float(vp.get("frontal_area_m2", 2.2)))
-            grade_pct = rt.read_signal(ctx.veh_id, "sig_grade_in") or 0.0
+            rho = AIR_DENSITY
+            if ctx.amb_id:  # read every step: live edits, case values and sweeps apply
+                # (Data Checks refuse air at or below absolute zero or 0 kPa
+                # and warn outside the usual air, but see only the block's own
+                # values: a case value, sweep or live edit must not crash and
+                # is warned about here)
+                ap = ctx.params(ctx.amb_id)
+                t_c = float(ap.get("temperature_C", 20))
+                p_kpa = float(ap.get("pressure_kPa", 101.325))
+                rho = air_density(max(-273.0, t_c), max(0.0, p_kpa))
+                if not (AMBIENT_C[0] <= t_c <= AMBIENT_C[1]
+                        and AMBIENT_KPA[0] <= p_kpa <= AMBIENT_KPA[1]):
+                    rt.warn_once(
+                        f"ambient:{ctx.amb_id}",
+                        f"'{ctx.model.elements[ctx.amb_id].label}' is at {t_c:g} °C and "
+                        f"{p_kpa:g} kPa at t = {t:.2f} s, outside the usual {AMBIENT_C[0]:g} to "
+                        f"{AMBIENT_C[1]:g} °C and {AMBIENT_KPA[0]:g} to {AMBIENT_KPA[1]:g} kPa "
+                        f"(1 bar = 100 kPa), which gives the Vehicle's drag an air density "
+                        f"of {rho:.3g} kg/m³ — check the value and its unit.")
             f_tire = 0.0
             f_roll = 0.0
             for st in active:  # at the wheel speeds just integrated
                 for s_idx, seg in enumerate(st.dl.segments):
                     for w in seg.wheels:
                         f_tire += ctx.wheel_force(w, st.omega_end[s_idx], damping=False)[0]
-                        n_load = w.load_share * ctx.veh_mass * GRAVITY
+                        n_load = w.load_share * ctx.veh_mass * GRAVITY * ctx.slope_cos
                         f_roll += w.c_rr * n_load
-            f_aero = 0.5 * AIR_DENSITY * cda * ctx.v * ctx.v
-            f_grade = ctx.veh_mass * GRAVITY * grade_pct / 100.0
+            if vp.get("road_load_mode") == ROAD_LOAD_ABC:
+                # a coast-down's A + B·v + C·v² in km/h, as test labs publish
+                # them; A and B stand in for the wheels' rolling resistance, and
+                # C, measured in air of AIR_DENSITY, follows the air density
+                v_kmh = ctx.v * 3.6
+                f_roll = (float(vp.get("road_load_a_N", 0))
+                          + float(vp.get("road_load_b_N_per_kmh", 0)) * v_kmh) * ctx.slope_cos
+                f_aero = float(vp.get("road_load_c_N_per_kmh2", 0)) * v_kmh * v_kmh * rho / AIR_DENSITY
+            else:
+                cda = max(0.0, float(vp.get("cd", 0.28))) * max(0.0, float(vp.get("frontal_area_m2", 2.2)))
+                f_aero = 0.5 * rho * cda * ctx.v * ctx.v
+            f_grade = ctx.veh_mass * GRAVITY * ctx.slope_sin
             roll_taper = max(0.0, min(1.0, ctx.v / 0.3))
             accel = (f_tire - f_aero - f_roll * roll_taper - f_grade) / ctx.veh_mass
             ctx.v = max(0.0, ctx.v + accel * dt)
@@ -1537,21 +1725,27 @@ class ElectricalSlave(_CtxSlave):
                 deliver, absorb = ctx.source_window.get(bus.id, (math.inf, math.inf))
                 p_w = max(-absorb, min(deliver, load_w))
                 residual_w = load_w - p_w
-                a_volt = b.ocv() - b.v_rc
+                ocv = b.ocv()
+                a_volt = ocv - b.v_rc
+                ctx.used(b.ocv_map, b.soc_pct())
                 disc = max(0.0, a_volt * a_volt - 4.0 * b.r0 * p_w)
                 current = (a_volt - math.sqrt(disc)) / (2.0 * b.r0)
                 v_term = a_volt - current * b.r0
                 if b.r1 > 0 and b.tau > 0:
                     b.v_rc = (b.v_rc + dt * current * b.r1 / b.tau) / (1.0 + dt / b.tau)
-                e_wh = b.ocv() * current * dt / 3600.0
-                soc = b.soc - e_wh / b.capacity_wh
+                # the SOC counts charge (A·h); only a share of the charging
+                # current is stored
+                eta = b.eta_charge if current < 0 else 1.0
+                soc = b.soc - eta * current * dt / (3600.0 * b.q_ah)
                 b.soc = max(0.0, min(1.0, soc))
-                residual_w += (b.soc - soc) * b.capacity_wh * 3600.0 / dt
+                residual_w += (b.soc - soc) * b.q_ah * 3600.0 * ocv / (eta * dt)
                 if current >= 0:
                     b.energy_out_wh += p_w * dt / 3600.0
                 else:
                     b.energy_in_wh += -p_w * dt / 3600.0
                 b.loss_wh += current * current * b.r0 * dt / 3600.0
+                if current < 0:  # charge not stored
+                    b.loss_wh += (1.0 - eta) * ocv * -current * dt / 3600.0
                 b.current, b.power_w, b.v_term = current, p_w, v_term
                 ctx.bus_voltage[bus.id] = v_term
             elif bus.vsource:
@@ -1567,14 +1761,16 @@ class ElectricalSlave(_CtxSlave):
                 p_req = max(0.0, min(deliver, load_w))
                 residual_w = load_w - p_req
                 lo_i, hi_i = 0.0, fc.i_max
+                # (read unchecked: the handshake read the curve at i_max)
                 for _ in range(40):
                     mid = 0.5 * (lo_i + hi_i)
-                    if interp1(fc.pol, mid) * mid < p_req:
+                    if interp1(fc.pol.pts, mid, fc.pol.linear[0]) * mid < p_req:
                         lo_i = mid
                     else:
                         hi_i = mid
                 current = 0.5 * (lo_i + hi_i)
-                volt = interp1(fc.pol, current)
+                volt = fc.pol.at(current)
+                ctx.used(fc.pol, current)
                 fc.current, fc.voltage, fc.power_w = current, volt, p_req
                 fc.h2_kgh = p_req / 1000.0 * fc.h2_g_per_kwh / 1000.0
                 fc.energy_wh += p_req * dt / 3600.0

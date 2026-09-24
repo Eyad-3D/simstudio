@@ -27,9 +27,16 @@ export interface PortDef {
   polarity?: "positive" | "negative";
 }
 
+/** What a table does outside its data on one axis: stop the run, hold the
+ *  edge value, or extend the edge segment's slope. */
+export type OutsidePolicy = "error" | "clamp" | "linear";
+
 export interface AxisDef {
   name: string;
   unit: string;
+  /** The library's outside-the-data setting; absent for a table that is not
+   *  interpolated (gear ratios). */
+  outside?: OutsidePolicy;
 }
 
 export interface ParameterDef {
@@ -74,6 +81,9 @@ export interface ElementInstance {
   portSides?: Record<string, PortSide>;
   /** Per-instance pin offset along its side, 0..1 (set by Shift+drag). */
   portOffsets?: Record<string, number>;
+  /** Per-instance outside-the-data settings: table key → one per axis,
+   *  overriding the library's (AxisDef.outside). */
+  tableOutside?: Record<string, OutsidePolicy[]>;
   /** Per-instance canvas node size in flow units (drag a node's edges to resize);
    *  the engine sends null for elements left at the default size. */
   size?: { width: number; height: number } | null;
@@ -115,6 +125,13 @@ export interface SimCase {
   outputEvery?: number;
   /** 0 = as fast as possible; N > 0 = pace at N× real time (live tuning). */
   realtimeFactor?: number;
+  /**
+   * "performance": the Driver holds full throttle until the car reaches its
+   * target (its PI holds the target after that), and the run reports the
+   * time to the target and the maximum speed instead of judging the speed
+   * trace (a 0-100 km/h or top-speed test). Absent = "cycle".
+   */
+  kind?: "cycle" | "performance";
   /**
    * Per-case parameter overrides: { elementId: { paramKey: value } }. Layered
    * on top of each element's own parameterOverrides at solve time, so a case
@@ -202,7 +219,8 @@ export interface SummaryValue {
 
 export interface SimResult {
   caseId: string;
-  status: "success" | "failed" | "warning";
+  /** "cancelled": a stop cut the run short. */
+  status: "success" | "failed" | "warning" | "cancelled";
   messages: SimMessage[];
   channels: Channel[];
   summary: SummaryValue[];

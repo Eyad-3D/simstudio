@@ -6,9 +6,19 @@ Public surface:
 - map & profile helpers (shared interpolation)
 """
 from .core import simulate
-from .maps import TableError, interp1, interp2, parse_table1d, parse_table2d
+from .maps import (
+    Map,
+    MapUse,
+    OutsideDataError,
+    TableError,
+    interp1,
+    interp2,
+    parse_table1d,
+    parse_table2d,
+)
 from .network import Model, ModelError, build_model
 from .profiles import interp_profile, parse_profile, profile_problems
+from .runtime import motor_max_rpm
 from .scripting import ScriptError, check_script, compile_script
 
 __all__ = [
@@ -17,6 +27,10 @@ __all__ = [
     "Model",
     "ModelError",
     "TableError",
+    "Map",
+    "MapUse",
+    "OutsideDataError",
+    "motor_max_rpm",
     "interp1",
     "interp2",
     "parse_table1d",
