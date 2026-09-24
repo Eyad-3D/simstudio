@@ -53,6 +53,27 @@ def test_demo_kpis_do_not_depend_on_the_output_step(make, active):
         assert coarse[label] == pytest.approx(value, rel=5e-3, abs=1e-3), label
 
 
+def test_hybrid_engine_switches_do_not_depend_on_the_output_step():
+    """The hybrid's script times its engine starts and stops with t, a sum of
+    float solver steps that rounds differently with each case step. Compared
+    exactly, 0.2 s of asking or 8 s on came one step later at some case steps
+    only (MOD-18: 21 of UDDS's 64 switches moved at 0.01 s), so the recorded
+    SOC must match to rounding noise, not just the summary's 0.5 %."""
+    runs = {}
+    for step in (1.0, 0.1, 0.01):
+        proj = load_example("hybrid-car")
+        case = next(c for c in proj.cases if c.id == "case-udds")
+        case.duration, case.timeStep, case.outputEvery = 120, step, round(1 / step)
+        result = simulate(proj, case.id)
+        assert result.status == "success", [m.text for m in result.messages]
+        runs[step] = {port: [p["value"] for p in series(result, el_id, port)]
+                      for el_id, port in (("el-hcu", "engine_on"), ("el-battery", "sig_soc"))}
+    assert sum(runs[1.0]["engine_on"]) > 10  # the engine ran
+    for step in (0.1, 0.01):
+        assert runs[step]["engine_on"] == runs[1.0]["engine_on"], step
+        assert runs[step]["sig_soc"] == pytest.approx(runs[1.0]["sig_soc"], rel=0, abs=1e-9), step
+
+
 def _script_probe(step: float, duration: float = 2.0, sample_time: float | None = None):
     """A Script that counts its calls and reports the dt it is given, plus
     the battery SOC it reads (a state computed by the solver)."""

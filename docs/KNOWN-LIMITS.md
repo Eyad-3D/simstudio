@@ -192,6 +192,16 @@ minimum or an average, for example from the CSV export.
   creep with the brake fully applied: under 0.2 km/h at the default *Slip
   Stiffness* of 10, about 2 km/h at 30 and up to 23 km/h at 300, at the
   10 ms solver step. *Roadmap:* ENG-09, ENG-14.
+- **A closing clutch can ring at the 10 ms step.** While a clutch slips by
+  more than 0.5 rad/s the solver passes its full torque for the whole
+  step, and at 10 ms that overshoots the lock-up: the shaft on either side
+  can swing by several hundred 1/min from one step to the next (up to
+  770 1/min in the P2 Hybrid Car) for a few steps, now and then for a
+  second or two, before the clutch locks. Energy is still conserved, but
+  the fuel it costs follows the step: the P2 Hybrid Car's EPA city figure
+  reads 2.837 l/100 km at the shipped 10 ms step, 0.015 (0.5 %) above a
+  2.5 ms run (2.821), with the same engine starts; its highway and Mixed
+  Cycle figures are about 0.005 above. *Roadmap:* ENG-09.
 - **Fuel-cell hydrogen use is a fixed figure per kWh** (*Specific H₂
   Consumption*, 55 g/kWh by default), which overstates it at part load by up
   to about a third and understates it at full load.
@@ -218,7 +228,7 @@ minimum or an average, for example from the CSV export.
   mass and road load from EPA data (EPA's own coefficients A/B/C, with the
   axle's losses counted once), but its engine, motor and battery maps
   are generic, not the car's. With its charge-sustaining control script it
-  uses about 2.84 l/100 km on the EPA city cycle and 3.23 on the highway
+  uses about 2.84 l/100 km on the EPA city cycle and 3.24 on the highway
   cycle, against 2.91 and 2.94 for the real car in EPA's tests. The model
   has no cold start, engine warm-up or start-up fuel, so its city figure
   reads below EPA's, whose city test starts cold; on the highway, with its

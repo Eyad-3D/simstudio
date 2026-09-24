@@ -5,7 +5,7 @@
  "variant": "fine",
  "case_step_s": 0.005,
  "store_every": 200,
- "change": "Road load: real air density, exact slopes, EPA coefficients for the P2 hybrid (MOD-11)",
+ "change": "The hybrid's engine starts and stops on a request held for 0.2 s (MOD-18)",
  "status": "success",
  "messages": [
   "info: Case 'City Cycle' solved: 120000 steps × 0.005 s (1 sub-steps each), 601 points recorded, stored every 200, 45 result channels."
