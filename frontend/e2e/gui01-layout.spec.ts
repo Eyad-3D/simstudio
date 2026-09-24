@@ -76,8 +76,8 @@ test.describe("1366x768", () => {
     await dropComponent(page, "E-Motor", 300, 200); // unwired: Data Checks finds problems
     await ribbonButton(page, "Simulations");
     await ribbonButton(page, "Checks");
-    await expect(page.locator(".dv-default-tab[data-badge][aria-label^='Messages (']")).toHaveCount(1);
-    await expect(page.locator(".dv-default-tab[data-badge][aria-label^='Data Checks (']")).toHaveCount(1);
+    await expect(page.locator(".dv-tab[aria-label^='Messages ('] .dv-default-tab[data-badge]")).toHaveCount(1);
+    await expect(page.locator(".dv-tab[aria-label^='Data Checks ('] .dv-default-tab[data-badge]")).toHaveCount(1);
   });
 
   test("GUI-01: the first run's Signal Plot does not cut the model off", async ({ page }) => {
