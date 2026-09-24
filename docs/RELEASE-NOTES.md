@@ -41,6 +41,9 @@ sections.
   Checks, instead of every error ever logged, which never cleared. Once a
   model has been checked, its checks, the error count and the red badges
   on parts follow it as you edit. (UX-09)
+- The Signal Plot below the diagram follows a paced (live) run while it
+  runs; before, it stayed on the run's first point until the run ended.
+  (RES-03)
 
 ## 0.2.0 — not published: its changes ship in 0.3.0
 
