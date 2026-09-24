@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   DockviewReact,
   themeLight,
@@ -107,13 +107,16 @@ const FULL_TITLES: Record<string, string> = { cases: "Cases & Parameters" };
 // its group (e.g. the diagram) and double-clicking again restores.
 function SsTab(props: IDockviewPanelHeaderProps) {
   const { api } = props;
-  const [shown, setShown] = useState(api.title ?? "");
-  useEffect(() => {
-    // onReady may retitle the panel between the first render and this effect
-    setShown(api.title ?? "");
-    const d = api.onDidTitleChange((e) => setShown(e.title));
-    return () => d.dispose();
-  }, [api]);
+  // the title lives in dockview (onReady may retitle a panel after its first
+  // render): read it as an outside store
+  const onTitle = useCallback(
+    (changed: () => void) => {
+      const d = api.onDidTitleChange(changed);
+      return () => d.dispose();
+    },
+    [api],
+  );
+  const shown = useSyncExternalStore(onTitle, () => api.title ?? "");
   const title = FULL_TITLES[api.id] ?? shown;
   const [level, count] = useAttention(api.id).split(":");
   const label = count ? `${title} (${count} ${count === "1" ? "warning or error" : "warnings or errors"})` : title;
