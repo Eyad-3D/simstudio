@@ -164,8 +164,6 @@ minimum or an average, for example from the CSV export.
   between runs as noise; to compare two close variants, lengthen the run
   (for example, repeat the cycle) so that the difference adds up.
   *Roadmap:* ENG-16.
-- **CSV export does not quote fields**, so an element label that contains a
-  comma shifts the columns. Avoid commas in labels. *Roadmap:* STD-03.
 
 ## The examples
 

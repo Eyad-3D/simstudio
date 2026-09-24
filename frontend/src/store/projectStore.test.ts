@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockedObject } from "vitest";
 import libraryJson from "../data/componentLibrary.json";
 import type {
@@ -693,6 +693,22 @@ describe("elements and wiring", () => {
     expect(rootSystem().connections.map((c) => c.id)).toEqual(["c-1"]);
   });
 
+  it("deleting parts together with other wires is one undo step (UX-39)", async () => {
+    await start();
+    store().addConnection("el-node", "t2", "el-motor", "pos");
+    const wire = rootSystem().connections[1].id;
+    const steps = store().past.length;
+
+    store().removeElements(["el-bat"], [wire]);
+    expect(allElementIds()).not.toContain("el-bat");
+    expect(rootSystem().connections).toHaveLength(0);
+    expect(store().past).toHaveLength(steps + 1);
+
+    store().undo();
+    expect(allElementIds()).toContain("el-bat");
+    expect(rootSystem().connections).toHaveLength(2);
+  });
+
   it("wires two compatible ports", async () => {
     await start();
     store().addConnection("el-node", "t2", "el-motor", "pos");
@@ -725,6 +741,22 @@ describe("elements and wiring", () => {
     expect(store().past).toHaveLength(0);
   });
 
+  it("moves a wire end in one undo step, and keeps the wire when the move is refused", async () => {
+    await start();
+    const [wire] = rootSystem().connections; // el-bat.pos -> el-node.t1
+    store().addConnection("el-bat", "pos", "el-node", "t2", wire.id);
+    expect(rootSystem().connections).toEqual([
+      expect.objectContaining({ sourceElementId: "el-bat", targetElementId: "el-node", targetPortId: "t2" }),
+    ]);
+    store().undo();
+    expect(rootSystem().connections).toEqual([wire]);
+
+    store().addConnection("el-node", "t2", "el-motor", "pos");
+    const [, other] = rootSystem().connections;
+    store().addConnection("el-bat", "pos", "el-node", "t1", other.id); // the same as `wire`
+    expect(rootSystem().connections).toEqual([wire, other]);
+  });
+
   it("stores signal wiring as a data-bus link", async () => {
     await start();
     store().addConnection("el-const", "sig_out", "el-motor", "sig_demand_in");
@@ -736,6 +768,19 @@ describe("elements and wiring", () => {
         element2Id: "el-motor",
         port2Id: "sig_demand_in",
       }),
+    ]);
+  });
+
+  it("links a signal to a port added on a Monitor (UX-40)", async () => {
+    await start();
+    store().addElement("signal.monitor", { x: 0, y: 0 });
+    const monitor = store().selectedElementId!;
+    store().setDynamicPorts(monitor, [
+      { id: "in_1", name: "in_1", direction: "input", kind: "signal", unitGroup: "No Unit" },
+    ]);
+    store().addDataBus("el-const", "sig_out", monitor, "in_1");
+    expect(store().project!.dataBusConnections).toEqual([
+      expect.objectContaining({ element1Id: "el-const", port1Id: "sig_out", element2Id: monitor, port2Id: "in_1" }),
     ]);
   });
 
@@ -772,6 +817,76 @@ describe("data checks gate", () => {
     expect(api.runSimulationLive).not.toHaveBeenCalled();
     expect(store().running).toBe(false);
     expect(messages()).toContain("error: Run blocked — fix 1 data-check error(s) first.");
+  });
+});
+
+describe("data checks follow the model", () => {
+  const error: DataCheck = { level: "error", text: "Port 'pos' is not connected." };
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("once checked, the model is re-checked quietly 600 ms after the last edit", async () => {
+    vi.useFakeTimers();
+    await start();
+    api.validateProject.mockResolvedValue([error]);
+    await store().runDataChecks();
+    api.validateProject.mockResolvedValue([]);
+    store().renameElement("el-bat", "Pack");
+    await vi.advanceTimersByTimeAsync(500);
+    store().addElement("signal.constant", { x: 10, y: 10 });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(api.validateProject).toHaveBeenCalledTimes(1); // Data Checks only, so far
+    await vi.advanceTimersByTimeAsync(100);
+    expect(api.validateProject).toHaveBeenCalledTimes(2);
+    expect(api.validateProject).toHaveBeenLastCalledWith(store().project);
+    expect(store().dataChecks).toEqual([]);
+    expect(messages().filter((m) => m.includes("Data checks"))).toHaveLength(1); // no log line of its own
+  });
+
+  it("re-checks an edit made while the first Data Checks were waiting for the engine", async () => {
+    vi.useFakeTimers();
+    await start();
+    let reply!: (checks: DataCheck[]) => void;
+    api.validateProject.mockReturnValueOnce(new Promise((resolve) => (reply = resolve)));
+    const checking = store().runDataChecks();
+    store().renameElement("el-bat", "Pack"); // not checked yet: no re-check of its own
+    reply([error]);
+    await checking;
+    api.validateProject.mockResolvedValue([]);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(api.validateProject).toHaveBeenCalledTimes(2);
+    expect(api.validateProject).toHaveBeenLastCalledWith(store().project);
+    expect(store().dataChecks).toEqual([]);
+  });
+
+  it("leaves a model nobody checked alone, and waits for a run to end", async () => {
+    vi.useFakeTimers();
+    await start();
+    store().renameElement("el-bat", "Pack");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(api.validateProject).not.toHaveBeenCalled();
+
+    // a run the test ends: its gate checks the model
+    let finish!: () => void;
+    api.validateProject.mockResolvedValue([]);
+    api.runSimulationLive.mockImplementation((_project, caseId) => ({
+      setParam: vi.fn(),
+      cancel: vi.fn(),
+      done: new Promise((resolve) => {
+        finish = () => resolve({ caseId, status: "success", messages: [], channels: [], summary: [] });
+      }),
+    }));
+    const run = store().run();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store().running).toBe(true);
+    store().renameElement("el-bat", "Pack 2");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(api.validateProject).toHaveBeenCalledTimes(1); // the gate only
+    finish();
+    await run;
+    await vi.advanceTimersByTimeAsync(600);
+    expect(api.validateProject).toHaveBeenCalledTimes(2);
   });
 });
 

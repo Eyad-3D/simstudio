@@ -199,6 +199,12 @@ function channelMetaResolver(
   };
 }
 
+/** An element's ports: its library ones plus any it carries itself (Monitor
+ *  and Script ports are added per element in Properties). */
+export function portsOf(el: ElementInstance, libraryById: Record<string, ComponentDef>): PortDef[] {
+  return [...(libraryById[el.componentDefId]?.ports ?? []), ...(el.dynamicPorts ?? [])];
+}
+
 /** The signal output already feeding input `elementId.portId` (through a data
  *  bus link or a canvas wire), as "Element.Port", or null. */
 function signalSourceOf(
@@ -210,10 +216,7 @@ function signalSourceOf(
   const elements = new Map(project.systems.flatMap((s) => s.elements.map((e) => [e.id, e] as const)));
   const output = (elId: string, pId: string) => {
     const el = elements.get(elId);
-    const port =
-      el &&
-      (libraryById[el.componentDefId]?.ports.find((p) => p.id === pId) ??
-        el.dynamicPorts?.find((p) => p.id === pId));
+    const port = el && portsOf(el, libraryById).find((p) => p.id === pId);
     return el && port?.direction === "output" ? `${el.label}.${port.name}` : null;
   };
   const links = [
@@ -342,7 +345,8 @@ interface ProjectState {
   moveElement: (id: string, position: { x: number; y: number }) => void;
   resizeElement: (id: string, size: { width: number; height: number }) => void;
   beginHistory: () => void;
-  removeElements: (ids: string[]) => void;
+  /** Delete parts (with every wire on them) and the given wires, as one undo step. */
+  removeElements: (ids: string[], connectionIds?: string[]) => void;
   copyElements: (ids: string[]) => void;
   duplicateElements: (ids: string[]) => void;
   pasteClipboard: (position?: { x: number; y: number }) => void;
@@ -357,11 +361,14 @@ interface ProjectState {
     side: PortSide,
     offset: number,
   ) => void;
+  /** Wire two ports; with `replaceId`, the new wire takes that one's place in
+   *  the same undo step, and the old wire stays if the new one is refused. */
   addConnection: (
     sourceElementId: string,
     sourcePortId: string,
     targetElementId: string,
     targetPortId: string,
+    replaceId?: string,
   ) => void;
   removeConnections: (ids: string[]) => void;
   addDataBus: (el1: string, p1: string, el2: string, p2: string) => void;
@@ -881,8 +888,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       set({ past: [...past.slice(-(HISTORY_LIMIT - 1)), project], future: [] });
     },
 
-    removeElements: (ids) => {
-      if (ids.length === 0) return;
+    removeElements: (ids, connectionIds = []) => {
+      if (ids.length === 0 && connectionIds.length === 0) return;
       updateProject((draft) => {
         // collect sub-system trees rooted at removed container elements
         const doomedSystems = new Set<string>();
@@ -906,11 +913,17 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         for (const s of draft.systems) {
           s.elements = s.elements.filter((e) => !doomedElements.has(e.id));
           s.connections = s.connections.filter(
-            (c) => !doomedElements.has(c.sourceElementId) && !doomedElements.has(c.targetElementId),
+            (c) =>
+              !connectionIds.includes(c.id) &&
+              !doomedElements.has(c.sourceElementId) &&
+              !doomedElements.has(c.targetElementId),
           );
         }
         draft.dataBusConnections = draft.dataBusConnections.filter(
-          (d) => !doomedElements.has(d.element1Id) && !doomedElements.has(d.element2Id),
+          (d) =>
+            !connectionIds.includes(d.id) &&
+            !doomedElements.has(d.element1Id) &&
+            !doomedElements.has(d.element2Id),
         );
       });
       const { selectedElementId, activeSystemId, project } = get();
@@ -1050,7 +1063,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         }
       }),
 
-    addConnection: (sourceElementId, sourcePortId, targetElementId, targetPortId) => {
+    addConnection: (sourceElementId, sourcePortId, targetElementId, targetPortId, replaceId) => {
       const { project, libraryById, log } = get();
       if (!project) return;
       const elements = project.systems.flatMap((s) => s.elements);
@@ -1080,19 +1093,23 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const dup = project.systems.some((s) =>
         s.connections.some(
           (c) =>
-            (c.sourceElementId === sourceElementId &&
+            c.id !== replaceId &&
+            ((c.sourceElementId === sourceElementId &&
               c.sourcePortId === sourcePortId &&
               c.targetElementId === targetElementId &&
               c.targetPortId === targetPortId) ||
-            (c.sourceElementId === targetElementId &&
-              c.sourcePortId === targetPortId &&
-              c.targetElementId === sourceElementId &&
-              c.targetPortId === sourcePortId),
+              (c.sourceElementId === targetElementId &&
+                c.sourcePortId === targetPortId &&
+                c.targetElementId === sourceElementId &&
+                c.targetPortId === sourcePortId)),
         ),
       );
       if (dup) return;
       const { activeSystemId } = get();
       updateProject((draft) => {
+        if (replaceId) {
+          for (const s of draft.systems) s.connections = s.connections.filter((c) => c.id !== replaceId);
+        }
         const system = draft.systems.find((s) => s.id === activeSystemId);
         system?.connections.push({
           id: uid("c"),
@@ -1104,15 +1121,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       });
     },
 
-    removeConnections: (ids) => {
-      if (ids.length === 0) return;
-      updateProject((draft) => {
-        for (const s of draft.systems) {
-          s.connections = s.connections.filter((c) => !ids.includes(c.id));
-        }
-        draft.dataBusConnections = draft.dataBusConnections.filter((d) => !ids.includes(d.id));
-      });
-    },
+    removeConnections: (ids) => get().removeElements([], ids),
 
     addDataBus: (el1, p1, el2, p2) => {
       const { project, libraryById, log } = get();
@@ -1120,8 +1129,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const elements = project.systems.flatMap((s) => s.elements);
       const e1 = elements.find((e) => e.id === el1);
       const e2 = elements.find((e) => e.id === el2);
-      const port1 = e1 && libraryById[e1.componentDefId]?.ports.find((p) => p.id === p1);
-      const port2 = e2 && libraryById[e2.componentDefId]?.ports.find((p) => p.id === p2);
+      const port1 = e1 && portsOf(e1, libraryById).find((p) => p.id === p1);
+      const port2 = e2 && portsOf(e2, libraryById).find((p) => p.id === p2);
       if (!e1 || !e2 || !port1 || !port2) return;
       if (port1.kind !== "signal" || port2.kind !== "signal") {
         log("error", "Data bus connections must link two signal ports.");
@@ -1529,6 +1538,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       try {
         const checks = await api.validateProject(project);
         set({ dataChecks: checks, checking: false });
+        if (get().project !== project) scheduleRecheck(); // edited while it checked
         const errors = checks.filter((c) => c.level === "error").length;
         const warnings = checks.filter((c) => c.level === "warning").length;
         log(
@@ -1726,6 +1736,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       try {
         const checks = await api.validateProject(project);
         set({ dataChecks: checks });
+        if (get().project !== project) scheduleRecheck(); // edited while it checked
         const errors = checks.filter((c) => c.level === "error");
         if (errors.length > 0) {
           log("error", `Run blocked — fix ${errors.length} data-check error(s) first.`);
@@ -1816,6 +1827,38 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     },
   };
 });
+
+// Once the model has been checked (Data Checks, or the gate before a run), its
+// checks follow it: a quiet re-check runs RECHECK_MS after the last edit, so
+// part badges and the status-bar count clear as soon as the problems are
+// fixed. A model nobody checked is left alone, and a re-check due while a run
+// is in progress waits for the run to end.
+const RECHECK_MS = 600;
+let recheckTimer: ReturnType<typeof setTimeout> | undefined;
+useProjectStore.subscribe((s, prev) => {
+  if (s.project !== prev.project && s.dataChecks) scheduleRecheck();
+});
+
+function scheduleRecheck(): void {
+  clearTimeout(recheckTimer);
+  recheckTimer = setTimeout(recheck, RECHECK_MS);
+}
+
+async function recheck(): Promise<void> {
+  const { project, dataChecks, running } = useProjectStore.getState();
+  if (!project || !dataChecks) return;
+  if (running) {
+    recheckTimer = setTimeout(recheck, RECHECK_MS);
+    return;
+  }
+  try {
+    const checks = await api.validateProject(project);
+    // an edit made meanwhile has a re-check of its own coming
+    if (useProjectStore.getState().project === project) useProjectStore.setState({ dataChecks: checks });
+  } catch {
+    /* engine unreachable: keep the last checks */
+  }
+}
 
 /** Ask before `action` (New, Open, Import) replaces a project with unsaved
  *  changes. Resolves true when it may go ahead: nothing was unsaved, the save

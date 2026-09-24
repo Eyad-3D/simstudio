@@ -5,7 +5,44 @@ why**, so that you can tell whether a number you got from an earlier version
 still holds. The full record of every change to the reference results is in
 [`backend/tests/golden/CHANGES.md`](../backend/tests/golden/CHANGES.md).
 
-## 0.2.0 — first public release (early version)
+## 0.3.0 — first public release (not released yet)
+
+0.2.0 was prepared but never published, so everything listed under
+[0.2.0](#020--not-published-its-changes-ship-in-030) below also reaches you
+for the first time in this release. Coming from SimStudio 0.1.0, read both
+sections.
+
+### Fixed
+
+- One Ctrl+Z after deleting with the Delete or Backspace key brings back
+  the parts together with their wires, also for a selection of several
+  parts and wires. Before, the first Ctrl+Z brought a part back without its
+  wires, and saving then lost them. (UX-39)
+- Dragging the end of a wire to another pin is one undo step, and the wire
+  stays where it was when the new connection is refused.
+- Delete or Backspace in a map's cell clears the cell; it no longer also
+  deletes the part selected on the diagram.
+- Monitor and Script blocks you add yourself can be wired in the Data Bus
+  panel; before, only the examples' ones could, because their links were
+  written into the project file. (UX-40)
+- Chart picture export saves the whole chart at twice its size on screen,
+  legend included; before, it saved a 28 × 28 px legend icon. CSV export
+  quotes fields as RFC 4180 says, so an element label with a comma in it
+  stays in one column. (RES-37)
+- The Open and Restore… menus and the diagram's right-click menu close on
+  Esc, on a click anywhere outside them (the diagram too) and when a dialog
+  opens; before, the Open menu stayed over the diagram, and even over the
+  parameter dialog. (GUI-33)
+- On a 1366-px screen, numbers in the Properties and Cases panels are shown
+  in full (the Driver's I Gain of 0.08 read "0.0"), parameter labels stay on
+  one line with the full text in a tooltip, and the *Cases & Parameters*
+  tab is titled *Cases*. (GUI-34)
+- The status bar counts the errors the model has now, from the latest Data
+  Checks, instead of every error ever logged, which never cleared. Once a
+  model has been checked, its checks, the error count and the red badges
+  on parts follow it as you edit. (UX-09)
+
+## 0.2.0 — not published: its changes ship in 0.3.0
 
 The app is renamed from SimStudio to LightSim; your projects come along
 (see [Upgrading from 0.1.0](#upgrading-from-010)).

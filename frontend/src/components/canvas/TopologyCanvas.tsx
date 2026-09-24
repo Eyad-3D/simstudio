@@ -43,6 +43,7 @@ import {
   useProjectStore,
 } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
+import { useDismiss } from "../useDismiss";
 import { promptDialog } from "../../dialog";
 import type { PortKind } from "../../types";
 import { ElementNode, type ElementFlowNode } from "./ElementNode";
@@ -128,6 +129,7 @@ function TopologyCanvasInner() {
   const [showGrid, setShowGrid] = useState(true);
   const [snap, setSnap] = useState(false);
   const [menu, setMenu] = useState<CtxMenu | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [guides, setGuides] = useState<{ x: number[]; y: number[] } | null>(null);
   // node sizes React Flow measured, kept on the controlled nodes (as
   // applyNodeChanges would) so the minimap can draw them. Keyed by element id
@@ -497,9 +499,7 @@ function TopologyCanvasInner() {
   );
 
   const deleteSelection = useCallback(() => {
-    const st = store.getState();
-    if (selectedEdges.size > 0) st.removeConnections([...selectedEdges]);
-    if (selectedNodes.size > 0) st.removeElements([...selectedNodes]);
+    store.getState().removeElements([...selectedNodes], [...selectedEdges]);
     setSelectedEdges(new Set());
     setSelectedNodes(new Set());
   }, [selectedEdges, selectedNodes, store]);
@@ -511,9 +511,9 @@ function TopologyCanvasInner() {
       const a = portOf(conn.source, conn.sourceHandle);
       const b = portOf(conn.target, conn.targetHandle);
       if (!a || !b || a.kind === "signal" || a.kind !== b.kind) return; // invalid → keep old edge
-      const st = store.getState();
-      st.removeConnections([oldEdge.id]);
-      st.addConnection(conn.source, conn.sourceHandle, conn.target, conn.targetHandle);
+      store
+        .getState()
+        .addConnection(conn.source, conn.sourceHandle, conn.target, conn.targetHandle, oldEdge.id);
     },
     [portOf, store],
   );
@@ -595,12 +595,7 @@ function TopologyCanvasInner() {
   }, [selectedNodes, fitView, autoFit]);
 
   // close the context menu on Escape / outside interactions
-  useEffect(() => {
-    if (!menu) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeMenu();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [menu]);
+  useDismiss(menu !== null, closeMenu, menuRef);
 
   const breadcrumb = project && activeSystemId ? systemBreadcrumb(project, activeSystemId) : [];
   const past = useProjectStore((s) => s.past.length);
@@ -763,11 +758,13 @@ function TopologyCanvasInner() {
               useUIStore.getState().openParamDialog(el.id);
             }
           }}
-          onNodesDelete={(deleted) =>
-            store.getState().removeElements(deleted.map((n) => n.id))
-          }
-          onEdgesDelete={(deleted) =>
-            store.getState().removeConnections(deleted.map((e) => e.id))
+          // one store call for the parts and wires React Flow deletes (Del,
+          // Backspace), so a single undo brings them all back
+          onDelete={({ nodes: parts, edges: wires }) =>
+            store.getState().removeElements(
+              parts.map((n) => n.id),
+              wires.map((e) => e.id),
+            )
           }
           onPaneClick={(e) => {
             if (placingId) {
@@ -919,6 +916,7 @@ function TopologyCanvasInner() {
         )}
         {menu && (
           <div
+            ref={menuRef}
             className="absolute z-50 min-w-[176px] rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] py-1 shadow-lg"
             style={{
               left: Math.min(menu.x, (wrapperRef.current?.clientWidth ?? 9999) - 184),

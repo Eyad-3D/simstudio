@@ -1,5 +1,6 @@
 import { CloudOff, Loader2, Plus } from "lucide-react";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
+import { useUIStore } from "../store/uiStore";
 
 export function StatusBar() {
   const project = useProjectStore((s) => s.project);
@@ -9,8 +10,10 @@ export function StatusBar() {
   const liveT = useProjectStore((s) => s.liveT);
   const dirty = useProjectStore((s) => s.dirty);
   const newProject = useProjectStore((s) => s.newProject);
-  const messages = useProjectStore((s) => s.messages);
-  const errors = messages.filter((m) => m.level === "error").length;
+  // the problems the model has now (the latest Data Checks, re-checked as it
+  // changes), not every error ever logged: Messages keeps those
+  const dataChecks = useProjectStore((s) => s.dataChecks);
+  const errors = dataChecks?.filter((c) => c.level === "error").length ?? 0;
   const elementCount =
     project?.systems.reduce((n, s) => n + s.elements.length, 0) ?? 0;
 
@@ -44,7 +47,19 @@ export function StatusBar() {
             </span>
           </span>
         )}
-        {errors > 0 && <span className="text-red-600">{errors} error(s)</span>}
+        {errors > 0 && (
+          <button
+            className="text-red-600 hover:underline"
+            title="Show the Data Checks"
+            onClick={() => {
+              const ui = useUIStore.getState();
+              if (ui.ribbonTab === "results") ui.setRibbonTab("home");
+              ui.focusPanel("data-checks");
+            }}
+          >
+            {errors} {errors === 1 ? "error" : "errors"}
+          </button>
+        )}
         <span>{elementCount} elements</span>
         {offline ? (
           <span className="flex items-center gap-1 text-amber-600">

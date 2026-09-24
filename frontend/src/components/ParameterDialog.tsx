@@ -21,12 +21,18 @@ export function ParameterDialog() {
     return () => window.removeEventListener("keydown", onKey);
   }, [paramDialogId, closeParamDialog]);
 
-  if (!paramDialogId || !project) return null;
-  const element = project.systems
+  const element = project?.systems
     .flatMap((s) => s.elements)
     .find((e) => e.id === paramDialogId);
   const def = element ? libraryById[element.componentDefId] : undefined;
-  if (!element || !def) return null;
+
+  // the part went away under the dialog (undo, Delete, another project):
+  // forget it too, or the menus would take the dialog for still open
+  useEffect(() => {
+    if (paramDialogId && !def) closeParamDialog();
+  }, [paramDialogId, def, closeParamDialog]);
+
+  if (!paramDialogId || !element || !def) return null;
   const Icon = componentIcon(def.icon);
 
   return (
