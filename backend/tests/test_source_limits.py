@@ -71,13 +71,6 @@ def _constant_demand_axle(source_els, source_conns, demand, **vehicle):
     return project(elements, connections, [dbc(1, "cmd", "sig_out", "mot", "sig_demand_in")])
 
 
-def _battery_net_in_kwh(result, r0):
-    """Energy that went into storage: terminal energy in minus I²R losses."""
-    power = _values(result, "batt", "sig_power")[1:]
-    current = _values(result, "batt", "sig_current")[1:]
-    return -sum(p * 1000.0 + i * i * r0 for p, i in zip(power, current)) * DT / 3.6e6
-
-
 def _assert_source_covers_motor(result, source, port="sig_power"):
     """Step by step, the source's power is the motor's electrical power."""
     p_src = _values(result, source, port)
@@ -171,8 +164,10 @@ def test_full_battery_regen_goes_to_the_friction_brakes():
     _set(proj, batt={"initial_soc_pct": 100}, veh={"initial_speed_kmh": 100})
     result = _run(proj, 30)
     soc = _values(result, "batt", "sig_soc")
-    stored_kwh = (soc[-1] - soc[0]) / 100.0 * 60.0
-    assert stored_kwh == pytest.approx(_battery_net_in_kwh(result, 0.08), abs=1e-5)
+    q_ah = 60e3 / 345.0  # Usable Capacity at the library OCV table's SOC-weighted mean
+    current = _values(result, "batt", "sig_current")
+    # a full battery hardly moves: the band is the stored SOC's 5-decimal rounding
+    assert (soc[-1] - soc[0]) / 100.0 * q_ah == pytest.approx(-sum(current[1:]) * DT / 3600.0, abs=2e-5)
     assert max(soc) <= 100.0
     _assert_source_covers_motor(result, "batt")
     speed = {p["t"]: p["value"] for p in series(result, "veh", "sig_speed")}

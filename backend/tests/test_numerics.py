@@ -153,7 +153,6 @@ def test_braking_distance_is_v0_squared_over_2a():
     assert x_stop == pytest.approx(V0**2 / (2 * decel), rel=0.005)
 
 
-@pytest.mark.xfail(strict=True, reason="until MOD-11 (exact slope force)")
 def test_coasting_up_a_grade_turns_kinetic_energy_into_m_g_h():
     """A 25 % grade (tan and sin differ by 3 %): the body stops after rising
     h = v0² / 2g, i.e. after v0² / (2 g sin(atan 0.25)) along the road.
