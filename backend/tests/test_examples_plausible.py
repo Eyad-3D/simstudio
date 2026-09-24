@@ -144,7 +144,7 @@ def test_bev_top_speed_is_the_reference_cars_and_within_the_motors_limit(bev_ful
     v_max = max(p["value"] for p in series(result, "el-vehicle", "sig_speed"))
     assert v_max == pytest.approx(160, rel=0.02)
     # the motor's maximum speed: its full-load curve ends there at zero
-    # torque (beyond the last point a map holds its edge value)
+    # torque (its Maximum Speed is left at 0, which means that last point)
     full_load = parse_table2d(params["el-motor"]["full_load_torque"])
     assert all(curve[-1][1] == 0 for _, curve in full_load)
     n_max = max(curve[-1][0] for _, curve in full_load)

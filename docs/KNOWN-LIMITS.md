@@ -31,8 +31,9 @@ Messages names the maximum speed. Each table axis has an *outside the data*
 setting, shown in the table editor of the parameter dialog: *Error* stops
 the run with a message naming the table, the axis, the value, the data's
 range and the time; *Clamp* holds the edge value (what every table did
-before 0.3); *Linear* extends the edge slope. Motor and engine speed and
-torque axes and the fuel cell's current stop the run by default. When a run
+before 0.3); *Linear* extends the edge slope. The speed and torque axes of
+motor and engine full-load, loss and fuel maps, and the fuel cell's current,
+stop the run by default. When a run
 reads a table outside its data, or a motor or engine goes above its maximum
 speed, Messages says so once and the run summary lists for how long (as a
 share of the run) and how far; these rows appear only when that happened.
@@ -45,15 +46,19 @@ What remains:
 - Below the first speed of its full-load curve (starting, stalling) a fired
   engine gives that point's torque and burns that point's fuel: a start-up
   rule, not a model of starting.
-- An engine's rev limiter is a hard cut, so it overshoots its limit by up to
-  a solver step's acceleration (about 1 %); only more than 2 % above it
-  counts as over speed.
+- A motor's or engine's speed limit acts from the solver step after the one
+  that reached it, so the machine's own drive can carry it past by up to a
+  step's acceleration (the default engine's hard rev limiter: about 1 %; a
+  light machine further). While it falls back from there it is not counted
+  as over speed; only what drives it higher is.
 - A run that went outside its data still ends as *success* if it followed
   its cycle: the run status does not judge these counters yet.
 - A project from 0.2.0 whose loss or fuel map is narrower than its
-  full-load map, or whose fuel map does not reach the full-load curve's
-  first speed, now stops with an error where it used to hold the edge
-  value. Data Checks warn about it before the run.
+  full-load map, whose fuel map does not reach the full-load curve's first
+  speed, whose motor full-load map starts above 0 1/min, or whose fuel cell
+  has a Maximum Current beyond its polarization curve, now stops with an
+  error where it used to hold the edge value. Data Checks warn about it
+  before the run.
 
 *Workaround:* read the summary rows and Messages after a run; where a run
 stops, extend the table or set that axis to *Clamp* or *Linear*.

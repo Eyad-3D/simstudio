@@ -455,11 +455,12 @@ estimate). Both examples use four default brakes, so each car carried
 1.68 kg·m² too much at its wheels: when accelerating and braking, as if the
 BEV were 14 kg and the hybrid 17 kg heavier (1.68 / r², r = 0.349 and
 0.31 m). Now the default is 0.18 kg·m², the ring value, since a disc's mass
-sits mostly in its friction ring. (With the solid-disc 0.14 the hybrid
-example's first engine start moved from 6 s to 10 s at the shipped 10 ms
-step but not at the 5 ms step, so the two steps no longer agreed: energy
-delivered 0.210 against 0.206 kWh. From 0.15 kg·m² up both start it at
-6 s: the example's start rule sits on a knife-edge there.) Less energy goes
+sits mostly in its friction ring. (With the solid-disc 0.14, at the
+shipped 10 ms step only, the hybrid example's engine started once more at
+9.7 s and its start at 71.8 s moved to 82.7 s; at the 5 ms step it did not,
+so the two steps no longer agreed: energy delivered 0.210 against
+0.206 kWh. From 0.15 kg·m² up both steps start it at the same times: the
+example's start rule sits on a knife-edge there.) Less energy goes
 into spinning the brakes up, and less comes back when braking:
 
 - bev-car City Cycle: energy delivered 0.881 -> 0.880 kWh, recuperated
@@ -469,9 +470,9 @@ into spinning the brakes up, and less comes back when braking:
   inertia torque.
 - hybrid-car Mixed Cycle: final SOC 51.84 -> 51.76 %, recuperated 0.210 ->
   0.209 kWh, fuel 0.209 -> 0.208 kg, CO₂ 69.2 -> 69.1 g/km at the shipped
-  step; 2.93 l/100 km unchanged. The engine starts about 1 s later near
-  t = 72 s, which moves most of the channels that left their tube. At the
-  5 ms step: CO₂ 69.1 -> 68.9 g/km.
+  step; 2.93 l/100 km unchanged. The engine starts 0.3 s later near t = 72 s
+  (72.1 instead of 71.8 s), which moves most of the channels that left
+  their tube. At the 5 ms step: CO₂ 69.1 -> 68.9 g/km.
 - Headline numbers that are not fixtures: BEV WLTC 14.04 -> 14.03 kWh/100 km
   (energy delivered 4.381 -> 4.368 kWh), with heating/air-con 18.88 ->
   18.87 kWh/100 km; hybrid EPA city (UDDS) 2.95 -> 2.94 and highway

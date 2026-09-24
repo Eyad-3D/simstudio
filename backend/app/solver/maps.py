@@ -179,11 +179,14 @@ class Map:
                                if inner else None)
 
     def edge(self, i: int, x: float) -> float | None:
-        """The edge of axis i's data that x lies past, or None inside it."""
+        """The edge of axis i's data that x lies past, or None inside it
+        (float noise at an edge, such as a motor at its last speed point,
+        is inside)."""
         r = self.ranges[i]
         if r is None:
             return None
-        return r[0] if x < r[0] else r[1] if x > r[1] else None
+        tol = 1e-9 * max(abs(r[0]), abs(r[1]))
+        return r[0] if x < r[0] - tol else r[1] if x > r[1] + tol else None
 
     def at(self, x: float, y: float | None = None) -> float:
         if self.error:

@@ -157,6 +157,33 @@ def test_a_motor_driven_past_its_maximum_speed_is_flagged():
     assert _max(result, "mot", "sig_speed") > 15000  # it started up there
 
 
+@pytest.mark.parametrize("kind, params", [
+    ("motor", {}),  # at 12,000 1/min to float noise
+    ("motor", {"max_speed_rpm": 3000, "inertia_kgm2": 0.02}),  # a step jumps the 2 % taper
+    ("engine", {"inertia_kgm2": 0.05}),  # a step overshoots the rev limit by 3 %
+])
+def test_a_machine_held_at_its_limiter_is_not_over_speed(kind, params):
+    """A free-spinning machine at full command: its own last step can carry
+    it past its limit before the limiter acts. Before, a light one had most
+    of the run booked as over speed (16.5 of 20 s at 3,000 1/min)."""
+    if kind == "motor":
+        machine = el("m", "motor.emotor", "Machine", **params)
+        supply = [el("batt", "battery.generic", "Battery"), el("bus", "electric.node", "Bus")]
+        wires = [conn(2, "batt", "pos", "bus", "t1"), conn(3, "bus", "t3", "m", "pos")]
+        port, n_max = "sig_demand_in", params.get("max_speed_rpm", 12000)
+    else:
+        machine = el("m", "engine.combustion", "Machine", **params)
+        supply, wires, port, n_max = [], [], "sig_throttle_in", 6000
+    proj = project([machine, el("sh", "mech.shaft", "Shaft"),
+                    el("c", "signal.constant", "Command", value=1), *supply],
+                   [conn(1, "m", "shaft", "sh", "flange_a"), *wires],
+                   [dbc(1, "c", "sig_out", "m", port)], duration=5, time_step=0.5)
+    result = simulate(proj, "case")
+    assert _max(result, "m", "sig_speed") > 0.99 * n_max
+    assert not [s for s in _summary(result) if any(r in s for r in EDGE_ROWS)]
+    assert not [t for t in _texts(result) if "driven above" in t]
+
+
 def test_max_speed_is_live_tunable():
     proj = bev_axle(profile="0:0; 3:300; 60:300")
     proj.cases[0].duration = 60
@@ -222,7 +249,9 @@ def test_a_motor_on_a_voltage_past_its_map_is_counted_not_warned():
     assert any("Full-Load Torque: Voltage 4" in t and "(396 V)" in t
                for t in _texts(result, "info"))
     summary = _summary(result)
-    assert summary["E-Motor — time outside its 'Full-Load Torque' table (Voltage)"] > 80
+    # once per solver step: the handshake's and the Driver's trial reads of
+    # the map would take it past 100 %
+    assert 80 < summary["E-Motor — time outside its 'Full-Load Torque' table (Voltage)"] <= 100
     assert summary["E-Motor — furthest Voltage outside its 'Full-Load Torque' table"] > 420
 
 
@@ -346,6 +375,25 @@ def test_mismatches_are_warned_about():
         "which ends at 12,000 1/min — lower it or extend the map.",
         "E-Motor 'E-Motor': its loss map covers 0–12,000 1/min but the motor runs from 0 to its "
         "maximum speed of 14,000 1/min — extend the map."]
+
+    # a map measured from 1,000 1/min: before, the run held its edge value;
+    # now the Error axis stops it at the first step
+    proj = bev_axle()
+    full_load = next(p.default for p in library_by_id()["motor.emotor"].parameters
+                     if p.key == "full_load_torque")
+    _el(proj, "mot").parameterOverrides["full_load_torque"] = {
+        v: {k: t for k, t in sheet.items() if k != "0"} for v, sheet in full_load.items()}
+    assert _map_warnings(proj) == [
+        "E-Motor 'E-Motor': its full-load data starts at 1,000 1/min but the motor starts from "
+        "0 — extend the map down to 0 1/min."]
+
+    proj = _with_source(el("batt", "fuelcell.stack", "Fuel Cell", max_current_A=450,
+                           polarization={"20": 396, "100": 349, "400": 250}))
+    assert _map_warnings(proj) == [
+        "Fuel cell 'Fuel Cell': its polarization curve starts at 20 A but the stack starts from "
+        "0 A — extend the curve down to 0 A.",
+        "Fuel cell 'Fuel Cell': its polarization curve covers 20–400 A but its Maximum Current "
+        "is 450 A — extend the curve or lower the Maximum Current."]
 
     engine = el("eng", "engine.combustion", "Engine")
     fuel_map = next(p.default for p in library_by_id()["engine.combustion"].parameters

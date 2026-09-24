@@ -354,6 +354,22 @@ class RunContext:
         self.map_use.append(use)
         return use
 
+    def over_speed(self, m: MotorCache | EngineCache, rpm: float, n_max: float) -> bool:
+        """Book a solver step a motor or engine spent above its maximum speed;
+        True the first time. Its limiter acts from the step after the one
+        that took it past, so a step of its own drive can overshoot the
+        limit: while it falls back from there it is held at its limiter, not
+        driven above it, and that is not counted. Anything that drives it
+        higher is, until it is back below."""
+        if rpm <= n_max * (1.0 + 1e-9):  # (float noise at the limit)
+            m.overshoot_rpm = 0.0
+        elif m.p_mech_w > 0.0:  # the last step's own drive took it here
+            m.overshoot_rpm = rpm
+        elif rpm > m.overshoot_rpm:
+            m.overshoot_rpm = 0.0
+            return m.speed_use.count(rpm, n_max, self.t, self.dt)
+        return False
+
     def used(self, m: Map, *point: float) -> None:
         """Book the point this solver step's result read a table at (not the
         trial lookups before it); the first time an axis set to Clamp or
@@ -639,12 +655,12 @@ class RunContext:
                          f"supply — it produces no torque.")
             return 0.0, False
         rpm = abs(omega_m) * RPM
-        if demand == 0.0 or rpm > mc.max_rpm:
+        if demand == 0.0 or rpm > mc.max_rpm * (1.0 + 1e-9):  # (float noise at the limit)
             return 0.0, False
         t_full = mc.full_load.at(volts, rpm)
         demand = max(-1.0, min(1.0, demand))
         if demand > 0 and rpm > mc.max_rpm * (1.0 - SPEED_LIMIT_BAND):
-            t_full *= (mc.max_rpm - rpm) / (SPEED_LIMIT_BAND * mc.max_rpm)
+            t_full *= max(0.0, mc.max_rpm - rpm) / (SPEED_LIMIT_BAND * mc.max_rpm)
             if f"maxspeed:{mc.el_id}" not in rt.warned:
                 note = (", the last speed point of its full-load curve"
                         if mc.max_rpm == motor_max_rpm(mc.full_load.pts, 0) else "")
@@ -706,14 +722,14 @@ class RunContext:
             t_net = -_sign(omega_m) * mc.drag.at(rpm)
             p_elec = 0.0
         # the maps this result was read from, at the point it was read at;
-        # past its maximum speed a motor counts as over speed, not as past
-        # its drag table
+        # past its maximum speed a motor counts as over speed, not as past a
+        # drag table that reaches that speed
         if powered:
             self.used(mc.full_load, self.motor_volts(mc), rpm)
             self.used(mc.loss, rpm, abs(t_net))
         else:
-            self.used(mc.drag, min(rpm, mc.max_rpm))
-        if rpm > mc.max_rpm and mc.speed_use.count(rpm, mc.max_rpm, self.t, self.dt):
+            self.used(mc.drag, rpm if mc.drag.pts[-1][0] < mc.max_rpm else min(rpm, mc.max_rpm))
+        if self.over_speed(mc, rpm, mc.max_rpm):
             self.rt.message(
                 "info",
                 f"E-Motor '{self.model.elements[mc.el_id].label}' was driven above its maximum "
@@ -994,7 +1010,7 @@ class RunContext:
                 rt.warn_once(
                     f"revlimit:{ec.el_id}",
                     f"Engine '{model.elements[ec.el_id].label}' reached its maximum speed "
-                    f"({n_top:.0f} 1/min, the full-load curve's last point) — "
+                    f"({n_top:,.0f} 1/min, the full-load curve's last point) — "
                     f"the rev limiter cuts fuel and torque above it.",
                     level="info",
                 )
@@ -1019,17 +1035,15 @@ class RunContext:
             fuel = ec.fuel_map.at(n_map, 0.0) * (1.0 + t_brake / t_drag)
             self.used(ec.fuel_map, n_map, 0.0)
         # the drag table where it set the result (past the rev limit that
-        # counts as over speed); the full-load curve is read only between its
-        # first and last speed, so it is never left
+        # counts as over speed, when the table reaches it); the full-load
+        # curve is read only between its first and last speed, so it is
+        # never left
         if t_brake is None or t_brake < 0:
-            self.used(ec.drag, min(rpm, n_top))
-        # a hard rev limiter lets a fired engine overshoot its limit by a
-        # step's acceleration: only beyond that is it driven above it
-        if rpm > n_top * (1.0 + SPEED_LIMIT_BAND) and ec.speed_use.count(
-                rpm, n_top, self.t, self.dt):
+            self.used(ec.drag, rpm if ec.drag.pts[-1][0] < n_top else min(rpm, n_top))
+        if self.over_speed(ec, rpm, n_top):
             rt.message(
                 "info",
-                f"Engine '{model.elements[ec.el_id].label}' was driven more than 2 % above its "
+                f"Engine '{model.elements[ec.el_id].label}' was driven above its "
                 f"maximum speed ({n_top:,.0f} 1/min, the full-load curve's last point) at "
                 f"t = {self.t:.2f} s; it is not fired above it. The run summary says for how "
                 f"long and how far.")

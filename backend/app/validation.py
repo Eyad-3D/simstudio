@@ -645,6 +645,11 @@ def _map_checks(model: Model, add: Add) -> None:
                 add("warning", f"E-Motor '{label}': its Maximum Speed ({fmt(n_max)} 1/min) is "
                                f"beyond its full-load data, which ends at {fmt(n_curve)} 1/min — "
                                f"lower it or extend the map.", el)
+            rng = inner_span(fl)
+            if rng and rng[0] > 0:
+                add("warning", f"E-Motor '{label}': its full-load data starts at "
+                               f"{fmt(rng[0])} 1/min but the motor starts from 0 — extend the "
+                               f"map down to 0 1/min.", el)
             if len(loss) > 1 and math.isfinite(n_max) and (loss[0][0] > 0 or loss[-1][0] < n_max):
                 add("warning", f"E-Motor '{label}': its loss map covers {span(loss[0][0], loss[-1][0])} "
                                f"1/min but the motor runs from 0 to its maximum speed of "
@@ -670,7 +675,11 @@ def _map_checks(model: Model, add: Add) -> None:
                                f"engine gives up to {fmt(peak)} N·m — extend the map.", el)
         elif cdef.id == "fuelcell.stack":
             pol, i_max = table(el_id, "polarization", False), num(el_id, "max_current_A", 400.0)
-            if pol and len(pol) > 1 and (pol[0][0] > 0 or pol[-1][0] < i_max):
+            if pol and len(pol) > 1 and pol[0][0] > 0:
+                add("warning", f"Fuel cell '{label}': its polarization curve starts at "
+                               f"{fmt(pol[0][0])} A but the stack starts from 0 A — extend the "
+                               f"curve down to 0 A.", el)
+            if pol and len(pol) > 1 and pol[-1][0] < i_max:
                 add("warning", f"Fuel cell '{label}': its polarization curve covers "
                                f"{span(pol[0][0], pol[-1][0])} A but its Maximum Current is "
                                f"{fmt(i_max)} A — extend the curve or lower the Maximum Current.", el)

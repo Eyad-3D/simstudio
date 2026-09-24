@@ -109,6 +109,20 @@ def _ice_car(profile: str, duration: float, speed: float = 100.0, **tank):
     return project(elements, connections, databus, duration=duration, time_step=0.1)
 
 
+def test_an_engine_driven_above_its_maximum_speed_is_counted():
+    """120 km/h in 1st gear turns the engine at 15,400 1/min: the wheels
+    drive it there, not its own fuel (MOD-18)."""
+    proj = _ice_car("0:120; 10:120", 10, speed=120)
+    next(e for e in proj.systems[0].elements if e.id == "gb").parameterOverrides[
+        "default_gear"] = 1
+    result = simulate(proj, "case")
+    assert any("was driven above its maximum speed (6,000 1/min" in m.text and
+               m.level == "info" for m in result.messages)
+    summary = {s.label: s.value for s in result.summary}
+    assert summary["Engine — time above maximum speed"] > 90
+    assert summary["Engine — highest speed"] > 15000
+
+
 def test_engine_starts_at_the_vehicle_speed_behind_a_closed_clutch():
     """At 100 km/h from the start, an engine behind a closed clutch turns
     with the wheels from t = 0 (4th gear 1.15 x final drive 4.1); behind a

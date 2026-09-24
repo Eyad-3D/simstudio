@@ -1187,7 +1187,7 @@
           "variability": "fixed",
           "label": "Inertia",
           "unit": "kg·m²",
-          "default": 0.14,
+          "default": 0.18,
           "type": "number"
         }
       ]

@@ -13,7 +13,7 @@ still holds. The full record of every change to the reference results is in
 |---|---|---|
 | Battery state of charge counts the charge that flows (amp-hours), as battery management systems and datasheets do, and the OCV table is read at that SOC | SOC moves by up to about 2 points at mid-charge for the same energy; energies and consumption are unchanged (BEV WLTC ends at 84.93 % instead of 84.61 %; hybrid fuel unchanged to 0.01 l/100 km). Control scripts that switch on SOC switch at slightly different moments, and a run from 90 % down to a 4 % floor gets 0.35 % less energy on the default OCV table | MOD-38 |
 | E-Motors stop at their maximum speed: the drive torque falls to zero over the last 2 % below it, and above it the inverter is off (no drive, no regeneration) | A 300 km/h target on the default motor now tops out at 152 km/h with the motor at 11,921 of 12,000 1/min, instead of 269 km/h at 21,238 1/min on made-up torque. The examples do not reach their maximum speeds | MOD-18 |
-| Motor and engine maps no longer extend their data: a run that reads a motor's full-load or loss map, an engine's full-load curve or fuel map, or a fuel cell's polarization curve outside its data stops with an error naming the table, the axis, the value and the time | Models whose maps do not cover where they run now fail instead of finishing on made-up values; Data Checks warn before the run. Engines below their full-load curve's first speed (starting) use that point, as before | MOD-18 |
+| Motor and engine maps no longer extend their data: a run that reads a motor's full-load map outside its speed data, a motor's loss map or an engine's fuel map outside its speed or torque data, an engine's full-load curve outside its speed data, or a fuel cell's polarization curve outside its current data stops with an error naming the table, the axis, the value and the time | Models whose maps do not cover where they run now fail instead of finishing on made-up values; Data Checks warn before the run. Engines below their full-load curve's first speed (starting) use that point, as before | MOD-18 |
 | The friction brake's default inertia is 0.18 kg·m² instead of 0.6 (a 330 mm disc) | Cars with default brakes accelerate and brake a little more easily: BEV WLTC 14.04 → 14.03 kWh/100 km, hybrid EPA city 2.95 → 2.94 and highway 3.30 → 3.29 l/100 km | MOD-18 |
 | New library defaults that fit the default E-Motor's 250–396 V map: voltage source and DC-DC output 350 V (were 400 and 800 V), fuel-cell curve 396–250 V (was 420–264 V, now 100 kW at 400 A instead of 105.6 kW); the default engine's full-load peak is 175 N·m (was 178) and its fuel map starts at 800 1/min | Models built on these defaults change; the examples do not use them | MOD-18 |
 
@@ -31,17 +31,21 @@ still holds. The full record of every change to the reference results is in
 - Every table axis has an *outside the data* setting in the table editor
   of the parameter dialog: stop the run (*Error*), hold the edge value
   (*Clamp*) or extend the edge slope (*Linear*). The library sets Error on
-  motor and engine speed and torque axes and on the fuel cell's current,
-  Clamp on the others; a setting you change is saved with the part.
+  the speed and torque axes of motor and engine full-load, loss and fuel
+  maps and on the fuel cell's current, Clamp on the others (battery SOC,
+  motor voltage, drag tables, Lookup tables); a setting you change is saved
+  with the part.
 - Run summary: for a table read outside its data, the share of the run
   outside it and the furthest point; for a motor or engine above its
-  maximum speed, the share of the run above it and the highest speed.
-  These rows appear only when that happened.
+  maximum speed, the share of the run above it and the highest speed (a
+  machine that overshoots its limit on its own drive and falls back, as a
+  limiter does, is not counted). These rows appear only when that happened.
 - Data Checks compare the maps with each other and with the parts around
   them: a motor's maximum speed and loss map against its full-load map,
-  the bus voltage against each motor's voltage axis, an engine's fuel map
-  against its full-load curve, and a fuel cell's Maximum Current against
-  its curve.
+  the bus voltage against each motor's voltage axis, a motor full-load map
+  that does not start at 0 1/min, an engine's fuel map against its
+  full-load curve, and a fuel cell's curve against 0 A and its Maximum
+  Current.
 
 ### Fixed
 
@@ -64,8 +68,10 @@ still holds. The full record of every change to the reference results is in
   full to empty. Project files are not changed.
 - A model whose motor loss map or engine fuel map is narrower than its
   full-load map, whose fuel map does not reach the full-load curve's first
-  speed, or whose motor has a Maximum Speed beyond its full-load data, now
-  stops where it used to hold the map's edge value. Data Checks name each
+  speed, whose motor full-load map starts above 0 1/min, whose motor has a
+  Maximum Speed beyond its full-load data, or whose fuel cell has a Maximum
+  Current beyond its polarization curve (or a curve that starts above 0 A),
+  now stops where it used to hold the map's edge value. Data Checks name each
   case before the run: extend the map, or set that axis to *Clamp* in the
   table editor to get the 0.2.0 behaviour back.
 - A voltage source, DC-DC converter, fuel cell, engine or brake left at its

@@ -24,9 +24,8 @@ W_EPS = 0.5  # rad/s — static/dynamic brake threshold
 CLUTCH_BAND = 0.5  # rad/s — smooth Coulomb band (residual slip under load)
 RPM = 60.0 / (2.0 * math.pi)
 # an E-Motor's drive torque falls to zero over this share of its maximum
-# speed below it; a hard engine rev limiter overshoots by up to this much
-# (ponytail: a constant; make it a parameter when users bring their
-# inverter's speed-limit ramp)
+# speed below it (ponytail: a constant; make it a parameter when users
+# bring their inverter's speed-limit ramp)
 SPEED_LIMIT_BAND = 0.02
 
 EmitFn = Callable[[dict], None]
@@ -141,6 +140,7 @@ class MotorCache:
     q4_scale: float
     max_rpm: float  # maximum speed (motor_max_rpm)
     speed_use: MapUse  # time above the maximum speed and the highest speed
+    overshoot_rpm: float = 0.0  # see RunContext.over_speed
     rpm: float = 0.0
     torque: float = 0.0
     p_mech_w: float = 0.0
@@ -167,7 +167,8 @@ class EngineCache:
     fuel_map: Map
     idle_rpm: float
     reentry_rpm: float  # zero throttle above this speed cuts the fuel
-    speed_use: MapUse  # time more than 2 % above the full-load curve's last speed
+    speed_use: MapUse  # time above the full-load curve's last speed
+    overshoot_rpm: float = 0.0  # see RunContext.over_speed
     rpm: float = 0.0
     torque: float = 0.0
     fuel_kgh: float = 0.0
