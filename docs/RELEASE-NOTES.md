@@ -5,13 +5,18 @@ why**, so that you can tell whether a number you got from an earlier version
 still holds. The full record of every change to the reference results is in
 [`backend/tests/golden/CHANGES.md`](../backend/tests/golden/CHANGES.md).
 
-## 0.3.0 (not released yet)
+## 0.3.0 — first public release (not released yet)
+
+0.2.0 was prepared but never published, so everything listed under
+[0.2.0](#020--not-published-its-changes-ship-in-030) below also reaches you
+for the first time in this release. Coming from SimStudio 0.1.0, read both
+sections.
 
 ### Your results will change — here is why
 
 | What changed | Effect on results | Roadmap |
 |---|---|---|
-| Battery state of charge counts the charge that flows (amp-hours), as battery management systems and datasheets do, and the OCV table is read at that SOC | SOC moves by up to about 2 points at mid-charge for the same energy; energies and consumption are unchanged (BEV WLTC ends at 84.93 % instead of 84.61 %; hybrid fuel unchanged to 0.01 l/100 km). Control scripts that switch on SOC switch at slightly different moments, and a run from 90 % down to a 4 % floor gets 0.35 % less energy on the default OCV table | MOD-38 |
+| Battery state of charge counts the charge that flows (amp-hours), as battery management systems and datasheets do, and the OCV table is read at that SOC | SOC moves by up to about 2 points at mid-charge for the same energy; energies, fuel and consumption move by at most 0.001 kWh or kg (BEV WLTC ends at 84.93 % instead of 84.61 %; hybrid fuel consumption unchanged to 0.01 l/100 km). Control scripts that switch on SOC switch at slightly different moments, and a run from 90 % down to a 4 % floor gets 0.35 % less energy on the default OCV table | MOD-38 |
 | E-Motors stop at their maximum speed: the drive torque falls to zero over the last 2 % below it, and above it the inverter is off (no drive, no regeneration) | A 300 km/h target on the default motor now tops out at 152 km/h with the motor at 11,921 of 12,000 1/min, instead of 269 km/h at 21,238 1/min on made-up torque. The examples do not reach their maximum speeds | MOD-18 |
 | Motor and engine maps no longer extend their data: a run that reads a motor's full-load map outside its speed data, a motor's loss map or an engine's fuel map outside its speed or torque data, an engine's full-load curve outside its speed data, or a fuel cell's polarization curve outside its current data stops with an error naming the table, the axis, the value and the time | Models whose maps do not cover where they run now fail instead of finishing on made-up values; Data Checks warn before the run. Engines below their full-load curve's first speed (starting) use that point, as before | MOD-18 |
 | The friction brake's default inertia is 0.18 kg·m² instead of 0.6 (a 330 mm disc) | Cars with default brakes accelerate and brake a little more easily: BEV WLTC 14.04 → 14.03 kWh/100 km, hybrid EPA city 2.95 → 2.94 and highway 3.30 → 3.29 l/100 km | MOD-18 |
@@ -105,8 +110,35 @@ still holds. The full record of every change to the reference results is in
   (0.5 % too much at a 10 % grade, 3 % at 25 %).
 - The P2 Hybrid Car counted the driveline drag that EPA's road-load
   coefficients already hold a second time.
+- One Ctrl+Z after deleting with the Delete or Backspace key brings back
+  the parts together with their wires, also for a selection of several
+  parts and wires. Before, the first Ctrl+Z brought a part back without its
+  wires, and saving then lost them. (UX-39)
+- Dragging the end of a wire to another pin is one undo step, and the wire
+  stays where it was when the new connection is refused.
+- Delete or Backspace in a map's cell clears the cell; it no longer also
+  deletes the part selected on the diagram.
+- Monitor and Script blocks you add yourself can be wired in the Data Bus
+  panel; before, only the examples' ones could, because their links were
+  written into the project file. (UX-40)
+- Chart picture export saves the whole chart at twice its size on screen,
+  legend included; before, it saved a 28 × 28 px legend icon. CSV export
+  quotes fields as RFC 4180 says, so an element label with a comma in it
+  stays in one column. (RES-37)
+- The Open and Restore… menus and the diagram's right-click menu close on
+  Esc, on a click anywhere outside them (the diagram too) and when a dialog
+  opens; before, the Open menu stayed over the diagram, and even over the
+  parameter dialog. (GUI-33)
+- On a 1366-px screen, numbers in the Properties and Cases panels are shown
+  in full (the Driver's I Gain of 0.08 read "0.0"), parameter labels stay on
+  one line with the full text in a tooltip, and the *Cases & Parameters*
+  tab is titled *Cases*. (GUI-34)
+- The status bar counts the errors the model has now, from the latest Data
+  Checks, instead of every error ever logged, which never cleared. Once a
+  model has been checked, its checks, the error count and the red badges
+  on parts follow it as you edit. (UX-09)
 
-### Upgrading from 0.2.0
+### Upgrading from a 0.2.0 build
 
 - A battery without a Charge Capacity gets it from its Usable Capacity ÷
   the OCV table's mean voltage (the Battery Electric Car's 62 kWh on the
@@ -133,7 +165,7 @@ still holds. The full record of every change to the reference results is in
   index.
   A case's Kind is kept but ignored.
 
-## 0.2.0 — first public release (early version)
+## 0.2.0 — not published: its changes ship in 0.3.0
 
 The app is renamed from SimStudio to LightSim; your projects come along
 (see [Upgrading from 0.1.0](#upgrading-from-010)).
