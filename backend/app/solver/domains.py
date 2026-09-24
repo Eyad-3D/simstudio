@@ -46,6 +46,7 @@ from .runtime import (
     TankState,
     _sign,
     make_plan,
+    ocv_mean,
     solve_linear,
 )
 from .sandbox import ScriptSandbox, ScriptSpec
@@ -139,16 +140,25 @@ class RunContext:
             label = model.elements[el_id].label
             try:
                 if cdef.id == "battery.generic":
+                    ocv_pts = parse_table1d(p.get("ocv_table", {"0": 300, "100": 400}))
+                    # Usable Capacity is the open-circuit energy from full to
+                    # empty; without a Charge Capacity (old projects have none)
+                    # the amp-hours come from it at the OCV table's mean voltage
+                    q_ah = max(0.0, float(p.get("capacity_Ah", 0) or 0)) or (
+                        max(1e-3, float(p.get("capacity_kWh", 60))) * 1000.0
+                        / max(1e-6, ocv_mean(ocv_pts)))
                     b = BatteryState(
                         el_id=el_id,
                         soc=float(p.get("initial_soc_pct", 90)) / 100.0,
-                        capacity_wh=max(1e-3, float(p.get("capacity_kWh", 60))) * 1000.0,
+                        q_ah=q_ah,
                         min_soc=float(p.get("min_soc_pct", 10)) / 100.0,
                         r0=max(1e-6, float(p.get("internal_resistance_ohm", 0.08))),
                         r1=max(0.0, float(p.get("rc_resistance_ohm", 0))),
                         tau=max(0.0, float(p.get("rc_time_constant_s", 0))),
                         max_charge_w=max(0.0, float(p.get("max_charge_power_kW", 120))) * 1000.0,
-                        ocv_pts=parse_table1d(p.get("ocv_table", {"0": 300, "100": 400})),
+                        ocv_pts=ocv_pts,
+                        eta_charge=min(1.0, max(1e-3, float(
+                            p.get("coulombic_efficiency_pct", 100)) / 100.0)),
                     )
                     b.v_term = b.ocv()
                     self.batteries[el_id] = b
@@ -650,12 +660,11 @@ class RunContext:
         """(source voltage behind R0, maximum-power-point current, discharge
         current that reaches the minimum SOC within the step, charge current
         that reaches 100 % within it)."""
-        ocv = b.ocv()
-        wh_per_amp = max(1e-9, ocv) * self.dt / 3600.0  # SOC energy per A over the step
-        a_volt = ocv - b.v_rc
+        soc_per_amp = self.dt / 3600.0 / b.q_ah  # SOC one ampere moves over the step
+        a_volt = b.ocv() - b.v_rc
         return (a_volt, max(0.0, a_volt) / (2.0 * b.r0),
-                max(0.0, (b.soc - b.min_soc) * b.capacity_wh / wh_per_amp),
-                max(0.0, (1.0 - b.soc) * b.capacity_wh / wh_per_amp))
+                max(0.0, (b.soc - b.min_soc) / soc_per_amp),
+                max(0.0, (1.0 - b.soc) / (soc_per_amp * b.eta_charge)))
 
     def battery_full(self, b: BatteryState) -> bool:
         """Too full to take its max charge power for a whole solver step."""
@@ -1543,15 +1552,20 @@ class ElectricalSlave(_CtxSlave):
                 v_term = a_volt - current * b.r0
                 if b.r1 > 0 and b.tau > 0:
                     b.v_rc = (b.v_rc + dt * current * b.r1 / b.tau) / (1.0 + dt / b.tau)
-                e_wh = b.ocv() * current * dt / 3600.0
-                soc = b.soc - e_wh / b.capacity_wh
+                # the SOC counts charge (A·h); only a share of the charging
+                # current is stored
+                ocv = b.ocv()
+                eta = b.eta_charge if current < 0 else 1.0
+                soc = b.soc - eta * current * dt / (3600.0 * b.q_ah)
                 b.soc = max(0.0, min(1.0, soc))
-                residual_w += (b.soc - soc) * b.capacity_wh * 3600.0 / dt
+                residual_w += (b.soc - soc) * b.q_ah * 3600.0 * ocv / (eta * dt)
                 if current >= 0:
                     b.energy_out_wh += p_w * dt / 3600.0
                 else:
                     b.energy_in_wh += -p_w * dt / 3600.0
                 b.loss_wh += current * current * b.r0 * dt / 3600.0
+                if current < 0:  # charge not stored
+                    b.loss_wh += (1.0 - eta) * ocv * -current * dt / 3600.0
                 b.current, b.power_w, b.v_term = current, p_w, v_term
                 ctx.bus_voltage[bus.id] = v_term
             elif bus.vsource:

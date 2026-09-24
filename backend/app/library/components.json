@@ -159,7 +159,7 @@
       "name": "HV Battery Pack",
       "icon": "battery-charging",
       "domain": "electrical",
-      "description": "Equivalent-circuit battery pack: OCV(SOC) lookup table with series resistance R0 and an optional RC pair for voltage transients (RC disabled when either RC parameter is 0). SOC integrates over discharge and recuperation; charging power is limited by the maximum charge power.",
+      "description": "Equivalent-circuit battery pack: OCV(SOC) lookup table with series resistance R0 and an optional RC pair for voltage transients (RC disabled when either RC parameter is 0). SOC counts the charge that flows (amp-hours) and the OCV table is read at that SOC. Charge Capacity sets the amp-hours; left at 0 they come from the Usable Capacity at the OCV table's mean voltage, so a full-to-empty discharge gives out the Usable Capacity. Coulombic Efficiency is the share of the charging current that is stored (Li-ion cells store about 99.9 %, so it defaults to 100 %). Charging power is limited by the maximum charge power.",
       "ports": [
         {
           "id": "pos",
@@ -215,6 +215,22 @@
           "label": "Usable Capacity",
           "unit": "kWh",
           "default": 60,
+          "type": "number"
+        },
+        {
+          "key": "capacity_Ah",
+          "variability": "fixed",
+          "label": "Charge Capacity (0 = from Usable Capacity)",
+          "unit": "Ah",
+          "default": 0,
+          "type": "number"
+        },
+        {
+          "key": "coulombic_efficiency_pct",
+          "variability": "fixed",
+          "label": "Coulombic Efficiency (charging)",
+          "unit": "%",
+          "default": 100,
           "type": "number"
         },
         {

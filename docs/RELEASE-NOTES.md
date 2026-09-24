@@ -5,6 +5,37 @@ why**, so that you can tell whether a number you got from an earlier version
 still holds. The full record of every change to the reference results is in
 [`backend/tests/golden/CHANGES.md`](../backend/tests/golden/CHANGES.md).
 
+## 0.3.0 (not released yet)
+
+### Your results will change — here is why
+
+| What changed | Effect on results | Roadmap |
+|---|---|---|
+| Battery state of charge counts the charge that flows (amp-hours), as battery management systems and datasheets do, and the OCV table is read at that SOC | SOC moves by up to about 2 points at mid-charge for the same energy; energies and consumption are unchanged (BEV WLTC ends at 84.93 % instead of 84.61 %; hybrid fuel unchanged to 0.01 l/100 km). Control scripts that switch on SOC switch at slightly different moments, and a run from 90 % down to a 4 % floor gets 0.35 % less energy on the default OCV table | MOD-38 |
+
+### New
+
+- Battery: *Charge Capacity* (Ah) and *Coulombic Efficiency (charging)*.
+  Left at 0, the Charge Capacity comes from the Usable Capacity. Coulombic
+  efficiency defaults to 100 %, not the 99 % first proposed: Li-ion cells
+  store about 99.9 % of the charge put in (background knowledge,
+  unverified), so 99 % would add a 1 % loss they do not have. Charge that
+  is not stored counts as the battery's internal losses.
+
+### Fixed
+
+- A battery's SOC can be compared with measured SOC: a constant 1C
+  discharge now empties it in one hour whatever the shape of its OCV
+  table (before, 3,611 s on the default table and 3,666 s on a steeper
+  one).
+
+### Upgrading from 0.2.0
+
+- A battery without a Charge Capacity gets it from its Usable Capacity ÷
+  the OCV table's mean voltage (the Battery Electric Car's 62 kWh on the
+  default table = 179.7 Ah), so it still gives out its Usable Capacity from
+  full to empty. Project files are not changed.
+
 ## 0.2.0 — first public release (early version)
 
 The app is renamed from SimStudio to LightSim; your projects come along

@@ -29,6 +29,7 @@ Each of these is an automatic test that runs on every change
 | Time and distance | at a constant 10 m/s, distance is exactly 10 m × t at every recorded time; runs stop exactly at the case duration | `test_time_base.py` |
 | Energy is conserved | in a pure acceleration the battery's energy equals the car's kinetic energy plus the tyre-slip loss within 0.5 % (a 5 % leak anywhere would fail); the summary energy equals the integrated power channel | `test_energy.py`, `test_source_limits.py` |
 | Battery and fuel-cell limits | at minimum charge, maximum charge and power limits the motor gets only what the source can give; regen above the charge limit goes to the friction brakes | `test_source_limits.py` |
+| Battery charge | a constant 1C discharge from 100 % reaches 0 % at 3,600 ± 1 s for differently shaped OCV tables; a battery without an Ah value gives out its Usable Capacity from full to empty; coulombic efficiency acts on charge only; the SOC change matches the current that flowed | `test_battery_charge.py`, `test_source_limits.py` |
 | Controller timing | results do not depend on the recording step (1, 0.1 and 0.02 s give the same figures) | `test_control_rate.py`, `test_verdict.py` |
 | Engine | full throttle gives the full-load curve; fuel is cut on overrun; the rev limiter cuts fuel and torque; CO₂ follows fuel with the tank's factor | `test_engine.py` |
 | Electric motor | spin losses are counted once; a powered motor has no extra drag | `test_motor_losses.py` |

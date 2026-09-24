@@ -94,8 +94,8 @@ def test_battery_driven_to_its_limits_closes_the_energy_balance():
     """A small, weak battery: the launch hits its maximum-power point, the
     cruise empties it to its minimum SOC, and the braking at the end runs
     into its charge limit. The battery must supply exactly what the motor
-    draws throughout, its stored energy must match what went in and out,
-    and the car must slow down once it is empty."""
+    draws throughout, the charge it counts must match the current that
+    flowed, and the car must slow down once it is empty."""
     proj = _with_brakes(bev_axle(profile="0:0; 5:100; 60:100; 70:0; 80:0"))
     _set(proj, batt={"capacity_kWh": 0.15, "initial_soc_pct": 30, "internal_resistance_ohm": 1.0,
                      "max_charge_power_kW": 5})
@@ -109,8 +109,9 @@ def test_battery_driven_to_its_limits_closes_the_energy_balance():
     assert min(soc) >= 10.0 - 1e-6, "never below the minimum SOC"
     assert min(_values(result, "batt", "sig_power")) >= -5.0 - 1e-6, "never above the charge limit"
 
-    stored_kwh = (soc[-1] - soc[0]) / 100.0 * 0.15
-    assert stored_kwh == pytest.approx(_battery_net_in_kwh(result, 1.0), rel=1e-3)
+    q_ah = 0.15e3 / 345.0  # Usable Capacity at the library OCV table's SOC-weighted mean
+    current = _values(result, "batt", "sig_current")
+    assert (soc[-1] - soc[0]) / 100.0 * q_ah == pytest.approx(-sum(current[1:]) * DT / 3600.0, rel=1e-6)
     assert _summary(result)["E-Motor — time limited by supply"] > 10.0
 
     speed = {p["t"]: p["value"] for p in series(result, "veh", "sig_speed")}

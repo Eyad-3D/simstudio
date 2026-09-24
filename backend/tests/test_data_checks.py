@@ -191,6 +191,24 @@ def test_implausible_parameters_are_warned_about(element, key, value, expected):
     assert len(new) == 1 and new[0].level == "warning" and expected in new[0].text, new
 
 
+@pytest.mark.parametrize("key, value, expected", [
+    ("coulombic_efficiency_pct", 0, "Coulombic efficiency of 'HV Battery Pack' must be in (0, 100]"),
+    ("coulombic_efficiency_pct", 101, "Coulombic efficiency of 'HV Battery Pack' must be in (0, 100]"),
+    ("capacity_Ah", -1, "Charge capacity of 'HV Battery Pack' must be in (-0.001, 100000]"),
+    ("capacity_Ah", 0, None),
+])
+def test_battery_charge_parameters_are_range_checked(key, value, expected):
+    """MOD-38: 0 % would divide by zero and over 100 % would create energy;
+    a Charge Capacity of 0 means 'from the Usable Capacity'."""
+    proj = load_example("bev-car")
+    next(e for e in proj.systems[0].elements if e.id == "el-battery").parameterOverrides[key] = value
+    errors = _errors(proj)
+    if expected is None:
+        assert errors == []
+    else:
+        assert len(errors) == 1 and errors[0].startswith(expected), errors
+
+
 def test_wheel_load_shares_must_add_up():
     proj = load_example("bev-car")
     for e in proj.systems[0].elements:

@@ -80,13 +80,14 @@ def solve_linear(m: list[list[float]], q: list[float]) -> list[float]:
 class BatteryState:
     el_id: str
     soc: float
-    capacity_wh: float
+    q_ah: float  # charge capacity, A·h: the SOC counts charge
     min_soc: float
     r0: float
     r1: float
     tau: float
     max_charge_w: float
     ocv_pts: list
+    eta_charge: float = 1.0  # coulombic efficiency: share of charging current stored
     v_rc: float = 0.0
     v_term: float = 0.0
     depleted_flagged: bool = False
@@ -98,6 +99,17 @@ class BatteryState:
 
     def ocv(self) -> float:
         return interp1(self.ocv_pts, max(0.0, min(1.0, self.soc)) * 100.0)
+
+
+def ocv_mean(points: list) -> float:
+    """The OCV table's mean over 0-100 % SOC, weighted by SOC: a full-to-empty
+    discharge at open circuit gives out this voltage times the charge
+    capacity. Exact for the piecewise-linear table, read as ocv() reads it
+    (flat beyond its ends); if the table's edge policy changes (MOD-18), this
+    must follow it."""
+    xs = sorted({0.0, 100.0, *(x for x, _ in points if 0.0 < x < 100.0)})
+    return sum((b - a) * (interp1(points, a) + interp1(points, b))
+               for a, b in zip(xs, xs[1:])) / 200.0
 
 
 @dataclass

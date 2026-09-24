@@ -40,6 +40,8 @@ NUMERIC_RANGES: dict[str, tuple[str, float, float]] = {
     "vehicle_load_share_pct": ("Vehicle load share", 0.0, 100.0),
     "torque_split_a_pct": ("Torque split", -0.001, 100.0),
     "initial_fill_pct": ("Initial fill", -0.001, 100.0),
+    "coulombic_efficiency_pct": ("Coulombic efficiency", 0.0, 100.0),
+    "capacity_Ah": ("Charge capacity", -0.001, 1e5),
 }
 
 POSITIVE_PARAMS = {
