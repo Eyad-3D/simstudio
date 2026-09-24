@@ -105,8 +105,10 @@ body,
 }
 .dockview-theme-ss .dv-tab {
   border-top: 2px solid transparent;
-  /* larger hit target for the panel tabs */
-  padding: 0 10px;
+  /* a tab is as tall as its strip, so this side padding is all the room
+     "Components" and "Elements" can spare in a 200-px column: at 10 px
+     Linux's wider DejaVu Sans cut both titles short at 1366 px */
+  padding: 0 6px;
   /* a group narrower than its tabs shortens their titles with an ellipsis
      (the full title is in the tooltip) rather than scrolling tabs out of
      sight */
