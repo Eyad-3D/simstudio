@@ -86,6 +86,40 @@ jobs:
         working-directory: backend
         run: python -m pytest tests/test_script_sandbox.py tests/test_script_safety.py tests/test_examples_plausible.py -q
 
+  # Fails when the example runs get more than 10 % slower than on the commit
+  # this change starts from, timed on the same runner in alternating fresh
+  # processes (backend/tests/test_performance.py). No stored timings, so a
+  # faster or slower runner does not matter. On a push the base is the
+  # previous tip; a manual run has none and skips the job.
+  perf:
+    name: Backend (performance vs base)
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install
+        working-directory: backend
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Check out the base commit
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: git worktree add --detach "$RUNNER_TEMP/base" "$BASE"
+
+      - name: Time the examples against the base
+        working-directory: backend
+        env:
+          LIGHTSIM_PERF_BASE: ${{ runner.temp }}/base/backend
+        run: python -m pytest tests/test_performance.py -q -s
+
   frontend:
     name: Frontend (lint + typecheck + build)
     runs-on: ubuntu-latest
