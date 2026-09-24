@@ -155,11 +155,12 @@ jobs:
 
   e2e:
     name: Frontend (browser tests + accessibility)
-    # Pinned, not ubuntu-latest: Playwright 1.56.1 has no Chromium build for
-    # Ubuntu 26.04, and the screenshot baselines are renders with 24.04's
-    # fonts. The runner image, the @playwright/test version and the 18 PNGs in
-    # e2e/visual.spec.ts-snapshots move together: bump Playwright and
-    # regenerate the PNGs on the new image in the same PR.
+    # Pinned, not ubuntu-latest: the screenshot baselines are renders with
+    # 24.04's fonts. The runner image, the @playwright/test version (and the
+    # playwright-core that package.json's override gives axe, which follows
+    # it) and the 18 PNGs in e2e/visual.spec.ts-snapshots move together: a
+    # Playwright bump whose screenshots change regenerates the PNGs on the new
+    # image in the same PR.
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # The screenshots job below replaces this run when regenerating baselines.
