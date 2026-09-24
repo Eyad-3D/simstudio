@@ -99,6 +99,7 @@ def simulate(
             caseId=case_id, status="failed", channels=[],
             messages=[SimMessage(level="error", text=t) for t in e.messages],
         )
+    ctx.performance = case.kind == "performance"
 
     try:
         # Phase 1.4: the wholesale-wrapped slaves share all coupling through the
@@ -140,7 +141,8 @@ def simulate(
         # Point 0 is the initial state at t = 0; every later point is recorded at
         # the end time of the step that produced it, and the last step ends
         # exactly at the case duration.
-        cancelled = False
+        cancelled = False  # a stop was asked for
+        stopped = False  # ... and cut the run short (not one that came as it ended)
         solved = 0.0  # time solved (a stopped run ends before its last point)
         times: list[float] = []
         t_start_wall = time.monotonic()
@@ -161,6 +163,7 @@ def simulate(
                             apply_control_msg(msg)
                 if cancelled:
                     rt.message("info", f"Simulation cancelled by user at t = {t_prev:g} s.")
+                    stopped = True
                     break
 
                 # -- solver steps ---------------------------------------------------
@@ -230,7 +233,7 @@ def simulate(
                 })
 
         # ---- assemble result -------------------------------------------------------
-        verdict = judge(trace, ctx.distance, rt.series)
+        verdict = judge(trace, ctx.distance, rt.series, ctx.performance)
         for level, text in verdict.messages:
             rt.message(level, text)
         unit_map = unit_groups()
@@ -345,6 +348,7 @@ def simulate(
                 label=share_label, value=round(100.0 * use.outside_s / max(solved, 1e-9), 2),
                 unit="%"))
             summary.append(far)
+        summary += [SummaryValue(label=label, value=v, unit=u) for label, v, u in verdict.rows]
         summary.append(SummaryValue(label="Simulated duration", value=times[-1] if times else 0.0, unit="s"))
 
         # headline numbers that a failed check makes meaningless say why
@@ -356,9 +360,10 @@ def simulate(
         if verdict.cycle_not_followed:
             for label in ("Consumption", "Fuel consumption", "CO₂ emissions"):
                 not_valid[label] = "cycle not followed"
-        if cancelled and times:
-            # figures per distance cover only the part of the cycle driven so far
-            for label in ("Consumption", "Fuel consumption", "CO₂ emissions"):
+        if stopped and times:
+            # figures per distance cover only the part of the cycle driven so
+            # far, and a performance test's top speed only its speed so far
+            for label in ("Consumption", "Fuel consumption", "CO₂ emissions", "Maximum speed"):
                 not_valid.setdefault(label, f"run cancelled at t = {times[-1]:g} s")
         if ctx.throughput_wh > 0 and ctx.residual_wh > 1e-3 * ctx.throughput_wh:
             for s in summary:
@@ -373,8 +378,9 @@ def simulate(
             s.notValid = not_valid.get(s.label)
 
         has_error = any(m.level == "error" for m in rt.messages)
-        has_warning = any(m.level == "warning" for m in rt.messages) or cancelled
-        status = "failed" if has_error else ("warning" if has_warning else "success")
+        has_warning = any(m.level == "warning" for m in rt.messages)
+        status = ("failed" if has_error else "cancelled" if stopped
+                  else "warning" if has_warning else "success")
         rec_note = f", stored every {output_every}" if output_every > 1 else ""
         last_note = f", the last one {h_last:g} s" if steps and short_last else ""
         rt.messages.insert(0, SimMessage(

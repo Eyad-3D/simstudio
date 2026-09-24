@@ -73,18 +73,17 @@ and engines spent outside their maps (see above) or that the numbers are
 plausible for a real vehicle, and the Data Checks all-clear does not vouch
 for the results either. Also:
 
-- An acceleration or top-speed test driven by a step in the target speed
-  (for example `0:100; 600:100` from standstill) is outside that band while
-  the car accelerates. It ends with a *Cycle not followed* warning, and its
-  *Consumption* is marked *not valid*.
-- A cancelled run ends as *warning*; there is no separate status for it. Its
-  per-distance figures are marked *not valid: run cancelled at t = …*.
+- A case of kind *Performance* (Cases & Parameters → Kind) is not judged
+  on that band: the Driver holds full throttle below the target, and the
+  run reports its *Maximum speed* and the *Time to* the target's highest
+  value, timed from t = 0. That is a standing start only: there is no
+  rolling start, no time between two speeds (such as 80-120 km/h) and no
+  second timed speed in one run.
 - The tolerance (1 % of the run, at least 2 s) is LightSim's own choice:
   test procedures such as WLTP set no allowance for a simulation.
 
 *Workaround:* read the Messages panel and the *not valid* notes in the
-summary table. Read step-target tests for their speeds and times, not their
-consumption, or ramp the target up instead.
+summary table.
 *Roadmap:* VAL-39, VAL-08.
 
 ### Only its internal resistance limits what a battery delivers

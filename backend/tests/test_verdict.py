@@ -6,7 +6,7 @@ import copy
 import pytest
 from helpers import bev_axle, dbc, el, example_result, series, sig_port
 
-from app.schemas import ElementInstance
+from app.schemas import ElementInstance, StoredRun, StudyPoint
 from app.solver import simulate
 from app.solver.verdict import trace_metrics
 from app.storage import load_example
@@ -148,9 +148,10 @@ def test_non_finite_values_fail_the_run():
 
 
 def test_a_cancelled_run_flags_its_figures_per_distance():
-    """A run stopped part-way still ends "warning" (a separate "cancelled"
-    status needs the app's run history to follow), but its Consumption no
-    longer shows as a plain number for a cycle it did not finish."""
+    """A run stopped part-way ends "cancelled" (before, "warning", the status
+    of a run that finished with a problem), and its Consumption does not show
+    as a plain number for a cycle it did not finish. The run history and a
+    study keep the status."""
     proj = load_example("bev-car")
     calls = {"n": 0}
 
@@ -159,11 +160,35 @@ def test_a_cancelled_run_flags_its_figures_per_distance():
         return [{"type": "cancel"}] if calls["n"] == 31 else []
 
     result = simulate(proj, proj.cases[0].id, control=control)
-    assert result.status == "warning"
+    assert result.status == "cancelled"
     s = _summary(result)
     assert s["Simulated duration"].value == 30
     assert s["Consumption"].notValid == "run cancelled at t = 30 s"
     assert s["Distance driven"].notValid is None
+    StoredRun(id="r", caseId=result.caseId, caseName="c", startedAt=0, status=result.status,
+              result=result)
+    StudyPoint(values=[1.0], status=result.status)
+
+
+def test_a_stop_after_the_last_step_leaves_a_complete_run():
+    """A stop that arrives while the last step is paced comes too late to cut
+    anything short. Before, the complete run said "warning" with no warning
+    message."""
+    proj = bev_axle(profile="0:0; 5:60; 30:60")
+    proj.cases[0].duration = 1.0
+    proj.cases[0].timeStep = 1.0
+    proj.cases[0].realtimeFactor = 1.0
+    calls = {"n": 0}
+
+    def control():
+        calls["n"] += 1  # the 2nd poll is in the last step's pacing wait
+        return [{"type": "cancel"}] if calls["n"] >= 2 else []
+
+    result = simulate(proj, "case", control=control)
+    assert calls["n"] >= 2
+    assert result.status == "success", [m.text for m in result.messages]
+    assert not any("cancelled" in m.text for m in result.messages)
+    assert all(s.notValid is None for s in result.summary)
 
 
 def test_bundled_examples_follow_their_cycles():

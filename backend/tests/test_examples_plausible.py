@@ -117,10 +117,11 @@ def test_bev_heating_case_adds_its_heating_load():
 
 @pytest.fixture(scope="module")
 def bev_full_power():
-    """The BEV with its target held far above its top speed for 100 s."""
+    """The BEV with its target held far above its top speed for 100 s, as a
+    performance test."""
     project = load_example("bev-car")
     case = _case(project, "case-city")
-    case.duration, case.timeStep = 100, 0.1
+    case.duration, case.timeStep, case.kind = 100, 0.1, "performance"
     case.parameterOverrides = {"el-task": {"profile": "0:0; 0.1:250; 100:250"}}
     return simulate(project, case.id), build_model(project).params_of
 
@@ -153,6 +154,35 @@ def test_bev_top_speed_is_the_reference_cars_and_within_the_motors_limit(bev_ful
     ratio = params["el-final-drive"]["ratio"] * params["el-diff"]["ratio"]
     v_at_n_max = n_max / RPM / ratio * params["el-wheel-fl"]["radius_m"] * 3.6
     assert v_max <= v_at_n_max
+
+
+def test_a_performance_case_times_its_step_without_a_trace_warning(bev_full_power):
+    """A 0-100 km/h step from standstill as a performance test. As a cycle
+    it ends 'Cycle not followed' (7 s outside the band while the car
+    accelerates), and the Driver's PI never quite reaches 100 km/h."""
+    project = load_example("bev-car")
+    case = _case(project, "case-city")
+    case.duration, case.timeStep, case.kind = 20, 0.1, "performance"
+    case.parameterOverrides = {"el-task": {"profile": "0:100; 20:100"}}
+    result = simulate(project, case.id)
+    assert result.status == "success", [m.text for m in result.messages]
+    assert not any(m.text.startswith("Cycle not followed") for m in result.messages)
+    s = {row.label: row for row in result.summary}
+    # at full throttle, as in the full-power run
+    assert s["Time to 100 km/h"].value == pytest.approx(_time_to(bev_full_power[0], 100), abs=0.02)
+    assert 100 <= s["Maximum speed"].value < 101
+    assert s["Consumption"].notValid is None
+
+
+def test_a_top_speed_test_reports_its_maximum_speed(bev_full_power):
+    result, _ = bev_full_power
+    assert result.status == "success", [m.text for m in result.messages]
+    s = _summary(result)
+    v_max = max(p["value"] for p in series(result, "el-vehicle", "sig_speed"))
+    assert s["Maximum speed"] == pytest.approx(v_max, abs=0.05)
+    assert not [label for label in s if label.startswith("Time to")]
+    assert any("did not reach the 250 km/h target" in m.text
+               for m in result.messages if m.level == "info")
 
 
 # ---- P2 Hybrid Car ----------------------------------------------------------------

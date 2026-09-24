@@ -18,6 +18,11 @@ A run whose trace leaves the WLTP band for more than 1 % of its duration
 (at least 2 s) did not follow the cycle: its status is at best "warning"
 and the figures per distance are flagged not valid. A run that covers less
 than 5 % of the cycle's distance, or produces non-finite values, "failed".
+
+A performance-test case (SimCase.kind "performance": a step in the target
+speed, driven at full throttle below it) is not judged on the band: it
+reports its maximum speed and the time from t = 0 to the target's highest
+value, or says that it never got there.
 """
 from __future__ import annotations
 
@@ -156,11 +161,26 @@ class Verdict:
     messages: tuple[tuple[str, str], ...] = ()
     cycle_not_followed: bool = False
     broke_down: bool = False  # non-finite values: no number of the run is valid
+    # summary rows of a performance test: (label, value, unit)
+    rows: tuple[tuple[str, float, str], ...] = ()
 
 
-def judge(trace: CycleTrace, distance_m: float, series: dict) -> Verdict:
+def _time_to(ts: list[float], spd: list[float], level: float) -> float | None:
+    """When the speed first reaches ``level``: linear between the sample
+    before and the first one at or above it."""
+    for k, v in enumerate(spd):
+        if v >= level:
+            if k == 0:
+                return ts[0]
+            return ts[k - 1] + (level - spd[k - 1]) / (v - spd[k - 1]) * (ts[k] - ts[k - 1])
+    return None
+
+
+def judge(trace: CycleTrace, distance_m: float, series: dict,
+          performance: bool = False) -> Verdict:
     """The checks a finished run must pass to be called a success."""
     messages: list[tuple[str, str]] = []
+    rows: list[tuple[str, float, str]] = []
     not_followed = False
 
     bad = sorted({f"{el}:{port}" for (el, port), values in series.items()
@@ -179,7 +199,8 @@ def judge(trace: CycleTrace, distance_m: float, series: dict) -> Verdict:
                                       f"{m.cycle_km:.2f} km covered. Check that a motor or engine "
                                       f"drives the wheels and gets a command; no result of this "
                                       f"run is valid."))
-        elif m.outside_wltp_s > max(OUTSIDE_MIN_S, OUTSIDE_SHARE * m.duration_s):
+        elif not performance and m.outside_wltp_s > max(OUTSIDE_MIN_S,
+                                                       OUTSIDE_SHARE * m.duration_s):
             not_followed = True
             messages.append(("warning", (
                 f"Cycle not followed: the speed was outside the ±2 km/h, ±1 s trace tolerance "
@@ -188,4 +209,14 @@ def judge(trace: CycleTrace, distance_m: float, series: dict) -> Verdict:
                 f"{'above' if m.max_err_kmh > 0 else 'below'} the target at "
                 f"t = {m.t_max_err:g} s (RMS {m.rms_kmh:.2f} km/h); it drove {km:.2f} of "
                 f"{m.cycle_km:.2f} km. Consumption figures per distance are not valid.")))
-    return Verdict(messages=tuple(messages), cycle_not_followed=not_followed, broke_down=bool(bad))
+    if performance and trace.times:
+        level, v_max = max(trace.target), max(trace.speed)
+        rows.append(("Maximum speed", round(v_max, 2), "km/h"))
+        t_level = _time_to(trace.times, trace.speed, level)
+        if t_level is not None:
+            rows.append((f"Time to {level:g} km/h", round(t_level, 2), "s"))
+        else:
+            messages.append(("info", f"Performance test: the vehicle did not reach the {level:g} "
+                                     f"km/h target; its maximum speed was {v_max:.1f} km/h."))
+    return Verdict(messages=tuple(messages), cycle_not_followed=not_followed, broke_down=bool(bad),
+                   rows=tuple(rows))

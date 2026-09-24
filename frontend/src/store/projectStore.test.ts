@@ -1328,8 +1328,8 @@ describe("studies", () => {
         stop = () =>
           resolve({
             caseId,
-            status: "success",
-            messages: [{ level: "warning", text: "Run cancelled at t = 3 s." }],
+            status: "cancelled",
+            messages: [{ level: "info", text: "Simulation cancelled by user at t = 3 s." }],
             channels: [],
             summary: [{ label: "Energy", value: 1, unit: "kWh" }],
           });
@@ -1341,10 +1341,31 @@ describe("studies", () => {
     store().stopRun();
     await running;
     expect(store().project!.studies![0].points).toEqual([
-      expect.objectContaining({ values: [80], status: "success", incomplete: "stopped at t = 3 s" }),
+      expect.objectContaining({ values: [80], status: "cancelled", incomplete: "stopped at t = 3 s" }),
       { values: [90], status: "not run", kpis: {} },
       { values: [95], status: "not run", kpis: {} },
     ]);
+  });
+
+  it("the engine's status, not the Stop button, marks a run stopped", async () => {
+    await start();
+    api.validateProject.mockResolvedValue([]);
+    const answer = (status: SimResult["status"], text: string) =>
+      api.runSimulationLive.mockImplementation((_project, caseId) => ({
+        setParam: vi.fn(),
+        cancel: vi.fn(),
+        done: Promise.resolve({ caseId, status, messages: [{ level: "info" as const, text }], channels: [], summary: [] }),
+      }));
+    // the engine says it cut the run short: stopped, whoever asked for it
+    // (before, only a stop pressed in this window counted)
+    answer("cancelled", "Simulation cancelled by user at t = 7 s.");
+    await store().run();
+    expect(store().runs[0]).toMatchObject({ status: "cancelled", incomplete: "stopped at t = 7 s" });
+    // a complete run is not marked, whatever its messages say
+    answer("success", "Heater cancelled its request at t = 9 s.");
+    await store().run();
+    expect(store().runs[0].status).toBe("success");
+    expect(store().runs[0].incomplete).toBeUndefined();
   });
 
   it("a summary value that is not a finite number is left out of the table", async () => {

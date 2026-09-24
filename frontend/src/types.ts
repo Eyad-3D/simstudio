@@ -126,6 +126,12 @@ export interface SimCase {
   /** 0 = as fast as possible; N > 0 = pace at N× real time (live tuning). */
   realtimeFactor?: number;
   /**
+   * "performance": the Driver holds full throttle below its target, and the
+   * run reports the time to the target and the maximum speed instead of
+   * judging the speed trace (a 0-100 km/h or top-speed test). Absent = "cycle".
+   */
+  kind?: "cycle" | "performance";
+  /**
    * Per-case parameter overrides: { elementId: { paramKey: value } }. Layered
    * on top of each element's own parameterOverrides at solve time, so a case
    * can tweak values — and a parameter sweep can vary one — without editing the
@@ -212,7 +218,8 @@ export interface SummaryValue {
 
 export interface SimResult {
   caseId: string;
-  status: "success" | "failed" | "warning";
+  /** "cancelled": a stop cut the run short. */
+  status: "success" | "failed" | "warning" | "cancelled";
   messages: SimMessage[];
   channels: Channel[];
   summary: SummaryValue[];

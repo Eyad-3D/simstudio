@@ -388,7 +388,8 @@ is no token check. To reach a development engine through another host name
 | `POST /api/simulate` | Validate + solve one case synchronously |
 | `WS /api/simulate/run` | Live run: client sends `start`, then optional `set_param` / `cancel`; server streams `step` / `message` events and a final `done` with the full result |
 
-A result (`SimResult`) has a `status` of `success`, `warning` or `failed`, its
+A result (`SimResult`) has a `status` of `success`, `warning`, `cancelled` or
+`failed`, its
 `messages`, the recorded `channels` and a `summary` of `SummaryValue`s
 (`label`, `value`, `unit`). A summary value that the run's checks rule out
 also carries `notValid`, the reason as text (for example
@@ -501,28 +502,36 @@ Messages.
 
 ### Run status and not-valid figures
 
-Each run ends as *success*, *warning* or *failed*:
+Each run ends as *success*, *warning*, *cancelled* or *failed*:
 
 - **failed** — an error was raised, for example: the model could not be
   built, a script failed, the vehicle covered less than 5 % of the distance
   its target speed asks for, or a result went NaN or infinite. When no
   distance has been covered after 60 s, a warning already says so while the
   run goes on.
-- **warning** — a warning was raised, or the run was cancelled. This
-  includes *Cycle not followed*: the vehicle speed was outside ±2 km/h and
-  ±1 s of the target for more than 1 % of the run (at least 2 s). The trace
-  is checked every 0.1 s of simulated time, whatever the case time step. A
-  step in the target (for example `0:100; 600:100` from standstill) is
-  outside that band while the car accelerates, so acceleration and
-  top-speed tests end with this warning.
-- **success** — neither of the above.
+- **cancelled** — a stop cut the run short (a stop that arrives as the
+  run ends leaves a complete run). A stopped run that failed a check is
+  *failed*.
+- **warning** — a warning was raised. This includes *Cycle not followed*:
+  the vehicle speed was outside ±2 km/h and ±1 s of the target for more
+  than 1 % of the run (at least 2 s). The trace is checked every 0.1 s of
+  simulated time, whatever the case time step.
+- **success** — none of the above.
+
+A case's *Kind* is *Cycle* by default. Set it to *Performance* for an
+acceleration or top-speed test driven by a step in the target (for example
+`0:100` from standstill): the Driver then holds full throttle below the
+target, the trace is not judged, and the summary adds *Maximum speed* and
+*Time to … km/h* (from t = 0 to the target's highest value, between the
+0.1 s trace samples). When the car never reaches the target, Messages says
+so and there is no *Time to* row.
 
 Summary figures that a failed check makes meaningless are marked *not
 valid*, with the reason, in the results table:
 
 - Consumption, Fuel consumption and CO₂ emissions when the cycle was not
   followed ("cycle not followed") or the run was cancelled ("run cancelled
-  at t = …");
+  at t = …", which also marks a performance test's *Maximum speed*);
 - Consumption once the battery reached its minimum SOC, and the fuel
   figures once the tank ran empty;
 - battery, energy and consumption figures when the *Electrical energy

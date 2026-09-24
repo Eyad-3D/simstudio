@@ -240,8 +240,6 @@ let activeRun: api.LiveRunHandle | null = null;
 let liveLog: { runId: string; edits: LiveEdit[] } | null = null;
 // set by stopRun so an in-flight parameter sweep aborts after the current point
 let sweepAborted = false;
-// set by stopRun while a run is in flight; reset when the next run starts
-let stopRequested = false;
 // bumped per run-history load, so an answer for an earlier load is dropped
 let runHistorySeq = 0;
 
@@ -272,16 +270,13 @@ function keepStudies(target: Project, current: Project): Project {
 }
 
 /** Why a finished run is not a complete result, or undefined when it is.
- *  A stop only counts if the solver confirms it cut the run short (a stop
- *  pressed as the run ends leaves a complete result). */
-function incompleteReason(result: SimResult, stopped: boolean): string | undefined {
+ *  A stop only counts when the solver says it cut the run short (status
+ *  "cancelled"; a stop pressed as the run ends leaves a complete result). */
+function incompleteReason(result: SimResult): string | undefined {
   if (result.status === "failed") return "failed";
-  const cancel = stopped ? result.messages.find((m) => /cancel/i.test(m.text)) : undefined;
-  if (cancel) {
-    const at = cancel.text.match(/t = ([^ ]+ s)/);
-    return at ? `stopped at t = ${at[1]}` : "stopped";
-  }
-  return undefined;
+  if (result.status !== "cancelled") return undefined;
+  const at = result.messages.find((m) => /cancel/i.test(m.text))?.text.match(/t = ([^ ]+ s)/);
+  return at ? `stopped at t = ${at[1]}` : "stopped";
 }
 
 interface ProjectState {
@@ -407,6 +402,7 @@ interface ProjectState {
       timeStep: number;
       outputEvery: number;
       realtimeFactor: number;
+      kind: "cycle" | "performance";
     }>,
   ) => void;
   addCase: () => void;
@@ -692,7 +688,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     });
     activeRun = handle;
     liveLog = { runId, edits: [] };
-    stopRequested = false;
     // the snapshot as the run ends: its live edits and the model's fingerprint
     const finalSnapshot = async (): Promise<Partial<SimRun>> => {
       if (!snapshot) return {};
@@ -703,7 +698,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     try {
       const result = await handle.done;
       if (flushTimer) clearTimeout(flushTimer);
-      const incomplete = incompleteReason(result, stopRequested);
+      const incomplete = incompleteReason(result);
       const finished: SimRun = {
         ...newRun,
         result,
@@ -1770,7 +1765,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     stopRun: () => {
       sweepAborted = true;
       if (activeRun) {
-        stopRequested = true;
         activeRun.cancel();
         get().log("info", "Stop requested — waiting for the solver to wind down …");
       }

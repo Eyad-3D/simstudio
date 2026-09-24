@@ -16,6 +16,8 @@ still holds. The full record of every change to the reference results is in
 | Motor and engine maps no longer extend their data: a run that reads a motor's full-load map outside its speed data, a motor's loss map or an engine's fuel map outside its speed or torque data, an engine's full-load curve outside its speed data, or a fuel cell's polarization curve outside its current data stops with an error naming the table, the axis, the value and the time | Models whose maps do not cover where they run now fail instead of finishing on made-up values; Data Checks warn before the run. Engines below their full-load curve's first speed (starting) use that point, as before | MOD-18 |
 | The friction brake's default inertia is 0.18 kg·m² instead of 0.6 (a 330 mm disc) | Cars with default brakes accelerate and brake a little more easily: BEV WLTC 14.04 → 14.03 kWh/100 km, hybrid EPA city 2.95 → 2.94 and highway 3.30 → 3.29 l/100 km | MOD-18 |
 | New library defaults that fit the default E-Motor's 250–396 V map: voltage source and DC-DC output 350 V (were 400 and 800 V), fuel-cell curve 396–250 V (was 420–264 V, now 100 kW at 400 A instead of 105.6 kW); the default engine's full-load peak is 175 N·m (was 178) and its fuel map starts at 800 1/min | Models built on these defaults change; the examples do not use them | MOD-18 |
+| A run you stop part-way ends *cancelled* instead of *warning*; a stop that arrives as the run ends no longer marks a complete run | Stopped runs and study points say *cancelled* (their per-distance figures stay marked *not valid: run cancelled at t = …*); the examples do not change | VAL-39 |
+| A new case kind, *Performance*, for 0-100 km/h and top-speed tests: the Driver holds full throttle below the target, and the run reports *Time to … km/h* and *Maximum speed* instead of *Cycle not followed* | Such a run can now be a *success* with valid figures. The time is taken where the car reaches the target, at full throttle: a 0-100 km/h step on the Battery Electric Car takes 7.11 s (as a cycle, its Driver never quite reached 100 km/h). Cases set to *Cycle*, the default, do not change | VAL-39 |
 
 ### New
 
@@ -46,6 +48,12 @@ still holds. The full record of every change to the reference results is in
   that does not start at 0 1/min, an engine's fuel map against its
   full-load curve, and a fuel cell's curve against 0 A and its Maximum
   Current.
+- Case settings: *Kind* (Cycle or Performance). A performance test is a
+  step in the Driving Task's target from t = 0 (for example `0:100` for
+  0-100 km/h, `0:250` for top speed); Run info says *performance test*. A
+  target the car never reaches gives only the maximum speed and says so
+  in Messages.
+- A run status *cancelled*, for a run a stop cut short.
 
 ### Fixed
 
@@ -59,6 +67,8 @@ still holds. The full record of every change to the reference results is in
   first-touch messages, the motor's voltage-axis note and the engine's rev
   limiter are *info*, so a brief touch no longer turns a run into a
   *warning*.
+- A stop pressed while a paced run was on its last step turned the
+  complete run into a *warning* with no message saying why.
 
 ### Upgrading from 0.2.0
 
@@ -76,6 +86,11 @@ still holds. The full record of every change to the reference results is in
   table editor to get the 0.2.0 behaviour back.
 - A voltage source, DC-DC converter, fuel cell, engine or brake left at its
   library default takes the new default (see the table above).
+- Runs you stopped in 0.2.0 keep their *warning* status and their
+  *stopped at t = …* note. Cases load as kind *Cycle*.
+- Going back to 0.2.0: it cannot open a project with a study point that
+  says *cancelled*, and it does not list stored runs that say *cancelled*.
+  A case's Kind is kept but ignored.
 
 ## 0.2.0 — first public release (early version)
 

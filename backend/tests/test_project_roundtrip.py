@@ -145,7 +145,7 @@ def _study(study_id: str, values: list[float]) -> dict:
         "points": [
             {"values": [values[0]], "runId": "run-1", "status": "success",
              "kpis": {"HV Battery Pack — final SOC": 88.5}, "notValid": {}},
-            {"values": [values[1]], "runId": "run-2", "status": "warning", "incomplete": "stopped at t = 12 s",
+            {"values": [values[1]], "runId": "run-2", "status": "cancelled", "incomplete": "stopped at t = 12 s",
              "kpis": {"HV Battery Pack — final SOC": 97.25},
              "notValid": {"HV Battery Pack — final SOC": "cycle not followed"}},
             *({"values": [v], "status": "not run", "kpis": {}, "notValid": {}} for v in values[2:]),

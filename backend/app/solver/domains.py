@@ -250,6 +250,7 @@ class RunContext:
         self.v = max(0.0, float(veh_p.get("initial_speed_kmh", 0)) / 3.6) if self.veh_id else 0.0
         self.distance = 0.0
         self.driver_integral = 0.0
+        self.performance = False  # a performance-test case (set by simulate)
 
         self.dls = [DrivelineState(dl=dl) for dl in model.drivelines]
         # the gear each gearbox's driveline was built in (its default gear
@@ -1358,6 +1359,11 @@ class DriverSlave(_CtxSlave):
         err = target_kmh - fb_kmh
         cmd_unsat = kp * err + ki * ctx.driver_integral
         cmd = max(-1.0, min(1.0, cmd_unsat))
+        if ctx.performance and err > 0:
+            # a performance test: full throttle up to the target (a PI never
+            # quite reaches a step target, so no time could be taken there);
+            # set before the anti-windup, so the integral does not wind up
+            cmd = 1.0
         if cmd == cmd_unsat or err * cmd_unsat < 0:
             ctx.driver_integral += err * dt
 
