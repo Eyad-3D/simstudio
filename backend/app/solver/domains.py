@@ -1383,35 +1383,35 @@ class DriverSlave(_CtxSlave):
         if cmd == cmd_unsat or err * cmd_unsat < 0:
             ctx.driver_integral += err * dt
 
-        # full regeneration at the wheels: every live motor's generator torque
-        # limit, reflected through its gears — regenerating, the gear losses
-        # come off the torque that reaches the motor, as in the mechanics
-        t_motor_cap = 0.0
-        regen_motors: list[tuple[MotorCache, float, object]] = []
-        for st in ctx.dls:
-            if st.plan.over_constrained or not st.plan.n:
-                continue
-            lay = ctx.layout(st)
-            if not lay.has_wheels:
-                continue
-            for s_idx, src, r_eff in lay.motors:
-                mc = ctx.motors[src.el_id]
-                bus = ctx.motor_bus.get(mc.el_id)
-                if ctx.motor_volts(mc) <= 1.0:
-                    continue  # no live supply: it cannot regenerate
-                omega_m = src.m * ctx.seg_speed(st, s_idx)
-                t_q4 = -ctx.motor_command(mc, -1.0, omega_m)[0]  # 0 above its maximum speed
-                t_motor_cap += t_q4 * r_eff / max(1e-3, src.eff * st.plan.eff_chain[s_idx])
-                regen_motors.append((mc, omega_m, bus))
-        if self.layout_seen != ctx.layout_version:  # brakes of every driveline
-            self.layout_seen = ctx.layout_version
-            self.brakes = [br for st in ctx.dls for seg in st.dl.segments for br in seg.brakes]
-        fr_cap = sum(br.max_torque * br.m for br in self.brakes)
-        taper = max(0.0, min(1.0, ctx.v / 3.0))
-
         if cmd >= 0:
             traction_cmd, brake_cmd = cmd, 0.0
         else:
+            # full regeneration at the wheels: every live motor's generator
+            # torque limit, reflected through its gears — regenerating, the gear
+            # losses come off the torque that reaches the motor, as in the
+            # mechanics (worked out only when braking: a step's hot path)
+            t_motor_cap = 0.0
+            regen_motors: list[tuple[MotorCache, float, object]] = []
+            for st in ctx.dls:
+                if st.plan.over_constrained or not st.plan.n:
+                    continue
+                lay = ctx.layout(st)
+                if not lay.has_wheels:
+                    continue
+                for s_idx, src, r_eff in lay.motors:
+                    mc = ctx.motors[src.el_id]
+                    bus = ctx.motor_bus.get(mc.el_id)
+                    if ctx.motor_volts(mc) <= 1.0:
+                        continue  # no live supply: it cannot regenerate
+                    omega_m = src.m * ctx.seg_speed(st, s_idx)
+                    t_q4 = -ctx.motor_command(mc, -1.0, omega_m)[0]  # 0 above its maximum speed
+                    t_motor_cap += t_q4 * r_eff / max(1e-3, src.eff * st.plan.eff_chain[s_idx])
+                    regen_motors.append((mc, omega_m, bus))
+            if self.layout_seen != ctx.layout_version:  # brakes of every driveline
+                self.layout_seen = ctx.layout_version
+                self.brakes = [br for st in ctx.dls for seg in st.dl.segments for br in seg.brakes]
+            fr_cap = sum(br.max_torque * br.m for br in self.brakes)
+            taper = max(0.0, min(1.0, ctx.v / 3.0))
             if taper >= 1.0:
                 for _, _, bus in regen_motors:
                     if bus.battery and ctx.battery_full(ctx.batteries[bus.battery]):
