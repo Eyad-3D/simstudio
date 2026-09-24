@@ -55,7 +55,7 @@ jobs:
 
       # 22+: both smoke tests use Node's built-in WebSocket client, which
       # Node 20 does not have.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
