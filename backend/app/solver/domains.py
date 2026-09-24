@@ -1309,6 +1309,8 @@ class DriverSlave(_CtxSlave):
         super().__init__(ctx)
         self.layout_seen = -1  # ctx.layout_version the list below belongs to
         self.brakes: list[BrakeRef] = []
+        self.flat_out = False  # a performance test held full throttle ...
+        self.reached = False  # ... and then reached its target
 
     def regen_share(self, motors: list[tuple[MotorCache, float, object]], want: float) -> float:
         """The share k ≤ ``want`` of full regeneration — a traction command
@@ -1359,11 +1361,19 @@ class DriverSlave(_CtxSlave):
         err = target_kmh - fb_kmh
         cmd_unsat = kp * err + ki * ctx.driver_integral
         cmd = max(-1.0, min(1.0, cmd_unsat))
-        if ctx.performance and err > 0:
-            # a performance test: full throttle up to the target (a PI never
-            # quite reaches a step target, so no time could be taken there);
-            # set before the anti-windup, so the integral does not wind up
-            cmd = 1.0
+        if ctx.performance and not self.reached:
+            if err > 0:
+                # a performance test: full throttle up to the target (a PI
+                # never quite reaches a step target, so no time could be taken
+                # there); set before the anti-windup, so the integral does not
+                # wind up
+                cmd = 1.0
+                self.flat_out = True
+            elif self.flat_out:
+                # there: the PI holds the target from now on, as in a cycle
+                # (full throttle each time the car dipped below it would
+                # switch between throttle and brakes, and make up the energy)
+                self.reached = True
         if cmd == cmd_unsat or err * cmd_unsat < 0:
             ctx.driver_integral += err * dt
 

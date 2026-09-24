@@ -17,7 +17,7 @@ still holds. The full record of every change to the reference results is in
 | The friction brake's default inertia is 0.18 kg·m² instead of 0.6 (a 330 mm disc) | Cars with default brakes accelerate and brake a little more easily: BEV WLTC 14.04 → 14.03 kWh/100 km, hybrid EPA city 2.95 → 2.94 and highway 3.30 → 3.29 l/100 km | MOD-18 |
 | New library defaults that fit the default E-Motor's 250–396 V map: voltage source and DC-DC output 350 V (were 400 and 800 V), fuel-cell curve 396–250 V (was 420–264 V, now 100 kW at 400 A instead of 105.6 kW); the default engine's full-load peak is 175 N·m (was 178) and its fuel map starts at 800 1/min | Models built on these defaults change; the examples do not use them | MOD-18 |
 | A run you stop part-way ends *cancelled* instead of *warning*; a stop that arrives as the run ends no longer marks a complete run | Stopped runs and study points say *cancelled* (their per-distance figures stay marked *not valid: run cancelled at t = …*); the examples do not change | VAL-39 |
-| A new case kind, *Performance*, for 0-100 km/h and top-speed tests: the Driver holds full throttle below the target, and the run reports *Time to … km/h* and *Maximum speed* instead of *Cycle not followed* | Such a run can now be a *success* with valid figures. The time is taken where the car reaches the target, at full throttle: a 0-100 km/h step on the Battery Electric Car takes 7.11 s (as a cycle, its Driver never quite reached 100 km/h). Cases set to *Cycle*, the default, do not change | VAL-39 |
+| A new case kind, *Performance*, for 0-100 km/h and top-speed tests: the Driver holds full throttle until the car reaches the target, then holds it there, and the run reports *Time to … km/h* and *Maximum speed* instead of *Cycle not followed* | Such a run can now be a *success* with valid figures. The time is taken where the car's speed crosses the target, at full throttle: a 0-100 km/h step on the Battery Electric Car takes 7.10 s (as a cycle, its Driver never quite reached 100 km/h). Cases set to *Cycle*, the default, do not change | VAL-39 |
 | A *success* also means the physics stayed in range: a motor, engine, battery or fuel cell outside its table data or above its maximum speed for more than 1 % of the run (at least 2 s, the speed trace's allowance) ends the run as *warning* | The message names the part, how far past and for how long (for example *E-Motor 'E-Motor' ran 43 V past its 'Full-Load Torque' table for 30 s of 30 s*), and Consumption, Fuel consumption, CO₂ emissions and a performance test's rows are marked *not valid* with that reason. Runs that followed their cycle on made-up map values used to be a *success*. The examples stay inside their data and do not change | VAL-39 |
 
 ### New
@@ -95,7 +95,9 @@ still holds. The full record of every change to the reference results is in
 - Runs you stopped in 0.2.0 keep their *warning* status and their
   *stopped at t = …* note. Cases load as kind *Cycle*.
 - Going back to 0.2.0: it cannot open a project with a study point that
-  says *cancelled*, and it does not list stored runs that say *cancelled*.
+  says *cancelled*. It still lists and opens stored runs that say
+  *cancelled*, but drops them from the list if it has to rebuild its run
+  index.
   A case's Kind is kept but ignored.
 
 ## 0.2.0 — first public release (early version)

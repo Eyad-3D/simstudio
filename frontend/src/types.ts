@@ -126,9 +126,10 @@ export interface SimCase {
   /** 0 = as fast as possible; N > 0 = pace at N× real time (live tuning). */
   realtimeFactor?: number;
   /**
-   * "performance": the Driver holds full throttle below its target, and the
-   * run reports the time to the target and the maximum speed instead of
-   * judging the speed trace (a 0-100 km/h or top-speed test). Absent = "cycle".
+   * "performance": the Driver holds full throttle until the car reaches its
+   * target (its PI holds the target after that), and the run reports the
+   * time to the target and the maximum speed instead of judging the speed
+   * trace (a 0-100 km/h or top-speed test). Absent = "cycle".
    */
   kind?: "cycle" | "performance";
   /**

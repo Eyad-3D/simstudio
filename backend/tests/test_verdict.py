@@ -192,6 +192,30 @@ def test_a_stop_after_the_last_step_leaves_a_complete_run():
     assert all(s.notValid is None for s in result.summary)
 
 
+def test_a_performance_test_is_timed_only_from_below_its_target_and_to_the_end():
+    """A stopped performance test was stopped, it did not fall short of its
+    target; a car that starts at its target or above has no time to it.
+    Before, the first said "did not reach the 100 km/h target" and the
+    second got "Time to 100 km/h" = 0.0 s."""
+    proj = bev_axle(profile="0:100; 30:100")
+    proj.cases[0].kind = "performance"
+    calls = {"n": 0}
+
+    def control():
+        calls["n"] += 1
+        return [{"type": "cancel"}] if calls["n"] == 3 else []
+
+    stopped = simulate(proj, "case", control=control)
+    assert stopped.status == "cancelled"
+    assert not any("did not reach" in m.text for m in stopped.messages)
+    veh = next(e for e in proj.systems[0].elements if e.id == "veh")
+    veh.parameterOverrides["initial_speed_kmh"] = 120
+    rolling = simulate(proj, "case")
+    assert rolling.status == "success", [m.text for m in rolling.messages]
+    assert not [s.label for s in rolling.summary if s.label.startswith("Time to")]
+    assert not any("did not reach" in m.text for m in rolling.messages)
+
+
 def test_beyond_data_allowance_is_one_percent_of_the_run_and_at_least_2_s():
     """The trace's allowance, per element, on its longest record."""
     def reasons(duration_s, *outside_s):

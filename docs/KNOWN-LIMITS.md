@@ -78,7 +78,8 @@ vehicle, and the Data Checks all-clear does not vouch for the results
 either. Also:
 
 - A case of kind *Performance* (Cases & Parameters → Kind) is not judged
-  on that band: the Driver holds full throttle below the target, and the
+  on that band: the Driver holds full throttle until the car first
+  reaches the target (its PI holds the target after that), and the
   run reports its *Maximum speed* and the *Time to* the target's highest
   value, timed from t = 0. That is a standing start only: there is no
   rolling start, no time between two speeds (such as 80-120 km/h) and no

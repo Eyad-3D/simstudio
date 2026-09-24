@@ -159,7 +159,10 @@ def test_bev_top_speed_is_the_reference_cars_and_within_the_motors_limit(bev_ful
 def test_a_performance_case_times_its_step_without_a_trace_warning(bev_full_power):
     """A 0-100 km/h step from standstill as a performance test. As a cycle
     it ends 'Cycle not followed' (7 s outside the band while the car
-    accelerates), and the Driver's PI never quite reaches 100 km/h."""
+    accelerates), and the Driver's PI never quite reaches 100 km/h. Once
+    there, the PI holds the target as in a cycle: before, full throttle came
+    back each time the car dipped below 100 km/h, and the switching between
+    throttle and brakes made up the energy figures."""
     project = load_example("bev-car")
     case = _case(project, "case-city")
     case.duration, case.timeStep, case.kind = 20, 0.1, "performance"
@@ -172,6 +175,23 @@ def test_a_performance_case_times_its_step_without_a_trace_warning(bev_full_powe
     assert s["Time to 100 km/h"].value == pytest.approx(_time_to(bev_full_power[0], 100), abs=0.02)
     assert 100 <= s["Maximum speed"].value < 101
     assert s["Consumption"].notValid is None
+    accel = series(result, "el-driver", "sig_accel_pedal")
+    brake = series(result, "el-driver", "sig_brake_pedal")
+    hold = [(a["value"], b["value"]) for a, b in zip(accel, brake)
+            if a["t"] > s["Time to 100 km/h"].value + 1]
+    assert hold and all(a < 1 and b == 0 for a, b in hold)
+
+
+def test_the_time_to_the_target_is_read_where_the_speed_crosses_it():
+    """With the step 0.01 s after t = 0, the crossing falls just after a
+    0.1 s trace sample. The time used to be read on a line to the next one,
+    taken after the Driver lifted off: 7.16 s for a crossing at 7.12 s."""
+    project = load_example("bev-car")
+    case = _case(project, "case-city")
+    case.duration, case.timeStep, case.kind = 9, 0.01, "performance"
+    case.parameterOverrides = {"el-task": {"profile": "0:0; 0.01:0; 0.0101:100; 9:100"}}
+    result = simulate(project, case.id)
+    assert _summary(result)["Time to 100 km/h"] == pytest.approx(_time_to(result, 100), abs=0.006)
 
 
 def test_a_top_speed_test_reports_its_maximum_speed(bev_full_power):

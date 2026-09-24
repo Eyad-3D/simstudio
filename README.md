@@ -524,11 +524,13 @@ Each run ends as *success*, *warning*, *cancelled* or *failed*:
 
 A case's *Kind* is *Cycle* by default. Set it to *Performance* for an
 acceleration or top-speed test driven by a step in the target (for example
-`0:100` from standstill): the Driver then holds full throttle below the
-target, the trace is not judged, and the summary adds *Maximum speed* and
-*Time to … km/h* (from t = 0 to the target's highest value, between the
-0.1 s trace samples). When the car never reaches the target, Messages says
-so and there is no *Time to* row.
+`0:100` from standstill): the Driver then holds full throttle until the
+car reaches the target and holds the target after that, as in a cycle; the
+trace is not judged, and the summary adds *Maximum speed* and *Time to …
+km/h* (from t = 0 to where the speed first reaches the target's highest
+value, read at every solver step). When the car never reaches the target,
+Messages says so and there is no *Time to* row; a car that starts at the
+target or above has none either.
 
 Summary figures that a failed check makes meaningless are marked *not
 valid*, with the reason, in the results table:

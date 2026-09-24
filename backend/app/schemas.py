@@ -147,9 +147,10 @@ class SimCase(BaseModel):
     outputEvery: int = 1
     # 0 = run as fast as possible; N > 0 = pace at N× real time (for live tuning)
     realtimeFactor: float = 0.0
-    # "performance": the Driver holds full throttle below its target, and the
-    # run reports the time to the target and the maximum speed instead of
-    # judging the speed trace (a 0-100 km/h or top-speed test)
+    # "performance": the Driver holds full throttle until the car reaches its
+    # target (its PI holds the target after that), and the run reports the
+    # time to the target and the maximum speed instead of judging the speed
+    # trace (a 0-100 km/h or top-speed test)
     kind: Literal["cycle", "performance"] = "cycle"
     # Per-case parameter overrides: {elementId: {paramKey: value}}. Layered on
     # top of each element's own parameterOverrides at model-build time, so a

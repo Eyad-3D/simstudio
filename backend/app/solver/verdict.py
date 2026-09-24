@@ -20,9 +20,12 @@ and the figures per distance are flagged not valid. A run that covers less
 than 5 % of the cycle's distance, or produces non-finite values, "failed".
 
 A performance-test case (SimCase.kind "performance": a step in the target
-speed, driven at full throttle below it) is not judged on the band: it
-reports its maximum speed and the time from t = 0 to the target's highest
-value, or says that it never got there.
+speed, driven at full throttle until the car gets there) is not judged on
+the band: it reports its maximum speed and the time from t = 0 to the
+target's highest value, or says that it never got there. Its trace is
+sampled at every solver step, so that time is read where the speed crosses
+the target, not on a line to a 0.1 s sample taken after the Driver lifted
+off.
 
 The physics stayed in range: a motor, engine, battery or fuel cell that ran
 past the data of one of its tables, or above its maximum speed (the
@@ -64,7 +67,8 @@ class TraceMetrics:
 class CycleTrace:
     """Samples the Driver's target and the vehicle speed of a run that has
     both, every TRACE_STEP_S of solver time (at the first solver step on or
-    after each multiple of it) and at the run's first and last instant."""
+    after each multiple of it; at every solver step in a performance test)
+    and at the run's first and last instant."""
 
     def __init__(self, ctx):
         model = ctx.model
@@ -87,7 +91,8 @@ class CycleTrace:
         ``last`` (the run's final instant)."""
         if self.src is None:
             return
-        if t < self.next_t - 1e-9 and not (last and self.times and t > self.times[-1] + 1e-9):
+        if (t < self.next_t - 1e-9 and not self.ctx.performance
+                and not (last and self.times and t > self.times[-1] + 1e-9)):
             return
         self.next_t = (math.floor(t / TRACE_STEP_S + 1e-6) + 1) * TRACE_STEP_S
         if self.src_kind is not None:
@@ -218,9 +223,10 @@ def _time_to(ts: list[float], spd: list[float], level: float) -> float | None:
 
 
 def judge(trace: CycleTrace, distance_m: float, series: dict, performance: bool = False,
-          duration_s: float = 0.0, uses: Iterable[MapUse] = ()) -> Verdict:
+          duration_s: float = 0.0, uses: Iterable[MapUse] = (), stopped: bool = False) -> Verdict:
     """The checks a finished run must pass to be called a success; ``uses``
-    are the run's MapUse records and ``duration_s`` the time it solved."""
+    are the run's MapUse records, ``duration_s`` the time it solved and
+    ``stopped`` whether a stop cut it short."""
     messages: list[tuple[str, str]] = []
     rows: list[tuple[str, float, str]] = []
     not_followed = False
@@ -255,11 +261,13 @@ def judge(trace: CycleTrace, distance_m: float, series: dict, performance: bool 
         level, v_max = max(trace.target), max(trace.speed)
         rows.append(("Maximum speed", round(v_max, 2), "km/h"))
         t_level = _time_to(trace.times, trace.speed, level)
-        if t_level is not None:
-            rows.append((f"Time to {level:g} km/h", round(t_level, 2), "s"))
-        else:
-            messages.append(("info", f"Performance test: the vehicle did not reach the {level:g} "
-                                     f"km/h target; its maximum speed was {v_max:.1f} km/h."))
+        if t_level is None:
+            if not stopped:  # a stopped run only did not get there yet
+                messages.append(("info", f"Performance test: the vehicle did not reach the "
+                                         f"{level:.4g} km/h target; its maximum speed was "
+                                         f"{v_max:.1f} km/h."))
+        elif t_level > trace.times[0]:  # no time when it started at the target or above
+            rows.append((f"Time to {level:.4g} km/h", round(t_level, 2), "s"))
     model = trace.ctx.model
     beyond = beyond_data(uses, duration_s,
                          lambda el: f"{model.cdef_of[el].name} '{model.elements[el].label}'")

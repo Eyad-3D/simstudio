@@ -237,7 +237,8 @@ def simulate(
         # edge it gives what the controller asks for, not physics past its
         # data, so only its summary rows say it left the table
         verdict = judge(trace, ctx.distance, rt.series, ctx.performance, solved,
-                        [u for u in ctx.map_use if model.cdef_of[u.el_id].id != "signal.lookup"])
+                        [u for u in ctx.map_use if model.cdef_of[u.el_id].id != "signal.lookup"],
+                        stopped)
         for level, text in verdict.messages:
             rt.message(level, text)
         unit_map = unit_groups()

@@ -298,7 +298,7 @@ export function CasePanel() {
           </label>
           <label
             className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-            title="Cycle: judged on following the target speed. Performance: the Driver holds full throttle below the target, and the run reports the time from t = 0 to the target speed and the maximum speed (for example 0:100 for 0-100 km/h, 0:250 for top speed)."
+            title="Cycle: judged on following the target speed. Performance: the Driver holds full throttle until the car reaches the target, then holds it there, and the run reports the time from t = 0 to the target speed and the maximum speed (for example 0:100 for 0-100 km/h, 0:250 for top speed)."
           >
             Kind
             <select
