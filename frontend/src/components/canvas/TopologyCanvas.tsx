@@ -141,30 +141,29 @@ function TopologyCanvasInner() {
 
   const placingId = useUIStore((s) => s.placingComponentId);
   const placingDef = placingId ? libraryById[placingId] : undefined;
-  const pendingSelection = useProjectStore((s) => s.pendingCanvasSelection);
   const clipboard = useProjectStore((s) => s.clipboard);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const hovered = useRef(false);
   const pointer = useRef<{ x: number; y: number } | null>(null);
 
-  // apply a store-requested selection (e.g. freshly pasted/duplicated elements)
-  useEffect(() => {
-    if (!pendingSelection) return;
-    setSelectedNodes(new Set(pendingSelection));
-    store.getState().clearPendingSelection();
-  }, [pendingSelection, store]);
-
-  // sync external selection (properties tree, elements list) into the canvas.
+  // sync external selection (properties tree, elements list) into the canvas,
+  // while rendering, whenever the selected element changes (and on mount).
   // Must not collapse a canvas-originated multi-selection: when the selected
   // element is already part of the current canvas selection, leave it alone;
   // only a genuinely new (external) selection replaces it with a single node.
-  useEffect(() => {
+  const [syncedElementId, setSyncedElementId] = useState<string | null>(null);
+  if (selectedElementId !== syncedElementId) {
+    setSyncedElementId(selectedElementId);
     setSelectedNodes((prev) => {
       if (!selectedElementId) return prev.size ? new Set() : prev;
       if (prev.has(selectedElementId)) return prev;
       return new Set([selectedElementId]);
     });
-  }, [selectedElementId]);
+  }
+  // freshly pasted/duplicated elements become the canvas selection
+  const selectNew = useCallback((ids: string[]) => {
+    if (ids.length) setSelectedNodes(new Set(ids));
+  }, []);
 
   const autoFit = useCallback(
     (duration = 0) => {
@@ -544,9 +543,15 @@ function TopologyCanvasInner() {
   const onNodeDragStop = useCallback(() => setGuides(null), []);
 
   // context-menu helpers -----------------------------------------------------
+  // kept clear of the canvas's right and bottom edges
   const openMenuAt = (clientX: number, clientY: number, nodeId: string | null) => {
-    const rect = wrapperRef.current?.getBoundingClientRect();
-    setMenu({ x: clientX - (rect?.left ?? 0), y: clientY - (rect?.top ?? 0), nodeId });
+    const wrapper = wrapperRef.current;
+    const rect = wrapper?.getBoundingClientRect();
+    setMenu({
+      x: Math.min(clientX - (rect?.left ?? 0), (wrapper?.clientWidth ?? 9999) - 184),
+      y: Math.min(clientY - (rect?.top ?? 0), (wrapper?.clientHeight ?? 9999) - 200),
+      nodeId,
+    });
   };
   const closeMenu = () => setMenu(null);
 
@@ -564,15 +569,15 @@ function TopologyCanvasInner() {
         st.copyElements([...selectedNodes]);
       } else if (k === "d" && selectedNodes.size > 0) {
         e.preventDefault();
-        st.duplicateElements([...selectedNodes]);
+        selectNew(st.duplicateElements([...selectedNodes]));
       } else if (k === "v" && st.clipboard) {
         e.preventDefault();
-        st.pasteClipboard(pointer.current ?? undefined);
+        selectNew(st.pasteClipboard(pointer.current ?? undefined));
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedNodes, store]);
+  }, [selectedNodes, store, selectNew]);
 
   // "." frames the selection (the whole model when nothing is selected)
   useEffect(() => {
@@ -918,10 +923,7 @@ function TopologyCanvasInner() {
           <div
             ref={menuRef}
             className="absolute z-50 min-w-[176px] rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] py-1 shadow-lg"
-            style={{
-              left: Math.min(menu.x, (wrapperRef.current?.clientWidth ?? 9999) - 184),
-              top: Math.min(menu.y, (wrapperRef.current?.clientHeight ?? 9999) - 200),
-            }}
+            style={{ left: menu.x, top: menu.y }}
           >
             {menu.nodeId ? (
               <>
@@ -957,7 +959,7 @@ function TopologyCanvasInner() {
                   label={`Duplicate${selectedNodes.size > 1 ? ` (${selectedNodes.size})` : ""}`}
                   kbd="Ctrl+D"
                   onClick={() => {
-                    store.getState().duplicateElements([...selectedNodes]);
+                    selectNew(store.getState().duplicateElements([...selectedNodes]));
                     closeMenu();
                   }}
                 />
@@ -990,7 +992,7 @@ function TopologyCanvasInner() {
                   kbd="Ctrl+V"
                   disabled={!clipboard}
                   onClick={() => {
-                    store.getState().pasteClipboard(pointer.current ?? undefined);
+                    selectNew(store.getState().pasteClipboard(pointer.current ?? undefined));
                     closeMenu();
                   }}
                 />

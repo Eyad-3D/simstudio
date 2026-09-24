@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useUIStore } from "../store/uiStore";
+import { useUIStore, type DialogRequest } from "../store/uiStore";
 
 /** Renders the styled confirm/prompt modal requested via dialog.ts helpers.
  *  Mounted once (in App). Resolves the caller's promise on confirm/cancel. */
@@ -9,10 +9,17 @@ export function DialogHost() {
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // seed the prompt input each time a dialog opens; focus + select it
+  // seed the prompt input each time a dialog opens, while rendering, so the
+  // new dialog never shows the last one's text
+  const [seededFor, setSeededFor] = useState<DialogRequest | null>(null);
+  if (dialog !== seededFor) {
+    setSeededFor(dialog);
+    setText(dialog?.defaultValue ?? "");
+  }
+
+  // focus + select it
   useEffect(() => {
     if (!dialog) return;
-    setText(dialog.defaultValue ?? "");
     const t = setTimeout(() => {
       inputRef.current?.focus();
       inputRef.current?.select();
@@ -23,12 +30,13 @@ export function DialogHost() {
   useEffect(() => {
     if (!dialog) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") settle(null);
+      if (e.key !== "Escape") return;
+      dialog.resolve(null);
+      closeDialog();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dialog]);
+  }, [dialog, closeDialog]);
 
   if (!dialog) return null;
 

@@ -695,6 +695,13 @@ function DynamicPortsEditor({ element }: { element: ElementInstance }) {
   );
 }
 
+// profiles are stored as strings but edited as a full-width grid, so they
+// join the tables/code in the "big" (full-width) group rather than the
+// compact scalar table.
+const isProfile = (p: ParameterDef) => p.type === "string" && p.key === "profile";
+const isBig = (p: ParameterDef) =>
+  p.type === "table1d" || p.type === "table2d" || p.type === "code" || isProfile(p);
+
 export function ElementForm({
   element,
   def,
@@ -712,12 +719,6 @@ export function ElementForm({
   const running = useProjectStore((s) => s.running);
   const openParamDialog = useUIStore((s) => s.openParamDialog);
 
-  // profiles are stored as strings but edited as a full-width grid, so they
-  // join the tables/code in the "big" (full-width) group rather than the
-  // compact scalar table.
-  const isProfile = (p: ParameterDef) => p.type === "string" && p.key === "profile";
-  const isBig = (p: ParameterDef) =>
-    p.type === "table1d" || p.type === "table2d" || p.type === "code" || isProfile(p);
   const scalarParams = useMemo(() => def.parameters.filter((p) => !isBig(p)), [def]);
   const bigParams = useMemo(() => def.parameters.filter(isBig), [def]);
   const valueOf = (p: ParameterDef): ParamValue =>

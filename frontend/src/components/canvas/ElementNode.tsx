@@ -303,6 +303,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
             <AlertTriangle size={9} strokeWidth={2.5} />
           </span>
         )}
+        {/* eslint-disable-next-line react-hooks/static-components -- componentIcon picks from a fixed module-level registry, so Icon is the same component every render */}
         <Icon
           size={isSub ? 26 : 30}
           strokeWidth={1.6}

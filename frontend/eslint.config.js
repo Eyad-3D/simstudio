@@ -1,19 +1,20 @@
 // Flat ESLint config. Like the backend's ruff setup, this is a small
 // high-signal set: the type-aware rules that catch real mistakes, plus the
-// React Hooks rules, which are the ones that actually bite in this codebase.
+// React Hooks rules, which are the ones that actually bite in this codebase
+// (since react-hooks 7 that includes the React Compiler's rules of React).
 import js from "@eslint/js";
+import { defineConfig } from "eslint/config";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
-export default tseslint.config(
+export default defineConfig(
   { ignores: ["dist/**", "node_modules/**", "src/data/**", "playwright-report/**", "test-results/**"] },
   js.configs.recommended,
-  ...tseslint.configs.recommended,
+  tseslint.configs.recommended,
   {
     files: ["**/*.{ts,tsx}"],
-    plugins: { "react-hooks": reactHooks },
+    extends: [reactHooks.configs.flat.recommended],
     rules: {
-      ...reactHooks.configs.recommended.rules,
       // Underscore-prefixed args are the codebase's "deliberately unused" mark.
       "@typescript-eslint/no-unused-vars": [
         "error",
