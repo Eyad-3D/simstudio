@@ -672,8 +672,12 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         }
       }
       buffer = [];
+      // new channel objects each flush, so views memoised on a channel (the
+      // Signal Plot) redraw; the series arrays grow in place and stay shared,
+      // as copying them would cost every sample on every flush
+      const result = { ...partial, channels: partial.channels.map((c) => ({ ...c })) };
       set((s) => ({
-        runs: s.runs.map((r) => (r.id === runId ? { ...r, result: { ...partial } } : r)),
+        runs: s.runs.map((r) => (r.id === runId ? { ...r, result } : r)),
         liveValues: { ...latest.values },
         liveT: latest.t,
         livePct: latest.pct,
