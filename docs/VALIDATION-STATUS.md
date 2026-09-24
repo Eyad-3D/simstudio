@@ -73,8 +73,8 @@ data; their motor, engine and battery maps are generic (invented, marked
 | Battery Electric Car (2021 Cupra Born values from FASTSim) | WLTC energy at the battery | 14.1 kWh/100 km | about 15–16 kWh/100 km rated at the charging socket, charging losses included (background knowledge, unverified) | 13–17 kWh/100 km |
 | | 0–100 km/h | 7.1 s | 7.3 s (maker's figure, background knowledge) | ±10 % |
 | | Top speed | 160 km/h | 160 km/h (limited) | ±2 %, and within the motor's maximum speed |
-| P2 Hybrid Car (Hyundai Ioniq Hybrid test mass and EPA road load) | EPA city cycle (UDDS) fuel | 2.84 l/100 km (no cold start) | 2.91 l/100 km (EPA 2022 test car list) | 2–5 l/100 km, and at most 4.5 after correcting for the battery's change of charge |
-| | EPA highway cycle (HWFET) fuel | 3.23 l/100 km | 2.94 l/100 km (EPA 2022 test car list) | same as the city cycle |
+| P2 Hybrid Car (Hyundai Ioniq Hybrid test mass and EPA road load) | EPA city cycle (UDDS) fuel | 2.83 l/100 km (no cold start) | 2.91 l/100 km (EPA 2022 test car list) | 2–5 l/100 km, and at most 4.5 after correcting for the battery's change of charge |
+| | EPA highway cycle (HWFET) fuel | 3.24 l/100 km | 2.94 l/100 km (EPA 2022 test car list) | same as the city cycle |
 | | Battery charge at the end | same as at the start | charge-sustaining | within 1 % of the start |
 
 Why this is not validation: the hybrid's road load is EPA's target
