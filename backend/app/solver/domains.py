@@ -501,6 +501,10 @@ class RunContext:
                     cache.rpm = abs(src.m * omega) * RPM
             for pr in seg.props:
                 self.el_axis_speed[pr.el_id] = pr.m * omega
+        for j in st.dl.joints:  # (an open clutch can start with slip)
+            if j.kind == "clutch":
+                st.clutch_slip[j.el_id] = (j.child_a_m * self.seg_speed(st, j.child_a)
+                                           - j.child_b_m * self.seg_speed(st, j.child_b))
 
     @staticmethod
     def seg_speed(st: DrivelineState, s: int) -> float:
@@ -746,7 +750,6 @@ class RunContext:
                 f"says for how long and how far.")
         if p_asked is not None and p_asked < 0:
             mc.regen_lost_wh += (p_elec - p_asked) * self.dt / 3600.0
-        mc.rpm = rpm
         mc.torque = t_net
         mc.p_mech_w = t_net * omega_m
         mc.p_elec_w = p_elec
@@ -1060,7 +1063,6 @@ class RunContext:
             ec.fuel_used_kg += burn
         elif tank is None and fuel > 0:
             ec.fuel_used_kg += fuel / 3600.0 * self.dt
-        ec.rpm = rpm
         ec.torque = t_net
         ec.fuel_kgh = fuel
         ec.p_mech_w = t_net * omega_e
@@ -1491,9 +1493,7 @@ class MechanicalSlave(_CtxSlave):
                 cap_c = engage * max(0.0, float(ctx.params(j.el_id).get("max_torque_Nm", 0)))
                 d_omega = (j.child_a_m * omega_seg[j.child_a]
                            - j.child_b_m * omega_seg[j.child_b])
-                st.clutch_slip[j.el_id] = d_omega
                 t_c = max(-cap_c, min(cap_c, cap_c / CLUTCH_BAND * d_omega)) if cap_c > 0 else 0.0
-                st.clutch_torque[j.el_id] = t_c
                 clutch_t.append(t_c)
                 clutch_cap.append(cap_c)
             # torque-source bookkeeping for joint channels
@@ -1556,10 +1556,9 @@ class MechanicalSlave(_CtxSlave):
                 if cap_c <= 0:
                     continue
                 k_c = cap_c / CLUTCH_BAND
-                d_omega = st.clutch_slip[j.el_id]
                 for i in range(n):
                     q_vec[i] += -t_c * ga[i] + t_c * gb[i]
-                if abs(k_c * d_omega) < cap_c:  # unclamped → implicit
+                if abs(t_c) < cap_c:  # unclamped → implicit
                     c = dt * k_c
                     for i, k, ri, rk in rel_pairs:
                         m_mat[i][k] += c * ri * rk
@@ -1594,9 +1593,19 @@ class MechanicalSlave(_CtxSlave):
                     ctx.el_axis_speed[src.el_id] = src.m * omega_seg[s_idx]
                     cache = ctx.motors.get(src.el_id) or ctx.engines.get(src.el_id)
                     if cache is not None:
+                        cache.rpm = abs(src.m * omega_seg[s_idx]) * RPM
                         st.chain_power_w += getattr(cache, "p_mech_w", 0.0)
                 for pr in seg.props:
                     ctx.el_axis_speed[pr.el_id] = pr.m * omega_seg[s_idx]
+            # the clutches' channels: the slip the step left, and the torque
+            # that acted over it (with its implicit part)
+            for (j, ga, gb, _), t_c, cap_c in zip(lay.clutches, clutch_t, clutch_cap):
+                if abs(t_c) < cap_c:
+                    t_c += dt * (cap_c / CLUTCH_BAND) * sum((ga[i] - gb[i]) * alpha[i]
+                                                            for i in range(n))
+                st.clutch_torque[j.el_id] = t_c
+                st.clutch_slip[j.el_id] = (j.child_a_m * omega_seg[j.child_a]
+                                           - j.child_b_m * omega_seg[j.child_b])
             for j in st.dl.joints:
                 if j.kind != "split":
                     continue
@@ -1730,7 +1739,6 @@ class ElectricalSlave(_CtxSlave):
                 ctx.used(b.ocv_map, b.soc_pct())
                 disc = max(0.0, a_volt * a_volt - 4.0 * b.r0 * p_w)
                 current = (a_volt - math.sqrt(disc)) / (2.0 * b.r0)
-                v_term = a_volt - current * b.r0
                 if b.r1 > 0 and b.tau > 0:
                     b.v_rc = (b.v_rc + dt * current * b.r1 / b.tau) / (1.0 + dt / b.tau)
                 # the SOC counts charge (A·h); only a share of the charging
@@ -1746,8 +1754,13 @@ class ElectricalSlave(_CtxSlave):
                 b.loss_wh += current * current * b.r0 * dt / 3600.0
                 if current < 0:  # charge not stored
                     b.loss_wh += (1.0 - eta) * ocv * -current * dt / 3600.0
-                b.current, b.power_w, b.v_term = current, p_w, v_term
-                ctx.bus_voltage[bus.id] = v_term
+                b.current, b.power_w = current, p_w
+                # the terminal voltage at the step's end: its current on the
+                # state it left (read without the Error check, as at the
+                # start: the next step's read stops the run, with its time)
+                b.v_term = (interp1(b.ocv_map.pts, b.soc_pct(), b.ocv_map.linear[0])
+                            - b.v_rc - current * b.r0)
+                ctx.bus_voltage[bus.id] = b.v_term
             elif bus.vsource:
                 vs_p = ctx.params(bus.vsource)
                 ctx.bus_voltage[bus.id] = float(vs_p.get("voltage_V", 400))

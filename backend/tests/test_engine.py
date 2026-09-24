@@ -77,7 +77,8 @@ def test_rev_limiter_cuts_fuel_and_torque():
     fuel = [p["value"] for p in series(result, "eng", "sig_fuel_rate")]
     torque = [p["value"] for p in series(result, "eng", "sig_torque")]
     assert 6000 < max(rpm) < 6100
-    for n, f, tq in zip(rpm, fuel, torque):
+    # a point's fuel and torque are its step's, set at the speed it began at
+    for n, f, tq in zip(rpm, fuel[1:], torque[1:]):
         if n > 6000:
             assert f == 0.0 and tq < 0.0
     # reaching the limiter is info (MOD-18): the run is judged on how long it
@@ -141,6 +142,9 @@ def test_engine_starts_at_the_vehicle_speed_behind_a_closed_clutch():
     opened = simulate(proj, "case")
     assert series(opened, "eng", "sig_speed")[0]["value"] == 0.0
     assert series(opened, "whl", "sig_speed")[0]["value"] == pytest.approx(wheel_rpm)
+    # the open clutch's slip from point 0 on: the engine's speed minus its gearbox side's
+    assert series(opened, "cl", "sig_slip_speed")[0]["value"] == pytest.approx(
+        -1.15 * 4.1 * wheel_rpm)
 
 
 def test_coasting_in_gear_burns_no_fuel_and_co2_follows_the_fuel():

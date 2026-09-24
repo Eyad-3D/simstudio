@@ -199,9 +199,9 @@ minimum or an average, for example from the CSV export.
   770 1/min in the P2 Hybrid Car) for a few steps, now and then for a
   second or two, before the clutch locks. Energy is still conserved, but
   the fuel it costs follows the step: the P2 Hybrid Car's EPA city figure
-  reads 2.837 l/100 km at the shipped 10 ms step, 0.015 (0.5 %) above a
+  reads 2.838 l/100 km at the shipped 10 ms step, 0.017 (0.6 %) above a
   2.5 ms run (2.821), with the same engine starts; its highway and Mixed
-  Cycle figures are about 0.005 above. *Roadmap:* ENG-09.
+  Cycle figures are about 0.004 above. *Roadmap:* ENG-09.
 - **Fuel-cell hydrogen use is a fixed figure per kWh** (*Specific H₂
   Consumption*, 55 g/kWh by default), which overstates it at part load by up
   to about a third and understates it at full load.
