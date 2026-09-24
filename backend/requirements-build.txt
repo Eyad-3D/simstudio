@@ -1,6 +1,6 @@
 # Build-time only: freezes the backend into a standalone executable.
 -r requirements.txt
-pyinstaller>=6.6
+pyinstaller>=6.22.3
 # Reads the licences of the frozen packages for THIRD-PARTY-NOTICES.txt
 # (scripts/third-party-notices.py).
 pip-licenses>=5.5,<6
