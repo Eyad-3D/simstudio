@@ -44,7 +44,7 @@
   },
   "overrides": {
     "@axe-core/playwright": {
-      "playwright-core": "1.56.1"
+      "playwright-core": "$@playwright/test"
     }
   }
 }
