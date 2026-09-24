@@ -106,6 +106,17 @@ test("UX-39: one Ctrl+Z undoes the context menu's Delete of a part and a wire", 
   );
 });
 
+test("Delete in a map's cell clears the cell, not the part on the diagram", async ({ page }) => {
+  const before = await counts(page);
+  await part(page, "E-Motor").dblclick();
+  await page.locator(".ss-grid .ss-cell-body").first().click();
+  await page.keyboard.press("Delete");
+  await page.keyboard.press("Backspace");
+  // a delete would show within a frame or two of the key press
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  expect(await counts(page)).toEqual(before);
+});
+
 test("UX-39: one Ctrl+Z undoes the ribbon's Delete", async ({ page }) => {
   await expectOneUndo(
     page,

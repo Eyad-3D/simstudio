@@ -741,6 +741,22 @@ describe("elements and wiring", () => {
     expect(store().past).toHaveLength(0);
   });
 
+  it("moves a wire end in one undo step, and keeps the wire when the move is refused", async () => {
+    await start();
+    const [wire] = rootSystem().connections; // el-bat.pos -> el-node.t1
+    store().addConnection("el-bat", "pos", "el-node", "t2", wire.id);
+    expect(rootSystem().connections).toEqual([
+      expect.objectContaining({ sourceElementId: "el-bat", targetElementId: "el-node", targetPortId: "t2" }),
+    ]);
+    store().undo();
+    expect(rootSystem().connections).toEqual([wire]);
+
+    store().addConnection("el-node", "t2", "el-motor", "pos");
+    const [, other] = rootSystem().connections;
+    store().addConnection("el-bat", "pos", "el-node", "t1", other.id); // the same as `wire`
+    expect(rootSystem().connections).toEqual([wire, other]);
+  });
+
   it("stores signal wiring as a data-bus link", async () => {
     await start();
     store().addConnection("el-const", "sig_out", "el-motor", "sig_demand_in");
@@ -826,6 +842,22 @@ describe("data checks follow the model", () => {
     expect(api.validateProject).toHaveBeenLastCalledWith(store().project);
     expect(store().dataChecks).toEqual([]);
     expect(messages().filter((m) => m.includes("Data checks"))).toHaveLength(1); // no log line of its own
+  });
+
+  it("re-checks an edit made while the first Data Checks were waiting for the engine", async () => {
+    vi.useFakeTimers();
+    await start();
+    let reply!: (checks: DataCheck[]) => void;
+    api.validateProject.mockReturnValueOnce(new Promise((resolve) => (reply = resolve)));
+    const checking = store().runDataChecks();
+    store().renameElement("el-bat", "Pack"); // not checked yet: no re-check of its own
+    reply([error]);
+    await checking;
+    api.validateProject.mockResolvedValue([]);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(api.validateProject).toHaveBeenCalledTimes(2);
+    expect(api.validateProject).toHaveBeenLastCalledWith(store().project);
+    expect(store().dataChecks).toEqual([]);
   });
 
   it("leaves a model nobody checked alone, and waits for a run to end", async () => {

@@ -283,7 +283,9 @@ export function SpreadsheetGrid({
   return (
     <>
       <div
-        className="ss-grid-frame"
+        // nokey: Delete and Backspace here clear cells, and must not reach
+        // React Flow, which would delete the part selected on the diagram
+        className="ss-grid-frame nokey"
         ref={containerRef}
         tabIndex={0}
         onKeyDown={onKeyDown}

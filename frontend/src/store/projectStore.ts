@@ -361,11 +361,14 @@ interface ProjectState {
     side: PortSide,
     offset: number,
   ) => void;
+  /** Wire two ports; with `replaceId`, the new wire takes that one's place in
+   *  the same undo step, and the old wire stays if the new one is refused. */
   addConnection: (
     sourceElementId: string,
     sourcePortId: string,
     targetElementId: string,
     targetPortId: string,
+    replaceId?: string,
   ) => void;
   removeConnections: (ids: string[]) => void;
   addDataBus: (el1: string, p1: string, el2: string, p2: string) => void;
@@ -1060,7 +1063,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         }
       }),
 
-    addConnection: (sourceElementId, sourcePortId, targetElementId, targetPortId) => {
+    addConnection: (sourceElementId, sourcePortId, targetElementId, targetPortId, replaceId) => {
       const { project, libraryById, log } = get();
       if (!project) return;
       const elements = project.systems.flatMap((s) => s.elements);
@@ -1090,19 +1093,23 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const dup = project.systems.some((s) =>
         s.connections.some(
           (c) =>
-            (c.sourceElementId === sourceElementId &&
+            c.id !== replaceId &&
+            ((c.sourceElementId === sourceElementId &&
               c.sourcePortId === sourcePortId &&
               c.targetElementId === targetElementId &&
               c.targetPortId === targetPortId) ||
-            (c.sourceElementId === targetElementId &&
-              c.sourcePortId === targetPortId &&
-              c.targetElementId === sourceElementId &&
-              c.targetPortId === sourcePortId),
+              (c.sourceElementId === targetElementId &&
+                c.sourcePortId === targetPortId &&
+                c.targetElementId === sourceElementId &&
+                c.targetPortId === sourcePortId)),
         ),
       );
       if (dup) return;
       const { activeSystemId } = get();
       updateProject((draft) => {
+        if (replaceId) {
+          for (const s of draft.systems) s.connections = s.connections.filter((c) => c.id !== replaceId);
+        }
         const system = draft.systems.find((s) => s.id === activeSystemId);
         system?.connections.push({
           id: uid("c"),
@@ -1531,6 +1538,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       try {
         const checks = await api.validateProject(project);
         set({ dataChecks: checks, checking: false });
+        if (get().project !== project) scheduleRecheck(); // edited while it checked
         const errors = checks.filter((c) => c.level === "error").length;
         const warnings = checks.filter((c) => c.level === "warning").length;
         log(
@@ -1728,6 +1736,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       try {
         const checks = await api.validateProject(project);
         set({ dataChecks: checks });
+        if (get().project !== project) scheduleRecheck(); // edited while it checked
         const errors = checks.filter((c) => c.level === "error");
         if (errors.length > 0) {
           log("error", `Run blocked — fix ${errors.length} data-check error(s) first.`);
@@ -1827,10 +1836,13 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 const RECHECK_MS = 600;
 let recheckTimer: ReturnType<typeof setTimeout> | undefined;
 useProjectStore.subscribe((s, prev) => {
-  if (s.project === prev.project || !s.dataChecks) return;
+  if (s.project !== prev.project && s.dataChecks) scheduleRecheck();
+});
+
+function scheduleRecheck(): void {
   clearTimeout(recheckTimer);
   recheckTimer = setTimeout(recheck, RECHECK_MS);
-});
+}
 
 async function recheck(): Promise<void> {
   const { project, dataChecks, running } = useProjectStore.getState();

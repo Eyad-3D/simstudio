@@ -511,9 +511,9 @@ function TopologyCanvasInner() {
       const a = portOf(conn.source, conn.sourceHandle);
       const b = portOf(conn.target, conn.targetHandle);
       if (!a || !b || a.kind === "signal" || a.kind !== b.kind) return; // invalid → keep old edge
-      const st = store.getState();
-      st.removeConnections([oldEdge.id]);
-      st.addConnection(conn.source, conn.sourceHandle, conn.target, conn.targetHandle);
+      store
+        .getState()
+        .addConnection(conn.source, conn.sourceHandle, conn.target, conn.targetHandle, oldEdge.id);
     },
     [portOf, store],
   );
