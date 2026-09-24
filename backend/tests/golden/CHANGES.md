@@ -647,3 +647,68 @@ ring: it no longer stands in for a margin in the script.
 | hybrid-car Mixed Cycle (fine step) | HV Battery — final SOC | 51.92 % | 51.95 % | +0.03 (+0.06 %) |
 | hybrid-car Mixed Cycle (fine step) | Fuel consumption | 2.87 l/100km | 2.88 l/100km | +0.01 (+0.35 %) |
 | hybrid-car Mixed Cycle (fine step) | channels that moved | | 45 | 13 outside their tube |
+
+## Speeds, clutch slip and battery voltage recorded at their own time (ENG-03)
+
+ENG-03 stored every point under the end time of its step, but four
+channels still held the state the step started from, one solver step
+(10 ms) old: the E-Motor's and the Engine's Speed, the clutch's Slip Speed
+and the battery's Terminal Voltage. At t = 0.01 s of a 100 A discharge the
+voltage still read the open-circuit voltage; a motor spun up from rest
+read 0 1/min at 0.01 s and its 0.01 s speed at 0.02 s. Now they hold the
+state at their own time, as the wheel, shaft and vehicle speeds and the
+SOC already did: the speeds and the slip the step left, and the voltage
+from this step's current on the SOC and RC voltage it left. A clutch that
+starts open with slip (a car given an initial speed, its engine at rest)
+shows that slip from point 0 on, instead of 0. The clutch's Torque is the
+torque that acted over the step, now with the part the implicit solve
+adds as the clutch locks (before: the part set at the step's start only).
+Torques, powers, currents and fuel rates are unchanged: they are what
+acted over the step, as before.
+
+Scripts and PIDs that read these signals now get the value at the step
+they run in instead of one step earlier, and the next step's motor maps
+read the battery voltage at that step's start. That is why the physics
+moves at all.
+
+- bev-car City Cycle: only the motor speed moved, by one solver step of
+  the car's acceleration (1631.76 -> 1633.40 1/min at t = 10 s; 1633.40
+  -> 1634.22 at the 5 ms step). Its battery voltage moved by at most
+  0.06 mV, under the fixtures' 1e-6. Its City, WLTC and WLTC with HVAC
+  consumption are unchanged to 1e-5 kWh/100 km.
+- hybrid-car Mixed Cycle: its Hybrid Control Unit reads the engine and
+  motor speed, so its commands and what follows them moved (motor command
+  -0.27695 -> -0.27662 at t = 10 s, SOC 53.733 -> 53.731 % at t = 90 s and
+  at most 0.012 points apart, at 140 s), all inside their tubes. The
+  engine starts at 5.82, 73.22 and 120.39 s (5.83 before); fuel 2.8796 ->
+  2.8778 l/100 km and the final SOC, 51.956 %, keep their headline values.
+- Not fixtures, charge-balanced: EPA city (UDDS) 2.83 -> 2.84 l/100 km
+  (2.834 -> 2.841), 30 engine starts unchanged; highway (HWFET) 3.24
+  l/100 km unchanged (3.239 -> 3.236), 21 starts. Each case still ends
+  where it starts (UDDS -0.011, HWFET +0.005, Mixed Cycle -0.004 points),
+  so the start charges stay. The UDDS figure moves by more than reading
+  the speeds one step earlier explains by itself: at 27 of its 30 engine
+  starts the HCU, which now sees the engine's speed as it is, closes the
+  clutch at a different step after the start (at 25 one step later), and
+  how long the solver's ring then lasts at the 10 ms step (see the MOD-18
+  entry) depends on such small differences. Over the cycle the clutch
+  chattered at full torque for 21.7 s in all instead of 16.9 s (at 735.5 s
+  for 2.1 s instead of 0.9 s, at 653.7 s for 1.2 s instead of 0.5 s), and
+  the engine burnt 0.6 g more (253.15 -> 253.76 g), about half of it
+  within 4 s of a start; 2.841 is the top of the 2.834-2.841 that MOD-18
+  measured over brake inertias. At 5 ms (2.825 -> 2.824) and 2.5 ms
+  (2.8215 -> 2.8214) UDDS hardly moves, so the shipped step is now 0.019
+  l/100 km above 2.5 ms instead of 0.012.
+- test_numerics now catches a channel one step late: the clutch's energy
+  (the held torque times the slip's trapezoid, now within 1e-8 of the
+  kinetic energy lost, against 0.62 % with the old channels) and the RC
+  branch's step response (0.035 %, against 0.20 %) are held to 0.1 %, and
+  the clutch's slip must equal the motor's speed minus the load's at every
+  point.
+
+| Fixture | Number | Old | New | Change |
+|---|---|---|---|---|
+| bev-car City Cycle (shipped step) | channels that moved | | 1 | 0 outside their tube |
+| bev-car City Cycle (fine step) | channels that moved | | 1 | 0 outside their tube |
+| hybrid-car Mixed Cycle (shipped step) | channels that moved | | 47 | 0 outside their tube |
+| hybrid-car Mixed Cycle (fine step) | channels that moved | | 44 | 0 outside their tube |

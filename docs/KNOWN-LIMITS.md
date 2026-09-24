@@ -218,7 +218,7 @@ minimum or an average, for example from the CSV export.
   mass and road load from EPA data (EPA's own coefficients A/B/C, with the
   axle's losses counted once), but its engine, motor and battery maps
   are generic, not the car's. With its charge-sustaining control script it
-  uses about 2.83 l/100 km on the EPA city cycle and 3.24 on the highway
+  uses about 2.84 l/100 km on the EPA city cycle and 3.24 on the highway
   cycle, against 2.91 and 2.94 for the real car in EPA's tests. The model
   has no cold start, engine warm-up or start-up fuel, so its city figure
   reads below EPA's, whose city test starts cold; on the highway, with its

@@ -1,8 +1,9 @@
 """Numerics: the solver against exact answers, not against its own past.
 
-Closed-form reference cases (each within 0.5 %), convergence order (the
-error halves when the step halves) and a stability grid over slip stiffness
-× solver step. Every parameter an expected value depends on is set here, at
+Closed-form reference cases (each within 0.5 %; the clutch energy and the
+RC branch within 0.1 %, so a channel one step late fails), convergence
+order (the error halves when the step halves) and a stability grid over
+slip stiffness × solver step. Every parameter an expected value depends on is set here, at
 the library value of 0.2.0 where the case does not need its own, so a change
 of a library default cannot move an expectation."""
 import math
@@ -171,9 +172,11 @@ def test_clutch_engagement_loses_the_two_inertia_energy():
     onto a free inertia (J2): momentum is kept, (J1 w1)/(J1+J2), and
     ½ J1 J2/(J1+J2) w1² is lost — in the clutch, as its torque × slip.
 
-    The motor's and the clutch's channels hold each step's operating point
-    (its start), so the torque × slip sum is one step early: the 0.5 % band
-    is wider than that, and this test does not guard channel timing."""
+    Each point's clutch torque acted over the step before it, while the
+    slip moved linearly between the two points: that sum is the energy lost
+    to within 0.1 %, where a slip one step late (the step's start instead
+    of its end) is 0.6 % off. The slip is the motor's speed minus the
+    load's at every point."""
     j1, j2 = 0.045, 0.5
     els = [el("src", "electric.voltage_source", "Supply", voltage_V=350),
            el("bus", "electric.node", "Bus"),
@@ -197,9 +200,12 @@ def test_clutch_engagement_loses_the_two_inertia_energy():
     loss = 0.5 * j1 * j2 / (j1 + j2) * w1**2
     ke_lost = 0.5 * j1 * w1**2 - 0.5 * (j1 + j2) * w_end[0] ** 2
     assert ke_lost == pytest.approx(loss, rel=0.005)
-    torque, slip = series(result, "clu", "sig_torque"), series(result, "clu", "sig_slip_speed")
-    in_clutch = sum(tq["value"] * s["value"] / RPM for tq, s in zip(torque[1:], slip[1:])) * 0.01
-    assert in_clutch == pytest.approx(loss, rel=0.005)
+    torque = [p["value"] for p in series(result, "clu", "sig_torque")]
+    slip = [p["value"] / RPM for p in series(result, "clu", "sig_slip_speed")]
+    for s, m, ld in zip(slip, w_mot, w_load):  # all at the same time
+        assert s * RPM == pytest.approx(m["value"] - ld["value"], abs=1e-3), m["t"]
+    in_clutch = sum(torque[k] * (slip[k - 1] + slip[k]) / 2 for k in range(1, len(slip))) * 0.01
+    assert in_clutch == pytest.approx(loss, rel=0.001)
 
 
 # ---- battery -------------------------------------------------------------------
@@ -208,7 +214,7 @@ def test_clutch_engagement_loses_the_two_inertia_energy():
 
 def _battery_at_constant_current(amps, ocv, step, duration, **battery):
     """A battery feeding a Constant Drive whose power a Lookup sets to
-    amps × terminal voltage (one solver step behind): a constant current."""
+    amps × terminal voltage at the step's start: a constant current."""
     els = [el("batt", "battery.generic", "Battery", ocv_table=ocv, **battery),
            el("bus", "electric.node", "Bus"),
            el("load", "electric.constant_drive", "Load"),
@@ -235,9 +241,9 @@ def _rc_error(step):
 
 
 def test_rc_branch_step_response_is_first_order():
-    # the battery's voltage channel holds each step's start, one step behind
-    # the current (dt/τ = 0.2 % of the error); this does not guard that timing
-    assert _rc_error(0.01) < 0.005
+    # the implicit Euler error is under 0.04 %; a voltage one step late
+    # would be dt/τ = 0.2 % off
+    assert _rc_error(0.01) < 0.001
 
 
 # ---- convergence order ------------------------------------------------------------
