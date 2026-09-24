@@ -61,7 +61,7 @@ still holds. The full record of every change to the reference results is in
 - Vehicle: *Road Load From* (drag and rolling resistance, as before, or
   coefficients A/B/C), with *Road Load A (f0)* in N, *B (f1)* in N/(km/h)
   and *C (f2)* in N/(km/h)², as WLTP publishes them (EPA's lbf, lbf/mph and
-  lbf/mph² values × 4.448, × 2.764 and × 1.718). C follows the Ambient's air
+  lbf/mph² values × 4.448, × 2.764 and × 1.717). C follows the Ambient's air
   density. *Coefficients Include Driveline Losses*, on by default: target
   coefficients from a coast-down already hold the drag of the gears the
   wheels turn, so the final drives, differentials and transfer cases run
@@ -76,7 +76,8 @@ still holds. The full record of every change to the reference results is in
   several Ambients (the first one counts); an Ambient temperature at or
   below −273.15 °C or a pressure of 0 or less (errors), and one outside
   −60 to 60 °C or 50 to 110 kPa (a warning: a pressure typed in bar would
-  all but remove the drag).
+  all but remove the drag); a negative coefficient A or C (a warning: it
+  pushes the car along).
 
 ### Fixed
 

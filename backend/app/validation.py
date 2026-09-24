@@ -555,6 +555,13 @@ def _plausibility_checks(model: Model, add: Add) -> None:
                 add("warning", f"Vehicle '{el.label}' has a mass of {mass:g} kg, outside the "
                                f"range of road vehicles ({lo:g} kg to {hi / 1000:g} t) — check "
                                f"the value and its unit.", el)
+            pushing = [f"{name} of {v:g} {unit}" for name, key, unit in (
+                ("A", "road_load_a_N", "N"), ("C", "road_load_c_N_per_kmh2", "N/(km/h)²"))
+                if (v := num(p, key)) is not None and v < 0]
+            if p.get("road_load_mode") == ROAD_LOAD_ABC and pushing:
+                add("warning", f"Vehicle '{el.label}' has a road-load {' and '.join(pushing)} "
+                               f"— a negative A or C pushes the car along, so it speeds up "
+                               f"when it coasts. Check the sign.", el)
             if (p.get("road_load_mode") == ROAD_LOAD_ABC
                     and not p.get("abc_include_driveline_losses", True)):
                 gears = [(g, num(model.params_of[g], "efficiency_pct"))
@@ -567,7 +574,7 @@ def _plausibility_checks(model: Model, add: Add) -> None:
                                    f"them, and the axle's gears lose it again: "
                                    f"{', '.join(lossy)}. Tick 'Coefficients Include Driveline "
                                    f"Losses' unless these are dyno-set coefficients.", el)
-        elif cdef.id == "boundary.ambient":
+        elif cdef.id == "boundary.ambient" and el_id == model.ambient:  # the others are unused
             t_c, p_kpa = num(p, "temperature_C"), num(p, "pressure_kPa")
             if t_c is not None and p_kpa is not None and t_c > -273.15 and p_kpa > 0:
                 out = []

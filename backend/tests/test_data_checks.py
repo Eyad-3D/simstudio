@@ -239,6 +239,21 @@ def test_road_load_double_count_warning(mode, included, warned):
         assert new == []
 
 
+@pytest.mark.parametrize("mode, warned", [("Coefficients A/B/C", True),
+                                           ("Drag and rolling resistance", False)])
+def test_negative_road_load_coefficients_warn(mode, warned):
+    """A negative A or C drives the car instead of holding it back (a
+    negative B is real: EPA lists some)."""
+    proj = load_example("bev-car")
+    next(e for e in proj.systems[0].elements if e.id == "el-vehicle").parameterOverrides.update(
+        road_load_mode=mode, road_load_a_N=-50, road_load_b_N_per_kmh=-0.5,
+        road_load_c_N_per_kmh2=-0.03)
+    new = [c.text for c in validate_project(proj) if c.level != "info"]
+    assert new == (["Vehicle 'Vehicle' has a road-load A of -50 N and C of -0.03 N/(km/h)² — a "
+                    "negative A or C pushes the car along, so it speeds up when it coasts. "
+                    "Check the sign."] if warned else [])
+
+
 def _with_ambients(*values):
     proj = load_example("bev-car")
     proj.systems[0].elements += [
@@ -250,6 +265,9 @@ def _with_ambients(*values):
 @pytest.mark.parametrize("values, expected", [
     ([(20, 101.325)], []),
     ([(20, 101.325), (35, 85)],
+     [("warning", "Only the first Ambient ('Ambient 0') sets the air density; "
+                  "the others are ignored.")]),
+    ([(20, 101.325), (20, 1.013)],  # an unused Ambient's air sets no density
      [("warning", "Only the first Ambient ('Ambient 0') sets the air density; "
                   "the others are ignored.")]),
     ([(20, 1.013)], [("warning", "'Ambient 0' has a pressure of 1.013 kPa (50 to 110 kPa is "
