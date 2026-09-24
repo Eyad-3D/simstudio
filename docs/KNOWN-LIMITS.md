@@ -188,7 +188,10 @@ minimum or an average, for example from the CSV export.
   Stiffness*, a very light inertia or a strong clutch can push the solver
   past its stability limit, and nothing warns when that happens. Keep *Slip
   Stiffness* near its default, and after changing these settings plot the
-  wheels' *Longitudinal Slip* at launch. *Roadmap:* ENG-09, ENG-14.
+  wheels' *Longitudinal Slip* at launch. A car braked to a stop can also
+  creep with the brake fully applied: under 0.2 km/h at the default *Slip
+  Stiffness* of 10, about 2 km/h at 30 and up to 23 km/h at 300, at the
+  10 ms solver step. *Roadmap:* ENG-09, ENG-14.
 - **Fuel-cell hydrogen use is a fixed figure per kWh** (*Specific H₂
   Consumption*, 55 g/kWh by default), which overstates it at part load by up
   to about a third and understates it at full load.

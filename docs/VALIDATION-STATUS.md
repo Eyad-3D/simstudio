@@ -37,6 +37,35 @@ Each of these is an automatic test that runs on every change
 | Maximum speed and map edges | a motor stops at its maximum speed (a 300 km/h target holds it between 97 and 100 % of 12,000 rpm), also when that is set lower or changed during a run; a motor driven above it gives no drive torque and is reported; a run that leaves a table set to *Error* stops and names the table, the axis, the value and the time; *Clamp* and *Linear* give the edge value and the edge slope and are reported with their time outside; a motor or engine held at its limiter is not counted as over speed, also when a light one overshoots it by a step (a free motor at 12,000 or 3,000 rpm, a free engine of 0.05 kg·m²), while an engine the wheels drive above it is; every table a run reads is counted once per solver step, and the library defaults pass the map cross-checks, which catch a motor map that does not start at 0 rpm and a fuel-cell curve that does not start at 0 A | `test_map_edges.py`, `test_engine.py` |
 | Run status | a car that cannot follow the cycle, does not move, or runs out of energy is never reported as a success; untrustworthy figures carry a "not valid" flag; a motor run past its map's voltage data or driven above its maximum speed for longer than 1 % of the run (at least 2 s) is never a success, and the message and flag name the motor, how far past and for how long, while a Lookup block past its table is not judged; a run a stop cut short is *cancelled*, one stopped as it ended is not; a 0-100 km/h performance test succeeds with the time of a full-throttle run, read where the speed crosses the target, and then holds the target without switching between throttle and brakes; a top-speed test reports the car's highest speed; a stopped performance test does not say the car fell short, and a car that starts at its target gets no time | `test_verdict.py`, `test_examples_plausible.py`, `test_api.py`, `test_map_edges.py` |
 | Regressions | the two examples' results are compared with stored reference results; every change to them is listed in `backend/tests/golden/CHANGES.md` | `test_golden.py` |
+| Exact answers | coast-down under air drag alone and with rolling resistance, a constant-torque launch, braking distance v₀²/2a, the energy a clutch loses joining two inertias (½·J₁J₂/(J₁+J₂)·ω²) and a battery RC pair's step response each match their closed-form solution within 0.5 % | `test_numerics.py` |
+| Step convergence | the error against the exact answer halves when the solver step halves, for the vehicle and for the battery RC pair | `test_numerics.py` |
+| Stability | a grid of tyre *Slip Stiffness* 10–300 × solver step 2.5–20 ms, for a launch (slip stays below 0.1) and a car braked to a stop (stays below 0.5 km/h). Today the launch is stable only at stiffness 10 up to the 10 ms step and 30 up to 5 ms (the brake hold also at stiffness 10 with a 20 ms step) (see [Known issues and limits](KNOWN-LIMITS.md)); the test lists the unstable cells, so a new instability fails it and so does a fixed one until the list is shortened | `test_numerics.py` |
+| Speed | the first 120 s of two example cases (BEV City, hybrid Mixed) run at most 10 % slower than on the commit a change starts from (CI's performance job, same runner, best of 5 each) | `test_performance.py` |
+
+Written, and passing once the fix it waits for ships: a car coasting up a
+25 % grade stops at the height h = v₀²/2g, i.e. its kinetic energy becomes
+m·g·h (MOD-11; marked as an expected failure in `test_numerics.py`). The
+check that a 1C discharge empties a full battery in 3,600 s comes with
+MOD-38, in `test_battery_charge.py`.
+
+Each bug fixed in 0.2.0 has a test that fails if it comes back. This was
+checked once, for 0.3.0, by putting each 0.1.0 behaviour back into a scratch
+copy of the engine and running the whole suite (for MOD-04 and MOD-05 the
+engine code, not the old default maps):
+
+| Fixed in 0.2.0 | Tests that fail when it is undone |
+|---|---|
+| Controllers update every 10 ms (ENG-01) | `test_control_rate.py`, `test_verdict.py`, `test_examples_plausible.py`, `test_expansion.py`, `test_golden.py` |
+| Each recorded point holds the state at its own time (ENG-03) | `test_time_base.py`, `test_control_rate.py`, `test_solver.py`, `test_engine.py`, `test_live_params.py`, `test_source_limits.py`, `test_verdict.py`, `test_numerics.py` (constant-torque launch), `test_golden.py` |
+| Motors draw only what their supply can give (ENG-02) | `test_source_limits.py`, `test_verdict.py` |
+| Motor spin losses counted once (MOD-04) | `test_motor_losses.py`, `test_golden.py` |
+| The engine reaches its full-load curve (MOD-05) | `test_engine.py`, `test_examples_plausible.py`, `test_golden.py` |
+| A run that did not drive its cycle is no success (VAL-02) | `test_verdict.py` |
+| Wheel load shares scaled to 100 % (MOD-06) | `test_numerics.py` (coast-down with rolling resistance, both stability grids), `test_solver.py` |
+| The Driver recuperates up to the charge limit (MOD-02) | `test_source_limits.py` |
+| Live edits survive gear shifts (ENG-04) | `test_live_params.py` |
+| Gear losses act on the power through each gear (MOD-03) | `test_gear_losses.py`, `test_motor_losses.py`, `test_golden.py` |
+| Every part starts at the vehicle's initial speed (MOD-19) | `test_solver.py`, `test_engine.py` |
 
 ## Plausibility-checked: the two example cars
 
