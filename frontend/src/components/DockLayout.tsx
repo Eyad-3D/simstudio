@@ -94,25 +94,36 @@ function toggleMaximise({ api, containerApi }: IDockviewPanelHeaderProps) {
 // on a 1366-px screen; the tooltip and the accessible name keep the full one.
 const FULL_TITLES: Record<string, string> = { cases: "Cases & Parameters" };
 
-// Accessible panel tabs: the default dockview tab is a plain div with no role or
-// discernible name. Wrap it so assistive tech announces each tab by its title.
-// Messages / Data Checks carry a count badge (drawn by CSS from data-badge) so
-// problems show while the tray is collapsed. Double-clicking a tab in the main
-// grid maximises its group (e.g. the diagram) and double-clicking again restores.
+// Panel tabs. dockview's own tab element (the "tab" in each group's tab list)
+// is named after the panel title; name it in full instead, with the problem
+// count that Messages / Data Checks also show as a badge (drawn by CSS from
+// data-badge) so problems show while the tray is collapsed. dockview names a
+// new tab element whenever the panel moves or is retitled, so the name is set
+// again after every layout change. Double-clicking a tab in the main grid
+// maximises its group (e.g. the diagram) and double-clicking again restores.
 function SsTab(props: IDockviewPanelHeaderProps) {
   const title = FULL_TITLES[props.api.id] ?? props.api.title ?? "";
   const [level, count] = useAttention(props.api.id).split(":");
   const label = count ? `${title} (${count} ${count === "1" ? "warning or error" : "warnings or errors"})` : title;
+  // DockviewDefaultTab takes no ref: this hidden span finds the tab element
+  const anchor = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const name = () => anchor.current?.closest(".dv-tab")?.setAttribute("aria-label", label);
+    name();
+    const d = props.containerApi.onDidLayoutChange(name);
+    return () => d.dispose();
+  }, [props.containerApi, label]);
   return (
-    <DockviewDefaultTab
-      {...props}
-      role="tab"
-      aria-label={label}
-      title={props.api.group.api.location.type === "grid" ? `${label} — double-click to maximise` : label}
-      data-badge={count || undefined}
-      data-badge-level={level || undefined}
-      onDoubleClick={() => toggleMaximise(props)}
-    />
+    <>
+      <DockviewDefaultTab
+        {...props}
+        title={props.api.group.api.location.type === "grid" ? `${label} — double-click to maximise` : label}
+        data-badge={count || undefined}
+        data-badge-level={level || undefined}
+        onDoubleClick={() => toggleMaximise(props)}
+      />
+      <span ref={anchor} hidden />
+    </>
   );
 }
 
@@ -166,21 +177,14 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 const TRAY_MAX_SHARE = 0.35;
 const TRAY_MIN = 120;
 
-type ShellInternals = {
-  component?: { _shellManager?: { _middleColumn?: { resizeView?: (at: "bottom", size: number) => void } } };
-};
-
 /** Shrink an open tray that is taller than TRAY_MAX_SHARE of the dock (the
- *  grid plus the tray). dockview 7 has no API to resize an edge group, so this
- *  goes through its shell's middle column, which dockview itself uses to open
- *  and restore the tray. The internals are feature-checked: without them the
- *  tray just keeps its size. */
+ *  grid plus the tray). */
 function clampTray(api: DockviewApi) {
   const tray = api.getEdgeGroup("bottom");
   if (!tray || tray.isCollapsed()) return;
   const max = Math.max(TRAY_MIN, Math.round((api.height + tray.height) * TRAY_MAX_SHARE));
   if (tray.height <= max) return;
-  (api as unknown as ShellInternals).component?._shellManager?._middleColumn?.resizeView?.("bottom", max);
+  tray.setSize({ height: max });
 }
 
 // Default arrangement, built so the diagram gets most of the window at every

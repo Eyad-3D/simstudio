@@ -1,20 +1,13 @@
 {
   "topology-light": [
-    "aria-required-parent  div[role=tab] \"Cases\"",
-    "aria-required-parent  div[role=tab] \"Components\"",
-    "aria-required-parent  div[role=tab] \"Data Bus Connections\"",
-    "aria-required-parent  div[role=tab] \"Data Checks\"",
-    "aria-required-parent  div[role=tab] \"Elements\"",
-    "aria-required-parent  div[role=tab] \"Layer Configurations\"",
-    "aria-required-parent  div[role=tab] \"Messages\"",
-    "aria-required-parent  div[role=tab] \"Monitors\"",
-    "aria-required-parent  div[role=tab] \"Properties\"",
-    "aria-required-parent  div[role=tab] \"Signal Plot\"",
-    "aria-required-parent  div[role=tab] \"Topology\"",
     "color-contrast  button \"#%\"",
     "color-contrast  span \"# elements\"",
     "color-contrast  span \"Battery Electric Car\"",
-    "label-title-only  select \"Active simulation case\""
+    "label-title-only  select \"Active simulation case\"",
+    "nested-interactive  div[role=tab] \"Components\"",
+    "nested-interactive  div[role=tab] \"Messages\"",
+    "nested-interactive  div[role=tab] \"Properties\"",
+    "nested-interactive  div[role=tab] \"Topology\""
   ],
   "results-light": [
     "color-contrast  button \"#%\"",
@@ -24,39 +17,25 @@
     "scrollable-region-focusable  div \"Summary value Value Unit HV Battery Pack\""
   ],
   "parameter-dialog-light": [
-    "aria-required-parent  div[role=tab] \"Cases\"",
-    "aria-required-parent  div[role=tab] \"Components\"",
-    "aria-required-parent  div[role=tab] \"Data Bus Connections\"",
-    "aria-required-parent  div[role=tab] \"Data Checks\"",
-    "aria-required-parent  div[role=tab] \"Elements\"",
-    "aria-required-parent  div[role=tab] \"Layer Configurations\"",
-    "aria-required-parent  div[role=tab] \"Messages\"",
-    "aria-required-parent  div[role=tab] \"Monitors\"",
-    "aria-required-parent  div[role=tab] \"Properties\"",
-    "aria-required-parent  div[role=tab] \"Signal Plot\"",
-    "aria-required-parent  div[role=tab] \"Topology\"",
     "color-contrast  button \"#%\"",
     "color-contrast  span \"# elements\"",
     "color-contrast  span \"Battery Electric Car\"",
     "label  input[type=text] \"Name\"",
-    "label-title-only  select \"Active simulation case\""
+    "label-title-only  select \"Active simulation case\"",
+    "nested-interactive  div[role=tab] \"Components\"",
+    "nested-interactive  div[role=tab] \"Messages\"",
+    "nested-interactive  div[role=tab] \"Properties\"",
+    "nested-interactive  div[role=tab] \"Topology\""
   ],
   "topology-dark": [
-    "aria-required-parent  div[role=tab] \"Cases\"",
-    "aria-required-parent  div[role=tab] \"Components\"",
-    "aria-required-parent  div[role=tab] \"Data Bus Connections\"",
-    "aria-required-parent  div[role=tab] \"Data Checks\"",
-    "aria-required-parent  div[role=tab] \"Elements\"",
-    "aria-required-parent  div[role=tab] \"Layer Configurations\"",
-    "aria-required-parent  div[role=tab] \"Messages\"",
-    "aria-required-parent  div[role=tab] \"Monitors\"",
-    "aria-required-parent  div[role=tab] \"Properties\"",
-    "aria-required-parent  div[role=tab] \"Signal Plot\"",
-    "aria-required-parent  div[role=tab] \"Topology\"",
     "color-contrast  button \"Run\"",
     "color-contrast  div \"LightSim\"",
     "color-contrast  span \"backend connected\"",
-    "label-title-only  select \"Active simulation case\""
+    "label-title-only  select \"Active simulation case\"",
+    "nested-interactive  div[role=tab] \"Components\"",
+    "nested-interactive  div[role=tab] \"Messages\"",
+    "nested-interactive  div[role=tab] \"Properties\"",
+    "nested-interactive  div[role=tab] \"Topology\""
   ],
   "results-dark": [
     "color-contrast  b \"success\"",
@@ -67,21 +46,14 @@
     "scrollable-region-focusable  div \"Summary value Value Unit HV Battery Pack\""
   ],
   "parameter-dialog-dark": [
-    "aria-required-parent  div[role=tab] \"Cases\"",
-    "aria-required-parent  div[role=tab] \"Components\"",
-    "aria-required-parent  div[role=tab] \"Data Bus Connections\"",
-    "aria-required-parent  div[role=tab] \"Data Checks\"",
-    "aria-required-parent  div[role=tab] \"Elements\"",
-    "aria-required-parent  div[role=tab] \"Layer Configurations\"",
-    "aria-required-parent  div[role=tab] \"Messages\"",
-    "aria-required-parent  div[role=tab] \"Monitors\"",
-    "aria-required-parent  div[role=tab] \"Properties\"",
-    "aria-required-parent  div[role=tab] \"Signal Plot\"",
-    "aria-required-parent  div[role=tab] \"Topology\"",
     "color-contrast  button \"Run\"",
     "color-contrast  div \"LightSim\"",
     "color-contrast  span \"backend connected\"",
     "label  input[type=text] \"Name\"",
-    "label-title-only  select \"Active simulation case\""
+    "label-title-only  select \"Active simulation case\"",
+    "nested-interactive  div[role=tab] \"Components\"",
+    "nested-interactive  div[role=tab] \"Messages\"",
+    "nested-interactive  div[role=tab] \"Properties\"",
+    "nested-interactive  div[role=tab] \"Topology\""
   ]
 }
