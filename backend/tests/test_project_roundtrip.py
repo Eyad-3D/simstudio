@@ -112,6 +112,26 @@ def test_saved_file_keeps_the_fields(tmp_path):
         Project.model_validate(_example("bev-car")))
 
 
+def test_outside_the_data_settings_are_saved_and_typed(tmp_path):
+    """MOD-18: a table's per-element outside-the-data settings come back after
+    a save and reach Data Checks; a misspelled setting is refused."""
+    body = Project.model_validate(_example("bev-car")).model_dump(mode="json")
+    body["id"] = "roundtrip"
+    motor = next(e for e in body["systems"][0]["elements"] if e["componentDefId"] == "motor.emotor")
+    motor["tableOutside"] = {"power_loss": ["clamp", "linear"]}
+    assert _roundtrip(body) == body
+    on_disk = json.loads((tmp_path / "roundtrip.json").read_text(encoding="utf-8"))
+    saved = next(e for e in on_disk["systems"][0]["elements"] if e["id"] == motor["id"])
+    assert saved["tableOutside"] == {"power_loss": ["clamp", "linear"]}
+    infos = [c.text for c in validate_project(storage.load_project("roundtrip"))
+             if c.level == "info" and "outside its" in c.text]
+    assert infos == ["'E-Motor.Power Loss (Motor + Inverter)' does not stop the run outside its "
+                     "Speed (Clamp) and Torque (Linear) data, as the library does — the run "
+                     "summary says how long and how far it went outside."]
+    motor["tableOutside"] = {"power_loss": ["Clamp", "clamp"]}
+    assert client.put(f"/api/projects/{body['id']}", json=body).status_code == 422
+
+
 def _study(study_id: str, values: list[float]) -> dict:
     """A finished one-factor study as the UI saves it (STU-03)."""
     return {

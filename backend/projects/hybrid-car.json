@@ -2,7 +2,7 @@
   "id": "hybrid-car",
   "schemaVersion": 1,
   "name": "P2 Hybrid Car",
-  "description": "P2 parallel hybrid sized after the Hyundai Ioniq Hybrid Blue: 1.6-litre petrol engine, clutch, 32 kW e-motor on the input of a 6-speed gearbox, 1.56 kWh battery; test mass and road load from the EPA 2022 Test Car List. Its Hybrid Control Unit script launches electrically, stops the engine at standstill, when coasting and at low demand, and holds the battery near 55 %.\nWhat to expect (battery charge balanced over each cycle):\n• EPA city (UDDS): 3.0 l/100 km (Ioniq Blue, EPA city test: 2.91 l/100 km)\n• EPA highway (HWFET): 3.3 l/100 km (EPA highway test: 2.94 l/100 km)\n• Mixed Cycle: 2.9 l/100 km\n• Engine off at every stop, about 30 engine starts on the city cycle",
+  "description": "P2 parallel hybrid sized after the Hyundai Ioniq Hybrid Blue: 1.6-litre petrol engine, clutch, 32 kW e-motor on the input of a 6-speed gearbox, 1.56 kWh battery; test mass and road load from the EPA 2022 Test Car List. Its Hybrid Control Unit script launches electrically, stops the engine at standstill, when coasting and at low demand, and holds the battery near 55 %.\nWhat to expect (battery charge balanced over each cycle):\n• EPA city (UDDS): 2.9 l/100 km (Ioniq Blue, EPA city test: 2.91 l/100 km)\n• EPA highway (HWFET): 3.3 l/100 km (EPA highway test: 2.94 l/100 km)\n• Mixed Cycle: 2.9 l/100 km\n• Engine off at every stop, about 30 engine starts on the city cycle",
   "systems": [
     {
       "id": "sys-root",

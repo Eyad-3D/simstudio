@@ -569,6 +569,15 @@ describe("undo / redo", () => {
     expect(store().future).toHaveLength(0);
   });
 
+  it("a table's outside-the-data setting is an edit that one undo takes back", async () => {
+    await start();
+    store().setTableOutside("el-bat", "ocv_table", ["linear"]);
+    expect(findElement("el-bat")?.tableOutside).toEqual({ ocv_table: ["linear"] });
+    expect(store().dirty).toBe(true);
+    store().undo();
+    expect(findElement("el-bat")?.tableOutside).toBeUndefined();
+  });
+
   it("a new edit after undo discards the redo branch", async () => {
     await start();
     store().renameElement("el-bat", "A");

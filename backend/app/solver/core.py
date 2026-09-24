@@ -26,6 +26,7 @@ from typing import Callable, Iterator, Optional
 from ..library import unit_groups
 from ..schemas import Channel, Project, SimMessage, SimResult, SummaryValue
 from .domains import ModelInitError, RunContext, build_slaves
+from .maps import OutsideDataError
 from .master import Master, SlaveStepError
 from .network import ModelError, build_model
 from .runtime import (  # noqa: F401 — re-exported for backward compatibility
@@ -140,6 +141,7 @@ def simulate(
         # the end time of the step that produced it, and the last step ends
         # exactly at the case duration.
         cancelled = False
+        solved = 0.0  # time solved (a stopped run ends before its last point)
         times: list[float] = []
         t_start_wall = time.monotonic()
         h_last = t_end - (steps - 1) * dt_rec if steps else 0.0
@@ -169,11 +171,19 @@ def simulate(
                 ctx.dt = h_sub
                 try:
                     for j in range(n):
-                        master.step(t_prev + j * h_sub, h_sub)
+                        ctx.t = t_prev + j * h_sub
+                        master.step(ctx.t, h_sub)
+                        solved = t_prev + (j + 1) * h_sub
                         publish_routed_states()
-                        trace.sample(t_prev + (j + 1) * h_sub, last=step == steps and j == n - 1)
+                        trace.sample(solved, last=step == steps and j == n - 1)
                 except SlaveStepError:
                     # the failing slave already emitted its error message
+                    break
+                except OutsideDataError as e:
+                    rt.message("error",
+                               f"{e} at t = {ctx.t:.2f} s — the run stopped because this "
+                               f"axis is set to stop the run (Error): extend the table, or set "
+                               f"its outside-the-data setting to Clamp or Linear.")
                     break
 
                 if pace > 0:
@@ -313,6 +323,28 @@ def simulate(
             summary.append(SummaryValue(
                 label="Electrical energy balance error",
                 value=round(100.0 * ctx.residual_wh / ctx.throughput_wh, 4), unit="%"))
+        # tables the run went past (listed only then, like the rows above):
+        # for how long, as a share of the time solved, and how far; per
+        # E-Motor or Engine the time above its maximum speed and the highest
+        # speed
+        edge_rows: set[str] = set()  # time and speeds, not energy figures
+        for use in ctx.map_use:
+            if use.outside_s <= 0:
+                continue
+            label = model.elements[use.el_id].label
+            if use.what == "maximum speed":
+                share_label = f"{label} — time above maximum speed"
+                far = SummaryValue(label=f"{label} — highest speed",
+                                   value=round(use.value), unit="1/min")
+            else:
+                share_label = f"{label} — time outside its {use.what} ({use.axis})"
+                far = SummaryValue(label=f"{label} — furthest {use.axis} outside its {use.what}",
+                                   value=round(use.value, 4), unit=use.unit)
+            edge_rows |= {share_label, far.label}
+            summary.append(SummaryValue(
+                label=share_label, value=round(100.0 * use.outside_s / max(solved, 1e-9), 2),
+                unit="%"))
+            summary.append(far)
         summary.append(SummaryValue(label="Simulated duration", value=times[-1] if times else 0.0, unit="s"))
 
         # headline numbers that a failed check makes meaningless say why
@@ -330,7 +362,8 @@ def simulate(
                 not_valid.setdefault(label, f"run cancelled at t = {times[-1]:g} s")
         if ctx.throughput_wh > 0 and ctx.residual_wh > 1e-3 * ctx.throughput_wh:
             for s in summary:
-                if s.unit in ("kWh", "kWh/100km", "%") and s.label != "Electrical energy balance error":
+                if (s.unit in ("kWh", "kWh/100km", "%") and s.label not in edge_rows
+                        and s.label != "Electrical energy balance error"):
                     not_valid.setdefault(s.label, "the electrical energy balance does not close")
         if verdict.broke_down:
             for s in summary:

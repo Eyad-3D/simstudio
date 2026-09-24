@@ -238,7 +238,7 @@
           "label": "Open-Circuit Voltage",
           "unit": "V",
           "type": "table1d",
-          "axes": [{ "name": "SOC", "unit": "%" }],
+          "axes": [{ "name": "SOC", "unit": "%", "outside": "clamp" }],
           "default": {
             "0": 300,
             "10": 318,
@@ -303,7 +303,7 @@
       "name": "E-Motor",
       "icon": "fan",
       "domain": "electrical",
-      "description": "Electric machine with voltage-dependent full-load torque map, power-loss map (motor + inverter) and drag torque. The loss map covers every loss while the inverter is powered, spin losses at zero torque included; the drag torque applies only when the motor coasts unpowered (zero command or no supply). Motoring and generating (recuperation) quadrants; generator limit mirrors the full-load map scaled by the Q4 scale parameter. Traction command input is a normalized demand in [-1, 1].",
+      "description": "Electric machine with voltage-dependent full-load torque map, power-loss map (motor + inverter) and drag torque. The loss map covers every loss while the inverter is powered, spin losses at zero torque included; the drag torque applies only when the motor coasts unpowered (zero command or no supply). Motoring and generating (recuperation) quadrants; generator limit mirrors the full-load map scaled by the Q4 scale parameter. Traction command input is a normalized demand in [-1, 1]. Maximum Speed (0 = the full-load curve's last speed point): the drive torque falls to zero over the last 2 % below it, and above it the inverter is off, so the motor gives no drive torque and no recuperation. Each table axis has an outside-the-data setting: Error stops the run, Clamp holds the edge value, Linear extends the edge slope.",
       "ports": [
         {
           "id": "pos",
@@ -381,8 +381,8 @@
           "unit": "N·m",
           "type": "table2d",
           "axes": [
-            { "name": "Voltage", "unit": "V" },
-            { "name": "Speed", "unit": "1/min" }
+            { "name": "Voltage", "unit": "V", "outside": "clamp" },
+            { "name": "Speed", "unit": "1/min", "outside": "error" }
           ],
           "default": {
             "250": {
@@ -447,8 +447,8 @@
           "unit": "kW",
           "type": "table2d",
           "axes": [
-            { "name": "Speed", "unit": "1/min" },
-            { "name": "Torque", "unit": "N·m" }
+            { "name": "Speed", "unit": "1/min", "outside": "error" },
+            { "name": "Torque", "unit": "N·m", "outside": "error" }
           ],
           "default": {
             "0": { "0": 0.1, "100": 1.6, "200": 3.2, "350": 8.5 },
@@ -463,7 +463,7 @@
           "label": "Drag Torque (unpowered)",
           "unit": "N·m",
           "type": "table1d",
-          "axes": [{ "name": "Speed", "unit": "1/min" }],
+          "axes": [{ "name": "Speed", "unit": "1/min", "outside": "clamp" }],
           "default": {
             "0": 0,
             "3000": 0.7,
@@ -471,6 +471,13 @@
             "9000": 1.0,
             "12000": 1.2
           }
+        },
+        {
+          "key": "max_speed_rpm",
+          "label": "Maximum Speed (0 = full-load curve's last point)",
+          "unit": "1/min",
+          "default": 0,
+          "type": "number"
         },
         {
           "key": "inertia_kgm2",
@@ -574,7 +581,7 @@
           "key": "output_voltage_V",
           "label": "Output Voltage",
           "unit": "V",
-          "default": 800,
+          "default": 350,
           "type": "number"
         },
         {
@@ -632,7 +639,7 @@
           "key": "voltage_V",
           "label": "Nominal Voltage",
           "unit": "V",
-          "default": 400,
+          "default": 350,
           "type": "number"
         }
       ]
@@ -1180,7 +1187,7 @@
           "variability": "fixed",
           "label": "Inertia",
           "unit": "kg·m²",
-          "default": 0.6,
+          "default": 0.18,
           "type": "number"
         }
       ]
@@ -1397,7 +1404,7 @@
       "name": "Combustion Engine",
       "icon": "flame",
       "domain": "mechanical",
-      "description": "Internal combustion engine: full-load torque curve, drag (motoring) torque, and a fuel-consumption map (speed × torque → kg/h). The full-load curve and fuel map are brake (net, flywheel) values, as on a datasheet; the drag torque applies only while the engine is not fired: switched off, out of fuel, in overrun fuel cut-off (zero throttle above the re-entry speed) or above the full-load curve's last speed (rev limiter). Built-in idle governor holds idle speed at zero throttle. Enable input allows hybrid start/stop control (unwired = always on); consumes from the Fuel Tank automatically.",
+      "description": "Internal combustion engine: full-load torque curve, drag (motoring) torque, and a fuel-consumption map (speed × torque → kg/h). The full-load curve and fuel map are brake (net, flywheel) values, as on a datasheet; the drag torque applies only while the engine is not fired: switched off, out of fuel, in overrun fuel cut-off (zero throttle above the re-entry speed) or above the full-load curve's last speed (rev limiter). Built-in idle governor holds idle speed at zero throttle. Below the full-load curve's first speed (starting, stalling) a fired engine gives that point's torque and burns that point's fuel (the start-up rule), so the curve and the fuel map are read only between its first and last speed. Enable input allows hybrid start/stop control (unwired = always on); consumes from the Fuel Tank automatically.",
       "ports": [
         {
           "id": "shaft",
@@ -1456,7 +1463,7 @@
           "label": "Full-Load Torque",
           "unit": "N·m",
           "type": "table1d",
-          "axes": [{ "name": "Speed", "unit": "1/min" }],
+          "axes": [{ "name": "Speed", "unit": "1/min", "outside": "error" }],
           "default": {
             "800": 95,
             "1000": 110,
@@ -1464,8 +1471,8 @@
             "2000": 155,
             "2500": 168,
             "3000": 175,
-            "3500": 178,
-            "4000": 176,
+            "3500": 175,
+            "4000": 175,
             "4500": 168,
             "5000": 156,
             "5500": 140,
@@ -1477,7 +1484,7 @@
           "label": "Drag Torque (unfired)",
           "unit": "N·m",
           "type": "table1d",
-          "axes": [{ "name": "Speed", "unit": "1/min" }],
+          "axes": [{ "name": "Speed", "unit": "1/min", "outside": "clamp" }],
           "default": {
             "0": 18,
             "1000": 20,
@@ -1494,10 +1501,11 @@
           "unit": "kg/h",
           "type": "table2d",
           "axes": [
-            { "name": "Speed", "unit": "1/min" },
-            { "name": "Torque", "unit": "N·m" }
+            { "name": "Speed", "unit": "1/min", "outside": "error" },
+            { "name": "Torque", "unit": "N·m", "outside": "error" }
           ],
           "default": {
+            "800": { "0": 0.6, "50": 1.6, "100": 3.1, "150": 4.8, "175": 5.8 },
             "1000": { "0": 0.6, "50": 1.6, "100": 3.1, "150": 4.8, "175": 5.8 },
             "2000": { "0": 0.9, "50": 3.0, "100": 5.8, "150": 8.7, "175": 10.2 },
             "3000": { "0": 1.4, "50": 4.5, "100": 8.6, "150": 12.9, "175": 15.2 },
@@ -1896,17 +1904,17 @@
           "label": "Polarization Curve",
           "unit": "V",
           "type": "table1d",
-          "axes": [{ "name": "Current", "unit": "A" }],
+          "axes": [{ "name": "Current", "unit": "A", "outside": "error" }],
           "default": {
-            "0": 420,
-            "50": 392,
-            "100": 370,
-            "150": 352,
-            "200": 336,
-            "250": 320,
-            "300": 304,
-            "350": 286,
-            "400": 264
+            "0": 396.0,
+            "50": 369.8,
+            "100": 349.2,
+            "150": 332.4,
+            "200": 317.4,
+            "250": 302.4,
+            "300": 287.4,
+            "350": 270.6,
+            "400": 250.0
           }
         },
         {
@@ -2051,7 +2059,7 @@
           "label": "1D Table",
           "unit": "-",
           "type": "table1d",
-          "axes": [{ "name": "Input", "unit": "-" }],
+          "axes": [{ "name": "Input", "unit": "-", "outside": "clamp" }],
           "default": { "0": 0, "1": 1 }
         },
         {
@@ -2061,8 +2069,8 @@
           "unit": "-",
           "type": "table2d",
           "axes": [
-            { "name": "Input X", "unit": "-" },
-            { "name": "Input Y", "unit": "-" }
+            { "name": "Input X", "unit": "-", "outside": "clamp" },
+            { "name": "Input Y", "unit": "-", "outside": "clamp" }
           ],
           "default": { "0": { "0": 0, "1": 0 }, "1": { "0": 0, "1": 1 } }
         },

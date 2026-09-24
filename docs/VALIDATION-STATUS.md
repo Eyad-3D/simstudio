@@ -33,6 +33,7 @@ Each of these is an automatic test that runs on every change
 | Controller timing | results do not depend on the recording step (1, 0.1 and 0.02 s give the same figures) | `test_control_rate.py`, `test_verdict.py` |
 | Engine | full throttle gives the full-load curve; fuel is cut on overrun; the rev limiter cuts fuel and torque; CO₂ follows fuel with the tank's factor | `test_engine.py` |
 | Electric motor | spin losses are counted once; a powered motor has no extra drag | `test_motor_losses.py` |
+| Maximum speed and map edges | a motor stops at its maximum speed (a 300 km/h target holds it between 97 and 100 % of 12,000 rpm), also when that is set lower or changed during a run; a motor driven above it gives no drive torque and is reported; a run that leaves a table set to *Error* stops and names the table, the axis, the value and the time; *Clamp* and *Linear* give the edge value and the edge slope and are reported with their time outside; the rev limiter's overshoot is not counted as over speed; every table a run reads is counted, and the library defaults pass the map cross-checks | `test_map_edges.py`, `test_engine.py` |
 | Run status | a car that cannot follow the cycle, does not move, or runs out of energy is never reported as a success; untrustworthy figures carry a "not valid" flag | `test_verdict.py` |
 | Regressions | the two examples' results are compared with stored reference results; every change to them is listed in `backend/tests/golden/CHANGES.md` | `test_golden.py` |
 
@@ -48,8 +49,8 @@ data; their motor, engine and battery maps are generic (invented, marked
 | Battery Electric Car (2021 Cupra Born values from FASTSim) | WLTC energy at the battery | 14.0 kWh/100 km | about 15–16 kWh/100 km rated at the charging socket, charging losses included (background knowledge, unverified) | 13–17 kWh/100 km |
 | | 0–100 km/h | 7.2 s | 7.3 s (maker's figure, background knowledge) | ±10 % |
 | | Top speed | 160 km/h | 160 km/h (limited) | ±2 %, and within the motor's maximum speed |
-| P2 Hybrid Car (Hyundai Ioniq Hybrid test mass and EPA road load) | EPA city cycle (UDDS) fuel | 2.95 l/100 km | 2.91 l/100 km (EPA 2022 test car list) | 2–5 l/100 km, and at most 4.5 after correcting for the battery's change of charge |
-| | EPA highway cycle (HWFET) fuel | 3.30 l/100 km | 2.94 l/100 km (EPA 2022 test car list) | same as the city cycle |
+| P2 Hybrid Car (Hyundai Ioniq Hybrid test mass and EPA road load) | EPA city cycle (UDDS) fuel | 2.94 l/100 km | 2.91 l/100 km (EPA 2022 test car list) | 2–5 l/100 km, and at most 4.5 after correcting for the battery's change of charge |
+| | EPA highway cycle (HWFET) fuel | 3.29 l/100 km | 2.94 l/100 km (EPA 2022 test car list) | same as the city cycle |
 | | Battery charge at the end | same as at the start | charge-sustaining | within 1 % of the start |
 
 Why this is not validation: the hybrid's road load was fitted to EPA's

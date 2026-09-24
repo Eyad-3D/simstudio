@@ -13,6 +13,7 @@ import type {
   ElementInstance,
   LiveEdit,
   LogMessage,
+  OutsidePolicy,
   ParamValue,
   PortDef,
   PortSide,
@@ -353,6 +354,8 @@ interface ProjectState {
   clearPendingSelection: () => void;
   renameElement: (id: string, label: string) => void;
   setParameter: (elementId: string, key: string, value: ParamValue) => void;
+  /** A table's outside-the-data settings, one per axis (applies on the next run). */
+  setTableOutside: (elementId: string, key: string, policies: OutsidePolicy[]) => void;
   setDynamicPorts: (elementId: string, ports: PortDef[]) => void;
   setPortSide: (elementId: string, portId: string, side: PortSide) => void;
   setPortPlacement: (
@@ -1008,6 +1011,18 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         logLiveEdit({ t: get().liveT, elementId, key, value });
       }
     },
+
+    setTableOutside: (elementId, key, policies) =>
+      updateProject(
+        (draft) => {
+          for (const s of draft.systems) {
+            const el = s.elements.find((e) => e.id === elementId);
+            if (el) el.tableOutside = { ...el.tableOutside, [key]: policies };
+          }
+        },
+        true,
+        `outside:${elementId}:${key}`,
+      ),
 
     setPortSide: (elementId, portId, side) =>
       updateProject((draft) => {

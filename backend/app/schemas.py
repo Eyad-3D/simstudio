@@ -35,11 +35,19 @@ class PortDef(BaseModel):
     polarity: Optional[Literal["positive", "negative"]] = None
 
 
+# What a table does outside its data on one axis: stop the run, hold the edge
+# value, or extend the edge segment's slope (MOD-18).
+OutsidePolicy = Literal["error", "clamp", "linear"]
+
+
 class AxisDef(BaseModel):
     """Independent-variable axis of a tabular parameter (fixed per component)."""
 
     name: str
     unit: str
+    # The library's "outside the data" setting for this axis; None for a
+    # table that is not interpolated (gear ratios), which behaves as clamp.
+    outside: Optional[OutsidePolicy] = None
 
 
 class ParameterDef(BaseModel):
@@ -86,6 +94,10 @@ class ElementInstance(BaseModel):
     portSides: dict[str, Literal["left", "right", "top", "bottom"]] = Field(default_factory=dict)
     # Per-instance pin offset along its side, 0..1 (Shift+drag a pin).
     portOffsets: dict[str, float] = Field(default_factory=dict)
+    # Per-instance "outside the data" settings: table key → one per axis,
+    # overriding the library's (AxisDef.outside). Not a parameter, so case
+    # overrides and sweeps cannot change it.
+    tableOutside: dict[str, list[OutsidePolicy]] = Field(default_factory=dict)
     # Canvas node size in flow units ({width, height}); None = default size.
     size: Optional[dict[str, float]] = None
     isSubSystem: bool = False

@@ -30,9 +30,9 @@ def test_powered_motor_has_no_drag_on_top_of_its_loss_map():
     ctx, mc = _motor()
     volts = ctx.bus_voltage[ctx.motor_bus["mot"].id]
     t_shaft = ctx.motor_torque(mc, 0.1, OMEGA_8000)
-    assert t_shaft == pytest.approx(0.1 * interp2(mc.full_load, volts, 8000))
+    assert t_shaft == pytest.approx(0.1 * interp2(mc.full_load.pts, volts, 8000))
     assert mc.torque == pytest.approx(t_shaft)  # recorded torque is the shaft torque
-    loss_w = interp2(mc.loss, 8000, t_shaft) * 1000.0
+    loss_w = interp2(mc.loss.pts, 8000, t_shaft) * 1000.0
     assert mc.p_mech_w == pytest.approx(t_shaft * OMEGA_8000)
     assert mc.p_elec_w == pytest.approx(t_shaft * OMEGA_8000 + loss_w)
     assert mc.p_loss_w == pytest.approx(loss_w)
@@ -40,7 +40,7 @@ def test_powered_motor_has_no_drag_on_top_of_its_loss_map():
 
 def test_unpowered_motor_coasts_on_its_drag_torque():
     ctx, mc = _motor()
-    drag = interp1(mc.drag, 8000)
+    drag = interp1(mc.drag.pts, 8000)
     assert drag > 0.5  # the catalog default has drag at 8,000 1/min
     t_shaft = ctx.motor_torque(mc, 0.0, OMEGA_8000)
     assert t_shaft == pytest.approx(-drag)

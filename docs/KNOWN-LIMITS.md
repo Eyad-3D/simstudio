@@ -21,32 +21,52 @@ how the example cars compare with real ones.
 
 ## Results that can be wrong today
 
-### Motors can run past the end of their maps without a warning
+### Machines and maps at the edge of their data
 
-Maps are extended flat beyond their last point (the edge value is held), and
-E-Motors have no maximum-speed limit. With the library's default E-Motor
-map, a car with a 300 km/h target reaches 267 km/h with its motor at
-21,333 rpm, on a torque map that ends at 12,000 rpm; the run ends with a
-warning only because the car could not keep up with the target, and nothing
-mentions the motor speed. The Battery Electric Car example no longer does
-this: its motor's full-load curve falls to zero at the motor's 16,000 rpm,
-so the car tops out at 160 km/h. Combustion engines are held at the last
-speed of their full-load curve by a rev limiter, which says so in Messages.
+Since 0.3 an E-Motor has a *Maximum Speed* (left at 0, the last speed point
+of its full-load curve): its drive torque falls to zero over the last 2 %
+below it, and above it the inverter is off. A car with a 300 km/h target
+now tops out at 152 km/h with its motor at 11,921 of 12,000 rpm, and
+Messages names the maximum speed. Each table axis has an *outside the data*
+setting, shown in the table editor of the parameter dialog: *Error* stops
+the run with a message naming the table, the axis, the value, the data's
+range and the time; *Clamp* holds the edge value (what every table did
+before 0.3); *Linear* extends the edge slope. Motor and engine speed and
+torque axes and the fuel cell's current stop the run by default. When a run
+reads a table outside its data, or a motor or engine goes above its maximum
+speed, Messages says so once and the run summary lists for how long (as a
+share of the run) and how far; these rows appear only when that happened.
+What remains:
 
-*Workaround:* end a motor's full-load curve with zero torque at its maximum
-speed, as the examples do; plot the motor speed and compare it with the last
-speed point of its maps; keep target speeds within what the real vehicle can
-do.
-*Roadmap:* MOD-18.
+- Above its maximum speed a motor gives no regeneration either. A car with
+  no friction brakes running downhill past it speeds up further than before.
+- Battery SOC, motor voltage, drag-torque and Lookup tables hold their edge
+  value by default. Set an axis to *Error* to be stopped there instead.
+- Below the first speed of its full-load curve (starting, stalling) a fired
+  engine gives that point's torque and burns that point's fuel: a start-up
+  rule, not a model of starting.
+- An engine's rev limiter is a hard cut, so it overshoots its limit by up to
+  a solver step's acceleration (about 1 %); only more than 2 % above it
+  counts as over speed.
+- A run that went outside its data still ends as *success* if it followed
+  its cycle: the run status does not judge these counters yet.
+- A project from 0.2.0 whose loss or fuel map is narrower than its
+  full-load map, or whose fuel map does not reach the full-load curve's
+  first speed, now stops with an error where it used to hold the edge
+  value. Data Checks warn about it before the run.
+
+*Workaround:* read the summary rows and Messages after a run; where a run
+stops, extend the table or set that axis to *Clamp* or *Linear*.
+*Roadmap:* VAL-39 (judging the counters in the run status).
 
 ### A "success" checks the speed trace, not the physics
 
 A run is a *success* when the vehicle stayed within ±2 km/h and ±1 s of its
 target speed for all but 1 % of the run (at least 2 s), covered the cycle's
-distance, and nothing raised a warning. It does not check that motors stayed
-within their maps (see above) or that the numbers are plausible for a real
-vehicle, and the Data Checks all-clear does not vouch for the results
-either. Also:
+distance, and nothing raised a warning. It does not judge how long motors
+and engines spent outside their maps (see above) or that the numbers are
+plausible for a real vehicle, and the Data Checks all-clear does not vouch
+for the results either. Also:
 
 - An acceleration or top-speed test driven by a step in the target speed
   (for example `0:100; 600:100` from standstill) is outside that band while
@@ -60,7 +80,7 @@ either. Also:
 *Workaround:* read the Messages panel and the *not valid* notes in the
 summary table. Read step-target tests for their speeds and times, not their
 consumption, or ramp the target up instead.
-*Roadmap:* MOD-18, VAL-08.
+*Roadmap:* VAL-39, VAL-08.
 
 ### Only its internal resistance limits what a battery delivers
 
@@ -186,8 +206,9 @@ minimum or an average, for example from the CSV export.
   rear-wheel drive and has an 11.5:1 reduction gear with an electronic
   160 km/h limit; the example drives the front axle (only the load share
   matters without weight transfer) and uses a 12.8 ratio so that the motor's
-  maximum speed sets the 160 km/h, because LightSim has no speed limiter.
-  *Roadmap:* MOD-18 (maximum-speed limit), MOD-12.
+  maximum speed sets the 160 km/h. An E-Motor's *Maximum Speed* could now
+  set that limit, but the example still sets it through the ratio.
+  *Roadmap:* MOD-12.
 - **Runs made on an example stay with the copy you ran.** An example opens
   as an unsaved copy, and its runs are stored with that copy: they are
   listed while it stays open, also after a restart, but opening the example

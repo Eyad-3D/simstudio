@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from ..schemas import SimMessage
-from .maps import interp1
+from .maps import Map, MapUse, Sheets2D, interp1
 from .network import Driveline, Model
 
 GRAVITY = 9.81
@@ -23,6 +23,11 @@ V_EPS = 0.5  # m/s — slip regularization
 W_EPS = 0.5  # rad/s — static/dynamic brake threshold
 CLUTCH_BAND = 0.5  # rad/s — smooth Coulomb band (residual slip under load)
 RPM = 60.0 / (2.0 * math.pi)
+# an E-Motor's drive torque falls to zero over this share of its maximum
+# speed below it; a hard engine rev limiter overshoots by up to this much
+# (ponytail: a constant; make it a parameter when users bring their
+# inverter's speed-limit ramp)
+SPEED_LIMIT_BAND = 0.02
 
 EmitFn = Callable[[dict], None]
 ControlFn = Callable[[], list[dict]]
@@ -86,7 +91,7 @@ class BatteryState:
     r1: float
     tau: float
     max_charge_w: float
-    ocv_pts: list
+    ocv_map: Map
     eta_charge: float = 1.0  # coulombic efficiency: share of charging current stored
     v_rc: float = 0.0
     v_term: float = 0.0
@@ -98,27 +103,44 @@ class BatteryState:
     power_w: float = 0.0
 
     def ocv(self) -> float:
-        return interp1(self.ocv_pts, max(0.0, min(1.0, self.soc)) * 100.0)
+        return self.ocv_map.at(self.soc_pct())
+
+    def soc_pct(self) -> float:
+        """The SOC the OCV table is read at, %."""
+        return max(0.0, min(1.0, self.soc)) * 100.0
 
 
-def ocv_mean(points: list) -> float:
+def ocv_mean(points: list, linear: bool = False) -> float:
     """The OCV table's mean over 0-100 % SOC, weighted by SOC: a full-to-empty
     discharge at open circuit gives out this voltage times the charge
-    capacity. Exact for the piecewise-linear table, read as ocv() reads it
-    (flat beyond its ends); if the table's edge policy changes (MOD-18), this
-    must follow it."""
+    capacity. Exact for the piecewise-linear table, read as ocv() reads it:
+    beyond its ends flat, or on the end slope when its SOC axis is set to
+    Linear (``linear``)."""
     xs = sorted({0.0, 100.0, *(x for x, _ in points if 0.0 < x < 100.0)})
-    return sum((b - a) * (interp1(points, a) + interp1(points, b))
+    return sum((b - a) * (interp1(points, a, linear) + interp1(points, b, linear))
                for a, b in zip(xs, xs[1:])) / 200.0
+
+
+def motor_max_rpm(full_load: Sheets2D, value: object) -> float:
+    """An E-Motor's maximum speed, 1/min: its Maximum Speed, or when that is
+    0 (every project before 0.3) the last speed point of its full-load
+    curve, the lowest over its voltage sheets so none is read past its data."""
+    try:
+        n = float(value or 0)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        n = 0.0
+    return n if n > 0 else min((p[-1][0] for _, p in full_load if len(p) > 1), default=math.inf)
 
 
 @dataclass
 class MotorCache:
     el_id: str
-    full_load: list
-    loss: list
-    drag: list
+    full_load: Map
+    loss: Map
+    drag: Map
     q4_scale: float
+    max_rpm: float  # maximum speed (motor_max_rpm)
+    speed_use: MapUse  # time above the maximum speed and the highest speed
     rpm: float = 0.0
     torque: float = 0.0
     p_mech_w: float = 0.0
@@ -140,11 +162,12 @@ class MotorCache:
 @dataclass
 class EngineCache:
     el_id: str
-    full_load: list
-    drag: list
-    fuel_map: list
+    full_load: Map
+    drag: Map
+    fuel_map: Map
     idle_rpm: float
     reentry_rpm: float  # zero throttle above this speed cuts the fuel
+    speed_use: MapUse  # time more than 2 % above the full-load curve's last speed
     rpm: float = 0.0
     torque: float = 0.0
     fuel_kgh: float = 0.0
@@ -164,7 +187,7 @@ class TankState:
 @dataclass
 class FuelCellCache:
     el_id: str
-    pol: list  # V(I)
+    pol: Map  # V(I)
     i_max: float
     h2_g_per_kwh: float
     voltage: float = 0.0

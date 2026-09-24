@@ -27,9 +27,16 @@ export interface PortDef {
   polarity?: "positive" | "negative";
 }
 
+/** What a table does outside its data on one axis: stop the run, hold the
+ *  edge value, or extend the edge segment's slope. */
+export type OutsidePolicy = "error" | "clamp" | "linear";
+
 export interface AxisDef {
   name: string;
   unit: string;
+  /** The library's outside-the-data setting; absent for a table that is not
+   *  interpolated (gear ratios). */
+  outside?: OutsidePolicy;
 }
 
 export interface ParameterDef {
@@ -74,6 +81,9 @@ export interface ElementInstance {
   portSides?: Record<string, PortSide>;
   /** Per-instance pin offset along its side, 0..1 (set by Shift+drag). */
   portOffsets?: Record<string, number>;
+  /** Per-instance outside-the-data settings: table key → one per axis,
+   *  overriding the library's (AxisDef.outside). */
+  tableOutside?: Record<string, OutsidePolicy[]>;
   /** Per-instance canvas node size in flow units (drag a node's edges to resize);
    *  the engine sends null for elements left at the default size. */
   size?: { width: number; height: number } | null;

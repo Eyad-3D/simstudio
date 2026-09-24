@@ -7,6 +7,7 @@ import type {
   AxisDef,
   ComponentDef,
   ElementInstance,
+  OutsidePolicy,
   ParameterDef,
   ParamValue,
   PortDef,
@@ -472,7 +473,15 @@ function ProfileGridEditor({
 /** Number field that stores only what is a number: clearing it or a half-typed
  *  value is never stored as 0, and leaving the field without a number puts the
  *  stored value back. */
-function NumberInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+function NumberInput({
+  value,
+  onChange,
+  label,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  label?: string;
+}) {
   const [text, setText] = useState(String(value));
   const [shown, setShown] = useState(value);
   // the stored value changed elsewhere (undo, another view): show it
@@ -487,6 +496,7 @@ function NumberInput({ value, onChange }: { value: number; onChange: (v: number)
       className="ss-input"
       value={text}
       step="any"
+      aria-label={label}
       aria-invalid={invalid || undefined}
       title={invalid ? `Enter a number (leaving the field keeps ${value})` : undefined}
       onChange={(e) => {
@@ -532,7 +542,7 @@ function ParameterInput({
         </select>
       );
     case "number":
-      return <NumberInput value={Number(value)} onChange={onChange} />;
+      return <NumberInput value={Number(value)} onChange={onChange} label={def.label} />;
     case "code":
       return (
         <textarea
@@ -559,6 +569,46 @@ function ParameterInput({
         />
       );
   }
+}
+
+const OUTSIDE_LABELS: Record<OutsidePolicy, string> = {
+  error: "stop the run (Error)",
+  clamp: "hold the edge value (Clamp)",
+  linear: "extend the edge slope (Linear)",
+};
+
+/** A table's outside-the-data setting per axis: the element's own, else the
+ *  library's. Applies on the next run. */
+function OutsideSettings({ element, param }: { element: ElementInstance; param: ParameterDef }) {
+  const setTableOutside = useProjectStore((s) => s.setTableOutside);
+  const axes = param.axes ?? [];
+  const current = axes.map(
+    (a, i) => element.tableOutside?.[param.key]?.[i] ?? a.outside ?? "clamp",
+  );
+  return (
+    <div className="mb-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[color:var(--ss-text-dim)]">
+      {axes.map((a, i) => (
+        <label key={a.name} className="flex items-center gap-1">
+          Outside the {a.name} data:
+          <select
+            className="ss-input"
+            value={current[i]}
+            onChange={(e) => {
+              const next = [...current];
+              next[i] = e.target.value as OutsidePolicy;
+              setTableOutside(element.id, param.key, next);
+            }}
+          >
+            {(Object.keys(OUTSIDE_LABELS) as OutsidePolicy[]).map((k) => (
+              <option key={k} value={k}>
+                {OUTSIDE_LABELS[k]}
+              </option>
+            ))}
+          </select>
+        </label>
+      ))}
+    </div>
+  );
 }
 
 function slugify(name: string): string {
@@ -774,6 +824,7 @@ export function ElementForm({
               <span className="ml-1 font-normal italic">— applies on next run</span>
             )}
           </div>
+          {p.axes?.some((a) => a.outside) && <OutsideSettings element={element} param={p} />}
           {isProfile(p) ? (
             <ProfileGridEditor
               value={String(valueOf(p))}
