@@ -298,8 +298,6 @@ interface ProjectState {
 
   /** in-memory element clipboard (copy/paste); not persisted or in undo history */
   clipboard: ClipboardData | null;
-  /** ids the canvas should select next render (e.g. freshly pasted elements) */
-  pendingCanvasSelection: string[] | null;
 
   past: Project[];
   future: Project[];
@@ -340,9 +338,9 @@ interface ProjectState {
   /** Delete parts (with every wire on them) and the given wires, as one undo step. */
   removeElements: (ids: string[], connectionIds?: string[]) => void;
   copyElements: (ids: string[]) => void;
-  duplicateElements: (ids: string[]) => void;
-  pasteClipboard: (position?: { x: number; y: number }) => void;
-  clearPendingSelection: () => void;
+  /** Both return the new elements' ids, for the canvas to select. */
+  duplicateElements: (ids: string[]) => string[];
+  pasteClipboard: (position?: { x: number; y: number }) => string[];
   renameElement: (id: string, label: string) => void;
   setParameter: (elementId: string, key: string, value: ParamValue) => void;
   /** A table's outside-the-data settings, one per axis (applies on the next run). */
@@ -738,7 +736,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     selectedElementId: null,
     dirty: false,
     clipboard: null,
-    pendingCanvasSelection: null,
     past: [],
     future: [],
     messages: [],
@@ -939,20 +936,19 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
     duplicateElements: (ids) => {
       const { project, activeSystemId } = get();
-      if (!project || !activeSystemId || ids.length === 0) return;
+      if (!project || !activeSystemId || ids.length === 0) return [];
       const data = collectSelection(project, activeSystemId, ids);
       let newIds: string[] = [];
       updateProject((draft) => {
         newIds = cloneElementsInto(draft, activeSystemId, data, { x: 28, y: 28 });
       });
-      if (newIds.length) {
-        set({ pendingCanvasSelection: newIds, selectedElementId: newIds[newIds.length - 1] });
-      }
+      if (newIds.length) set({ selectedElementId: newIds[newIds.length - 1] });
+      return newIds;
     },
 
     pasteClipboard: (position) => {
       const { project, activeSystemId, clipboard } = get();
-      if (!project || !activeSystemId || !clipboard || clipboard.elements.length === 0) return;
+      if (!project || !activeSystemId || !clipboard || clipboard.elements.length === 0) return [];
       let offset = { x: 28, y: 28 };
       if (position) {
         const minX = Math.min(...clipboard.elements.map((e) => e.position.x));
@@ -963,12 +959,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       updateProject((draft) => {
         newIds = cloneElementsInto(draft, activeSystemId, clipboard, offset);
       });
-      if (newIds.length) {
-        set({ pendingCanvasSelection: newIds, selectedElementId: newIds[newIds.length - 1] });
-      }
+      if (newIds.length) set({ selectedElementId: newIds[newIds.length - 1] });
+      return newIds;
     },
-
-    clearPendingSelection: () => set({ pendingCanvasSelection: null }),
 
     renameElement: (id, label) =>
       updateProject(

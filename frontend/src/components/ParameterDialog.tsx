@@ -56,6 +56,7 @@ export function ParameterDialog() {
     >
       <div className="flex max-h-[82vh] w-[440px] flex-col overflow-hidden rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] shadow-2xl">
         <div className="flex items-center gap-2 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-3 py-2">
+          {/* eslint-disable-next-line react-hooks/static-components -- componentIcon picks from a fixed module-level registry, so Icon is the same component every render */}
           <Icon size={16} className="text-[color:var(--ss-accent)]" />
           <span className="text-[13px] font-semibold">{element.label}</span>
           <span className="text-[11px] text-[color:var(--ss-text-dim)]">— {def.name}</span>

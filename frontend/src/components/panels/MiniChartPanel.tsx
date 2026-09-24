@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -24,26 +24,18 @@ export function MiniChartPanel() {
   const runsCount = useProjectStore((s) => s.runs.length);
 
   const channels = activeRun?.result.channels ?? [];
-  const [sel, setSel] = useState("");
+  const [picked, setPicked] = useState("");
   const { ref: chartRef, hasSize } = useHasSize<HTMLDivElement>();
 
-  // pick a sensible default channel and keep the selection valid as the active
-  // run (and its channel set, which fills in live) changes.
-  const keysStr = channels.map(channelKey).join(",");
-  useEffect(() => {
-    if (channels.length === 0) return;
-    setSel((cur) => {
-      if (cur && channels.some((c) => channelKey(c) === cur)) return cur;
-      const pref =
-        channels.find((c) => c.portId === "sig_soc") ??
-        channels.find((c) => c.portId === "sig_power") ??
-        channels[0];
-      return channelKey(pref);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keysStr]);
-
-  const channel = channels.find((c) => channelKey(c) === sel) ?? null;
+  // the picked channel while the active run (whose channel set fills in live)
+  // has it, else a sensible default
+  const channel =
+    channels.find((c) => channelKey(c) === picked) ??
+    channels.find((c) => c.portId === "sig_soc") ??
+    channels.find((c) => c.portId === "sig_power") ??
+    channels[0] ??
+    null;
+  const sel = channel ? channelKey(channel) : "";
   const data = useMemo(
     () => (channel ? decimate(channel.timeSeries).map((pt) => ({ t: pt.t, v: pt.value })) : []),
     [channel],
@@ -67,7 +59,7 @@ export function MiniChartPanel() {
         <select
           className="ss-input min-w-0 flex-1 py-0.5 text-[11px]"
           value={sel}
-          onChange={(e) => setSel(e.target.value)}
+          onChange={(e) => setPicked(e.target.value)}
           title="Channel to plot"
         >
           {channels.length === 0 && <option value="">No channels yet…</option>}

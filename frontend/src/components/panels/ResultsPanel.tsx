@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -163,29 +163,25 @@ export function ResultsPanel() {
   const [selected, setSelected] = useState<Record<string, string[]>>({});
   const [view, setView] = useState<"chart" | "table" | "sweep" | "xy">("chart");
   const [search, setSearch] = useState("");
-  const [sweepMetric, setSweepMetric] = useState("");
-  const [xyXKey, setXyXKey] = useState(""); // channel used as the X axis in the X-Y view
+  const [sweepPick, setSweepPick] = useState("");
+  const [xyXPick, setXyXPick] = useState(""); // channel picked as the X axis in the X-Y view
   const [showRunInfo, setShowRunInfo] = useState(false);
   const { ref: chartHost, hasSize, element: chartEl } = useHasSize<HTMLDivElement>();
 
-  // sensible default channel selection the first time a case's results are shown
-  // (wait for channels: a live run starts with none, and an empty pick would
-  // stick for the rest of the session)
-  useEffect(() => {
-    if (!result || !selKey || selected[selKey] || result.channels.length === 0) return;
-    const defaults = result.channels
+  // sensible default channel selection until the user picks for this case
+  // (a live run starts with no channels, so it fills in as they arrive)
+  const defaultKeys = useMemo(() => {
+    const channels = result?.channels ?? [];
+    const defaults = channels
       .filter((c) => c.portId === "sig_soc" || (c.portId === "sig_power" && c.label.includes("Battery")))
       .slice(0, 4)
       .map(channelKey);
-    setSelected((s) => ({
-      ...s,
-      [selKey]: defaults.length > 0 ? defaults : result.channels.slice(0, 2).map(channelKey),
-    }));
-  }, [result, selKey, selected]);
+    return defaults.length > 0 ? defaults : channels.slice(0, 2).map(channelKey);
+  }, [result]);
 
   const selectedKeys = useMemo(
-    () => new Set(selKey ? (selected[selKey] ?? []) : []),
-    [selected, selKey],
+    () => new Set(selKey ? (selected[selKey] ?? defaultKeys) : []),
+    [selected, selKey, defaultKeys],
   );
   const selectedList = useMemo(() => [...selectedKeys], [selectedKeys]);
 
@@ -327,14 +323,8 @@ export function ResultsPanel() {
     return m;
   }, [result]);
 
-  // keep the chosen X channel valid as the selection changes
-  useEffect(() => {
-    if (selectedList.length === 0) {
-      if (xyXKey) setXyXKey("");
-    } else if (!selectedList.includes(xyXKey)) {
-      setXyXKey(selectedList[0]);
-    }
-  }, [selectedList, xyXKey]);
+  // the picked X channel while it is selected, else the first selected one
+  const xyXKey = selectedList.includes(xyXPick) ? xyXPick : (selectedList[0] ?? "");
 
   const xyXChannel = xyXKey ? (channelByKey.get(xyXKey) ?? null) : null;
   const xyYChannels = useMemo(
@@ -363,14 +353,10 @@ export function ResultsPanel() {
     for (const r of family) for (const s of r.result.summary) set.add(s.label);
     return [...set];
   }, [family]);
-  useEffect(() => {
-    if (sweepMetrics.length === 0) return;
-    if (!sweepMetrics.includes(sweepMetric)) {
-      const preferred =
-        sweepMetrics.find((m) => /consumption|final soc|fuel/i.test(m)) ?? sweepMetrics[0];
-      setSweepMetric(preferred);
-    }
-  }, [sweepMetrics, sweepMetric]);
+  // the picked metric while the family reports it, else a preferred one
+  const sweepMetric = sweepMetrics.includes(sweepPick)
+    ? sweepPick
+    : (sweepMetrics.find((m) => /consumption|final soc|fuel/i.test(m)) ?? sweepMetrics[0] ?? "");
   const sweepUnit = family[0]?.sweepUnit ?? "";
   const sweepParam = family[0]?.sweepParam ?? "value";
   // complete points form the curve (y); incomplete ones, when shown, are
@@ -397,7 +383,7 @@ export function ResultsPanel() {
   const toggle = (key: string) => {
     if (!selKey) return;
     setSelected((s) => {
-      const cur = s[selKey] ?? [];
+      const cur = s[selKey] ?? defaultKeys;
       return {
         ...s,
         [selKey]: cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key],
@@ -661,7 +647,7 @@ export function ResultsPanel() {
               <select
                 className="ss-input max-w-[190px] py-0.5 text-[11px]"
                 value={sweepMetric}
-                onChange={(e) => setSweepMetric(e.target.value)}
+                onChange={(e) => setSweepPick(e.target.value)}
                 title="Summary metric to plot against the swept value"
               >
                 {sweepMetrics.map((m) => (
@@ -675,7 +661,7 @@ export function ResultsPanel() {
               <select
                 className="ss-input max-w-[200px] py-0.5 text-[11px]"
                 value={xyXKey}
-                onChange={(e) => setXyXKey(e.target.value)}
+                onChange={(e) => setXyXPick(e.target.value)}
                 title="Channel to plot on the X axis (the other ticked channels become Y series)"
               >
                 {selectedList.map((k) => {
