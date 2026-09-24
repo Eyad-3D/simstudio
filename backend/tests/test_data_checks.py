@@ -216,3 +216,51 @@ def test_wheel_load_shares_must_add_up():
             e.parameterOverrides["vehicle_load_share_pct"] = 5
     new = [c.text for c in validate_project(proj) if c.level != "info"]
     assert len(new) == 1 and new[0].startswith("Wheel load shares add up to 20 %, not 100 %")
+
+
+# ---- MOD-11: road load counted once, and the Ambient's air -------------------------
+
+@pytest.mark.parametrize("mode, included, warned", [
+    ("Coefficients A/B/C", False, True),
+    ("Coefficients A/B/C", True, False),
+    ("Drag and rolling resistance", False, False),
+])
+def test_road_load_double_count_warning(mode, included, warned):
+    """Coast-down coefficients hold the axle's drag; its lossy gears would
+    count it again (the BEV's Final Drive is 98 %)."""
+    proj = load_example("bev-car")
+    next(e for e in proj.systems[0].elements if e.id == "el-vehicle").parameterOverrides.update(
+        road_load_mode=mode, abc_include_driveline_losses=included)
+    new = [c.text for c in validate_project(proj) if c.level != "info"]
+    if warned:
+        assert len(new) == 1 and "'Final Drive' 98 %" in new[0], new
+        assert "Tick 'Coefficients Include Driveline Losses'" in new[0]
+    else:
+        assert new == []
+
+
+def _with_ambients(*values):
+    proj = load_example("bev-car")
+    proj.systems[0].elements += [
+        el(f"amb{i}", "boundary.ambient", f"Ambient {i}", temperature_C=t, pressure_kPa=p)
+        for i, (t, p) in enumerate(values)]
+    return [(c.level, c.text) for c in validate_project(proj) if c.level != "info"]
+
+
+@pytest.mark.parametrize("values, expected", [
+    ([(20, 101.325)], []),
+    ([(20, 101.325), (35, 85)],
+     [("warning", "Only the first Ambient ('Ambient 0') sets the air density; "
+                  "the others are ignored.")]),
+    ([(20, 1.013)], [("warning", "'Ambient 0' has a pressure of 1.013 kPa (50 to 110 kPa is "
+                                 "usual; 1 bar = 100 kPa), which gives the Vehicle's drag an air "
+                                 "density of 0.012 kg/m³ — check the value and its unit.")]),
+    ([(293.15, 101.325)], [("warning", "'Ambient 0' has a temperature of 293.15 °C (-60 to 60 °C "
+                                       "is usual), which gives the Vehicle's drag an air density "
+                                       "of 0.623 kg/m³ — check the value and its unit.")]),
+    ([(20, 0)], [("error", "'Ambient 0' has a non-positive pressure.")]),
+    ([(-300, 101.325)], [("error", "Temperature of 'Ambient 0' must be in (-273.15, 1000] — "
+                                   "got -300.")]),
+])
+def test_ambient_checks(values, expected):
+    assert _with_ambients(*values) == expected

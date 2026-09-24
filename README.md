@@ -444,8 +444,12 @@ equal solver steps. Every solver step runs, in this order:
    (2×2 coupled mass matrix for an open diff, merged inertia when locked);
    brakes with proper static-friction standstill hold; tire slip term
    integrated implicitly (it is numerically stiff at low speed).
-6. **Vehicle** — net tire force − aero − rolling − grade integrates speed
-   and distance.
+6. **Vehicle** — net tire force − aero drag − rolling resistance − grade
+   force integrates speed and distance. Drag and rolling resistance come
+   from Cd × frontal area (at the air density the Ambient block's
+   temperature and pressure give) and the wheels' coefficients, or from
+   road-load coefficients A + B·v + C·v²; the grade acts through the slope
+   angle (m·g·sin on the car, m·g·cos on the tyres).
 7. **Electrical** — motor electrical power = shaft power + loss map; buses
    solved in dependency order (DC-DC bridges); battery equivalent circuit
    (OCV(SOC) table, R0, optional RC pair) solved closed-form per step; SOC

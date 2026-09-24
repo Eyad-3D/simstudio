@@ -17,7 +17,17 @@ from .maps import Map, MapUse, Sheets2D, interp1
 from .network import Driveline, Model
 
 GRAVITY = 9.81
-AIR_DENSITY = 1.2
+R_AIR = 287.05  # J/(kg·K), specific gas constant of dry air
+
+
+def air_density(temperature_c: float = 20.0, pressure_kpa: float = 101.325) -> float:
+    """Dry air, ideal gas: rho = p / (R · T), in kg/m³."""
+    return pressure_kpa * 1000.0 / (R_AIR * (temperature_c + 273.15))
+
+
+# the air density without an Ambient block (20 °C, 101.325 kPa: 1.2041 kg/m³),
+# and the density a Vehicle's road-load coefficient C is taken at
+AIR_DENSITY = air_density()
 MAX_SUBSTEP = 0.01  # s
 V_EPS = 0.5  # m/s — slip regularization
 W_EPS = 0.5  # rad/s — static/dynamic brake threshold

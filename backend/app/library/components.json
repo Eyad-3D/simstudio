@@ -21,7 +21,7 @@
       "name": "Vehicle",
       "icon": "car",
       "domain": "mechanical",
-      "description": "Longitudinal vehicle body: mass, aerodynamics (drag coefficient × frontal area) and road grade. Binds to all Wheel elements automatically — no canvas wiring needed for the body itself. Pair it with a Driver element to follow a speed profile.",
+      "description": "Longitudinal vehicle body: mass, road load and road grade. Road load comes from the drag coefficient × frontal area and the Wheels' rolling resistance, or, with Road Load From set to coefficients, from A + B·v + C·v² with v in km/h, as coast-down tests publish it (WLTP f0, f1, f2; EPA's lbf, lbf/mph and lbf/mph² values × 4.448, × 2.764 and × 1.718); then Cd, frontal area and the Wheels' rolling resistance are not used. Drag follows the air density the Ambient block sets (1.204 kg/m³ at 20 °C and 101.325 kPa without one), and so does C, which is taken at 1.204 kg/m³. Coast-down (target) coefficients already hold the drag of the gears the wheels turn in neutral: with Coefficients Include Driveline Losses ticked, the final drives, differentials and transfer cases run lossless (gearboxes and motors keep their losses; a coast-down holds only the axle's spin losses, so this leaves out a little); untick it for dyno-set coefficients. The road grade (rise over run, in %) sets the slope angle θ = atan(grade / 100): the weight pulls the car back with m·g·sin θ, and the normal load (rolling resistance, tyre grip) is m·g·cos θ. Binds to all Wheel elements automatically — no canvas wiring needed for the body itself. Pair it with a Driver element to follow a speed profile.",
       "ports": [
         {
           "id": "sig_grade_in",
@@ -67,6 +67,44 @@
           "unit": "m²",
           "default": 2.2,
           "type": "number"
+        },
+        {
+          "key": "road_load_mode",
+          "variability": "fixed",
+          "label": "Road Load From",
+          "unit": "-",
+          "default": "Drag and rolling resistance",
+          "type": "enum",
+          "options": ["Drag and rolling resistance", "Coefficients A/B/C"]
+        },
+        {
+          "key": "road_load_a_N",
+          "label": "Road Load A (f0)",
+          "unit": "N",
+          "default": 212,
+          "type": "number"
+        },
+        {
+          "key": "road_load_b_N_per_kmh",
+          "label": "Road Load B (f1)",
+          "unit": "N/(km/h)",
+          "default": 0,
+          "type": "number"
+        },
+        {
+          "key": "road_load_c_N_per_kmh2",
+          "label": "Road Load C (f2)",
+          "unit": "N/(km/h)²",
+          "default": 0.0286,
+          "type": "number"
+        },
+        {
+          "key": "abc_include_driveline_losses",
+          "variability": "fixed",
+          "label": "Coefficients Include Driveline Losses",
+          "unit": "-",
+          "default": true,
+          "type": "boolean"
         },
         {
           "key": "initial_speed_kmh",
@@ -1057,7 +1095,7 @@
       "name": "Wheel",
       "icon": "circle",
       "domain": "mechanical",
-      "description": "Wheel with longitudinal slip tire model: traction force = slip stiffness × slip × normal load, saturated at μ × normal load. Normal load comes from the Vehicle mass × this wheel's load share; the shares of all connected wheels are scaled to add up to 100 %, so together they always carry the whole vehicle. Rolling resistance acts on the vehicle body.",
+      "description": "Wheel with longitudinal slip tire model: traction force = slip stiffness × slip × normal load, saturated at μ × normal load. Normal load comes from the Vehicle mass × this wheel's load share (× the cosine of the road's slope angle); the shares of all connected wheels are scaled to add up to 100 %, so together they always carry the whole vehicle. Rolling resistance acts on the vehicle body; it is not used when the Vehicle takes its road load from coefficients A/B/C.",
       "ports": [
         {
           "id": "shaft",
@@ -1360,7 +1398,7 @@
       "name": "Ambient",
       "icon": "cloud-sun",
       "domain": "thermal",
-      "description": "Ambient environment boundary condition (no thermal solver yet).",
+      "description": "Ambient air. Its temperature and pressure set the air density for the Vehicle's drag, rho = p / (R · T) with R = 287.05 J/(kg·K) for dry air; no wiring needed. Without an Ambient the density is 1.204 kg/m³ (20 °C, 101.325 kPa); in a model with several, the first one counts. There is no thermal solver yet: no part's temperature follows it.",
       "ports": [
         {
           "id": "thermal",
@@ -1383,7 +1421,7 @@
           "key": "pressure_kPa",
           "label": "Pressure",
           "unit": "kPa",
-          "default": 101.3,
+          "default": 101.325,
           "type": "number"
         }
       ]

@@ -30,7 +30,16 @@ from .solver import (
     parse_table2d,
     profile_problems,
 )
-from .solver.network import NO_DRIVER, NO_VEHICLE, NO_WHEELS, SIGNAL_BLOCK_TYPES, ports_of
+from .solver.network import (
+    AXLE_GEAR_TYPES,
+    NO_DRIVER,
+    NO_VEHICLE,
+    NO_WHEELS,
+    ROAD_LOAD_ABC,
+    SIGNAL_BLOCK_TYPES,
+    ports_of,
+)
+from .solver.runtime import air_density
 
 # param key → (label, min exclusive, max inclusive)
 NUMERIC_RANGES: dict[str, tuple[str, float, float]] = {
@@ -44,6 +53,7 @@ NUMERIC_RANGES: dict[str, tuple[str, float, float]] = {
     "initial_fill_pct": ("Initial fill", -0.001, 100.0),
     "coulombic_efficiency_pct": ("Coulombic efficiency", 0.0, 100.0),
     "capacity_Ah": ("Charge capacity", -0.001, 1e5),
+    "temperature_C": ("Temperature", -273.15, 1000.0),
 }
 
 POSITIVE_PARAMS = {
@@ -51,6 +61,7 @@ POSITIVE_PARAMS = {
     "mass_kg": "mass",
     "radius_m": "wheel radius",
     "ratio": "transmission ratio",
+    "pressure_kPa": "pressure",
 }
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
@@ -71,6 +82,10 @@ BATTERY_KWH = (0.1, 2_000.0)
 AUX_LOAD_MAX_KW = 50.0  # a constant load beyond this is not an auxiliary
 FINAL_DRIVE_MAX_RATIO = 25.0
 WHEEL_SHARE_TOL_PCT = 1.0  # wheel load shares within 100 ± this are left unremarked
+# The air vehicles drive in (sea level to about 5,500 m): beyond it a value is
+# more likely typed in the wrong unit (bar, Pa, °F, K) than meant.
+AMBIENT_C = (-60.0, 60.0)
+AMBIENT_KPA = (50.0, 110.0)
 
 Add = Callable[..., None]
 
@@ -540,6 +555,33 @@ def _plausibility_checks(model: Model, add: Add) -> None:
                 add("warning", f"Vehicle '{el.label}' has a mass of {mass:g} kg, outside the "
                                f"range of road vehicles ({lo:g} kg to {hi / 1000:g} t) — check "
                                f"the value and its unit.", el)
+            if (p.get("road_load_mode") == ROAD_LOAD_ABC
+                    and not p.get("abc_include_driveline_losses", True)):
+                gears = [(g, num(model.params_of[g], "efficiency_pct"))
+                         for g, c in model.cdef_of.items() if c.id in AXLE_GEAR_TYPES]
+                lossy = [f"'{model.elements[g].label}' {eff:g} %"
+                         for g, eff in gears if eff is not None and eff < 100]
+                if lossy:
+                    add("warning", f"Vehicle '{el.label}' takes its road load from coefficients "
+                                   f"A/B/C, which a coast-down measures with the axle's drag in "
+                                   f"them, and the axle's gears lose it again: "
+                                   f"{', '.join(lossy)}. Tick 'Coefficients Include Driveline "
+                                   f"Losses' unless these are dyno-set coefficients.", el)
+        elif cdef.id == "boundary.ambient":
+            t_c, p_kpa = num(p, "temperature_C"), num(p, "pressure_kPa")
+            if t_c is not None and p_kpa is not None and t_c > -273.15 and p_kpa > 0:
+                out = []
+                if not AMBIENT_C[0] <= t_c <= AMBIENT_C[1]:
+                    out.append(f"a temperature of {t_c:g} °C ({AMBIENT_C[0]:g} to {AMBIENT_C[1]:g} "
+                               f"°C is usual)")
+                if not AMBIENT_KPA[0] <= p_kpa <= AMBIENT_KPA[1]:
+                    out.append(f"a pressure of {p_kpa:g} kPa ({AMBIENT_KPA[0]:g} to "
+                               f"{AMBIENT_KPA[1]:g} kPa is usual; 1 bar = 100 kPa)")
+                if out:
+                    add("warning", f"'{el.label}' has {' and '.join(out)}, which gives the "
+                                   f"Vehicle's drag an air density of "
+                                   f"{air_density(t_c, p_kpa):.3g} kg/m³ — check the value "
+                                   f"and its unit.", el)
         elif cdef.id == "battery.generic":
             cap = num(p, "capacity_kWh")
             lo, hi = BATTERY_KWH

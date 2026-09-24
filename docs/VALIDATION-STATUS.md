@@ -31,6 +31,7 @@ Each of these is an automatic test that runs on every change
 | Battery and fuel-cell limits | at minimum charge, maximum charge and power limits the motor gets only what the source can give; regen above the charge limit goes to the friction brakes | `test_source_limits.py` |
 | Battery charge | a constant 1C discharge from 100 % reaches 0 % at 3,600 ± 1 s for differently shaped OCV tables; a battery without an Ah value gives out its Usable Capacity from full to empty; coulombic efficiency acts on charge only; the SOC change matches the current that flowed | `test_battery_charge.py`, `test_source_limits.py` |
 | Controller timing | results do not depend on the recording step (1, 0.1 and 0.02 s give the same figures) | `test_control_rate.py`, `test_verdict.py` |
+| Road load | air drag follows the Ambient's air density, rho = p / (R · T): −7 °C gives 1.113 times the drag of 23 °C within 0.5 %, also when set as a case value, and an Ambient at its defaults gives what a model without one gets; uphill, the car slows by g · (sin θ + rolling resistance · cos θ) of the slope angle within 0.1 % at 10 and 25 % grades; a coast-down of a car entered with road-load coefficients gives back A, B and C within 0.5 %; with *Coefficients Include Driveline Losses* the motor gives the road load through the final drive and differential with no loss, without it through their efficiencies; Data Checks catch axle losses counted twice, several Ambients and an Ambient pressure or temperature out of range or in the wrong unit | `test_road_load.py`, `test_data_checks.py` |
 | Engine | full throttle gives the full-load curve; fuel is cut on overrun; the rev limiter cuts fuel and torque; CO₂ follows fuel with the tank's factor | `test_engine.py` |
 | Electric motor | spin losses are counted once; a powered motor has no extra drag | `test_motor_losses.py` |
 | Maximum speed and map edges | a motor stops at its maximum speed (a 300 km/h target holds it between 97 and 100 % of 12,000 rpm), also when that is set lower or changed during a run; a motor driven above it gives no drive torque and is reported; a run that leaves a table set to *Error* stops and names the table, the axis, the value and the time; *Clamp* and *Linear* give the edge value and the edge slope and are reported with their time outside; a motor or engine held at its limiter is not counted as over speed, also when a light one overshoots it by a step (a free motor at 12,000 or 3,000 rpm, a free engine of 0.05 kg·m²), while an engine the wheels drive above it is; every table a run reads is counted once per solver step, and the library defaults pass the map cross-checks, which catch a motor map that does not start at 0 rpm and a fuel-cell curve that does not start at 0 A | `test_map_edges.py`, `test_engine.py` |
@@ -49,16 +50,18 @@ data; their motor, engine and battery maps are generic (invented, marked
 | Battery Electric Car (2021 Cupra Born values from FASTSim) | WLTC energy at the battery | 14.0 kWh/100 km | about 15–16 kWh/100 km rated at the charging socket, charging losses included (background knowledge, unverified) | 13–17 kWh/100 km |
 | | 0–100 km/h | 7.2 s | 7.3 s (maker's figure, background knowledge) | ±10 % |
 | | Top speed | 160 km/h | 160 km/h (limited) | ±2 %, and within the motor's maximum speed |
-| P2 Hybrid Car (Hyundai Ioniq Hybrid test mass and EPA road load) | EPA city cycle (UDDS) fuel | 2.94 l/100 km | 2.91 l/100 km (EPA 2022 test car list) | 2–5 l/100 km, and at most 4.5 after correcting for the battery's change of charge |
-| | EPA highway cycle (HWFET) fuel | 3.29 l/100 km | 2.94 l/100 km (EPA 2022 test car list) | same as the city cycle |
+| P2 Hybrid Car (Hyundai Ioniq Hybrid test mass and EPA road load) | EPA city cycle (UDDS) fuel | 2.84 l/100 km (no cold start) | 2.91 l/100 km (EPA 2022 test car list) | 2–5 l/100 km, and at most 4.5 after correcting for the battery's change of charge |
+| | EPA highway cycle (HWFET) fuel | 3.23 l/100 km | 2.94 l/100 km (EPA 2022 test car list) | same as the city cycle |
 | | Battery charge at the end | same as at the start | charge-sustaining | within 1 % of the start |
 
-Why this is not validation: the hybrid's road load was fitted to EPA's
-coefficients for that car, its engine and motor maps are generic, and it has
-no cold start; the electric car's motor loss map is generic and its
-reduction ratio was chosen so the motor's maximum speed gives the real
-top speed. Close numbers here mean the model is in the right range, not
-that it predicts a new vehicle within a known error.
+Why this is not validation: the hybrid's road load is EPA's target
+coefficients for that car (with the axle's losses counted once), but its
+engine and motor maps are generic, and it has no cold start, so its city
+figure reads below EPA's, whose city test starts cold; the electric car's
+motor loss map is generic and its reduction ratio was chosen so the
+motor's maximum speed gives the real top speed. Close numbers here mean
+the model is in the right range, not that it predicts a new vehicle within
+a known error.
 
 ## Not validated
 

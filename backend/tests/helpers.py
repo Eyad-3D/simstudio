@@ -86,6 +86,30 @@ def bev_axle(locked: bool = False, mu_left: float = 1.0,
     return project(elements, connections, databus)
 
 
+def coast_project(veh_kw=None, wheel_kw=None, ambient=None, grade=None,
+                  v0=100.0, duration=10.0, dt=0.1, inertia=0.001) -> Project:
+    """A car coasting from v0 km/h with nothing driving it: a Vehicle on four
+    Wheels, each on its own Brake (never applied). Wheels and brakes get the
+    rotational inertia `inertia` (small by default, so the coast is the road
+    load alone; the effective mass is mass + 8 * inertia / radius²). Optional:
+    an Ambient with these parameter values ({} for the library's) and a
+    constant road grade (%)."""
+    elements = [el("veh", "vehicle.body", "Vehicle", initial_speed_kmh=v0, **(veh_kw or {}))]
+    connections = []
+    for i in range(4):
+        elements += [el(f"w{i}", "propulsion.wheel", f"Wheel {i}",
+                        **{"inertia_kgm2": inertia, **(wheel_kw or {})}),
+                     el(f"b{i}", "mech.brake", f"Brake {i}", inertia_kgm2=inertia)]
+        connections.append(conn(i, f"b{i}", "flange", f"w{i}", "shaft"))
+    if ambient is not None:
+        elements.append(el("amb", "boundary.ambient", "Ambient", **ambient))
+    databus = []
+    if grade is not None:
+        elements.append(el("grade", "signal.constant", "Grade", value=grade))
+        databus.append(dbc(1, "grade", "sig_out", "veh", "sig_grade_in"))
+    return project(elements, connections, databus, duration=duration, time_step=dt)
+
+
 def series(result, el_id: str, port_id: str):
     for c in result.channels:
         if c.elementId == el_id and c.portId == port_id:

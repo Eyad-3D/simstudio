@@ -26,7 +26,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from .maps import Map, MapUse, TableError, interp1, parse_table1d, parse_table2d
-from .network import BrakeRef, Driveline, Joint, Model, Segment, SourceRef
+from .network import ROAD_LOAD_ABC, BrakeRef, Driveline, Joint, Model, Segment, SourceRef
 from .profiles import interp_profile, parse_profile
 from .runtime import (
     AIR_DENSITY,
@@ -46,6 +46,7 @@ from .runtime import (
     SingularMatrixError,
     TankState,
     _sign,
+    air_density,
     make_plan,
     motor_max_rpm,
     ocv_mean,
@@ -249,6 +250,10 @@ class RunContext:
         self.veh_mass = max(1.0, float(veh_p.get("mass_kg", 1800))) if self.veh_id else 0.0
         self.v = max(0.0, float(veh_p.get("initial_speed_kmh", 0)) / 3.6) if self.veh_id else 0.0
         self.distance = 0.0
+        self.amb_id = model.ambient  # sets the air density (None: 20 °C, 101.325 kPa)
+        # the road's slope this step (set from the grade at the start of the
+        # mechanical step): the weight's share along and normal to the road
+        self.slope_sin, self.slope_cos = 0.0, 1.0
         self.driver_integral = 0.0
         self.performance = False  # a performance-test case (set by simulate)
 
@@ -1064,7 +1069,7 @@ class RunContext:
                     damping: bool = True) -> tuple[float, float, float]:
         """(tire force, its torque at the reference axis, slip damping for
         the implicit solve — 0 when not asked for)."""
-        n_load = w.load_share * self.veh_mass * GRAVITY if self.veh_id else 0.0
+        n_load = w.load_share * self.veh_mass * GRAVITY * self.slope_cos if self.veh_id else 0.0
         if n_load <= 0:
             return 0.0, 0.0, 0.0
         v = self.v
@@ -1450,6 +1455,9 @@ class MechanicalSlave(_CtxSlave):
     def do_step(self, t: float, h: float) -> StepResult:
         ctx = self.ctx
         rt, dt = ctx.rt, ctx.dt
+        if ctx.veh_id:  # the road's slope angle, for the tyres and the vehicle alike
+            theta = math.atan((rt.read_signal(ctx.veh_id, "sig_grade_in") or 0.0) / 100.0)
+            ctx.slope_sin, ctx.slope_cos = math.sin(theta), math.cos(theta)
         active = [st for st in ctx.dls if not st.plan.over_constrained and st.plan.n]
 
         # segment speeds at the start of the step, and every motor's command
@@ -1619,18 +1627,33 @@ class MechanicalSlave(_CtxSlave):
         # vehicle --------------------------------------------------------------
         if ctx.veh_id:
             vp = ctx.params(ctx.veh_id)
-            cda = max(0.0, float(vp.get("cd", 0.28))) * max(0.0, float(vp.get("frontal_area_m2", 2.2)))
-            grade_pct = rt.read_signal(ctx.veh_id, "sig_grade_in") or 0.0
+            rho = AIR_DENSITY
+            if ctx.amb_id:  # read every step: live edits, case values and sweeps apply
+                # (Data Checks refuse air at or below absolute zero or 0 kPa;
+                # a case value or live edit they do not see must not crash)
+                ap = ctx.params(ctx.amb_id)
+                rho = air_density(max(-273.0, float(ap.get("temperature_C", 20))),
+                                  max(0.0, float(ap.get("pressure_kPa", 101.325))))
             f_tire = 0.0
             f_roll = 0.0
             for st in active:  # at the wheel speeds just integrated
                 for s_idx, seg in enumerate(st.dl.segments):
                     for w in seg.wheels:
                         f_tire += ctx.wheel_force(w, st.omega_end[s_idx], damping=False)[0]
-                        n_load = w.load_share * ctx.veh_mass * GRAVITY
+                        n_load = w.load_share * ctx.veh_mass * GRAVITY * ctx.slope_cos
                         f_roll += w.c_rr * n_load
-            f_aero = 0.5 * AIR_DENSITY * cda * ctx.v * ctx.v
-            f_grade = ctx.veh_mass * GRAVITY * grade_pct / 100.0
+            if vp.get("road_load_mode") == ROAD_LOAD_ABC:
+                # a coast-down's A + B·v + C·v² in km/h, as test labs publish
+                # them; A and B stand in for the wheels' rolling resistance, and
+                # C, measured in air of AIR_DENSITY, follows the air density
+                v_kmh = ctx.v * 3.6
+                f_roll = (float(vp.get("road_load_a_N", 0))
+                          + float(vp.get("road_load_b_N_per_kmh", 0)) * v_kmh) * ctx.slope_cos
+                f_aero = float(vp.get("road_load_c_N_per_kmh2", 0)) * v_kmh * v_kmh * rho / AIR_DENSITY
+            else:
+                cda = max(0.0, float(vp.get("cd", 0.28))) * max(0.0, float(vp.get("frontal_area_m2", 2.2)))
+                f_aero = 0.5 * rho * cda * ctx.v * ctx.v
+            f_grade = ctx.veh_mass * GRAVITY * ctx.slope_sin
             roll_taper = max(0.0, min(1.0, ctx.v / 0.3))
             accel = (f_tire - f_aero - f_roll * roll_taper - f_grade) / ctx.veh_mass
             ctx.v = max(0.0, ctx.v + accel * dt)

@@ -156,15 +156,25 @@ minimum or an average, for example from the CSV export.
   delivers 20.9 kW and the motor takes 8.8 kW to charge the battery, and
   the Shaft and the Final Drive both show 12.1 kW. Read the *Mechanical
   Power* of each motor and engine instead. *Roadmap:* MOD-10.
-- **Air density is fixed, and steep grades are overstated.** Air drag always
-  uses 1.2 kg/m³: the Ambient block's temperature and pressure are ignored,
-  and there is no wind. Real air is about 10 % denser at −7 °C, and about
-  20 % thinner at 35 °C and 85 kPa (about 1,500 m altitude). The slope
-  force uses the grade in % divided by 100 instead of the sine of the slope
-  angle, and rolling resistance ignores the slope, so both are 0.5 % too high
-  at a 10 % grade and 3 % at 25 %. To model cold or thin air, multiply the
-  Vehicle's *Drag Coefficient (Cd)* by the real density divided by 1.2, and
-  keep grades moderate. *Roadmap:* MOD-11.
+- **The air is dry, still and the same along the road.** Air drag uses the
+  density the Ambient block's temperature and pressure give (1.204 kg/m³,
+  20 °C and 101.325 kPa, without an Ambient), but not the road's altitude
+  (a 30 m climb makes it 0.35 % thinner), humidity (damp air is up to about
+  1.6 % thinner at 30 °C) or wind. The Ambient holds one temperature and
+  pressure for the run: a case value or a sweep changes them between runs,
+  a live edit during one, but there is no temperature over time or
+  distance. For a road at altitude, set the Ambient's pressure.
+  *Roadmap:* MOD-56 (wind), MOD-14 and CON-23 (altitude along the road),
+  MOD-09 (temperature over time).
+- **Road-load coefficients: the driveline's share is all or nothing.** With
+  *Coefficients Include Driveline Losses* ticked, the final drives,
+  differentials and transfer cases run lossless, as if the coefficients held
+  their whole loss; a coast-down holds only their spin losses, so this leaves
+  out a little. There is no estimate of the driveline's share from target
+  minus dyno-set coefficients (EPA ALPHA's road-load adjustment), and no
+  test-mass mode (equivalent test weight, × 1.015 for a two-wheel-drive
+  dynamometer): enter the test mass as the Vehicle Mass. *Roadmap:* MOD-03
+  (zero-load gear drag), VAL-05 (EPA reference tests).
 - **Wheel loads do not shift when braking, accelerating or cornering.**
   Each wheel carries a fixed share of the vehicle weight (*Vehicle Load
   Share*); the shares of the connected wheels are scaled to add up to
@@ -202,16 +212,18 @@ minimum or an average, for example from the CSV export.
 ## The examples
 
 - **P2 Hybrid Car:** sized after the Hyundai Ioniq Hybrid, with its test
-  mass and road load from EPA data, but its engine, motor and battery maps
+  mass and road load from EPA data (EPA's own coefficients A/B/C, with the
+  axle's losses counted once), but its engine, motor and battery maps
   are generic, not the car's. With its charge-sustaining control script it
-  uses about 3.0 l/100 km on the EPA city cycle and 3.3 on the highway
+  uses about 2.84 l/100 km on the EPA city cycle and 3.23 on the highway
   cycle, against 2.91 and 2.94 for the real car in EPA's tests. The model
-  has no cold start, engine warm-up or start-up fuel, and it counts the
-  driveline drag that EPA's road-load coefficients already include a second
-  time. Each case starts at the charge the cycle ends with (as a
-  preconditioning drive would leave it), so the fuel figure needs no
-  battery-charge correction; start it elsewhere and the figure includes the
-  charge the strategy restores. *Roadmap:* CON-14 (sourced maps).
+  has no cold start, engine warm-up or start-up fuel, so its city figure
+  reads below EPA's, whose city test starts cold; on the highway, with its
+  generic maps, it stays about 10 % above. Each case starts at the charge
+  the cycle ends with (as a preconditioning drive would leave it), so the
+  fuel figure needs no battery-charge correction; start it elsewhere and
+  the figure includes the charge the strategy restores. *Roadmap:* CON-14
+  (sourced maps).
 - **Battery Electric Car:** modelled on the 2021 Cupra Born with FASTSim's
   values; about 14 kWh/100 km on WLTC at the battery (a car of this class is
   rated about 15-16 kWh/100 km at the charging socket, charging losses
@@ -235,8 +247,8 @@ minimum or an average, for example from the CSV export.
 
 - **No heat or cooling.** There is no thermal solver: temperatures do not
   change and do not affect batteries, motors or engines. The Ambient
-  component is a placeholder (it does not set the air density either; see
-  above), and thermal or fluid connections are ignored during a run.
+  component sets only the air density (see above), and thermal or fluid
+  connections are ignored during a run.
   *Roadmap:* MOD-09.
 - **Forward driving only.** No reverse, and no rolling back: a car on a steep
   hill stays put even with no brakes. *Roadmap:* MOD-21, ENG-21.

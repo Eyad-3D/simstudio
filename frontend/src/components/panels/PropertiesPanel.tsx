@@ -523,6 +523,7 @@ function ParameterInput({
       return (
         <input
           type="checkbox"
+          aria-label={def.label}
           checked={Boolean(value)}
           onChange={(e) => onChange(e.target.checked)}
         />
@@ -531,6 +532,7 @@ function ParameterInput({
       return (
         <select
           className="ss-input"
+          aria-label={def.label}
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
         >

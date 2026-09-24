@@ -19,6 +19,9 @@ still holds. The full record of every change to the reference results is in
 | A run you stop part-way ends *cancelled* instead of *warning*; a stop that arrives as the run ends no longer marks a complete run | Stopped runs and study points say *cancelled* (their per-distance figures stay marked *not valid: run cancelled at t = …*); the examples do not change | VAL-39 |
 | A new case kind, *Performance*, for 0-100 km/h and top-speed tests: the Driver holds full throttle until the car reaches the target, then holds it there, and the run reports *Time to … km/h* and *Maximum speed* instead of *Cycle not followed* | Such a run can now be a *success* with valid figures. The time is taken where the car's speed crosses the target, at full throttle: a 0-100 km/h step on the Battery Electric Car takes 7.10 s (as a cycle, its Driver never quite reached 100 km/h). Cases set to *Cycle*, the default, do not change | VAL-39 |
 | A *success* also means the physics stayed in range: a motor, engine, battery or fuel cell outside its table data or above its maximum speed for more than 1 % of the run (at least 2 s, the speed trace's allowance) ends the run as *warning* | The message names the part, how far past and for how long (for example *E-Motor 'E-Motor' ran 43 V past its 'Full-Load Torque' table for 30 s of 30 s*), and Consumption, Fuel consumption, CO₂ emissions and a performance test's rows are marked *not valid* with that reason. Runs that followed their cycle on made-up map values used to be a *success*. The examples stay inside their data and do not change | VAL-39 |
+| Air drag uses the air density of the Ambient block's temperature and pressure, rho = p / (R · T) (the first Ambient, if a model has several); without one, 20 °C and 101.325 kPa give 1.204 kg/m³ instead of 1.2 | 0.34 % more drag without an Ambient: BEV City 11.11 → 11.12 and WLTC 14.03 → 14.05 kWh/100 km. With an Ambient, its air counts: −7 °C gives 11 % more drag than 23 °C, 35 °C at 85 kPa 20 % less than without one. If you scaled Cd for cold or thin air, as the 0.2.0 known limits advised, undo that when you add an Ambient | MOD-11 |
+| Slopes are exact: the weight pulls the car back with m·g·sin of the slope angle and presses on the road with m·g·cos (before: grade ÷ 100, and no cos) | On grades the slope force and rolling resistance are 0.5 % lower at 10 % and 3 % lower at 25 %, and so is the tyres' grip; flat roads do not change | MOD-11 |
+| The P2 Hybrid Car example takes its road load as EPA's own coefficients (A 68.64 N, B 0.9093 N/(km/h), C 0.025078 N/(km/h)²) with *Coefficients Include Driveline Losses* ticked, so the driveline drag they hold is no longer counted again in its final drive (98 %); its cases start at re-balanced charges (UDDS 56.74 %, HWFET 58.87 %, Mixed 51.92 %) | EPA city (UDDS) 2.94 → 2.84, highway (HWFET) 3.29 → 3.23, Mixed Cycle 2.93 → 2.88 l/100 km, against EPA's 2.91 and 2.94. The city figure is now below EPA's: the model has no cold start | MOD-11 |
 
 ### New
 
@@ -55,6 +58,25 @@ still holds. The full record of every change to the reference results is in
   target the car never reaches gives only the maximum speed and says so
   in Messages.
 - A run status *cancelled*, for a run a stop cut short.
+- Vehicle: *Road Load From* (drag and rolling resistance, as before, or
+  coefficients A/B/C), with *Road Load A (f0)* in N, *B (f1)* in N/(km/h)
+  and *C (f2)* in N/(km/h)², as WLTP publishes them (EPA's lbf, lbf/mph and
+  lbf/mph² values × 4.448, × 2.764 and × 1.718). C follows the Ambient's air
+  density. *Coefficients Include Driveline Losses*, on by default: target
+  coefficients from a coast-down already hold the drag of the gears the
+  wheels turn, so the final drives, differentials and transfer cases run
+  lossless (gearboxes and motors keep their losses); untick it for
+  dyno-set coefficients.
+- Ambient: sets the air density for the Vehicle's drag. Its temperature
+  and pressure can be set per case, swept in a study or changed during a
+  live run. Its default pressure is 101.325 kPa (was 101.3), so an Ambient
+  at its defaults gives the air a model without one gets.
+- Data Checks: axle gear losses counted twice (coefficients with the tick
+  off and a final drive, differential or transfer case below 100 %);
+  several Ambients (the first one counts); an Ambient temperature at or
+  below −273.15 °C or a pressure of 0 or less (errors), and one outside
+  −60 to 60 °C or 50 to 110 kPa (a warning: a pressure typed in bar would
+  all but remove the drag).
 
 ### Fixed
 
@@ -75,6 +97,13 @@ still holds. The full record of every change to the reference results is in
   *success* with valid consumption. The run status now judges the time
   outside, as above; Lookup blocks are left out, because their table is a
   controller's schedule, not physics.
+- The Ambient block's temperature and pressure were ignored: air drag
+  always used 1.2 kg/m³.
+- On grades the slope force used the grade ÷ 100 instead of the sine of
+  the slope angle, and rolling resistance and tyre grip ignored the slope
+  (0.5 % too much at a 10 % grade, 3 % at 25 %).
+- The P2 Hybrid Car counted the driveline drag that EPA's road-load
+  coefficients already hold a second time.
 
 ### Upgrading from 0.2.0
 
@@ -92,6 +121,9 @@ still holds. The full record of every change to the reference results is in
   table editor to get the 0.2.0 behaviour back.
 - A voltage source, DC-DC converter, fuel cell, engine or brake left at its
   library default takes the new default (see the table above).
+- Vehicles keep taking their road load from drag and rolling resistance.
+  An Ambient already in a 0.2.0 project now sets the air density; a
+  project with several Ambients runs, with a warning, on the first one.
 - Runs you stopped in 0.2.0 keep their *warning* status and their
   *stopped at t = …* note. Cases load as kind *Cycle*.
 - Going back to 0.2.0: it cannot open a project with a study point that
