@@ -36,8 +36,8 @@ Each of these is an automatic test that runs on every change
 | Regressions | the two examples' results are compared with stored reference results; every change to them is listed in `backend/tests/golden/CHANGES.md` | `test_golden.py` |
 | Exact answers | coast-down under air drag alone and with rolling resistance, a constant-torque launch, braking distance v₀²/2a, the energy a clutch loses joining two inertias (½·J₁J₂/(J₁+J₂)·ω²) and a battery RC pair's step response each match their closed-form solution within 0.5 % | `test_numerics.py` |
 | Step convergence | the error against the exact answer halves when the solver step halves, for the vehicle and for the battery RC pair | `test_numerics.py` |
-| Stability | a grid of tyre *Slip Stiffness* 10–300 × solver step 2.5–20 ms, for a launch (slip stays below 0.1) and a car braked to a stop (stays below 0.5 km/h). Today it is stable only at stiffness 10 up to the 10 ms step and 30 up to 5 ms (see [Known issues and limits](KNOWN-LIMITS.md)); the test lists the unstable cells, so a new instability fails it and so does a fixed one until the list is shortened | `test_numerics.py` |
-| Speed | the example runs are at most 10 % slower than on the commit a change starts from (CI's performance job, same runner, best of 5 each) | `test_performance.py` |
+| Stability | a grid of tyre *Slip Stiffness* 10–300 × solver step 2.5–20 ms, for a launch (slip stays below 0.1) and a car braked to a stop (stays below 0.5 km/h). Today the launch is stable only at stiffness 10 up to the 10 ms step and 30 up to 5 ms (the brake hold also at stiffness 10 with a 20 ms step) (see [Known issues and limits](KNOWN-LIMITS.md)); the test lists the unstable cells, so a new instability fails it and so does a fixed one until the list is shortened | `test_numerics.py` |
+| Speed | the first 120 s of two example cases (BEV City, hybrid Mixed) run at most 10 % slower than on the commit a change starts from (CI's performance job, same runner, best of 5 each) | `test_performance.py` |
 
 Written, and passing once the fix it waits for ships: a car coasting up a
 25 % grade stops at the height h = v₀²/2g, i.e. its kinetic energy becomes
@@ -53,7 +53,7 @@ engine code, not the old default maps):
 | Fixed in 0.2.0 | Tests that fail when it is undone |
 |---|---|
 | Controllers update every 10 ms (ENG-01) | `test_control_rate.py`, `test_verdict.py`, `test_examples_plausible.py`, `test_expansion.py`, `test_golden.py` |
-| Each recorded point holds the state at its own time (ENG-03) | `test_time_base.py`, `test_control_rate.py`, `test_solver.py`, `test_numerics.py` (constant-torque launch), `test_golden.py` |
+| Each recorded point holds the state at its own time (ENG-03) | `test_time_base.py`, `test_control_rate.py`, `test_solver.py`, `test_engine.py`, `test_live_params.py`, `test_source_limits.py`, `test_verdict.py`, `test_numerics.py` (constant-torque launch), `test_golden.py` |
 | Motors draw only what their supply can give (ENG-02) | `test_source_limits.py`, `test_verdict.py` |
 | Motor spin losses counted once (MOD-04) | `test_motor_losses.py`, `test_golden.py` |
 | The engine reaches its full-load curve (MOD-05) | `test_engine.py`, `test_examples_plausible.py`, `test_golden.py` |

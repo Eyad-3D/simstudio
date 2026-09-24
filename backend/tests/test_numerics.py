@@ -172,7 +172,11 @@ def test_coasting_up_a_grade_turns_kinetic_energy_into_m_g_h():
 def test_clutch_engagement_loses_the_two_inertia_energy():
     """Motor (J1) spun up with the clutch open, torque off, clutch closed
     onto a free inertia (J2): momentum is kept, (J1 w1)/(J1+J2), and
-    ½ J1 J2/(J1+J2) w1² is lost — in the clutch, as its torque × slip."""
+    ½ J1 J2/(J1+J2) w1² is lost — in the clutch, as its torque × slip.
+
+    The motor's and the clutch's channels hold each step's operating point
+    (its start), so the torque × slip sum is one step early: the 0.5 % band
+    is wider than that, and this test does not guard channel timing."""
     j1, j2 = 0.045, 0.5
     els = [el("src", "electric.voltage_source", "Supply", voltage_V=350),
            el("bus", "electric.node", "Bus"),
@@ -235,6 +239,8 @@ def _rc_error(step):
 
 
 def test_rc_branch_step_response_is_first_order():
+    # the battery's voltage channel holds each step's start, one step behind
+    # the current (dt/τ = 0.2 % of the error); this does not guard that timing
     assert _rc_error(0.01) < 0.005
 
 
@@ -258,7 +264,7 @@ def test_error_halves_when_the_step_halves(error_of):
 # When a grid test fails, its message lists the cells that moved. If the move
 # is intended (ENG-09 empties both sets; ENG-14 may change the 20 ms column),
 # edit the set in the same change and say why. Stable and unstable cells sit
-# more than 2x from their thresholds (launch: max slip at most 0.051 or at
+# about 2x or more from their thresholds (launch: max slip at most 0.051 or at
 # least 1.56, against 0.1; hold: at most 0.2 km/h or at least 1.8 km/h,
 # against 0.5), so a small model change does not flip one by accident.
 

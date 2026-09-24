@@ -21,8 +21,7 @@ ROUNDS = 5  # if it ever flakes, raise this before the budget
 BUDGET = 1.10  # a 20 % slow-down measured 1.15 to 1.22; the same code 1.00 to 1.04
 
 # Run with the head's or the base's backend folder as the working directory,
-# so `app` is that commit's engine. The __main__ guard is needed: the Script
-# sandbox starts its worker with spawn, which re-imports the main module.
+# so `app` is that commit's engine.
 CHILD = """
 import sys, time
 def main():
