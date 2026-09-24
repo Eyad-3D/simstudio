@@ -1,6 +1,6 @@
 # What is validated, and what is not
 
-- Last reviewed: 24 September 2026, for version 0.3.0. This page is updated
+- Last reviewed: 24 September 2026, for version 0.2.0. This page is updated
   with every release, together with [Known issues and limits](KNOWN-LIMITS.md).
 
 **In one line:** LightSim's results have **not** been validated against

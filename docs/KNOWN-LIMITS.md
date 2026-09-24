@@ -1,6 +1,6 @@
 # LightSim: known issues and limits
 
-LightSim 0.3.0 is an early version. You can build, run and inspect models,
+LightSim is still an early version. You can build, run and inspect models,
 but the component physics are simplified, **nothing has been validated
 against measured vehicles yet**, and some results are known to be wrong.
 This page lists what we know, what you can do about it today, and which
@@ -16,7 +16,7 @@ how the example cars compare with real ones.
   that tracks the fix, so the release notes can say when it is resolved.
 - *Being fixed* means the work is under way for an upcoming release. Until
   the release notes say it is done, the problem and the workaround apply.
-- Last reviewed: 24 September 2026, for version 0.3.0. This page is updated
+- Last reviewed: 24 September 2026, for version 0.2.0. This page is updated
   with every release.
 
 ## Results that can be wrong today
