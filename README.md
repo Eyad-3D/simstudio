@@ -515,7 +515,11 @@ Each run ends as *success*, *warning*, *cancelled* or *failed*:
 - **warning** — a warning was raised. This includes *Cycle not followed*:
   the vehicle speed was outside ±2 km/h and ±1 s of the target for more
   than 1 % of the run (at least 2 s). The trace is checked every 0.1 s of
-  simulated time, whatever the case time step.
+  simulated time, whatever the case time step. It also includes a motor,
+  engine, battery or fuel cell that spent longer than the same allowance
+  outside the data of one of its tables or above its maximum speed: the
+  message names the part, how far past and for how long (Lookup blocks
+  are not judged; their summary rows still show it).
 - **success** — none of the above.
 
 A case's *Kind* is *Cycle* by default. Set it to *Performance* for an
@@ -532,6 +536,10 @@ valid*, with the reason, in the results table:
 - Consumption, Fuel consumption and CO₂ emissions when the cycle was not
   followed ("cycle not followed") or the run was cancelled ("run cancelled
   at t = …", which also marks a performance test's *Maximum speed*);
+- Consumption, Fuel consumption, CO₂ emissions and a performance test's
+  rows when a part ran past its data longer than allowed (the reason names
+  the part, for example "E-Motor 'E-Motor' ran 43 V past its 'Full-Load
+  Torque' table for 30 s");
 - Consumption once the battery reached its minimum SOC, and the fuel
   figures once the tank ran empty;
 - battery, energy and consumption figures when the *Electrical energy
@@ -540,8 +548,9 @@ valid*, with the reason, in the results table:
 - every figure except the simulated duration when a result went NaN or
   infinite ("the solution broke down").
 
-A success means the car followed its target and nothing warned. It does not
-mean the numbers match a real vehicle: see
+A success means the car followed its target, its parts stayed inside their
+data, and nothing warned. It does not mean the numbers match a real
+vehicle: see
 [Known limits](docs/KNOWN-LIMITS.md).
 
 ## License

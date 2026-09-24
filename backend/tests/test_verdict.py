@@ -2,13 +2,14 @@
 the cycle. Before, the status reflected only whether a warning had been
 printed, so a car with its motor deleted "succeeded" after 0 km."""
 import copy
+import re
 
 import pytest
 from helpers import bev_axle, dbc, el, example_result, series, sig_port
 
 from app.schemas import ElementInstance, StoredRun, StudyPoint
-from app.solver import simulate
-from app.solver.verdict import trace_metrics
+from app.solver import MapUse, simulate
+from app.solver.verdict import beyond_data, trace_metrics
 from app.storage import load_example
 
 
@@ -189,6 +190,61 @@ def test_a_stop_after_the_last_step_leaves_a_complete_run():
     assert result.status == "success", [m.text for m in result.messages]
     assert not any("cancelled" in m.text for m in result.messages)
     assert all(s.notValid is None for s in result.summary)
+
+
+def test_beyond_data_allowance_is_one_percent_of_the_run_and_at_least_2_s():
+    """The trace's allowance, per element, on its longest record."""
+    def reasons(duration_s, *outside_s):
+        uses = [MapUse("m", "'Full-Load Torque' table", "Speed", "1/min", 12000.0, s, 21333.0, 80.0)
+                for s in outside_s]
+        return [reason for _, reason in beyond_data(uses, duration_s, lambda el: "E-Motor 'M'")]
+
+    assert reasons(600, 42) == ["E-Motor 'M' ran 9,333 1/min past its 'Full-Load Torque' "
+                                "table for 42 s"]
+    assert reasons(600, 6.0) == []  # 1 % of 600 s
+    assert len(reasons(600, 6.1)) == 1
+    assert reasons(100, 1.9) == []  # at least 2 s
+    assert len(reasons(100, 2.5)) == 1
+    assert reasons(600, 5, 42) == reasons(600, 42)  # not 47 s: one operating point
+
+
+def test_a_motor_run_past_its_voltage_data_is_named_with_excess_and_time():
+    """A battery above the motor map's 396 V for the whole run. Before, it
+    was a success (its voltage axis holds the edge value, MOD-18), with
+    Consumption shown as valid."""
+    proj = bev_axle(profile="0:0; 5:60; 30:60")
+    batt = next(e for e in proj.systems[0].elements if e.id == "batt")
+    batt.parameterOverrides["ocv_table"] = {"0": 430, "100": 440}
+    result = simulate(proj, "case")
+    assert result.status == "warning"
+    [warning] = [m.text for m in result.messages if m.level == "warning"]
+    assert warning.startswith("E-Motor 'E-Motor' ran ")
+    assert int(re.search(r"V past its 'Full-Load Torque' table for (\d+) s of 30 s",
+                         warning).group(1)) >= 25
+    s = _summary(result)
+    assert s["Consumption"].notValid.startswith("E-Motor 'E-Motor' ran")
+    assert s["Distance driven"].notValid is None
+
+
+def test_a_motor_above_its_maximum_speed_is_named():
+    """A top-speed test started at 140 km/h with the motor's maximum speed
+    set to 10,000 1/min: the car drives it past for 8 s before it slows
+    down. Before, the performance test was a success with valid figures."""
+    proj = bev_axle(profile="0:150; 60:150")
+    proj.cases[0].duration, proj.cases[0].kind = 60, "performance"
+    for e in proj.systems[0].elements:
+        if e.id == "mot":
+            e.parameterOverrides["max_speed_rpm"] = 10000
+        elif e.id == "veh":
+            e.parameterOverrides["initial_speed_kmh"] = 140
+    result = simulate(proj, "case")
+    assert result.status == "warning"
+    [warning] = [m.text for m in result.messages if m.level == "warning"]
+    assert warning.startswith("E-Motor 'E-Motor' ran ")
+    assert " 1/min past its maximum speed for " in warning
+    assert "its maximum speed is 10,000 1/min" in warning
+    s = _summary(result)
+    assert s["Maximum speed"].notValid == s["Consumption"].notValid == warning.split(" of 60 s")[0]
 
 
 def test_bundled_examples_follow_their_cycles():

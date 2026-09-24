@@ -37,7 +37,10 @@ stop the run by default. When a run
 reads a table outside its data, or a motor or engine goes above its maximum
 speed, Messages says so once and the run summary lists for how long (as a
 share of the run) and how far; these rows appear only when that happened.
-What remains:
+When a motor, engine, battery or fuel cell spends longer there than 1 % of
+the run (at least 2 s, the allowance of the speed trace), the run ends as
+*warning* with a message naming the part, how far past and for how long,
+and its per-distance figures are marked *not valid*. What remains:
 
 - Above its maximum speed a motor gives no regeneration either. A car with
   no friction brakes running downhill past it speeds up further than before.
@@ -51,8 +54,9 @@ What remains:
   step's acceleration (the default engine's hard rev limiter: about 1 %; a
   light machine further). While it falls back from there it is not counted
   as over speed; only what drives it higher is.
-- A run that went outside its data still ends as *success* if it followed
-  its cycle: the run status does not judge these counters yet.
+- Lookup blocks are not judged: their table is a controller's schedule,
+  and its held edge value is what the controller asks for. Only their
+  summary rows say that the table was left.
 - A project from 0.2.0 whose loss or fuel map is narrower than its
   full-load map, whose fuel map does not reach the full-load curve's first
   speed, whose motor full-load map starts above 0 1/min, or whose fuel cell
@@ -62,16 +66,16 @@ What remains:
 
 *Workaround:* read the summary rows and Messages after a run; where a run
 stops, extend the table or set that axis to *Clamp* or *Linear*.
-*Roadmap:* VAL-39 (judging the counters in the run status).
 
-### A "success" checks the speed trace, not the physics
+### A "success" checks the trace and the data edges, not plausibility
 
 A run is a *success* when the vehicle stayed within ±2 km/h and ±1 s of its
 target speed for all but 1 % of the run (at least 2 s), covered the cycle's
-distance, and nothing raised a warning. It does not judge how long motors
-and engines spent outside their maps (see above) or that the numbers are
-plausible for a real vehicle, and the Data Checks all-clear does not vouch
-for the results either. Also:
+distance, no motor, engine, battery or fuel cell spent longer than that
+outside its data or above its maximum speed (see above), and nothing raised
+a warning. It does not judge that the numbers are plausible for a real
+vehicle, and the Data Checks all-clear does not vouch for the results
+either. Also:
 
 - A case of kind *Performance* (Cases & Parameters → Kind) is not judged
   on that band: the Driver holds full throttle below the target, and the
@@ -79,12 +83,17 @@ for the results either. Also:
   value, timed from t = 0. That is a standing start only: there is no
   rolling start, no time between two speeds (such as 80-120 km/h) and no
   second timed speed in one run.
+- A motor held back by its battery or fuel cell, or regeneration that a
+  full or charge-limited battery refuses, makes the run a *warning* at the
+  first touch, however brief; the figures stay valid, because the limit is
+  part of the model. The summary says how long each motor was limited and
+  how much regeneration was not recovered.
 - The tolerance (1 % of the run, at least 2 s) is LightSim's own choice:
   test procedures such as WLTP set no allowance for a simulation.
 
 *Workaround:* read the Messages panel and the *not valid* notes in the
 summary table.
-*Roadmap:* VAL-39, VAL-08.
+*Roadmap:* VAL-08.
 
 ### Only its internal resistance limits what a battery delivers
 

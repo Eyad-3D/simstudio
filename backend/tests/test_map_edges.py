@@ -111,6 +111,7 @@ def test_300_kmh_target_stops_at_the_motors_maximum_speed():
     assert result.status == "warning"  # the car cannot follow 300 km/h
     assert any("maximum speed" in t and "12,000 1/min" in t for t in _texts(result, "info"))
     assert not [s for s in _summary(result) if any(r in s for r in EDGE_ROWS)]
+    assert not [t for t in _texts(result) if "past its" in t]  # the verdict agrees (VAL-39)
 
 
 def test_maximum_speed_below_the_map_is_a_speed_limiter():
@@ -218,6 +219,9 @@ def _lookup(policy: list[str] | None, sample_time: float = 0.0):
 @pytest.mark.parametrize("policy, out", [(None, 1.0), (["clamp"], 1.0), (["linear"], 2.5)])
 def test_clamp_and_linear_lookup_blocks_count_their_time_outside(policy, out):
     result = _lookup(policy)
+    # a controller's schedule held at its edge is not physics past its data:
+    # the run status does not judge it (VAL-39)
+    assert result.status == "success", _texts(result)
     assert series(result, "lk", "sig_out")[-1]["value"] == pytest.approx(out)
     summary = _summary(result)
     assert summary["Lookup — time outside its '1D Table' table (Input)"] == 100.0
@@ -241,11 +245,11 @@ def test_a_lookup_set_to_error_stops_the_run():
 def test_a_motor_on_a_voltage_past_its_map_is_counted_not_warned():
     """The voltage axis holds its edge (Clamp). Before, this was a warning at
     first touch, which made the run 'warning' however briefly it happened;
-    now it is counted and the verdict can judge the time."""
+    now it is counted and the verdict judges the time (test_verdict)."""
     proj = bev_axle(profile="0:0; 5:60; 30:60")
     _el(proj, "batt").parameterOverrides["ocv_table"] = {"0": 430, "100": 440}
     result = simulate(proj, "case")
-    assert result.status == "success", _texts(result)
+    assert not [t for t in _texts(result, "warning") if "Full-Load Torque: Voltage" in t]
     assert any("Full-Load Torque: Voltage 4" in t and "(396 V)" in t
                for t in _texts(result, "info"))
     summary = _summary(result)

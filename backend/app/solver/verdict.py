@@ -23,12 +23,22 @@ A performance-test case (SimCase.kind "performance": a step in the target
 speed, driven at full throttle below it) is not judged on the band: it
 reports its maximum speed and the time from t = 0 to the target's highest
 value, or says that it never got there.
+
+The physics stayed in range: a motor, engine, battery or fuel cell that ran
+past the data of one of its tables, or above its maximum speed (the
+counters in RunContext.map_use), for longer than the trace's allowance
+(1 % of the run, at least 2 s) makes the run at best "warning", and the
+figures per distance and a performance test's rows are flagged not valid,
+naming the element, how far past and for how long.
 """
 from __future__ import annotations
 
 import math
 from collections import deque
 from dataclasses import dataclass
+from typing import Callable, Iterable
+
+from .maps import MapUse
 
 WLTP_TOL_KMH = 2.0
 EPA_TOL_KMH = 2.0 * 1.609344  # ±2 mph
@@ -163,6 +173,37 @@ class Verdict:
     broke_down: bool = False  # non-finite values: no number of the run is valid
     # summary rows of a performance test: (label, value, unit)
     rows: tuple[tuple[str, float, str], ...] = ()
+    beyond_reason: str = ""  # why data-dependent figures are not valid, or ""
+
+
+def _num(x: float) -> str:
+    return f"{x:,.0f}" if abs(x) >= 10 else f"{x:.2g}"
+
+
+def beyond_data(uses: Iterable[MapUse], duration_s: float,
+                name: Callable[[str], str]) -> list[tuple[str, str]]:
+    """(warning, reason) for each element that spent longer outside one of
+    its tables' data, or above its maximum speed, than the trace may spend
+    outside its band; judged on the element's longest record (its tables
+    share one operating point, so their times are not added up)."""
+    allowance = max(OUTSIDE_MIN_S, OUTSIDE_SHARE * duration_s)
+    longest: dict[str, MapUse] = {}
+    for use in sorted(uses, key=lambda u: u.outside_s):
+        longest[use.el_id] = use
+    out = []
+    for use in longest.values():
+        if use.outside_s <= allowance:
+            continue
+        up = use.value > use.edge
+        reason = (f"{name(use.el_id)} ran {_num(abs(use.value - use.edge))} {use.unit} past "
+                  f"its {use.what} for {_num(use.outside_s)} s")
+        limit = ("its maximum speed is" if use.what == "maximum speed"
+                 else f"its data {'ends' if up else 'starts'} at")
+        out.append((f"{reason} of {_num(duration_s)} s ({use.axis} {'up' if up else 'down'} to "
+                    f"{_num(use.value)} {use.unit} at t = {use.t:.1f} s; {limit} "
+                    f"{_num(use.edge)} {use.unit}). Consumption figures per distance are not "
+                    f"valid.", reason))
+    return out
 
 
 def _time_to(ts: list[float], spd: list[float], level: float) -> float | None:
@@ -176,9 +217,10 @@ def _time_to(ts: list[float], spd: list[float], level: float) -> float | None:
     return None
 
 
-def judge(trace: CycleTrace, distance_m: float, series: dict,
-          performance: bool = False) -> Verdict:
-    """The checks a finished run must pass to be called a success."""
+def judge(trace: CycleTrace, distance_m: float, series: dict, performance: bool = False,
+          duration_s: float = 0.0, uses: Iterable[MapUse] = ()) -> Verdict:
+    """The checks a finished run must pass to be called a success; ``uses``
+    are the run's MapUse records and ``duration_s`` the time it solved."""
     messages: list[tuple[str, str]] = []
     rows: list[tuple[str, float, str]] = []
     not_followed = False
@@ -218,5 +260,9 @@ def judge(trace: CycleTrace, distance_m: float, series: dict,
         else:
             messages.append(("info", f"Performance test: the vehicle did not reach the {level:g} "
                                      f"km/h target; its maximum speed was {v_max:.1f} km/h."))
+    model = trace.ctx.model
+    beyond = beyond_data(uses, duration_s,
+                         lambda el: f"{model.cdef_of[el].name} '{model.elements[el].label}'")
+    messages += [("warning", text) for text, _ in beyond]
     return Verdict(messages=tuple(messages), cycle_not_followed=not_followed, broke_down=bool(bad),
-                   rows=tuple(rows))
+                   rows=tuple(rows), beyond_reason="; ".join(reason for _, reason in beyond))

@@ -233,7 +233,11 @@ def simulate(
                 })
 
         # ---- assemble result -------------------------------------------------------
-        verdict = judge(trace, ctx.distance, rt.series, ctx.performance)
+        # a Lookup block's table is a controller's own schedule: held at its
+        # edge it gives what the controller asks for, not physics past its
+        # data, so only its summary rows say it left the table
+        verdict = judge(trace, ctx.distance, rt.series, ctx.performance, solved,
+                        [u for u in ctx.map_use if model.cdef_of[u.el_id].id != "signal.lookup"])
         for level, text in verdict.messages:
             rt.message(level, text)
         unit_map = unit_groups()
@@ -365,6 +369,11 @@ def simulate(
             # far, and a performance test's top speed only its speed so far
             for label in ("Consumption", "Fuel consumption", "CO₂ emissions", "Maximum speed"):
                 not_valid.setdefault(label, f"run cancelled at t = {times[-1]:g} s")
+        if verdict.beyond_reason:
+            # a machine or source ran past its data: what depends on how it ran
+            for label in ("Consumption", "Fuel consumption", "CO₂ emissions",
+                          *(row[0] for row in verdict.rows)):
+                not_valid[label] = verdict.beyond_reason
         if ctx.throughput_wh > 0 and ctx.residual_wh > 1e-3 * ctx.throughput_wh:
             for s in summary:
                 if (s.unit in ("kWh", "kWh/100km", "%") and s.label not in edge_rows
