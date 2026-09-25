@@ -187,10 +187,25 @@ minimum or an average, for example from the CSV export.
   test-mass mode (equivalent test weight, × 1.015 for a two-wheel-drive
   dynamometer): enter the test mass as the Vehicle Mass. *Roadmap:* MOD-03
   (zero-load gear drag), VAL-05 (EPA reference tests).
-- **Wheel loads do not shift when braking, accelerating or cornering.**
-  Each wheel carries a fixed share of the vehicle weight (*Vehicle Load
-  Share*); the shares of the connected wheels are scaled to add up to
-  100 %, and Data Checks say when they had to be. *Roadmap:* MOD-16.
+- **Wheel loads shift one step late, and only between the axles.** With a
+  Vehicle *Centre of Gravity Height* and each Wheel's *Axle* set, load
+  moves between the axles by m·(a + g·sin θ)·h/L when the car accelerates,
+  brakes or stands on a slope, and a *Downforce Area* adds ½·ρ·CzA·v² split
+  by the *Aero Balance*. The acceleration a is the previous solver step's,
+  10 ms behind: exact while it is steady, off by its change over one step
+  while it changes (0.6-4 % where an FS car's motor reaches its power
+  limit, the whole transfer in a launch's first step). Drag is taken to act
+  at ground height and moves no load (at 90 km/h an FS car's drag would
+  move about 90 N, 5 % of its rear axle load). An axle that would carry
+  less than nothing carries nothing and the run warns: the car does not
+  pitch, wheelie or tip over, and there is no suspension. Load does not
+  shift from side to side, and grip does not depend on load (μ is the same
+  at any load). The static split is the *Vehicle Load Share*; the shares
+  of the connected wheels are scaled to add up to 100 %, and Data Checks
+  say when they had to be. Wheels are on the Front axle unless set to
+  Rear: set the rear wheels before giving a CG height (Data Checks say
+  so). *Roadmap:* MOD-16 (load-sensitive grip), MOD-34 (pitch and
+  suspension), MOD-42 (side-to-side transfer in lap mode).
 - **An engine behind a script-controlled clutch starts at rest.** A run that
   starts at speed starts every wheel, gear and motor at that speed, and an
   engine behind a closed clutch too; a clutch a Script controls counts as
@@ -203,7 +218,10 @@ minimum or an average, for example from the CSV export.
   wheels' *Longitudinal Slip* at launch. A car braked to a stop can also
   creep with the brake fully applied: under 0.2 km/h at the default *Slip
   Stiffness* of 10, about 2 km/h at 30 and up to 23 km/h at 300, at the
-  10 ms solver step. *Roadmap:* ENG-09, ENG-14.
+  10 ms solver step. Undriven wheels ring below about 0.5 m/s when the car
+  accelerates faster than μ × 0.5 m/s ÷ (*Slip Stiffness* × step), 5 m/s²
+  at the defaults and the 10 ms step; at a Formula Student launch this
+  moves the 75 m time by about 0.4 %. *Roadmap:* ENG-09, ENG-14.
 - **A closing clutch can ring at the 10 ms step.** While a clutch slips by
   more than 0.5 rad/s the solver passes its full torque for the whole
   step, and at 10 ms that overshoots the lock-up: the shaft on either side
@@ -255,10 +273,11 @@ minimum or an average, for example from the CSV export.
   included), 18.9 with heating or air-conditioning on (the 2.5 kW case).
   Its motor loss map is generic, not the car's measured map. The real car is
   rear-wheel drive and has an 11.5:1 reduction gear with an electronic
-  160 km/h limit; the example drives the front axle (only the load share
-  matters without weight transfer) and uses a 12.8 ratio so that the motor's
-  maximum speed sets the 160 km/h. An E-Motor's *Maximum Speed* could now
-  set that limit, but the example still sets it through the ratio.
+  160 km/h limit; the example drives the front axle (its CG height is 0,
+  so its loads do not shift and only the load share matters) and uses a
+  12.8 ratio so that the motor's maximum speed sets the 160 km/h. An
+  E-Motor's *Maximum Speed* could now set that limit, but the example
+  still sets it through the ratio.
   *Roadmap:* MOD-12.
 - **Runs made on an example stay with the copy you ran.** An example opens
   as an unsaved copy, and its runs are stored with that copy: they are
@@ -277,9 +296,9 @@ minimum or an average, for example from the CSV export.
   *Roadmap:* MOD-09.
 - **Forward driving only.** No reverse, and no rolling back: a car on a steep
   hill stays put even with no brakes. *Roadmap:* MOD-21, ENG-21.
-- **Longitudinal dynamics only.** No cornering and no weight transfer between
-  axles. Tyre force rises with slip and then stays flat (no peak and drop).
-  *Roadmap:* MOD-16.
+- **Longitudinal dynamics only.** No cornering: weight shifts between the
+  axles but not from side to side. Tyre force rises with slip and then
+  stays flat (no peak and drop). *Roadmap:* MOD-16, MOD-42.
 - **A simple driver.** The Driver is a PI speed follower: it does not look
   ahead along the cycle or shift gears; gear and clutch logic comes from
   Script blocks. *Roadmap:* MOD-14.

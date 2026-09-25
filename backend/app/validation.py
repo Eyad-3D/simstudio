@@ -63,6 +63,9 @@ NUMERIC_RANGES: dict[str, tuple[str, float, float]] = {
     "road_load_a_N": ("Road load A", -math.inf, math.inf),
     "road_load_b_N_per_kmh": ("Road load B", -math.inf, math.inf),
     "road_load_c_N_per_kmh2": ("Road load C", -math.inf, math.inf),
+    "cg_height_m": ("Centre of gravity height", -0.001, math.inf),
+    "downforce_cza_m2": ("Downforce area", -math.inf, math.inf),
+    "aero_balance_front_pct": ("Aero balance (front)", -0.001, 100.0),
 }
 
 POSITIVE_PARAMS = {
@@ -71,6 +74,7 @@ POSITIVE_PARAMS = {
     "radius_m": "wheel radius",
     "ratio": "transmission ratio",
     "pressure_kPa": "pressure",
+    "wheelbase_m": "wheelbase",
 }
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
@@ -554,6 +558,12 @@ def _plausibility_checks(model: Model, add: Add) -> None:
     for el_id, cdef in model.cdef_of.items():
         p, el = model.params_of[el_id], model.elements[el_id]
         if cdef.id == "vehicle.body":
+            h, wheelbase = num(p, "cg_height_m"), num(p, "wheelbase_m")
+            if h is not None and wheelbase is not None and 0 < wheelbase < h:
+                add("warning", f"Vehicle '{el.label}' has a Centre of Gravity Height of {h:g} m, "
+                               f"above its Wheelbase of {wheelbase:g} m — check the value and "
+                               f"its unit (a car's is about a fifth to a quarter of its "
+                               f"wheelbase).", el)
             mass = num(p, "mass_kg")
             lo, hi = VEHICLE_MASS_KG
             if mass is not None and mass > 0 and not lo <= mass <= hi:
@@ -646,6 +656,12 @@ def _plausibility_checks(model: Model, add: Add) -> None:
         add("warning", f"Wheel load shares add up to {total:g} %, not 100 % — the solver scales "
                        f"them so the wheels carry the vehicle's whole weight: {split}. Set "
                        f"them to add up to 100 % to choose the split yourself.")
+    h = num(model.params_of[model.vehicle], "cg_height_m") if model.vehicle is not None else None
+    if wheels and h is not None and h > 0 and len({w.axle for w in wheels}) < 2:
+        veh = model.elements[model.vehicle]
+        add("error", f"Vehicle '{veh.label}' has a Centre of Gravity Height of {h:g} m, but all "
+                     f"its wheels are on the {wheels[0].axle} axle, so no load can shift between "
+                     f"axles. Set Axle to Rear on the rear wheels.", veh)
 
 
 def _map_checks(model: Model, add: Add) -> None:

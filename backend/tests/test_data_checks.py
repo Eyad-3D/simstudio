@@ -253,6 +253,39 @@ def test_wheel_load_shares_must_add_up():
     assert len(new) == 1 and new[0].startswith("Wheel load shares add up to 20 %, not 100 %")
 
 
+# ---- MOD-40: vehicle geometry --------------------------------------------------------
+
+@pytest.mark.parametrize("values, level, expected", [
+    ({"cg_height_m": 0.3, "untag": True}, "error",
+     "Vehicle 'Vehicle' has a Centre of Gravity Height of 0.3 m, but all its wheels are on the "
+     "Front axle, so no load can shift between axles. Set Axle to Rear on the rear wheels."),
+    ({"cg_height_m": 30, "wheelbase_m": 1.55}, "warning",
+     "Vehicle 'Vehicle' has a Centre of Gravity Height of 30 m, above its Wheelbase of 1.55 m"),
+    ({"wheelbase_m": 0}, "error", "'Vehicle' has a non-positive wheelbase."),
+    ({"aero_balance_front_pct": 120}, "error", "Aero balance (front) of 'Vehicle' must be in"),
+    ({"cg_height_m": -0.1}, "error", "Centre of gravity height of 'Vehicle' must be in"),
+    ({"cg_height_m": 0.55, "downforce_cza_m2": -0.5}, None, None),  # tagged, lift allowed
+])
+def test_vehicle_geometry_data_checks(values, level, expected):
+    """A CG height needs wheels on both axles (the examples' are tagged by
+    their labels; untagged wheels count as Front); a height above the
+    wheelbase is most likely the wrong unit."""
+    proj = load_example("bev-car")
+    values = dict(values)
+    untag = values.pop("untag", False)
+    for e in proj.systems[0].elements:
+        if e.id == "el-vehicle":
+            e.parameterOverrides.update(values)
+        elif untag and e.componentDefId == "propulsion.wheel":
+            del e.parameterOverrides["axle"]
+    new = [c for c in validate_project(proj) if c.level != "info"]
+    if expected is None:
+        assert new == []
+    else:
+        assert len(new) == 1 and new[0].level == level and new[0].text.startswith(expected), new
+        assert new[0].elementId == "el-vehicle"
+
+
 # ---- MOD-11: road load counted once, and the Ambient's air -------------------------
 
 @pytest.mark.parametrize("mode, included, warned", [

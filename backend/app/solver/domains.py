@@ -50,6 +50,7 @@ from .runtime import (
     TerminalCheck,
     _sign,
     air_density,
+    axle_load_shift,
     make_plan,
     motor_max_rpm,
     ocv_mean,
@@ -266,9 +267,15 @@ class RunContext:
         self.v = max(0.0, float(veh_p.get("initial_speed_kmh", 0)) / 3.6) if self.veh_id else 0.0
         self.distance = 0.0
         self.amb_id = model.ambient  # sets the air density (None: 20 °C, 101.325 kPa)
+        amb_p = self.params(self.amb_id) if self.amb_id else {}
+        self.rho = air_density(max(-273.0, float(amb_p.get("temperature_C", 20))),
+                               max(0.0, float(amb_p.get("pressure_kPa", 101.325))))
         # the road's slope this step (set from the grade at the start of the
         # mechanical step): the weight's share along and normal to the road
         self.slope_sin, self.slope_cos = 0.0, 1.0
+        # the vehicle's acceleration over the last solver step (0 while held
+        # at rest), which sets this step's load transfer
+        self.accel = 0.0
         self.driver_integral = 0.0
         self.performance = False  # a performance-test case (set by simulate)
 
@@ -415,6 +422,55 @@ class RunContext:
         scale = total > 0 and abs(total - 1.0) > 1e-9
         for w, share in zip(wheels, raw):
             w.load_share = share / total if scale else share
+        self.wheels = wheels
+        self.axle_wheels = ([w for w in wheels if w.axle != "Rear"],
+                            [w for w in wheels if w.axle == "Rear"])
+        self.update_wheel_loads()
+
+    def update_wheel_loads(self) -> None:
+        """Each wheel's normal load for this solver step: its share of the
+        weight normal to the road, plus, with a CG height or a downforce area
+        set, its part of its axle's load transfer and downforce, split within
+        the axle by the wheels' shares. The transfer follows the vehicle's
+        acceleration over the previous step (one step behind: the loads are
+        set before the step is solved)."""
+        if not self.veh_id:
+            return
+        for w in self.wheels:
+            w.n_load = w.load_share * self.veh_mass * GRAVITY * self.slope_cos
+        vp = self.params(self.veh_id)
+        h = max(0.0, float(vp.get("cg_height_m", 0)))
+        cza = float(vp.get("downforce_cza_m2", 0))
+        if not (h or cza):
+            return
+        front, rear = self.axle_wheels
+        if front and rear:
+            d_front, d_rear, lifted = axle_load_shift(
+                self.veh_mass, h, float(vp.get("wheelbase_m", 2.7)), self.accel, self.slope_sin,
+                cza, min(1.0, max(0.0, float(vp.get("aero_balance_front_pct", 50)) / 100.0)),
+                self.rho, self.v, sum(w.n_load for w in front), sum(w.n_load for w in rear))
+            if lifted:
+                self.rt.warn_once(
+                    f"lift:{self.veh_id}",
+                    f"The {lifted.lower()} wheels of Vehicle "
+                    f"'{self.model.elements[self.veh_id].label}' lift off the road at t = "
+                    f"{self.t:.2f} s: they carry no load and the other wheels carry it all "
+                    f"(LightSim does not model the car pitching or tipping over). Check the "
+                    f"Centre of Gravity Height, the Wheelbase and the Downforce Area.")
+            groups = ((front, d_front), (rear, d_rear))
+        else:  # one axle: nothing to shift the load to, only the downforce
+            if h:
+                self.rt.warn_once(
+                    f"one-axle:{self.veh_id}",
+                    f"Vehicle '{self.model.elements[self.veh_id].label}' has a Centre of "
+                    f"Gravity Height of {h:g} m, but all its wheels are on one axle, so no load "
+                    f"shifts between axles. Set Axle to Rear on the rear wheels.")
+            groups = ((front or rear, 0.5 * self.rho * cza * self.v * self.v),)
+        for ws, delta in groups:
+            s_axle = sum(w.load_share for w in ws)
+            for w in ws:
+                part = w.load_share / s_axle if s_axle > 0 else 1.0 / len(ws)
+                w.n_load = max(0.0, w.n_load + part * delta)
 
     def profile_points(self, el_id: str) -> list[tuple[float, float]]:
         """A Driving Task / Road Profile's points — parsed on first use and
@@ -1095,7 +1151,7 @@ class RunContext:
                     damping: bool = True) -> tuple[float, float, float]:
         """(tire force, its torque at the reference axis, slip damping for
         the implicit solve — 0 when not asked for)."""
-        n_load = w.load_share * self.veh_mass * GRAVITY * self.slope_cos if self.veh_id else 0.0
+        n_load = w.n_load
         if n_load <= 0:
             return 0.0, 0.0, 0.0
         v = self.v
@@ -1484,6 +1540,25 @@ class MechanicalSlave(_CtxSlave):
         if ctx.veh_id:  # the road's slope angle, for the tyres and the vehicle alike
             theta = math.atan((rt.read_signal(ctx.veh_id, "sig_grade_in") or 0.0) / 100.0)
             ctx.slope_sin, ctx.slope_cos = math.sin(theta), math.cos(theta)
+            if ctx.amb_id:  # read every step: live edits, case values and sweeps apply
+                # (Data Checks refuse air at or below absolute zero or 0 kPa
+                # and warn outside the usual air, but see only the block's own
+                # values: a case value, sweep or live edit must not crash and
+                # is warned about here)
+                ap = ctx.params(ctx.amb_id)
+                t_c = float(ap.get("temperature_C", 20))
+                p_kpa = float(ap.get("pressure_kPa", 101.325))
+                ctx.rho = air_density(max(-273.0, t_c), max(0.0, p_kpa))
+                if not (AMBIENT_C[0] <= t_c <= AMBIENT_C[1]
+                        and AMBIENT_KPA[0] <= p_kpa <= AMBIENT_KPA[1]):
+                    rt.warn_once(
+                        f"ambient:{ctx.amb_id}",
+                        f"'{ctx.model.elements[ctx.amb_id].label}' is at {t_c:g} °C and "
+                        f"{p_kpa:g} kPa at t = {t:.2f} s, outside the usual {AMBIENT_C[0]:g} to "
+                        f"{AMBIENT_C[1]:g} °C and {AMBIENT_KPA[0]:g} to {AMBIENT_KPA[1]:g} kPa "
+                        f"(1 bar = 100 kPa), which gives the Vehicle's drag an air density "
+                        f"of {ctx.rho:.3g} kg/m³ — check the value and its unit.")
+            ctx.update_wheel_loads()  # for this step's tyres, from the last step's acceleration
         active = [st for st in ctx.dls if not st.plan.over_constrained and st.plan.n]
 
         # segment speeds at the start of the step, and every motor's command
@@ -1660,33 +1735,14 @@ class MechanicalSlave(_CtxSlave):
         # vehicle --------------------------------------------------------------
         if ctx.veh_id:
             vp = ctx.params(ctx.veh_id)
-            rho = AIR_DENSITY
-            if ctx.amb_id:  # read every step: live edits, case values and sweeps apply
-                # (Data Checks refuse air at or below absolute zero or 0 kPa
-                # and warn outside the usual air, but see only the block's own
-                # values: a case value, sweep or live edit must not crash and
-                # is warned about here)
-                ap = ctx.params(ctx.amb_id)
-                t_c = float(ap.get("temperature_C", 20))
-                p_kpa = float(ap.get("pressure_kPa", 101.325))
-                rho = air_density(max(-273.0, t_c), max(0.0, p_kpa))
-                if not (AMBIENT_C[0] <= t_c <= AMBIENT_C[1]
-                        and AMBIENT_KPA[0] <= p_kpa <= AMBIENT_KPA[1]):
-                    rt.warn_once(
-                        f"ambient:{ctx.amb_id}",
-                        f"'{ctx.model.elements[ctx.amb_id].label}' is at {t_c:g} °C and "
-                        f"{p_kpa:g} kPa at t = {t:.2f} s, outside the usual {AMBIENT_C[0]:g} to "
-                        f"{AMBIENT_C[1]:g} °C and {AMBIENT_KPA[0]:g} to {AMBIENT_KPA[1]:g} kPa "
-                        f"(1 bar = 100 kPa), which gives the Vehicle's drag an air density "
-                        f"of {rho:.3g} kg/m³ — check the value and its unit.")
+            rho = ctx.rho
             f_tire = 0.0
             f_roll = 0.0
             for st in active:  # at the wheel speeds just integrated
                 for s_idx, seg in enumerate(st.dl.segments):
                     for w in seg.wheels:
                         f_tire += ctx.wheel_force(w, st.omega_end[s_idx], damping=False)[0]
-                        n_load = w.load_share * ctx.veh_mass * GRAVITY * ctx.slope_cos
-                        f_roll += w.c_rr * n_load
+                        f_roll += w.c_rr * w.n_load
             if vp.get("road_load_mode") == ROAD_LOAD_ABC:
                 # a coast-down's A + B·v + C·v² in km/h, as test labs publish
                 # them; A and B stand in for the wheels' rolling resistance, and
@@ -1701,7 +1757,9 @@ class MechanicalSlave(_CtxSlave):
             f_grade = ctx.veh_mass * GRAVITY * ctx.slope_sin
             roll_taper = max(0.0, min(1.0, ctx.v / 0.3))
             accel = (f_tire - f_aero - f_roll * roll_taper - f_grade) / ctx.veh_mass
+            v_start = ctx.v
             ctx.v = max(0.0, ctx.v + accel * dt)
+            ctx.accel = (ctx.v - v_start) / dt  # as moved: 0 while held at rest
             ctx.distance += ctx.v * dt
             rt.publish(ctx.veh_id, "sig_speed", ctx.v * 3.6)
             rt.publish(ctx.veh_id, "sig_distance", ctx.distance)

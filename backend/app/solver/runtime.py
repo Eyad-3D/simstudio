@@ -25,6 +25,27 @@ def air_density(temperature_c: float = 20.0, pressure_kpa: float = 101.325) -> f
     return pressure_kpa * 1000.0 / (R_AIR * (temperature_c + 273.15))
 
 
+def axle_load_shift(m: float, h: float, wheelbase: float, a_x: float, sin_t: float,
+                    cza: float, aero_front: float, rho: float, v: float,
+                    w_front: float, w_rear: float) -> tuple[float, float, str | None]:
+    """(load added to the front axle, load added to the rear axle, the axle
+    that lifted or None), in N, on top of the static axle loads w_front and
+    w_rear: the longitudinal transfer m·(a_x + g·sin θ)·h/L to the rear
+    (drag is taken to act at ground height, so it adds no pitch) and the
+    downforce ½·ρ·CzA·v² split by the aero balance (the front's share, 0-1;
+    a negative CzA lifts). An axle cannot pull on the road: one that would
+    carry less than nothing carries nothing, and the other axle takes the
+    rest, so the two still carry the weight and the downforce together."""
+    dz = m * (a_x + GRAVITY * sin_t) * h / wheelbase if wheelbase > 0 else 0.0
+    down = 0.5 * rho * cza * v * v
+    d_front, d_rear = down * aero_front - dz, down * (1.0 - aero_front) + dz
+    if w_front + d_front < 0:
+        return -w_front, d_rear + w_front + d_front, "Front"
+    if w_rear + d_rear < 0:
+        return d_front + w_rear + d_rear, -w_rear, "Rear"
+    return d_front, d_rear, None
+
+
 # The air vehicles drive in (sea level to about 5,500 m): beyond it a value is
 # more likely typed in the wrong unit (bar, Pa, °F, K) than meant.
 AMBIENT_C = (-60.0, 60.0)

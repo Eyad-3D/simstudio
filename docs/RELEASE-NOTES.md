@@ -114,6 +114,21 @@ sections.
   and D 10.4.1, checked against FSUK 2026 Rules V1.0 and FSAE Rules 2025
   V1.0, which differ in detail; the 500 A current limit is not modelled.
   Check the current season's rules before relying on them.
+- Load transfer and downforce: the Vehicle gets a *Centre of Gravity
+  Height*, a *Wheelbase*, a *Downforce Area (CzA)* (negative for lift) and
+  an *Aero Balance (Front)*, and each Wheel an *Axle* (Front or Rear).
+  Accelerating, braking and standing on a slope move m·(a + g·sin θ)·h/L
+  between the axles, from the previous 10 ms step's acceleration, and
+  downforce adds ½·ρ·CzA·v² at the Ambient's air density, split by the
+  aero balance; it also adds to the wheels' rolling resistance (not to
+  coefficient A). An axle that would carry less than nothing lifts: it
+  carries nothing, the other axle the rest, and the run warns. New
+  channels: each Wheel's *Normal Load* and the Vehicle's *Front Axle Load*
+  and *Rear Axle Load*. With its rear wheels spinning on μ 1, a
+  rear-driven Formula Student-sized car (300 kg, CG 0.3 m high, 1.55 m
+  wheelbase) now accelerates at 6.45 m/s² instead of 5.24. With a CG
+  height and a downforce area of 0, the defaults, no result changes; the
+  examples keep 0 and have their wheels tagged Front and Rear.
 
 ### Fixed
 
@@ -200,6 +215,10 @@ sections.
 - Vehicles keep taking their road load from drag and rolling resistance.
   An Ambient already in a 0.2.0 project now sets the air density; a
   project with several Ambients runs, with a warning, on the first one.
+- Wheels in 0.2.0 projects are on the Front axle, so their Rear Axle Load
+  reads 0 and nothing shifts. Set *Axle* to Rear on the rear wheels before
+  giving the Vehicle a CG height; Data Checks refuse a CG height while all
+  the wheels are on one axle.
 - Runs you stopped in 0.2.0 keep their *warning* status and their
   *stopped at t = …* note. Cases load as kind *Cycle*.
 - Going back to 0.2.0: it cannot open a project with a study point that

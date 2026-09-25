@@ -62,6 +62,8 @@ class WheelRef:
     mu: float
     c_slip: float
     c_rr: float
+    axle: str = "Front"  # anything but Rear counts as Front
+    n_load: float = 0.0  # normal load this solver step, N (set by the run)
 
 
 @dataclass
@@ -446,6 +448,7 @@ def build_model(
                         mu=max(0.0, float(p.get("mu", 1.0))),
                         c_slip=max(0.1, float(p.get("slip_stiffness", 10))),
                         c_rr=max(0.0, float(p.get("rolling_resistance", 0.012))),
+                        axle="Rear" if p.get("axle") == "Rear" else "Front",
                     ))
                 enqueue_peers(el_id, pid, m, region)
             elif t == "mech.brake":

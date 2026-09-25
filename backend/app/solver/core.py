@@ -514,6 +514,9 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
             tk = ctx.tanks[el_id]
             yield el_id, "sig_level", lambda tk=tk: 100.0 * tk.mass_kg / tk.capacity_kg
             yield el_id, "sig_mass", lambda tk=tk: tk.mass_kg
+        elif tdef == "vehicle.body" and el_id == ctx.veh_id:
+            yield el_id, "sig_load_front", lambda: sum(w.n_load for w in ctx.axle_wheels[0])
+            yield el_id, "sig_load_rear", lambda: sum(w.n_load for w in ctx.axle_wheels[1])
         elif tdef == "controller.dcdc":  # no data until the converter first runs
             yield el_id, "sig_power_in", lambda el_id=el_id: _dcdc_kw(ctx, el_id, "in")
             yield el_id, "sig_power_out", lambda el_id=el_id: _dcdc_kw(ctx, el_id, "out")
@@ -557,6 +560,7 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
                 yield w.el_id, "sig_force", lambda w=w: ctx.last_forces.get(w.el_id, 0.0)
                 yield w.el_id, "sig_torque", (
                     lambda w=w: ctx.last_forces.get(w.el_id, 0.0) * w.radius)
+                yield w.el_id, "sig_normal_load", lambda w=w: w.n_load
             for el_id2, m2 in seg.element_ms.items():
                 if only is not None and el_id2 not in only:
                     continue
