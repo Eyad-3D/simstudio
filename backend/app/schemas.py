@@ -66,6 +66,15 @@ class ParameterDef(BaseModel):
     variability: Literal["fixed", "tunable"] = "tunable"
 
 
+class ComponentPreset(BaseModel):
+    """Named parameter values for a component, e.g. a competition's limits,
+    with a note on where they come from."""
+
+    name: str
+    values: dict[str, ParamValue]
+    note: str = ""
+
+
 class ComponentDef(BaseModel):
     id: str
     category: str
@@ -77,6 +86,8 @@ class ComponentDef(BaseModel):
     parameters: list[ParameterDef]
     # Elements of this type may carry per-instance signal ports (Script, Monitor).
     allowDynamicPorts: bool = False
+    # Sets of parameter values the Properties panel applies in one step.
+    presets: list[ComponentPreset] = Field(default_factory=list)
 
 
 class ElementInstance(BaseModel):
@@ -248,6 +259,9 @@ class SummaryValue(BaseModel):
     unit: str
     # why this number is not valid (the run verdict), e.g. "cycle not followed"
     notValid: Optional[str] = None
+    # a check's limit, in the row's unit, and whether the value kept to it
+    limit: Optional[float] = None
+    passed: Optional[bool] = None
 
 
 class SimResult(BaseModel):

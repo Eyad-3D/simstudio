@@ -47,11 +47,13 @@ from .runtime import (
     Runtime,
     SingularMatrixError,
     TankState,
+    TerminalCheck,
     _sign,
     air_density,
     make_plan,
     motor_max_rpm,
     ocv_mean,
+    output_power_cap_w,
     solve_linear,
 )
 from .sandbox import ScriptSandbox, ScriptSpec
@@ -175,6 +177,17 @@ class RunContext:
                     # read without the Error check: the first step stops the
                     # run, with its time, if the SOC is outside an Error axis
                     b.v_term = interp1(ocv_map.pts, b.soc_pct(), ocv_map.linear[0])
+                    b.p_cap_w = output_power_cap_w(p)
+                    limit_kw = float(p.get("output_power_limit_kW", 0) or 0)
+                    v_class = float(p.get("voltage_class_V", 0) or 0)
+                    if limit_kw > 0 or v_class > 0:
+                        b.check = TerminalCheck(
+                            limit_w=max(0.0, limit_kw) * 1000.0,
+                            window_s=max(0.0, float(p.get("power_limit_window_s", 0) or 0)),
+                            v_class=max(0.0, v_class),
+                            v_full=interp1(ocv_map.pts, 100.0, ocv_map.linear[0]),
+                            enforced=bool(p.get("power_limit_enforced", True)),
+                            v_peak=b.v_term, v_min=b.v_term)
                     self.batteries[el_id] = b
                 elif cdef.id == "motor.emotor":
                     full_load = self.table(el_id, "full_load_torque")
@@ -778,11 +791,15 @@ class RunContext:
 
     def battery_window(self, b: BatteryState) -> tuple[float, float]:
         """(deliver, absorb): the most terminal power the battery can give and
-        take over the next solver step — its maximum-power point and max
-        charge power, and never past its minimum SOC or 100 %."""
+        take over the next solver step — its maximum-power point, held to its
+        Output Power Limit, and max charge power, and never past its minimum
+        SOC or 100 %. Recuperation is not held to the limit. Sets b.capped for
+        the step, so call it once per step (not for trial lookups)."""
         a_volt, i_mpp, i_floor, i_full = self.battery_currents(b)
         i_dis = min(i_mpp, i_floor)
-        return (i_dis * (a_volt - i_dis * b.r0),
+        deliver = i_dis * (a_volt - i_dis * b.r0)
+        b.capped = deliver > b.p_cap_w
+        return (min(deliver, b.p_cap_w),
                 min(b.max_charge_w, i_full * (a_volt + i_full * b.r0)))
 
     def root_window(self, root) -> tuple[float, float]:
@@ -949,7 +966,13 @@ class RunContext:
             b = self.batteries[root.battery]
             label = model.elements[b.el_id].label
             _, i_mpp, i_floor, _ = self.battery_currents(b)
-            if discharge and i_floor < i_mpp:
+            if discharge and b.capped:  # a limit the user set: info, not a warning
+                rt.warn_once(f"cap:{b.el_id}",
+                             f"Battery '{label}' held at its Output Power Limit "
+                             f"({b.p_cap_w / 1000.0:g} kW at the terminals) from t = {t:.2f} s — "
+                             f"the motors get what is left after the other loads. The run "
+                             f"summary says for how long.", level="info")
+            elif discharge and i_floor < i_mpp:
                 if not b.depleted_flagged:
                     b.depleted_flagged = True
                     rt.message("warning",
@@ -1761,6 +1784,12 @@ class ElectricalSlave(_CtxSlave):
                 b.v_term = (interp1(b.ocv_map.pts, b.soc_pct(), b.ocv_map.linear[0])
                             - b.v_rc - current * b.r0)
                 ctx.bus_voltage[bus.id] = b.v_term
+                if b.check is not None:
+                    # held at the cap (the motors' torque search stops a hair
+                    # below it), or over a limit that is only checked
+                    held = ((b.capped and p_w >= b.p_cap_w * (1.0 - 1e-6)) if b.check.enforced
+                            else p_w > b.check.limit_w > 0)
+                    b.check.add(t, t + dt, p_w, b.v_term, held)
             elif bus.vsource:
                 vs_p = ctx.params(bus.vsource)
                 ctx.bus_voltage[bus.id] = float(vs_p.get("voltage_V", 400))

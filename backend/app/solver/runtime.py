@@ -8,7 +8,7 @@ verbatim out of core.py in Phase 1.4 — behavior is unchanged.
 from __future__ import annotations
 
 import math
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -114,6 +114,12 @@ class BatteryState:
     loss_wh: float = 0.0
     current: float = 0.0
     power_w: float = 0.0
+    # the Output Power Limit the terminals are held to, W (output_power_cap_w),
+    # whether it and not the cells set this step's deliverable power, and the
+    # run checks when a limit or a Voltage Class is set
+    p_cap_w: float = math.inf
+    capped: bool = False
+    check: Optional[TerminalCheck] = None
 
     def ocv(self) -> float:
         return self.ocv_map.at(self.soc_pct())
@@ -123,15 +129,81 @@ class BatteryState:
         return max(0.0, min(1.0, self.soc)) * 100.0
 
 
-def ocv_mean(points: list, linear: bool = False) -> float:
-    """The OCV table's mean over 0-100 % SOC, weighted by SOC: a full-to-empty
-    discharge at open circuit gives out this voltage times the charge
-    capacity. Exact for the piecewise-linear table, read as ocv() reads it:
-    beyond its ends flat, or on the end slope when its SOC axis is set to
-    Linear (``linear``)."""
-    xs = sorted({0.0, 100.0, *(x for x, _ in points if 0.0 < x < 100.0)})
+@dataclass
+class TerminalCheck:
+    """A battery's terminal power and voltage over a run, for the checks
+    against its Output Power Limit and Voltage Class (verdict.terminal_checks).
+    Fed once per solver step with the step's terminal power (constant over
+    the step) and its end voltage. The power check is on the moving average
+    over ``window_s`` (0: the step's own power), with no power before t = 0,
+    as an energy meter's log starts."""
+
+    limit_w: float  # 0 = no power limit
+    window_s: float
+    v_class: float  # 0 = no Voltage Class
+    v_full: float  # open-circuit voltage at 100 % SOC
+    enforced: bool = True  # the limit holds the power (else it is only checked)
+    peak_w: float = 0.0
+    avg_peak_w: float = 0.0
+    t_avg_peak: float = 0.0
+    v_peak: float = 0.0  # the highest and lowest terminal voltage, from t = 0
+    t_v_peak: float = 0.0
+    p_at_v_peak: float = 0.0
+    v_min: float = math.inf
+    t_v_min: float = 0.0
+    limit_s: float = 0.0  # time held at (enforced) or over (checked) the limit
+    _q: deque = field(default_factory=deque)  # (t0, t1, W) in the window
+    _e: float = 0.0  # their energy, J
+
+    def add(self, t0: float, t1: float, p_w: float, v: float, held: bool) -> None:
+        self.peak_w = max(self.peak_w, p_w)
+        if v > self.v_peak:
+            self.v_peak, self.t_v_peak, self.p_at_v_peak = v, t1, p_w
+        if v < self.v_min:
+            self.v_min, self.t_v_min = v, t1
+        if held:
+            self.limit_s += t1 - t0
+        avg = p_w
+        if self.window_s > 0:
+            self._q.append((t0, t1, p_w))
+            self._e += p_w * (t1 - t0)
+            lo = t1 - self.window_s
+            while self._q[0][1] <= lo:
+                a, b, p = self._q.popleft()
+                self._e -= p * (b - a)
+            a, _, p = self._q[0]  # the oldest step counts from the window's start
+            avg = (self._e - max(0.0, lo - a) * p) / self.window_s
+        if avg > self.avg_peak_w:
+            self.avg_peak_w, self.t_avg_peak = avg, t1
+
+
+def output_power_cap_w(p: dict) -> float:
+    """The terminal power a battery is held to, W: its Output Power Limit less
+    its margin, or inf with no limit (0) or when the limit is only checked."""
+    limit_kw = float(p.get("output_power_limit_kW", 0) or 0)
+    if limit_kw <= 0 or not p.get("power_limit_enforced", True):
+        return math.inf
+    return limit_kw * 1000.0 * (1.0 - float(p.get("power_limit_margin_pct", 0) or 0) / 100.0)
+
+
+def ocv_mean(points: list, linear: bool = False, lo: float = 0.0, hi: float = 100.0) -> float:
+    """The OCV table's mean over ``lo`` to ``hi`` % SOC (lo < hi; 0-100 %),
+    weighted by SOC: a discharge at open circuit over that span gives out
+    this voltage times the charge it moves. Exact for the piecewise-linear
+    table, read as ocv() reads it: beyond its ends flat, or on the end slope
+    when its SOC axis is set to Linear (``linear``)."""
+    xs = sorted({lo, hi, *(x for x, _ in points if lo < x < hi)})
     return sum((b - a) * (interp1(points, a, linear) + interp1(points, b, linear))
-               for a, b in zip(xs, xs[1:])) / 200.0
+               for a, b in zip(xs, xs[1:])) / (2.0 * (hi - lo))
+
+
+def usable_energy_left_wh(b: BatteryState) -> float:
+    """The open-circuit energy a battery can still give before its minimum SOC, W·h."""
+    soc, floor = max(0.0, min(1.0, b.soc)), max(0.0, min(1.0, b.min_soc))
+    if soc <= floor:
+        return 0.0
+    return b.q_ah * (soc - floor) * ocv_mean(b.ocv_map.pts, b.ocv_map.linear[0],
+                                             floor * 100.0, soc * 100.0)
 
 
 def motor_max_rpm(full_load: Sheets2D, value: object) -> float:

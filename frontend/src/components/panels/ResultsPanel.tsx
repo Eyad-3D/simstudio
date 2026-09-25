@@ -1063,6 +1063,22 @@ export function ResultsPanel() {
                           className={`ss-td text-right font-mono ${ri > 0 ? "text-[color:var(--ss-text-dim)]" : ""}`}
                         >
                           {typeof v === "number" ? v.toLocaleString() : "—"}
+                          {sv?.passed != null && (
+                            <span
+                              className={`ml-1 rounded px-1 font-sans text-[10px] font-semibold ${
+                                sv.passed
+                                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+                                  : "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400"
+                              }`}
+                            >
+                              {sv.passed ? "pass" : "fail"}
+                            </span>
+                          )}
+                          {sv?.limit != null && (
+                            <div className="font-sans text-[10px] text-[color:var(--ss-text-dim)]">
+                              ≤ {sv.limit.toLocaleString()}
+                            </div>
+                          )}
                           {sv?.notValid && (
                             <div
                               className="font-sans text-[10px] text-amber-600"

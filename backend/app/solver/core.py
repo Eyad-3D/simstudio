@@ -51,9 +51,10 @@ from .runtime import (  # noqa: F401 — re-exported for backward compatibility
     _sign,
     make_plan,
     solve_linear,
+    usable_energy_left_wh,
 )
 from .slave import var_name
-from .verdict import CycleTrace, judge
+from .verdict import CycleTrace, judge, terminal_checks
 
 
 def simulate(
@@ -275,6 +276,13 @@ def simulate(
             summary.append(SummaryValue(label=f"{label} — energy delivered", value=round(b.energy_out_wh / 1000.0, 3), unit="kWh"))
             summary.append(SummaryValue(label=f"{label} — energy recuperated", value=round(b.energy_in_wh / 1000.0, 3), unit="kWh"))
             summary.append(SummaryValue(label=f"{label} — internal losses", value=round(b.loss_wh / 1000.0, 4), unit="kWh"))
+            if b.check is not None:  # an Output Power Limit or a Voltage Class
+                rows, problems = terminal_checks(label, b.check, usable_energy_left_wh(b) / 1000.0,
+                                                 b.depleted_flagged)
+                summary += [SummaryValue(label=row_label, value=v, unit=u, limit=lim, passed=ok)
+                            for row_label, v, u, lim, ok in rows]
+                for text in problems:
+                    rt.message("warning", text)
         for mc in ctx.motors.values():
             if mc.limited_s > 0:
                 summary.append(SummaryValue(
@@ -375,6 +383,9 @@ def simulate(
                    else f"run stopped by an error at t = {failed_at:.2f} s")
             for label in ("Consumption", "Fuel consumption", "CO₂ emissions", "Maximum speed"):
                 not_valid.setdefault(label, why)
+            for s in summary:  # a check it passed so far, not over the whole run
+                if s.passed:
+                    not_valid.setdefault(s.label, why)
         if verdict.beyond_reason:
             # a machine or source ran past its data: what depends on how it ran
             for label in ("Consumption", "Fuel consumption", "CO₂ emissions",

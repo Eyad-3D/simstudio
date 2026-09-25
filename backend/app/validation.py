@@ -56,6 +56,10 @@ NUMERIC_RANGES: dict[str, tuple[str, float, float]] = {
     "capacity_Ah": ("Charge capacity", -0.001, 1e5),
     "temperature_C": ("Temperature", -273.15, 1000.0),
     "max_speed_rpm": ("Maximum speed", -0.001, math.inf),
+    "output_power_limit_kW": ("Output power limit", -0.001, math.inf),
+    "power_limit_margin_pct": ("Power limit margin", -0.001, 100.0),
+    "power_limit_window_s": ("Power check window", -0.001, 60.0),
+    "voltage_class_V": ("Voltage class", -0.001, math.inf),
     "road_load_a_N": ("Road load A", -math.inf, math.inf),
     "road_load_b_N_per_kmh": ("Road load B", -math.inf, math.inf),
     "road_load_c_N_per_kmh2": ("Road load C", -math.inf, math.inf),
@@ -605,6 +609,18 @@ def _plausibility_checks(model: Model, add: Add) -> None:
             if soc0 is not None and soc_min is not None and soc0 <= soc_min:
                 add("warning", f"'{el.label}' starts at {soc0:g} % SOC, at or below its "
                                f"minimum of {soc_min:g} % — it can deliver no energy.", el)
+            v_class = num(p, "voltage_class_V")
+            if v_class is not None and v_class > 0:
+                try:  # read at 100 % as the run reads it
+                    ocv = parse_table1d(p.get("ocv_table"))
+                except TableError:
+                    ocv = []  # reported with the other parameters
+                linear = (el.tableOutside.get("ocv_table") or [""])[0] == "linear"
+                v_full = interp1(ocv, 100.0, linear) if ocv else 0.0
+                if v_full > v_class:
+                    add("warning", f"'{el.label}' reaches {v_full:g} V open-circuit at 100 % "
+                                   f"SOC, above its Voltage Class of {v_class:g} V — fewer cells "
+                                   f"in series, or check the class.", el)
         elif cdef.id == "electric.constant_drive" and model.vehicle is not None:
             kw = num(p, "power_kW")
             if kw is not None and kw > AUX_LOAD_MAX_KW:

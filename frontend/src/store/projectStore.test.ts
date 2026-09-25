@@ -578,6 +578,19 @@ describe("undo / redo", () => {
     expect(findElement("el-bat")?.tableOutside).toBeUndefined();
   });
 
+  it("a preset's values are one edit that one undo takes back", async () => {
+    await start();
+    const past = store().past.length;
+    store().setParameters("el-bat", { output_power_limit_kW: 80, voltage_class_V: 600 });
+    expect(findElement("el-bat")?.parameterOverrides).toEqual({
+      output_power_limit_kW: 80,
+      voltage_class_V: 600,
+    });
+    expect(store().past).toHaveLength(past + 1);
+    store().undo();
+    expect(findElement("el-bat")?.parameterOverrides).toEqual({});
+  });
+
   it("a new edit after undo discards the redo branch", async () => {
     await start();
     store().renameElement("el-bat", "A");

@@ -209,6 +209,41 @@ def test_battery_charge_parameters_are_range_checked(key, value, expected):
         assert len(errors) == 1 and errors[0].startswith(expected), errors
 
 
+@pytest.mark.parametrize("cells, flagged", [(150, True), (140, False)])
+def test_voltage_class_data_check(cells, flagged):
+    """MOD-39: a pack whose open-circuit voltage at 100 % SOC is above its
+    Voltage Class is flagged before the run (150 × 4.2 V = 630 V against
+    600 V); 140 cells (588 V) are not."""
+    proj = load_example("bev-car")
+    bat = next(e for e in proj.systems[0].elements if e.id == "el-battery")
+    cell = {0: 3.0, 10: 3.45, 50: 3.7, 100: 4.2}
+    bat.parameterOverrides.update(voltage_class_V=600,
+                                  ocv_table={str(k): round(v * cells, 3) for k, v in cell.items()})
+    hits = [c for c in validate_project(proj) if "Voltage Class" in c.text]
+    if flagged:
+        assert len(hits) == 1 and hits[0].level == "warning", hits
+        assert "630 V" in hits[0].text and "600 V" in hits[0].text
+    else:
+        assert hits == []
+
+
+@pytest.mark.parametrize("key, value, expected", [
+    ("output_power_limit_kW", -5, "Output power limit of 'HV Battery Pack' must be in"),
+    ("power_limit_margin_pct", 150, "Power limit margin of 'HV Battery Pack' must be in"),
+    ("power_limit_window_s", -1, "Power check window of 'HV Battery Pack' must be in"),
+    ("voltage_class_V", -600, "Voltage class of 'HV Battery Pack' must be in"),
+    ("output_power_limit_kW", 80, None),
+])
+def test_power_limit_parameters_are_range_checked(key, value, expected):
+    proj = load_example("bev-car")
+    next(e for e in proj.systems[0].elements if e.id == "el-battery").parameterOverrides[key] = value
+    errors = _errors(proj)
+    if expected is None:
+        assert errors == []
+    else:
+        assert len(errors) == 1 and errors[0].startswith(expected), errors
+
+
 def test_wheel_load_shares_must_add_up():
     proj = load_example("bev-car")
     for e in proj.systems[0].elements:

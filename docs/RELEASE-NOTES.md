@@ -91,6 +91,29 @@ sections.
   a negative coefficient A or C (a warning: it pushes the car along); a
   road-load coefficient that is not a number or a negative Maximum Speed
   (errors).
+- Battery: *Output Power Limit* (kW at the terminals, volts × amps, as a
+  Formula Student energy meter measures it), with a *Power Limit Margin*,
+  a *Power Check Window*, *Hold Power to Limit* (untick it to only check
+  the limit) and a *Voltage Class* (V); 0 turns the limit and the class
+  off, as in every existing model. The limit caps discharge only: the
+  motors get what is left after the other loads, and recuperation is not
+  limited. Being held at it is an *info* message, not a warning, so such
+  a run can be a *success*. The run summary then gives the peak terminal
+  power, the peak averaged over the window (checked against the limit),
+  the time held at (or over) the limit, the highest pack voltage
+  (open-circuit at 100 % SOC, or at the terminals while recuperating;
+  checked against the class), the lowest pack voltage and the usable
+  energy left (it fails when the battery reached its minimum SOC). A
+  failed check is a warning. Data Checks warn when the open-circuit
+  voltage at 100 % SOC is above the Voltage Class. On the Battery Electric
+  Car, an 80 kW limit takes its 0-100 km/h from 7.10 to 12.76 s.
+- Summary rows can carry a limit and a *pass* or *fail* marker.
+- Presets: the battery's *Apply preset: Formula Student Electric* sets
+  80 kW, a 0.5 s window, 600 V and Hold Power to Limit in one step (one
+  undo). Its values come from FS Rules 2026 v1.1 (FSG) EV 2.2.1, EV 4.1.1
+  and D 10.4.1, checked against FSUK 2026 Rules V1.0 and FSAE Rules 2025
+  V1.0, which differ in detail; the 500 A current limit is not modelled.
+  Check the current season's rules before relying on them.
 
 ### Fixed
 

@@ -96,18 +96,30 @@ either. Also:
 summary table.
 *Roadmap:* VAL-08.
 
-### Only its internal resistance limits what a battery delivers
+### A battery has a power limit but no current limit
 
 A battery delivers power up to its maximum-power point (the most its
 internal resistance lets through: about 420 kW for the default pack at 90 %
-charge) and takes back up to its *Max Charge Power*. There are no current or
-voltage limits, fuel cells have no ramp rate, and DC-DC converters have no
-power rating, so a model is never held back by these.
+charge), or up to its *Output Power Limit* when one is set, and takes back
+up to its *Max Charge Power*. There are no current limits: the 500 A limit
+of Formula Student (FS Rules 2026 v1.1 (FSG) EV 2.2.2, FSUK 2026 EV2.3.1) is
+not modelled or checked. Fuel cells have no ramp rate, and DC-DC converters
+have no power rating.
 
-*Workaround:* check the battery's *Discharge Power* channel against what the
-real pack or its management system allows, and reduce the motor's torque
-map or add a limit in a Script if needed.
-*Roadmap:* ENG-02 (follow-up).
+The Output Power Limit is ideal: it holds the terminal power (volts × amps)
+exactly at every solver step, with none of a real limiter's lag or
+overshoot, and it limits discharge only. Its check averages the solver
+step's power (10 ms) over the *Power Check Window*, with nothing before
+t = 0, not the samples of a competition's energy meter; a run that starts
+at speed was already drawing power before t = 0. FSAE's rule that 100 ms
+over the limit is a violation is not counted on its own (a window of 0
+gives a check at least as strict). The *Voltage Class* check compares the
+highest terminal voltage of a solver step, not a 500 ms average.
+
+*Workaround:* check the battery's *Current* channel against what the real
+pack or its management system allows, and reduce the motor's torque map or
+add a limit in a Script if needed.
+*Roadmap:* MOD-08 (current limits), ENG-02 (follow-up).
 
 ### Signal units are not checked
 

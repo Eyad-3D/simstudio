@@ -343,6 +343,8 @@ interface ProjectState {
   pasteClipboard: (position?: { x: number; y: number }) => string[];
   renameElement: (id: string, label: string) => void;
   setParameter: (elementId: string, key: string, value: ParamValue) => void;
+  /** Several parameters at once (a component preset), as one undo step. */
+  setParameters: (elementId: string, values: Record<string, ParamValue>) => void;
   /** A table's outside-the-data settings, one per axis (applies on the next run). */
   setTableOutside: (elementId: string, key: string, policies: OutsidePolicy[]) => void;
   setDynamicPorts: (elementId: string, ports: PortDef[]) => void;
@@ -998,6 +1000,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         logLiveEdit({ t: get().liveT, elementId, key, value });
       }
     },
+
+    // presets set "fixed" parameters only, so nothing streams into a live run
+    setParameters: (elementId, values) =>
+      updateProject((draft) => {
+        for (const s of draft.systems) {
+          const el = s.elements.find((e) => e.id === elementId);
+          if (el) Object.assign(el.parameterOverrides, values);
+        }
+      }),
 
     setTableOutside: (elementId, key, policies) =>
       updateProject(

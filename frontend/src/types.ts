@@ -65,6 +65,8 @@ export interface ComponentDef {
   parameters: ParameterDef[];
   /** Elements of this type may carry per-instance signal ports (Script, Monitor). */
   allowDynamicPorts?: boolean;
+  /** Sets of parameter values the Properties panel applies in one step. */
+  presets?: { name: string; values: Record<string, ParamValue>; note?: string }[];
 }
 
 export type PortSide = "left" | "right" | "top" | "bottom";
@@ -215,6 +217,9 @@ export interface SummaryValue {
   unit: string;
   /** Why the run verdict says this number is not valid, e.g. "cycle not followed". */
   notValid?: string | null;
+  /** A check's limit, in the row's unit, and whether the value kept to it. */
+  limit?: number | null;
+  passed?: boolean | null;
 }
 
 export interface SimResult {
