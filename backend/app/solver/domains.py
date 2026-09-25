@@ -445,27 +445,38 @@ class RunContext:
             return
         front, rear = self.axle_wheels
         if front and rear:
+            wheelbase = float(vp.get("wheelbase_m", 2.7))
+            if h and wheelbase <= 0:  # a case value or a live edit: Data Checks cannot see it
+                self.rt.warn_once(
+                    f"wheelbase:{self.veh_id}",
+                    f"Vehicle '{self.model.elements[self.veh_id].label}' has a Wheelbase of "
+                    f"{wheelbase:g} m, so no load shifts between its axles. Set the Wheelbase "
+                    f"to the distance between the axles.")
             d_front, d_rear, lifted = axle_load_shift(
-                self.veh_mass, h, float(vp.get("wheelbase_m", 2.7)), self.accel, self.slope_sin,
+                self.veh_mass, h, wheelbase, self.accel, self.slope_sin,
                 cza, min(1.0, max(0.0, float(vp.get("aero_balance_front_pct", 50)) / 100.0)),
                 self.rho, self.v, sum(w.n_load for w in front), sum(w.n_load for w in rear))
-            if lifted:
-                self.rt.warn_once(
-                    f"lift:{self.veh_id}",
-                    f"The {lifted.lower()} wheels of Vehicle "
-                    f"'{self.model.elements[self.veh_id].label}' lift off the road at t = "
-                    f"{self.t:.2f} s: they carry no load and the other wheels carry it all "
-                    f"(LightSim does not model the car pitching or tipping over). Check the "
-                    f"Centre of Gravity Height, the Wheelbase and the Downforce Area.")
             groups = ((front, d_front), (rear, d_rear))
         else:  # one axle: nothing to shift the load to, only the downforce
             if h:
+                fix = "Rear on the rear" if front else "Front on the front"
                 self.rt.warn_once(
                     f"one-axle:{self.veh_id}",
                     f"Vehicle '{self.model.elements[self.veh_id].label}' has a Centre of "
                     f"Gravity Height of {h:g} m, but all its wheels are on one axle, so no load "
-                    f"shifts between axles. Set Axle to Rear on the rear wheels.")
-            groups = ((front or rear, 0.5 * self.rho * cza * self.v * self.v),)
+                    f"shifts between axles. Set Axle to {fix} wheels.")
+            ws, down = front or rear, 0.5 * self.rho * cza * self.v * self.v
+            lifted = "Both" if sum(w.n_load for w in ws) + down < 0 else None
+            groups = ((ws, down),)
+        if lifted:
+            which, rest = (("All the", "") if lifted == "Both" else
+                           (f"The {lifted.lower()}", " and the other wheels carry it all"))
+            self.rt.warn_once(
+                f"lift:{self.veh_id}",
+                f"{which} wheels of Vehicle '{self.model.elements[self.veh_id].label}' lift "
+                f"off the road at t = {self.t:.2f} s: they carry no load{rest} (LightSim does "
+                f"not model the car pitching or tipping over). Check the Centre of Gravity "
+                f"Height, the Wheelbase and the Downforce Area.")
         for ws, delta in groups:
             s_axle = sum(w.load_share for w in ws)
             for w in ws:

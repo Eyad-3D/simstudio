@@ -658,10 +658,11 @@ def _plausibility_checks(model: Model, add: Add) -> None:
                        f"them to add up to 100 % to choose the split yourself.")
     h = num(model.params_of[model.vehicle], "cg_height_m") if model.vehicle is not None else None
     if wheels and h is not None and h > 0 and len({w.axle for w in wheels}) < 2:
-        veh = model.elements[model.vehicle]
+        veh, on = model.elements[model.vehicle], wheels[0].axle
+        fix = "Front on the front" if on == "Rear" else "Rear on the rear"
         add("error", f"Vehicle '{veh.label}' has a Centre of Gravity Height of {h:g} m, but all "
-                     f"its wheels are on the {wheels[0].axle} axle, so no load can shift between "
-                     f"axles. Set Axle to Rear on the rear wheels.", veh)
+                     f"its wheels are on the {on} axle, so no load can shift between "
+                     f"axles. Set Axle to {fix} wheels.", veh)
 
 
 def _map_checks(model: Model, add: Add) -> None:

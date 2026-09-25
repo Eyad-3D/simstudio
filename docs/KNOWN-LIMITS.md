@@ -194,9 +194,14 @@ minimum or an average, for example from the CSV export.
   by the *Aero Balance*. The acceleration a is the previous solver step's,
   10 ms behind: exact while it is steady, off by its change over one step
   while it changes (0.6-4 % where an FS car's motor reaches its power
-  limit, the whole transfer in a launch's first step). Drag is taken to act
-  at ground height and moves no load (at 90 km/h an FS car's drag would
-  move about 90 N, 5 % of its rear axle load). An axle that would carry
+  limit, the whole transfer in a launch's first step). With the driven
+  front wheels spinning, the lag feeds back with a gain of μ × h/L per
+  step: at a real car's 0.2-0.4 the loads settle within a few steps, at
+  0.9 they still ring after 0.4 s, and above 1 the acceleration swings
+  from step to step and the run can warn of front wheels lifting that
+  would not. Drag is taken to act at ground height and moves no load (at
+  90 km/h an FS car's drag would move about 90 N, 5 % of its rear axle
+  load). An axle that would carry
   less than nothing carries nothing and the run warns: the car does not
   pitch, wheelie or tip over, and there is no suspension. Load does not
   shift from side to side, and grip does not depend on load (μ is the same
@@ -218,10 +223,12 @@ minimum or an average, for example from the CSV export.
   wheels' *Longitudinal Slip* at launch. A car braked to a stop can also
   creep with the brake fully applied: under 0.2 km/h at the default *Slip
   Stiffness* of 10, about 2 km/h at 30 and up to 23 km/h at 300, at the
-  10 ms solver step. Undriven wheels ring below about 0.5 m/s when the car
-  accelerates faster than μ × 0.5 m/s ÷ (*Slip Stiffness* × step), 5 m/s²
-  at the defaults and the 10 ms step; at a Formula Student launch this
-  moves the 75 m time by about 0.4 %. *Roadmap:* ENG-09, ENG-14.
+  10 ms solver step. When a car pulls away from rest faster than
+  μ × 0.5 m/s ÷ (*Slip Stiffness* × step), 5 m/s² at the defaults and the
+  10 ms step, its undriven wheels ring (their tyre force changes sign from
+  one step to the next) until it reaches 0.7-2.3 m/s (measured on a 300 kg
+  Formula Student car at μ 1-1.6); at a Formula Student launch this moves
+  the 75 m time by about 0.4 %. *Roadmap:* ENG-09, ENG-14.
 - **A closing clutch can ring at the 10 ms step.** While a clutch slips by
   more than 0.5 rad/s the solver passes its full torque for the whole
   step, and at 10 ms that overshoots the lock-up: the shaft on either side

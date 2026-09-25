@@ -259,6 +259,9 @@ def test_wheel_load_shares_must_add_up():
     ({"cg_height_m": 0.3, "untag": True}, "error",
      "Vehicle 'Vehicle' has a Centre of Gravity Height of 0.3 m, but all its wheels are on the "
      "Front axle, so no load can shift between axles. Set Axle to Rear on the rear wheels."),
+    ({"cg_height_m": 0.3, "all_rear": True}, "error",
+     "Vehicle 'Vehicle' has a Centre of Gravity Height of 0.3 m, but all its wheels are on the "
+     "Rear axle, so no load can shift between axles. Set Axle to Front on the front wheels."),
     ({"cg_height_m": 30, "wheelbase_m": 1.55}, "warning",
      "Vehicle 'Vehicle' has a Centre of Gravity Height of 30 m, above its Wheelbase of 1.55 m"),
     ({"wheelbase_m": 0}, "error", "'Vehicle' has a non-positive wheelbase."),
@@ -272,12 +275,14 @@ def test_vehicle_geometry_data_checks(values, level, expected):
     wheelbase is most likely the wrong unit."""
     proj = load_example("bev-car")
     values = dict(values)
-    untag = values.pop("untag", False)
+    untag, all_rear = values.pop("untag", False), values.pop("all_rear", False)
     for e in proj.systems[0].elements:
         if e.id == "el-vehicle":
             e.parameterOverrides.update(values)
         elif untag and e.componentDefId == "propulsion.wheel":
             del e.parameterOverrides["axle"]
+        elif all_rear and e.componentDefId == "propulsion.wheel":
+            e.parameterOverrides["axle"] = "Rear"
     new = [c for c in validate_project(proj) if c.level != "info"]
     if expected is None:
         assert new == []

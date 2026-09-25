@@ -13,7 +13,7 @@ import pytest
 from helpers import bev_axle, coast_project, conn, dbc, el, series
 
 from app.solver import simulate
-from app.solver.runtime import GRAVITY, air_density
+from app.solver.runtime import GRAVITY, air_density, axle_load_shift
 
 M, H, L, FRONT = 300.0, 0.30, 1.55, 0.45  # a Formula Student-sized car, 45 % front
 R, J_FREE = 0.26, 0.3 + 0.01  # tyre radius; a free wheel's inertia with its brake's
@@ -182,6 +182,33 @@ def test_a_lifting_axle_carries_nothing():
     assert result.status == "warning"
     assert any("front wheels of Vehicle 'Vehicle' lift off the road" in m.text
                for m in result.messages), result.messages
+
+
+@pytest.mark.parametrize("tagged", [True, False])
+def test_a_lift_above_the_weight_lifts_every_wheel(tagged):
+    """A downforce area that lifts more than the car weighs: no wheel carries
+    anything (none pulls on the road), with two axles or one, and the run
+    says all the wheels lift. Before, one axle was named, and a one-axle car
+    went unwarned."""
+    assert axle_load_shift(300, 0.3, 1.55, 0, 0, -40, 0.5, 1.2, 55, 1300, 1600) == \
+        (-1300, -1600, "Both")
+    proj = coast_project({"mass_kg": M, "cd": 0.0, "downforce_cza_m2": -40.0},
+                         {"rolling_resistance": 0.0}, v0=200.0, duration=0.1, dt=DT)
+    result = simulate(_tag_axles(proj) if tagged else proj, "case")
+    for i in range(4):
+        assert set(_values(result, f"w{i}", "sig_normal_load")) == {0.0}
+    assert any(m.text.startswith("All the wheels of Vehicle 'Vehicle' lift off the road")
+               for m in result.messages), result.messages
+
+
+def test_a_wheelbase_of_0_given_at_run_time_is_warned_about():
+    """Data Checks refuse a Wheelbase of 0 on the block but cannot see a case
+    value; the run says the load does not shift."""
+    proj = _tag_axles(coast_project({"mass_kg": M, "cg_height_m": H}, v0=50.0, duration=0.1,
+                                    dt=DT))
+    proj.cases[0].parameterOverrides = {"veh": {"wheelbase_m": 0}}
+    texts = [m.text for m in simulate(proj, "case").messages]
+    assert any("has a Wheelbase of 0 m, so no load shifts" in t for t in texts), texts
 
 
 def test_the_slope_moves_load_to_the_rear():
