@@ -527,8 +527,8 @@ Each run ends as *success*, *warning*, *cancelled* or *failed*:
   are not judged; their summary rows still show it).
 - **success** — none of the above.
 
-A case's *Kind* is *Cycle* by default. Set it to *Performance* for an
-acceleration or top-speed test driven by a step in the target (for example
+A case's *Kind* is *Cycle* by default. Set it to *Performance* for a
+0-100 km/h or top-speed test driven by a step in the target (for example
 `0:100` from standstill): the Driver then holds full throttle until the
 car reaches the target and holds the target after that, as in a cycle; the
 trace is not judged, and the summary adds *Maximum speed* and *Time to …
@@ -536,6 +536,23 @@ km/h* (from t = 0 to where the speed first reaches the target's highest
 value, read at every solver step). When the car never reaches the target,
 Messages says so and there is no *Time to* row; a car that starts at the
 target or above has none either.
+
+Set it to *Acceleration* for a standing-start run over a distance, such as
+Formula Student's 75 m. Simulations → *Acceleration test* runs the first
+acceleration case, or adds one first: 75 m from a start line 0.30 m ahead
+with a 25 s limit (FS Rules 2026 v1.1 (FSG) D 5.1.1, D 5.2.4 and D 9.2.1,
+which sets the 25 s for driverless runs only; FSUK and FSAE may differ,
+check the current season's rules). The Driver holds full throttle the
+whole run and needs no Target Speed, and the run ends at the end of the
+solver step that reaches *Start line* + *Distance*. The summary leads with
+*Time to … m* from the start line and *Speed at … m*, both read inside
+that step, then the *Gap to reference time* (when one is set), *Time to
+100 km/h* from t = 0, each battery's peak and mean terminal power and the
+share of the run a driven wheel spent at the tyres' grip limit. The case
+*Duration* is the time limit, counted from rest: a car that has not
+reached the line by then gets a warning and no time. The results are
+estimates, and Messages, Run info and the summary header say so (see
+[Known issues and limits](docs/KNOWN-LIMITS.md)).
 
 Summary figures that a failed check makes meaningless are marked *not
 valid*, with the reason, in the results table:

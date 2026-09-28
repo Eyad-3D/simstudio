@@ -378,6 +378,7 @@ def simulate(
             summary.append(far)
         rows = [SummaryValue(label=label, value=v, unit=u, limit=lim, passed=ok)
                 for label, v, u, lim, ok in verdict.rows]
+        edge_rows |= {r.label for r in rows if r.unit == "%"}  # a test's time shares
         if ctx.full_throttle:  # an acceleration test's own figures come first
             summary[:0] = rows
         else:
@@ -426,11 +427,13 @@ def simulate(
                   else "warning" if has_warning else "success")
         rec_note = f", stored every {output_every}" if output_every > 1 else ""
         last_note = f", the last one {h_last:g} s" if steps and short_last else ""
+        n_steps = f"{steps}"
         if arrived:
+            n_steps = f"{step} of {steps}"  # the steps solved up to the line
             last_note = f", ended at {end_d:g} m driven at t = {times[-1]:g} s"
         rt.messages.insert(0, SimMessage(
             level="info",
-            text=f"Case '{case.name}' solved: {steps} steps × {dt_rec:g} s{last_note} "
+            text=f"Case '{case.name}' solved: {n_steps} steps × {dt_rec:g} s{last_note} "
                  f"({n_sub} sub-steps each), {len(times)} points recorded{rec_note}, "
                  f"{len(channels)} result channels.",
         ))

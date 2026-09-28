@@ -83,16 +83,18 @@ either. Also:
   run reports its *Maximum speed* and the *Time to* the target's highest
   value, timed from t = 0. That is a standing start only: there is no
   rolling start, no time between two speeds (such as 80-120 km/h) and no
-  second timed speed in one run. A case can end at a distance, but not at
-  a speed or a charge level.
+  second timed speed in one run. An acceleration case can end at a
+  distance, but no case can end at a speed or a charge level.
 - A case of kind *Acceleration* (or Simulations → *Acceleration test*,
   which adds a 75 m case staged 0.30 m behind the start line with a 25 s
   limit) is not judged on the band either: the Driver holds full throttle
   for the whole run and reads no target. The run ends at the end of the
   solver step that crosses the line, so its channels go up to one solver
   step (at most 10 ms, about 0.3 m) past it; the time and the speed at the
-  line are read inside that step. The case duration is the time limit: a
-  car that has not reached the line by then gets a warning. FS Rules 2026
+  line are read inside that step. The case duration is the time limit,
+  counted from rest (so it includes the drive up to the start line): a car
+  that has not reached the line by then gets a warning and no time, so the
+  time's *pass* can never read *fail*. FS Rules 2026
   v1.1 (FSG) D 9.2.1 disqualifies runs over 25 s in driverless runs only
   (a manual run is capped by the scoring); FSUK and FSAE may differ, and
   their staging distance was not checked. The results are estimates: the
@@ -101,7 +103,16 @@ either. Also:
   nothing limits wheelspin, so when the driven wheels are at their grip
   limit the tyre still gives μ times its load but the battery power and
   energy include the power that spins the wheels. The time at the grip
-  limit counts driven wheels only; there is no peak-slip figure. Without a
+  limit counts driven wheels only; there is no peak-slip figure. The time
+  and that share follow the solver step when the driveline rings (see *A
+  closing clutch can ring* and *Stiff settings* below), and nothing warns:
+  at the 10 ms step the P2 Hybrid Car's slipping clutch rings in second
+  gear and pushes its driven wheels to the grip limit both ways, so its
+  75 m takes 6.474 s against 6.344 s at 1 ms (2 % slower) and it is at
+  the grip limit 7.3 % of the run against 0 %; a *Step* of 0.002 s gives
+  6.345 s and 0 %. A too-stiff tyre can even beat a slip-free car: the
+  Battery Electric Car at a *Slip Stiffness* of 1000 gives 5.015 s,
+  faster than a slip-free point mass's 5.172 s. Without a
   Driver, or with a Script between the Driver and the motors, full
   throttle is only what that model makes of an accelerator pedal of 1:
   Data Checks do not check it.

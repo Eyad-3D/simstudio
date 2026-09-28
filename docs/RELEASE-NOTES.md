@@ -132,7 +132,8 @@ sections.
 - Acceleration test: a case *Kind* of *Acceleration*, with a *Distance*,
   a *Start line* and a *Reference time*. The Driver holds full throttle
   the whole run with no target, and the run ends at the end of the solver
-  step that reaches the line (any case can end at a distance). The summary
+  step that reaches the line; Data Checks ask for a Target Speed only
+  when a case reads one. The summary
   leads with *Time to 75 m* (from the start line, with *pass* and the case
   duration as its limit), *Speed at 75 m*, *Gap to reference time*,
   *Time to 100 km/h* (from t = 0), each battery's peak and mean terminal

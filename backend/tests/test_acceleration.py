@@ -10,9 +10,11 @@ behind it (D 5.2.4)."""
 import bisect
 
 import pytest
+from fastapi.testclient import TestClient
 from helpers import bev_axle, conn, el, series
 
 from app.library import load_library
+from app.main import app
 from app.solver import simulate
 from app.solver.maps import parse_table2d
 from app.solver.network import build_model
@@ -130,8 +132,8 @@ def _fs_car(mu=1.5, target=False, step=0.01):
 def test_a_75_m_run_without_slip_matches_a_point_mass():
     """The item's metric: with the tyres' grip made unlimited (μ 100, slip
     stiffness 100, at a 1 ms step) the timed 75 m matches a hand-integrated
-    point mass within 1 % (measured +0.12 %), and so does the speed at the
-    line (−0.23 %). At 100 % SOC the terminal voltage stays at or above
+    point mass within 1 % (measured +0.10 %), and so does the speed at the
+    line (−0.18 %). At 100 % SOC the terminal voltage stays at or above
     330 V, where the motor's full-load rows are the same."""
     ov = {w: {"mu": 100.0, "slip_stiffness": 100.0} for w in WHEELS}
     ov["el-battery"] = {"initial_soc_pct": 100.0}
@@ -164,7 +166,8 @@ def test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step():
     assert s["Simulated duration"].value < 5.6
     assert s["Time to 75 m"].limit == 25.0 and s["Time to 75 m"].passed is True
     assert fine.status == "success", [m.text for m in fine.messages]
-    assert any(m.level == "info" and "ended at 75 m driven at t = 5.53 s" in m.text
+    assert any(m.level == "info" and "solved: 553 of 2500 steps × 0.01 s, ended at 75 m "
+               "driven at t = 5.53 s" in m.text
                for m in fine.messages)
 
     perf = load_example("bev-car")
@@ -205,6 +208,22 @@ def test_full_throttle_needs_no_target():
     s = _rows(result)
     assert s["Time to 100 km/h"].value == pytest.approx(3.99, abs=0.05)
     assert s["Time to 75 m"].value == pytest.approx(4.300, abs=0.01)
+
+
+def test_the_app_runs_an_acceleration_test_without_a_target():
+    """Data Checks ask for a Target Speed only when a case reads one: the
+    target-less car runs through the app while its only case is an
+    acceleration test, and is refused once it has a cycle case too."""
+    proj = _fs_car()
+    client = TestClient(app)
+    ran = client.post("/api/simulate", json={"project": proj.model_dump(), "caseId": "case"}).json()
+    assert ran["status"] == "success", ran["messages"]
+    proj.cases.append(proj.cases[0].model_copy(update={"id": "cycle", "kind": "cycle",
+                                                       "endDistance": None}))
+    refused = client.post("/api/simulate",
+                          json={"project": proj.model_dump(), "caseId": "case"}).json()
+    assert refused["status"] == "failed"
+    assert any("has no Target Speed signal" in m["text"] for m in refused["messages"])
 
 
 def test_missing_the_line_within_the_time_limit_is_a_warning():

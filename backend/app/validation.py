@@ -505,7 +505,9 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
     drv = model.driver
     if drv is not None:
         label = elements[drv].label
-        if (drv, "sig_target_in") not in route:
+        # an acceleration test holds full throttle and reads no target
+        if ((drv, "sig_target_in") not in route
+                and any(c.kind != "acceleration" for c in project.cases)):
             err(drv, f"Driver '{label}' has no Target Speed signal — it will hold 0 km/h, "
                      f"so the vehicle will not move.")
         if demands & route.keys() and not commanded(drv) & demands:
