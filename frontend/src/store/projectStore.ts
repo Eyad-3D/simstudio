@@ -362,7 +362,10 @@ export interface ProjectState {
     targetPortId: string,
     replaceId?: string,
   ) => void;
-  addDataBus: (el1: string, p1: string, el2: string, p2: string) => void;
+  /** Link a signal output to an input; with `replaceId`, the new link takes
+   *  that one's place in the same undo step. A link between two inputs or two
+   *  outputs is refused with the reason. */
+  addDataBus: (el1: string, p1: string, el2: string, p2: string, replaceId?: string) => void;
   removeDataBus: (id: string) => void;
   renameSystem: (systemId: string, name: string) => void;
 
@@ -1123,7 +1126,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       });
     },
 
-    addDataBus: (el1, p1, el2, p2) => {
+    addDataBus: (el1, p1, el2, p2, replaceId) => {
       const { project, libraryById, log } = get();
       if (!project) return;
       const elements = project.systems.flatMap((s) => s.elements);
@@ -1138,18 +1141,20 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
       if (port1.direction === port2.direction) {
         log(
-          "warning",
-          `Data bus: '${e1.label}.${port1.name}' and '${e2.label}.${port2.name}` +
-            `' are both ${port1.direction}s — connection added, but no data will flow.`,
+          "error",
+          `'${e1.label} · ${port1.name}' and '${e2.label} · ${port2.name}' are both ${port1.direction}s: ` +
+            "a signal runs from an output to an input, so no data would flow. Not connected.",
         );
+        return;
       }
-      const dup = project.dataBusConnections.some(
+      const dup = project.dataBusConnections.find(
         (d) =>
           (d.element1Id === el1 && d.port1Id === p1 && d.element2Id === el2 && d.port2Id === p2) ||
           (d.element1Id === el2 && d.port1Id === p2 && d.element2Id === el1 && d.port2Id === p1),
       );
       if (dup) {
-        log("info", "This data bus connection already exists.");
+        // picking the source an input already has changes nothing
+        if (dup.id !== replaceId) log("info", "This data bus connection already exists.");
         return;
       }
       // an input takes one signal (the engine would silently keep only the
@@ -1160,7 +1165,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           : port2.direction === "output" && port1.direction !== "output"
             ? [e1, port1]
             : [null, null];
-      const existing = inEl && inPort && signalSourceOf(project, libraryById, inEl.id, inPort.id);
+      const rest = replaceId
+        ? { ...project, dataBusConnections: project.dataBusConnections.filter((d) => d.id !== replaceId) }
+        : project;
+      const existing = inEl && inPort && signalSourceOf(rest, libraryById, inEl.id, inPort.id);
       if (inEl && inPort && existing) {
         log(
           "error",
@@ -1170,6 +1178,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         return;
       }
       updateProject((draft) => {
+        if (replaceId) draft.dataBusConnections = draft.dataBusConnections.filter((d) => d.id !== replaceId);
         draft.dataBusConnections.push({
           id: uid("dbc"),
           element1Id: el1,
@@ -1178,7 +1187,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           port2Id: p2,
         });
       });
-      log("info", `Data bus: '${e1.label}.${port1.name}' ↔ '${e2.label}.${port2.name}' connected.`);
+      const end = (e: ElementInstance, p: PortDef) => `${e.label} · ${p.name}`;
+      const [from, to] =
+        port1.direction === "output" ? [end(e1, port1), end(e2, port2)] : [end(e2, port2), end(e1, port1)];
+      log("info", `Data bus: ${from} → ${to} connected.`);
     },
 
     removeDataBus: (id) =>

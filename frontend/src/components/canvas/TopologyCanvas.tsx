@@ -19,6 +19,7 @@ import {
 import {
   Bookmark,
   BoxSelect,
+  Cable,
   ChevronRight,
   ClipboardPaste,
   Copy,
@@ -1033,6 +1034,18 @@ function TopologyCanvasInner() {
                     }).then((name) => {
                       if (name != null && name.trim()) store.getState().renameElement(id, name.trim());
                     });
+                  }}
+                />
+                <MenuBtn
+                  icon={Cable}
+                  label="Signals…"
+                  onClick={() => {
+                    // its signal inputs and outputs in Data Bus Connections
+                    store.getState().select(menu.nodeId!);
+                    const ui = useUIStore.getState();
+                    ui.setBusSelectedOnly(true);
+                    ui.focusPanel("data-bus");
+                    closeMenu();
                   }}
                 />
                 <div className="my-1 h-px bg-[color:var(--ss-border)]" />

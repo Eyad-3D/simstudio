@@ -793,6 +793,38 @@ describe("elements and wiring", () => {
     ]);
   });
 
+  it("refuses a signal link between two inputs or two outputs and says why (UX-15)", async () => {
+    await start();
+    store().addElement("mech.brake", { x: 0, y: 0 });
+    const brake = findElement(store().selectedElementId!)!;
+    store().addDataBus("el-motor", "sig_demand_in", brake.id, "sig_demand_in");
+    store().addDataBus("el-const", "sig_out", "el-bat", "sig_soc");
+    expect(store().project!.dataBusConnections).toEqual([]);
+    const why = "a signal runs from an output to an input, so no data would flow. Not connected.";
+    expect(messages()).toContain(
+      `error: 'Motor · Traction Command' and '${brake.label} · Brake Command' are both inputs: ${why}`,
+    );
+    expect(messages()).toContain(`error: 'Demand · Output' and 'Battery · SOC' are both outputs: ${why}`);
+  });
+
+  it("swaps an input's source in one undo step; picking its source again changes nothing (UX-15)", async () => {
+    await start();
+    store().addDataBus("el-const", "sig_out", "el-motor", "sig_demand_in");
+    const [link] = store().project!.dataBusConnections;
+    const steps = store().past.length;
+    store().addDataBus("el-bat", "sig_soc", "el-motor", "sig_demand_in", link.id);
+    expect(store().project!.dataBusConnections).toEqual([
+      expect.objectContaining({ element1Id: "el-bat", port1Id: "sig_soc", element2Id: "el-motor" }),
+    ]);
+    expect(store().past).toHaveLength(steps + 1);
+    expect(messages()).toContain("info: Data bus: Battery · SOC → Motor · Traction Command connected.");
+    store().undo();
+    expect(store().project!.dataBusConnections).toEqual([link]);
+    store().addDataBus("el-motor", "sig_demand_in", "el-const", "sig_out", link.id);
+    expect(store().project!.dataBusConnections).toEqual([link]);
+    expect(store().past).toHaveLength(steps);
+  });
+
   it("removes wires and data-bus links by id, undoably", async () => {
     await start();
     store().addConnection("el-const", "sig_out", "el-motor", "sig_demand_in");

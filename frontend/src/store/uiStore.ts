@@ -97,6 +97,9 @@ interface UIState {
    *  the diagram to them, opening the sub-system they are in. */
   revealElements: ((ids: string[]) => void) | null;
   setRevealElements: (fn: ((ids: string[]) => void) | null) => void;
+  /** Data Bus Connections: list only the selected part's signals. */
+  busSelectedOnly: boolean;
+  setBusSelectedOnly: (on: boolean) => void;
 
   /** Live-value overlay chips on canvas nodes (fed from the live run stream). */
   showLiveValues: boolean;
@@ -160,6 +163,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   setInsertComponent: (fn) => set({ insertComponent: fn }),
   revealElements: null,
   setRevealElements: (fn) => set({ revealElements: fn }),
+  busSelectedOnly: false,
+  setBusSelectedOnly: (on) => set({ busSelectedOnly: on }),
 
   showLiveValues: true,
   toggleLiveValues: () => set((s) => ({ showLiveValues: !s.showLiveValues })),
