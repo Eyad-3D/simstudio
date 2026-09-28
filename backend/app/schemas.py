@@ -64,6 +64,30 @@ class ParameterDef(BaseModel):
     # FMI-style variability: "fixed" parameters are baked in at model build
     # (a live edit takes effect on the next run); "tunable" ones apply live.
     variability: Literal["fixed", "tunable"] = "tunable"
+    # Help (LRN-05): what it is in plain words, the usual values (per kind of
+    # vehicle where that matters) and where to find the real number.
+    description: Optional[str] = None
+    typical: Optional[str] = None
+    whereToFind: Optional[str] = None
+    # Hard limits of a number, named as in JSON Schema: a value outside them
+    # is a Data Check error and turns the field red as it is typed (UX-10).
+    minimum: Optional[float] = None
+    exclusiveMinimum: Optional[float] = None
+    maximum: Optional[float] = None
+
+    def range_problem(self, value: float) -> Optional[str]:
+        """Why `value` breaks the limits ("must be above 0 and at most 100 %"),
+        or None. frontend/src/paramRules.ts words it the same way."""
+        low, above, high = self.minimum, self.exclusiveMinimum, self.maximum
+        if ((low is None or value >= low) and (above is None or value > above)
+                and (high is None or value <= high)):
+            return None
+        parts = ([f"above {above:g}"] if above is not None
+                 else [f"at least {low:g}"] if low is not None else [])
+        if high is not None:
+            parts.append(f"at most {high:g}")
+        unit = "" if self.unit == "-" else f" {self.unit}"
+        return f"must be {' and '.join(parts)}{unit}"
 
 
 class ComponentDef(BaseModel):

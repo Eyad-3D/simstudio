@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from helpers import bev_axle, conn, dbc, el, project
 from test_broken_models import EXAMPLES, faults
 
+from app.library import load_library
 from app.main import app
 from app.schemas import Connection, Project
 from app.storage import load_example
@@ -196,9 +197,12 @@ def test_implausible_parameters_are_warned_about(element, key, value, expected):
 
 
 @pytest.mark.parametrize("key, value, expected", [
-    ("coulombic_efficiency_pct", 0, "Coulombic efficiency of 'HV Battery Pack' must be in (0, 100]"),
-    ("coulombic_efficiency_pct", 101, "Coulombic efficiency of 'HV Battery Pack' must be in (0, 100]"),
-    ("capacity_Ah", -1, "Charge capacity of 'HV Battery Pack' must be in (-0.001, 100000]"),
+    ("coulombic_efficiency_pct", 0,
+     "Coulombic Efficiency of 'HV Battery Pack' must be above 0 and at most 100 % — got 0."),
+    ("coulombic_efficiency_pct", 101,
+     "Coulombic Efficiency of 'HV Battery Pack' must be above 0 and at most 100 % — got 101."),
+    ("capacity_Ah", -1,
+     "Charge Capacity of 'HV Battery Pack' must be at least 0 and at most 100000 Ah — got -1."),
     ("capacity_Ah", 0, None),
 ])
 def test_battery_charge_parameters_are_range_checked(key, value, expected):
@@ -280,12 +284,43 @@ def _with_ambients(*values):
     ([(293.15, 101.325)], [("warning", "'Ambient 0' has a temperature of 293.15 °C (-60 to 60 °C "
                                        "is usual), which gives the Vehicle's drag an air density "
                                        "of 0.623 kg/m³ — check the value and its unit.")]),
-    ([(20, 0)], [("error", "'Ambient 0' has a non-positive pressure.")]),
-    ([(-300, 101.325)], [("error", "Temperature of 'Ambient 0' must be in (-273.15, 1000] — "
-                                   "got -300.")]),
+    ([(20, 0)], [("error", "Pressure of 'Ambient 0' must be above 0 kPa — got 0.")]),
+    ([(-300, 101.325)], [("error", "Temperature of 'Ambient 0' must be above -273.15 and at most "
+                                   "1000 °C — got -300.")]),
 ])
 def test_ambient_checks(values, expected):
     assert _with_ambients(*values) == expected
+
+
+# ---- UX-10 / LRN-05: the catalogue's limits are the ones Data Checks use -----------
+
+LIMITED = [(c.id, p) for c in load_library() for p in c.parameters
+           if p.type == "number" and (p.minimum, p.exclusiveMinimum, p.maximum) != (None,) * 3]
+
+
+def _range_errors(cid: str, key: str, value) -> list[str]:
+    proj = project([el("x", cid, "X", **{key: value})], [], [])
+    return [c.text for c in validate_project(proj) if c.level == "error" and " of 'X' " in c.text]
+
+
+@pytest.mark.parametrize("cid, pdef", LIMITED, ids=[f"{c}.{p.key}" for c, p in LIMITED])
+def test_every_catalog_limit_is_checked(cid, pdef):
+    """A value just outside a parameter's limits in components.json is one
+    error that says what is allowed; the edges and the default are fine."""
+    outside, edges = [], [pdef.minimum, pdef.maximum]
+    if pdef.exclusiveMinimum is not None:
+        outside.append(pdef.exclusiveMinimum)
+    if pdef.minimum is not None:
+        outside.append(pdef.minimum - 0.0001)
+    if pdef.maximum is not None:
+        outside.append(pdef.maximum + 1)
+    name = pdef.label.split(" (")[0]
+    for v in outside:
+        assert _range_errors(cid, pdef.key, v) == [
+            f"{name} of 'X' {pdef.range_problem(v)} — got {v:g}."]
+    for v in (pdef.default, *(e for e in edges if e is not None)):
+        assert _range_errors(cid, pdef.key, v) == []
+    assert _range_errors(cid, pdef.key, "abc") == [f"{name} of 'X' is not a number."]
 
 
 # ---- UX-09: every problem names its parts and says what to do ---------------------

@@ -52,7 +52,8 @@
           "label": "Vehicle Mass",
           "unit": "kg",
           "default": 1800,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "cd",
@@ -187,7 +188,9 @@
           "label": "Recuperation Weight",
           "unit": "%",
           "default": 80,
-          "type": "number"
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
         }
       ]
     },
@@ -253,7 +256,8 @@
           "label": "Usable Capacity",
           "unit": "kWh",
           "default": 60,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "capacity_Ah",
@@ -261,7 +265,9 @@
           "label": "Charge Capacity (0 = from Usable Capacity)",
           "unit": "Ah",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100000
         },
         {
           "key": "coulombic_efficiency_pct",
@@ -269,7 +275,9 @@
           "label": "Coulombic Efficiency (charging)",
           "unit": "%",
           "default": 100,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100
         },
         {
           "key": "ocv_table",
@@ -324,14 +332,18 @@
           "label": "Initial SOC",
           "unit": "%",
           "default": 90,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100
         },
         {
           "key": "min_soc_pct",
           "label": "Minimum SOC",
           "unit": "%",
           "default": 10,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100
         }
       ]
     },
@@ -515,7 +527,8 @@
           "label": "Maximum Speed (0 = full-load curve's last point)",
           "unit": "1/min",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "inertia_kgm2",
@@ -530,7 +543,9 @@
           "label": "Generator Torque Limit Scale",
           "unit": "%",
           "default": 100,
-          "type": "number"
+          "type": "number",
+          "minimum": 0,
+          "maximum": 200
         }
       ]
     },
@@ -613,7 +628,9 @@
           "label": "Conversion Efficiency",
           "unit": "%",
           "default": 97,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100
         },
         {
           "key": "output_voltage_V",
@@ -865,7 +882,9 @@
           "label": "Mechanical Efficiency",
           "unit": "%",
           "default": 100,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100
         },
         {
           "key": "inertia_kgm2",
@@ -923,7 +942,8 @@
           "label": "Transmission Ratio",
           "unit": "-",
           "default": 9.7,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "inertia_in_kgm2",
@@ -947,7 +967,9 @@
           "label": "Efficiency",
           "unit": "%",
           "default": 97,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100
         }
       ]
     },
@@ -1019,7 +1041,8 @@
           "label": "Ratio",
           "unit": "-",
           "default": 1.0,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "efficiency_pct",
@@ -1027,7 +1050,9 @@
           "label": "Efficiency",
           "unit": "%",
           "default": 98,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100
         },
         {
           "key": "inertia_kgm2",
@@ -1141,7 +1166,8 @@
           "label": "Wheel Radius",
           "unit": "m",
           "default": 0.33,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "inertia_kgm2",
@@ -1156,7 +1182,9 @@
           "label": "Vehicle Load Share",
           "unit": "%",
           "default": 25,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100
         },
         {
           "key": "mu",
@@ -1385,7 +1413,8 @@
           "label": "Sample Time (0 = solver step)",
           "unit": "s",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       ]
     },
@@ -1423,14 +1452,17 @@
           "label": "Temperature",
           "unit": "°C",
           "default": 20,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": -273.15,
+          "maximum": 1000
         },
         {
           "key": "pressure_kPa",
           "label": "Pressure",
           "unit": "kPa",
           "default": 101.325,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         }
       ]
     },
@@ -1622,7 +1654,9 @@
           "label": "Initial Fill",
           "unit": "%",
           "default": 90,
-          "type": "number"
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
         },
         {
           "key": "density_kg_per_l",
@@ -1717,7 +1751,9 @@
           "label": "Efficiency",
           "unit": "%",
           "default": 97,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100
         },
         {
           "key": "inertia_in_kgm2",
@@ -1861,7 +1897,9 @@
           "label": "Torque Split to Output A",
           "unit": "%",
           "default": 50,
-          "type": "number"
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
         },
         {
           "key": "ratio",
@@ -1869,7 +1907,8 @@
           "label": "Ratio",
           "unit": "-",
           "default": 1.0,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "efficiency_pct",
@@ -1877,7 +1916,9 @@
           "label": "Efficiency",
           "unit": "%",
           "default": 98,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100
         },
         {
           "key": "inertia_kgm2",
@@ -2017,7 +2058,9 @@
           "label": "Initial Fill",
           "unit": "%",
           "default": 95,
-          "type": "number"
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
         }
       ]
     },
@@ -2057,7 +2100,14 @@
         { "key": "kd", "label": "Derivative Gain", "unit": "s", "default": 0, "type": "number" },
         { "key": "out_min", "label": "Output Minimum", "unit": "-", "default": -1, "type": "number" },
         { "key": "out_max", "label": "Output Maximum", "unit": "-", "default": 1, "type": "number" },
-        { "key": "sample_time_s", "label": "Sample Time (0 = solver step)", "unit": "s", "default": 0, "type": "number" }
+        {
+          "key": "sample_time_s",
+          "label": "Sample Time (0 = solver step)",
+          "unit": "s",
+          "default": 0,
+          "type": "number",
+          "minimum": 0
+        }
       ]
     },
     {
@@ -2120,7 +2170,14 @@
           ],
           "default": { "0": { "0": 0, "1": 0 }, "1": { "0": 0, "1": 1 } }
         },
-        { "key": "sample_time_s", "label": "Sample Time (0 = solver step)", "unit": "s", "default": 0, "type": "number" }
+        {
+          "key": "sample_time_s",
+          "label": "Sample Time (0 = solver step)",
+          "unit": "s",
+          "default": 0,
+          "type": "number",
+          "minimum": 0
+        }
       ]
     },
     {

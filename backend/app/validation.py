@@ -16,7 +16,7 @@ from collections import defaultdict
 from typing import Callable, Iterable
 
 from .library import library_by_id
-from .schemas import DataCheck, ElementInstance, Project
+from .schemas import DataCheck, ElementInstance, ParameterDef, Project
 from .solver import (
     Model,
     ModelError,
@@ -41,33 +41,6 @@ from .solver.network import (
     ports_of,
 )
 from .solver.runtime import AMBIENT_C, AMBIENT_KPA, air_density
-
-# param key → (label, min exclusive, max inclusive)
-NUMERIC_RANGES: dict[str, tuple[str, float, float]] = {
-    "efficiency_pct": ("Efficiency", 0.0, 100.0),
-    "initial_soc_pct": ("Initial SOC", 0.0, 100.0),
-    "min_soc_pct": ("Minimum SOC", 0.0, 100.0),
-    "regen_weight_pct": ("Recuperation weight", -0.001, 100.0),
-    "q4_torque_scale_pct": ("Generator torque scale", -0.001, 200.0),
-    "vehicle_load_share_pct": ("Vehicle load share", 0.0, 100.0),
-    "torque_split_a_pct": ("Torque split", -0.001, 100.0),
-    "initial_fill_pct": ("Initial fill", -0.001, 100.0),
-    "coulombic_efficiency_pct": ("Coulombic efficiency", 0.0, 100.0),
-    "capacity_Ah": ("Charge capacity", -0.001, 1e5),
-    "temperature_C": ("Temperature", -273.15, 1000.0),
-    "max_speed_rpm": ("Maximum speed", -0.001, math.inf),
-    "road_load_a_N": ("Road load A", -math.inf, math.inf),
-    "road_load_b_N_per_kmh": ("Road load B", -math.inf, math.inf),
-    "road_load_c_N_per_kmh2": ("Road load C", -math.inf, math.inf),
-}
-
-POSITIVE_PARAMS = {
-    "capacity_kWh": "capacity",
-    "mass_kg": "mass",
-    "radius_m": "wheel radius",
-    "ratio": "transmission ratio",
-    "pressure_kPa": "pressure",
-}
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
 PROPULSION = {
@@ -94,6 +67,27 @@ Add = Callable[..., None]
 # this their sampling starts to shape the results (real vehicle controllers
 # run every 10-100 ms).
 COARSE_SAMPLE_TIME_S = 0.1
+
+
+def _as_number(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _name(pdef: ParameterDef) -> str:
+    """A parameter's label without its note: 'Charge Capacity (0 = …)'."""
+    return pdef.label.split(" (")[0]
+
+
+def _number_problem(pdef: ParameterDef, value) -> str | None:
+    """What is wrong with a number parameter's value, in words, or None."""
+    v = _as_number(value)
+    if v is None:
+        return "is not a number"
+    problem = pdef.range_problem(v) if math.isfinite(v) else "must be a finite number"
+    return f"{problem} — got {v:g}" if problem else None
 
 
 def validate_project(project: Project) -> list[DataCheck]:
@@ -241,24 +235,9 @@ def validate_project(project: Project) -> list[DataCheck]:
             continue
         params = {p.key: p.default for p in cdef.parameters}
         params.update(el.parameterOverrides)
-        pdef_by_key = {p.key: p for p in cdef.parameters}
-
-        for key, (label, lo, hi) in NUMERIC_RANGES.items():
-            if key in params and pdef_by_key.get(key) and pdef_by_key[key].type == "number":
-                try:
-                    val = float(params[key])  # type: ignore[arg-type]
-                except (TypeError, ValueError):
-                    add("error", f"{label} of '{el.label}' is not a number.", el)
-                    continue
-                if not (lo < val <= hi):
-                    add("error", f"{label} of '{el.label}' must be in ({lo:g}, {hi:g}] — got {val:g}.", el)
-        for key, label in POSITIVE_PARAMS.items():
-            if key in params and pdef_by_key.get(key) and pdef_by_key[key].type == "number":
-                try:
-                    if float(params[key]) <= 0:  # type: ignore[arg-type]
-                        add("error", f"'{el.label}' has a non-positive {label}.", el)
-                except (TypeError, ValueError):
-                    add("error", f"'{el.label}': {label} is not a number.", el)
+        for pdef in cdef.parameters:  # number limits, from the catalogue
+            if pdef.type == "number" and (problem := _number_problem(pdef, params[pdef.key])):
+                add("error", f"{_name(pdef)} of '{el.label}' {problem}.", el)
 
         for pdef in cdef.parameters:
             value = params.get(pdef.key)
@@ -284,21 +263,12 @@ def validate_project(project: Project) -> list[DataCheck]:
                                                  and not params.get("cycle")):
             for level, text in profile_problems(str(params.get("profile", ""))):
                 add(level, f"'{el.label}' profile: {text}.", el)
-        if "sample_time_s" in pdef_by_key:
-            try:
-                ts = float(params.get("sample_time_s", 0) or 0)  # type: ignore[arg-type]
-            except (TypeError, ValueError):
-                add("error", f"Sample Time of '{el.label}' is not a number.", el)
-            else:
-                if not math.isfinite(ts):
-                    add("error", f"Sample Time of '{el.label}' must be a finite number — got {ts:g}.", el)
-                elif ts < 0:
-                    add("error", f"Sample Time of '{el.label}' must not be negative — got {ts:g} s.", el)
-                elif ts > COARSE_SAMPLE_TIME_S:
-                    add("warning",
-                        f"'{el.label}' runs only every {ts:g} s (its Sample Time); real vehicle "
-                        f"controllers run every 10-100 ms, so results may depend on this "
-                        f"setting.", el)
+        ts = _as_number(params.get("sample_time_s", 0))  # a wrong one is an error above
+        if ts is not None and COARSE_SAMPLE_TIME_S < ts < math.inf:
+            add("warning",
+                f"'{el.label}' runs only every {ts:g} s (its Sample Time); real vehicle "
+                f"controllers run every 10-100 ms, so results may depend on this "
+                f"setting.", el)
 
     # -- structural solvability (delegated to model extraction) ------------------
     model = None
