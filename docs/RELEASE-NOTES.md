@@ -91,6 +91,12 @@ sections.
   a negative coefficient A or C (a warning: it pushes the car along); a
   road-load coefficient that is not a number or a negative Maximum Speed
   (errors).
+- The diagram's toolbar shows the zoom in % and offers Fit, 50, 100 and
+  200 %. It floats over the diagram's top edge, and the bottom panels open
+  at 22 % of the workspace instead of 30 % (drag their edge for more), so
+  on a 1366 × 768 screen the diagram keeps 40 % of the window with a panel
+  open (was 33 %). A layout you saved keeps its panel height until Reset
+  UI. (GUI-03)
 
 ### Fixed
 
@@ -154,6 +160,21 @@ sections.
 - The Signal Plot below the diagram follows a paced (live) run while it
   runs; before, it stayed on the run's first point until the run ended.
   (RES-03)
+- Text, field borders, wires and chart lines meet the WCAG AA contrast
+  minimum in both themes (4.5:1 for text, 3:1 for the rest). Before, grey,
+  amber and red status text in the light theme, the white-on-blue LightSim
+  title, Run and Save buttons and the green and red status text in the
+  dark theme, text fields' borders, the electrical wires on white, the
+  mechanical wires on the dark diagram and three of the ten chart colours
+  on dark charts were too faint. Status colours, the accent and field borders now have a
+  shade per theme, and wires, part outlines, layer swatches and port dots
+  share one set of domain colours. (GUI-02)
+- Part names are never smaller than 11 px on screen, whatever the zoom;
+  before, they shrank with the diagram (7 px when a 1366 × 768 window was
+  fitted, under 2 px zoomed all the way out). Until you zoom or pan, the
+  diagram also re-fits when a bottom panel closes or the window grows;
+  before, it re-fitted only when it got smaller. Fits leave room for the
+  names under the lowest parts. (GUI-03)
 
 ### Upgrading from a 0.2.0 build
 

@@ -316,10 +316,13 @@ minimum or an average, for example from the CSV export.
   goes at full speed, which makes that run about 20 % faster; a paced (live)
   run hardly uses it. A coarser case step does not make a run faster: the
   solver steps every 10 ms whatever it is. *Roadmap:* ENG-10.
-- **Some colours are too faint in the dark theme.** The ribbon title, the
-  Run button, the status bar's "backend connected" and "success" in the log
-  fall short of the WCAG AA contrast minimum. Switch to the light theme if
-  they are hard to read. *Roadmap:* GUI-02.
+- **Part names can overlap when the diagram is zoomed out.** Names keep
+  their 11 px on screen however far you zoom out, so neighbours' names run
+  into each other: on the Battery Electric Car one pair at 53 %, seven at 39 % and
+  all of them at the 15 % minimum. Zoom in, or use the minimap to find a
+  part. In the smallest window (1024 × 700) with a bottom panel open, two
+  of its lowest names are cut off, because automatic fits stop at 50 %:
+  close the panel or zoom out. *Roadmap:* GUI-10.
 - **Unsigned installers.** Windows SmartScreen warns on first launch (choose
   *More info → Run anyway*). *Roadmap:* PLT-13.
 - **No macOS version.** Builds exist for Windows 10/11 (x64) and Linux (x64)

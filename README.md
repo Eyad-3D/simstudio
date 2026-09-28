@@ -52,7 +52,7 @@ Differential).
 
 | Area | What works |
 |---|---|
-| **Topology builder** | Drag components from the searchable library tree onto a React Flow canvas, or add one with Enter, a double-click or click-to-place; connect ports (kind-checked), pan/zoom, multi-select, delete, undo/redo (Ctrl+Z / Ctrl+Y), minimap toggle |
+| **Topology builder** | Drag components from the searchable library tree onto a React Flow canvas, or add one with Enter, a double-click or click-to-place; connect ports (kind-checked), pan/zoom with a zoom readout (Fit / 50 / 100 / 200 %) and part names that stay readable at any zoom, multi-select, delete, undo/redo (Ctrl+Z / Ctrl+Y), minimap toggle |
 | **Component library** | Declarative catalog in `backend/app/library/components.json` with mandatory units on every parameter (dimensionless = `-`) and first-class lookup tables (`table1d` / `table2d`, dict-keyed by the independent variable) |
 | **Dynamic solver** | Causal multi-pass solver with real states: vehicle speed integrates from net tire force, per-wheel speeds with a longitudinal slip tire model, battery SOC from an equivalent-circuit model, semi-implicit Euler with solver steps of at most 10 ms. Controllers, scripts, the drive cycle, gear choice and the physics all run at every solver step (Script, PID and Lookup blocks can be given a slower *Sample Time*), and motors are held to what their battery, fuel cell or voltage source can supply. The case time step only sets how often results are stored (see [Solver](#solver)) |
 | **Differential** | Locked/unlocked with genuinely different dynamics: unlocked = equal torque split with free output speeds (one wheel on ice spins up), locked = common speed with grip-dependent emergent torque split |
