@@ -329,6 +329,18 @@ minimum or an average, for example from the CSV export.
 - **A few small marks are still faint.** The warning badge on a part, and
   the pin outlines and polarity marks in the dark theme, fall short of the
   WCAG contrast minimum. *Roadmap:* GUI-14.
+- **Run warnings find their part by its name.** The Problems list shows the
+  latest run's warnings and errors, and a row selects the part whose name
+  the message quotes. A part renamed after the run is missed, parts that
+  share a name are all selected, and some messages name no part (*Cycle
+  not followed*). A run's rows stay until the next run, even once the
+  model is fixed. *Roadmap:* VAL-10.
+- **Signals are linked one at a time.** Data Bus Connections has no
+  "connect to all Brakes" or "connect by matching names" yet, and signals
+  are not drawn on the diagram: pick each input's source in its row (two
+  clicks). In a 1366 × 768 window the bottom panel shows two rows at a
+  time; drag its top edge up to see more. *Roadmap:* UX-15 (follow-up),
+  UX-11.
 - **Unsigned installers.** Windows SmartScreen warns on first launch (choose
   *More info → Run anyway*). *Roadmap:* PLT-13.
 - **No macOS version.** Builds exist for Windows 10/11 (x64) and Linux (x64)

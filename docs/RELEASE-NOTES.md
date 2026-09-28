@@ -98,6 +98,22 @@ sections.
   open (was 33 %). LightSim remembers the height of a bottom panel you
   opened in an earlier build; choose Reset UI to get the new layout.
   (GUI-03)
+- A *Problems* tab (was *Data Checks*) lists every problem the model has
+  now: the Data Checks, which run by themselves a moment after a project
+  opens and after every change (before, only once you had run them), and
+  the latest run's warnings and errors. Each row names its parts and says
+  how to fix it. A click, or Enter, selects the part and zooms the diagram
+  to it, opening the sub-system it is in; a check about the whole model,
+  such as two Vehicles or wheel load shares, selects every part involved
+  (before, it named none). The Problems tab carries the count; Messages is
+  the log and no longer does. (UX-09)
+- Data Bus Connections lists one row per signal input: pick the output
+  that feeds it in a box you can type in, which offers outputs only, those
+  with the input's unit first. A link takes two clicks (the Battery
+  Electric Car's 13 links: 26 clicks, before 65). It has a search box,
+  *Unconnected inputs* and *Selected part* filters, and a part's
+  right-click menu has *Signals…*, which opens the panel on that part.
+  (UX-15)
 
 ### Fixed
 
@@ -158,6 +174,12 @@ sections.
   Checks, instead of every error ever logged, which never cleared. Once a
   model has been checked, its checks, the error count and the red badges
   on parts follow it as you edit. (UX-09)
+- The Data Checks summary in Messages is information, not an error, and
+  reads "1 error, 0 warnings" instead of "1 error(s), 0 warning(s)"; before,
+  Messages kept counting it after the model was fixed. (UX-09)
+- A signal link between two inputs or two outputs is refused with the
+  reason; before, it was added with a warning and passed no data. Links
+  are logged as "from → to" instead of "↔". (UX-15)
 - The Signal Plot below the diagram follows a paced (live) run while it
   runs; before, it stayed on the run's first point until the run ended.
   (RES-03)
@@ -203,6 +225,10 @@ sections.
   project with several Ambients runs, with a warning, on the first one.
 - Runs you stopped in 0.2.0 keep their *warning* status and their
   *stopped at t = …* note. Cases load as kind *Cycle*.
+- The *Data Checks* tab is now *Problems*; a saved layout keeps it where it
+  was. A signal link between two inputs or two outputs saved by an earlier
+  build still loads: Data Bus Connections shows it in amber with a remove
+  button, and Data Checks still report it.
 - Going back to 0.2.0: it cannot open a project with a study point that
   says *cancelled*. It still lists and opens stored runs that say
   *cancelled*, but drops them from the list if it has to rebuild its run
