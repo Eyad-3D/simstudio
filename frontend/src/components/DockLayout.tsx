@@ -271,12 +271,14 @@ function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
   });
 
   // Bottom tray. Clicking a tab opens it; the Signal Plot opens by itself on
-  // the session's first run (see DockLayout). A failed restore can leave an
-  // (emptied) tray behind: start from a fresh one.
+  // the session's first run (see DockLayout). It opens at 22 % of the dock
+  // (139 px at 1366x768), so the diagram keeps 40 % of the window; its sash
+  // drags it up to TRAY_MAX_SHARE. A failed restore can leave an (emptied)
+  // tray behind: start from a fresh one.
   if (api.getEdgeGroup("bottom")) api.removeEdgeGroup("bottom");
   api.addEdgeGroup("bottom", {
     id: "tray",
-    initialSize: clamp(Math.round(height * 0.3), 180, 360),
+    initialSize: clamp(Math.round(height * 0.22), TRAY_MIN, 360),
     minimumSize: TRAY_MIN,
     collapsed: true,
   });

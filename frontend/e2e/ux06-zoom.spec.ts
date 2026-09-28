@@ -137,6 +137,6 @@ test("UX-06: leaving a subsystem restores the parent's view", async ({ page }) =
   const parent = await viewport();
   await page.locator(".react-flow__node", { hasText: "System 1" }).dblclick();
   await expect.poll(() => zoomOf(page), { message: "an empty subsystem opens at 100 %" }).toBe(1);
-  await page.locator(".ss-panel-toolbar button", { hasText: "New Project" }).first().click();
+  await page.getByRole("button", { name: "New Project", exact: true }).click();
   await expect.poll(viewport).toBe(parent);
 });

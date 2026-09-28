@@ -60,8 +60,9 @@ const DEFAULT_H = 78;
 // 100 % so a small model is not blown up, and never go below a readable zoom:
 // a model too big for that opens at its centre with the overview map shown.
 // Every fit leaves room under the lowest parts for their names, which hang
-// below the parts at 11 px on screen whatever the zoom (.ss-node-label).
-const FIT_PADDING = { x: 0.15, top: 0.15, bottom: "32px" } as const;
+// below the parts at 11 px on screen whatever the zoom (.ss-node-label), and
+// above the highest ones for the toolbar floating over the diagram.
+const FIT_PADDING = { x: 0.15, top: "48px", bottom: "32px" } as const;
 const AUTO_FIT = { padding: FIT_PADDING, maxZoom: 1, minZoom: 0.5 };
 
 type CtxMenu = { x: number; y: number; nodeId: string | null };
@@ -641,9 +642,11 @@ function TopologyCanvasInner() {
   const future = useProjectStore((s) => s.future.length);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="ss-panel-toolbar justify-between">
-        <div className="flex min-w-0 items-center gap-0.5 text-[12px]">
+    <div className="relative flex h-full flex-col">
+      {/* the toolbar floats over the diagram's top edge as two pills, so the
+          diagram gets the panel's full height */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 p-1.5">
+        <div className="pointer-events-auto flex min-w-0 items-center gap-0.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-1 py-0.5 text-[12px] shadow-sm empty:hidden">
           {breadcrumb.map((sys, i) => (
             <span key={sys.id} className="flex min-w-0 items-center gap-0.5">
               {i > 0 && <ChevronRight size={12} className="shrink-0 text-[color:var(--ss-text-dim)]" />}
@@ -660,7 +663,7 @@ function TopologyCanvasInner() {
             </span>
           ))}
         </div>
-        <div className="flex items-center gap-0.5">
+        <div className="pointer-events-auto flex items-center gap-0.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-1 py-0.5 shadow-sm">
           <button className="ss-toolbtn" title="Zoom in" onClick={() => void zoomIn()}>
             <ZoomIn size={14} />
           </button>
@@ -924,7 +927,7 @@ function TopologyCanvasInner() {
         {placingDef && (
           <div
             role="status"
-            className="pointer-events-none absolute left-1/2 top-2 z-10 -translate-x-1/2 whitespace-nowrap rounded border border-[color:var(--ss-accent)] bg-[color:var(--ss-panel)] px-2.5 py-1 text-[12px] text-[color:var(--ss-text)] shadow-sm"
+            className="pointer-events-none absolute left-1/2 top-12 z-10 -translate-x-1/2 whitespace-nowrap rounded border border-[color:var(--ss-accent)] bg-[color:var(--ss-panel)] px-2.5 py-1 text-[12px] text-[color:var(--ss-text)] shadow-sm"
           >
             Click the diagram to place <span className="font-semibold">{placingDef.name}</span> · Esc
             to cancel

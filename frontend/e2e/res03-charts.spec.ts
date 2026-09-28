@@ -10,7 +10,9 @@ const results = (page: Page) => page.locator(".ss-zoom.absolute");
 
 test("RES-03: after the first run both the Results chart and the Signal Plot draw", async ({ page }) => {
   await openApp(page);
-  await page.locator(".react-flow__pane").first().click({ position: { x: 10, y: 10 } });
+  // a corner the floating toolbar does not cover
+  const pane = page.locator(".react-flow__pane").first();
+  await pane.click({ position: { x: 10, y: (await pane.boundingBox())!.height - 10 } });
   await page.keyboard.press("Control+Enter");
   await expect(results(page).locator(".recharts-line-curve").first()).toBeAttached({ timeout: 60_000 });
 

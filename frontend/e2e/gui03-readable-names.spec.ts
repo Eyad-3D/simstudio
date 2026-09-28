@@ -2,7 +2,7 @@
 // diagram follows the tray opening and closing, and the zoom is shown with
 // Fit / 50 / 100 / 200 % presets.
 import { expect, test, type Page } from "@playwright/test";
-import { dockTab, nodeLayout, openApp, zoomOf } from "./ui-helpers";
+import { canvasShare, dockTab, nodeLayout, openApp, zoomOf } from "./ui-helpers";
 
 test.use({ viewport: { width: 1366, height: 768 } });
 
@@ -27,6 +27,7 @@ test("GUI-03: the tray opening and closing keeps the model and its names in view
   await expect.poll(() => zoomOf(page), { message: "re-fitted to the smaller diagram" }).toBeLessThan(fitted!);
   expect((await nodeLayout(page)).offscreen).toBe(0);
   expect(await names(page)).toEqual({ smallest: 11, cutOff: 0 });
+  expect((await canvasShare(page)).pct, "the diagram's share of the window").toBeGreaterThanOrEqual(40);
   await page.locator(".dv-edge-group button[aria-label='Collapse to tabs']").click();
   await expect.poll(() => zoomOf(page), { message: "back to the first fit" }).toBe(fitted);
 });
