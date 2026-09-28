@@ -392,6 +392,11 @@ minimum or an average, for example from the CSV export.
   3.51-6.44 s: the tyres keep their grip however much they slip (no peak
   and drop), so wheelspin at the launch costs no time, and nothing limits
   it (no traction control; 48 % of the run is at the tyres' grip limit).
+  So its 80 kW is reached at 0.2 s, while the rear wheels still spin: a
+  car with traction control reaches it later. At its 10 ms step the front
+  wheels' slip and force channels ring at the launch and read high for
+  about 2 s (the example's *Slip Stiffness* is 20, not 10): plot them at a
+  1-2 ms step (the 75 m time moves 0.3 %).
   The *Endurance energy* case is lap mode at the tyres' limit in every
   corner and under every braking, with no lift-and-coast and no driver
   change (FS Rules 2026 v1.1 (FSG) D 7.5.4's 3 min); its energy follows the
@@ -400,10 +405,15 @@ minimum or an average, for example from the CSV export.
   last lap is done. The E-Motor's generator torque is held to 40 % for
   drive cycles you add: their Driver has no brake balance or ABS, and at
   full generator torque, braking hard from 100 km/h locks the rear wheels
-  and turns them backwards (at 40 % they still lock below about 50 km/h).
+  and turns them backwards (at 40 % they still lock from about 45-60 km/h
+  in a hard stop, and turn backwards just before the car stops, which FS
+  Rules 2026 v1.1 (FSG) EV 2.2.4 forbids; at 20 % they lock only below
+  walking pace).
   Lap mode holds regeneration to the rear tyres' grip, so the example's
   own cases hardly depend on it. The 500 A current limit (EV 2.2.2) is not
-  checked (the cases stay under 160 A), nor are the cells' own limits; a
+  checked (the cases stay under 160 A), nor are the cells' own limits:
+  recuperating into the full pack raises its cells to about 4.3 V (594 V),
+  which a real accumulator management system would not allow. A
   two-motor variant is not shipped.
   *Roadmap:* MOD-16 (tyre peak and drop), MOD-43 (driver change and
   scoring), MOD-08 (pack from cells, current limit), CON-18 (templates,

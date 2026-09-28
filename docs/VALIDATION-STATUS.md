@@ -81,7 +81,7 @@ load come from public data; their motor, engine and battery maps are generic (in
 | | EPA highway cycle (HWFET) fuel | 3.24 l/100 km | 2.94 l/100 km (EPA 2022 test car list) | same as the city cycle |
 | | Battery charge at the end | same as at the start | charge-sustaining | within 1 % of the start |
 | FS Electric (generic) (typical Formula Student values, no real car) | 75 m acceleration, from the start line | 3.74 s, 119 km/h at the line, 0–100 km/h in 2.93 s | FS Czech Republic 2025, best times of 35 EV teams: 3.51–6.44 s, median 3.91 s | 3.5–4.5 s, 100–130 km/h, 2.5–4.0 s; within 0.5 % at a 1 ms step; faster with each 10 kW of Output Power Limit from 40 to 80 kW (4.22 to 3.74 s) |
-| | Endurance energy (lap mode, 22.5 km, Output Power Limit 30 kW) | 5.33 kWh net at the accumulator, 18 % of the energy drawn recuperated, 25 % charge left, 22.9 kW RMS | FS Czech Republic 2025 efficiency, 14 scored teams: 3.19–6.15 kWh, median 5.25 kWh | 3.0–6.5 kWh, 10–40 % recuperated, at least 10 points above the minimum charge, 15–35 kW RMS |
+| | Endurance energy (lap mode, 22.5 km, Output Power Limit 30 kW) | 5.33 kWh net at the accumulator, 18 % of the energy drawn recuperated, 25 % charge left, 22.9 kW RMS | FS Czech Republic 2025 efficiency, 14 scored teams: 3.19–6.15 kWh, median 5.25 kWh | 3.19–6.15 kWh, 10–40 % recuperated, at least 10 points above the minimum charge, 15–35 kW RMS |
 | | Rule values (FS Rules 2026 v1.1 (FSG)) | 80.0 kW peak at the terminals, 594 V at most, 155 A at most | EV 2.2.1 80 kW, EV 4.1.1 600 V DC, EV 2.2.2 500 A | volts × amps ≤ 80 kW + 0.1 % and the power check passes; ≤ 600 V and ≤ 500 A in every case |
 
 Why this is not validation: the hybrid's road load is EPA's target

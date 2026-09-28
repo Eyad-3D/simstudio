@@ -309,11 +309,12 @@ def test_fs_card_has_result_bands_and_rule_versions():
         assert re.search(re.escape(value) + r"[^;]*?\(" + re.escape(rule) + r"\b", card), value
     assert "3.51–6.44 s, median 3.91 s" in card and "3.19–6.15 kWh, median 5.25 kWh" in card
     accel, lap, endurance = _fs("case-accel-75m"), _fs("case-autocross"), _fs("case-endurance")
-    net = (endurance["Accumulator — energy delivered"].value
-           - endurance["Accumulator — energy recuperated"].value)
+    out = endurance["Accumulator — energy delivered"].value
+    back = endurance["Accumulator — energy recuperated"].value
     for pattern, run in ((r"Acceleration 75 m: ([\d.]+) s", accel["Time to 75 m"].value),
                          (r"Autocross \(flying lap\): ([\d.]+) s", lap["Lap time"].value),
-                         (r"([\d.]+) kWh net", net)):
+                         (r"([\d.]+) kWh net", out - back),
+                         (r"(\d+) % of the energy drawn recuperated", 100.0 * back / out)):
         assert float(re.search(pattern, card).group(1)) == pytest.approx(run, rel=0.02), pattern
 
 
@@ -360,8 +361,8 @@ def test_fs_pack_is_inside_its_voltage_and_current_class(case_id):
 
 def test_fs_endurance_energy_is_that_of_an_fs_car():
     """23 laps of the 979 m Autocross (about 22 km, D 7.1.3) at a 30 kW
-    Output Power Limit use 3.0-6.5 kWh net at the accumulator (FS Czech
-    Republic 2025: 3.19-6.15 kWh), recuperate 10-40 % of what they draw,
+    Output Power Limit use 3.19-6.15 kWh net at the accumulator (FS Czech
+    Republic 2025's band), recuperate 10-40 % of what they draw,
     leave the pack at least 10 points above its minimum SOC, and draw an
     RMS power of 15-35 kW."""
     rows = _fs("case-endurance")
@@ -370,7 +371,7 @@ def test_fs_endurance_energy_is_that_of_an_fs_car():
     assert 21.0 <= rows["Distance driven"].value <= 23.0
     out = rows["Accumulator — energy delivered"].value
     back = rows["Accumulator — energy recuperated"].value
-    assert 3.0 <= out - back <= 6.5
+    assert 3.19 <= out - back <= 6.15
     assert 0.10 <= back / out <= 0.40
     assert rows["Accumulator — final SOC"].value > battery["min_soc_pct"] + 10
     assert 15.0 <= rows["RMS battery power"].value <= 35.0
