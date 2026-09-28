@@ -106,11 +106,15 @@ sections.
   to it, opening the sub-system it is in; a check about the whole model,
   such as two Vehicles or wheel load shares, selects every part involved
   (before, it named none). The Problems tab carries the count; Messages is
-  the log and no longer does. (UX-09)
+  the log and no longer does, so an error that is not about the model,
+  such as a save that fails, brings Messages to the front. (UX-09)
 - Data Bus Connections lists one row per signal input: pick the output
   that feeds it in a box you can type in, which offers outputs only, those
-  with the input's unit first. A link takes two clicks (the Battery
-  Electric Car's 13 links: 26 clicks, before 65). It has a search box,
+  that share a word with the input's name first (Brake Command: Driver ·
+  Brake Command), then those with its unit. The list opens over the
+  diagram with about ten outputs in view. A link takes two clicks (the
+  Battery Electric Car's 13 links: 26 clicks, with no scrolling, before
+  65). It has a search box,
   *Unconnected inputs* and *Selected part* filters, and a part's
   right-click menu has *Signals…*, which opens the panel on that part.
   (UX-15)
@@ -228,7 +232,8 @@ sections.
 - The *Data Checks* tab is now *Problems*; a saved layout keeps it where it
   was. A signal link between two inputs or two outputs saved by an earlier
   build still loads: Data Bus Connections shows it in amber with a remove
-  button, and Data Checks still report it.
+  button, and Data Checks still report it. So does a link to a part or port
+  that is gone.
 - Going back to 0.2.0: it cannot open a project with a study point that
   says *cancelled*. It still lists and opens stored runs that say
   *cancelled*, but drops them from the list if it has to rebuild its run
