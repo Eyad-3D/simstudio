@@ -1,0 +1,33 @@
+{
+  "_about": [
+    "The standard drive cycles bundled with LightSim (backend/app/cycles.py).",
+    "Each id has a <id>.csv trace (t_s, speed_kmh). 'register' is its row in",
+    "docs/data-register.csv; 'phases' are [name, start s, end s]; 'published'",
+    "is the regulation's [duration s, distance km], which test_cycles.py holds",
+    "the trace to. Never change a shipped trace in place: a changed cycle gets a",
+    "new id, so a run stored with the old one can still be reproduced."
+  ],
+  "cycles": {
+    "wltc-3b": {
+      "name": "WLTC class 3b",
+      "region": "Europe / UN (WLTP)",
+      "register": "DR-25",
+      "phases": [["Low", 0, 589], ["Medium", 589, 1022], ["High", 1022, 1477], ["Extra High", 1477, 1800]],
+      "published": [1800, 23.266]
+    },
+    "udds": {
+      "name": "EPA city (UDDS)",
+      "region": "United States (EPA)",
+      "register": "DR-34",
+      "phases": [["Bag 1", 0, 505], ["Bag 2", 505, 1369]],
+      "published": [1369, 11.9896]
+    },
+    "hwfet": {
+      "name": "EPA highway (HWFET)",
+      "region": "United States (EPA)",
+      "register": "DR-35",
+      "phases": [],
+      "published": [765, 16.5119]
+    }
+  }
+}

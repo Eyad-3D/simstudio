@@ -54,6 +54,7 @@ UNDECLARED = {
         "404": "No such backup",
     },
     ("get", "/api/examples/{example_id}"): {"400": "Invalid example id", "404": "No such example"},
+    ("get", "/api/cycles/{cycle_id}"): {"404": "No such drive cycle"},
     ("post", "/api/examples/{example_id}/hide"): {"400": "Invalid example id", "404": "No such example"},
 }
 ERROR_BODY = {

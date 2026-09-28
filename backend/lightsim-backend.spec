@@ -9,6 +9,7 @@ from PyInstaller.utils.hooks import collect_submodules
 
 datas = [
     ("app/library/components.json", "app/library"),
+    ("app/cycles/*", "app/cycles"),  # the drive-cycle library (CON-16)
     ("projects/*.json", "projects"),  # not projects/runs/: a dev's stored runs
     ("../VERSION", "."),  # single source of truth, read by app/version.py
 ]

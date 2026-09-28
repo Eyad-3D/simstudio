@@ -1294,7 +1294,7 @@
       "name": "Driving Task",
       "icon": "route",
       "domain": "signal",
-      "description": "Time-based target-speed profile (piecewise-linear). Points are given as 't:speed' pairs separated by ';'. Wire the output to the Driver's Target Speed input.",
+      "description": "Time-based target-speed profile (piecewise-linear). Pick a standard cycle in Drive Cycle, or type 't:speed' pairs separated by ';' in Profile. Wire the output to the Driver's Target Speed input.",
       "ports": [
         {
           "id": "sig_demand",
@@ -1305,6 +1305,14 @@
         }
       ],
       "parameters": [
+        {
+          "key": "cycle",
+          "label": "Drive Cycle",
+          "unit": "-",
+          "default": "",
+          "type": "string",
+          "variability": "fixed"
+        },
         {
           "key": "profile",
           "label": "Profile (t:speed; …)",

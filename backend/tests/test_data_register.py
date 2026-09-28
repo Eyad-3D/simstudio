@@ -48,12 +48,13 @@ NOT_DATA = [
     "**/package.json", "**/package-lock.json", "**/tsconfig*.json",
     "**/requirements*.txt",
 ]
-# What the installer carries: the engine bundle takes backend/projects and the
-# catalogue (lightsim-backend.spec); the UI bundle inlines frontend/src/data
-# and copies frontend/public; the shell's asar holds desktop/src.
+# What the installer carries: the engine bundle takes backend/projects, the
+# catalogue and the drive cycles (lightsim-backend.spec); the UI bundle
+# inlines frontend/src/data and copies frontend/public; the shell's asar
+# holds desktop/src.
 SHIPPED = [
-    "backend/projects/*", "backend/app/library/*", "frontend/src/data/*",
-    "frontend/public/*", "desktop/src/*",
+    "backend/projects/*", "backend/app/library/*", "backend/app/cycles/*",
+    "frontend/src/data/*", "frontend/public/*", "desktop/src/*",
 ]
 
 _SKIP_DIRS = {".git", "node_modules", "dist", "build", "release", "__pycache__",

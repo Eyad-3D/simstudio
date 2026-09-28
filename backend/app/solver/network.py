@@ -25,6 +25,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from .. import cycles
 from ..library import library_by_id
 from ..schemas import ComponentDef, ElementInstance, PortDef, Project
 
@@ -300,6 +301,18 @@ def build_model(
     for el_id, ov in case_overrides.items():
         if el_id in params_of and isinstance(ov, dict):
             params_of[el_id].update(ov)
+            if "profile" in ov and "cycle" not in ov:  # a case's own profile wins
+                params_of[el_id]["cycle"] = ""
+    # a Driving Task on a bundled drive cycle drives its trace (CON-16)
+    for el_id, cdef in cdef_of.items():
+        cycle_id = params_of[el_id].get("cycle") if cdef.id == "signal.driving_task" else None
+        if cycle_id:
+            try:
+                params_of[el_id]["profile"] = cycles.profile_text(str(cycle_id))
+            except KeyError:
+                errors.append(about(f"Driving Task '{elements[el_id].label}' uses the drive cycle "
+                                    f"'{cycle_id}', which this version of LightSim does not include.",
+                                    el_id))
     # road load from coefficients that hold the axle's drag: the axle gears
     # run lossless (both settings are fixed, so this holds for the whole run)
     veh_p = next((params_of[e] for e, c in cdef_of.items() if c.id == "vehicle.body"), {})

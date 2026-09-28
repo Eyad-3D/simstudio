@@ -278,7 +278,10 @@ def validate_project(project: Project) -> list[DataCheck]:
                 except ScriptError as e:
                     add("error", str(e), el)
 
-        if cdef.id in ("signal.driving_task", "signal.road_profile"):
+        # a Driving Task on a drive cycle drives the cycle, not its typed
+        # profile; an unknown cycle is build_model's error (below)
+        if cdef.id == "signal.road_profile" or (cdef.id == "signal.driving_task"
+                                                 and not params.get("cycle")):
             for level, text in profile_problems(str(params.get("profile", ""))):
                 add(level, f"'{el.label}' profile: {text}.", el)
         if "sample_time_s" in pdef_by_key:
@@ -348,6 +351,8 @@ MODEL_FIXES = {
     "Bus has two": "Keep one source per bus, or split the bus with a DC-DC Converter.",
     "more than one primary source": "Keep one source per bus, or split the bus with a DC-DC "
                                     "Converter.",
+    "which this version of LightSim does not include": "In Properties, choose a Drive Cycle "
+                                                       "from the list, or Custom profile.",
 }
 
 
