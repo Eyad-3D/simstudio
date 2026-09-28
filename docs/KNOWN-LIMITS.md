@@ -348,6 +348,12 @@ minimum or an average, for example from the CSV export.
   cycle has no grade. A project that names a drive cycle, opened in 0.2.0,
   drives the typed profile instead, with no warning. *Roadmap:* CON-04,
   CON-11, PLT-07.
+- **Few starting points.** The *Start* page offers the examples that come
+  with LightSim and a blank project. Ready-made starting points for other
+  layouts (two motors, a fuel-cell car) and templates that ask a few
+  questions first are not there yet: start from the example closest to
+  your car and change it. *Recent projects* lists projects saved in
+  LightSim's projects folder only. *Roadmap:* CON-18, PLT-32.
 - **Unsigned installers.** Windows SmartScreen warns on first launch (choose
   *More info → Run anyway*). *Roadmap:* PLT-13.
 - **No macOS version.** Builds exist for Windows 10/11 (x64) and Linux (x64)

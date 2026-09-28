@@ -139,6 +139,19 @@ sections.
   selected on the diagram, F1 opens that part's page. In the desktop app,
   *Help → Documentation* opens the front page, and *Help → Known Limits*
   now opens the known issues there. (LRN-04)
+- A *Start* page opens when LightSim starts and when you press **New**:
+  continue with the open project, start from one of the examples (its card
+  says what results to expect) or a blank project, or reopen one of the 8
+  projects you saved last, each shown with when it was saved, its number
+  of parts and a sketch of its diagram. From the first launch to a
+  finished run of an example takes two clicks, the example and **Run**.
+  Tick *Skip this page: open my last project at start-up* to open straight
+  into your last project, as before; work you had not saved always opens
+  straight away. The status bar's **+** still makes a blank project in one
+  click. Empty panels now offer the next step: an empty diagram *Add a
+  part* and *Start from an example*, an empty Monitors panel *Place a
+  Monitor*, and an empty Results page a button that names the case it
+  runs. (UX-16)
 
 ### Fixed
 
@@ -255,6 +268,10 @@ sections.
   build still loads: Data Bus Connections shows it in amber with a remove
   button, and Data Checks still report it. So does a link to a part or port
   that is gone.
+- LightSim opens on the *Start* page, and **New** on the Home tab opens
+  it too: choose *Blank project* there for the empty project **New** made
+  before. Tick *Skip this page* on it to open your last project at
+  start-up, as before.
 - The examples' WLTC, UDDS and HWFET cases name their drive cycle
   instead of carrying its points, and give exactly the same results. A
   case of yours that carries its own points keeps them, and they still

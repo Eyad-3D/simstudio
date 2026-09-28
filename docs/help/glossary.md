@@ -95,6 +95,10 @@ runs at every solver step.
 **Solver step**: the time step the physics is worked out at, at most 10 ms.
 The case's *Step* is how often results are stored, not the solver step.
 
+**Start page**: the page LightSim opens on, and that **New** shows: go on
+with the open project, start from an example or a blank project, or reopen
+a recent one. Tick *Skip this page* to open your last project instead.
+
 **Sub-system**: a box on the diagram that holds parts of its own, to keep a
 large model tidy. Double-click it to go inside.
 

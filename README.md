@@ -31,9 +31,10 @@ browser and needs no internet connection. Its pages are the Markdown in
 2. **Install and open it.** The installers are not signed yet, so Windows
    warns the first time: choose *More info → Run anyway*. On Linux, make the
    AppImage runnable once (`chmod +x LightSim-*.AppImage`).
-3. **Run the example.** LightSim opens with an electric car modelled on the
-   2021 Cupra Born. Click any part on the diagram to see and change its
-   values on the right, then press **Run** at the top right.
+3. **Run the example.** LightSim opens on its *Start* page: click the
+   *Battery Electric Car*, an electric car modelled on the 2021 Cupra Born.
+   Click any part on the diagram to see and change its values on the right,
+   then press **Run** at the top right.
 4. **Read the results.** The *Results* tab shows the run: tick channels on
    the left to plot them, and read energy use, consumption and distance in
    the summary under the chart.
@@ -46,9 +47,10 @@ browser and needs no internet connection. Its pages are the Markdown in
 
    ![Energy use of the electric car against its mass, from a three-point sweep](docs/screenshots/lightsim-0.2.0-sweep.png)
 
-**Open** lists a second example, a P2 hybrid sized after the Hyundai Ioniq
-Hybrid and driven on the EPA city and highway cycles, next to your own
-projects; each example's entry lists the results to expect. Examples open as
+The *Start* page (and **Open**) lists a second example, a P2 hybrid sized
+after the Hyundai Ioniq Hybrid and driven on the EPA city and highway
+cycles, next to your own projects; each example's entry lists the results
+to expect. Examples open as
 copies, so change them freely: **Save** keeps your copy as a project of your
 own. To watch a run as it happens, pick the *City Cycle (live, 10×)* case and
 change values while it runs (try the Driver's P and I gains, or lock the
@@ -75,7 +77,7 @@ Differential).
 | **Canvas** | Signal/data-bus wiring is edited in the Data Bus panel, one row per signal input with a searchable box that offers the outputs (those that share a word with the input's name first, then its unit), so a link is two clicks; a part's right-click menu has *Signals…*; links between two inputs or two outputs are refused; an optional dashed overlay draws those links on the canvas (the *signal* layer in Layer Configurations, off by default); background-grid toggle; double-click an element for a modal parameter dialog; Shift+click a pin to move it to the next side of its node, Shift+drag a pin to slide it anywhere along the node's edges (Shift+drag elsewhere draws a selection box) |
 | **Persistence** | Save/load projects on the backend (single JSON file per project), plus browser Export / Import; the last 20 saved versions of each project can be restored as a copy (Project → Restore…) |
 | **Help** | Built-in help pages served by the engine at `/help/` (so they work offline) and opened in the system browser: F1 opens the selected part's page or the front page, **?** in the header the front page, and the desktop app's *Help → Documentation* and *Help → Known Limits* the same pages. Tutorials, how-to guides, a generated page per library part (ports, parameters with an anchor each), the drive cycles and the examples, the README's quick start, solver and API sections, and the docs/ pages, with a search over every page. `frontend/scripts/build-docs.mjs` builds them before `npm run dev` and `npm run build`, and fails on a link to a page or heading that does not exist |
-| **UI shell** | Ribbon tabs act as full-page workspaces (Home = topology + panels; Results = its own page); light/dark theme (persisted); dockable & resizable panels (Dockview) around a large diagram, with Messages, Problems, layers, Data Bus and Signal Plot in a collapsible bottom tray (double-click a tab to maximise its group); status bar with live progress |
+| **UI shell** | A *Start* page at launch and on **New**: continue with the open project, start from an example (with the results to expect) or a blank project, or reopen one of the 8 projects saved last (with the date, the number of parts and a sketch of the diagram); *Skip this page* opens the last project instead, and restored unsaved work always opens on Home. Empty panels offer the next step (the empty diagram *Add a part* and *Start from an example*, Monitors *Place a Monitor*, Results a button that runs the active case by name, such as *Run 'City Cycle'*). Ribbon tabs act as full-page workspaces (Home = topology + panels; Results = its own page); light/dark theme (persisted); dockable & resizable panels (Dockview) around a large diagram, with Messages, Problems, layers, Data Bus and Signal Plot in a collapsible bottom tray (double-click a tab to maximise its group); status bar with live progress |
 
 ![The P2 Hybrid Car example in the dark theme](docs/screenshots/lightsim-0.2.0-hybrid-dark.png)
 

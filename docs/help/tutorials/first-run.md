@@ -5,10 +5,10 @@ change one value and compare the two runs. It takes about five minutes.
 
 ## 1. Open the example
 
-The first time LightSim starts, it opens the **Battery Electric Car**, a
-compact electric car modelled on the 2021 Cupra Born. If another project is
-open, choose **Open** on the *Home* tab, then *Battery Electric Car* under
-*Examples*.
+LightSim starts on the *Start* page. Under *New from an example*, click
+**Battery Electric Car**, a compact electric car modelled on the 2021 Cupra
+Born. Its card says what results to expect. (Later, **New** on the *Home*
+tab, or the *Start* tab, brings you back to this page.)
 
 An example opens as a copy: change it as you like. The example itself stays
 as it is, and **Save** keeps your copy as a project of your own.

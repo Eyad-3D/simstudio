@@ -6,7 +6,7 @@ speed it must follow over time (a drive cycle), press **Run** and read the
 results.
 
 New to LightSim? [Your first run](tutorials/first-run.md) opens an example
-car, runs it and reads the results. Then
+car from the *Start* page, runs it and reads the results. Then
 [Build an electric car from scratch](tutorials/from-scratch.md) shows how
 the parts fit together.
 

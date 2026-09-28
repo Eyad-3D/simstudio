@@ -8,8 +8,10 @@ Do [Your first run](first-run.md) first if you have not used LightSim yet.
 
 ## 1. Start a blank project
 
-On the *Home* tab, click **New**. If LightSim asks whether to save the open
-project, choose **Save** or **Don't save**. The diagram is now empty.
+On the *Home* tab, click **New**: the *Start* page opens. Click **Blank
+project**. If LightSim asks whether to save the open project, choose
+**Save** or **Don't save**. The diagram is now empty; its **Add a part**
+button takes you to the library search.
 
 ## 2. Add the parts
 

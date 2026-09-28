@@ -75,7 +75,8 @@ for (const f of readdirSync(join(root, "backend", "projects")).filter((f) => f.e
   const text = (p.description ?? "").split("\n").map((l) => l.replace(/^• /, "- ")).join("\n").replace(/^(?!- )(.+)$/gm, "$1\n");
   add("Examples", `examples/${p.id}.md`, `# ${p.name}\n\n${text}\n\n` +
     `Its cases: ${p.cases.map((c) => `*${c.name}* (${c.duration.toLocaleString("en")} s)`).join(", ")}.\n\n` +
-    "Open it from the Home tab: **Open**, then its name under *Examples*. It opens as a copy, so change it freely; **Save** keeps your copy as a project of your own.\n");
+    "Open it from the *Start* page, under *New from an example*, or with **Open** on the *Home* tab. " +
+    "It opens as a copy, so change it freely; **Save** keeps your copy as a project of your own.\n");
 }
 const lib = JSON.parse(read("backend/app/library/components.json"));
 for (const c of lib.components) {
