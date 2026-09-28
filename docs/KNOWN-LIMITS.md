@@ -341,6 +341,13 @@ minimum or an average, for example from the CSV export.
   clicks). In a 1366 × 768 window the bottom panel shows two rows at a
   time; drag its top edge up to see more. *Roadmap:* UX-15 (follow-up),
   UX-11.
+- **Three standard drive cycles.** The Driving Task's *Drive Cycle* list
+  has WLTC class 3b, EPA city (UDDS) and EPA highway (HWFET). Other cycles
+  (NEDC, FTP-75, US06, the WLTC of other classes) and cycle files of your
+  own are not in it yet: type or paste their points into the Profile. A
+  cycle has no grade. A project that names a drive cycle, opened in 0.2.0,
+  drives the typed profile instead, with no warning. *Roadmap:* CON-04,
+  CON-11, PLT-07.
 - **Unsigned installers.** Windows SmartScreen warns on first launch (choose
   *More info → Run anyway*). *Roadmap:* PLT-13.
 - **No macOS version.** Builds exist for Windows 10/11 (x64) and Linux (x64)

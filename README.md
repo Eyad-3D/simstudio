@@ -56,6 +56,7 @@ Differential).
 | **Component library** | Declarative catalog in `backend/app/library/components.json` with mandatory units on every parameter (dimensionless = `-`) and first-class lookup tables (`table1d` / `table2d`, dict-keyed by the independent variable) |
 | **Dynamic solver** | Causal multi-pass solver with real states: vehicle speed integrates from net tire force, per-wheel speeds with a longitudinal slip tire model, battery SOC from an equivalent-circuit model, semi-implicit Euler with solver steps of at most 10 ms. Controllers, scripts, the drive cycle, gear choice and the physics all run at every solver step (Script, PID and Lookup blocks can be given a slower *Sample Time*), and motors are held to what their battery, fuel cell or voltage source can supply. The case time step only sets how often results are stored (see [Solver](#solver)) |
 | **Differential** | Locked/unlocked with genuinely different dynamics: unlocked = equal torque split with free output speeds (one wheel on ice spins up), locked = common speed with grip-dependent emergent torque split |
+| **Drive cycles** | The Driving Task drives a standard cycle picked from a list (WLTC class 3b, EPA city UDDS and EPA highway HWFET, bundled in `backend/app/cycles/`) or a profile of typed points; Properties sketches it with its phases, duration, distance and top speed. Choosing a cycle sets the length of the cases that drive it, a case can pick its own, and the library search finds cycles by name |
 | **Driver** | Separate Driver component (speed-following PI): wire a target-speed profile and the Vehicle's speed into it; braking blends recuperation (motor generator quadrant, what the battery or other source can take back) before friction brakes |
 | **Live simulation** | Runs stream over a WebSocket: progress + all channels update live, the solver can be paced against real time (Pacing selector), cancelled, and scalar parameters (e.g. driver PI gains) can be edited mid-run from the Properties panel |
 | **Monitors** | Display-only Monitor component: add named signal inputs, wire anything into them, get live readout cards + sparklines in the Monitors panel |
@@ -328,6 +329,7 @@ frontend/  React 19 + TypeScript + Vite
 backend/   Python + FastAPI
   ├─ app/main.py                   HTTP + WebSocket API (FastAPI app)
   ├─ app/library/components.json   declarative component catalog (ports, params, maps)
+  ├─ app/cycles/                   bundled standard drive cycles (a CSV each, cycles.json), read by app/cycles.py
   ├─ app/schemas.py                pydantic models mirroring the shared JSON data model
   ├─ app/solver/                   causal multi-pass solver package
   │    ├─ maps.py                  shared table parsing + 1D/2D interpolation
@@ -379,6 +381,7 @@ is no token check. To reach a development engine through another host name
 | Method & path | Purpose |
 |---|---|
 | `GET /api/library` | Component definitions |
+| `GET /api/cycles`, `GET /api/cycles/{id}` | The bundled drive cycles (name, region, phases, duration, distance, top speed) / one of them with its trace (`t` in s, `v` in km/h) |
 | `GET /api/projects` | List your saved projects |
 | `GET/PUT/DELETE /api/projects/{id}` | Load / save / delete a project. GET adds the file's `revision` (also sent as the `ETag`); a PUT with `If-Match: "<revision>"` is refused with 409 if the file changed since, and `If-None-Match: *` refuses to replace an existing project |
 | `GET /api/examples` | List the examples shipped with the app, each with `hidden` (hidden from the Open menu) |
@@ -405,6 +408,9 @@ sparse overrides on the instance. Table parameters are dicts keyed by the
 independent variable (`{"1500": 345.6, …}`; 2D maps nest one level, e.g.
 voltage → speed → torque). Elements of components with `allowDynamicPorts`
 (Script, Monitor) carry per-instance named signal ports in `dynamicPorts`.
+A Driving Task's `cycle` names a bundled drive cycle by id (`"wltc-3b"`),
+which it drives instead of its typed `profile`; a case that sets its own
+`profile` for the task drives that instead.
 
 ## Solver
 

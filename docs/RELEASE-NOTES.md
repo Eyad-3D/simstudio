@@ -118,6 +118,17 @@ sections.
   *Unconnected inputs* and *Selected part* filters, and a part's
   right-click menu has *Signals…*, which opens the panel on that part.
   (UX-15)
+- A Driving Task can drive a standard cycle picked from a list: WLTC
+  class 3b, EPA city (UDDS) and EPA highway (HWFET), grouped by region,
+  each with its duration and distance, or *Custom profile* for the typed
+  points. Properties sketches the speed over time, with the cycle's phases
+  marked, and gives its duration, distance and top speed; a typed profile
+  gets the same sketch. Choosing a cycle sets the length of the cases that
+  drive it, in one undo step, and Messages says which. A case can pick its
+  own cycle among its overrides. Searching the component library for a
+  cycle's name, such as *udds*, lists it: activate it to add a Driving Task
+  that drives it. The three cycles are the ones the examples used; their
+  figures are within 0.04 % of the published ones. (CON-16)
 
 ### Fixed
 
@@ -234,6 +245,12 @@ sections.
   build still loads: Data Bus Connections shows it in amber with a remove
   button, and Data Checks still report it. So does a link to a part or port
   that is gone.
+- The examples' WLTC, UDDS and HWFET cases name their drive cycle
+  instead of carrying its points, and give exactly the same results. A
+  case of yours that carries its own points keeps them, and they still
+  win over a cycle picked on the part. 0.2.0 does not know drive cycles:
+  opened there, a Driving Task or case that names one drives the typed
+  profile instead, with no warning.
 - Going back to 0.2.0: it cannot open a project with a study point that
   says *cancelled*. It still lists and opens stored runs that say
   *cancelled*, but drops them from the list if it has to rebuild its run
