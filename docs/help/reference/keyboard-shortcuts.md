@@ -21,7 +21,7 @@ On a Mac, use Cmd where this page says Ctrl.
 | . (full stop) | Zoom to the selected parts, or to the whole model when none is selected |
 | Ctrl+C | Copy the selected parts (pointer over the diagram) |
 | Ctrl+V | Paste them where the pointer is |
-| Ctrl+D | Duplicate the selected parts |
+| Ctrl+D | Duplicate the selected parts (pointer over the diagram) |
 | Ctrl+click or Shift+click a part | Add it to the selection, or take it out |
 | Shift+drag on empty diagram | Draw a box to select the parts in it |
 | Shift+click a pin | Move the pin to the next side of its part |

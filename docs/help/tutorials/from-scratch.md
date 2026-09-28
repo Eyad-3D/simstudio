@@ -88,8 +88,8 @@ profile is a 540 s drive in town at up to 80 km/h. Press **Run**.
 The run ends as *success*: 7.292 km driven, about 11.0 kWh/100 km, close to
 the Battery Electric Car on its City Cycle. Your car has the library's
 default values; set them to a real car's to model it (each part's page in
-the [component reference](../reference/components/index.md) says what its
-parameters mean).
+the [component reference](../reference/components/index.md) lists its
+parameters with their units and defaults).
 
 ## Next
 
