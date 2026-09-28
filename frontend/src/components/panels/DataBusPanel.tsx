@@ -81,7 +81,7 @@ function SourcePicker({
         aria-label={`Source of ${to.name}`}
         className="ss-input w-full"
         placeholder="Pick a source…"
-        value={open ? query : (from?.name ?? "")}
+        value={open ? query : from ? `${from.name} [${from.unit}]` : ""}
         onClick={(e) => openAt(e.currentTarget)}
         onBlur={() => setOpen(false)}
         onChange={(e) => {

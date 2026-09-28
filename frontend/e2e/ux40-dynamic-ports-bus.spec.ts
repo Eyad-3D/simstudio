@@ -18,7 +18,7 @@ test("UX-40: a new Monitor is wired in the Data Bus panel and shows its signal",
   const source = page.getByRole("combobox", { name: "Source of Monitor 3 · in_1" });
   await source.click();
   await page.getByRole("option", { name: "Vehicle · Vehicle Speed [km/h]" }).click();
-  await expect(source).toHaveValue("Vehicle · Vehicle Speed");
+  await expect(source).toHaveValue("Vehicle · Vehicle Speed [km/h]");
 
   await runActiveCase(page);
   await ribbonTab(page, "Home").click();
