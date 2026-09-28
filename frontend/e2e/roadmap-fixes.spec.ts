@@ -128,7 +128,7 @@ async function smallestNodeName(page: Page, names: string[]): Promise<number> {
 
 // GUI-03's target. Today names are 3.5 px on screen when the example is
 // fitted to a 1600x900 window (1.8 px at 1366x768).
-test.fixme("GUI-03: node names are at least 11 px on screen, fitted and zoomed out", async ({ page }) => {
+test("GUI-03: node names are at least 11 px on screen, fitted and zoomed out", async ({ page }) => {
   await openApp(page);
   const project = await (await page.request.get("/api/examples/bev-car")).json();
   const names: string[] = project.systems.flatMap((s: { elements: { label: string }[] }) =>

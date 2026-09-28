@@ -207,6 +207,12 @@ body,
 .react-flow__edge-path {
   stroke-width: 1.6;
 }
+/* part names keep at least their 11 px on screen when the diagram is zoomed
+   out: TopologyCanvas keeps the zoom in --ss-zoom */
+.ss-node-label {
+  scale: max(1, calc(1 / var(--ss-zoom, 1)));
+  transform-origin: top center;
+}
 /* node resize handles (visible on the selected node) */
 .react-flow__resize-control.handle.ss-resize-handle {
   width: 7px;

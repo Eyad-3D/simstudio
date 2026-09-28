@@ -6,6 +6,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  useStore,
   useStoreApi,
   ViewportPortal,
   type Connection as RFConnection,
@@ -58,7 +59,10 @@ const DEFAULT_H = 78;
 // Automatic fits (opening a project or subsystem, the dock settling) stop at
 // 100 % so a small model is not blown up, and never go below a readable zoom:
 // a model too big for that opens at its centre with the overview map shown.
-const AUTO_FIT = { padding: 0.15, maxZoom: 1, minZoom: 0.5 };
+// Every fit leaves room under the lowest parts for their names, which hang
+// below the parts at 11 px on screen whatever the zoom (.ss-node-label).
+const FIT_PADDING = { x: 0.15, top: 0.15, bottom: "32px" } as const;
+const AUTO_FIT = { padding: FIT_PADDING, maxZoom: 1, minZoom: 0.5 };
 
 type CtxMenu = { x: number; y: number; nodeId: string | null };
 
@@ -89,6 +93,30 @@ function MenuBtn({
       <span className="flex-1">{label}</span>
       {kbd && <span className="text-[10px] text-[color:var(--ss-text-dim)]">{kbd}</span>}
     </button>
+  );
+}
+
+/** The zoom as a percentage, with Fit and fixed zoom levels to pick. Its own
+ *  component, so a zoom re-renders only this. */
+function ZoomMenu({ onFit }: { onFit: () => void }) {
+  const zoom = useStore((s) => Math.round(s.transform[2] * 100));
+  const { zoomTo } = useReactFlow();
+  return (
+    <select
+      className="ss-input w-[64px] py-[3px] text-[11px]"
+      aria-label="Zoom"
+      title="Zoom"
+      value="now"
+      onChange={(e) => (e.target.value === "fit" ? onFit() : void zoomTo(Number(e.target.value), { duration: 200 }))}
+    >
+      <option value="now" hidden>
+        {zoom}%
+      </option>
+      <option value="fit">Fit</option>
+      <option value="0.5">50%</option>
+      <option value="1">100%</option>
+      <option value="2">200%</option>
+    </select>
   );
 }
 
@@ -156,6 +184,8 @@ function TopologyCanvasInner() {
     if (ids.length) setSelectedNodes(new Set(ids));
   }, []);
 
+  // the view the last automatic fit left, while the user has not moved it
+  const autoView = useRef("");
   const autoFit = useCallback(
     (duration = 0) => {
       const { project: p, activeSystemId: sysId } = store.getState();
@@ -168,6 +198,7 @@ function TopologyCanvasInner() {
         return;
       }
       void fitView({ ...AUTO_FIT, duration }).then(() => {
+        autoView.current = rfStore.getState().transform.join();
         const { width, height } = rfStore.getState();
         const bounds = getNodesBounds(getNodes());
         const { zoom } = getViewport();
@@ -211,9 +242,10 @@ function TopologyCanvasInner() {
     return () => clearTimeout(t);
   }, [loads, activeSystemId, autoFit, getViewport, setViewport]);
 
-  // When the diagram gets smaller (the bottom tray opens, the window shrinks)
-  // and that cuts off part of a model that was entirely in view, re-fit once
-  // the size settles. A view the user zoomed into is left alone.
+  // When the diagram changes size (the bottom tray opens or closes, the
+  // window is resized), re-fit once the size settles: a view the last
+  // automatic fit left follows the diagram both ways; a view the user set is
+  // re-fitted only when the change cuts off a model that was entirely in view.
   useEffect(() => {
     let before: { width: number; height: number } | null = null;
     let settle: ReturnType<typeof setTimeout> | undefined;
@@ -234,7 +266,8 @@ function TopologyCanvasInner() {
           b.y * zoom + y >= 0 &&
           (b.x + b.width) * zoom + x <= w &&
           (b.y + b.height) * zoom + y <= h;
-        if (inView(was.width, was.height) && !inView(width, height)) autoFit(200);
+        if (transform.join() === autoView.current || (inView(was.width, was.height) && !inView(width, height)))
+          autoFit(200);
       }, 150);
     });
     return () => {
@@ -242,6 +275,16 @@ function TopologyCanvasInner() {
       clearTimeout(settle);
     };
   }, [rfStore, getNodes, getNodesBounds, autoFit]);
+
+  // the zoom as a CSS variable for the part names (.ss-node-label), set on
+  // the DOM so a zoom does not re-render the diagram
+  useEffect(() => {
+    const set = (zoom: number) => wrapperRef.current?.style.setProperty("--ss-zoom", String(zoom));
+    set(rfStore.getState().transform[2]);
+    return rfStore.subscribe((s, prev) => {
+      if (s.transform[2] !== prev.transform[2]) set(s.transform[2]);
+    });
+  }, [rfStore]);
 
   // re-fit while the dock layout settles after initial mount (panel widths are
   // applied a few frames after the flow instance measures itself)
@@ -319,7 +362,7 @@ function TopologyCanvasInner() {
 
   /** Fit everything on request (toolbar / context menu); a no-op when empty. */
   const fitAll = useCallback(() => {
-    if (getNodes().length > 0) void fitView({ padding: 0.15, duration: 200 });
+    if (getNodes().length > 0) void fitView({ padding: FIT_PADDING, duration: 200 });
   }, [fitView, getNodes]);
 
   const nodes: ElementFlowNode[] = useMemo(() => {
@@ -624,6 +667,7 @@ function TopologyCanvasInner() {
           <button className="ss-toolbtn" title="Zoom out" onClick={() => void zoomOut()}>
             <ZoomOut size={14} />
           </button>
+          <ZoomMenu onFit={fitAll} />
           <button
             className="ss-toolbtn"
             title="Fit to screen (press . to frame the selection)"

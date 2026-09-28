@@ -334,7 +334,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
             />
           )),
         )}
-        <div className="pointer-events-none absolute left-1/2 top-full mt-1 w-[128px] -translate-x-1/2 text-center text-[11px] leading-tight">
+        <div className="ss-node-label pointer-events-none absolute left-1/2 top-full mt-1 w-[128px] -translate-x-1/2 text-center text-[11px] leading-tight">
           <span
             className={`rounded px-1 ${selected ? "font-semibold text-[color:var(--ss-accent)]" : "text-[color:var(--ss-node-icon)]"}`}
             style={{ background: "color-mix(in srgb, var(--ss-panel) 78%, transparent)" }}
