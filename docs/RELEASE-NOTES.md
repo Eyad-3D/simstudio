@@ -150,6 +150,37 @@ sections.
   may differ, check the current season's rules). On the Battery Electric
   Car it gives 5.216 s and 86.2 km/h at the line (5.527 s from rest). No
   existing case changes.
+- Lap mode: a case *Kind* of *Lap* drives the model's *Race Track*
+  (Driver & Signals), with its *Track layout* and *Laps* set in the case.
+  Layouts drawn for LightSim after FS Rules 2026 v1.1 (FSG) D 4.1,
+  D 5.1.1, D 6.1 and D 7.1 (FSUK and FSAE may differ, check the current
+  season's rules): Autocross, a 979 m closed lap with a slalom, a hairpin
+  and a chicane; Skidpad, the right and left circles on the lane centre
+  (9.125 m); Acceleration 75 m; or Custom, from curvature and elevation
+  tables pasted into the track. A quasi-steady-state lap solver finds the
+  fastest speed about every metre from the tyres' grip (downforce, load
+  transfer along and across the car, load sensitivity, friction ellipse)
+  and the powertrain (the E-Motors' full-load curves through the gears,
+  cut to the battery's deliverable power and Output Power Limit); the
+  motors, gears, brakes and battery then drive that speed with the drive
+  cycles' own models, so the energy, the power limit checks and the
+  channels are theirs. The summary leads with the lap, lap 1, total and
+  sector times, average speed, energy per lap, RMS battery power, the time
+  limited by cornering grip, traction grip, motor, battery, power cap and
+  braking, and the lap energy balance error; the Race Track's channels
+  give the lap distance, curvature, longitudinal and lateral acceleration
+  (in g, a new unit), what limited the car and a map, for the X-Y view.
+  Data Checks refuse a lap case without a Race Track or E-Motor, with an
+  engine or clutch on the wheels or with all wheels on one axle, and a
+  Custom curvature above 0.5 1/m. The results are estimates, and say so.
+  A Formula Student-sized car (280 kg, 96 kW, μ 1.5) laps the Autocross
+  in 61.2 s (62.9 s from a standing start), solved in about 0.15 s.
+- Wheel: *Lateral Friction μ_y* (0: the same as μ), *Load Sensitivity
+  dμ/dFz* (per kN), *Nominal Load Fz0* (0: the wheel's static load) and
+  *Friction Ellipse Exponent* (lap cases). The load sensitivity also acts
+  on the tyre force of drive cycles and acceleration tests; at its default
+  of 0 no result changes. Vehicle: *Track Width (Front)* and *(Rear)*, for
+  the sideways load transfer of lap cases.
 
 ### Fixed
 

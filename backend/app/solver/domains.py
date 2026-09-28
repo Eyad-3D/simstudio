@@ -56,6 +56,7 @@ from .runtime import (
     ocv_mean,
     output_power_cap_w,
     solve_linear,
+    tyre_mu,
 )
 from .sandbox import ScriptSandbox, ScriptSpec
 from .scripting import ScriptError
@@ -110,6 +111,16 @@ def through_gears(seg: Segment, t_at: list[float], omega: float) -> float:
             stage = stages[r]
             t_at[stage.parent] += t * stage.eff if t * omega >= 0 else t / stage.eff
     return t_at[seg.out_region]
+
+
+def full_torque(mc: MotorCache, volts: float, rpm: float, drive: bool = True) -> float:
+    """An E-Motor's full-load torque at the bus voltage and its speed (at or
+    below its maximum speed); driving (``drive``), it falls to zero over the
+    last 2 % below the maximum speed."""
+    t_full = mc.full_load.at(volts, rpm)
+    if drive and rpm > mc.max_rpm * (1.0 - SPEED_LIMIT_BAND):
+        t_full *= max(0.0, mc.max_rpm - rpm) / (SPEED_LIMIT_BAND * mc.max_rpm)
+    return t_full
 
 
 class RunContext:
@@ -282,6 +293,7 @@ class RunContext:
         # solver time with a driven wheel at the tyres' grip limit (counted in
         # acceleration tests only)
         self.grip_limited_s = 0.0
+        self.lap = None  # a lap case's lap run (lapsim.LapRun, set by simulate)
 
         self.dls = [DrivelineState(dl=dl) for dl in model.drivelines]
         # the gear each gearbox's driveline was built in (its default gear
@@ -426,6 +438,7 @@ class RunContext:
         scale = total > 0 and abs(total - 1.0) > 1e-9
         for w, share in zip(wheels, raw):
             w.load_share = share / total if scale else share
+            w.fz_static = w.load_share * self.veh_mass * GRAVITY
         self.wheels = wheels
         self.axle_wheels = ([w for w in wheels if w.axle != "Rear"],
                             [w for w in wheels if w.axle == "Rear"])
@@ -725,6 +738,11 @@ class RunContext:
                         w.mu = max(0.0, float(p.get("mu", w.mu)))
                         w.c_slip = max(0.1, float(p.get("slip_stiffness", w.c_slip)))
                         w.c_rr = max(0.0, float(p.get("rolling_resistance", w.c_rr)))
+                        w.mu_y = max(0.0, float(p.get("mu_lateral", w.mu_y)))
+                        w.dmu_per_n = float(p.get("mu_load_sensitivity_per_kN",
+                                                  w.dmu_per_n * 1000.0)) / 1000.0
+                        w.fz0 = max(0.0, float(p.get("mu_nominal_load_N", w.fz0)))
+                        w.n_ell = max(1.0, float(p.get("friction_ellipse_exponent", w.n_ell)))
                 for br in seg.brakes:
                     if br.el_id == el_id:
                         br.max_torque = max(0.0, float(p.get("max_torque_Nm", br.max_torque)))
@@ -753,10 +771,9 @@ class RunContext:
         rpm = abs(omega_m) * RPM
         if demand == 0.0 or rpm > mc.max_rpm * (1.0 + 1e-9):  # (float noise at the limit)
             return 0.0, False
-        t_full = mc.full_load.at(volts, rpm)
         demand = max(-1.0, min(1.0, demand))
+        t_full = full_torque(mc, volts, rpm, demand > 0)
         if demand > 0 and rpm > mc.max_rpm * (1.0 - SPEED_LIMIT_BAND):
-            t_full *= max(0.0, mc.max_rpm - rpm) / (SPEED_LIMIT_BAND * mc.max_rpm)
             if f"maxspeed:{mc.el_id}" not in rt.warned:
                 note = (", the last speed point of its full-load curve"
                         if mc.max_rpm == motor_max_rpm(mc.full_load.pts, 0) else "")
@@ -1172,12 +1189,32 @@ class RunContext:
         v = self.v
         v_den = max(abs(v), V_EPS)
         slip = (w.m * omega_ref * w.radius - v) / v_den
-        mu, k_slip = w.mu, w.c_slip * slip
+        mu = tyre_mu(w, n_load) if w.dmu_per_n else w.mu  # (the same without load sensitivity)
+        k_slip = w.c_slip * slip
         force = n_load * max(-mu, min(mu, k_slip))
         if not damping or abs(k_slip) >= mu:  # saturated: no damping
             return force, -force * w.radius * w.m, 0.0
         return (force, -force * w.radius * w.m,
                 n_load * w.c_slip * w.radius ** 2 * w.m ** 2 / v_den)
+
+    def road_load(self, v: float, f_roll: float, cos_t: float) -> tuple[float, float]:
+        """(air drag, rolling resistance) at speed v, N, on a slope whose
+        angle has the cosine ``cos_t``: the drag from the drag coefficient
+        and frontal area with the wheels' rolling resistance ``f_roll``
+        (Σ c_rr·normal load), or the Vehicle's coefficients A/B/C."""
+        vp = self.params(self.veh_id)
+        if vp.get("road_load_mode") == ROAD_LOAD_ABC:
+            # a coast-down's A + B·v + C·v² in km/h, as test labs publish
+            # them; A and B stand in for the wheels' rolling resistance, and
+            # C, measured in air of AIR_DENSITY, follows the air density
+            v_kmh = v * 3.6
+            f_roll = (float(vp.get("road_load_a_N", 0))
+                      + float(vp.get("road_load_b_N_per_kmh", 0)) * v_kmh) * cos_t
+            f_aero = float(vp.get("road_load_c_N_per_kmh2", 0)) * v_kmh * v_kmh * self.rho / AIR_DENSITY
+        else:
+            cda = max(0.0, float(vp.get("cd", 0.28))) * max(0.0, float(vp.get("frontal_area_m2", 2.2)))
+            f_aero = 0.5 * self.rho * cda * v * v
+        return f_aero, f_roll
 
     def brake_capacity(self, seg: Segment) -> float:
         cap = 0.0
@@ -1754,8 +1791,6 @@ class MechanicalSlave(_CtxSlave):
 
         # vehicle --------------------------------------------------------------
         if ctx.veh_id:
-            vp = ctx.params(ctx.veh_id)
-            rho = ctx.rho
             f_tire = 0.0
             f_roll = 0.0
             at_grip = False  # a driven wheel at the tyres' grip limit (acceleration tests)
@@ -1766,21 +1801,11 @@ class MechanicalSlave(_CtxSlave):
                         f_w = ctx.wheel_force(w, st.omega_end[s_idx], damping=False)[0]
                         f_tire += f_w
                         f_roll += w.c_rr * w.n_load
-                        if driven and abs(f_w) >= w.mu * w.n_load > 0:
+                        if driven and abs(f_w) >= tyre_mu(w, w.n_load) * w.n_load > 0:
                             at_grip = True
             if at_grip:
                 ctx.grip_limited_s += dt
-            if vp.get("road_load_mode") == ROAD_LOAD_ABC:
-                # a coast-down's A + B·v + C·v² in km/h, as test labs publish
-                # them; A and B stand in for the wheels' rolling resistance, and
-                # C, measured in air of AIR_DENSITY, follows the air density
-                v_kmh = ctx.v * 3.6
-                f_roll = (float(vp.get("road_load_a_N", 0))
-                          + float(vp.get("road_load_b_N_per_kmh", 0)) * v_kmh) * ctx.slope_cos
-                f_aero = float(vp.get("road_load_c_N_per_kmh2", 0)) * v_kmh * v_kmh * rho / AIR_DENSITY
-            else:
-                cda = max(0.0, float(vp.get("cd", 0.28))) * max(0.0, float(vp.get("frontal_area_m2", 2.2)))
-                f_aero = 0.5 * rho * cda * ctx.v * ctx.v
+            f_aero, f_roll = ctx.road_load(ctx.v, f_roll, ctx.slope_cos)
             f_grade = ctx.veh_mass * GRAVITY * ctx.slope_sin
             roll_taper = max(0.0, min(1.0, ctx.v / 0.3))
             accel = (f_tire - f_aero - f_roll * roll_taper - f_grade) / ctx.veh_mass

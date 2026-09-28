@@ -962,6 +962,8 @@ export function ResultsPanel() {
                     type="number"
                     domain={["dataMin", "dataMax"]}
                     tick={{ fontSize: 10 }}
+                    // (a lap case ends at no round time)
+                    tickFormatter={(v: number) => String(Number(v.toFixed(3)))}
                     label={{ value: "t [s]", position: "insideBottomRight", fontSize: 10, offset: -2 }}
                   />
                   {units.map((u, i) => (
@@ -1032,10 +1034,11 @@ export function ResultsPanel() {
             <table className="w-full border-collapse">
               <thead className="sticky top-0">
                 <tr>
-                  {activeRun?.snapshot?.case.kind === "acceleration" ? (
+                  {activeRun?.snapshot?.case.kind === "acceleration" ||
+                  activeRun?.snapshot?.case.kind === "lap" ? (
                     <th
                       className="ss-th"
-                      title="An acceleration test's results are estimates: see its messages for why."
+                      title="An acceleration test's and a lap case's results are estimates: see the run's messages for why."
                     >
                       Summary value · estimate
                     </th>

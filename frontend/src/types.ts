@@ -134,9 +134,13 @@ export interface SimCase {
    * trace (a 0-100 km/h or top-speed test). "acceleration": the Driver holds
    * full throttle for the whole run (its target is not read) and the run is
    * timed from the start line to endDistance past it, with the duration as its
-   * time limit (a Formula Student 75 m acceleration run). Absent = "cycle".
+   * time limit (a Formula Student 75 m acceleration run). "lap": the model's
+   * Race Track (its layout and laps, per case through parameterOverrides)
+   * sets the run: a quasi-steady-state lap solver finds the speed along it and
+   * the motors and battery drive that trace; duration, timeStep and
+   * realtimeFactor do not apply. Absent = "cycle".
    */
-  kind?: "cycle" | "performance" | "acceleration";
+  kind?: "cycle" | "performance" | "acceleration" | "lap";
   /** End the run when the vehicle has driven startLine + endDistance, m; null/0 = run the duration. */
   endDistance?: number | null;
   /** Distance driven before the timer starts, m (FS Rules 2026 v1.1 D 5.2.4: 0.30 m). */

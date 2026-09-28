@@ -25,6 +25,7 @@ from .solver import (
     build_model,
     check_script,
     interp1,
+    lapsim,
     motor_max_rpm,
     parse_table1d,
     parse_table2d,
@@ -66,6 +67,9 @@ NUMERIC_RANGES: dict[str, tuple[str, float, float]] = {
     "cg_height_m": ("Centre of gravity height", -0.001, math.inf),
     "downforce_cza_m2": ("Downforce area", -math.inf, math.inf),
     "aero_balance_front_pct": ("Aero balance (front)", -0.001, 100.0),
+    "mu_lateral": ("Lateral friction μ_y", -0.001, math.inf),
+    "mu_nominal_load_N": ("Nominal load Fz0", -0.001, math.inf),
+    "friction_ellipse_exponent": ("Friction ellipse exponent", 0.0, 10.0),
 }
 
 POSITIVE_PARAMS = {
@@ -75,6 +79,8 @@ POSITIVE_PARAMS = {
     "ratio": "transmission ratio",
     "pressure_kPa": "pressure",
     "wheelbase_m": "wheelbase",
+    "track_front_m": "front track width",
+    "track_rear_m": "rear track width",
 }
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
@@ -308,6 +314,7 @@ def validate_project(project: Project) -> list[DataCheck]:
 
         _plausibility_checks(model, add)
         _map_checks(model, add)
+        _lap_checks(project, add)
 
         if not model.drivelines and not any(b.consumers for b in model.buses):
             add("info", "Model has no driveline and no electrical loads — nothing will happen.")
@@ -505,9 +512,10 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
     drv = model.driver
     if drv is not None:
         label = elements[drv].label
-        # an acceleration test holds full throttle and reads no target
+        # an acceleration test holds full throttle and a lap case follows its
+        # Race Track: neither reads a target
         if ((drv, "sig_target_in") not in route
-                and any(c.kind != "acceleration" for c in project.cases)):
+                and any(c.kind not in ("acceleration", "lap") for c in project.cases)):
             err(drv, f"Driver '{label}' has no Target Speed signal — it will hold 0 km/h, "
                      f"so the vehicle will not move.")
         if demands & route.keys() and not commanded(drv) & demands:
@@ -547,6 +555,21 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
             warn(blk, f"'{elements[blk].label}' input{'s' if len(loose) > 1 else ''} {names} "
                       f"{'are' if len(loose) > 1 else 'is'} not connected — it reads 0 there.")
     return replaced
+
+
+def _lap_checks(project: Project, add: Add) -> None:
+    """What a lap case refuses or does differently (lapsim.problems), for
+    the Race Track, layout and laps that case sets."""
+    for case in project.cases:
+        if case.kind != "lap":
+            continue
+        try:
+            model = build_model(project, {}, case.parameterOverrides)
+        except ModelError:
+            continue  # reported above
+        for level, text in lapsim.problems(model, case.outputEvery):
+            el = model.elements.get(model.track) if model.track else None
+            add(level, f"Case '{case.name}': {text}", el)
 
 
 def _plausibility_checks(model: Model, add: Add) -> None:

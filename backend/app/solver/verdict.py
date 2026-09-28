@@ -396,7 +396,8 @@ def _acceleration(trace: CycleTrace, case, stopped: bool,
             "Gravity Height is 0), so a rear-driven car's launch grip is pessimistic and a "
             "front-driven car's optimistic")
     messages.append(("info", f"Acceleration test results are estimates: {load}; the tyres' grip "
-                             f"does not depend on their load; and nothing limits wheelspin, so at "
+                             f"depends on their load only through a Wheel's Load Sensitivity; and "
+                             f"nothing limits wheelspin, so at "
                              f"the grip limit the power figures include the power that spins "
                              f"the wheels."))
     return rows

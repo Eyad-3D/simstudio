@@ -24,7 +24,7 @@ cleared it for shipping.
 
 ## Status (2026-09-23)
 
-- The register has 35 rows.
+- The register has 40 rows.
 - **Third-party data is now bundled.** The example rebuild (CON-02, CON-03)
   took the Battery Electric Car's vehicle values from FASTSim's
   2021_Cupra_Born.csv, calibrated its motor loss map to FASTSim's default
@@ -42,6 +42,10 @@ cleared it for shipping.
   the tables when they can.
 - The examples' new engine, motor and battery maps are synthetic, created
   for LightSim in that change; their rows say what they are calibrated to.
+- The Race Track's layouts (`backend/app/library/tracks.json`, DR-38) are
+  drawn for LightSim after the Formula Student rules' track guidance; no
+  official layout, TUM racetrack-database (LGPL-3.0) or OpenStreetMap data
+  ships.
 - **Every other shipped map, curve, profile and default value still has
   unknown provenance.** All of them except the fuel density (a textbook
   value added in `4af7f9c`) first appear in the root commit of the main

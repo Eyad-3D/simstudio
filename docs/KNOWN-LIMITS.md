@@ -99,8 +99,8 @@ either. Also:
   (a manual run is capped by the scoring); FSUK and FSAE may differ, and
   their staging distance was not checked. The results are estimates: the
   wheel loads shift only with a Centre of Gravity Height set (one step
-  late, see below), the tyre's grip does not depend on its load, and
-  nothing limits wheelspin, so when the driven wheels are at their grip
+  late, see below), the tyre's grip depends on its load only through a
+  Wheel's *Load Sensitivity*, and nothing limits wheelspin, so when the driven wheels are at their grip
   limit the tyre still gives μ times its load but the battery power and
   energy include the power that spins the wheels. The time at the grip
   limit counts driven wheels only; there is no peak-slip figure. The time
@@ -154,6 +154,61 @@ highest terminal voltage of a solver step, not a 500 ms average.
 pack or its management system allows, and reduce the motor's torque map or
 add a limit in a Script if needed.
 *Roadmap:* MOD-08 (current limits), ENG-02 (follow-up).
+
+### Lap mode is a quasi-steady-state estimate
+
+A case of kind *Lap* finds the fastest speed along the Race Track's line
+about every metre, then drives that speed through the model's motors,
+gears, brakes and battery. It is not a driving simulation:
+
+- The driver is ideal: at the tyres' limit on the given line everywhere,
+  with no transients, suspension, yaw, tyre slip or slip-angle drag, and
+  an ideal brake balance (every tyre brakes at its limit). Regeneration
+  comes first when braking, up to the Driver's *Recuperation Weight* and
+  the driven wheels' braking grip; the drive cycles' Driver does not hold
+  regeneration to the grip. Lap times are usually optimistic: a user of
+  OpenLAP, a similar point-mass lap simulator, found its F1 example lap
+  7.5-8 % faster than the real car's. Calibrate μ, μ_y and the downforce against a lap your
+  car has driven before trusting a lap time.
+- The car follows the line as drawn, with no track width or racing line.
+  Where the curvature changes sign within a metre, as at the skidpad's
+  crossover, the speed rises by up to 3 % at that point: a real car cannot
+  turn from one circle into the other that quickly.
+- E-Motor cars only: a lap case refuses Combustion Engines and Clutches on
+  the wheels, holds Gearboxes in their gear and commands every E-Motor
+  itself, with one demand for all, so Scripts or controllers between the
+  Driver and the motors (torque vectoring, traction control) do nothing.
+- The powertrain's limit is read at each lap's start, with the battery's
+  charge and voltage then. Within a lap the motors can fall short of the
+  speed where the battery's voltage sags more than expected; the *Lap
+  energy balance error* shows it, and above 0.5 % the *Energy per lap* is
+  marked not valid. The Output Power Limit is held at every point; the
+  check window's average is not used to let short peaks through.
+- Sideways load transfer is shared between the axles as the static weight
+  is (no roll stiffness or anti-roll bars), and each axle's wheels are
+  taken in pairs across the car.
+- Driving a lap's speed as a drive cycle gives other energy figures: the
+  drive cycles' Driver has no brake balance or ABS and can lock the driven
+  wheels when braking hard (a Formula Student-sized car driving its
+  Autocross lap's speed as a drive cycle used 62 % more energy and
+  recuperated 30 Wh instead of 110 Wh).
+- Live edits during a lap case reach the motors, gears and battery at
+  once, but the lap's speed is solved at each lap's start.
+- A Custom track's curvature is used as entered: a logged lateral
+  acceleration / speed² is noisy and should be smoothed first. Data Checks
+  refuse a curvature above 0.5 1/m (a 2 m radius).
+- The Autocross, Skidpad and Acceleration 75 m layouts are LightSim's own
+  drawings after FS Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1,
+  not official layouts; FSUK and FSAE may differ, check the current
+  season's rules.
+
+*Workaround:* compare lap cases with each other rather than with a stop
+watch, and check the *Time limited by* rows and the Race Track's *Limit*
+channel for what holds the car back.
+*Roadmap:* VAL-12 (calibration against a logged lap), MOD-34 (a dynamic
+lap model), STD-35 (tracks from GPS or OpenStreetMap), MOD-43 (events and
+scoring), CON-11 (driving a lap's speed as a drive cycle), MOD-08 (state
+of power), MOD-09 (heat over an endurance).
 
 ### Signal units are not checked
 
@@ -237,14 +292,15 @@ minimum or an average, for example from the CSV export.
   90 km/h an FS car's drag would move about 90 N, 5 % of its rear axle
   load). An axle that would carry
   less than nothing carries nothing and the run warns: the car does not
-  pitch, wheelie or tip over, and there is no suspension. Load does not
-  shift from side to side, and grip does not depend on load (μ is the same
-  at any load). The static split is the *Vehicle Load Share*; the shares
+  pitch, wheelie or tip over, and there is no suspension. In a drive cycle
+  load does not shift from side to side (a lap case shifts it), and grip
+  depends on load only with a Wheel's *Load Sensitivity* set. The static
+  split is the *Vehicle Load Share*; the shares
   of the connected wheels are scaled to add up to 100 %, and Data Checks
   say when they had to be. Wheels are on the Front axle unless set to
   Rear: set the rear wheels before giving a CG height (Data Checks say
-  so). *Roadmap:* MOD-16 (load-sensitive grip), MOD-34 (pitch and
-  suspension), MOD-42 (side-to-side transfer in lap mode).
+  so). *Roadmap:* MOD-16 (a tyre model beyond μ and its load
+  sensitivity), MOD-34 (pitch and suspension).
 - **An engine behind a script-controlled clutch starts at rest.** A run that
   starts at speed starts every wheel, gear and motor at that speed, and an
   engine behind a closed clutch too; a clutch a Script controls counts as
@@ -337,9 +393,12 @@ minimum or an average, for example from the CSV export.
   *Roadmap:* MOD-09.
 - **Forward driving only.** No reverse, and no rolling back: a car on a steep
   hill stays put even with no brakes. *Roadmap:* MOD-21, ENG-21.
-- **Longitudinal dynamics only.** No cornering: weight shifts between the
-  axles but not from side to side. Tyre force rises with slip and then
-  stays flat (no peak and drop). *Roadmap:* MOD-16, MOD-42.
+- **Drive cycles are longitudinal only.** A drive cycle, performance or
+  acceleration case does not corner: weight shifts between the axles but
+  not from side to side. Lap cases corner, as a quasi-steady-state
+  estimate (see *Lap mode is a quasi-steady-state estimate*). Tyre force
+  rises with slip and then stays flat (no peak and drop). *Roadmap:*
+  MOD-16, MOD-34.
 - **A simple driver.** The Driver is a PI speed follower: it does not look
   ahead along the cycle or shift gears; gear and clutch logic comes from
   Script blocks. *Roadmap:* MOD-14.

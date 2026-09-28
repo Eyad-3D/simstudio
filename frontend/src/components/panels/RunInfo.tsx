@@ -24,11 +24,11 @@ export function RunInfo({ run }: { run: SimRun }) {
     return `${el?.label ?? elementId} · ${def?.label ?? key}`;
   };
   const c = snap.case;
+  const lap = c.kind === "lap"; // the Race Track, not the duration or step, set the run
   const settings = [
-    `${c.duration} s`,
-    `step ${c.timeStep} s`,
+    ...(lap ? ["lap mode (estimate)"] : [`${c.duration} s`, `step ${c.timeStep} s`]),
     ...((c.outputEvery ?? 1) > 1 ? [`store ×${c.outputEvery}`] : []),
-    (c.realtimeFactor ?? 0) > 0 ? `${c.realtimeFactor}× pacing` : "no pacing",
+    ...(lap ? [] : [(c.realtimeFactor ?? 0) > 0 ? `${c.realtimeFactor}× pacing` : "no pacing"]),
     ...(c.kind === "performance" ? ["performance test"] : []),
     ...(c.kind === "acceleration"
       ? [`acceleration test${c.endDistance ? ` over ${c.endDistance} m` : ""}${

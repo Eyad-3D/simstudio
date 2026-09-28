@@ -345,9 +345,11 @@ function SimulationsTab() {
           <div className="flex items-center gap-2 text-[11px] text-[color:var(--ss-text-dim)]">
             <span title="Solver settings for this case">
               {activeCase
-                ? `${activeCase.duration}s · step ${activeCase.timeStep}s${
-                    (activeCase.outputEvery ?? 1) > 1 ? ` · store ×${activeCase.outputEvery}` : ""
-                  }${(activeCase.realtimeFactor ?? 0) > 0 ? ` · ${activeCase.realtimeFactor}× pacing` : ""}`
+                ? activeCase.kind === "lap" // the Race Track sets a lap case's run
+                  ? `lap mode${(activeCase.outputEvery ?? 1) > 1 ? ` · store ×${activeCase.outputEvery}` : ""}`
+                  : `${activeCase.duration}s · step ${activeCase.timeStep}s${
+                      (activeCase.outputEvery ?? 1) > 1 ? ` · store ×${activeCase.outputEvery}` : ""
+                    }${(activeCase.realtimeFactor ?? 0) > 0 ? ` · ${activeCase.realtimeFactor}× pacing` : ""}`
                 : "—"}
             </span>
             <button

@@ -191,6 +191,14 @@ export function CasePanel() {
   }
 
   const accel = activeCase.kind === "acceleration";
+  const lap = activeCase.kind === "lap";
+  // a lap case drives the model's (one) Race Track: its layout and laps are
+  // this case's overrides of it
+  const track = project.systems.flatMap((s) => s.elements).find((e) => e.componentDefId === "track.lap");
+  const trackParams = libraryById["track.lap"]?.parameters ?? [];
+  const layoutDef = trackParams.find((p) => p.key === "layout");
+  const lapsDef = trackParams.find((p) => p.key === "laps");
+  const lapHint = "A lap case is set by the Race Track's layout and laps: Duration, Step and Pacing do not apply.";
   const overrideRows = Object.entries(caseOv ?? {}).flatMap(([elId, params]) =>
     Object.entries(params).map(([key, value]) => ({ elId, key, value })),
   );
@@ -243,13 +251,16 @@ export function CasePanel() {
             title={
               accel
                 ? "The acceleration test's time limit: a car that has not reached the line by then gets a warning. FS Rules 2026 v1.1 (FSG) D 9.2.1 disqualifies runs over 25 s in driverless runs only; FSUK and FSAE may differ, check the current season's rules."
-                : undefined
+                : lap
+                  ? lapHint
+                  : undefined
             }
           >
             Duration (s)
             <input
               type="number"
-              className="ss-input"
+              className="ss-input disabled:opacity-50"
+              disabled={lap}
               min={1}
               value={activeCase.duration}
               onChange={(e) =>
@@ -259,12 +270,17 @@ export function CasePanel() {
           </label>
           <label
             className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-            title="Output step in seconds (min 0.0001): results are stored and live edits applied at this interval. Controllers, scripts, the drive cycle and the physics run at the solver step (≤10 ms) whatever this is set to."
+            title={
+              lap
+                ? lapHint
+                : "Output step in seconds (min 0.0001): results are stored and live edits applied at this interval. Controllers, scripts, the drive cycle and the physics run at the solver step (≤10 ms) whatever this is set to."
+            }
           >
             Step (s)
             <input
               type="number"
-              className="ss-input"
+              className="ss-input disabled:opacity-50"
+              disabled={lap}
               step="any"
               min={0.0001}
               value={activeCase.timeStep}
@@ -277,7 +293,11 @@ export function CasePanel() {
           </label>
           <label
             className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-            title="Store a result point every N output steps (1 = every step). Keeps results small at fine step sizes."
+            title={
+              lap
+                ? "Store a result point every N track points (about 1 m apart; 1 = every point). Keeps a long run's result small: 5 or more for a Formula Student endurance."
+                : "Store a result point every N output steps (1 = every step). Keeps results small at fine step sizes."
+            }
           >
             Store every (steps)
             <input
@@ -295,11 +315,16 @@ export function CasePanel() {
           </label>
           <label
             className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-            title="0 = solve as fast as possible; N× paces the run against real time so you can watch and tune it live."
+            title={
+              lap
+                ? lapHint
+                : "0 = solve as fast as possible; N× paces the run against real time so you can watch and tune it live."
+            }
           >
             Pacing
             <select
-              className="ss-input w-[72px]"
+              className="ss-input w-[72px] disabled:opacity-50"
+              disabled={lap}
               value={activeCase.realtimeFactor ?? 0}
               onChange={(e) =>
                 setCaseField(activeCase.id, { realtimeFactor: Number(e.target.value) })
@@ -314,14 +339,14 @@ export function CasePanel() {
           </label>
           <label
             className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-            title="Cycle: judged on following the target speed. Performance: the Driver holds full throttle until the car reaches the target, then holds it there, and the run reports the time from t = 0 to the target speed and the maximum speed (for example 0:100 for 0-100 km/h, 0:250 for top speed). Acceleration: the Driver holds full throttle the whole run (no target needed) and the run ends at the line, reporting the time from the start line, the speed at the line, 0-100 km/h and the battery's terminal power (results are estimates)."
+            title="Cycle: judged on following the target speed. Performance: the Driver holds full throttle until the car reaches the target, then holds it there, and the run reports the time from t = 0 to the target speed and the maximum speed (for example 0:100 for 0-100 km/h, 0:250 for top speed). Acceleration: the Driver holds full throttle the whole run (no target needed) and the run ends at the line, reporting the time from the start line, the speed at the line, 0-100 km/h and the battery's terminal power (results are estimates). Lap: the model's Race Track sets the run (its layout and laps below): a quasi-steady-state lap solver finds the fastest speed along it and the motors and battery drive that speed, reporting the lap and sector times, the energy per lap and what limited the car (results are estimates)."
           >
             Kind
             <select
               className="ss-input w-[112px]"
               value={activeCase.kind ?? "cycle"}
               onChange={(e) => {
-                const kind = e.target.value as "cycle" | "performance" | "acceleration";
+                const kind = e.target.value as "cycle" | "performance" | "acceleration" | "lap";
                 // the distance end shows only for Acceleration: another kind
                 // would end at a line it does not show
                 setCaseField(activeCase.id, {
@@ -333,8 +358,57 @@ export function CasePanel() {
               <option value="cycle">Cycle</option>
               <option value="performance">Performance</option>
               <option value="acceleration">Acceleration</option>
+              <option value="lap">Lap</option>
             </select>
           </label>
+          {lap &&
+            (track && layoutDef && lapsDef ? (
+              <>
+                <label
+                  className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+                  title={`The layout of Race Track '${track.label}' for this case (a case override). Autocross, Skidpad and Acceleration 75 m are drawn for LightSim after FS Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1 (FSUK and FSAE may differ, check the current season's rules); Custom uses the track's own tables.`}
+                >
+                  Track layout
+                  <select
+                    className="ss-input w-[112px]"
+                    value={String(effectiveValue(caseOv, track, "layout", layoutDef))}
+                    onChange={(e) => setCaseOverride(activeCase.id, track.id, "layout", e.target.value)}
+                  >
+                    {(layoutDef.options ?? []).map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label
+                  className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+                  title="Laps driven one after the other (a case override): lap 1 from the Vehicle's Initial Speed, each later lap from the speed the one before ended with."
+                >
+                  Laps
+                  <input
+                    type="number"
+                    className="ss-input"
+                    min={1}
+                    max={500}
+                    step={1}
+                    value={Number(effectiveValue(caseOv, track, "laps", lapsDef))}
+                    onChange={(e) =>
+                      setCaseOverride(
+                        activeCase.id,
+                        track.id,
+                        "laps",
+                        Math.max(1, Math.min(500, Math.round(Number(e.target.value) || 1))),
+                      )
+                    }
+                  />
+                </label>
+              </>
+            ) : (
+              <p className="text-[11px] text-[color:var(--ss-text-dim)]">
+                Add a Race Track from Driver &amp; Signals: its layout and laps set a lap case.
+              </p>
+            ))}
           {accel && (
             <>
               <label

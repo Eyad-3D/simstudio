@@ -50,6 +50,27 @@ def axle_load_shift(m: float, h: float, wheelbase: float, a_x: float, sin_t: flo
     return d_front, d_rear, None
 
 
+def lateral_load_shift(m: float, h: float, a_y: float, track_front: float,
+                       track_rear: float, front_share: float) -> tuple[float, float]:
+    """(load moved from the inner to the outer wheels of the front axle, of
+    the rear axle), in N: the cornering moment m·|a_y|·h, taken by the front
+    axle in ``front_share`` (0-1) and by the rear axle in the rest, over each
+    axle's track width. An axle with a track width of 0 or less takes none."""
+    moment = m * abs(a_y) * h
+    return (front_share * moment / track_front if track_front > 0 else 0.0,
+            (1.0 - front_share) * moment / track_rear if track_rear > 0 else 0.0)
+
+
+def tyre_mu(w, fz: float, lateral: bool = False) -> float:
+    """A tyre's friction coefficient at the normal load ``fz`` (N): its μ
+    (its lateral μ_y when ``lateral`` and one is set), changed by its load
+    sensitivity dμ/dFz per N away from its nominal load (its static load when
+    none is set), never below 0. The one tyre-friction entry point: the drive
+    cycles' tyre force and lap mode read grip through it."""
+    mu = w.mu_y if lateral and w.mu_y > 0 else w.mu
+    return max(0.0, mu + w.dmu_per_n * (fz - (w.fz0 or w.fz_static)))
+
+
 # The air vehicles drive in (sea level to about 5,500 m): beyond it a value is
 # more likely typed in the wrong unit (bar, Pa, °F, K) than meant.
 AMBIENT_C = (-60.0, 60.0)

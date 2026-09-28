@@ -164,8 +164,12 @@ class SimCase(BaseModel):
     # trace (a 0-100 km/h or top-speed test). "acceleration": the Driver holds
     # full throttle for the whole run (its target is not read) and the run is
     # timed from the start line to endDistance past it, with the duration as
-    # its time limit (a Formula Student 75 m acceleration run)
-    kind: Literal["cycle", "performance", "acceleration"] = "cycle"
+    # its time limit (a Formula Student 75 m acceleration run). "lap": the
+    # model's Race Track sets the run (its layout and laps, per case through
+    # parameterOverrides): a quasi-steady-state lap solver finds the speed
+    # along it and the motors and battery drive that trace, so duration,
+    # timeStep and realtimeFactor do not apply
+    kind: Literal["cycle", "performance", "acceleration", "lap"] = "cycle"
     # end the run when the vehicle has driven startLine + endDistance, m;
     # None or 0 = run the whole duration
     endDistance: Optional[float] = None

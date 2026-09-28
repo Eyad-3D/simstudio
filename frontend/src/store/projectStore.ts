@@ -397,7 +397,7 @@ interface ProjectState {
       timeStep: number;
       outputEvery: number;
       realtimeFactor: number;
-      kind: "cycle" | "performance" | "acceleration";
+      kind: "cycle" | "performance" | "acceleration" | "lap";
       endDistance: number | null;
       startLine: number;
       referenceTime: number | null;
