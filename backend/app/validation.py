@@ -270,6 +270,17 @@ def validate_project(project: Project) -> list[DataCheck]:
                 f"controllers run every 10-100 ms, so results may depend on this "
                 f"setting.", el)
 
+    # a case's own values (Cases & Parameters) keep to the same limits
+    for case in project.cases:
+        for el_id, values in case.parameterOverrides.items():
+            el = all_elements.get(el_id)
+            cdef = defs.get(el.componentDefId) if el else None
+            for pdef in cdef.parameters if cdef else ():
+                if pdef.type == "number" and pdef.key in values \
+                        and (problem := _number_problem(pdef, values[pdef.key])):
+                    add("error", f"{_name(pdef)} of '{el.label}' in case '{case.name}' {problem}.",
+                        el, fix="Change or remove the override in Cases & Parameters.")
+
     # -- structural solvability (delegated to model extraction) ------------------
     model = None
     try:

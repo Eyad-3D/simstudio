@@ -323,6 +323,21 @@ def test_every_catalog_limit_is_checked(cid, pdef):
     assert _range_errors(cid, pdef.key, "abc") == [f"{name} of 'X' is not a number."]
 
 
+def test_a_case_override_keeps_to_the_limits_too():
+    """A case cannot run on an Initial SOC of 150 %: its own values are
+    checked like the part's, and the fix line says where to change them."""
+    proj = load_example("bev-car")
+    case = proj.cases[0]
+    case.parameterOverrides["el-battery"] = {"initial_soc_pct": 150, "capacity_kWh": 70}
+    errors = [(c.text, c.elementIds, c.fix) for c in validate_project(proj) if c.level == "error"]
+    assert errors == [(f"Initial SOC of 'HV Battery Pack' in case '{case.name}' must be above 0 "
+                       "and at most 100 % — got 150.", ["el-battery"],
+                       "Change or remove the override in Cases & Parameters.")]
+    result = client.post("/api/simulate",
+                         json={"project": proj.model_dump(), "caseId": case.id}).json()
+    assert result["status"] == "failed" and "150" in result["messages"][0]["text"]
+
+
 # ---- UX-09: every problem names its parts and says what to do ---------------------
 
 # words of a check text that already say what to do (it then needs no fix line)
