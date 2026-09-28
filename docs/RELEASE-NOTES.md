@@ -152,6 +152,19 @@ sections.
   part* and *Start from an example*, an empty Monitors panel *Place a
   Monitor*, and an empty Results page a button that names the case it
   runs. (UX-16)
+- Every parameter explains itself: rest the pointer on it in *Properties*
+  or the parameter dialog, or move to it with Tab, and a card says what it
+  is, its usual values (for a Formula Student car, a small car, a mid-size
+  EV or a van where that matters), where to find the real number, its
+  default and what is allowed. **More in the help (F1)** in the card, or
+  F1 in the field, opens the parameter on its part's help page, which
+  carries the same texts. In the dialog, tables, scripts and profiles show
+  them above their editor. The texts are first drafts. (UX-10, LRN-05)
+- A number outside what its parameter allows turns red as you type, with
+  a line under it that says what is allowed, such as *Initial SOC must be
+  above 0 and at most 100 %.* Data Checks read the same limits, from the
+  component library, and say the same. A case's own values in *Cases &
+  Parameters* are checked the same way. (UX-10)
 
 ### Fixed
 
@@ -251,6 +264,20 @@ sections.
   Gain of −1 ended in "did not drive the cycle"), or the solver quietly
   used another value (0 for a negative μ, 0.1 for a slip stiffness below
   it, 1 1/min for an idle speed of 0). (UX-10)
+- A case could run with its own values out of range, such as an Initial
+  SOC of 150 %: Data Checks did not look at them. They now do, and name
+  the case. (UX-10)
+- Data Checks name a parameter as the app labels it and say what is
+  allowed in words: *Coulombic Efficiency of 'HV Battery Pack' must be
+  above 0 and at most 100 % — got 0.* instead of *Coulombic efficiency
+  … must be in (0, 100]*. Text or an infinite value in any number
+  parameter is now an error, not only in those that had a range, and a
+  value just below 0, such as −0.0005 %, no longer passes where 0 is the
+  least allowed. (UX-10)
+- Clearing a number in *Cases & Parameters* stored 0; the field now keeps
+  its value until you type a number, as in *Properties*. A red field's
+  border was too faint on the dark theme (3.4:1); it now uses the theme's
+  error colour. (UX-10)
 
 ### Upgrading from a 0.2.0 build
 
@@ -294,6 +321,9 @@ sections.
 - A project that holds one of the 40 values Data Checks now refuse (see
   Fixed) stops before the run with an error that names the part and what
   is allowed; set the value inside the limits. The examples hold none.
+  So does a case whose own value is out of range: change or remove it in
+  *Cases & Parameters*. A stored value out of range shows red in its field
+  as soon as the project opens.
 - Going back to 0.2.0: it cannot open a project with a study point that
   says *cancelled*. It still lists and opens stored runs that say
   *cancelled*, but drops them from the list if it has to rebuild its run
