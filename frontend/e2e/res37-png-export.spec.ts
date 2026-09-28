@@ -53,6 +53,6 @@ test("RES-37: the PNG export is the whole chart at twice its on-screen size", as
   expect(counts.plot["#666666"] ?? 0, "axis lines and tick labels").toBeGreaterThan(500);
   for (const c of colours) {
     expect(counts.plot[c] ?? 0, `line ${c}`).toBeGreaterThan(500);
-    expect(counts.key[c] ?? 0, `legend icon and name in ${c}`).toBeGreaterThan(50);
+    expect(counts.key[c] ?? 0, `legend icon in ${c}`).toBeGreaterThan(50);
   }
 });

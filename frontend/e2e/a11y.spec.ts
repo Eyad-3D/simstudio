@@ -127,6 +127,10 @@ for (const theme of ["light", "dark"] as const) {
       await runActiveCase(page);
       await expect(drawnLines(page).first()).toBeVisible();
       await check(page, `results-${theme}`);
+      // axe leaves text over a chart unjudged: legend names use the text
+      // colour, as several series colours are too faint for text (GUI-02)
+      const text = await page.locator("#root").evaluate((r) => getComputedStyle(r).color);
+      await expect(page.locator(".recharts-legend-item-text > span").first()).toHaveCSS("color", text);
     });
 
     test("parameter dialog", async ({ page }) => {

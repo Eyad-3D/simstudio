@@ -922,7 +922,11 @@ export function ResultsPanel() {
                   <Legend
                     formatter={(key: string) => {
                       const c = channelByKey.get(key);
-                      return <span style={{ fontSize: 10 }}>{c ? (c.label.split(" · ")[1] ?? c.label) : key}</span>;
+                      return (
+                        <span style={{ fontSize: 10, color: "var(--ss-text)" }}>
+                          {c ? (c.label.split(" · ")[1] ?? c.label) : key}
+                        </span>
+                      );
                     }}
                   />
                   {xyYChannels.map((c) => {
@@ -1000,7 +1004,7 @@ export function ResultsPanel() {
                   />
                   <Legend
                     formatter={(key: string) => (
-                      <span style={{ fontSize: 10 }}>{defByKey.get(key)?.legend ?? key}</span>
+                      <span style={{ fontSize: 10, color: "var(--ss-text)" }}>{defByKey.get(key)?.legend ?? key}</span>
                     )}
                   />
                   {seriesDefs.map((d) => (
@@ -1035,9 +1039,14 @@ export function ResultsPanel() {
                   <th className="ss-th">Summary value</th>
                   {plotRuns.map((r, i) => (
                     <th key={r.id} className="ss-th w-[110px] text-right" title={runLabel(r)}>
-                      <span style={{ color: multiRun ? runColor(i) : undefined }}>
-                        {multiRun ? runShort(r) : "Value"}
-                      </span>
+                      {multiRun && (
+                        <span
+                          className="mr-1 inline-block h-2 w-2 rounded-full align-middle"
+                          style={{ background: runColor(i) }}
+                          aria-hidden="true"
+                        />
+                      )}
+                      {multiRun ? runShort(r) : "Value"}
                     </th>
                   ))}
                   <th className="ss-th w-[56px]">Unit</th>

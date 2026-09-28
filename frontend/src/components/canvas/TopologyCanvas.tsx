@@ -109,6 +109,14 @@ function ZoomMenu({ onFit }: { onFit: () => void }) {
       title="Zoom"
       value="now"
       onChange={(e) => (e.target.value === "fit" ? onFit() : void zoomTo(Number(e.target.value), { duration: 200 }))}
+      // Its value is always the readout, so an arrow key on the closed list
+      // would pick Fit every time: open the list instead.
+      onKeyDown={(e) => {
+        if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !e.altKey) {
+          e.preventDefault();
+          e.currentTarget.showPicker();
+        }
+      }}
     >
       <option value="now" hidden>
         {zoom}%
@@ -188,7 +196,7 @@ function TopologyCanvasInner() {
   // the view the last automatic fit left, while the user has not moved it
   const autoView = useRef("");
   const autoFit = useCallback(
-    (duration = 0) => {
+    (duration = 0, showMap = true) => {
       const { project: p, activeSystemId: sysId } = store.getState();
       const sys = p?.systems.find((sy) => sy.id === sysId);
       if (!sys || sys.elements.length === 0) {
@@ -203,7 +211,7 @@ function TopologyCanvasInner() {
         const { width, height } = rfStore.getState();
         const bounds = getNodesBounds(getNodes());
         const { zoom } = getViewport();
-        if (bounds.width * zoom > width || bounds.height * zoom > height) setShowMiniMap(true);
+        if (showMap && (bounds.width * zoom > width || bounds.height * zoom > height)) setShowMiniMap(true);
       });
     },
     [fitView, getNodes, getNodesBounds, getViewport, rfStore, setViewport, store],
@@ -267,8 +275,9 @@ function TopologyCanvasInner() {
           b.y * zoom + y >= 0 &&
           (b.x + b.width) * zoom + x <= w &&
           (b.y + b.height) * zoom + y <= h;
-        if (transform.join() === autoView.current || (inView(was.width, was.height) && !inView(width, height)))
-          autoFit(200);
+        // the overview map is shown again only when this change cut the model off
+        const cut = inView(was.width, was.height) && !inView(width, height);
+        if (cut || transform.join() === autoView.current) autoFit(200, cut);
       }, 150);
     });
     return () => {
@@ -644,7 +653,8 @@ function TopologyCanvasInner() {
   return (
     <div className="relative flex h-full flex-col">
       {/* the toolbar floats over the diagram's top edge as two pills, so the
-          diagram gets the panel's full height */}
+          diagram gets the panel's full height; in a narrow panel the tools
+          wrap onto a second row */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 p-1.5">
         <div className="pointer-events-auto flex min-w-0 items-center gap-0.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-1 py-0.5 text-[12px] shadow-sm empty:hidden">
           {breadcrumb.map((sys, i) => (
@@ -663,7 +673,7 @@ function TopologyCanvasInner() {
             </span>
           ))}
         </div>
-        <div className="pointer-events-auto flex items-center gap-0.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-1 py-0.5 shadow-sm">
+        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-0.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-1 py-0.5 shadow-sm">
           <button className="ss-toolbtn" title="Zoom in" onClick={() => void zoomIn()}>
             <ZoomIn size={14} />
           </button>

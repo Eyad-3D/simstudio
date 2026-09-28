@@ -2,6 +2,8 @@
 import { useCallback, useRef, useState } from "react";
 import type { Channel } from "../../types";
 
+/** Series colours for chart lines and swatches (at least 3:1 on the panel).
+ *  Several are too faint for text, so names are drawn in the text colour. */
 export const PALETTE = [
   "#2f6fb3",
   "#d97706",

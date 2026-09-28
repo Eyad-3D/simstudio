@@ -121,6 +121,11 @@ test("UX-06: a model too big to read opens at 50 % with the overview map", async
   await importProject(page, model);
   await expect.poll(() => zoomOf(page)).toBe(0.5);
   await expect.poll(() => page.locator(".react-flow__minimap-node").count()).toBeGreaterThanOrEqual(300);
+  // hidden, the map stays hidden when the diagram changes size
+  await page.getByTitle("Toggle minimap").click();
+  await page.setViewportSize({ width: 1500, height: 900 });
+  await page.waitForTimeout(1000); // the re-fit waits for the size to settle
+  await expect(page.locator(".react-flow__minimap")).toHaveCount(0);
 });
 
 test("UX-06: leaving a subsystem restores the parent's view", async ({ page }) => {

@@ -318,11 +318,17 @@ minimum or an average, for example from the CSV export.
   solver steps every 10 ms whatever it is. *Roadmap:* ENG-10.
 - **Part names can overlap when the diagram is zoomed out.** Names keep
   their 11 px on screen however far you zoom out, so neighbours' names run
-  into each other: on the Battery Electric Car one pair at 53 %, seven at 39 % and
-  all of them at the 15 % minimum. Zoom in, or use the minimap to find a
-  part. In the smallest window (1024 × 700) with a bottom panel open, two
-  of its lowest names are cut off, because automatic fits stop at 50 %:
-  close the panel or zoom out. *Roadmap:* GUI-10.
+  into each other: on the Battery Electric Car, with Windows' font, one
+  pair at 53 %, seven at 39 % and all of them at the 15 % minimum; a wider
+  font, as on Linux, overlaps sooner. Zoom in, or use the minimap to find
+  a part. With a bottom panel open, two of the lowest names are cut off in
+  the smallest window (1024 × 700), and in a 1366 × 768 window when the
+  panel keeps the taller height an earlier build saved, because automatic
+  fits stop at 50 %: close the panel, zoom out or choose *Reset UI*.
+  *Roadmap:* GUI-10.
+- **A few small marks are still faint.** The warning badge on a part, and
+  the pin outlines and polarity marks in the dark theme, fall short of the
+  WCAG contrast minimum. *Roadmap:* GUI-14.
 - **Unsigned installers.** Windows SmartScreen warns on first launch (choose
   *More info → Run anyway*). *Roadmap:* PLT-13.
 - **No macOS version.** Builds exist for Windows 10/11 (x64) and Linux (x64)

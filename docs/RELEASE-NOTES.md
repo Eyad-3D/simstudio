@@ -95,8 +95,9 @@ sections.
   200 %. It floats over the diagram's top edge, and the bottom panels open
   at 22 % of the workspace instead of 30 % (drag their edge for more), so
   on a 1366 × 768 screen the diagram keeps 40 % of the window with a panel
-  open (was 33 %). A layout you saved keeps its panel height until Reset
-  UI. (GUI-03)
+  open (was 33 %). LightSim remembers the height of a bottom panel you
+  opened in an earlier build; choose Reset UI to get the new layout.
+  (GUI-03)
 
 ### Fixed
 
@@ -166,9 +167,11 @@ sections.
   title, Run and Save buttons and the green and red status text in the
   dark theme, text fields' borders, the electrical wires on white, the
   mechanical wires on the dark diagram and three of the ten chart colours
-  on dark charts were too faint. Status colours, the accent and field borders now have a
-  shade per theme, and wires, part outlines, layer swatches and port dots
-  share one set of domain colours. (GUI-02)
+  on dark charts were too faint. Status colours, the accent and field
+  borders now have a shade per theme, and wires, part outlines, layer
+  swatches and port dots share one set of domain colours. Chart legends
+  and the Results summary's run columns show names in plain text next to
+  a mark in the series colour. (GUI-02)
 - Part names are never smaller than 11 px on screen, whatever the zoom;
   before, they shrank with the diagram (7 px when a 1366 × 768 window was
   fitted, under 2 px zoomed all the way out). Until you zoom or pan, the
