@@ -8,7 +8,13 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
-  { ignores: ["dist/**", "node_modules/**", "src/data/**", "playwright-report/**", "test-results/**"] },
+  {
+    ignores: [
+      "dist/**", "node_modules/**", "src/data/**", "playwright-report/**", "test-results/**",
+      // the built help pages (scripts/build-docs.mjs)
+      "public/help/**",
+    ],
+  },
   js.configs.recommended,
   tseslint.configs.recommended,
   {
@@ -26,5 +32,10 @@ export default defineConfig(
     // Build scripts are plain Node modules, not part of the app's TS project.
     files: ["scripts/**/*.mjs", "e2e/**/*.mjs"],
     languageOptions: { globals: { process: "readonly", console: "readonly" } },
+  },
+  {
+    // The help pages' own script: plain browser code, not part of the app.
+    files: ["scripts/help-assets/*.js"],
+    languageOptions: { globals: { window: "readonly", document: "readonly" } },
   },
 );

@@ -27,6 +27,9 @@ desktop/release/
 backend/build/
 .smoke-projects/
 
+# The help pages, built from docs/ by frontend/scripts/build-docs.mjs
+frontend/public/help/
+
 # Frontend test output
 frontend/playwright-report/
 frontend/test-results/

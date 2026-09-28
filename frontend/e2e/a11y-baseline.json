@@ -20,5 +20,7 @@
   "parameter-dialog-dark": [
     "label  input[type=text] \"Name\"",
     "label-title-only  select \"Active simulation case\""
-  ]
+  ],
+  "help-light": [],
+  "help-dark": []
 }

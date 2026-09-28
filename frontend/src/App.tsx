@@ -5,6 +5,7 @@ import { ParameterDialog } from "./components/ParameterDialog";
 import { Ribbon } from "./components/Ribbon";
 import { StatusBar } from "./components/StatusBar";
 import { ResultsPanel } from "./components/panels/ResultsPanel";
+import { componentHelpPage, openHelp } from "./help";
 import { useProjectStore } from "./store/projectStore";
 import { useUIStore } from "./store/uiStore";
 import { saveDraft } from "./persist";
@@ -95,6 +96,14 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "F1") {
+        // the selected part's help page, or the help's front page
+        e.preventDefault();
+        const { project, selectedElementId } = useProjectStore.getState();
+        const el = project?.systems.flatMap((s) => s.elements).find((x) => x.id === selectedElementId);
+        openHelp(el ? componentHelpPage(el.componentDefId) : undefined);
+        return;
+      }
       const meta = e.ctrlKey || e.metaKey;
       if (!meta) return;
       const target = e.target as HTMLElement;

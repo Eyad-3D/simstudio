@@ -227,6 +227,9 @@ function buildMenu() {
   const projectsDir = path.join(app.getPath("userData"), "projects");
   const knownLimits = bundledDoc("KNOWN-LIMITS.md", "docs/KNOWN-LIMITS.md");
   const notices = bundledDoc("THIRD-PARTY-NOTICES.txt", "THIRD-PARTY-NOTICES.txt");
+  // The help pages, served by the engine, open in the system browser; before
+  // the engine is up, Known Limits is the file installed with the app.
+  const helpPage = (page) => (appOrigin ? shell.openExternal(`${appOrigin}/help/${page}`) : openDoc(knownLimits));
   const template = [
     {
       label: "File",
@@ -257,8 +260,14 @@ function buildMenu() {
       label: "Help",
       submenu: [
         {
+          label: "Documentation",
+          accelerator: "F1",
+          registerAccelerator: false, // the page handles F1 (the selected part's page)
+          click: () => helpPage("index.html"),
+        },
+        {
           label: "Known Limits",
-          click: () => openDoc(knownLimits),
+          click: () => helpPage("known-limits.html"),
         },
         {
           label: "Third-Party Notices",
@@ -285,7 +294,7 @@ function buildMenu() {
               defaultId: 0,
               cancelId: 0,
             });
-            if (response === 1) openDoc(knownLimits);
+            if (response === 1) helpPage("known-limits.html");
           },
         },
       ],

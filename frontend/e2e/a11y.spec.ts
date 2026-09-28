@@ -1,5 +1,5 @@
-// Accessibility gate (axe-core) on three screens: the topology workspace, the
-// Results page and a parameter dialog, each in the light and the dark theme.
+// Accessibility gate (axe-core) on the topology workspace, the Results page, a
+// parameter dialog and the help pages, each in the light and the dark theme.
 // It fails on any serious or critical violation that is not in
 // a11y-baseline.json, the list of issues the app had when the gate was
 // introduced, kept per screen and theme ("topology-dark"). Fixing one of
@@ -160,6 +160,16 @@ for (const theme of ["light", "dark"] as const) {
       await dialog.getByRole("combobox", { name: "Drive Cycle" }).selectOption("wltc-3b");
       await expect(dialog.getByRole("img", { name: /^Speed over time, WLTC/ })).toBeVisible();
       await check(page, `parameter-dialog-${theme}`);
+    });
+
+    // LRN-04: the help pages follow the system's theme, not the app's
+    test("help page", async ({ page }) => {
+      await page.emulateMedia({ colorScheme: theme });
+      await page.goto("/help/reference/components/signal.driving_task.html");
+      await check(page, `help-${theme}`);
+      await page.goto("/help/index.html");
+      await page.getByLabel("Search the help").fill("battery");
+      await check(page, `help-${theme}`);
     });
 
     test("parameter dialog", async ({ page }) => {

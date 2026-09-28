@@ -104,6 +104,12 @@ try {
   }
   console.log("✓ backend connected");
 
+  // The help pages ship in the UI bundle and the engine serves them (Help →
+  // Documentation opens them in the browser).
+  const help = await fetch(new URL("/help/index.html", page.url));
+  if (!help.ok) fail(`the help pages are missing: /help/index.html answered ${help.status}`);
+  console.log("✓ help pages served");
+
   console.log("\npackaged app smoke test passed");
   stop();
   process.exit(0);
