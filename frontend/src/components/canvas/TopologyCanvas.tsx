@@ -673,7 +673,7 @@ function TopologyCanvasInner() {
       const t = e.target as HTMLElement;
       if (["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || t.isContentEditable) return;
       const ui = useUIStore.getState();
-      if (ui.ribbonTab === "results" || ui.paramDialogId || ui.dialog) return;
+      if (ui.ribbonTab === "results" || ui.ribbonTab === "start" || ui.paramDialogId || ui.dialog) return;
       e.preventDefault();
       if (selectedNodes.size > 0) {
         frame([...selectedNodes]);
@@ -1006,6 +1006,27 @@ function TopologyCanvasInner() {
                   Drag port to port to connect (same domain only)
                 </li>
               </ul>
+              {/* the next step as a button (UX-16); the rest of the card lets
+                  clicks through to the diagram */}
+              <div className="pointer-events-auto mt-3 flex flex-wrap justify-center gap-2">
+                <button
+                  className="rounded bg-[color:var(--ss-accent-fill)] px-3 py-1 text-[12px] font-semibold text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--ss-accent)]"
+                  onClick={() => {
+                    useUIStore.getState().focusPanel("components");
+                    requestAnimationFrame(() =>
+                      document.querySelector<HTMLInputElement>("input[aria-label='Search components']")?.focus(),
+                    );
+                  }}
+                >
+                  Add a part
+                </button>
+                <button
+                  className="ss-toolbtn border border-[color:var(--ss-field-border)] px-3"
+                  onClick={() => useUIStore.getState().setRibbonTab("start")}
+                >
+                  Start from an example
+                </button>
+              </div>
             </div>
           </div>
         )}

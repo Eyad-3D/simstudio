@@ -29,7 +29,7 @@ test("RES-03: after the first run both the Results chart and the Signal Plot dra
 test("RES-03: a first run started from the empty Results page is drawn", async ({ page }) => {
   await openApp(page);
   await ribbonButton(page, "Results");
-  await page.getByRole("button", { name: /Run active case/ }).first().click();
+  await page.getByRole("button", { name: /^Run '/ }).first().click();
   // the default channel pick waits for the run's channels (it used to store
   // an empty pick from the run's first, channel-less result)
   await expect(results(page).locator(".recharts-line-curve").first()).toBeAttached({ timeout: 60_000 });

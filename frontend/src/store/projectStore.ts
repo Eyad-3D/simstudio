@@ -811,6 +811,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const log = get().log;
       log("info", `Component library loaded (${lib.components.length} components).`);
       if (draft && unsaved) {
+        useUIStore.getState().setRibbonTab("home"); // restored work is shown, not the Start page
         log("info", `Restored your unsaved draft from ${new Date(draft.savedAt).toLocaleString()}.`);
       } else {
         log("info", `Project '${project.name}' opened.`);

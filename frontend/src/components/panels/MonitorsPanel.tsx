@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Gauge } from "lucide-react";
 import { portsOf, useActiveRun, useProjectStore } from "../../store/projectStore";
+import { useUIStore } from "../../store/uiStore";
 import type { Channel } from "../../types";
 
 /** Tiny inline sparkline over a channel's recent history. */
@@ -102,6 +103,17 @@ export function MonitorsPanel() {
           input ports in its Properties, and wire signals into them — live readouts
           appear here during a run.
         </div>
+        <button
+          className="ss-toolbtn border border-[color:var(--ss-field-border)] px-3"
+          onClick={() => {
+            // arm click-to-place and show the diagram: the next click puts it there
+            const ui = useUIStore.getState();
+            ui.setPlacingComponent("signal.monitor");
+            ui.focusPanel("topology");
+          }}
+        >
+          Place a Monitor
+        </button>
       </div>
     );
   }

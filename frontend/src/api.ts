@@ -135,6 +135,11 @@ export interface ProjectEntry {
   id: string;
   name: string;
   description?: string | null;
+  /** for the Start page: when the file was saved (ms since 1970), its
+   *  number of parts, and its top diagram's part positions */
+  modified?: number;
+  elements?: number | null;
+  thumb?: [number, number][];
 }
 
 /** An example, and whether the user hid it from the Open menu. */

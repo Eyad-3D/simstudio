@@ -12,6 +12,8 @@ export const THEME_KEY = "lightsim-theme";
 export const FONT_SCALE_KEY = "lightsim-font-scale";
 /** the dock layout (components/DockLayout.tsx) */
 export const LAYOUT_KEY = "lightsim-layout-v1";
+/** "1": skip the Start page and open the last project at start-up (store/uiStore.ts) */
+export const OPEN_LAST_KEY = "lightsim-open-last";
 /** the crash-recovery draft of the working project (persist.ts) */
 export const DRAFT_KEY = "lightsim-draft-v1";
 

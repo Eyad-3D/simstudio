@@ -155,6 +155,7 @@ export function ResultsPanel() {
   const runsLoading = useProjectStore((s) => s.runsLoading);
   const running = useProjectStore((s) => s.running);
   const run = useProjectStore((s) => s.run);
+  const caseName = useProjectStore((s) => s.project?.cases.find((c) => c.id === s.activeCaseId)?.name);
   const theme = useUIStore((s) => s.theme);
 
   const result = activeRun?.result;
@@ -413,7 +414,7 @@ export function ResultsPanel() {
           onClick={() => void run()}
         >
           <Play size={13} className="text-[color:var(--ss-accent)]" />
-          {running ? "Running…" : "Run active case"}
+          {running ? "Running…" : `Run '${caseName ?? "active case"}'`}
         </button>
       </div>
     );

@@ -22,5 +22,11 @@
     "label-title-only  select \"Active simulation case\""
   ],
   "help-light": [],
-  "help-dark": []
+  "help-dark": [],
+  "start-light": [
+    "label-title-only  select \"Active simulation case\""
+  ],
+  "start-dark": [
+    "label-title-only  select \"Active simulation case\""
+  ]
 }

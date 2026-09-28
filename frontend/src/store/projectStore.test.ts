@@ -256,6 +256,25 @@ describe("start-up", () => {
     expect(messages().some((m) => m.startsWith("warning: Backend not reachable"))).toBe(true);
   });
 
+  it("starts on the Start page, but on Home when it restores unsaved work (UX-16)", async () => {
+    await store().init();
+    expect(useUIStore.getState().ribbonTab).toBe("start");
+    persist.saveDraft(fixture({ name: "Edited" }));
+    await store().init();
+    expect(useUIStore.getState().ribbonTab).toBe("home");
+  });
+
+  it("skips the Start page once the user chose to, and leaves it for a panel asked for (UX-16)", async () => {
+    useUIStore.getState().focusPanel("messages"); // an error logged, a run blocked
+    expect(useUIStore.getState().ribbonTab).toBe("home");
+    useUIStore.getState().setOpenLastAtStart(true);
+    vi.resetModules();
+    expect((await import("./uiStore")).useUIStore.getState()).toMatchObject({
+      ribbonTab: "home",
+      openLastAtStart: true,
+    });
+  });
+
   it("offline with no draft: the bundled demo opens as a copy", async () => {
     api.fetchLibrary.mockResolvedValue({
       components: library.components,

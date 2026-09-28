@@ -162,6 +162,14 @@ for (const theme of ["light", "dark"] as const) {
       await check(page, `parameter-dialog-${theme}`);
     });
 
+    // UX-16: a first launch, with the examples and a saved project listed
+    test("start page", async ({ page }) => {
+      await page.goto("/");
+      await expect(page.getByRole("heading", { name: "Start", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: /^P2 Hybrid Car, / })).toBeVisible();
+      await check(page, `start-${theme}`);
+    });
+
     // LRN-04: the help pages follow the system's theme, not the app's
     test("help page", async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme });
@@ -212,6 +220,7 @@ for (const theme of ["light", "dark"] as const) {
       await page.keyboard.press("Escape");
       // a model with problems: status-bar count, Problems rows, error log lines
       await page.getByRole("button", { name: "New", exact: true }).click();
+      await page.getByRole("button", { name: /^Blank project/ }).click();
       await showPanel(page, "Components");
       await page.locator("[data-component-id='motor.emotor']").focus();
       await page.keyboard.press("Enter");
@@ -222,6 +231,7 @@ for (const theme of ["light", "dark"] as const) {
       await showPanel(page, "Messages");
       await scan("Messages with errors");
       await page.getByRole("button", { name: "New", exact: true }).click();
+      await page.getByRole("button", { name: /^Blank project/ }).click();
       await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
       await scan("unsaved-changes dialog");
       expect(at, "text below the WCAG AA contrast minimum: ratio, element, colours").toEqual({});

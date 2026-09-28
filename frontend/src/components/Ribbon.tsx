@@ -46,6 +46,7 @@ import {
 // id/stub render remain) until it ships as a real feature. Parameters is real
 // (per-case overrides + sweeps, driven from the Cases & Parameters panel).
 const TABS: { id: RibbonTab; label: string }[] = [
+  { id: "start", label: "Start" },
   { id: "project", label: "Project" },
   { id: "home", label: "Home" },
   { id: "simulations", label: "Simulations" },
@@ -245,7 +246,8 @@ function HomeTab() {
         <BigButton
           icon={FilePlus2}
           label="New"
-          onClick={() => void confirmReplaceProject("Creating a new project").then((ok) => ok && store.newProject())}
+          title="New project: from an example or blank (the Start page)"
+          onClick={() => useUIStore.getState().setRibbonTab("start")}
         />
         <OpenProjectButton />
         <BigButton
@@ -768,14 +770,17 @@ export function Ribbon() {
           </button>
         </div>
       </div>
-      <div className="flex h-[72px] items-stretch border-t border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-1">
-        {tab === "home" && <HomeTab />}
-        {tab === "simulations" && <SimulationsTab />}
-        {tab === "results" && <ResultsTab />}
-        {tab === "parameters" && <ParametersTab />}
-        {tab === "project" && <ProjectTab />}
-        {tab === "optimization" && <StubTab name="Optimization" />}
-      </div>
+      {/* the Start page has no commands of its own: no band */}
+      {tab !== "start" && (
+        <div className="flex h-[72px] items-stretch border-t border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-1">
+          {tab === "home" && <HomeTab />}
+          {tab === "simulations" && <SimulationsTab />}
+          {tab === "results" && <ResultsTab />}
+          {tab === "parameters" && <ParametersTab />}
+          {tab === "project" && <ProjectTab />}
+          {tab === "optimization" && <StubTab name="Optimization" />}
+        </div>
+      )}
     </div>
   );
 }

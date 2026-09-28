@@ -29,7 +29,7 @@ test("RES-03: the Signal Plot draws a line after the first run", async ({ page }
 test("RES-03: a run started from the empty Results page is drawn", async ({ page }) => {
   await openApp(page);
   await ribbonTab(page, "Results").click();
-  await page.getByRole("button", { name: "Run active case" }).click();
+  await page.getByRole("button", { name: "Run 'City Cycle'" }).click();
   await expect(page.getByText("1 stored run", { exact: true })).toBeVisible({ timeout: 60_000 });
   await expect(drawnLines(page).first()).toBeVisible();
 });
@@ -173,7 +173,9 @@ test.describe("UX-02: replacing a project with unsaved changes asks first", () =
   });
 
   test("UX-02: ribbon New", async ({ page }) => {
+    // New shows the Start page; the prompt comes with the choice made there
     await page.getByRole("button", { name: "New", exact: true }).click();
+    await page.getByRole("button", { name: /^Blank project/ }).click();
     await expectPromptThenCancel(page);
   });
 
