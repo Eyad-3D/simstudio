@@ -129,6 +129,26 @@ sections.
   wheelbase) now accelerates at 6.45 m/s² instead of 5.24. With a CG
   height and a downforce area of 0, the defaults, no result changes; the
   examples keep 0 and have their wheels tagged Front and Rear.
+- Acceleration test: a case *Kind* of *Acceleration*, with a *Distance*,
+  a *Start line* and a *Reference time*. The Driver holds full throttle
+  the whole run with no target, and the run ends at the end of the solver
+  step that reaches the line (any case can end at a distance). The summary
+  leads with *Time to 75 m* (from the start line, with *pass* and the case
+  duration as its limit), *Speed at 75 m*, *Gap to reference time*,
+  *Time to 100 km/h* (from t = 0), each battery's peak and mean terminal
+  power, and the share of the run a driven wheel spent at the tyres' grip
+  limit; the time and speed are read inside the step that crossed the
+  line, so the output step does not change them. A car that misses the
+  line within the duration gets a warning. The results are marked as
+  estimates (Messages, Run info and the summary header say why), and a
+  model whose batteries have no Output Power Limit is told how to check
+  one. Simulations → *Acceleration test* runs the first acceleration case
+  in one click, or adds one first: 75 m, staged 0.30 m behind the start
+  line, 25 s time limit (FS Rules 2026 v1.1 (FSG) D 5.1.1, D 5.2.4, and
+  D 9.2.1, which applies the 25 s to driverless runs only; FSUK and FSAE
+  may differ, check the current season's rules). On the Battery Electric
+  Car it gives 5.216 s and 86.2 km/h at the line (5.527 s from rest). No
+  existing case changes.
 
 ### Fixed
 

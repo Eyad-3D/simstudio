@@ -190,6 +190,7 @@ export function CasePanel() {
     );
   }
 
+  const accel = activeCase.kind === "acceleration";
   const overrideRows = Object.entries(caseOv ?? {}).flatMap(([elId, params]) =>
     Object.entries(params).map(([key, value]) => ({ elId, key, value })),
   );
@@ -237,7 +238,14 @@ export function CasePanel() {
         </div>
         {/* one setting a row: side by side, a side panel left each label ~10 px */}
         <div className="mb-4 grid gap-y-1.5 rounded bg-[color:var(--ss-panel-alt)] p-2">
-          <label className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]">
+          <label
+            className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+            title={
+              accel
+                ? "The acceleration test's time limit: a car that has not reached the line by then gets a warning. FS Rules 2026 v1.1 (FSG) D 9.2.1 disqualifies runs over 25 s in driverless runs only; FSUK and FSAE may differ, check the current season's rules."
+                : undefined
+            }
+          >
             Duration (s)
             <input
               type="number"
@@ -306,20 +314,81 @@ export function CasePanel() {
           </label>
           <label
             className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-            title="Cycle: judged on following the target speed. Performance: the Driver holds full throttle until the car reaches the target, then holds it there, and the run reports the time from t = 0 to the target speed and the maximum speed (for example 0:100 for 0-100 km/h, 0:250 for top speed)."
+            title="Cycle: judged on following the target speed. Performance: the Driver holds full throttle until the car reaches the target, then holds it there, and the run reports the time from t = 0 to the target speed and the maximum speed (for example 0:100 for 0-100 km/h, 0:250 for top speed). Acceleration: the Driver holds full throttle the whole run (no target needed) and the run ends at the line, reporting the time from the start line, the speed at the line, 0-100 km/h and the battery's terminal power (results are estimates)."
           >
             Kind
             <select
-              className="ss-input w-[96px]"
+              className="ss-input w-[112px]"
               value={activeCase.kind ?? "cycle"}
-              onChange={(e) =>
-                setCaseField(activeCase.id, { kind: e.target.value as "cycle" | "performance" })
-              }
+              onChange={(e) => {
+                const kind = e.target.value as "cycle" | "performance" | "acceleration";
+                // the distance end shows only for Acceleration: another kind
+                // would end at a line it does not show
+                setCaseField(activeCase.id, {
+                  kind,
+                  endDistance: kind === "acceleration" ? activeCase.endDistance || 75 : null,
+                });
+              }}
             >
               <option value="cycle">Cycle</option>
               <option value="performance">Performance</option>
+              <option value="acceleration">Acceleration</option>
             </select>
           </label>
+          {accel && (
+            <>
+              <label
+                className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+                title="The run ends at this distance past the start line; the time is taken there (FS Rules 2026 v1.1 D 5.1.1: 75 m)."
+              >
+                Distance (m)
+                <input
+                  type="number"
+                  className="ss-input"
+                  min={1}
+                  step="any"
+                  value={activeCase.endDistance ?? 75}
+                  onChange={(e) =>
+                    setCaseField(activeCase.id, { endDistance: Math.max(1, Number(e.target.value) || 75) })
+                  }
+                />
+              </label>
+              <label
+                className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+                title="The distance the car drives before the timer starts (FS Rules 2026 v1.1 D 5.2.4 stages it 0.30 m behind the start line; FSUK and FSAE may differ). 0 = timed from rest."
+              >
+                Start line (m)
+                <input
+                  type="number"
+                  className="ss-input"
+                  min={0}
+                  step="any"
+                  value={activeCase.startLine ?? 0}
+                  onChange={(e) =>
+                    setCaseField(activeCase.id, { startLine: Math.max(0, Number(e.target.value) || 0) })
+                  }
+                />
+              </label>
+              <label
+                className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+                title="A time to compare with, for example last year's best run: the results show the gap (positive = slower). Empty = none."
+              >
+                Reference time (s)
+                <input
+                  type="number"
+                  className="ss-input"
+                  min={0}
+                  step="any"
+                  value={activeCase.referenceTime ?? ""}
+                  onChange={(e) =>
+                    setCaseField(activeCase.id, {
+                      referenceTime: Number(e.target.value) > 0 ? Number(e.target.value) : null,
+                    })
+                  }
+                />
+              </label>
+            </>
+          )}
         </div>
 
         {/* -- per-case overrides ------------------------------------------- */}

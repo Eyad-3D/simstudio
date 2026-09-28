@@ -30,6 +30,11 @@ export function RunInfo({ run }: { run: SimRun }) {
     ...((c.outputEvery ?? 1) > 1 ? [`store ×${c.outputEvery}`] : []),
     (c.realtimeFactor ?? 0) > 0 ? `${c.realtimeFactor}× pacing` : "no pacing",
     ...(c.kind === "performance" ? ["performance test"] : []),
+    ...(c.kind === "acceleration"
+      ? [`acceleration test${c.endDistance ? ` over ${c.endDistance} m` : ""}${
+          c.startLine ? `, start line ${c.startLine} m` : ""
+        } (estimate)`]
+      : []),
   ].join(" · ");
   const overrides = Object.entries(c.parameterOverrides ?? {}).flatMap(([elementId, params]) =>
     Object.entries(params).map(([key, value]) =>

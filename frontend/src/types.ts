@@ -131,9 +131,18 @@ export interface SimCase {
    * "performance": the Driver holds full throttle until the car reaches its
    * target (its PI holds the target after that), and the run reports the
    * time to the target and the maximum speed instead of judging the speed
-   * trace (a 0-100 km/h or top-speed test). Absent = "cycle".
+   * trace (a 0-100 km/h or top-speed test). "acceleration": the Driver holds
+   * full throttle for the whole run (its target is not read) and the run is
+   * timed from the start line to endDistance past it, with the duration as its
+   * time limit (a Formula Student 75 m acceleration run). Absent = "cycle".
    */
-  kind?: "cycle" | "performance";
+  kind?: "cycle" | "performance" | "acceleration";
+  /** End the run when the vehicle has driven startLine + endDistance, m; null/0 = run the duration. */
+  endDistance?: number | null;
+  /** Distance driven before the timer starts, m (FS Rules 2026 v1.1 D 5.2.4: 0.30 m). */
+  startLine?: number;
+  /** A time to compare the acceleration test's time with, s; null = none. */
+  referenceTime?: number | null;
   /**
    * Per-case parameter overrides: { elementId: { paramKey: value } }. Layered
    * on top of each element's own parameterOverrides at solve time, so a case

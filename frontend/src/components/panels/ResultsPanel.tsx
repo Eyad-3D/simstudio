@@ -1032,7 +1032,16 @@ export function ResultsPanel() {
             <table className="w-full border-collapse">
               <thead className="sticky top-0">
                 <tr>
-                  <th className="ss-th">Summary value</th>
+                  {activeRun?.snapshot?.case.kind === "acceleration" ? (
+                    <th
+                      className="ss-th"
+                      title="An acceleration test's results are estimates: see its messages for why."
+                    >
+                      Summary value · estimate
+                    </th>
+                  ) : (
+                    <th className="ss-th">Summary value</th>
+                  )}
                   {plotRuns.map((r, i) => (
                     <th key={r.id} className="ss-th w-[110px] text-right" title={runLabel(r)}>
                       <span style={{ color: multiRun ? runColor(i) : undefined }}>

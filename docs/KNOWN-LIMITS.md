@@ -83,7 +83,28 @@ either. Also:
   run reports its *Maximum speed* and the *Time to* the target's highest
   value, timed from t = 0. That is a standing start only: there is no
   rolling start, no time between two speeds (such as 80-120 km/h) and no
-  second timed speed in one run.
+  second timed speed in one run. A case can end at a distance, but not at
+  a speed or a charge level.
+- A case of kind *Acceleration* (or Simulations → *Acceleration test*,
+  which adds a 75 m case staged 0.30 m behind the start line with a 25 s
+  limit) is not judged on the band either: the Driver holds full throttle
+  for the whole run and reads no target. The run ends at the end of the
+  solver step that crosses the line, so its channels go up to one solver
+  step (at most 10 ms, about 0.3 m) past it; the time and the speed at the
+  line are read inside that step. The case duration is the time limit: a
+  car that has not reached the line by then gets a warning. FS Rules 2026
+  v1.1 (FSG) D 9.2.1 disqualifies runs over 25 s in driverless runs only
+  (a manual run is capped by the scoring); FSUK and FSAE may differ, and
+  their staging distance was not checked. The results are estimates: the
+  wheel loads shift only with a Centre of Gravity Height set (one step
+  late, see below), the tyre's grip does not depend on its load, and
+  nothing limits wheelspin, so when the driven wheels are at their grip
+  limit the tyre still gives μ times its load but the battery power and
+  energy include the power that spins the wheels. The time at the grip
+  limit counts driven wheels only; there is no peak-slip figure. Without a
+  Driver, or with a Script between the Driver and the motors, full
+  throttle is only what that model makes of an accelerator pedal of 1:
+  Data Checks do not check it.
 - A motor held back by its battery or fuel cell, or regeneration that a
   full or charge-limited battery refuses, makes the run a *warning* at the
   first touch, however brief; the figures stay valid, because the limit is
@@ -94,7 +115,9 @@ either. Also:
 
 *Workaround:* read the Messages panel and the *not valid* notes in the
 summary table.
-*Roadmap:* VAL-08.
+*Roadmap:* VAL-08; CON-06 (rolling starts, ends at a speed or a charge
+level); MOD-16 (a tyre whose force drops past its peak, so wheelspin
+costs time); RES-38 (time per limiting regime and peak slip).
 
 ### A battery has a power limit but no current limit
 

@@ -100,7 +100,11 @@ def simulate(
             caseId=case_id, status="failed", channels=[],
             messages=[SimMessage(level="error", text=t) for t in e.messages],
         )
-    ctx.performance = case.kind == "performance"
+    ctx.performance = case.kind != "cycle"  # the trace is sampled every solver step
+    ctx.full_throttle = case.kind == "acceleration"
+    # the run ends when the vehicle has driven this far, m (None: at the duration)
+    end_d = (max(0.0, case.startLine) + case.endDistance
+             if case.endDistance and case.endDistance > 0 else None)
 
     try:
         # Phase 1.4: the wholesale-wrapped slaves share all coupling through the
@@ -151,6 +155,7 @@ def simulate(
         h_last = t_end - (steps - 1) * dt_rec if steps else 0.0
         short_last = abs(h_last - dt_rec) > 1e-9 * dt_rec
         t = 0.0
+        arrived = False  # the vehicle reached end_d: the run ends in this step
 
         for step in range(steps + 1):
             if step > 0:
@@ -180,7 +185,10 @@ def simulate(
                         master.step(ctx.t, h_sub)
                         solved = t_prev + (j + 1) * h_sub
                         publish_routed_states()
-                        trace.sample(solved, last=step == steps and j == n - 1)
+                        arrived = end_d is not None and ctx.distance >= end_d
+                        trace.sample(solved, last=arrived or (step == steps and j == n - 1))
+                        if arrived:
+                            break
                 except SlaveStepError:
                     # the failing slave already emitted its error message
                     failed_at = ctx.t
@@ -192,6 +200,8 @@ def simulate(
                                f"its outside-the-data setting to Clamp or Linear.")
                     failed_at = ctx.t
                     break
+                if arrived:
+                    t = solved  # the last point: the end of the solver step that got there
 
                 if pace > 0:
                     target_wall = t / pace
@@ -216,7 +226,7 @@ def simulate(
             # -- record ----------------------------------------------------------
             # Only recorded steps are stored and streamed ("store every N steps"
             # decimates the output); the last step is always kept.
-            if not (step % output_every == 0 or step == steps):
+            if not (step % output_every == 0 or step == steps or arrived):
                 continue
             times.append(t)
             rec_index = len(times) - 1
@@ -231,10 +241,12 @@ def simulate(
                 emit({
                     "type": "step",
                     "t": t,
-                    "pct": round(100.0 * step / steps, 1) if steps else 100.0,
+                    "pct": round(100.0 * step / steps, 1) if steps and not arrived else 100.0,
                     "values": {f"{el}:{port}": round(val[-1], 5)
                                for (el, port), val in rec.items() if len(val) == rec_index + 1},
                 })
+            if arrived:
+                break
 
         # ---- assemble result -------------------------------------------------------
         # a Lookup block's table is a controller's own schedule: held at its
@@ -242,7 +254,7 @@ def simulate(
         # data, so only its summary rows say it left the table
         verdict = judge(trace, ctx.distance, rt.series, ctx.performance, solved,
                         [u for u in ctx.map_use if model.cdef_of[u.el_id].id != "signal.lookup"],
-                        stopped or failed_at is not None)
+                        stopped or failed_at is not None, case)
         for level, text in verdict.messages:
             rt.message(level, text)
         unit_map = unit_groups()
@@ -364,7 +376,12 @@ def simulate(
                 label=share_label, value=round(100.0 * use.outside_s / max(solved, 1e-9), 2),
                 unit="%"))
             summary.append(far)
-        summary += [SummaryValue(label=label, value=v, unit=u) for label, v, u in verdict.rows]
+        rows = [SummaryValue(label=label, value=v, unit=u, limit=lim, passed=ok)
+                for label, v, u, lim, ok in verdict.rows]
+        if ctx.full_throttle:  # an acceleration test's own figures come first
+            summary[:0] = rows
+        else:
+            summary += rows
         summary.append(SummaryValue(label="Simulated duration", value=times[-1] if times else 0.0, unit="s"))
 
         # headline numbers that a failed check makes meaningless say why
@@ -409,6 +426,8 @@ def simulate(
                   else "warning" if has_warning else "success")
         rec_note = f", stored every {output_every}" if output_every > 1 else ""
         last_note = f", the last one {h_last:g} s" if steps and short_last else ""
+        if arrived:
+            last_note = f", ended at {end_d:g} m driven at t = {times[-1]:g} s"
         rt.messages.insert(0, SimMessage(
             level="info",
             text=f"Case '{case.name}' solved: {steps} steps × {dt_rec:g} s{last_note} "

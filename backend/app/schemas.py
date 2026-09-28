@@ -161,8 +161,20 @@ class SimCase(BaseModel):
     # "performance": the Driver holds full throttle until the car reaches its
     # target (its PI holds the target after that), and the run reports the
     # time to the target and the maximum speed instead of judging the speed
-    # trace (a 0-100 km/h or top-speed test)
-    kind: Literal["cycle", "performance"] = "cycle"
+    # trace (a 0-100 km/h or top-speed test). "acceleration": the Driver holds
+    # full throttle for the whole run (its target is not read) and the run is
+    # timed from the start line to endDistance past it, with the duration as
+    # its time limit (a Formula Student 75 m acceleration run)
+    kind: Literal["cycle", "performance", "acceleration"] = "cycle"
+    # end the run when the vehicle has driven startLine + endDistance, m;
+    # None or 0 = run the whole duration
+    endDistance: Optional[float] = None
+    # distance driven before the timer starts, m (FS Rules 2026 v1.1 D 5.2.4
+    # stages the car 0.30 m behind the start line)
+    startLine: float = 0.0
+    # a time to compare the acceleration test's time with, s (e.g. last
+    # year's best run); None = none
+    referenceTime: Optional[float] = None
     # Per-case parameter overrides: {elementId: {paramKey: value}}. Layered on
     # top of each element's own parameterOverrides at model-build time, so a
     # case can tweak values — and a parameter sweep can vary one — without

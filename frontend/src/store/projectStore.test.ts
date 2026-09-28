@@ -942,6 +942,33 @@ describe("run history", () => {
     expect(store().runs.map((r) => r.id)).toEqual(ids.slice(2).reverse());
   });
 
+  it("the acceleration test adds its case once, then reruns it", async () => {
+    await start();
+    engineFinishesRuns();
+    await store().runAccelerationTest();
+    const accel = store().project!.cases.filter((c) => c.kind === "acceleration");
+    expect(accel).toEqual([
+      {
+        id: expect.any(String),
+        name: "Acceleration 75 m",
+        duration: 25,
+        timeStep: 0.01,
+        kind: "acceleration",
+        endDistance: 75,
+        startLine: 0.3,
+      },
+    ]);
+    expect(store().activeCaseId).toBe(accel[0].id);
+    expect(api.runSimulationLive.mock.lastCall![1]).toBe(accel[0].id);
+
+    store().setActiveCase("case-1");
+    await store().runAccelerationTest();
+    expect(store().project!.cases).toHaveLength(2);
+    expect(store().activeCaseId).toBe(accel[0].id);
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(2);
+    expect(api.runSimulationLive.mock.lastCall![1]).toBe(accel[0].id);
+  });
+
   it("removing the active run falls back to the newest one left; Clear empties the history", async () => {
     await start();
     engineFinishesRuns();

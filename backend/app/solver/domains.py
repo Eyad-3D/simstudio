@@ -278,6 +278,10 @@ class RunContext:
         self.accel = 0.0
         self.driver_integral = 0.0
         self.performance = False  # a performance-test case (set by simulate)
+        self.full_throttle = False  # an acceleration test (set by simulate)
+        # solver time with a driven wheel at the tyres' grip limit (counted in
+        # acceleration tests only)
+        self.grip_limited_s = 0.0
 
         self.dls = [DrivelineState(dl=dl) for dl in model.drivelines]
         # the gear each gearbox's driveline was built in (its default gear
@@ -1442,6 +1446,11 @@ class DriverSlave(_CtxSlave):
         drv_id = model.driver
         if not drv_id:
             return StepResult()
+        if ctx.full_throttle:  # an acceleration test: full throttle, no target read
+            for port, value in (("sig_traction_cmd", 1.0), ("sig_brake_cmd", 0.0),
+                                ("sig_accel_pedal", 1.0), ("sig_brake_pedal", 0.0)):
+                rt.publish(drv_id, port, value)
+            return StepResult()
         dp = ctx.params(drv_id)
         target_kmh = rt.read_signal(drv_id, "sig_target_in")
         if target_kmh is None:
@@ -1749,11 +1758,18 @@ class MechanicalSlave(_CtxSlave):
             rho = ctx.rho
             f_tire = 0.0
             f_roll = 0.0
+            at_grip = False  # a driven wheel at the tyres' grip limit (acceleration tests)
             for st in active:  # at the wheel speeds just integrated
+                driven = ctx.full_throttle and any(seg.sources for seg in st.dl.segments)
                 for s_idx, seg in enumerate(st.dl.segments):
                     for w in seg.wheels:
-                        f_tire += ctx.wheel_force(w, st.omega_end[s_idx], damping=False)[0]
+                        f_w = ctx.wheel_force(w, st.omega_end[s_idx], damping=False)[0]
+                        f_tire += f_w
                         f_roll += w.c_rr * w.n_load
+                        if driven and abs(f_w) >= w.mu * w.n_load > 0:
+                            at_grip = True
+            if at_grip:
+                ctx.grip_limited_s += dt
             if vp.get("road_load_mode") == ROAD_LOAD_ABC:
                 # a coast-down's A + B·v + C·v² in km/h, as test labs publish
                 # them; A and B stand in for the wheels' rolling resistance, and
@@ -1847,6 +1863,8 @@ class ElectricalSlave(_CtxSlave):
                 if current < 0:  # charge not stored
                     b.loss_wh += (1.0 - eta) * ocv * -current * dt / 3600.0
                 b.current, b.power_w = current, p_w
+                if p_w > b.p_peak_w:
+                    b.p_peak_w = p_w
                 # the terminal voltage at the step's end: its current on the
                 # state it left (read without the Error check, as at the
                 # start: the next step's read stops the run, with its time)
