@@ -152,6 +152,16 @@ for (const theme of ["light", "dark"] as const) {
       await check(page, `topology-${theme}`);
     });
 
+    // CON-16: the Drive Cycle row and its sketch (Properties shows the same)
+    test("drive cycle row", async ({ page }) => {
+      await openApp(page);
+      await page.locator(".react-flow__node", { hasText: "Vehicle Task" }).first().dblclick();
+      const dialog = page.locator(".fixed.inset-0");
+      await dialog.getByRole("combobox", { name: "Drive Cycle" }).selectOption("wltc-3b");
+      await expect(dialog.getByRole("img", { name: /^Speed over time, WLTC/ })).toBeVisible();
+      await check(page, `parameter-dialog-${theme}`);
+    });
+
     test("parameter dialog", async ({ page }) => {
       await openApp(page);
       await page.locator(".react-flow__node", { hasText: "E-Motor" }).first().dblclick();

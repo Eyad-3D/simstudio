@@ -284,6 +284,8 @@ export interface ProjectState {
   loaded: boolean;
   /** the app's version as the engine reports it (recorded with each run) */
   appVersion: string | null;
+  /** the standard drive cycles the engine bundles (CON-16) */
+  cycles: api.CycleInfo[];
 
   project: Project | null;
   /** Revision of the project file the open copy was loaded from or last saved
@@ -408,6 +410,10 @@ export interface ProjectState {
   setCaseOverride: (caseId: string, elementId: string, key: string, value: ParamValue) => void;
   /** Remove a per-case parameter override; prunes the element entry when empty. */
   clearCaseOverride: (caseId: string, elementId: string, key: string) => void;
+  /** Point a Driving Task at a bundled drive cycle ("" = its typed profile),
+   *  or with `caseId` only that case. The cycle cases that then drive it take
+   *  the cycle's length, in the same undo step. */
+  setDrivingCycle: (elementId: string, cycleId: string, caseId?: string) => void;
   runDataChecks: () => Promise<DataCheck[]>;
   /** Error-level data-check gate; resolves true when a run/sweep may proceed. */
   passesRunGate: () => Promise<boolean>;
@@ -732,6 +738,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     offline: false,
     loaded: false,
     appVersion: null,
+    cycles: [],
     project: null,
     revision: null,
     exampleId: null,
@@ -756,7 +763,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     livePct: 0,
 
     init: async () => {
-      const [lib, appVersion] = await Promise.all([api.fetchLibrary(), api.fetchVersion()]);
+      const [lib, appVersion, cycles] = await Promise.all([
+        api.fetchLibrary(),
+        api.fetchVersion(),
+        api.listCycles(),
+      ]);
       const demo = await api.fetchDemoProject();
       const libraryById = Object.fromEntries(lib.components.map((c) => [c.id, c]));
       // restore the autosaved working copy if one exists, else open the demo
@@ -789,6 +800,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         offline: lib.offline,
         loaded: true,
         appVersion,
+        cycles,
         project,
         revision,
         exampleId,
@@ -1546,6 +1558,46 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         else ov[elementId] = next;
         c.parameterOverrides = ov;
       }),
+
+    setDrivingCycle: (elementId, cycleId, caseId) => {
+      const cycle = get().cycles.find((c) => c.id === cycleId);
+      const resized: string[] = [];
+      updateProject((draft) => {
+        if (caseId) {
+          const c = draft.cases.find((cc) => cc.id === caseId);
+          if (c)
+            c.parameterOverrides = {
+              ...c.parameterOverrides,
+              [elementId]: { ...c.parameterOverrides?.[elementId], cycle: cycleId },
+            };
+        } else {
+          for (const s of draft.systems) {
+            const el = s.elements.find((e) => e.id === elementId);
+            if (el) el.parameterOverrides.cycle = cycleId;
+          }
+        }
+        // the case length follows the cycle only when it is clear which task
+        // a case drives: the model's only one, or the one the case names
+        const tasks = draft.systems
+          .flatMap((sy) => sy.elements)
+          .filter((e) => e.componentDefId === "signal.driving_task");
+        if (!cycle || (!caseId && tasks.length > 1)) return;
+        for (const c of draft.cases) {
+          const own = c.parameterOverrides?.[elementId] ?? {};
+          const drivesIt = caseId ? c.id === caseId : !("cycle" in own) && !("profile" in own);
+          // a performance case runs to its target, not to a cycle's end
+          if (drivesIt && (c.kind ?? "cycle") === "cycle" && c.duration !== cycle.duration_s) {
+            c.duration = cycle.duration_s;
+            resized.push(`'${c.name}'`);
+          }
+        }
+      });
+      if (cycle && resized.length)
+        get().log(
+          "info",
+          `${resized.join(", ")} now run${resized.length > 1 ? "" : "s"} ${cycle.duration_s.toLocaleString("en")} s, the length of ${cycle.name}.`,
+        );
+    },
 
     runDataChecks: async () => {
       const { project, log } = get();

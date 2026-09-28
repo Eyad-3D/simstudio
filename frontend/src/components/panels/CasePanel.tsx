@@ -3,6 +3,7 @@ import { Play, Plus, Sliders, Square, X } from "lucide-react";
 import { useProjectStore } from "../../store/projectStore";
 import type { ComponentDef, ElementInstance, ParamValue, ParameterDef } from "../../types";
 import { StudiesList } from "./StudiesList";
+import { CycleSelect } from "./CyclePicker";
 
 // Only scalar parameters are editable as per-case overrides here; tables and
 // code are edited in Properties. Sweeps additionally require a numeric param.
@@ -113,6 +114,7 @@ export function CasePanel() {
   const setCaseField = useProjectStore((s) => s.setCaseField);
   const setCaseOverride = useProjectStore((s) => s.setCaseOverride);
   const clearCaseOverride = useProjectStore((s) => s.clearCaseOverride);
+  const setDrivingCycle = useProjectStore((s) => s.setDrivingCycle);
   const run = useProjectStore((s) => s.run);
   const stopRun = useProjectStore((s) => s.stopRun);
   const runSweep = useProjectStore((s) => s.runSweep);
@@ -348,7 +350,13 @@ export function CasePanel() {
                     {name}
                   </div>
                   <div className="mt-0.5 flex min-w-0 items-center gap-1">
-                    {pdef && ed ? (
+                    {pdef && ed && key === "cycle" ? (
+                      <CycleSelect
+                        value={String(value)}
+                        label={name}
+                        onChange={(v) => setDrivingCycle(elId, v, activeCase.id)}
+                      />
+                    ) : pdef && ed ? (
                       <ValueEditor
                         def={pdef}
                         value={value}

@@ -4,6 +4,7 @@ import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "../SpreadsheetGrid";
 import { KIND_COLOR } from "../canvas/ElementNode";
+import { CyclePreview, CycleSelect } from "./CyclePicker";
 import type {
   AxisDef,
   ComponentDef,
@@ -715,15 +716,24 @@ export function ElementForm({
   compact?: boolean;
 }) {
   const setParameter = useProjectStore((s) => s.setParameter);
+  const setDrivingCycle = useProjectStore((s) => s.setDrivingCycle);
   const renameElement = useProjectStore((s) => s.renameElement);
   const setActiveSystem = useProjectStore((s) => s.setActiveSystem);
   const running = useProjectStore((s) => s.running);
   const openParamDialog = useUIStore((s) => s.openParamDialog);
 
-  const scalarParams = useMemo(() => def.parameters.filter((p) => !isBig(p)), [def]);
-  const bigParams = useMemo(() => def.parameters.filter(isBig), [def]);
+  // a Driving Task on a drive cycle has no typed profile to edit; the cycle
+  // gets a full-width row of its own below the table
+  const drivingTask = def.id === "signal.driving_task";
+  const cycleId = String(element.parameterOverrides.cycle ?? "");
+  const scalarParams = useMemo(() => def.parameters.filter((p) => !isBig(p) && p.key !== "cycle"), [def]);
+  const bigParams = useMemo(
+    () => def.parameters.filter((p) => isBig(p) && !(drivingTask && cycleId && isProfile(p))),
+    [def, drivingTask, cycleId],
+  );
   const valueOf = (p: ParameterDef): ParamValue =>
     element.parameterOverrides[p.key] ?? p.default;
+  const profile = drivingTask ? profileToTable(String(valueOf(def.parameters.find(isProfile)!))) : {};
 
   return (
     <div className="flex flex-col gap-2 p-2">
@@ -797,6 +807,18 @@ export function ElementForm({
             ))}
           </tbody>
         </table>
+      )}
+      {drivingTask && (
+        <div className="flex flex-col gap-1">
+          <label className="flex flex-col gap-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
+            Drive Cycle
+            <CycleSelect value={cycleId} label="Drive Cycle" onChange={(v) => setDrivingCycle(element.id, v)} />
+          </label>
+          <CyclePreview
+            cycleId={cycleId}
+            points={sortedNumericKeys(profile).map((t) => [Number(t), profile[t]])}
+          />
+        </div>
       )}
       {compact && bigParams.length > 0 && (
         <div className="flex flex-col gap-1">
