@@ -240,6 +240,17 @@ sections.
   names under the lowest parts. (GUI-03)
 - Delete or Backspace on the Results page no longer deletes the part
   selected on the diagram hidden behind it. (UX-16)
+- Data Checks refuse 40 values that cannot be right. A negative inertia,
+  drag coefficient, frontal area, initial speed, driver gain, battery
+  resistance or time constant, maximum charge power, brake, clutch or
+  propeller torque, friction coefficient μ, rolling resistance, cycle
+  scale, re-entry speed, CO₂ factor or H₂ consumption is an error, and so
+  is a zero or negative voltage, slip stiffness, propeller reference
+  speed, idle speed, tank capacity, fuel density or fuel-cell current, and
+  a default gear below 1. Before, these ran without a word (a Driver I
+  Gain of −1 ended in "did not drive the cycle"), or the solver quietly
+  used another value (0 for a negative μ, 0.1 for a slip stiffness below
+  it, 1 1/min for an idle speed of 0). (UX-10)
 
 ### Upgrading from a 0.2.0 build
 
@@ -280,6 +291,9 @@ sections.
   win over a cycle picked on the part. 0.2.0 does not know drive cycles:
   opened there, a Driving Task or case that names one drives the typed
   profile instead, with no warning.
+- A project that holds one of the 40 values Data Checks now refuse (see
+  Fixed) stops before the run with an error that names the part and what
+  is allowed; set the value inside the limits. The examples hold none.
 - Going back to 0.2.0: it cannot open a project with a study point that
   says *cancelled*. It still lists and opens stored runs that say
   *cancelled*, but drops them from the list if it has to rebuild its run

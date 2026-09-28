@@ -60,14 +60,16 @@
           "label": "Drag Coefficient (Cd)",
           "unit": "-",
           "default": 0.28,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "frontal_area_m2",
           "label": "Frontal Area",
           "unit": "m²",
           "default": 2.2,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "road_load_mode",
@@ -113,7 +115,8 @@
           "label": "Initial Speed",
           "unit": "km/h",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       ]
     },
@@ -174,14 +177,16 @@
           "label": "P Gain",
           "unit": "1/(km/h)",
           "default": 0.35,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "driver_ki",
           "label": "I Gain",
           "unit": "1/(km/h·s)",
           "default": 0.08,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "regen_weight_pct",
@@ -301,7 +306,8 @@
           "label": "Series Resistance R0",
           "unit": "Ω",
           "default": 0.08,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "rc_resistance_ohm",
@@ -309,7 +315,8 @@
           "label": "RC Pair Resistance R1",
           "unit": "Ω",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "rc_time_constant_s",
@@ -317,14 +324,16 @@
           "label": "RC Pair Time Constant",
           "unit": "s",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "max_charge_power_kW",
           "label": "Max Charge Power",
           "unit": "kW",
           "default": 120,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "initial_soc_pct",
@@ -536,7 +545,8 @@
           "label": "Rotor Inertia",
           "unit": "kg·m²",
           "default": 0.045,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "q4_torque_scale_pct",
@@ -637,7 +647,8 @@
           "label": "Output Voltage",
           "unit": "V",
           "default": 350,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "power_setpoint_kW",
@@ -695,7 +706,8 @@
           "label": "Nominal Voltage",
           "unit": "V",
           "default": 350,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         }
       ]
     },
@@ -892,7 +904,8 @@
           "label": "Inertia",
           "unit": "kg·m²",
           "default": 0.01,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       ]
     },
@@ -951,7 +964,8 @@
           "label": "Moment of Inertia In",
           "unit": "kg·m²",
           "default": 0.01,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "inertia_out_kgm2",
@@ -959,7 +973,8 @@
           "label": "Moment of Inertia Out",
           "unit": "kg·m²",
           "default": 0.02,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "efficiency_pct",
@@ -1060,7 +1075,8 @@
           "label": "Inertia",
           "unit": "kg·m²",
           "default": 0.015,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       ]
     },
@@ -1175,7 +1191,8 @@
           "label": "Inertia",
           "unit": "kg·m²",
           "default": 1.2,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "vehicle_load_share_pct",
@@ -1191,21 +1208,24 @@
           "label": "Friction Coefficient μ",
           "unit": "-",
           "default": 1.0,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "slip_stiffness",
           "label": "Slip Stiffness",
           "unit": "-",
           "default": 10,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "rolling_resistance",
           "label": "Rolling Resistance Coeff.",
           "unit": "-",
           "default": 0.012,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       ]
     },
@@ -1246,7 +1266,8 @@
           "label": "Maximum Brake Torque",
           "unit": "N·m",
           "default": 1400,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "inertia_kgm2",
@@ -1254,7 +1275,8 @@
           "label": "Inertia",
           "unit": "kg·m²",
           "default": 0.18,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       ]
     },
@@ -1296,7 +1318,8 @@
           "label": "Torque at Reference Speed",
           "unit": "N·m",
           "default": 500,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "ref_speed_rpm",
@@ -1304,7 +1327,8 @@
           "label": "Reference Speed",
           "unit": "1/min",
           "default": 2000,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "inertia_kgm2",
@@ -1312,7 +1336,8 @@
           "label": "Inertia",
           "unit": "kg·m²",
           "default": 2.5,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       ]
     },
@@ -1353,7 +1378,8 @@
           "label": "Scale",
           "unit": "%",
           "default": 100,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "repeat",
@@ -1597,14 +1623,16 @@
           "label": "Idle Speed",
           "unit": "1/min",
           "default": 800,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "fuel_cut_reentry_rpm",
           "label": "Fuel Cut-Off Re-Entry Speed",
           "unit": "1/min",
           "default": 1100,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "inertia_kgm2",
@@ -1612,7 +1640,8 @@
           "label": "Inertia",
           "unit": "kg·m²",
           "default": 0.18,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       ]
     },
@@ -1646,7 +1675,8 @@
           "label": "Capacity",
           "unit": "kg",
           "default": 45,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "initial_fill_pct",
@@ -1663,14 +1693,16 @@
           "label": "Fuel Density",
           "unit": "kg/l",
           "default": 0.745,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "co2_kg_per_kg",
           "label": "CO₂ per kg of Fuel",
           "unit": "kg/kg",
           "default": 3.17,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       ]
     },
@@ -1743,7 +1775,8 @@
           "label": "Default Gear",
           "unit": "-",
           "default": 1,
-          "type": "number"
+          "type": "number",
+          "minimum": 1
         },
         {
           "key": "efficiency_pct",
@@ -1761,7 +1794,8 @@
           "label": "Moment of Inertia In",
           "unit": "kg·m²",
           "default": 0.015,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "inertia_out_kgm2",
@@ -1769,7 +1803,8 @@
           "label": "Moment of Inertia Out",
           "unit": "kg·m²",
           "default": 0.02,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       ]
     },
@@ -1825,7 +1860,8 @@
           "label": "Maximum Torque",
           "unit": "N·m",
           "default": 300,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       ]
     },
@@ -1926,7 +1962,8 @@
           "label": "Inertia",
           "unit": "kg·m²",
           "default": 0.02,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       ]
     },
@@ -2009,14 +2046,16 @@
           "label": "Maximum Current",
           "unit": "A",
           "default": 400,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "h2_per_kwh_g",
           "label": "Specific H₂ Consumption",
           "unit": "g/kWh",
           "default": 55,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       ]
     },
@@ -2050,7 +2089,8 @@
           "label": "Capacity",
           "unit": "kg",
           "default": 5,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "initial_fill_pct",
