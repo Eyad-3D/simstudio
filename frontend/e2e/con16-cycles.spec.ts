@@ -14,14 +14,14 @@ test("CON-16: WLTC in three clicks sets the case length and shows the trace's fi
   await expect(page.getByText("WLTC class 3b: 1,800 s · 23.27 km · top 131.3 km/h")).toBeVisible();
   await expect(page.getByRole("img", { name: /^Speed over time, WLTC class 3b/ })).toBeVisible();
   // the typed profile's editor is hidden while a cycle drives the task
-  await expect(page.getByTitle(/^Profile: open the full editor/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Profile.*Edit…$/ })).toHaveCount(0);
   await ribbonTab(page, "Simulations").click();
   await expect(page.getByTitle("Solver settings for this case")).toHaveText(/^1800s/);
 
   // back to the typed profile: its editor and its own sketch return
   await field.selectOption("");
   await expect(page.getByText(/^Custom profile: 600 s · /)).toBeVisible();
-  await expect(page.getByTitle(/^Profile: open the full editor/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Profile.*Edit…$/ })).toBeVisible();
 });
 
 test("CON-16: a case picks its own cycle and takes its length", async ({ page }) => {

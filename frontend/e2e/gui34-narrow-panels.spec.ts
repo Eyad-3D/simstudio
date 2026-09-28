@@ -111,7 +111,7 @@ test("GUI-34: road-load rows, table buttons and case overrides in a 1366x768 win
   await openApp(page);
   // a narrow panel's table button opens the parameter dialog at that table
   await selectElement(page, "E-Motor");
-  await page.getByTitle("Power Loss (Motor + Inverter): open the full editor in a dialog").click();
+  await page.getByRole("button", { name: /^Power Loss \(Motor \+ Inverter\).*Edit…$/ }).click();
   await expect(page.locator('[data-param="power_loss"]')).toBeInViewport();
   await page.keyboard.press("Escape");
 

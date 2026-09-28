@@ -1,8 +1,9 @@
-import { Fragment, useId, useMemo, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Box, Columns3, CornerDownRight, Pencil, Plus, Radio, Rows3, Table2, Trash2 } from "lucide-react";
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
-import { paramName, rangeProblem } from "../../paramRules";
+import { componentHelpPage, openHelp } from "../../help";
+import { limitsText, paramName, rangeProblem } from "../../paramRules";
 import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "../SpreadsheetGrid";
 import { KIND_COLOR } from "../canvas/ElementNode";
 import { CyclePreview, CycleSelect } from "./CyclePicker";
@@ -509,6 +510,7 @@ export function NumberInput({
       aria-label={label}
       aria-invalid={invalid || Boolean(outside) || undefined}
       aria-describedby={outside ? describedBy : undefined}
+      aria-description={def?.description ?? undefined}
       title={invalid ? `Enter a number (leaving the field keeps ${value})` : undefined}
       onChange={(e) => {
         setText(e.target.value);
@@ -537,6 +539,7 @@ function ParameterInput({
         <input
           type="checkbox"
           aria-label={def.label}
+          aria-description={def.description ?? undefined}
           checked={Boolean(value)}
           onChange={(e) => onChange(e.target.checked)}
         />
@@ -546,6 +549,7 @@ function ParameterInput({
         <select
           className="ss-input"
           aria-label={def.label}
+          aria-description={def.description ?? undefined}
           title={String(value)}
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
@@ -567,6 +571,8 @@ function ParameterInput({
           className="ss-input w-full resize-y font-mono text-[11px]"
           rows={12}
           spellCheck={false}
+          aria-label={def.label}
+          aria-description={def.description ?? undefined}
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
         />
@@ -576,12 +582,16 @@ function ParameterInput({
         <textarea
           className="ss-input w-full resize-y font-mono text-[11px]"
           rows={2}
+          aria-label={def.label}
+          aria-description={def.description ?? undefined}
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
         />
       ) : (
         <input
           className="ss-input w-full"
+          aria-label={def.label}
+          aria-description={def.description ?? undefined}
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
         />
@@ -713,6 +723,36 @@ function DynamicPortsEditor({ element }: { element: ElementInstance }) {
 // profiles are stored as strings but edited as a full-width grid, so they
 // join the tables/code in the "big" (full-width) group rather than the
 // compact scalar table.
+/** A parameter's help texts (LRN-05): what it is, typical values and where
+ *  to find the real number. */
+function ParamHelp({ def }: { def: ParameterDef }) {
+  return (
+    <>
+      <p>{def.description}</p>
+      {def.typical && (
+        <p>
+          <b>Typical:</b> {def.typical}
+        </p>
+      )}
+      {def.whereToFind && (
+        <p>
+          <b>Where to find it:</b> {def.whereToFind}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** "Default 100 % · allowed: at least 0 and at most 200 %" */
+function defaultText(def: ParameterDef): string | null {
+  const unit = def.unit === "-" ? "" : ` ${def.unit}`;
+  const limits = limitsText(def);
+  if (def.type === "number") return `Default ${def.default}${unit}${limits ? ` · allowed: ${limits}` : ""}`;
+  if (def.type === "enum") return `Default ${def.default}`;
+  if (def.type === "boolean") return def.default ? "Ticked by default" : "Not ticked by default";
+  return null;
+}
+
 const isProfile = (p: ParameterDef) => p.type === "string" && p.key === "profile";
 const isBig = (p: ParameterDef) =>
   p.type === "table1d" || p.type === "table2d" || p.type === "code" || isProfile(p);
@@ -749,6 +789,43 @@ export function ElementForm({
   const problemOf = (p: ParameterDef) => (p.type === "number" ? rangeProblem(p, Number(valueOf(p))) : null);
   // the dialog and Properties can show the same part: ids must not clash
   const formId = useId();
+
+  // the help card (UX-10): one per form, beside the parameter the pointer
+  // rests on (after 300 ms) or the one with focus (at once); Esc or a click
+  // elsewhere closes it. `pointed` is what the card should show; `help`,
+  // what it shows.
+  const [help, setHelp] = useState<string | null>(null);
+  const [pointed, setPointed] = useState<string | null>(null);
+  useEffect(() => {
+    if (pointed === help) return;
+    const t = setTimeout(() => setHelp(pointed), pointed ? 300 : 150);
+    return () => clearTimeout(t);
+  }, [pointed, help]);
+  const card = useRef<HTMLDivElement>(null);
+  const helpDef = def.parameters.find((p) => p.key === help && p.description);
+  useEffect(() => {
+    const el = card.current;
+    if (!el?.showPopover) return; // no popovers in jsdom
+    const open = el.matches(":popover-open");
+    if (helpDef && !open) el.showPopover();
+    else if (!helpDef && open) el.hidePopover();
+  }, [helpDef]);
+  const showHelp = (key: string | null) => {
+    setPointed(key);
+    setHelp(key);
+  };
+  const helpPage = (p: ParameterDef) => `${componentHelpPage(def.id)}#${p.key}`;
+  // a different anchor for the dialog's card and the Properties panel's
+  const anchor = compact ? "--ss-help-panel" : "--ss-help-dialog";
+  const helpProps = (p: ParameterDef) => ({
+    "data-help": helpPage(p), // F1 opens it
+    style: help === p.key ? { anchorName: anchor } : undefined,
+    onMouseEnter: () => setPointed(p.key),
+    onMouseLeave: () => setPointed(null),
+    onFocus: () => showHelp(p.key),
+    // moving to the card's own button keeps it open
+    onBlur: (e: React.FocusEvent) => e.relatedTarget?.closest(".ss-help-card") || showHelp(null),
+  });
   const profile = drivingTask ? profileToTable(String(valueOf(def.parameters.find(isProfile)!))) : {};
 
   return (
@@ -802,8 +879,9 @@ export function ElementForm({
               const problem = problemOf(p);
               return (
                 <Fragment key={p.key}>
-                  <tr>
-                    <td className="ss-td flex items-center text-[11px]" title={p.label}>
+                  <tr {...helpProps(p)}>
+                    {/* the full label is in the help card, or else its tooltip */}
+                    <td className="ss-td flex items-center text-[11px]" title={p.description ? undefined : p.label}>
                       <span className="truncate">{p.label}</span>
                       {running && p.variability === "fixed" && (
                         <span
@@ -841,7 +919,7 @@ export function ElementForm({
         </table>
       )}
       {drivingTask && (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1" {...helpProps(def.parameters.find((p) => p.key === "cycle")!)}>
           <label className="flex flex-col gap-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
             <span>
               Drive Cycle
@@ -864,9 +942,14 @@ export function ElementForm({
           {bigParams.map((p) => (
             <button
               key={p.key}
+              {...helpProps(p)}
               className="ss-toolbtn justify-between border border-[color:var(--ss-border)] px-2 py-1"
-              onClick={() => openParamDialog(element.id, p.key)}
-              title={`${isProfile(p) ? "Profile" : p.label}: open the full editor in a dialog`}
+              aria-description={p.description ?? undefined}
+              onClick={() => {
+                showHelp(null); // or the card would stay over the dialog
+                openParamDialog(element.id, p.key);
+              }}
+              title={p.description ? undefined : `${isProfile(p) ? "Profile" : p.label}: open the full editor in a dialog`}
             >
               <span className="flex min-w-0 items-center gap-1.5">
                 {p.type === "code" ? <Pencil size={12} /> : <Table2 size={12} />}
@@ -890,6 +973,11 @@ export function ElementForm({
               <span className="ml-1 font-normal italic">— applies on next run</span>
             )}
           </div>
+          {p.description && (
+            <div className="ss-param-help mb-1 text-[11px] text-[color:var(--ss-text-dim)]">
+              <ParamHelp def={p} />
+            </div>
+          )}
           {p.axes?.some((a) => a.outside) && <OutsideSettings element={element} param={p} />}
           {isProfile(p) ? (
             <ProfileGridEditor
@@ -943,6 +1031,33 @@ export function ElementForm({
           ))}
         </div>
       )}
+      <div
+        ref={card}
+        popover="auto"
+        className="ss-help-card"
+        style={{ positionAnchor: anchor }}
+        // a light dismiss (Esc, a click elsewhere) closes it; a stale close
+        // from before it reopened for another row does not
+        onToggle={(e) => e.newState === "closed" && !e.currentTarget.matches(":popover-open") && showHelp(null)}
+        onMouseEnter={() => setPointed(help)}
+        onMouseLeave={() => setPointed(null)}
+      >
+        {helpDef && (
+          <>
+            <div className="font-semibold">
+              {helpDef.label}
+              {helpDef.unit !== "-" && <span className="font-normal"> [{helpDef.unit}]</span>}
+            </div>
+            <ParamHelp def={helpDef} />
+            {defaultText(helpDef) && <p className="text-[color:var(--ss-text-dim)]">{defaultText(helpDef)}</p>}
+            <p>
+              <button className="text-[color:var(--ss-accent)] underline" onClick={() => openHelp(helpPage(helpDef))}>
+                More in the help (F1)
+              </button>
+            </p>
+          </>
+        )}
+      </div>
       {def.description && (
         <p className="border-t border-[color:var(--ss-border)] pt-2 text-[11px] italic text-[color:var(--ss-text-dim)]">
           {def.description}

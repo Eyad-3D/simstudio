@@ -302,6 +302,29 @@ body,
 .ss-param-grid select {
   width: 5.5rem;
 }
+/* a parameter's help card (UX-10): a popover in the top layer, so no panel
+   clips it, beside the row it explains (left of it, or where there is room) */
+.ss-help-card {
+  inset: auto;
+  margin: 0 6px;
+  position-area: left span-bottom;
+  position-try-fallbacks: flip-inline, flip-block;
+  width: 290px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--ss-border);
+  border-radius: 6px;
+  background: var(--ss-panel);
+  color: var(--ss-text);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+:is(.ss-help-card, .ss-param-help) p + p,
+.ss-help-card div + p {
+  margin-top: 4px;
+}
 /* why a value is outside its limits (UX-10): a line under the field, across
    the whole row of the parameter grid */
 .ss-param-problem {

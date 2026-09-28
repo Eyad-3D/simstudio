@@ -99,11 +99,13 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "F1") {
-        // the selected part's help page, or the help's front page
+        // the focused parameter's help, else the selected part's help page,
+        // else the help's front page
         e.preventDefault();
         const { project, selectedElementId } = useProjectStore.getState();
         const el = project?.systems.flatMap((s) => s.elements).find((x) => x.id === selectedElementId);
-        openHelp(el ? componentHelpPage(el.componentDefId) : undefined);
+        const param = e.target instanceof Element ? e.target.closest("[data-help]")?.getAttribute("data-help") : null;
+        openHelp(param ?? (el ? componentHelpPage(el.componentDefId) : undefined));
         return;
       }
       const meta = e.ctrlKey || e.metaKey;

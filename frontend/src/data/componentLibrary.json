@@ -78,28 +78,40 @@
           "unit": "-",
           "default": "Drag and rolling resistance",
           "type": "enum",
-          "options": ["Drag and rolling resistance", "Coefficients A/B/C"]
+          "options": ["Drag and rolling resistance", "Coefficients A/B/C"],
+          "description": "Where the resistance to motion comes from. Drag and rolling resistance: Cd, frontal area and each Wheel's rolling resistance. Coefficients A/B/C: a coast-down fit F = A + B·v + C·v² (v in km/h), and then those three are not used.",
+          "typical": "Drag and rolling resistance for a design study; Coefficients A/B/C when you have measured or published coast-down values for a real car (the hybrid example uses EPA's).",
+          "whereToFind": "Coast-down coefficients are on a car's certificate of conformity (WLTP f0, f1, f2) or in EPA's Test Car List (target coefficients A, B, C)."
         },
         {
           "key": "road_load_a_N",
           "label": "Road Load A (f0)",
           "unit": "N",
           "default": 212,
-          "type": "number"
+          "type": "number",
+          "description": "The part of the road load that does not change with speed, mostly the tyres' rolling resistance: the force at 0 km/h in F = A + B·v + C·v² (v in km/h). Used only when Road Load From is Coefficients A/B/C.",
+          "typical": "Formula Student car 30–60 N · small car 70–130 N · mid-size EV 100–220 N (the hybrid example 68.64 N) · van 200–350 N.",
+          "whereToFind": "A coast-down test: WLTP f0 on the car's certificate of conformity, or target coefficient A in EPA's Test Car List (lbf × 4.448 = N)."
         },
         {
           "key": "road_load_b_N_per_kmh",
           "label": "Road Load B (f1)",
           "unit": "N/(km/h)",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "description": "The part of the road load that grows in step with speed (N for every km/h), mostly tyre and bearing losses. Often small; a coast-down fit can make it slightly negative. Used only when Road Load From is Coefficients A/B/C.",
+          "typical": "−0.5 to 1.5 N/(km/h) for cars (the hybrid example 0.9093 N/(km/h)); 0 when you do not know it.",
+          "whereToFind": "A coast-down test: WLTP f1, or EPA target coefficient B (lbf/mph × 2.764 = N/(km/h))."
         },
         {
           "key": "road_load_c_N_per_kmh2",
           "label": "Road Load C (f2)",
           "unit": "N/(km/h)²",
           "default": 0.0286,
-          "type": "number"
+          "type": "number",
+          "description": "The part of the road load that grows with the square of speed, mostly air drag: about 0.0465 × Cd × frontal area in air at 20 °C. It follows the Ambient's air density. Used only when Road Load From is Coefficients A/B/C.",
+          "typical": "Formula Student car with wings 0.05–0.08 · small car 0.025–0.035 · mid-size EV 0.020–0.030 (the hybrid example 0.025078) · van 0.040–0.060 N/(km/h)².",
+          "whereToFind": "A coast-down test: WLTP f2, or EPA target coefficient C (lbf/mph² × 1.717 = N/(km/h)²)."
         },
         {
           "key": "abc_include_driveline_losses",
@@ -107,7 +119,10 @@
           "label": "Coefficients Include Driveline Losses",
           "unit": "-",
           "default": true,
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Ticked: the coefficients already hold the drag of the gears the wheels turn, as coast-down values do, so Final Drives, Differentials and Transfer Cases run without losses (gearboxes and motors keep theirs). Untick it for coefficients set on a dynamometer.",
+          "typical": "Ticked for WLTP f0/f1/f2 and EPA target coefficients; unticked for EPA set coefficients. Used only with Coefficients A/B/C.",
+          "whereToFind": "The source of your coefficients: WLTP values and EPA target coefficients come from a coast-down on the road; EPA set coefficients are for the dynamometer."
         },
         {
           "key": "initial_speed_kmh",
@@ -195,7 +210,10 @@
           "default": 80,
           "type": "number",
           "minimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "How much of the motors' generator braking the driver uses when braking, before the friction brakes: 100 % uses the motors' whole generator torque first, 0 % brakes with friction only. Recuperation fades out below about 11 km/h.",
+          "typical": "70–100 % for electric and hybrid cars (the BEV example 98 %); 0 % for a car without recuperation.",
+          "whereToFind": "The vehicle's brake-blending strategy, if known; FASTSim's vehicle files give it as maxRegen (98 % for the Cupra Born the BEV example is built on)."
         }
       ]
     },
@@ -272,7 +290,10 @@
           "default": 0,
           "type": "number",
           "minimum": 0,
-          "maximum": 100000
+          "maximum": 100000,
+          "description": "The charge the pack holds from 0 to 100 % SOC, in amp-hours; SOC counts the charge that flows. At 0 it comes from the Usable Capacity ÷ the Open-Circuit Voltage table's mean voltage.",
+          "typical": "0 unless you know it. Car packs 50–250 Ah (the BEV example's 62 kWh on the default table gives 179.7 Ah); Formula Student packs 10–30 Ah.",
+          "whereToFind": "The cell datasheet's rated capacity (Ah) × the number of cells in parallel."
         },
         {
           "key": "coulombic_efficiency_pct",
@@ -282,7 +303,10 @@
           "default": 100,
           "type": "number",
           "exclusiveMinimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "The share of the charging current the pack stores; the rest is lost inside it. Discharging counts every amp-hour. At 100 % all the charge that flows in is stored.",
+          "typical": "100 % (the default) for lithium-ion cells, which store about 99.9 %; less for nickel-metal-hydride or lead-acid packs.",
+          "whereToFind": "A cell test: the charge given out divided by the charge put in over a full cycle at the same temperature; cell papers and some datasheets quote it."
         },
         {
           "key": "ocv_table",
@@ -299,7 +323,10 @@
             "80": 362,
             "90": 368,
             "100": 376
-          }
+          },
+          "description": "The pack's resting voltage (no current flowing) at each state of charge. The run reads it at the present SOC; R0 and the RC pair then lower the voltage while the pack gives out current and raise it while it charges.",
+          "typical": "400 V-class car packs about 300–400 V from empty to full (the default 300–376 V); 800 V-class packs 600–820 V; Formula Student packs up to 600 V when full.",
+          "whereToFind": "The cell datasheet's open-circuit voltage curve, or a slow (C/20) discharge test, times the number of cells in series."
         },
         {
           "key": "internal_resistance_ohm",
@@ -316,7 +343,10 @@
           "unit": "Ω",
           "default": 0,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The slower part of the pack's voltage drop: after a change of current the voltage keeps sagging, or recovering, by up to R1 × current over about three RC Pair Time Constants. 0 turns the RC pair off.",
+          "typical": "0 for energy and consumption runs; about R0 or less for studies of voltage transients.",
+          "whereToFind": "Fit it to a pulse test: the voltage change between just after the current step and about a minute later, ÷ the current step."
         },
         {
           "key": "rc_time_constant_s",
@@ -325,7 +355,10 @@
           "unit": "s",
           "default": 0,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How fast the RC pair's part of the voltage drop builds up and fades: about 63 % of it after one time constant (R1 × C1). 0 turns the RC pair off.",
+          "typical": "10–60 s for lithium-ion packs; 0 when the RC pair is not used.",
+          "whereToFind": "Fit it to a pulse test: the time the voltage takes to cover 63 % of its slow recovery after the current stops."
         },
         {
           "key": "max_charge_power_kW",
@@ -515,7 +548,10 @@
             "6000": { "0": 0.7, "100": 2.8, "200": 5.6, "350": 12.8 },
             "9000": { "0": 1.2, "100": 4.0, "200": 7.4, "350": 15.6 },
             "12000": { "0": 1.9, "100": 5.6, "200": 9.6, "350": 18.9 }
-          }
+          },
+          "description": "Everything the motor and inverter lose while the inverter is on, at each speed and torque, spin losses at 0 N·m included. Electrical power = torque × speed + this loss, driving or recuperating.",
+          "typical": "About 3–10 % of the shaft power near full load, a larger share at low torque; a few hundred watts at 0 N·m and high speed.",
+          "whereToFind": "An efficiency map from the datasheet or a dynamometer test: loss = shaft power × (1 ÷ efficiency − 1) when driving."
         },
         {
           "key": "drag_torque",
@@ -529,7 +565,10 @@
             "6000": 0.8,
             "9000": 1.0,
             "12000": 1.2
-          }
+          },
+          "description": "The torque that brakes the shaft while the motor coasts with its inverter off (a Traction Command of exactly 0, no supply, or above its Maximum Speed): bearing, air and magnet losses. The motor then draws nothing.",
+          "typical": "About 0.1–2 N·m for car motors, growing with speed (the BEV example 0.46–0.9 N·m).",
+          "whereToFind": "A spin-down test with the inverter off, or the no-load loss from the datasheet: loss (W) ÷ speed (rad/s)."
         },
         {
           "key": "max_speed_rpm",
@@ -555,7 +594,10 @@
           "default": 100,
           "type": "number",
           "minimum": 0,
-          "maximum": 200
+          "maximum": 200,
+          "description": "How much torque the motor may use while it brakes the car and recovers energy (as a generator), as a share of its full-load torque at the same speed and voltage: 100 % brakes as hard as it can drive, 50 % half as hard.",
+          "typical": "100 % for most motors; 30–70 % to model a battery or inverter that limits recuperation.",
+          "whereToFind": "The motor or inverter datasheet's generator (regeneration) torque curve compared with its motor curve, or the vehicle's recuperation limit."
         }
       ]
     },
@@ -1201,7 +1243,10 @@
           "default": 25,
           "type": "number",
           "exclusiveMinimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "The share of the vehicle's weight this wheel carries; it does not shift when the car brakes or speeds up. It sets the wheel's grip (μ × load) and rolling resistance. If the shares do not add up to 100 %, LightSim scales them so they do.",
+          "typical": "25 % per wheel for an even car · front-drive cars 30–32 % per front wheel (the BEV example 30.5 %) · Formula Student cars 20–23 % front, 27–30 % rear per wheel.",
+          "whereToFind": "Weigh each corner on corner scales, or halve the front and rear axle loads from the datasheet or registration papers."
         },
         {
           "key": "mu",
@@ -1209,7 +1254,10 @@
           "unit": "-",
           "default": 1.0,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The most grip the tyre has: its drive or braking force is at most μ × the wheel's load. Beyond it the wheel spins or locks.",
+          "typical": "Dry asphalt 0.9–1.1 for road tyres, 1.4–1.7 for racing slicks · wet 0.5–0.7 · snow 0.2–0.3 · ice about 0.1.",
+          "whereToFind": "Tyre test data (the peak of longitudinal force ÷ load); otherwise the road surface from the typical values."
         },
         {
           "key": "slip_stiffness",
@@ -1217,7 +1265,10 @@
           "unit": "-",
           "default": 10,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "How quickly the tyre grips as it starts to slip: the drive or braking force is Slip Stiffness × slip × the wheel's load, up to μ × load. At 10, a tyre with μ = 1 reaches full grip at 10 % slip.",
+          "typical": "Road tyres about 10–25; racing slicks up to about 30.",
+          "whereToFind": "Tyre test data: the slope of longitudinal force against slip at small slip, ÷ the wheel load (B·C·D ÷ Fz of a Magic Formula fit). Without data, keep 10–20."
         },
         {
           "key": "rolling_resistance",
@@ -1440,7 +1491,10 @@
           "unit": "s",
           "default": 0,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How often the block runs; its outputs hold in between, as in a real controller. 0, or any time shorter than the solver step (at most 10 ms), runs it every solver step.",
+          "typical": "0 for most models; 0.01–0.1 s to copy a real controller's cycle time (above 0.1 s Data Checks warn).",
+          "whereToFind": "The controller's task period, from its software specification."
         }
       ]
     },
@@ -1597,7 +1651,10 @@
             "4000": 38,
             "5000": 48,
             "6000": 60
-          }
+          },
+          "description": "The torque that brakes the engine while it is not fired: switched off, out of fuel, in overrun fuel cut-off or above the rev limit. It covers friction and pumping; the engine then burns nothing.",
+          "typical": "About 10–60 N·m for car engines, growing with speed (the hybrid example 17–38 N·m from 1,000 to 6,000 1/min).",
+          "whereToFind": "A motoring test on a dynamometer (the torque to spin the unfired engine), or friction mean effective pressure × displacement ÷ 4π."
         },
         {
           "key": "fuel_map",
@@ -1935,7 +1992,10 @@
           "default": 50,
           "type": "number",
           "minimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "The share of the input torque that goes to Output A (front) while unlocked; Output B (rear) gets the rest.",
+          "typical": "50 % for an even split; 30–40 % in rear-biased all-wheel-drive cars.",
+          "whereToFind": "The transfer case or centre differential datasheet (a 40:60 front:rear split is 40 %)."
         },
         {
           "key": "ratio",
@@ -2146,7 +2206,10 @@
           "unit": "s",
           "default": 0,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How often the controller runs; its output holds in between, as in a real controller. 0, or any time shorter than the solver step (at most 10 ms), runs it every solver step.",
+          "typical": "0 for most models; 0.01–0.1 s to copy a real controller's cycle time (above 0.1 s Data Checks warn).",
+          "whereToFind": "The real controller's cycle time."
         }
       ]
     },
@@ -2216,7 +2279,10 @@
           "unit": "s",
           "default": 0,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How often the block reads its table; its output holds in between, as in a real controller. 0, or any time shorter than the solver step (at most 10 ms), reads it every solver step.",
+          "typical": "0 for most models; 0.01–0.1 s to copy a real controller's cycle time (above 0.1 s Data Checks warn).",
+          "whereToFind": "The real controller's cycle time."
         }
       ]
     },
