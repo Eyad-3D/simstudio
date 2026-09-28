@@ -578,6 +578,19 @@ describe("undo / redo", () => {
     expect(findElement("el-bat")?.tableOutside).toBeUndefined();
   });
 
+  it("a preset's values are one edit that one undo takes back", async () => {
+    await start();
+    const past = store().past.length;
+    store().setParameters("el-bat", { output_power_limit_kW: 80, voltage_class_V: 600 });
+    expect(findElement("el-bat")?.parameterOverrides).toEqual({
+      output_power_limit_kW: 80,
+      voltage_class_V: 600,
+    });
+    expect(store().past).toHaveLength(past + 1);
+    store().undo();
+    expect(findElement("el-bat")?.parameterOverrides).toEqual({});
+  });
+
   it("a new edit after undo discards the redo branch", async () => {
     await start();
     store().renameElement("el-bat", "A");
@@ -927,6 +940,33 @@ describe("run history", () => {
     engineFinishesRuns();
     const ids = await runTimes(22);
     expect(store().runs.map((r) => r.id)).toEqual(ids.slice(2).reverse());
+  });
+
+  it("the acceleration test adds its case once, then reruns it", async () => {
+    await start();
+    engineFinishesRuns();
+    await store().runAccelerationTest();
+    const accel = store().project!.cases.filter((c) => c.kind === "acceleration");
+    expect(accel).toEqual([
+      {
+        id: expect.any(String),
+        name: "Acceleration 75 m",
+        duration: 25,
+        timeStep: 0.01,
+        kind: "acceleration",
+        endDistance: 75,
+        startLine: 0.3,
+      },
+    ]);
+    expect(store().activeCaseId).toBe(accel[0].id);
+    expect(api.runSimulationLive.mock.lastCall![1]).toBe(accel[0].id);
+
+    store().setActiveCase("case-1");
+    await store().runAccelerationTest();
+    expect(store().project!.cases).toHaveLength(2);
+    expect(store().activeCaseId).toBe(accel[0].id);
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(2);
+    expect(api.runSimulationLive.mock.lastCall![1]).toBe(accel[0].id);
   });
 
   it("removing the active run falls back to the newest one left; Clear empties the history", async () => {

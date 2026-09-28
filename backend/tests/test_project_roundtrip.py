@@ -176,3 +176,21 @@ def test_study_tables_are_typed():
     body["studies"] = [_study("sweep-1", [1500.0, 1800.0])]
     body["studies"][0]["points"][0]["status"] = "done"
     assert client.put("/api/projects/studies", json=body).status_code == 422
+
+
+def test_an_acceleration_case_is_saved_with_its_line_and_reference(tmp_path):
+    """STU-37: an acceleration case keeps its distance, start line and
+    reference time; a case saved before them loads as before (no distance
+    end, timed from rest)."""
+    body = Project.model_validate(_example("bev-car")).model_dump(mode="json")
+    body["id"] = "accel"
+    old = body["cases"][0]
+    assert (old["endDistance"], old["startLine"], old["referenceTime"]) == (None, 0.0, None)
+    body["cases"].append({**old, "id": "case-accel", "name": "Acceleration 75 m",
+                          "kind": "acceleration", "endDistance": 75.0, "startLine": 0.3,
+                          "referenceTime": 4.3, "duration": 25.0, "timeStep": 0.01})
+    assert _roundtrip(body) == body
+    on_disk = json.loads((tmp_path / "accel.json").read_text(encoding="utf-8"))
+    saved = next(c for c in on_disk["cases"] if c["id"] == "case-accel")
+    assert (saved["kind"], saved["endDistance"], saved["startLine"], saved["referenceTime"]) == (
+        "acceleration", 75.0, 0.3, 4.3)

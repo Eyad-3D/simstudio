@@ -1,14 +1,15 @@
 """Break the shipped examples on purpose, one fault at a time (VAL-01).
 
-Every element, every wire and every signal link of both examples is deleted
-in turn (118 faults) and Data Checks run on the result. A fault must never
+Every element, every wire and every signal link of the examples is deleted
+in turn (156 faults) and Data Checks run on the result. A fault must never
 get an all-clear unless it is on the reviewed list of harmless ones, and a
 fault that stops the car must block the run with an error.
 
 Which faults stop the car was measured once by running every broken model
 to the end of its first case (a full run each, too slow for the suite);
 redo that measurement when the examples change. Last measured for the
-example rebuild (CON-02/CON-03, 2026-09): City Cycle and EPA city cycle.
+example rebuild (CON-02/CON-03, 2026-09): City Cycle and EPA city cycle;
+for the FS example (CON-33, 2026-09): its 75 m acceleration run.
 """
 import copy
 
@@ -18,7 +19,7 @@ from app.schemas import Project
 from app.storage import load_example
 from app.validation import validate_project
 
-EXAMPLES = ("bev-car", "hybrid-car")
+EXAMPLES = ("bev-car", "fs-electric", "hybrid-car")
 
 # Faults that do not change the model's behaviour: monitors only watch,
 # negative terminals fall back to an implicit ground, and the Driver reads
@@ -26,6 +27,7 @@ EXAMPLES = ("bev-car", "hybrid-car")
 HARMLESS = {
     "bev-car": {"el-veh-monitor", "el-bms-monitor", "el-ground", "c-2", "c-18", "c-19",
                 "db-7", "db-8", "db-9", "db-10", "db-11", "db-12", "db-13"},
+    "fs-electric": {"el-ground", "c-13", "c-14"},
     "hybrid-car": {"el-monitor", "el-ground", "c-14", "c-20", "c-22",
                    "db-14", "db-15", "db-16", "db-17", "db-18"},
 }
@@ -34,14 +36,20 @@ HARMLESS = {
 # unwired engine Enable means "always on", as in any conventional car.
 KNOWN_GAPS = {
     "bev-car": {"el-consumer"},
+    "fs-electric": set(),
     "hybrid-car": {"db-7", "el-aux"},
 }
-# Faults after which the car covers less than 5 % of the cycle distance.
+# Faults after which the car covers less than 5 % of the cycle distance (of
+# the 75 m for the FS example).
 STOPS_THE_CAR = {
     "bev-car": {"el-vehicle", "el-driver", "el-node-fl", "el-hvbus", "el-battery", "el-motor",
                 "el-final-drive", "el-diff", "el-node-fr", "el-task", "el-wheel-fl",
                 "el-wheel-fr", "c-1", "c-4", "c-5", "c-6", "c-7", "c-8", "c-10", "c-12",
                 "db-1", "db-2"},
+    "fs-electric": {"el-vehicle", "el-driver", "el-node-rl", "el-wheel-rl", "el-hvbus",
+                    "el-battery", "el-motor", "el-final-drive", "el-diff", "el-node-rr",
+                    "el-wheel-rr", "c-1", "c-2", "c-3", "c-4", "c-5", "c-6", "c-8", "c-10",
+                    "db-1"},
     "hybrid-car": {"el-vehicle", "el-driver", "el-task", "el-engine", "el-node", "el-gearbox",
                    "el-fd", "el-diff", "el-battery", "el-hvbus", "el-motor", "el-node-l",
                    "el-node-r", "el-wheel-l", "el-wheel-r", "c-1", "c-2", "c-3", "c-4", "c-5",
@@ -91,7 +99,7 @@ def outcome():
 
 
 def test_corpus_is_complete(outcome):
-    assert sum(len(v) for v in outcome.values()) == 118
+    assert sum(len(v) for v in outcome.values()) == 156
     for name in EXAMPLES:
         listed = HARMLESS[name] | KNOWN_GAPS[name] | STOPS_THE_CAR[name]
         assert listed <= outcome[name].keys(), "a reviewed fault id no longer exists"
@@ -120,8 +128,8 @@ def test_harmless_faults_raise_no_alarm(name, outcome):
 def test_check_coverage_is_at_least_90_percent(outcome):
     consequential = [(n, fid) for n in EXAMPLES for fid in outcome[n] if fid not in HARMLESS[n]]
     flagged = [(n, fid) for n, fid in consequential if outcome[n][fid] != "info"]
-    assert len(consequential) == 95
-    assert len(flagged) / len(consequential) >= 0.9  # 92 of 95 today
+    assert len(consequential) == 130
+    assert len(flagged) / len(consequential) >= 0.9  # 127 of 130 today
 
 
 @pytest.mark.parametrize("name", EXAMPLES)

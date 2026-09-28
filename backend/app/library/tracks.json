@@ -1,0 +1,24 @@
+{
+  "about": "The Race Track's layouts (lap mode), drawn for LightSim: none is an official Formula Student layout or taken from a track database. Each is the line the car drives, as segments [length m, radius m]: a positive radius turns left, a negative one right, 0 is a straight. The curvature changes at each join. 'sector_ends' are the distances where each sector but the last ends. Checked against Formula Student Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1; FSUK and FSAE may differ, check the current season's rules. See docs/data-register.csv.",
+  "layouts": {
+    "Autocross": {
+      "about": "A 979 m closed lap within D 6.1 / D 7.1: straights up to 78 m, a slalom on 10 m cones, a hairpin, a chicane and corners of 6 m radius or more (a 12 m turning diameter). Drawn as a polygon with a tangent arc of the given radius at each corner, in driving order (counter-clockwise, starting on the start straight): the 'drawing' vertices [x m, y m, radius m].",
+      "closed": true,
+      "sector_ends": [280, 630],
+      "segments": [[48.0, 0], [18.8496, 12], [8.0, 0], [15.708, -10], [55.0, 0], [9.6525, 15], [40.0, 0], [9.6525, -15], [78.0, 0], [18.8496, 12], [32.0, 0], [18.8496, 6], [10.0, 0], [14.1372, -9], [16.4782, 0], [4.8858, -8], [4.0848, 0], [9.7716, 8], [4.0848, 0], [4.8858, -8], [44.007, 0], [14.0565, -10], [1.176, 0], [4.9109, -9], [4.6521, 0], [6.8491, 9], [3.5703, 0], [6.8491, -9], [3.5703, 0], [6.8491, 9], [5.0286, 0], [4.2052, -9], [4.5841, 0], [24.863, 15], [18.639, 0], [15.708, 10], [22.0, 0], [12.5664, -8], [19.0, 0], [12.5664, -8], [40.0, 0], [18.8496, 12], [28.9246, 0], [17.0393, 20], [41.6611, 0], [4.765, 12], [28.2484, 0], [1.9193, 25], [39.0399, 0], [2.4498, 10], [58.7689, 0], [15.708, 10], [25.0, 0]],
+      "drawing": [[0, 0, 0], [60, 0, 12], [60, 30, 10], [130, 30, 15], [170, 60, 15], [265, 60, 12], [265, 110, 6], [253, 110, 6], [253, 85, 9], [225, 85, 8], [215, 92, 8], [205, 85, 8], [150, 85, 10], [148, 97, 9], [152, 107, 9], [148, 117, 9], [152, 127, 9], [148, 137, 9], [150, 160, 15], [105, 160, 10], [105, 120, 8], [70, 120, 8], [70, 180, 12], [20, 180, 20], [-15, 140, 12], [-25, 110, 25], [-35, 70, 10], [-35, 0, 10]]
+    },
+    "Skidpad": {
+      "about": "D 4.1: a right circle, then a left circle, on the lane centre between the 15.25 m inner and 21.25 m outer circles (radius 9.125 m). With 2 laps, lap 2's sectors are the timed right and left circles (D 4.2).",
+      "closed": true,
+      "sector_ends": [57.3341],
+      "segments": [[57.3341, -9.125], [57.3341, 9.125]]
+    },
+    "Acceleration 75 m": {
+      "about": "D 5.1.1: a 75 m straight from the start line to the finish line.",
+      "closed": false,
+      "sector_ends": [],
+      "segments": [[75.0, 0]]
+    }
+  }
+}

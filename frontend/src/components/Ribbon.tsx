@@ -22,6 +22,7 @@ import {
   Sliders,
   Square,
   Sun,
+  Timer,
   Trash2,
   Undo2,
   Upload,
@@ -344,9 +345,11 @@ function SimulationsTab() {
           <div className="flex items-center gap-2 text-[11px] text-[color:var(--ss-text-dim)]">
             <span title="Solver settings for this case">
               {activeCase
-                ? `${activeCase.duration}s · step ${activeCase.timeStep}s${
-                    (activeCase.outputEvery ?? 1) > 1 ? ` · store ×${activeCase.outputEvery}` : ""
-                  }${(activeCase.realtimeFactor ?? 0) > 0 ? ` · ${activeCase.realtimeFactor}× pacing` : ""}`
+                ? activeCase.kind === "lap" // the Race Track sets a lap case's run
+                  ? `lap mode${(activeCase.outputEvery ?? 1) > 1 ? ` · store ×${activeCase.outputEvery}` : ""}`
+                  : `${activeCase.duration}s · step ${activeCase.timeStep}s${
+                      (activeCase.outputEvery ?? 1) > 1 ? ` · store ×${activeCase.outputEvery}` : ""
+                    }${(activeCase.realtimeFactor ?? 0) > 0 ? ` · ${activeCase.realtimeFactor}× pacing` : ""}`
                 : "—"}
             </span>
             <button
@@ -380,6 +383,13 @@ function SimulationsTab() {
           title="Run Data Checks"
           disabled={store.checking || !store.project}
           onClick={() => void store.runDataChecks()}
+        />
+        <BigButton
+          icon={Timer}
+          label="Acceleration test"
+          title="Formula Student acceleration test: runs the first Acceleration case, or adds one (75 m, staged 0.30 m behind the start line, 25 s time limit) and runs it. FS Rules 2026 v1.1 (FSG): D 5.1.1 75 m, D 5.2.3 0.30 m staging, D 9.2.1 25 s (driverless runs only). FSUK and FSAE may differ: check the current season's rules."
+          disabled={store.running || !store.project}
+          onClick={() => void store.runAccelerationTest()}
         />
       </RibbonGroup>
     </>

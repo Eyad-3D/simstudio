@@ -65,6 +65,8 @@ export interface ComponentDef {
   parameters: ParameterDef[];
   /** Elements of this type may carry per-instance signal ports (Script, Monitor). */
   allowDynamicPorts?: boolean;
+  /** Sets of parameter values the Properties panel applies in one step. */
+  presets?: { name: string; values: Record<string, ParamValue>; note?: string }[];
 }
 
 export type PortSide = "left" | "right" | "top" | "bottom";
@@ -129,9 +131,22 @@ export interface SimCase {
    * "performance": the Driver holds full throttle until the car reaches its
    * target (its PI holds the target after that), and the run reports the
    * time to the target and the maximum speed instead of judging the speed
-   * trace (a 0-100 km/h or top-speed test). Absent = "cycle".
+   * trace (a 0-100 km/h or top-speed test). "acceleration": the Driver holds
+   * full throttle for the whole run (its target is not read) and the run is
+   * timed from the start line to endDistance past it, with the duration as its
+   * time limit (a Formula Student 75 m acceleration run). "lap": the model's
+   * Race Track (its layout and laps, per case through parameterOverrides)
+   * sets the run: a quasi-steady-state lap solver finds the speed along it and
+   * the motors and battery drive that trace; duration, timeStep and
+   * realtimeFactor do not apply. Absent = "cycle".
    */
-  kind?: "cycle" | "performance";
+  kind?: "cycle" | "performance" | "acceleration" | "lap";
+  /** End the run when the vehicle has driven startLine + endDistance, m; null/0 = run the duration. */
+  endDistance?: number | null;
+  /** Distance driven before the timer starts, m (FS Rules 2026 v1.1 (FSG) D 5.2.3: 0.30 m). */
+  startLine?: number;
+  /** A time to compare the acceleration test's time with, s; null = none. */
+  referenceTime?: number | null;
   /**
    * Per-case parameter overrides: { elementId: { paramKey: value } }. Layered
    * on top of each element's own parameterOverrides at solve time, so a case
@@ -215,6 +230,9 @@ export interface SummaryValue {
   unit: string;
   /** Why the run verdict says this number is not valid, e.g. "cycle not followed". */
   notValid?: string | null;
+  /** A check's limit, in the row's unit, and whether the value kept to it. */
+  limit?: number | null;
+  passed?: boolean | null;
 }
 
 export interface SimResult {

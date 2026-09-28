@@ -66,6 +66,15 @@ class ParameterDef(BaseModel):
     variability: Literal["fixed", "tunable"] = "tunable"
 
 
+class ComponentPreset(BaseModel):
+    """Named parameter values for a component, e.g. a competition's limits,
+    with a note on where they come from."""
+
+    name: str
+    values: dict[str, ParamValue]
+    note: str = ""
+
+
 class ComponentDef(BaseModel):
     id: str
     category: str
@@ -77,6 +86,8 @@ class ComponentDef(BaseModel):
     parameters: list[ParameterDef]
     # Elements of this type may carry per-instance signal ports (Script, Monitor).
     allowDynamicPorts: bool = False
+    # Sets of parameter values the Properties panel applies in one step.
+    presets: list[ComponentPreset] = Field(default_factory=list)
 
 
 class ElementInstance(BaseModel):
@@ -150,8 +161,24 @@ class SimCase(BaseModel):
     # "performance": the Driver holds full throttle until the car reaches its
     # target (its PI holds the target after that), and the run reports the
     # time to the target and the maximum speed instead of judging the speed
-    # trace (a 0-100 km/h or top-speed test)
-    kind: Literal["cycle", "performance"] = "cycle"
+    # trace (a 0-100 km/h or top-speed test). "acceleration": the Driver holds
+    # full throttle for the whole run (its target is not read) and the run is
+    # timed from the start line to endDistance past it, with the duration as
+    # its time limit (a Formula Student 75 m acceleration run). "lap": the
+    # model's Race Track sets the run (its layout and laps, per case through
+    # parameterOverrides): a quasi-steady-state lap solver finds the speed
+    # along it and the motors and battery drive that trace, so duration,
+    # timeStep and realtimeFactor do not apply
+    kind: Literal["cycle", "performance", "acceleration", "lap"] = "cycle"
+    # end the run when the vehicle has driven startLine + endDistance, m;
+    # None or 0 = run the whole duration
+    endDistance: Optional[float] = None
+    # distance driven before the timer starts, m (FS Rules 2026 v1.1 (FSG) D 5.2.3
+    # stages the car 0.30 m behind the start line)
+    startLine: float = 0.0
+    # a time to compare the acceleration test's time with, s (e.g. last
+    # year's best run); None = none
+    referenceTime: Optional[float] = None
     # Per-case parameter overrides: {elementId: {paramKey: value}}. Layered on
     # top of each element's own parameterOverrides at model-build time, so a
     # case can tweak values — and a parameter sweep can vary one — without
@@ -248,6 +275,9 @@ class SummaryValue(BaseModel):
     unit: str
     # why this number is not valid (the run verdict), e.g. "cycle not followed"
     notValid: Optional[str] = None
+    # a check's limit, in the row's unit, and whether the value kept to it
+    limit: Optional[float] = None
+    passed: Optional[bool] = None
 
 
 class SimResult(BaseModel):

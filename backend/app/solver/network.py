@@ -62,6 +62,16 @@ class WheelRef:
     mu: float
     c_slip: float
     c_rr: float
+    axle: str = "Front"  # anything but Rear counts as Front
+    n_load: float = 0.0  # normal load this solver step, N (set by the run)
+    # tyre friction (runtime.tyre_mu): lateral μ (0 = μ), load sensitivity
+    # dμ/dFz per N, nominal load (0 = the static load), friction-ellipse
+    # exponent (lap mode)
+    mu_y: float = 0.0
+    dmu_per_n: float = 0.0
+    fz0: float = 0.0
+    n_ell: float = 2.0
+    fz_static: float = 0.0  # its share of the weight on level ground, N (set by the run)
 
 
 @dataclass
@@ -226,6 +236,7 @@ class Model:
     floating_returns: list[str] = field(default_factory=list)  # unwired − terminals
     warnings: list[str] = field(default_factory=list)
     ambient: str | None = None  # the Ambient that sets the air density
+    track: str | None = None  # the Race Track lap cases drive
     # re-extracts a driveline for new gears from the current (live) params_of
     rewalk: Optional[Callable[[Driveline, dict[str, float]], Optional[Driveline]]] = None
 
@@ -446,6 +457,11 @@ def build_model(
                         mu=max(0.0, float(p.get("mu", 1.0))),
                         c_slip=max(0.1, float(p.get("slip_stiffness", 10))),
                         c_rr=max(0.0, float(p.get("rolling_resistance", 0.012))),
+                        axle="Rear" if p.get("axle") == "Rear" else "Front",
+                        mu_y=max(0.0, float(p.get("mu_lateral", 0))),
+                        dmu_per_n=float(p.get("mu_load_sensitivity_per_kN", 0)) / 1000.0,
+                        fz0=max(0.0, float(p.get("mu_nominal_load_N", 0))),
+                        n_ell=max(1.0, float(p.get("friction_ellipse_exponent", 2))),
                     ))
                 enqueue_peers(el_id, pid, m, region)
             elif t == "mech.brake":
@@ -780,6 +796,7 @@ def build_model(
     driver = single("driver.driver", "Driver")
     fuel_tank = single("fuel.tank", "Fuel Tank")
     h2_tank = single("fuel.h2_tank", "Hydrogen Tank")
+    track = single("track.lap", "Race Track")
     # several Ambients (0.2.0 placeholders) still run: the first one counts
     ambients = [el_id for el_id, cdef in cdef_of.items() if cdef.id == "boundary.ambient"]
     if len(ambients) > 1:
@@ -836,5 +853,6 @@ def build_model(
         floating_returns=floating_returns,
         warnings=warnings,
         ambient=ambients[0] if ambients else None,
+        track=track,
         rewalk=lambda dl, gears: extract_driveline(set(dl.element_group), gears, []),
     )

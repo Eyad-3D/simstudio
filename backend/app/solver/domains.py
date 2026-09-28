@@ -47,12 +47,16 @@ from .runtime import (
     Runtime,
     SingularMatrixError,
     TankState,
+    TerminalCheck,
     _sign,
     air_density,
+    axle_load_shift,
     make_plan,
     motor_max_rpm,
     ocv_mean,
+    output_power_cap_w,
     solve_linear,
+    tyre_mu,
 )
 from .sandbox import ScriptSandbox, ScriptSpec
 from .scripting import ScriptError
@@ -107,6 +111,16 @@ def through_gears(seg: Segment, t_at: list[float], omega: float) -> float:
             stage = stages[r]
             t_at[stage.parent] += t * stage.eff if t * omega >= 0 else t / stage.eff
     return t_at[seg.out_region]
+
+
+def full_torque(mc: MotorCache, volts: float, rpm: float, drive: bool = True) -> float:
+    """An E-Motor's full-load torque at the bus voltage and its speed (at or
+    below its maximum speed); driving (``drive``), it falls to zero over the
+    last 2 % below the maximum speed."""
+    t_full = mc.full_load.at(volts, rpm)
+    if drive and rpm > mc.max_rpm * (1.0 - SPEED_LIMIT_BAND):
+        t_full *= max(0.0, mc.max_rpm - rpm) / (SPEED_LIMIT_BAND * mc.max_rpm)
+    return t_full
 
 
 class RunContext:
@@ -175,6 +189,17 @@ class RunContext:
                     # read without the Error check: the first step stops the
                     # run, with its time, if the SOC is outside an Error axis
                     b.v_term = interp1(ocv_map.pts, b.soc_pct(), ocv_map.linear[0])
+                    b.p_cap_w = output_power_cap_w(p)
+                    limit_kw = float(p.get("output_power_limit_kW", 0) or 0)
+                    v_class = float(p.get("voltage_class_V", 0) or 0)
+                    if limit_kw > 0 or v_class > 0:
+                        b.check = TerminalCheck(
+                            limit_w=max(0.0, limit_kw) * 1000.0,
+                            window_s=max(0.0, float(p.get("power_limit_window_s", 0) or 0)),
+                            v_class=max(0.0, v_class),
+                            v_full=interp1(ocv_map.pts, 100.0, ocv_map.linear[0]),
+                            enforced=bool(p.get("power_limit_enforced", True)),
+                            v_peak=b.v_term, v_min=b.v_term)
                     self.batteries[el_id] = b
                 elif cdef.id == "motor.emotor":
                     full_load = self.table(el_id, "full_load_torque")
@@ -253,11 +278,22 @@ class RunContext:
         self.v = max(0.0, float(veh_p.get("initial_speed_kmh", 0)) / 3.6) if self.veh_id else 0.0
         self.distance = 0.0
         self.amb_id = model.ambient  # sets the air density (None: 20 °C, 101.325 kPa)
+        amb_p = self.params(self.amb_id) if self.amb_id else {}
+        self.rho = air_density(max(-273.0, float(amb_p.get("temperature_C", 20))),
+                               max(0.0, float(amb_p.get("pressure_kPa", 101.325))))
         # the road's slope this step (set from the grade at the start of the
         # mechanical step): the weight's share along and normal to the road
         self.slope_sin, self.slope_cos = 0.0, 1.0
+        # the vehicle's acceleration over the last solver step (0 while held
+        # at rest), which sets this step's load transfer
+        self.accel = 0.0
         self.driver_integral = 0.0
         self.performance = False  # a performance-test case (set by simulate)
+        self.full_throttle = False  # an acceleration test (set by simulate)
+        # solver time with a driven wheel at the tyres' grip limit (counted in
+        # acceleration tests only)
+        self.grip_limited_s = 0.0
+        self.lap = None  # a lap case's lap run (lapsim.LapRun, set by simulate)
 
         self.dls = [DrivelineState(dl=dl) for dl in model.drivelines]
         # the gear each gearbox's driveline was built in (its default gear
@@ -402,6 +438,67 @@ class RunContext:
         scale = total > 0 and abs(total - 1.0) > 1e-9
         for w, share in zip(wheels, raw):
             w.load_share = share / total if scale else share
+            w.fz_static = w.load_share * self.veh_mass * GRAVITY
+        self.wheels = wheels
+        self.axle_wheels = ([w for w in wheels if w.axle != "Rear"],
+                            [w for w in wheels if w.axle == "Rear"])
+        self.update_wheel_loads()
+
+    def update_wheel_loads(self) -> None:
+        """Each wheel's normal load for this solver step: its share of the
+        weight normal to the road, plus, with a CG height or a downforce area
+        set, its part of its axle's load transfer and downforce, split within
+        the axle by the wheels' shares. The transfer follows the vehicle's
+        acceleration over the previous step (one step behind: the loads are
+        set before the step is solved)."""
+        if not self.veh_id:
+            return
+        for w in self.wheels:
+            w.n_load = w.load_share * self.veh_mass * GRAVITY * self.slope_cos
+        vp = self.params(self.veh_id)
+        h = max(0.0, float(vp.get("cg_height_m", 0)))
+        cza = float(vp.get("downforce_cza_m2", 0))
+        if not (h or cza):
+            return
+        front, rear = self.axle_wheels
+        if front and rear:
+            wheelbase = float(vp.get("wheelbase_m", 2.7))
+            if h and wheelbase <= 0:  # a case value or a live edit: Data Checks cannot see it
+                self.rt.warn_once(
+                    f"wheelbase:{self.veh_id}",
+                    f"Vehicle '{self.model.elements[self.veh_id].label}' has a Wheelbase of "
+                    f"{wheelbase:g} m, so no load shifts between its axles. Set the Wheelbase "
+                    f"to the distance between the axles.")
+            d_front, d_rear, lifted = axle_load_shift(
+                self.veh_mass, h, wheelbase, self.accel, self.slope_sin,
+                cza, min(1.0, max(0.0, float(vp.get("aero_balance_front_pct", 50)) / 100.0)),
+                self.rho, self.v, sum(w.n_load for w in front), sum(w.n_load for w in rear))
+            groups = ((front, d_front), (rear, d_rear))
+        else:  # one axle: nothing to shift the load to, only the downforce
+            if h:
+                fix = "Rear on the rear" if front else "Front on the front"
+                self.rt.warn_once(
+                    f"one-axle:{self.veh_id}",
+                    f"Vehicle '{self.model.elements[self.veh_id].label}' has a Centre of "
+                    f"Gravity Height of {h:g} m, but all its wheels are on one axle, so no load "
+                    f"shifts between axles. Set Axle to {fix} wheels.")
+            ws, down = front or rear, 0.5 * self.rho * cza * self.v * self.v
+            lifted = "Both" if sum(w.n_load for w in ws) + down < 0 else None
+            groups = ((ws, down),)
+        if lifted:
+            which, rest = (("All the", "") if lifted == "Both" else
+                           (f"The {lifted.lower()}", " and the other wheels carry it all"))
+            self.rt.warn_once(
+                f"lift:{self.veh_id}",
+                f"{which} wheels of Vehicle '{self.model.elements[self.veh_id].label}' lift "
+                f"off the road at t = {self.t:.2f} s: they carry no load{rest} (LightSim does "
+                f"not model the car pitching or tipping over). Check the Centre of Gravity "
+                f"Height, the Wheelbase and the Downforce Area.")
+        for ws, delta in groups:
+            s_axle = sum(w.load_share for w in ws)
+            for w in ws:
+                part = w.load_share / s_axle if s_axle > 0 else 1.0 / len(ws)
+                w.n_load = max(0.0, w.n_load + part * delta)
 
     def profile_points(self, el_id: str) -> list[tuple[float, float]]:
         """A Driving Task / Road Profile's points — parsed on first use and
@@ -641,6 +738,11 @@ class RunContext:
                         w.mu = max(0.0, float(p.get("mu", w.mu)))
                         w.c_slip = max(0.1, float(p.get("slip_stiffness", w.c_slip)))
                         w.c_rr = max(0.0, float(p.get("rolling_resistance", w.c_rr)))
+                        w.mu_y = max(0.0, float(p.get("mu_lateral", w.mu_y)))
+                        w.dmu_per_n = float(p.get("mu_load_sensitivity_per_kN",
+                                                  w.dmu_per_n * 1000.0)) / 1000.0
+                        w.fz0 = max(0.0, float(p.get("mu_nominal_load_N", w.fz0)))
+                        w.n_ell = max(1.0, float(p.get("friction_ellipse_exponent", w.n_ell)))
                 for br in seg.brakes:
                     if br.el_id == el_id:
                         br.max_torque = max(0.0, float(p.get("max_torque_Nm", br.max_torque)))
@@ -669,10 +771,9 @@ class RunContext:
         rpm = abs(omega_m) * RPM
         if demand == 0.0 or rpm > mc.max_rpm * (1.0 + 1e-9):  # (float noise at the limit)
             return 0.0, False
-        t_full = mc.full_load.at(volts, rpm)
         demand = max(-1.0, min(1.0, demand))
+        t_full = full_torque(mc, volts, rpm, demand > 0)
         if demand > 0 and rpm > mc.max_rpm * (1.0 - SPEED_LIMIT_BAND):
-            t_full *= max(0.0, mc.max_rpm - rpm) / (SPEED_LIMIT_BAND * mc.max_rpm)
             if f"maxspeed:{mc.el_id}" not in rt.warned:
                 note = (", the last speed point of its full-load curve"
                         if mc.max_rpm == motor_max_rpm(mc.full_load.pts, 0) else "")
@@ -778,11 +879,15 @@ class RunContext:
 
     def battery_window(self, b: BatteryState) -> tuple[float, float]:
         """(deliver, absorb): the most terminal power the battery can give and
-        take over the next solver step — its maximum-power point and max
-        charge power, and never past its minimum SOC or 100 %."""
+        take over the next solver step — its maximum-power point, held to its
+        Output Power Limit, and max charge power, and never past its minimum
+        SOC or 100 %. Recuperation is not held to the limit. Sets b.capped for
+        the step, so call it once per step (not for trial lookups)."""
         a_volt, i_mpp, i_floor, i_full = self.battery_currents(b)
         i_dis = min(i_mpp, i_floor)
-        return (i_dis * (a_volt - i_dis * b.r0),
+        deliver = i_dis * (a_volt - i_dis * b.r0)
+        b.capped = deliver > b.p_cap_w
+        return (min(deliver, b.p_cap_w),
                 min(b.max_charge_w, i_full * (a_volt + i_full * b.r0)))
 
     def root_window(self, root) -> tuple[float, float]:
@@ -949,7 +1054,13 @@ class RunContext:
             b = self.batteries[root.battery]
             label = model.elements[b.el_id].label
             _, i_mpp, i_floor, _ = self.battery_currents(b)
-            if discharge and i_floor < i_mpp:
+            if discharge and b.capped:  # a limit the user set: info, not a warning
+                rt.warn_once(f"cap:{b.el_id}",
+                             f"Battery '{label}' held at its Output Power Limit "
+                             f"({b.p_cap_w / 1000.0:g} kW at the terminals) from t = {t:.2f} s — "
+                             f"the motors get what is left after the other loads. The run "
+                             f"summary says for how long.", level="info")
+            elif discharge and i_floor < i_mpp:
                 if not b.depleted_flagged:
                     b.depleted_flagged = True
                     rt.message("warning",
@@ -1072,18 +1183,38 @@ class RunContext:
                     damping: bool = True) -> tuple[float, float, float]:
         """(tire force, its torque at the reference axis, slip damping for
         the implicit solve — 0 when not asked for)."""
-        n_load = w.load_share * self.veh_mass * GRAVITY * self.slope_cos if self.veh_id else 0.0
+        n_load = w.n_load
         if n_load <= 0:
             return 0.0, 0.0, 0.0
         v = self.v
         v_den = max(abs(v), V_EPS)
         slip = (w.m * omega_ref * w.radius - v) / v_den
-        mu, k_slip = w.mu, w.c_slip * slip
+        mu = tyre_mu(w, n_load) if w.dmu_per_n else w.mu  # (the same without load sensitivity)
+        k_slip = w.c_slip * slip
         force = n_load * max(-mu, min(mu, k_slip))
         if not damping or abs(k_slip) >= mu:  # saturated: no damping
             return force, -force * w.radius * w.m, 0.0
         return (force, -force * w.radius * w.m,
                 n_load * w.c_slip * w.radius ** 2 * w.m ** 2 / v_den)
+
+    def road_load(self, v: float, f_roll: float, cos_t: float) -> tuple[float, float]:
+        """(air drag, rolling resistance) at speed v, N, on a slope whose
+        angle has the cosine ``cos_t``: the drag from the drag coefficient
+        and frontal area with the wheels' rolling resistance ``f_roll``
+        (Σ c_rr·normal load), or the Vehicle's coefficients A/B/C."""
+        vp = self.params(self.veh_id)
+        if vp.get("road_load_mode") == ROAD_LOAD_ABC:
+            # a coast-down's A + B·v + C·v² in km/h, as test labs publish
+            # them; A and B stand in for the wheels' rolling resistance, and
+            # C, measured in air of AIR_DENSITY, follows the air density
+            v_kmh = v * 3.6
+            f_roll = (float(vp.get("road_load_a_N", 0))
+                      + float(vp.get("road_load_b_N_per_kmh", 0)) * v_kmh) * cos_t
+            f_aero = float(vp.get("road_load_c_N_per_kmh2", 0)) * v_kmh * v_kmh * self.rho / AIR_DENSITY
+        else:
+            cda = max(0.0, float(vp.get("cd", 0.28))) * max(0.0, float(vp.get("frontal_area_m2", 2.2)))
+            f_aero = 0.5 * self.rho * cda * v * v
+        return f_aero, f_roll
 
     def brake_capacity(self, seg: Segment) -> float:
         cap = 0.0
@@ -1352,6 +1483,11 @@ class DriverSlave(_CtxSlave):
         drv_id = model.driver
         if not drv_id:
             return StepResult()
+        if ctx.full_throttle:  # an acceleration test: full throttle, no target read
+            for port, value in (("sig_traction_cmd", 1.0), ("sig_brake_cmd", 0.0),
+                                ("sig_accel_pedal", 1.0), ("sig_brake_pedal", 0.0)):
+                rt.publish(drv_id, port, value)
+            return StepResult()
         dp = ctx.params(drv_id)
         target_kmh = rt.read_signal(drv_id, "sig_target_in")
         if target_kmh is None:
@@ -1461,6 +1597,25 @@ class MechanicalSlave(_CtxSlave):
         if ctx.veh_id:  # the road's slope angle, for the tyres and the vehicle alike
             theta = math.atan((rt.read_signal(ctx.veh_id, "sig_grade_in") or 0.0) / 100.0)
             ctx.slope_sin, ctx.slope_cos = math.sin(theta), math.cos(theta)
+            if ctx.amb_id:  # read every step: live edits, case values and sweeps apply
+                # (Data Checks refuse air at or below absolute zero or 0 kPa
+                # and warn outside the usual air, but see only the block's own
+                # values: a case value, sweep or live edit must not crash and
+                # is warned about here)
+                ap = ctx.params(ctx.amb_id)
+                t_c = float(ap.get("temperature_C", 20))
+                p_kpa = float(ap.get("pressure_kPa", 101.325))
+                ctx.rho = air_density(max(-273.0, t_c), max(0.0, p_kpa))
+                if not (AMBIENT_C[0] <= t_c <= AMBIENT_C[1]
+                        and AMBIENT_KPA[0] <= p_kpa <= AMBIENT_KPA[1]):
+                    rt.warn_once(
+                        f"ambient:{ctx.amb_id}",
+                        f"'{ctx.model.elements[ctx.amb_id].label}' is at {t_c:g} °C and "
+                        f"{p_kpa:g} kPa at t = {t:.2f} s, outside the usual {AMBIENT_C[0]:g} to "
+                        f"{AMBIENT_C[1]:g} °C and {AMBIENT_KPA[0]:g} to {AMBIENT_KPA[1]:g} kPa "
+                        f"(1 bar = 100 kPa), which gives the Vehicle's drag an air density "
+                        f"of {ctx.rho:.3g} kg/m³ — check the value and its unit.")
+            ctx.update_wheel_loads()  # for this step's tyres, from the last step's acceleration
         active = [st for st in ctx.dls if not st.plan.over_constrained and st.plan.n]
 
         # segment speeds at the start of the step, and every motor's command
@@ -1636,49 +1791,27 @@ class MechanicalSlave(_CtxSlave):
 
         # vehicle --------------------------------------------------------------
         if ctx.veh_id:
-            vp = ctx.params(ctx.veh_id)
-            rho = AIR_DENSITY
-            if ctx.amb_id:  # read every step: live edits, case values and sweeps apply
-                # (Data Checks refuse air at or below absolute zero or 0 kPa
-                # and warn outside the usual air, but see only the block's own
-                # values: a case value, sweep or live edit must not crash and
-                # is warned about here)
-                ap = ctx.params(ctx.amb_id)
-                t_c = float(ap.get("temperature_C", 20))
-                p_kpa = float(ap.get("pressure_kPa", 101.325))
-                rho = air_density(max(-273.0, t_c), max(0.0, p_kpa))
-                if not (AMBIENT_C[0] <= t_c <= AMBIENT_C[1]
-                        and AMBIENT_KPA[0] <= p_kpa <= AMBIENT_KPA[1]):
-                    rt.warn_once(
-                        f"ambient:{ctx.amb_id}",
-                        f"'{ctx.model.elements[ctx.amb_id].label}' is at {t_c:g} °C and "
-                        f"{p_kpa:g} kPa at t = {t:.2f} s, outside the usual {AMBIENT_C[0]:g} to "
-                        f"{AMBIENT_C[1]:g} °C and {AMBIENT_KPA[0]:g} to {AMBIENT_KPA[1]:g} kPa "
-                        f"(1 bar = 100 kPa), which gives the Vehicle's drag an air density "
-                        f"of {rho:.3g} kg/m³ — check the value and its unit.")
             f_tire = 0.0
             f_roll = 0.0
+            at_grip = False  # a driven wheel at the tyres' grip limit (acceleration tests)
             for st in active:  # at the wheel speeds just integrated
+                driven = ctx.full_throttle and any(seg.sources for seg in st.dl.segments)
                 for s_idx, seg in enumerate(st.dl.segments):
                     for w in seg.wheels:
-                        f_tire += ctx.wheel_force(w, st.omega_end[s_idx], damping=False)[0]
-                        n_load = w.load_share * ctx.veh_mass * GRAVITY * ctx.slope_cos
-                        f_roll += w.c_rr * n_load
-            if vp.get("road_load_mode") == ROAD_LOAD_ABC:
-                # a coast-down's A + B·v + C·v² in km/h, as test labs publish
-                # them; A and B stand in for the wheels' rolling resistance, and
-                # C, measured in air of AIR_DENSITY, follows the air density
-                v_kmh = ctx.v * 3.6
-                f_roll = (float(vp.get("road_load_a_N", 0))
-                          + float(vp.get("road_load_b_N_per_kmh", 0)) * v_kmh) * ctx.slope_cos
-                f_aero = float(vp.get("road_load_c_N_per_kmh2", 0)) * v_kmh * v_kmh * rho / AIR_DENSITY
-            else:
-                cda = max(0.0, float(vp.get("cd", 0.28))) * max(0.0, float(vp.get("frontal_area_m2", 2.2)))
-                f_aero = 0.5 * rho * cda * ctx.v * ctx.v
+                        f_w = ctx.wheel_force(w, st.omega_end[s_idx], damping=False)[0]
+                        f_tire += f_w
+                        f_roll += w.c_rr * w.n_load
+                        if driven and abs(f_w) >= tyre_mu(w, w.n_load) * w.n_load > 0:
+                            at_grip = True
+            if at_grip:
+                ctx.grip_limited_s += dt
+            f_aero, f_roll = ctx.road_load(ctx.v, f_roll, ctx.slope_cos)
             f_grade = ctx.veh_mass * GRAVITY * ctx.slope_sin
             roll_taper = max(0.0, min(1.0, ctx.v / 0.3))
             accel = (f_tire - f_aero - f_roll * roll_taper - f_grade) / ctx.veh_mass
+            v_start = ctx.v
             ctx.v = max(0.0, ctx.v + accel * dt)
+            ctx.accel = (ctx.v - v_start) / dt  # as moved: 0 while held at rest
             ctx.distance += ctx.v * dt
             rt.publish(ctx.veh_id, "sig_speed", ctx.v * 3.6)
             rt.publish(ctx.veh_id, "sig_distance", ctx.distance)
@@ -1755,12 +1888,20 @@ class ElectricalSlave(_CtxSlave):
                 if current < 0:  # charge not stored
                     b.loss_wh += (1.0 - eta) * ocv * -current * dt / 3600.0
                 b.current, b.power_w = current, p_w
+                if p_w > b.p_peak_w:
+                    b.p_peak_w = p_w
                 # the terminal voltage at the step's end: its current on the
                 # state it left (read without the Error check, as at the
                 # start: the next step's read stops the run, with its time)
                 b.v_term = (interp1(b.ocv_map.pts, b.soc_pct(), b.ocv_map.linear[0])
                             - b.v_rc - current * b.r0)
                 ctx.bus_voltage[bus.id] = b.v_term
+                if b.check is not None:
+                    # held at the cap (the motors' torque search stops a hair
+                    # below it), or over a limit that is only checked
+                    held = ((b.capped and p_w >= b.p_cap_w * (1.0 - 1e-6)) if b.check.enforced
+                            else p_w > b.check.limit_w > 0)
+                    b.check.add(t, t + dt, p_w, b.v_term, held)
             elif bus.vsource:
                 vs_p = ctx.params(bus.vsource)
                 ctx.bus_voltage[bus.id] = float(vs_p.get("voltage_V", 400))

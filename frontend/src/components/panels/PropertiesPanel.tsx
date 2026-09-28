@@ -714,6 +714,7 @@ export function ElementForm({
   compact?: boolean;
 }) {
   const setParameter = useProjectStore((s) => s.setParameter);
+  const setParameters = useProjectStore((s) => s.setParameters);
   const renameElement = useProjectStore((s) => s.renameElement);
   const setActiveSystem = useProjectStore((s) => s.setActiveSystem);
   const running = useProjectStore((s) => s.running);
@@ -759,6 +760,26 @@ export function ElementForm({
           <CornerDownRight size={13} /> Open sub-system
         </button>
       )}
+      {def.presets?.map((preset) => (
+        <div key={preset.name} className="flex flex-col gap-0.5">
+          <button
+            className="ss-toolbtn justify-center border border-[color:var(--ss-border)]"
+            onClick={() => setParameters(element.id, preset.values)}
+            title={preset.note}
+          >
+            Apply preset: {preset.name}
+          </button>
+          {/* the source of the values, in full in the tooltip */}
+          {preset.note && (
+            <p
+              className={`text-[10px] text-[color:var(--ss-text-dim)] ${compact ? "line-clamp-2" : ""}`}
+              title={preset.note}
+            >
+              {preset.note}
+            </p>
+          )}
+        </div>
+      ))}
       {scalarParams.length > 0 && (
         // the value and unit take the width they need; the label gets the
         // rest (at least 72 px), on one line, with the full text in its tooltip

@@ -21,7 +21,8 @@
             "radius_m": 0.3488,
             "inertia_kgm2": 0.815,
             "rolling_resistance": 0.011,
-            "vehicle_load_share_pct": 19.5
+            "vehicle_load_share_pct": 19.5,
+            "axle": "Rear"
           }
         },
         {
@@ -125,7 +126,8 @@
             "radius_m": 0.3488,
             "inertia_kgm2": 0.815,
             "rolling_resistance": 0.011,
-            "vehicle_load_share_pct": 30.5
+            "vehicle_load_share_pct": 30.5,
+            "axle": "Front"
           }
         },
         {
@@ -441,7 +443,8 @@
             "radius_m": 0.3488,
             "inertia_kgm2": 0.815,
             "rolling_resistance": 0.011,
-            "vehicle_load_share_pct": 19.5
+            "vehicle_load_share_pct": 19.5,
+            "axle": "Rear"
           }
         },
         {
@@ -476,7 +479,8 @@
             "radius_m": 0.3488,
             "inertia_kgm2": 0.815,
             "rolling_resistance": 0.011,
-            "vehicle_load_share_pct": 30.5
+            "vehicle_load_share_pct": 30.5,
+            "axle": "Front"
           }
         },
         {

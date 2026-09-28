@@ -962,6 +962,8 @@ export function ResultsPanel() {
                     type="number"
                     domain={["dataMin", "dataMax"]}
                     tick={{ fontSize: 10 }}
+                    // (a lap case ends at no round time)
+                    tickFormatter={(v: number) => String(Number(v.toFixed(3)))}
                     label={{ value: "t [s]", position: "insideBottomRight", fontSize: 10, offset: -2 }}
                   />
                   {units.map((u, i) => (
@@ -1032,7 +1034,17 @@ export function ResultsPanel() {
             <table className="w-full border-collapse">
               <thead className="sticky top-0">
                 <tr>
-                  <th className="ss-th">Summary value</th>
+                  {activeRun?.snapshot?.case.kind === "acceleration" ||
+                  activeRun?.snapshot?.case.kind === "lap" ? (
+                    <th
+                      className="ss-th"
+                      title="An acceleration test's and a lap case's results are estimates: see the run's messages for why."
+                    >
+                      Summary value · estimate
+                    </th>
+                  ) : (
+                    <th className="ss-th">Summary value</th>
+                  )}
                   {plotRuns.map((r, i) => (
                     <th key={r.id} className="ss-th w-[110px] text-right" title={runLabel(r)}>
                       <span style={{ color: multiRun ? runColor(i) : undefined }}>
@@ -1063,6 +1075,22 @@ export function ResultsPanel() {
                           className={`ss-td text-right font-mono ${ri > 0 ? "text-[color:var(--ss-text-dim)]" : ""}`}
                         >
                           {typeof v === "number" ? v.toLocaleString() : "—"}
+                          {sv?.passed != null && (
+                            <span
+                              className={`ml-1 rounded px-1 font-sans text-[10px] font-semibold ${
+                                sv.passed
+                                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+                                  : "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400"
+                              }`}
+                            >
+                              {sv.passed ? "pass" : "fail"}
+                            </span>
+                          )}
+                          {sv?.limit != null && (
+                            <div className="font-sans text-[10px] text-[color:var(--ss-text-dim)]">
+                              ≤ {sv.limit.toLocaleString()}
+                            </div>
+                          )}
                           {sv?.notValid && (
                             <div
                               className="font-sans text-[10px] text-amber-600"

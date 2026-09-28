@@ -12,6 +12,8 @@
     "Mass": "kg",
     "Mass Flow": "kg/h",
     "Percent": "%",
+    "Acceleration": "g",
+    "Curvature": "1/m",
     "No Unit": "-"
   },
   "components": [
@@ -21,7 +23,7 @@
       "name": "Vehicle",
       "icon": "car",
       "domain": "mechanical",
-      "description": "Longitudinal vehicle body: mass, road load and road grade. Road load comes from the drag coefficient × frontal area and the Wheels' rolling resistance, or, with Road Load From set to coefficients, from A + B·v + C·v² with v in km/h, as coast-down tests publish it (WLTP f0, f1, f2; EPA's lbf, lbf/mph and lbf/mph² values × 4.448, × 2.764 and × 1.717); then Cd, frontal area and the Wheels' rolling resistance are not used. Drag follows the air density the Ambient block sets (1.204 kg/m³ at 20 °C and 101.325 kPa without one), and so does C, which is taken at 1.204 kg/m³. Coast-down (target) coefficients already hold the drag of the gears the wheels turn in neutral: with Coefficients Include Driveline Losses ticked, the final drives, differentials and transfer cases run lossless (gearboxes and motors keep their losses; a coast-down holds only the axle's spin losses, so this leaves out a little); untick it for dyno-set coefficients. The road grade (rise over run, in %) sets the slope angle θ = atan(grade / 100): the weight pulls the car back with m·g·sin θ, and the normal load (rolling resistance, tyre grip) is m·g·cos θ. Binds to all Wheel elements automatically — no canvas wiring needed for the body itself. Pair it with a Driver element to follow a speed profile.",
+      "description": "Longitudinal vehicle body: mass, road load and road grade. Road load comes from the drag coefficient × frontal area and the Wheels' rolling resistance, or, with Road Load From set to coefficients, from A + B·v + C·v² with v in km/h, as coast-down tests publish it (WLTP f0, f1, f2; EPA's lbf, lbf/mph and lbf/mph² values × 4.448, × 2.764 and × 1.717); then Cd, frontal area and the Wheels' rolling resistance are not used. Drag follows the air density the Ambient block sets (1.204 kg/m³ at 20 °C and 101.325 kPa without one), and so does C, which is taken at 1.204 kg/m³. Coast-down (target) coefficients already hold the drag of the gears the wheels turn in neutral: with Coefficients Include Driveline Losses ticked, the final drives, differentials and transfer cases run lossless (gearboxes and motors keep their losses; a coast-down holds only the axle's spin losses, so this leaves out a little); untick it for dyno-set coefficients. The road grade (rise over run, in %) sets the slope angle θ = atan(grade / 100): the weight pulls the car back with m·g·sin θ, and the normal load (rolling resistance, tyre grip) is m·g·cos θ. Load transfer: with a Centre of Gravity Height h, a load of m·(a + g·sin θ)·h/L moves from the front axle to the rear, with L the Wheelbase and a the acceleration over the previous solver step (so the loads are one 10 ms step behind; drag is taken to act at ground height). Each Wheel's Axle setting says which axle it is on, and the Wheels' load shares give the static split, so the centre of gravity's position follows from them. The Downforce Area (CzA) adds ½·ρ·CzA·v², at the air density the Ambient block sets, split between the axles by the Aero Balance (Front); a negative CzA is lift. Downforce adds to the Wheels' rolling resistance, but not to coefficient A. An axle that would carry less than nothing lifts: it carries nothing, the other axle carries the rest, and the run warns. With a height and an area of 0 (the defaults) every wheel keeps its share of the weight. In a lap case the car also corners: a lateral acceleration a_y moves m·a_y·h from the inner to the outer wheels, split between the axles as the weight is (the front axle's static share of the weight takes that share of it), over each axle's Track Width. Front Axle Load and Rear Axle Load are the normal loads on the Front and on the Rear Wheels. Binds to all Wheel elements automatically — no canvas wiring needed for the body itself. Pair it with a Driver element to follow a speed profile.",
       "ports": [
         {
           "id": "sig_grade_in",
@@ -43,6 +45,20 @@
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Distance"
+        },
+        {
+          "id": "sig_load_front",
+          "name": "Front Axle Load",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Force"
+        },
+        {
+          "id": "sig_load_rear",
+          "name": "Rear Axle Load",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Force"
         }
       ],
       "parameters": [
@@ -112,6 +128,48 @@
           "label": "Initial Speed",
           "unit": "km/h",
           "default": 0,
+          "type": "number"
+        },
+        {
+          "key": "cg_height_m",
+          "label": "Centre of Gravity Height",
+          "unit": "m",
+          "default": 0,
+          "type": "number"
+        },
+        {
+          "key": "wheelbase_m",
+          "label": "Wheelbase",
+          "unit": "m",
+          "default": 2.7,
+          "type": "number"
+        },
+        {
+          "key": "downforce_cza_m2",
+          "label": "Downforce Area (CzA)",
+          "unit": "m²",
+          "default": 0,
+          "type": "number"
+        },
+        {
+          "key": "aero_balance_front_pct",
+          "label": "Aero Balance (Front)",
+          "unit": "%",
+          "default": 50,
+          "type": "number"
+        },
+        {
+          "key": "track_front_m",
+          "label": "Track Width (Front)",
+          "unit": "m",
+          "default": 1.55,
+          "type": "number"
+        },
+        {
+          "key": "track_rear_m",
+          "label": "Track Width (Rear)",
+          "unit": "m",
+          "default": 1.55,
           "type": "number"
         }
       ]
@@ -197,7 +255,7 @@
       "name": "HV Battery Pack",
       "icon": "battery-charging",
       "domain": "electrical",
-      "description": "Equivalent-circuit battery pack: OCV(SOC) lookup table with series resistance R0 and an optional RC pair for voltage transients (RC disabled when either RC parameter is 0). SOC counts the charge that flows (amp-hours) and the OCV table is read at that SOC. Charge Capacity sets the amp-hours; left at 0 they come from the Usable Capacity at the OCV table's mean voltage, so a full-to-empty discharge gives out the Usable Capacity. Coulombic Efficiency is the share of the charging current that is stored (Li-ion cells store about 99.9 %, so it defaults to 100 %). Charging power is limited by the maximum charge power.",
+      "description": "Equivalent-circuit battery pack: OCV(SOC) lookup table with series resistance R0 and an optional RC pair for voltage transients (RC disabled when either RC parameter is 0). SOC counts the charge that flows (amp-hours) and the OCV table is read at that SOC. Charge Capacity sets the amp-hours; left at 0 they come from the Usable Capacity at the OCV table's mean voltage, so a full-to-empty discharge gives out the Usable Capacity. Coulombic Efficiency is the share of the charging current that is stored (Li-ion cells store about 99.9 %, so it defaults to 100 %). Charging power is limited by the maximum charge power. The Output Power Limit caps the power the terminals give (volts × amps), less the Power Limit Margin: the motors get what is left after the other loads, and recuperation is not limited. With a limit or a Voltage Class set, the run summary checks the terminal power, averaged over the Power Check Window, against the limit, and the highest pack voltage (open-circuit at 100 % SOC, or at the terminals while recuperating) against the Voltage Class; 0 turns either off. With Hold Power to Limit off, the power is only checked, not held.",
       "ports": [
         {
           "id": "pos",
@@ -332,6 +390,58 @@
           "unit": "%",
           "default": 10,
           "type": "number"
+        },
+        {
+          "key": "output_power_limit_kW",
+          "variability": "fixed",
+          "label": "Output Power Limit (0 = none)",
+          "unit": "kW",
+          "default": 0,
+          "type": "number"
+        },
+        {
+          "key": "power_limit_margin_pct",
+          "variability": "fixed",
+          "label": "Power Limit Margin",
+          "unit": "%",
+          "default": 0,
+          "type": "number"
+        },
+        {
+          "key": "power_limit_window_s",
+          "variability": "fixed",
+          "label": "Power Check Window (0 = instant)",
+          "unit": "s",
+          "default": 0,
+          "type": "number"
+        },
+        {
+          "key": "power_limit_enforced",
+          "variability": "fixed",
+          "label": "Hold Power to Limit (off = check)",
+          "unit": "-",
+          "default": true,
+          "type": "boolean"
+        },
+        {
+          "key": "voltage_class_V",
+          "variability": "fixed",
+          "label": "Voltage Class (0 = none)",
+          "unit": "V",
+          "default": 0,
+          "type": "number"
+        }
+      ],
+      "presets": [
+        {
+          "name": "Formula Student Electric",
+          "values": {
+            "output_power_limit_kW": 80,
+            "power_limit_window_s": 0.5,
+            "voltage_class_V": 600,
+            "power_limit_enforced": true
+          },
+          "note": "FS Rules 2026 v1.1 (FSG): 80 kW at the accumulator outlet (EV 2.2.1), measured as volts × amps (EV 4.6.1), 600 V DC (EV 4.1.1), judged on a 500 ms moving average (D 10.4.1). FSUK 2026 Rules V1.0 (EV2.3.1, EV4.1.1) and FSAE Rules 2025 V1.0 (EV.3.3, EV.3.4) set the same 80 kW and 600 V but differ in detail: FSAE also judges 100 ms at a time (set the window to 0 for a check at least as strict) and allows no regeneration below 5 km/h. Not modelled: the 500 A current limit (FSG EV 2.2.2, FSUK EV2.3.1; MOD-08). Check the current season's rules before you rely on these values."
         }
       ]
     },
@@ -1095,7 +1205,7 @@
       "name": "Wheel",
       "icon": "circle",
       "domain": "mechanical",
-      "description": "Wheel with longitudinal slip tire model: traction force = slip stiffness × slip × normal load, saturated at μ × normal load. Normal load comes from the Vehicle mass × this wheel's load share (× the cosine of the road's slope angle); the shares of all connected wheels are scaled to add up to 100 %, so together they always carry the whole vehicle. Rolling resistance acts on the vehicle body; it is not used when the Vehicle takes its road load from coefficients A/B/C.",
+      "description": "Wheel with longitudinal slip tire model: traction force = slip stiffness × slip × normal load, saturated at μ × normal load. Its static normal load is the Vehicle mass × this wheel's load share (× the cosine of the road's slope angle); the shares of all connected wheels are scaled to add up to 100 %, so together they always carry the whole vehicle. The Normal Load adds this wheel's part of its axle's load transfer and downforce (the Vehicle's Centre of Gravity Height and Downforce Area), split between the wheels of an axle by their shares: set Axle to Rear on the rear wheels. With a Load Sensitivity dμ/dFz, μ changes with the normal load: μ + dμ/dFz × (normal load − Nominal Load Fz0), never below 0 (tyres lose grip as the load rises, so it is usually negative, a few hundredths per kN; an Fz0 of 0 is this wheel's share of the weight on level ground). Lap cases also use the Lateral Friction μ_y (0: the same as μ) and the Friction Ellipse Exponent n, which says how much grip is left one way while the tyre uses some the other: (Fx/Fx,max)^n + (Fy/Fy,max)^n ≤ 1, where 2 is an ellipse. Rolling resistance acts on the vehicle body; it is not used when the Vehicle takes its road load from coefficients A/B/C.",
       "ports": [
         {
           "id": "shaft",
@@ -1132,6 +1242,13 @@
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Torque"
+        },
+        {
+          "id": "sig_normal_load",
+          "name": "Normal Load",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Force"
         }
       ],
       "parameters": [
@@ -1159,6 +1276,15 @@
           "type": "number"
         },
         {
+          "key": "axle",
+          "variability": "fixed",
+          "label": "Axle",
+          "unit": "-",
+          "default": "Front",
+          "type": "enum",
+          "options": ["Front", "Rear"]
+        },
+        {
           "key": "mu",
           "label": "Friction Coefficient μ",
           "unit": "-",
@@ -1177,6 +1303,34 @@
           "label": "Rolling Resistance Coeff.",
           "unit": "-",
           "default": 0.012,
+          "type": "number"
+        },
+        {
+          "key": "mu_lateral",
+          "label": "Lateral Friction μ_y",
+          "unit": "-",
+          "default": 0,
+          "type": "number"
+        },
+        {
+          "key": "mu_load_sensitivity_per_kN",
+          "label": "Load Sensitivity dμ/dFz",
+          "unit": "1/kN",
+          "default": 0,
+          "type": "number"
+        },
+        {
+          "key": "mu_nominal_load_N",
+          "label": "Nominal Load Fz0",
+          "unit": "N",
+          "default": 0,
+          "type": "number"
+        },
+        {
+          "key": "friction_ellipse_exponent",
+          "label": "Friction Ellipse Exponent",
+          "unit": "-",
+          "default": 2,
           "type": "number"
         }
       ]
@@ -2160,6 +2314,137 @@
           "unit": "-",
           "default": false,
           "type": "boolean"
+        }
+      ]
+    },
+    {
+      "id": "track.lap",
+      "category": "Driver & Signals",
+      "name": "Race Track",
+      "icon": "flag",
+      "domain": "signal",
+      "description": "The line a lap case (case Kind: Lap) drives: its curvature against distance (1/radius; + turns left, − right) and its elevation. A lap case finds the fastest speed along it about every metre, as a quasi-steady-state lap simulation does: in each corner the speed the tyres' lateral grip allows (with the Vehicle's downforce and load transfer, and each Wheel's load sensitivity), then full acceleration out of it and the latest braking into the next, within the tyres' friction ellipse, the E-Motors' full-load curves through the gears and the battery's deliverable power and Output Power Limit. The motors, gears, brakes and battery then drive that speed trace through the same models as a drive cycle, for the energy and the channels. The results are estimates for an ideal driver on the given line: no transients, suspension, yaw or tyre slip, and ideal brake balance. Only E-Motor drivelines: a lap case refuses Combustion Engines and Clutches, holds Gearboxes in their gear and commands the motors itself. Layouts drawn for LightSim, not official layouts: Autocross, a 979 m closed lap (straights up to 78 m, a slalom on 10 m cones, corners of 6 m radius or more, 3 sectors); Skidpad, a right then a left circle on the lane centre, 9.125 m radius (with 2 laps, lap 2's Sector 1 and Sector 2 are the timed right and left circles); Acceleration 75 m, an open straight. They follow Formula Student Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1; FSUK and FSAE may differ, check the current season's rules. Custom uses the Curvature and Elevation tables (paste them from a spreadsheet; from a logged lap, curvature = lateral acceleration / speed², smoothed), Closed Circuit and the Sector Ends. Lap 1 starts at the Vehicle's Initial Speed (no faster than its first corner allows), each later lap at the speed the one before ended with. The Limit channel says what held the car back: 1 cornering grip, 2 traction grip, 3 motor, 4 battery, 5 Output Power Limit, 6 braking. The case's Duration, Step and Pacing do not apply to lap cases; its Store every does.",
+      "ports": [
+        {
+          "id": "sig_lap_distance",
+          "name": "Lap Distance",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Distance"
+        },
+        {
+          "id": "sig_lap",
+          "name": "Lap",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "No Unit"
+        },
+        {
+          "id": "sig_curvature",
+          "name": "Curvature",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Curvature"
+        },
+        {
+          "id": "sig_long_accel",
+          "name": "Longitudinal Acceleration",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Acceleration"
+        },
+        {
+          "id": "sig_lat_accel",
+          "name": "Lateral Acceleration",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Acceleration"
+        },
+        {
+          "id": "sig_limit",
+          "name": "Limit",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "No Unit"
+        },
+        {
+          "id": "sig_x",
+          "name": "Map X",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Distance"
+        },
+        {
+          "id": "sig_y",
+          "name": "Map Y",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Distance"
+        },
+        {
+          "id": "sig_elevation",
+          "name": "Elevation",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Distance"
+        }
+      ],
+      "parameters": [
+        {
+          "key": "layout",
+          "variability": "fixed",
+          "label": "Layout",
+          "unit": "-",
+          "default": "Autocross",
+          "type": "enum",
+          "options": ["Autocross", "Skidpad", "Acceleration 75 m", "Custom"]
+        },
+        {
+          "key": "laps",
+          "variability": "fixed",
+          "label": "Laps",
+          "unit": "-",
+          "default": 1,
+          "type": "number"
+        },
+        {
+          "key": "curvature_table",
+          "variability": "fixed",
+          "label": "Curvature (Custom)",
+          "unit": "1/m",
+          "type": "table1d",
+          "axes": [{ "name": "Distance", "unit": "m", "outside": "error" }],
+          "default": {
+            "0": 0,
+            "100": 0
+          }
+        },
+        {
+          "key": "elevation_table",
+          "variability": "fixed",
+          "label": "Elevation (Custom)",
+          "unit": "m",
+          "type": "table1d",
+          "axes": [{ "name": "Distance", "unit": "m", "outside": "clamp" }],
+          "default": {
+            "0": 0
+          }
+        },
+        {
+          "key": "closed",
+          "variability": "fixed",
+          "label": "Closed Circuit (Custom)",
+          "unit": "-",
+          "default": true,
+          "type": "boolean"
+        },
+        {
+          "key": "sector_ends",
+          "variability": "fixed",
+          "label": "Sector Ends (Custom, m; …)",
+          "unit": "-",
+          "default": "",
+          "type": "string"
         }
       ]
     }

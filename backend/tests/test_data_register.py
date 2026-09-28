@@ -231,3 +231,16 @@ def test_credited_data_appears_in_the_third_party_notices(rows):
     for rid in listed:
         assert rid in by_id, f"bundled-data.json lists {rid}, which the register does not have"
         assert _needs_credit(by_id[rid]["credit"]), f"{rid} is listed but credits nothing"
+
+
+def test_fs_example_ships_only_lightsim_data(rows):
+    """The Formula Student example (CON-33) is LightSim's own: typical values
+    and synthetic maps, with rule values and published results as facts
+    named with their source. No third-party data (such as an LGPL racetrack
+    database or a tyre test consortium's data) ships in it."""
+    fs = [r for r in rows if r["file"] == "backend/projects/fs-electric.json"]
+    assert {r["dataset"] for r in fs} == {"*", "el-motor.full_load_torque", "el-motor.power_loss",
+                                          "el-motor.drag_torque", "el-battery.ocv_table"}
+    for r in fs:
+        assert r["source"].startswith("Synthetic / created for LightSim"), r["id"]
+        assert r["licence"] == "LightSim's own (LICENSE)" and r["credit"].startswith("None"), r["id"]

@@ -15,6 +15,10 @@ in runtime.py.
 Gear shifts rebuild the driveline plan at the solver step they happen in,
 live lock/unlock toggles at recording boundaries, carrying rotational
 states over via per-element anchor speeds.
+
+A lap case (SimCase.kind "lap") runs lapsim's slave set instead, one master
+step per stretch of the Race Track (lapsim.run_laps), and is recorded and
+summarised by the same code.
 """
 from __future__ import annotations
 
@@ -25,6 +29,7 @@ from typing import Callable, Iterator, Optional
 
 from ..library import unit_groups
 from ..schemas import Channel, Project, SimMessage, SimResult, SummaryValue
+from . import lapsim
 from .domains import ModelInitError, RunContext, build_slaves
 from .maps import OutsideDataError
 from .master import Master, SlaveStepError
@@ -51,9 +56,10 @@ from .runtime import (  # noqa: F401 — re-exported for backward compatibility
     _sign,
     make_plan,
     solve_linear,
+    usable_energy_left_wh,
 )
 from .slave import var_name
-from .verdict import CycleTrace, judge
+from .verdict import CycleTrace, judge, terminal_checks
 
 
 def simulate(
@@ -99,13 +105,32 @@ def simulate(
             caseId=case_id, status="failed", channels=[],
             messages=[SimMessage(level="error", text=t) for t in e.messages],
         )
-    ctx.performance = case.kind == "performance"
+    ctx.performance = case.kind != "cycle"  # the trace is sampled every solver step
+    ctx.full_throttle = case.kind == "acceleration"
+    # the run ends when the vehicle has driven this far, m (None: at the duration)
+    end_d = (max(0.0, case.startLine) + case.endDistance
+             if case.endDistance and case.endDistance > 0 else None)
 
     try:
+        lap = None
+        if case.kind == "lap":  # the Race Track sets the run (lapsim)
+            found = lapsim.problems(model, output_every)
+            if any(level == "error" for level, _ in found):
+                return SimResult(caseId=case_id, status="failed", channels=[], messages=[
+                    SimMessage(level="error", text=t) for level, t in found if level == "error"])
+            for level, text in found:
+                rt.message(level, text)
+            rt.message("info", "Lap mode results are quasi-steady-state estimates: an ideal "
+                               "driver at the tyres' limit on the given line, with no "
+                               "transients, suspension, yaw or tyre slip, ideal brake balance "
+                               "and regeneration held to the driven wheels' grip. They are "
+                               "usually optimistic: calibrate the tyres' μ and μ_y and the "
+                               "downforce against a lap your car has driven.")
+            lap = ctx.lap = lapsim.LapRun(ctx)
         # Phase 1.4: the wholesale-wrapped slaves share all coupling through the
         # RunContext, so the master runs with an empty route table for now; the
         # declared-variable pool takes over as per-component models are extracted.
-        master = Master(build_slaves(ctx), routes={})
+        master = Master(lapsim.slaves(ctx, lap) if lap else build_slaves(ctx), routes={})
         master.initialize(0.0)
 
         # Signals that feed a block input: the slaves publish their own outputs,
@@ -131,7 +156,8 @@ def simulate(
 
         publish_routed_states()
         trace = CycleTrace(ctx)  # target vs vehicle speed, for the run verdict
-        trace.sample(0.0)
+        if lap is None:  # a lap case follows no target
+            trace.sample(0.0)
 
         def apply_control_msg(msg: dict) -> None:
             master.set_parameter(
@@ -150,8 +176,43 @@ def simulate(
         h_last = t_end - (steps - 1) * dt_rec if steps else 0.0
         short_last = abs(h_last - dt_rec) > 1e-9 * dt_rec
         t = 0.0
+        arrived = False  # the vehicle reached end_d: the run ends in this step
 
-        for step in range(steps + 1):
+        def record(t: float, pct: float) -> None:
+            """Store the channels as the point at time t, and stream them."""
+            times.append(t)
+            rec_index = len(times) - 1
+            rec = rt.series
+            for el_id, port_id, value in chain(_bus_channels(ctx), _state_channels(ctx, gear_of)):
+                lst = rec[(el_id, port_id)]
+                while len(lst) < rec_index:
+                    lst.append(None)  # no data yet — a gap, not a zero
+                lst.append(value)
+            if emit:
+                emit({
+                    "type": "step",
+                    "t": t,
+                    "pct": pct,
+                    "values": {f"{el}:{port}": round(val[-1], 5)
+                               for (el, port), val in rec.items() if len(val) == rec_index + 1},
+                })
+
+        if lap is not None:  # the laps, one step per stretch of track
+            try:
+                solved, stopped = lapsim.run_laps(ctx, master, lap, record, publish_routed_states,
+                                                  control, apply_control_msg, output_every)
+            except SlaveStepError:
+                solved = failed_at = ctx.t  # the failing slave already emitted its error message
+            except lapsim.LapError as e:
+                rt.message("error", str(e))
+                solved = failed_at = ctx.t
+            except OutsideDataError as e:
+                rt.message("error",
+                           f"{e} at t = {ctx.t:.2f} s — the run stopped because this "
+                           f"axis is set to stop the run (Error): extend the table, or set "
+                           f"its outside-the-data setting to Clamp or Linear.")
+                solved = failed_at = ctx.t
+        for step in range(0 if lap else steps + 1):  # (a lap case ran its laps above)
             if step > 0:
                 t_prev = t
                 t = t_end if step == steps else step * dt_rec
@@ -179,7 +240,10 @@ def simulate(
                         master.step(ctx.t, h_sub)
                         solved = t_prev + (j + 1) * h_sub
                         publish_routed_states()
-                        trace.sample(solved, last=step == steps and j == n - 1)
+                        arrived = end_d is not None and ctx.distance >= end_d
+                        trace.sample(solved, last=arrived or (step == steps and j == n - 1))
+                        if arrived:
+                            break
                 except SlaveStepError:
                     # the failing slave already emitted its error message
                     failed_at = ctx.t
@@ -191,6 +255,8 @@ def simulate(
                                f"its outside-the-data setting to Clamp or Linear.")
                     failed_at = ctx.t
                     break
+                if arrived:
+                    t = solved  # the last point: the end of the solver step that got there
 
                 if pace > 0:
                     target_wall = t / pace
@@ -215,25 +281,10 @@ def simulate(
             # -- record ----------------------------------------------------------
             # Only recorded steps are stored and streamed ("store every N steps"
             # decimates the output); the last step is always kept.
-            if not (step % output_every == 0 or step == steps):
-                continue
-            times.append(t)
-            rec_index = len(times) - 1
-            rec = rt.series
-            for el_id, port_id, value in chain(_bus_channels(ctx), _state_channels(ctx, gear_of)):
-                lst = rec[(el_id, port_id)]
-                while len(lst) < rec_index:
-                    lst.append(None)  # no data yet — a gap, not a zero
-                lst.append(value)
-
-            if emit:
-                emit({
-                    "type": "step",
-                    "t": t,
-                    "pct": round(100.0 * step / steps, 1) if steps else 100.0,
-                    "values": {f"{el}:{port}": round(val[-1], 5)
-                               for (el, port), val in rec.items() if len(val) == rec_index + 1},
-                })
+            if step % output_every == 0 or step == steps or arrived:
+                record(t, round(100.0 * step / steps, 1) if steps and not arrived else 100.0)
+            if arrived:
+                break
 
         # ---- assemble result -------------------------------------------------------
         # a Lookup block's table is a controller's own schedule: held at its
@@ -241,7 +292,7 @@ def simulate(
         # data, so only its summary rows say it left the table
         verdict = judge(trace, ctx.distance, rt.series, ctx.performance, solved,
                         [u for u in ctx.map_use if model.cdef_of[u.el_id].id != "signal.lookup"],
-                        stopped or failed_at is not None)
+                        stopped or failed_at is not None, case)
         for level, text in verdict.messages:
             rt.message(level, text)
         unit_map = unit_groups()
@@ -275,6 +326,13 @@ def simulate(
             summary.append(SummaryValue(label=f"{label} — energy delivered", value=round(b.energy_out_wh / 1000.0, 3), unit="kWh"))
             summary.append(SummaryValue(label=f"{label} — energy recuperated", value=round(b.energy_in_wh / 1000.0, 3), unit="kWh"))
             summary.append(SummaryValue(label=f"{label} — internal losses", value=round(b.loss_wh / 1000.0, 4), unit="kWh"))
+            if b.check is not None:  # an Output Power Limit or a Voltage Class
+                rows, problems = terminal_checks(label, b.check, usable_energy_left_wh(b) / 1000.0,
+                                                 b.depleted_flagged)
+                summary += [SummaryValue(label=row_label, value=v, unit=u, limit=lim, passed=ok)
+                            for row_label, v, u, lim, ok in rows]
+                for text in problems:
+                    rt.message("warning", text)
         for mc in ctx.motors.values():
             if mc.limited_s > 0:
                 summary.append(SummaryValue(
@@ -356,8 +414,17 @@ def simulate(
                 label=share_label, value=round(100.0 * use.outside_s / max(solved, 1e-9), 2),
                 unit="%"))
             summary.append(far)
-        summary += [SummaryValue(label=label, value=v, unit=u) for label, v, u in verdict.rows]
-        summary.append(SummaryValue(label="Simulated duration", value=times[-1] if times else 0.0, unit="s"))
+        rows = [SummaryValue(label=label, value=v, unit=u, limit=lim, passed=ok)
+                for label, v, u, lim, ok in verdict.rows]
+        edge_rows |= {r.label for r in rows if r.unit == "%"}  # a test's time shares
+        if ctx.full_throttle:  # an acceleration test's own figures come first
+            summary[:0] = rows
+        else:
+            summary += rows
+        if lap is not None:  # and so do a lap case's
+            summary[:0] = [SummaryValue(label=label, value=v, unit=u) for label, v, u in lap.rows()]
+            edge_rows.add("Lap energy balance error")
+        summary.append(SummaryValue(label="Simulated duration", value=round(times[-1], 6) if times else 0.0, unit="s"))
 
         # headline numbers that a failed check makes meaningless say why
         not_valid: dict[str, str] = {}
@@ -375,10 +442,41 @@ def simulate(
                    else f"run stopped by an error at t = {failed_at:.2f} s")
             for label in ("Consumption", "Fuel consumption", "CO₂ emissions", "Maximum speed"):
                 not_valid.setdefault(label, why)
+            for s in summary:  # a check it passed so far, not over the whole run
+                if s.passed:
+                    not_valid.setdefault(s.label, why)
+            if lap is not None:  # the laps it finished, and energy from the one it did not
+                for label, _, _ in lap.rows():
+                    not_valid.setdefault(label, why)
+        # a lap case's rows, but its balance error (a check of the solver)
+        lap_rows = ([label for label, _, _ in lap.rows() if label != "Lap energy balance error"]
+                    if lap is not None else [])
+        if lap is not None and lap.lap_times:
+            error = lap.balance_pct()
+            if any(b.depleted_flagged for b in ctx.batteries.values()):
+                for label in lap_rows:  # the laps were solved with power it no longer had
+                    not_valid.setdefault(label, "the battery reached its minimum SOC")
+            if abs(error) > lapsim.BALANCE_PCT:
+                not_valid.setdefault("Energy per lap", "the lap energy balance does not close")
+                # the motors gave less than the speed trace asked for, for at
+                # least half the error: the lap is slower than its times say
+                short = lap.book.shortfall > 0.005 * abs(error) * abs(lap.source_net_j())
+                if short:
+                    for label in lap_rows:
+                        not_valid.setdefault(label, "the motors fell short of the lap's speed")
+                short_text = (f"; the motors gave {lap.book.shortfall / 3600.0:.1f} Wh less than "
+                              f"the speed trace asked for (their supply or the battery voltage "
+                              f"held them back more than the lap solver expected), so the lap "
+                              f"times are optimistic and not valid" if short else "")
+                rt.message("warning", f"Lap energy balance: the energy the laps took (kinetic, "
+                                      f"road load, slope, brakes, gear and motor losses, "
+                                      f"consumers) differs from what the sources gave by "
+                                      f"{error:+.2f} %, more than {lapsim.BALANCE_PCT:g} %"
+                                      f"{short_text}. The Energy per lap is not valid.")
         if verdict.beyond_reason:
             # a machine or source ran past its data: what depends on how it ran
             for label in ("Consumption", "Fuel consumption", "CO₂ emissions",
-                          *(row[0] for row in verdict.rows)):
+                          *(row[0] for row in verdict.rows), *lap_rows):
                 not_valid[label] = verdict.beyond_reason
         if ctx.throughput_wh > 0 and ctx.residual_wh > 1e-3 * ctx.throughput_wh:
             for s in summary:
@@ -398,12 +496,20 @@ def simulate(
                   else "warning" if has_warning else "success")
         rec_note = f", stored every {output_every}" if output_every > 1 else ""
         last_note = f", the last one {h_last:g} s" if steps and short_last else ""
-        rt.messages.insert(0, SimMessage(
-            level="info",
-            text=f"Case '{case.name}' solved: {steps} steps × {dt_rec:g} s{last_note} "
-                 f"({n_sub} sub-steps each), {len(times)} points recorded{rec_note}, "
-                 f"{len(channels)} result channels.",
-        ))
+        n_steps = f"{steps}"
+        if arrived:
+            n_steps = f"{step} of {steps}"  # the steps solved up to the line
+            last_note = f", ended at {end_d:g} m driven at t = {times[-1]:g} s"
+        text = (f"Case '{case.name}' solved: {n_steps} steps × {dt_rec:g} s{last_note} "
+                f"({n_sub} sub-steps each), {len(times)} points recorded{rec_note}, "
+                f"{len(channels)} result channels.")
+        if lap is not None:
+            tr = lap.track
+            text = (f"Case '{case.name}' solved in lap mode: {lap.laps} lap"
+                    f"{'s' if lap.laps > 1 else ''} of the Race Track's {tr.name} layout "
+                    f"({tr.length:,.0f} m, a point every {tr.ds:.2f} m), {len(times)} points "
+                    f"recorded{rec_note}, {len(channels)} result channels.")
+        rt.messages.insert(0, SimMessage(level="info", text=text))
         return SimResult(
             caseId=case_id,
             status=status,
@@ -444,6 +550,8 @@ def _bus_channels(ctx: RunContext) -> Iterator[ChannelValue]:
             ports = ("sig_power", "sig_voltage")
         elif tdef == "mech.brake":
             ports = ("sig_torque",)
+        elif tdef == "track.lap" and ctx.lap is not None:  # recorded in lap cases only
+            ports = lapsim.TRACK_PORTS
         else:
             continue
         for port_id in ports:
@@ -503,6 +611,9 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
             tk = ctx.tanks[el_id]
             yield el_id, "sig_level", lambda tk=tk: 100.0 * tk.mass_kg / tk.capacity_kg
             yield el_id, "sig_mass", lambda tk=tk: tk.mass_kg
+        elif tdef == "vehicle.body" and el_id == ctx.veh_id:
+            yield el_id, "sig_load_front", lambda: sum(w.n_load for w in ctx.axle_wheels[0])
+            yield el_id, "sig_load_rear", lambda: sum(w.n_load for w in ctx.axle_wheels[1])
         elif tdef == "controller.dcdc":  # no data until the converter first runs
             yield el_id, "sig_power_in", lambda el_id=el_id: _dcdc_kw(ctx, el_id, "in")
             yield el_id, "sig_power_out", lambda el_id=el_id: _dcdc_kw(ctx, el_id, "out")
@@ -546,6 +657,7 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
                 yield w.el_id, "sig_force", lambda w=w: ctx.last_forces.get(w.el_id, 0.0)
                 yield w.el_id, "sig_torque", (
                     lambda w=w: ctx.last_forces.get(w.el_id, 0.0) * w.radius)
+                yield w.el_id, "sig_normal_load", lambda w=w: w.n_load
             for el_id2, m2 in seg.element_ms.items():
                 if only is not None and el_id2 not in only:
                     continue

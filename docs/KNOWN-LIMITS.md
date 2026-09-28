@@ -16,7 +16,7 @@ how the example cars compare with real ones.
   that tracks the fix, so the release notes can say when it is resolved.
 - *Being fixed* means the work is under way for an upcoming release. Until
   the release notes say it is done, the problem and the workaround apply.
-- Last reviewed: 24 September 2026, for version 0.2.0. This page is updated
+- Last reviewed: 28 September 2026, for version 0.2.0. This page is updated
   with every release.
 
 ## Results that can be wrong today
@@ -83,7 +83,39 @@ either. Also:
   run reports its *Maximum speed* and the *Time to* the target's highest
   value, timed from t = 0. That is a standing start only: there is no
   rolling start, no time between two speeds (such as 80-120 km/h) and no
-  second timed speed in one run.
+  second timed speed in one run. An acceleration case can end at a
+  distance, but no case can end at a speed or a charge level.
+- A case of kind *Acceleration* (or Simulations → *Acceleration test*,
+  which adds a 75 m case staged 0.30 m behind the start line with a 25 s
+  limit) is not judged on the band either: the Driver holds full throttle
+  for the whole run and reads no target. The run ends at the end of the
+  solver step that crosses the line, so its channels go up to one solver
+  step (at most 10 ms, about 0.3 m) past it; the time and the speed at the
+  line are read inside that step. The case duration is the time limit,
+  counted from rest (so it includes the drive up to the start line): a car
+  that has not reached the line by then gets a warning and no time, so the
+  time's *pass* can never read *fail*. FS Rules 2026
+  v1.1 (FSG) D 9.2.1 disqualifies runs over 25 s in driverless runs only
+  (a manual run is capped by the scoring); FSUK and FSAE may differ, and
+  their staging distance was not checked. The results are estimates: the
+  wheel loads shift only with a Centre of Gravity Height set (one step
+  late, see below), the tyre's grip depends on its load only through a
+  Wheel's *Load Sensitivity*, and nothing limits wheelspin, so when the driven wheels are at their grip
+  limit the tyre still gives μ times its load but the battery power and
+  energy include the power that spins the wheels. The time at the grip
+  limit counts driven wheels only; there is no peak-slip figure. The time
+  and that share follow the solver step when the driveline rings (see *A
+  closing clutch can ring* and *Stiff settings* below), and nothing warns:
+  at the 10 ms step the P2 Hybrid Car's slipping clutch rings in second
+  gear and pushes its driven wheels to the grip limit both ways, so its
+  75 m takes 6.474 s against 6.344 s at 1 ms (2 % slower) and it is at
+  the grip limit 7.3 % of the run against 0 %; a *Step* of 0.002 s gives
+  6.345 s and 0 %. A too-stiff tyre can even beat a slip-free car: the
+  Battery Electric Car at a *Slip Stiffness* of 1000 gives 5.015 s,
+  faster than a slip-free point mass's 5.172 s. Without a
+  Driver, or with a Script between the Driver and the motors, full
+  throttle is only what that model makes of an accelerator pedal of 1:
+  Data Checks do not check it.
 - A motor held back by its battery or fuel cell, or regeneration that a
   full or charge-limited battery refuses, makes the run a *warning* at the
   first touch, however brief; the figures stay valid, because the limit is
@@ -94,20 +126,99 @@ either. Also:
 
 *Workaround:* read the Messages panel and the *not valid* notes in the
 summary table.
-*Roadmap:* VAL-08.
+*Roadmap:* VAL-08; CON-06 (rolling starts, ends at a speed or a charge
+level); MOD-16 (a tyre whose force drops past its peak, so wheelspin
+costs time); RES-38 (time per limiting regime and peak slip).
 
-### Only its internal resistance limits what a battery delivers
+### A battery has a power limit but no current limit
 
 A battery delivers power up to its maximum-power point (the most its
 internal resistance lets through: about 420 kW for the default pack at 90 %
-charge) and takes back up to its *Max Charge Power*. There are no current or
-voltage limits, fuel cells have no ramp rate, and DC-DC converters have no
-power rating, so a model is never held back by these.
+charge), or up to its *Output Power Limit* when one is set, and takes back
+up to its *Max Charge Power*. There are no current limits: the 500 A limit
+of Formula Student (FS Rules 2026 v1.1 (FSG) EV 2.2.2, FSUK 2026 EV2.3.1) is
+not modelled or checked. Fuel cells have no ramp rate, and DC-DC converters
+have no power rating.
 
-*Workaround:* check the battery's *Discharge Power* channel against what the
-real pack or its management system allows, and reduce the motor's torque
-map or add a limit in a Script if needed.
-*Roadmap:* ENG-02 (follow-up).
+The Output Power Limit is ideal: it holds the terminal power (volts × amps)
+exactly at every solver step, with none of a real limiter's lag or
+overshoot, and it limits discharge only. Its check averages the solver
+step's power (10 ms) over the *Power Check Window*, with nothing before
+t = 0, not the samples of a competition's energy meter; a run that starts
+at speed was already drawing power before t = 0. FSAE's rule that 100 ms
+over the limit is a violation is not counted on its own (a window of 0
+gives a check at least as strict). The *Voltage Class* check compares the
+highest terminal voltage of a solver step, not a 500 ms average.
+
+*Workaround:* check the battery's *Current* channel against what the real
+pack or its management system allows, and reduce the motor's torque map or
+add a limit in a Script if needed.
+*Roadmap:* MOD-08 (current limits), ENG-02 (follow-up).
+
+### Lap mode is a quasi-steady-state estimate
+
+A case of kind *Lap* finds the fastest speed along the Race Track's line
+about every metre, then drives that speed through the model's motors,
+gears, brakes and battery. It is not a driving simulation:
+
+- The driver is ideal: at the tyres' limit on the given line everywhere,
+  with no transients, suspension, yaw, tyre slip or slip-angle drag, and
+  an ideal brake balance (every tyre brakes at its limit). Regeneration
+  comes first when braking, up to the Driver's *Recuperation Weight* and
+  the driven wheels' braking grip; the drive cycles' Driver does not hold
+  regeneration to the grip. Lap times are usually optimistic: a user of
+  OpenLAP, a similar point-mass lap simulator, found its F1 example lap
+  7.5-8 % faster than the real car's. Calibrate μ, μ_y and the downforce against a lap your
+  car has driven before trusting a lap time.
+- The car follows the line as drawn, with no track width or racing line.
+  Where the curvature changes sign within a metre, as at the skidpad's
+  crossover, the speed rises by up to 3 % at that point: a real car cannot
+  turn from one circle into the other that quickly.
+- E-Motor cars only: a lap case refuses Combustion Engines and Clutches on
+  the wheels, holds Gearboxes in their gear and commands every E-Motor
+  itself, with one demand for all, so Scripts or controllers between the
+  Driver and the motors (torque vectoring, traction control) do nothing.
+  With E-Motors on both axles, the driven wheels' grip is used together,
+  as if the torque went to whichever axle has grip to spare: a car whose
+  axles' torque does not match their grip can be slower than lap mode
+  says (with a 6.5 front and a 4.0 rear final drive a 600 m straight
+  took 3.7 % longer in the time domain, against 1.6 % with equal final
+  drives).
+- The powertrain's limit is read at each lap's start, with the battery's
+  charge and voltage then. Within a lap the motors can fall short of the
+  speed where the battery's voltage sags more than expected; the *Lap
+  energy balance error* shows it, and above 0.5 % the *Energy per lap* is
+  marked not valid, and so are the lap times when the motors gave less
+  than the speed asked for (or the battery reached its minimum SOC).
+  The Output Power Limit is held at every point; the check window's
+  average is not used to let short peaks through.
+- Sideways load transfer is shared between the axles as the static weight
+  is (no roll stiffness or anti-roll bars), and each axle's wheels are
+  taken in pairs across the car, the same way in left and right corners:
+  give the left and right wheels the same load share.
+- Driving a lap's speed as a drive cycle gives other energy figures: the
+  drive cycles' Driver has no brake balance or ABS and can lock the driven
+  wheels when braking hard (a Formula Student-sized car driving its
+  Autocross lap's speed as a drive cycle used 62 % more energy and
+  recuperated 30 Wh instead of 110 Wh).
+- Live edits during a lap case reach the motors, gears and battery at
+  once, but the lap's speed, with the edited tyres, Vehicle and brakes,
+  is solved again only at the next lap's start.
+- A Custom track's curvature is used as entered: a logged lateral
+  acceleration / speed² is noisy and should be smoothed first. Data Checks
+  refuse a curvature above 0.5 1/m (a 2 m radius).
+- The Autocross, Skidpad and Acceleration 75 m layouts are LightSim's own
+  drawings after FS Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1,
+  not official layouts; FSUK and FSAE may differ, check the current
+  season's rules.
+
+*Workaround:* compare lap cases with each other rather than with a stop
+watch, and check the *Time limited by* rows and the Race Track's *Limit*
+channel for what holds the car back.
+*Roadmap:* VAL-12 (calibration against a logged lap), MOD-34 (a dynamic
+lap model), STD-35 (tracks from GPS or OpenStreetMap), MOD-43 (events and
+scoring), CON-11 (driving a lap's speed as a drive cycle), MOD-08 (state
+of power), MOD-09 (heat over an endurance).
 
 ### Signal units are not checked
 
@@ -175,10 +286,31 @@ minimum or an average, for example from the CSV export.
   test-mass mode (equivalent test weight, × 1.015 for a two-wheel-drive
   dynamometer): enter the test mass as the Vehicle Mass. *Roadmap:* MOD-03
   (zero-load gear drag), VAL-05 (EPA reference tests).
-- **Wheel loads do not shift when braking, accelerating or cornering.**
-  Each wheel carries a fixed share of the vehicle weight (*Vehicle Load
-  Share*); the shares of the connected wheels are scaled to add up to
-  100 %, and Data Checks say when they had to be. *Roadmap:* MOD-16.
+- **Wheel loads shift one step late, and only between the axles.** With a
+  Vehicle *Centre of Gravity Height* and each Wheel's *Axle* set, load
+  moves between the axles by m·(a + g·sin θ)·h/L when the car accelerates,
+  brakes or stands on a slope, and a *Downforce Area* adds ½·ρ·CzA·v² split
+  by the *Aero Balance*. The acceleration a is the previous solver step's,
+  10 ms behind: exact while it is steady, off by its change over one step
+  while it changes (0.6-4 % where an FS car's motor reaches its power
+  limit, the whole transfer in a launch's first step). With the driven
+  front wheels spinning, the lag feeds back with a gain of μ × h/L per
+  step: at a real car's 0.2-0.4 the loads settle within a few steps, at
+  0.9 they still ring after 0.4 s, and above 1 the acceleration swings
+  from step to step and the run can warn of front wheels lifting that
+  would not. Drag is taken to act at ground height and moves no load (at
+  90 km/h an FS car's drag would move about 90 N, 5 % of its rear axle
+  load). An axle that would carry
+  less than nothing carries nothing and the run warns: the car does not
+  pitch, wheelie or tip over, and there is no suspension. In a drive cycle
+  load does not shift from side to side (a lap case shifts it), and grip
+  depends on load only with a Wheel's *Load Sensitivity* set. The static
+  split is the *Vehicle Load Share*; the shares
+  of the connected wheels are scaled to add up to 100 %, and Data Checks
+  say when they had to be. Wheels are on the Front axle unless set to
+  Rear: set the rear wheels before giving a CG height (Data Checks say
+  so). *Roadmap:* MOD-16 (a tyre model beyond μ and its load
+  sensitivity), MOD-34 (pitch and suspension).
 - **An engine behind a script-controlled clutch starts at rest.** A run that
   starts at speed starts every wheel, gear and motor at that speed, and an
   engine behind a closed clutch too; a clutch a Script controls counts as
@@ -191,7 +323,12 @@ minimum or an average, for example from the CSV export.
   wheels' *Longitudinal Slip* at launch. A car braked to a stop can also
   creep with the brake fully applied: under 0.2 km/h at the default *Slip
   Stiffness* of 10, about 2 km/h at 30 and up to 23 km/h at 300, at the
-  10 ms solver step. *Roadmap:* ENG-09, ENG-14.
+  10 ms solver step. When a car pulls away from rest faster than
+  μ × 0.5 m/s ÷ (*Slip Stiffness* × step), 5 m/s² at the defaults and the
+  10 ms step, its undriven wheels ring (their tyre force changes sign from
+  one step to the next) until it reaches 0.7-2.3 m/s (measured on a 300 kg
+  Formula Student car at μ 1-1.6); at a Formula Student launch this moves
+  the 75 m time by about 0.4 %. *Roadmap:* ENG-09, ENG-14.
 - **A closing clutch can ring at the 10 ms step.** While a clutch slips by
   more than 0.5 rad/s the solver passes its full torque for the whole
   step, and at 10 ms that overshoots the lock-up: the shaft on either side
@@ -243,11 +380,44 @@ minimum or an average, for example from the CSV export.
   included), 18.9 with heating or air-conditioning on (the 2.5 kW case).
   Its motor loss map is generic, not the car's measured map. The real car is
   rear-wheel drive and has an 11.5:1 reduction gear with an electronic
-  160 km/h limit; the example drives the front axle (only the load share
-  matters without weight transfer) and uses a 12.8 ratio so that the motor's
-  maximum speed sets the 160 km/h. An E-Motor's *Maximum Speed* could now
-  set that limit, but the example still sets it through the ratio.
+  160 km/h limit; the example drives the front axle (its CG height is 0,
+  so its loads do not shift and only the load share matters) and uses a
+  12.8 ratio so that the motor's maximum speed sets the 160 km/h. An
+  E-Motor's *Maximum Speed* could now set that limit, but the example
+  still sets it through the ratio.
   *Roadmap:* MOD-12.
+- **FS Electric (generic):** a typical Formula Student electric car, not a
+  real one: replace its values with your car's. Its 75 m time (3.74 s from
+  the start line) sits in the faster half of FS Czech Republic 2025's
+  3.51-6.44 s: the tyres keep their grip however much they slip (no peak
+  and drop), so wheelspin at the launch costs no time, and nothing limits
+  it (no traction control; 48 % of the run is at the tyres' grip limit).
+  So its 80 kW is reached at 0.2 s, while the rear wheels still spin: a
+  car with traction control reaches it later. At its 10 ms step the front
+  wheels' slip and force channels ring at the launch and read high for
+  about 2 s (the example's *Slip Stiffness* is 20, not 10): plot them at a
+  1-2 ms step (the 75 m time moves 0.3 %).
+  The *Endurance energy* case is lap mode at the tyres' limit in every
+  corner and under every braking, with no lift-and-coast and no driver
+  change (FS Rules 2026 v1.1 (FSG) D 7.5.4's 3 min); its energy follows the
+  Output Power Limit the case sets, 30 kW: 20 kW gives 4.14 kWh net, 40 kW
+  6.33 kWh with 7.9 % SOC left, and at 45 kW the pack runs out before the
+  last lap is done. The E-Motor's generator torque is held to 40 % for
+  drive cycles you add: their Driver has no brake balance or ABS, and at
+  full generator torque, braking hard from 100 km/h locks the rear wheels
+  and turns them backwards (at 40 % they still lock from about 45-60 km/h
+  in a hard stop, and turn backwards just before the car stops, which FS
+  Rules 2026 v1.1 (FSG) EV 2.2.4 forbids; at 20 % they lock only below
+  walking pace).
+  Lap mode holds regeneration to the rear tyres' grip, so the example's
+  own cases hardly depend on it. The 500 A current limit (EV 2.2.2) is not
+  checked (the cases stay under 160 A), nor are the cells' own limits:
+  recuperating into the full pack raises its cells to about 4.3 V (594 V),
+  which a real accumulator management system would not allow. A
+  two-motor variant is not shipped.
+  *Roadmap:* MOD-16 (tyre peak and drop), MOD-43 (driver change and
+  scoring), MOD-08 (pack from cells, current limit), CON-18 (templates,
+  two-motor variant).
 - **Runs made on an example stay with the copy you ran.** An example opens
   as an unsaved copy, and its runs are stored with that copy: they are
   listed while it stays open, also after a restart, but opening the example
@@ -265,9 +435,12 @@ minimum or an average, for example from the CSV export.
   *Roadmap:* MOD-09.
 - **Forward driving only.** No reverse, and no rolling back: a car on a steep
   hill stays put even with no brakes. *Roadmap:* MOD-21, ENG-21.
-- **Longitudinal dynamics only.** No cornering and no weight transfer between
-  axles. Tyre force rises with slip and then stays flat (no peak and drop).
-  *Roadmap:* MOD-16.
+- **Drive cycles are longitudinal only.** A drive cycle, performance or
+  acceleration case does not corner: weight shifts between the axles but
+  not from side to side. Lap cases corner, as a quasi-steady-state
+  estimate (see *Lap mode is a quasi-steady-state estimate*). Tyre force
+  rises with slip and then stays flat (no peak and drop). *Roadmap:*
+  MOD-16, MOD-34.
 - **A simple driver.** The Driver is a PI speed follower: it does not look
   ahead along the cycle or shift gears; gear and clutch logic comes from
   Script blocks. *Roadmap:* MOD-14.
