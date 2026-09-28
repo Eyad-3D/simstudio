@@ -4,6 +4,8 @@ import { useProjectStore } from "../../store/projectStore";
 import type { ComponentDef, ElementInstance, ParamValue, ParameterDef } from "../../types";
 import { StudiesList } from "./StudiesList";
 import { CycleSelect } from "./CyclePicker";
+import { NumberInput } from "./PropertiesPanel";
+import { paramName, rangeProblem } from "../../paramRules";
 
 // Only scalar parameters are editable as per-case overrides here; tables and
 // code are edited in Properties. Sweeps additionally require a numeric param.
@@ -46,11 +48,13 @@ function ValueEditor({
   value,
   label,
   onChange,
+  describedBy,
 }: {
   def: ParameterDef;
   value: ParamValue;
   label: string;
   onChange: (v: ParamValue) => void;
+  describedBy?: string;
 }) {
   if (def.type === "boolean") {
     return (
@@ -83,16 +87,8 @@ function ValueEditor({
     );
   }
   if (def.type === "number") {
-    return (
-      <input
-        type="number"
-        className="ss-input"
-        aria-label={label}
-        value={Number(value)}
-        step="any"
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-    );
+    // turns red outside the limits, and a cleared field is not stored as 0
+    return <NumberInput value={Number(value)} onChange={onChange} label={label} def={def} describedBy={describedBy} />;
   }
   return (
     <input
@@ -341,6 +337,8 @@ export function CasePanel() {
               const ed = elemById.get(elId);
               const pdef = ed?.def.parameters.find((p) => p.key === key);
               const name = `${ed?.el.label ?? elId} · ${pdef?.label ?? key}`;
+              const problem = pdef?.type === "number" ? rangeProblem(pdef, Number(value)) : null;
+              const problemId = `case-override-${elId}-${key}-problem`;
               return (
                 <li
                   key={`${elId}:${key}`}
@@ -361,6 +359,7 @@ export function CasePanel() {
                         def={pdef}
                         value={value}
                         label={name}
+                        describedBy={problemId}
                         onChange={(v) => setCaseOverride(activeCase.id, elId, key, v)}
                       />
                     ) : (
@@ -379,6 +378,13 @@ export function CasePanel() {
                       <X size={13} />
                     </button>
                   </div>
+                  {pdef && problem && (
+                    <div id={problemId} className="ss-param-problem mt-0.5">
+                      <span role="alert">
+                        {paramName(pdef)} {problem}.
+                      </span>
+                    </div>
+                  )}
                 </li>
               );
             })}

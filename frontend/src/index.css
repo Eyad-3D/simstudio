@@ -246,7 +246,7 @@ body,
   @apply rounded border border-[color:var(--ss-field-border)] bg-[color:var(--ss-panel)] px-1.5 py-0.5 text-[12px] text-[color:var(--ss-text)] outline-none focus:border-[color:var(--ss-accent)];
 }
 .ss-input[aria-invalid="true"] {
-  border-color: #dc2626;
+  border-color: var(--ss-err);
 }
 /* numbers line up right-aligned in equal-width digits, and a field grows to
    show every digit of its value rather than clipping it (no fixed width) */
@@ -301,6 +301,14 @@ body,
    text is in its tooltip and its open list) */
 .ss-param-grid select {
   width: 5.5rem;
+}
+/* why a value is outside its limits (UX-10): a line under the field, across
+   the whole row of the parameter grid */
+.ss-param-problem {
+  grid-column: 1 / -1;
+  font-size: 10.5px;
+  text-align: left;
+  color: var(--ss-err);
 }
 
 /* ---- Excel-like spreadsheet grid (table editors) ---- */

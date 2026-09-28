@@ -47,7 +47,8 @@ def test_limits_fit_the_defaults():
                 bad.append(f"{where}: both minimum and exclusiveMinimum")
             elif has and (problem := p.range_problem(float(p.default))):
                 bad.append(f"{where}: default {p.default} {problem}")
-            bad += [f"{where}: {x:g} prints with an exponent" for x in has if "e" in f"{x:g}"]
+            bad += [f"{where}: {x!r} does not print as a plain number" for x in has
+                    if "e" in f"{x:g}" or float(f"{x:g}") != x]
     assert not bad, "; ".join(bad)
 
 

@@ -52,6 +52,16 @@ export interface ParameterDef {
   /** FMI-style variability: "fixed" params are baked in at model build (live
    *  edits take effect on the next run); "tunable" (default) apply live. */
   variability?: "fixed" | "tunable";
+  /** Help (LRN-05): what it is in plain words, the usual values and where to
+   *  find the real number. */
+  description?: string | null;
+  typical?: string | null;
+  whereToFind?: string | null;
+  /** Hard limits of a number (JSON Schema names): outside them the field
+   *  turns red and Data Checks report an error. */
+  minimum?: number | null;
+  exclusiveMinimum?: number | null;
+  maximum?: number | null;
 }
 
 export interface ComponentDef {

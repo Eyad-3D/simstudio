@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { Fragment, useId, useMemo, useState } from "react";
 import { Box, Columns3, CornerDownRight, Pencil, Plus, Radio, Rows3, Table2, Trash2 } from "lucide-react";
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
+import { paramName, rangeProblem } from "../../paramRules";
 import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "../SpreadsheetGrid";
 import { KIND_COLOR } from "../canvas/ElementNode";
 import { CyclePreview, CycleSelect } from "./CyclePicker";
@@ -474,15 +475,21 @@ function ProfileGridEditor({
 
 /** Number field that stores only what is a number: clearing it or a half-typed
  *  value is never stored as 0, and leaving the field without a number puts the
- *  stored value back. */
-function NumberInput({
+ *  stored value back. With `def`, a number outside its limits turns it red as
+ *  it is typed (it is still stored, so Data Checks say the same); the reason
+ *  is shown by the caller, in the element `describedBy` names. */
+export function NumberInput({
   value,
   onChange,
   label,
+  def,
+  describedBy,
 }: {
   value: number;
   onChange: (v: number) => void;
   label?: string;
+  def?: ParameterDef;
+  describedBy?: string;
 }) {
   const [text, setText] = useState(String(value));
   const [shown, setShown] = useState(value);
@@ -492,6 +499,7 @@ function NumberInput({
     if (Number(text) !== value || text.trim() === "") setText(String(value));
   }
   const invalid = text.trim() === "" || !Number.isFinite(Number(text));
+  const outside = !invalid && def ? rangeProblem(def, Number(text)) : null;
   return (
     <input
       type="number"
@@ -499,7 +507,8 @@ function NumberInput({
       value={text}
       step="any"
       aria-label={label}
-      aria-invalid={invalid || undefined}
+      aria-invalid={invalid || Boolean(outside) || undefined}
+      aria-describedby={outside ? describedBy : undefined}
       title={invalid ? `Enter a number (leaving the field keeps ${value})` : undefined}
       onChange={(e) => {
         setText(e.target.value);
@@ -515,10 +524,12 @@ function ParameterInput({
   def,
   value,
   onChange,
+  describedBy,
 }: {
   def: ParameterDef;
   value: ParamValue;
   onChange: (v: ParamValue) => void;
+  describedBy?: string;
 }) {
   switch (def.type) {
     case "boolean":
@@ -547,7 +558,9 @@ function ParameterInput({
         </select>
       );
     case "number":
-      return <NumberInput value={Number(value)} onChange={onChange} label={def.label} />;
+      return (
+        <NumberInput value={Number(value)} onChange={onChange} label={def.label} def={def} describedBy={describedBy} />
+      );
     case "code":
       return (
         <textarea
@@ -733,6 +746,9 @@ export function ElementForm({
   );
   const valueOf = (p: ParameterDef): ParamValue =>
     element.parameterOverrides[p.key] ?? p.default;
+  const problemOf = (p: ParameterDef) => (p.type === "number" ? rangeProblem(p, Number(valueOf(p))) : null);
+  // the dialog and Properties can show the same part: ids must not clash
+  const formId = useId();
   const profile = drivingTask ? profileToTable(String(valueOf(def.parameters.find(isProfile)!))) : {};
 
   return (
@@ -782,29 +798,45 @@ export function ElementForm({
             </tr>
           </thead>
           <tbody>
-            {scalarParams.map((p) => (
-              <tr key={p.key}>
-                <td className="ss-td flex items-center text-[11px]" title={p.label}>
-                  <span className="truncate">{p.label}</span>
-                  {running && p.variability === "fixed" && (
-                    <span
-                      className="ml-1 shrink-0 text-[10px] italic text-[color:var(--ss-text-dim)]"
-                      title="Structural parameter — a live edit takes effect on the next run"
-                    >
-                      (next run)
-                    </span>
+            {scalarParams.map((p) => {
+              const problem = problemOf(p);
+              return (
+                <Fragment key={p.key}>
+                  <tr>
+                    <td className="ss-td flex items-center text-[11px]" title={p.label}>
+                      <span className="truncate">{p.label}</span>
+                      {running && p.variability === "fixed" && (
+                        <span
+                          className="ml-1 shrink-0 text-[10px] italic text-[color:var(--ss-text-dim)]"
+                          title="Structural parameter — a live edit takes effect on the next run"
+                        >
+                          (next run)
+                        </span>
+                      )}
+                    </td>
+                    <td className="ss-td">
+                      <ParameterInput
+                        def={p}
+                        value={valueOf(p)}
+                        describedBy={`${formId}${p.key}-problem`}
+                        onChange={(v) => setParameter(element.id, p.key, v)}
+                      />
+                    </td>
+                    <td className="ss-td whitespace-nowrap text-[11px] text-[color:var(--ss-text-dim)]">{p.unit}</td>
+                  </tr>
+                  {problem && (
+                    // why the value is outside its limits, across the whole row
+                    <tr>
+                      <td id={`${formId}${p.key}-problem`} className="ss-td ss-param-problem">
+                        <span role="alert">
+                          {paramName(p)} {problem}.
+                        </span>
+                      </td>
+                    </tr>
                   )}
-                </td>
-                <td className="ss-td">
-                  <ParameterInput
-                    def={p}
-                    value={valueOf(p)}
-                    onChange={(v) => setParameter(element.id, p.key, v)}
-                  />
-                </td>
-                <td className="ss-td whitespace-nowrap text-[11px] text-[color:var(--ss-text-dim)]">{p.unit}</td>
-              </tr>
-            ))}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       )}
