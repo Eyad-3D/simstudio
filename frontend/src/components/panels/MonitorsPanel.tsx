@@ -121,7 +121,7 @@ export function MonitorsPanel() {
             <Gauge size={12} />
             {element.label}
             {running && (
-              <span className="ml-auto flex items-center gap-1 text-[9px] font-semibold uppercase text-emerald-700">
+              <span className="ml-auto flex items-center gap-1 text-[9px] font-semibold uppercase text-[color:var(--ss-ok)]">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
                 live
               </span>

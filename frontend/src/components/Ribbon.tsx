@@ -662,7 +662,7 @@ function GlobalRunControl() {
         </button>
       ) : (
         <button
-          className="flex items-center gap-1 rounded bg-[color:var(--ss-accent)] px-2 py-[3px] text-[11px] font-semibold text-white hover:brightness-110 disabled:opacity-40"
+          className="flex items-center gap-1 rounded bg-[color:var(--ss-accent-fill)] px-2 py-[3px] text-[11px] font-semibold text-white hover:brightness-110 disabled:opacity-40"
           onClick={() => void run()}
           disabled={!project}
           title="Run the active case (Ctrl+Enter)"
@@ -723,7 +723,7 @@ export function Ribbon() {
   return (
     <div className="ss-zoom shrink-0 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-chrome)]">
       <div className="flex items-center gap-1 px-2 pt-1">
-        <div className="mr-1 flex items-center gap-1.5 rounded bg-[color:var(--ss-accent)] px-2 py-0.5 text-[12px] font-semibold text-white">
+        <div className="mr-1 flex items-center gap-1.5 rounded bg-[color:var(--ss-accent-fill)] px-2 py-0.5 text-[12px] font-semibold text-white">
           LightSim
         </div>
         {TABS.map((t) => (

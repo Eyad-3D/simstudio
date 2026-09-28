@@ -5,9 +5,9 @@ import { useProjectStore } from "../../store/projectStore";
 export function levelIcon(level: "info" | "warning" | "error", size = 13) {
   switch (level) {
     case "error":
-      return <AlertCircle size={size} className="shrink-0 text-red-600" />;
+      return <AlertCircle size={size} className="shrink-0 text-[color:var(--ss-err)]" />;
     case "warning":
-      return <AlertTriangle size={size} className="shrink-0 text-amber-500" />;
+      return <AlertTriangle size={size} className="shrink-0 text-[color:var(--ss-warn)]" />;
     default:
       return <Info size={size} className="shrink-0 text-[color:var(--ss-accent)]" />;
   }
@@ -36,8 +36,12 @@ export function MessagesPanel() {
         {messages.map((m, i) => (
           <div
             key={i}
-            className={`flex items-start gap-2 border-b border-[#f0f2f5] px-2 py-[3px] ${
-              m.level === "error" ? "bg-red-50" : m.level === "warning" ? "bg-amber-50" : ""
+            className={`flex items-start gap-2 border-b border-[color:var(--ss-td-border)] px-2 py-[3px] ${
+              m.level === "error"
+                ? "bg-red-50 dark:bg-red-950/40"
+                : m.level === "warning"
+                  ? "bg-amber-50 dark:bg-amber-950/40"
+                  : ""
             }`}
           >
             <span className="text-[color:var(--ss-text-dim)]">{m.time}</span>

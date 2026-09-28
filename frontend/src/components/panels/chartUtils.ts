@@ -7,12 +7,12 @@ export const PALETTE = [
   "#d97706",
   "#059669",
   "#dc2626",
-  "#7c3aed",
+  "#8b5cf6",
   "#0e7490",
-  "#be185d",
+  "#d0457f",
   "#4d7c0f",
   "#b45309",
-  "#1d4ed8",
+  "#4d7ce8",
 ];
 
 /** Most points drawn per chart (about one min/max pair per pixel column). */

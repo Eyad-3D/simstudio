@@ -3,6 +3,7 @@ import { Box, Columns3, CornerDownRight, Pencil, Plus, Radio, Rows3, Table2, Tra
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "../SpreadsheetGrid";
+import { KIND_COLOR } from "../canvas/ElementNode";
 import type {
   AxisDef,
   ComponentDef,
@@ -683,7 +684,7 @@ function DynamicPortsEditor({ element }: { element: ElementInstance }) {
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
           />
           <button
-            className="text-[color:var(--ss-text-dim)] hover:text-red-600"
+            className="text-[color:var(--ss-text-dim)] hover:text-[color:var(--ss-err)]"
             title="Remove port (disconnects its wires)"
             onClick={() => commit(ports.filter((q) => q.id !== p.id))}
           >
@@ -871,16 +872,7 @@ export function ElementForm({
             <div key={p.id} className="flex items-center gap-2 py-0.5 text-[11px]">
               <span
                 className="h-2 w-2 shrink-0 rounded-full"
-                style={{
-                  background:
-                    p.kind === "electrical"
-                      ? "#e08600"
-                      : p.kind === "mechanical"
-                        ? "#3f4650"
-                        : p.kind === "signal"
-                          ? "#0e7490"
-                          : "#c2410c",
-                }}
+                style={{ background: KIND_COLOR[p.kind] }}
               />
               <span className="truncate">{p.name}</span>
               <span className="ml-auto text-[10px] text-[color:var(--ss-text-dim)]">

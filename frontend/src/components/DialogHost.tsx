@@ -97,7 +97,7 @@ export function DialogHost() {
           </button>
           <button
             className={`rounded px-3 py-1 text-[12px] font-semibold text-white ${
-              dialog.danger ? "bg-red-600 hover:bg-red-700" : "bg-[color:var(--ss-accent)] hover:brightness-110"
+              dialog.danger ? "bg-red-600 hover:bg-red-700" : "bg-[color:var(--ss-accent-fill)] hover:brightness-110"
             } disabled:opacity-40`}
             disabled={dialog.kind === "prompt" && text.trim() === ""}
             onClick={onConfirm}

@@ -49,7 +49,7 @@ export function StatusBar() {
         )}
         {errors > 0 && (
           <button
-            className="text-red-600 hover:underline"
+            className="text-[color:var(--ss-err)] hover:underline"
             title="Show the Data Checks"
             onClick={() => {
               const ui = useUIStore.getState();
@@ -62,11 +62,11 @@ export function StatusBar() {
         )}
         <span>{elementCount} elements</span>
         {offline ? (
-          <span className="flex items-center gap-1 text-amber-600">
+          <span className="flex items-center gap-1 text-[color:var(--ss-warn)]">
             <CloudOff size={12} /> backend offline
           </span>
         ) : (
-          <span className="text-emerald-700">backend connected</span>
+          <span className="text-[color:var(--ss-ok)]">backend connected</span>
         )}
       </div>
     </div>

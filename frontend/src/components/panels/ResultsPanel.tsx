@@ -592,7 +592,7 @@ export function ResultsPanel() {
               <>
                 Sweep · {completeFamily.length} complete run(s)
                 {incompleteCount > 0 && (
-                  <span className="text-amber-600">
+                  <span className="text-[color:var(--ss-warn)]">
                     {" "}
                     · {incompleteCount} incomplete {showIncomplete ? "shown hollow" : "not plotted"}
                   </span>
@@ -614,10 +614,10 @@ export function ResultsPanel() {
                     running && activeRun?.status === "running"
                       ? "text-[color:var(--ss-accent)]"
                       : result.status === "success" && !activeRun?.incomplete
-                        ? "text-emerald-700"
+                        ? "text-[color:var(--ss-ok)]"
                         : result.status !== "failed"
-                          ? "text-amber-600"
-                          : "text-red-600"
+                          ? "text-[color:var(--ss-warn)]"
+                          : "text-[color:var(--ss-err)]"
                   }
                 >
                   {activeRun?.status === "running"
@@ -1051,7 +1051,7 @@ export function ResultsPanel() {
                       {/* the reason under the label, where there is room; the
                           value cells keep a short marker (reason in its tooltip) */}
                       {s.notValid && (
-                        <div className="text-[10px] text-amber-600">not valid: {s.notValid}</div>
+                        <div className="text-[10px] text-[color:var(--ss-warn)]">not valid: {s.notValid}</div>
                       )}
                     </td>
                     {plotRuns.map((r, ri) => {
@@ -1065,7 +1065,7 @@ export function ResultsPanel() {
                           {typeof v === "number" ? v.toLocaleString() : "—"}
                           {sv?.notValid && (
                             <div
-                              className="font-sans text-[10px] text-amber-600"
+                              className="font-sans text-[10px] text-[color:var(--ss-warn)]"
                               title={`Not valid: ${sv.notValid}`}
                             >
                               not valid

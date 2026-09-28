@@ -46,7 +46,7 @@ import { useUIStore } from "../../store/uiStore";
 import { useDismiss } from "../useDismiss";
 import { promptDialog } from "../../dialog";
 import type { PortKind } from "../../types";
-import { ElementNode, type ElementFlowNode } from "./ElementNode";
+import { ElementNode, KIND_COLOR, type ElementFlowNode } from "./ElementNode";
 
 const nodeTypes = { element: ElementNode };
 
@@ -80,7 +80,7 @@ function MenuBtn({
   return (
     <button
       className={`flex w-full items-center gap-2 px-2.5 py-1 text-left hover:bg-[color:var(--ss-hover)] disabled:opacity-40 disabled:hover:bg-transparent ${
-        danger ? "text-red-600" : ""
+        danger ? "text-[color:var(--ss-err)]" : ""
       }`}
       disabled={disabled}
       onClick={onClick}
@@ -91,15 +91,6 @@ function MenuBtn({
     </button>
   );
 }
-
-const KIND_COLOR: Record<PortKind, string> = {
-  electrical: "#e08600",
-  mechanical: "#3f4650",
-  signal: "#0e7490",
-  thermal: "#c2410c",
-  fluid: "#2563eb",
-  power: "#e08600",
-};
 
 function TopologyCanvasInner() {
   const project = useProjectStore((s) => s.project);

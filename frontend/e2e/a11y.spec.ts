@@ -12,10 +12,14 @@
 //
 // Regenerate the baseline after a deliberate change:
 //   UPDATE_A11Y_BASELINE=1 npx playwright test a11y
+//
+// Colour contrast is the exception (GUI-02): a sweep over every panel, menu
+// and dialog in both themes fails on any text below the WCAG AA minimum, and
+// on any color-contrast line in the baseline.
 import AxeBuilder from "@axe-core/playwright";
 import { readFileSync, writeFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { drawnLines, openApp, runActiveCase } from "./app";
+import { drawnLines, openApp, ribbonTab, runActiveCase, runButton, selectElement, showPanel } from "./app";
 
 type Baseline = Record<string, string[]>;
 const BASELINE_FILE = new URL("./a11y-baseline.json", import.meta.url);
@@ -44,9 +48,17 @@ function describeElement(selector: string): string | null {
   return tidy ? `${tag}${role ? `[role=${role}]` : ""}${type} "${tidy.slice(0, 40)}"` : null;
 }
 
+/** dockview draws a 1-px separator as a ::before of every panel, which makes
+ *  axe give up on the colour of all text inside panels ("incomplete"); hide
+ *  it so the panels' text is checked too. */
+async function showPanelText(page: Page) {
+  await page.addStyleTag({ content: ".dv-view::before { content: none !important; }" });
+}
+
 /** Serious/critical violations on the page: "rule-id  element" → axe's
  *  selector for it (to find it when it is new). */
 async function blockingViolations(page: Page): Promise<Map<string, string>> {
+  await showPanelText(page);
   const { violations } = await new AxeBuilder({ page }).analyze();
   const keys = new Map<string, string>();
   for (const v of violations) {
@@ -86,6 +98,18 @@ test.afterAll(() => {
   if (updating) writeFileSync(BASELINE_FILE, JSON.stringify({ ...baseline, ...found }, null, 2) + "\n");
 });
 
+/** Text on the page below WCAG AA contrast, as "ratio  text  fg on bg". */
+async function contrastFailures(page: Page): Promise<string[]> {
+  await showPanelText(page);
+  const { violations } = await new AxeBuilder({ page }).withRules(["color-contrast"]).analyze();
+  return violations.flatMap((v) =>
+    v.nodes.map((n) => {
+      const d = n.any[0]?.data as { contrastRatio?: number; fgColor?: string; bgColor?: string } | undefined;
+      return `${d?.contrastRatio}  ${n.target.join(" ")}  ${d?.fgColor} on ${d?.bgColor}`;
+    }),
+  );
+}
+
 for (const theme of ["light", "dark"] as const) {
   test.describe(`${theme} theme`, () => {
     // the saved preference, the way the app starts when a user last chose it
@@ -110,6 +134,57 @@ for (const theme of ["light", "dark"] as const) {
       await page.locator(".react-flow__node", { hasText: "E-Motor" }).first().dblclick();
       await expect(page.getByTitle("Close (Esc)")).toBeVisible();
       await check(page, `parameter-dialog-${theme}`);
+    });
+
+    // GUI-02: every panel, menu and dialog, including problem states
+    test("colour contrast on every panel, menu and dialog", async ({ page }) => {
+      const at: Record<string, string[]> = {};
+      const scan = async (where: string) => {
+        const failures = await contrastFailures(page);
+        if (failures.length) at[where] = failures;
+      };
+      await openApp(page);
+      for (const panel of [
+        "Elements",
+        "Cases & Parameters",
+        "Monitors",
+        "Messages",
+        "Data Checks",
+        "Layer Configurations",
+        "Data Bus Connections",
+        "Signal Plot",
+      ]) {
+        await showPanel(page, panel);
+        await scan(panel);
+      }
+      await showPanel(page, "Topology");
+      await selectElement(page, "Vehicle");
+      await scan("Properties");
+      await page.locator(".react-flow__node", { hasText: "E-Motor" }).first().click({ button: "right" });
+      await scan("part menu");
+      await page.keyboard.press("Escape");
+      await ribbonTab(page, "Home").click();
+      await page.getByRole("button", { name: "Open", exact: true }).click();
+      await scan("Open menu");
+      await page.keyboard.press("Escape");
+      // a model with problems: status-bar count, Data Checks rows, error log lines
+      await page.getByRole("button", { name: "New", exact: true }).click();
+      await showPanel(page, "Components");
+      await page.locator("[data-component-id='motor.emotor']").focus();
+      await page.keyboard.press("Enter");
+      await runButton(page).click(); // blocked by the checks: logs errors
+      await showPanel(page, "Data Checks");
+      await expect(page.getByText(/^\d+ errors?$/)).toBeVisible();
+      await scan("Data Checks with errors");
+      await showPanel(page, "Messages");
+      await scan("Messages with errors");
+      await page.getByRole("button", { name: "New", exact: true }).click();
+      await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+      await scan("unsaved-changes dialog");
+      expect(at, "text below the WCAG AA contrast minimum: ratio, element, colours").toEqual({});
+      // low contrast is fixed, never accepted: no baseline may hold it
+      const accepted = Object.values(baseline).flat().filter((k) => k.startsWith("color-contrast"));
+      expect(accepted, "color-contrast lines in a11y-baseline.json").toEqual([]);
     });
   });
 }
