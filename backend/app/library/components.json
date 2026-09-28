@@ -441,7 +441,7 @@
             "voltage_class_V": 600,
             "power_limit_enforced": true
           },
-          "note": "FS Rules 2026 v1.1 (FSG): 80 kW at the accumulator outlet, measured as volts × amps (EV 2.2.1), 600 V DC (EV 4.1.1), judged on a 500 ms moving average (D 10.4.1). FSUK 2026 Rules V1.0 (EV2.3.1, EV4.1.1) and FSAE Rules 2025 V1.0 (EV.3.3, EV.3.4) set the same 80 kW and 600 V but differ in detail: FSAE also judges 100 ms at a time (set the window to 0 for a check at least as strict) and allows no regeneration below 5 km/h. Not modelled: the 500 A current limit (FSG EV 2.2.2, FSUK EV2.3.1; MOD-08). Check the current season's rules before you rely on these values."
+          "note": "FS Rules 2026 v1.1 (FSG): 80 kW at the accumulator outlet (EV 2.2.1), measured as volts × amps (EV 4.6.1), 600 V DC (EV 4.1.1), judged on a 500 ms moving average (D 10.4.1). FSUK 2026 Rules V1.0 (EV2.3.1, EV4.1.1) and FSAE Rules 2025 V1.0 (EV.3.3, EV.3.4) set the same 80 kW and 600 V but differ in detail: FSAE also judges 100 ms at a time (set the window to 0 for a check at least as strict) and allows no regeneration below 5 km/h. Not modelled: the 500 A current limit (FSG EV 2.2.2, FSUK EV2.3.1; MOD-08). Check the current season's rules before you rely on these values."
         }
       ]
     },

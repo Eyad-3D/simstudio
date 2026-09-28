@@ -424,7 +424,7 @@ def simulate(
         if lap is not None:  # and so do a lap case's
             summary[:0] = [SummaryValue(label=label, value=v, unit=u) for label, v, u in lap.rows()]
             edge_rows.add("Lap energy balance error")
-        summary.append(SummaryValue(label="Simulated duration", value=times[-1] if times else 0.0, unit="s"))
+        summary.append(SummaryValue(label="Simulated duration", value=round(times[-1], 6) if times else 0.0, unit="s"))
 
         # headline numbers that a failed check makes meaningless say why
         not_valid: dict[str, str] = {}

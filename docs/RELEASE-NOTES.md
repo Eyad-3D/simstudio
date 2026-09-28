@@ -145,7 +145,7 @@ sections.
   model whose batteries have no Output Power Limit is told how to check
   one. Simulations → *Acceleration test* runs the first acceleration case
   in one click, or adds one first: 75 m, staged 0.30 m behind the start
-  line, 25 s time limit (FS Rules 2026 v1.1 (FSG) D 5.1.1, D 5.2.4, and
+  line, 25 s time limit (FS Rules 2026 v1.1 (FSG) D 5.1.1, D 5.2.3, and
   D 9.2.1, which applies the 25 s to driverless runs only; FSUK and FSAE
   may differ, check the current season's rules). On the Battery Electric
   Car it gives 5.216 s and 86.2 km/h at the line (5.527 s from rest). No

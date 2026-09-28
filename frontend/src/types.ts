@@ -143,7 +143,7 @@ export interface SimCase {
   kind?: "cycle" | "performance" | "acceleration" | "lap";
   /** End the run when the vehicle has driven startLine + endDistance, m; null/0 = run the duration. */
   endDistance?: number | null;
-  /** Distance driven before the timer starts, m (FS Rules 2026 v1.1 D 5.2.4: 0.30 m). */
+  /** Distance driven before the timer starts, m (FS Rules 2026 v1.1 (FSG) D 5.2.3: 0.30 m). */
   startLine?: number;
   /** A time to compare the acceleration test's time with, s; null = none. */
   referenceTime?: number | null;

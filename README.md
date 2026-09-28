@@ -544,7 +544,7 @@ target or above has none either.
 Set it to *Acceleration* for a standing-start run over a distance, such as
 Formula Student's 75 m. Simulations → *Acceleration test* runs the first
 acceleration case, or adds one first: 75 m from a start line 0.30 m ahead
-with a 25 s limit (FS Rules 2026 v1.1 (FSG) D 5.1.1, D 5.2.4 and D 9.2.1,
+with a 25 s limit (FS Rules 2026 v1.1 (FSG) D 5.1.1, D 5.2.3 and D 9.2.1,
 which sets the 25 s for driverless runs only; FSUK and FSAE may differ,
 check the current season's rules). The Driver holds full throttle the
 whole run and needs no Target Speed, and the run ends at the end of the

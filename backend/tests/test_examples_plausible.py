@@ -304,7 +304,7 @@ def test_fs_card_has_result_bands_and_rule_versions():
     card = load_example("fs-electric").description
     assert FS_RULES in card and "FSUK and FSAE may differ" in card
     for value, rule in (("80 kW", "EV 2.2.1"), ("500 A", "EV 2.2.2"), ("600 V", "EV 4.1.1"),
-                        ("500 ms", "D 10.4.1"), ("75 m", "D 5.1.1"), ("0.3 m", "D 5.2.4"),
+                        ("500 ms", "D 10.4.1"), ("75 m", "D 5.1.1"), ("0.3 m", "D 5.2.3"),
                         ("25 s", "D 9.2.1"), ("22 km", "D 7.1.3")):
         assert re.search(re.escape(value) + r"[^;]*?\(" + re.escape(rule) + r"\b", card), value
     assert "3.51–6.44 s, median 3.91 s" in card and "3.19–6.15 kWh, median 5.25 kWh" in card

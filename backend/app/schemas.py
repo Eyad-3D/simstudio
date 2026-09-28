@@ -173,7 +173,7 @@ class SimCase(BaseModel):
     # end the run when the vehicle has driven startLine + endDistance, m;
     # None or 0 = run the whole duration
     endDistance: Optional[float] = None
-    # distance driven before the timer starts, m (FS Rules 2026 v1.1 D 5.2.4
+    # distance driven before the timer starts, m (FS Rules 2026 v1.1 (FSG) D 5.2.3
     # stages the car 0.30 m behind the start line)
     startLine: float = 0.0
     # a time to compare the acceleration test's time with, s (e.g. last

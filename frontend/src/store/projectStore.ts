@@ -1627,7 +1627,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const id = found?.id ?? uid("case");
       if (!found) {
         // FS Rules 2026 v1.1 (FSG): 75 m from the start line (D 5.1.1), staged
-        // 0.30 m behind it (D 5.2.4); runs over 25 s are disqualified in
+        // 0.30 m behind it (D 5.2.3); runs over 25 s are disqualified in
         // driverless runs only (D 9.2.1)
         updateProject((draft) => {
           draft.cases.push({

@@ -387,7 +387,7 @@ function SimulationsTab() {
         <BigButton
           icon={Timer}
           label="Acceleration test"
-          title="Formula Student acceleration test: runs the first Acceleration case, or adds one (75 m, staged 0.30 m behind the start line, 25 s time limit) and runs it. FS Rules 2026 v1.1 (FSG): D 5.1.1 75 m, D 5.2.4 0.30 m staging, D 9.2.1 25 s (driverless runs only). FSUK and FSAE may differ: check the current season's rules."
+          title="Formula Student acceleration test: runs the first Acceleration case, or adds one (75 m, staged 0.30 m behind the start line, 25 s time limit) and runs it. FS Rules 2026 v1.1 (FSG): D 5.1.1 75 m, D 5.2.3 0.30 m staging, D 9.2.1 25 s (driverless runs only). FSUK and FSAE may differ: check the current season's rules."
           disabled={store.running || !store.project}
           onClick={() => void store.runAccelerationTest()}
         />

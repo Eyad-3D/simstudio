@@ -413,7 +413,7 @@ export function CasePanel() {
             <>
               <label
                 className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-                title="The run ends at this distance past the start line; the time is taken there (FS Rules 2026 v1.1 D 5.1.1: 75 m)."
+                title="The run ends at this distance past the start line; the time is taken there (FS Rules 2026 v1.1 (FSG) D 5.1.1: 75 m)."
               >
                 Distance (m)
                 <input
@@ -429,7 +429,7 @@ export function CasePanel() {
               </label>
               <label
                 className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-                title="The distance the car drives before the timer starts (FS Rules 2026 v1.1 D 5.2.4 stages it 0.30 m behind the start line; FSUK and FSAE may differ). 0 = timed from rest."
+                title="The distance the car drives before the timer starts (FS Rules 2026 v1.1 (FSG) D 5.2.3 stages it 0.30 m behind the start line; FSUK and FSAE may differ). 0 = timed from rest. Simulations → Acceleration test adds its case with 0.30 m and a 25 s time limit; a case switched to Acceleration here keeps its own start line and duration."
               >
                 Start line (m)
                 <input

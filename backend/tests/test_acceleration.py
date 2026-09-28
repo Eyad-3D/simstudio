@@ -6,7 +6,7 @@ startLine + endDistance, and the time from the start line to that line and
 the speed there are read inside the steps that crossed them, so they do not
 depend on the output step. The case duration is the time limit. FS Rules
 2026 v1.1 (FSG): 75 m from the start line (D 5.1.1), the car staged 0.30 m
-behind it (D 5.2.4)."""
+behind it (D 5.2.3)."""
 import bisect
 
 import pytest
@@ -181,7 +181,7 @@ def test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step():
 
 
 def test_the_start_line_starts_the_timer_and_the_gap_is_signed():
-    """Staged 0.3 m behind the start line (FS Rules 2026 v1.1 D 5.2.4), the
+    """Staged 0.3 m behind the start line (FS Rules 2026 v1.1 (FSG) D 5.2.3), the
     time runs from 0.3 m to 75.3 m driven: 5.216 s against 5.527 s from
     rest. The gap to a reference time is positive when slower."""
     result = simulate(_bev(start=0.3, reference=5.0), "case-city")
