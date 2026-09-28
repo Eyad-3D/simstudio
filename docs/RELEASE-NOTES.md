@@ -170,9 +170,9 @@ sections.
   braking, and the lap energy balance error; the Race Track's channels
   give the lap distance, curvature, longitudinal and lateral acceleration
   (in g, a new unit), what limited the car and a map, for the X-Y view.
-  Data Checks refuse a lap case without a Race Track or E-Motor, with an
-  engine or clutch on the wheels or with all wheels on one axle, and a
-  Custom curvature above 0.5 1/m. The results are estimates, and say so.
+  Data Checks refuse a lap case without a Race Track, Driver or E-Motor,
+  with an engine or clutch on the wheels or with all wheels on one axle,
+  and a Custom curvature above 0.5 1/m. The results are estimates, and say so.
   A Formula Student-sized car (280 kg, 96 kW, μ 1.5) laps the Autocross
   in 61.2 s (62.9 s from a standing start), solved in about 0.15 s.
 - Wheel: *Lateral Friction μ_y* (0: the same as μ), *Load Sensitivity

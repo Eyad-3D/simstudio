@@ -196,6 +196,9 @@ def problems(model: Model, output_every: int = 1) -> list[tuple[str, str]]:
                           "choose its layout.")]
     if model.vehicle is None:
         out.append(("error", "A lap case needs a Vehicle."))
+    if model.driver is None:  # (and Data Checks want the E-Motors commanded by one)
+        out.append(("error", "A lap case needs a Driver: its Recuperation Weight sets the "
+                             "regeneration when braking."))
     wheeled = [dl for dl in model.drivelines if any(seg.wheels for seg in dl.segments)]
     motors = []
     for dl in wheeled:
@@ -331,13 +334,6 @@ class LapRun:
         self.track = load_track(tp, spacing)
         self.laps = int(float(tp.get("laps", 1)))
         self.m = ctx.veh_mass
-        vp = ctx.params(ctx.veh_id)
-        self.h = max(0.0, float(vp.get("cg_height_m", 0)))
-        self.wheelbase = float(vp.get("wheelbase_m", 2.7))
-        self.cza = float(vp.get("downforce_cza_m2", 0))
-        self.aero_front = min(1.0, max(0.0, float(vp.get("aero_balance_front_pct", 50)) / 100.0))
-        self.track_f = float(vp.get("track_front_m", 1.55))
-        self.track_r = float(vp.get("track_rear_m", 1.55))
         self.dp = ctx.params(model.driver) if model.driver else {}
 
         # every driveline with wheels, rolling without slip: its segments'
@@ -355,7 +351,7 @@ class LapRun:
         self.set_speed(v0)
         m_und = self.m_eff = self.m
         self.drives = []  # (driveline, segment index, segment, its motors)
-        self.brakes = []  # (brake, its force at full torque, N)
+        self.brakes = []  # (brake, its force at the road per N·m, 1/m)
         driven = set()
         for st in self.dls:
             unit = self.unit[id(st)]
@@ -368,32 +364,24 @@ class LapRun:
             else:
                 m_und += j  # undriven wheels: their tyres spin them up
             self.drives += [(st, s, seg, ms) for s, seg, ms in srcs if ms]
-            self.brakes += [(br, br.max_torque * abs(br.m * unit[s]))
+            self.brakes += [(br, abs(br.m * unit[s]))
                             for s, seg in enumerate(st.dl.segments) for br in seg.brakes]
         self.m_und = m_und
         self.motors = [(st, s, src, ctx.motors[src.el_id]) for st, s, seg, ms in self.drives
                        for src in ms]
-        self.fr_cap = sum(f for _, f in self.brakes)  # friction brakes, N
-        front, rear = ctx.axle_wheels
-        self.front_share = sum(w.load_share for w in front)
         self.wheels = ctx.wheels
         self.driven = [w.el_id in driven for w in self.wheels]
-        # each wheel's axle and its part of that axle's load; and the wheels
-        # of an axle in pairs across the car: in a corner the first of each
-        # pair takes the load the second gives (a wheel left alone in the
-        # middle keeps its own)
-        self.axle_of, self.pairs = [], []
+        # the wheels of an axle in pairs across the car: in a corner the first
+        # of each pair takes the load the second gives (a wheel left alone in
+        # the middle keeps its own)
+        self.pairs = []
         index = {id(w): i for i, w in enumerate(self.wheels)}
-        for a, ws in enumerate((front, rear)):
-            share = sum(w.load_share for w in ws)
-            for w in ws:
-                self.axle_of.append((index[id(w)], a,
-                                     w.load_share / share if share > 0 else 1.0 / len(ws)))
+        for a, ws in enumerate(ctx.axle_wheels):
             k = len(ws) // 2
             self.pairs += [(a, index[id(p)], index[id(q)], k)
                            for p, q in zip(ws[:k], ws[len(ws) - k:])]
-        self.n_ell = sum(w.n_ell for w in self.wheels) / max(1, len(self.wheels))
         self.apex_at: dict[tuple[float, float], float] = {}
+        self.read_car()
         self.env_v: list[float] = []
         self.env_f: list[float] = []
         self.env_code: list[int] = []
@@ -412,6 +400,31 @@ class LapRun:
                               for _, _, _, mc in self.motors if mc.el_id in ctx.motor_bus}
 
     # ---- the car ---------------------------------------------------------------
+
+    def read_car(self) -> None:
+        """The car's values a live edit can change (the Vehicle's, the wheels'
+        load shares and friction, the brakes' torque), read at each lap's
+        start; the cornering speeds are then solved again."""
+        ctx = self.ctx
+        vp = ctx.params(ctx.veh_id)
+        self.h = max(0.0, float(vp.get("cg_height_m", 0)))
+        self.wheelbase = float(vp.get("wheelbase_m", 2.7))
+        self.cza = float(vp.get("downforce_cza_m2", 0))
+        self.aero_front = min(1.0, max(0.0, float(vp.get("aero_balance_front_pct", 50)) / 100.0))
+        self.track_f = float(vp.get("track_front_m", 1.55))
+        self.track_r = float(vp.get("track_rear_m", 1.55))
+        self.fr_cap = sum(br.max_torque * lever for br, lever in self.brakes)  # friction brakes, N
+        front, _ = ctx.axle_wheels
+        self.front_share = sum(w.load_share for w in front)
+        # each wheel's axle and its part of that axle's load
+        index = {id(w): i for i, w in enumerate(self.wheels)}
+        self.axle_of = []
+        for a, ws in enumerate(ctx.axle_wheels):
+            share = sum(w.load_share for w in ws)
+            self.axle_of += [(index[id(w)], a, w.load_share / share if share > 0 else 1.0 / len(ws))
+                             for w in ws]
+        self.n_ell = sum(w.n_ell for w in self.wheels) / max(1, len(self.wheels))
+        self.apex_at.clear()
 
     def set_speed(self, v: float) -> None:
         """Every driveline with wheels rolling at v without slip."""
@@ -489,10 +502,13 @@ class LapRun:
             omega = src.m * self.unit[id(st)][s] * v
             rpm = abs(omega) * RPM
             bus = ctx.motor_bus.get(mc.el_id)
-            if bus is None or rpm > mc.max_rpm * (1.0 + 1e-9):
-                continue  # no supply, or above its maximum speed: inverter off
-            v_bus = volts.get(bus.id, ctx.bus_voltage.get(bus.id, 0.0))
-            if v_bus <= 1.0:
+            v_bus = volts.get(bus.id, ctx.bus_voltage.get(bus.id, 0.0)) if bus else 0.0
+            if v_bus <= 1.0 or rpm > mc.max_rpm * (1.0 + 1e-9):
+                # no supply, or above its maximum speed: the inverter is off and
+                # the motor's drag brakes it (as in motor_torque)
+                if drive:
+                    torques[mc.el_id] = -math.copysign(
+                        interp1(mc.drag.pts, rpm, mc.drag.linear[0]), omega)
                 continue
             t = k * full_torque(mc, v_bus, rpm, drive) * (1.0 if drive else -mc.q4_scale)
             torques[mc.el_id] = t
@@ -515,7 +531,8 @@ class LapRun:
         room = {root: ctx.motor_room.get(root, (0.0, 0.0))[1] for root in ctx.bus_tree}
         capped = {root: bool(nodes[0][0].battery and ctx.batteries[nodes[0][0].battery].capped)
                   for root, nodes in ctx.bus_tree.items()}
-        v_top = min((mc.max_rpm / RPM / abs(src.m * self.unit[id(st)][s])
+        # up to the fastest motor's top speed: _full drops each motor above its own
+        v_top = max((mc.max_rpm / RPM / abs(src.m * self.unit[id(st)][s])
                      for st, s, src, mc in self.motors if src.m * self.unit[id(st)][s]),
                     default=0.0)
         v_top = min(v_top, 150.0)
@@ -634,8 +651,9 @@ class LapRun:
         return max(0.0, min(1.0, float(self.dp.get("regen_weight_pct", 80)) / 100.0))
 
     def solve(self, v_start: float) -> Profile:
-        """One lap's speed profile from ``v_start``, with the powertrain's
-        force re-read from the batteries' present state."""
+        """One lap's speed profile from ``v_start``, with the car and the
+        powertrain's force re-read (live edits, the batteries' present state)."""
+        self.read_car()
         self.envelope()
         tr = self.track
         n, ds = len(tr.kappa) - 1, tr.ds
@@ -652,11 +670,14 @@ class LapRun:
             a2, _ = self._accel(kappa[i + 1], sin_t[i + 1], v2, a1)
             a_prev = 0.5 * (a1 + a2)
             vf[i + 1] = min(math.sqrt(max(0.0, v * v + 2.0 * a_prev * ds)), apex[i + 1])
-        # full braking back from the end; on a closed track over the next
+        # full braking back from the end; on a closed track, or an open one
+        # with a lap to come (driven on from this one's end), over the next
         # lap's corners too (at their cornering speed: the next lap's own
         # start is not known yet)
-        vb = vf + apex[1:] if tr.closed else vf[:]
-        if tr.closed:
+        wrap = tr.closed or self.k + 1 < self.laps
+        vb = vf + apex[1:] if wrap else vf[:]
+        if wrap:
+            vb[n] = min(vb[n], apex[0])  # where the next lap starts
             kappa, sin_t = kappa + kappa[1:], sin_t + sin_t[1:]
         d_prev = 0.0
         for j in range(len(vb) - 1, 0, -1):
@@ -870,7 +891,6 @@ class LapSlave(_CtxSlave):
         book.friction += fric * vm * h
         book.gears += (p_mech - f_pt * vm) * h
         book.motors += sum(mc.p_loss_w for _, _, _, mc in lap.motors) * h
-        book.consumers += sum(ctx.consumer_w.values()) * h
         book.shortfall += short * vm * h
 
         ctx.distance += tr.ds
@@ -901,8 +921,13 @@ def run_laps(ctx: RunContext, master: Master, lap: LapRun,
     v_start = ctx.v
     for k in range(lap.laps):
         lap.k = k
+        ctx.t = t  # (the time an error solving this lap stops the run at)
         lap.prof = prof = lap.solve(v_start)
         if k == 0:
+            if prof.v[0] < v_start - 1e-6:
+                rt.message("info", f"Lap 1 starts at {prof.v[0] * 3.6:.1f} km/h, not at the "
+                                   f"Vehicle's Initial Speed ({v_start * 3.6:.1f} km/h): the most "
+                                   f"the Race Track's first corner allows.")
             lap_slave.publish_point(0, 0.0, prof.code[0])
             ctx.publish_sources(0.0)
             record(0.0, 0.0)
@@ -921,6 +946,10 @@ def run_laps(ctx: RunContext, master: Master, lap: LapRun,
             t += dt
             after_step()
             lap.p_sq += sum(b.power_w for b in ctx.batteries.values()) ** 2 * dt
+            # the consumers, and the DC-DC converters' losses feeding them (their
+            # flows are set by the electrical buses, the step's last slave)
+            lap.book.consumers += (sum(ctx.consumer_w.values())
+                                   + sum(d - o for d, o in ctx.dcdc_flows.values())) * dt
             done = k * n + i + 1
             if done % output_every == 0 or done == total:
                 ctx.publish_sources(t)

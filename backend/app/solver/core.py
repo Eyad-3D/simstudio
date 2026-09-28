@@ -448,23 +448,35 @@ def simulate(
             if lap is not None:  # the laps it finished, and energy from the one it did not
                 for label, _, _ in lap.rows():
                     not_valid.setdefault(label, why)
+        # a lap case's rows, but its balance error (a check of the solver)
+        lap_rows = ([label for label, _, _ in lap.rows() if label != "Lap energy balance error"]
+                    if lap is not None else [])
         if lap is not None and lap.lap_times:
             error = lap.balance_pct()
+            if any(b.depleted_flagged for b in ctx.batteries.values()):
+                for label in lap_rows:  # the laps were solved with power it no longer had
+                    not_valid.setdefault(label, "the battery reached its minimum SOC")
             if abs(error) > lapsim.BALANCE_PCT:
                 not_valid.setdefault("Energy per lap", "the lap energy balance does not close")
-                short = (f"; the motors gave {lap.book.shortfall / 3600.0:.1f} Wh less than the "
-                         f"speed trace asked for (their supply or the battery voltage held them "
-                         f"back more than the lap solver expected), so the lap time is "
-                         f"optimistic" if lap.book.shortfall > 0 else "")
+                # the motors gave less than the speed trace asked for, for at
+                # least half the error: the lap is slower than its times say
+                short = lap.book.shortfall > 0.005 * abs(error) * abs(lap.source_net_j())
+                if short:
+                    for label in lap_rows:
+                        not_valid.setdefault(label, "the motors fell short of the lap's speed")
+                short_text = (f"; the motors gave {lap.book.shortfall / 3600.0:.1f} Wh less than "
+                              f"the speed trace asked for (their supply or the battery voltage "
+                              f"held them back more than the lap solver expected), so the lap "
+                              f"times are optimistic and not valid" if short else "")
                 rt.message("warning", f"Lap energy balance: the energy the laps took (kinetic, "
                                       f"road load, slope, brakes, gear and motor losses, "
                                       f"consumers) differs from what the sources gave by "
-                                      f"{error:+.2f} %, more than {lapsim.BALANCE_PCT:g} %{short}. "
-                                      f"The Energy per lap is not valid.")
+                                      f"{error:+.2f} %, more than {lapsim.BALANCE_PCT:g} %"
+                                      f"{short_text}. The Energy per lap is not valid.")
         if verdict.beyond_reason:
             # a machine or source ran past its data: what depends on how it ran
             for label in ("Consumption", "Fuel consumption", "CO₂ emissions",
-                          *(row[0] for row in verdict.rows)):
+                          *(row[0] for row in verdict.rows), *lap_rows):
                 not_valid[label] = verdict.beyond_reason
         if ctx.throughput_wh > 0 and ctx.residual_wh > 1e-3 * ctx.throughput_wh:
             for s in summary:

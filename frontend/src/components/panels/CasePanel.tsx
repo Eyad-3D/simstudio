@@ -383,7 +383,7 @@ export function CasePanel() {
                 </label>
                 <label
                   className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-                  title="Laps driven one after the other (a case override): lap 1 from the Vehicle's Initial Speed, each later lap from the speed the one before ended with."
+                  title="Laps driven one after the other (a case override): lap 1 from the Vehicle's Initial Speed (no faster than the first corner allows), each later lap from the speed the one before ended with."
                 >
                   Laps
                   <input

@@ -178,22 +178,32 @@ gears, brakes and battery. It is not a driving simulation:
   the wheels, holds Gearboxes in their gear and commands every E-Motor
   itself, with one demand for all, so Scripts or controllers between the
   Driver and the motors (torque vectoring, traction control) do nothing.
+  With E-Motors on both axles, the driven wheels' grip is used together,
+  as if the torque went to whichever axle has grip to spare: a car whose
+  axles' torque does not match their grip can be slower than lap mode
+  says (with a 6.5 front and a 4.0 rear final drive a 600 m straight
+  took 3.7 % longer in the time domain, against 1.6 % with equal final
+  drives).
 - The powertrain's limit is read at each lap's start, with the battery's
   charge and voltage then. Within a lap the motors can fall short of the
   speed where the battery's voltage sags more than expected; the *Lap
   energy balance error* shows it, and above 0.5 % the *Energy per lap* is
-  marked not valid. The Output Power Limit is held at every point; the
-  check window's average is not used to let short peaks through.
+  marked not valid, and so are the lap times when the motors gave less
+  than the speed asked for (or the battery reached its minimum SOC).
+  The Output Power Limit is held at every point; the check window's
+  average is not used to let short peaks through.
 - Sideways load transfer is shared between the axles as the static weight
   is (no roll stiffness or anti-roll bars), and each axle's wheels are
-  taken in pairs across the car.
+  taken in pairs across the car, the same way in left and right corners:
+  give the left and right wheels the same load share.
 - Driving a lap's speed as a drive cycle gives other energy figures: the
   drive cycles' Driver has no brake balance or ABS and can lock the driven
   wheels when braking hard (a Formula Student-sized car driving its
   Autocross lap's speed as a drive cycle used 62 % more energy and
   recuperated 30 Wh instead of 110 Wh).
 - Live edits during a lap case reach the motors, gears and battery at
-  once, but the lap's speed is solved at each lap's start.
+  once, but the lap's speed, with the edited tyres, Vehicle and brakes,
+  is solved again only at the next lap's start.
 - A Custom track's curvature is used as entered: a logged lateral
   acceleration / speed² is noisy and should be smoothed first. Data Checks
   refuse a curvature above 0.5 1/m (a 2 m radius).

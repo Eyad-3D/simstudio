@@ -69,7 +69,7 @@ NUMERIC_RANGES: dict[str, tuple[str, float, float]] = {
     "aero_balance_front_pct": ("Aero balance (front)", -0.001, 100.0),
     "mu_lateral": ("Lateral friction μ_y", -0.001, math.inf),
     "mu_nominal_load_N": ("Nominal load Fz0", -0.001, math.inf),
-    "friction_ellipse_exponent": ("Friction ellipse exponent", 0.0, 10.0),
+    "friction_ellipse_exponent": ("Friction ellipse exponent", 0.999, 10.0),  # at least 1
 }
 
 POSITIVE_PARAMS = {

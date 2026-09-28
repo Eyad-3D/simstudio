@@ -11,7 +11,7 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
-from helpers import fs_car, series
+from helpers import FS_FULL_LOAD, FS_LOSS, conn, dbc, el, fs_car, series
 
 from app.main import app
 from app.schemas import SimCase
@@ -191,27 +191,35 @@ def _closure(result, proj, aux_kw=0.0):
     return 100.0 * (parts - battery) / battery
 
 
-@pytest.mark.parametrize("battery,aux_kw", [
-    ({}, 0.0),
-    ({"internal_resistance_ohm": 1.2}, 0.0),  # its maximum-power point (61 kW) limits the motor
-    ({"internal_resistance_ohm": 1.2}, 1.0),
+@pytest.mark.parametrize("battery,aux_kw,dcdc_pct", [
+    ({}, 0.0, None),
+    ({"internal_resistance_ohm": 1.2}, 0.0, None),  # its maximum-power point (61 kW) limits the motor
+    ({"internal_resistance_ohm": 1.2}, 1.0, None),
+    ({}, 1.0, 90),  # on a low-voltage bus behind a 90 % DC-DC
 ])
-def test_lap_energy_closes_against_the_component_losses(battery, aux_kw):
+def test_lap_energy_closes_against_the_component_losses(battery, aux_kw, dcdc_pct):
     """The item's metric: over an Autocross lap the battery's net energy at
     its terminals matches the kinetic energy, road load, friction brakes,
-    gear and motor losses (and a 1 kW consumer) within 0.5 %, from the
-    recorded channels (measured +0.002, +0.030 and +0.033 %), and so does the
-    summary's Lap energy balance error, also where the battery's
-    maximum-power point holds the motor back."""
+    gear and motor losses (and a 1 kW consumer, with its DC-DC's losses)
+    within 0.5 %, from the recorded channels (measured +0.002, +0.030,
+    +0.033 and +0.002 %), and so does the summary's Lap energy balance
+    error, also where the battery's maximum-power point holds the motor
+    back."""
     proj = fs_car(battery=battery)
     if aux_kw:
-        from helpers import conn, el
-        proj.systems[0].elements.append(el("aux", "electric.constant_drive", "Aux", power_kW=aux_kw))
-        proj.systems[0].connections.append(conn(99, "hvbus", "t2", "aux", "pos"))
+        s = proj.systems[0]
+        s.elements.append(el("aux", "electric.constant_drive", "Aux", power_kW=aux_kw))
+        if dcdc_pct:
+            s.elements += [el("dcdc", "controller.dcdc", "DC-DC", efficiency_pct=dcdc_pct,
+                              output_voltage_V=24), el("lv", "electric.node", "LV Bus")]
+            s.connections += [conn(97, "hvbus", "t2", "dcdc", "a_pos"),
+                              conn(98, "dcdc", "b_pos", "lv", "t1"), conn(99, "lv", "t2", "aux", "pos")]
+        else:
+            s.connections.append(conn(99, "hvbus", "t2", "aux", "pos"))
     result = simulate(proj, "case")
     rows = _rows(result)
     assert abs(rows["Lap energy balance error"]) <= 0.5
-    assert abs(_closure(result, proj, aux_kw)) <= 0.5
+    assert abs(_closure(result, proj, aux_kw / (dcdc_pct or 100) * 100)) <= 0.5
     if battery:
         assert rows["Time limited by battery"] > 0
 
@@ -292,10 +300,82 @@ def test_limit_times_add_up():
     assert set(_values(result, "trk", "sig_limit")) <= {1, 2, 3, 4, 5, 6}
 
 
+def test_all_wheel_drive_passes_the_slower_motor_top_speed():
+    """A second E-Motor on the front wheels through a 6.5 final drive stops
+    driving at 86.7 km/h (its 6,500 1/min); on a 600 m straight the rear
+    motor takes the car on towards its own top speed (measured 139.5 km/h,
+    the time-domain acceleration test 134.9 km/h), and the energy pass,
+    with the front motor's drag above its top speed, closes the balance
+    (measured 0.002 %)."""
+    proj = fs_car("Custom")
+    s = proj.systems[0]
+    next(e for e in s.elements if e.id == "trk").parameterOverrides.update(
+        curvature_table={"0": 0, "600": 0}, closed=False)
+    s.connections = [c for c in s.connections if c.sourceElementId not in ("bfl", "bfr")]
+    s.elements += [
+        el("mot2", "motor.emotor", "E-Motor F", full_load_torque=FS_FULL_LOAD, power_loss=FS_LOSS,
+           drag_torque={"0": 0, "6500": 0.5}, max_speed_rpm=6500, inertia_kgm2=0.02),
+        el("fd2", "mech.final_drive", "Final Drive F", ratio=6.5, efficiency_pct=97),
+        el("diff2", "mech.differential", "Differential F", efficiency_pct=99),
+        el("nfl", "mech.node", "Node FL"), el("nfr", "mech.node", "Node FR")]
+    s.connections += [conn(200, "hvbus", "t4", "mot2", "pos"),
+                      conn(201, "mot2", "shaft", "fd2", "flange_in"),
+                      conn(202, "fd2", "flange_out", "diff2", "flange_in")]
+    for i, (w, out) in enumerate((("fl", "flange_out_a"), ("fr", "flange_out_b"))):
+        s.connections += [conn(203 + 3 * i, "diff2", out, f"n{w}", "f1"),
+                          conn(204 + 3 * i, f"n{w}", "f2", f"b{w}", "flange"),
+                          conn(205 + 3 * i, f"n{w}", "f3", w, "shaft")]
+    proj.dataBusConnections.append(dbc(300, "drv", "sig_traction_cmd", "mot2", "sig_demand_in"))
+    result = simulate(proj, "case")
+    assert max(_values(result, "veh", "sig_speed")) > 130.0
+    assert abs(_rows(result)["Lap energy balance error"]) <= 0.5
+
+
+def test_live_edits_reach_the_next_lap():
+    """A live edit of the tyres' μ (1.5 to 1.0) early in lap 1 of three:
+    laps 2 and 3 corner at no more than 1.0 g, and lap 3 takes the time a
+    run at μ 1.0 takes (the cornering speeds are solved again at each
+    lap's start)."""
+    calls = [0]
+
+    def control():
+        calls[0] += 1
+        return ([{"type": "set_param", "elementId": w, "key": "mu", "value": 1.0}
+                 for w in ("fl", "fr", "rl", "rr")] if calls[0] == 100 else [])
+
+    result = simulate(fs_car("Autocross", 3), "case", control=control)
+    lat = _values(result, "trk", "sig_lat_accel")
+    lap = _values(result, "trk", "sig_lap")
+    assert max(abs(a) for a, k in zip(lat, lap) if k > 1) <= 1.0 + 1e-3
+    ends = _lap_ends(result)
+    fresh = _rows(simulate(fs_car("Autocross", 3, mu=1.0), "case"))["Lap time"]
+    assert ends[2] - ends[1] == pytest.approx(fresh, abs=2e-3)
+
+
+def test_lap_times_not_valid_when_the_car_had_less_than_they_assume():
+    """A battery that reaches its minimum SOC in lap 2, or a motor run past
+    its Full-Load Torque table: the lap times, like the Energy per lap, are
+    marked not valid (the laps were solved with power the car did not
+    have, or from data it did not hold)."""
+    result = simulate(fs_car("Autocross", 2, battery={"capacity_kWh": 0.5}), "case")
+    marked = {s.label: s.notValid for s in result.summary}
+    for label in ("Lap time", "Lap 1 time", "Total time", "Sector 1 time", "Average speed",
+                  "Energy per lap"):
+        assert marked[label] == "the battery reached its minimum SOC"
+    assert marked["Lap energy balance error"] is None
+
+    proj = fs_car()
+    mot = next(e for e in proj.systems[0].elements if e.id == "mot")
+    mot.parameterOverrides["full_load_torque"] = {"300": FS_FULL_LOAD["600"],
+                                                  "400": FS_FULL_LOAD["600"]}
+    marked = {s.label: s.notValid for s in simulate(proj, "case").summary}
+    assert "past its 'Full-Load Torque' table" in marked["Lap time"]
+    assert marked["Sector 2 time"] == marked["Energy per lap"] == marked["Lap time"]
+
+
 def test_lap_case_refuses_unsupported_drivelines():
     """The P2 hybrid with a Race Track: a lap case is refused, naming its
     Combustion Engine and its Clutch, in the run and in Data Checks."""
-    from helpers import el
     proj = load_example("hybrid-car")
     proj.systems[0].elements.append(el("trk", "track.lap", "Race Track"))
     case = proj.cases[0]
@@ -325,12 +405,15 @@ def test_lap_case_refuses_unsupported_drivelines():
     (lambda p: next(e for e in p.systems[0].elements if e.id == "trk").parameterOverrides.update(
         laps=2.5),
      "Laps must be a whole number"),
+    (lambda p: setattr(p.systems[0], "elements",
+                       [e for e in p.systems[0].elements if e.id != "drv"]),
+     "A lap case needs a Driver"),
 ])
 def test_lap_problems_are_refused(change, expected):
     """A lap case without a Race Track, with every wheel on one axle, with
     a curvature tighter than 0.5 1/m (a 2 m radius), a Custom table that
-    does not start at 0 m or a fraction of a lap is refused in the run and
-    in Data Checks."""
+    does not start at 0 m, a fraction of a lap or no Driver is refused in
+    the run and in Data Checks."""
     proj = fs_car()
     change(proj)
     result = simulate(proj, "case")
