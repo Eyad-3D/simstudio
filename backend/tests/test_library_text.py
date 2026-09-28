@@ -1,6 +1,7 @@
-"""The component descriptions are the app's in-place help text (library
-tooltip, Properties panel), so they must not send users to ports that do not
-exist."""
+"""The component descriptions and parameter texts are the app's in-place
+help (library tooltip, Properties panel, the help card), so they must say
+something about every parameter and must not send users to ports that do
+not exist."""
 from __future__ import annotations
 
 import re
@@ -13,12 +14,20 @@ PORT_REFERENCE = re.compile(
 )
 
 
+def _help_texts(comp):
+    """The component's description and its parameters' help texts."""
+    yield comp.description or ""
+    for p in comp.parameters:
+        yield from (getattr(p, f) or "" for f in HELP_FIELDS)
+
+
 def test_descriptions_name_ports_that_exist():
     by_name = {c.name: c for c in load_library()}
     wrong = []
     found = 0
     for comp in load_library():
-        for owner, port, direction in PORT_REFERENCE.findall(comp.description or ""):
+        for owner, port, direction in (m for text in _help_texts(comp)
+                                       for m in PORT_REFERENCE.findall(text)):
             found += 1
             target = by_name.get(owner)
             if target is None or not any(
@@ -30,6 +39,29 @@ def test_descriptions_name_ports_that_exist():
 
 
 LIMITS = ("minimum", "exclusiveMinimum", "maximum")
+HELP_FIELDS = ("description", "typical", "whereToFind")
+
+
+def test_every_parameter_is_explained():
+    """LRN-05: every parameter says what it is, what values are usual and
+    where the real number comes from, each in a sentence or three: the help
+    card is 290 px wide, and the help's component pages, AI tools and the
+    reference read the same texts."""
+    missing, unfinished, long_ = [], [], []
+    for comp in load_library():
+        for p in comp.parameters:
+            for field in HELP_FIELDS:
+                text = (getattr(p, field) or "").strip()
+                where = f"{comp.name} · {p.label} · {field}"
+                if not text or "TODO" in text:
+                    missing.append(where)
+                elif not text.endswith((".", ")")):
+                    unfinished.append(where)
+                elif len(text) > 320:
+                    long_.append(f"{where} ({len(text)})")
+    assert not missing, f"{len(missing)} parameter texts missing, e.g. " + "; ".join(missing[:5])
+    assert not unfinished, "not a full sentence: " + "; ".join(unfinished)
+    assert not long_, "over 320 characters: " + "; ".join(long_)
 
 
 def test_limits_fit_the_defaults():

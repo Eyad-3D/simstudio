@@ -21,7 +21,10 @@ function misfits(page: Page): Promise<string[]> {
     )!;
     const content = group.querySelector(".dv-content-container")!;
     const panel = content.getBoundingClientRect();
-    const shown = [...content.querySelectorAll("*")].filter((el) => el.getClientRects().length > 0);
+    // (a parameter's help card floats beside the panel, in the top layer)
+    const shown = [...content.querySelectorAll("*")].filter(
+      (el) => el.getClientRects().length > 0 && !el.closest(".ss-help-card"),
+    );
     // the most lines one run of text in `el` wraps onto (a line per row of boxes)
     const lines = (el: Element) => {
       let most = 0;

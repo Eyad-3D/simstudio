@@ -365,12 +365,24 @@ minimum or an average, for example from the CSV export.
   LightSim's help in your web browser, served from your computer: two
   tutorials, how-to guides, a page for every part in the library, and the
   documents that come with each release. It is new: if a page does not
-  match what the app shows, the app is right. The parameters are not yet
-  explained one by one (a part's page lists them with their units and
-  defaults), there are no pictures of the app beyond the quick start's,
-  the help opens outside the app window, and it is not online yet.
-  *Roadmap:* LRN-05 (parameters), LRN-09 (help inside the app), LRN-04
+  match what the app shows, the app is right. There are no pictures of the
+  app beyond the quick start's, the help opens outside the app window, and
+  it is not online yet. *Roadmap:* LRN-09 (help inside the app), LRN-04
   (follow-up: online).
+- **The parameter texts are first drafts.** Rest the pointer on a
+  parameter, or move to it with Tab, to see what it is, its usual values
+  and where to find the real number; each part's help page lists the same
+  texts. They follow what the solver does, but the usual values come from
+  general knowledge and no vehicle engineer has reviewed them yet: check a
+  value that matters against its source. *Roadmap:* LRN-05 (review),
+  CON-13 (where a value came from).
+- **Limits are checked one parameter at a time.** Data Checks and the form
+  check each number against its own limits only: a PID's Output Minimum
+  above its Output Maximum, or a Default Gear past the last gear, is not
+  flagged. A sweep's From and To are not checked as you type; a point
+  outside the limits fails when it runs, with the Data Check's reason.
+  Properties does not mark a value that differs from the library's default
+  and cannot reset it. *Roadmap:* UX-38 (the mark and reset).
 - **Licence.** LightSim is proprietary (`LICENSE`). The desktop app is free
   for evaluation, learning, research and other non-commercial use under its
   end-user licence agreement (`EULA.txt`, installed with the app);

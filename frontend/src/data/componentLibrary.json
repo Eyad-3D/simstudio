@@ -53,7 +53,10 @@
           "unit": "kg",
           "default": 1800,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The whole vehicle's mass as it drives: the empty vehicle plus driver, passengers and load. It sets the force needed to speed up and to climb, and the weight on the wheels (their grip and rolling resistance).",
+          "typical": "Formula Student car 250–350 kg with driver · small car 1,000–1,400 kg · mid-size EV 1,700–2,300 kg (the BEV example 1,927 kg) · van 2,000–3,500 kg.",
+          "whereToFind": "Kerb weight from the datasheet or registration papers, plus about 75 kg per person and the load; for a test cycle, its test mass (WLTP test mass, EPA equivalent test weight)."
         },
         {
           "key": "cd",
@@ -61,7 +64,10 @@
           "unit": "-",
           "default": 0.28,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How easily air flows round the vehicle's shape: air drag = ½ × air density × Cd × frontal area × speed². Used only when Road Load From is Drag and rolling resistance.",
+          "typical": "Formula Student car with wings 1.0–1.6 · small car 0.30–0.35 · mid-size EV 0.23–0.30 (the BEV example 0.27) · van 0.30–0.40.",
+          "whereToFind": "The manufacturer's datasheet, a wind-tunnel test or a CFD result; for your own design, CFD or a coast-down fit of Cd × frontal area."
         },
         {
           "key": "frontal_area_m2",
@@ -69,7 +75,10 @@
           "unit": "m²",
           "default": 2.2,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The area of the vehicle seen from the front, which the air has to get past. Air drag grows in step with it. Used only when Road Load From is Drag and rolling resistance.",
+          "typical": "Formula Student car 1.0–1.3 m² · small car 2.0–2.2 m² · mid-size EV 2.2–2.5 m² (the BEV example 2.31 m²) · van 3.0–4.5 m².",
+          "whereToFind": "The datasheet, or about 0.85 × width × height from the dimensions; CAD for your own design."
         },
         {
           "key": "road_load_mode",
@@ -131,7 +140,10 @@
           "unit": "km/h",
           "default": 0,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The vehicle's speed at t = 0, with its wheels already turning at that speed. Leave it at 0 for a drive cycle that starts at standstill; set it to start a coast-down or a steady-speed run already moving.",
+          "typical": "0 km/h for drive cycles and acceleration tests; the first speed of the test otherwise (for example 130 km/h for a coast-down).",
+          "whereToFind": "The first point of your target-speed profile or test procedure."
         }
       ]
     },
@@ -193,7 +205,10 @@
           "unit": "1/(km/h)",
           "default": 0.35,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How hard the driver reacts to being too slow or too fast: the pedal command is P Gain × the speed error plus I Gain × its sum over time, from full brake (−1) to full throttle (1). At 0.35, 3 km/h too slow gives full throttle.",
+          "typical": "0.2–0.5 for cars (the default 0.35). Higher follows a cycle more tightly, but the pedal can start to jump between throttle and brake.",
+          "whereToFind": "Tune it: raise it until the speed follows the cycle within its tolerance (about ±2 km/h for WLTP), and lower it if the pedal chatters."
         },
         {
           "key": "driver_ki",
@@ -201,7 +216,10 @@
           "unit": "1/(km/h·s)",
           "default": 0.08,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How the driver makes up a speed error that lasts: the error's sum over time, times this gain, adds to the pedal command. It removes the steady lag at constant speed and on slopes; too high makes the speed swing past the target.",
+          "typical": "0.02–0.15 for cars (the default 0.08); 0 for a pedal that reacts only to the present error.",
+          "whereToFind": "Tune it after the P Gain: raise it until the speed settles on the target at constant speed, and lower it if the speed swings past it."
         },
         {
           "key": "regen_weight_pct",
@@ -280,7 +298,10 @@
           "unit": "kWh",
           "default": 60,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The energy the pack gives out from 100 % to 0 % SOC (state of charge). Minimum SOC keeps a reserve below which it is not used. With Charge Capacity at 0 it also sets the pack's amp-hours.",
+          "typical": "Formula Student car 6–9 kWh · small EV 30–45 kWh · mid-size EV 55–85 kWh (the BEV example 62 kWh) · electric van 40–110 kWh · full hybrid 1–2 kWh (the hybrid example 1.56 kWh).",
+          "whereToFind": "The datasheet's gross or usable energy. With the gross figure, set Minimum SOC to the unused share (the BEV example: 62 kWh with a 4 % floor, 58 kWh usable)."
         },
         {
           "key": "capacity_Ah",
@@ -334,7 +355,10 @@
           "unit": "Ω",
           "default": 0.08,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The pack's resistance: its voltage drops by R0 × current at once, and R0 × current² is lost as heat. It also limits the most power the pack can give, reached when the voltage has fallen to half the open-circuit voltage.",
+          "typical": "Car packs 0.05–0.15 Ω (the default 0.08 Ω, the hybrid example 0.1 Ω); Formula Student packs 0.2–0.6 Ω.",
+          "whereToFind": "A pulse test (the voltage step when the current steps, ÷ the current step), or the cell's DC resistance × cells in series ÷ cells in parallel."
         },
         {
           "key": "rc_resistance_ohm",
@@ -366,7 +390,10 @@
           "unit": "kW",
           "default": 120,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The most power the pack takes while it is charged by recuperation or a DC-DC converter. When the motors would feed back more, they brake less and the friction brakes do the rest. At 0 the pack takes no charge.",
+          "typical": "Small EV 40–70 kW · mid-size EV 80–150 kW · full hybrid 20–40 kW · Formula Student car 20–50 kW.",
+          "whereToFind": "The battery or vehicle datasheet's peak regenerative or DC fast-charging power, or the cells' maximum charge current × the pack voltage."
         },
         {
           "key": "initial_soc_pct",
@@ -376,7 +403,10 @@
           "default": 90,
           "type": "number",
           "exclusiveMinimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "How full the battery is when the run starts, in % of its charge capacity.",
+          "typical": "90–100 % for a range or consumption run; 50–60 % for a hybrid, which keeps its charge near the middle (the hybrid example's cases start at 52–59 %).",
+          "whereToFind": "The test procedure (a WLTP test on an electric car starts full), or the battery management system's reading at the start of a logged drive."
         },
         {
           "key": "min_soc_pct",
@@ -385,7 +415,10 @@
           "default": 10,
           "type": "number",
           "exclusiveMinimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "The charge the pack keeps in reserve: below this SOC it gives out no more, and the motors get only what is left. With a gross Usable Capacity, it holds back the part the car never uses.",
+          "typical": "Electric cars 3–10 % (the BEV example 4 %); hybrids 20–40 %, which use only the middle of the range.",
+          "whereToFind": "The gap between the datasheet's gross and usable energy, as a share of the gross; or the battery management system's lower limit."
         }
       ]
     },
@@ -531,7 +564,10 @@
               "11000": 114.3,
               "12000": 104.7
             }
-          }
+          },
+          "description": "The most torque the motor gives at each supply voltage and speed. A Traction Command of 1 asks for all of it; −1 asks for the share the Generator Torque Limit Scale allows as a generator. Between points it is interpolated.",
+          "typical": "Car motors 200–450 N·m up to their base speed, then falling as the power stays level (the BEV example 310 N·m up to 150 kW).",
+          "whereToFind": "The motor or inverter datasheet's peak torque curve at one or more DC voltages; a dynamometer test for your own motor."
         },
         {
           "key": "power_loss",
@@ -550,7 +586,7 @@
             "12000": { "0": 1.9, "100": 5.6, "200": 9.6, "350": 18.9 }
           },
           "description": "Everything the motor and inverter lose while the inverter is on, at each speed and torque, spin losses at 0 N·m included. Electrical power = torque × speed + this loss, driving or recuperating.",
-          "typical": "About 3–10 % of the shaft power near full load, a larger share at low torque; a few hundred watts at 0 N·m and high speed.",
+          "typical": "About 3–10 % of the shaft power near full load, a larger share at low torque; at 0 N·m it grows with speed (the BEV example 0.06 kW at standstill, 1.57 kW at 16,000 1/min).",
           "whereToFind": "An efficiency map from the datasheet or a dynamometer test: loss = shaft power × (1 ÷ efficiency − 1) when driving."
         },
         {
@@ -576,7 +612,10 @@
           "unit": "1/min",
           "default": 0,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The fastest the motor may turn. Its drive torque falls to 0 over the last 2 % below it, and above it the inverter is off: no drive and no recuperation. 0 uses the last speed point of the Full-Load Torque table.",
+          "typical": "0 in most models (the default motor then stops at 12,000 1/min, the BEV example's at 16,000 1/min); car motors turn up to 12,000–20,000 1/min.",
+          "whereToFind": "The motor datasheet's maximum speed, or top speed (km/h) × final drive ratio ÷ (0.377 × wheel radius in m)."
         },
         {
           "key": "inertia_kgm2",
@@ -585,7 +624,10 @@
           "unit": "kg·m²",
           "default": 0.045,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The rotor's resistance to speeding up. The car spins it up through the gears, where it counts with the square of the gear ratio.",
+          "typical": "Car traction motors 0.02–0.1 kg·m²; small hub motors under 0.005 kg·m².",
+          "whereToFind": "The motor datasheet (rotor moment of inertia), or CAD of the rotor."
         },
         {
           "key": "q4_torque_scale_pct",
@@ -682,7 +724,10 @@
           "default": 97,
           "type": "number",
           "exclusiveMinimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "The share of the power drawn on the input side that comes out on the output side; the rest is lost as heat. Power flows one way only, from input to output.",
+          "typical": "95–98 % for high-voltage converters; 90–95 % for a 12 V supply converter.",
+          "whereToFind": "The converter datasheet's efficiency near its usual load."
         },
         {
           "key": "output_voltage_V",
@@ -690,14 +735,20 @@
           "unit": "V",
           "default": 350,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The voltage the converter holds on its output side when that bus has no battery or other source of its own; the motors on that bus read their torque maps at it.",
+          "typical": "The voltage of what it feeds: 12–14 V for a low-voltage net, 300–800 V for a traction bus.",
+          "whereToFind": "The datasheet of the converter or of the motor inverter it feeds (nominal DC-link voltage)."
         },
         {
           "key": "power_setpoint_kW",
           "label": "Power Setpoint (battery-bus mode)",
           "unit": "kW",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "description": "The power the converter delivers when its output side has a battery, unless its Power Setpoint input is wired; the battery covers the rest of the load. It throttles back when the battery is full. A negative value counts as 0.",
+          "typical": "The fuel cell's steady output in a fuel-cell hybrid car, for example 20–60 kW; 0 when a control signal sets it.",
+          "whereToFind": "Your energy-management strategy: for example the average power the cycle needs, or a control script's output."
         }
       ]
     },
@@ -749,7 +800,10 @@
           "unit": "V",
           "default": 350,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The fixed voltage of an ideal source that gives or takes any power, with no losses and no limit; the motors on its bus read their torque maps at it. Useful to test a drive without a battery model.",
+          "typical": "The voltage you want to test at: 300–400 V for 400 V-class cars, 600–800 V for 800 V-class cars, up to 600 V for Formula Student.",
+          "whereToFind": "The nominal voltage of the battery it stands in for, from its datasheet."
         }
       ]
     },
@@ -858,7 +912,10 @@
           "label": "Constant Power Draw",
           "unit": "kW",
           "default": 2.5,
-          "type": "number"
+          "type": "number",
+          "description": "The electrical power the consumer draws all the time, unless its Power demand input is wired. A negative value counts as 0. When its source cannot supply it, it is cut back and Messages says so.",
+          "typical": "Low-voltage loads 0.2–0.5 kW (the BEV example 0.25 kW) · heating or air-conditioning 1–3 kW (the BEV example's heating/air-con case 2.5 kW).",
+          "whereToFind": "A logged current × voltage on the vehicle, or the loads' datasheet powers added up; FASTSim's vehicle files give an auxiliary load (auxKw)."
         }
       ]
     },
@@ -938,7 +995,10 @@
           "default": 100,
           "type": "number",
           "exclusiveMinimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "The share of the torque the shaft passes on in the direction the power flows; the rest is lost in its bearings or joints. 100 % is a lossless shaft.",
+          "typical": "100 % for a plain shaft; 98–99.5 % for one with joints or bearings you want to count.",
+          "whereToFind": "The joint or bearing maker's data, or 100 % when you do not model the loss."
         },
         {
           "key": "inertia_kgm2",
@@ -947,7 +1007,10 @@
           "unit": "kg·m²",
           "default": 0.01,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The shaft's resistance to speeding up, added to everything that turns with it.",
+          "typical": "0.001–0.05 kg·m² for drive shafts; 0 to leave it out.",
+          "whereToFind": "CAD, or ½ × mass × radius² for a solid shaft."
         }
       ]
     },
@@ -998,7 +1061,10 @@
           "unit": "-",
           "default": 9.7,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "Input speed ÷ output speed: the output turns this many times slower, with this many times the torque, less the losses.",
+          "typical": "Electric cars 8–13 (the BEV example 12.8) · combustion and hybrid cars 3–4.5 after a gearbox (the hybrid example 3.38) · Formula Student cars 3–5 with a chain, 10–15 in hub motors.",
+          "whereToFind": "The datasheet or service manual; or count the teeth (driven ÷ driving); or motor speed ÷ wheel speed at a known road speed."
         },
         {
           "key": "inertia_in_kgm2",
@@ -1007,7 +1073,10 @@
           "unit": "kg·m²",
           "default": 0.01,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The inertia of the gear's fast (input) side, added at the input speed.",
+          "typical": "0.001–0.02 kg·m²; 0 to leave it out.",
+          "whereToFind": "CAD of the input shaft and gear, or the gear maker's data."
         },
         {
           "key": "inertia_out_kgm2",
@@ -1016,7 +1085,10 @@
           "unit": "kg·m²",
           "default": 0.02,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The inertia of the gear's slow (output) side, added at the output speed.",
+          "typical": "0.01–0.1 kg·m²; 0 to leave it out.",
+          "whereToFind": "CAD of the output shaft and crown wheel, or the gear maker's data."
         },
         {
           "key": "efficiency_pct",
@@ -1026,7 +1098,10 @@
           "default": 97,
           "type": "number",
           "exclusiveMinimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "The share of the torque the gear passes on in the direction the power flows, driving or recuperating. With Coefficients Include Driveline Losses ticked on the Vehicle, it runs without losses.",
+          "typical": "96–98 % for a single-stage reduction gear (the examples 98 %).",
+          "whereToFind": "The gear maker's data, or the transmission efficiency in FASTSim's vehicle files."
         }
       ]
     },
@@ -1090,7 +1165,10 @@
           "label": "Locked",
           "unit": "-",
           "default": false,
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Unticked (open): both outputs get the same torque and may turn at different speeds. Ticked: both outputs turn at the same speed, and each gets the torque its wheel's grip allows.",
+          "typical": "Unticked for road cars; ticked for a locked axle or spool.",
+          "whereToFind": "The car's specification: an open, limited-slip or locked differential (a limited-slip one lies between the two)."
         },
         {
           "key": "ratio",
@@ -1099,7 +1177,10 @@
           "unit": "-",
           "default": 1.0,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "Input speed ÷ the mean output speed. Leave it at 1 when a Final Drive before it holds the axle's reduction.",
+          "typical": "1 with a separate Final Drive (as in the examples); 3–4.5 when the differential holds the axle's reduction.",
+          "whereToFind": "The datasheet or service manual (the axle ratio)."
         },
         {
           "key": "efficiency_pct",
@@ -1109,7 +1190,10 @@
           "default": 98,
           "type": "number",
           "exclusiveMinimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "The share of the torque the differential passes on in the direction the power flows. With Coefficients Include Driveline Losses ticked on the Vehicle, it runs without losses.",
+          "typical": "97–99 % on its own; 100 % when the Final Drive's efficiency holds the whole axle's loss (as in the examples).",
+          "whereToFind": "The axle maker's data, or 100 % with one efficiency for the whole axle on the Final Drive."
         },
         {
           "key": "inertia_kgm2",
@@ -1118,7 +1202,10 @@
           "unit": "kg·m²",
           "default": 0.015,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The inertia of the differential's case and gears, added at its input speed.",
+          "typical": "0.005–0.05 kg·m².",
+          "whereToFind": "CAD or the axle maker's data."
         }
       ]
     },
@@ -1225,7 +1312,10 @@
           "unit": "m",
           "default": 0.33,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The tyre's rolling radius: road speed = wheel speed × radius, and drive force = wheel torque ÷ radius.",
+          "typical": "Formula Student car 0.20–0.26 m · small car 0.28–0.31 m · mid-size EV 0.33–0.36 m (the BEV example 0.3488 m) · van 0.33–0.37 m.",
+          "whereToFind": "The tyre maker's rolling circumference ÷ 2π, or from the tyre size: rim diameter (in) × 0.0127 + width (mm) × aspect ratio (%) ÷ 100,000, about 3 % less under load."
         },
         {
           "key": "inertia_kgm2",
@@ -1234,7 +1324,10 @@
           "unit": "kg·m²",
           "default": 1.2,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The wheel and tyre's resistance to spinning up, which the drive has to overcome as well as the vehicle's mass. A brake disc's inertia goes on its Brake.",
+          "typical": "Formula Student wheels 0.1–0.3 kg·m² · car wheels 0.6–1.2 kg·m² (the examples 0.815 kg·m²) · van wheels 1.0–2.0 kg·m².",
+          "whereToFind": "The tyre and rim makers' data or CAD; FASTSim's vehicle files give it per wheel (wheelInertiaKgM2)."
         },
         {
           "key": "vehicle_load_share_pct",
@@ -1276,7 +1369,10 @@
           "unit": "-",
           "default": 0.012,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The tyre's rolling resistance: a force of this coefficient × the wheel's load holds the car back. Not used when the Vehicle takes its road load from Coefficients A/B/C.",
+          "typical": "Low-rolling-resistance car tyres 0.006–0.009 · other car tyres 0.010–0.013 (the BEV example 0.011) · Formula Student slicks 0.015–0.025.",
+          "whereToFind": "The tyre's EU label (class A: 0.0065 or less, class C: 0.0078–0.009), the tyre maker's data, or a coast-down fit."
         }
       ]
     },
@@ -1318,7 +1414,10 @@
           "unit": "N·m",
           "default": 1400,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The braking torque at a full Brake Command (1); a command in between gives that share. It works against the rotation and holds the shaft still at standstill.",
+          "typical": "Car brakes 1,500–3,000 N·m at the front and 500–1,500 N·m at the rear, per wheel; Formula Student 300–600 N·m per wheel.",
+          "whereToFind": "The brake maker's data, or clamp force × 2 × pad friction coefficient × effective disc radius."
         },
         {
           "key": "inertia_kgm2",
@@ -1327,7 +1426,10 @@
           "unit": "kg·m²",
           "default": 0.18,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The brake disc's resistance to spinning up, added to the shaft it sits on.",
+          "typical": "Car discs 0.1–0.3 kg·m² (the default 0.18 kg·m² is a 330 mm disc); Formula Student discs 0.005–0.02 kg·m².",
+          "whereToFind": "CAD, or ½ × mass × radius² for a solid disc."
         }
       ]
     },
@@ -1370,7 +1472,10 @@
           "unit": "N·m",
           "default": 500,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The load torque at the Reference Speed. At other speeds it grows with the square of speed: torque = this × (speed ÷ Reference Speed)².",
+          "typical": "Tens to thousands of N·m, from the propeller's or fan's size and speed.",
+          "whereToFind": "The propeller or fan maker's power curve: torque = power ÷ (2π × speed ÷ 60), at the reference speed."
         },
         {
           "key": "ref_speed_rpm",
@@ -1379,7 +1484,10 @@
           "unit": "1/min",
           "default": 2000,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The speed at which the load torque equals the Torque at Reference Speed.",
+          "typical": "The propeller's or fan's rated or cruise speed, often 1,500–3,000 1/min.",
+          "whereToFind": "The propeller or fan datasheet's rated speed."
         },
         {
           "key": "inertia_kgm2",
@@ -1388,7 +1496,10 @@
           "unit": "kg·m²",
           "default": 2.5,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The propeller's resistance to spinning up, added to the shaft that drives it.",
+          "typical": "From well under 1 kg·m² for a fan to a few kg·m² for a light-aircraft propeller.",
+          "whereToFind": "The propeller maker's data or CAD."
         }
       ]
     },
@@ -1415,14 +1526,20 @@
           "unit": "-",
           "default": "",
           "type": "string",
-          "variability": "fixed"
+          "variability": "fixed",
+          "description": "A standard drive cycle the task follows instead of its typed Profile: WLTC class 3b, EPA city (UDDS) or EPA highway (HWFET). Custom profile drives the typed points. Scale and Repeat Profile still apply.",
+          "typical": "WLTC class 3b for European figures; EPA city and highway for US ones; Custom profile for your own test.",
+          "whereToFind": "The regulation your figures are compared with: WLTP (UN GTR No. 15) in Europe, EPA's city (FTP) and highway tests in the United States."
         },
         {
           "key": "profile",
           "label": "Profile (t:speed; …)",
           "unit": "-",
           "default": "0:0; 30:50; 120:50; 150:80; 300:80; 330:30; 480:30; 540:0; 600:0",
-          "type": "string"
+          "type": "string",
+          "description": "The target speed over time as 'time:speed' pairs (s and km/h) separated by ';'. Between two points the speed follows a straight line; after the last it holds. Used when Drive Cycle is Custom profile.",
+          "typical": "A few points for a simple test (the default: 0 to 80 km/h and back over 600 s) up to one point a second for a measured trace.",
+          "whereToFind": "Type your test's speed trace, or paste it from a spreadsheet into the profile table (Edit…); a logged drive at 1 point a second works too."
         },
         {
           "key": "scale_pct",
@@ -1430,14 +1547,20 @@
           "unit": "%",
           "default": 100,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Multiplies every speed of the profile or cycle: 50 % drives it at half speed, 100 % as written.",
+          "typical": "100 % for standard cycles; less to try a gentler version of a cycle.",
+          "whereToFind": "Your study plan; a standard cycle's published figures hold only at 100 %."
         },
         {
           "key": "repeat",
           "label": "Repeat Profile",
           "unit": "-",
           "default": false,
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Ticked: after its last point the profile or cycle starts again from its first, for as long as the case runs. Unticked: the last speed holds.",
+          "typical": "Unticked for a standard cycle driven once; ticked for a range test that repeats a cycle until the case ends.",
+          "whereToFind": "Your test procedure: a range test repeats its cycle until the battery is empty (make the case's Duration long enough)."
         }
       ]
     },
@@ -1463,7 +1586,10 @@
           "label": "Value",
           "unit": "-",
           "default": 50,
-          "type": "number"
+          "type": "number",
+          "description": "The number the block outputs all the time, in whatever unit the input it feeds expects.",
+          "typical": "Depends on the input: 0–1 for a command, a gear number for a Gearbox's Gear Select, kW for a Power Consumer's Power demand.",
+          "whereToFind": "The value you want to hold fixed for a test, such as a gear or a command."
         }
       ]
     },
@@ -1483,7 +1609,10 @@
           "label": "Python Code",
           "unit": "-",
           "type": "code",
-          "default": "def step(t, dt, inputs, state, params):\n    # inputs: dict of input-port values (by port id)\n    # state:  dict persisting across steps\n    # return: dict of output-port values (by port id)\n    return {}\n"
+          "default": "def step(t, dt, inputs, state, params):\n    # inputs: dict of input-port values (by port id)\n    # state:  dict persisting across steps\n    # return: dict of output-port values (by port id)\n    return {}\n",
+          "description": "The Python step() function the block runs every solver step, or at its Sample Time: it gets the time, the step dt, its inputs, a state dict it keeps and its parameters, and returns a dict of its outputs.",
+          "typical": "A few lines for signal maths; up to a few hundred for a hybrid control strategy (the hybrid example's Hybrid Control Unit).",
+          "whereToFind": "Write it yourself; the help's Script API page lists what step() gets and what it may use."
         },
         {
           "key": "sample_time_s",
@@ -1534,7 +1663,10 @@
           "default": 20,
           "type": "number",
           "exclusiveMinimum": -273.15,
-          "maximum": 1000
+          "maximum": 1000,
+          "description": "The outside air temperature. With the Pressure it sets the air density for the Vehicle's drag (cold air is denser). No part's temperature follows it yet.",
+          "typical": "23 °C for WLTP tests, 20–30 °C for EPA's; −7 °C for a cold test; −20 to 40 °C for real weather.",
+          "whereToFind": "The test procedure, or a weather record for the place and season."
         },
         {
           "key": "pressure_kPa",
@@ -1542,7 +1674,10 @@
           "unit": "kPa",
           "default": 101.325,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The outside air pressure. With the Temperature it sets the air density for the Vehicle's drag: high up, the thinner air lowers the drag.",
+          "typical": "101.325 kPa at sea level; about 90 kPa at 1,000 m and 80 kPa at 2,000 m (1 bar = 100 kPa).",
+          "whereToFind": "A weather record (the station pressure, not the value reduced to sea level), or the standard atmosphere at your altitude."
         }
       ]
     },
@@ -1635,7 +1770,10 @@
             "5000": 156,
             "5500": 140,
             "6000": 120
-          }
+          },
+          "description": "The most torque the engine gives at each speed, net at the flywheel as on a datasheet; the Throttle asks for its share. The last speed is the rev limit (fuel cut above it); below the first speed it gives that point's torque.",
+          "typical": "Small car petrol engines 100–250 N·m (the hybrid example 147 N·m at 4,000 1/min).",
+          "whereToFind": "The engine datasheet's full-load (wide-open throttle) torque curve, or a dynamometer test."
         },
         {
           "key": "drag_torque",
@@ -1673,7 +1811,10 @@
             "4000": { "0": 2.1, "50": 6.2, "100": 11.7, "150": 17.5, "175": 20.6 },
             "5000": { "0": 3.0, "50": 8.1, "100": 15.2, "150": 22.7, "175": 26.8 },
             "6000": { "0": 4.2, "50": 10.4, "100": 19.2, "150": 28.6, "175": 33.8 }
-          }
+          },
+          "description": "The fuel the fired engine burns at each speed and torque. It comes out of the Fuel Tank, and the run adds it up for Fuel used, Fuel consumption and CO₂ emissions.",
+          "typical": "A few tenths of a kg/h at idle to 15–25 kg/h at full load for a car engine.",
+          "whereToFind": "A brake-specific fuel consumption (BSFC) map from a dynamometer: fuel (kg/h) = BSFC (g/kWh) × power (kW) ÷ 1,000."
         },
         {
           "key": "idle_speed_rpm",
@@ -1681,7 +1822,10 @@
           "unit": "1/min",
           "default": 800,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The speed the idle governor holds when the Throttle is 0: below it the engine adds torque, so it keeps turning when the car stops with the clutch open.",
+          "typical": "700–900 1/min for car engines (the default 800 1/min); higher for racing engines.",
+          "whereToFind": "The engine or vehicle datasheet, or the rev counter at idle."
         },
         {
           "key": "fuel_cut_reentry_rpm",
@@ -1689,7 +1833,10 @@
           "unit": "1/min",
           "default": 1100,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "At zero Throttle the fuel is cut above this speed (overrun fuel cut-off) and the engine drags; below it the idle governor fires it again.",
+          "typical": "1,000–1,500 1/min for car engines, a few hundred above the Idle Speed.",
+          "whereToFind": "The engine control unit's calibration, or a logged drive: the speed at which fuel flow comes back while coasting."
         },
         {
           "key": "inertia_kgm2",
@@ -1698,7 +1845,10 @@
           "unit": "kg·m²",
           "default": 0.18,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The crankshaft and flywheel's resistance to speeding up, added to everything that turns with the engine.",
+          "typical": "Car engines with flywheel 0.1–0.3 kg·m² (the default 0.18 kg·m²); small single-cylinder engines 0.02–0.05 kg·m².",
+          "whereToFind": "The engine maker's data, or CAD of the crankshaft and flywheel."
         }
       ]
     },
@@ -1733,7 +1883,10 @@
           "unit": "kg",
           "default": 45,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The most fuel the tank holds, as a mass. When it runs dry the engine shuts off.",
+          "typical": "Car tanks 30–60 kg (40–80 l of petrol); Formula Student cars 5–7 kg.",
+          "whereToFind": "The datasheet's tank volume (l) × the Fuel Density (kg/l)."
         },
         {
           "key": "initial_fill_pct",
@@ -1743,7 +1896,10 @@
           "default": 90,
           "type": "number",
           "minimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "How full the tank is when the run starts, in % of its Capacity.",
+          "typical": "90–100 % for most runs; less to see what happens when the tank runs dry.",
+          "whereToFind": "Your test plan; for a logged drive, the fuel gauge at the start."
         },
         {
           "key": "density_kg_per_l",
@@ -1751,7 +1907,10 @@
           "unit": "kg/l",
           "default": 0.745,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The mass of a litre of fuel. It turns the kilograms burnt into litres for Fuel consumption (l/100 km).",
+          "typical": "Petrol 0.72–0.775 kg/l (the default 0.745) · diesel 0.82–0.845 kg/l.",
+          "whereToFind": "The fuel's standard or datasheet: EN 228 petrol 0.720–0.775 kg/l and EN 590 diesel 0.820–0.845 kg/l, at 15 °C."
         },
         {
           "key": "co2_kg_per_kg",
@@ -1759,7 +1918,10 @@
           "unit": "kg/kg",
           "default": 3.17,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The CO₂ from burning one kilogram of fuel. It turns the fuel burnt into CO₂ emissions (g/km) in the run summary.",
+          "typical": "Petrol 3.17 kg/kg (the default) · diesel about 3.16 kg/kg.",
+          "whereToFind": "The fuel's carbon share by mass × 44 ÷ 12 (petrol holds about 86.5 % carbon), or the fuel's datasheet."
         }
       ]
     },
@@ -1824,7 +1986,10 @@
             "4": 1.15,
             "5": 0.87,
             "6": 0.7
-          }
+          },
+          "description": "Each gear's ratio (input speed ÷ output speed), by gear number. The Gear Select input picks the gear, the nearest one listed; unwired, the gearbox stays in its Default Gear.",
+          "typical": "Car gearboxes about 3.5–4 in first down to 0.6–0.8 in top (the default 3.9 to 0.7 over 6 gears).",
+          "whereToFind": "The gearbox datasheet or service manual, or count the teeth of each gear pair (driven ÷ driving)."
         },
         {
           "key": "default_gear",
@@ -1833,7 +1998,10 @@
           "unit": "-",
           "default": 1,
           "type": "number",
-          "minimum": 1
+          "minimum": 1,
+          "description": "The gear at the start, and for the whole run when nothing is wired to Gear Select.",
+          "typical": "1 when a shift strategy drives Gear Select; any gear you want a test to hold otherwise.",
+          "whereToFind": "Your test plan."
         },
         {
           "key": "efficiency_pct",
@@ -1843,7 +2011,10 @@
           "default": 97,
           "type": "number",
           "exclusiveMinimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "The share of the torque the gearbox passes on in the direction the power flows, in every gear. Unlike the axle gears, it keeps its losses when the Vehicle's coefficients include driveline losses.",
+          "typical": "95–98 % for manual and dual-clutch gearboxes (the default 97 %).",
+          "whereToFind": "The gearbox maker's data, or the transmission efficiency in FASTSim's vehicle files."
         },
         {
           "key": "inertia_in_kgm2",
@@ -1852,7 +2023,10 @@
           "unit": "kg·m²",
           "default": 0.015,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The inertia of the gearbox's input side, added at the input speed.",
+          "typical": "0.005–0.03 kg·m².",
+          "whereToFind": "CAD or the gearbox maker's data."
         },
         {
           "key": "inertia_out_kgm2",
@@ -1861,7 +2035,10 @@
           "unit": "kg·m²",
           "default": 0.02,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The inertia of the gearbox's output side, added at the output speed.",
+          "typical": "0.01–0.05 kg·m².",
+          "whereToFind": "CAD or the gearbox maker's data."
         }
       ]
     },
@@ -1918,7 +2095,10 @@
           "unit": "N·m",
           "default": 300,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The most torque the fully engaged clutch passes before it slips; an Engagement signal between 0 and 1 passes that share. Unwired, the clutch is fully engaged; at 0 N·m it stays open.",
+          "typical": "About 1.2–1.5 × the engine's peak torque (for a 150 N·m engine, 180–225 N·m).",
+          "whereToFind": "The clutch maker's data (torque capacity), or clamp force × friction coefficient × mean radius × the number of friction faces."
         }
       ]
     },
@@ -1982,7 +2162,10 @@
           "label": "Locked",
           "unit": "-",
           "default": false,
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Unticked: the torque splits between the outputs as Torque Split to Output A says, and they may turn at different speeds. Ticked: both outputs turn at the same speed, and the torque follows the grip.",
+          "typical": "Unticked for permanent all-wheel drive with a centre differential; ticked for a part-time four-wheel drive with its centre locked.",
+          "whereToFind": "The vehicle's drivetrain specification."
         },
         {
           "key": "torque_split_a_pct",
@@ -2004,7 +2187,10 @@
           "unit": "-",
           "default": 1.0,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "Input speed ÷ the outputs' mean speed; 1 when it only splits the torque.",
+          "typical": "1 for most cars; 2–3 in a low range.",
+          "whereToFind": "The datasheet (high- and low-range ratios)."
         },
         {
           "key": "efficiency_pct",
@@ -2014,7 +2200,10 @@
           "default": 98,
           "type": "number",
           "exclusiveMinimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "The share of the torque the transfer case passes on in the direction the power flows. With Coefficients Include Driveline Losses ticked on the Vehicle, it runs without losses.",
+          "typical": "97–99 %.",
+          "whereToFind": "The maker's data."
         },
         {
           "key": "inertia_kgm2",
@@ -2023,7 +2212,10 @@
           "unit": "kg·m²",
           "default": 0.02,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The inertia of the transfer case, added at its input speed.",
+          "typical": "0.01–0.05 kg·m².",
+          "whereToFind": "CAD or the maker's data."
         }
       ]
     },
@@ -2099,7 +2291,10 @@
             "300": 287.4,
             "350": 270.6,
             "400": 250.0
-          }
+          },
+          "description": "The stack voltage at each current; it falls as the current rises. The stack runs at the current where voltage × current gives the power its bus needs, up to the Maximum Current.",
+          "typical": "About 1 V per cell with no load and 0.6–0.7 V per cell at full power (the default 396 V falling to 250 V at 400 A, 100 kW).",
+          "whereToFind": "The stack datasheet's polarization curve, or one cell's curve (V against A/cm²) × the cells in series and the cell area."
         },
         {
           "key": "max_current_A",
@@ -2107,7 +2302,10 @@
           "unit": "A",
           "default": 400,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The most current the stack gives; with the Polarization Curve it sets the stack's most power. Beyond it, the motors on its bus get less.",
+          "typical": "300–450 A for car stacks (the default 400 A gives 100 kW).",
+          "whereToFind": "The stack datasheet's rated current, or the cell's highest current density × its active area."
         },
         {
           "key": "h2_per_kwh_g",
@@ -2115,7 +2313,10 @@
           "unit": "g/kWh",
           "default": 55,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The hydrogen the stack uses for each kWh of electrical energy it gives. It comes out of the Hydrogen Tank; the stack shuts down when the tank is empty.",
+          "typical": "50–70 g/kWh: 1,000 ÷ (33.3 × efficiency), so 55 g/kWh (the default) at 55 % efficiency.",
+          "whereToFind": "The fuel-cell system datasheet's efficiency, with 33.3 kWh of energy in a kg of hydrogen (lower heating value)."
         }
       ]
     },
@@ -2150,7 +2351,10 @@
           "unit": "kg",
           "default": 5,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The most hydrogen the tank holds. When it is empty the fuel cell shuts down.",
+          "typical": "Fuel-cell cars 4–6.5 kg at 700 bar (the default 5 kg).",
+          "whereToFind": "The vehicle datasheet's usable hydrogen mass."
         },
         {
           "key": "initial_fill_pct",
@@ -2160,7 +2364,10 @@
           "default": 95,
           "type": "number",
           "minimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "How full the tank is when the run starts, in % of its Capacity.",
+          "typical": "90–100 % for most runs (the default 95 %).",
+          "whereToFind": "Your test plan, or the tank's fill reading at the start of a logged drive."
         }
       ]
     },
@@ -2195,11 +2402,56 @@
         }
       ],
       "parameters": [
-        { "key": "kp", "label": "Proportional Gain", "unit": "-", "default": 1.0, "type": "number" },
-        { "key": "ki", "label": "Integral Gain", "unit": "1/s", "default": 0, "type": "number" },
-        { "key": "kd", "label": "Derivative Gain", "unit": "s", "default": 0, "type": "number" },
-        { "key": "out_min", "label": "Output Minimum", "unit": "-", "default": -1, "type": "number" },
-        { "key": "out_max", "label": "Output Maximum", "unit": "-", "default": 1, "type": "number" },
+        {
+          "key": "kp",
+          "label": "Proportional Gain",
+          "unit": "-",
+          "default": 1.0,
+          "type": "number",
+          "description": "How strongly the output reacts to the present error (Setpoint − Feedback): output = Kp × error + Ki × its sum over time + Kd × its rate of change, held between Output Minimum and Output Maximum.",
+          "typical": "Depends on the units of the loop; start at 1 and halve or double it until the loop settles.",
+          "whereToFind": "Tune it on the model (raise it until the loop starts to swing, then take about half), or use the gains of the real controller."
+        },
+        {
+          "key": "ki",
+          "label": "Integral Gain",
+          "unit": "1/s",
+          "default": 0,
+          "type": "number",
+          "description": "How strongly the output reacts to the error's sum over time, which removes a lasting offset. The sum stops growing while the output is held at a limit (anti-windup). 0 turns it off.",
+          "typical": "0 for a loop without it; about Kp ÷ the loop's settling time (s) to remove a lasting offset.",
+          "whereToFind": "Tune it on the model, or use the real controller's parameters."
+        },
+        {
+          "key": "kd",
+          "label": "Derivative Gain",
+          "unit": "s",
+          "default": 0,
+          "type": "number",
+          "description": "How strongly the output reacts to how fast the error changes: it damps overshoot, but it also magnifies noise. 0 turns it off.",
+          "typical": "0 in most loops; Kp × 0.05–0.2 s to damp overshoot.",
+          "whereToFind": "Tune it on the model, or use the real controller's parameters."
+        },
+        {
+          "key": "out_min",
+          "label": "Output Minimum",
+          "unit": "-",
+          "default": -1,
+          "type": "number",
+          "description": "The lowest the output may go: it is held there when it would go lower.",
+          "typical": "−1 for a command that can also brake or reverse, 0 for one that cannot; in the unit of what the output drives.",
+          "whereToFind": "The range the input it feeds takes (a Traction Command runs from −1 to 1)."
+        },
+        {
+          "key": "out_max",
+          "label": "Output Maximum",
+          "unit": "-",
+          "default": 1,
+          "type": "number",
+          "description": "The highest the output may go: it is held there when it would go higher.",
+          "typical": "1 for a command; in the unit of what the output drives.",
+          "whereToFind": "The range the input it feeds takes."
+        },
         {
           "key": "sample_time_s",
           "label": "Sample Time (0 = solver step)",
@@ -2250,7 +2502,10 @@
           "unit": "-",
           "default": "1D",
           "type": "enum",
-          "options": ["1D", "2D"]
+          "options": ["1D", "2D"],
+          "description": "1D: the output is the 1D Table read at Input X. 2D: the output is the 2D Table read at Input X and Input Y.",
+          "typical": "1D for a pedal map or a curve; 2D when the output depends on two signals, such as speed and SOC.",
+          "whereToFind": "Your control strategy."
         },
         {
           "key": "table_1d",
@@ -2259,7 +2514,10 @@
           "unit": "-",
           "type": "table1d",
           "axes": [{ "name": "Input", "unit": "-", "outside": "clamp" }],
-          "default": { "0": 0, "1": 1 }
+          "default": { "0": 0, "1": 1 },
+          "description": "The output at each value of Input X. Between points it follows a straight line; outside them it holds the edge value, unless the table's outside-the-data setting says otherwise.",
+          "typical": "A few points, such as a pedal map from 0 to 1.",
+          "whereToFind": "Your strategy or a measured curve, typed or pasted from a spreadsheet into the table editor (Edit…)."
         },
         {
           "key": "table_2d",
@@ -2271,7 +2529,10 @@
             { "name": "Input X", "unit": "-", "outside": "clamp" },
             { "name": "Input Y", "unit": "-", "outside": "clamp" }
           ],
-          "default": { "0": { "0": 0, "1": 0 }, "1": { "0": 0, "1": 1 } }
+          "default": { "0": { "0": 0, "1": 0 }, "1": { "0": 0, "1": 1 } },
+          "description": "The output at each pair of Input X and Input Y. Between points it is interpolated; outside them it holds the edge value, unless the table's outside-the-data setting says otherwise.",
+          "typical": "A small grid, such as 5 × 5 points.",
+          "whereToFind": "Your strategy or measured data, typed or pasted from a spreadsheet into the table editor (Edit…)."
         },
         {
           "key": "sample_time_s",
@@ -2315,7 +2576,10 @@
           "label": "Profile (x:grade%; …)",
           "unit": "-",
           "default": "0:0; 500:3; 1500:3; 2000:0; 3000:-3; 4000:0",
-          "type": "string"
+          "type": "string",
+          "description": "The road's grade over distance (m) or time (s) as 'x:grade' pairs separated by ';', grade in % (rise ÷ run × 100, uphill positive). Between points it follows a straight line; after the last it holds.",
+          "typical": "Motorways up to about 5 % · mountain roads up to 10–12 % · steep city streets 15–20 %.",
+          "whereToFind": "An elevation profile from a map service or a GPS log (grade = rise ÷ distance × 100), or the road's design data."
         },
         {
           "key": "mode",
@@ -2323,14 +2587,20 @@
           "unit": "-",
           "default": "distance",
           "type": "enum",
-          "options": ["distance", "time"]
+          "options": ["distance", "time"],
+          "description": "Distance: x is the distance the Vehicle has driven, in m, or the Distance input when it is wired. Time: x is the time, in s.",
+          "typical": "Distance for a route, so the hills stay where they are whatever the speed; time to replay a logged drive.",
+          "whereToFind": "How your grade data is laid out: against distance (a map, a route) or against time (a log)."
         },
         {
           "key": "repeat",
           "label": "Repeat Profile",
           "unit": "-",
           "default": false,
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Ticked: after its last point the profile starts again from its first. Unticked: the last grade holds.",
+          "typical": "Unticked for a route driven once; ticked for a closed track driven lap after lap.",
+          "whereToFind": "Your route."
         }
       ]
     }
