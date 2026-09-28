@@ -6,7 +6,7 @@ band taken from real vehicles of the same class, so a regression that makes
 an example implausible (a 1 s control step, a 2.5 kW auxiliary default, an
 engine that never stops) fails here even when the fixtures are regenerated.
 
-Reference values (sources in docs/data-register.csv, DR-01 and DR-02):
+Reference values (sources in docs/data-register.csv, DR-01, DR-02 and DR-41):
 
 - Battery Electric Car = 2021 Cupra Born 58 kWh (VW ID.3 class). Cars of
   this class are rated about 15-16 kWh/100 km on WLTP at the charging socket
@@ -21,8 +21,17 @@ Reference values (sources in docs/data-register.csv, DR-01 and DR-02):
   2 l/100 km is ours: no production car does much better than the Ioniq's
   2.7 l/100 km on a warm UDDS (its FTP bags 2 and 3), so a result below it
   means energy from nowhere.
+- FS Electric (generic) = a typical Formula Student electric car (DR-41),
+  not a real one, held to the FS Czech Republic 2025 EV results: the best
+  75 m times of 35 teams, 3.51-6.44 s (median 3.91 s), and the endurance
+  energy of the 14 teams scored in efficiency, 3.19-6.15 kWh (median
+  5.25 kWh); rule values from FS Rules 2026 v1.1 (FSG).
 """
 from __future__ import annotations
+
+import math
+import re
+import time
 
 import pytest
 from helpers import example_result, series
@@ -35,7 +44,7 @@ from app.solver.runtime import RPM
 from app.solver.verdict import trace_metrics
 from app.storage import load_example
 
-EXAMPLES = ("bev-car", "hybrid-car")
+EXAMPLES = ("bev-car", "fs-electric", "hybrid-car")
 MPH = 1.609344
 # 1 kWh put into (taken from) the hybrid's battery is worth this much fuel
 # the engine burnt (saved): petrol 42.9 MJ/kg x 0.745 kg/l = 8.88 kWh/l,
@@ -74,6 +83,8 @@ def test_every_shipped_case_succeeds_and_follows_its_cycle(project_id, case_id):
     assert result.status == "success", [m.text for m in result.messages]
     assert [m.text for m in result.messages if m.level != "info"] == []
     assert [s.label for s in result.summary if s.notValid] == []
+    if _case(load_example(project_id), case_id).kind != "cycle":
+        return  # an acceleration test or a lap case has no speed trace to follow
     speed = series(result, "el-vehicle", "sig_speed")
     target = series(result, "el-task", "sig_demand")
     m = trace_metrics([p["t"] for p in speed], [p["value"] for p in target],
@@ -258,3 +269,124 @@ def test_hybrid_engine_stops_at_standstill_and_never_free_revs(case_id):
             assert n_eng[i]["value"] <= n_in[i]["value"] + 200
     # the battery stays within 55 +/- 5 %, the charge the strategy holds
     assert all(50.0 <= p["value"] <= 60.0 for p in soc)
+
+
+# ---- FS Electric (generic) --------------------------------------------------------
+
+FS_RULES = "FS Rules 2026 v1.1 (FSG)"
+
+
+def _fs(case_id: str) -> dict:
+    return {row.label: row for row in example_result("fs-electric", case_id).summary}
+
+
+def _fs_time(result) -> float:
+    return next(row.value for row in result.summary if row.label == "Time to 75 m")
+
+
+def _fs_accel(limit_kw: float | None = None, time_step: float | None = None):
+    """The 75 m case run afresh, with the Accumulator's Output Power Limit
+    set by the case as the sweep runner sets it, or at another output step."""
+    project = load_example("fs-electric")
+    case = _case(project, "case-accel-75m")
+    if limit_kw is not None:
+        case.parameterOverrides = {"el-battery": {"output_power_limit_kW": limit_kw}}
+    if time_step is not None:
+        case.timeStep = time_step
+    return simulate(project, case.id)
+
+
+def test_fs_card_has_result_bands_and_rule_versions():
+    """The example's Open-menu entry names every rule value with its rule and
+    rulebook version, gives the published bands next to its own figures,
+    and those figures are what the shipped cases give (within 2 %), so the
+    card cannot go stale."""
+    card = load_example("fs-electric").description
+    assert FS_RULES in card and "FSUK and FSAE may differ" in card
+    for value, rule in (("80 kW", "EV 2.2.1"), ("500 A", "EV 2.2.2"), ("600 V", "EV 4.1.1"),
+                        ("500 ms", "D 10.4.1"), ("75 m", "D 5.1.1"), ("0.3 m", "D 5.2.4"),
+                        ("25 s", "D 9.2.1"), ("22 km", "D 7.1.3")):
+        assert re.search(re.escape(value) + r"[^;]*?\(" + re.escape(rule) + r"\b", card), value
+    assert "3.51–6.44 s, median 3.91 s" in card and "3.19–6.15 kWh, median 5.25 kWh" in card
+    accel, lap, endurance = _fs("case-accel-75m"), _fs("case-autocross"), _fs("case-endurance")
+    net = (endurance["Accumulator — energy delivered"].value
+           - endurance["Accumulator — energy recuperated"].value)
+    for pattern, run in ((r"Acceleration 75 m: ([\d.]+) s", accel["Time to 75 m"].value),
+                         (r"Autocross \(flying lap\): ([\d.]+) s", lap["Lap time"].value),
+                         (r"([\d.]+) kWh net", net)):
+        assert float(re.search(pattern, card).group(1)) == pytest.approx(run, rel=0.02), pattern
+
+
+def test_fs_75m_time_is_that_of_an_fs_car():
+    """3.5-4.5 s from the start line, against 3.51-6.44 s at FS Czech
+    Republic 2025 (a rear-driven car without traction control, in the
+    faster half: its tyres have no peak and drop, MOD-16); 100-130 km/h at
+    the line; 0-100 km/h in 2.5-4.0 s; the engine runs it within 5 s."""
+    t0 = time.perf_counter()
+    result = _fs_accel()
+    assert time.perf_counter() - t0 < 5.0
+    assert result.status == "success", [m.text for m in result.messages]
+    s = _summary(result)
+    assert 3.5 <= s["Time to 75 m"] <= 4.5
+    assert 100 <= s["Speed at 75 m"] <= 130
+    assert 2.5 <= s["Time to 100 km/h"] <= 4.0
+    assert s["Gap to reference time"] == pytest.approx(s["Time to 75 m"] - 3.91, abs=0.002)
+
+
+def test_fs_75m_holds_the_power_limit():
+    """The Formula Student Electric preset holds the accumulator's volts ×
+    amps to 80 kW (EV 2.2.1), and its check passes."""
+    result = example_result("fs-electric", "case-accel-75m")
+    power = [p["value"] for p in series(result, "el-battery", "sig_power")]
+    volts = [p["value"] for p in series(result, "el-battery", "sig_voltage")]
+    amps = [p["value"] for p in series(result, "el-battery", "sig_current")]
+    assert 79.9 < max(power) <= 80.0 * 1.001  # the limit binds, and holds
+    for p, v, i in zip(power, volts, amps):
+        if p > 1.0:
+            assert p == pytest.approx(v * i / 1000.0, rel=1e-3)
+    assert _fs("case-accel-75m")["Accumulator — peak terminal power, averaged"].passed is True
+
+
+@pytest.mark.parametrize("case_id", ["case-accel-75m", "case-autocross", "case-endurance"])
+def test_fs_pack_is_inside_its_voltage_and_current_class(case_id):
+    """The 138s pack reaches 579.6 V open-circuit at 100 % SOC and stays
+    under 600 V while recuperating (EV 4.1.1), and its current stays under
+    500 A (EV 2.2.2, which LightSim does not check)."""
+    v_max = _fs(case_id)["Accumulator — maximum pack voltage"]
+    assert v_max.passed is True and 579.6 <= v_max.value <= 600.0
+    amps = series(example_result("fs-electric", case_id), "el-battery", "sig_current")
+    assert max(abs(p["value"]) for p in amps) <= 500.0
+
+
+def test_fs_endurance_energy_is_that_of_an_fs_car():
+    """23 laps of the 979 m Autocross (about 22 km, D 7.1.3) at a 30 kW
+    Output Power Limit use 3.0-6.5 kWh net at the accumulator (FS Czech
+    Republic 2025: 3.19-6.15 kWh), recuperate 10-40 % of what they draw,
+    leave the pack at least 10 points above its minimum SOC, and draw an
+    RMS power of 15-35 kW."""
+    rows = _fs("case-endurance")
+    battery = _params("fs-electric", "case-endurance")["el-battery"]
+    assert battery["output_power_limit_kW"] < 80  # a team's endurance setting
+    assert 21.0 <= rows["Distance driven"].value <= 23.0
+    out = rows["Accumulator — energy delivered"].value
+    back = rows["Accumulator — energy recuperated"].value
+    assert 3.0 <= out - back <= 6.5
+    assert 0.10 <= back / out <= 0.40
+    assert rows["Accumulator — final SOC"].value > battery["min_soc_pct"] + 10
+    assert 15.0 <= rows["RMS battery power"].value <= 35.0
+
+
+def test_fs_power_limit_sweep_trades_time_for_power():
+    """The card's sweep: the 75 m case with the Output Power Limit at 40 to
+    80 kW (as the sweep runner overrides it) gets faster with every step,
+    and its 80 kW point is the shipped case."""
+    times = [_fs_time(_fs_accel(kw)) for kw in (40, 50, 60, 70, 80)]
+    assert all(a > b for a, b in zip(times, times[1:])), times
+    assert times[-1] == _fs("case-accel-75m")["Time to 75 m"].value
+
+
+def test_fs_75m_is_converged():
+    """At a 1 ms output step (and so solver step) the 75 m time is within
+    0.5 % of the shipped 10 ms case's."""
+    assert math.isclose(_fs_time(_fs_accel(time_step=0.001)),
+                        _fs("case-accel-75m")["Time to 75 m"].value, rel_tol=0.005)

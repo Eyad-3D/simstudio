@@ -386,6 +386,28 @@ minimum or an average, for example from the CSV export.
   E-Motor's *Maximum Speed* could now set that limit, but the example
   still sets it through the ratio.
   *Roadmap:* MOD-12.
+- **FS Electric (generic):** a typical Formula Student electric car, not a
+  real one: replace its values with your car's. Its 75 m time (3.74 s from
+  the start line) sits in the faster half of FS Czech Republic 2025's
+  3.51-6.44 s: the tyres keep their grip however much they slip (no peak
+  and drop), so wheelspin at the launch costs no time, and nothing limits
+  it (no traction control; 48 % of the run is at the tyres' grip limit).
+  The *Endurance energy* case is lap mode at the tyres' limit in every
+  corner and under every braking, with no lift-and-coast and no driver
+  change (FS Rules 2026 v1.1 (FSG) D 7.5.4's 3 min); its energy follows the
+  Output Power Limit the case sets, 30 kW: 20 kW gives 4.14 kWh net, 40 kW
+  6.33 kWh with 7.9 % SOC left, and at 45 kW the pack runs out before the
+  last lap is done. The E-Motor's generator torque is held to 40 % for
+  drive cycles you add: their Driver has no brake balance or ABS, and at
+  full generator torque, braking hard from 100 km/h locks the rear wheels
+  and turns them backwards (at 40 % they still lock below about 50 km/h).
+  Lap mode holds regeneration to the rear tyres' grip, so the example's
+  own cases hardly depend on it. The 500 A current limit (EV 2.2.2) is not
+  checked (the cases stay under 160 A), nor are the cells' own limits; a
+  two-motor variant is not shipped.
+  *Roadmap:* MOD-16 (tyre peak and drop), MOD-43 (driver change and
+  scoring), MOD-08 (pack from cells, current limit), CON-18 (templates,
+  two-motor variant).
 - **Runs made on an example stay with the copy you ran.** An example opens
   as an unsaved copy, and its runs are stored with that copy: they are
   listed while it stays open, also after a restart, but opening the example

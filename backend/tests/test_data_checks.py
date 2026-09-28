@@ -60,7 +60,7 @@ def test_repeated_link_and_fan_out_are_fine():
 
 
 def test_shipped_examples_have_no_fan_in():
-    for name in ("bev-car", "hybrid-car"):
+    for name in ("bev-car", "fs-electric", "hybrid-car"):
         assert not [e for e in _errors(load_example(name)) if "sources" in e]
 
 

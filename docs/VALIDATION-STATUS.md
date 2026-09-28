@@ -5,7 +5,7 @@
 
 **In one line:** LightSim's results have **not** been validated against
 measured vehicle data yet. The engine is tested against exact answers, and
-the two example cars are checked for believable numbers, but that is not
+the three example cars are checked for believable numbers, but that is not
 the same as validation.
 
 Three words are used carefully on this page:
@@ -40,7 +40,7 @@ Each of these is an automatic test that runs on every change
 | Run status | a car that cannot follow the cycle, does not move, or runs out of energy is never reported as a success; untrustworthy figures carry a "not valid" flag; a motor run past its map's voltage data or driven above its maximum speed for longer than 1 % of the run (at least 2 s) is never a success, and the message and flag name the motor, how far past and for how long, while a Lookup block past its table is not judged; a run a stop cut short is *cancelled*, one stopped as it ended is not, and one an error cut short has its per-distance figures marked not valid; a 0-100 km/h performance test succeeds with the time of a full-throttle run, read where the speed crosses the target, and then holds the target without switching between throttle and brakes; a top-speed test reports the car's highest speed; a stopped performance test does not say the car fell short, and a car that starts at its target gets no time | `test_verdict.py`, `test_examples_plausible.py`, `test_api.py`, `test_map_edges.py` |
 | Acceleration test | with the tyres' grip made unlimited (μ 100, slip stiffness 100, 1 ms step) the timed 75 m of the Battery Electric Car matches a hand-integrated RK4 point mass within 1 % (+0.10 % measured, speed at the line −0.18 %); the run ends in the solver step that reaches the line, and the time and speed read inside it are the same at a 0.01 and a 0.1 s output step and match where a full-throttle performance run's distance channel crosses 75 m (5.527 s); a 0.3 m start line starts the timer (5.216 s) and the gap to a reference time is signed; with no target wired the Driver holds full throttle and the run succeeds, also through the app, whose Data Checks ask for a Target Speed only once the model has a case that is not an acceleration test; a car that misses the line within the duration gets one warning and no time, a stopped run none; a Formula Student-sized car is at the grip limit ≥ 95 % of the run at μ 1.5 (100 % measured) and never at μ 3; the peak and mean terminal power match the power channel and the energy rows, and with the Formula Student preset the power check passes at 80 kW; the case, its line and its reference time survive a save | `test_acceleration.py`, `test_project_roundtrip.py` |
 | Lap mode | on the skidpad (9.125 m radius) the cornering speed equals the closed form √(μ·m·g/(m/R − μ·½·ρ·CzA)) with and without downforce (to 1e-6 %) and the timed circle takes 2πR/v within 0.5 % (−0.02 % and −0.03 %, rounded to 1 ms); with a CG height, track widths and a load sensitivity of −0.2/kN the speed is the root of the four wheels' grip (to 1e-8); a lap case on the 75 m straight takes the time-domain acceleration test's time within 2 % (+0.33, +0.42 and 0.00 % at μ 1.2, 1.5 and 2.5, +0.85 % with load transfer and load sensitivity); over an Autocross lap the battery's net energy matches the kinetic energy, road load, friction brakes and gear and motor losses, from the recorded channels, within 0.5 % (+0.002 %; +0.03 % where the battery's maximum-power point limits the motor, also with a 1 kW consumer; +0.002 % with the consumer behind a 90 % DC-DC), and so does the summary's lap energy balance; with a second E-Motor on the front wheels through a 6.5 final drive the car passes that motor's top speed (86.7 km/h) on a 600 m straight and the balance closes (0.002 %); after a live μ edit the next laps corner within the new μ and lap 3 takes a fresh run's time; a battery that reaches its minimum SOC, or a motor past its Full-Load Torque table, marks the lap times not valid; a 1 km lap solves in under 1 s (0.14 s); 1 m spacing is within 0.1 % of 0.25 m (0.07 %); flying laps after a standing first lap repeat to 1e-6; the time limited by each factor adds up to the total, and the time limited by a 60 kW Output Power Limit equals the battery check's time held at it; the layouts close and keep to FS Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1; the run and Data Checks refuse engines and clutches, a missing Race Track, a one-axle car, a Custom curvature above 0.5 1/m or not starting at 0 m, a fraction of a lap and a model without a Driver; a load sensitivity slows the time-domain launch, and without one the tyre's μ and the drive cycles' results are unchanged (identical golden results at 1e-6) | `test_lapsim.py`, `test_golden.py` |
-| Regressions | the two examples' results are compared with stored reference results; every change to them is listed in `backend/tests/golden/CHANGES.md` | `test_golden.py` |
+| Regressions | the electric and hybrid examples' results are compared with stored reference results; every change to them is listed in `backend/tests/golden/CHANGES.md` | `test_golden.py` |
 | Exact answers | coast-down under air drag alone and with rolling resistance, a constant-torque launch, braking distance v₀²/2a, coasting up a 25 % grade stops at the height h = v₀²/2g, the energy a clutch loses joining two inertias (½·J₁J₂/(J₁+J₂)·ω²) and a battery RC pair's step response each match their closed-form solution within 0.5 % | `test_numerics.py` |
 | Step convergence | the error against the exact answer halves when the solver step halves, for the vehicle and for the battery RC pair | `test_numerics.py` |
 | Stability | a grid of tyre *Slip Stiffness* 10–300 × solver step 2.5–20 ms, for a launch (slip stays below 0.1) and a car braked to a stop (stays below 0.5 km/h). Today the launch is stable only at stiffness 10 up to the 10 ms step and 30 up to 5 ms (the brake hold also at stiffness 10 with a 20 ms step) (see [Known issues and limits](KNOWN-LIMITS.md)); the test lists the unstable cells, so a new instability fails it and so does a fixed one until the list is shortened | `test_numerics.py` |
@@ -65,11 +65,11 @@ engine code, not the old default maps):
 | Gear losses act on the power through each gear (MOD-03) | `test_gear_losses.py`, `test_motor_losses.py`, `test_golden.py` |
 | Every part starts at the vehicle's initial speed (MOD-19) | `test_solver.py`, `test_engine.py` |
 
-## Plausibility-checked: the two example cars
+## Plausibility-checked: the example cars
 
-`backend/tests/test_examples_plausible.py` holds both examples to bands from
-real cars of their class. Their test mass and road load come from public
-data; their motor, engine and battery maps are generic (invented, marked
+`backend/tests/test_examples_plausible.py` holds the examples to bands from
+real cars of their class. The electric and hybrid cars' test mass and road
+load come from public data; their motor, engine and battery maps are generic (invented, marked
 *synthetic* in [the data register](DATA-REGISTER.md)).
 
 | Example | Figure | LightSim | Reference | Band in the test |
@@ -80,6 +80,9 @@ data; their motor, engine and battery maps are generic (invented, marked
 | P2 Hybrid Car (Hyundai Ioniq Hybrid test mass and EPA road load) | EPA city cycle (UDDS) fuel | 2.84 l/100 km (no cold start) | 2.91 l/100 km (EPA 2022 test car list) | 2–5 l/100 km, and at most 4.5 after correcting for the battery's change of charge |
 | | EPA highway cycle (HWFET) fuel | 3.24 l/100 km | 2.94 l/100 km (EPA 2022 test car list) | same as the city cycle |
 | | Battery charge at the end | same as at the start | charge-sustaining | within 1 % of the start |
+| FS Electric (generic) (typical Formula Student values, no real car) | 75 m acceleration, from the start line | 3.74 s, 119 km/h at the line, 0–100 km/h in 2.93 s | FS Czech Republic 2025, best times of 35 EV teams: 3.51–6.44 s, median 3.91 s | 3.5–4.5 s, 100–130 km/h, 2.5–4.0 s; within 0.5 % at a 1 ms step; faster with each 10 kW of Output Power Limit from 40 to 80 kW (4.22 to 3.74 s) |
+| | Endurance energy (lap mode, 22.5 km, Output Power Limit 30 kW) | 5.33 kWh net at the accumulator, 18 % of the energy drawn recuperated, 25 % charge left, 22.9 kW RMS | FS Czech Republic 2025 efficiency, 14 scored teams: 3.19–6.15 kWh, median 5.25 kWh | 3.0–6.5 kWh, 10–40 % recuperated, at least 10 points above the minimum charge, 15–35 kW RMS |
+| | Rule values (FS Rules 2026 v1.1 (FSG)) | 80.0 kW peak at the terminals, 594 V at most, 155 A at most | EV 2.2.1 80 kW, EV 4.1.1 600 V DC, EV 2.2.2 500 A | volts × amps ≤ 80 kW + 0.1 % and the power check passes; ≤ 600 V and ≤ 500 A in every case |
 
 Why this is not validation: the hybrid's road load is EPA's target
 coefficients for that car (with the axle's losses counted once), but its
@@ -88,7 +91,10 @@ figure reads below EPA's, whose city test starts cold; the electric car's
 motor loss map is generic and its reduction ratio was chosen so the
 motor's maximum speed gives the real top speed. Close numbers here mean
 the model is in the right range, not that it predicts a new vehicle within
-a known error.
+a known error. The FS car is no real car at all: its values are typical,
+and its results are compared with the spread of a whole competition's
+field, which shows only that its pace and energy use are those of a
+Formula Student car.
 
 ## Not validated
 

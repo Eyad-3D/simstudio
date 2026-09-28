@@ -119,6 +119,14 @@ def test_skidpad_with_load_sensitivity_and_lateral_transfer():
     assert lo < no_sensitivity * 0.99
 
 
+def test_a_tyre_with_no_grip_left_is_no_grip_not_a_crash():
+    """With downforce and a load sensitivity, the cornering-speed search's
+    highest trial speed (150 m/s) loads the tyres until their μ reaches 0:
+    no grip there, so the search goes lower (it divided by zero, CON-33)."""
+    proj = fs_car(vehicle={"downforce_cza_m2": 3.0}, wheel={"mu_load_sensitivity_per_kN": -0.2})
+    assert simulate(proj, "case").status == "success"
+
+
 @pytest.mark.parametrize("mu,vehicle,wheel", [
     (1.2, {}, {}),
     (1.5, {}, {}),

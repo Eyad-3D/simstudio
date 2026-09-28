@@ -599,8 +599,10 @@ class LapRun:
             ay = v * v * kappa
             drive, total, lateral, roll = self.grip(self.loads(v, 0.0, ay, sin_t, cos_t))
             need = self.resist(v, roll, sin_t, cos_t)
+            if drive <= 0:  # (a load sensitivity can take all the grip at a high load)
+                return False
             use = need / drive if need > 0 else -need / total if need < 0 else 0.0
-            if drive <= 0 or use >= 1.0:
+            if use >= 1.0:
                 return False
             return self.m * abs(ay) <= lateral * ellipse_left(use, self.n_ell)
 

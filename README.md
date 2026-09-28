@@ -41,10 +41,12 @@ Linux, runs entirely on your computer, and works offline.
    ![Energy use of the electric car against its mass, from a three-point sweep](docs/screenshots/lightsim-0.2.0-sweep.png)
 
 **Open** lists a second example, a P2 hybrid sized after the Hyundai Ioniq
-Hybrid and driven on the EPA city and highway cycles, next to your own
-projects; each example's entry lists the results to expect. Examples open as
-copies, so change them freely: **Save** keeps your copy as a project of your
-own. To watch a run as it happens, pick the *City Cycle (live, 10×)* case and
+Hybrid and driven on the EPA city and highway cycles, and a third, *FS
+Electric (generic)*, a Formula Student electric car with a 75 m
+acceleration test, an autocross lap and an endurance energy case, next to
+your own projects; each example's entry lists the results to expect.
+Examples open as copies, so change them freely: **Save** keeps your copy as
+a project of your own. To watch a run as it happens, pick the *City Cycle (live, 10×)* case and
 change values while it runs (try the Driver's P and I gains, or lock the
 Differential).
 
@@ -348,7 +350,7 @@ backend/   Python + FastAPI
   ├─ app/security.py               Host / Origin / launch-token checks on every request
   ├─ app/server.py                 entrypoint the desktop shell launches
   ├─ lightsim-backend.spec         PyInstaller recipe for the frozen backend
-  └─ projects/                     example projects (bev-car.json, hybrid-car.json)
+  └─ projects/                     example projects (bev-car.json, hybrid-car.json, fs-electric.json)
 
 desktop/   Electron shell
   ├─ src/main.js                   starts the backend on a stable loopback port

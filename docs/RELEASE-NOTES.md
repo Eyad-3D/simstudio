@@ -181,6 +181,21 @@ sections.
   on the tyre force of drive cycles and acceleration tests; at its default
   of 0 no result changes. Vehicle: *Track Width (Front)* and *(Rear)*, for
   the sideways load transfer of lap cases.
+- A third example, *FS Electric (generic)*: a typical Formula Student
+  electric car to make your own (280 kg, one rear E-Motor through a 4.4
+  chain drive and an open differential, a 138s4p 7.2 kWh accumulator with
+  the battery's Formula Student Electric preset, load transfer, downforce
+  and load-sensitive tyres). Its cases: *Acceleration 75 m* (3.74 s from
+  the start line, 119 km/h at the line), *Autocross (flying lap)* (57.7 s
+  on LightSim's layout) and *Endurance energy* (23 laps, 22.5 km, with the
+  Output Power Limit at a 30 kW endurance setting: 5.33 kWh net at the
+  accumulator, 25 % charge left). Its Open-menu entry names each rule value
+  with FS Rules 2026 v1.1 (FSG) (FSUK and FSAE may differ, check the
+  current season's rules), compares the results with FS Czech Republic
+  2025 (acceleration 3.51–6.44 s, median 3.91 s; efficiency 3.19–6.15 kWh,
+  median 5.25 kWh) and gives a sweep to try: the Output Power Limit from
+  40 to 80 kW on the 75 m case (4.22 to 3.74 s). The other examples do not
+  change.
 
 ### Fixed
 
