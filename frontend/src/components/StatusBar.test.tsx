@@ -1,14 +1,14 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
-import type { DataCheck } from "../types";
+import type { DataCheck, SimRun } from "../types";
 import { useProjectStore } from "../store/projectStore";
 import { useUIStore } from "../store/uiStore";
 import { StatusBar } from "./StatusBar";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-it("counts the errors the latest Data Checks found, not the error lines in the log, and leads to them", async () => {
+it("counts the errors in the Problems list, not the error lines in the log, and leads to them", async () => {
   const host = document.body.appendChild(document.createElement("div"));
   await act(async () => createRoot(host).render(<StatusBar />));
   const count = () => host.textContent?.match(/\d+ error(\(s\)|s)?/)?.[0] ?? null;
@@ -24,10 +24,24 @@ it("counts the errors the latest Data Checks found, not the error lines in the l
 
   const focusPanel = vi.fn();
   useUIStore.setState({ ribbonTab: "results", focusPanel });
-  act(() => host.querySelector("button[title='Show the Data Checks']")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  act(() => host.querySelector("button[title='Show the problems']")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
   expect(focusPanel).toHaveBeenCalledWith("data-checks");
   expect(useUIStore.getState().ribbonTab).toBe("home");
 
   checked([]); // the model checks clean again
+  expect(count()).toBeNull();
+
+  // the latest run's errors are problems too, until the next run
+  const failed: SimRun = {
+    id: "r",
+    caseId: "c",
+    caseName: "City",
+    startedAt: 0,
+    status: "failed",
+    result: { caseId: "c", status: "failed", channels: [], summary: [], messages: [{ level: "error", text: "Stopped." }] },
+  };
+  act(() => useProjectStore.setState({ runs: [failed] }));
+  expect(count()).toBe("1 error");
+  act(() => useProjectStore.setState({ runs: [{ ...failed, id: "r2", status: "success", result: { ...failed.result, messages: [] } }, failed] }));
   expect(count()).toBeNull();
 });

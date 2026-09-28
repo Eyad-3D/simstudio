@@ -15,10 +15,10 @@ export function ribbonTab(page: Page, name: string): Locator {
   return page.getByRole("button", { name, exact: true });
 }
 
-/** Bring a dock panel (Messages, Data Checks, Signal Plot, …) to the front.
+/** Bring a dock panel (Messages, Problems, Signal Plot, …) to the front.
  *  A tab that already shows its panel is left alone, because clicking the
  *  active tab of a collapsible panel group can fold it away. The tab's name
- *  may carry a suffix such as a problem count ("Data Checks (2 …)"). */
+ *  may carry a suffix such as a problem count ("Problems (2 …)"). */
 export async function showPanel(page: Page, title: string): Promise<void> {
   const name = new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?: \\(|$)`);
   const tab = page.getByRole("tab", { name }).first();

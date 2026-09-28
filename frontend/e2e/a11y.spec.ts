@@ -133,6 +133,17 @@ for (const theme of ["light", "dark"] as const) {
       await expect(page.locator(".recharts-legend-item-text > span").first()).toHaveCSS("color", text);
     });
 
+    // UX-09: the Problems list with problems in it, against the workspace's
+    // baseline
+    test("problems list", async ({ page }) => {
+      await openApp(page);
+      await page.locator(".react-flow__node", { hasText: "Vehicle Task" }).first().click();
+      await page.keyboard.press("Delete");
+      await showPanel(page, "Problems");
+      await expect(page.getByText(/^How to fix: /).first()).toBeVisible();
+      await check(page, `topology-${theme}`);
+    });
+
     test("parameter dialog", async ({ page }) => {
       await openApp(page);
       await page.locator(".react-flow__node", { hasText: "E-Motor" }).first().dblclick();
@@ -153,7 +164,7 @@ for (const theme of ["light", "dark"] as const) {
         "Cases & Parameters",
         "Monitors",
         "Messages",
-        "Data Checks",
+        "Problems",
         "Layer Configurations",
         "Data Bus Connections",
         "Signal Plot",
@@ -171,15 +182,15 @@ for (const theme of ["light", "dark"] as const) {
       await page.getByRole("button", { name: "Open", exact: true }).click();
       await scan("Open menu");
       await page.keyboard.press("Escape");
-      // a model with problems: status-bar count, Data Checks rows, error log lines
+      // a model with problems: status-bar count, Problems rows, error log lines
       await page.getByRole("button", { name: "New", exact: true }).click();
       await showPanel(page, "Components");
       await page.locator("[data-component-id='motor.emotor']").focus();
       await page.keyboard.press("Enter");
       await runButton(page).click(); // blocked by the checks: logs errors
-      await showPanel(page, "Data Checks");
+      await showPanel(page, "Problems");
       await expect(page.getByText(/^\d+ errors?$/)).toBeVisible();
-      await scan("Data Checks with errors");
+      await scan("Problems with errors");
       await showPanel(page, "Messages");
       await scan("Messages with errors");
       await page.getByRole("button", { name: "New", exact: true }).click();

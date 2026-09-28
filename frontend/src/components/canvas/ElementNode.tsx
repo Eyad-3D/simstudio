@@ -215,7 +215,8 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
 
   // surface data-check errors/warnings for this element right on the node
   const issue = useMemo(() => {
-    const forEl = dataChecks?.filter((c) => c.elementId === element.id) ?? [];
+    const forEl =
+      dataChecks?.filter((c) => c.elementId === element.id || c.elementIds?.includes(element.id)) ?? [];
     if (forEl.length === 0) return null;
     const worst = forEl.some((c) => c.level === "error") ? "error" : forEl.some((c) => c.level === "warning") ? "warning" : null;
     if (!worst) return null;

@@ -146,7 +146,7 @@ body,
   border-radius: 3px;
   order: 2;
 }
-/* problem count on the Messages / Data Checks tabs (DockLayout SsTab), drawn
+/* problem count on the Problems tab (DockLayout SsTab), drawn
    between the title and the close button */
 .dockview-theme-ss .dv-default-tab[data-badge]::after {
   content: attr(data-badge);

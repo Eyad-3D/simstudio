@@ -289,7 +289,12 @@ export interface DataCheck {
   level: "info" | "warning" | "error";
   elementId?: string | null;
   elementLabel?: string | null;
+  /** Every part the check is about, elementId first (absent from engines
+   *  before 0.3). */
+  elementIds?: string[];
   text: string;
+  /** What to do about it, when the text does not say. */
+  fix?: string | null;
 }
 
 export interface LogMessage {

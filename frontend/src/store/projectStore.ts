@@ -275,7 +275,7 @@ function incompleteReason(result: SimResult): string | undefined {
   return at ? `stopped at t = ${at[1]}` : "stopped";
 }
 
-interface ProjectState {
+export interface ProjectState {
   library: ComponentDef[];
   libraryById: Record<string, ComponentDef>;
   /** unitGroup name → display unit (from the backend catalog). */
@@ -1541,10 +1541,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         if (get().project !== project) scheduleRecheck(); // edited while it checked
         const errors = checks.filter((c) => c.level === "error").length;
         const warnings = checks.filter((c) => c.level === "warning").length;
-        log(
-          errors ? "error" : warnings ? "warning" : "info",
-          `Data checks: ${errors} error(s), ${warnings} warning(s).`,
-        );
+        // a summary, not a problem: the problems are in the Problems list
+        log("info", `Data checks: ${countOf(errors, "error")}, ${countOf(warnings, "warning")}.`);
         {
           const ui = useUIStore.getState();
           if (ui.ribbonTab === "results") ui.setRibbonTab("home");
@@ -1739,7 +1737,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         if (get().project !== project) scheduleRecheck(); // edited while it checked
         const errors = checks.filter((c) => c.level === "error");
         if (errors.length > 0) {
-          log("error", `Run blocked — fix ${errors.length} data-check error(s) first.`);
+          log("error", `Run blocked — fix ${countOf(errors.length, "data-check error")} first.`);
           const ui = useUIStore.getState();
           if (ui.ribbonTab === "results") ui.setRibbonTab("home");
           ui.focusPanel("data-checks");
@@ -1827,15 +1825,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
   };
 });
 
-// Once the model has been checked (Data Checks, or the gate before a run), its
-// checks follow it: a quiet re-check runs RECHECK_MS after the last edit, so
-// part badges and the status-bar count clear as soon as the problems are
-// fixed. A model nobody checked is left alone, and a re-check due while a run
-// is in progress waits for the run to end.
+// The checks follow the model: a quiet re-check runs RECHECK_MS after a
+// project is opened, made or imported and after every edit, so part badges,
+// the Problems list and the status-bar count show a problem, and clear it, as
+// soon as it is made or fixed. A re-check due while a run is in progress
+// waits for the run to end.
 const RECHECK_MS = 600;
 let recheckTimer: ReturnType<typeof setTimeout> | undefined;
 useProjectStore.subscribe((s, prev) => {
-  if (s.project !== prev.project && s.dataChecks) scheduleRecheck();
+  if (s.project !== prev.project && s.project) scheduleRecheck();
 });
 
 function scheduleRecheck(): void {
@@ -1844,8 +1842,8 @@ function scheduleRecheck(): void {
 }
 
 async function recheck(): Promise<void> {
-  const { project, dataChecks, running } = useProjectStore.getState();
-  if (!project || !dataChecks) return;
+  const { project, running } = useProjectStore.getState();
+  if (!project) return;
   if (running) {
     recheckTimer = setTimeout(recheck, RECHECK_MS);
     return;
@@ -1876,6 +1874,77 @@ export async function confirmReplaceProject(action: string): Promise<boolean> {
 }
 
 // -- convenience selectors ----------------------------------------------------
+
+/** "1 error", "2 errors". */
+export function countOf(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
+/** A row of the Problems list. */
+export interface Problem {
+  level: "info" | "warning" | "error";
+  text: string;
+  fix?: string | null;
+  /** the parts it is about (in the open project) */
+  elementIds: string[];
+  /** Data Checks, or the run it came from */
+  source: "check" | { caseName: string; startedAt: number };
+}
+
+/** The latest run that has finished (runs are newest first). */
+function lastRunOf(runs: SimRun[]): SimRun | undefined {
+  return runs.find((r) => r.status !== "running");
+}
+
+/** The parts a run message names: run messages quote part labels
+ *  ('HV Battery Pack', 'E-Motor.torque'). */
+// ponytail: label match; a renamed or repeated label misses or doubles, exact
+// targets come with VAL-10's message format
+function partsNamed(text: string, elements: ElementInstance[]): string[] {
+  return elements.filter((e) => text.includes(`'${e.label}'`) || text.includes(`'${e.label}.`)).map((e) => e.id);
+}
+
+/** Every current problem: the latest Data Checks, then the warnings and
+ *  errors of the latest finished run. Errors first. */
+export function problemsOf(dataChecks: DataCheck[] | null, run: SimRun | undefined, project: Project | null): Problem[] {
+  const elements = project?.systems.flatMap((s) => s.elements) ?? [];
+  const ids = new Set(elements.map((e) => e.id));
+  const out: Problem[] = (dataChecks ?? []).map((c) => ({
+    level: c.level,
+    text: c.text,
+    fix: c.fix,
+    // engines before 0.3 name one part at most
+    elementIds: (c.elementIds?.length ? c.elementIds : c.elementId ? [c.elementId] : []).filter((id) => ids.has(id)),
+    source: "check" as const,
+  }));
+  if (run && run.status !== "running") {
+    const source = { caseName: run.caseName, startedAt: run.startedAt };
+    for (const m of run.result.messages) {
+      if (m.level !== "info") out.push({ level: m.level, text: m.text, elementIds: partsNamed(m.text, elements), source });
+    }
+  }
+  const rank = { error: 0, warning: 1, info: 2 };
+  return out.sort((a, b) => rank[a.level] - rank[b.level]); // stable: checks before run messages
+}
+
+export function useProblems(): Problem[] {
+  const dataChecks = useProjectStore((s) => s.dataChecks);
+  const run = useProjectStore((s) => lastRunOf(s.runs));
+  const project = useProjectStore((s) => s.project);
+  return useMemo(() => problemsOf(dataChecks, run, project), [dataChecks, run, project]);
+}
+
+/** Errors and warnings in the Problems list, for the status bar and the tab
+ *  badge. */
+export function problemCounts(s: Pick<ProjectState, "dataChecks" | "runs">): { errors: number; warnings: number } {
+  let errors = 0;
+  let warnings = 0;
+  for (const m of [...(s.dataChecks ?? []), ...(lastRunOf(s.runs)?.result.messages ?? [])]) {
+    if (m.level === "error") errors++;
+    else if (m.level === "warning") warnings++;
+  }
+  return { errors, warnings };
+}
 
 export function useActiveRun(): SimRun | null {
   return useProjectStore((s) => s.runs.find((r) => r.id === s.activeRunId) ?? null);

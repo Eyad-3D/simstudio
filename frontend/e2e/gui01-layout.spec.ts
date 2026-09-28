@@ -70,14 +70,14 @@ test.describe("1366x768", () => {
     expect((await canvasShare(page)).pct).toBeCloseTo(start.pct, 0);
   });
 
-  test("GUI-01: Messages and Data Checks tabs carry a problem count", async ({ page }) => {
+  test("GUI-01: the Problems tab carries the problem count; Messages is the log", async ({ page }) => {
     await openApp(page);
     await newProject(page);
     await dropComponent(page, "E-Motor", 300, 200); // unwired: Data Checks finds problems
     await ribbonButton(page, "Simulations");
     await ribbonButton(page, "Checks");
-    await expect(page.locator(".dv-tab[aria-label^='Messages ('] .dv-default-tab[data-badge]")).toHaveCount(1);
-    await expect(page.locator(".dv-tab[aria-label^='Data Checks ('] .dv-default-tab[data-badge]")).toHaveCount(1);
+    await expect(page.locator(".dv-tab[aria-label^='Problems ('] .dv-default-tab[data-badge]")).toHaveCount(1);
+    await expect(page.locator(".dv-tab[aria-label^='Messages'] .dv-default-tab[data-badge]")).toHaveCount(0);
   });
 
   test("GUI-01: the first run's Signal Plot does not cut the model off", async ({ page }) => {

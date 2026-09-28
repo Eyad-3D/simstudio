@@ -192,6 +192,37 @@ function TopologyCanvasInner() {
   const selectNew = useCallback((ids: string[]) => {
     if (ids.length) setSelectedNodes(new Set(ids));
   }, []);
+  // pan and zoom to parts (the "." key and the Problems list)
+  const frame = useCallback(
+    (ids: string[]) => void fitView({ nodes: ids.map((id) => ({ id })), padding: 0.3, maxZoom: 1, duration: 200 }),
+    [fitView],
+  );
+  // parts to frame once the sub-system they are in is shown
+  const pendingReveal = useRef<string[] | null>(null);
+  // select parts and frame them, opening their sub-system (the parts of the
+  // first one's sub-system: a problem's parts are in one)
+  const reveal = useCallback(
+    (ids: string[]) => {
+      const st = store.getState();
+      const sys = st.project?.systems.find((sy) => sy.elements.some((e) => e.id === ids[0]));
+      if (!sys) return;
+      const here = ids.filter((id) => sys.elements.some((e) => e.id === id));
+      if (sys.id !== st.activeSystemId) {
+        pendingReveal.current = here;
+        st.setActiveSystem(sys.id);
+      } else {
+        frame(here);
+      }
+      st.select(here[here.length - 1]);
+      setSelectedNodes(new Set(here));
+    },
+    [frame, store],
+  );
+  useEffect(() => {
+    const ui = useUIStore.getState();
+    ui.setRevealElements(reveal);
+    return () => ui.setRevealElements(null);
+  }, [reveal]);
 
   // the view the last automatic fit left, while the user has not moved it
   const autoView = useRef("");
@@ -233,8 +264,9 @@ function TopologyCanvasInner() {
   );
 
   // Fit when a project is loaded or a subsystem entered. Returning to a
-  // subsystem already visited since the load restores its view. An armed
-  // library part belongs to the diagram it was armed on.
+  // subsystem already visited since the load restores its view; one entered
+  // to show a problem frames its parts. An armed library part belongs to the
+  // diagram it was armed on.
   const shown = useRef<{ loads?: number; systemId?: string | null }>({});
   const views = useRef<Record<string, Viewport>>({});
   useEffect(() => {
@@ -245,11 +277,14 @@ function TopologyCanvasInner() {
     useUIStore.getState().setPlacingComponent(null);
     const saved = activeSystemId ? views.current[activeSystemId] : undefined;
     const t = setTimeout(() => {
-      if (saved) void setViewport(saved, { duration: 200 });
+      const ids = pendingReveal.current;
+      pendingReveal.current = null;
+      if (ids) frame(ids);
+      else if (saved) void setViewport(saved, { duration: 200 });
       else autoFit(200);
     }, 120);
     return () => clearTimeout(t);
-  }, [loads, activeSystemId, autoFit, getViewport, setViewport]);
+  }, [loads, activeSystemId, autoFit, frame, getViewport, setViewport]);
 
   // When the diagram changes size (the bottom tray opens or closes, the
   // window is resized), re-fit once the size settles: a view the last
@@ -633,15 +668,14 @@ function TopologyCanvasInner() {
       if (ui.ribbonTab === "results" || ui.paramDialogId || ui.dialog) return;
       e.preventDefault();
       if (selectedNodes.size > 0) {
-        const ids = [...selectedNodes].map((id) => ({ id }));
-        void fitView({ nodes: ids, padding: 0.3, maxZoom: 1, duration: 200 });
+        frame([...selectedNodes]);
       } else {
         autoFit(200);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedNodes, fitView, autoFit]);
+  }, [selectedNodes, frame, autoFit]);
 
   // close the context menu on Escape / outside interactions
   useDismiss(menu !== null, closeMenu, menuRef);

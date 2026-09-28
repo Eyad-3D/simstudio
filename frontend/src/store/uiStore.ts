@@ -93,6 +93,10 @@ interface UIState {
    *  visible diagram and select it; returns the new element's label. */
   insertComponent: ((defId: string) => string | null) | null;
   setInsertComponent: (fn: ((defId: string) => string | null) | null) => void;
+  /** Registered by the topology canvas: select these parts and pan and zoom
+   *  the diagram to them, opening the sub-system they are in. */
+  revealElements: ((ids: string[]) => void) | null;
+  setRevealElements: (fn: ((ids: string[]) => void) | null) => void;
 
   /** Live-value overlay chips on canvas nodes (fed from the live run stream). */
   showLiveValues: boolean;
@@ -154,6 +158,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   setPlacingComponent: (defId) => set({ placingComponentId: defId }),
   insertComponent: null,
   setInsertComponent: (fn) => set({ insertComponent: fn }),
+  revealElements: null,
+  setRevealElements: (fn) => set({ revealElements: fn }),
 
   showLiveValues: true,
   toggleLiveValues: () => set((s) => ({ showLiveValues: !s.showLiveValues })),

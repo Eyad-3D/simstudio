@@ -816,7 +816,8 @@ describe("data checks gate", () => {
     expect(checks).toEqual([error]);
     expect(store().dataChecks).toEqual([error]);
     expect(store().checking).toBe(false);
-    expect(messages()).toContain("error: Data checks: 1 error(s), 0 warning(s).");
+    // a summary, not a problem: the problems are in the Problems list
+    expect(messages()).toContain("info: Data checks: 1 error, 0 warnings.");
   });
 
   it("an error-level check blocks the run before it reaches the engine", async () => {
@@ -825,7 +826,7 @@ describe("data checks gate", () => {
     await store().run();
     expect(api.runSimulationLive).not.toHaveBeenCalled();
     expect(store().running).toBe(false);
-    expect(messages()).toContain("error: Run blocked — fix 1 data-check error(s) first.");
+    expect(messages()).toContain("error: Run blocked — fix 1 data-check error first.");
   });
 });
 
@@ -835,7 +836,7 @@ describe("data checks follow the model", () => {
     vi.useRealTimers();
   });
 
-  it("once checked, the model is re-checked quietly 600 ms after the last edit", async () => {
+  it("the model is re-checked quietly 600 ms after the last edit", async () => {
     vi.useFakeTimers();
     await start();
     api.validateProject.mockResolvedValue([error]);
@@ -859,7 +860,7 @@ describe("data checks follow the model", () => {
     let reply!: (checks: DataCheck[]) => void;
     api.validateProject.mockReturnValueOnce(new Promise((resolve) => (reply = resolve)));
     const checking = store().runDataChecks();
-    store().renameElement("el-bat", "Pack"); // not checked yet: no re-check of its own
+    store().renameElement("el-bat", "Pack");
     reply([error]);
     await checking;
     api.validateProject.mockResolvedValue([]);
@@ -869,16 +870,26 @@ describe("data checks follow the model", () => {
     expect(store().dataChecks).toEqual([]);
   });
 
-  it("leaves a model nobody checked alone, and waits for a run to end", async () => {
+  it("checks an opened model and every edit quietly, and waits for a run to end", async () => {
     vi.useFakeTimers();
+    api.validateProject.mockResolvedValue([error]);
     await start();
-    store().renameElement("el-bat", "Pack");
-    await vi.advanceTimersByTimeAsync(1000);
     expect(api.validateProject).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(600);
+    // nobody pressed Data Checks
+    expect(api.validateProject).toHaveBeenCalledTimes(1);
+    expect(api.validateProject).toHaveBeenLastCalledWith(store().project);
+    expect(store().dataChecks).toEqual([error]);
+    api.validateProject.mockResolvedValue([]);
+    store().renameElement("el-bat", "Pack");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(api.validateProject).toHaveBeenCalledTimes(2);
+    expect(api.validateProject).toHaveBeenLastCalledWith(store().project);
+    expect(store().dataChecks).toEqual([]);
+    expect(messages().filter((m) => m.includes("Data checks"))).toEqual([]); // quietly
 
     // a run the test ends: its gate checks the model
     let finish!: () => void;
-    api.validateProject.mockResolvedValue([]);
     api.runSimulationLive.mockImplementation((_project, caseId) => ({
       setParam: vi.fn(),
       cancel: vi.fn(),
@@ -891,11 +902,63 @@ describe("data checks follow the model", () => {
     expect(store().running).toBe(true);
     store().renameElement("el-bat", "Pack 2");
     await vi.advanceTimersByTimeAsync(2000);
-    expect(api.validateProject).toHaveBeenCalledTimes(1); // the gate only
+    expect(api.validateProject).toHaveBeenCalledTimes(3); // and the gate only
     finish();
     await run;
     await vi.advanceTimersByTimeAsync(600);
-    expect(api.validateProject).toHaveBeenCalledTimes(2);
+    expect(api.validateProject).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("the Problems list", () => {
+  const check = (level: DataCheck["level"], text: string, elementIds?: string[]): DataCheck => ({
+    level,
+    text,
+    elementId: elementIds?.[0],
+    elementIds,
+  });
+  const run = (status: SimRun["status"], messages: SimResult["messages"]): SimRun => ({
+    id: "run-1",
+    caseId: "case-1",
+    caseName: "City",
+    startedAt: 1000,
+    status,
+    result: { caseId: "case-1", status: "success", messages, channels: [], summary: [] },
+  });
+
+  it("lists the checks and the latest finished run's warnings and errors, errors first", async () => {
+    const { problemsOf, problemCounts } = await import("./projectStore");
+    const project = fixture();
+    const checks = [
+      check("warning", "Only the first Ambient sets the air density.", ["el-bat", "el-gone"]),
+      check("info", "'Battery' has an unconnected negative (−) terminal.", ["el-bat"]),
+      { level: "error", text: "Old engine: one part.", elementId: "el-motor" } as DataCheck,
+    ];
+    const finished = run("warning", [
+      { level: "info", text: "Run finished." },
+      { level: "warning", text: "Battery 'Battery' reached minimum SOC at t = 97 s." },
+      { level: "error", text: "'Motor.torque' left its map." },
+      { level: "warning", text: "Cycle not followed." },
+    ]);
+    const problems = problemsOf(checks, finished, project);
+    expect(problems.map((p) => [p.level, p.text, p.elementIds, p.source === "check" ? "check" : "run"])).toEqual([
+      ["error", "Old engine: one part.", ["el-motor"], "check"],
+      ["error", "'Motor.torque' left its map.", ["el-motor"], "run"],
+      ["warning", "Only the first Ambient sets the air density.", ["el-bat"], "check"], // a part no longer there is left out
+      ["warning", "Battery 'Battery' reached minimum SOC at t = 97 s.", ["el-bat"], "run"],
+      ["warning", "Cycle not followed.", [], "run"],
+      ["info", "'Battery' has an unconnected negative (−) terminal.", ["el-bat"], "check"],
+    ]);
+    expect(problems[1].source).toEqual({ caseName: "City", startedAt: 1000 });
+    // the counters count the same rows
+    expect(problemCounts({ dataChecks: checks, runs: [finished] })).toEqual({ errors: 2, warnings: 3 });
+    // a run still going has not finished: the one before it counts
+    expect(problemsOf(checks, run("running", [{ level: "error", text: "x" }]), project)).toHaveLength(3);
+    expect(problemCounts({ dataChecks: checks, runs: [run("running", [{ level: "error", text: "x" }]), finished] })).toEqual({
+      errors: 2,
+      warnings: 3,
+    });
+    expect(problemCounts({ dataChecks: null, runs: [] })).toEqual({ errors: 0, warnings: 0 });
   });
 });
 
