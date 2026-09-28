@@ -116,7 +116,7 @@ def _size_and_sketch(raw: dict) -> dict:
         top = next(s for s in systems if s.get("parentId") is None)
         out["thumb"] = [[round(e["position"]["x"]), round(e["position"]["y"])]
                         for e in (top.get("elements") or [])[:300]]
-    except (AttributeError, KeyError, TypeError, ValueError, StopIteration):
+    except (AttributeError, KeyError, TypeError, ValueError, OverflowError, StopIteration):
         pass
     return out
 

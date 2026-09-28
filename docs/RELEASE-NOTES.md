@@ -238,6 +238,8 @@ sections.
   diagram also re-fits when a bottom panel closes or the window grows;
   before, it re-fitted only when it got smaller. Fits leave room for the
   names under the lowest parts. (GUI-03)
+- Delete or Backspace on the Results page no longer deletes the part
+  selected on the diagram hidden behind it. (UX-16)
 
 ### Upgrading from a 0.2.0 build
 

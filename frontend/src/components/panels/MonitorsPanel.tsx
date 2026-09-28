@@ -105,11 +105,24 @@ export function MonitorsPanel() {
         </div>
         <button
           className="ss-toolbtn border border-[color:var(--ss-field-border)] px-3"
-          onClick={() => {
-            // arm click-to-place and show the diagram: the next click puts it there
+          onClick={(e) => {
+            // show the diagram. A click arms click-to-place: the next click puts
+            // it there. Enter / Space adds it in the middle, as the library
+            // does, once the diagram is measured again (two frames), and moves
+            // the keyboard onto it.
             const ui = useUIStore.getState();
-            ui.setPlacingComponent("signal.monitor");
             ui.focusPanel("topology");
+            if (e.detail !== 0) return ui.setPlacingComponent("signal.monitor");
+            ui.setPlacingComponent(null);
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                if (!useUIStore.getState().insertComponent?.("signal.monitor")) return;
+                const id = useProjectStore.getState().selectedElementId;
+                requestAnimationFrame(() =>
+                  document.querySelector<HTMLElement>(`.react-flow__node[data-id="${id}"]`)?.focus(),
+                );
+              }),
+            );
           }}
         >
           Place a Monitor

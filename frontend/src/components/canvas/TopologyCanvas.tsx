@@ -177,6 +177,7 @@ function TopologyCanvasInner() {
 
   const placingId = useUIStore((s) => s.placingComponentId);
   const placingDef = placingId ? libraryById[placingId] : undefined;
+  const offPage = useUIStore((s) => s.ribbonTab === "start" || s.ribbonTab === "results");
   const clipboard = useProjectStore((s) => s.clipboard);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const hovered = useRef(false);
@@ -785,6 +786,18 @@ function TopologyCanvasInner() {
       <div
         ref={wrapperRef}
         className={`relative min-h-0 flex-1${placingDef ? " ss-placing" : ""}`}
+        // on the wrapper, so a part dropped on the empty diagram's card lands too
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          const defId = e.dataTransfer.getData("application/lightsim");
+          if (!defId) return;
+          const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+          store.getState().addElement(defId, { x: pos.x - 46, y: pos.y - 27 });
+        }}
         onMouseEnter={() => (hovered.current = true)}
         onMouseLeave={() => (hovered.current = false)}
         onMouseMove={(e) => {
@@ -877,18 +890,8 @@ function TopologyCanvasInner() {
             store.getState().select(null);
             closeMenu();
           }}
-          onDragOver={(e) => {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = "copy";
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            const defId = e.dataTransfer.getData("application/lightsim");
-            if (!defId) return;
-            const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-            store.getState().addElement(defId, { x: pos.x - 46, y: pos.y - 27 });
-          }}
-          deleteKeyCode={["Delete", "Backspace"]}
+          // not while the Start or Results page hides the diagram
+          deleteKeyCode={offPage ? null : ["Delete", "Backspace"]}
           nodeDragThreshold={4}
           multiSelectionKeyCode={["Control", "Meta", "Shift"]}
           selectionKeyCode={["Shift"]}
@@ -1007,26 +1010,29 @@ function TopologyCanvasInner() {
                 </li>
               </ul>
               {/* the next step as a button (UX-16); the rest of the card lets
-                  clicks through to the diagram */}
-              <div className="pointer-events-auto mt-3 flex flex-wrap justify-center gap-2">
-                <button
-                  className="rounded bg-[color:var(--ss-accent-fill)] px-3 py-1 text-[12px] font-semibold text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--ss-accent)]"
-                  onClick={() => {
-                    useUIStore.getState().focusPanel("components");
-                    requestAnimationFrame(() =>
-                      document.querySelector<HTMLInputElement>("input[aria-label='Search components']")?.focus(),
-                    );
-                  }}
-                >
-                  Add a part
-                </button>
-                <button
-                  className="ss-toolbtn border border-[color:var(--ss-field-border)] px-3"
-                  onClick={() => useUIStore.getState().setRibbonTab("start")}
-                >
-                  Start from an example
-                </button>
-              </div>
+                  clicks through to the diagram, and while a part is armed the
+                  buttons go, so a click in the middle places it */}
+              {!placingDef && (
+                <div className="pointer-events-auto mt-3 flex flex-wrap justify-center gap-2">
+                  <button
+                    className="rounded bg-[color:var(--ss-accent-fill)] px-3 py-1 text-[12px] font-semibold text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--ss-accent)]"
+                    onClick={() => {
+                      useUIStore.getState().focusPanel("components");
+                      requestAnimationFrame(() =>
+                        document.querySelector<HTMLInputElement>("input[aria-label='Search components']")?.focus(),
+                      );
+                    }}
+                  >
+                    Add a part
+                  </button>
+                  <button
+                    className="ss-toolbtn border border-[color:var(--ss-field-border)] px-3"
+                    onClick={() => useUIStore.getState().setRibbonTab("start")}
+                  >
+                    Start from an example
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

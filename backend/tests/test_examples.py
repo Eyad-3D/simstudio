@@ -260,3 +260,9 @@ def test_the_listing_gives_the_start_page_a_date_a_size_and_a_sketch(user_dir):
     (user_dir / "bev-car-mine.json").write_text(json.dumps(project))
     [listed] = client.get("/api/projects").json()
     assert (listed["name"], listed["elements"], listed["thumb"]) == ("Mine", parts, [])
+
+    # nor does a hand-edited position too big to round
+    top["elements"][0]["position"] = {"x": float("inf"), "y": 0}
+    (user_dir / "bev-car-mine.json").write_text(json.dumps(project))
+    [listed] = client.get("/api/projects").json()
+    assert (listed["name"], listed["elements"], listed["thumb"]) == ("Mine", parts, [])

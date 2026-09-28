@@ -29,7 +29,15 @@ export function StatusBar() {
         <button
           className="mb-0.5 rounded p-0.5 hover:bg-[color:var(--ss-hover)]"
           title="New project"
-          onClick={() => void confirmReplaceProject("Creating a new project").then((ok) => ok && newProject())}
+          onClick={() =>
+            void confirmReplaceProject("Creating a new project").then((ok) => {
+              if (!ok) return;
+              newProject();
+              // from the Start page, show the new diagram
+              const ui = useUIStore.getState();
+              if (ui.ribbonTab === "start") ui.setRibbonTab("home");
+            })
+          }
         >
           <Plus size={13} />
         </button>

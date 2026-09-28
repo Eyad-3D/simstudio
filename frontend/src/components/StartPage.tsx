@@ -148,7 +148,7 @@ export function StartPage() {
         <h2 id="start-recent" className={H2}>
           Recent projects
         </h2>
-        {recent?.length === 0 && (
+        {recent?.length === 0 && !offline && (
           <p className="text-[12px] text-[color:var(--ss-text-dim)]">
             None saved yet. A project you save is listed here.
           </p>

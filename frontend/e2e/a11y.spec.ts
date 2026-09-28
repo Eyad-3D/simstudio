@@ -162,7 +162,8 @@ for (const theme of ["light", "dark"] as const) {
       await check(page, `parameter-dialog-${theme}`);
     });
 
-    // UX-16: a first launch, with the examples and a saved project listed
+    // UX-16: a first launch, with the examples listed (and any project an
+    // earlier spec saved)
     test("start page", async ({ page }) => {
       await page.goto("/");
       await expect(page.getByRole("heading", { name: "Start", exact: true })).toBeVisible();
