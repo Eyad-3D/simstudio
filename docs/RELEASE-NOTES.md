@@ -124,7 +124,8 @@ sections.
   points. Properties sketches the speed over time, with the cycle's phases
   marked, and gives its duration, distance and top speed; a typed profile
   gets the same sketch. Choosing a cycle sets the length of the cases that
-  drive it, in one undo step, and Messages says which. A case can pick its
+  drive it, in one undo step, and Messages says which (when the model has
+  one Driving Task, or for the case it is picked in). A case can pick its
   own cycle among its overrides. Searching the component library for a
   cycle's name, such as *udds*, lists it: activate it to add a Driving Task
   that drives it. The three cycles are the ones the examples used; their

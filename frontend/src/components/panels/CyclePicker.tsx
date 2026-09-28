@@ -77,8 +77,10 @@ export function CyclePreview({ cycleId, points }: { cycleId: string; points: [nu
       live = false;
     };
   }, [id]);
-  const pts: [number, number][] = info
-    ? trace?.id === info.id
+  // a cycle not in the list (a newer file's, or no engine) gets no sketch:
+  // the typed profile is not what the task drives
+  const pts: [number, number][] = cycleId
+    ? info && trace?.id === info.id
       ? trace.t.map((t, i) => [t, trace.v[i]])
       : []
     : points;

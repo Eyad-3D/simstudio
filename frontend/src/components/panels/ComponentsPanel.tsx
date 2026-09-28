@@ -182,15 +182,17 @@ export function ComponentsPanel() {
                 <button
                   key={c.id}
                   className="ss-tree-row pl-6"
-                  aria-label={`Add a Driving Task on ${c.name}`}
+                  aria-label={`Add a Driving Task on ${cycleText(c)}`}
                   title={`Adds a Driving Task that drives ${cycleText(c)} (${c.region})`}
-                  onClick={() =>
+                  onClick={(e) => {
+                    // one task per double-click: its second click adds nothing
+                    if (e.detail > 1) return;
                     // the new task is selected once it is on the diagram
                     insert(task, () => {
                       const st = useProjectStore.getState();
                       if (st.selectedElementId) st.setDrivingCycle(st.selectedElementId, c.id);
-                    })
-                  }
+                    });
+                  }}
                 >
                   <Icon size={14} strokeWidth={1.6} className="shrink-0 text-[color:var(--ss-node-icon)]" />
                   <span className="truncate">{cycleText(c)}</span>

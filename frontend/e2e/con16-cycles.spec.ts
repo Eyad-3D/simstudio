@@ -46,8 +46,11 @@ test("CON-16: the library search finds cycles and adds a Driving Task on one", a
   await expect(page.getByRole("button", { name: /^Add a Driving Task on / })).toHaveCount(3);
   await search.fill("hwfet");
   const before = await page.locator(".react-flow__node").count();
-  await page.getByRole("button", { name: "Add a Driving Task on EPA highway (HWFET)" }).click();
+  const hwfet = page.getByRole("button", { name: /^Add a Driving Task on EPA highway \(HWFET\) · / });
+  await hwfet.click();
   await expect(page.locator(".react-flow__node")).toHaveCount(before + 1);
+  await hwfet.dblclick(); // a double-click adds one task, not two
+  await expect(page.locator(".react-flow__node")).toHaveCount(before + 2);
   await showPanel(page, "Properties");
   await expect(page.getByRole("combobox", { name: "Drive Cycle" })).toHaveValue("hwfet");
 });

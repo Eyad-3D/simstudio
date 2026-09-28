@@ -811,7 +811,14 @@ export function ElementForm({
       {drivingTask && (
         <div className="flex flex-col gap-1">
           <label className="flex flex-col gap-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
-            Drive Cycle
+            <span>
+              Drive Cycle
+              {running && (
+                <span className="ml-1 text-[10px] italic" title="Structural parameter — a live edit takes effect on the next run">
+                  (next run)
+                </span>
+              )}
+            </span>
             <CycleSelect value={cycleId} label="Drive Cycle" onChange={(v) => setDrivingCycle(element.id, v)} />
           </label>
           <CyclePreview
