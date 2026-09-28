@@ -130,6 +130,15 @@ sections.
   cycle's name, such as *udds*, lists it: activate it to add a Driving Task
   that drives it. The three cycles are the ones the examples used; their
   figures are within 0.04 % of the published ones. (CON-16)
+- Help: press F1, or click **?** at the top right, to open LightSim's help
+  in your web browser. It comes with the app and needs no internet
+  connection: two tutorials, how-to guides, a page for every part with its
+  ports and parameters, the drive cycles, the keyboard shortcuts, the Script
+  API and the documents that come with each release (known issues, release
+  notes, what is validated, data sources), with a search box. With a part
+  selected on the diagram, F1 opens that part's page. In the desktop app,
+  *Help → Documentation* opens the front page, and *Help → Known Limits*
+  now opens the known issues there. (LRN-04)
 
 ### Fixed
 

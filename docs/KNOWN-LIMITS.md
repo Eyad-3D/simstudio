@@ -355,9 +355,16 @@ minimum or an average, for example from the CSV export.
 - **No automatic updates yet.** Download a newer version from the GitHub
   Releases page and install it over the old one; your projects are kept.
   *Roadmap:* PLT-18.
-- **Little help in the app.** There is no user manual, tutorial or
-  explanation of individual parameters yet; the README's quick start is the
-  only walk-through. *Roadmap:* LRN-04, LRN-05.
+- **The help is a first draft.** F1, or **?** at the top right, opens
+  LightSim's help in your web browser, served from your computer: two
+  tutorials, how-to guides, a page for every part in the library, and the
+  documents that come with each release. It is new: if a page does not
+  match what the app shows, the app is right. The parameters are not yet
+  explained one by one (a part's page lists them with their units and
+  defaults), there are no pictures of the app beyond the quick start's,
+  the help opens outside the app window, and it is not online yet.
+  *Roadmap:* LRN-05 (parameters), LRN-09 (help inside the app), LRN-04
+  (follow-up: online).
 - **Licence.** LightSim is proprietary (`LICENSE`). The desktop app is free
   for evaluation, learning, research and other non-commercial use under its
   end-user licence agreement (`EULA.txt`, installed with the app);

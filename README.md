@@ -14,6 +14,12 @@ Linux, runs entirely on your computer, and works offline.
 > checked and how. What changed in each version, and which results moved:
 > [Release notes](docs/RELEASE-NOTES.md).
 
+**Help:** in the app, press **F1** or click **?** (top right) for the
+built-in help: tutorials, how-to guides, a page for every part in the
+library and these documents, with a search box. It opens in your web
+browser and needs no internet connection. Its pages are the Markdown in
+[docs/help](docs/help/index.md) and in docs/.
+
 ![The electric-car example on the diagram, with the E-Motor's values on the right](docs/screenshots/lightsim-0.2.0-topology.png)
 
 ## Quick start
@@ -68,6 +74,7 @@ Differential).
 | **Electrical** | Two-terminal components: every electrical element has explicit positive (+, red) and negative (−, blue) pins; the solver balances power on the supply rail with the negative terminals as the return (wire to Ground, or leave implicit) |
 | **Canvas** | Signal/data-bus wiring is edited in the Data Bus panel, one row per signal input with a searchable box that offers the outputs (those that share a word with the input's name first, then its unit), so a link is two clicks; a part's right-click menu has *Signals…*; links between two inputs or two outputs are refused; an optional dashed overlay draws those links on the canvas (the *signal* layer in Layer Configurations, off by default); background-grid toggle; double-click an element for a modal parameter dialog; Shift+click a pin to move it to the next side of its node, Shift+drag a pin to slide it anywhere along the node's edges (Shift+drag elsewhere draws a selection box) |
 | **Persistence** | Save/load projects on the backend (single JSON file per project), plus browser Export / Import; the last 20 saved versions of each project can be restored as a copy (Project → Restore…) |
+| **Help** | Built-in help pages served by the engine at `/help/` (so they work offline) and opened in the system browser: F1 opens the selected part's page or the front page, **?** in the header the front page, and the desktop app's *Help → Documentation* and *Help → Known Limits* the same pages. Tutorials, how-to guides, a generated page per library part (ports, parameters with an anchor each), the drive cycles and the examples, the README's quick start, solver and API sections, and the docs/ pages, with a search over every page. `frontend/scripts/build-docs.mjs` builds them before `npm run dev` and `npm run build`, and fails on a link to a page or heading that does not exist |
 | **UI shell** | Ribbon tabs act as full-page workspaces (Home = topology + panels; Results = its own page); light/dark theme (persisted); dockable & resizable panels (Dockview) around a large diagram, with Messages, Problems, layers, Data Bus and Signal Plot in a collapsible bottom tray (double-click a tab to maximise its group); status bar with live progress |
 
 ![The P2 Hybrid Car example in the dark theme](docs/screenshots/lightsim-0.2.0-hybrid-dark.png)
@@ -141,8 +148,8 @@ project file is left as it is, and saving the copy makes a new project.
 
 [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md) is the maintained list,
 including the open bugs that change results and how to work around them; the
-desktop app installs a copy (**Help → Known Limits**). The structural limits
-in short:
+app shows it in its help (**Help → Known Limits**, or F1). The structural
+limits in short:
 
 - One differential and one E-Motor per driveline subgraph (multiple
   independent drivelines — e.g. dual-motor AWD as two axles — work).
@@ -222,7 +229,7 @@ ruff check .                # lint (config in backend/pyproject.toml)
 cd ../frontend
 npm run lint                # ESLint (config in frontend/eslint.config.js)
 npm test                    # unit tests (Vitest)
-npm run build               # type-check + production build
+npm run build               # type-check + production build (and the help pages)
 npx playwright install chromium   # once
 npm run test:e2e            # browser + accessibility tests of the built UI
 
@@ -282,7 +289,8 @@ always refused; the two GPL-licensed parts that do ship come with an
 exception that permits it (the PyInstaller bootloader and, on Linux, the GCC
 runtime library). What is built into Electron itself (Chromium, Node.js) is
 not checked here: Electron ships those notices as `LICENSES.chromium.html`
-next to the executable.
+next to the executable. Build tools whose code does not ship are not listed
+either, such as `marked`, which turns the help's Markdown into HTML.
 
 The desktop builds (the workflow and both build scripts) write both files
 afresh before packaging, and the CI licence check runs on every pull request
@@ -324,7 +332,9 @@ frontend/  React 19 + TypeScript + Vite
   ├─ React Flow      topology canvas with custom element nodes & kind-colored edges
   ├─ Zustand         project graph, selection, undo history, live run state, results
   ├─ Recharts        results time-series charts (live-updating)
-  └─ Tailwind CSS    dense engineering-tool styling
+  ├─ Tailwind CSS    dense engineering-tool styling
+  └─ scripts/build-docs.mjs   the help pages: docs/help/, README sections, docs/,
+                              the catalogue and the cycles → public/help (marked)
 
 backend/   Python + FastAPI
   ├─ app/main.py                   HTTP + WebSocket API (FastAPI app)
