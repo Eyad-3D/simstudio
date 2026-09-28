@@ -49,6 +49,7 @@ test("UX-09: problems show and clear by themselves, and a row shows its parts", 
   // the count leads to the list, which says how to fix it
   await count.click();
   await expect(row).toBeVisible();
+  await expect(row).toHaveAccessibleName(/^Error E-Motor /); // not only a red icon
   await expect(row).toContainText("How to fix: In Data Bus Connections, pick a source for E-Motor · Traction Command");
 
   // a click, or Enter on the row, selects the part and brings it into view

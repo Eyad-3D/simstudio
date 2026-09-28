@@ -150,17 +150,22 @@ def validate_project(project: Project) -> list[DataCheck]:
 
     for system in project.systems:
         for conn in system.connections:
+            # the diagram cannot draw such a wire, so it goes with a part at its end
+            ends = [all_elements[i] for i in (conn.sourceElementId, conn.targetElementId)
+                    if i in all_elements]
             for el_id, port_id in ((conn.sourceElementId, conn.sourcePortId),
                                    (conn.targetElementId, conn.targetPortId)):
                 if el_id not in all_elements:
                     add("error", f"Connection '{conn.id}' references missing element '{el_id}'.",
                         ids=(conn.sourceElementId, conn.targetElementId),
-                        fix="Delete this wire and draw it again.")
+                        fix=f"The diagram cannot show this wire: delete '{ends[0].label}' (the "
+                            "wire goes with it) and add it again." if ends else None)
                 elif port_of(el_id, port_id) is None:
                     add("error",
                         f"Connection '{conn.id}' references missing port '{port_id}' "
                         f"on '{all_elements[el_id].label}'.", all_elements[el_id],
-                        fix="Delete this wire and draw it again.")
+                        fix=f"The diagram cannot show this wire: delete '{all_elements[el_id].label}' "
+                            "(the wire goes with it) and add it again.")
             pa = port_of(conn.sourceElementId, conn.sourcePortId)
             pb = port_of(conn.targetElementId, conn.targetPortId)
             if pa and pb and pa.kind != pb.kind and "signal" not in (pa.kind, pb.kind):

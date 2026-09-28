@@ -361,3 +361,19 @@ def test_global_checks_name_every_part(edit, starts, parts):
     assert set(check.elementIds) == parts and len(check.elementIds) == len(parts)
     assert check.elementId == (check.elementIds[0] if parts else None)
     assert check.fix or ADVICE.search(check.text)
+
+
+def test_a_wire_the_diagram_cannot_show_goes_with_its_part():
+    """A wire to a part or port that is gone is not drawn, so it cannot be
+    clicked: the fix line names the part to delete with it."""
+    def edit(d, s):
+        s["connections"] += [
+            {"id": "c-gone", "sourceElementId": "el-battery", "sourcePortId": "pos",
+             "targetElementId": "el-nowhere", "targetPortId": "t1"},
+            {"id": "c-port", "sourceElementId": "el-battery", "sourcePortId": "no_such_port",
+             "targetElementId": "el-hvbus", "targetPortId": "t1"},
+        ]
+    fixes = {c.text.split("'")[1]: (c.elementIds, c.fix) for c in _bev(edit) if "references missing" in c.text}
+    delete = "delete 'HV Battery Pack' (the wire goes with it) and add it again."
+    assert fixes == {"c-gone": (["el-battery"], "The diagram cannot show this wire: " + delete),
+                     "c-port": (["el-battery"], "The diagram cannot show this wire: " + delete)}

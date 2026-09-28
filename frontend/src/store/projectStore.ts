@@ -813,8 +813,12 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
     },
 
-    log: (level, text) =>
-      set((s) => ({ messages: [...s.messages, { level, text, time: now() }] })),
+    log: (level, text) => {
+      set((s) => ({ messages: [...s.messages, { level, text, time: now() }] }));
+      // Messages has no badge (Problems counts the model's problems), so an
+      // error such as a failed save shows at once
+      if (level === "error") useUIStore.getState().focusPanel("messages");
+    },
     clearMessages: () => set({ messages: [] }),
 
     select: (elementId) => set({ selectedElementId: elementId }),
@@ -1916,6 +1920,14 @@ function partsNamed(text: string, elements: ElementInstance[]): string[] {
   return elements.filter((e) => text.includes(`'${e.label}'`) || text.includes(`'${e.label}.`)).map((e) => e.id);
 }
 
+/** The warnings and errors of a finished run that the Data Checks do not
+ *  already list: the engine repeats the model's own warnings in every run. */
+function runProblemsOf(dataChecks: DataCheck[] | null, run: SimRun | undefined) {
+  if (!run || run.status === "running") return [];
+  const checked = new Set((dataChecks ?? []).map((c) => c.text));
+  return run.result.messages.filter((m) => m.level !== "info" && !checked.has(m.text));
+}
+
 /** Every current problem: the latest Data Checks, then the warnings and
  *  errors of the latest finished run. Errors first. */
 export function problemsOf(dataChecks: DataCheck[] | null, run: SimRun | undefined, project: Project | null): Problem[] {
@@ -1929,10 +1941,10 @@ export function problemsOf(dataChecks: DataCheck[] | null, run: SimRun | undefin
     elementIds: (c.elementIds?.length ? c.elementIds : c.elementId ? [c.elementId] : []).filter((id) => ids.has(id)),
     source: "check" as const,
   }));
-  if (run && run.status !== "running") {
+  if (run) {
     const source = { caseName: run.caseName, startedAt: run.startedAt };
-    for (const m of run.result.messages) {
-      if (m.level !== "info") out.push({ level: m.level, text: m.text, elementIds: partsNamed(m.text, elements), source });
+    for (const m of runProblemsOf(dataChecks, run)) {
+      out.push({ level: m.level, text: m.text, elementIds: partsNamed(m.text, elements), source });
     }
   }
   const rank = { error: 0, warning: 1, info: 2 };
@@ -1951,7 +1963,7 @@ export function useProblems(): Problem[] {
 export function problemCounts(s: Pick<ProjectState, "dataChecks" | "runs">): { errors: number; warnings: number } {
   let errors = 0;
   let warnings = 0;
-  for (const m of [...(s.dataChecks ?? []), ...(lastRunOf(s.runs)?.result.messages ?? [])]) {
+  for (const m of [...(s.dataChecks ?? []), ...runProblemsOf(s.dataChecks, lastRunOf(s.runs))]) {
     if (m.level === "error") errors++;
     else if (m.level === "warning") warnings++;
   }

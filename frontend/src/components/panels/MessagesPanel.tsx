@@ -2,14 +2,15 @@ import { useEffect, useRef } from "react";
 import { AlertCircle, AlertTriangle, Ban, Info } from "lucide-react";
 import { useProjectStore } from "../../store/projectStore";
 
+/** The level's icon, named for screen readers. */
 export function levelIcon(level: "info" | "warning" | "error", size = 13) {
   switch (level) {
     case "error":
-      return <AlertCircle size={size} className="shrink-0 text-[color:var(--ss-err)]" />;
+      return <AlertCircle size={size} className="shrink-0 text-[color:var(--ss-err)]" role="img" aria-label="Error" />;
     case "warning":
-      return <AlertTriangle size={size} className="shrink-0 text-[color:var(--ss-warn)]" />;
+      return <AlertTriangle size={size} className="shrink-0 text-[color:var(--ss-warn)]" role="img" aria-label="Warning" />;
     default:
-      return <Info size={size} className="shrink-0 text-[color:var(--ss-accent)]" />;
+      return <Info size={size} className="shrink-0 text-[color:var(--ss-accent)]" role="img" aria-label="Info" />;
   }
 }
 

@@ -992,6 +992,17 @@ describe("the Problems list", () => {
     });
     expect(problemCounts({ dataChecks: null, runs: [] })).toEqual({ errors: 0, warnings: 0 });
   });
+
+  it("lists a model warning the run repeats once", async () => {
+    const { problemsOf, problemCounts } = await import("./projectStore");
+    const twice = "Only the first Ambient ('Ambient 1') sets the air density.";
+    const checks = [check("warning", twice)];
+    const finished = run("warning", [{ level: "warning", text: twice }]);
+    expect(problemsOf(checks, finished, fixture()).map((p) => p.source)).toEqual(["check"]);
+    expect(problemCounts({ dataChecks: checks, runs: [finished] })).toEqual({ errors: 0, warnings: 1 });
+    // once the model is fixed, the run's copy is what is left
+    expect(problemCounts({ dataChecks: [], runs: [finished] })).toEqual({ errors: 0, warnings: 1 });
+  });
 });
 
 describe("run history", () => {

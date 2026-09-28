@@ -21,6 +21,7 @@ export function DataChecksPanel() {
     ui.revealElements?.(p.elementIds);
   };
 
+  const seen = new Map<string, number>();
   const errors = problems.filter((p) => p.level === "error").length;
   const warnings = problems.filter((p) => p.level === "warning").length;
 
@@ -47,10 +48,14 @@ export function DataChecksPanel() {
           </div>
         )}
         <ul>
-          {problems.map((p, i) => {
+          {problems.map((p) => {
             const parts = p.elementIds.map((id) => labels.get(id)).join(", ");
+            // keyed by content, so a re-check that adds a row keeps focus on the same problem
+            const key = `${p.source === "check" ? "check" : "run"}:${p.text}:${p.elementIds}`;
+            const n = (seen.get(key) ?? 0) + 1;
+            seen.set(key, n);
             return (
-              <li key={i} className="border-b border-[color:var(--ss-td-border)]">
+              <li key={`${key}:${n}`} className="border-b border-[color:var(--ss-td-border)]">
                 <button
                   className="flex w-full items-start gap-2 px-2 py-1 text-left text-[12px] enabled:hover:bg-[color:var(--ss-hover)]"
                   disabled={!parts} // about the project, not a part
