@@ -309,7 +309,12 @@ class DataCheck(BaseModel):
     level: Literal["info", "warning", "error"]
     elementId: Optional[str] = None
     elementLabel: Optional[str] = None
+    # every part the check is about (elementId first), for the Problems list
+    # to select and frame; empty when it is about no part
+    elementIds: list[str] = Field(default_factory=list)
     text: str
+    # what to do about it, when the text does not say
+    fix: Optional[str] = None
 
 
 class SimulateRequest(BaseModel):

@@ -1,7 +1,11 @@
 """Data Checks that catch models which would run 'successfully' but wrongly."""
+import copy
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 from helpers import bev_axle, conn, dbc, el, project
+from test_broken_models import EXAMPLES, faults
 
 from app.main import app
 from app.schemas import Connection, Project
@@ -282,3 +286,78 @@ def _with_ambients(*values):
 ])
 def test_ambient_checks(values, expected):
     assert _with_ambients(*values) == expected
+
+
+# ---- UX-09: every problem names its parts and says what to do ---------------------
+
+# words of a check text that already say what to do (it then needs no fix line)
+ADVICE = re.compile(r"\b(wire|connect|remove|give|set them|lower|extend|tick|check the|add a|"
+                    r"drag|lock it|fewer)\b", re.I)
+
+
+def test_every_corpus_problem_names_its_part_and_says_what_to_do():
+    """Over the 118 broken models of VAL-01, a Problems row can always show
+    its part(s) on the diagram and say how to fix it."""
+    unnamed, unadvised = set(), set()
+    for name in EXAMPLES:
+        for _, d in faults(name):
+            for c in validate_project(Project.model_validate(d)):
+                if c.level == "info":
+                    continue
+                if not c.elementIds or c.elementId != c.elementIds[0]:
+                    unnamed.add(c.text)
+                if not c.fix and not ADVICE.search(c.text):
+                    unadvised.add(c.text)
+    assert unnamed == set()
+    assert unadvised == set()
+
+
+WHEELS = {"el-wheel-fl", "el-wheel-fr", "el-wheel-rl", "el-wheel-rr"}
+
+
+def _bev(edit) -> list:
+    d = load_example("bev-car").model_dump()
+    edit(d, d["systems"][0])
+    return validate_project(Project.model_validate(d))
+
+
+def _twin(system: dict, el_id: str) -> None:
+    """A copy of `el_id` ('<id>-2'), wired like it."""
+    twin = copy.deepcopy(next(e for e in system["elements"] if e["id"] == el_id))
+    twin["id"], twin["label"] = f"{el_id}-2", f"{twin['label']} 2"
+    system["elements"].append(twin)
+    system["connections"] += [{**c, "id": f"{c['id']}-2", "sourceElementId": twin["id"]}
+                              for c in system["connections"] if c["sourceElementId"] == el_id]
+
+
+def _shares(system: dict, pct: float) -> None:
+    for e in system["elements"]:
+        if e["id"] in WHEELS:
+            e["parameterOverrides"]["vehicle_load_share_pct"] = pct
+
+
+def _drop_vehicle(d: dict, system: dict) -> None:
+    system["elements"] = [e for e in system["elements"] if e["id"] != "el-vehicle"]
+    d["dataBusConnections"] = [c for c in d["dataBusConnections"]
+                               if "el-vehicle" not in (c["element1Id"], c["element2Id"])]
+
+
+@pytest.mark.parametrize("edit, starts, parts", [
+    (lambda d, s: _twin(s, "el-vehicle"), "Only one Vehicle element",
+     {"el-vehicle", "el-vehicle-2"}),
+    (lambda d, s: _twin(s, "el-battery"), "Bus has two batteries",
+     {"el-battery", "el-battery-2"}),
+    (lambda d, s: _shares(s, 40), "Wheel load shares add up to 160 %", WHEELS),
+    (lambda d, s: _shares(s, 0), "Wheel load shares add up to 0 %", WHEELS),
+    (_drop_vehicle, "Wheels present but no Vehicle", WHEELS),
+    (lambda d, s: d.update(cases=[]), "Project has no simulation case", set()),
+], ids=["two Vehicles", "two batteries", "shares 160 %", "shares 0 %", "no Vehicle", "no case"])
+def test_global_checks_name_every_part(edit, starts, parts):
+    """Checks about the model as a whole select every part involved (a
+    Problems row then frames them all); only project-level ones name none."""
+    found = [c for c in _bev(edit) if c.text.startswith(starts)]
+    assert len(found) == 1, [c.text for c in _bev(edit)]
+    check = found[0]
+    assert set(check.elementIds) == parts and len(check.elementIds) == len(parts)
+    assert check.elementId == (check.elementIds[0] if parts else None)
+    assert check.fix or ADVICE.search(check.text)
