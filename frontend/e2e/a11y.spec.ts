@@ -79,7 +79,8 @@ async function blockingViolations(page: Page): Promise<Map<string, string>> {
 async function check(page: Page, screen: string) {
   const current = await blockingViolations(page);
   if (updating) {
-    found[screen] = [...current.keys()].sort();
+    // a screen can be scanned in several states: keep what each one found
+    found[screen] = [...new Set([...(found[screen] ?? []), ...current.keys()])].sort();
     return;
   }
   const known = new Set(baseline[screen] ?? []);
@@ -145,6 +146,9 @@ for (const theme of ["light", "dark"] as const) {
       await showPanel(page, "Data Bus Connections");
       await page.getByRole("combobox", { name: "Source of Driver · Target Speed", exact: true }).click();
       await expect(page.getByRole("listbox")).toBeVisible();
+      await check(page, `topology-${theme}`);
+      await page.keyboard.type("zzzz");
+      await expect(page.getByRole("listbox")).toHaveText("No output matches.");
       await check(page, `topology-${theme}`);
     });
 

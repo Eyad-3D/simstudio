@@ -1,13 +1,15 @@
 // UX-15: Data Bus Connections lists one row per signal input, and a link is
-// two clicks: open the input's source box, pick an output. The box offers
-// outputs only, so a link between two inputs cannot be made here (the store
-// refuses one made elsewhere). The BEV's 13 links took 65 clicks with the
-// old four-column picker.
+// two clicks: open the input's source box, pick an output, which is in view
+// as the list opens (outputs that share words with the input's name come
+// first). The box offers outputs only, so a link between two inputs cannot be
+// made here (the store refuses one made elsewhere). The BEV's 13 links took
+// 65 clicks with the old four-column picker.
 import { expect, test } from "@playwright/test";
 import { openApp, showPanel } from "./app";
 import { importProject } from "./ui-helpers";
 
 test("UX-15: every signal link of the BEV is rebuilt in two clicks", async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 }); // the smallest window, with the smallest tray
   await openApp(page);
   await showPanel(page, "Data Bus Connections");
   const boxes = page.getByRole("combobox", { name: /^Source of / });
@@ -37,7 +39,15 @@ test("UX-15: every signal link of the BEV is rebuilt in two clicks", async ({ pa
       expect(offered.length).toBeGreaterThan(0);
       for (const [input] of links) expect(offered.some((o) => o.startsWith(`${input} [`))).toBe(false);
     }
-    await list.getByRole("option", { name: from, exact: true }).click();
+    const option = list.getByRole("option", { name: from, exact: true });
+    // no scrolling to find it: inside the list as it opens
+    const shown = await option.evaluate((o) => {
+      const r = o.getBoundingClientRect();
+      const l = o.parentElement!.getBoundingClientRect();
+      return r.top >= l.top - 1 && r.bottom <= l.bottom + 1 && l.top >= 0 && l.bottom <= innerHeight;
+    });
+    expect(shown, `${from} in view for ${to}`).toBe(true);
+    await option.click();
     clicks++;
   }
   await expect(page.getByText(/^13 links · /)).toBeVisible();
@@ -84,18 +94,32 @@ test("UX-15: the source box works from the keyboard", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(box).toHaveAttribute("aria-expanded", "false");
   await expect(box).toHaveValue("Vehicle Task · Target Speed [km/h]");
+  // typing again starts a new search
+  await page.keyboard.type("driver");
+  await expect(box).toHaveValue("driver");
+  await page.keyboard.press("Escape");
+
+  // under "Unconnected inputs" a picked row stays until the filters change,
+  // so the focus stays on it
+  await page.getByRole("checkbox", { name: "Unconnected inputs" }).check();
+  const free = page.getByRole("combobox", { name: "Source of Power Consumer · Power demand", exact: true });
+  await free.focus();
+  await page.keyboard.type("vehicle task");
+  await page.keyboard.press("Enter");
+  await expect(free).toBeFocused();
+  await expect(free).toHaveValue("Vehicle Task · Target Speed [km/h]");
+  await page.getByRole("checkbox", { name: "Unconnected inputs" }).uncheck();
+  await page.getByRole("checkbox", { name: "Unconnected inputs" }).check();
+  await expect(free).toHaveCount(0);
 });
 
-test("UX-15: a link between two inputs from an older project is shown and can be removed", async ({ page }) => {
+test("UX-15: a link between two inputs, or to a port that is gone, is shown and can be removed", async ({ page }) => {
   await openApp(page);
   const bev = await (await page.request.get("/api/examples/bev-car")).json();
-  bev.dataBusConnections.push({
-    id: "db-old",
-    element1Id: "el-driver",
-    port1Id: "sig_speed_in",
-    element2Id: "el-motor",
-    port2Id: "sig_demand_in",
-  });
+  bev.dataBusConnections.push(
+    { id: "db-old", element1Id: "el-driver", port1Id: "sig_speed_in", element2Id: "el-motor", port2Id: "sig_demand_in" },
+    { id: "db-gone", element1Id: "el-vehicle", port1Id: "sig_old", element2Id: "el-driver", port2Id: "sig_speed_in" },
+  );
   await importProject(page, bev);
   await showPanel(page, "Data Bus Connections");
   const old = page.locator("li", { hasText: "both inputs, so no data flows" });
@@ -105,9 +129,17 @@ test("UX-15: a link between two inputs from an older project is shown and can be
     "Vehicle · Vehicle Speed [km/h]",
   );
   await showPanel(page, "Problems");
-  await expect(page.getByText(/^How to fix: Remove it in Data Bus Connections/)).toBeVisible();
+  await expect(page.getByText(/^How to fix: Remove it in Data Bus Connections: a link runs/)).toBeVisible();
+  await expect(page.getByText(/^How to fix: Remove it in Data Bus Connections and link/)).toBeVisible();
   await showPanel(page, "Data Bus Connections");
   await old.getByTitle("Remove connection").click();
   await expect(old).toHaveCount(0);
+
+  // a link to a port that is gone blocks the run until it is removed here
+  const gone = page.locator("li", { hasText: "a part or port is missing" });
+  await expect(gone).toHaveText("Driver · Actual Speed ↔ Vehicle · sig_old: a part or port is missing, so no data flows. Remove it.");
+  await expect(page.getByText(/^1 error$/)).toBeVisible({ timeout: 2000 });
+  await gone.getByTitle("Remove connection").click();
   await expect(page.getByText(/^13 links · /)).toBeVisible();
+  await expect(page.getByText(/^1 error$/)).toHaveCount(0, { timeout: 2000 });
 });

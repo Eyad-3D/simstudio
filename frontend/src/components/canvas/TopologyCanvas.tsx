@@ -40,6 +40,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import {
+  portsOf,
   systemBreadcrumb,
   useActiveSystem,
   useProjectStore,
@@ -159,6 +160,12 @@ function TopologyCanvasInner() {
   const [snap, setSnap] = useState(false);
   const [menu, setMenu] = useState<CtxMenu | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuEl = menu?.nodeId ? system?.elements.find((e) => e.id === menu.nodeId) : undefined;
+  // a Monitor or Script without ports yet can still get signals
+  const menuSignals =
+    !!menuEl &&
+    (!!libraryById[menuEl.componentDefId]?.allowDynamicPorts ||
+      portsOf(menuEl, libraryById).some((p) => p.kind === "signal"));
   const [guides, setGuides] = useState<{ x: number[]; y: number[] } | null>(null);
   // node sizes React Flow measured, kept on the controlled nodes (as
   // applyNodeChanges would) so the minimap can draw them. Keyed by element id
@@ -1036,18 +1043,20 @@ function TopologyCanvasInner() {
                     });
                   }}
                 />
-                <MenuBtn
-                  icon={Cable}
-                  label="Signals…"
-                  onClick={() => {
-                    // its signal inputs and outputs in Data Bus Connections
-                    store.getState().select(menu.nodeId!);
-                    const ui = useUIStore.getState();
-                    ui.setBusSelectedOnly(true);
-                    ui.focusPanel("data-bus");
-                    closeMenu();
-                  }}
-                />
+                {menuSignals && (
+                  <MenuBtn
+                    icon={Cable}
+                    label="Signals…"
+                    onClick={() => {
+                      // its signal inputs and outputs in Data Bus Connections
+                      store.getState().select(menu.nodeId!);
+                      const ui = useUIStore.getState();
+                      ui.setBusSelectedOnly(true);
+                      ui.focusPanel("data-bus");
+                      closeMenu();
+                    }}
+                  />
+                )}
                 <div className="my-1 h-px bg-[color:var(--ss-border)]" />
                 <MenuBtn
                   icon={CopyPlus}
