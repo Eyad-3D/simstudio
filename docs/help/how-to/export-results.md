@@ -19,8 +19,8 @@ comma in a part's name is quoted.
 ## The chart as a picture
 
 Click **PNG** above the chart. The picture shows the chart as it is on the
-screen, legend included, at twice its size. It is not offered for the
-table view.
+screen, zoomed in if you zoomed, with its legend under it, at twice its
+size. It is not offered for the table view.
 
 ## A sweep's table
 

@@ -50,6 +50,10 @@ draws the run as it goes. The City Cycle takes a few seconds.
   full the battery is, in %) and its *Discharge Power*. Tick other channels
   in the list on the left to add them, for example *Vehicle Speed* under
   *Vehicle*. Type in **Search channels…** to find one.
+- Rest the pointer on the chart: the legend under it reads the values at
+  that time. Roll the mouse wheel over the chart to zoom in on a moment;
+  a double-click shows the whole run again
+  ([all the chart's keys](../reference/keyboard-shortcuts.md#on-a-chart)).
 - The table under the chart sums up the run (scroll it for more rows): the
   battery's final SOC, 88.76 %, *Distance driven* 7.292 km and
   *Consumption* 11.12 kWh/100 km.

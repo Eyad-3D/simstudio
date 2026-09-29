@@ -273,6 +273,21 @@ sections.
   which the form no longer quietly changes. An acceleration case's
   *Distance*, *Start line* and *Reference time* turn red as you type, but
   are not yet Data Checks: a run ignores a value outside them. (UX-10)
+- Charts zoom and pan: on the *Results* chart, the X-Y view and the
+  *Signal Plot*, roll the mouse wheel to zoom in or out around the pointer,
+  drag a box to zoom in on it, Shift+drag to move the view, and
+  double-click to see the whole run again; a chart with the keyboard focus
+  takes +, −, the left and right arrows and 0. The zoom stays when you
+  tick another channel and while a run is still adding points. Charts now
+  draw every stored point (the highest and lowest of each pixel column, so
+  no peak is lost), so zooming in shows each one, and their y axes fit the
+  data in view instead of starting at 0. The values under the pointer show
+  in the legend under the chart instead of in a pop-up (in the *Signal
+  Plot*, in its toolbar). On a 1-hour run (36,001 points), ticking a
+  channel redraws in 30-40 ms instead of 50-110 ms. The **PNG** picture
+  shows the view you zoomed to. A screen reader names what each chart
+  shows and its time range. The charts are drawn with uPlot (MIT licence)
+  instead of Recharts. (RES-05)
 
 ### Fixed
 

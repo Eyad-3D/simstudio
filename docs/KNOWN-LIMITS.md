@@ -346,11 +346,12 @@ minimum or an average, for example from the CSV export.
 
 ### Live edits, charts, sweeps and export
 
-- **Values between recorded points are not stored.** Charts keep the
-  highest and lowest value of each stretch they thin for drawing, but with
-  *Store every* above 1 the values in between recorded points are never
-  stored, so a short spike or dip between them does not show. Use *Store
-  every* 1 when peaks matter. *Roadmap:* RES-17, ENG-16.
+- **Values between recorded points are not stored.** Charts draw every
+  stored point (the highest and lowest of each pixel column), and zooming
+  in shows each one, but with *Store every* above 1 the values in between
+  recorded points are never stored, so a short spike or dip between them
+  does not show. Use *Store every* 1 when peaks matter. *Roadmap:* RES-17,
+  ENG-16.
 - **Stored values are rounded.** Every stored value is rounded to 5 decimal
   places, so small values keep few digits (a tyre slip of 0.0018 keeps two).
   The summary rounds energies to 1 Wh (battery losses to 0.1 Wh), fuel to

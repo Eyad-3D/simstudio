@@ -35,6 +35,22 @@ A right-click on a part opens its menu: *Parameters*, *Rename…*,
 toolbar sets the zoom (Fit, 50 %, 100 %, 200 %); with it focused, the up
 and down arrows open its list.
 
+## On a chart
+
+The charts on the *Results* page and in the *Signal Plot* panel. Rest the
+pointer on a chart to read the values there, in the legend under it (in
+the *Signal Plot*, next to the channel list).
+
+| Mouse or keys | What they do |
+|---|---|
+| Mouse wheel | Zoom in or out around the pointer (on the X-Y view, both axes) |
+| Drag | Zoom in on the box you draw |
+| Shift+drag | Move the view |
+| Double-click | Show the whole run again |
+| + and − | Zoom in and out (click the chart or move to it with Tab first) |
+| Left and right arrows | Move the view by a tenth of its width |
+| 0 | Show the whole run again |
+
 ## In the component library
 
 | Keys | What they do |
