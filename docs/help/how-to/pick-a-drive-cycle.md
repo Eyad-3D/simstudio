@@ -8,7 +8,8 @@ lists the standard ones.
 
 ## For the whole model
 
-1. Click the Driving Task on the diagram (in the examples, *Vehicle Task*).
+1. Click the Driving Task on the diagram (in the electric and hybrid
+   examples, *Vehicle Task*).
 2. In *Properties*, open the **Drive Cycle** list under the parameters
    table and choose a cycle, for example *WLTC class 3b*.
 
