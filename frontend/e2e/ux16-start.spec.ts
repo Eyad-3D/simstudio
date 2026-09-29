@@ -15,6 +15,10 @@ test("UX-16: a first launch shows Start, and an example runs in two clicks", asy
   // its "what to expect" is its description, not part of its name
   await expect(card).toHaveAccessibleDescription(/What to expect/);
   await expect(card.locator("svg rect")).toHaveCount(22); // the sketch of its diagram
+  // the Formula Student example is listed too, with its own results to expect
+  await expect(
+    page.getByRole("button", { name: /^FS Electric \(generic\), \d+ parts · opens as a copy$/ }),
+  ).toHaveAccessibleDescription(/What to expect \(estimates\)/);
   await card.click(); // 1
   await expect(startHeading(page)).toHaveCount(0);
   await expect(nodes(page).first()).toBeVisible();
