@@ -140,6 +140,15 @@ export function measurePlugin(kind: XAxis["kind"]): PngPlugin {
           },
           true,
         );
+        // nor a double-click on a line, which would show the whole run again
+        u.root.addEventListener(
+          "dblclick",
+          (e) => {
+            const s = e.target === u.over ? state() : null;
+            if (s && near(u, s, plotX(u, e)) != null) e.stopPropagation();
+          },
+          true,
+        );
         u.over.addEventListener("mousemove", (e) => {
           const s = state();
           u.over.style.cursor = s && near(u, s, plotX(u, e)) != null ? "ew-resize" : "";
@@ -155,37 +164,46 @@ export function measurePlugin(kind: XAxis["kind"]): PngPlugin {
   };
 }
 
-/** A series' values at A and B and its statistics between them; none at a
+/** A series' values at A and B and its statistics between them, with A and
+ *  B where x(i) (the sample's time, or its distance) reaches them; none at a
  *  cursor outside its samples (an overlaid run that ended sooner), and none
  *  at all when the window misses them. */
-function measure(ts: Channel["timeSeries"], [tA, tB]: AB) {
+function measure(ts: Channel["timeSeries"], [pA, pB]: AB, x = (i: number) => ts[i].t) {
   const n = ts.length;
-  if (n === 0 || Math.max(tA, tB) < ts[0].t || Math.min(tA, tB) > ts[n - 1].t) return null;
-  const at = (t: number) => nearestIndex(n, t, (i) => ts[i].t);
-  const w = windowStats(ts, at(tA), at(tB));
-  const inside = (t: number) => t >= ts[0].t && t <= ts[n - 1].t;
-  return w && { ...w, a: inside(tA) ? w.a : null, b: inside(tB) ? w.b : null };
+  if (n === 0 || Math.max(pA, pB) < x(0) || Math.min(pA, pB) > x(n - 1)) return null;
+  const at = (p: number) => nearestIndex(n, p, x);
+  const w = windowStats(ts, at(pA), at(pB));
+  const inside = (p: number) => p >= x(0) && p <= x(n - 1);
+  return w && { ...w, a: inside(pA) ? w.a : null, b: inside(pB) ? w.b : null };
 }
+
+/** A typed time in s, with a decimal point or comma; null when it is not one
+ *  (Number() would take "0x10" as 16 and "" as 0). */
+const parseTime = (text: string) =>
+  /^\s*[+-]?(\d+[.,]?\d*|[.,]\d+)\s*$/.test(text) ? Number(text.replace(",", ".")) : null;
 
 /** A cursor's time field: type a time (Enter or leaving the field sets it on
  *  the nearest sample), or step with the up and down arrows (a sample) and
- *  Page Up and Page Down (ten). */
+ *  Page Up and Page Down (ten), from the typed time if there is one. */
 function CursorInput({ run, ab, which }: { run: SimRun; ab: AB; which: 0 | 1 }) {
-  const [draft, setDraft] = useState<string | null>(null);
+  // what was typed, and over which cursor time: once the cursor moves some
+  // other way (a dragged line, time to reach), the typing is dropped
+  const [draft, setDraft] = useState<{ text: string; over: number } | null>(null);
+  const typed = draft?.over === ab[which] ? draft.text : null;
+  const value = typed === null ? null : parseTime(typed);
   const ts = timesOf(run);
-  const i = nearestIndex(ts.length, ab[which], (k) => ts[k].t);
+  const near = (t: number) => nearestIndex(ts.length, t, (k) => ts[k].t);
   const set = (t: number) => {
     const next: AB = [...ab];
     next[which] = t;
     useUIStore.getState().setCursors(run.id, next);
     setDraft(null);
   };
-  const commit = () => {
-    const v = Number(draft);
-    if (draft !== null && draft.trim() !== "" && Number.isFinite(v)) set(ts[nearestIndex(ts.length, v, (k) => ts[k].t)].t);
-    else setDraft(null);
-  };
+  // a time that is not one is dropped, as in the other number fields
+  const commit = () => (value === null ? setDraft(null) : set(ts[near(value)].t));
   const name = which ? "B" : "A";
+  const shown = String(ms(ab[which]));
+  const invalid = typed !== null && value === null;
   return (
     <label className="flex items-center gap-1 font-semibold">
       {name}
@@ -197,16 +215,19 @@ function CursorInput({ run, ab, which }: { run: SimRun; ab: AB; which: 0 | 1 }) 
         aria-valuenow={ms(ab[which])}
         aria-valuemin={ms(ts[0].t)}
         aria-valuemax={ms(ts[ts.length - 1].t)}
-        value={draft ?? String(ms(ab[which]))}
+        aria-invalid={invalid || undefined}
+        title={invalid ? `Enter a time in s (leaving the field keeps ${shown})` : undefined}
+        value={typed ?? shown}
         onFocus={(e) => e.currentTarget.select()}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => setDraft({ text: e.target.value, over: ab[which] })}
         onBlur={commit}
         onKeyDown={(e) => {
-          const to = { ArrowUp: i + 1, ArrowDown: i - 1, PageUp: i + 10, PageDown: i - 10 }[e.key];
-          if (to !== undefined) {
+          const step = { ArrowUp: 1, ArrowDown: -1, PageUp: 10, PageDown: -10 }[e.key];
+          if (step !== undefined) {
             e.preventDefault();
-            set(ts[Math.max(0, Math.min(ts.length - 1, to))].t);
-          } else if (e.key === "Enter") commit();
+            const from = value === null ? near(ab[which]) : near(value);
+            set(ts[Math.max(0, Math.min(ts.length - 1, from + step))].t);
+          } else if (e.key === "Enter" && !invalid) commit();
           else if (e.key === "Escape") setDraft(null);
         }}
       />
@@ -292,9 +313,29 @@ const HEADS: [string, string?][] = [
 
 /** Under the chart while the primary run's cursors are on: the A and B time
  *  fields, Δt, time to reach, and a row per plotted series. */
-export function MeasurePanel({ run, series }: { run: SimRun; series: Series[] }) {
+export function MeasurePanel({ run, series, kind }: { run: SimRun; series: Series[]; kind: XAxis["kind"] }) {
   const ab = useUIStore((s) => s.cursors[run.id]);
-  const rows = useMemo(() => (ab ? series.map((d) => ({ d, w: measure(d.channel.timeSeries, ab) })) : []), [series, ab]);
+  // on the distance axis, the lines cross an overlaid run where it had
+  // driven as far as the primary run at A and B, not at the same times
+  const dist = useMemo(() => {
+    if (kind !== "distance") return null;
+    const of = new Map<string, number[] | null>();
+    for (const d of series) if (d.run.id !== run.id && !of.has(d.run.id)) of.set(d.run.id, distanceOf(d.run));
+    return { g: gridOf(run, kind), of };
+  }, [run, series, kind]);
+  const rows = useMemo(() => {
+    if (!ab) return [];
+    return series.map((d) => {
+      const ts = d.channel.timeSeries;
+      const all = dist?.of.get(d.run.id);
+      // (a channel that a live run began to send late ends on the same sample)
+      const w =
+        dist && all
+          ? measure(ts, [xAt(dist.g, ab[0]), xAt(dist.g, ab[1])], (i) => all[i + all.length - ts.length])
+          : measure(ts, ab);
+      return { d, w };
+    });
+  }, [series, ab, dist]);
   if (!ab || timesOf(run).length === 0) return null;
   const cell = "ss-td whitespace-nowrap text-right font-mono";
   return (

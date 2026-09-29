@@ -4,10 +4,11 @@
 // them, always onto a stored sample. A table under the chart gives each
 // plotted series' values at A and B and, between them, its minimum, maximum,
 // mean, RMS and integral (kWh from kW). The lines follow zoom and the
-// distance axis and go into the PNG; the cursors are kept per run.
+// distance axis (where an overlaid run is read at the same distances) and go
+// into the PNG; the cursors are kept per run.
 import { readFile } from "node:fs/promises";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { openApp, runActiveCase, runButton, xRange } from "./app";
+import { headlineTile, openApp, ribbonTab, runActiveCase, runButton, xRange } from "./app";
 
 /** Export the CSV and read it: its header and its rows as numbers. */
 async function csv(page: Page): Promise<{ header: string[]; rows: number[][] }> {
@@ -98,7 +99,20 @@ test("RES-06: the energy between two typed times, and cursors that follow the ch
   await expect(integral).toHaveText(/ kWh$/);
   expect(parseFloat(await integral.innerText())).toBeCloseTo(kWh(data, power, 150, 300), 3);
 
-  // the arrow keys step one sample; the cursors stay through the table view
+  // the arrow keys step one sample, from a time typed there if there is
+  // one; a decimal comma is a point, and what is not a time stays marked
+  // until the field is left
+  await field(page, "A").fill("0x10");
+  await page.keyboard.press("Enter");
+  await expect(field(page, "A")).toHaveAttribute("aria-invalid", "true");
+  await field(page, "A").fill("149,6");
+  await page.keyboard.press("Enter");
+  await expect(field(page, "A")).toHaveValue("150");
+  await expect(field(page, "A")).not.toHaveAttribute("aria-invalid");
+  await field(page, "A").fill("200");
+  await field(page, "A").press("ArrowUp");
+  await expect(field(page, "A")).toHaveValue("201");
+  await field(page, "A").fill("150");
   await field(page, "A").press("ArrowUp");
   await expect(field(page, "A")).toHaveValue("151");
   await page.getByRole("button", { name: "Table", exact: true }).click();
@@ -163,7 +177,11 @@ test("RES-06: the energy between two typed times, and cursors that follow the ch
   );
   expect(inPng).toBeGreaterThan(0.9);
 
-  // C again takes them away
+  // C does nothing behind a dialog, and again takes them away
+  await page.getByTitle("Delete this run (also from disk)").click();
+  await page.keyboard.press("c");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(cursors).toHaveAttribute("aria-pressed", "true");
   await chart.focus();
   await page.keyboard.press("c");
   await expect(cursors).toHaveAttribute("aria-pressed", "false");
@@ -183,6 +201,8 @@ test("RES-06: dragging a cursor line moves it, not the zoom, at 125 % interface 
   const y = plot.y + plot.height / 2;
   const x = plot.x + plot.width * 0.25;
 
+  // (a time typed into A but not set is dropped by the drag)
+  await field(page, "A").fill("300");
   // the pointer shows that line A can be dragged
   await page.mouse.move(x + 3, y);
   await expect(chart.locator(".u-over")).toHaveCSS("cursor", "ew-resize");
@@ -193,6 +213,9 @@ test("RES-06: dragging a cursor line moves it, not the zoom, at 125 % interface 
   await expect.poll(async () => Number(await field(page, "A").inputValue())).toBeGreaterThan(expected - 2);
   expect(Number(await field(page, "A").inputValue())).toBeLessThan(expected + 2);
   expect(await xRange(chart)).toEqual(full);
+  const dragged = await field(page, "A").inputValue();
+  await page.keyboard.press("Tab");
+  await expect(field(page, "A")).toHaveValue(dragged);
 
   // a drag away from the lines still zooms
   await page.mouse.move(plot.x + plot.width * 0.6, y);
@@ -201,6 +224,14 @@ test("RES-06: dragging a cursor line moves it, not the zoom, at 125 % interface 
   await page.mouse.move(plot.x + plot.width * 0.9, y, { steps: 5 });
   await page.mouse.up();
   await expect.poll(() => xRange(chart)).not.toEqual(full);
+
+  // a double-click on a line keeps the zoom; elsewhere it shows the whole run
+  const zoomed = await xRange(chart);
+  const onB = plot.x + plot.width * share(zoomed, Number(await field(page, "B").inputValue()));
+  await page.mouse.dblclick(onB + 1, y);
+  expect(await xRange(chart)).toEqual(zoomed);
+  await page.mouse.dblclick(onB + 40, y);
+  await expect.poll(() => xRange(chart)).toEqual(full);
 });
 
 test("RES-06: cursors per run, on overlays, time to reach, and a move in under 8 ms", async ({ page }) => {
@@ -266,4 +297,42 @@ test("RES-06: cursors per run, on overlays, time to reach, and a move in under 8
   });
   await expect(field(page, "A")).toHaveValue("50");
   expect(median).toBeLessThan(8);
+});
+
+test("RES-06: on the distance axis an overlaid run is read where the lines cross it", async ({ page }) => {
+  await openApp(page);
+  await runActiveCase(page);
+  const xAxis = page.getByRole("combobox", { name: "X axis" });
+  const speedOf = (d: { header: string[] }) => d.header.findIndex((h) => h.endsWith("· Vehicle Speed [km/h]"));
+  await xAxis.selectOption("distance");
+  const city = await csv(page);
+
+  // a 75 m acceleration run covers in 4 s what the City Cycle drives in more
+  await ribbonTab(page, "Simulations").click();
+  await page.getByRole("button", { name: "Acceleration test" }).click();
+  await expect(headlineTile(page, "Time to 75 m")).toBeVisible();
+  await page.getByRole("checkbox", { name: /^Vehicle Speed/ }).check();
+  await page.getByRole("checkbox", { name: /^City Cycle ·/ }).check();
+  await xAxis.selectOption("distance");
+  const accel = await csv(page);
+  await page.getByRole("button", { name: "Cursors" }).click();
+  await field(page, "A").fill("2");
+  await page.keyboard.press("Enter");
+  await field(page, "B").fill("4");
+  await page.keyboard.press("Enter");
+
+  // the City Cycle's speed where it had driven as far as the acceleration
+  // run at A and at B, not its speed 2 and 4 s into its cycle
+  const nearest = (d: { header: string[]; rows: number[][] }, col: string, v: number) =>
+    d.rows.reduce((a, r) => (Math.abs(r[d.header.indexOf(col)] - v) < Math.abs(a[d.header.indexOf(col)] - v) ? r : a));
+  const rows = page.getByRole("region", { name: "Cursor measurements" }).getByRole("row", { name: /Vehicle Speed/ });
+  await expect(rows).toHaveCount(2);
+  for (const [cursor, column] of [["A", 2], ["B", 3]] as const) {
+    const t = Number(await field(page, cursor).inputValue());
+    const km = nearest(accel, "t_s", t)[accel.header.indexOf("distance_km")];
+    const there = nearest(city, "distance_km", km)[speedOf(city)];
+    const atSameTime = nearest(city, "t_s", t)[speedOf(city)];
+    expect(Math.abs(there - atSameTime)).toBeGreaterThan(2);
+    expect(parseFloat(await rows.nth(1).getByRole("cell").nth(column).innerText())).toBeCloseTo(there, 1);
+  }
 });

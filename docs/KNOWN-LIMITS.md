@@ -369,7 +369,9 @@ minimum or an average, for example from the CSV export, or put the
   less). Set the case's *Step* smaller and *Store every* to 1 when the two
   must agree.
   On the distance axis, the points of a stop share one distance: the up
-  and down arrows then step through them while the line stands still.
+  and down arrows then step through them while the line stands still, and
+  an overlaid run that stopped where a line crosses it is read at the
+  start or the end of its stop.
 
 ## The examples
 

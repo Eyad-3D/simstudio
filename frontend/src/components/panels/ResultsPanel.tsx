@@ -653,7 +653,8 @@ export function ResultsPanel() {
     else if (view === "chart") setCursors(activeRun.id, cursorsIn(activeRun, xAxis.kind, plotRef.current?.xRange() ?? null));
     else setCursors(activeRun.id, cursorsIn(activeRun, "t", null));
   };
-  // C does the same, unless it is typed into a field (a ticked checkbox is fine)
+  // C does the same, unless it is typed into a field (a ticked checkbox is
+  // fine) or a dialog is open over the page
   const onCursorKey = useEffectEvent(toggleCursors);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -664,7 +665,8 @@ export function ResultsPanel() {
         el.tagName === "TEXTAREA" ||
         el.tagName === "SELECT" ||
         (el.tagName === "INPUT" && (el as HTMLInputElement).type !== "checkbox");
-      if (typing) return;
+      const ui = useUIStore.getState();
+      if (typing || ui.dialog || ui.paramDialogId) return;
       e.preventDefault();
       onCursorKey();
     };
@@ -876,9 +878,13 @@ export function ResultsPanel() {
         </div>
       </div>
 
-      {/* chart + summary */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="ss-panel-toolbar">
+      {/* chart + summary; the chart keeps a readable height, and when the
+          cursors' table and the summary leave it less (a large interface
+          size), the page scrolls */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+        {/* (a container: in a narrow one, as at a large interface size, the
+            last three buttons show only their icons, so the row stays one line) */}
+        <div className="ss-panel-toolbar @container">
           <span className="text-[11px] text-[color:var(--ss-text-dim)]">
             {view === "sweep" ? (
               <>
@@ -995,7 +1001,7 @@ export function ResultsPanel() {
             )}
             <div className="flex overflow-hidden rounded border border-[color:var(--ss-border)]">
               <button
-                className={`flex items-center gap-1 px-2 py-1 text-[11px] ${
+                className={`flex items-center gap-1 whitespace-nowrap px-2 py-1 text-[11px] ${
                   view === "chart" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                 }`}
                 onClick={() => setView("chart")}
@@ -1004,7 +1010,7 @@ export function ResultsPanel() {
                 <LineChartIcon size={12} /> Chart
               </button>
               <button
-                className={`flex items-center gap-1 border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] ${
+                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] ${
                   view === "table" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                 }`}
                 onClick={() => setView("table")}
@@ -1013,7 +1019,7 @@ export function ResultsPanel() {
                 <Table2 size={12} /> Table
               </button>
               <button
-                className={`flex items-center gap-1 border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] disabled:opacity-40 ${
+                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] disabled:opacity-40 ${
                   view === "xy" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                 }`}
                 onClick={() => setView("xy")}
@@ -1027,7 +1033,7 @@ export function ResultsPanel() {
                 <ChartScatter size={12} /> X-Y
               </button>
               <button
-                className={`flex items-center gap-1 border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] disabled:opacity-40 ${
+                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] disabled:opacity-40 ${
                   view === "sweep" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                 }`}
                 onClick={() => setView("sweep")}
@@ -1045,7 +1051,7 @@ export function ResultsPanel() {
               title="Measurement cursors A and B (C)"
               onClick={toggleCursors}
             >
-              <SquareSplitHorizontal size={12} /> Cursors
+              <SquareSplitHorizontal size={12} /> <span className="@max-[880px]:sr-only">Cursors</span>
             </button>
             <button
               className="ss-toolbtn border border-[color:var(--ss-border)]"
@@ -1058,11 +1064,12 @@ export function ResultsPanel() {
                 )
               }
             >
-              <ImageIcon size={12} /> PNG
+              <ImageIcon size={12} /> <span className="@max-[880px]:sr-only">PNG</span>
             </button>
             <button
               className="ss-toolbtn border border-[color:var(--ss-border)]"
               disabled={!result || selectedKeys.size === 0}
+              title="Export the primary run's ticked channels as CSV"
               // t_s as before unless an x axis was picked for the chart shown
               onClick={() =>
                 activeRun &&
@@ -1074,7 +1081,7 @@ export function ResultsPanel() {
                 )
               }
             >
-              <Download size={12} /> CSV
+              <Download size={12} /> <span className="@max-[880px]:sr-only">CSV</span>
             </button>
           </div>
         </div>
@@ -1107,7 +1114,7 @@ export function ResultsPanel() {
         )}
 
         {view === "table" ? (
-          <div className="min-h-0 flex-[3] overflow-auto" onScroll={onTableScroll}>
+          <div className="min-h-[260px] flex-[3] overflow-auto" onScroll={onTableScroll}>
             {activeChannels.length > 0 && tableData.length > 0 ? (
               <table className="w-full border-collapse" aria-rowcount={tableData.length + 1}>
                 <thead className="sticky top-0 z-10">
@@ -1156,7 +1163,7 @@ export function ResultsPanel() {
             )}
           </div>
         ) : view === "sweep" ? (
-          <div className="min-h-0 flex-[3] p-1" ref={chartHost}>
+          <div className="min-h-[260px] flex-[3] p-1" ref={chartHost}>
             {sweepData.length > 0 && hasSize ? (
               <Plot key="sweep" options={sweepOptions} data={sweepCols} label="Sweep chart" ref={plotRef} />
             ) : (
@@ -1168,7 +1175,7 @@ export function ResultsPanel() {
             )}
           </div>
         ) : view === "xy" ? (
-          <div className="min-h-0 flex-[3] p-1" ref={chartHost}>
+          <div className="min-h-[260px] flex-[3] p-1" ref={chartHost}>
             {xyData.length > 1 && hasSize ? (
               <Plot key="xy" options={xyOptions} data={xyData} label="X-Y chart" ref={plotRef} />
             ) : (
@@ -1180,7 +1187,7 @@ export function ResultsPanel() {
             )}
           </div>
         ) : (
-          <div className="min-h-0 flex-[3] p-1" ref={chartHost}>
+          <div className="min-h-[260px] flex-[3] p-1" ref={chartHost}>
             {seriesDefs.length > 0 && hasSize ? (
               // a change between time and distance starts from the whole run
               <Plot
@@ -1198,7 +1205,9 @@ export function ResultsPanel() {
           </div>
         )}
 
-        {cursorsOn && canMeasure && activeRun && <MeasurePanel run={activeRun} series={seriesDefs} />}
+        {cursorsOn && canMeasure && activeRun && (
+          <MeasurePanel run={activeRun} series={seriesDefs} kind={view === "chart" ? xAxis.kind : "t"} />
+        )}
 
         {/* every summary value, one click away with one run; opened by
             overlays, whose runs it sets side by side (hidden, not dropped, in

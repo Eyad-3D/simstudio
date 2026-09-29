@@ -333,7 +333,8 @@ sections.
   between them reads as Δt (0 to 50 km/h: 31 s). The lines follow zoom and
   the distance axis and are in the **PNG**. Each run keeps its cursors
   while you switch views, overlay runs (they are measured at the same
-  times) or leave the page, until LightSim closes; they are not saved.
+  times, or on the distance axis where the lines cross them) or leave the
+  page, until LightSim closes; they are not saved.
   Moving a cursor on a 1-hour run (36,001 points) with 10 signals plotted
   takes about 2 ms. (RES-06)
 

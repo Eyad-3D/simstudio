@@ -204,6 +204,9 @@ export function nearestIndex(n: number, at: number, x: (i: number) => number): n
  *  rule, its integral, mean and RMS. A pair of samples with a gap (null) in
  *  it is left out. Null when there are only gaps. */
 export function windowStats(ts: Sample[], i0: number, i1: number) {
+  // ponytail: a pass over the window on every cursor move; about 28 series of
+  // 36,000 samples reach 8 ms (p95) a move. Cached prefix sums per channel
+  // make it O(1) if longer runs or more overlays need it.
   const [lo, hi] = i0 <= i1 ? [i0, i1] : [i1, i0];
   let min = Infinity;
   let max = -Infinity;

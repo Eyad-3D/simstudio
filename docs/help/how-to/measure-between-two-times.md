@@ -34,7 +34,9 @@ value says so next to the button, and the cursors stay where they were.
 ## What the table shows
 
 A row for each plotted signal, with its unit: when runs are overlaid, a
-row for each run too, all read at the same times.
+row for each run too, all read at the same times. On the distance axis,
+the other runs are read where the lines cross them: where each had driven
+as far as the primary run at A and at B.
 
 | Column | What it is |
 |---|---|
@@ -55,7 +57,8 @@ overlaid run that ended earlier.
 - In a time field, the up and down arrows move the cursor one stored
   point, Page Up and Page Down ten.
 - On the chart, drag a line: near one, the pointer shows ↔. A drag
-  anywhere else still zooms.
+  anywhere else still zooms, and a double-click anywhere else shows the
+  whole run again.
 - The lines follow the zoom. When the chart runs against the distance
   driven, they stay at their times: during a stop, several points share
   one distance, so the line stands still while the time changes.
