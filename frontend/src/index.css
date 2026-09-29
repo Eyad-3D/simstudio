@@ -248,6 +248,10 @@ body,
 .ss-input[aria-invalid="true"] {
   border-color: var(--ss-err);
 }
+/* the red border hides the focus colour: a thicker red one shows focus */
+.ss-input[aria-invalid="true"]:focus {
+  box-shadow: inset 0 0 0 1px var(--ss-err);
+}
 /* numbers line up right-aligned in equal-width digits, and a field grows to
    show every digit of its value rather than clipping it (no fixed width) */
 .ss-input[type="number"] {

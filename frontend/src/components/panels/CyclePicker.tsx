@@ -12,10 +12,13 @@ export const cycleText = (c: api.CycleInfo) =>
 export function CycleSelect({
   value,
   label,
+  description,
   onChange,
 }: {
   value: string;
   label: string;
+  /** the parameter's help text, read out with the field */
+  description?: string | null;
   onChange: (cycleId: string) => void;
 }) {
   const cycles = useProjectStore((s) => s.cycles);
@@ -25,6 +28,7 @@ export function CycleSelect({
     <select
       className="ss-input min-w-0 max-w-full flex-1"
       aria-label={label}
+      aria-description={description ?? undefined}
       // a narrow panel can cut the chosen cycle's figures short
       title={chosen ? cycleText(chosen) : value || "Custom profile (typed points)"}
       value={value}

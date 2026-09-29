@@ -352,6 +352,7 @@ export function CasePanel() {
                       <CycleSelect
                         value={String(value)}
                         label={name}
+                        description={pdef.description}
                         onChange={(v) => setDrivingCycle(elId, v, activeCase.id)}
                       />
                     ) : pdef && ed ? (

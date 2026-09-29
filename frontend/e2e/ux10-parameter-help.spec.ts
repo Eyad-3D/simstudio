@@ -50,6 +50,11 @@ test("UX-10: a value out of range turns red with its reason as it is typed, and 
     timeout: 500,
   });
   await expect(field).toHaveAccessibleDescription(/must be at least 0 and at most 200 %/);
+  // a red field still shows that it has focus
+  const ring = () => field.evaluate((el) => getComputedStyle(el).boxShadow);
+  const focusedRing = await ring();
+  await field.blur();
+  expect(focusedRing).not.toBe(await ring());
 
   // the value is stored as typed, so the background Data Checks say the same
   await showPanel(page, "Problems");
@@ -144,6 +149,55 @@ test("UX-10: a help card explains a parameter on hover and on focus, and Esc clo
   // F1 on a parameter opens that parameter's help
   const [help] = await Promise.all([context.waitForEvent("page"), page.keyboard.press("F1")]);
   await expect(help).toHaveURL(/motor\.emotor\.html#q4_torque_scale_pct$/);
+});
+
+test("UX-10: a click into a field keeps its card, Tab past the card closes it, and F1 opens what it shows", async ({
+  page,
+  context,
+}) => {
+  const q4 = param("motor.emotor", "q4_torque_scale_pct");
+  const { field, row, card } = await emotorProperties(page);
+  // a real click: the card opens with the focus and stays when the button
+  // comes up (it once closed then), and while the pointer is elsewhere
+  const f = (await field.boundingBox())!;
+  await page.mouse.move(f.x + f.width / 2, f.y + f.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(150);
+  await page.mouse.up();
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(400);
+  await expect(field).toBeFocused();
+  await expect(card).toContainText(q4.description);
+  // a click on the card's text keeps it too
+  const c = (await card.boundingBox())!;
+  await page.mouse.click(c.x + 20, c.y + 14);
+  await page.waitForTimeout(400);
+  await expect(card).toHaveCount(1);
+  await page.mouse.move(5, 5);
+
+  // from the last Edit… button Tab reaches the card's button, and the next
+  // Tab leaves the card closed behind it
+  await page.getByRole("button", { name: /Edit…$/ }).last().focus();
+  await page.keyboard.press("Tab");
+  await expect(card.getByRole("button", { name: "More in the help (F1)" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(card).toHaveCount(0);
+
+  // F1 with a card open from hovering opens the parameter it shows
+  await row.hover();
+  await expect(card).toContainText(q4.description, { timeout: 1000 });
+  const [help] = await Promise.all([context.waitForEvent("page"), page.keyboard.press("F1")]);
+  await expect(help).toHaveURL(/motor\.emotor\.html#q4_torque_scale_pct$/);
+  await help.close();
+  await page.mouse.move(5, 5);
+
+  // a dialog opened with Enter leaves the focus behind it: no card there
+  await page.getByRole("button", { name: /^Drag Torque \(unpowered\).*Edit…$/ }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".fixed.inset-0", { hasText: "— E-Motor" })).toBeVisible();
+  await page.keyboard.press("Tab");
+  await page.waitForTimeout(400);
+  await expect(card).toHaveCount(0);
 });
 
 test("UX-10: in the parameter dialog Esc closes the card first, and tables carry their help", async ({ page }) => {

@@ -99,12 +99,13 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "F1") {
-        // the focused parameter's help, else the selected part's help page,
-        // else the help's front page
+        // the parameter in the open help card, else the focused parameter's
+        // help, else the selected part's help page, else the help's front page
         e.preventDefault();
         const { project, selectedElementId } = useProjectStore.getState();
         const el = project?.systems.flatMap((s) => s.elements).find((x) => x.id === selectedElementId);
-        const param = e.target instanceof Element ? e.target.closest("[data-help]")?.getAttribute("data-help") : null;
+        const at = document.querySelector(".ss-help-card:popover-open") ?? (e.target instanceof Element ? e.target : null);
+        const param = at?.closest("[data-help]")?.getAttribute("data-help");
         openHelp(param ?? (el ? componentHelpPage(el.componentDefId) : undefined));
         return;
       }

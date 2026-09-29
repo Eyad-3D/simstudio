@@ -791,18 +791,23 @@ export function ElementForm({
   const formId = useId();
 
   // the help card (UX-10): one per form, beside the parameter the pointer
-  // rests on (after 300 ms) or the one with focus (at once); Esc or a click
-  // elsewhere closes it. `pointed` is what the card should show; `help`,
-  // what it shows.
+  // rests on (after 300 ms) or the one with focus (at once); it stays while
+  // the pointer is on it or focus is in its row, and Esc closes it.
+  // `pointed` and `focused` are the rows under the pointer and with focus
+  // (the card counts as its row's); `help` is what the card shows.
   const [help, setHelp] = useState<string | null>(null);
   const [pointed, setPointed] = useState<string | null>(null);
+  const [focused, setFocused] = useState<string | null>(null);
+  const want = pointed ?? focused;
   useEffect(() => {
-    if (pointed === help) return;
-    const t = setTimeout(() => setHelp(pointed), pointed ? 300 : 150);
+    if (want === help) return;
+    const t = setTimeout(() => setHelp(want), want && want !== focused ? 300 : 150);
     return () => clearTimeout(t);
-  }, [pointed, help]);
+  }, [want, help, focused]);
   const card = useRef<HTMLDivElement>(null);
-  const helpDef = def.parameters.find((p) => p.key === help && p.description);
+  // a dialog over Properties hides its card (the focus can stay behind it)
+  const covered = useUIStore((s) => compact && (s.paramDialogId !== null || s.dialog !== null));
+  const helpDef = covered ? undefined : def.parameters.find((p) => p.key === help && p.description);
   useEffect(() => {
     const el = card.current;
     if (!el?.showPopover) return; // no popovers in jsdom
@@ -810,10 +815,19 @@ export function ElementForm({
     if (helpDef && !open) el.showPopover();
     else if (!helpDef && open) el.hidePopover();
   }, [helpDef]);
-  const showHelp = (key: string | null) => {
-    setPointed(key);
-    setHelp(key);
-  };
+  // Esc closes the card, before it can close a dialog or anything else
+  useEffect(() => {
+    if (!helpDef) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setHelp(null);
+      setPointed(null);
+      setFocused(null);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [helpDef]);
   const helpPage = (p: ParameterDef) => `${componentHelpPage(def.id)}#${p.key}`;
   // a different anchor for the dialog's card and the Properties panel's
   const anchor = compact ? "--ss-help-panel" : "--ss-help-dialog";
@@ -822,11 +836,15 @@ export function ElementForm({
     style: help === p.key ? { anchorName: anchor } : undefined,
     onMouseEnter: () => setPointed(p.key),
     onMouseLeave: () => setPointed(null),
-    onFocus: () => showHelp(p.key),
-    // moving to the card's own button keeps it open
-    onBlur: (e: React.FocusEvent) => e.relatedTarget?.closest(".ss-help-card") || showHelp(null),
+    onFocus: () => {
+      setFocused(p.key);
+      setHelp(p.key);
+    },
+    // moving to the card's own button keeps it
+    onBlur: (e: React.FocusEvent) => e.relatedTarget?.closest(".ss-help-card") || setFocused(null),
   });
   const profile = drivingTask ? profileToTable(String(valueOf(def.parameters.find(isProfile)!))) : {};
+  const cycleDef = def.parameters.find((p) => p.key === "cycle")!;
 
   return (
     <div className="flex flex-col gap-2 p-2">
@@ -919,7 +937,7 @@ export function ElementForm({
         </table>
       )}
       {drivingTask && (
-        <div className="flex flex-col gap-1" {...helpProps(def.parameters.find((p) => p.key === "cycle")!)}>
+        <div className="flex flex-col gap-1" {...helpProps(cycleDef)}>
           <label className="flex flex-col gap-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
             <span>
               Drive Cycle
@@ -929,7 +947,12 @@ export function ElementForm({
                 </span>
               )}
             </span>
-            <CycleSelect value={cycleId} label="Drive Cycle" onChange={(v) => setDrivingCycle(element.id, v)} />
+            <CycleSelect
+              value={cycleId}
+              label="Drive Cycle"
+              description={cycleDef.description}
+              onChange={(v) => setDrivingCycle(element.id, v)}
+            />
           </label>
           <CyclePreview
             cycleId={cycleId}
@@ -946,7 +969,10 @@ export function ElementForm({
               className="ss-toolbtn justify-between border border-[color:var(--ss-border)] px-2 py-1"
               aria-description={p.description ?? undefined}
               onClick={() => {
-                showHelp(null); // or the card would stay over the dialog
+                // the card is not wanted back when the dialog closes
+                setHelp(null);
+                setPointed(null);
+                setFocused(null);
                 openParamDialog(element.id, p.key);
               }}
               title={p.description ? undefined : `${isProfile(p) ? "Profile" : p.label}: open the full editor in a dialog`}
@@ -1033,14 +1059,16 @@ export function ElementForm({
       )}
       <div
         ref={card}
-        popover="auto"
+        // manual: a click in the row it explains must not close it, as an
+        // "auto" popover's light dismiss would
+        popover="manual"
         className="ss-help-card"
         style={{ positionAnchor: anchor }}
-        // a light dismiss (Esc, a click elsewhere) closes it; a stale close
-        // from before it reopened for another row does not
-        onToggle={(e) => e.newState === "closed" && !e.currentTarget.matches(":popover-open") && showHelp(null)}
+        data-help={helpDef ? helpPage(helpDef) : undefined} // F1 opens what it shows
         onMouseEnter={() => setPointed(help)}
         onMouseLeave={() => setPointed(null)}
+        // Tab out of its button closes it
+        onBlur={(e) => e.currentTarget.contains(e.relatedTarget) || setFocused(null)}
       >
         {helpDef && (
           <>
