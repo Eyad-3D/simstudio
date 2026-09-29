@@ -25,6 +25,7 @@ from .solver import (
     build_model,
     check_script,
     interp1,
+    lapsim,
     motor_max_rpm,
     parse_table1d,
     parse_table2d,
@@ -304,6 +305,7 @@ def validate_project(project: Project) -> list[DataCheck]:
 
         _plausibility_checks(model, add)
         _map_checks(model, add)
+        _lap_checks(project, add)
 
         if not model.drivelines and not any(b.consumers for b in model.buses):
             add("info", "Model has no driveline and no electrical loads — nothing will happen.")
@@ -543,7 +545,10 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
     drv = model.driver
     if drv is not None:
         label = elements[drv].label
-        if (drv, "sig_target_in") not in route:
+        # an acceleration test holds full throttle and a lap case follows its
+        # Race Track: neither reads a target
+        if ((drv, "sig_target_in") not in route
+                and any(c.kind not in ("acceleration", "lap") for c in project.cases)):
             err(drv, f"Driver '{label}' has no Target Speed signal — it will hold 0 km/h, "
                      f"so the vehicle will not move.",
                 fix=f"In Data Bus Connections, pick a Driving Task's Target Speed as the source "
@@ -595,6 +600,21 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
     return replaced
 
 
+def _lap_checks(project: Project, add: Add) -> None:
+    """What a lap case refuses or does differently (lapsim.problems), for
+    the Race Track, layout and laps that case sets."""
+    for case in project.cases:
+        if case.kind != "lap":
+            continue
+        try:
+            model = build_model(project, {}, case.parameterOverrides)
+        except ModelError:
+            continue  # reported above
+        for level, text in lapsim.problems(model, case.outputEvery):
+            el = model.elements.get(model.track) if model.track else None
+            add(level, f"Case '{case.name}': {text}", el)
+
+
 def _plausibility_checks(model: Model, add: Add) -> None:
     """Warnings for vehicle parameters far outside what real vehicles use."""
     def num(params: dict, key: str) -> float | None:
@@ -606,6 +626,12 @@ def _plausibility_checks(model: Model, add: Add) -> None:
     for el_id, cdef in model.cdef_of.items():
         p, el = model.params_of[el_id], model.elements[el_id]
         if cdef.id == "vehicle.body":
+            h, wheelbase = num(p, "cg_height_m"), num(p, "wheelbase_m")
+            if h is not None and wheelbase is not None and 0 < wheelbase < h:
+                add("warning", f"Vehicle '{el.label}' has a Centre of Gravity Height of {h:g} m, "
+                               f"above its Wheelbase of {wheelbase:g} m — check the value and "
+                               f"its unit (a car's is about a fifth to a quarter of its "
+                               f"wheelbase).", el)
             mass = num(p, "mass_kg")
             lo, hi = VEHICLE_MASS_KG
             if mass is not None and mass > 0 and not lo <= mass <= hi:
@@ -661,6 +687,18 @@ def _plausibility_checks(model: Model, add: Add) -> None:
             if soc0 is not None and soc_min is not None and soc0 <= soc_min:
                 add("warning", f"'{el.label}' starts at {soc0:g} % SOC, at or below its "
                                f"minimum of {soc_min:g} % — it can deliver no energy.", el)
+            v_class = num(p, "voltage_class_V")
+            if v_class is not None and v_class > 0:
+                try:  # read at 100 % as the run reads it
+                    ocv = parse_table1d(p.get("ocv_table"))
+                except TableError:
+                    ocv = []  # reported with the other parameters
+                linear = (el.tableOutside.get("ocv_table") or [""])[0] == "linear"
+                v_full = interp1(ocv, 100.0, linear) if ocv else 0.0
+                if v_full > v_class:
+                    add("warning", f"'{el.label}' reaches {v_full:g} V open-circuit at 100 % "
+                                   f"SOC, above its Voltage Class of {v_class:g} V — fewer cells "
+                                   f"in series, or check the class.", el)
         elif cdef.id == "electric.constant_drive" and model.vehicle is not None:
             kw = num(p, "power_kW")
             if kw is not None and kw > AUX_LOAD_MAX_KW:
@@ -687,6 +725,13 @@ def _plausibility_checks(model: Model, add: Add) -> None:
                        f"them so the wheels carry the vehicle's whole weight: {split}. Set "
                        f"them to add up to 100 % to choose the split yourself.",
             ids=[w.el_id for w in wheels])
+    h = num(model.params_of[model.vehicle], "cg_height_m") if model.vehicle is not None else None
+    if wheels and h is not None and h > 0 and len({w.axle for w in wheels}) < 2:
+        veh, on = model.elements[model.vehicle], wheels[0].axle
+        fix = "Front on the front" if on == "Rear" else "Rear on the rear"
+        add("error", f"Vehicle '{veh.label}' has a Centre of Gravity Height of {h:g} m, but all "
+                     f"its wheels are on the {on} axle, so no load can shift between "
+                     f"axles. Set Axle to {fix} wheels.", veh)
 
 
 def _map_checks(model: Model, add: Add) -> None:

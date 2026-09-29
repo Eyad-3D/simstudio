@@ -65,7 +65,7 @@ def test_repeated_link_and_fan_out_are_fine():
 
 
 def test_shipped_examples_have_no_fan_in():
-    for name in ("bev-car", "hybrid-car"):
+    for name in ("bev-car", "fs-electric", "hybrid-car"):
         assert not [e for e in _errors(load_example(name)) if "sources" in e]
 
 
@@ -217,6 +217,41 @@ def test_battery_charge_parameters_are_range_checked(key, value, expected):
         assert len(errors) == 1 and errors[0].startswith(expected), errors
 
 
+@pytest.mark.parametrize("cells, flagged", [(150, True), (140, False)])
+def test_voltage_class_data_check(cells, flagged):
+    """MOD-39: a pack whose open-circuit voltage at 100 % SOC is above its
+    Voltage Class is flagged before the run (150 × 4.2 V = 630 V against
+    600 V); 140 cells (588 V) are not."""
+    proj = load_example("bev-car")
+    bat = next(e for e in proj.systems[0].elements if e.id == "el-battery")
+    cell = {0: 3.0, 10: 3.45, 50: 3.7, 100: 4.2}
+    bat.parameterOverrides.update(voltage_class_V=600,
+                                  ocv_table={str(k): round(v * cells, 3) for k, v in cell.items()})
+    hits = [c for c in validate_project(proj) if "Voltage Class" in c.text]
+    if flagged:
+        assert len(hits) == 1 and hits[0].level == "warning", hits
+        assert "630 V" in hits[0].text and "600 V" in hits[0].text
+    else:
+        assert hits == []
+
+
+@pytest.mark.parametrize("key, value, expected", [
+    ("output_power_limit_kW", -5, "Output power limit of 'HV Battery Pack' must be in"),
+    ("power_limit_margin_pct", 150, "Power limit margin of 'HV Battery Pack' must be in"),
+    ("power_limit_window_s", -1, "Power check window of 'HV Battery Pack' must be in"),
+    ("voltage_class_V", -600, "Voltage class of 'HV Battery Pack' must be in"),
+    ("output_power_limit_kW", 80, None),
+])
+def test_power_limit_parameters_are_range_checked(key, value, expected):
+    proj = load_example("bev-car")
+    next(e for e in proj.systems[0].elements if e.id == "el-battery").parameterOverrides[key] = value
+    errors = _errors(proj)
+    if expected is None:
+        assert errors == []
+    else:
+        assert len(errors) == 1 and errors[0].startswith(expected), errors
+
+
 def test_wheel_load_shares_must_add_up():
     proj = load_example("bev-car")
     for e in proj.systems[0].elements:
@@ -224,6 +259,44 @@ def test_wheel_load_shares_must_add_up():
             e.parameterOverrides["vehicle_load_share_pct"] = 5
     new = [c.text for c in validate_project(proj) if c.level != "info"]
     assert len(new) == 1 and new[0].startswith("Wheel load shares add up to 20 %, not 100 %")
+
+
+# ---- MOD-40: vehicle geometry --------------------------------------------------------
+
+@pytest.mark.parametrize("values, level, expected", [
+    ({"cg_height_m": 0.3, "untag": True}, "error",
+     "Vehicle 'Vehicle' has a Centre of Gravity Height of 0.3 m, but all its wheels are on the "
+     "Front axle, so no load can shift between axles. Set Axle to Rear on the rear wheels."),
+    ({"cg_height_m": 0.3, "all_rear": True}, "error",
+     "Vehicle 'Vehicle' has a Centre of Gravity Height of 0.3 m, but all its wheels are on the "
+     "Rear axle, so no load can shift between axles. Set Axle to Front on the front wheels."),
+    ({"cg_height_m": 30, "wheelbase_m": 1.55}, "warning",
+     "Vehicle 'Vehicle' has a Centre of Gravity Height of 30 m, above its Wheelbase of 1.55 m"),
+    ({"wheelbase_m": 0}, "error", "'Vehicle' has a non-positive wheelbase."),
+    ({"aero_balance_front_pct": 120}, "error", "Aero balance (front) of 'Vehicle' must be in"),
+    ({"cg_height_m": -0.1}, "error", "Centre of gravity height of 'Vehicle' must be in"),
+    ({"cg_height_m": 0.55, "downforce_cza_m2": -0.5}, None, None),  # tagged, lift allowed
+])
+def test_vehicle_geometry_data_checks(values, level, expected):
+    """A CG height needs wheels on both axles (the examples' are tagged by
+    their labels; untagged wheels count as Front); a height above the
+    wheelbase is most likely the wrong unit."""
+    proj = load_example("bev-car")
+    values = dict(values)
+    untag, all_rear = values.pop("untag", False), values.pop("all_rear", False)
+    for e in proj.systems[0].elements:
+        if e.id == "el-vehicle":
+            e.parameterOverrides.update(values)
+        elif untag and e.componentDefId == "propulsion.wheel":
+            del e.parameterOverrides["axle"]
+        elif all_rear and e.componentDefId == "propulsion.wheel":
+            e.parameterOverrides["axle"] = "Rear"
+    new = [c for c in validate_project(proj) if c.level != "info"]
+    if expected is None:
+        assert new == []
+    else:
+        assert len(new) == 1 and new[0].level == level and new[0].text.startswith(expected), new
+        assert new[0].elementId == "el-vehicle"
 
 
 # ---- MOD-11: road load counted once, and the Ambient's air -------------------------

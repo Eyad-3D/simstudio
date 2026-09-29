@@ -22,7 +22,7 @@ from app.main import app
 from app.solver import simulate
 
 client = TestClient(app)
-EXAMPLES = {"bev-car", "hybrid-car"}
+EXAMPLES = {"bev-car", "fs-electric", "hybrid-car"}
 
 
 @pytest.fixture
@@ -124,7 +124,7 @@ def seeded_install(user_dir, tmp_path, monkeypatch, run) -> Path:
     the .seeded marker. The user has since edited the BEV copy and run it, and
     deleted the hybrid one. The update ships a new example."""
     user_dir.mkdir(parents=True)
-    for name in EXAMPLES:
+    for name in storage._SEEDED_EXAMPLES:  # all that earlier versions shipped
         shutil.copyfile(paths.EXAMPLES_DIR / f"{name}.json", user_dir / f"{name}.json")
     (user_dir / ".seeded").write_text("LightSim copied its example projects here on first run.\n")
     old = json.loads((user_dir / "bev-car.json").read_bytes())

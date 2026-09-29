@@ -91,6 +91,111 @@ sections.
   a negative coefficient A or C (a warning: it pushes the car along); a
   road-load coefficient that is not a number or a negative Maximum Speed
   (errors).
+- Battery: *Output Power Limit* (kW at the terminals, volts × amps, as a
+  Formula Student energy meter measures it), with a *Power Limit Margin*,
+  a *Power Check Window*, *Hold Power to Limit* (untick it to only check
+  the limit) and a *Voltage Class* (V); 0 turns the limit and the class
+  off, as in every existing model. The limit caps discharge only: the
+  motors get what is left after the other loads, and recuperation is not
+  limited. Being held at it is an *info* message, not a warning, so such
+  a run can be a *success*. The run summary then gives the peak terminal
+  power, the peak averaged over the window (checked against the limit),
+  the time held at (or over) the limit, the highest pack voltage
+  (open-circuit at 100 % SOC, or at the terminals while recuperating;
+  checked against the class), the lowest pack voltage and the usable
+  energy left (it fails when the battery reached its minimum SOC). A
+  failed check is a warning. Data Checks warn when the open-circuit
+  voltage at 100 % SOC is above the Voltage Class. On the Battery Electric
+  Car, an 80 kW limit takes its 0-100 km/h from 7.10 to 12.76 s.
+- Summary rows can carry a limit and a *pass* or *fail* marker.
+- Presets: the battery's *Apply preset: Formula Student Electric* sets
+  80 kW, a 0.5 s window, 600 V and Hold Power to Limit in one step (one
+  undo). Its values come from FS Rules 2026 v1.1 (FSG) EV 2.2.1, EV 4.1.1
+  and D 10.4.1, checked against FSUK 2026 Rules V1.0 and FSAE Rules 2025
+  V1.0, which differ in detail; the 500 A current limit is not modelled.
+  Check the current season's rules before relying on them.
+- Load transfer and downforce: the Vehicle gets a *Centre of Gravity
+  Height*, a *Wheelbase*, a *Downforce Area (CzA)* (negative for lift) and
+  an *Aero Balance (Front)*, and each Wheel an *Axle* (Front or Rear).
+  Accelerating, braking and standing on a slope move m·(a + g·sin θ)·h/L
+  between the axles, from the previous 10 ms step's acceleration, and
+  downforce adds ½·ρ·CzA·v² at the Ambient's air density, split by the
+  aero balance; it also adds to the wheels' rolling resistance (not to
+  coefficient A). An axle that would carry less than nothing lifts: it
+  carries nothing, the other axle the rest, and the run warns. New
+  channels: each Wheel's *Normal Load* and the Vehicle's *Front Axle Load*
+  and *Rear Axle Load*. With its rear wheels spinning on μ 1, a
+  rear-driven Formula Student-sized car (300 kg, CG 0.3 m high, 1.55 m
+  wheelbase) now accelerates at 6.45 m/s² instead of 5.24. With a CG
+  height and a downforce area of 0, the defaults, no result changes; the
+  examples keep 0 and have their wheels tagged Front and Rear.
+- Acceleration test: a case *Kind* of *Acceleration*, with a *Distance*,
+  a *Start line* and a *Reference time*. The Driver holds full throttle
+  the whole run with no target, and the run ends at the end of the solver
+  step that reaches the line; Data Checks ask for a Target Speed only
+  when a case reads one. The summary
+  leads with *Time to 75 m* (from the start line, with *pass* and the case
+  duration as its limit), *Speed at 75 m*, *Gap to reference time*,
+  *Time to 100 km/h* (from t = 0), each battery's peak and mean terminal
+  power, and the share of the run a driven wheel spent at the tyres' grip
+  limit; the time and speed are read inside the step that crossed the
+  line, so the output step does not change them. A car that misses the
+  line within the duration gets a warning. The results are marked as
+  estimates (Messages, Run info and the summary header say why), and a
+  model whose batteries have no Output Power Limit is told how to check
+  one. Simulations → *Acceleration test* runs the first acceleration case
+  in one click, or adds one first: 75 m, staged 0.30 m behind the start
+  line, 25 s time limit (FS Rules 2026 v1.1 (FSG) D 5.1.1, D 5.2.3, and
+  D 9.2.1, which applies the 25 s to driverless runs only; FSUK and FSAE
+  may differ, check the current season's rules). On the Battery Electric
+  Car it gives 5.216 s and 86.2 km/h at the line (5.527 s from rest). No
+  existing case changes.
+- Lap mode: a case *Kind* of *Lap* drives the model's *Race Track*
+  (Driver & Signals), with its *Track layout* and *Laps* set in the case.
+  Layouts drawn for LightSim after FS Rules 2026 v1.1 (FSG) D 4.1,
+  D 5.1.1, D 6.1 and D 7.1 (FSUK and FSAE may differ, check the current
+  season's rules): Autocross, a 979 m closed lap with a slalom, a hairpin
+  and a chicane; Skidpad, the right and left circles on the lane centre
+  (9.125 m); Acceleration 75 m; or Custom, from curvature and elevation
+  tables pasted into the track. A quasi-steady-state lap solver finds the
+  fastest speed about every metre from the tyres' grip (downforce, load
+  transfer along and across the car, load sensitivity, friction ellipse)
+  and the powertrain (the E-Motors' full-load curves through the gears,
+  cut to the battery's deliverable power and Output Power Limit); the
+  motors, gears, brakes and battery then drive that speed with the drive
+  cycles' own models, so the energy, the power limit checks and the
+  channels are theirs. The summary leads with the lap, lap 1, total and
+  sector times, average speed, energy per lap, RMS battery power, the time
+  limited by cornering grip, traction grip, motor, battery, power cap and
+  braking, and the lap energy balance error; the Race Track's channels
+  give the lap distance, curvature, longitudinal and lateral acceleration
+  (in g, a new unit), what limited the car and a map, for the X-Y view.
+  Data Checks refuse a lap case without a Race Track, Driver or E-Motor,
+  with an engine or clutch on the wheels or with all wheels on one axle,
+  and a Custom curvature above 0.5 1/m. The results are estimates, and say so.
+  A Formula Student-sized car (280 kg, 96 kW, μ 1.5) laps the Autocross
+  in 61.2 s (62.9 s from a standing start), solved in about 0.15 s.
+- Wheel: *Lateral Friction μ_y* (0: the same as μ), *Load Sensitivity
+  dμ/dFz* (per kN), *Nominal Load Fz0* (0: the wheel's static load) and
+  *Friction Ellipse Exponent* (lap cases). The load sensitivity also acts
+  on the tyre force of drive cycles and acceleration tests; at its default
+  of 0 no result changes. Vehicle: *Track Width (Front)* and *(Rear)*, for
+  the sideways load transfer of lap cases.
+- A third example, *FS Electric (generic)*: a typical Formula Student
+  electric car to make your own (280 kg, one rear E-Motor through a 4.4
+  chain drive and an open differential, a 138s4p 7.2 kWh accumulator with
+  the battery's Formula Student Electric preset, load transfer, downforce
+  and load-sensitive tyres). Its cases: *Acceleration 75 m* (3.74 s from
+  the start line, 119 km/h at the line), *Autocross (flying lap)* (57.7 s
+  on LightSim's layout) and *Endurance energy* (23 laps, 22.5 km, with the
+  Output Power Limit at a 30 kW endurance setting: 5.33 kWh net at the
+  accumulator, 25 % charge left). Its Open-menu entry names each rule value
+  with FS Rules 2026 v1.1 (FSG) (FSUK and FSAE may differ, check the
+  current season's rules), compares the results with FS Czech Republic
+  2025 (acceleration 3.51–6.44 s, median 3.91 s; efficiency 3.19–6.15 kWh,
+  median 5.25 kWh) and gives a sweep to try: the Output Power Limit from
+  40 to 80 kW on the 75 m case (4.22 to 3.74 s). The other examples do not
+  change.
 - The diagram's toolbar shows the zoom in % and offers Fit, 50, 100 and
   200 %. It floats over the diagram's top edge, and the bottom panels open
   at 22 % of the workspace instead of 30 % (drag their edge for more), so
@@ -301,6 +406,10 @@ sections.
 - Vehicles keep taking their road load from drag and rolling resistance.
   An Ambient already in a 0.2.0 project now sets the air density; a
   project with several Ambients runs, with a warning, on the first one.
+- Wheels in 0.2.0 projects are on the Front axle, so their Rear Axle Load
+  reads 0 and nothing shifts. Set *Axle* to Rear on the rear wheels before
+  giving the Vehicle a CG height; Data Checks refuse a CG height while all
+  the wheels are on one axle.
 - Runs you stopped in 0.2.0 keep their *warning* status and their
   *stopped at t = …* note. Cases load as kind *Cycle*.
 - The *Data Checks* tab is now *Problems*; a saved layout keeps it where it

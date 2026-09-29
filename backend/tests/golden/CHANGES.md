@@ -718,3 +718,26 @@ moves at all.
 | bev-car City Cycle (fine step) | channels that moved | | 1 | 0 outside their tube |
 | hybrid-car Mixed Cycle (shipped step) | channels that moved | | 47 | 0 outside their tube |
 | hybrid-car Mixed Cycle (fine step) | channels that moved | | 44 | 0 outside their tube |
+
+## Wheel and axle normal loads are recorded (MOD-40)
+
+Wheel loads now shift with acceleration, braking, the road's slope and
+downforce, set by the Vehicle's new Centre of Gravity Height, Wheelbase,
+Downforce Area (CzA) and Aero Balance (Front) and each Wheel's new Axle
+setting. The examples keep a CG height and a downforce area of 0, which
+adds exactly 0.0 to each wheel's share of m·g·cos θ, so their results do
+not move; their wheels are now tagged Front (FL, FR) and Rear (RL, RR) by
+their labels.
+
+The fixtures were regenerated only because every run records six new
+channels: each Wheel's Normal Load (four per example) and the Vehicle's
+Front Axle Load and Rear Axle Load (bev-car 45 -> 51 channels, hybrid-car
+61 -> 67), so the first message's channel count changes with them. Before
+regenerating, `LIGHTSIM_GOLDEN_EXACT=1 python tests/update_golden.py`
+reported, for all four fixtures, the new channels and the changed count
+and nothing else: 0 channels moved and 0 headline numbers changed at 1e-6,
+and every stored channel is byte-identical in the new files. The loads are
+constant (bev-car 5,765.68 N on each front wheel and 3,686.25 N on each
+rear one; hybrid-car 30/30/20/20 % of its weight).
+
+No headline number or channel moved.

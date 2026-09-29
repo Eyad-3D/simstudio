@@ -346,6 +346,8 @@ export interface ProjectState {
   pasteClipboard: (position?: { x: number; y: number }) => string[];
   renameElement: (id: string, label: string) => void;
   setParameter: (elementId: string, key: string, value: ParamValue) => void;
+  /** Several parameters at once (a component preset), as one undo step. */
+  setParameters: (elementId: string, values: Record<string, ParamValue>) => void;
   /** A table's outside-the-data settings, one per axis (applies on the next run). */
   setTableOutside: (elementId: string, key: string, policies: OutsidePolicy[]) => void;
   setDynamicPorts: (elementId: string, ports: PortDef[]) => void;
@@ -401,7 +403,10 @@ export interface ProjectState {
       timeStep: number;
       outputEvery: number;
       realtimeFactor: number;
-      kind: "cycle" | "performance";
+      kind: "cycle" | "performance" | "acceleration" | "lap";
+      endDistance: number | null;
+      startLine: number;
+      referenceTime: number | null;
     }>,
   ) => void;
   addCase: () => void;
@@ -419,6 +424,9 @@ export interface ProjectState {
   /** Error-level data-check gate; resolves true when a run/sweep may proceed. */
   passesRunGate: () => Promise<boolean>;
   run: () => Promise<void>;
+  /** The one-click Formula Student acceleration test: select the first
+   *  acceleration case (adding a 75 m one if there is none) and run it. */
+  runAccelerationTest: () => Promise<void>;
   /** Sequentially run a case once per swept value, each landing in run
    *  history; the study and its results table are saved with the project. */
   runSweep: (config: SweepConfig) => Promise<void>;
@@ -1024,6 +1032,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         logLiveEdit({ t: get().liveT, elementId, key, value });
       }
     },
+
+    // presets set "fixed" parameters only, so nothing streams into a live run
+    setParameters: (elementId, values) =>
+      updateProject((draft) => {
+        for (const s of draft.systems) {
+          const el = s.elements.find((e) => e.id === elementId);
+          if (el) Object.assign(el.parameterOverrides, values);
+        }
+      }),
 
     setTableOutside: (elementId, key, policies) =>
       updateProject(
@@ -1674,6 +1691,31 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         if (ui.ribbonTab === "results") ui.setRibbonTab("home");
         ui.focusPanel("messages");
       }
+    },
+
+    runAccelerationTest: async () => {
+      const { project, running } = get();
+      if (!project || running) return;
+      const found = project.cases.find((c) => c.kind === "acceleration");
+      const id = found?.id ?? uid("case");
+      if (!found) {
+        // FS Rules 2026 v1.1 (FSG): 75 m from the start line (D 5.1.1), staged
+        // 0.30 m behind it (D 5.2.3); runs over 25 s are disqualified in
+        // driverless runs only (D 9.2.1)
+        updateProject((draft) => {
+          draft.cases.push({
+            id,
+            name: "Acceleration 75 m",
+            duration: 25,
+            timeStep: 0.01,
+            kind: "acceleration",
+            endDistance: 75,
+            startLine: 0.3,
+          });
+        });
+      }
+      set({ activeCaseId: id });
+      await get().run();
     },
 
     runSweep: async ({ caseId, elementId, paramKey, values }) => {

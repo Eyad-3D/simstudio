@@ -49,10 +49,11 @@ browser and needs no internet connection. Its pages are the Markdown in
 
 The *Start* page (and **Open**) lists a second example, a P2 hybrid sized
 after the Hyundai Ioniq Hybrid and driven on the EPA city and highway
-cycles, next to your own projects; each example's entry lists the results
-to expect. Examples open as
-copies, so change them freely: **Save** keeps your copy as a project of your
-own. To watch a run as it happens, pick the *City Cycle (live, 10×)* case and
+cycles, and a third, *FS Electric (generic)*, a Formula Student electric car
+with a 75 m acceleration test, an autocross lap and an endurance energy
+case, next to your own projects; each example's entry lists the results to
+expect. Examples open as copies, so change them freely: **Save** keeps your
+copy as a project of your own. To watch a run as it happens, pick the *City Cycle (live, 10×)* case and
 change values while it runs (try the Driver's P and I gains, or lock the
 Differential).
 
@@ -70,7 +71,7 @@ Differential).
 | **Monitors** | Display-only Monitor component: add named signal inputs, wire anything into them, get live readout cards + sparklines in the Monitors panel |
 | **Scripting** | Script (Function) component: user-written Python `step(t, dt, inputs, state, params)` with named per-instance ports — for hybrid control strategies, custom recuperation logic, signal math. `step()` is called every solver step with `dt` = that step (0.01 s unless the case time step is shorter), or at the block's *Sample Time* with `dt` = the Sample Time when that is longer; wired inputs are fresh on every call. Scripts get `math`, `clamp()` and `interp()` and a small set of builtins; other imports, file access, class definitions and dunder attributes are refused, and each call must return within 2 s. During a run, scripts execute in a separate process that the engine stops if a call overruns, with a 512 MB memory cap; on Linux 5.13+ the kernel (Landlock) also blocks its file and TCP access. What each platform does and does not block: [Known issues and limits](docs/KNOWN-LIMITS.md) |
 | **Maps** | E-Motor with voltage-dependent full-load torque map, power-loss map and unpowered drag torque; combustion engine full-load curve, fuel map and unfired drag torque; battery OCV(SOC) table — all edited in table grids in the Properties panel |
-| **Problems** | One list of every problem the model has now: the Data Checks, which run by themselves a moment after a project opens and after every change, and the latest run's warnings and errors, each with a "How to fix" line; a click or Enter selects the part(s) it is about and zooms the diagram to them, and the status bar counts the errors. Data Checks are pre-run validation: reference integrity, port-kind mismatches, parameter limits (from the catalog, also for a case's own values), table data, drive-cycle and road-profile entries (an entry that is not an `x:value` pair of numbers, or points out of order, is an error; a repeated x is a warning), Sample Times (negative or not a finite number is an error, above 0.1 s a warning), script compilation (compile only — script code never runs during checks), driveline solvability (delegated to the solver's model extraction). Errors that block the run when the model cannot drive: an E-Motor with no power source, a motor or engine that reaches no wheel, an open differential with a free output, a missing command or target-speed signal, a speed demand that reaches no motor or engine, two signals wired into one input. Warnings for parts the solver would leave out (unconnected, or an input that silently reads 0) and for implausible values (vehicle mass, battery size, auxiliary load, final-drive ratio, wheel load shares that do not add up to 100 %, which the solver scales to 100 % (a 0 % total is an error), a battery that starts empty). An all-clear says what was checked; it does not vouch for the results |
+| **Problems** | One list of every problem the model has now: the Data Checks, which run by themselves a moment after a project opens and after every change, and the latest run's warnings and errors, each with a "How to fix" line; a click or Enter selects the part(s) it is about and zooms the diagram to them, and the status bar counts the errors. Data Checks are pre-run validation: reference integrity, port-kind mismatches, parameter limits (from the catalog, also for a case's own values), table data, drive-cycle and road-profile entries (an entry that is not an `x:value` pair of numbers, or points out of order, is an error; a repeated x is a warning), Sample Times (negative or not a finite number is an error, above 0.1 s a warning), script compilation (compile only — script code never runs during checks), driveline solvability (delegated to the solver's model extraction). Errors that block the run when the model cannot drive: an E-Motor with no power source, a motor or engine that reaches no wheel, an open differential with a free output, a missing command or target-speed signal, a speed demand that reaches no motor or engine, two signals wired into one input, a CG height while all wheels are on one axle, and for a lap case a missing Race Track or E-Motor, wheels all on one axle, an engine or clutch on the wheels, Laps that are not a whole number from 1 to 500, and a Custom curvature table that does not start at 0 m, is shorter than 10 m or bends tighter than 0.5 1/m. Warnings for parts the solver would leave out (unconnected, or an input that silently reads 0) and for implausible values (vehicle mass, battery size, auxiliary load, final-drive ratio, wheel load shares that do not add up to 100 %, which the solver scales to 100 % (a 0 % total is an error), a CG height above the wheelbase, a battery that starts empty; for a lap case, a gearbox held in its gear and a Custom closed track that does not close). An all-clear says what was checked; it does not vouch for the results |
 | **Results** | Dedicated full-page Results workspace (own ribbon tab): channel picker grouped per element, multi-channel time-series **chart or table view** that fills in live during the run, summary table (SOC, energy, recuperation, distance, consumption, fuel and CO₂ per km, electrical energy balance error, time a motor was held back by its supply, regeneration a motor's supply could not take) with a *not valid* note on figures the run's checks rule out (see [Run status](#run-status-and-not-valid-figures)), CSV export. Each run keeps a copy of the model and case settings it ran with, the app version and the parameters edited while it ran; *Run info* (ⓘ next to the run picker) shows them and opens that model again as an unsaved copy. Point 0 is the initial state at t = 0, each later point holds the state at its own time, and the run ends exactly at the case duration |
 | **Parameter studies** | Per-case parameter overrides and one-parameter sweeps (Cases & Parameters panel). Each sweep is saved with the project as a study: what was swept on which case, and its results table with a row per point (value, status, run, every summary value; CSV download), kept after its runs leave the Results history |
 | **Electrical** | Two-terminal components: every electrical element has explicit positive (+, red) and negative (−, blue) pins; the solver balances power on the supply rail with the negative terminals as the return (wire to Ground, or leave implicit) |
@@ -342,6 +343,7 @@ backend/   Python + FastAPI
   ├─ app/main.py                   HTTP + WebSocket API (FastAPI app)
   ├─ app/library/components.json   declarative component catalog (ports, params with
                                    limits and help texts, maps)
+  ├─ app/library/tracks.json       the Race Track's layouts, drawn for LightSim
   ├─ app/cycles/                   bundled standard drive cycles (a CSV each, cycles.json), read by app/cycles.py
   ├─ app/schemas.py                pydantic models mirroring the shared JSON data model
   ├─ app/solver/                   causal multi-pass solver package
@@ -354,6 +356,7 @@ backend/   Python + FastAPI
   │    ├─ master.py                co-simulation master: steps the slaves on a shared grid
   │    ├─ domains.py               domain slaves: control → gear → source limits → driver → mechanics + vehicle → electrical
   │    ├─ verdict.py               run verdict: speed trace vs. target, distance, non-finite values
+  │    ├─ lapsim.py                lap mode: quasi-steady-state lap solver and its energy pass
   │    └─ core.py                  simulate(): runs the master, records channels, streams progress
   ├─ app/validation.py             "Data Checks" pre-run validation
   ├─ app/storage.py                one JSON file per project
@@ -361,7 +364,7 @@ backend/   Python + FastAPI
   ├─ app/security.py               Host / Origin / launch-token checks on every request
   ├─ app/server.py                 entrypoint the desktop shell launches
   ├─ lightsim-backend.spec         PyInstaller recipe for the frozen backend
-  └─ projects/                     example projects (bev-car.json, hybrid-car.json)
+  └─ projects/                     example projects (bev-car.json, hybrid-car.json, fs-electric.json)
 
 desktop/   Electron shell
   ├─ src/main.js                   starts the backend on a stable loopback port
@@ -546,8 +549,8 @@ Each run ends as *success*, *warning*, *cancelled* or *failed*:
   are not judged; their summary rows still show it).
 - **success** — none of the above.
 
-A case's *Kind* is *Cycle* by default. Set it to *Performance* for an
-acceleration or top-speed test driven by a step in the target (for example
+A case's *Kind* is *Cycle* by default. Set it to *Performance* for a
+0-100 km/h or top-speed test driven by a step in the target (for example
 `0:100` from standstill): the Driver then holds full throttle until the
 car reaches the target and holds the target after that, as in a cycle; the
 trace is not judged, and the summary adds *Maximum speed* and *Time to …
@@ -555,6 +558,48 @@ km/h* (from t = 0 to where the speed first reaches the target's highest
 value, read at every solver step). When the car never reaches the target,
 Messages says so and there is no *Time to* row; a car that starts at the
 target or above has none either.
+
+Set it to *Acceleration* for a standing-start run over a distance, such as
+Formula Student's 75 m. Simulations → *Acceleration test* runs the first
+acceleration case, or adds one first: 75 m from a start line 0.30 m ahead
+with a 25 s limit (FS Rules 2026 v1.1 (FSG) D 5.1.1, D 5.2.3 and D 9.2.1,
+which sets the 25 s for driverless runs only; FSUK and FSAE may differ,
+check the current season's rules). The Driver holds full throttle the
+whole run and needs no Target Speed, and the run ends at the end of the
+solver step that reaches *Start line* + *Distance*. The summary leads with
+*Time to … m* from the start line and *Speed at … m*, both read inside
+that step, then the *Gap to reference time* (when one is set), *Time to
+100 km/h* from t = 0, each battery's peak and mean terminal power and the
+share of the run a driven wheel spent at the tyres' grip limit. The case
+*Duration* is the time limit, counted from rest: a car that has not
+reached the line by then gets a warning and no time. The results are
+estimates, and Messages, Run info and the summary header say so (see
+[Known issues and limits](docs/KNOWN-LIMITS.md)).
+
+Set it to *Lap* to drive the model's *Race Track* (Driver & Signals). Its
+*Track layout* and *Laps*, set in the case, choose the run: Autocross (a
+979 m closed lap), Skidpad (the right and left circles, 9.125 m on the lane
+centre) or Acceleration 75 m, drawn for LightSim after FS Rules 2026 v1.1
+(FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1 (FSUK and FSAE may differ, check the
+current season's rules), or Custom, from the track's curvature and
+elevation tables. A quasi-steady-state lap solver finds the fastest speed
+about every metre from the tyres' grip (with the Vehicle's downforce and
+load transfer, sideways too in corners, and each Wheel's load sensitivity
+and friction ellipse) and the powertrain (the E-Motors' full-load curves
+through the gears, cut to the battery's deliverable power and Output Power
+Limit); the motors, gears, brakes and battery then drive that speed with
+the drive cycles' own models. Lap 1 starts at the Vehicle's *Initial
+Speed*, later laps at the speed the one before ended with. *Duration*,
+*Step* and *Pacing* do not apply; *Store every* counts track points. The
+summary leads with *Lap time* (the fastest), *Lap 1 time* and *Total
+time*, the fastest lap's *Sector … time*, *Average speed*, *Speed at the
+finish* (open tracks), *Energy per lap*, *RMS battery power*, the time
+*limited by* cornering grip, traction grip, motor, battery, power cap and
+braking (they add up to the total), and the *Lap energy balance error*; the
+Race Track's channels give the lap distance, curvature, longitudinal and
+lateral acceleration in g, what limited the car and a map (plot them in
+the X-Y view). Lap cases drive E-Motor cars only. The results are
+estimates, and Messages, Run info and the summary header say so.
 
 Summary figures that a failed check makes meaningless are marked *not
 valid*, with the reason, in the results table:

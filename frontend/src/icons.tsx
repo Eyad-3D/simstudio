@@ -16,6 +16,7 @@ import {
   Disc,
   Equal,
   Fan,
+  Flag,
   Flame,
   Fuel,
   Gauge,
@@ -69,6 +70,7 @@ const REGISTRY: Record<string, LucideIcon> = {
   table: Table,
   mountain: Mountain,
   user: User,
+  flag: Flag,
 };
 
 export function componentIcon(key: string): LucideIcon {
