@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import type uPlot from "uplot";
+import { useId, useMemo, useRef, useState } from "react";
+import uPlot from "uplot";
 import {
   ChartScatter,
   Download,
@@ -125,6 +125,9 @@ function AxesMenu({
   useDismiss(open, () => setOpen(false), ref, button);
   const set = (u: string, cfg: YAxisCfg) => onChange({ ...value, [u]: cfg });
   const num = (s: string) => (s.trim() === "" || !Number.isFinite(Number(s)) ? undefined : Number(s));
+  const id = useId();
+  // units shown whose axis is not automatic: they stay so across runs and cases
+  const fixed = units.filter((u) => value[u]?.zero || value[u]?.min != null || value[u]?.max != null).length;
   return (
     <div className="relative" ref={ref}>
       <button
@@ -135,7 +138,7 @@ function AxesMenu({
         title="Y axes: start one at 0, or set its ends"
         onClick={() => setOpen(!open)}
       >
-        <Ruler size={12} /> Axes
+        <Ruler size={12} /> Axes{fixed > 0 && ` (${fixed} set)`}
       </button>
       {open && (
         <div
@@ -143,7 +146,7 @@ function AxesMenu({
           aria-label="Y axes"
           className="absolute right-0 top-full z-50 mt-1 flex w-[250px] flex-col gap-1.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-[11px] shadow-lg"
         >
-          {units.map((u) => {
+          {units.map((u, i) => {
             const cfg = value[u] ?? {};
             const crossed = cfg.min != null && cfg.max != null && cfg.min >= cfg.max;
             return (
@@ -174,13 +177,18 @@ function AxesMenu({
                       className="ss-input w-0 min-w-0 flex-1"
                       aria-label={`${u} axis ${end === "min" ? "minimum" : "maximum"}`}
                       aria-invalid={crossed}
-                      title={crossed ? "The minimum must be below the maximum (until then both are automatic)" : undefined}
+                      aria-describedby={crossed ? `${id}-${i}` : undefined}
                       placeholder={end === "min" ? "min: auto" : "max: auto"}
                       value={cfg[end] ?? ""}
                       onChange={(e) => set(u, { ...cfg, [end]: num(e.target.value) })}
                     />
                   ))}
                 </div>
+                {crossed && (
+                  <div id={`${id}-${i}`} className="ss-param-problem mt-0.5">
+                    The minimum must be below the maximum; until then both are automatic.
+                  </div>
+                )}
               </fieldset>
             );
           })}
@@ -379,7 +387,7 @@ export function ResultsPanel() {
     const ys: Record<string, YAxisCfg> = JSON.parse(yLook);
     const units = [...new Set(looks.map((d) => d.unit))];
     return {
-      scales: { x: { time: false }, ...Object.fromEntries(units.map((u) => [u, { range: yRange(ys[u] ?? {}) }])) },
+      scales: { x: { time: false }, ...Object.fromEntries(units.map((u) => [u, { range: yRange(ys[u] ?? {}, uPlot.rangeNum) }])) },
       series: [
         {
           label: x.kind === "t" ? "t" : "Distance",
@@ -468,7 +476,10 @@ export function ResultsPanel() {
   }, [result]);
 
   // the picked X channel while it is selected, else the first selected one
-  const xyXKey = selectedList.includes(xyXPick) ? xyXPick : (selectedList[0] ?? "");
+  // that is not a speed target (plotting against the target means little)
+  const xyXKey = selectedList.includes(xyXPick)
+    ? xyXPick
+    : (selectedList.find((k) => channelByKey.get(k)?.portId !== "sig_demand") ?? selectedList[0] ?? "");
 
   const xyXChannel = xyXKey ? (channelByKey.get(xyXKey) ?? null) : null;
   const xyYChannels = useMemo(
@@ -495,7 +506,7 @@ export function ResultsPanel() {
     const pair = (u: uPlot, s: number) => u.data[s] as unknown as (number | null)[][];
     return {
       mode: 2,
-      scales: { x: { time: false }, ...Object.fromEntries(units.map((u) => [u, { range: yRange(ys[u] ?? {}) }])) },
+      scales: { x: { time: false }, ...Object.fromEntries(units.map((u) => [u, { range: yRange(ys[u] ?? {}, uPlot.rangeNum) }])) },
       series: [
         {},
         ...looks.map((d) => ({
@@ -591,7 +602,7 @@ export function ResultsPanel() {
     const reasons: string[] = JSON.parse(sweepReasons);
     const val = (_u: uPlot, v: number | null) => (v == null ? "—" : `${fmtNum(v)} ${metricUnit}`);
     return {
-      scales: { x: { time: false }, y: { range: yRange({}) } },
+      scales: { x: { time: false }, y: { range: yRange({}, uPlot.rangeNum) } },
       series: [
         // the swept value as the run picker names it, unrounded
         { label: sweepParam, value: (_u, v) => (v == null ? "—" : `${v}${sweepUnit ? ` ${sweepUnit}` : ""}`) },
@@ -1006,8 +1017,15 @@ export function ResultsPanel() {
             <button
               className="ss-toolbtn border border-[color:var(--ss-border)]"
               disabled={!result || selectedKeys.size === 0}
+              // t_s as before unless an x axis was picked for the chart shown
               onClick={() =>
-                activeRun && exportCsv(activeRun, selectedKeys, `lightsim-${activeRun.caseName}`, xAxis)
+                activeRun &&
+                exportCsv(
+                  activeRun,
+                  selectedKeys,
+                  `lightsim-${activeRun.caseName}`,
+                  view === "chart" && xMode !== "auto" ? xAxis : xAxisFor("s", []),
+                )
               }
             >
               <Download size={12} /> CSV
@@ -1019,9 +1037,9 @@ export function ResultsPanel() {
         {headline.length > 0 && view !== "sweep" && (
           <div className="flex shrink-0 items-center gap-1 border-b border-[color:var(--ss-border)] p-1">
             <dl aria-label="Headline results" className="m-0 flex min-w-0 flex-1 flex-wrap gap-1">
-              {headline.map((s) => (
+              {headline.map((s, i) => (
                 <div
-                  key={s.label}
+                  key={i}
                   className="min-w-[128px] flex-1 rounded border border-[color:var(--ss-border)] px-2 py-0.5"
                   title={s.label}
                 >
@@ -1135,9 +1153,14 @@ export function ResultsPanel() {
         )}
 
         {/* every summary value, one click away with one run; opened by
-            overlays, whose runs it sets side by side */}
-        {result && result.summary.length > 0 && view !== "sweep" && (
-          <details open={multiRun} className="shrink-0 border-t border-[color:var(--ss-border)]">
+            overlays, whose runs it sets side by side (hidden, not dropped, in
+            the sweep view, so it comes back as the user left it) */}
+        {result && result.summary.length > 0 && (
+          <details
+            hidden={view === "sweep"}
+            open={multiRun}
+            className="shrink-0 border-t border-[color:var(--ss-border)]"
+          >
             <summary className="cursor-pointer px-2 py-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
               All summary values ({result.summary.length})
             </summary>

@@ -145,12 +145,18 @@ export type YAxisCfg = { zero?: boolean; min?: number; max?: number };
 
 /** A y scale's range: the data plus 5 % at round ends, reaching 0 only when
  *  that range comes to it (with `zero`, always); a fixed end stays where it
- *  is set. A minimum at or above the maximum is ignored. */
-export function yRange({ zero, min, max }: YAxisCfg): uPlot.Range.Config {
+ *  is set, and the other end stays on its far side even when all the data
+ *  lie past it (a maximum below them all). A minimum at or above the maximum
+ *  is ignored. `rangeNum` is uPlot's, passed in so that this file does not
+ *  load uPlot. */
+export function yRange({ zero, min, max }: YAxisCfg, rangeNum: typeof uPlot.rangeNum): uPlot.Range.Function {
   if (min != null && max != null && min >= max) min = max = undefined;
   const auto = { pad: 0.05, soft: 0, mode: zero ? 1 : 3 } as const;
   const at = (v: number) => ({ soft: v, hard: v, mode: 1 }) as const;
-  return { min: min != null ? at(min) : auto, max: max != null ? at(max) : auto };
+  const cfg = { min: min != null ? at(min) : auto, max: max != null ? at(max) : auto };
+  // the data only as far as the set ends, so the automatic end is fitted to what can show
+  const lim = (v: number) => Math.min(max ?? Infinity, Math.max(min ?? -Infinity, v));
+  return (_u, lo, hi) => (lo == null ? [null, null] : rangeNum(lim(lo), lim(hi), cfg));
 }
 
 /** Columns for series on grids of their own: a row per distinct (x, t)
@@ -180,11 +186,12 @@ export function mergeRows(series: { x: ArrayLike<number | undefined>; t: ArrayLi
  *  follow the cycle (target against actual speed), then SOC and battery
  *  power. The order sets the colours. */
 export function defaultChannelKeys(channels: Channel[]): string[] {
+  const batteries = new Set(channels.filter((c) => c.portId === "sig_soc").map((c) => c.elementId));
   const wanted: ((c: Channel) => boolean)[] = [
     (c) => c.portId === "sig_demand", // Driving Task · Target Speed
     (c) => c.portId === "sig_speed" && c.label.endsWith(" · Vehicle Speed"),
     (c) => c.portId === "sig_soc",
-    (c) => c.portId === "sig_power" && c.label.includes("Battery"),
+    (c) => c.portId === "sig_power" && batteries.has(c.elementId), // whatever the pack is called
   ];
   const keys = wanted.flatMap((f) => channels.filter(f)).slice(0, 4).map(channelKey);
   return keys.length > 0 ? keys : channels.slice(0, 2).map(channelKey);

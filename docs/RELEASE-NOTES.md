@@ -303,9 +303,9 @@ sections.
   fall on round steps of the axis's unit at any zoom; the legend reads
   values to 4 significant digits and the time or distance to the samples'
   step, with the time too on a distance axis; and the **CSV** starts with
-  the chart's x axis: `t_s` as before, `t_min`, `t_h`, or `distance_m` or
-  `distance_km` followed by `t_s`. A screen reader names each axis's
-  range. (RES-18)
+  `t_s` as before, or with the x axis picked for the chart: `t_min`,
+  `t_h`, or `distance_m` or `distance_km` followed by `t_s`. A screen
+  reader names each axis's range. (RES-18)
 - The *Results* page leads with the run's headline numbers, in a strip
   above the chart: consumption (or fuel consumption and CO₂), distance, the
   final charge and the energy the battery gave and took back; a test's

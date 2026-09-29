@@ -575,8 +575,8 @@ that step, then the *Gap to reference time* (when one is set), *Time to
 share of the run a driven wheel spent at the tyres' grip limit. The case
 *Duration* is the time limit, counted from rest: a car that has not
 reached the line by then gets a warning and no time. The results are
-estimates, and Messages, Run info and the summary header say so (see
-[Known issues and limits](docs/KNOWN-LIMITS.md)).
+estimates, and Messages, Run info, the headline numbers and the summary
+header say so (see [Known issues and limits](docs/KNOWN-LIMITS.md)).
 
 Set it to *Lap* to drive the model's *Race Track* (Driver & Signals). Its
 *Track layout* and *Laps*, set in the case, choose the run: Autocross (a
@@ -601,7 +601,8 @@ braking (they add up to the total), and the *Lap energy balance error*; the
 Race Track's channels give the lap distance, curvature, longitudinal and
 lateral acceleration in g, what limited the car and a map (plot them in
 the X-Y view). Lap cases drive E-Motor cars only. The results are
-estimates, and Messages, Run info and the summary header say so.
+estimates, and Messages, Run info, the headline numbers and the summary
+header say so.
 
 Summary figures that a failed check makes meaningless are marked *not
 valid*, with the reason, in the results table:

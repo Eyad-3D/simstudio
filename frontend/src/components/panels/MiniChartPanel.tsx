@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type uPlot from "uplot";
+import uPlot from "uplot";
 import { LineChart as LineChartIcon } from "lucide-react";
 import { useActiveRun, useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
@@ -47,7 +47,7 @@ export function MiniChartPanel() {
     // this panel is often only a few lines tall: no legend or time-axis
     // title under the plot, the toolbar reads out the value under the pointer
     return {
-      scales: { x: { time: false }, y: { range: yRange({}) } },
+      scales: { x: { time: false }, y: { range: yRange({}, uPlot.rangeNum) } },
       series: [{ label: x.label }, { label: shortLabel, stroke: PALETTE[0], width: 1.6, spanGaps: true, points: { show: false } }],
       axes: [
         { ...axis, ...unitAxis(x.div), size: 24 },

@@ -43,7 +43,8 @@ the *Signal Plot*, next to the channel list).
 
 Each y axis fits the data in view, with 5 % to spare. Above the *Results*
 chart, **Axes** starts a unit's axis at 0 or sets its ends (empty is
-automatic), and the **Time · auto** list reads the time in s, min or h
+automatic; the button counts the axes set, which stay so for other runs
+and cases), and the **Time · auto** list reads the time in s, min or h
 (automatic: s up to an hour, min up to 3 hours) or plots the run against
 the distance driven, in m below 1 km and km above.
 

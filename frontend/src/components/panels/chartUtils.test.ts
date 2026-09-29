@@ -86,7 +86,7 @@ describe("axes that fit the data (RES-18)", () => {
     // uPlot reads matchMedia as it loads
     vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
     const { default: uPlot } = await import("uplot");
-    const range = (lo: number, hi: number, cfg = {}) => uPlot.rangeNum(lo, hi, yRange(cfg)) as [number, number];
+    const range = (lo: number, hi: number, cfg = {}) => yRange(cfg, uPlot.rangeNum)(null as never, lo, hi, "%") as [number, number];
     const share = (lo: number, hi: number) => {
       const [a, b] = range(lo, hi);
       return (hi - lo) / (b - a);
@@ -100,6 +100,12 @@ describe("axes that fit the data (RES-18)", () => {
     expect(top[1]).toBe(400);
     expect(top[0]).toBeGreaterThan(80); // the other end still fits the data
     expect(range(88.764, 90, { min: 95, max: 90 })).toEqual(range(88.764, 90)); // crossed: both automatic
+    // one end set past all the data: kept, and the axis does not turn upside down
+    for (const one of [{ max: 50 }, { min: 95 }, { max: -50 }] as { min?: number; max?: number }[]) {
+      const [lo, hi] = range(88.764, 90, one);
+      expect(lo).toBeLessThan(hi);
+      expect(lo === one.min || hi === one.max).toBe(true);
+    }
     vi.unstubAllGlobals();
   });
 });
@@ -178,6 +184,9 @@ describe("headline numbers and the first plot (RES-30)", () => {
     ]);
     // no speed to follow (a lap or an acceleration test): actual speed first
     expect(defaultChannelKeys(channels.filter((c) => c.portId !== "sig_demand"))[0]).toBe("el-vehicle:sig_speed");
+    // a pack of another name (Formula Student's Accumulator): its power still
+    const fs = channels.map((c) => ({ ...c, label: c.label.replace("HV Battery", "Accumulator") }));
+    expect(defaultChannelKeys(fs)).toContain("el-battery:sig_power");
     // nothing known: the first two channels
     expect(defaultChannelKeys([channels[2], channels[2]])).toHaveLength(2);
   });

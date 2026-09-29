@@ -61,9 +61,15 @@ test("RES-18: SOC and voltage fill the plot, and read-outs are rounded", async (
   // a minimum above the maximum is marked and ignored
   await menu.getByLabel("V axis minimum").fill("500");
   await expect(menu.getByLabel("V axis minimum")).toHaveAttribute("aria-invalid", "true");
+  await expect(menu.getByLabel("V axis minimum")).toHaveAccessibleDescription(/minimum must be below the maximum/);
   await expect.poll(() => yRange(chart, "V")).toEqual(auto);
   await menu.getByRole("group", { name: "V", exact: true }).getByRole("button", { name: "Auto" }).click();
   await expect(menu.getByLabel("V axis minimum")).toHaveValue("");
+  // a maximum below all the data is kept, the axis the right way up
+  await menu.getByLabel("V axis maximum").fill("300");
+  await expect.poll(async () => (await yRange(chart, "V"))[1]).toBe(300);
+  expect((await yRange(chart, "V"))[0]).toBeLessThan(300);
+  await expect(page.getByRole("button", { name: "Axes (2 set)" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
 });
@@ -90,6 +96,9 @@ test("RES-18: a WLTC run plots against km, and the CSV follows the axis", async 
   expect(header.slice(0, 2)).toEqual(["distance_km", "t_s"]);
   expect(rows.at(-1)![0]).toBeCloseTo(23.267, 2);
   expect(rows.at(-1)![1]).toBe(1800);
+  // the table (which reads in s) exports t_s
+  await page.getByRole("button", { name: "Table", exact: true }).click();
+  expect((await csv(page)).header[0]).toBe("t_s");
 });
 
 test("RES-18: the sweep opens on consumption, on an axis that fits", async ({ page }) => {
