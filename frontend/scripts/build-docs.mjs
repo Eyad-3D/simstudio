@@ -72,7 +72,8 @@ for (const [sec, path, src] of [["Validation", "validation.md", "VALIDATION-STAT
 // ---- generated: examples, components, drive cycles -------------------------
 for (const f of readdirSync(join(root, "backend", "projects")).filter((f) => f.endsWith(".json")).sort()) {
   const p = JSON.parse(read(`backend/projects/${f}`));
-  const text = (p.description ?? "").split("\n").map((l) => l.replace(/^• /, "- ")).join("\n").replace(/^(?!- )(.+)$/gm, "$1\n");
+  const text = (p.description ?? "").split("\n").map((l) => l.replace(/^• /, "- ")).join("\n").replace(/^(?!- )(.+)$/gm, "$1\n")
+    .replace(/^(- .*)\n(?!- |\n)/gm, "$1\n\n"); // a plain line after a list is not part of its last item
   add("Examples", `examples/${p.id}.md`, `# ${p.name}\n\n${text}\n\n` +
     // an acceleration test ends at its line and a lap case on its track, not at its duration
     `Its cases: ${p.cases.map((c) => `*${c.name}* (${c.kind === "lap" ? "lap mode" : c.kind === "acceleration"
