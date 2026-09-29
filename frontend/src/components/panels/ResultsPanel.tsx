@@ -1087,10 +1087,10 @@ export function ResultsPanel() {
                           {typeof v === "number" ? v.toLocaleString() : "—"}
                           {sv?.passed != null && (
                             <span
-                              className={`ml-1 rounded px-1 font-sans text-[10px] font-semibold ${
+                              className={`ml-1 rounded border px-1 font-sans text-[10px] font-semibold ${
                                 sv.passed
-                                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
-                                  : "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400"
+                                  ? "border-[color:var(--ss-ok)] text-[color:var(--ss-ok)]"
+                                  : "border-[color:var(--ss-err)] text-[color:var(--ss-err)]"
                               }`}
                             >
                               {sv.passed ? "pass" : "fail"}

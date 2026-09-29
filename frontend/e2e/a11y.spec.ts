@@ -19,7 +19,16 @@
 import AxeBuilder from "@axe-core/playwright";
 import { readFileSync, writeFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { drawnLines, openApp, ribbonTab, runActiveCase, runButton, selectElement, showPanel } from "./app";
+import {
+  drawnLines,
+  openApp,
+  openFromMenu,
+  ribbonTab,
+  runActiveCase,
+  runButton,
+  selectElement,
+  showPanel,
+} from "./app";
 
 type Baseline = Record<string, string[]>;
 const BASELINE_FILE = new URL("./a11y-baseline.json", import.meta.url);
@@ -160,6 +169,32 @@ for (const theme of ["light", "dark"] as const) {
       await dialog.getByRole("combobox", { name: "Drive Cycle" }).selectOption("wltc-3b");
       await expect(dialog.getByRole("img", { name: /^Speed over time, WLTC/ })).toBeVisible();
       await check(page, `parameter-dialog-${theme}`);
+    });
+
+    // the Formula Student example: its Race Track, the Acceleration test
+    // button, the battery's preset, the case form's acceleration and lap
+    // fields and the summary's pass/fail markers
+    test("formula student parts", async ({ page }) => {
+      await openApp(page);
+      await openFromMenu(page, "FS Electric (generic)");
+      await expect(page.locator(".react-flow__node", { hasText: "Race Track" })).toBeVisible();
+      await ribbonTab(page, "Simulations").click();
+      await expect(page.getByRole("button", { name: "Acceleration test" })).toBeVisible();
+      await selectElement(page, "Accumulator");
+      await expect(page.getByRole("button", { name: "Apply preset: Formula Student Electric" })).toBeVisible();
+      await check(page, `topology-${theme}`);
+      // the case form's fields sit in their labels; the rest of Cases &
+      // Parameters is older than this gate, so it is swept for contrast only
+      await showPanel(page, "Cases & Parameters");
+      await page.getByTitle("Active simulation case").selectOption("case-autocross");
+      await expect(page.getByRole("spinbutton", { name: "Laps", exact: true })).toBeVisible();
+      expect(await contrastFailures(page)).toEqual([]);
+      await page.getByTitle("Active simulation case").selectOption("case-accel-75m");
+      await expect(page.getByRole("spinbutton", { name: "Start line (m)" })).toBeVisible();
+      expect(await contrastFailures(page)).toEqual([]);
+      await runActiveCase(page);
+      await expect(page.getByRole("row", { name: /^Time to 75 m/ })).toContainText("pass");
+      await check(page, `results-${theme}`);
     });
 
     // UX-16: a first launch, with the examples listed (and any project an

@@ -259,6 +259,7 @@ export function CasePanel() {
         <span className="text-[11px] text-[color:var(--ss-text-dim)]">Case</span>
         <select
           className="ss-input w-[150px]"
+          aria-label="Case"
           value={activeCase.id}
           onChange={(e) => setActiveCase(e.target.value)}
         >

@@ -317,6 +317,7 @@ function SimulationsTab() {
           <div className="flex items-center gap-1">
             <select
               className="ss-input w-[150px]"
+              aria-label="Case"
               value={store.activeCaseId ?? ""}
               onChange={(e) => store.setActiveCase(e.target.value)}
             >

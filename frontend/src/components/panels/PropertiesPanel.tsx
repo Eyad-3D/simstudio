@@ -859,6 +859,7 @@ export function ElementForm({
         <span className="w-[72px] shrink-0 text-[11px] text-[color:var(--ss-text-dim)]">Name</span>
         <input
           className="ss-input min-w-0 flex-1"
+          aria-label="Name"
           value={element.label}
           onChange={(e) => renameElement(element.id, e.target.value)}
         />
