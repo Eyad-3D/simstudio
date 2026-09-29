@@ -1,4 +1,5 @@
-// Shared chart helpers used by the Results panel and the dockable mini-chart.
+// Shared chart helpers used by the Results panel, its measurement cursors and
+// the dockable mini-chart.
 // Nothing here imports uPlot at run time (only its types), so these unit-test
 // without a browser.
 import { useCallback, useState } from "react";
@@ -69,7 +70,7 @@ export const timeUnit = (spanS: number) => (spanS <= 3600 ? "s" : spanS <= 10800
 export const distanceUnit = (maxM: number) => (maxM < 1000 ? "m" : "km");
 
 /** A run's sample times: its longest channel's (a live run's channels can start late). */
-const timesOf = (r: SimRun) =>
+export const timesOf = (r: SimRun) =>
   r.result.channels.reduce<Channel["timeSeries"]>((a, c) => (c.timeSeries.length > a.length ? c.timeSeries : a), []);
 
 /** The Vehicle's distance at each sample (m), made never to go back (a
@@ -179,6 +180,79 @@ export function mergeRows(series: { x: ArrayLike<number | undefined>; t: ArrayLi
   });
   return { x: rows.map((r) => r[0]), t: rows.map((r) => r[1]), cols };
 }
+
+// ---- measurement cursors (RES-06) ----
+
+type Sample = Channel["timeSeries"][number];
+
+/** The index of the value nearest `at` among n values x(0)…x(n-1) in rising
+ *  order (on a tie, the earlier one); -1 when there are none. */
+export function nearestIndex(n: number, at: number, x: (i: number) => number): number {
+  let lo = 0;
+  let hi = n - 1;
+  if (hi < 0) return -1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (x(mid) < at) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo > 0 && at - x(lo - 1) <= x(lo) - at ? lo - 1 : lo;
+}
+
+/** A signal between samples i0 and i1 (in either order): its values there
+ *  (a, b), its lowest and highest, and, weighted by time with the trapezoid
+ *  rule, its integral, mean and RMS. A pair of samples with a gap (null) in
+ *  it is left out. Null when there are only gaps. */
+export function windowStats(ts: Sample[], i0: number, i1: number) {
+  const [lo, hi] = i0 <= i1 ? [i0, i1] : [i1, i0];
+  let min = Infinity;
+  let max = -Infinity;
+  let integral = 0;
+  let squares = 0;
+  let span = 0;
+  for (let i = lo; i <= hi; i++) {
+    const v = ts[i].value;
+    if (v === null) continue;
+    if (v < min) min = v;
+    if (v > max) max = v;
+    const p = i > lo ? ts[i - 1].value : null;
+    if (p === null) continue;
+    const dt = ts[i].t - ts[i - 1].t;
+    integral += ((p + v) / 2) * dt;
+    squares += ((p * p + v * v) / 2) * dt;
+    span += dt;
+  }
+  if (min === Infinity) return null;
+  const a = ts[i0].value;
+  const b = ts[i1].value;
+  // one sample: its own value
+  const one = a ?? b ?? min;
+  return { a, b, min, max, integral, mean: span > 0 ? integral / span : one, rms: span > 0 ? Math.sqrt(squares / span) : Math.abs(one) };
+}
+
+/** The first sample from index `from` on where the signal reaches `target`:
+ *  it equals it, or has crossed it since the last sample before (gaps are
+ *  stepped over); -1 when it never does. */
+export function firstReach(ts: Sample[], target: number, from = 0): number {
+  let prev: number | null = null;
+  for (let i = Math.max(0, from); i < ts.length; i++) {
+    const v = ts[i].value;
+    if (v === null) continue;
+    if (v === target || (prev !== null && (prev - target) * (v - target) < 0)) return i;
+    prev = v;
+  }
+  return -1;
+}
+
+/** A rate's integral over time: [factor from unit × s, the unit it is in].
+ *  Other units (V, %, °C, N·m, g, …) have none. */
+export const INTEGRAL_UNITS: Record<string, [number, string]> = {
+  kW: [1 / 3600, "kWh"],
+  A: [1 / 3600, "Ah"],
+  "km/h": [1 / 3.6, "m"],
+  "kg/h": [1 / 3600, "kg"],
+  "1/min": [1 / 60, "rev"],
+};
 
 // ---- headline numbers and the first plot (RES-30) ----
 

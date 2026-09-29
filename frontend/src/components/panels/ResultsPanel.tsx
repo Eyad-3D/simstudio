@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 import {
   ChartScatter,
@@ -10,6 +10,7 @@ import {
   Play,
   Ruler,
   Search,
+  SquareSplitHorizontal,
   Table2,
   TrendingUp,
   X,
@@ -29,6 +30,7 @@ import {
   headlineRows,
   mergeRows,
   pickSweepMetric,
+  timesOf,
   unitAxis,
   useHasSize,
   xAxisFor,
@@ -38,6 +40,7 @@ import {
   type YAxisCfg,
 } from "./chartUtils";
 import { csvText } from "./csv";
+import { MeasurePanel, cursorsIn, measurePlugin } from "./Measure";
 import { Plot, axisStyle, type PlotHandle, type PlotOptions } from "./Plot";
 import { RunInfo } from "./RunInfo";
 
@@ -252,6 +255,10 @@ export function ResultsPanel() {
   const [yAxes, setYAxes] = useState<Record<string, YAxisCfg>>({});
   const { ref: chartHost, hasSize } = useHasSize<HTMLDivElement>();
   const plotRef = useRef<PlotHandle>(null);
+  // the primary run's measurement cursors (RES-06); their positions live in
+  // uiStore, so moving one redraws only the chart and the measurement table
+  const cursorsOn = useUIStore((s) => Boolean(activeRun && s.cursors[activeRun.id]));
+  const canMeasure = view !== "sweep" && Boolean(activeRun && timesOf(activeRun).length > 0);
 
   // sensible default channel selection until the user picks for this case
   // (a live run starts with no channels, so it fills in as they arrive)
@@ -417,6 +424,7 @@ export function ResultsPanel() {
           grid: { ...axis.grid, show: i === 0 },
         })),
       ],
+      plugins: [measurePlugin(x.kind)],
       cursor: {
         drag: { x: true, y: false },
         // runs on other time grids have gaps in the merged columns: read the
@@ -635,6 +643,34 @@ export function ResultsPanel() {
       cursor: { drag: { x: true, y: false } },
     };
   }, [sweepParam, sweepUnit, sweepMetric, metricUnit, sweepReasons, showIncomplete, theme]);
+
+  // on: A and B at a quarter and three quarters of the chart's view (the
+  // whole run in the table and X-Y views)
+  const toggleCursors = () => {
+    if (!activeRun || !canMeasure) return;
+    const { setCursors } = useUIStore.getState();
+    if (cursorsOn) setCursors(activeRun.id, null);
+    else if (view === "chart") setCursors(activeRun.id, cursorsIn(activeRun, xAxis.kind, plotRef.current?.xRange() ?? null));
+    else setCursors(activeRun.id, cursorsIn(activeRun, "t", null));
+  };
+  // C does the same, unless it is typed into a field (a ticked checkbox is fine)
+  const onCursorKey = useEffectEvent(toggleCursors);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "c" || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      const el = e.target as HTMLElement;
+      const typing =
+        el.isContentEditable ||
+        el.tagName === "TEXTAREA" ||
+        el.tagName === "SELECT" ||
+        (el.tagName === "INPUT" && (el as HTMLInputElement).type !== "checkbox");
+      if (typing) return;
+      e.preventDefault();
+      onCursorKey();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const toggle = (key: string) => {
     if (!selKey) return;
@@ -1002,6 +1038,16 @@ export function ResultsPanel() {
               </button>
             </div>
             <button
+              className={`ss-toolbtn border border-[color:var(--ss-border)] ${cursorsOn ? "bg-[color:var(--ss-active)]" : ""}`}
+              aria-pressed={cursorsOn}
+              aria-keyshortcuts="C"
+              disabled={!canMeasure}
+              title="Measurement cursors A and B (C)"
+              onClick={toggleCursors}
+            >
+              <SquareSplitHorizontal size={12} /> Cursors
+            </button>
+            <button
               className="ss-toolbtn border border-[color:var(--ss-border)]"
               disabled={view === "table"}
               title="Export the chart as a PNG image"
@@ -1151,6 +1197,8 @@ export function ResultsPanel() {
             )}
           </div>
         )}
+
+        {cursorsOn && canMeasure && activeRun && <MeasurePanel run={activeRun} series={seriesDefs} />}
 
         {/* every summary value, one click away with one run; opened by
             overlays, whose runs it sets side by side (hidden, not dropped, in

@@ -144,6 +144,10 @@ for (const theme of ["light", "dark"] as const) {
       await expect(page.getByRole("group", { name: "Y axes" })).toBeVisible();
       await check(page, `results-${theme}`);
       await page.keyboard.press("Escape");
+      // RES-06: the measurement cursors' fields and table
+      await page.keyboard.press("c");
+      await expect(page.getByRole("region", { name: "Cursor measurements" })).toBeVisible();
+      await check(page, `results-${theme}`);
       // axe leaves text over a chart unjudged: legend names use the text
       // colour, as several series colours are too faint for text (GUI-02)
       const text = await page.locator("#root").evaluate((r) => getComputedStyle(r).color);

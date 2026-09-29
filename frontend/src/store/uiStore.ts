@@ -136,6 +136,12 @@ interface UIState {
   fontScale: number;
   setFontScale: (scale: number) => void;
   nudgeFontScale: (delta: number) => void;
+
+  /** Results' measurement cursors A and B per run, as times (s) on the
+   *  run's samples; a run without an entry has them off. Kept for the
+   *  session, not saved (RES-06). */
+  cursors: Record<string, [number, number]>;
+  setCursors: (runId: string, ab: [number, number] | null) => void;
 }
 
 const initialTheme = loadTheme();
@@ -229,4 +235,13 @@ export const useUIStore = create<UIState>((set, get) => ({
     set({ fontScale: next });
   },
   nudgeFontScale: (delta) => get().setFontScale(get().fontScale + delta),
+
+  cursors: {},
+  setCursors: (runId, ab) =>
+    set((s) => {
+      const cursors = { ...s.cursors };
+      if (ab) cursors[runId] = ab;
+      else delete cursors[runId];
+      return { cursors };
+    }),
 }));

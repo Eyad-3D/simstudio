@@ -12,9 +12,12 @@ import uPlot from "uplot";
 type Range = { min: number; max: number };
 /** uPlot's options without a size: a Plot fills its parent. */
 export type PlotOptions = Omit<uPlot.Options, "width" | "height">;
+/** A plugin that also draws on the PNG picture, through `png(k)`: a copy of
+ *  itself at k times the size, with no listeners. */
+export type PngPlugin = uPlot.Plugin & { png?: (k: number) => uPlot.Plugin };
 
 /** The page's font at `px` size, for text drawn on a canvas. */
-const font = (px: number) => `${px}px ${getComputedStyle(document.documentElement).fontFamily}`;
+export const font = (px: number) => `${px}px ${getComputedStyle(document.documentElement).fontFamily}`;
 
 /** Axis colours from the theme tokens (a canvas cannot read CSS variables).
  *  `_theme` is there so that options memoised on the theme follow a switch. */
@@ -42,7 +45,7 @@ const modeOf = (u: uPlot) => (u as unknown as { mode: 1 | 2 }).mode;
 
 /** The UI-scale setting is CSS zoom on an ancestor: pointer positions come in
  *  screen px while uPlot draws in CSS px, so they are divided by this. */
-const scaleOf = (el: HTMLElement) => el.getBoundingClientRect().width / el.offsetWidth || 1;
+export const scaleOf = (el: HTMLElement) => el.getBoundingClientRect().width / el.offsetWidth || 1;
 
 /** The lowest and highest value on a scale over all the data. */
 function fullRange(u: uPlot, key: string): [number, number] | null {
@@ -259,7 +262,9 @@ function scaled(o: PlotOptions, k: number): PlotOptions {
     legend: { show: false },
     cursor: { show: false },
     hooks: {},
-    plugins: [],
+    // a plugin that draws on the chart (RES-06's cursors) gives a copy of
+    // itself for the picture, drawn k times as large
+    plugins: (o.plugins ?? []).flatMap((p: PngPlugin) => p.png?.(k) ?? []),
   };
 }
 
@@ -328,7 +333,8 @@ async function exportPng(u: uPlot, options: PlotOptions, bg: string, name: strin
   }, "image/png");
 }
 
-export type PlotHandle = { png: (bg: string, name: string) => void };
+/** `png` saves the picture; `xRange` is the x range in view. */
+export type PlotHandle = { png: (bg: string, name: string) => void; xRange: () => [number, number] | null };
 
 /** A chart that fills its parent, legend included. A new `options` builds a new chart, so memoise it on strings and numbers,
  *  never on a live run's objects, which change ten times a second. New `data`
@@ -354,6 +360,10 @@ export function Plot({
     () => ({
       png: (bg, name) => {
         if (plot.current) void exportPng(plot.current, options, bg, name);
+      },
+      xRange: () => {
+        const x = plot.current?.scales.x;
+        return x?.min != null && x.max != null ? [x.min, x.max] : null;
       },
     }),
     [options],

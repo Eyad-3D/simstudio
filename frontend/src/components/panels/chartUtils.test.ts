@@ -1,16 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Channel, SimRun } from "../../types";
 import {
+  INTEGRAL_UNITS,
   defaultChannelKeys,
   distanceOf,
   distanceUnit,
+  firstReach,
   fmtNum,
   fmtX,
   headlineRows,
   mergeRows,
+  nearestIndex,
   pickSweepMetric,
   timeUnit,
   unitAxis,
+  windowStats,
   xAxisFor,
   yRange,
 } from "./chartUtils";
@@ -189,5 +193,72 @@ describe("headline numbers and the first plot (RES-30)", () => {
     expect(defaultChannelKeys(fs)).toContain("el-battery:sig_power");
     // nothing known: the first two channels
     expect(defaultChannelKeys([channels[2], channels[2]])).toHaveLength(2);
+  });
+});
+
+/** Samples at t = 0, 1, 2, … with these values. */
+const series = (values: (number | null)[]) => values.map((value, t) => ({ t, value }));
+
+describe("measurement cursors (RES-06)", () => {
+  it("finds the sample nearest a time, the earlier one on a tie", () => {
+    const at = (t: number, ts = [0, 1, 2]) => nearestIndex(ts.length, t, (i) => ts[i]);
+    expect([1.4, 1.5, 1.6, -5, 99].map((t) => at(t))).toEqual([1, 1, 2, 0, 2]);
+    expect(at(1, [])).toBe(-1);
+    // standing still on a distance axis: the first sample at that distance
+    expect(at(5, [0, 5, 5, 5, 6])).toBe(1);
+  });
+
+  it("gives a window's values and its statistics, weighted by time", () => {
+    const ramp = series(Array.from({ length: 11 }, (_, t) => t)); // v = t over 0-10 s
+    const w = windowStats(ramp, 0, 10)!;
+    expect([w.a, w.b, w.min, w.max, w.integral, w.mean]).toEqual([0, 10, 0, 10, 50, 5]);
+    expect(w.rms).toBeCloseTo(Math.sqrt(33.5), 12); // the trapezoid rule on v²
+    // B before A: the same window, each value at its own cursor
+    const back = windowStats(ramp, 10, 0)!;
+    expect([back.a, back.b, back.integral, back.mean, back.rms]).toEqual([10, 0, w.integral, w.mean, w.rms]);
+    // a gap drops the pairs on either side of it: 0-2 and 3-4 s are left
+    const gap = windowStats(series([1, 1, 1, null, 1, 1]), 0, 5)!;
+    expect([gap.integral, gap.mean]).toEqual([3, 1]);
+    expect(windowStats(series([null, null]), 0, 1)).toBeNull();
+    // one sample: its own value
+    const one = windowStats(series([3, -4]), 1, 1)!;
+    expect([one.a, one.mean, one.rms, one.integral]).toEqual([-4, -4, 4, 0]);
+  });
+
+  it("finds where a signal first reaches a value, rising, falling or exactly", () => {
+    const speed = series([0, 20, 40, 60, 80, 60, 30, null, 10]);
+    expect(firstReach(speed, 50)).toBe(3); // the sample after it crossed
+    expect(firstReach(speed, 40)).toBe(2); // on the sample
+    expect(firstReach(speed, 50, 4)).toBe(6); // falling (60 to 30), from index 4 on
+    expect(firstReach(speed, 20, 6)).toBe(8); // across the gap
+    expect(firstReach(speed, 100)).toBe(-1);
+  });
+
+  it("integrates rates into energy, charge, distance, mass and turns", () => {
+    const [kWh, unit] = INTEGRAL_UNITS.kW;
+    expect([windowStats(series(Array(3601).fill(1)), 0, 3600)!.integral * kWh, unit]).toEqual([1, "kWh"]);
+    const [m] = INTEGRAL_UNITS["km/h"];
+    expect(windowStats(series(Array(11).fill(36)), 0, 10)!.integral * m).toBeCloseTo(100, 12);
+    expect(Object.values(INTEGRAL_UNITS).map(([, u]) => u)).toEqual(["kWh", "Ah", "m", "kg", "rev"]);
+    for (const none of ["V", "%", "°C", "N·m", "g", "-"]) expect(INTEGRAL_UNITS[none]).toBeUndefined();
+  });
+
+  it("measures a 1-hour run at 0.1 s (36,001 samples) in 10 series well inside a frame", () => {
+    const runs = Array.from({ length: 10 }, (_, k) =>
+      Array.from({ length: 36001 }, (_, i) => ({ t: i / 10, value: Math.sin(i / 100 + k) * 50 })),
+    );
+    const times: number[] = [];
+    for (let r = 0; r < 20; r++) {
+      const t0 = performance.now();
+      for (const ts of runs) {
+        const at = (t: number) => nearestIndex(ts.length, t, (i) => ts[i].t);
+        windowStats(ts, at(10 + r), at(3590 - r));
+      }
+      if (r >= 10) times.push(performance.now() - t0); // after 10 moves to warm up
+    }
+    times.sort((a, b) => a - b);
+    // the item's budget for a cursor move is 8 ms, drawing included (about
+    // 1.4 ms here on a desktop PC)
+    expect(times[5]).toBeLessThan(8);
   });
 });
