@@ -42,7 +42,7 @@ test("RES-19: plot choices outlast Home, an edit, a new run and a reload; the pr
   await expect(viewButton(page, "Table")).toHaveAttribute("aria-pressed", "true");
 
   // the chart as it was left: the x axis and the zoom, and the first run
-  // drawn faint under the new one, its numbers beside the new ones
+  // drawn faint with the new one, its numbers beside the new ones
   await viewButton(page, "Chart").click();
   await expect(results(page).getByRole("combobox", { name: "X axis" })).toHaveValue("min");
   expect(await xRange(chart(page))).toEqual(zoomed);

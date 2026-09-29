@@ -16,7 +16,7 @@ target speed, and the run is timed from the start line to the line its
 **Baseline**: the run the *Results* page compares a run with: the previous
 run of its case, unless you pick another in the **Baseline** list. Each
 summary value then says how much it changed, and the baseline's lines are
-drawn faint under the run's.
+drawn faint with the run's.
 
 **Channel**: one quantity a run records over time, such as *Vehicle ·
 Vehicle Speed* or *HV Battery Pack · SOC*. The *Results* page plots

@@ -110,12 +110,16 @@ test("RES-05: zoom, pan and reset on the Results chart, X-Y view and Signal Plot
   await zoomPanReset(page, page.getByRole("img", { name: /^Signal Plot:/ }));
 });
 
-test("RES-05: at 125 % interface size the wheel and a zoom box land under the pointer", async ({ page }) => {
+test("RES-05: at 125 % interface size the chart is sharp and the wheel and a zoom box land under the pointer", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("lightsim-font-scale", "1.25"));
   await openApp(page);
   await runActiveCase(page);
   const chart = page.getByRole("img", { name: /^Results chart:/ });
   const full = await xRange(chart);
+
+  // the canvas has a pixel for each screen pixel it covers, not 1/1.25 of one
+  const ratio = await chart.locator("canvas").evaluate((c: HTMLCanvasElement) => c.width / (c.getBoundingClientRect().width * devicePixelRatio));
+  expect(ratio).toBeCloseTo(1, 1);
   const plot = (await chart.locator(".u-over").boundingBox())!;
   const y = plot.y + plot.height / 2;
   const w = width(full);

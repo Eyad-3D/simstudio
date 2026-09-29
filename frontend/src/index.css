@@ -74,6 +74,9 @@ body,
    colours Plot.tsx reads; these style the parts uPlot keeps in the page. ---- */
 .uplot {
   font-family: inherit;
+  /* the chart's width from the start (uPlot's min-content is its unsized
+     root's), so Plot.tsx measures the legend under it right, drawing once */
+  width: 100%;
 }
 .u-legend {
   font-size: 11px;
@@ -314,6 +317,11 @@ body,
 }
 .ss-th {
   @apply border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-2 py-1 text-left text-[11px] font-semibold text-[color:var(--ss-text-dim)];
+}
+/* (this unlayered rule beats Tailwind's text-right: a numeric column's head
+   sits over its right-aligned numbers) */
+.ss-th.text-right {
+  text-align: right;
 }
 .ss-td {
   @apply border-b border-[color:var(--ss-td-border)] px-2 py-1 text-[12px];

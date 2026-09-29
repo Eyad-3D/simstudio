@@ -284,7 +284,8 @@ sections.
   data in view instead of starting at 0. The values under the pointer show
   in the legend under the chart instead of in a pop-up (in the *Signal
   Plot*, in its toolbar). On a 1-hour run (36,001 points), ticking a
-  channel redraws in 30-50 ms instead of 50-110 ms. The **PNG** picture
+  channel redraws in about 25 ms (40 ms with the baseline drawn faint as
+  well) instead of 50-110 ms. The **PNG** picture
   shows the view you zoomed to. A screen reader names what each chart
   shows and its time range. The charts are drawn with uPlot (MIT licence)
   instead of Recharts. (RES-05)
@@ -347,7 +348,7 @@ sections.
   *Overlay* box removes them. (RES-19)
 - A run is compared with a baseline, the previous run of its case unless
   you pick another (or *None*) in the new **Baseline** list: the baseline
-  is drawn faint and dashed under the run (**Draw the baseline faint on
+  is drawn faint and dashed with the run (**Draw the baseline faint on
   the chart** turns that off), each headline number gets a line such as
   *+1.22 (+11.0 %) vs baseline*, and the full summary gets *Baseline*,
   *Change* and *% change* columns, with changes of 1 % or more in bold

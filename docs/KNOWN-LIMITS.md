@@ -377,6 +377,12 @@ minimum or an average, for example from the CSV export, or put the
   and down arrows then step through them while the line stands still, and
   an overlaid run that stopped where a line crosses it is read at the
   start or the end of its stop.
+- **Long runs with many lines zoom less smoothly.** On a 1-hour run
+  (36,001 points) with 7 channels ticked and the baseline drawn faint as
+  well (14 lines), the mouse wheel zooms at 60 frames a second most of the
+  time, but about one step in 20 takes two frames (30-40 ms). Untick *Draw
+  the baseline faint on the chart*, or tick fewer channels, to zoom
+  smoothly.
 
 ## The examples
 

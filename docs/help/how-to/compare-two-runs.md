@@ -14,7 +14,7 @@ changed, a list says what you changed, and the new run is named after it.
 The *Results* page opens on the new run, named *Vehicle Mass 2,300 kg*
 after what changed. On the left, **Baseline** reads *Previous run of this
 case*, and *What changed* lists *Vehicle · Vehicle Mass 1,927 → 2,300 kg*.
-The earlier run is drawn faint and dashed under the new lines, and each
+The earlier run is drawn faint and dashed with the new lines, and each
 headline number above the chart says how much it changed: *Consumption*
 reads 12.34 kWh/100 km, *+1.22 (+11.0 %) vs baseline*.
 

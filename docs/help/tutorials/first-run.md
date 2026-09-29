@@ -72,7 +72,7 @@ draws the run as it goes. The City Cycle takes a few seconds.
    now weighs 2,300 kg instead of 1,927 kg.
 3. Press **Run** again.
 4. On the *Results* page the new run is named *Vehicle Mass 2,300 kg*,
-   after what you changed. The earlier run is drawn faint and dashed under
+   after what you changed. The earlier run is drawn faint and dashed with
    it, and *What changed* on the left lists *Vehicle · Vehicle Mass
    1,927 → 2,300 kg*.
 

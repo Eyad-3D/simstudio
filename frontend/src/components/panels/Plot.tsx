@@ -249,6 +249,25 @@ function gestures(label: string, onZoom: (u: uPlot, r: Range | null, reset?: boo
   };
 }
 
+/** The UI scale's CSS zoom stretches the canvas, which uPlot sizes from
+ *  devicePixelRatio alone, so at 140 % the chart went soft. This gives the
+ *  canvas the zoom's pixels too and draws everything that much larger on it
+ *  (uPlot draws in canvas pixels, relative to the transform set here). */
+function sharp(): uPlot.Plugin {
+  let k = 1;
+  return {
+    hooks: {
+      // (uPlot has just sized the canvas, for a new size or pixel ratio)
+      setSize: (u) => {
+        k = scaleOf(u.root);
+        u.ctx.canvas.width = Math.round(u.ctx.canvas.width * k);
+        u.ctx.canvas.height = Math.round(u.ctx.canvas.height * k);
+      },
+      drawClear: (u) => u.ctx.setTransform(k, 0, 0, k, 0, 0),
+    },
+  };
+}
+
 /** Double the picture: fonts, lines and spacing, for a PNG at 2x size. */
 function scaled(o: PlotOptions, k: number): PlotOptions {
   const px = (f?: string) => f?.replace(/(\d+(\.\d+)?)px/, (_, n) => `${+n * k}px`);
@@ -424,17 +443,19 @@ export function Plot({
         ...options,
         width: el.clientWidth,
         height: el.clientHeight,
-        plugins: [...(options.plugins ?? []), gestures(label, (u, r, reset) => zoomed(u, r, reset))],
+        plugins: [...(options.plugins ?? []), gestures(label, (u, r, reset) => zoomed(u, r, reset)), sharp()],
       },
       latest.current,
       el,
     );
     restore(u, kept);
-    // the legend sits under the plot, inside the parent's height
+    // the legend sits under the plot, inside the parent's height (only on a
+    // real change: uPlot's setSize redraws every series even at the same size,
+    // and the observer below calls this once as it starts)
     const fit = () => {
-      const legend = u.root.querySelector<HTMLElement>(".u-legend")?.offsetHeight ?? 0;
-      if (el.clientWidth > 0 && el.clientHeight > legend)
-        u.setSize({ width: el.clientWidth, height: el.clientHeight - legend });
+      const width = el.clientWidth;
+      const height = el.clientHeight - (u.root.querySelector<HTMLElement>(".u-legend")?.offsetHeight ?? 0);
+      if (width > 0 && height > 0 && (width !== u.width || height !== u.height)) u.setSize({ width, height });
     };
     fit();
     // and again when the legend gains a row (values fill in under the pointer)

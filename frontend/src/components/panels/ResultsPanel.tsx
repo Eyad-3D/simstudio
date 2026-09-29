@@ -90,6 +90,19 @@ const changeClass = (ch: ReturnType<typeof changeOf>) =>
 // every unit's y axis fits its data until the user sets one
 const AUTO_AXES: Record<string, YAxisCfg> = {};
 
+/** A channel's times and values as chart columns, made once per sample array
+ *  and length (a live run's arrays grow in place), so ticking a channel on a
+ *  long run builds only that channel's columns, not every plotted series'. */
+type Columns = { t: number[]; y: (number | null)[] };
+const columnCache = new WeakMap<Channel["timeSeries"], Columns>();
+function columnsOf(ts: Channel["timeSeries"]): Columns {
+  const c = columnCache.get(ts);
+  if (c && c.t.length === ts.length) return c;
+  const fresh = { t: ts.map((p) => p.t), y: ts.map((p) => p.value) };
+  columnCache.set(ts, fresh);
+  return fresh;
+}
+
 /** A summary value's marks: its check's pass or fail and limit, and why it
  *  is not valid (spelled out with `why`; always in the tooltip). The table's
  *  value cells and the headline numbers share them. */
@@ -327,7 +340,7 @@ export function ResultsPanel() {
   const pick = plot?.baselineRunId;
   const picked = pick ? runs.find((r) => r.id === pick && r.id !== activeRun?.id) : undefined;
   const baseline = pick === null ? undefined : (picked ?? previous);
-  // drawn faint under the lines, unless it is overlaid already (RES-19)
+  // drawn faint with the lines, unless it is overlaid already (RES-19)
   const ghost = comparePrevious && baseline && !overlayRunIds.includes(baseline.id) ? baseline : undefined;
   const drawnRuns = useMemo(() => (ghost ? [...plotRuns, ghost] : plotRuns), [plotRuns, ghost]);
   const headline = useMemo(() => headlineRows(result?.summary ?? []), [result]);
@@ -405,13 +418,12 @@ export function ResultsPanel() {
     for (const d of seriesDefs)
       if (!dist.has(d.run.id)) dist.set(d.run.id, xAxis.kind === "distance" ? distanceOf(d.run) : null);
     const series = seriesDefs.map((d) => {
-      const ts = d.channel.timeSeries;
-      const t = ts.map((p) => p.t);
+      const { t, y } = columnsOf(d.channel.timeSeries);
       const all = dist.get(d.run.id);
       // a channel that a live run began to send late ends on the same sample
       const x = all ? t.map((_, j) => all[j + all.length - t.length]) : t;
       const grid = `${all ? d.run.id : ""}:${t.length}:${t[0]}:${t[t.length - 1]}`;
-      return { x, t, y: ts.map((p) => p.value), grid };
+      return { x, t, y, grid };
     });
     if (series.every((s) => s.grid === series[0].grid))
       return Object.assign([series[0].x, ...series.map((s) => s.y)] as uPlot.AlignedData, { t: series[0].t });
@@ -524,11 +536,13 @@ export function ResultsPanel() {
     return m;
   }, [result]);
 
-  // the picked X channel while it is selected, else the first selected one
-  // that is not a speed target (plotting against the target means little)
-  const xyXKey = selectedList.includes(xyXPick)
+  // the ticked channels this run has (a kept pick can name a part deleted since)
+  const shownKeys = useMemo(() => selectedList.filter((k) => channelByKey.has(k)), [selectedList, channelByKey]);
+  // the picked X channel while it is shown, else the first shown one that is
+  // not a speed target (plotting against the target means little)
+  const xyXKey = shownKeys.includes(xyXPick)
     ? xyXPick
-    : (selectedList.find((k) => channelByKey.get(k)?.portId !== "sig_demand") ?? selectedList[0] ?? "");
+    : (shownKeys.find((k) => channelByKey.get(k)?.portId !== "sig_demand") ?? shownKeys[0] ?? "");
 
   const xyXChannel = xyXKey ? (channelByKey.get(xyXKey) ?? null) : null;
   const xyYChannels = useMemo(
@@ -838,7 +852,7 @@ export function ResultsPanel() {
                 <>
                   <label
                     className="flex cursor-pointer items-center gap-1.5 text-[11px]"
-                    title="Draw the baseline run's lines on the chart, dashed and faint, under this run's"
+                    title="Draw the baseline run's lines on the chart, dashed and faint, with this run's"
                   >
                     <input
                       type="checkbox"
@@ -988,7 +1002,7 @@ export function ResultsPanel() {
               <>X-Y · {xyYChannels.length} series vs {xyXShort || "—"}</>
             ) : (
               <>
-                {selectedKeys.size} channel(s)
+                {shownKeys.length} channel(s)
                 {multiRun && <span> · {plotRuns.length} runs overlaid</span>}
               </>
             )}
@@ -1044,14 +1058,14 @@ export function ResultsPanel() {
                 ))}
               </select>
             )}
-            {view === "xy" && selectedList.length > 0 && (
+            {view === "xy" && shownKeys.length > 0 && (
               <select
                 className="ss-input max-w-[200px] py-0.5 text-[11px]"
                 value={xyXKey}
                 onChange={(e) => savePlot({ xKey: e.target.value })}
                 title="Channel to plot on the X axis (the other ticked channels become Y series)"
               >
-                {selectedList.map((k) => {
+                {shownKeys.map((k) => {
                   const c = channelByKey.get(k);
                   const short = c ? (c.label.split(" · ")[1] ?? c.label) : k;
                   return (
@@ -1120,9 +1134,9 @@ export function ResultsPanel() {
                 }`}
                 aria-pressed={view === "xy"}
                 onClick={() => setView("xy")}
-                disabled={selectedKeys.size < 2}
+                disabled={shownKeys.length < 2}
                 title={
-                  selectedKeys.size < 2
+                  shownKeys.length < 2
                     ? "Tick at least two channels to plot one against another"
                     : "X-Y plot: one channel against another (e.g. torque vs. speed)"
                 }
@@ -1293,7 +1307,7 @@ export function ResultsPanel() {
               <Plot key="xy" options={xyOptions} data={xyData} label="X-Y chart" ref={plotRef} />
             ) : (
               <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[color:var(--ss-text-dim)]">
-                {selectedKeys.size < 2
+                {shownKeys.length < 2
                   ? "Tick at least two channels on the left — one becomes the X axis, the rest are plotted against it."
                   : "No samples to plot for this pair."}
               </div>
