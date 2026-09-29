@@ -288,6 +288,37 @@ sections.
   shows the view you zoomed to. A screen reader names what each chart
   shows and its time range. The charts are drawn with uPlot (MIT licence)
   instead of Recharts. (RES-05)
+- Chart axes fit the data: a y axis spans its unit's data plus 5 %, at
+  round ends, and takes in 0 only when that range comes near it, so on the
+  Battery Electric Car's City Cycle the SOC (88.76 to 90 %) and the
+  terminal voltage fill 88 % and 90 % of the plot (1 % and 2 % on 0.2.0's
+  axes from 0). A trace that barely changes fills the plot too: **Axes**,
+  above the chart and X-Y view, starts a unit's axis at 0 or sets its
+  ends. The sweep view fits its axis the same way and opens on the run's
+  first headline number (a test's time, the fuel or the energy
+  consumption) instead of the final SOC. The **Time · auto** list reads
+  the time in s, min or h (automatic: s up to an hour, min up to 3 hours)
+  or plots the run against the distance driven (the Vehicle's *Distance*,
+  in m below 1 km, in km above; a stop draws as a vertical line). Ticks
+  fall on round steps of the axis's unit at any zoom; the legend reads
+  values to 4 significant digits and the time or distance to the samples'
+  step, with the time too on a distance axis; and the **CSV** starts with
+  the chart's x axis: `t_s` as before, `t_min`, `t_h`, or `distance_m` or
+  `distance_km` followed by `t_s`. A screen reader names each axis's
+  range. (RES-18)
+- The *Results* page leads with the run's headline numbers, in a strip
+  above the chart: consumption (or fuel consumption and CO₂), distance, the
+  final charge and the energy the battery gave and took back; a test's
+  time, speed at the line or top speed; a lap case's lap time. A failed
+  check comes first. Each keeps its *pass* or *fail* marker, limit and
+  *not valid* reason, and the strip says when the results are estimates.
+  At 1366 × 768 all of them are in view (before, *Distance driven* and
+  *Consumption* were the 5th and 6th rows of a 4-row box). The full table
+  folds under *All summary values*, which opens by itself when runs are
+  overlaid, and the chart gains 59 px. The plot of a first run opens on
+  the target against the actual speed (did the car follow its cycle?),
+  the target dashed and drawn on top, with the battery's SOC and power.
+  (RES-30)
 
 ### Fixed
 
@@ -401,6 +432,11 @@ sections.
   its value until you type a number, as in *Properties*. A red field's
   border was too faint on the dark theme (3.4:1); it now uses the theme's
   error colour. (UX-10)
+- Time read-outs on the charts showed raw floats, such as
+  0.30000000000000004 s at a 0.1 s step, and so did the CSV's time column;
+  and the sweep view opened on the final SOC, drawn flat on a 0-100 axis.
+  (RES-18)
+- The summary's scroll box could not be reached with the keyboard. (RES-30)
 
 ### Upgrading from a 0.2.0 build
 

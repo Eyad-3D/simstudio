@@ -46,17 +46,21 @@ draws the run as it goes. The City Cycle takes a few seconds.
 
 ## 4. Read the results
 
-- The chart shows two channels, the battery's *SOC* (state of charge: how
-  full the battery is, in %) and its *Discharge Power*. Tick other channels
-  in the list on the left to add them, for example *Vehicle Speed* under
-  *Vehicle*. Type in **Search channels…** to find one.
+- The numbers above the chart sum up the run: *Consumption*
+  11.12 kWh/100 km, *Distance driven* 7.292 km, the battery's final SOC,
+  88.76 %, and the energy it gave and took back. **All summary values**
+  under the chart opens the full list.
+- The chart opens on the *Target Speed* (dashed) over the *Vehicle Speed*:
+  where the car follows its cycle, the two lie on each other. With them
+  are the battery's *SOC* (state of charge: how full the battery is, in %)
+  and its *Discharge Power*. Tick other channels in the list on the left to
+  add them. Type in **Search channels…** to find one.
+- Each axis fits its data, so a small change fills the plot: the SOC axis
+  runs from 88.7 to 90.1 %.
 - Rest the pointer on the chart: the legend under it reads the values at
   that time. Roll the mouse wheel over the chart to zoom in on a moment;
   a double-click shows the whole run again
   ([all the chart's keys](../reference/keyboard-shortcuts.md#on-a-chart)).
-- The table under the chart sums up the run (scroll it for more rows): the
-  battery's final SOC, 88.76 %, *Distance driven* 7.292 km and
-  *Consumption* 11.12 kWh/100 km.
 - The word at the top of the chart says how the run went. *success* means
   the car followed its target speed and its parts stayed inside their data.
   It does not mean the numbers match a real car.
@@ -68,8 +72,8 @@ draws the run as it goes. The City Cycle takes a few seconds.
    now weighs 2,300 kg instead of 1,927 kg.
 3. Press **Run** again.
 4. On the *Results* page the list at the top left shows the new run. Under
-   *Overlay*, tick the earlier run: the chart draws both, and the summary
-   gets a column for each.
+   *Overlay*, tick the earlier run: the chart draws both, and the full
+   summary opens with a column for each.
 
 *Consumption* reads 12.34 kWh/100 km against 11.12: the heavier car uses
 11 % more energy on the same drive.

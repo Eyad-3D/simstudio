@@ -41,6 +41,12 @@ The charts on the *Results* page and in the *Signal Plot* panel. Rest the
 pointer on a chart to read the values there, in the legend under it (in
 the *Signal Plot*, next to the channel list).
 
+Each y axis fits the data in view, with 5 % to spare. Above the *Results*
+chart, **Axes** starts a unit's axis at 0 or sets its ends (empty is
+automatic), and the **Time · auto** list reads the time in s, min or h
+(automatic: s up to an hour, min up to 3 hours) or plots the run against
+the distance driven, in m below 1 km and km above.
+
 | Mouse or keys | What they do |
 |---|---|
 | Mouse wheel | Zoom in or out around the pointer (on the X-Y view, both axes) |
