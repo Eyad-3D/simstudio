@@ -167,7 +167,10 @@
           "unit": "m",
           "default": 0,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "How high the vehicle's centre of gravity sits above the road. Speeding up, braking and slopes move m × (a + g·sin θ) × height ÷ Wheelbase from one axle to the other, and in lap cases cornering moves load to the outer wheels. Needs each Wheel's Axle set. 0 (the default): the loads do not shift.",
+          "typical": "Formula Student car 0.25–0.32 m (the FS example 0.28 m) · small car 0.50–0.55 m · mid-size EV 0.50–0.60 m (a floor battery keeps it low) · SUV or van 0.65–0.90 m.",
+          "whereToFind": "Weigh the car level and then with one axle raised: the change in the other axle's load gives the height. Or from CAD, with the mass of every part."
         },
         {
           "key": "wheelbase_m",
@@ -175,14 +178,20 @@
           "unit": "m",
           "default": 2.7,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The distance between the front and rear axles. With a Centre of Gravity Height it sets how much load shifts between the axles: m × a × height ÷ wheelbase. Not used while the height is 0.",
+          "typical": "Formula Student car 1.53–1.65 m (the FS example 1.53 m) · small car 2.4–2.6 m · mid-size EV 2.7–3.0 m · van 3.0–3.7 m.",
+          "whereToFind": "The vehicle datasheet or registration papers; for your own design, CAD or a tape measure between the wheel centres."
         },
         {
           "key": "downforce_cza_m2",
           "label": "Downforce Area (CzA)",
           "unit": "m²",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "description": "Downforce coefficient × area: the downforce is ½ × air density × CzA × speed², split between the axles by the Front Aero Balance. It adds to the wheels' load, so to their grip and (not with coefficients A/B/C) their rolling resistance. Negative is lift; 0 (the default) is none.",
+          "typical": "0 for road cars (most make a little lift, a negative value) · Formula Student car with wings 2.5–4.5 m² (the FS example 3.0 m²).",
+          "whereToFind": "A wind-tunnel test or a CFD result: the downforce ÷ (½ × air density × speed²) at a test speed. Aerodynamicists often call it ClA."
         },
         {
           "key": "aero_balance_front_pct",
@@ -191,7 +200,10 @@
           "default": 50,
           "type": "number",
           "minimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "The share of the downforce the front axle takes; the rear axle takes the rest. It moves no load while the Downforce Area is 0.",
+          "typical": "Formula Student cars 40–50 % (the FS example 45 %); 50 % (the default) when you do not know it.",
+          "whereToFind": "CFD or a wind-tunnel test: the front axle's downforce ÷ the total. Or the aerodynamic balance your team aims for."
         },
         {
           "key": "track_front_m",
@@ -199,7 +211,10 @@
           "unit": "m",
           "default": 1.55,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The distance between the centres of the front tyres' contact patches. In lap cases with a Centre of Gravity Height, cornering moves load from the inner to the outer front wheel, more on a narrower track; that costs grip when the tyres have a Load Sensitivity.",
+          "typical": "Formula Student car 1.15–1.30 m (the FS example 1.22 m) · small car 1.45–1.55 m · mid-size EV 1.55–1.65 m · van 1.60–1.75 m.",
+          "whereToFind": "The vehicle datasheet ('track' or 'tread'), or measure between the front tyres' centre lines at the ground."
         },
         {
           "key": "track_rear_m",
@@ -207,7 +222,10 @@
           "unit": "m",
           "default": 1.55,
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "The distance between the centres of the rear tyres' contact patches. In lap cases with a Centre of Gravity Height, cornering moves load from the inner to the outer rear wheel, more on a narrower track; that costs grip when the tyres have a Load Sensitivity.",
+          "typical": "Formula Student car 1.15–1.30 m (the FS example 1.18 m) · small car 1.45–1.55 m · mid-size EV 1.55–1.65 m · van 1.60–1.75 m.",
+          "whereToFind": "The vehicle datasheet ('track' or 'tread'), or measure between the rear tyres' centre lines at the ground."
         }
       ]
     },
@@ -491,7 +509,10 @@
           "unit": "kW",
           "default": 0,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The most power the pack's terminals give (volts × amps, as an energy meter measures it), less the Power Limit Margin: the motors get what is left after the other loads. Recuperation is not limited. The run summary checks the power against it. 0 = no limit.",
+          "typical": "0 for most studies · Formula Student electric cars 80 kW (FS Rules 2026 v1.1 (FSG) EV 2.2.1; the preset sets it) · a charger's or test bench's limit.",
+          "whereToFind": "The competition's rules (check the current season's), the battery management system's power limit, or the limit of the supply you want to stay within."
         },
         {
           "key": "power_limit_margin_pct",
@@ -501,7 +522,10 @@
           "default": 0,
           "type": "number",
           "minimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "Holds the power this share below the Output Power Limit, as a team's setpoint keeps clear of it, while the run still checks the power against the limit itself. 0 holds it at the limit.",
+          "typical": "0 % (the default) · 2–5 % to keep clear of a competition limit (78 kW against 80 kW is 2.5 %).",
+          "whereToFind": "Your power setpoint: (limit − setpoint) ÷ limit × 100."
         },
         {
           "key": "power_limit_window_s",
@@ -511,7 +535,10 @@
           "default": 0,
           "type": "number",
           "minimum": 0,
-          "maximum": 60
+          "maximum": 60,
+          "description": "The run checks the terminal power, averaged over this many seconds, against the Output Power Limit, as a competition's energy meter judges it. 0 checks each solver step's power. The limit itself holds every step.",
+          "typical": "Formula Student 0.5 s (FS Rules 2026 v1.1 (FSG) D 10.4.1, a 500 ms moving average; the preset sets it) · 0 for the strictest check.",
+          "whereToFind": "The competition's rules or event handbook, where they say how the power limit is judged."
         },
         {
           "key": "power_limit_enforced",
@@ -519,7 +546,10 @@
           "label": "Hold Power to Limit (off = check)",
           "unit": "-",
           "default": true,
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Ticked: the Output Power Limit holds the power, so the run keeps to it. Unticked: the power is not held, only checked, and the summary gives the time over the limit.",
+          "typical": "Ticked (the default, and the preset) for a car that keeps to its limit · unticked to see how far a car without one would go over it.",
+          "whereToFind": "Your question: ticked for a car that obeys the rule, unticked to size how often and how far it would break it."
         },
         {
           "key": "voltage_class_V",
@@ -528,7 +558,10 @@
           "unit": "V",
           "default": 0,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The highest voltage the pack may reach. The run checks the highest pack voltage (open-circuit at 100 % SOC, or at the terminals while recuperating) against it, and Data Checks warn when the open-circuit voltage at 100 % SOC is above it. 0 = no check.",
+          "typical": "0 for most studies · Formula Student electric cars 600 V (FS Rules 2026 v1.1 (FSG) EV 4.1.1; the preset sets it) · the rating of a car's 400 V or 800 V system.",
+          "whereToFind": "The competition's rules, or the highest voltage the inverter and the other high-voltage parts are rated for."
         }
       ],
       "presets": [
@@ -1477,7 +1510,10 @@
           "unit": "-",
           "default": "Front",
           "type": "enum",
-          "options": ["Front", "Rear"]
+          "options": ["Front", "Rear"],
+          "description": "Which axle the wheel is on. Load transfer moves load between the Front and the Rear wheels, and the Vehicle's Front and Rear Axle Load add them up. A Centre of Gravity Height and lap cases need wheels on both axles.",
+          "typical": "Front for the front wheels, Rear for the rear ones. Wheels from projects before 0.3 are Front (the default).",
+          "whereToFind": "Where the wheel is on your vehicle."
         },
         {
           "key": "mu",
@@ -1518,14 +1554,20 @@
           "unit": "-",
           "default": 0,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The tyre's friction coefficient sideways, which sets how fast a lap case takes a corner. 0 (the default) uses the Friction Coefficient μ. Only lap cases read it.",
+          "typical": "0 (the same as μ) · road tyres on dry asphalt 0.9–1.1 · Formula Student slicks 1.4–1.8 (the FS example 1.5).",
+          "whereToFind": "Tyre test data (the peak side force ÷ the load; for FS tyres, the FSAE Tire Test Consortium), or a skidpad test without downforce: the steady lateral acceleration in g."
         },
         {
           "key": "mu_load_sensitivity_per_kN",
           "label": "Load Sensitivity dμ/dFz",
           "unit": "1/kN",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "description": "How much μ (and μ_y) changes for each kN of normal load above the Nominal Load Fz0: μ + dμ/dFz × (load − Fz0), never below 0. Tyres lose grip as the load rises, so it is usually negative, and then load transfer costs grip. 0 (the default) keeps μ constant.",
+          "typical": "0 without tyre data · Formula Student slicks −0.1 to −0.3 per kN (the FS example −0.2) · car tyres about −0.02 to −0.06 per kN.",
+          "whereToFind": "Tyre test data: the slope of the friction coefficient against the load, near the load the tyre works at (for FS tyres, the FSAE Tire Test Consortium)."
         },
         {
           "key": "mu_nominal_load_N",
@@ -1533,7 +1575,10 @@
           "unit": "N",
           "default": 0,
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "The normal load at which the tyre has its μ and μ_y; the Load Sensitivity changes them away from it. 0 (the default) takes this wheel's share of the vehicle's weight on level ground.",
+          "typical": "0 · the load your tyre data was measured at: about 700 N for a Formula Student tyre (the FS example), 3,000–5,000 N for a car tyre.",
+          "whereToFind": "The tyre test data's reference load: the load at which its quoted μ was measured."
         },
         {
           "key": "friction_ellipse_exponent",
@@ -1542,7 +1587,10 @@
           "default": 2,
           "type": "number",
           "minimum": 1,
-          "maximum": 10
+          "maximum": 10,
+          "description": "How much grip a tyre keeps one way while it uses some the other way in a lap case: (Fx ÷ Fx,max)ⁿ + (Fy ÷ Fy,max)ⁿ ≤ 1. 2 is an ellipse; a higher n keeps more grip for braking or speeding up in a corner, 1 the least. Lap cases use the wheels' mean.",
+          "typical": "2 (the default) · 1.5–3 to fit a tyre's combined-slip data.",
+          "whereToFind": "Combined-slip tyre data (a fit of the shape of its friction limit), or leave it at 2."
         }
       ]
     },
@@ -2854,7 +2902,10 @@
           "unit": "-",
           "default": "Autocross",
           "type": "enum",
-          "options": ["Autocross", "Skidpad", "Acceleration 75 m", "Custom"]
+          "options": ["Autocross", "Skidpad", "Acceleration 75 m", "Custom"],
+          "description": "The line a lap case drives: Autocross, a 979 m closed lap; Skidpad, a right and then a left circle of 9.125 m radius; Acceleration 75 m, an open straight; or Custom, from the Curvature and Elevation tables. The layouts are drawn for LightSim, not official ones.",
+          "typical": "Autocross for a lap time or the endurance energy · Skidpad for cornering grip · Acceleration 75 m to compare with an acceleration case · Custom for your own track.",
+          "whereToFind": "Your event: the layouts follow FS Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1. For a real track, Custom with the curvature from a logged lap or a map."
         },
         {
           "key": "laps",
@@ -2864,7 +2915,10 @@
           "default": 1,
           "type": "number",
           "minimum": 1,
-          "maximum": 500
+          "maximum": 500,
+          "description": "How many laps a lap case drives, one after the other: lap 1 from the Vehicle's Initial Speed (no faster than the first corner allows), each later lap from the speed the one before ended with. A lap case sets it among its own values.",
+          "typical": "1 for a standing lap · 2 for a flying lap (the Lap time is the fastest) · about 22 for a Formula Student endurance on a 1 km lap (the FS example 23).",
+          "whereToFind": "The event's distance ÷ the lap length (a Formula Student endurance is about 22 km)."
         },
         {
           "key": "curvature_table",
@@ -2876,7 +2930,10 @@
           "default": {
             "0": 0,
             "100": 0
-          }
+          },
+          "description": "The Custom track's curvature (1 ÷ radius) at each distance along the line: positive turns left, negative right, 0 is straight. It must start at 0 m, be at least 10 m long and bend no tighter than 0.5 1/m (a 2 m radius).",
+          "typical": "0 on straights · 0.1 1/m in a corner of 10 m radius, 0.03 1/m in one of about 33 m.",
+          "whereToFind": "A logged lap (lateral acceleration ÷ speed², smoothed) or a map (1 ÷ each corner's radius), pasted from a spreadsheet into the table editor (Edit…)."
         },
         {
           "key": "elevation_table",
@@ -2887,7 +2944,10 @@
           "axes": [{ "name": "Distance", "unit": "m", "outside": "clamp" }],
           "default": {
             "0": 0
-          }
+          },
+          "description": "The Custom track's height at each distance along it, in m. Its slope makes the car climb and descend, as a road grade does. Beyond its last point the height holds.",
+          "typical": "0 m everywhere (the default) for a flat track, as most Formula Student tracks are; a few metres over a lap on a hilly circuit.",
+          "whereToFind": "A GPS log's altitude against distance, a map's elevation profile, or the circuit's own data."
         },
         {
           "key": "closed",
@@ -2895,7 +2955,10 @@
           "label": "Closed Circuit (Custom)",
           "unit": "-",
           "default": true,
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Ticked: the Custom track is a circuit whose end joins its start, so each lap brakes for the next lap's first corner; Data Checks warn when its curvature does not turn it back to its start. Unticked: an open stretch, such as a sprint.",
+          "typical": "Ticked for a circuit; unticked for a straight or a hill climb.",
+          "whereToFind": "Your track."
         },
         {
           "key": "sector_ends",
@@ -2903,7 +2966,10 @@
           "label": "Sector Ends (Custom, m; …)",
           "unit": "-",
           "default": "",
-          "type": "string"
+          "type": "string",
+          "description": "Where each sector of the Custom track ends, in m from the start, separated by ';'; the last sector ends at the finish. The summary gives each sector's time on the fastest lap. Empty: one sector.",
+          "typical": "Empty, or two or three ends such as '280; 630' (the Autocross layout's).",
+          "whereToFind": "The timing points of your event or circuit."
         }
       ]
     }
