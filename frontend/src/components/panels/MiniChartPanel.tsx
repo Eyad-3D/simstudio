@@ -3,8 +3,8 @@ import type uPlot from "uplot";
 import { LineChart as LineChartIcon } from "lucide-react";
 import { useActiveRun, useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
-import { PALETTE, channelKey, useHasSize } from "./chartUtils";
-import { Plot, axisStyle, fmt, type PlotOptions } from "./Plot";
+import { PALETTE, channelKey, fmtNum, fmtX, unitAxis, useHasSize, xAxisFor, yRange } from "./chartUtils";
+import { Plot, axisStyle, type PlotOptions } from "./Plot";
 
 /** A compact, dockable single-signal plot meant to sit beside the topology so a
  *  channel can be watched next to the diagram. It reads the active run, whose
@@ -40,22 +40,24 @@ export function MiniChartPanel() {
   const hovered = hover == null ? undefined : channel?.timeSeries[hover];
   const shortLabel = channel ? (channel.label.split(" · ")[1] ?? channel.label) : "";
   const unit = channel?.unit ?? "";
+  // time in s, min or h by the run's length (RES-18)
+  const x = xAxisFor("auto", activeRun ? [activeRun] : []);
   const options = useMemo((): PlotOptions => {
     const axis = axisStyle(theme);
     // this panel is often only a few lines tall: no legend or time-axis
     // title under the plot, the toolbar reads out the value under the pointer
     return {
-      scales: { x: { time: false } },
-      series: [{ label: "t [s]" }, { label: shortLabel, stroke: PALETTE[0], width: 1.6, spanGaps: true, points: { show: false } }],
+      scales: { x: { time: false }, y: { range: yRange({}) } },
+      series: [{ label: x.label }, { label: shortLabel, stroke: PALETTE[0], width: 1.6, spanGaps: true, points: { show: false } }],
       axes: [
-        { ...axis, size: 24 },
-        { ...axis, label: unit, size: 44 },
+        { ...axis, ...unitAxis(x.div), size: 24 },
+        { ...axis, ...unitAxis(1), label: unit, size: 44 },
       ],
       legend: { show: false },
       cursor: { drag: { x: true, y: false } },
       hooks: { setCursor: [(u) => setHover(u.cursor.idx ?? null)] },
     };
-  }, [shortLabel, unit, theme]);
+  }, [shortLabel, unit, x.label, x.div, theme]);
 
   if (runsCount === 0) {
     return (
@@ -88,12 +90,12 @@ export function MiniChartPanel() {
         </select>
         {hovered ? (
           <span className="shrink-0 whitespace-nowrap font-mono text-[11px] text-[color:var(--ss-text)]">
-            t = {fmt(hovered.t)} s · {fmt(hovered.value)} {unit}
+            t = {fmtX(x, hovered.t)} · {fmtNum(hovered.value)} {unit}
           </span>
         ) : (
           typeof last === "number" && (
             <span className="shrink-0 whitespace-nowrap font-mono text-[11px] text-[color:var(--ss-text)]">
-              {fmt(last)} {unit}
+              {fmtNum(last)} {unit}
             </span>
           )
         )}

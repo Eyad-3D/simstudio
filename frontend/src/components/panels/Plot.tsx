@@ -31,10 +31,11 @@ export function axisStyle(_theme: string): uPlot.Axis {
   };
 }
 
-/** The charts' number format: grouped, at most `digits` decimals. */
-export const fmt = (v: number | null | undefined, digits = 3) =>
+/** An axis range in a chart's accessible name: grouped, at most 3 decimals
+ *  (read-outs use chartUtils' fmtNum). */
+const fmt = (v: number | null | undefined) =>
   // (v === 0 ? 0 : v): -0 reads "0", not "-0"
-  v == null ? "—" : (v === 0 ? 0 : v).toLocaleString(undefined, { maximumFractionDigits: digits });
+  v == null ? "—" : (v === 0 ? 0 : v).toLocaleString(undefined, { maximumFractionDigits: 3 });
 
 /** 1: time series, 2: X-Y (set at runtime, missing from the 1.6.32 typings) */
 const modeOf = (u: uPlot) => (u as unknown as { mode: 1 | 2 }).mode;
@@ -107,17 +108,24 @@ function restore(u: uPlot, range: Range | null) {
 }
 
 /** The gestures, and a name for screen readers (and the tests): role img,
- *  labelled with what the chart shows and its x range. `onZoom` gets the time
- *  range while zoomed in, null for the whole run. */
+ *  labelled with what the chart shows, each y axis's range and, last, its x
+ *  range ("Results chart: SOC; % 88.7 to 90.1; t [s] 0 to 600"). `onZoom`
+ *  gets the time range while zoomed in, null for the whole run. */
 function gestures(label: string, onZoom: (r: Range | null) => void): uPlot.Plugin {
   // the scales a gesture moves: x first, then on the X-Y view every y unit
   const scalesOf = (u: uPlot) =>
     modeOf(u) === 2 ? [...new Set(u.series.slice(1).flatMap((s) => s.facets!.map((f) => f.scale)))] : ["x"];
   const describe = (u: uPlot) => {
-    const x = u.scales.x;
+    // in the axis's unit: an axis drawn in min or km has a `div` (chartUtils' unitAxis)
+    const range = (a: uPlot.Axis, key: string) => {
+      const k = (a as { div?: number }).div ?? 1;
+      const { min, max } = u.scales[key] ?? {};
+      return `${fmt(min == null ? null : min / k)} to ${fmt(max == null ? null : max / k)}`;
+    };
     const names = u.series.slice(1).map((s) => s.label);
+    const ys = u.axes.slice(1).map((a) => `${a.label} ${range(a, a.scale ?? "y")}`);
     const xName = u.axes[0].label ?? u.series[0].label;
-    u.root.setAttribute("aria-label", `${label}: ${names.join(", ")}; ${xName} ${fmt(x.min)} to ${fmt(x.max)}`);
+    u.root.setAttribute("aria-label", `${label}: ${names.join(", ")}; ${ys.join(", ")}; ${xName} ${range(u.axes[0], "x")}`);
   };
   // Shift+drag moves the view with the pointer
   const pan = (u: uPlot, e: MouseEvent) => {
@@ -216,9 +224,8 @@ function gestures(label: string, onZoom: (r: Range | null) => void): uPlot.Plugi
         });
       },
       setScale: (u, key) => {
-        if (key !== "x") return;
         describe(u);
-        if (modeOf(u) === 2) return; // an X-Y zoom is not kept
+        if (key !== "x" || modeOf(u) === 2) return; // only a time zoom is kept, not an X-Y one
         const full = fullRange(u, "x");
         const { min, max } = u.scales.x;
         onZoom(full && min != null && max != null && (min > full[0] || max < full[1]) ? { min, max } : null);

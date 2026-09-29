@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import uPlot from "uplot";
+import type uPlot from "uplot";
 import {
   ChartScatter,
   Download,
@@ -8,6 +8,7 @@ import {
   Layers,
   LineChart as LineChartIcon,
   Play,
+  Ruler,
   Search,
   Table2,
   TrendingUp,
@@ -16,14 +17,38 @@ import {
 import { confirmDialog } from "../../dialog";
 import { useActiveRun, useOverlayRuns, useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
-import type { Channel, SimResult, SimRun } from "../../types";
-import { PALETTE, channelKey, useHasSize } from "./chartUtils";
+import type { Channel, SimRun, SummaryValue } from "../../types";
+import { useDismiss } from "../useDismiss";
+import {
+  PALETTE,
+  channelKey,
+  defaultChannelKeys,
+  distanceOf,
+  fmtNum,
+  fmtX,
+  headlineRows,
+  mergeRows,
+  pickSweepMetric,
+  unitAxis,
+  useHasSize,
+  xAxisFor,
+  yRange,
+  type XAxis,
+  type XAxisMode,
+  type YAxisCfg,
+} from "./chartUtils";
 import { csvText } from "./csv";
-import { Plot, axisStyle, fmt, type PlotHandle, type PlotOptions } from "./Plot";
+import { Plot, axisStyle, type PlotHandle, type PlotOptions } from "./Plot";
 import { RunInfo } from "./RunInfo";
 
 // dash patterns to distinguish channels when several runs are overlaid at once
 const DASHES = [[], [5, 3], [2, 2], [7, 3, 2, 3], [9, 4]];
+
+/** Chart columns, with each row's sample time as `t` (on a distance axis the
+ *  x column is not the time). */
+type TimedData = uPlot.AlignedData & { t?: number[] };
+
+const ESTIMATE = "An acceleration test's and a lap case's results are estimates: see the run's messages for why.";
 
 // Table view rows have a fixed height, so only the rows in view are drawn
 const TABLE_ROW_H = 26; // px
@@ -53,12 +78,130 @@ function runShort(r: SimRun): string {
   return `${runTime(r)}${mark}`;
 }
 
-function exportCsv(result: SimResult, keys: Set<string>, name: string) {
-  const channels = result.channels.filter((c) => keys.has(channelKey(c)));
+/** A summary value's marks: its check's pass or fail and limit, and why it
+ *  is not valid (spelled out with `why`; always in the tooltip). The table's
+ *  value cells and the headline numbers share them. */
+function SummaryMark({ sv, why }: { sv?: SummaryValue; why?: boolean }) {
+  if (!sv) return null;
+  return (
+    <>
+      {sv.passed != null && (
+        <span
+          className={`ml-1 rounded border px-1 font-sans text-[10px] font-semibold ${
+            sv.passed
+              ? "border-[color:var(--ss-ok)] text-[color:var(--ss-ok)]"
+              : "border-[color:var(--ss-err)] text-[color:var(--ss-err)]"
+          }`}
+        >
+          {sv.passed ? "pass" : "fail"}
+        </span>
+      )}
+      {sv.limit != null && (
+        <div className="font-sans text-[10px] text-[color:var(--ss-text-dim)]">≤ {sv.limit.toLocaleString()}</div>
+      )}
+      {sv.notValid && (
+        <div className="truncate font-sans text-[10px] text-[color:var(--ss-warn)]" title={`Not valid: ${sv.notValid}`}>
+          not valid{why && `: ${sv.notValid}`}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Per-unit y axis settings for the Chart and X-Y views (RES-18): each axis
+ *  fits its data unless it starts at 0 or has an end set. */
+function AxesMenu({
+  units,
+  value,
+  onChange,
+}: {
+  units: string[];
+  value: Record<string, YAxisCfg>;
+  onChange: (v: Record<string, YAxisCfg>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  useDismiss(open, () => setOpen(false), ref, button);
+  const set = (u: string, cfg: YAxisCfg) => onChange({ ...value, [u]: cfg });
+  const num = (s: string) => (s.trim() === "" || !Number.isFinite(Number(s)) ? undefined : Number(s));
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        ref={button}
+        className="ss-toolbtn border border-[color:var(--ss-border)]"
+        aria-expanded={open}
+        disabled={units.length === 0}
+        title="Y axes: start one at 0, or set its ends"
+        onClick={() => setOpen(!open)}
+      >
+        <Ruler size={12} /> Axes
+      </button>
+      {open && (
+        <div
+          role="group"
+          aria-label="Y axes"
+          className="absolute right-0 top-full z-50 mt-1 flex w-[250px] flex-col gap-1.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-[11px] shadow-lg"
+        >
+          {units.map((u) => {
+            const cfg = value[u] ?? {};
+            const crossed = cfg.min != null && cfg.max != null && cfg.min >= cfg.max;
+            return (
+              <fieldset key={u} className="rounded border border-[color:var(--ss-border)] px-1.5 pb-1.5">
+                <legend className="px-1 font-semibold">{u}</legend>
+                <div className="flex items-center gap-1.5">
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(cfg.zero)}
+                      onChange={(e) => set(u, { ...cfg, zero: e.target.checked })}
+                    />
+                    Start at 0
+                  </label>
+                  <button
+                    className="ml-auto rounded px-1 hover:bg-[color:var(--ss-hover)]"
+                    title="Fit this axis to its data again"
+                    onClick={() => set(u, {})}
+                  >
+                    Auto
+                  </button>
+                </div>
+                <div className="mt-1 flex items-center gap-1">
+                  {(["min", "max"] as const).map((end) => (
+                    <input
+                      key={end}
+                      type="number"
+                      className="ss-input w-0 min-w-0 flex-1"
+                      aria-label={`${u} axis ${end === "min" ? "minimum" : "maximum"}`}
+                      aria-invalid={crossed}
+                      title={crossed ? "The minimum must be below the maximum (until then both are automatic)" : undefined}
+                      placeholder={end === "min" ? "min: auto" : "max: auto"}
+                      value={cfg[end] ?? ""}
+                      onChange={(e) => set(u, { ...cfg, [end]: num(e.target.value) })}
+                    />
+                  ))}
+                </div>
+              </fieldset>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The chosen channels of a run as CSV, the first column along the x axis:
+ *  t_s as always, or t_min, t_h, or distance_m / distance_km with t_s next. */
+function exportCsv(run: SimRun, keys: Set<string>, name: string, x: XAxis) {
+  const channels = run.result.channels.filter((c) => keys.has(channelKey(c)));
   if (channels.length === 0) return;
-  const header = ["t_s", ...channels.map((c) => `${c.label} [${c.unit}]`)];
+  const dist = x.kind === "distance" ? distanceOf(run) : null;
+  const header = [x.csv, ...(dist ? ["t_s"] : []), ...channels.map((c) => `${c.label} [${c.unit}]`)];
+  // (to 12 digits: a time of 0.30000000000000004 s is 0.3)
+  const clean = (v: number) => +v.toPrecision(12);
+  const n = channels[0].timeSeries.length;
   const rows = channels[0].timeSeries.map((pt, i) => [
-    pt.t,
+    ...(dist ? [clean(dist[i + dist.length - n] / x.div), clean(pt.t)] : [clean(pt.t / x.div)]),
     ...channels.map((c) => c.timeSeries[i]?.value ?? ""),
   ]);
   const blob = new Blob([csvText([header, ...rows])], { type: "text/csv" });
@@ -96,19 +239,15 @@ export function ResultsPanel() {
   const [sweepPick, setSweepPick] = useState("");
   const [xyXPick, setXyXPick] = useState(""); // channel picked as the X axis in the X-Y view
   const [showRunInfo, setShowRunInfo] = useState(false);
+  // the chart's x axis (time in s, min or h, or distance) and each unit's y axis
+  const [xAxisMode, setXAxisMode] = useState<XAxisMode>("auto");
+  const [yAxes, setYAxes] = useState<Record<string, YAxisCfg>>({});
   const { ref: chartHost, hasSize } = useHasSize<HTMLDivElement>();
   const plotRef = useRef<PlotHandle>(null);
 
   // sensible default channel selection until the user picks for this case
   // (a live run starts with no channels, so it fills in as they arrive)
-  const defaultKeys = useMemo(() => {
-    const channels = result?.channels ?? [];
-    const defaults = channels
-      .filter((c) => c.portId === "sig_soc" || (c.portId === "sig_power" && c.label.includes("Battery")))
-      .slice(0, 4)
-      .map(channelKey);
-    return defaults.length > 0 ? defaults : channels.slice(0, 2).map(channelKey);
-  }, [result]);
+  const defaultKeys = useMemo(() => defaultChannelKeys(result?.channels ?? []), [result]);
 
   const selectedKeys = useMemo(
     () => new Set(selKey ? (selected[selKey] ?? defaultKeys) : []),
@@ -146,6 +285,8 @@ export function ResultsPanel() {
     [activeRun, overlayRuns],
   );
   const multiRun = plotRuns.length > 1;
+  const headline = useMemo(() => headlineRows(result?.summary ?? []), [result]);
+  const estimate = activeRun?.snapshot?.case.kind === "acceleration" || activeRun?.snapshot?.case.kind === "lap";
   const runColor = (i: number) => PALETTE[i % PALETTE.length];
   const channelColor = (key: string) => PALETTE[Math.max(0, selectedList.indexOf(key)) % PALETTE.length];
   const overlayColorOf = (id: string) => {
@@ -162,6 +303,7 @@ export function ResultsPanel() {
       dash?: number[];
       legend: string;
       channel: Channel;
+      run: SimRun;
     }[] = [];
     plotRuns.forEach((r, ri) => {
       for (const c of r.result.channels) {
@@ -173,40 +315,76 @@ export function ResultsPanel() {
           dataKey: `${r.id}::${key}`,
           unit: c.unit,
           color: multiRun ? runColor(ri) : channelColor(key),
-          dash: multiRun && selectedList.length > 1 ? DASHES[ci % DASHES.length] : undefined,
+          // one run: a speed target is dashed, so it still shows where the car follows it
+          dash: multiRun
+            ? selectedList.length > 1
+              ? DASHES[ci % DASHES.length]
+              : undefined
+            : c.portId === "sig_demand"
+              ? [5, 3]
+              : undefined,
           legend: multiRun ? `${runShort(r)} · ${chLabel}` : chLabel,
           channel: c,
+          run: r,
         });
       }
     });
-    return defs;
+    // and drawn last, over the speed that follows it
+    const target = (d: (typeof defs)[number]) => Number(!multiRun && d.channel.portId === "sig_demand");
+    return defs.sort((a, b) => target(a) - target(b));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plotRuns, selectedKeys, selectedList, multiRun]);
 
-  // uPlot columns: one time column, one column per series. Series on the
-  // same time grid (a run's channels, overlaid runs of the same case) share
-  // it as it is; other grids are merged, leaving gaps the lines span.
-  const chartData = useMemo((): uPlot.AlignedData => {
+  // the x axis: time in the chosen unit, or the distance driven, which needs
+  // a Vehicle in every plotted run (else it is time, picked automatically)
+  const canDistance =
+    plotRuns.length > 0 && plotRuns.every((r) => r.result.channels.some((c) => c.portId === "sig_distance"));
+  const xMode = xAxisMode === "distance" && !canDistance ? "auto" : xAxisMode;
+  const xAxis = useMemo(() => xAxisFor(xMode, plotRuns), [xMode, plotRuns]);
+
+  // uPlot columns: one x column (in s or m), one column per series. Series
+  // on the same grid (a run's channels; on a time axis overlaid runs of the
+  // same case too) share it as it is; other grids are merged by x and time,
+  // leaving gaps the lines span. The samples' times go along as `t`, for the
+  // read-out on a distance axis.
+  const chartData = useMemo((): TimedData => {
     if (view !== "chart" || seriesDefs.length === 0) return [[]];
-    const grid = (ts: Channel["timeSeries"]) => `${ts.length}:${ts[0]?.t}:${ts[ts.length - 1]?.t}`;
-    const cols = seriesDefs.map((d) => d.channel.timeSeries.map((p) => p.value));
-    const first = seriesDefs[0].channel.timeSeries;
-    if (seriesDefs.every((d) => grid(d.channel.timeSeries) === grid(first)))
-      return [first.map((p) => p.t), ...cols];
-    return uPlot.join(seriesDefs.map((d, i) => [d.channel.timeSeries.map((p) => p.t), cols[i]]));
-  }, [seriesDefs, view]);
-  // what the series look like, as a string: a live run replaces its channel
-  // objects on every flush, and options built from them would rebuild the
-  // chart (and drop a zoom box being drawn) ten times a second
+    const dist = new Map<string, number[] | null>();
+    for (const d of seriesDefs)
+      if (!dist.has(d.run.id)) dist.set(d.run.id, xAxis.kind === "distance" ? distanceOf(d.run) : null);
+    const series = seriesDefs.map((d) => {
+      const ts = d.channel.timeSeries;
+      const t = ts.map((p) => p.t);
+      const all = dist.get(d.run.id);
+      // a channel that a live run began to send late ends on the same sample
+      const x = all ? t.map((_, j) => all[j + all.length - t.length]) : t;
+      const grid = `${all ? d.run.id : ""}:${t.length}:${t[0]}:${t[t.length - 1]}`;
+      return { x, t, y: ts.map((p) => p.value), grid };
+    });
+    if (series.every((s) => s.grid === series[0].grid))
+      return Object.assign([series[0].x, ...series.map((s) => s.y)] as uPlot.AlignedData, { t: series[0].t });
+    const merged = mergeRows(series);
+    return Object.assign([merged.x, ...merged.cols] as uPlot.AlignedData, { t: merged.t });
+  }, [seriesDefs, view, xAxis.kind]);
+  // what the series and axes look like, as strings: a live run replaces its
+  // channel objects on every flush, and options built from them would rebuild
+  // the chart (and drop a zoom box being drawn) ten times a second
   const seriesLook = JSON.stringify(seriesDefs.map(({ legend, unit, color, dash }) => ({ legend, unit, color, dash })));
+  const xLook = JSON.stringify(xAxis);
+  const yLook = JSON.stringify(yAxes);
   const chartOptions = useMemo((): PlotOptions => {
     const axis = axisStyle(theme);
     const looks: { legend: string; unit: string; color: string; dash?: number[] }[] = JSON.parse(seriesLook);
+    const x: XAxis = JSON.parse(xLook);
+    const ys: Record<string, YAxisCfg> = JSON.parse(yLook);
     const units = [...new Set(looks.map((d) => d.unit))];
     return {
-      scales: { x: { time: false } },
+      scales: { x: { time: false }, ...Object.fromEntries(units.map((u) => [u, { range: yRange(ys[u] ?? {}) }])) },
       series: [
-        { label: "t", value: (_u, v) => (v == null ? "—" : `${fmt(v)} s`) },
+        {
+          label: x.kind === "t" ? "t" : "Distance",
+          value: (u, v, _s, i) => (v == null ? "—" : fmtX(x, v, i == null ? null : (u.data as TimedData).t?.[i])),
+        },
         ...looks.map((d) => ({
           label: d.legend,
           scale: d.unit,
@@ -215,14 +393,15 @@ export function ResultsPanel() {
           dash: d.dash,
           spanGaps: true,
           points: { show: false },
-          value: (_u: uPlot, v: number | null) => (v == null ? "—" : `${fmt(v)} ${d.unit}`),
+          value: (_u: uPlot, v: number | null) => (v == null ? "—" : `${fmtNum(v)} ${d.unit}`),
         })),
       ],
       // one y axis per unit, on alternating sides
       axes: [
-        { ...axis, label: "t [s]", size: 24 },
+        { ...axis, ...unitAxis(x.div), label: x.label, size: 24 },
         ...units.map((u, i) => ({
           ...axis,
+          ...unitAxis(1),
           scale: u,
           label: u,
           side: i % 2 === 0 ? 3 : 1,
@@ -247,7 +426,7 @@ export function ResultsPanel() {
         },
       },
     };
-  }, [seriesLook, theme]);
+  }, [seriesLook, xLook, yLook, theme]);
 
   // table shows only the active run (aligned time grid), every sample; only
   // the rows scrolled into view are drawn (see onTableScroll)
@@ -311,11 +490,12 @@ export function ResultsPanel() {
   const xyOptions = useMemo((): PlotOptions => {
     const axis = axisStyle(theme);
     const looks: { legend: string; unit: string; color: string }[] = JSON.parse(xyLook);
+    const ys: Record<string, YAxisCfg> = JSON.parse(yLook);
     const units = [...new Set(looks.map((d) => d.unit))];
     const pair = (u: uPlot, s: number) => u.data[s] as unknown as (number | null)[][];
     return {
       mode: 2,
-      scales: { x: { time: false } },
+      scales: { x: { time: false }, ...Object.fromEntries(units.map((u) => [u, { range: yRange(ys[u] ?? {}) }])) },
       series: [
         {},
         ...looks.map((d) => ({
@@ -328,12 +508,12 @@ export function ResultsPanel() {
           ],
           // the hovered point, as "x → y"
           value: (u: uPlot, _v: number | null, s: number, i: number | null) =>
-            i == null ? "—" : `${fmt(pair(u, s)[0][i])} ${xyXUnit} → ${fmt(pair(u, s)[1][i])} ${d.unit}`,
+            i == null ? "—" : `${fmtNum(pair(u, s)[0][i])} ${xyXUnit} → ${fmtNum(pair(u, s)[1][i])} ${d.unit}`,
         })),
       ] as uPlot.Series[],
       axes: [
-        { ...axis, label: xyXLabel, size: 24 },
-        ...units.map((u, i) => ({ ...axis, scale: u, label: u, side: i % 2 === 0 ? 3 : 1, size: 50 })),
+        { ...axis, ...unitAxis(1), label: xyXLabel, size: 24 },
+        ...units.map((u, i) => ({ ...axis, ...unitAxis(1), scale: u, label: u, side: i % 2 === 0 ? 3 : 1, size: 50 })),
       ],
       cursor: {
         drag: { x: true, y: true },
@@ -364,7 +544,7 @@ export function ResultsPanel() {
         },
       },
     };
-  }, [xyLook, xyXLabel, xyXUnit, theme]);
+  }, [xyLook, xyXLabel, xyXUnit, yLook, theme]);
 
   // sweep-summary data: chosen metric vs swept value across the family
   const sweepMetrics = useMemo(() => {
@@ -372,10 +552,8 @@ export function ResultsPanel() {
     for (const r of family) for (const s of r.result.summary) set.add(s.label);
     return [...set];
   }, [family]);
-  // the picked metric while the family reports it, else a preferred one
-  const sweepMetric = sweepMetrics.includes(sweepPick)
-    ? sweepPick
-    : (sweepMetrics.find((m) => /consumption|final soc|fuel/i.test(m)) ?? sweepMetrics[0] ?? "");
+  // the picked metric while the family reports it, else its first headline number
+  const sweepMetric = sweepMetrics.includes(sweepPick) ? sweepPick : pickSweepMetric(sweepMetrics);
   const sweepUnit = family[0]?.sweepUnit ?? "";
   const sweepParam = family[0]?.sweepParam ?? "value";
   // complete points form the curve (y); incomplete ones, when shown, are
@@ -411,9 +589,9 @@ export function ResultsPanel() {
     const axis = axisStyle(theme);
     const bg = getComputedStyle(document.documentElement).getPropertyValue("--ss-panel").trim();
     const reasons: string[] = JSON.parse(sweepReasons);
-    const val = (_u: uPlot, v: number | null) => (v == null ? "—" : `${fmt(v, 4)} ${metricUnit}`);
+    const val = (_u: uPlot, v: number | null) => (v == null ? "—" : `${fmtNum(v)} ${metricUnit}`);
     return {
-      scales: { x: { time: false } },
+      scales: { x: { time: false }, y: { range: yRange({}) } },
       series: [
         // the swept value as the run picker names it, unrounded
         { label: sweepParam, value: (_u, v) => (v == null ? "—" : `${v}${sweepUnit ? ` ${sweepUnit}` : ""}`) },
@@ -441,7 +619,7 @@ export function ResultsPanel() {
       ],
       axes: [
         { ...axis, label: `${sweepParam}${sweepUnit ? ` [${sweepUnit}]` : ""}`, size: 24 },
-        { ...axis, label: metricUnit, size: 54 },
+        { ...axis, ...unitAxis(1), label: metricUnit, size: 54 },
       ],
       cursor: { drag: { x: true, y: false } },
     };
@@ -713,6 +891,7 @@ export function ResultsPanel() {
             {view === "sweep" && sweepMetrics.length > 0 && (
               <select
                 className="ss-input max-w-[190px] py-0.5 text-[11px]"
+                aria-label="Sweep metric"
                 value={sweepMetric}
                 onChange={(e) => setSweepPick(e.target.value)}
                 title="Summary metric to plot against the swept value"
@@ -742,6 +921,30 @@ export function ResultsPanel() {
                   );
                 })}
               </select>
+            )}
+            {view === "chart" && (
+              <select
+                className="ss-input py-0.5 text-[11px]"
+                aria-label="X axis"
+                value={xMode}
+                onChange={(e) => setXAxisMode(e.target.value as XAxisMode)}
+                title="Plot against time or the distance driven"
+              >
+                <option value="auto">Time · auto</option>
+                <option value="s">Time [s]</option>
+                <option value="min">Time [min]</option>
+                <option value="h">Time [h]</option>
+                <option value="distance" disabled={!canDistance}>
+                  {canDistance ? "Distance" : "Distance (a run has no Vehicle)"}
+                </option>
+              </select>
+            )}
+            {(view === "chart" || view === "xy") && (
+              <AxesMenu
+                units={[...new Set(view === "chart" ? seriesDefs.map((d) => d.unit) : xyYChannels.map((c) => c.unit))]}
+                value={yAxes}
+                onChange={setYAxes}
+              />
             )}
             <div className="flex overflow-hidden rounded border border-[color:var(--ss-border)]">
               <button
@@ -803,12 +1006,41 @@ export function ResultsPanel() {
             <button
               className="ss-toolbtn border border-[color:var(--ss-border)]"
               disabled={!result || selectedKeys.size === 0}
-              onClick={() => result && exportCsv(result, selectedKeys, `lightsim-${activeRun?.caseName ?? "results"}`)}
+              onClick={() =>
+                activeRun && exportCsv(activeRun, selectedKeys, `lightsim-${activeRun.caseName}`, xAxis)
+              }
             >
               <Download size={12} /> CSV
             </button>
           </div>
         </div>
+
+        {/* the run's headline numbers, each with its marks, in view at once */}
+        {headline.length > 0 && view !== "sweep" && (
+          <div className="flex shrink-0 items-center gap-1 border-b border-[color:var(--ss-border)] p-1">
+            <dl aria-label="Headline results" className="m-0 flex min-w-0 flex-1 flex-wrap gap-1">
+              {headline.map((s) => (
+                <div
+                  key={s.label}
+                  className="min-w-[128px] flex-1 rounded border border-[color:var(--ss-border)] px-2 py-0.5"
+                  title={s.label}
+                >
+                  <dt className="truncate text-[10px] text-[color:var(--ss-text-dim)]">{s.label}</dt>
+                  <dd className="m-0">
+                    <span className="font-mono text-[15px] font-semibold">{s.value.toLocaleString()}</span>{" "}
+                    <span className="text-[11px] text-[color:var(--ss-text-dim)]">{s.unit}</span>
+                    <SummaryMark sv={s} why />
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            {estimate && (
+              <span className="shrink-0 px-1 text-[10px] text-[color:var(--ss-text-dim)]" title={ESTIMATE}>
+                estimates
+              </span>
+            )}
+          </div>
+        )}
 
         {view === "table" ? (
           <div className="min-h-0 flex-[3] overflow-auto" onScroll={onTableScroll}>
@@ -886,7 +1118,14 @@ export function ResultsPanel() {
         ) : (
           <div className="min-h-0 flex-[3] p-1" ref={chartHost}>
             {seriesDefs.length > 0 && hasSize ? (
-              <Plot key="chart" options={chartOptions} data={chartData} label="Results chart" ref={plotRef} />
+              // a change between time and distance starts from the whole run
+              <Plot
+                key={`chart-${xAxis.kind}`}
+                options={chartOptions}
+                data={chartData}
+                label="Results chart"
+                ref={plotRef}
+              />
             ) : (
               <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--ss-text-dim)]">
                 Tick channels on the left to plot them.
@@ -895,90 +1134,70 @@ export function ResultsPanel() {
           </div>
         )}
 
+        {/* every summary value, one click away with one run; opened by
+            overlays, whose runs it sets side by side */}
         {result && result.summary.length > 0 && view !== "sweep" && (
-          <div className="max-h-[130px] shrink-0 overflow-auto border-t border-[color:var(--ss-border)]">
-            <table className="w-full border-collapse">
-              <thead className="sticky top-0">
-                <tr>
-                  {activeRun?.snapshot?.case.kind === "acceleration" ||
-                  activeRun?.snapshot?.case.kind === "lap" ? (
-                    <th
-                      className="ss-th"
-                      title="An acceleration test's and a lap case's results are estimates: see the run's messages for why."
-                    >
-                      Summary value · estimate
-                    </th>
-                  ) : (
-                    <th className="ss-th">Summary value</th>
-                  )}
-                  {plotRuns.map((r, i) => (
-                    <th key={r.id} className="ss-th w-[110px] text-right" title={runLabel(r)}>
-                      {multiRun && (
-                        <span
-                          className="mr-1 inline-block h-2 w-2 rounded-full align-middle"
-                          style={{ background: runColor(i) }}
-                          aria-hidden="true"
-                        />
-                      )}
-                      {multiRun ? runShort(r) : "Value"}
-                    </th>
-                  ))}
-                  <th className="ss-th w-[56px]">Unit</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.summary.map((s, i) => (
-                  <tr key={i} className="hover:bg-[color:var(--ss-hover)]">
-                    <td className="ss-td">
-                      {s.label}
-                      {/* the reason under the label, where there is room; the
-                          value cells keep a short marker (reason in its tooltip) */}
-                      {s.notValid && (
-                        <div className="text-[10px] text-[color:var(--ss-warn)]">not valid: {s.notValid}</div>
-                      )}
-                    </td>
-                    {plotRuns.map((r, ri) => {
-                      const sv = r.result.summary.find((x) => x.label === s.label);
-                      const v = sv?.value;
-                      return (
-                        <td
-                          key={r.id}
-                          className={`ss-td text-right font-mono ${ri > 0 ? "text-[color:var(--ss-text-dim)]" : ""}`}
-                        >
-                          {typeof v === "number" ? v.toLocaleString() : "—"}
-                          {sv?.passed != null && (
-                            <span
-                              className={`ml-1 rounded border px-1 font-sans text-[10px] font-semibold ${
-                                sv.passed
-                                  ? "border-[color:var(--ss-ok)] text-[color:var(--ss-ok)]"
-                                  : "border-[color:var(--ss-err)] text-[color:var(--ss-err)]"
-                              }`}
-                            >
-                              {sv.passed ? "pass" : "fail"}
-                            </span>
-                          )}
-                          {sv?.limit != null && (
-                            <div className="font-sans text-[10px] text-[color:var(--ss-text-dim)]">
-                              ≤ {sv.limit.toLocaleString()}
-                            </div>
-                          )}
-                          {sv?.notValid && (
-                            <div
-                              className="font-sans text-[10px] text-[color:var(--ss-warn)]"
-                              title={`Not valid: ${sv.notValid}`}
-                            >
-                              not valid
-                            </div>
-                          )}
-                        </td>
-                      );
-                    })}
-                    <td className="ss-td text-[color:var(--ss-text-dim)]">{s.unit}</td>
+          <details open={multiRun} className="shrink-0 border-t border-[color:var(--ss-border)]">
+            <summary className="cursor-pointer px-2 py-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
+              All summary values ({result.summary.length})
+            </summary>
+            <div className="max-h-[130px] overflow-auto" tabIndex={0}>
+              <table className="w-full border-collapse">
+                <thead className="sticky top-0">
+                  <tr>
+                    {estimate ? (
+                      <th className="ss-th" title={ESTIMATE}>
+                        Summary value · estimate
+                      </th>
+                    ) : (
+                      <th className="ss-th">Summary value</th>
+                    )}
+                    {plotRuns.map((r, i) => (
+                      <th key={r.id} className="ss-th w-[110px] text-right" title={runLabel(r)}>
+                        {multiRun && (
+                          <span
+                            className="mr-1 inline-block h-2 w-2 rounded-full align-middle"
+                            style={{ background: runColor(i) }}
+                            aria-hidden="true"
+                          />
+                        )}
+                        {multiRun ? runShort(r) : "Value"}
+                      </th>
+                    ))}
+                    <th className="ss-th w-[56px]">Unit</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {result.summary.map((s, i) => (
+                    <tr key={i} className="hover:bg-[color:var(--ss-hover)]">
+                      <td className="ss-td">
+                        {s.label}
+                        {/* the reason under the label, where there is room; the
+                            value cells keep a short marker (reason in its tooltip) */}
+                        {s.notValid && (
+                          <div className="text-[10px] text-[color:var(--ss-warn)]">not valid: {s.notValid}</div>
+                        )}
+                      </td>
+                      {plotRuns.map((r, ri) => {
+                        const sv = r.result.summary.find((x) => x.label === s.label);
+                        const v = sv?.value;
+                        return (
+                          <td
+                            key={r.id}
+                            className={`ss-td text-right font-mono ${ri > 0 ? "text-[color:var(--ss-text-dim)]" : ""}`}
+                          >
+                            {typeof v === "number" ? v.toLocaleString() : "—"}
+                            <SummaryMark sv={sv} />
+                          </td>
+                        );
+                      })}
+                      <td className="ss-td text-[color:var(--ss-text-dim)]">{s.unit}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
         )}
       </div>
     </div>

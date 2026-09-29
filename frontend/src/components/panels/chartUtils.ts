@@ -1,6 +1,9 @@
 // Shared chart helpers used by the Results panel and the dockable mini-chart.
+// Nothing here imports uPlot at run time (only its types), so these unit-test
+// without a browser.
 import { useCallback, useState } from "react";
-import type { Channel } from "../../types";
+import type uPlot from "uplot";
+import type { Channel, SimRun } from "../../types";
 
 /** Series colours for chart lines and swatches (at least 3:1 on the panel).
  *  Several are too faint for text, so names are drawn in the text colour. */
@@ -41,3 +44,180 @@ export function useHasSize<T extends HTMLElement>() {
   }, []);
   return { ref, hasSize };
 }
+
+// ---- axes and read-outs (RES-18) ----
+
+const sig4 = new Intl.NumberFormat(undefined, { maximumSignificantDigits: 4 });
+const whole = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+/** A value read out under the pointer: 4 significant digits (whole numbers
+ *  from 10,000 up), so the stored rounding's last digits do not show; -0 reads 0. */
+export const fmtNum = (v: number | null | undefined) =>
+  v == null ? "—" : (Math.abs(v) >= 1e4 ? whole : sig4).format(v + 0);
+
+export type XAxisMode = "auto" | "s" | "min" | "h" | "distance";
+/** The time or distance axis, as plain data (charts memoise their options on
+ *  its JSON). The data stay in s or m: `div` turns them into the display
+ *  unit, `dec` and `tDec` are the decimals a read-out needs for the samples'
+ *  spacing in that unit and in s. */
+export type XAxis = { kind: "t" | "distance"; unit: string; div: number; label: string; csv: string; dec: number; tDec: number };
+
+const DIV: Record<string, number> = { s: 1, min: 60, h: 3600, m: 1, km: 1000 };
+
+/** The time unit for a run this long: s up to an hour, min up to 3 h, then h. */
+export const timeUnit = (spanS: number) => (spanS <= 3600 ? "s" : spanS <= 10800 ? "min" : "h");
+/** Distance in m below 1 km, in km from there. */
+export const distanceUnit = (maxM: number) => (maxM < 1000 ? "m" : "km");
+
+/** A run's sample times: its longest channel's (a live run's channels can start late). */
+const timesOf = (r: SimRun) =>
+  r.result.channels.reduce<Channel["timeSeries"]>((a, c) => (c.timeSeries.length > a.length ? c.timeSeries : a), []);
+
+/** The Vehicle's distance at each sample (m), made never to go back (a
+ *  running maximum) so that an axis of it stays sorted; null without a Vehicle. */
+export function distanceOf(run: SimRun): number[] | null {
+  const ch = run.result.channels.find((c) => c.portId === "sig_distance");
+  if (!ch) return null;
+  // ponytail: a car rolling back reads as standing still on this axis; plot
+  // Vehicle · Distance against time to see it
+  let far = 0;
+  return ch.timeSeries.map((p) => (far = Math.max(far, p.value ?? far)));
+}
+
+/** Decimals that tell apart samples this far apart (at most 4). */
+const stepDecimals = (step: number) => (step > 0 && step < Infinity ? Math.min(4, Math.max(0, Math.ceil(-Math.log10(step) - 1e-9))) : 0);
+
+/** The x axis for `mode` over the plotted runs: auto time reads in the unit
+ *  that fits the longest run; distance needs a Vehicle in every run (the
+ *  caller falls back to auto when one has none). */
+export function xAxisFor(mode: XAxisMode, runs: SimRun[]): XAxis {
+  let span = 0;
+  let step = Infinity;
+  for (const r of runs) {
+    const ts = timesOf(r);
+    if (ts.length < 2) continue;
+    span = Math.max(span, ts[ts.length - 1].t - ts[0].t);
+    step = Math.min(step, (ts[ts.length - 1].t - ts[0].t) / (ts.length - 1));
+  }
+  const tDec = stepDecimals(step);
+  if (mode === "distance") {
+    let far = 0;
+    let dStep = Infinity;
+    for (const r of runs) {
+      const d = distanceOf(r);
+      if (!d || d.length < 2) continue;
+      far = Math.max(far, d[d.length - 1]);
+      dStep = Math.min(dStep, (d[d.length - 1] - d[0]) / (d.length - 1));
+    }
+    const unit = distanceUnit(far);
+    return { kind: "distance", unit, div: DIV[unit], label: `Distance [${unit}]`, csv: `distance_${unit}`, dec: stepDecimals(dStep / DIV[unit]), tDec };
+  }
+  const unit = mode === "auto" ? timeUnit(span) : mode;
+  return { kind: "t", unit, div: DIV[unit], label: `t [${unit}]`, csv: `t_${unit}`, dec: stepDecimals(step / DIV[unit]), tDec };
+}
+
+/** An x value read out in the axis's unit, to the samples' resolution; on a
+ *  distance axis with the sample's time: "5.12 km (t = 612 s)". */
+export function fmtX(x: XAxis, v: number, t?: number | null): string {
+  const s = `${(v / x.div + 0).toLocaleString(undefined, { maximumFractionDigits: x.dec })} ${x.unit}`;
+  return x.kind === "distance" && t != null ? `${s} (t = ${(t + 0).toLocaleString(undefined, { maximumFractionDigits: x.tDec })} s)` : s;
+}
+
+/** Round tick steps: 1, 2, 2.5 and 5 times a power of ten. */
+const NICE = Array.from({ length: 16 }, (_, e) => [1, 2, 2.5, 5].map((m) => +`${m}e${e - 6}`)).flat();
+const decimals = (step: number) => (String(+step.toPrecision(12)).split(".")[1] ?? "").length;
+
+/** Ticks at round steps of the display unit (data ÷ `div`), each labelled
+ *  with the decimals its step needs, so a deep zoom never repeats a label.
+ *  `div` stays on the axis for its accessible name (Plot.tsx). */
+export function unitAxis(div: number): Pick<uPlot.Axis, "incrs" | "values"> & { div: number } {
+  return {
+    div,
+    incrs: NICE.map((i) => i * div),
+    values: (_u, splits, _axis, _space, incr) => {
+      const d = decimals(incr / div);
+      return splits.map((v) => (v / div + 0).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }));
+    },
+  };
+}
+
+/** One unit's y axis settings: start at 0, or fixed ends (absent: automatic). */
+export type YAxisCfg = { zero?: boolean; min?: number; max?: number };
+
+/** A y scale's range: the data plus 5 % at round ends, reaching 0 only when
+ *  that range comes to it (with `zero`, always); a fixed end stays where it
+ *  is set. A minimum at or above the maximum is ignored. */
+export function yRange({ zero, min, max }: YAxisCfg): uPlot.Range.Config {
+  if (min != null && max != null && min >= max) min = max = undefined;
+  const auto = { pad: 0.05, soft: 0, mode: zero ? 1 : 3 } as const;
+  const at = (v: number) => ({ soft: v, hard: v, mode: 1 }) as const;
+  return { min: min != null ? at(min) : auto, max: max != null ? at(max) : auto };
+}
+
+/** Columns for series on grids of their own: a row per distinct (x, t)
+ *  pair, in order of x then t, so samples at the same x (standing still on a
+ *  distance axis) keep a row each; a series is undefined where it has no
+ *  sample. Each series' pairs must come in that order already. */
+export function mergeRows(series: { x: ArrayLike<number | undefined>; t: ArrayLike<number>; y: ArrayLike<number | null> }[]) {
+  const pairs: [number, number][] = [];
+  for (const s of series) for (let j = 0; j < s.t.length; j++) if (s.x[j] !== undefined) pairs.push([s.x[j]!, s.t[j]]);
+  pairs.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const rows = pairs.filter((p, i) => i === 0 || p[0] !== pairs[i - 1][0] || p[1] !== pairs[i - 1][1]);
+  const cols = series.map((s) => {
+    const col = new Array<number | null | undefined>(rows.length).fill(undefined);
+    for (let j = 0, k = 0; j < s.t.length; j++) {
+      if (s.x[j] === undefined) continue;
+      while (rows[k][0] !== s.x[j] || rows[k][1] !== s.t[j]) k++;
+      col[k] = s.y[j];
+    }
+    return col;
+  });
+  return { x: rows.map((r) => r[0]), t: rows.map((r) => r[1]), cols };
+}
+
+// ---- headline numbers and the first plot (RES-30) ----
+
+/** The channels a run's plot opens on until the user picks some: did the car
+ *  follow the cycle (target against actual speed), then SOC and battery
+ *  power. The order sets the colours. */
+export function defaultChannelKeys(channels: Channel[]): string[] {
+  const wanted: ((c: Channel) => boolean)[] = [
+    (c) => c.portId === "sig_demand", // Driving Task · Target Speed
+    (c) => c.portId === "sig_speed" && c.label.endsWith(" · Vehicle Speed"),
+    (c) => c.portId === "sig_soc",
+    (c) => c.portId === "sig_power" && c.label.includes("Battery"),
+  ];
+  const keys = wanted.flatMap((f) => channels.filter(f)).slice(0, 4).map(channelKey);
+  return keys.length > 0 ? keys : channels.slice(0, 2).map(channelKey);
+}
+
+// Summary rows shown as headline numbers, in this order, when the run has
+// them (labels as the engine writes them: backend/app/solver/core.py,
+// verdict.py, lapsim.py)
+const HEADLINE = [
+  /^Time to /, // a test's time: to 100 km/h, or over its distance (Time to 75 m)
+  /^Speed at \d/, // an acceleration test's speed at the line
+  /^Maximum speed$/,
+  /^Lap time$/,
+  /^Fuel consumption$/,
+  /^Consumption$/,
+  /^Distance driven$/,
+  / — final SOC$/,
+  / — energy delivered$/,
+  / — energy recuperated$/,
+  /^CO₂ emissions$/,
+];
+
+/** The run's headline numbers (at most 6) from its summary rows: a failed
+ *  check first, then the rows above; a model with none of them (a test
+ *  bench) shows its first rows. */
+export function headlineRows<T extends { label: string; passed?: boolean | null }>(summary: T[]): T[] {
+  const picked = new Set([
+    ...summary.filter((s) => s.passed === false),
+    ...HEADLINE.flatMap((re) => summary.filter((s) => re.test(s.label))),
+  ]);
+  return (picked.size > 0 ? [...picked] : summary).slice(0, 6);
+}
+
+/** The summary figure a sweep opens on: the first headline number it has
+ *  (a test's time, fuel or energy consumption), else its first. */
+export const pickSweepMetric = (labels: string[]) => headlineRows(labels.map((label) => ({ label })))[0]?.label ?? "";

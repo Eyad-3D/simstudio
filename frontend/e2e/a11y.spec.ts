@@ -21,8 +21,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import {
   drawnLines,
+  headlineTile,
   openApp,
   openFromMenu,
+  openSummary,
   ribbonTab,
   runActiveCase,
   runButton,
@@ -137,6 +139,11 @@ for (const theme of ["light", "dark"] as const) {
       await runActiveCase(page);
       await expect(drawnLines(page).first()).toBeVisible();
       await check(page, `results-${theme}`);
+      // RES-18: the y axes' settings
+      await page.getByRole("button", { name: "Axes" }).click();
+      await expect(page.getByRole("group", { name: "Y axes" })).toBeVisible();
+      await check(page, `results-${theme}`);
+      await page.keyboard.press("Escape");
       // axe leaves text over a chart unjudged: legend names use the text
       // colour, as several series colours are too faint for text (GUI-02)
       const text = await page.locator("#root").evaluate((r) => getComputedStyle(r).color);
@@ -193,6 +200,9 @@ for (const theme of ["light", "dark"] as const) {
       await expect(page.getByRole("spinbutton", { name: "Start line (m)" })).toBeVisible();
       expect(await contrastFailures(page)).toEqual([]);
       await runActiveCase(page);
+      await expect(headlineTile(page, "Time to 75 m")).toContainText("pass");
+      await check(page, `results-${theme}`);
+      await openSummary(page);
       await expect(page.getByRole("row", { name: /^Time to 75 m/ })).toContainText("pass");
       await check(page, `results-${theme}`);
     });

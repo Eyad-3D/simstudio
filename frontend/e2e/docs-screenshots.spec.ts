@@ -48,12 +48,8 @@ test("README pictures", async ({ page }) => {
   await page.getByRole("button", { name: "Run sweep (3)" }).click();
   await expect(page.getByPlaceholder("Search channels…")).toBeVisible({ timeout: 120_000 });
   await page.getByRole("button", { name: "Sweep", exact: true }).click();
-  // energy use against mass says more than the near-flat final charge
-  const metric = page.getByTitle("Summary metric to plot against the swept value");
-  const labels = await metric.locator("option").allTextContents();
-  const consumption = labels.find((l) => /consumption/i.test(l));
-  expect(consumption, `a consumption metric among ${labels.join(", ")}`).toBeTruthy();
-  await metric.selectOption({ label: consumption! });
+  // it opens on energy use against mass (RES-18)
+  await expect(page.getByLabel("Sweep metric")).toHaveValue("Consumption");
   await page.waitForTimeout(800);
   await page.screenshot({ path: shot("sweep") });
 });

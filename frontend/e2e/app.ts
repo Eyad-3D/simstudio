@@ -46,6 +46,29 @@ export async function xRange(chart: Locator): Promise<[number, number]> {
   return [Number(m[1].replace(/,/g, "")), Number(m[2].replace(/,/g, ""))];
 }
 
+/** The range of a chart's y axis for `unit`, read from its name
+ *  ("Results chart: SOC, …; % 88.7 to 90.1, kW -13 to 26; t [s] 0 to 600"). */
+export async function yRange(chart: Locator, unit: string): Promise<[number, number]> {
+  const name = (await chart.getAttribute("aria-label")) ?? "";
+  const axes = name.split("; ")[1] ?? "";
+  const m = new RegExp(`(?:^|, )${unit.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")} (-?[\\d,.]+) to (-?[\\d,.]+)(?:,|$)`).exec(axes);
+  if (!m) throw new Error(`the chart's name has no ${unit} axis: ${name}`);
+  return [Number(m[1].replace(/,/g, "")), Number(m[2].replace(/,/g, ""))];
+}
+
+/** Open the full summary table under the chart: with one run it is folded
+ *  under "All summary values", the headline numbers above the chart (RES-30). */
+export async function openSummary(page: Page): Promise<Locator> {
+  const all = page.locator("details").filter({ has: page.getByText(/^All summary values/) });
+  if (!(await all.evaluate((d) => (d as HTMLDetailsElement).open))) await all.locator("summary").click();
+  return all;
+}
+
+/** A headline number above the Results chart, by its summary label. */
+export function headlineTile(page: Page, label: string): Locator {
+  return page.getByLabel("Headline results").getByTitle(label, { exact: true });
+}
+
 /** The global Run button in the ribbon header (runs the active case). */
 export function runButton(page: Page): Locator {
   return page.getByTitle(/^Run the active case/);

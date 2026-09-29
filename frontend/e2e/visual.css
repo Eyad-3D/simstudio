@@ -5,6 +5,7 @@
    A chart is one canvas, its axes included, so all of it is hidden. */
 .uplot canvas,
 .u-legend .u-value,
-td.ss-td.font-mono {
+td.ss-td.font-mono,
+dd .font-mono {
   visibility: hidden;
 }

@@ -52,7 +52,8 @@ async function zoomPanReset(page: Page, chart: Locator, { xy = false } = {}) {
   await page.keyboard.up("Shift");
   const panned = await xRange(chart);
   expect(panned[0]).toBeGreaterThan(boxed[0]);
-  expect(width(panned)).toBeCloseTo(width(boxed), 3);
+  // (the name gives each end to 3 decimals, so a width can read 0.001 apart)
+  expect(width(panned)).toBeCloseTo(width(boxed), 2);
 
   // on the focused chart + zooms in and 0 resets
   await chart.focus();
@@ -68,28 +69,28 @@ test("RES-05: zoom, pan and reset on the Results chart, X-Y view and Signal Plot
   const chart = page.getByRole("img", { name: /^Results chart:/ });
   await zoomPanReset(page, chart);
 
-  // ticking another channel keeps the zoomed range
+  // unticking a channel (the plot opens on four, RES-30) keeps the zoomed range
   const plot = (await chart.locator(".u-over").boundingBox())!;
   await page.mouse.move(plot.x + plot.width * 0.1, plot.y + plot.height / 2);
   await page.mouse.wheel(0, -300);
   const zoomed = await xRange(chart);
   expect(width(zoomed)).toBeLessThan(600);
-  await page.getByRole("checkbox", { name: /^Vehicle Speed\b/ }).first().check();
-  await expect(chart).toHaveAttribute("aria-label", /Vehicle Speed/);
+  await page.getByRole("checkbox", { name: /^Target Speed\b/ }).uncheck();
+  await expect(chart).not.toHaveAttribute("aria-label", /Target Speed/);
   expect(await xRange(chart)).toEqual(zoomed);
 
-  // X-Y: the time zoom (12 to 492 s, which the kW data overlaps) stays on
+  // X-Y: the time zoom (12 to 492 s, which the km/h data overlaps) stays on
   // the time chart
   await page.getByRole("button", { name: "X-Y", exact: true }).click();
   const xy = page.getByRole("img", { name: /^X-Y chart:/ });
-  await expect(xy).toHaveAttribute("aria-label", /: SOC, Vehicle Speed; /);
+  await expect(xy).toHaveAttribute("aria-label", /: Discharge Power, SOC; .*Vehicle Speed \[km\/h\]/);
   expect(await xRange(xy)).not.toEqual(zoomed);
 
   // the box and the wheel zoom both axes
   await zoomPanReset(page, xy, { xy: true });
 
-  // hover reads the nearest point; the wheel zooms x and both y units (% and
-  // km/h) alike, so the nearest point on each line stays the nearest
+  // hover reads the nearest point; the wheel zooms x and both y units (kW and
+  // %) alike, so the nearest point on each line stays the nearest
   const box = (await xy.locator(".u-over").boundingBox())!;
   const full = await xRange(xy);
   const values = () => xy.locator(".u-legend .u-value").allTextContents();
