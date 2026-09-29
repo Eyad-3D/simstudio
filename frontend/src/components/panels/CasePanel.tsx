@@ -533,7 +533,8 @@ export function CasePanel() {
                   </div>
                   {pdef && problem && (
                     <div id={problemId} className="ss-param-problem mt-0.5">
-                      <span role="alert">
+                      {/* a lap case's Laps is also in the case settings, which announce it */}
+                      <span role={lap && elId === track?.id ? undefined : "alert"}>
                         {paramName(pdef)} {problem}.
                       </span>
                     </div>
