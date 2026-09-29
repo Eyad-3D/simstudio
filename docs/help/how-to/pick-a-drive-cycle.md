@@ -15,8 +15,8 @@ lists the standard ones.
 Under the list, a sketch shows the speed over time with the cycle's phases
 marked, and a line gives its duration, distance and top speed. A message in
 *Messages* says which cases now run the cycle's full length: choosing a
-cycle sets the *Duration* of the cases that drive it, when the model has one
-Driving Task.
+cycle sets the *Duration* of the cases of kind *Cycle* that drive it, when
+the model has one Driving Task.
 
 To go back to your own points, choose **Custom profile (typed points)**:
 the **Profile** button comes back, which opens the points in a table
@@ -31,7 +31,7 @@ A case can drive its own cycle while the others keep the model's.
    **Element…** list and **Drive Cycle** in the next list, then click
    **Add override**.
 3. Choose the cycle in the new row. The case's *Duration* changes to the
-   cycle's length.
+   cycle's length, if the case is of kind *Cycle*.
 
 To undo it, click the × at the end of the row.
 
@@ -56,6 +56,10 @@ cycle too.
 
 ## Good to know
 
+- A case of kind *Performance* runs until the car reaches its target, so it
+  keeps its own *Duration*. A case of kind *Acceleration* or *Lap* follows
+  no target speed at all: it ignores the Driving Task, its cycle and its
+  profile.
 - LightSim has three standard cycles today; others, and cycle files of
   your own, are not in the list yet: type or paste their points into the
   *Profile* instead ([Known issues](../../KNOWN-LIMITS.md)).

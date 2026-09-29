@@ -1625,6 +1625,8 @@ describe("drive cycles (CON-16)", () => {
         { id: "c1", name: "City", duration: 600, timeStep: 1 },
         { id: "c2", name: "Own profile", duration: 300, timeStep: 1, parameterOverrides: { t1: { profile: "0:0; 300:0" } } },
         { id: "c3", name: "Launch", duration: 20, timeStep: 1, kind: "performance" },
+        { id: "c4", name: "75 m", duration: 25, timeStep: 0.01, kind: "acceleration", endDistance: 75 },
+        { id: "c5", name: "Autocross", duration: 600, timeStep: 1, kind: "lap" },
       ],
     });
   async function open(project = withTask()) {
@@ -1639,12 +1641,13 @@ describe("drive cycles (CON-16)", () => {
     expect(store().cycles.map((c) => c.id)).toEqual(["wltc-3b"]);
     store().setDrivingCycle("t1", "wltc-3b");
     expect(findElement("t1")!.parameterOverrides.cycle).toBe("wltc-3b");
-    // the case with its own profile and the performance case keep theirs
-    expect(durations()).toEqual([1800, 300, 20]);
+    // the case with its own profile and the performance, acceleration and
+    // lap cases keep theirs
+    expect(durations()).toEqual([1800, 300, 20, 25, 600]);
     expect(messages().at(-1)).toBe("info: 'City' now runs 1,800 s, the length of WLTC class 3b.");
     store().undo();
     expect(findElement("t1")!.parameterOverrides.cycle).toBeUndefined();
-    expect(durations()).toEqual([600, 300, 20]);
+    expect(durations()).toEqual([600, 300, 20, 25, 600]);
   });
 
   it("a case's own cycle changes only that case", async () => {
@@ -1652,7 +1655,7 @@ describe("drive cycles (CON-16)", () => {
     store().setDrivingCycle("t1", "wltc-3b", "c2");
     expect(store().project!.cases[1].parameterOverrides!.t1).toEqual({ profile: "0:0; 300:0", cycle: "wltc-3b" });
     expect(findElement("t1")!.parameterOverrides.cycle).toBeUndefined();
-    expect(durations()).toEqual([600, 1800, 20]);
+    expect(durations()).toEqual([600, 1800, 20, 25, 600]);
   });
 
   it("back to the typed profile keeps the case lengths", async () => {
@@ -1660,13 +1663,13 @@ describe("drive cycles (CON-16)", () => {
     store().setDrivingCycle("t1", "wltc-3b");
     store().setDrivingCycle("t1", "");
     expect(findElement("t1")!.parameterOverrides.cycle).toBe("");
-    expect(durations()).toEqual([1800, 300, 20]);
+    expect(durations()).toEqual([1800, 300, 20, 25, 600]);
   });
 
   it("with two Driving Tasks the case lengths stay, since a case may drive the other", async () => {
     await open(withTask(el("t2", "signal.driving_task", "Other task")));
     store().setDrivingCycle("t1", "wltc-3b");
     expect(findElement("t1")!.parameterOverrides.cycle).toBe("wltc-3b");
-    expect(durations()).toEqual([600, 300, 20]);
+    expect(durations()).toEqual([600, 300, 20, 25, 600]);
   });
 });
