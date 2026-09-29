@@ -43,7 +43,7 @@ cleared it for shipping.
 - Those three cycles are LightSim's drive-cycle library (`backend/app/cycles/`,
   CON-16): one CSV each, holding the same points the example cases carried
   before, and `cycles.json` for their names, phases and published figures
-  (DR-38). The examples and the Driving Task's *Drive Cycle* name them by id.
+  (DR-46). The examples and the Driving Task's *Drive Cycle* name them by id.
 - The examples' new engine, motor and battery maps are synthetic, created
   for LightSim in that change; their rows say what they are calibrated to.
 - The Race Track's layouts (`backend/app/library/tracks.json`, DR-38) are
