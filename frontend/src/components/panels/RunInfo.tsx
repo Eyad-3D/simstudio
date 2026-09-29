@@ -43,15 +43,19 @@ export function RunInfo({ run }: { run: SimRun }) {
   const id = useId();
   const snap = run.snapshot;
 
-  // saved when the field is left (Enter too, for the name); keyed by the
-  // stored value, so the field shows it as stored (trimmed)
+  // saved when the field is left (Enter too, for the name, which keeps the
+  // focus there), and shown as stored (trimmed)
+  const save = (field: HTMLInputElement | HTMLTextAreaElement, key: "name" | "note") => {
+    field.value = field.value.trim();
+    editRun(run.id, { [key]: field.value });
+  };
   const fields = (
     <div className="grid grid-cols-[62px_1fr] items-center gap-x-2 gap-y-0.5 border-b border-[color:var(--ss-border)] px-1.5 py-1">
       <label htmlFor={`${id}-name`} className="text-[color:var(--ss-text-dim)]">
         Name
       </label>
       <input
-        key={`${run.id}:${run.name ?? ""}`}
+        key={`name-${run.id}`}
         id={`${id}-name`}
         className="ss-input min-w-0"
         maxLength={120}
@@ -59,21 +63,21 @@ export function RunInfo({ run }: { run: SimRun }) {
         title="The run's name in the run lists, legends and summary; by default what changed since the previous run of its case"
         defaultValue={run.name ?? ""}
         disabled={running}
-        onBlur={(e) => editRun(run.id, { name: e.target.value })}
-        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+        onBlur={(e) => save(e.currentTarget, "name")}
+        onKeyDown={(e) => e.key === "Enter" && save(e.currentTarget, "name")}
       />
       <label htmlFor={`${id}-note`} className="self-start pt-0.5 text-[color:var(--ss-text-dim)]">
         Note
       </label>
       <textarea
-        key={`${run.id}:${run.note ?? ""}`}
+        key={`note-${run.id}`}
         id={`${id}-note`}
         className="ss-input min-w-0 resize-y"
         rows={2}
         maxLength={4000}
         defaultValue={run.note ?? ""}
         disabled={running}
-        onBlur={(e) => editRun(run.id, { note: e.target.value })}
+        onBlur={(e) => save(e.currentTarget, "note")}
       />
     </div>
   );

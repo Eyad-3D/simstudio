@@ -32,7 +32,7 @@ export async function modelFingerprint(project: Project): Promise<string | undef
 export interface ModelChange {
   /** "Vehicle · Vehicle Mass 1,927 → 2,300 kg" */
   text: string;
-  /** for the run's name: "Vehicle Mass 2,300 kg"; none for a live edit */
+  /** for the run's name: "Vehicle Mass 2,300 kg"; none for a live edit or a renamed case */
   short?: string;
   /** the part it is about, to show it on the diagram */
   elementId?: string;
@@ -57,7 +57,7 @@ const CASE_FIELDS: Record<string, [string, string, unknown?]> = {
   outputEvery: ["Store every", "", 1],
   kind: ["Kind", "", "cycle"],
   endDistance: ["Distance", " m"],
-  startLine: ["Start line", " m"],
+  startLine: ["Start line", " m", 0],
   referenceTime: ["Reference time", " s"],
 };
 // the case's identity, its overrides (compared per parameter) and its pacing,
@@ -72,7 +72,8 @@ const NOT_A_SETTING = new Set(["id", "name", "parameterOverrides", "realtimeFact
 export function diffSnapshots(base: RunSnapshot, next: RunSnapshot, lib: Record<string, ComponentDef>): ModelChange[] {
   const out: ModelChange[] = [];
   const [bc, nc] = [base.case, next.case];
-  if (bc.name !== nc.name) out.push({ text: `Case ${bc.name} → ${nc.name}`, short: nc.name });
+  // (a renamed case does not name the run: its label shows the case already)
+  if (bc.name !== nc.name) out.push({ text: `Case ${bc.name} → ${nc.name}` });
   const partsOf = (s: RunSnapshot) => new Map(s.project.systems.flatMap((sy) => sy.elements).map((e) => [e.id, e]));
   const [bp, np] = [partsOf(base), partsOf(next)];
   const value = (s: RunSnapshot, e: ElementInstance, key: string) =>
@@ -149,7 +150,9 @@ export function diffSnapshots(base: RunSnapshot, next: RunSnapshot, lib: Record<
 export function nameFromChanges(changes: ModelChange[]): string | undefined {
   const named = [...new Set(changes.flatMap((c) => (c.short ? [c.short] : [])))];
   if (named.length === 0) return undefined;
-  return named.length === 1 ? named[0] : `${named[0]} +${named.length - 1} more`;
+  const name = named.length === 1 ? named[0] : `${named[0]} +${named.length - 1} more`;
+  // a stored run's name holds 120 characters; a part's label can be longer
+  return name.length > 120 ? `${name.slice(0, 119)}…` : name;
 }
 
 /** The decimals a stored value was rounded to, read from the value. */

@@ -77,7 +77,8 @@ function changeOf(sv?: SummaryValue, base?: SummaryValue) {
   const signed = (v: number, digits: number) =>
     `${v > 0 ? "+" : ""}${v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
   return {
-    diff: signed(c.diff, c.digits),
+    // (no finer than the value columns, which show at most 3 decimals)
+    diff: signed(c.diff, Math.min(c.digits, 3)),
     pct: c.pct === null ? "—" : `${signed(c.pct, Math.abs(c.pct) < 1 ? 2 : 1)} %`,
     noise: false,
     big: c.pct !== null && Math.abs(c.pct) >= CHANGE_PCT,
@@ -762,7 +763,9 @@ export function ResultsPanel() {
     <div className="flex h-full">
       {/* run + channel picker */}
       <div className="flex w-[280px] shrink-0 flex-col border-r border-[color:var(--ss-border)]">
-        <div className="flex flex-col gap-1.5 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] p-1.5">
+        {/* (it scrolls as a whole when Run info and what changed leave the
+            channel list too little room, as at a large interface size) */}
+        <div className="flex min-h-0 flex-col gap-1.5 overflow-y-auto border-b [&>*]:shrink-0 border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] p-1.5">
           <div className="flex items-center gap-1">
             <select
               className="ss-input min-w-0 flex-1"
@@ -923,7 +926,7 @@ export function ResultsPanel() {
             )}
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto py-1">
+        <div className="min-h-[132px] flex-1 overflow-y-auto py-1">
           {byElement.length === 0 && (
             <div className="px-3 py-2 text-[11px] italic text-[color:var(--ss-text-dim)]">
               No channels match “{search}”.
@@ -1201,7 +1204,11 @@ export function ResultsPanel() {
                       {ch && (
                         <div
                           className={`truncate text-[10px] ${changeClass(ch)}`}
-                          title={ch.noise ? NOISE : `Change against the baseline, ${runTitle(baseline)}`}
+                          title={
+                            ch.noise
+                              ? NOISE
+                              : `${ch.diff} (${ch.pct}) against the baseline, ${runTitle(baseline)}`
+                          }
                         >
                           {ch.noise ? "~ 0" : `${ch.diff} (${ch.pct})`} vs baseline
                         </div>

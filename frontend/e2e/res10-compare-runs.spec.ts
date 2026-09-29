@@ -55,21 +55,34 @@ test("RES-10: a re-run is named by its change and compared with the run before",
   await showPanel(page, "Properties");
   await expect(page.locator("tr", { hasText: "Vehicle Mass" }).locator("input")).toHaveValue("2300");
 
-  // a name and a note of the user's, stored with the run
+  // a name and a note of the user's, stored with the run, by keyboard: Enter
+  // saves the name and keeps the focus, Tab goes on to the note
   await ribbonTab(page, "Results").click();
   await page.getByTitle(/^Run info/).click();
   const info = page.getByRole("region", { name: "Run info" });
-  await info.getByRole("textbox", { name: "Name" }).fill("Heavier car");
+  const nameBox = info.getByRole("textbox", { name: "Name" });
+  await nameBox.fill("Heavier car");
   await page.keyboard.press("Enter");
-  await info.getByRole("textbox", { name: "Note" }).fill("battery upgrade");
-  await info.getByRole("textbox", { name: "Name" }).focus();
+  await expect(nameBox).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(info.getByRole("textbox", { name: "Note" })).toBeFocused();
+  await page.keyboard.type("battery upgrade");
+  await page.keyboard.press("Tab");
   await expect(primary(page).locator("option").first()).toHaveText("City Cycle · Heavier car");
   await expect
     .poll(async () => (await (await page.request.get(`/api/projects/${id}/runs`)).json())[0])
     .toMatchObject({ name: "Heavier car", note: "battery upgrade" });
+  // the first run, with no name and no note, keeps one Name field when named
+  await primary(page).selectOption({ index: 1 });
+  await nameBox.fill("Lighter car");
+  await page.keyboard.press("Enter");
+  await expect(nameBox).toHaveCount(1);
+  await expect
+    .poll(async () => (await (await page.request.get(`/api/projects/${id}/runs`)).json())[1].name)
+    .toBe("Lighter car");
   await page.reload();
   await ribbonTab(page, "Results").click();
-  await expect(primary(page).locator("option").first()).toHaveText("City Cycle · Heavier car");
+  await expect(primary(page).locator("option")).toHaveText(["City Cycle · Heavier car", "City Cycle · Lighter car"]);
 
   // no baseline: no change columns or change lines
   await page.getByRole("combobox", { name: "Baseline run" }).selectOption("none");

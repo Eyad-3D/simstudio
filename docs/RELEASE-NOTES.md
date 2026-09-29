@@ -343,7 +343,8 @@ sections.
   page and back, and when LightSim is opened again (they are kept in the
   app's own storage, not in the project). Before, they went back to the
   defaults every time the page was left. A new run no longer clears the
-  runs you overlaid. (RES-19)
+  runs you overlaid, nor the ones a sweep overlaid: **Clear** in the
+  *Overlay* box removes them. (RES-19)
 - A run is compared with a baseline, the previous run of its case unless
   you pick another (or *None*) in the new **Baseline** list: the baseline
   is drawn faint and dashed under the run (**Draw the baseline faint on
@@ -531,7 +532,8 @@ sections.
   says *cancelled*. It still lists and opens stored runs that say
   *cancelled*, but drops them from the list if it has to rebuild its run
   index.
-  A case's Kind is kept but ignored, and so are a run's name and note.
+  A case's Kind is kept but ignored.
+  A run's name and note are kept but ignored.
 
 ## 0.2.0 — not published: its changes ship in 0.3.0
 

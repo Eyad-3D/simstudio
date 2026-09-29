@@ -345,6 +345,9 @@ async function exportPng(u: uPlot, options: PlotOptions, bg: string, name: strin
   }, "image/png");
 }
 
+/** How long a zoom or pan must rest before the page keeps it. */
+const ZOOM_SETTLE_MS = 300;
+
 /** `png` saves the picture; `xRange` is the x range in view. */
 export type PlotHandle = { png: (bg: string, name: string) => void; xRange: () => [number, number] | null };
 
@@ -352,7 +355,8 @@ export type PlotHandle = { png: (bg: string, name: string) => void; xRange: () =
  *  never on a live run's objects, which change ten times a second. New `data`
  *  only redraws. A zoomed time range survives both, so ticking a channel or
  *  a live run's new samples keep the zoom. `xRange` is the zoom it opens on
- *  (one kept by the page, RES-19), and `onXRangeChange` hears of each new one. */
+ *  (one kept by the page, RES-19), and `onXRangeChange` hears of each new one
+ *  once it settles. */
 export function Plot({
   options,
   data,
@@ -372,14 +376,26 @@ export function Plot({
   const plot = useRef<uPlot | null>(null);
   const latest = useRef(data);
   const zoom = useRef<Range | null>(xRange ?? null);
+  // the page hears of a zoom once it settles, or as the chart goes, so a pan
+  // does not re-render the whole page at every step
+  const settle = useRef<number | null>(null);
+  const report = useEffectEvent(() => {
+    if (settle.current === null) return;
+    window.clearTimeout(settle.current);
+    settle.current = null;
+    onXRangeChange?.(zoom.current);
+  });
   const zoomed = useEffectEvent((u: uPlot, r: Range | null, reset?: boolean) => {
     // a new run that has not reached the zoomed range yet keeps it for
     // when it does; only the user's double-click or 0 drops it then
     if (!r && !reset && zoom.current && !reaches(u, zoom.current)) return;
     if (r?.min === zoom.current?.min && r?.max === zoom.current?.max) return;
     zoom.current = r;
-    onXRangeChange?.(r);
+    if (!onXRangeChange) return;
+    if (settle.current !== null) window.clearTimeout(settle.current);
+    settle.current = window.setTimeout(() => report(), ZOOM_SETTLE_MS);
   });
+  useEffect(() => () => report(), []);
   useImperativeHandle(
     ref,
     () => ({

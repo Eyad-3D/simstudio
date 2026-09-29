@@ -142,7 +142,11 @@ describe("comparing two runs", () => {
   it("case settings: the form's names, absent equals the default, pacing is no change, new fields show", () => {
     const longer = snap((s) => Object.assign(s.case, { duration: 1800, timeStep: 0.1 }));
     expect(texts(snap(), longer)).toEqual(["Case · Duration 600 → 1,800 s", "Case · Step 1 → 0.1 s"]);
-    const same = snap((s) => Object.assign(s.case, { outputEvery: 1, kind: "cycle", realtimeFactor: 5, endDistance: null }));
+    // (as the engine gives a case back: 0.2.0's runs, and cases made before a
+    // reload, have none of these fields)
+    const same = snap((s) =>
+      Object.assign(s.case, { outputEvery: 1, kind: "cycle", realtimeFactor: 5, endDistance: null, startLine: 0 }),
+    );
     expect(texts(snap(), same)).toEqual([]);
     // a setting this code does not know yet shows by its field name
     const later = snap((s) => Object.assign(s.case, { stopAtLap: 3 }));
@@ -150,6 +154,8 @@ describe("comparing two runs", () => {
     // another case comes first
     const wltc = snap((s) => Object.assign(s.case, { id: "w", name: "WLTC Class 3b", duration: 1800 }));
     expect(texts(snap(), wltc)).toEqual(["Case City Cycle → WLTC Class 3b", "Case · Duration 600 → 1,800 s"]);
+    // a renamed case does not name the run
+    expect(nameFromChanges(diffSnapshots(snap(), snap((s) => (s.case.name = "WLTC")), lib))).toBeUndefined();
   });
 
   it("lists both runs' live edits last, and leaves them out of the name", () => {
@@ -168,6 +174,10 @@ describe("comparing two runs", () => {
     expect(nameFromChanges(changes)).toBe("Mechanical Efficiency 95 %");
     const three = [{ text: "a", short: "A" }, { text: "b", short: "B" }, { text: "c", short: "C" }];
     expect(nameFromChanges(three)).toBe("A +2 more");
+    // cut to the 120 characters a stored run's name holds
+    const long = nameFromChanges([{ text: "x", short: `added ${"L".repeat(115)}` }])!;
+    expect(long).toHaveLength(120);
+    expect(long.endsWith("L…")).toBe(true);
   });
 
   it("a summary change within the stored rounding is noise; % change is against the baseline", () => {

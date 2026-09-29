@@ -152,11 +152,17 @@ for (const theme of ["light", "dark"] as const) {
       // colour, as several series colours are too faint for text (GUI-02)
       const text = await page.locator("#root").evaluate((r) => getComputedStyle(r).color);
       await expect(page.locator(".u-legend .u-label").first()).toHaveCSS("color", text);
-      // RES-10 / RES-19: a second run against the first: the baseline pick,
-      // what changed, the change lines and columns, and Run info's fields
+      // RES-10 / RES-19: a second run of a heavier car against the first: the
+      // baseline pick, what changed (a part's line), the bold change lines
+      // and columns, and Run info's fields
+      await ribbonTab(page, "Home").click();
+      await selectElement(page, "Vehicle");
+      const mass = page.locator("tr", { hasText: "Vehicle Mass" }).locator("input");
+      await mass.fill("2300");
+      await mass.press("Tab");
       await runButton(page).click();
       await expect(page.getByText("2 stored runs", { exact: true })).toBeVisible({ timeout: 60_000 });
-      await expect(page.getByRole("region", { name: "What changed" })).toBeVisible();
+      await expect(page.getByRole("region", { name: "What changed" }).getByRole("button")).toHaveCount(1);
       await openSummary(page);
       await page.getByTitle(/^Run info/).click();
       await expect(page.getByRole("region", { name: "Run info" }).getByRole("textbox", { name: "Name" })).toBeVisible();
