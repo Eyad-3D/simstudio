@@ -46,7 +46,7 @@ export function MiniChartPanel() {
     // title under the plot, the toolbar reads out the value under the pointer
     return {
       scales: { x: { time: false } },
-      series: [{ label: "t [s]" }, { label: shortLabel, stroke: PALETTE[0], width: 1.6, spanGaps: true }],
+      series: [{ label: "t [s]" }, { label: shortLabel, stroke: PALETTE[0], width: 1.6, spanGaps: true, points: { show: false } }],
       axes: [
         { ...axis, size: 24 },
         { ...axis, label: unit, size: 44 },

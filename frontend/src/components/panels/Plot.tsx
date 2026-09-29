@@ -33,7 +33,8 @@ export function axisStyle(_theme: string): uPlot.Axis {
 
 /** The charts' number format: grouped, at most `digits` decimals. */
 export const fmt = (v: number | null | undefined, digits = 3) =>
-  v == null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: digits });
+  // (v === 0 ? 0 : v): -0 reads "0", not "-0"
+  v == null ? "—" : (v === 0 ? 0 : v).toLocaleString(undefined, { maximumFractionDigits: digits });
 
 /** 1: time series, 2: X-Y (set at runtime, missing from the 1.6.32 typings) */
 const modeOf = (u: uPlot) => (u as unknown as { mode: 1 | 2 }).mode;
@@ -78,6 +79,10 @@ function zoomAround(u: uPlot, key: string, at: number, f: number) {
     // time never zooms out past the run
     lo = Math.max(full[0], lo);
     hi = Math.min(full[1], hi);
+  } else if (f > 1) {
+    // nor an X-Y axis past its data (or the view, where that is wider)
+    lo = Math.max(Math.min(full[0], sc.min), lo);
+    hi = Math.min(Math.max(full[1], sc.max), hi);
   }
   if (hi > lo) u.setScale(key, { min: lo, max: hi });
 }
@@ -105,8 +110,9 @@ function restore(u: uPlot, range: Range | null) {
  *  labelled with what the chart shows and its x range. `onZoom` gets the time
  *  range while zoomed in, null for the whole run. */
 function gestures(label: string, onZoom: (r: Range | null) => void): uPlot.Plugin {
+  // the scales a gesture moves: x first, then on the X-Y view every y unit
   const scalesOf = (u: uPlot) =>
-    modeOf(u) === 2 ? [u.series[1].facets![0].scale, u.series[1].facets![1].scale] : ["x"];
+    modeOf(u) === 2 ? [...new Set(u.series.slice(1).flatMap((s) => s.facets!.map((f) => f.scale)))] : ["x"];
   const describe = (u: uPlot) => {
     const x = u.scales.x;
     const names = u.series.slice(1).map((s) => s.label);
@@ -115,7 +121,6 @@ function gestures(label: string, onZoom: (r: Range | null) => void): uPlot.Plugi
   };
   // Shift+drag moves the view with the pointer
   const pan = (u: uPlot, e: MouseEvent) => {
-    e.preventDefault();
     const z = scaleOf(u.over);
     const keys = scalesOf(u);
     const from = keys.map((k) => ({ ...u.scales[k] }));
@@ -137,8 +142,22 @@ function gestures(label: string, onZoom: (r: Range | null) => void): uPlot.Plugi
   return {
     opts: (_u, o) => ({
       ...o,
+      // a time chart with one sample (a live run's first flush) spans a
+      // second from it, not the 0 to 100 uPlot pads it to
+      scales:
+        o.mode === 2
+          ? o.scales
+          : {
+              ...o.scales,
+              x: {
+                ...o.scales?.x,
+                range: (u, lo, hi) => (u.data[0].length === 1 ? [u.data[0][0], u.data[0][0] + 1] : [lo, hi]),
+              },
+            },
       cursor: {
         ...o.cursor,
+        // a click that wobbles a pixel or two is not a zoom box
+        drag: { dist: 5, ...o.cursor?.drag },
         move: (u, left, top) => [left / scaleOf(u.over), top / scaleOf(u.over)],
         bind: {
           ...o.cursor?.bind,
@@ -170,16 +189,20 @@ function gestures(label: string, onZoom: (r: Range | null) => void): uPlot.Plugi
             e.preventDefault();
             const z = scaleOf(u.over);
             const r = u.over.getBoundingClientRect();
-            const f = e.deltaY < 0 ? 0.8 : 1.25;
-            const [kx, ky] = scalesOf(u);
+            // by how far the wheel turned (in px; a line is about 33, a page
+            // 800), a notch of 100 px at most: a touchpad sends many small steps
+            const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1);
+            const f = 1.25 ** Math.max(-1, Math.min(1, dy / 100));
+            const [kx, ...ky] = scalesOf(u);
             u.batch(() => {
               zoomAround(u, kx, u.posToVal((e.clientX - r.left) / z, kx), f);
-              if (ky) zoomAround(u, ky, u.posToVal((e.clientY - r.top) / z, ky), f);
+              ky.forEach((k) => zoomAround(u, k, u.posToVal((e.clientY - r.top) / z, k), f));
             });
           },
           { passive: false },
         );
         u.root.addEventListener("keydown", (e) => {
+          if (e.ctrlKey || e.metaKey || e.altKey) return; // browser zoom and menus
           const keys = scalesOf(u);
           const mid = (k: string) => ((u.scales[k].min ?? 0) + (u.scales[k].max ?? 0)) / 2;
           const span = (k: string) => (u.scales[k].max ?? 0) - (u.scales[k].min ?? 0);
@@ -274,10 +297,15 @@ async function exportPng(u: uPlot, options: PlotOptions, bg: string, name: strin
   items.forEach(({ s }, i) => {
     const y = plot.height + place[i].row * rowH + rowH / 2;
     ctx.strokeStyle = typeof s.stroke === "string" ? s.stroke : text;
-    ctx.setLineDash((s.dash ?? []).map((d) => d * r));
+    // a series drawn as markers only (no line) gets a hollow marker
+    const dots = s.paths?.(u, i + 1, 0, 0) === null;
+    ctx.setLineDash(dots ? [] : (s.dash ?? []).map((d) => d * r));
     ctx.beginPath();
-    ctx.moveTo(place[i].x, y);
-    ctx.lineTo(place[i].x + 14 * r, y);
+    if (dots) ctx.arc(place[i].x + 7 * r, y, 4 * r, 0, 2 * Math.PI);
+    else {
+      ctx.moveTo(place[i].x, y);
+      ctx.lineTo(place[i].x + 14 * r, y);
+    }
     ctx.stroke();
     ctx.fillStyle = text;
     ctx.fillText(String(s.label ?? ""), place[i].x + 18 * r, y);
@@ -351,8 +379,11 @@ export function Plot({
         u.setSize({ width: el.clientWidth, height: el.clientHeight - legend });
     };
     fit();
+    // and again when the legend gains a row (values fill in under the pointer)
     const ro = new ResizeObserver(fit);
     ro.observe(el);
+    const legendEl = u.root.querySelector(".u-legend");
+    if (legendEl) ro.observe(legendEl);
     plot.current = u;
     return () => {
       ro.disconnect();

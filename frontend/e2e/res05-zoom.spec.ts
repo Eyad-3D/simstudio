@@ -26,6 +26,13 @@ async function zoomPanReset(page: Page, chart: Locator, { xy = false } = {}) {
   await page.mouse.dblclick(at(0.5), y);
   await expect.poll(() => xRange(chart)).toEqual(full);
 
+  // a click that wobbles 2 px is not a zoom box
+  await page.mouse.move(at(0.5), y);
+  await page.mouse.down();
+  await page.mouse.move(at(0.5) + 2, y);
+  await page.mouse.up();
+  expect(await xRange(chart)).toEqual(full);
+
   // a box from 25 % to 50 % of the plot shows that quarter
   await page.mouse.move(at(0.25), y - dy);
   await page.mouse.down();
@@ -63,7 +70,7 @@ test("RES-05: zoom, pan and reset on the Results chart, X-Y view and Signal Plot
 
   // ticking another channel keeps the zoomed range
   const plot = (await chart.locator(".u-over").boundingBox())!;
-  await page.mouse.move(plot.x + plot.width / 2, plot.y + plot.height / 2);
+  await page.mouse.move(plot.x + plot.width * 0.1, plot.y + plot.height / 2);
   await page.mouse.wheel(0, -300);
   const zoomed = await xRange(chart);
   expect(width(zoomed)).toBeLessThan(600);
@@ -71,20 +78,38 @@ test("RES-05: zoom, pan and reset on the Results chart, X-Y view and Signal Plot
   await expect(chart).toHaveAttribute("aria-label", /Vehicle Speed/);
   expect(await xRange(chart)).toEqual(zoomed);
 
-  // X-Y: the box and the wheel zoom both axes; hover reads the nearest point
+  // X-Y: the time zoom (12 to 492 s, which the kW data overlaps) stays on
+  // the time chart
   await page.getByRole("button", { name: "X-Y", exact: true }).click();
   const xy = page.getByRole("img", { name: /^X-Y chart:/ });
+  await expect(xy).toHaveAttribute("aria-label", /: SOC, Vehicle Speed; /);
+  expect(await xRange(xy)).not.toEqual(zoomed);
+
+  // the box and the wheel zoom both axes
   await zoomPanReset(page, xy, { xy: true });
+
+  // hover reads the nearest point; the wheel zooms x and both y units (% and
+  // km/h) alike, so the nearest point on each line stays the nearest
   const box = (await xy.locator(".u-over").boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await expect(xy.locator(".u-legend .u-value").first()).toHaveText(/\d.* → .*\d/);
+  const full = await xRange(xy);
+  const values = () => xy.locator(".u-legend .u-value").allTextContents();
+  const [px, py] = [box.x + box.width * 0.3, box.y + box.height * 0.3];
+  await page.mouse.move(px, py);
+  const near = await values();
+  expect(near).toHaveLength(2);
+  near.forEach((v) => expect(v).toMatch(/\d.* → .*\d/));
+  await page.mouse.wheel(0, -100);
+  await expect.poll(async () => width(await xRange(xy))).toBeLessThan(width(full));
+  await page.mouse.move(px + 1, py);
+  await page.mouse.move(px, py);
+  await expect.poll(values).toEqual(near);
 
   await ribbonTab(page, "Home").click();
   await showPanel(page, "Signal Plot");
   await zoomPanReset(page, page.getByRole("img", { name: /^Signal Plot:/ }));
 });
 
-test("RES-05: at 125 % interface size a zoom box shows what was boxed", async ({ page }) => {
+test("RES-05: at 125 % interface size the wheel and a zoom box land under the pointer", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("lightsim-font-scale", "1.25"));
   await openApp(page);
   await runActiveCase(page);
@@ -92,12 +117,22 @@ test("RES-05: at 125 % interface size a zoom box shows what was boxed", async ({
   const full = await xRange(chart);
   const plot = (await chart.locator(".u-over").boundingBox())!;
   const y = plot.y + plot.height / 2;
+  const w = width(full);
+
+  // the wheel zooms around the time under the pointer
+  await page.mouse.move(plot.x + plot.width * 0.75, y);
+  await page.mouse.wheel(0, -100);
+  await expect.poll(async () => width(await xRange(chart))).toBeLessThan(w);
+  const [a, b] = await xRange(chart);
+  expect(Math.abs((full[0] + 0.75 * w - a) / (b - a) - 0.75)).toBeLessThan(0.02);
+  await page.mouse.dblclick(plot.x + plot.width / 2, y);
+  await expect.poll(() => xRange(chart)).toEqual(full);
+
   await page.mouse.move(plot.x + plot.width * 0.25, y);
   await page.mouse.down();
   await page.mouse.move(plot.x + plot.width * 0.5, y, { steps: 5 });
   await page.mouse.up();
   const [lo, hi] = await xRange(chart);
-  const w = width(full);
   expect(Math.abs(lo - (full[0] + 0.25 * w))).toBeLessThan(0.02 * w);
   expect(Math.abs(hi - (full[0] + 0.5 * w))).toBeLessThan(0.02 * w);
 });

@@ -214,6 +214,7 @@ export function ResultsPanel() {
           width: 1.6,
           dash: d.dash,
           spanGaps: true,
+          points: { show: false },
           value: (_u: uPlot, v: number | null) => (v == null ? "—" : `${fmt(v)} ${d.unit}`),
         })),
       ],
@@ -414,7 +415,8 @@ export function ResultsPanel() {
     return {
       scales: { x: { time: false } },
       series: [
-        { label: sweepParam, value: (_u, v) => (v == null ? "—" : `${fmt(v)}${sweepUnit ? ` ${sweepUnit}` : ""}`) },
+        // the swept value as the run picker names it, unrounded
+        { label: sweepParam, value: (_u, v) => (v == null ? "—" : `${v}${sweepUnit ? ` ${sweepUnit}` : ""}`) },
         {
           label: sweepMetric,
           stroke: PALETTE[0],
@@ -860,7 +862,7 @@ export function ResultsPanel() {
         ) : view === "sweep" ? (
           <div className="min-h-0 flex-[3] p-1" ref={chartHost}>
             {sweepData.length > 0 && hasSize ? (
-              <Plot options={sweepOptions} data={sweepCols} label="Sweep chart" ref={plotRef} />
+              <Plot key="sweep" options={sweepOptions} data={sweepCols} label="Sweep chart" ref={plotRef} />
             ) : (
               <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--ss-text-dim)]">
                 {family.length < 2
@@ -872,7 +874,7 @@ export function ResultsPanel() {
         ) : view === "xy" ? (
           <div className="min-h-0 flex-[3] p-1" ref={chartHost}>
             {xyData.length > 1 && hasSize ? (
-              <Plot options={xyOptions} data={xyData} label="X-Y chart" ref={plotRef} />
+              <Plot key="xy" options={xyOptions} data={xyData} label="X-Y chart" ref={plotRef} />
             ) : (
               <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[color:var(--ss-text-dim)]">
                 {selectedKeys.size < 2
@@ -884,7 +886,7 @@ export function ResultsPanel() {
         ) : (
           <div className="min-h-0 flex-[3] p-1" ref={chartHost}>
             {seriesDefs.length > 0 && hasSize ? (
-              <Plot options={chartOptions} data={chartData} label="Results chart" ref={plotRef} />
+              <Plot key="chart" options={chartOptions} data={chartData} label="Results chart" ref={plotRef} />
             ) : (
               <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--ss-text-dim)]">
                 Tick channels on the left to plot them.

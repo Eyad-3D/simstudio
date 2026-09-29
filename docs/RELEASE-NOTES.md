@@ -284,7 +284,7 @@ sections.
   data in view instead of starting at 0. The values under the pointer show
   in the legend under the chart instead of in a pop-up (in the *Signal
   Plot*, in its toolbar). On a 1-hour run (36,001 points), ticking a
-  channel redraws in 30-40 ms instead of 50-110 ms. The **PNG** picture
+  channel redraws in 30-50 ms instead of 50-110 ms. The **PNG** picture
   shows the view you zoomed to. A screen reader names what each chart
   shows and its time range. The charts are drawn with uPlot (MIT licence)
   instead of Recharts. (RES-05)
