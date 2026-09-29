@@ -57,6 +57,13 @@ the distance driven, in m below 1 km and km above.
 | + and − | Zoom in and out (click the chart or move to it with Tab first) |
 | Left and right arrows | Move the view by a tenth of its width |
 | 0 | Show the whole run again |
+| C | Measurement cursors A and B on or off (not while you type in a field) |
+| Drag a cursor line | Move that cursor (the pointer shows ↔ near a line) |
+
+In the A and B time fields under the chart, the up and down arrows move
+the cursor to the next or the previous stored point, Page Up and Page Down
+ten points; Enter or Tab puts it at the time you typed (the nearest stored
+point). [How to measure between two times](../how-to/measure-between-two-times.md).
 
 ## In the component library
 

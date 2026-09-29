@@ -242,7 +242,8 @@ At later points these values come from the last solver step before the
 point, at most 10 ms earlier.
 
 *Workaround:* leave out point 0 of computed channels when you take a
-minimum or an average, for example from the CSV export.
+minimum or an average, for example from the CSV export, or put the
+*Results* chart's cursor A after t = 0.
 
 ### Component models with known errors
 
@@ -359,6 +360,16 @@ minimum or an average, for example from the CSV export.
   between runs as noise; to compare two close variants, lengthen the run
   (for example, repeat the cycle) so that the difference adds up.
   *Roadmap:* ENG-16.
+- **Cursor integrals come from the recorded points.** The *Results*
+  chart's cursors integrate the stored points with the trapezoid rule, so
+  they differ a little from the summary's energies, which add up every
+  solver step: on the Battery Electric Car's City Cycle (a point every
+  1 s), the battery's power integrates to 0.8145 kWh over the run, and the
+  summary's energy delivered less energy recuperated is 0.811 kWh (0.4 %
+  less). Set the case's *Step* smaller and *Store every* to 1 when the two
+  must agree.
+  On the distance axis, the points of a stop share one distance: the up
+  and down arrows then step through them while the line stands still.
 
 ## The examples
 

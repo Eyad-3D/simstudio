@@ -319,6 +319,23 @@ sections.
   the target against the actual speed (did the car follow its cycle?),
   the target dashed and drawn on top, with the battery's SOC and power.
   (RES-30)
+- Measurement cursors: **Cursors** above the *Results* chart (or C) puts
+  two lines, A and B, on it. Type a time into the A or B field under the
+  chart, step one stored point at a time with the up and down arrows (ten
+  with Page Up and Page Down), or drag a line; the cursors always sit on a
+  stored point. A table then gives each plotted signal's value at A and B,
+  the difference, and between them its minimum, maximum, mean, RMS (root
+  mean square) and integral: kWh from kW, Ah from A, m from km/h, kg from
+  kg/h and revolutions from 1/min (mean, RMS and integral weighted by time,
+  with the trapezoid rule). On the Battery Electric Car's City Cycle, the
+  battery gave 0.4236 kWh from 150 to 300 s. *Time to reach* places A and
+  B where a signal first reaches one value and then another, so the time
+  between them reads as Δt (0 to 50 km/h: 31 s). The lines follow zoom and
+  the distance axis and are in the **PNG**. Each run keeps its cursors
+  while you switch views, overlay runs (they are measured at the same
+  times) or leave the page, until LightSim closes; they are not saved.
+  Moving a cursor on a 1-hour run (36,001 points) with 10 signals plotted
+  takes about 2 ms. (RES-06)
 
 ### Fixed
 
