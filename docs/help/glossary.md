@@ -7,6 +7,12 @@ kind and, if it has any, its overrides. A model can have several cases,
 such as a city cycle and a highway cycle. The list next to **Run** picks the
 active case.
 
+**Acceleration case**: a case of kind *Acceleration*, such as a Formula
+Student 75 m test. The Driver holds full throttle the whole run, with no
+target speed, and the run is timed from the start line to the line its
+*Distance* sets; the results are estimates. **Acceleration test** on the
+*Simulations* tab adds one and runs it.
+
 **Channel**: one quantity a run records over time, such as *Vehicle ·
 Vehicle Speed* or *HV Battery Pack · SOC*. The *Results* page plots
 channels.
@@ -45,6 +51,12 @@ can change it; **Save** keeps your copy as a project of your own.
 
 **HWFET**: the EPA Highway Fuel Economy Test cycle, 765 s of highway
 driving, used for US fuel-economy ratings.
+
+**Lap case**: a case of kind *Lap*. The car drives the model's *Race
+Track* (its layout and laps are the case's own) as fast as its tyres,
+motors and battery allow, as a lap simulation does, and the motors and
+battery then drive that speed for the energy. The case's *Duration*, *Step*
+and *Pacing* do not apply; the results are estimates.
 
 **Live run**: a run slowed down to a pace you can watch (*Pacing* 1× to
 30× in the case settings), so you can change values while it runs.

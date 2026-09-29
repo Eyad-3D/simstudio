@@ -74,7 +74,9 @@ for (const f of readdirSync(join(root, "backend", "projects")).filter((f) => f.e
   const p = JSON.parse(read(`backend/projects/${f}`));
   const text = (p.description ?? "").split("\n").map((l) => l.replace(/^• /, "- ")).join("\n").replace(/^(?!- )(.+)$/gm, "$1\n");
   add("Examples", `examples/${p.id}.md`, `# ${p.name}\n\n${text}\n\n` +
-    `Its cases: ${p.cases.map((c) => `*${c.name}* (${c.duration.toLocaleString("en")} s)`).join(", ")}.\n\n` +
+    // an acceleration test ends at its line and a lap case on its track, not at its duration
+    `Its cases: ${p.cases.map((c) => `*${c.name}* (${c.kind === "lap" ? "lap mode" : c.kind === "acceleration"
+      ? `acceleration test over ${c.endDistance} m` : `${c.duration.toLocaleString("en")} s`})`).join(", ")}.\n\n` +
     "Open it from the *Start* page, under *New from an example*, or with **Open** on the *Home* tab. " +
     "It opens as a copy, so change it freely; **Save** keeps your copy as a project of your own.\n");
 }
