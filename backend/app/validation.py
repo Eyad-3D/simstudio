@@ -323,7 +323,7 @@ def validate_project(project: Project) -> list[DataCheck]:
     return checks
 
 
-# what to do about build_model's messages, by words they contain
+# what to do about build_model's (and lapsim.problems') messages, by words they contain
 # ponytail: word match; codes on the messages replace it with VAL-10
 MODEL_FIXES = {
     "needs both outputs connected": "Connect a shaft or wheel to each of its outputs.",
@@ -336,6 +336,13 @@ MODEL_FIXES = {
                                     "Converter.",
     "which this version of LightSim does not include": "In Properties, choose a Drive Cycle "
                                                        "from the list, or Custom profile.",
+    "A lap case needs a Vehicle": "Add a Vehicle from the library (Vehicle).",
+    "A lap case needs a Driver": "Add a Driver from the library (Vehicle).",
+    "A lap case needs an E-Motor": "Connect an E-Motor to the wheels' driveline.",
+    "drives E-Motors only": "Set the case's Kind to Cycle, or drive the wheels with E-Motors "
+                            "only.",
+    "does not shift gears": "Set its Default Gear to the gear the lap should be driven in.",
+    "has no layout": "Choose a Layout from the list in Properties.",
 }
 
 
@@ -430,7 +437,9 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
         primary = bus.battery or bus.vsource or bus.fuelcell
         if primary and not (bus.motors or bus.consumers or bus.dcdc_in):
             warn(primary, f"'{elements[primary].label}' supplies nothing: no E-Motor, load or "
-                          f"DC-DC converter is connected to its bus.")
+                          f"DC-DC converter is connected to its bus.",
+                 fix="Wire an E-Motor, a Power Consumer or a DC-DC Converter to its bus, or "
+                     "delete it.")
         if supplied(bus):
             continue
         for m in bus.motors:
@@ -610,9 +619,10 @@ def _lap_checks(project: Project, add: Add) -> None:
             model = build_model(project, {}, case.parameterOverrides)
         except ModelError:
             continue  # reported above
-        for level, text in lapsim.problems(model, case.outputEvery):
-            el = model.elements.get(model.track) if model.track else None
-            add(level, f"Case '{case.name}': {text}", el)
+        track = model.elements.get(model.track) if model.track else None
+        for level, text, parts in lapsim.problems(model, case.outputEvery):
+            add(level, f"Case '{case.name}': {text}", None if parts else track, ids=parts,
+                fix=_model_fix(text))
 
 
 def _plausibility_checks(model: Model, add: Add) -> None:
@@ -731,7 +741,7 @@ def _plausibility_checks(model: Model, add: Add) -> None:
         fix = "Front on the front" if on == "Rear" else "Rear on the rear"
         add("error", f"Vehicle '{veh.label}' has a Centre of Gravity Height of {h:g} m, but all "
                      f"its wheels are on the {on} axle, so no load can shift between "
-                     f"axles. Set Axle to {fix} wheels.", veh)
+                     f"axles. Set Axle to {fix} wheels.", veh, ids=[w.el_id for w in wheels])
 
 
 def _map_checks(model: Model, add: Add) -> None:

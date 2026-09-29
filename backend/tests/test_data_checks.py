@@ -301,6 +301,8 @@ def test_vehicle_geometry_data_checks(values, level, expected):
     else:
         assert len(new) == 1 and new[0].level == level and new[0].text.startswith(expected), new
         assert new[0].elementId == "el-vehicle"
+        if "axle" in expected:  # Problems also points at the wheels to re-tag
+            assert set(new[0].elementIds) == {"el-vehicle", *WHEELS}
 
 
 # ---- MOD-11: road load counted once, and the Ambient's air -------------------------
@@ -419,11 +421,11 @@ def test_a_case_override_keeps_to_the_limits_too():
 
 # words of a check text that already say what to do (it then needs no fix line)
 ADVICE = re.compile(r"\b(wire|connect|remove|give|set them|lower|extend|tick|check the|add a|"
-                    r"drag|lock it|fewer)\b", re.I)
+                    r"add one|drag|lock it|fewer)\b", re.I)
 
 
 def test_every_corpus_problem_names_its_part_and_says_what_to_do():
-    """Over the 118 broken models of VAL-01, a Problems row can always show
+    """Over the 156 broken models of VAL-01, a Problems row can always show
     its part(s) on the diagram and say how to fix it."""
     unnamed, unadvised = set(), set()
     for name in EXAMPLES:

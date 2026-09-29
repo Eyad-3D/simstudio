@@ -181,24 +181,25 @@ def load_track(params: dict, spacing: float = 1.0) -> Track:
     return Track(name, closed, length, ds, kappa, sin_t, x, y, z, heads[-1], ends)
 
 
-def problems(model: Model, output_every: int = 1) -> list[tuple[str, str]]:
-    """(level, text) for a lap case of this model: an error refuses the run
-    (and fails Data Checks), a warning or an info says what lap mode does
-    differently. Shared by simulate() and Data Checks."""
+def problems(model: Model, output_every: int = 1) -> list[tuple[str, str, tuple[str, ...]]]:
+    """(level, text, parts) for a lap case of this model: an error refuses
+    the run (and fails Data Checks), a warning or an info says what lap mode
+    does differently. `parts` are the element ids it is about; () means the
+    Race Track. Shared by simulate() and Data Checks."""
     E, cdef_of, params_of = model.elements, model.cdef_of, model.params_of
-    out: list[tuple[str, str]] = []
+    out: list[tuple[str, str, tuple[str, ...]]] = []
 
     def name(el_id: str) -> str:
         return f"{cdef_of[el_id].name} '{E[el_id].label}'"
 
     if model.track is None:
         return [("error", "A lap case needs a Race Track: add one from Driver & Signals and "
-                          "choose its layout.")]
+                          "choose its layout.", (model.vehicle,) if model.vehicle else ())]
     if model.vehicle is None:
-        out.append(("error", "A lap case needs a Vehicle."))
+        out.append(("error", "A lap case needs a Vehicle.", ()))
     if model.driver is None:  # (and Data Checks want the E-Motors commanded by one)
         out.append(("error", "A lap case needs a Driver: its Recuperation Weight sets the "
-                             "regeneration when braking."))
+                             "regeneration when braking.", ()))
     wheeled = [dl for dl in model.drivelines if any(seg.wheels for seg in dl.segments)]
     motors = []
     for dl in wheeled:
@@ -207,29 +208,30 @@ def problems(model: Model, output_every: int = 1) -> list[tuple[str, str]]:
             if t in ("engine.combustion", "mech.clutch"):
                 out.append(("error", f"{name(el_id)} is in a driveline with wheels: a lap case "
                                      f"drives E-Motors only, without engines and clutches (run "
-                                     f"it as a drive cycle instead)."))
+                                     f"it as a drive cycle instead).", (el_id,)))
             elif t == "motor.emotor":
                 motors.append(el_id)
             elif t == "mech.gearbox" and len(params_of[el_id].get("ratios") or {}) > 1:
                 gear = float(params_of[el_id].get("default_gear", 1) or 1)
                 out.append(("warning", f"{name(el_id)} stays in gear {gear:g} for the whole lap: "
-                                       f"a lap case does not shift gears."))
+                                       f"a lap case does not shift gears.", (el_id,)))
     if not motors:
-        out.append(("error", "A lap case needs an E-Motor that drives the wheels."))
+        out.append(("error", "A lap case needs an E-Motor that drives the wheels.", ()))
     wheels = [w for dl in wheeled for seg in dl.segments for w in seg.wheels]
     if wheels and len({w.axle for w in wheels}) < 2:
         out.append(("error", "A lap case needs wheels on both axles for its load transfer: set "
-                             "Axle to Rear on the rear wheels and Front on the front ones."))
+                             "Axle to Rear on the rear wheels and Front on the front ones.",
+                    tuple(w.el_id for w in wheels)))
     driver = model.driver
     for m in motors:
         src = model.signal_route.get((m, "sig_demand_in"))
         if src != (driver, "sig_traction_cmd"):
             out.append(("info", f"{name(m)} is not commanded straight by the Driver's Traction "
                                 f"Command: a lap case commands every E-Motor itself, with one "
-                                f"demand for all."))
+                                f"demand for all.", (m,)))
     if model.vehicle is not None and (model.vehicle, "sig_grade_in") in model.signal_route:
         out.append(("info", "The Vehicle's Road Grade input is not used in a lap case: the Race "
-                            "Track's elevation sets the slope."))
+                            "Track's elevation sets the slope.", (model.vehicle,)))
 
     tp, label = params_of[model.track], E[model.track].label
     layout = str(tp.get("layout", "Autocross"))
@@ -238,10 +240,10 @@ def problems(model: Model, output_every: int = 1) -> list[tuple[str, str]]:
     except (TypeError, ValueError):
         laps = 0.0
     if math.isfinite(laps) and laps != int(laps):  # 1 to 500: the catalogue's limits
-        out.append(("error", f"Race Track '{label}': Laps must be a whole number."))
+        out.append(("error", f"Race Track '{label}': Laps must be a whole number.", ()))
         laps = 1
     if layout != "Custom" and layout not in layouts():
-        out.append(("error", f"Race Track '{label}' has no layout '{layout}'."))
+        out.append(("error", f"Race Track '{label}' has no layout '{layout}'.", ()))
         return out
     try:
         pts = None
@@ -249,30 +251,30 @@ def problems(model: Model, output_every: int = 1) -> list[tuple[str, str]]:
             pts = parse_table1d(tp.get("curvature_table"))
             parse_table1d(tp.get("elevation_table") or {"0": 0})
     except TableError as e:
-        return out + [("error", f"Race Track '{label}' Custom tables: {e}")]
+        return out + [("error", f"Race Track '{label}' Custom tables: {e}", ())]
     if pts is not None:
         bad = False
         if pts[0][0] != 0:
             out.append(("error", f"Race Track '{label}': its Curvature table must start at 0 m "
-                                 f"(it starts at {pts[0][0]:g} m)."))
+                                 f"(it starts at {pts[0][0]:g} m).", ()))
             bad = True
         if pts[-1][0] - pts[0][0] < 10:
             out.append(("error", f"Race Track '{label}': its Curvature table is shorter than "
-                                 f"10 m."))
+                                 f"10 m.", ()))
             bad = True
         k_max = max(abs(k) for _, k in pts)
         if k_max > KAPPA_MAX:
             out.append(("error", f"Race Track '{label}': its Curvature reaches {k_max:g} 1/m (a "
                                  f"{1 / k_max:.2g} m radius); a car's line has at most "
                                  f"{KAPPA_MAX:g} 1/m. Check the unit (1/m) or smooth a logged "
-                                 f"curvature."))
+                                 f"curvature.", ()))
             bad = True
         ends = _sector_ends(str(tp.get("sector_ends", "") or ""))
         outside = [e for e in ends if not 0 < e < pts[-1][0]]
         if outside:
             out.append(("error", f"Race Track '{label}': Sector Ends "
                                  f"{', '.join(f'{e:g}' for e in outside)} m are not on the "
-                                 f"track (0 to {pts[-1][0]:g} m)."))
+                                 f"track (0 to {pts[-1][0]:g} m).", ()))
             bad = True
         if not bad and bool(tp.get("closed", True)):
             tr = load_track(tp)
@@ -282,14 +284,15 @@ def problems(model: Model, output_every: int = 1) -> list[tuple[str, str]]:
                 out.append(("warning", f"Race Track '{label}' is a Closed Circuit, but its "
                                        f"curvature turns the car {turn:.0f}° and ends {gap:.0f} m "
                                        f"from its start (a closed lap turns ±360° and ends where "
-                                       f"it starts): check the table, or untick Closed Circuit."))
+                                       f"it starts): check the table, or untick Closed Circuit.",
+                            ()))
         length = pts[-1][0]
     else:
         length = sum(float(seg_len) for seg_len, _ in layouts()[layout]["segments"])
     points = laps * length / max(1, output_every)  # a point about every metre
     if points > MAX_POINTS:
         out.append(("info", f"This lap case records about {points:,.0f} points; set the case's "
-                            f"Store every to 5 or more to keep its result small."))
+                            f"Store every to 5 or more to keep its result small.", ()))
     return out
 
 
