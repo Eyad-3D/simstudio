@@ -1048,6 +1048,15 @@ describe("the Problems list", () => {
     // once the model is fixed, the run's copy is what is left
     expect(problemCounts({ dataChecks: [], runs: [finished] })).toEqual({ errors: 0, warnings: 1 });
   });
+
+  it("lists a lap case's warning the run repeats once", async () => {
+    const { problemsOf, problemCounts } = await import("./projectStore");
+    const text = "Gearbox 'Gearbox' stays in gear 1 for the whole lap: a lap case does not shift gears.";
+    const checks = [check("warning", `Case 'City': ${text}`), check("warning", `Case 'Other': ${text}`)];
+    const finished = run("warning", [{ level: "warning", text }]);
+    expect(problemsOf(checks, finished, fixture()).map((p) => p.source)).toEqual(["check", "check"]);
+    expect(problemCounts({ dataChecks: checks, runs: [finished] })).toEqual({ errors: 0, warnings: 2 });
+  });
 });
 
 describe("run history", () => {

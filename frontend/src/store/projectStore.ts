@@ -2022,11 +2022,14 @@ function partsNamed(text: string, elements: ElementInstance[]): string[] {
 }
 
 /** The warnings and errors of a finished run that the Data Checks do not
- *  already list: the engine repeats the model's own warnings in every run. */
+ *  already list: the engine repeats the model's own warnings in every run,
+ *  and a lap case's without the "Case '…': " the checks put in front. */
 function runProblemsOf(dataChecks: DataCheck[] | null, run: SimRun | undefined) {
   if (!run || run.status === "running") return [];
   const checked = new Set((dataChecks ?? []).map((c) => c.text));
-  return run.result.messages.filter((m) => m.level !== "info" && !checked.has(m.text));
+  return run.result.messages.filter(
+    (m) => m.level !== "info" && !checked.has(m.text) && !checked.has(`Case '${run.caseName}': ${m.text}`),
+  );
 }
 
 /** Every current problem: the latest Data Checks, then the warnings and
