@@ -478,29 +478,34 @@ function ProfileGridEditor({
  *  value is never stored as 0, and leaving the field without a number puts the
  *  stored value back. With `def`, a number outside its limits turns it red as
  *  it is typed (it is still stored, so Data Checks say the same); the reason
- *  is shown by the caller, in the element `describedBy` names. */
+ *  is shown by the caller, in the element `describedBy` names. With `onClear`,
+ *  an empty field is allowed and means none (`value` null). */
 export function NumberInput({
   value,
   onChange,
+  onClear,
   label,
   def,
   describedBy,
 }: {
-  value: number;
+  value: number | null;
   onChange: (v: number) => void;
+  onClear?: () => void;
   label?: string;
   def?: ParameterDef;
   describedBy?: string;
 }) {
-  const [text, setText] = useState(String(value));
+  const stored = value == null ? "" : String(value);
+  const [text, setText] = useState(stored);
   const [shown, setShown] = useState(value);
   // the stored value changed elsewhere (undo, another view): show it
   if (!Object.is(value, shown)) {
     setShown(value);
-    if (Number(text) !== value || text.trim() === "") setText(String(value));
+    if (Number(text) !== value || text.trim() === "") setText(stored);
   }
-  const invalid = text.trim() === "" || !Number.isFinite(Number(text));
-  const outside = !invalid && def ? rangeProblem(def, Number(text)) : null;
+  const empty = text.trim() === "";
+  const invalid = empty ? !onClear : !Number.isFinite(Number(text));
+  const outside = !invalid && !empty && def ? rangeProblem(def, Number(text)) : null;
   return (
     <input
       type="number"
@@ -511,13 +516,14 @@ export function NumberInput({
       aria-invalid={invalid || Boolean(outside) || undefined}
       aria-describedby={outside ? describedBy : undefined}
       aria-description={def?.description ?? undefined}
-      title={invalid ? `Enter a number (leaving the field keeps ${value})` : undefined}
+      title={invalid ? `Enter a number (leaving the field keeps ${stored || "it empty"})` : undefined}
       onChange={(e) => {
         setText(e.target.value);
         const t = e.target.value.trim();
-        if (t !== "" && Number.isFinite(Number(t))) onChange(Number(t));
+        if (t === "") onClear?.();
+        else if (Number.isFinite(Number(t))) onChange(Number(t));
       }}
-      onBlur={() => invalid && setText(String(value))}
+      onBlur={() => invalid && setText(stored)}
     />
   );
 }

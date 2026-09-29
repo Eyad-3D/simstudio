@@ -42,6 +42,57 @@ function round(v: number): number {
   return Math.round(v * 1e6) / 1e6;
 }
 
+// An acceleration case's own numbers, with the limits the form checks as they
+// are typed (UX-10); the engine ignores a value outside them.
+const DISTANCE: ParameterDef = {
+  key: "endDistance", label: "Distance", unit: "m", default: 75, type: "number", exclusiveMinimum: 0,
+};
+const START_LINE: ParameterDef = {
+  key: "startLine", label: "Start line", unit: "m", default: 0, type: "number", minimum: 0,
+};
+const REFERENCE_TIME: ParameterDef = {
+  key: "referenceTime", label: "Reference time", unit: "s", default: 0, type: "number", exclusiveMinimum: 0,
+};
+
+/** A number row of the case settings: red outside its limits, with a line
+ *  under it that says why, as a parameter's field is. */
+function CaseNumber({
+  name,
+  title,
+  def,
+  value,
+  onChange,
+  onClear,
+}: {
+  name: string;
+  title: string;
+  def: ParameterDef;
+  value: number | null;
+  onChange: (v: number) => void;
+  onClear?: () => void;
+}) {
+  const problem = value == null ? null : rangeProblem(def, value);
+  const id = `case-${def.key}-problem`;
+  return (
+    <>
+      <label
+        className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+        title={title}
+      >
+        {name}
+        <NumberInput value={value} onChange={onChange} onClear={onClear} def={def} describedBy={id} />
+      </label>
+      {problem && (
+        <div id={id} className="ss-param-problem">
+          <span role="alert">
+            {paramName(def)} {problem}.
+          </span>
+        </div>
+      )}
+    </>
+  );
+}
+
 /** A scalar value editor matching the parameter type. */
 function ValueEditor({
   def,
@@ -379,28 +430,13 @@ export function CasePanel() {
                     ))}
                   </select>
                 </label>
-                <label
-                  className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+                <CaseNumber
+                  name="Laps"
                   title="Laps driven one after the other (a case override): lap 1 from the Vehicle's Initial Speed (no faster than the first corner allows), each later lap from the speed the one before ended with."
-                >
-                  Laps
-                  <input
-                    type="number"
-                    className="ss-input"
-                    min={1}
-                    max={500}
-                    step={1}
-                    value={Number(effectiveValue(caseOv, track, "laps", lapsDef))}
-                    onChange={(e) =>
-                      setCaseOverride(
-                        activeCase.id,
-                        track.id,
-                        "laps",
-                        Math.max(1, Math.min(500, Math.round(Number(e.target.value) || 1))),
-                      )
-                    }
-                  />
-                </label>
+                  def={lapsDef}
+                  value={Number(effectiveValue(caseOv, track, "laps", lapsDef))}
+                  onChange={(v) => setCaseOverride(activeCase.id, track.id, "laps", v)}
+                />
               </>
             ) : (
               <p className="text-[11px] text-[color:var(--ss-text-dim)]">
@@ -409,56 +445,28 @@ export function CasePanel() {
             ))}
           {accel && (
             <>
-              <label
-                className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+              <CaseNumber
+                name="Distance (m)"
                 title="The run ends at this distance past the start line; the time is taken there (FS Rules 2026 v1.1 (FSG) D 5.1.1: 75 m)."
-              >
-                Distance (m)
-                <input
-                  type="number"
-                  className="ss-input"
-                  min={1}
-                  step="any"
-                  value={activeCase.endDistance ?? 75}
-                  onChange={(e) =>
-                    setCaseField(activeCase.id, { endDistance: Math.max(1, Number(e.target.value) || 75) })
-                  }
-                />
-              </label>
-              <label
-                className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+                def={DISTANCE}
+                value={activeCase.endDistance ?? 75}
+                onChange={(v) => setCaseField(activeCase.id, { endDistance: v })}
+              />
+              <CaseNumber
+                name="Start line (m)"
                 title="The distance the car drives before the timer starts (FS Rules 2026 v1.1 (FSG) D 5.2.3 stages it 0.30 m behind the start line; FSUK and FSAE may differ). 0 = timed from rest. Simulations → Acceleration test adds its case with 0.30 m and a 25 s time limit; a case switched to Acceleration here keeps its own start line and duration."
-              >
-                Start line (m)
-                <input
-                  type="number"
-                  className="ss-input"
-                  min={0}
-                  step="any"
-                  value={activeCase.startLine ?? 0}
-                  onChange={(e) =>
-                    setCaseField(activeCase.id, { startLine: Math.max(0, Number(e.target.value) || 0) })
-                  }
-                />
-              </label>
-              <label
-                className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+                def={START_LINE}
+                value={activeCase.startLine ?? 0}
+                onChange={(v) => setCaseField(activeCase.id, { startLine: v })}
+              />
+              <CaseNumber
+                name="Reference time (s)"
                 title="A time to compare with, for example last year's best run: the results show the gap (positive = slower). Empty = none."
-              >
-                Reference time (s)
-                <input
-                  type="number"
-                  className="ss-input"
-                  min={0}
-                  step="any"
-                  value={activeCase.referenceTime ?? ""}
-                  onChange={(e) =>
-                    setCaseField(activeCase.id, {
-                      referenceTime: Number(e.target.value) > 0 ? Number(e.target.value) : null,
-                    })
-                  }
-                />
-              </label>
+                def={REFERENCE_TIME}
+                value={activeCase.referenceTime ?? null}
+                onChange={(v) => setCaseField(activeCase.id, { referenceTime: v })}
+                onClear={() => setCaseField(activeCase.id, { referenceTime: null })}
+              />
             </>
           )}
         </div>

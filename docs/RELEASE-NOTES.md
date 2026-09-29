@@ -269,7 +269,9 @@ sections.
   a line under it that says what is allowed, such as *Initial SOC must be
   above 0 and at most 100 %.* Data Checks read the same limits, from the
   component library, and say the same. A case's own values in *Cases &
-  Parameters* are checked the same way. (UX-10)
+  Parameters* are checked the same way, and so are an acceleration case's
+  *Distance*, *Start line* and *Reference time* and a lap case's *Laps*,
+  which the form no longer quietly changes. (UX-10)
 
 ### Fixed
 
