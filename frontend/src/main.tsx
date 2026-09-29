@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "dockview/dist/styles/dockview.css";
 import "@xyflow/react/dist/style.css";
+import "uplot/dist/uPlot.min.css";
 import "./index.css";
 import App from "./App";
 import { useProjectStore } from "./store/projectStore";

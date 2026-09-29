@@ -1,17 +1,10 @@
 import { useMemo, useState } from "react";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import type uPlot from "uplot";
 import { LineChart as LineChartIcon } from "lucide-react";
 import { useActiveRun, useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
-import { PALETTE, channelKey, decimate, useHasSize } from "./chartUtils";
+import { PALETTE, channelKey, useHasSize } from "./chartUtils";
+import { Plot, axisStyle, fmt, type PlotOptions } from "./Plot";
 
 /** A compact, dockable single-signal plot meant to sit beside the topology so a
  *  channel can be watched next to the diagram. It reads the active run, whose
@@ -25,6 +18,8 @@ export function MiniChartPanel() {
 
   const channels = activeRun?.result.channels ?? [];
   const [picked, setPicked] = useState("");
+  // the sample under the pointer (null: none), read out in the toolbar
+  const [hover, setHover] = useState<number | null>(null);
   const { ref: chartRef, hasSize } = useHasSize<HTMLDivElement>();
 
   // the picked channel while the active run (whose channel set fills in live)
@@ -37,11 +32,30 @@ export function MiniChartPanel() {
     null;
   const sel = channel ? channelKey(channel) : "";
   const data = useMemo(
-    () => (channel ? decimate(channel.timeSeries).map((pt) => ({ t: pt.t, v: pt.value })) : []),
+    (): uPlot.AlignedData =>
+      channel ? [channel.timeSeries.map((p) => p.t), channel.timeSeries.map((p) => p.value)] : [[]],
     [channel],
   );
   const last = channel?.timeSeries.at(-1)?.value;
+  const hovered = hover == null ? undefined : channel?.timeSeries[hover];
   const shortLabel = channel ? (channel.label.split(" · ")[1] ?? channel.label) : "";
+  const unit = channel?.unit ?? "";
+  const options = useMemo((): PlotOptions => {
+    const axis = axisStyle(theme);
+    // this panel is often only a few lines tall: no legend or time-axis
+    // title under the plot, the toolbar reads out the value under the pointer
+    return {
+      scales: { x: { time: false } },
+      series: [{ label: "t [s]" }, { label: shortLabel, stroke: PALETTE[0], width: 1.6, spanGaps: true }],
+      axes: [
+        { ...axis, size: 24 },
+        { ...axis, label: unit, size: 44 },
+      ],
+      legend: { show: false },
+      cursor: { drag: { x: true, y: false } },
+      hooks: { setCursor: [(u) => setHover(u.cursor.idx ?? null)] },
+    };
+  }, [shortLabel, unit, theme]);
 
   if (runsCount === 0) {
     return (
@@ -72,10 +86,16 @@ export function MiniChartPanel() {
             );
           })}
         </select>
-        {typeof last === "number" && (
+        {hovered ? (
           <span className="shrink-0 whitespace-nowrap font-mono text-[11px] text-[color:var(--ss-text)]">
-            {last.toLocaleString(undefined, { maximumFractionDigits: 3 })} {channel?.unit}
+            t = {fmt(hovered.t)} s · {fmt(hovered.value)} {unit}
           </span>
+        ) : (
+          typeof last === "number" && (
+            <span className="shrink-0 whitespace-nowrap font-mono text-[11px] text-[color:var(--ss-text)]">
+              {fmt(last)} {unit}
+            </span>
+          )
         )}
         <button
           className="ss-toolbtn shrink-0 text-[11px]"
@@ -86,52 +106,8 @@ export function MiniChartPanel() {
         </button>
       </div>
       <div className="min-h-0 flex-1 p-1" ref={chartRef}>
-        {data.length > 0 && hasSize ? (
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ top: 6, right: 10, bottom: 2, left: 0 }}>
-              <CartesianGrid stroke={theme === "dark" ? "#2a2f37" : "#eceff3"} />
-              <XAxis
-                dataKey="t"
-                type="number"
-                domain={["dataMin", "dataMax"]}
-                tick={{ fontSize: 9 }}
-                label={{ value: "t [s]", position: "insideBottomRight", fontSize: 9, offset: -2 }}
-              />
-              <YAxis
-                tick={{ fontSize: 9 }}
-                width={40}
-                label={{
-                  value: channel?.unit ?? "",
-                  angle: -90,
-                  position: "insideLeft",
-                  fontSize: 9,
-                  style: { textAnchor: "middle" },
-                }}
-              />
-              <Tooltip
-                cursor={{ stroke: "var(--ss-accent)", strokeWidth: 1, strokeDasharray: "3 3" }}
-                contentStyle={{
-                  fontSize: 11,
-                  background: "var(--ss-panel)",
-                  border: "1px solid var(--ss-border)",
-                  color: "var(--ss-text)",
-                }}
-                labelFormatter={(t) => `t = ${t} s`}
-                formatter={(value) => [
-                  `${typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 3 }) : value} ${channel?.unit ?? ""}`,
-                  shortLabel,
-                ]}
-              />
-              <Line
-                dataKey="v"
-                type="linear"
-                dot={false}
-                strokeWidth={1.6}
-                stroke={PALETTE[0]}
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+        {channel && channel.timeSeries.length > 0 && hasSize ? (
+          <Plot options={options} data={data} label="Signal Plot" />
         ) : (
           <div className="flex h-full items-center justify-center px-3 text-center text-[11px] text-[color:var(--ss-text-dim)]">
             {channels.length === 0

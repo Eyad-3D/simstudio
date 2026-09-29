@@ -14,7 +14,7 @@ test("RES-03: after the first run both the Results chart and the Signal Plot dra
   const pane = page.locator(".react-flow__pane").first();
   await pane.click({ position: { x: 10, y: (await pane.boundingBox())!.height - 10 } });
   await page.keyboard.press("Control+Enter");
-  await expect(results(page).locator(".recharts-line-curve").first()).toBeAttached({ timeout: 60_000 });
+  await expect(results(page).getByRole("img", { name: /^Results chart: \S/ })).toBeAttached({ timeout: 60_000 });
 
   await ribbonButton(page, "Home");
   // the first run opens the tray on the Signal Plot; show it if it is not in front
@@ -23,7 +23,7 @@ test("RES-03: after the first run both the Results chart and the Signal Plot dra
   await expect(channel).toBeVisible();
   expect(await channel.inputValue()).not.toBe("");
   const plot = page.locator(".dv-groupview", { has: channel });
-  await expect(plot.locator(".recharts-line-curve").first()).toBeAttached();
+  await expect(plot.getByRole("img", { name: /^Signal Plot: \S/ })).toBeAttached();
 });
 
 test("RES-03: a first run started from the empty Results page is drawn", async ({ page }) => {
@@ -32,5 +32,5 @@ test("RES-03: a first run started from the empty Results page is drawn", async (
   await page.getByRole("button", { name: /^Run '/ }).first().click();
   // the default channel pick waits for the run's channels (it used to store
   // an empty pick from the run's first, channel-less result)
-  await expect(results(page).locator(".recharts-line-curve").first()).toBeAttached({ timeout: 60_000 });
+  await expect(results(page).getByRole("img", { name: /^Results chart: \S/ })).toBeAttached({ timeout: 60_000 });
 });

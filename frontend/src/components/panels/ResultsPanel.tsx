@@ -1,14 +1,5 @@
-import { useMemo, useState } from "react";
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { useMemo, useRef, useState } from "react";
+import uPlot from "uplot";
 import {
   ChartScatter,
   Download,
@@ -26,12 +17,13 @@ import { confirmDialog } from "../../dialog";
 import { useActiveRun, useOverlayRuns, useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import type { Channel, SimResult, SimRun } from "../../types";
-import { PALETTE, channelKey, minMaxIndices, useHasSize } from "./chartUtils";
+import { PALETTE, channelKey, useHasSize } from "./chartUtils";
 import { csvText } from "./csv";
+import { Plot, axisStyle, fmt, type PlotHandle, type PlotOptions } from "./Plot";
 import { RunInfo } from "./RunInfo";
 
 // dash patterns to distinguish channels when several runs are overlaid at once
-const DASHES = ["", "5 3", "2 2", "7 3 2 3", "9 4"];
+const DASHES = [[], [5, 3], [2, 2], [7, 3, 2, 3], [9, 4]];
 
 // Table view rows have a fixed height, so only the rows in view are drawn
 const TABLE_ROW_H = 26; // px
@@ -78,69 +70,6 @@ function exportCsv(result: SimResult, keys: Set<string>, name: string) {
   URL.revokeObjectURL(url);
 }
 
-/** Rasterize the chart to a PNG download at twice its on-screen size.
- *  Recharts 3 draws the legend as HTML over the chart's SVG, with a small SVG
- *  icon per entry (the first <svg> in the chart area, which this used to
- *  save), so each entry's icon and name are copied into the SVG first. */
-function exportPng(host: HTMLElement | null, bg: string, name: string) {
-  const svg = host?.querySelector<SVGSVGElement>(".recharts-wrapper > svg");
-  if (!host || !svg) return;
-  const rect = svg.getBoundingClientRect();
-  // on-screen px to the SVG's own units (they differ when the UI is scaled)
-  const k = svg.viewBox.baseVal.width / rect.width;
-  const width = Math.round(rect.width * 2);
-  const height = Math.round(rect.height * 2);
-  const clone = svg.cloneNode(true) as SVGSVGElement;
-  clone.removeAttribute("style"); // its 100% size means nothing in an image
-  clone.setAttribute("width", String(width));
-  clone.setAttribute("height", String(height));
-  // the page's font is set in CSS, which the image does not see
-  clone.setAttribute("font-family", getComputedStyle(svg).fontFamily);
-  for (const item of host.querySelectorAll(".recharts-legend-item")) {
-    const icon = item.querySelector("svg");
-    const label = item.querySelector(".recharts-legend-item-text");
-    if (!icon || !label) continue;
-    const at = icon.getBoundingClientRect();
-    const copy = icon.cloneNode(true) as SVGSVGElement;
-    copy.setAttribute("x", String((at.left - rect.left) * k));
-    copy.setAttribute("y", String((at.top - rect.top) * k));
-    const box = label.getBoundingClientRect();
-    const font = getComputedStyle(label.firstElementChild ?? label);
-    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    text.setAttribute("x", String((box.left - rect.left) * k));
-    text.setAttribute("y", String((box.top + box.height / 2 - rect.top) * k));
-    text.setAttribute("dominant-baseline", "central");
-    text.setAttribute("font-size", font.fontSize);
-    text.setAttribute("fill", font.color);
-    text.textContent = label.textContent;
-    clone.append(copy, text);
-  }
-  const xml = new XMLSerializer().serializeToString(clone);
-  const url = URL.createObjectURL(new Blob([xml], { type: "image/svg+xml;charset=utf-8" }));
-  const img = new Image();
-  img.onload = () => {
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.fillStyle = bg;
-      ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, 0, 0);
-    }
-    URL.revokeObjectURL(url);
-    canvas.toBlob((blob) => {
-      if (!blob) return;
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `${name}.png`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    }, "image/png");
-  };
-  img.src = url;
-}
-
 export function ResultsPanel() {
   const runs = useProjectStore((s) => s.runs);
   const activeRun = useActiveRun();
@@ -167,7 +96,8 @@ export function ResultsPanel() {
   const [sweepPick, setSweepPick] = useState("");
   const [xyXPick, setXyXPick] = useState(""); // channel picked as the X axis in the X-Y view
   const [showRunInfo, setShowRunInfo] = useState(false);
-  const { ref: chartHost, hasSize, element: chartEl } = useHasSize<HTMLDivElement>();
+  const { ref: chartHost, hasSize } = useHasSize<HTMLDivElement>();
+  const plotRef = useRef<PlotHandle>(null);
 
   // sensible default channel selection until the user picks for this case
   // (a live run starts with no channels, so it fills in as they arrive)
@@ -229,7 +159,7 @@ export function ResultsPanel() {
       dataKey: string;
       unit: string;
       color: string;
-      dash?: string;
+      dash?: number[];
       legend: string;
       channel: Channel;
     }[] = [];
@@ -253,37 +183,70 @@ export function ResultsPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plotRuns, selectedKeys, selectedList, multiRun]);
 
-  const defByKey = useMemo(
-    () => new Map(seriesDefs.map((d) => [d.dataKey, d])),
-    [seriesDefs],
-  );
-  const units = useMemo(() => [...new Set(seriesDefs.map((d) => d.unit))], [seriesDefs]);
-
-  const chartData = useMemo(() => {
-    // series on the same time grid (the channels of a run, and overlaid runs
-    // of the same case) are thinned together so their rows stay aligned
-    const grids = new Map<string, typeof seriesDefs>();
-    for (const d of seriesDefs) {
-      const ts = d.channel.timeSeries;
-      const grid = `${ts.length}:${ts[0]?.t}:${ts[ts.length - 1]?.t}`;
-      grids.set(grid, [...(grids.get(grid) ?? []), d]);
-    }
-    const map = new Map<number, Record<string, number | null>>();
-    for (const defs of grids.values()) {
-      for (const i of minMaxIndices(defs.map((d) => d.channel.timeSeries))) {
-        for (const d of defs) {
-          const pt = d.channel.timeSeries[i];
-          let row = map.get(pt.t);
-          if (!row) {
-            row = { t: pt.t };
-            map.set(pt.t, row);
-          }
-          row[d.dataKey] = pt.value;
-        }
-      }
-    }
-    return [...map.values()].sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
-  }, [seriesDefs]);
+  // uPlot columns: one time column, one column per series. Series on the
+  // same time grid (a run's channels, overlaid runs of the same case) share
+  // it as it is; other grids are merged, leaving gaps the lines span.
+  const chartData = useMemo((): uPlot.AlignedData => {
+    if (view !== "chart" || seriesDefs.length === 0) return [[]];
+    const grid = (ts: Channel["timeSeries"]) => `${ts.length}:${ts[0]?.t}:${ts[ts.length - 1]?.t}`;
+    const cols = seriesDefs.map((d) => d.channel.timeSeries.map((p) => p.value));
+    const first = seriesDefs[0].channel.timeSeries;
+    if (seriesDefs.every((d) => grid(d.channel.timeSeries) === grid(first)))
+      return [first.map((p) => p.t), ...cols];
+    return uPlot.join(seriesDefs.map((d, i) => [d.channel.timeSeries.map((p) => p.t), cols[i]]));
+  }, [seriesDefs, view]);
+  // what the series look like, as a string: a live run replaces its channel
+  // objects on every flush, and options built from them would rebuild the
+  // chart (and drop a zoom box being drawn) ten times a second
+  const seriesLook = JSON.stringify(seriesDefs.map(({ legend, unit, color, dash }) => ({ legend, unit, color, dash })));
+  const chartOptions = useMemo((): PlotOptions => {
+    const axis = axisStyle(theme);
+    const looks: { legend: string; unit: string; color: string; dash?: number[] }[] = JSON.parse(seriesLook);
+    const units = [...new Set(looks.map((d) => d.unit))];
+    return {
+      scales: { x: { time: false } },
+      series: [
+        { label: "t", value: (_u, v) => (v == null ? "—" : `${fmt(v)} s`) },
+        ...looks.map((d) => ({
+          label: d.legend,
+          scale: d.unit,
+          stroke: d.color,
+          width: 1.6,
+          dash: d.dash,
+          spanGaps: true,
+          value: (_u: uPlot, v: number | null) => (v == null ? "—" : `${fmt(v)} ${d.unit}`),
+        })),
+      ],
+      // one y axis per unit, on alternating sides
+      axes: [
+        { ...axis, label: "t [s]", size: 24 },
+        ...units.map((u, i) => ({
+          ...axis,
+          scale: u,
+          label: u,
+          side: i % 2 === 0 ? 3 : 1,
+          size: 50,
+          grid: { ...axis.grid, show: i === 0 },
+        })),
+      ],
+      cursor: {
+        drag: { x: true, y: false },
+        // runs on other time grids have gaps in the merged columns: read the
+        // nearest sample of the series, but none before its first or after
+        // its last (a shorter run has ended there)
+        dataIdx: (u, s, i) => {
+          const ys = u.data[s];
+          let lo = i;
+          let hi = i;
+          while (lo >= 0 && ys[lo] === undefined) lo--;
+          while (hi < ys.length && ys[hi] === undefined) hi++;
+          if (lo < 0 || hi >= ys.length) return null;
+          const x = u.data[0][i];
+          return x - u.data[0][lo] <= u.data[0][hi] - x ? lo : hi;
+        },
+      },
+    };
+  }, [seriesLook, theme]);
 
   // table shows only the active run (aligned time grid), every sample; only
   // the rows scrolled into view are drawn (see onTableScroll)
@@ -292,7 +255,7 @@ export function ResultsPanel() {
     [result, selectedKeys],
   );
   const tableData = useMemo(() => {
-    if (activeChannels.length === 0) return [];
+    if (view !== "table" || activeChannels.length === 0) return [];
     return activeChannels[0].timeSeries.map((pt, i) => {
       const row: Record<string, number | null> = { t: pt.t };
       activeChannels.forEach((c) => {
@@ -301,7 +264,7 @@ export function ResultsPanel() {
       });
       return row;
     });
-  }, [activeChannels]);
+  }, [activeChannels, view]);
   const [tableWindow, setTableWindow] = useState({ first: 0, count: TABLE_PAGE_ROWS });
   const onTableScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -332,21 +295,75 @@ export function ResultsPanel() {
     () => activeChannels.filter((c) => channelKey(c) !== xyXKey),
     [activeChannels, xyXKey],
   );
-  const xyYUnits = useMemo(() => [...new Set(xyYChannels.map((c) => c.unit))], [xyYChannels]);
   const xyXShort = xyXChannel ? (xyXChannel.label.split(" · ")[1] ?? xyXChannel.label) : "";
-  const xyData = useMemo(() => {
-    if (!xyXChannel || xyYChannels.length === 0) return [];
-    // the same sample indices for X and every Y, so each point is a real pair
-    const xs = xyXChannel.timeSeries;
-    const idx = minMaxIndices([xs, ...xyYChannels.map((c) => c.timeSeries)]);
-    return idx.map((i) => {
-      const row: Record<string, number | null> = { x: xs[i].value };
-      xyYChannels.forEach((c) => {
-        row[channelKey(c)] = c.timeSeries[i].value;
-      });
-      return row;
-    });
-  }, [xyXChannel, xyYChannels]);
+  const xyXLabel = `${xyXShort}${xyXChannel?.unit ? ` [${xyXChannel.unit}]` : ""}`;
+  // X-Y: every sample, X and each Y paired by index (uPlot's mode 2)
+  const xyData = useMemo((): uPlot.AlignedData => {
+    if (view !== "xy" || !xyXChannel || xyYChannels.length === 0) return [null] as unknown as uPlot.AlignedData;
+    const xs = xyXChannel.timeSeries.map((p) => p.value);
+    return [null, ...xyYChannels.map((c) => [xs, c.timeSeries.map((p) => p.value)])] as unknown as uPlot.AlignedData;
+  }, [view, xyXChannel, xyYChannels]);
+  const xyLook = JSON.stringify(
+    xyYChannels.map((c) => ({ legend: c.label.split(" · ")[1] ?? c.label, unit: c.unit, color: channelColor(channelKey(c)) })),
+  );
+  const xyXUnit = xyXChannel?.unit ?? "";
+  const xyOptions = useMemo((): PlotOptions => {
+    const axis = axisStyle(theme);
+    const looks: { legend: string; unit: string; color: string }[] = JSON.parse(xyLook);
+    const units = [...new Set(looks.map((d) => d.unit))];
+    const pair = (u: uPlot, s: number) => u.data[s] as unknown as (number | null)[][];
+    return {
+      mode: 2,
+      scales: { x: { time: false } },
+      series: [
+        {},
+        ...looks.map((d) => ({
+          label: d.legend,
+          stroke: d.color,
+          width: 1.6,
+          facets: [
+            { scale: "x", auto: true },
+            { scale: d.unit, auto: true },
+          ],
+          // the hovered point, as "x → y"
+          value: (u: uPlot, _v: number | null, s: number, i: number | null) =>
+            i == null ? "—" : `${fmt(pair(u, s)[0][i])} ${xyXUnit} → ${fmt(pair(u, s)[1][i])} ${d.unit}`,
+        })),
+      ] as uPlot.Series[],
+      axes: [
+        { ...axis, label: xyXLabel, size: 24 },
+        ...units.map((u, i) => ({ ...axis, scale: u, label: u, side: i % 2 === 0 ? 3 : 1, size: 50 })),
+      ],
+      cursor: {
+        drag: { x: true, y: true },
+        // hover picks the point nearest the pointer on the screen
+        dataIdx: (u, s) => {
+          const [xs, ys] = pair(u, s);
+          const { facets } = u.series[s];
+          const sx = u.scales[facets![0].scale];
+          const sy = u.scales[facets![1].scale];
+          if (sx.min == null || sx.max == null || sy.min == null || sy.max == null) return null;
+          const kx = u.over.clientWidth / (sx.max - sx.min || 1);
+          const ky = u.over.clientHeight / (sy.max - sy.min || 1);
+          const cx = u.posToVal(u.cursor.left!, facets![0].scale);
+          const cy = u.posToVal(u.cursor.top!, facets![1].scale);
+          let best: number | null = null;
+          let dist = Infinity;
+          for (let i = 0; i < xs.length; i++) {
+            const x = xs[i];
+            const y = ys[i];
+            if (x == null || y == null) continue;
+            const d = ((x - cx) * kx) ** 2 + ((y - cy) * ky) ** 2;
+            if (d < dist) {
+              dist = d;
+              best = i;
+            }
+          }
+          return best;
+        },
+      },
+    };
+  }, [xyLook, xyXLabel, xyXUnit, theme]);
 
   // sweep-summary data: chosen metric vs swept value across the family
   const sweepMetrics = useMemo(() => {
@@ -380,6 +397,53 @@ export function ResultsPanel() {
     [family, completeFamily, showIncomplete, sweepMetric],
   );
   const metricUnit = sweepData[0]?.unit ?? "";
+  const sweepCols = useMemo(
+    (): uPlot.AlignedData => [
+      sweepData.map((d) => d.x),
+      sweepData.map((d) => d.y),
+      ...(showIncomplete ? [sweepData.map((d) => d.yIncomplete)] : []),
+    ],
+    [sweepData, showIncomplete],
+  );
+  const sweepReasons = JSON.stringify(sweepData.map((d) => d.reason));
+  const sweepOptions = useMemo((): PlotOptions => {
+    const axis = axisStyle(theme);
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--ss-panel").trim();
+    const reasons: string[] = JSON.parse(sweepReasons);
+    const val = (_u: uPlot, v: number | null) => (v == null ? "—" : `${fmt(v, 4)} ${metricUnit}`);
+    return {
+      scales: { x: { time: false } },
+      series: [
+        { label: sweepParam, value: (_u, v) => (v == null ? "—" : `${fmt(v)}${sweepUnit ? ` ${sweepUnit}` : ""}`) },
+        {
+          label: sweepMetric,
+          stroke: PALETTE[0],
+          width: 1.8,
+          spanGaps: true,
+          points: { show: true, size: 6, fill: PALETTE[0] },
+          value: val,
+        },
+        // incomplete runs: hollow markers the curve does not pass through
+        ...(showIncomplete
+          ? [
+              {
+                label: "incomplete runs (partial values)",
+                stroke: PALETTE[0],
+                paths: () => null,
+                points: { show: true, size: 8, width: 1.5, fill: bg },
+                value: (u: uPlot, v: number | null, _s: number, i: number | null) =>
+                  v == null || i == null ? "—" : `${val(u, v)} (${reasons[i]})`,
+              },
+            ]
+          : []),
+      ],
+      axes: [
+        { ...axis, label: `${sweepParam}${sweepUnit ? ` [${sweepUnit}]` : ""}`, size: 24 },
+        { ...axis, label: metricUnit, size: 54 },
+      ],
+      cursor: { drag: { x: true, y: false } },
+    };
+  }, [sweepParam, sweepUnit, sweepMetric, metricUnit, sweepReasons, showIncomplete, theme]);
 
   const toggle = (key: string) => {
     if (!selKey) return;
@@ -726,9 +790,8 @@ export function ResultsPanel() {
               disabled={view === "table"}
               title="Export the chart as a PNG image"
               onClick={() =>
-                exportPng(
-                  chartEl.current,
-                  theme === "dark" ? "#1b1f26" : "#ffffff",
+                plotRef.current?.png(
+                  getComputedStyle(document.documentElement).getPropertyValue("--ss-panel").trim(),
                   `lightsim-${activeRun?.caseName ?? "chart"}`,
                 )
               }
@@ -797,67 +860,7 @@ export function ResultsPanel() {
         ) : view === "sweep" ? (
           <div className="min-h-0 flex-[3] p-1" ref={chartHost}>
             {sweepData.length > 0 && hasSize ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={sweepData} margin={{ top: 10, right: 20, bottom: 16, left: 8 }}>
-                  <CartesianGrid stroke={theme === "dark" ? "#2a2f37" : "#eceff3"} />
-                  <XAxis
-                    dataKey="x"
-                    type="number"
-                    domain={["dataMin", "dataMax"]}
-                    tick={{ fontSize: 10 }}
-                    label={{
-                      value: `${sweepParam}${sweepUnit ? ` [${sweepUnit}]` : ""}`,
-                      position: "insideBottom",
-                      offset: -8,
-                      fontSize: 11,
-                    }}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10 }}
-                    width={54}
-                    label={{
-                      value: metricUnit,
-                      angle: -90,
-                      position: "insideLeft",
-                      fontSize: 10,
-                      style: { textAnchor: "middle" },
-                    }}
-                  />
-                  <Tooltip
-                    cursor={{ stroke: "var(--ss-accent)", strokeWidth: 1, strokeDasharray: "3 3" }}
-                    contentStyle={{
-                      fontSize: 11,
-                      background: "var(--ss-panel)",
-                      border: "1px solid var(--ss-border)",
-                      color: "var(--ss-text)",
-                    }}
-                    labelFormatter={(x) => `${sweepParam} = ${x}${sweepUnit ? ` ${sweepUnit}` : ""}`}
-                    formatter={(value, name, item) => [
-                      `${typeof value === "number" ? value.toLocaleString(undefined, { maximumFractionDigits: 4 }) : value} ${metricUnit}` +
-                        (name === "yIncomplete" ? ` — incomplete run (${item.payload.reason}), partial value` : ""),
-                      sweepMetric,
-                    ]}
-                  />
-                  <Line
-                    dataKey="y"
-                    type="monotone"
-                    stroke={PALETTE[0]}
-                    strokeWidth={1.8}
-                    dot={{ r: 3, fill: PALETTE[0] }}
-                    connectNulls
-                    isAnimationActive={false}
-                  />
-                  {showIncomplete && (
-                    <Line
-                      dataKey="yIncomplete"
-                      stroke="none"
-                      dot={{ r: 4, fill: "none", stroke: PALETTE[0], strokeWidth: 1.5 }}
-                      activeDot={{ r: 5, fill: "none", stroke: PALETTE[0], strokeWidth: 1.5 }}
-                      isAnimationActive={false}
-                    />
-                  )}
-                </LineChart>
-              </ResponsiveContainer>
+              <Plot options={sweepOptions} data={sweepCols} label="Sweep chart" ref={plotRef} />
             ) : (
               <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--ss-text-dim)]">
                 {family.length < 2
@@ -868,86 +871,8 @@ export function ResultsPanel() {
           </div>
         ) : view === "xy" ? (
           <div className="min-h-0 flex-[3] p-1" ref={chartHost}>
-            {xyData.length > 0 && hasSize ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={xyData} margin={{ top: 8, right: 16, bottom: 18, left: 4 }}>
-                  <CartesianGrid stroke={theme === "dark" ? "#2a2f37" : "#eceff3"} />
-                  <XAxis
-                    dataKey="x"
-                    type="number"
-                    domain={["dataMin", "dataMax"]}
-                    tick={{ fontSize: 10 }}
-                    label={{
-                      value: `${xyXShort}${xyXChannel?.unit ? ` [${xyXChannel.unit}]` : ""}`,
-                      position: "insideBottom",
-                      offset: -8,
-                      fontSize: 11,
-                    }}
-                  />
-                  {xyYUnits.map((u, i) => (
-                    <YAxis
-                      key={u}
-                      yAxisId={u}
-                      orientation={i % 2 === 0 ? "left" : "right"}
-                      tick={{ fontSize: 10 }}
-                      width={46}
-                      label={{
-                        value: u,
-                        angle: -90,
-                        position: i % 2 === 0 ? "insideLeft" : "insideRight",
-                        fontSize: 10,
-                        style: { textAnchor: "middle" },
-                      }}
-                    />
-                  ))}
-                  <Tooltip
-                    cursor={{ stroke: "var(--ss-accent)", strokeWidth: 1, strokeDasharray: "3 3" }}
-                    contentStyle={{
-                      fontSize: 11,
-                      background: "var(--ss-panel)",
-                      border: "1px solid var(--ss-border)",
-                      color: "var(--ss-text)",
-                    }}
-                    labelFormatter={(x) =>
-                      `${xyXShort} = ${typeof x === "number" ? x.toLocaleString(undefined, { maximumFractionDigits: 3 }) : x}${xyXChannel?.unit ? ` ${xyXChannel.unit}` : ""}`
-                    }
-                    formatter={(value, name) => {
-                      const c = channelByKey.get(String(name));
-                      const v =
-                        typeof value === "number"
-                          ? value.toLocaleString(undefined, { maximumFractionDigits: 3 })
-                          : String(value ?? "");
-                      return [`${v} ${c?.unit ?? ""}`, c ? (c.label.split(" · ")[1] ?? c.label) : String(name)];
-                    }}
-                  />
-                  <Legend
-                    formatter={(key: string) => {
-                      const c = channelByKey.get(key);
-                      return (
-                        <span style={{ fontSize: 10, color: "var(--ss-text)" }}>
-                          {c ? (c.label.split(" · ")[1] ?? c.label) : key}
-                        </span>
-                      );
-                    }}
-                  />
-                  {xyYChannels.map((c) => {
-                    const key = channelKey(c);
-                    return (
-                      <Line
-                        key={key}
-                        yAxisId={c.unit}
-                        dataKey={key}
-                        type="linear"
-                        dot={false}
-                        strokeWidth={1.6}
-                        stroke={channelColor(key)}
-                        connectNulls
-                        isAnimationActive={false}
-                      />
-                    );
-                  })}
-                </LineChart>
-              </ResponsiveContainer>
+            {xyData.length > 1 && hasSize ? (
+              <Plot options={xyOptions} data={xyData} label="X-Y chart" ref={plotRef} />
             ) : (
               <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[color:var(--ss-text-dim)]">
                 {selectedKeys.size < 2
@@ -958,74 +883,8 @@ export function ResultsPanel() {
           </div>
         ) : (
           <div className="min-h-0 flex-[3] p-1" ref={chartHost}>
-            {chartData.length > 0 && hasSize ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
-                  <CartesianGrid stroke={theme === "dark" ? "#2a2f37" : "#eceff3"} />
-                  <XAxis
-                    dataKey="t"
-                    type="number"
-                    domain={["dataMin", "dataMax"]}
-                    tick={{ fontSize: 10 }}
-                    // (a lap case ends at no round time)
-                    tickFormatter={(v: number) => String(Number(v.toFixed(3)))}
-                    label={{ value: "t [s]", position: "insideBottomRight", fontSize: 10, offset: -2 }}
-                  />
-                  {units.map((u, i) => (
-                    <YAxis
-                      key={u}
-                      yAxisId={u}
-                      orientation={i % 2 === 0 ? "left" : "right"}
-                      tick={{ fontSize: 10 }}
-                      width={46}
-                      label={{
-                        value: u,
-                        angle: -90,
-                        position: i % 2 === 0 ? "insideLeft" : "insideRight",
-                        fontSize: 10,
-                        style: { textAnchor: "middle" },
-                      }}
-                    />
-                  ))}
-                  <Tooltip
-                    cursor={{ stroke: "var(--ss-accent)", strokeWidth: 1, strokeDasharray: "3 3" }}
-                    contentStyle={{
-                      fontSize: 11,
-                      background: "var(--ss-panel)",
-                      border: "1px solid var(--ss-border)",
-                      color: "var(--ss-text)",
-                    }}
-                    labelFormatter={(t) => `t = ${t} s`}
-                    formatter={(value, name) => {
-                      const def = defByKey.get(String(name));
-                      const v =
-                        typeof value === "number"
-                          ? value.toLocaleString(undefined, { maximumFractionDigits: 3 })
-                          : String(value ?? "");
-                      return [`${v} ${def?.unit ?? ""}`, def?.legend ?? String(name)];
-                    }}
-                  />
-                  <Legend
-                    formatter={(key: string) => (
-                      <span style={{ fontSize: 10, color: "var(--ss-text)" }}>{defByKey.get(key)?.legend ?? key}</span>
-                    )}
-                  />
-                  {seriesDefs.map((d) => (
-                    <Line
-                      key={d.dataKey}
-                      yAxisId={d.unit}
-                      dataKey={d.dataKey}
-                      type="linear"
-                      dot={false}
-                      strokeWidth={1.6}
-                      strokeDasharray={d.dash || undefined}
-                      stroke={d.color}
-                      connectNulls
-                      isAnimationActive={false}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+            {seriesDefs.length > 0 && hasSize ? (
+              <Plot options={chartOptions} data={chartData} label="Results chart" ref={plotRef} />
             ) : (
               <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--ss-text-dim)]">
                 Tick channels on the left to plot them.

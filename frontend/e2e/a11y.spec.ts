@@ -140,7 +140,7 @@ for (const theme of ["light", "dark"] as const) {
       // axe leaves text over a chart unjudged: legend names use the text
       // colour, as several series colours are too faint for text (GUI-02)
       const text = await page.locator("#root").evaluate((r) => getComputedStyle(r).color);
-      await expect(page.locator(".recharts-legend-item-text > span").first()).toHaveCSS("color", text);
+      await expect(page.locator(".u-legend .u-label").first()).toHaveCSS("color", text);
     });
 
     // UX-09 / UX-15: the Problems list with problems in it and the Data Bus

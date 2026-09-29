@@ -31,11 +31,19 @@ export async function showPanel(page: Page, title: string): Promise<void> {
   if (!showing) await tab.click();
 }
 
-/** Chart lines drawn on screen. Hidden panels (such as the model workspace
- *  kept behind the Results page) can hold charts too, so only visible lines
- *  count. */
+/** Charts drawn on screen with at least one line in them. A chart is a
+ *  canvas, named for screen readers by what it shows ("Results chart: SOC,
+ *  …; t [s] 0 to 600"). Hidden panels (such as the model workspace kept
+ *  behind the Results page) can hold charts too, so only visible ones count. */
 export function drawnLines(page: Page): Locator {
-  return page.locator(".recharts-line-curve").filter({ visible: true });
+  return page.getByRole("img", { name: /^(Results chart|X-Y chart|Sweep chart|Signal Plot): \S/ }).filter({ visible: true });
+}
+
+/** The x range a chart shows, read from its name ("…; t [s] 120 to 240"). */
+export async function xRange(chart: Locator): Promise<[number, number]> {
+  const m = /(-?[\d,.]+) to (-?[\d,.]+)$/.exec((await chart.getAttribute("aria-label")) ?? "");
+  if (!m) throw new Error("the chart's name has no range");
+  return [Number(m[1].replace(/,/g, "")), Number(m[2].replace(/,/g, ""))];
 }
 
 /** The global Run button in the ribbon header (runs the active case). */
