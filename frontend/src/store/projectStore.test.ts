@@ -43,6 +43,7 @@ let api: MockedObject<typeof import("../api")>;
 let persist: typeof import("../persist");
 let useProjectStore: typeof import("./projectStore").useProjectStore;
 let confirmReplaceProject: typeof import("./projectStore").confirmReplaceProject;
+let previousRunOf: typeof import("./projectStore").previousRunOf;
 let useUIStore: typeof import("./uiStore").useUIStore;
 const store = () => useProjectStore.getState();
 
@@ -126,7 +127,7 @@ beforeEach(async () => {
   localStorage.clear();
   api = vi.mocked(await import("../api"));
   persist = await import("../persist");
-  ({ useProjectStore, confirmReplaceProject } = await import("./projectStore"));
+  ({ useProjectStore, confirmReplaceProject, previousRunOf } = await import("./projectStore"));
   useUIStore = (await import("./uiStore")).useUIStore;
 
   api.fetchLibrary.mockResolvedValue({
@@ -1116,6 +1117,36 @@ describe("run history", () => {
     expect(api.runSimulationLive.mock.lastCall![1]).toBe(accel[0].id);
   });
 
+  it("a new run keeps the runs the user overlaid (RES-19)", async () => {
+    await start();
+    engineFinishesRuns();
+    const [first] = await runTimes(2);
+    store().toggleOverlayRun(first);
+    await store().run();
+    expect(store().overlayRunIds).toEqual([first]);
+  });
+
+  it("the previous run of a case is its newest finished run before, sweep points included (RES-10, RES-19)", () => {
+    const run = (id: string, startedAt: number, extra: Partial<SimRun> = {}) =>
+      ({ id, caseId: "c", startedAt, status: "success", ...extra }) as SimRun;
+    const runs = [
+      run("now", 9, { status: "running" }),
+      run("other-case", 8, { caseId: "x" }),
+      run("stopped", 7, { status: "cancelled", incomplete: "stopped at t = 3 s" }),
+      run("failed", 6, { status: "failed" }),
+      run("lost", 5, { status: "failed", incomplete: "connection lost" }),
+      run("point", 4, { sweepId: "sw", sweepValue: 2 }),
+      run("warning", 3, { status: "warning" }),
+      run("oldest", 1),
+    ];
+    const previous = (before?: number) => previousRunOf("c", runs, before)?.id;
+    expect(previous()).toBe("point"); // the newest finished one (not the running one)
+    expect(previous(4)).toBe("warning"); // a warning is finished
+    expect(previous(3)).toBe("oldest");
+    expect(previous(1)).toBeUndefined();
+    expect(previousRunOf("x", runs, 8)).toBeUndefined();
+  });
+
   it("removing the active run falls back to the newest one left; Clear empties the history", async () => {
     await start();
     engineFinishesRuns();
@@ -1435,6 +1466,103 @@ describe("run snapshots", () => {
     await settled();
     store().openRunModel("old");
     expect(store().project?.id).toBe("fixture");
+  });
+
+  it("a re-run is named by what changed since the previous run of its case, and stored with it (RES-10)", async () => {
+    await start();
+    engineFinishesRuns();
+    await store().run();
+    expect(store().runs[0].name).toBeUndefined(); // nothing to compare with: its clock time
+    store().setParameter("el-shaft", "efficiency_pct", 90);
+    await store().run();
+    expect(store().runs[0].name).toBe("Mechanical Efficiency 90 %");
+    expect(api.storeRun.mock.lastCall![1].name).toBe("Mechanical Efficiency 90 %");
+    await store().run();
+    expect(store().runs[0].name).toBeUndefined(); // the same model again
+  });
+
+  it("sweep points keep their swept value; a stopped run is not the one a re-run is named against (RES-10)", async () => {
+    await start();
+    engineFinishesRuns();
+    await store().run();
+    await store().runSweep({ caseId: "case-1", elementId: "el-shaft", paramKey: "efficiency_pct", values: [80, 90] });
+    expect(store().runs.filter((r) => r.sweepId).map((r) => r.name)).toEqual([undefined, undefined]);
+    // after the sweep, a run compares with its last point (90 %)
+    await store().run();
+    expect(store().runs[0].name).toBe("Mechanical Efficiency 100 %");
+
+    // a run the engine cut short
+    api.runSimulationLive.mockImplementation((_project, caseId) => ({
+      setParam: vi.fn(),
+      cancel: vi.fn(),
+      done: Promise.resolve({
+        caseId,
+        status: "cancelled" as const,
+        messages: [{ level: "info" as const, text: "Simulation cancelled by user at t = 7 s." }],
+        channels: [],
+        summary: [],
+      }),
+    }));
+    store().setParameter("el-shaft", "efficiency_pct", 50);
+    await store().run();
+    expect(store().runs[0].incomplete).toBe("stopped at t = 7 s");
+    engineFinishesRuns();
+    store().setParameter("el-shaft", "efficiency_pct", 100);
+    await store().run();
+    expect(store().runs[0].name).toBeUndefined(); // as the complete run before the stopped one
+  });
+
+  it("a run's name and note are edited and stored again; empty removes them; not while running (RES-10)", async () => {
+    await start();
+    engineFinishesRuns();
+    await store().run();
+    const id = store().runs[0].id;
+    store().editRun(id, { name: "  Heavier  ", note: "n" });
+    expect(store().runs[0]).toMatchObject({ name: "Heavier", note: "n" });
+    expect(api.storeRun.mock.lastCall![1]).toMatchObject({ id, name: "Heavier", note: "n" });
+    const stores = api.storeRun.mock.calls.length;
+    store().editRun(id, { name: "Heavier" }); // no change: not stored again
+    expect(api.storeRun.mock.calls.length).toBe(stores);
+    store().editRun(id, { name: "" });
+    expect(store().runs[0].name).toBeUndefined();
+    expect(store().runs[0].note).toBe("n");
+    expect("name" in api.storeRun.mock.lastCall![1]).toBe(false);
+
+    const { finish } = liveRun();
+    const running = store().run();
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalledTimes(2));
+    store().editRun(id, { note: "while running" });
+    expect(store().runs.find((r) => r.id === id)!.note).toBe("n");
+    finish();
+    await running;
+  });
+});
+
+describe("Results plot choices (RES-19)", () => {
+  it("are kept per project and case in localStorage, and read back at start-up", async () => {
+    const ui = useUIStore.getState();
+    ui.setPlotView("p1", "case-1", { channels: ["el-bat:sig_soc"], view: "table" });
+    ui.setPlotView("p1", "case-1", { xKey: "el-bat:sig_soc", baselineRunId: null });
+    ui.setComparePrevious("p1", false);
+    vi.resetModules();
+    const again = (await import("./uiStore")).useUIStore.getState();
+    expect(again.resultsViews).toEqual({
+      p1: {
+        comparePrevious: false,
+        cases: { "case-1": { channels: ["el-bat:sig_soc"], view: "table", xKey: "el-bat:sig_soc", baselineRunId: null } },
+      },
+    });
+  });
+
+  it("keep the 50 projects changed last", () => {
+    const ui = useUIStore.getState();
+    for (let i = 0; i <= 50; i++) ui.setPlotView(`p${i}`, "c", { view: "table" });
+    ui.setComparePrevious("p1", false);
+    const ids = Object.keys(useUIStore.getState().resultsViews);
+    expect(ids).toHaveLength(50);
+    expect(ids[0]).toBe("p2");
+    expect(ids.at(-1)).toBe("p1");
+    expect(JSON.parse(localStorage.getItem("lightsim-results-view-v1")!).p0).toBeUndefined();
   });
 });
 

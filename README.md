@@ -35,9 +35,11 @@ browser and needs no internet connection. Its pages are the Markdown in
    *Battery Electric Car*, an electric car modelled on the 2021 Cupra Born.
    Click any part on the diagram to see and change its values on the right,
    then press **Run** at the top right.
-4. **Read the results.** The *Results* tab shows the run: tick channels on
-   the left to plot them, and read energy use, consumption and distance in
-   the summary under the chart.
+4. **Read the results.** The *Results* tab shows the run: consumption,
+   distance and charge in the headline numbers above the chart (*All
+   summary values* under it opens the full list), and a plot of the target
+   against the actual speed, with the battery's charge and power; tick
+   channels on the left to plot others.
 
    ![A finished run: battery power and charge over the City Cycle, with the summary below](docs/screenshots/lightsim-0.2.0-results.png)
 
@@ -72,7 +74,7 @@ Differential).
 | **Scripting** | Script (Function) component: user-written Python `step(t, dt, inputs, state, params)` with named per-instance ports — for hybrid control strategies, custom recuperation logic, signal math. `step()` is called every solver step with `dt` = that step (0.01 s unless the case time step is shorter), or at the block's *Sample Time* with `dt` = the Sample Time when that is longer; wired inputs are fresh on every call. Scripts get `math`, `clamp()` and `interp()` and a small set of builtins; other imports, file access, class definitions and dunder attributes are refused, and each call must return within 2 s. During a run, scripts execute in a separate process that the engine stops if a call overruns, with a 512 MB memory cap; on Linux 5.13+ the kernel (Landlock) also blocks its file and TCP access. What each platform does and does not block: [Known issues and limits](docs/KNOWN-LIMITS.md) |
 | **Maps** | E-Motor with voltage-dependent full-load torque map, power-loss map and unpowered drag torque; combustion engine full-load curve, fuel map and unfired drag torque; battery OCV(SOC) table — all edited in table grids in the Properties panel |
 | **Problems** | One list of every problem the model has now: the Data Checks, which run by themselves a moment after a project opens and after every change, and the latest run's warnings and errors, each with a "How to fix" line; a click or Enter selects the part(s) it is about and zooms the diagram to them, and the status bar counts the errors. Data Checks are pre-run validation: reference integrity, port-kind mismatches, parameter limits (from the catalog, also for a case's own values), table data, drive-cycle and road-profile entries (an entry that is not an `x:value` pair of numbers, or points out of order, is an error; a repeated x is a warning), Sample Times (negative or not a finite number is an error, above 0.1 s a warning), script compilation (compile only — script code never runs during checks), driveline solvability (delegated to the solver's model extraction). Errors that block the run when the model cannot drive: an E-Motor with no power source, a motor or engine that reaches no wheel, an open differential with a free output, a missing command or target-speed signal, a speed demand that reaches no motor or engine, two signals wired into one input, a CG height while all wheels are on one axle, and for a lap case a missing Race Track or E-Motor, wheels all on one axle, an engine or clutch on the wheels, Laps that are not a whole number from 1 to 500, and a Custom curvature table that does not start at 0 m, is shorter than 10 m or bends tighter than 0.5 1/m. Warnings for parts the solver would leave out (unconnected, or an input that silently reads 0) and for implausible values (vehicle mass, battery size, auxiliary load, final-drive ratio, wheel load shares that do not add up to 100 %, which the solver scales to 100 % (a 0 % total is an error), a CG height above the wheelbase, a battery that starts empty; for a lap case, a gearbox held in its gear and a Custom closed track that does not close). An all-clear says what was checked; it does not vouch for the results |
-| **Results** | Dedicated full-page Results workspace (own ribbon tab): channel picker grouped per element, multi-channel time-series **chart or table view** that fills in live during the run, summary table (SOC, energy, recuperation, distance, consumption, fuel and CO₂ per km, electrical energy balance error, time a motor was held back by its supply, regeneration a motor's supply could not take) with a *not valid* note on figures the run's checks rule out (see [Run status](#run-status-and-not-valid-figures)), CSV export. Each run keeps a copy of the model and case settings it ran with, the app version and the parameters edited while it ran; *Run info* (ⓘ next to the run picker) shows them and opens that model again as an unsaved copy. Point 0 is the initial state at t = 0, each later point holds the state at its own time, and the run ends exactly at the case duration |
+| **Results** | Dedicated full-page Results workspace (own ribbon tab): channel picker grouped per element, headline numbers above the chart (consumption or fuel, distance, charge and energy; a test's time and speed, with its pass or fail), multi-channel time-series **chart or table view** that fills in live during the run and opens on target against actual speed, with zoom and pan on every chart (mouse wheel, a dragged box, Shift+drag; a double-click shows the whole run), each y axis fitted to its data (*Axes* starts one at 0 or sets its ends) and the x axis in s, min or h or against the distance driven, measurement cursors A and B (*Cursors* or C; typed times, the arrow keys or a dragged line) with each signal's values there, the difference, and its minimum, maximum, mean, RMS and integral between them (kWh from kW) and a time-to-reach form (0 to 100 km/h), the full summary table under the chart (SOC, energy, recuperation, distance, consumption, fuel and CO₂ per km, electrical energy balance error, time a motor was held back by its supply, regeneration a motor's supply could not take) with a *not valid* note on figures the run's checks rule out (see [Run status](#run-status-and-not-valid-figures)), CSV export along the chart's x axis. Each run keeps a copy of the model and case settings it ran with, the app version and the parameters edited while it ran; *Run info* (ⓘ next to the run picker) shows them and opens that model again as an unsaved copy. A run of a case is compared with the previous one (or another run picked as the *Baseline*): it is named after what changed (*Vehicle Mass 2,300 kg*; the name and a note can be edited in *Run info* and are stored with the run), the baseline is drawn faint and dashed with it, the headline numbers and the summary give the change and % change (*~ 0* within the stored rounding), and *What changed* lists the edits between the two, each part a click from the diagram. Each case keeps its ticked channels, view, axes and zoom across runs and restarts, and a new run keeps the runs you overlaid. Point 0 is the initial state at t = 0, each later point holds the state at its own time, and the run ends exactly at the case duration |
 | **Parameter studies** | Per-case parameter overrides and one-parameter sweeps (Cases & Parameters panel). Each sweep is saved with the project as a study: what was swept on which case, and its results table with a row per point (value, status, run, every summary value; CSV download), kept after its runs leave the Results history |
 | **Electrical** | Two-terminal components: every electrical element has explicit positive (+, red) and negative (−, blue) pins; the solver balances power on the supply rail with the negative terminals as the return (wire to Ground, or leave implicit) |
 | **Canvas** | Signal/data-bus wiring is edited in the Data Bus panel, one row per signal input with a searchable box that offers the outputs (those that share a word with the input's name first, then its unit), so a link is two clicks; a part's right-click menu has *Signals…*; links between two inputs or two outputs are refused; an optional dashed overlay draws those links on the canvas (the *signal* layer in Layer Configurations, off by default); background-grid toggle; double-click an element for a modal parameter dialog; Shift+click a pin to move it to the next side of its node, Shift+drag a pin to slide it anywhere along the node's edges (Shift+drag elsewhere draws a selection box) |
@@ -334,7 +336,7 @@ frontend/  React 19 + TypeScript + Vite
   ├─ Dockview        dockable panel shell (library / canvas / properties / bottom tabs)
   ├─ React Flow      topology canvas with custom element nodes & kind-colored edges
   ├─ Zustand         project graph, selection, undo history, live run state, results
-  ├─ Recharts        results time-series charts (live-updating)
+  ├─ uPlot           results charts on a canvas (live-updating, zoom and pan)
   ├─ Tailwind CSS    dense engineering-tool styling
   └─ scripts/build-docs.mjs   the help pages: docs/help/, README sections, docs/,
                               the catalogue and the cycles → public/help (marked)
@@ -573,8 +575,8 @@ that step, then the *Gap to reference time* (when one is set), *Time to
 share of the run a driven wheel spent at the tyres' grip limit. The case
 *Duration* is the time limit, counted from rest: a car that has not
 reached the line by then gets a warning and no time. The results are
-estimates, and Messages, Run info and the summary header say so (see
-[Known issues and limits](docs/KNOWN-LIMITS.md)).
+estimates, and Messages, Run info, the headline numbers and the summary
+header say so (see [Known issues and limits](docs/KNOWN-LIMITS.md)).
 
 Set it to *Lap* to drive the model's *Race Track* (Driver & Signals). Its
 *Track layout* and *Laps*, set in the case, choose the run: Autocross (a
@@ -599,7 +601,8 @@ braking (they add up to the total), and the *Lap energy balance error*; the
 Race Track's channels give the lap distance, curvature, longitudinal and
 lateral acceleration in g, what limited the car and a map (plot them in
 the X-Y view). Lap cases drive E-Motor cars only. The results are
-estimates, and Messages, Run info and the summary header say so.
+estimates, and Messages, Run info, the headline numbers and the summary
+header say so.
 
 Summary figures that a failed check makes meaningless are marked *not
 valid*, with the reason, in the results table:

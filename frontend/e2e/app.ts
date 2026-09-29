@@ -31,11 +31,42 @@ export async function showPanel(page: Page, title: string): Promise<void> {
   if (!showing) await tab.click();
 }
 
-/** Chart lines drawn on screen. Hidden panels (such as the model workspace
- *  kept behind the Results page) can hold charts too, so only visible lines
- *  count. */
+/** Charts drawn on screen with at least one line in them. A chart is a
+ *  canvas, named for screen readers by what it shows ("Results chart: SOC,
+ *  …; t [s] 0 to 600"). Hidden panels (such as the model workspace kept
+ *  behind the Results page) can hold charts too, so only visible ones count. */
 export function drawnLines(page: Page): Locator {
-  return page.locator(".recharts-line-curve").filter({ visible: true });
+  return page.getByRole("img", { name: /^(Results chart|X-Y chart|Sweep chart|Signal Plot): \S/ }).filter({ visible: true });
+}
+
+/** The x range a chart shows, read from its name ("…; t [s] 120 to 240"). */
+export async function xRange(chart: Locator): Promise<[number, number]> {
+  const m = /(-?[\d,.]+) to (-?[\d,.]+)$/.exec((await chart.getAttribute("aria-label")) ?? "");
+  if (!m) throw new Error("the chart's name has no range");
+  return [Number(m[1].replace(/,/g, "")), Number(m[2].replace(/,/g, ""))];
+}
+
+/** The range of a chart's y axis for `unit`, read from its name
+ *  ("Results chart: SOC, …; % 88.7 to 90.1, kW -13 to 26; t [s] 0 to 600"). */
+export async function yRange(chart: Locator, unit: string): Promise<[number, number]> {
+  const name = (await chart.getAttribute("aria-label")) ?? "";
+  const axes = name.split("; ")[1] ?? "";
+  const m = new RegExp(`(?:^|, )${unit.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")} (-?[\\d,.]+) to (-?[\\d,.]+)(?:,|$)`).exec(axes);
+  if (!m) throw new Error(`the chart's name has no ${unit} axis: ${name}`);
+  return [Number(m[1].replace(/,/g, "")), Number(m[2].replace(/,/g, ""))];
+}
+
+/** Open the full summary table under the chart: with one run it is folded
+ *  under "All summary values", the headline numbers above the chart (RES-30). */
+export async function openSummary(page: Page): Promise<Locator> {
+  const all = page.locator("details").filter({ has: page.getByText(/^All summary values/) });
+  if (!(await all.evaluate((d) => (d as HTMLDetailsElement).open))) await all.locator("summary").click();
+  return all;
+}
+
+/** A headline number above the Results chart, by its summary label. */
+export function headlineTile(page: Page, label: string): Locator {
+  return page.getByLabel("Headline results").getByTitle(label, { exact: true });
 }
 
 /** The global Run button in the ribbon header (runs the active case). */

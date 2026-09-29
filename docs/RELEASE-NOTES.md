@@ -273,6 +273,94 @@ sections.
   which the form no longer quietly changes. An acceleration case's
   *Distance*, *Start line* and *Reference time* turn red as you type, but
   are not yet Data Checks: a run ignores a value outside them. (UX-10)
+- Charts zoom and pan: on the *Results* chart, the X-Y view and the
+  *Signal Plot*, roll the mouse wheel to zoom in or out around the pointer,
+  drag a box to zoom in on it, Shift+drag to move the view, and
+  double-click to see the whole run again; a chart with the keyboard focus
+  takes +, −, the left and right arrows and 0. The zoom stays when you
+  tick another channel and while a run is still adding points. Charts now
+  draw every stored point (the highest and lowest of each pixel column, so
+  no peak is lost), so zooming in shows each one, and their y axes fit the
+  data in view instead of starting at 0. The values under the pointer show
+  in the legend under the chart instead of in a pop-up (in the *Signal
+  Plot*, in its toolbar). On a 1-hour run (36,001 points), ticking a
+  channel redraws in about 25 ms (40 ms with the baseline drawn faint as
+  well) instead of 50-110 ms. The **PNG** picture
+  shows the view you zoomed to. A screen reader names what each chart
+  shows and its time range. The charts are drawn with uPlot (MIT licence)
+  instead of Recharts. (RES-05)
+- Chart axes fit the data: a y axis spans its unit's data plus 5 %, at
+  round ends, and takes in 0 only when that range comes near it, so on the
+  Battery Electric Car's City Cycle the SOC (88.76 to 90 %) and the
+  terminal voltage fill 88 % and 90 % of the plot (1 % and 2 % on 0.2.0's
+  axes from 0). A trace that barely changes fills the plot too: **Axes**,
+  above the chart and X-Y view, starts a unit's axis at 0 or sets its
+  ends. The sweep view fits its axis the same way and opens on the run's
+  first headline number (a test's time, the fuel or the energy
+  consumption) instead of the final SOC. The **Time · auto** list reads
+  the time in s, min or h (automatic: s up to an hour, min up to 3 hours)
+  or plots the run against the distance driven (the Vehicle's *Distance*,
+  in m below 1 km, in km above; a stop draws as a vertical line). Ticks
+  fall on round steps of the axis's unit at any zoom; the legend reads
+  values to 4 significant digits and the time or distance to the samples'
+  step, with the time too on a distance axis; and the **CSV** starts with
+  `t_s` as before, or with the x axis picked for the chart: `t_min`,
+  `t_h`, or `distance_m` or `distance_km` followed by `t_s`. A screen
+  reader names each axis's range. (RES-18)
+- The *Results* page leads with the run's headline numbers, in a strip
+  above the chart: consumption (or fuel consumption and CO₂), distance, the
+  final charge and the energy the battery gave and took back; a test's
+  time, speed at the line or top speed; a lap case's lap time. A failed
+  check comes first. Each keeps its *pass* or *fail* marker, limit and
+  *not valid* reason, and the strip says when the results are estimates.
+  At 1366 × 768 all of them are in view (before, *Distance driven* and
+  *Consumption* were the 5th and 6th rows of a 4-row box). The full table
+  folds under *All summary values*, which opens by itself when runs are
+  overlaid, and the chart gains 59 px. The plot of a first run opens on
+  the target against the actual speed (did the car follow its cycle?),
+  the target dashed and drawn on top, with the battery's SOC and power.
+  (RES-30)
+- Measurement cursors: **Cursors** above the *Results* chart (or C) puts
+  two lines, A and B, on it. Type a time into the A or B field under the
+  chart, step one stored point at a time with the up and down arrows (ten
+  with Page Up and Page Down), or drag a line; the cursors always sit on a
+  stored point. A table then gives each plotted signal's value at A and B,
+  the difference, and between them its minimum, maximum, mean, RMS (root
+  mean square) and integral: kWh from kW, Ah from A, m from km/h, kg from
+  kg/h and revolutions from 1/min (mean, RMS and integral weighted by time,
+  with the trapezoid rule). On the Battery Electric Car's City Cycle, the
+  battery gave 0.4236 kWh from 150 to 300 s. *Time to reach* places A and
+  B where a signal first reaches one value and then another, so the time
+  between them reads as Δt (0 to 50 km/h: 31 s). The lines follow zoom and
+  the distance axis and are in the **PNG**. Each run keeps its cursors
+  while you switch views, overlay runs (they are measured at the same
+  times, or on the distance axis where the lines cross them) or leave the
+  page, until LightSim closes; they are not saved.
+  Moving a cursor on a 1-hour run (36,001 points) with 10 signals plotted
+  takes about 2 ms. (RES-06)
+- The *Results* page keeps each case's choices: the ticked channels, the
+  view, the x axis and y axes, the chart's zoom, the X-Y view's X channel
+  and the sweep's figure stay for its next runs, when you go to another
+  page and back, and when LightSim is opened again (they are kept in the
+  app's own storage, not in the project). Before, they went back to the
+  defaults every time the page was left. A new run no longer clears the
+  runs you overlaid, nor the ones a sweep overlaid: **Clear** in the
+  *Overlay* box removes them. (RES-19)
+- A run is compared with a baseline, the previous run of its case unless
+  you pick another (or *None*) in the new **Baseline** list: the baseline
+  is drawn faint and dashed with the run (**Draw the baseline faint on
+  the chart** turns that off), each headline number gets a line such as
+  *+1.22 (+11.0 %) vs baseline*, and the full summary gets *Baseline*,
+  *Change* and *% change* columns, with changes of 1 % or more in bold
+  and *~ 0* where a change is within the stored rounding. *What changed*
+  lists what differs between the two runs' models: parameters old → new
+  with their units, maps and scripts edited, parts added or removed,
+  wires and Data Bus links, the case's settings and both runs' live edits;
+  a click on a part shows it on the diagram. A run is named after what
+  changed since the previous run of its case (*City Cycle · Vehicle Mass
+  2,300 kg* instead of the clock time) in the run lists, legends and
+  summary; *Run info* edits the name and keeps a note, both stored with
+  the run. (RES-10)
 
 ### Fixed
 
@@ -386,6 +474,11 @@ sections.
   its value until you type a number, as in *Properties*. A red field's
   border was too faint on the dark theme (3.4:1); it now uses the theme's
   error colour. (UX-10)
+- Time read-outs on the charts showed raw floats, such as
+  0.30000000000000004 s at a 0.1 s step, and so did the CSV's time column;
+  and the sweep view opened on the final SOC, drawn flat on a 0-100 axis.
+  (RES-18)
+- The summary's scroll box could not be reached with the keyboard. (RES-30)
 
 ### Upgrading from a 0.2.0 build
 
@@ -441,6 +534,7 @@ sections.
   *cancelled*, but drops them from the list if it has to rebuild its run
   index.
   A case's Kind is kept but ignored.
+  A run's name and note are kept but ignored.
 
 ## 0.2.0 — not published: its changes ship in 0.3.0
 

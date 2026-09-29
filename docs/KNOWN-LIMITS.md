@@ -242,7 +242,8 @@ At later points these values come from the last solver step before the
 point, at most 10 ms earlier.
 
 *Workaround:* leave out point 0 of computed channels when you take a
-minimum or an average, for example from the CSV export.
+minimum or an average, for example from the CSV export, or put the
+*Results* chart's cursor A after t = 0.
 
 ### Component models with known errors
 
@@ -346,18 +347,42 @@ minimum or an average, for example from the CSV export.
 
 ### Live edits, charts, sweeps and export
 
-- **Values between recorded points are not stored.** Charts keep the
-  highest and lowest value of each stretch they thin for drawing, but with
-  *Store every* above 1 the values in between recorded points are never
-  stored, so a short spike or dip between them does not show. Use *Store
-  every* 1 when peaks matter. *Roadmap:* RES-17, ENG-16.
+- **Values between recorded points are not stored.** Charts draw every
+  stored point (the highest and lowest of each pixel column), and zooming
+  in shows each one, but with *Store every* above 1 the values in between
+  recorded points are never stored, so a short spike or dip between them
+  does not show. Use *Store every* 1 when peaks matter. *Roadmap:* RES-17,
+  ENG-16.
 - **Stored values are rounded.** Every stored value is rounded to 5 decimal
   places, so small values keep few digits (a tyre slip of 0.0018 keeps two).
   The summary rounds energies to 1 Wh (battery losses to 0.1 Wh), fuel to
   1 g and consumption to 0.01 per 100 km. CSV export has the same rounding. Treat smaller differences
   between runs as noise; to compare two close variants, lengthen the run
-  (for example, repeat the cycle) so that the difference adds up.
+  (for example, repeat the cycle) so that the difference adds up. The
+  *Results* page marks a change against the baseline run that is no larger
+  than one step of the stored rounding as *~ 0*. It reads that step from
+  the stored digits, so where both values end in 0 (0.07 kWh stored for
+  0.070) it takes the step 10 times larger and a change of up to 10 real
+  steps can read *~ 0*.
   *Roadmap:* ENG-16.
+- **Cursor integrals come from the recorded points.** The *Results*
+  chart's cursors integrate the stored points with the trapezoid rule, so
+  they differ a little from the summary's energies, which add up every
+  solver step: on the Battery Electric Car's City Cycle (a point every
+  1 s), the battery's power integrates to 0.8145 kWh over the run, and the
+  summary's energy delivered less energy recuperated is 0.811 kWh (0.4 %
+  less). Set the case's *Step* smaller and *Store every* to 1 when the two
+  must agree.
+  On the distance axis, the points of a stop share one distance: the up
+  and down arrows then step through them while the line stands still, and
+  an overlaid run that stopped where a line crosses it is read at the
+  start or the end of its stop.
+- **Long runs with many lines zoom less smoothly.** On a 1-hour run
+  (36,001 points) with 7 channels ticked and the baseline drawn faint as
+  well (14 lines), the mouse wheel zooms at 60 frames a second most of the
+  time, but about one step in 20 takes two frames (30-40 ms). Untick *Draw
+  the baseline faint on the chart*, or tick fewer channels, to zoom
+  smoothly.
 
 ## The examples
 

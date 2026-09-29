@@ -21,8 +21,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import {
   drawnLines,
+  headlineTile,
   openApp,
   openFromMenu,
+  openSummary,
   ribbonTab,
   runActiveCase,
   runButton,
@@ -137,10 +139,34 @@ for (const theme of ["light", "dark"] as const) {
       await runActiveCase(page);
       await expect(drawnLines(page).first()).toBeVisible();
       await check(page, `results-${theme}`);
+      // RES-18: the y axes' settings
+      await page.getByRole("button", { name: "Axes" }).click();
+      await expect(page.getByRole("group", { name: "Y axes" })).toBeVisible();
+      await check(page, `results-${theme}`);
+      await page.keyboard.press("Escape");
+      // RES-06: the measurement cursors' fields and table
+      await page.keyboard.press("c");
+      await expect(page.getByRole("region", { name: "Cursor measurements" })).toBeVisible();
+      await check(page, `results-${theme}`);
       // axe leaves text over a chart unjudged: legend names use the text
       // colour, as several series colours are too faint for text (GUI-02)
       const text = await page.locator("#root").evaluate((r) => getComputedStyle(r).color);
-      await expect(page.locator(".recharts-legend-item-text > span").first()).toHaveCSS("color", text);
+      await expect(page.locator(".u-legend .u-label").first()).toHaveCSS("color", text);
+      // RES-10 / RES-19: a second run of a heavier car against the first: the
+      // baseline pick, what changed (a part's line), the bold change lines
+      // and columns, and Run info's fields
+      await ribbonTab(page, "Home").click();
+      await selectElement(page, "Vehicle");
+      const mass = page.locator("tr", { hasText: "Vehicle Mass" }).locator("input");
+      await mass.fill("2300");
+      await mass.press("Tab");
+      await runButton(page).click();
+      await expect(page.getByText("2 stored runs", { exact: true })).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByRole("region", { name: "What changed" }).getByRole("button")).toHaveCount(1);
+      await openSummary(page);
+      await page.getByTitle(/^Run info/).click();
+      await expect(page.getByRole("region", { name: "Run info" }).getByRole("textbox", { name: "Name" })).toBeVisible();
+      await check(page, `results-${theme}`);
     });
 
     // UX-09 / UX-15: the Problems list with problems in it and the Data Bus
@@ -193,6 +219,9 @@ for (const theme of ["light", "dark"] as const) {
       await expect(page.getByRole("spinbutton", { name: "Start line (m)" })).toBeVisible();
       expect(await contrastFailures(page)).toEqual([]);
       await runActiveCase(page);
+      await expect(headlineTile(page, "Time to 75 m")).toContainText("pass");
+      await check(page, `results-${theme}`);
+      await openSummary(page);
       await expect(page.getByRole("row", { name: /^Time to 75 m/ })).toContainText("pass");
       await check(page, `results-${theme}`);
     });

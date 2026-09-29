@@ -23,8 +23,9 @@ it runs, as a case override does.
 ## Read the result
 
 - On the *Results* page, click **Sweep** above the chart. It plots a
-  summary figure, such as *Consumption*, against the swept value; pick
-  another figure in the list next to it. A point whose run stopped or
+  summary figure against the swept value, to begin with the run's first
+  headline number (a test's time, the fuel or the energy consumption);
+  pick another figure in the list next to it. A point whose run stopped or
   failed is left out, or drawn hollow with **Show incomplete** ticked.
 - To compare the runs over time, click **Chart**, then **Overlay family**
   in the *Overlay* box on the left: every run of the sweep is drawn.

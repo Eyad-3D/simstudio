@@ -70,6 +70,46 @@ body,
   zoom: var(--ss-ui-scale, 1);
 }
 
+/* ---- charts (uPlot, RES-05). The axes are drawn on a canvas, in the token
+   colours Plot.tsx reads; these style the parts uPlot keeps in the page. ---- */
+.uplot {
+  font-family: inherit;
+  /* the chart's width from the start (uPlot's min-content is its unsized
+     root's), so Plot.tsx measures the legend under it right, drawing once */
+  width: 100%;
+}
+.u-legend {
+  font-size: 11px;
+  color: var(--ss-text);
+}
+.u-legend th {
+  font-weight: 400;
+}
+/* the channel checkboxes stay the only way to show or hide a line */
+.u-legend .u-series {
+  pointer-events: none;
+}
+.u-legend .u-series > * {
+  padding: 1px 4px;
+}
+/* a value keeps its width as the pointer moves, so the legend does not jump */
+.u-legend .u-value {
+  min-width: 9ch;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.u-select {
+  background: color-mix(in srgb, var(--ss-accent) 18%, transparent);
+}
+.u-hz .u-cursor-x,
+.u-hz .u-cursor-y {
+  border-color: var(--ss-accent);
+}
+.uplot:focus-visible {
+  outline: 2px solid var(--ss-accent);
+  outline-offset: -2px;
+}
+
 /* ---- scrollbars (dense engineering-tool look) ---- */
 *::-webkit-scrollbar {
   width: 10px;
@@ -277,6 +317,11 @@ body,
 }
 .ss-th {
   @apply border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-2 py-1 text-left text-[11px] font-semibold text-[color:var(--ss-text-dim)];
+}
+/* (this unlayered rule beats Tailwind's text-right: a numeric column's head
+   sits over its right-aligned numbers) */
+.ss-th.text-right {
+  text-align: right;
 }
 .ss-td {
   @apply border-b border-[color:var(--ss-td-border)] px-2 py-1 text-[12px];

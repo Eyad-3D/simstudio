@@ -2,7 +2,7 @@
 // and Voltage Class in one step, and the run summary checks them with a
 // pass/fail marker.
 import { expect, test } from "@playwright/test";
-import { openApp, runActiveCase, selectElement } from "./app";
+import { headlineTile, openApp, openSummary, runActiveCase, selectElement } from "./app";
 import { importProject } from "./ui-helpers";
 
 test("MOD-39: the Formula Student preset holds the battery to 80 kW and the summary says pass", async ({ page }) => {
@@ -22,8 +22,9 @@ test("MOD-39: the Formula Student preset holds the battery to 80 kW and the summ
   await expect(page.getByRole("spinbutton", { name: "Voltage Class (0 = none)" })).toHaveValue("600");
 
   await runActiveCase(page);
+  await expect(headlineTile(page, "Time to 100 km/h")).toBeVisible();
+  await openSummary(page);
   const row = page.getByRole("row", { name: /HV Battery Pack — peak terminal power, averaged/ });
   await expect(row).toContainText("pass");
   await expect(row).toContainText("≤ 80");
-  await expect(page.getByText("Time to 100 km/h").first()).toBeVisible();
 });

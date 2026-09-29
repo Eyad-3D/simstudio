@@ -3,9 +3,7 @@
     "label-title-only  select \"Active simulation case\""
   ],
   "results-light": [
-    "label-title-only  select \"Active simulation case\"",
-    "scrollable-region-focusable  div \"Summary value Value Unit HV Battery Pack\"",
-    "scrollable-region-focusable  div \"Summary value · estimate Value Unit Time\""
+    "label-title-only  select \"Active simulation case\""
   ],
   "parameter-dialog-light": [
     "label-title-only  select \"Active simulation case\""
@@ -14,9 +12,7 @@
     "label-title-only  select \"Active simulation case\""
   ],
   "results-dark": [
-    "label-title-only  select \"Active simulation case\"",
-    "scrollable-region-focusable  div \"Summary value Value Unit HV Battery Pack\"",
-    "scrollable-region-focusable  div \"Summary value · estimate Value Unit Time\""
+    "label-title-only  select \"Active simulation case\""
   ],
   "parameter-dialog-dark": [
     "label-title-only  select \"Active simulation case\""

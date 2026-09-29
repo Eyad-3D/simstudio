@@ -357,6 +357,10 @@ class StoredRun(BaseModel):
     incomplete: Optional[str] = None
     # absent on runs stored before runs kept one
     snapshot: Optional[RunSnapshot] = None
+    # its label (by default what changed since the previous run of its case)
+    # and the user's note; both listed in the index (RES-10)
+    name: Optional[str] = Field(None, max_length=120)
+    note: Optional[str] = Field(None, max_length=4000)
 
 
 class DataCheck(BaseModel):

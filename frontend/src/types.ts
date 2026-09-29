@@ -302,6 +302,11 @@ export interface SimRun {
   /** The model, settings and version that made it; absent on runs stored
    *  before runs kept one. */
   snapshot?: RunSnapshot;
+  /** Its label in place of the clock time: what changed since the previous
+   *  run of its case ("Vehicle Mass 2,300 kg"), or what the user typed. */
+  name?: string;
+  /** The user's note about it. */
+  note?: string;
 }
 
 /** A project's stored run as the engine lists it: the run without its

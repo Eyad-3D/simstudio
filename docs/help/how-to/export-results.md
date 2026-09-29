@@ -11,16 +11,20 @@ in a spreadsheet or another program.
 3. Click **CSV** above the chart.
 
 The file is named after the run's case, such as `lightsim-City Cycle.csv`.
-It has a column `t_s` (the time in s) and one column per ticked channel,
-headed with its name and unit, such as `HV Battery Pack · SOC [%]`, and a
-row for every stored point of the run. Spreadsheets open it directly; a
+Its first column is `t_s`, the time in s, unless you picked another x
+axis in the chart view's **Time · auto** list: then it is `t_min` or
+`t_h` for minutes or hours, or `distance_km` or `distance_m` followed by
+`t_s` for the distance. Then
+comes one column per ticked channel, headed with its name and unit, such
+as `HV Battery Pack · SOC [%]`, and a row for every stored point of the
+run. Spreadsheets open it directly; a
 comma in a part's name is quoted.
 
 ## The chart as a picture
 
 Click **PNG** above the chart. The picture shows the chart as it is on the
-screen, legend included, at twice its size. It is not offered for the
-table view.
+screen, zoomed in if you zoomed, with its legend under it, at twice its
+size. It is not offered for the table view.
 
 ## A sweep's table
 

@@ -2,7 +2,7 @@
 // acceleration case, and one Run gives the 75 m time, held at the 80 kW
 // power limit, within 5 s.
 import { expect, test } from "@playwright/test";
-import { openApp, openFromMenu, runButton } from "./app";
+import { headlineTile, openApp, openFromMenu, openSummary, runButton } from "./app";
 
 test("CON-33: the FS example runs its 75 m test from the Open menu within 5 s", async ({ page }) => {
   await openApp(page);
@@ -12,10 +12,13 @@ test("CON-33: the FS example runs its 75 m test from the Open menu within 5 s", 
 
   const t0 = Date.now();
   await runButton(page).click();
-  await expect(page.getByRole("row", { name: /^Time to 75 m/ })).toContainText("pass", { timeout: 5000 });
+  const time = headlineTile(page, "Time to 75 m");
+  await expect(time).toContainText("pass", { timeout: 5000 });
   expect(Date.now() - t0).toBeLessThan(5000);
   // the pass chip is the 25 s limit: the time itself is 3.5-4.5 s
-  await expect(page.getByRole("row", { name: /^Time to 75 m/ })).toContainText(/^Time to 75 m(3\.[5-9]|4\.[0-4])/);
+  await expect(time).toContainText(/^Time to 75 m(3\.[5-9]|4\.[0-4])/);
+  await expect(time).toContainText("≤ 25");
+  await openSummary(page);
   await expect(page.getByRole("row", { name: /^Accumulator — peak terminal power, averaged/ })).toContainText(
     "pass",
   );

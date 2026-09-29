@@ -13,6 +13,11 @@ target speed, and the run is timed from the start line to the line its
 *Distance* sets; the results are estimates. **Acceleration test** on the
 *Simulations* tab adds one and runs it.
 
+**Baseline**: the run the *Results* page compares a run with: the previous
+run of its case, unless you pick another in the **Baseline** list. Each
+summary value then says how much it changed, and the baseline's lines are
+drawn faint with the run's.
+
 **Channel**: one quantity a run records over time, such as *Vehicle ·
 Vehicle Speed* or *HV Battery Pack · SOC*. The *Results* page plots
 channels.
@@ -114,8 +119,9 @@ a recent one. Tick *Skip this page* to open your last project instead.
 **Sub-system**: a box on the diagram that holds parts of its own, to keep a
 large model tidy. Double-click it to go inside.
 
-**Summary**: the table of totals under the chart on the *Results* page:
-distance, consumption, energy, final SOC.
+**Summary**: a run's totals on the *Results* page: the headline numbers
+above the chart (consumption, distance, final SOC, energy; a test's time)
+and the full table under it, *All summary values*.
 
 **Sweep, study**: runs of one case over a range of values of one
 parameter. The study is the table of their results, saved with the

@@ -2,7 +2,7 @@
 // are the case's own (overrides of the Race Track), Duration, Step and Pacing
 // do not apply, and the summary leads with the lap time, marked an estimate.
 import { expect, test } from "@playwright/test";
-import { openApp, ribbonTab, runActiveCase, showPanel } from "./app";
+import { headlineTile, openApp, openSummary, ribbonTab, runActiveCase, showPanel } from "./app";
 import { importProject } from "./ui-helpers";
 
 async function importBev(page: import("@playwright/test").Page, withTrack: boolean) {
@@ -35,6 +35,9 @@ test("MOD-42: a lap case on the Skidpad gives its lap and sector times as estima
   await expect(page.getByTitle("Solver settings for this case")).toHaveText("lap mode");
 
   await runActiveCase(page);
+  await expect(headlineTile(page, "Lap time")).toBeVisible();
+  await expect(page.getByTitle(/results are estimates/).filter({ hasText: /^estimates$/ })).toBeVisible();
+  await openSummary(page);
   await expect(page.getByRole("row", { name: /^Lap time/ })).toBeVisible();
   await expect(page.getByRole("row", { name: /^Sector 2 time/ })).toBeVisible();
   await expect(page.getByText("Summary value · estimate")).toBeVisible();

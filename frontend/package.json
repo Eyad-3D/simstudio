@@ -22,7 +22,7 @@
     "lucide-react": "^1.47.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "recharts": "^3.10.1",
+    "uplot": "1.6.32",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
