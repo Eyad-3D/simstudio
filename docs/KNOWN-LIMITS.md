@@ -290,7 +290,7 @@ minimum or an average, for example from the CSV export.
   Vehicle *Centre of Gravity Height* and each Wheel's *Axle* set, load
   moves between the axles by m·(a + g·sin θ)·h/L when the car accelerates,
   brakes or stands on a slope, and a *Downforce Area* adds ½·ρ·CzA·v² split
-  by the *Aero Balance*. The acceleration a is the previous solver step's,
+  by the *Front Aero Balance*. The acceleration a is the previous solver step's,
   10 ms behind: exact while it is steady, off by its change over one step
   while it changes (0.6-4 % where an FS car's motor reaches its power
   limit, the whole transfer in a launch's first step). With the driven
@@ -555,7 +555,9 @@ minimum or an average, for example from the CSV export.
   flagged. A sweep's From and To are not checked as you type; a point
   outside the limits fails when it runs, with the Data Check's reason. A
   case's own value out of range stops the runs of every case, not only
-  its own.
+  its own. An acceleration case's Distance, Start line and Reference time
+  turn red as you type but are not Data Checks: a run ignores a value
+  outside them (no finish line, a 0 m start line, no reference gap).
   Properties does not mark a value that differs from the library's default
   and cannot reset it. *Roadmap:* UX-38 (the mark and reset).
 - **Licence.** LightSim is proprietary (`LICENSE`). The desktop app is free
