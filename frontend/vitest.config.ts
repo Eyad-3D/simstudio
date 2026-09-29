@@ -7,6 +7,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "jsdom",
+    // CSS imports are empty in tests, except the theme file contrast.test.ts reads
+    css: { include: [/index\.css/] },
     include: ["src/**/*.test.{ts,tsx}"],
     // every test starts with fresh mocks: no calls recorded, no leftover return values
     mockReset: true,

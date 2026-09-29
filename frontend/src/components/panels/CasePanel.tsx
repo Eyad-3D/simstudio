@@ -3,6 +3,9 @@ import { Play, Plus, Sliders, Square, X } from "lucide-react";
 import { useProjectStore } from "../../store/projectStore";
 import type { ComponentDef, ElementInstance, ParamValue, ParameterDef } from "../../types";
 import { StudiesList } from "./StudiesList";
+import { CycleSelect } from "./CyclePicker";
+import { NumberInput } from "./PropertiesPanel";
+import { paramName, rangeProblem } from "../../paramRules";
 
 // Only scalar parameters are editable as per-case overrides here; tables and
 // code are edited in Properties. Sweeps additionally require a numeric param.
@@ -39,17 +42,70 @@ function round(v: number): number {
   return Math.round(v * 1e6) / 1e6;
 }
 
+// An acceleration case's own numbers, with the limits the form checks as they
+// are typed (UX-10); the engine ignores a value outside them.
+const DISTANCE: ParameterDef = {
+  key: "endDistance", label: "Distance", unit: "m", default: 75, type: "number", exclusiveMinimum: 0,
+};
+const START_LINE: ParameterDef = {
+  key: "startLine", label: "Start line", unit: "m", default: 0, type: "number", minimum: 0,
+};
+const REFERENCE_TIME: ParameterDef = {
+  key: "referenceTime", label: "Reference time", unit: "s", default: 0, type: "number", exclusiveMinimum: 0,
+};
+
+/** A number row of the case settings: red outside its limits, with a line
+ *  under it that says why, as a parameter's field is. */
+function CaseNumber({
+  name,
+  title,
+  def,
+  value,
+  onChange,
+  onClear,
+}: {
+  name: string;
+  title: string;
+  def: ParameterDef;
+  value: number | null;
+  onChange: (v: number) => void;
+  onClear?: () => void;
+}) {
+  const problem = value == null ? null : rangeProblem(def, value);
+  const id = `case-${def.key}-problem`;
+  return (
+    <>
+      <label
+        className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+        title={title}
+      >
+        {name}
+        <NumberInput value={value} onChange={onChange} onClear={onClear} def={def} describedBy={id} />
+      </label>
+      {problem && (
+        <div id={id} className="ss-param-problem">
+          <span role="alert">
+            {paramName(def)} {problem}.
+          </span>
+        </div>
+      )}
+    </>
+  );
+}
+
 /** A scalar value editor matching the parameter type. */
 function ValueEditor({
   def,
   value,
   label,
   onChange,
+  describedBy,
 }: {
   def: ParameterDef;
   value: ParamValue;
   label: string;
   onChange: (v: ParamValue) => void;
+  describedBy?: string;
 }) {
   if (def.type === "boolean") {
     return (
@@ -82,16 +138,8 @@ function ValueEditor({
     );
   }
   if (def.type === "number") {
-    return (
-      <input
-        type="number"
-        className="ss-input"
-        aria-label={label}
-        value={Number(value)}
-        step="any"
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-    );
+    // turns red outside the limits, and a cleared field is not stored as 0
+    return <NumberInput value={Number(value)} onChange={onChange} label={label} def={def} describedBy={describedBy} />;
   }
   return (
     <input
@@ -113,6 +161,7 @@ export function CasePanel() {
   const setCaseField = useProjectStore((s) => s.setCaseField);
   const setCaseOverride = useProjectStore((s) => s.setCaseOverride);
   const clearCaseOverride = useProjectStore((s) => s.clearCaseOverride);
+  const setDrivingCycle = useProjectStore((s) => s.setDrivingCycle);
   const run = useProjectStore((s) => s.run);
   const stopRun = useProjectStore((s) => s.stopRun);
   const runSweep = useProjectStore((s) => s.runSweep);
@@ -210,6 +259,7 @@ export function CasePanel() {
         <span className="text-[11px] text-[color:var(--ss-text-dim)]">Case</span>
         <select
           className="ss-input w-[150px]"
+          aria-label="Case"
           value={activeCase.id}
           onChange={(e) => setActiveCase(e.target.value)}
         >
@@ -381,28 +431,13 @@ export function CasePanel() {
                     ))}
                   </select>
                 </label>
-                <label
-                  className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+                <CaseNumber
+                  name="Laps"
                   title="Laps driven one after the other (a case override): lap 1 from the Vehicle's Initial Speed (no faster than the first corner allows), each later lap from the speed the one before ended with."
-                >
-                  Laps
-                  <input
-                    type="number"
-                    className="ss-input"
-                    min={1}
-                    max={500}
-                    step={1}
-                    value={Number(effectiveValue(caseOv, track, "laps", lapsDef))}
-                    onChange={(e) =>
-                      setCaseOverride(
-                        activeCase.id,
-                        track.id,
-                        "laps",
-                        Math.max(1, Math.min(500, Math.round(Number(e.target.value) || 1))),
-                      )
-                    }
-                  />
-                </label>
+                  def={lapsDef}
+                  value={Number(effectiveValue(caseOv, track, "laps", lapsDef))}
+                  onChange={(v) => setCaseOverride(activeCase.id, track.id, "laps", v)}
+                />
               </>
             ) : (
               <p className="text-[11px] text-[color:var(--ss-text-dim)]">
@@ -411,56 +446,28 @@ export function CasePanel() {
             ))}
           {accel && (
             <>
-              <label
-                className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+              <CaseNumber
+                name="Distance (m)"
                 title="The run ends at this distance past the start line; the time is taken there (FS Rules 2026 v1.1 (FSG) D 5.1.1: 75 m)."
-              >
-                Distance (m)
-                <input
-                  type="number"
-                  className="ss-input"
-                  min={1}
-                  step="any"
-                  value={activeCase.endDistance ?? 75}
-                  onChange={(e) =>
-                    setCaseField(activeCase.id, { endDistance: Math.max(1, Number(e.target.value) || 75) })
-                  }
-                />
-              </label>
-              <label
-                className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+                def={DISTANCE}
+                value={activeCase.endDistance ?? 75}
+                onChange={(v) => setCaseField(activeCase.id, { endDistance: v })}
+              />
+              <CaseNumber
+                name="Start line (m)"
                 title="The distance the car drives before the timer starts (FS Rules 2026 v1.1 (FSG) D 5.2.3 stages it 0.30 m behind the start line; FSUK and FSAE may differ). 0 = timed from rest. Simulations → Acceleration test adds its case with 0.30 m and a 25 s time limit; a case switched to Acceleration here keeps its own start line and duration."
-              >
-                Start line (m)
-                <input
-                  type="number"
-                  className="ss-input"
-                  min={0}
-                  step="any"
-                  value={activeCase.startLine ?? 0}
-                  onChange={(e) =>
-                    setCaseField(activeCase.id, { startLine: Math.max(0, Number(e.target.value) || 0) })
-                  }
-                />
-              </label>
-              <label
-                className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+                def={START_LINE}
+                value={activeCase.startLine ?? 0}
+                onChange={(v) => setCaseField(activeCase.id, { startLine: v })}
+              />
+              <CaseNumber
+                name="Reference time (s)"
                 title="A time to compare with, for example last year's best run: the results show the gap (positive = slower). Empty = none."
-              >
-                Reference time (s)
-                <input
-                  type="number"
-                  className="ss-input"
-                  min={0}
-                  step="any"
-                  value={activeCase.referenceTime ?? ""}
-                  onChange={(e) =>
-                    setCaseField(activeCase.id, {
-                      referenceTime: Number(e.target.value) > 0 ? Number(e.target.value) : null,
-                    })
-                  }
-                />
-              </label>
+                def={REFERENCE_TIME}
+                value={activeCase.referenceTime ?? null}
+                onChange={(v) => setCaseField(activeCase.id, { referenceTime: v })}
+                onClear={() => setCaseField(activeCase.id, { referenceTime: null })}
+              />
             </>
           )}
         </div>
@@ -482,6 +489,8 @@ export function CasePanel() {
               const ed = elemById.get(elId);
               const pdef = ed?.def.parameters.find((p) => p.key === key);
               const name = `${ed?.el.label ?? elId} · ${pdef?.label ?? key}`;
+              const problem = pdef?.type === "number" ? rangeProblem(pdef, Number(value)) : null;
+              const problemId = `case-override-${elId}-${key}-problem`;
               return (
                 <li
                   key={`${elId}:${key}`}
@@ -491,11 +500,19 @@ export function CasePanel() {
                     {name}
                   </div>
                   <div className="mt-0.5 flex min-w-0 items-center gap-1">
-                    {pdef && ed ? (
+                    {pdef && ed && key === "cycle" ? (
+                      <CycleSelect
+                        value={String(value)}
+                        label={name}
+                        description={pdef.description}
+                        onChange={(v) => setDrivingCycle(elId, v, activeCase.id)}
+                      />
+                    ) : pdef && ed ? (
                       <ValueEditor
                         def={pdef}
                         value={value}
                         label={name}
+                        describedBy={problemId}
                         onChange={(v) => setCaseOverride(activeCase.id, elId, key, v)}
                       />
                     ) : (
@@ -514,6 +531,14 @@ export function CasePanel() {
                       <X size={13} />
                     </button>
                   </div>
+                  {pdef && problem && (
+                    <div id={problemId} className="ss-param-problem mt-0.5">
+                      {/* a lap case's Laps is also in the case settings, which announce it */}
+                      <span role={lap && elId === track?.id ? undefined : "alert"}>
+                        {paramName(pdef)} {problem}.
+                      </span>
+                    </div>
+                  )}
                 </li>
               );
             })}

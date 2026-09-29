@@ -26,6 +26,7 @@ import type {
   StudyPoint,
   SystemNode,
 } from "../types";
+import { rangeProblem } from "../paramRules";
 import { useUIStore } from "./uiStore";
 
 export function uid(prefix: string): string {
@@ -275,7 +276,7 @@ function incompleteReason(result: SimResult): string | undefined {
   return at ? `stopped at t = ${at[1]}` : "stopped";
 }
 
-interface ProjectState {
+export interface ProjectState {
   library: ComponentDef[];
   libraryById: Record<string, ComponentDef>;
   /** unitGroup name → display unit (from the backend catalog). */
@@ -284,6 +285,8 @@ interface ProjectState {
   loaded: boolean;
   /** the app's version as the engine reports it (recorded with each run) */
   appVersion: string | null;
+  /** the standard drive cycles the engine bundles (CON-16) */
+  cycles: api.CycleInfo[];
 
   project: Project | null;
   /** Revision of the project file the open copy was loaded from or last saved
@@ -364,7 +367,10 @@ interface ProjectState {
     targetPortId: string,
     replaceId?: string,
   ) => void;
-  addDataBus: (el1: string, p1: string, el2: string, p2: string) => void;
+  /** Link a signal output to an input; with `replaceId`, the new link takes
+   *  that one's place in the same undo step. A link between two inputs or two
+   *  outputs is refused with the reason. */
+  addDataBus: (el1: string, p1: string, el2: string, p2: string, replaceId?: string) => void;
   removeDataBus: (id: string) => void;
   renameSystem: (systemId: string, name: string) => void;
 
@@ -410,6 +416,10 @@ interface ProjectState {
   setCaseOverride: (caseId: string, elementId: string, key: string, value: ParamValue) => void;
   /** Remove a per-case parameter override; prunes the element entry when empty. */
   clearCaseOverride: (caseId: string, elementId: string, key: string) => void;
+  /** Point a Driving Task at a bundled drive cycle ("" = its typed profile),
+   *  or with `caseId` only that case. The cycle cases that then drive it take
+   *  the cycle's length, in the same undo step. */
+  setDrivingCycle: (elementId: string, cycleId: string, caseId?: string) => void;
   runDataChecks: () => Promise<DataCheck[]>;
   /** Error-level data-check gate; resolves true when a run/sweep may proceed. */
   passesRunGate: () => Promise<boolean>;
@@ -737,6 +747,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     offline: false,
     loaded: false,
     appVersion: null,
+    cycles: [],
     project: null,
     revision: null,
     exampleId: null,
@@ -761,7 +772,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     livePct: 0,
 
     init: async () => {
-      const [lib, appVersion] = await Promise.all([api.fetchLibrary(), api.fetchVersion()]);
+      const [lib, appVersion, cycles] = await Promise.all([
+        api.fetchLibrary(),
+        api.fetchVersion(),
+        api.listCycles(),
+      ]);
       const demo = await api.fetchDemoProject();
       const libraryById = Object.fromEntries(lib.components.map((c) => [c.id, c]));
       // restore the autosaved working copy if one exists, else open the demo
@@ -794,6 +809,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         offline: lib.offline,
         loaded: true,
         appVersion,
+        cycles,
         project,
         revision,
         exampleId,
@@ -804,6 +820,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const log = get().log;
       log("info", `Component library loaded (${lib.components.length} components).`);
       if (draft && unsaved) {
+        useUIStore.getState().setRibbonTab("home"); // restored work is shown, not the Start page
         log("info", `Restored your unsaved draft from ${new Date(draft.savedAt).toLocaleString()}.`);
       } else {
         log("info", `Project '${project.name}' opened.`);
@@ -818,8 +835,12 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
     },
 
-    log: (level, text) =>
-      set((s) => ({ messages: [...s.messages, { level, text, time: now() }] })),
+    log: (level, text) => {
+      set((s) => ({ messages: [...s.messages, { level, text, time: now() }] }));
+      // Messages has no badge (Problems counts the model's problems), so an
+      // error such as a failed save shows at once
+      if (level === "error") useUIStore.getState().focusPanel("messages");
+    },
     clearMessages: () => set({ messages: [] }),
 
     select: (elementId) => set({ selectedElementId: elementId }),
@@ -1002,6 +1023,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       );
       // scalar edits stream into a running simulation (tables/code apply next run)
       if (activeRun && typeof value !== "object") {
+        // a number outside its limits waits for one inside (Data Checks refuse it)
+        const { project, libraryById } = get();
+        const el = project?.systems.flatMap((s) => s.elements).find((e) => e.id === elementId);
+        const pdef = el && libraryById[el.componentDefId]?.parameters.find((p) => p.key === key);
+        if (pdef?.type === "number" && rangeProblem(pdef, Number(value))) return;
         activeRun.setParam(elementId, key, value);
         logLiveEdit({ t: get().liveT, elementId, key, value });
       }
@@ -1140,7 +1166,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       });
     },
 
-    addDataBus: (el1, p1, el2, p2) => {
+    addDataBus: (el1, p1, el2, p2, replaceId) => {
       const { project, libraryById, log } = get();
       if (!project) return;
       const elements = project.systems.flatMap((s) => s.elements);
@@ -1155,18 +1181,20 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
       if (port1.direction === port2.direction) {
         log(
-          "warning",
-          `Data bus: '${e1.label}.${port1.name}' and '${e2.label}.${port2.name}` +
-            `' are both ${port1.direction}s — connection added, but no data will flow.`,
+          "error",
+          `'${e1.label} · ${port1.name}' and '${e2.label} · ${port2.name}' are both ${port1.direction}s: ` +
+            "a signal runs from an output to an input, so no data would flow. Not connected.",
         );
+        return;
       }
-      const dup = project.dataBusConnections.some(
+      const dup = project.dataBusConnections.find(
         (d) =>
           (d.element1Id === el1 && d.port1Id === p1 && d.element2Id === el2 && d.port2Id === p2) ||
           (d.element1Id === el2 && d.port1Id === p2 && d.element2Id === el1 && d.port2Id === p1),
       );
       if (dup) {
-        log("info", "This data bus connection already exists.");
+        // picking the source an input already has changes nothing
+        if (dup.id !== replaceId) log("info", "This data bus connection already exists.");
         return;
       }
       // an input takes one signal (the engine would silently keep only the
@@ -1177,7 +1205,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           : port2.direction === "output" && port1.direction !== "output"
             ? [e1, port1]
             : [null, null];
-      const existing = inEl && inPort && signalSourceOf(project, libraryById, inEl.id, inPort.id);
+      const rest = replaceId
+        ? { ...project, dataBusConnections: project.dataBusConnections.filter((d) => d.id !== replaceId) }
+        : project;
+      const existing = inEl && inPort && signalSourceOf(rest, libraryById, inEl.id, inPort.id);
       if (inEl && inPort && existing) {
         log(
           "error",
@@ -1187,6 +1218,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         return;
       }
       updateProject((draft) => {
+        if (replaceId) draft.dataBusConnections = draft.dataBusConnections.filter((d) => d.id !== replaceId);
         draft.dataBusConnections.push({
           id: uid("dbc"),
           element1Id: el1,
@@ -1195,7 +1227,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           port2Id: p2,
         });
       });
-      log("info", `Data bus: '${e1.label}.${port1.name}' ↔ '${e2.label}.${port2.name}' connected.`);
+      const end = (e: ElementInstance, p: PortDef) => `${e.label} · ${p.name}`;
+      const [from, to] =
+        port1.direction === "output" ? [end(e1, port1), end(e2, port2)] : [end(e2, port2), end(e1, port1)];
+      log("info", `Data bus: ${from} → ${to} connected.`);
     },
 
     removeDataBus: (id) =>
@@ -1548,6 +1583,46 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         c.parameterOverrides = ov;
       }),
 
+    setDrivingCycle: (elementId, cycleId, caseId) => {
+      const cycle = get().cycles.find((c) => c.id === cycleId);
+      const resized: string[] = [];
+      updateProject((draft) => {
+        if (caseId) {
+          const c = draft.cases.find((cc) => cc.id === caseId);
+          if (c)
+            c.parameterOverrides = {
+              ...c.parameterOverrides,
+              [elementId]: { ...c.parameterOverrides?.[elementId], cycle: cycleId },
+            };
+        } else {
+          for (const s of draft.systems) {
+            const el = s.elements.find((e) => e.id === elementId);
+            if (el) el.parameterOverrides.cycle = cycleId;
+          }
+        }
+        // the case length follows the cycle only when it is clear which task
+        // a case drives: the model's only one, or the one the case names
+        const tasks = draft.systems
+          .flatMap((sy) => sy.elements)
+          .filter((e) => e.componentDefId === "signal.driving_task");
+        if (!cycle || (!caseId && tasks.length > 1)) return;
+        for (const c of draft.cases) {
+          const own = c.parameterOverrides?.[elementId] ?? {};
+          const drivesIt = caseId ? c.id === caseId : !("cycle" in own) && !("profile" in own);
+          // a performance case runs to its target, not to a cycle's end
+          if (drivesIt && (c.kind ?? "cycle") === "cycle" && c.duration !== cycle.duration_s) {
+            c.duration = cycle.duration_s;
+            resized.push(`'${c.name}'`);
+          }
+        }
+      });
+      if (cycle && resized.length)
+        get().log(
+          "info",
+          `${resized.join(", ")} now run${resized.length > 1 ? "" : "s"} ${cycle.duration_s.toLocaleString("en")} s, the length of ${cycle.name}.`,
+        );
+    },
+
     runDataChecks: async () => {
       const { project, log } = get();
       if (!project) return [];
@@ -1558,10 +1633,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         if (get().project !== project) scheduleRecheck(); // edited while it checked
         const errors = checks.filter((c) => c.level === "error").length;
         const warnings = checks.filter((c) => c.level === "warning").length;
-        log(
-          errors ? "error" : warnings ? "warning" : "info",
-          `Data checks: ${errors} error(s), ${warnings} warning(s).`,
-        );
+        // a summary, not a problem: the problems are in the Problems list
+        log("info", `Data checks: ${countOf(errors, "error")}, ${countOf(warnings, "warning")}.`);
         {
           const ui = useUIStore.getState();
           if (ui.ribbonTab === "results") ui.setRibbonTab("home");
@@ -1781,7 +1854,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         if (get().project !== project) scheduleRecheck(); // edited while it checked
         const errors = checks.filter((c) => c.level === "error");
         if (errors.length > 0) {
-          log("error", `Run blocked — fix ${errors.length} data-check error(s) first.`);
+          log("error", `Run blocked — fix ${countOf(errors.length, "data-check error")} first.`);
           const ui = useUIStore.getState();
           if (ui.ribbonTab === "results") ui.setRibbonTab("home");
           ui.focusPanel("data-checks");
@@ -1869,15 +1942,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
   };
 });
 
-// Once the model has been checked (Data Checks, or the gate before a run), its
-// checks follow it: a quiet re-check runs RECHECK_MS after the last edit, so
-// part badges and the status-bar count clear as soon as the problems are
-// fixed. A model nobody checked is left alone, and a re-check due while a run
-// is in progress waits for the run to end.
+// The checks follow the model: a quiet re-check runs RECHECK_MS after a
+// project is opened, made or imported and after every edit, so part badges,
+// the Problems list and the status-bar count show a problem, and clear it, as
+// soon as it is made or fixed. A re-check due while a run is in progress
+// waits for the run to end.
 const RECHECK_MS = 600;
 let recheckTimer: ReturnType<typeof setTimeout> | undefined;
 useProjectStore.subscribe((s, prev) => {
-  if (s.project !== prev.project && s.dataChecks) scheduleRecheck();
+  if (s.project !== prev.project && s.project) scheduleRecheck();
 });
 
 function scheduleRecheck(): void {
@@ -1886,8 +1959,8 @@ function scheduleRecheck(): void {
 }
 
 async function recheck(): Promise<void> {
-  const { project, dataChecks, running } = useProjectStore.getState();
-  if (!project || !dataChecks) return;
+  const { project, running } = useProjectStore.getState();
+  if (!project) return;
   if (running) {
     recheckTimer = setTimeout(recheck, RECHECK_MS);
     return;
@@ -1918,6 +1991,88 @@ export async function confirmReplaceProject(action: string): Promise<boolean> {
 }
 
 // -- convenience selectors ----------------------------------------------------
+
+/** "1 error", "2 errors". */
+export function countOf(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
+/** A row of the Problems list. */
+export interface Problem {
+  level: "info" | "warning" | "error";
+  text: string;
+  fix?: string | null;
+  /** the parts it is about (in the open project) */
+  elementIds: string[];
+  /** Data Checks, or the run it came from */
+  source: "check" | { caseName: string; startedAt: number };
+}
+
+/** The latest run that has finished (runs are newest first). */
+function lastRunOf(runs: SimRun[]): SimRun | undefined {
+  return runs.find((r) => r.status !== "running");
+}
+
+/** The parts a run message names: run messages quote part labels
+ *  ('HV Battery Pack', 'E-Motor.torque'). */
+// ponytail: label match; a renamed or repeated label misses or doubles, exact
+// targets come with VAL-10's message format
+function partsNamed(text: string, elements: ElementInstance[]): string[] {
+  return elements.filter((e) => text.includes(`'${e.label}'`) || text.includes(`'${e.label}.`)).map((e) => e.id);
+}
+
+/** The warnings and errors of a finished run that the Data Checks do not
+ *  already list: the engine repeats the model's own warnings in every run,
+ *  and a lap case's without the "Case '…': " the checks put in front. */
+function runProblemsOf(dataChecks: DataCheck[] | null, run: SimRun | undefined) {
+  if (!run || run.status === "running") return [];
+  const checked = new Set((dataChecks ?? []).map((c) => c.text));
+  return run.result.messages.filter(
+    (m) => m.level !== "info" && !checked.has(m.text) && !checked.has(`Case '${run.caseName}': ${m.text}`),
+  );
+}
+
+/** Every current problem: the latest Data Checks, then the warnings and
+ *  errors of the latest finished run. Errors first. */
+export function problemsOf(dataChecks: DataCheck[] | null, run: SimRun | undefined, project: Project | null): Problem[] {
+  const elements = project?.systems.flatMap((s) => s.elements) ?? [];
+  const ids = new Set(elements.map((e) => e.id));
+  const out: Problem[] = (dataChecks ?? []).map((c) => ({
+    level: c.level,
+    text: c.text,
+    fix: c.fix,
+    // engines before 0.3 name one part at most
+    elementIds: (c.elementIds?.length ? c.elementIds : c.elementId ? [c.elementId] : []).filter((id) => ids.has(id)),
+    source: "check" as const,
+  }));
+  if (run) {
+    const source = { caseName: run.caseName, startedAt: run.startedAt };
+    for (const m of runProblemsOf(dataChecks, run)) {
+      out.push({ level: m.level, text: m.text, elementIds: partsNamed(m.text, elements), source });
+    }
+  }
+  const rank = { error: 0, warning: 1, info: 2 };
+  return out.sort((a, b) => rank[a.level] - rank[b.level]); // stable: checks before run messages
+}
+
+export function useProblems(): Problem[] {
+  const dataChecks = useProjectStore((s) => s.dataChecks);
+  const run = useProjectStore((s) => lastRunOf(s.runs));
+  const project = useProjectStore((s) => s.project);
+  return useMemo(() => problemsOf(dataChecks, run, project), [dataChecks, run, project]);
+}
+
+/** Errors and warnings in the Problems list, for the status bar and the tab
+ *  badge. */
+export function problemCounts(s: Pick<ProjectState, "dataChecks" | "runs">): { errors: number; warnings: number } {
+  let errors = 0;
+  let warnings = 0;
+  for (const m of [...(s.dataChecks ?? []), ...runProblemsOf(s.dataChecks, lastRunOf(s.runs))]) {
+    if (m.level === "error") errors++;
+    else if (m.level === "warning") warnings++;
+  }
+  return { errors, warnings };
+}
 
 export function useActiveRun(): SimRun | null {
   return useProjectStore((s) => s.runs.find((r) => r.id === s.activeRunId) ?? null);

@@ -115,10 +115,10 @@ def simulate(
         lap = None
         if case.kind == "lap":  # the Race Track sets the run (lapsim)
             found = lapsim.problems(model, output_every)
-            if any(level == "error" for level, _ in found):
+            if any(level == "error" for level, _, _ in found):
                 return SimResult(caseId=case_id, status="failed", channels=[], messages=[
-                    SimMessage(level="error", text=t) for level, t in found if level == "error"])
-            for level, text in found:
+                    SimMessage(level="error", text=t) for level, t, _ in found if level == "error"])
+            for level, text, _ in found:
                 rt.message(level, text)
             rt.message("info", "Lap mode results are quasi-steady-state estimates: an ideal "
                                "driver at the tyres' limit on the given line, with no "

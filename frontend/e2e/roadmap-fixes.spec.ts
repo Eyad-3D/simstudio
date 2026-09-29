@@ -29,7 +29,7 @@ test("RES-03: the Signal Plot draws a line after the first run", async ({ page }
 test("RES-03: a run started from the empty Results page is drawn", async ({ page }) => {
   await openApp(page);
   await ribbonTab(page, "Results").click();
-  await page.getByRole("button", { name: "Run active case" }).click();
+  await page.getByRole("button", { name: "Run 'City Cycle'" }).click();
   await expect(page.getByText("1 stored run", { exact: true })).toBeVisible({ timeout: 60_000 });
   await expect(drawnLines(page).first()).toBeVisible();
 });
@@ -126,9 +126,9 @@ async function smallestNodeName(page: Page, names: string[]): Promise<number> {
   }, names);
 }
 
-// GUI-03's target. Today names are 3.5 px on screen when the example is
-// fitted to a 1600x900 window (1.8 px at 1366x768).
-test.fixme("GUI-03: node names are at least 11 px on screen, fitted and zoomed out", async ({ page }) => {
+// GUI-03: node names stay at least 11 px on screen, fitted and zoomed out
+// (they were 3.5 px fitted to a 1600x900 window, 1.8 px at 1366x768).
+test("GUI-03: node names are at least 11 px on screen, fitted and zoomed out", async ({ page }) => {
   await openApp(page);
   const project = await (await page.request.get("/api/examples/bev-car")).json();
   const names: string[] = project.systems.flatMap((s: { elements: { label: string }[] }) =>
@@ -173,7 +173,9 @@ test.describe("UX-02: replacing a project with unsaved changes asks first", () =
   });
 
   test("UX-02: ribbon New", async ({ page }) => {
+    // New shows the Start page; the prompt comes with the choice made there
     await page.getByRole("button", { name: "New", exact: true }).click();
+    await page.getByRole("button", { name: /^Blank project/ }).click();
     await expectPromptThenCancel(page);
   });
 

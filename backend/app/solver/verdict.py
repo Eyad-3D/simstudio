@@ -358,7 +358,7 @@ def _acceleration(trace: CycleTrace, case, stopped: bool,
         rows += [(f"Time to {d:g} m", round(timed, 3), "s", case.duration, True),
                  (f"Speed at {d:g} m", round(_time_to(ts, dist, start + d, trace.speed), 2),
                   "km/h", None, None)]
-        if case.referenceTime:
+        if case.referenceTime and case.referenceTime > 0:  # the form marks 0 or less red
             rows.append(("Gap to reference time", round(timed - case.referenceTime, 3), "s",
                          None, None))
     elif d and not stopped:  # a stopped run only did not get there yet

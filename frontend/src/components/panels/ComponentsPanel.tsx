@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Search } from "lucide-react";
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import { componentIcon } from "../../icons";
+import { cycleText } from "./CyclePicker";
 import type { ComponentDef } from "../../types";
 
 // Other names people search for. The library names follow its own vocabulary
@@ -21,7 +22,7 @@ const SYNONYMS: Record<string, string> = {
   "boundary.ground": "earth",
   "propulsion.wheel": "tyre tire",
   "vehicle.body": "chassis car",
-  "signal.driving_task": "drive cycle wltp nedc",
+  "signal.driving_task": "drive cycle speed profile wltp",
   "signal.road_profile": "slope gradient hill",
   "signal.script": "python code",
   "signal.monitor": "scope probe",
@@ -40,6 +41,7 @@ function matches(def: ComponentDef, terms: string[]): boolean {
 
 export function ComponentsPanel() {
   const library = useProjectStore((s) => s.library);
+  const cycles = useProjectStore((s) => s.cycles);
   const placingId = useUIStore((s) => s.placingComponentId);
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -56,16 +58,27 @@ export function ComponentsPanel() {
     }
     return [...byCat.entries()];
   }, [library, query]);
+  // a search also finds the bundled drive cycles, by name, id or region
+  // ("drive cycle" lists them all); each adds a Driving Task that drives it
+  const task = library.find((d) => d.id === "signal.driving_task");
+  const cycleHits = useMemo(() => {
+    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return terms.length
+      ? cycles.filter((c) => terms.every((t) => `${c.name} ${c.id} ${c.region} drive cycle`.toLowerCase().includes(t)))
+      : [];
+  }, [cycles, query]);
 
   // Enter / Space / double-click: add the part in the middle of the diagram.
   // A diagram behind another tab (Monitors) or a maximised group has no size:
   // bring it to the front and add the part once React Flow has measured it
   // again (its ResizeObserver reports after the next layout, so two frames).
-  const insert = (def: ComponentDef) => {
+  const insert = (def: ComponentDef, then?: () => void) => {
     const ui = useUIStore.getState();
     ui.setPlacingComponent(null);
-    const announce = (label: string | null | undefined) =>
+    const announce = (label: string | null | undefined) => {
       setAnnouncement(label ? `Added ${label} to the diagram.` : "Show the Topology panel to add parts.");
+      if (label) then?.();
+    };
     const label = ui.insertComponent?.(def.id);
     if (label) return announce(label);
     ui.focusPanel("topology");
@@ -159,7 +172,36 @@ export function ComponentsPanel() {
             </div>
           );
         })}
-        {groups.length === 0 && (
+        {task && cycleHits.length > 0 && (
+          <div>
+            {/* lined up with the category names above */}
+            <div className="py-[3px] pl-[25px] text-[12px] font-semibold">Drive cycles</div>
+            {cycleHits.map((c) => {
+              const Icon = componentIcon(task.icon);
+              return (
+                <button
+                  key={c.id}
+                  className="ss-tree-row pl-6"
+                  aria-label={`Add a Driving Task on ${cycleText(c)}`}
+                  title={`Adds a Driving Task that drives ${cycleText(c)} (${c.region})`}
+                  onClick={(e) => {
+                    // one task per double-click: its second click adds nothing
+                    if (e.detail > 1) return;
+                    // the new task is selected once it is on the diagram
+                    insert(task, () => {
+                      const st = useProjectStore.getState();
+                      if (st.selectedElementId) st.setDrivingCycle(st.selectedElementId, c.id);
+                    });
+                  }}
+                >
+                  <Icon size={14} strokeWidth={1.6} className="shrink-0 text-[color:var(--ss-node-icon)]" />
+                  <span className="truncate">{cycleText(c)}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {groups.length === 0 && cycleHits.length === 0 && (
           <div className="px-3 py-2 text-[12px] text-[color:var(--ss-text-dim)]">
             No components match “{query}”.
           </div>

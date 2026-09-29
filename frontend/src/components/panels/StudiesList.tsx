@@ -131,7 +131,7 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
                   <tr key={i} title={p.runId ? `run ${p.runId}` : undefined}>
                     <td className="ss-td text-right font-mono">{p.values.join(", ")}</td>
                     <td
-                      className={`ss-td text-right font-mono ${notValid ? "text-amber-600" : ""}`}
+                      className={`ss-td text-right font-mono ${notValid ? "text-[color:var(--ss-warn)]" : ""}`}
                       title={notValid ? `Not valid: ${notValid}` : undefined}
                     >
                       {typeof v === "number" ? v.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "—"}

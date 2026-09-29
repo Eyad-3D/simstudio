@@ -84,7 +84,8 @@ def list_projects() -> list[dict]:
 
 
 def _listing(folder: Path) -> list[dict]:
-    """Id, name and description of each project file in `folder`."""
+    """Id, name and description of each project file in `folder`, and for
+    the Start page when it was saved, its number of parts and a sketch."""
     out = []
     for f in sorted(folder.glob("*.json")):
         try:
@@ -96,9 +97,27 @@ def _listing(folder: Path) -> list[dict]:
                 "id": project_id,
                 "name": raw.get("name", f.stem),
                 "description": raw.get("description"),
+                "modified": f.stat().st_mtime_ns // 1_000_000,
+                **_size_and_sketch(raw),
             })
         except (json.JSONDecodeError, OSError, AttributeError):
             continue
+    return out
+
+
+def _size_and_sketch(raw: dict) -> dict:
+    """The number of parts in all systems, and the positions of the top
+    system's parts (at most 300) for a thumbnail. What a malformed file
+    does not give is left out rather than dropping it from the list."""
+    out: dict = {"elements": None, "thumb": []}
+    try:
+        systems = raw.get("systems") or []
+        out["elements"] = sum(len(s.get("elements") or []) for s in systems)
+        top = next(s for s in systems if s.get("parentId") is None)
+        out["thumb"] = [[round(e["position"]["x"]), round(e["position"]["y"])]
+                        for e in (top.get("elements") or [])[:300]]
+    except (AttributeError, KeyError, TypeError, ValueError, OverflowError, StopIteration):
+        pass
     return out
 
 

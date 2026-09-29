@@ -116,7 +116,7 @@ sections.
   Check the current season's rules before relying on them.
 - Load transfer and downforce: the Vehicle gets a *Centre of Gravity
   Height*, a *Wheelbase*, a *Downforce Area (CzA)* (negative for lift) and
-  an *Aero Balance (Front)*, and each Wheel an *Axle* (Front or Rear).
+  a *Front Aero Balance*, and each Wheel an *Axle* (Front or Rear).
   Accelerating, braking and standing on a slope move m·(a + g·sin θ)·h/L
   between the axles, from the previous 10 ms step's acceleration, and
   downforce adds ½·ρ·CzA·v² at the Ambient's air density, split by the
@@ -179,8 +179,8 @@ sections.
   dμ/dFz* (per kN), *Nominal Load Fz0* (0: the wheel's static load) and
   *Friction Ellipse Exponent* (lap cases). The load sensitivity also acts
   on the tyre force of drive cycles and acceleration tests; at its default
-  of 0 no result changes. Vehicle: *Track Width (Front)* and *(Rear)*, for
-  the sideways load transfer of lap cases.
+  of 0 no result changes. Vehicle: *Front Track Width* and *Rear Track
+  Width*, for the sideways load transfer of lap cases.
 - A third example, *FS Electric (generic)*: a typical Formula Student
   electric car to make your own (280 kg, one rear E-Motor through a 4.4
   chain drive and an open differential, a 138s4p 7.2 kWh accumulator with
@@ -196,6 +196,83 @@ sections.
   median 5.25 kWh) and gives a sweep to try: the Output Power Limit from
   40 to 80 kW on the 75 m case (4.22 to 3.74 s). The other examples do not
   change.
+- The diagram's toolbar shows the zoom in % and offers Fit, 50, 100 and
+  200 %. It floats over the diagram's top edge, and the bottom panels open
+  at 22 % of the workspace instead of 30 % (drag their edge for more), so
+  on a 1366 × 768 screen the diagram keeps 40 % of the window with a panel
+  open (was 33 %). LightSim remembers the height of a bottom panel you
+  opened in an earlier build; choose Reset UI to get the new layout.
+  (GUI-03)
+- A *Problems* tab (was *Data Checks*) lists every problem the model has
+  now: the Data Checks, which run by themselves a moment after a project
+  opens and after every change (before, only once you had run them), and
+  the latest run's warnings and errors. Each row names its parts and says
+  how to fix it. A click, or Enter, selects the part and zooms the diagram
+  to it, opening the sub-system it is in; a check about the whole model,
+  such as two Vehicles or wheel load shares, selects every part involved
+  (before, it named none). The Problems tab carries the count; Messages is
+  the log and no longer does, so an error that is not about the model,
+  such as a save that fails, brings Messages to the front. (UX-09)
+- Data Bus Connections lists one row per signal input: pick the output
+  that feeds it in a box you can type in, which offers outputs only, those
+  that share a word with the input's name first (Brake Command: Driver ·
+  Brake Command), then those with its unit. The list opens over the
+  diagram with about ten outputs in view. A link takes two clicks (the
+  Battery Electric Car's 13 links: 26 clicks, with no scrolling, before
+  65). It has a search box,
+  *Unconnected inputs* and *Selected part* filters, and a part's
+  right-click menu has *Signals…*, which opens the panel on that part.
+  (UX-15)
+- A Driving Task can drive a standard cycle picked from a list: WLTC
+  class 3b, EPA city (UDDS) and EPA highway (HWFET), grouped by region,
+  each with its duration and distance, or *Custom profile* for the typed
+  points. Properties sketches the speed over time, with the cycle's phases
+  marked, and gives its duration, distance and top speed; a typed profile
+  gets the same sketch. Choosing a cycle sets the length of the cases that
+  drive it, in one undo step, and Messages says which (when the model has
+  one Driving Task, or for the case it is picked in). A case can pick its
+  own cycle among its overrides. Searching the component library for a
+  cycle's name, such as *udds*, lists it: activate it to add a Driving Task
+  that drives it. The three cycles are the ones the examples used; their
+  figures are within 0.04 % of the published ones. (CON-16)
+- Help: press F1, or click **?** at the top right, to open LightSim's help
+  in your web browser. It comes with the app and needs no internet
+  connection: two tutorials, how-to guides, a page for every part with its
+  ports and parameters, the drive cycles, the keyboard shortcuts, the Script
+  API and the documents that come with each release (known issues, release
+  notes, what is validated, data sources), with a search box. With a part
+  selected on the diagram, F1 opens that part's page. In the desktop app,
+  *Help → Documentation* opens the front page, and *Help → Known Limits*
+  now opens the known issues there. (LRN-04)
+- A *Start* page opens when LightSim starts and when you press **New**:
+  continue with the open project, start from one of the examples (its card
+  says what results to expect) or a blank project, or reopen one of the 8
+  projects you saved last, each shown with when it was saved, its number
+  of parts and a sketch of its diagram. From the first launch to a
+  finished run of an example takes two clicks, the example and **Run**.
+  Tick *Skip this page: open my last project at start-up* to open straight
+  into your last project, as before; work you had not saved always opens
+  straight away. The status bar's **+** still makes a blank project in one
+  click. Empty panels now offer the next step: an empty diagram *Add a
+  part* and *Start from an example*, an empty Monitors panel *Place a
+  Monitor*, and an empty Results page a button that names the case it
+  runs. (UX-16)
+- Every parameter explains itself: rest the pointer on it in *Properties*
+  or the parameter dialog, or move to it with Tab, and a card says what it
+  is, its usual values (for a Formula Student car, a small car, a mid-size
+  EV or a van where that matters), where to find the real number, its
+  default and what is allowed. **More in the help (F1)** in the card, or
+  F1 in the field, opens the parameter on its part's help page, which
+  carries the same texts. In the dialog, tables, scripts and profiles show
+  them above their editor. The texts are first drafts. (UX-10, LRN-05)
+- A number outside what its parameter allows turns red as you type, with
+  a line under it that says what is allowed, such as *Initial SOC must be
+  above 0 and at most 100 %.* Data Checks read the same limits, from the
+  component library, and say the same. A case's own values in *Cases &
+  Parameters* are checked the same way, and so is a lap case's *Laps*,
+  which the form no longer quietly changes. An acceleration case's
+  *Distance*, *Start line* and *Reference time* turn red as you type, but
+  are not yet Data Checks: a run ignores a value outside them. (UX-10)
 
 ### Fixed
 
@@ -256,9 +333,59 @@ sections.
   Checks, instead of every error ever logged, which never cleared. Once a
   model has been checked, its checks, the error count and the red badges
   on parts follow it as you edit. (UX-09)
+- The Data Checks summary in Messages is information, not an error, and
+  reads "1 error, 0 warnings" instead of "1 error(s), 0 warning(s)"; before,
+  Messages kept counting it after the model was fixed. (UX-09)
+- A signal link between two inputs or two outputs is refused with the
+  reason; before, it was added with a warning and passed no data. Links
+  are logged as "from → to" instead of "↔". (UX-15)
 - The Signal Plot below the diagram follows a paced (live) run while it
   runs; before, it stayed on the run's first point until the run ended.
   (RES-03)
+- Text, field borders, wires and chart lines meet the WCAG AA contrast
+  minimum in both themes (4.5:1 for text, 3:1 for the rest). Before, grey,
+  amber and red status text in the light theme, the white-on-blue LightSim
+  title, Run and Save buttons and the green and red status text in the
+  dark theme, text fields' borders, the electrical wires on white, the
+  mechanical wires on the dark diagram and three of the ten chart colours
+  on dark charts were too faint. Status colours, the accent and field
+  borders now have a shade per theme, and wires, part outlines, layer
+  swatches and port dots share one set of domain colours. Chart legends
+  and the Results summary's run columns show names in plain text next to
+  a mark in the series colour. (GUI-02)
+- Part names are never smaller than 11 px on screen, whatever the zoom;
+  before, they shrank with the diagram (7 px when a 1366 × 768 window was
+  fitted, under 2 px zoomed all the way out). Until you zoom or pan, the
+  diagram also re-fits when a bottom panel closes or the window grows;
+  before, it re-fitted only when it got smaller. Fits leave room for the
+  names under the lowest parts. (GUI-03)
+- Delete or Backspace on the Results page no longer deletes the part
+  selected on the diagram hidden behind it. (UX-16)
+- Data Checks refuse 40 values that cannot be right. A negative inertia,
+  drag coefficient, frontal area, initial speed, driver gain, battery
+  resistance or time constant, maximum charge power, brake, clutch or
+  propeller torque, friction coefficient μ, rolling resistance, cycle
+  scale, re-entry speed, CO₂ factor or H₂ consumption is an error, and so
+  is a zero or negative voltage, slip stiffness, propeller reference
+  speed, idle speed, tank capacity, fuel density or fuel-cell current, and
+  a default gear below 1. Before, these ran without a word (a Driver I
+  Gain of −1 ended in "did not drive the cycle"), or the solver quietly
+  used another value (0 for a negative μ, 0.1 for a slip stiffness of 0
+  or less, 1 1/min for an idle speed of 0). (UX-10)
+- A case could run with its own values out of range, such as an Initial
+  SOC of 150 %: Data Checks did not look at them. They now do, and name
+  the case. (UX-10)
+- Data Checks name a parameter as the app labels it and say what is
+  allowed in words: *Coulombic Efficiency of 'HV Battery Pack' must be
+  above 0 and at most 100 % — got 0.* instead of *Coulombic efficiency
+  … must be in (0, 100]*. Text or an infinite value in any number
+  parameter is now an error, not only in those that had a range, and a
+  value just below 0, such as −0.0005 %, no longer passes where 0 is the
+  least allowed. (UX-10)
+- Clearing a number in *Cases & Parameters* stored 0; the field now keeps
+  its value until you type a number, as in *Properties*. A red field's
+  border was too faint on the dark theme (3.4:1); it now uses the theme's
+  error colour. (UX-10)
 
 ### Upgrading from a 0.2.0 build
 
@@ -288,6 +415,27 @@ sections.
   the wheels are on one axle.
 - Runs you stopped in 0.2.0 keep their *warning* status and their
   *stopped at t = …* note. Cases load as kind *Cycle*.
+- The *Data Checks* tab is now *Problems*; a saved layout keeps it where it
+  was. A signal link between two inputs or two outputs saved by an earlier
+  build still loads: Data Bus Connections shows it in amber with a remove
+  button, and Data Checks still report it. So does a link to a part or port
+  that is gone.
+- LightSim opens on the *Start* page, and **New** on the Home tab opens
+  it too: choose *Blank project* there for the empty project **New** made
+  before. Tick *Skip this page* on it to open your last project at
+  start-up, as before.
+- The examples' WLTC, UDDS and HWFET cases name their drive cycle
+  instead of carrying its points, and give exactly the same results. A
+  case of yours that carries its own points keeps them, and they still
+  win over a cycle picked on the part. 0.2.0 does not know drive cycles:
+  opened there, a Driving Task or case that names one drives the typed
+  profile instead, with no warning.
+- A project that holds one of the 40 values Data Checks now refuse (see
+  Fixed) stops before the run with an error that names the part and what
+  is allowed; set the value inside the limits. The examples hold none.
+  So does a case whose own value is out of range: change or remove it in
+  *Cases & Parameters*. A stored value out of range shows red in its field
+  as soon as the project opens.
 - Going back to 0.2.0: it cannot open a project with a study point that
   says *cancelled*. It still lists and opens stored runs that say
   *cancelled*, but drops them from the list if it has to rebuild its run

@@ -16,6 +16,7 @@ import type {
 vi.mock("../api", () => ({
   fetchLibrary: vi.fn(),
   fetchVersion: vi.fn(),
+  listCycles: vi.fn(),
   fetchDemoProject: vi.fn(),
   fetchProject: vi.fn(),
   fetchExample: vi.fn(),
@@ -134,6 +135,18 @@ beforeEach(async () => {
     offline: false,
   });
   api.fetchVersion.mockResolvedValue("0.1.0");
+  api.listCycles.mockResolvedValue([
+    {
+      id: "wltc-3b",
+      name: "WLTC class 3b",
+      region: "Europe / UN (WLTP)",
+      register: "DR-25",
+      phases: [],
+      duration_s: 1800,
+      distance_km: 23.266,
+      vmax_kmh: 131.3,
+    },
+  ]);
   api.fetchDemoProject.mockResolvedValue({ project: fixture(), offline: false });
   api.saveProject.mockResolvedValue({ saved: "fixture" });
 
@@ -241,6 +254,25 @@ describe("start-up", () => {
     expect(api.fetchProject).not.toHaveBeenCalled();
     expect(store().project?.name).toBe("Kept copy");
     expect(messages().some((m) => m.startsWith("warning: Backend not reachable"))).toBe(true);
+  });
+
+  it("starts on the Start page, but on Home when it restores unsaved work (UX-16)", async () => {
+    await store().init();
+    expect(useUIStore.getState().ribbonTab).toBe("start");
+    persist.saveDraft(fixture({ name: "Edited" }));
+    await store().init();
+    expect(useUIStore.getState().ribbonTab).toBe("home");
+  });
+
+  it("skips the Start page once the user chose to, and leaves it for a panel asked for (UX-16)", async () => {
+    useUIStore.getState().focusPanel("messages"); // an error logged, a run blocked
+    expect(useUIStore.getState().ribbonTab).toBe("home");
+    useUIStore.getState().setOpenLastAtStart(true);
+    vi.resetModules();
+    expect((await import("./uiStore")).useUIStore.getState()).toMatchObject({
+      ribbonTab: "home",
+      openLastAtStart: true,
+    });
   });
 
   it("offline with no draft: the bundled demo opens as a copy", async () => {
@@ -806,6 +838,38 @@ describe("elements and wiring", () => {
     ]);
   });
 
+  it("refuses a signal link between two inputs or two outputs and says why (UX-15)", async () => {
+    await start();
+    store().addElement("mech.brake", { x: 0, y: 0 });
+    const brake = findElement(store().selectedElementId!)!;
+    store().addDataBus("el-motor", "sig_demand_in", brake.id, "sig_demand_in");
+    store().addDataBus("el-const", "sig_out", "el-bat", "sig_soc");
+    expect(store().project!.dataBusConnections).toEqual([]);
+    const why = "a signal runs from an output to an input, so no data would flow. Not connected.";
+    expect(messages()).toContain(
+      `error: 'Motor · Traction Command' and '${brake.label} · Brake Command' are both inputs: ${why}`,
+    );
+    expect(messages()).toContain(`error: 'Demand · Output' and 'Battery · SOC' are both outputs: ${why}`);
+  });
+
+  it("swaps an input's source in one undo step; picking its source again changes nothing (UX-15)", async () => {
+    await start();
+    store().addDataBus("el-const", "sig_out", "el-motor", "sig_demand_in");
+    const [link] = store().project!.dataBusConnections;
+    const steps = store().past.length;
+    store().addDataBus("el-bat", "sig_soc", "el-motor", "sig_demand_in", link.id);
+    expect(store().project!.dataBusConnections).toEqual([
+      expect.objectContaining({ element1Id: "el-bat", port1Id: "sig_soc", element2Id: "el-motor" }),
+    ]);
+    expect(store().past).toHaveLength(steps + 1);
+    expect(messages()).toContain("info: Data bus: Battery · SOC → Motor · Traction Command connected.");
+    store().undo();
+    expect(store().project!.dataBusConnections).toEqual([link]);
+    store().addDataBus("el-motor", "sig_demand_in", "el-const", "sig_out", link.id);
+    expect(store().project!.dataBusConnections).toEqual([link]);
+    expect(store().past).toHaveLength(steps);
+  });
+
   it("removes wires and data-bus links by id, undoably", async () => {
     await start();
     store().addConnection("el-const", "sig_out", "el-motor", "sig_demand_in");
@@ -829,7 +893,8 @@ describe("data checks gate", () => {
     expect(checks).toEqual([error]);
     expect(store().dataChecks).toEqual([error]);
     expect(store().checking).toBe(false);
-    expect(messages()).toContain("error: Data checks: 1 error(s), 0 warning(s).");
+    // a summary, not a problem: the problems are in the Problems list
+    expect(messages()).toContain("info: Data checks: 1 error, 0 warnings.");
   });
 
   it("an error-level check blocks the run before it reaches the engine", async () => {
@@ -838,7 +903,7 @@ describe("data checks gate", () => {
     await store().run();
     expect(api.runSimulationLive).not.toHaveBeenCalled();
     expect(store().running).toBe(false);
-    expect(messages()).toContain("error: Run blocked — fix 1 data-check error(s) first.");
+    expect(messages()).toContain("error: Run blocked — fix 1 data-check error first.");
   });
 });
 
@@ -848,7 +913,7 @@ describe("data checks follow the model", () => {
     vi.useRealTimers();
   });
 
-  it("once checked, the model is re-checked quietly 600 ms after the last edit", async () => {
+  it("the model is re-checked quietly 600 ms after the last edit", async () => {
     vi.useFakeTimers();
     await start();
     api.validateProject.mockResolvedValue([error]);
@@ -872,7 +937,7 @@ describe("data checks follow the model", () => {
     let reply!: (checks: DataCheck[]) => void;
     api.validateProject.mockReturnValueOnce(new Promise((resolve) => (reply = resolve)));
     const checking = store().runDataChecks();
-    store().renameElement("el-bat", "Pack"); // not checked yet: no re-check of its own
+    store().renameElement("el-bat", "Pack");
     reply([error]);
     await checking;
     api.validateProject.mockResolvedValue([]);
@@ -882,16 +947,26 @@ describe("data checks follow the model", () => {
     expect(store().dataChecks).toEqual([]);
   });
 
-  it("leaves a model nobody checked alone, and waits for a run to end", async () => {
+  it("checks an opened model and every edit quietly, and waits for a run to end", async () => {
     vi.useFakeTimers();
+    api.validateProject.mockResolvedValue([error]);
     await start();
-    store().renameElement("el-bat", "Pack");
-    await vi.advanceTimersByTimeAsync(1000);
     expect(api.validateProject).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(600);
+    // nobody pressed Data Checks
+    expect(api.validateProject).toHaveBeenCalledTimes(1);
+    expect(api.validateProject).toHaveBeenLastCalledWith(store().project);
+    expect(store().dataChecks).toEqual([error]);
+    api.validateProject.mockResolvedValue([]);
+    store().renameElement("el-bat", "Pack");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(api.validateProject).toHaveBeenCalledTimes(2);
+    expect(api.validateProject).toHaveBeenLastCalledWith(store().project);
+    expect(store().dataChecks).toEqual([]);
+    expect(messages().filter((m) => m.includes("Data checks"))).toEqual([]); // quietly
 
     // a run the test ends: its gate checks the model
     let finish!: () => void;
-    api.validateProject.mockResolvedValue([]);
     api.runSimulationLive.mockImplementation((_project, caseId) => ({
       setParam: vi.fn(),
       cancel: vi.fn(),
@@ -904,11 +979,83 @@ describe("data checks follow the model", () => {
     expect(store().running).toBe(true);
     store().renameElement("el-bat", "Pack 2");
     await vi.advanceTimersByTimeAsync(2000);
-    expect(api.validateProject).toHaveBeenCalledTimes(1); // the gate only
+    expect(api.validateProject).toHaveBeenCalledTimes(3); // and the gate only
     finish();
     await run;
     await vi.advanceTimersByTimeAsync(600);
-    expect(api.validateProject).toHaveBeenCalledTimes(2);
+    expect(api.validateProject).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("the Problems list", () => {
+  const check = (level: DataCheck["level"], text: string, elementIds?: string[]): DataCheck => ({
+    level,
+    text,
+    elementId: elementIds?.[0],
+    elementIds,
+  });
+  const run = (status: SimRun["status"], messages: SimResult["messages"]): SimRun => ({
+    id: "run-1",
+    caseId: "case-1",
+    caseName: "City",
+    startedAt: 1000,
+    status,
+    result: { caseId: "case-1", status: "success", messages, channels: [], summary: [] },
+  });
+
+  it("lists the checks and the latest finished run's warnings and errors, errors first", async () => {
+    const { problemsOf, problemCounts } = await import("./projectStore");
+    const project = fixture();
+    const checks = [
+      check("warning", "Only the first Ambient sets the air density.", ["el-bat", "el-gone"]),
+      check("info", "'Battery' has an unconnected negative (−) terminal.", ["el-bat"]),
+      { level: "error", text: "Old engine: one part.", elementId: "el-motor" } as DataCheck,
+    ];
+    const finished = run("warning", [
+      { level: "info", text: "Run finished." },
+      { level: "warning", text: "Battery 'Battery' reached minimum SOC at t = 97 s." },
+      { level: "error", text: "'Motor.torque' left its map." },
+      { level: "warning", text: "Cycle not followed." },
+    ]);
+    const problems = problemsOf(checks, finished, project);
+    expect(problems.map((p) => [p.level, p.text, p.elementIds, p.source === "check" ? "check" : "run"])).toEqual([
+      ["error", "Old engine: one part.", ["el-motor"], "check"],
+      ["error", "'Motor.torque' left its map.", ["el-motor"], "run"],
+      ["warning", "Only the first Ambient sets the air density.", ["el-bat"], "check"], // a part no longer there is left out
+      ["warning", "Battery 'Battery' reached minimum SOC at t = 97 s.", ["el-bat"], "run"],
+      ["warning", "Cycle not followed.", [], "run"],
+      ["info", "'Battery' has an unconnected negative (−) terminal.", ["el-bat"], "check"],
+    ]);
+    expect(problems[1].source).toEqual({ caseName: "City", startedAt: 1000 });
+    // the counters count the same rows
+    expect(problemCounts({ dataChecks: checks, runs: [finished] })).toEqual({ errors: 2, warnings: 3 });
+    // a run still going has not finished: the one before it counts
+    expect(problemsOf(checks, run("running", [{ level: "error", text: "x" }]), project)).toHaveLength(3);
+    expect(problemCounts({ dataChecks: checks, runs: [run("running", [{ level: "error", text: "x" }]), finished] })).toEqual({
+      errors: 2,
+      warnings: 3,
+    });
+    expect(problemCounts({ dataChecks: null, runs: [] })).toEqual({ errors: 0, warnings: 0 });
+  });
+
+  it("lists a model warning the run repeats once", async () => {
+    const { problemsOf, problemCounts } = await import("./projectStore");
+    const twice = "Only the first Ambient ('Ambient 1') sets the air density.";
+    const checks = [check("warning", twice)];
+    const finished = run("warning", [{ level: "warning", text: twice }]);
+    expect(problemsOf(checks, finished, fixture()).map((p) => p.source)).toEqual(["check"]);
+    expect(problemCounts({ dataChecks: checks, runs: [finished] })).toEqual({ errors: 0, warnings: 1 });
+    // once the model is fixed, the run's copy is what is left
+    expect(problemCounts({ dataChecks: [], runs: [finished] })).toEqual({ errors: 0, warnings: 1 });
+  });
+
+  it("lists a lap case's warning the run repeats once", async () => {
+    const { problemsOf, problemCounts } = await import("./projectStore");
+    const text = "Gearbox 'Gearbox' stays in gear 1 for the whole lap: a lap case does not shift gears.";
+    const checks = [check("warning", `Case 'City': ${text}`), check("warning", `Case 'Other': ${text}`)];
+    const finished = run("warning", [{ level: "warning", text }]);
+    expect(problemsOf(checks, finished, fixture()).map((p) => p.source)).toEqual(["check", "check"]);
+    expect(problemCounts({ dataChecks: checks, runs: [finished] })).toEqual({ errors: 0, warnings: 2 });
   });
 });
 
@@ -1219,6 +1366,20 @@ describe("run snapshots", () => {
     expect(snap.project.systems[0].elements.find((e) => e.id === "el-shaft")?.parameterOverrides).toEqual({});
   });
 
+  it("a live edit outside its limits is kept in the model but not sent to the run", async () => {
+    await start();
+    const { handle, finish } = liveRun();
+    const running = store().run();
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalled());
+    store().setParameter("el-shaft", "efficiency_pct", 150);
+    expect(findElement("el-shaft")?.parameterOverrides.efficiency_pct).toBe(150);
+    store().setParameter("el-shaft", "efficiency_pct", 95);
+    finish();
+    await running;
+    expect(handle.setParam.mock.calls).toEqual([["el-shaft", "efficiency_pct", 95]]);
+    expect(store().runs[0].snapshot!.liveEdits.map((e) => e.value)).toEqual([95]);
+  });
+
   it("each sweep point's snapshot holds its swept value", async () => {
     await start();
     engineFinishesRuns();
@@ -1454,5 +1615,70 @@ describe("studies", () => {
     api.fetchProject.mockResolvedValue(structuredClone(saved));
     await store().openProject(saved.id);
     expect(store().project!.studies).toEqual(saved.studies);
+  });
+});
+
+describe("drive cycles (CON-16)", () => {
+  const withTask = (...extra: ElementInstance[]) =>
+    fixture({
+      systems: [
+        {
+          id: "sys-root",
+          name: "F",
+          parentId: null,
+          elements: [el("t1", "signal.driving_task", "Task"), ...extra],
+          connections: [],
+        },
+      ],
+      cases: [
+        { id: "c1", name: "City", duration: 600, timeStep: 1 },
+        { id: "c2", name: "Own profile", duration: 300, timeStep: 1, parameterOverrides: { t1: { profile: "0:0; 300:0" } } },
+        { id: "c3", name: "Launch", duration: 20, timeStep: 1, kind: "performance" },
+        { id: "c4", name: "75 m", duration: 25, timeStep: 0.01, kind: "acceleration", endDistance: 75 },
+        { id: "c5", name: "Autocross", duration: 600, timeStep: 1, kind: "lap" },
+      ],
+    });
+  async function open(project = withTask()) {
+    await store().init();
+    api.fetchProject.mockResolvedValueOnce(project);
+    await store().openProject("fixture");
+  }
+  const durations = () => store().project!.cases.map((c) => c.duration);
+
+  it("a cycle on the part sets the length of the cycle cases that drive it, in one undo step", async () => {
+    await open();
+    expect(store().cycles.map((c) => c.id)).toEqual(["wltc-3b"]);
+    store().setDrivingCycle("t1", "wltc-3b");
+    expect(findElement("t1")!.parameterOverrides.cycle).toBe("wltc-3b");
+    // the case with its own profile and the performance, acceleration and
+    // lap cases keep theirs
+    expect(durations()).toEqual([1800, 300, 20, 25, 600]);
+    expect(messages().at(-1)).toBe("info: 'City' now runs 1,800 s, the length of WLTC class 3b.");
+    store().undo();
+    expect(findElement("t1")!.parameterOverrides.cycle).toBeUndefined();
+    expect(durations()).toEqual([600, 300, 20, 25, 600]);
+  });
+
+  it("a case's own cycle changes only that case", async () => {
+    await open();
+    store().setDrivingCycle("t1", "wltc-3b", "c2");
+    expect(store().project!.cases[1].parameterOverrides!.t1).toEqual({ profile: "0:0; 300:0", cycle: "wltc-3b" });
+    expect(findElement("t1")!.parameterOverrides.cycle).toBeUndefined();
+    expect(durations()).toEqual([600, 1800, 20, 25, 600]);
+  });
+
+  it("back to the typed profile keeps the case lengths", async () => {
+    await open();
+    store().setDrivingCycle("t1", "wltc-3b");
+    store().setDrivingCycle("t1", "");
+    expect(findElement("t1")!.parameterOverrides.cycle).toBe("");
+    expect(durations()).toEqual([1800, 300, 20, 25, 600]);
+  });
+
+  it("with two Driving Tasks the case lengths stay, since a case may drive the other", async () => {
+    await open(withTask(el("t2", "signal.driving_task", "Other task")));
+    store().setDrivingCycle("t1", "wltc-3b");
+    expect(findElement("t1")!.parameterOverrides.cycle).toBe("wltc-3b");
+    expect(durations()).toEqual([600, 300, 20, 25, 600]);
   });
 });

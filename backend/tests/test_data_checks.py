@@ -1,8 +1,13 @@
 """Data Checks that catch models which would run 'successfully' but wrongly."""
+import copy
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 from helpers import bev_axle, conn, dbc, el, project
+from test_broken_models import EXAMPLES, faults
 
+from app.library import load_library
 from app.main import app
 from app.schemas import Connection, Project
 from app.storage import load_example
@@ -192,9 +197,12 @@ def test_implausible_parameters_are_warned_about(element, key, value, expected):
 
 
 @pytest.mark.parametrize("key, value, expected", [
-    ("coulombic_efficiency_pct", 0, "Coulombic efficiency of 'HV Battery Pack' must be in (0, 100]"),
-    ("coulombic_efficiency_pct", 101, "Coulombic efficiency of 'HV Battery Pack' must be in (0, 100]"),
-    ("capacity_Ah", -1, "Charge capacity of 'HV Battery Pack' must be in (-0.001, 100000]"),
+    ("coulombic_efficiency_pct", 0,
+     "Coulombic Efficiency of 'HV Battery Pack' must be above 0 and at most 100 % — got 0."),
+    ("coulombic_efficiency_pct", 101,
+     "Coulombic Efficiency of 'HV Battery Pack' must be above 0 and at most 100 % — got 101."),
+    ("capacity_Ah", -1,
+     "Charge Capacity of 'HV Battery Pack' must be at least 0 and at most 100000 Ah — got -1."),
     ("capacity_Ah", 0, None),
 ])
 def test_battery_charge_parameters_are_range_checked(key, value, expected):
@@ -228,10 +236,12 @@ def test_voltage_class_data_check(cells, flagged):
 
 
 @pytest.mark.parametrize("key, value, expected", [
-    ("output_power_limit_kW", -5, "Output power limit of 'HV Battery Pack' must be in"),
-    ("power_limit_margin_pct", 150, "Power limit margin of 'HV Battery Pack' must be in"),
-    ("power_limit_window_s", -1, "Power check window of 'HV Battery Pack' must be in"),
-    ("voltage_class_V", -600, "Voltage class of 'HV Battery Pack' must be in"),
+    ("output_power_limit_kW", -5, "Output Power Limit of 'HV Battery Pack' must be at least 0 kW — got -5."),
+    ("power_limit_margin_pct", 150,
+     "Power Limit Margin of 'HV Battery Pack' must be at least 0 and at most 100 % — got 150."),
+    ("power_limit_window_s", -1,
+     "Power Check Window of 'HV Battery Pack' must be at least 0 and at most 60 s — got -1."),
+    ("voltage_class_V", -600, "Voltage Class of 'HV Battery Pack' must be at least 0 V — got -600."),
     ("output_power_limit_kW", 80, None),
 ])
 def test_power_limit_parameters_are_range_checked(key, value, expected):
@@ -264,9 +274,11 @@ def test_wheel_load_shares_must_add_up():
      "Rear axle, so no load can shift between axles. Set Axle to Front on the front wheels."),
     ({"cg_height_m": 30, "wheelbase_m": 1.55}, "warning",
      "Vehicle 'Vehicle' has a Centre of Gravity Height of 30 m, above its Wheelbase of 1.55 m"),
-    ({"wheelbase_m": 0}, "error", "'Vehicle' has a non-positive wheelbase."),
-    ({"aero_balance_front_pct": 120}, "error", "Aero balance (front) of 'Vehicle' must be in"),
-    ({"cg_height_m": -0.1}, "error", "Centre of gravity height of 'Vehicle' must be in"),
+    ({"wheelbase_m": 0}, "error", "Wheelbase of 'Vehicle' must be above 0 m — got 0."),
+    ({"aero_balance_front_pct": 120}, "error",
+     "Front Aero Balance of 'Vehicle' must be at least 0 and at most 100 % — got 120."),
+    ({"cg_height_m": -0.1}, "error",
+     "Centre of Gravity Height of 'Vehicle' must be at least 0 m — got -0.1."),
     ({"cg_height_m": 0.55, "downforce_cza_m2": -0.5}, None, None),  # tagged, lift allowed
 ])
 def test_vehicle_geometry_data_checks(values, level, expected):
@@ -289,6 +301,8 @@ def test_vehicle_geometry_data_checks(values, level, expected):
     else:
         assert len(new) == 1 and new[0].level == level and new[0].text.startswith(expected), new
         assert new[0].elementId == "el-vehicle"
+        if "axle" in expected:  # Problems also points at the wheels to re-tag
+            assert set(new[0].elementIds) == {"el-vehicle", *WHEELS}
 
 
 # ---- MOD-11: road load counted once, and the Ambient's air -------------------------
@@ -349,9 +363,146 @@ def _with_ambients(*values):
     ([(293.15, 101.325)], [("warning", "'Ambient 0' has a temperature of 293.15 °C (-60 to 60 °C "
                                        "is usual), which gives the Vehicle's drag an air density "
                                        "of 0.623 kg/m³ — check the value and its unit.")]),
-    ([(20, 0)], [("error", "'Ambient 0' has a non-positive pressure.")]),
-    ([(-300, 101.325)], [("error", "Temperature of 'Ambient 0' must be in (-273.15, 1000] — "
-                                   "got -300.")]),
+    ([(20, 0)], [("error", "Pressure of 'Ambient 0' must be above 0 kPa — got 0.")]),
+    ([(-300, 101.325)], [("error", "Temperature of 'Ambient 0' must be above -273.15 and at most "
+                                   "1000 °C — got -300.")]),
 ])
 def test_ambient_checks(values, expected):
     assert _with_ambients(*values) == expected
+
+
+# ---- UX-10 / LRN-05: the catalogue's limits are the ones Data Checks use -----------
+
+LIMITED = [(c.id, p) for c in load_library() for p in c.parameters
+           if p.type == "number" and (p.minimum, p.exclusiveMinimum, p.maximum) != (None,) * 3]
+
+
+def _range_errors(cid: str, key: str, value) -> list[str]:
+    proj = project([el("x", cid, "X", **{key: value})], [], [])
+    return [c.text for c in validate_project(proj) if c.level == "error" and " of 'X' " in c.text]
+
+
+@pytest.mark.parametrize("cid, pdef", LIMITED, ids=[f"{c}.{p.key}" for c, p in LIMITED])
+def test_every_catalog_limit_is_checked(cid, pdef):
+    """A value just outside a parameter's limits in components.json is one
+    error that says what is allowed; the edges and the default are fine."""
+    outside, edges = [], [pdef.minimum, pdef.maximum]
+    if pdef.exclusiveMinimum is not None:
+        outside.append(pdef.exclusiveMinimum)
+    if pdef.minimum is not None:
+        outside.append(pdef.minimum - 0.0001)
+    if pdef.maximum is not None:
+        outside.append(pdef.maximum + 1)
+    name = pdef.label.split(" (")[0]
+    for v in outside:
+        assert _range_errors(cid, pdef.key, v) == [
+            f"{name} of 'X' {pdef.range_problem(v)} — got {v:g}."]
+    for v in (pdef.default, *(e for e in edges if e is not None)):
+        assert _range_errors(cid, pdef.key, v) == []
+    assert _range_errors(cid, pdef.key, "abc") == [f"{name} of 'X' is not a number."]
+
+
+def test_a_case_override_keeps_to_the_limits_too():
+    """A case cannot run on an Initial SOC of 150 %: its own values are
+    checked like the part's, and the fix line says where to change them."""
+    proj = load_example("bev-car")
+    case = proj.cases[0]
+    case.parameterOverrides["el-battery"] = {"initial_soc_pct": 150, "capacity_kWh": 70}
+    errors = [(c.text, c.elementIds, c.fix) for c in validate_project(proj) if c.level == "error"]
+    assert errors == [(f"Initial SOC of 'HV Battery Pack' in case '{case.name}' must be above 0 "
+                       "and at most 100 % — got 150.", ["el-battery"],
+                       "Change or remove the override in Cases & Parameters.")]
+    result = client.post("/api/simulate",
+                         json={"project": proj.model_dump(), "caseId": case.id}).json()
+    assert result["status"] == "failed" and "150" in result["messages"][0]["text"]
+
+
+# ---- UX-09: every problem names its parts and says what to do ---------------------
+
+# words of a check text that already say what to do (it then needs no fix line)
+ADVICE = re.compile(r"\b(wire|connect|remove|give|set them|lower|extend|tick|check the|add a|"
+                    r"add one|drag|lock it|fewer)\b", re.I)
+
+
+def test_every_corpus_problem_names_its_part_and_says_what_to_do():
+    """Over the 156 broken models of VAL-01, a Problems row can always show
+    its part(s) on the diagram and say how to fix it."""
+    unnamed, unadvised = set(), set()
+    for name in EXAMPLES:
+        for _, d in faults(name):
+            for c in validate_project(Project.model_validate(d)):
+                if c.level == "info":
+                    continue
+                if not c.elementIds or c.elementId != c.elementIds[0]:
+                    unnamed.add(c.text)
+                if not c.fix and not ADVICE.search(c.text):
+                    unadvised.add(c.text)
+    assert unnamed == set()
+    assert unadvised == set()
+
+
+WHEELS = {"el-wheel-fl", "el-wheel-fr", "el-wheel-rl", "el-wheel-rr"}
+
+
+def _bev(edit) -> list:
+    d = load_example("bev-car").model_dump()
+    edit(d, d["systems"][0])
+    return validate_project(Project.model_validate(d))
+
+
+def _twin(system: dict, el_id: str) -> None:
+    """A copy of `el_id` ('<id>-2'), wired like it."""
+    twin = copy.deepcopy(next(e for e in system["elements"] if e["id"] == el_id))
+    twin["id"], twin["label"] = f"{el_id}-2", f"{twin['label']} 2"
+    system["elements"].append(twin)
+    system["connections"] += [{**c, "id": f"{c['id']}-2", "sourceElementId": twin["id"]}
+                              for c in system["connections"] if c["sourceElementId"] == el_id]
+
+
+def _shares(system: dict, pct: float) -> None:
+    for e in system["elements"]:
+        if e["id"] in WHEELS:
+            e["parameterOverrides"]["vehicle_load_share_pct"] = pct
+
+
+def _drop_vehicle(d: dict, system: dict) -> None:
+    system["elements"] = [e for e in system["elements"] if e["id"] != "el-vehicle"]
+    d["dataBusConnections"] = [c for c in d["dataBusConnections"]
+                               if "el-vehicle" not in (c["element1Id"], c["element2Id"])]
+
+
+@pytest.mark.parametrize("edit, starts, parts", [
+    (lambda d, s: _twin(s, "el-vehicle"), "Only one Vehicle element",
+     {"el-vehicle", "el-vehicle-2"}),
+    (lambda d, s: _twin(s, "el-battery"), "Bus has two batteries",
+     {"el-battery", "el-battery-2"}),
+    (lambda d, s: _shares(s, 40), "Wheel load shares add up to 160 %", WHEELS),
+    (lambda d, s: _shares(s, 0), "Wheel load shares add up to 0 %", WHEELS),
+    (_drop_vehicle, "Wheels present but no Vehicle", WHEELS),
+    (lambda d, s: d.update(cases=[]), "Project has no simulation case", set()),
+], ids=["two Vehicles", "two batteries", "shares 160 %", "shares 0 %", "no Vehicle", "no case"])
+def test_global_checks_name_every_part(edit, starts, parts):
+    """Checks about the model as a whole select every part involved (a
+    Problems row then frames them all); only project-level ones name none."""
+    found = [c for c in _bev(edit) if c.text.startswith(starts)]
+    assert len(found) == 1, [c.text for c in _bev(edit)]
+    check = found[0]
+    assert set(check.elementIds) == parts and len(check.elementIds) == len(parts)
+    assert check.elementId == (check.elementIds[0] if parts else None)
+    assert check.fix or ADVICE.search(check.text)
+
+
+def test_a_wire_the_diagram_cannot_show_goes_with_its_part():
+    """A wire to a part or port that is gone is not drawn, so it cannot be
+    clicked: the fix line names the part to delete with it."""
+    def edit(d, s):
+        s["connections"] += [
+            {"id": "c-gone", "sourceElementId": "el-battery", "sourcePortId": "pos",
+             "targetElementId": "el-nowhere", "targetPortId": "t1"},
+            {"id": "c-port", "sourceElementId": "el-battery", "sourcePortId": "no_such_port",
+             "targetElementId": "el-hvbus", "targetPortId": "t1"},
+        ]
+    fixes = {c.text.split("'")[1]: (c.elementIds, c.fix) for c in _bev(edit) if "references missing" in c.text}
+    delete = "delete 'HV Battery Pack' (the wire goes with it) and add it again."
+    assert fixes == {"c-gone": (["el-battery"], "The diagram cannot show this wire: " + delete),
+                     "c-port": (["el-battery"], "The diagram cannot show this wire: " + delete)}

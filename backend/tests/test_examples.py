@@ -241,3 +241,28 @@ def test_development_writes_nothing_to_the_examples(tmp_path, monkeypatch, run):
 def test_every_example_is_served_under_its_file_name():
     for f in paths.EXAMPLES_DIR.glob("*.json"):
         assert storage.load_example(f.stem).id == f.stem
+
+
+def test_the_listing_gives_the_start_page_a_date_a_size_and_a_sketch(user_dir):
+    """UX-16: Recent shows when a project was saved, its number of parts and
+    a thumbnail of its top diagram; a part without a position keeps the
+    project in the list, with no sketch."""
+    project = _save_copy("bev-car", "bev-car-mine", name="Mine")
+    parts = sum(len(s["elements"]) for s in project["systems"])
+    top = next(s for s in project["systems"] if s["parentId"] is None)
+    [listed] = client.get("/api/projects").json()
+    mtime = (user_dir / "bev-car-mine.json").stat().st_mtime_ns // 1_000_000
+    assert (listed["id"], listed["modified"], listed["elements"]) == ("bev-car-mine", mtime, parts)
+    assert listed["thumb"] == [[round(e["position"]["x"]), round(e["position"]["y"])] for e in top["elements"]]
+    assert {e["id"]: e["elements"] for e in client.get("/api/examples").json()}["bev-car"] == parts
+
+    del top["elements"][0]["position"]
+    (user_dir / "bev-car-mine.json").write_text(json.dumps(project))
+    [listed] = client.get("/api/projects").json()
+    assert (listed["name"], listed["elements"], listed["thumb"]) == ("Mine", parts, [])
+
+    # nor does a hand-edited position too big to round
+    top["elements"][0]["position"] = {"x": float("inf"), "y": 0}
+    (user_dir / "bev-car-mine.json").write_text(json.dumps(project))
+    [listed] = client.get("/api/projects").json()
+    assert (listed["name"], listed["elements"], listed["thumb"]) == ("Mine", parts, [])

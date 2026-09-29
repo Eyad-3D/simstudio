@@ -3,8 +3,10 @@ import { DockLayout } from "./components/DockLayout";
 import { DialogHost } from "./components/DialogHost";
 import { ParameterDialog } from "./components/ParameterDialog";
 import { Ribbon } from "./components/Ribbon";
+import { StartPage } from "./components/StartPage";
 import { StatusBar } from "./components/StatusBar";
 import { ResultsPanel } from "./components/panels/ResultsPanel";
+import { componentHelpPage, openHelp } from "./help";
 import { useProjectStore } from "./store/projectStore";
 import { useUIStore } from "./store/uiStore";
 import { saveDraft } from "./persist";
@@ -22,6 +24,7 @@ export default function App() {
   const loaded = useProjectStore((s) => s.loaded);
   const ribbonTab = useUIStore((s) => s.ribbonTab);
   const onResultsPage = ribbonTab === "results";
+  const onStartPage = ribbonTab === "start";
 
   useEffect(() => {
     if (!initStarted) {
@@ -95,6 +98,17 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "F1") {
+        // the parameter in the open help card, else the focused parameter's
+        // help, else the selected part's help page, else the help's front page
+        e.preventDefault();
+        const { project, selectedElementId } = useProjectStore.getState();
+        const el = project?.systems.flatMap((s) => s.elements).find((x) => x.id === selectedElementId);
+        const at = document.querySelector(".ss-help-card:popover-open") ?? (e.target instanceof Element ? e.target : null);
+        const param = at?.closest("[data-help]")?.getAttribute("data-help");
+        openHelp(param ?? (el ? componentHelpPage(el.componentDefId) : undefined));
+        return;
+      }
       const meta = e.ctrlKey || e.metaKey;
       if (!meta) return;
       const target = e.target as HTMLElement;
@@ -132,15 +146,20 @@ export default function App() {
         {loaded ? (
           <>
             {/* Home / model workspace — kept mounted (hidden on the Results
-                page) so its dock layout and live state survive tab switches.
-                It stays laid out while hidden, so it follows window resizes;
-                `inert` keeps clicks, focus and screen readers out of it. */}
+                and Start pages) so its dock layout and live state survive tab
+                switches. It stays laid out while hidden, so it follows window
+                resizes; `inert` keeps clicks, focus and screen readers out. */}
             <div
-              className={`absolute inset-1${onResultsPage ? " ss-dock-hidden" : ""}`}
-              inert={onResultsPage}
+              className={`absolute inset-1${onResultsPage || onStartPage ? " ss-dock-hidden" : ""}`}
+              inert={onResultsPage || onStartPage}
             >
               <DockLayout />
             </div>
+            {onStartPage && (
+              <div className="ss-zoom absolute inset-1 overflow-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)]">
+                <StartPage />
+              </div>
+            )}
             {onResultsPage && (
               <div className="ss-zoom absolute inset-1 overflow-hidden rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)]">
                 <ResultsPanel />

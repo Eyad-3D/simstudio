@@ -25,6 +25,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from .. import cycles
 from ..library import library_by_id
 from ..schemas import ComponentDef, ElementInstance, PortDef, Project
 
@@ -48,9 +49,10 @@ NO_DRIVER = "No Driver element — nothing commands the powertrain unless you wi
 class ModelError(Exception):
     """Topology cannot be reduced to a solvable model."""
 
-    def __init__(self, errors: list[str]):
+    def __init__(self, errors: list[str], involved: dict[str, list[str]] | None = None):
         super().__init__("; ".join(errors))
         self.errors = errors
+        self.involved = involved or {}  # text -> the parts it is about
 
 
 @dataclass
@@ -235,6 +237,7 @@ class Model:
     signal_blocks: list[str]  # Script/PID/Lookup/RoadProfile ids in eval order
     floating_returns: list[str] = field(default_factory=list)  # unwired − terminals
     warnings: list[str] = field(default_factory=list)
+    involved: dict[str, list[str]] = field(default_factory=dict)  # warning -> its parts
     ambient: str | None = None  # the Ambient that sets the air density
     track: str | None = None  # the Race Track lap cases drive
     # re-extracts a driveline for new gears from the current (live) params_of
@@ -280,6 +283,13 @@ def build_model(
     defs = library_by_id()
     errors: list[str] = []
     warnings: list[str] = []
+    involved: dict[str, list[str]] = {}
+
+    def about(text: str, *ids: str | None) -> str:
+        """Note the parts `text` is about (Data Checks select them)."""
+        parts = involved.setdefault(text, [])
+        parts.extend(i for i in ids if i and i not in parts)
+        return text
     gear_of = gear_of or {}
     case_overrides = case_overrides or {}
 
@@ -292,16 +302,28 @@ def build_model(
     for el_id, el in elements.items():
         cdef = defs.get(el.componentDefId)
         if cdef is None:
-            errors.append(f"'{el.label}' references unknown component type '{el.componentDefId}'.")
+            errors.append(about(f"'{el.label}' references unknown component type '{el.componentDefId}'.", el_id))
             continue
         cdef_of[el_id] = cdef
         if el.dynamicPorts and not cdef.allowDynamicPorts:
-            errors.append(f"'{el.label}' has custom ports but '{cdef.name}' does not allow them.")
+            errors.append(about(f"'{el.label}' has custom ports but '{cdef.name}' does not allow them.", el_id))
 
     params_of = {el_id: resolve_params(elements[el_id], cdef) for el_id, cdef in cdef_of.items()}
     for el_id, ov in case_overrides.items():
         if el_id in params_of and isinstance(ov, dict):
             params_of[el_id].update(ov)
+            if "profile" in ov and "cycle" not in ov:  # a case's own profile wins
+                params_of[el_id]["cycle"] = ""
+    # a Driving Task on a bundled drive cycle drives its trace (CON-16)
+    for el_id, cdef in cdef_of.items():
+        cycle_id = params_of[el_id].get("cycle") if cdef.id == "signal.driving_task" else None
+        if cycle_id:
+            try:
+                params_of[el_id]["profile"] = cycles.profile_text(str(cycle_id))
+            except KeyError:
+                errors.append(about(f"Driving Task '{elements[el_id].label}' uses the drive cycle "
+                                    f"'{cycle_id}', which this version of LightSim does not include.",
+                                    el_id))
     # road load from coefficients that hold the axle's drag: the axle gears
     # run lossless (both settings are fixed, so this holds for the whole run)
     veh_p = next((params_of[e] for e, c in cdef_of.items() if c.id == "vehicle.body"), {})
@@ -527,13 +549,13 @@ def build_model(
                 pa = mech_adj.get((j_el, "flange_a"), [])
                 pb = mech_adj.get((j_el, "flange_b"), [])
                 if not pa or not pb:
-                    errors.append(f"Clutch '{elements[j_el].label}' needs both flanges connected.")
+                    errors.append(about(f"Clutch '{elements[j_el].label}' needs both flanges connected.", j_el))
                     ok = False
                     continue
                 sa, sb = segment_for(pa[0]), segment_for(pb[0])
                 if sa == sb:
-                    errors.append(f"Clutch '{elements[j_el].label}' short-circuits a rigid "
-                                  f"segment — that loop is not supported.")
+                    errors.append(about(f"Clutch '{elements[j_el].label}' short-circuits a rigid "
+                                        f"segment — that loop is not supported.", j_el))
                     ok = False
                     continue
                 dl.joints.append(Joint(
@@ -550,14 +572,14 @@ def build_model(
                 pa = mech_adj.get((j_el, "flange_out_a"), [])
                 pb = mech_adj.get((j_el, "flange_out_b"), [])
                 if not pa or not pb:
-                    errors.append(f"'{elements[j_el].label}' needs both outputs connected.")
+                    errors.append(about(f"'{elements[j_el].label}' needs both outputs connected.", j_el))
                     ok = False
                     continue
                 sa, sb = segment_for(pa[0]), segment_for(pb[0])
                 sp = segment_for(pin[0]) if pin else -1
                 if sa == sb or sa == sp or sb == sp:
-                    errors.append(f"'{elements[j_el].label}' outputs reconnect mechanically "
-                                  f"— that loop is not supported.")
+                    errors.append(about(f"'{elements[j_el].label}' outputs reconnect mechanically "
+                                        f"— that loop is not supported.", j_el))
                     ok = False
                     continue
                 f_b = 0.5
@@ -631,9 +653,11 @@ def build_model(
                 parent_count[j.parent_seg] += 1
         for seg_idx, n in parent_count.items():
             if n > 1:
-                errors.append("A rigid section feeds the input of two splits "
-                              "(differential/transfer case) — that is kinematically "
-                              "over-constrained and not supported.")
+                errors.append(about("A rigid section feeds the input of two splits "
+                                    "(differential/transfer case) — that is kinematically "
+                                    "over-constrained and not supported.",
+                                    *(j.el_id for j in dl.joints
+                                      if j.kind == "split" and j.parent_seg == seg_idx)))
         return dl
 
     drivelines: list[Driveline] = []
@@ -719,22 +743,23 @@ def build_model(
             bus = positive_bus(el_id)
             if bus is not None:
                 if bus.battery:
-                    errors.append(f"Bus has two batteries ('{label}' and "
-                                  f"'{elements[bus.battery].label}') — not supported yet.")
+                    errors.append(about(f"Bus has two batteries ('{label}' and "
+                                        f"'{elements[bus.battery].label}') — not supported yet.",
+                                        el_id, bus.battery))
                 else:
                     bus.battery = el_id
         elif t == "electric.voltage_source":
             bus = positive_bus(el_id)
             if bus is not None:
                 if bus.vsource:
-                    errors.append("Bus has two voltage sources — not supported.")
+                    errors.append(about("Bus has two voltage sources — not supported.", el_id, bus.vsource))
                 else:
                     bus.vsource = el_id
         elif t == "fuelcell.stack":
             bus = positive_bus(el_id)
             if bus is not None:
                 if bus.fuelcell:
-                    errors.append("Bus has two fuel cells — not supported yet.")
+                    errors.append(about("Bus has two fuel cells — not supported yet.", el_id, bus.fuelcell))
                 else:
                     bus.fuelcell = el_id
         elif t == "electric.constant_drive":
@@ -756,8 +781,8 @@ def build_model(
     for bus in buses:
         primary = [s for s in (bus.battery, bus.vsource, bus.fuelcell) if s]
         if len(primary) > 1:
-            errors.append("A bus with more than one primary source (battery / voltage "
-                          "source / fuel cell) is not supported.")
+            errors.append(about("A bus with more than one primary source (battery / voltage "
+                                "source / fuel cell) is not supported.", *primary))
 
     # solve order: a bus supplied by a DC-DC must be solved before the bus
     # the DC-DC draws from (its demand becomes load there)
@@ -778,7 +803,8 @@ def build_model(
     while pending:
         ready = [b for b in pending if not (deps[b.id] - {o.id for o in order})]
         if not ready:
-            errors.append("DC-DC converters form a loop between buses — not supported.")
+            errors.append(about("DC-DC converters form a loop between buses — not supported.",
+                                *(d for b in pending for d in (*b.dcdc_in, *b.dcdc_out))))
             order.extend(pending)
             break
         for b in ready:
@@ -789,7 +815,7 @@ def build_model(
     def single(type_id: str, what: str) -> str | None:
         found = [el_id for el_id, cdef in cdef_of.items() if cdef.id == type_id]
         if len(found) > 1:
-            errors.append(f"Only one {what} element per model is supported.")
+            errors.append(about(f"Only one {what} element per model is supported.", *found))
         return found[0] if found else None
 
     vehicle = single("vehicle.body", "Vehicle")
@@ -800,22 +826,25 @@ def build_model(
     # several Ambients (0.2.0 placeholders) still run: the first one counts
     ambients = [el_id for el_id, cdef in cdef_of.items() if cdef.id == "boundary.ambient"]
     if len(ambients) > 1:
-        warnings.append(f"Only the first Ambient ('{elements[ambients[0]].label}') sets the "
-                        f"air density; the others are ignored.")
+        warnings.append(about(f"Only the first Ambient ('{elements[ambients[0]].label}') sets the "
+                              f"air density; the others are ignored.", *ambients))
 
     any_wheels = any(seg.wheels for dl in drivelines for seg in dl.segments)
     if any_wheels and not vehicle:
-        warnings.append(NO_VEHICLE)
+        warnings.append(about(NO_VEHICLE, *(w.el_id for dl in drivelines
+                                            for seg in dl.segments for w in seg.wheels)))
     if vehicle and not any_wheels:
-        warnings.append(NO_WHEELS)
+        warnings.append(about(NO_WHEELS, vehicle))
     if vehicle and any_wheels and not driver:
-        warnings.append(NO_DRIVER)
+        warnings.append(about(NO_DRIVER, vehicle))
     has_engine = any(cdef.id == "engine.combustion" for cdef in cdef_of.values())
     if has_engine and not fuel_tank:
-        warnings.append("Combustion engine without a Fuel Tank — running on infinite fuel.")
+        warnings.append(about("Combustion engine without a Fuel Tank — running on infinite fuel.",
+                              *(e for e, c in cdef_of.items() if c.id == "engine.combustion")))
     has_fc = any(cdef.id == "fuelcell.stack" for cdef in cdef_of.values())
     if has_fc and not h2_tank:
-        warnings.append("Fuel cell without a Hydrogen Tank — running on infinite hydrogen.")
+        warnings.append(about("Fuel cell without a Hydrogen Tank — running on infinite hydrogen.",
+                              *(e for e, c in cdef_of.items() if c.id == "fuelcell.stack")))
 
     # ---- signal-block evaluation order ---------------------------------------
     block_ids = [el_id for el_id, cdef in cdef_of.items()
@@ -829,14 +858,15 @@ def build_model(
     while remaining:
         ready_s = sorted(s for s in remaining if not (block_deps[s] & remaining))
         if not ready_s:  # cycle: evaluate in stable order with one-step delay
-            warnings.append("Signal blocks form a loop — resolved with a one-step delay.")
+            warnings.append(about("Signal blocks form a loop — resolved with a one-step delay.",
+                                  *sorted(remaining)))
             ready_s = sorted(remaining)
         for s in ready_s:
             ordered.append(s)
             remaining.discard(s)
 
     if errors:
-        raise ModelError(errors)
+        raise ModelError(errors, involved)
 
     return Model(
         elements=elements,
@@ -852,6 +882,7 @@ def build_model(
         signal_blocks=ordered,
         floating_returns=floating_returns,
         warnings=warnings,
+        involved=involved,
         ambient=ambients[0] if ambients else None,
         track=track,
         rewalk=lambda dl, gears: extract_driveline(set(dl.element_group), gears, []),

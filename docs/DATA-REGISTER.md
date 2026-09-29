@@ -13,16 +13,16 @@ cleared it for shipping.
 | --- | --- |
 | `id` | Stable row id (`DR-nn`). Other rows refer to it. |
 | `file` | Repository path of the file that holds the data. |
-| `dataset` | `*` for the file as a whole. Inside the component catalogue it is `<component>.<parameter>`; inside an example project it is `<element>.<parameter>`, or `<case>/<element>.<parameter>` for a value one case sets (such as a case's own drive cycle). Every map, curve and drive or grade profile has its own row. |
+| `dataset` | `*` for the file as a whole. Inside the component catalogue it is `<component>.<parameter>`; inside an example project it is `<element>.<parameter>`, or `<case>/<element>.<parameter>` for a value one case sets (such as a case's own typed drive cycle). Every map, curve and drive or grade profile has its own row; a bundled drive cycle is a file of its own (`backend/app/cycles/`), so its row uses `*`. |
 | `kind` | `example-project`, `component-defaults`, `drive-cycle`, `grade-profile`, `map`, `curve`, `table`, `generated-copy` or `test-fixture`. |
 | `source` | Where the numbers come from: a URL or document, `Synthetic / created for LightSim` (only when the history shows it), or `Provenance unknown`. |
 | `history` | What git history and the research notes say about the source. |
 | `licence`, `credit` | The licence the data is under and the credit text it requires. |
-| `ships_in_installer` | `yes` or `no`. The engine bundle carries `backend/projects/` and the component catalogue (`backend/lightsim-backend.spec`). The UI bundle inlines `frontend/src/data/` as its offline fallback. |
+| `ships_in_installer` | `yes` or `no`. The engine bundle carries `backend/projects/`, the component catalogue and the drive cycles in `backend/app/cycles/` (`backend/lightsim-backend.spec`). The UI bundle inlines `frontend/src/data/` as its offline fallback. |
 | `cleared` | The owner's sign-off that LightSim may ship the data: `yes` (the licence is known and allows it), `no` (it must not ship) or `pending` (not yet confirmed). |
 | `notes` | Caveats and open actions. |
 
-## Status (2026-09-23)
+## Status (2026-09-28)
 
 - The register has 45 rows.
 - **Third-party data is now bundled.** The example rebuild (CON-02, CON-03)
@@ -40,6 +40,10 @@ cleared it for shipping.
   re-typed from the regulation tables as rule 2 asks, because epa.gov and
   unece.org could not be reached when they were added; re-check them against
   the tables when they can.
+- Those three cycles are LightSim's drive-cycle library (`backend/app/cycles/`,
+  CON-16): one CSV each, holding the same points the example cases carried
+  before, and `cycles.json` for their names, phases and published figures
+  (DR-46). The examples and the Driving Task's *Drive Cycle* name them by id.
 - The examples' new engine, motor and battery maps are synthetic, created
   for LightSim in that change; their rows say what they are calibrated to.
 - The Race Track's layouts (`backend/app/library/tracks.json`, DR-38) are
@@ -94,6 +98,9 @@ cleared it for shipping.
    `scripts/licenses/bundled-data.json`, with the source's NOTICE text, and
    `scripts/third-party-notices.py` writes the credit into
    THIRD-PARTY-NOTICES.txt and the SBOM.
+7. Never change a shipped drive-cycle file in place. A stored run and a
+   project record only the cycle's id, so a corrected or resampled cycle gets
+   a new id, file and row, and the old one stays.
 
 Rules 2–5 come from the roadmap research of September 2026 (`open-source-repos`
 §3.1, not kept in this repository). Check them again when the data is added.

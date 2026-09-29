@@ -290,7 +290,7 @@ minimum or an average, for example from the CSV export.
   Vehicle *Centre of Gravity Height* and each Wheel's *Axle* set, load
   moves between the axles by m·(a + g·sin θ)·h/L when the car accelerates,
   brakes or stands on a slope, and a *Downforce Area* adds ½·ρ·CzA·v² split
-  by the *Aero Balance*. The acceleration a is the previous solver step's,
+  by the *Front Aero Balance*. The acceleration a is the previous solver step's,
   10 ms behind: exact while it is steady, off by its change over one step
   while it changes (0.6-4 % where an FS car's motor reaches its power
   limit, the whole transfer in a launch's first step). With the driven
@@ -489,10 +489,44 @@ minimum or an average, for example from the CSV export.
   goes at full speed, which makes that run about 20 % faster; a paced (live)
   run hardly uses it. A coarser case step does not make a run faster: the
   solver steps every 10 ms whatever it is. *Roadmap:* ENG-10.
-- **Some colours are too faint in the dark theme.** The ribbon title, the
-  Run button, the status bar's "backend connected" and "success" in the log
-  fall short of the WCAG AA contrast minimum. Switch to the light theme if
-  they are hard to read. *Roadmap:* GUI-02.
+- **Part names can overlap when the diagram is zoomed out.** Names keep
+  their 11 px on screen however far you zoom out, so neighbours' names run
+  into each other: on the Battery Electric Car, with Windows' font, one
+  pair at 53 %, seven at 39 % and all of them at the 15 % minimum; a wider
+  font, as on Linux, overlaps sooner. Zoom in, or use the minimap to find
+  a part. With a bottom panel open, two of the lowest names are cut off in
+  the smallest window (1024 × 700), and in a 1366 × 768 window when the
+  panel keeps the taller height an earlier build saved, because automatic
+  fits stop at 50 %: close the panel, zoom out or choose *Reset UI*.
+  *Roadmap:* GUI-10.
+- **A few small marks are still faint.** The warning badge on a part, and
+  the pin outlines and polarity marks in the dark theme, fall short of the
+  WCAG contrast minimum. *Roadmap:* GUI-14.
+- **Run warnings find their part by its name.** The Problems list shows the
+  latest run's warnings and errors, and a row selects the part whose name
+  the message quotes. A part renamed after the run is missed, parts that
+  share a name are all selected, and some messages name no part (*Cycle
+  not followed*). A run's rows stay until the next run, even once the
+  model is fixed. *Roadmap:* VAL-10.
+- **Signals are linked one at a time.** Data Bus Connections has no
+  "connect to all Brakes" or "connect by matching names" yet, and signals
+  are not drawn on the diagram: pick each input's source in its row (two
+  clicks). In a 1366 × 768 window the bottom panel shows two rows at a
+  time; drag its top edge up to see more. *Roadmap:* UX-15 (follow-up),
+  UX-11.
+- **Three standard drive cycles.** The Driving Task's *Drive Cycle* list
+  has WLTC class 3b, EPA city (UDDS) and EPA highway (HWFET). Other cycles
+  (NEDC, FTP-75, US06, the WLTC of other classes) and cycle files of your
+  own are not in it yet: type or paste their points into the Profile. A
+  cycle has no grade. A project that names a drive cycle, opened in 0.2.0,
+  drives the typed profile instead, with no warning. *Roadmap:* CON-04,
+  CON-11, PLT-07.
+- **Few starting points.** The *Start* page offers the examples that come
+  with LightSim and a blank project. Ready-made starting points for other
+  layouts (two motors, a fuel-cell car) and templates that ask a few
+  questions first are not there yet: start from the example closest to
+  your car and change it. *Recent projects* lists projects saved in
+  LightSim's projects folder only. *Roadmap:* CON-18, PLT-32.
 - **Unsigned installers.** Windows SmartScreen warns on first launch (choose
   *More info → Run anyway*). *Roadmap:* PLT-13.
 - **No macOS version.** Builds exist for Windows 10/11 (x64) and Linux (x64)
@@ -500,9 +534,32 @@ minimum or an average, for example from the CSV export.
 - **No automatic updates yet.** Download a newer version from the GitHub
   Releases page and install it over the old one; your projects are kept.
   *Roadmap:* PLT-18.
-- **Little help in the app.** There is no user manual, tutorial or
-  explanation of individual parameters yet; the README's quick start is the
-  only walk-through. *Roadmap:* LRN-04, LRN-05.
+- **The help is a first draft.** F1, or **?** at the top right, opens
+  LightSim's help in your web browser, served from your computer: two
+  tutorials, how-to guides, a page for every part in the library, and the
+  documents that come with each release. It is new: if a page does not
+  match what the app shows, the app is right. There are no pictures of the
+  app beyond the quick start's, the help opens outside the app window, and
+  it is not online yet. *Roadmap:* LRN-09 (help inside the app), LRN-04
+  (follow-up: online).
+- **The parameter texts are first drafts.** Rest the pointer on a
+  parameter, or move to it with Tab, to see what it is, its usual values
+  and where to find the real number; each part's help page lists the same
+  texts. They follow what the solver does, but the usual values come from
+  general knowledge and no vehicle engineer has reviewed them yet: check a
+  value that matters against its source. *Roadmap:* LRN-05 (review),
+  CON-13 (where a value came from).
+- **Limits are checked one parameter at a time.** Data Checks and the form
+  check each number against its own limits only: a PID's Output Minimum
+  above its Output Maximum, or a Default Gear past the last gear, is not
+  flagged. A sweep's From and To are not checked as you type; a point
+  outside the limits fails when it runs, with the Data Check's reason. A
+  case's own value out of range stops the runs of every case, not only
+  its own. An acceleration case's Distance, Start line and Reference time
+  turn red as you type but are not Data Checks: a run ignores a value
+  outside them (no finish line, a 0 m start line, no reference gap).
+  Properties does not mark a value that differs from the library's default
+  and cannot reset it. *Roadmap:* UX-38 (the mark and reset).
 - **Licence.** LightSim is proprietary (`LICENSE`). The desktop app is free
   for evaluation, learning, research and other non-commercial use under its
   end-user licence agreement (`EULA.txt`, installed with the app);

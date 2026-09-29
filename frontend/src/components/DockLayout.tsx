@@ -11,7 +11,7 @@ import {
 } from "dockview-react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { LAYOUT_KEY } from "../storageKeys";
-import { useProjectStore } from "../store/projectStore";
+import { problemCounts, useProjectStore } from "../store/projectStore";
 import { useUIStore } from "../store/uiStore";
 import { ComponentsPanel } from "./panels/ComponentsPanel";
 import { ElementsPanel } from "./panels/ElementsPanel";
@@ -54,19 +54,14 @@ const wrap = (Component: React.ComponentType, opts: { zoom?: boolean } = {}) => 
   return Panel;
 };
 
-/** Warnings + errors waiting in Messages or the last Data Checks, as
- *  "level:count" ("" when there are none) so the tab re-renders only when the
- *  badge changes. */
+/** Warnings + errors in the Problems list, for its tab, as "level:count" (""
+ *  when there are none) so the tab re-renders only when the badge changes.
+ *  Messages is the log and has no badge: the problems the model has now are
+ *  in Problems. */
 function useAttention(panelId: string): string {
   return useProjectStore((s) => {
-    const items =
-      panelId === "messages" ? s.messages : panelId === "data-checks" ? (s.dataChecks ?? []) : [];
-    let errors = 0;
-    let warnings = 0;
-    for (const m of items) {
-      if (m.level === "error") errors++;
-      else if (m.level === "warning") warnings++;
-    }
+    if (panelId !== "data-checks") return "";
+    const { errors, warnings } = problemCounts(s);
     return errors + warnings ? `${errors ? "error" : "warning"}:${errors + warnings}` : "";
   });
 }
@@ -95,9 +90,9 @@ const FULL_TITLES: Record<string, string> = { cases: "Cases & Parameters" };
 
 // Panel tabs, drawn with dockview's default-tab markup and styles. dockview's
 // own tab element (the "tab" in each group's tab list) is named after the
-// panel title; name it in full instead, with the problem count that Messages /
-// Data Checks also show as a badge (drawn by CSS from data-badge) so problems
-// show while the tray is collapsed. dockview names its tab element after the
+// panel title; name it in full instead, with the problem count that Problems
+// also shows as a badge (drawn by CSS from data-badge) so problems show while
+// the tray is collapsed. dockview names its tab element after the
 // panel title when it creates it (a moved panel gets a new one) and again when
 // the title changes; both are followed by a layout change, so the full name is
 // set again after every layout change. The close X is a plain span, as in
@@ -271,18 +266,20 @@ function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
   });
 
   // Bottom tray. Clicking a tab opens it; the Signal Plot opens by itself on
-  // the session's first run (see DockLayout). A failed restore can leave an
-  // (emptied) tray behind: start from a fresh one.
+  // the session's first run (see DockLayout). It opens at 22 % of the dock
+  // (139 px at 1366x768), so the diagram keeps 40 % of the window; its sash
+  // drags it up to TRAY_MAX_SHARE. A failed restore can leave an (emptied)
+  // tray behind: start from a fresh one.
   if (api.getEdgeGroup("bottom")) api.removeEdgeGroup("bottom");
   api.addEdgeGroup("bottom", {
     id: "tray",
-    initialSize: clamp(Math.round(height * 0.3), 180, 360),
+    initialSize: clamp(Math.round(height * 0.22), TRAY_MIN, 360),
     minimumSize: TRAY_MIN,
     collapsed: true,
   });
   const tray = [
     ["messages", "Messages"],
-    ["data-checks", "Data Checks"],
+    ["data-checks", "Problems"],
     ["layer-config", "Layer Configurations"],
     ["data-bus", "Data Bus Connections"],
     ["mini-chart", "Signal Plot"],
@@ -326,6 +323,7 @@ function onReady(event: DockviewReadyEvent) {
         api.fromJSON(saved.layout as Parameters<typeof api.fromJSON>[0]);
         // a layout saved before GUI-34 titles the tab in full
         api.getPanel("cases")?.api.setTitle("Cases");
+        api.getPanel("data-checks")?.api.setTitle("Problems"); // "Data Checks" before 0.3
         restored = api.panels.length > 0;
       }
     }

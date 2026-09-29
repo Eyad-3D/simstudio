@@ -155,6 +155,7 @@ export function ResultsPanel() {
   const runsLoading = useProjectStore((s) => s.runsLoading);
   const running = useProjectStore((s) => s.running);
   const run = useProjectStore((s) => s.run);
+  const caseName = useProjectStore((s) => s.project?.cases.find((c) => c.id === s.activeCaseId)?.name);
   const theme = useUIStore((s) => s.theme);
 
   const result = activeRun?.result;
@@ -413,7 +414,7 @@ export function ResultsPanel() {
           onClick={() => void run()}
         >
           <Play size={13} className="text-[color:var(--ss-accent)]" />
-          {running ? "Running…" : "Run active case"}
+          {running ? "Running…" : `Run '${caseName ?? "active case"}'`}
         </button>
       </div>
     );
@@ -592,7 +593,7 @@ export function ResultsPanel() {
               <>
                 Sweep · {completeFamily.length} complete run(s)
                 {incompleteCount > 0 && (
-                  <span className="text-amber-600">
+                  <span className="text-[color:var(--ss-warn)]">
                     {" "}
                     · {incompleteCount} incomplete {showIncomplete ? "shown hollow" : "not plotted"}
                   </span>
@@ -614,10 +615,10 @@ export function ResultsPanel() {
                     running && activeRun?.status === "running"
                       ? "text-[color:var(--ss-accent)]"
                       : result.status === "success" && !activeRun?.incomplete
-                        ? "text-emerald-700"
+                        ? "text-[color:var(--ss-ok)]"
                         : result.status !== "failed"
-                          ? "text-amber-600"
-                          : "text-red-600"
+                          ? "text-[color:var(--ss-warn)]"
+                          : "text-[color:var(--ss-err)]"
                   }
                 >
                   {activeRun?.status === "running"
@@ -922,7 +923,11 @@ export function ResultsPanel() {
                   <Legend
                     formatter={(key: string) => {
                       const c = channelByKey.get(key);
-                      return <span style={{ fontSize: 10 }}>{c ? (c.label.split(" · ")[1] ?? c.label) : key}</span>;
+                      return (
+                        <span style={{ fontSize: 10, color: "var(--ss-text)" }}>
+                          {c ? (c.label.split(" · ")[1] ?? c.label) : key}
+                        </span>
+                      );
                     }}
                   />
                   {xyYChannels.map((c) => {
@@ -1002,7 +1007,7 @@ export function ResultsPanel() {
                   />
                   <Legend
                     formatter={(key: string) => (
-                      <span style={{ fontSize: 10 }}>{defByKey.get(key)?.legend ?? key}</span>
+                      <span style={{ fontSize: 10, color: "var(--ss-text)" }}>{defByKey.get(key)?.legend ?? key}</span>
                     )}
                   />
                   {seriesDefs.map((d) => (
@@ -1047,9 +1052,14 @@ export function ResultsPanel() {
                   )}
                   {plotRuns.map((r, i) => (
                     <th key={r.id} className="ss-th w-[110px] text-right" title={runLabel(r)}>
-                      <span style={{ color: multiRun ? runColor(i) : undefined }}>
-                        {multiRun ? runShort(r) : "Value"}
-                      </span>
+                      {multiRun && (
+                        <span
+                          className="mr-1 inline-block h-2 w-2 rounded-full align-middle"
+                          style={{ background: runColor(i) }}
+                          aria-hidden="true"
+                        />
+                      )}
+                      {multiRun ? runShort(r) : "Value"}
                     </th>
                   ))}
                   <th className="ss-th w-[56px]">Unit</th>
@@ -1063,7 +1073,7 @@ export function ResultsPanel() {
                       {/* the reason under the label, where there is room; the
                           value cells keep a short marker (reason in its tooltip) */}
                       {s.notValid && (
-                        <div className="text-[10px] text-amber-600">not valid: {s.notValid}</div>
+                        <div className="text-[10px] text-[color:var(--ss-warn)]">not valid: {s.notValid}</div>
                       )}
                     </td>
                     {plotRuns.map((r, ri) => {
@@ -1077,10 +1087,10 @@ export function ResultsPanel() {
                           {typeof v === "number" ? v.toLocaleString() : "—"}
                           {sv?.passed != null && (
                             <span
-                              className={`ml-1 rounded px-1 font-sans text-[10px] font-semibold ${
+                              className={`ml-1 rounded border px-1 font-sans text-[10px] font-semibold ${
                                 sv.passed
-                                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
-                                  : "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400"
+                                  ? "border-[color:var(--ss-ok)] text-[color:var(--ss-ok)]"
+                                  : "border-[color:var(--ss-err)] text-[color:var(--ss-err)]"
                               }`}
                             >
                               {sv.passed ? "pass" : "fail"}
@@ -1093,7 +1103,7 @@ export function ResultsPanel() {
                           )}
                           {sv?.notValid && (
                             <div
-                              className="font-sans text-[10px] text-amber-600"
+                              className="font-sans text-[10px] text-[color:var(--ss-warn)]"
                               title={`Not valid: ${sv.notValid}`}
                             >
                               not valid

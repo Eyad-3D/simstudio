@@ -1,5 +1,5 @@
-// Accessibility gate (axe-core) on three screens: the topology workspace, the
-// Results page and a parameter dialog, each in the light and the dark theme.
+// Accessibility gate (axe-core) on the topology workspace, the Results page, a
+// parameter dialog and the help pages, each in the light and the dark theme.
 // It fails on any serious or critical violation that is not in
 // a11y-baseline.json, the list of issues the app had when the gate was
 // introduced, kept per screen and theme ("topology-dark"). Fixing one of
@@ -12,10 +12,23 @@
 //
 // Regenerate the baseline after a deliberate change:
 //   UPDATE_A11Y_BASELINE=1 npx playwright test a11y
+//
+// Colour contrast is the exception (GUI-02): a sweep over every panel, menu
+// and dialog in both themes fails on any text below the WCAG AA minimum, and
+// on any color-contrast line in the baseline.
 import AxeBuilder from "@axe-core/playwright";
 import { readFileSync, writeFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { drawnLines, openApp, runActiveCase } from "./app";
+import {
+  drawnLines,
+  openApp,
+  openFromMenu,
+  ribbonTab,
+  runActiveCase,
+  runButton,
+  selectElement,
+  showPanel,
+} from "./app";
 
 type Baseline = Record<string, string[]>;
 const BASELINE_FILE = new URL("./a11y-baseline.json", import.meta.url);
@@ -44,9 +57,17 @@ function describeElement(selector: string): string | null {
   return tidy ? `${tag}${role ? `[role=${role}]` : ""}${type} "${tidy.slice(0, 40)}"` : null;
 }
 
+/** dockview draws a 1-px separator as a ::before of every panel, which makes
+ *  axe give up on the colour of all text inside panels ("incomplete"); hide
+ *  it so the panels' text is checked too. */
+async function showPanelText(page: Page) {
+  await page.addStyleTag({ content: ".dv-view::before { content: none !important; }" });
+}
+
 /** Serious/critical violations on the page: "rule-id  element" → axe's
  *  selector for it (to find it when it is new). */
 async function blockingViolations(page: Page): Promise<Map<string, string>> {
+  await showPanelText(page);
   const { violations } = await new AxeBuilder({ page }).analyze();
   const keys = new Map<string, string>();
   for (const v of violations) {
@@ -67,7 +88,8 @@ async function blockingViolations(page: Page): Promise<Map<string, string>> {
 async function check(page: Page, screen: string) {
   const current = await blockingViolations(page);
   if (updating) {
-    found[screen] = [...current.keys()].sort();
+    // a screen can be scanned in several states: keep what each one found
+    found[screen] = [...new Set([...(found[screen] ?? []), ...current.keys()])].sort();
     return;
   }
   const known = new Set(baseline[screen] ?? []);
@@ -86,6 +108,18 @@ test.afterAll(() => {
   if (updating) writeFileSync(BASELINE_FILE, JSON.stringify({ ...baseline, ...found }, null, 2) + "\n");
 });
 
+/** Text on the page below WCAG AA contrast, as "ratio  text  fg on bg". */
+async function contrastFailures(page: Page): Promise<string[]> {
+  await showPanelText(page);
+  const { violations } = await new AxeBuilder({ page }).withRules(["color-contrast"]).analyze();
+  return violations.flatMap((v) =>
+    v.nodes.map((n) => {
+      const d = n.any[0]?.data as { contrastRatio?: number; fgColor?: string; bgColor?: string } | undefined;
+      return `${d?.contrastRatio}  ${n.target.join(" ")}  ${d?.fgColor} on ${d?.bgColor}`;
+    }),
+  );
+}
+
 for (const theme of ["light", "dark"] as const) {
   test.describe(`${theme} theme`, () => {
     // the saved preference, the way the app starts when a user last chose it
@@ -103,6 +137,83 @@ for (const theme of ["light", "dark"] as const) {
       await runActiveCase(page);
       await expect(drawnLines(page).first()).toBeVisible();
       await check(page, `results-${theme}`);
+      // axe leaves text over a chart unjudged: legend names use the text
+      // colour, as several series colours are too faint for text (GUI-02)
+      const text = await page.locator("#root").evaluate((r) => getComputedStyle(r).color);
+      await expect(page.locator(".recharts-legend-item-text > span").first()).toHaveCSS("color", text);
+    });
+
+    // UX-09 / UX-15: the Problems list with problems in it and the Data Bus
+    // panel with a source list open, against the workspace's baseline
+    test("problems and signal lists", async ({ page }) => {
+      await openApp(page);
+      await page.locator(".react-flow__node", { hasText: "Vehicle Task" }).first().click();
+      await page.keyboard.press("Delete");
+      await showPanel(page, "Problems");
+      await expect(page.getByText(/^How to fix: /).first()).toBeVisible();
+      await check(page, `topology-${theme}`);
+      await showPanel(page, "Data Bus Connections");
+      await page.getByRole("combobox", { name: "Source of Driver · Target Speed", exact: true }).click();
+      await expect(page.getByRole("listbox")).toBeVisible();
+      await check(page, `topology-${theme}`);
+      await page.keyboard.type("zzzz");
+      await expect(page.getByRole("listbox")).toHaveText("No output matches.");
+      await check(page, `topology-${theme}`);
+    });
+
+    // CON-16: the Drive Cycle row and its sketch (Properties shows the same)
+    test("drive cycle row", async ({ page }) => {
+      await openApp(page);
+      await page.locator(".react-flow__node", { hasText: "Vehicle Task" }).first().dblclick();
+      const dialog = page.locator(".fixed.inset-0");
+      await dialog.getByRole("combobox", { name: "Drive Cycle" }).selectOption("wltc-3b");
+      await expect(dialog.getByRole("img", { name: /^Speed over time, WLTC/ })).toBeVisible();
+      await check(page, `parameter-dialog-${theme}`);
+    });
+
+    // the Formula Student example: its Race Track, the Acceleration test
+    // button, the battery's preset, the case form's acceleration and lap
+    // fields and the summary's pass/fail markers
+    test("formula student parts", async ({ page }) => {
+      await openApp(page);
+      await openFromMenu(page, "FS Electric (generic)");
+      await expect(page.locator(".react-flow__node", { hasText: "Race Track" })).toBeVisible();
+      await ribbonTab(page, "Simulations").click();
+      await expect(page.getByRole("button", { name: "Acceleration test" })).toBeVisible();
+      await selectElement(page, "Accumulator");
+      await expect(page.getByRole("button", { name: "Apply preset: Formula Student Electric" })).toBeVisible();
+      await check(page, `topology-${theme}`);
+      // the case form's fields sit in their labels; the rest of Cases &
+      // Parameters is older than this gate, so it is swept for contrast only
+      await showPanel(page, "Cases & Parameters");
+      await page.getByTitle("Active simulation case").selectOption("case-autocross");
+      await expect(page.getByRole("spinbutton", { name: "Laps", exact: true })).toBeVisible();
+      expect(await contrastFailures(page)).toEqual([]);
+      await page.getByTitle("Active simulation case").selectOption("case-accel-75m");
+      await expect(page.getByRole("spinbutton", { name: "Start line (m)" })).toBeVisible();
+      expect(await contrastFailures(page)).toEqual([]);
+      await runActiveCase(page);
+      await expect(page.getByRole("row", { name: /^Time to 75 m/ })).toContainText("pass");
+      await check(page, `results-${theme}`);
+    });
+
+    // UX-16: a first launch, with the examples listed (and any project an
+    // earlier spec saved)
+    test("start page", async ({ page }) => {
+      await page.goto("/");
+      await expect(page.getByRole("heading", { name: "Start", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: /^P2 Hybrid Car, / })).toBeVisible();
+      await check(page, `start-${theme}`);
+    });
+
+    // LRN-04: the help pages follow the system's theme, not the app's
+    test("help page", async ({ page }) => {
+      await page.emulateMedia({ colorScheme: theme });
+      await page.goto("/help/reference/components/signal.driving_task.html");
+      await check(page, `help-${theme}`);
+      await page.goto("/help/index.html");
+      await page.getByLabel("Search the help").fill("battery");
+      await check(page, `help-${theme}`);
     });
 
     test("parameter dialog", async ({ page }) => {
@@ -110,6 +221,59 @@ for (const theme of ["light", "dark"] as const) {
       await page.locator(".react-flow__node", { hasText: "E-Motor" }).first().dblclick();
       await expect(page.getByTitle("Close (Esc)")).toBeVisible();
       await check(page, `parameter-dialog-${theme}`);
+    });
+
+    // GUI-02: every panel, menu and dialog, including problem states
+    test("colour contrast on every panel, menu and dialog", async ({ page }) => {
+      const at: Record<string, string[]> = {};
+      const scan = async (where: string) => {
+        const failures = await contrastFailures(page);
+        if (failures.length) at[where] = failures;
+      };
+      await openApp(page);
+      for (const panel of [
+        "Elements",
+        "Cases & Parameters",
+        "Monitors",
+        "Messages",
+        "Problems",
+        "Layer Configurations",
+        "Data Bus Connections",
+        "Signal Plot",
+      ]) {
+        await showPanel(page, panel);
+        await scan(panel);
+      }
+      await showPanel(page, "Topology");
+      await selectElement(page, "Vehicle");
+      await scan("Properties");
+      await page.locator(".react-flow__node", { hasText: "E-Motor" }).first().click({ button: "right" });
+      await scan("part menu");
+      await page.keyboard.press("Escape");
+      await ribbonTab(page, "Home").click();
+      await page.getByRole("button", { name: "Open", exact: true }).click();
+      await scan("Open menu");
+      await page.keyboard.press("Escape");
+      // a model with problems: status-bar count, Problems rows, error log lines
+      await page.getByRole("button", { name: "New", exact: true }).click();
+      await page.getByRole("button", { name: /^Blank project/ }).click();
+      await showPanel(page, "Components");
+      await page.locator("[data-component-id='motor.emotor']").focus();
+      await page.keyboard.press("Enter");
+      await runButton(page).click(); // blocked by the checks: logs errors
+      await showPanel(page, "Problems");
+      await expect(page.getByText(/^\d+ errors?$/)).toBeVisible();
+      await scan("Problems with errors");
+      await showPanel(page, "Messages");
+      await scan("Messages with errors");
+      await page.getByRole("button", { name: "New", exact: true }).click();
+      await page.getByRole("button", { name: /^Blank project/ }).click();
+      await expect(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+      await scan("unsaved-changes dialog");
+      expect(at, "text below the WCAG AA contrast minimum: ratio, element, colours").toEqual({});
+      // low contrast is fixed, never accepted: no baseline may hold it
+      const accepted = Object.values(baseline).flat().filter((k) => k.startsWith("color-contrast"));
+      expect(accepted, "color-contrast lines in a11y-baseline.json").toEqual([]);
     });
   });
 }

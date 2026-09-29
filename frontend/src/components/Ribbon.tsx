@@ -3,6 +3,7 @@ import {
   AArrowDown,
   AArrowUp,
   CheckCircle2,
+  CircleHelp,
   Copy,
   Download,
   EyeOff,
@@ -32,6 +33,7 @@ import type { Project } from "../types";
 import { resetDockLayout } from "./DockLayout";
 import { useDismiss } from "./useDismiss";
 import { confirmDialog } from "../dialog";
+import { openHelp } from "../help";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
 import {
   FONT_SCALE_MAX,
@@ -45,6 +47,7 @@ import {
 // id/stub render remain) until it ships as a real feature. Parameters is real
 // (per-case overrides + sweeps, driven from the Cases & Parameters panel).
 const TABS: { id: RibbonTab; label: string }[] = [
+  { id: "start", label: "Start" },
   { id: "project", label: "Project" },
   { id: "home", label: "Home" },
   { id: "simulations", label: "Simulations" },
@@ -244,7 +247,8 @@ function HomeTab() {
         <BigButton
           icon={FilePlus2}
           label="New"
-          onClick={() => void confirmReplaceProject("Creating a new project").then((ok) => ok && store.newProject())}
+          title="New project: from an example or blank (the Start page)"
+          onClick={() => useUIStore.getState().setRibbonTab("start")}
         />
         <OpenProjectButton />
         <BigButton
@@ -313,6 +317,7 @@ function SimulationsTab() {
           <div className="flex items-center gap-1">
             <select
               className="ss-input w-[150px]"
+              aria-label="Case"
               value={store.activeCaseId ?? ""}
               onChange={(e) => store.setActiveCase(e.target.value)}
             >
@@ -672,7 +677,7 @@ function GlobalRunControl() {
         </button>
       ) : (
         <button
-          className="flex items-center gap-1 rounded bg-[color:var(--ss-accent)] px-2 py-[3px] text-[11px] font-semibold text-white hover:brightness-110 disabled:opacity-40"
+          className="flex items-center gap-1 rounded bg-[color:var(--ss-accent-fill)] px-2 py-[3px] text-[11px] font-semibold text-white hover:brightness-110 disabled:opacity-40"
           onClick={() => void run()}
           disabled={!project}
           title="Run the active case (Ctrl+Enter)"
@@ -733,7 +738,7 @@ export function Ribbon() {
   return (
     <div className="ss-zoom shrink-0 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-chrome)]">
       <div className="flex items-center gap-1 px-2 pt-1">
-        <div className="mr-1 flex items-center gap-1.5 rounded bg-[color:var(--ss-accent)] px-2 py-0.5 text-[12px] font-semibold text-white">
+        <div className="mr-1 flex items-center gap-1.5 rounded bg-[color:var(--ss-accent-fill)] px-2 py-0.5 text-[12px] font-semibold text-white">
           LightSim
         </div>
         {TABS.map((t) => (
@@ -760,6 +765,14 @@ export function Ribbon() {
           <FontSizeControl />
           <button
             className="rounded p-1 hover:bg-[color:var(--ss-hover)]"
+            title="Help (F1)"
+            aria-label="Help (F1)"
+            onClick={() => openHelp()}
+          >
+            <CircleHelp size={13} />
+          </button>
+          <button
+            className="rounded p-1 hover:bg-[color:var(--ss-hover)]"
             title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             onClick={toggleTheme}
@@ -768,14 +781,17 @@ export function Ribbon() {
           </button>
         </div>
       </div>
-      <div className="flex h-[72px] items-stretch border-t border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-1">
-        {tab === "home" && <HomeTab />}
-        {tab === "simulations" && <SimulationsTab />}
-        {tab === "results" && <ResultsTab />}
-        {tab === "parameters" && <ParametersTab />}
-        {tab === "project" && <ProjectTab />}
-        {tab === "optimization" && <StubTab name="Optimization" />}
-      </div>
+      {/* the Start page has no commands of its own: no band */}
+      {tab !== "start" && (
+        <div className="flex h-[72px] items-stretch border-t border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-1">
+          {tab === "home" && <HomeTab />}
+          {tab === "simulations" && <SimulationsTab />}
+          {tab === "results" && <ResultsTab />}
+          {tab === "parameters" && <ParametersTab />}
+          {tab === "project" && <ProjectTab />}
+          {tab === "optimization" && <StubTab name="Optimization" />}
+        </div>
+      )}
     </div>
   );
 }

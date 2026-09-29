@@ -1,23 +1,24 @@
 import { Activity } from "lucide-react";
 import { useUIStore, type EdgeKindFilter } from "../../store/uiStore";
+import { KIND_COLOR } from "../canvas/ElementNode";
 
 const LAYERS: { id: EdgeKindFilter; label: string; color: string; note: string }[] = [
   {
     id: "electrical",
     label: "Electrical connections",
-    color: "#e08600",
+    color: KIND_COLOR.electrical,
     note: "Battery, DC-DC, e-motor supply lines (also covers thermal/fluid)",
   },
   {
     id: "mechanical",
     label: "Mechanical connections",
-    color: "#3f4650",
+    color: KIND_COLOR.mechanical,
     note: "Shafts, gearbox, differential and wheel couplings",
   },
   {
     id: "signal",
     label: "Signal / data-bus links",
-    color: "#0e7490",
+    color: KIND_COLOR.signal,
     note: "Control & sensor wiring (dashed) — reveals your control loops on the canvas",
   },
 ];

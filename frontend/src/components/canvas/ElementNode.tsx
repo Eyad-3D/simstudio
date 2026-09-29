@@ -8,7 +8,7 @@ import {
   type Node,
 } from "@xyflow/react";
 import { AlertTriangle } from "lucide-react";
-import type { ComponentDef, ElementInstance, PortDef, PortSide } from "../../types";
+import type { ComponentDef, ElementInstance, PortDef, PortKind, PortSide } from "../../types";
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import { componentIcon } from "../../icons";
@@ -22,14 +22,16 @@ export type ElementFlowNode = Node<ElementNodeData, "element">;
 
 export const DEFAULT_NODE_WIDTH = 92;
 
-// Per-domain accent — mid-tone saturated colors that read on both the light
-// and dark node backgrounds (mirrors the edge KIND_COLOR palette).
-const DOMAIN_COLOR: Record<string, string> = {
-  electrical: "#e08600",
-  mechanical: "#64748b",
-  signal: "#0891b2",
-  thermal: "#dc2626",
+// One colour per domain for wires, node borders and icons, layer swatches and
+// port dots, in both themes: each is at least 3:1 on the light (#ffffff) and
+// the dark (#1b1f26) diagram (contrast.test.ts).
+export const KIND_COLOR: Record<PortKind, string> = {
+  electrical: "#c26400",
+  mechanical: "#7a8494",
+  signal: "#0e7490",
+  thermal: "#c2410c",
   fluid: "#2563eb",
+  power: "#c26400",
 };
 
 // The one "headline" signal shown as a live chip on a node during/after a run.
@@ -202,7 +204,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
   const dataChecks = useProjectStore((s) => s.dataChecks);
   const boxRef = useRef<HTMLDivElement | null>(null);
 
-  const domainColor = DOMAIN_COLOR[def.domain] ?? "var(--ss-node-border)";
+  const domainColor = KIND_COLOR[def.domain] ?? "var(--ss-node-border)";
 
   // live headline value: subscribe narrowly so only this node re-renders when
   // its own signal ticks. Undefined until the run publishes it; persists after.
@@ -213,7 +215,8 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
 
   // surface data-check errors/warnings for this element right on the node
   const issue = useMemo(() => {
-    const forEl = dataChecks?.filter((c) => c.elementId === element.id) ?? [];
+    const forEl =
+      dataChecks?.filter((c) => c.elementId === element.id || c.elementIds?.includes(element.id)) ?? [];
     if (forEl.length === 0) return null;
     const worst = forEl.some((c) => c.level === "error") ? "error" : forEl.some((c) => c.level === "warning") ? "warning" : null;
     if (!worst) return null;
@@ -332,7 +335,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
             />
           )),
         )}
-        <div className="pointer-events-none absolute left-1/2 top-full mt-1 w-[128px] -translate-x-1/2 text-center text-[11px] leading-tight">
+        <div className="ss-node-label pointer-events-none absolute left-1/2 top-full mt-1 w-[128px] -translate-x-1/2 text-center text-[11px] leading-tight">
           <span
             className={`rounded px-1 ${selected ? "font-semibold text-[color:var(--ss-accent)]" : "text-[color:var(--ss-node-icon)]"}`}
             style={{ background: "color-mix(in srgb, var(--ss-panel) 78%, transparent)" }}

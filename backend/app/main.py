@@ -2,6 +2,8 @@
 
 Endpoints:
   GET  /api/library            component library definitions
+  GET  /api/cycles             the bundled standard drive cycles
+  GET  /api/cycles/{id}        one drive cycle with its trace (t, v)
   GET  /api/projects           the user's saved projects
   GET  /api/projects/{id}      load a project (+ its file revision, also as ETag)
   PUT  /api/projects/{id}      save a project (If-Match: the revision it was
@@ -43,7 +45,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from . import run_store, security, storage
+from . import cycles, run_store, security, storage
 from .library import load_library, unit_groups
 from .paths import static_dir
 from .schemas import DataCheck, Project, SimResult, SimulateRequest, StoredRun, ValidateRequest
@@ -93,6 +95,20 @@ def get_library() -> dict:
         "components": [c.model_dump() for c in load_library()],
         "unitGroups": unit_groups(),
     }
+
+
+@app.get("/api/cycles")
+def get_cycles() -> list[dict]:
+    return cycles.listing()
+
+
+@app.get("/api/cycles/{cycle_id}")
+def get_cycle(cycle_id: str) -> dict:
+    try:
+        pts = cycles.trace(cycle_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Drive cycle '{cycle_id}' not found")
+    return {**cycles.info(cycle_id), "t": [p[0] for p in pts], "v": [p[1] for p in pts]}
 
 
 @app.get("/api/projects")

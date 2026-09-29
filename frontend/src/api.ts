@@ -99,11 +99,47 @@ export async function fetchDemoProject(): Promise<{
   }
 }
 
+/** A standard drive cycle bundled with the engine (CON-16). Duration,
+ *  distance and top speed are computed from its trace. */
+export interface CycleInfo {
+  id: string;
+  name: string;
+  region: string;
+  /** its row in docs/data-register.csv */
+  register: string;
+  /** [name, start s, end s] */
+  phases: [string, number, number][];
+  duration_s: number;
+  distance_km: number;
+  vmax_kmh: number;
+}
+
+/** A drive cycle with its trace: time (s) and speed (km/h). */
+export type CycleTrace = CycleInfo & { t: number[]; v: number[] };
+
+/** The bundled drive cycles; none when the engine cannot be reached. */
+export async function listCycles(): Promise<CycleInfo[]> {
+  try {
+    return await request<CycleInfo[]>("/cycles");
+  } catch {
+    return [];
+  }
+}
+
+export function fetchCycle(id: string): Promise<CycleTrace> {
+  return request(`/cycles/${encodeURIComponent(id)}`);
+}
+
 /** A project or example as the engine lists it. */
 export interface ProjectEntry {
   id: string;
   name: string;
   description?: string | null;
+  /** for the Start page: when the file was saved (ms since 1970), its
+   *  number of parts, and its top diagram's part positions */
+  modified?: number;
+  elements?: number | null;
+  thumb?: [number, number][];
 }
 
 /** An example, and whether the user hid it from the Open menu. */

@@ -21,7 +21,10 @@ function misfits(page: Page): Promise<string[]> {
     )!;
     const content = group.querySelector(".dv-content-container")!;
     const panel = content.getBoundingClientRect();
-    const shown = [...content.querySelectorAll("*")].filter((el) => el.getClientRects().length > 0);
+    // (a parameter's help card floats beside the panel, in the top layer)
+    const shown = [...content.querySelectorAll("*")].filter(
+      (el) => el.getClientRects().length > 0 && !el.closest(".ss-help-card"),
+    );
     // the most lines one run of text in `el` wraps onto (a line per row of boxes)
     const lines = (el: Element) => {
       let most = 0;
@@ -111,7 +114,7 @@ test("GUI-34: road-load rows, table buttons and case overrides in a 1366x768 win
   await openApp(page);
   // a narrow panel's table button opens the parameter dialog at that table
   await selectElement(page, "E-Motor");
-  await page.getByTitle("Power Loss (Motor + Inverter): open the full editor in a dialog").click();
+  await page.getByRole("button", { name: /^Power Loss \(Motor \+ Inverter\).*Edit…$/ }).click();
   await expect(page.locator('[data-param="power_loss"]')).toBeInViewport();
   await page.keyboard.press("Escape");
 

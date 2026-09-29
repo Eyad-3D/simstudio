@@ -14,6 +14,7 @@ import {
 async function newProjectWithConstant(page: Page, name: string): Promise<void> {
   await ribbonTab(page, "Home").click();
   await page.getByRole("button", { name: "New", exact: true }).click();
+  await page.getByRole("button", { name: /^Blank project/ }).click();
   await expect(page.locator(".react-flow__node")).toHaveCount(0);
   await expectProject(page, "New Project", { unsaved: false });
 

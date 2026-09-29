@@ -5,7 +5,9 @@ import { expect, type Locator, type Page } from "@playwright/test";
 /** Load the app and wait until the example model is drawn on the canvas. */
 export async function openApp(page: Page): Promise<void> {
   // a new browser context opens the example as a new copy, with an id of its
-  // own and so an empty run history (runs are stored per project, RES-02)
+  // own and so an empty run history (runs are stored per project, RES-02);
+  // as a returning user who skips the Start page (ux16-start.spec.ts)
+  await page.addInitScript(() => localStorage.setItem("lightsim-open-last", "1"));
   await page.goto("/");
   await expect(page.locator(".react-flow__node").first()).toBeVisible();
 }
@@ -15,10 +17,10 @@ export function ribbonTab(page: Page, name: string): Locator {
   return page.getByRole("button", { name, exact: true });
 }
 
-/** Bring a dock panel (Messages, Data Checks, Signal Plot, …) to the front.
+/** Bring a dock panel (Messages, Problems, Signal Plot, …) to the front.
  *  A tab that already shows its panel is left alone, because clicking the
  *  active tab of a collapsible panel group can fold it away. The tab's name
- *  may carry a suffix such as a problem count ("Data Checks (2 …)"). */
+ *  may carry a suffix such as a problem count ("Problems (2 …)"). */
 export async function showPanel(page: Page, title: string): Promise<void> {
   const name = new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?: \\(|$)`);
   const tab = page.getByRole("tab", { name }).first();

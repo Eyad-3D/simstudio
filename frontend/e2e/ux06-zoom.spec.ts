@@ -121,6 +121,11 @@ test("UX-06: a model too big to read opens at 50 % with the overview map", async
   await importProject(page, model);
   await expect.poll(() => zoomOf(page)).toBe(0.5);
   await expect.poll(() => page.locator(".react-flow__minimap-node").count()).toBeGreaterThanOrEqual(300);
+  // hidden, the map stays hidden when the diagram changes size
+  await page.getByTitle("Toggle minimap").click();
+  await page.setViewportSize({ width: 1500, height: 900 });
+  await page.waitForTimeout(1000); // the re-fit waits for the size to settle
+  await expect(page.locator(".react-flow__minimap")).toHaveCount(0);
 });
 
 test("UX-06: leaving a subsystem restores the parent's view", async ({ page }) => {
@@ -137,6 +142,6 @@ test("UX-06: leaving a subsystem restores the parent's view", async ({ page }) =
   const parent = await viewport();
   await page.locator(".react-flow__node", { hasText: "System 1" }).dblclick();
   await expect.poll(() => zoomOf(page), { message: "an empty subsystem opens at 100 %" }).toBe(1);
-  await page.locator(".ss-panel-toolbar button", { hasText: "New Project" }).first().click();
+  await page.getByRole("button", { name: "New Project", exact: true }).click();
   await expect.poll(viewport).toBe(parent);
 });

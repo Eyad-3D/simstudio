@@ -1,5 +1,5 @@
 import { CloudOff, Loader2, Plus } from "lucide-react";
-import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
+import { confirmReplaceProject, problemCounts, useProjectStore } from "../store/projectStore";
 import { useUIStore } from "../store/uiStore";
 
 export function StatusBar() {
@@ -10,10 +10,10 @@ export function StatusBar() {
   const liveT = useProjectStore((s) => s.liveT);
   const dirty = useProjectStore((s) => s.dirty);
   const newProject = useProjectStore((s) => s.newProject);
-  // the problems the model has now (the latest Data Checks, re-checked as it
-  // changes), not every error ever logged: Messages keeps those
-  const dataChecks = useProjectStore((s) => s.dataChecks);
-  const errors = dataChecks?.filter((c) => c.level === "error").length ?? 0;
+  // the errors in the Problems list (the latest Data Checks, re-checked as the
+  // model changes, and the latest run), not every error ever logged: Messages
+  // keeps those
+  const errors = useProjectStore((s) => problemCounts(s).errors);
   const elementCount =
     project?.systems.reduce((n, s) => n + s.elements.length, 0) ?? 0;
 
@@ -29,7 +29,15 @@ export function StatusBar() {
         <button
           className="mb-0.5 rounded p-0.5 hover:bg-[color:var(--ss-hover)]"
           title="New project"
-          onClick={() => void confirmReplaceProject("Creating a new project").then((ok) => ok && newProject())}
+          onClick={() =>
+            void confirmReplaceProject("Creating a new project").then((ok) => {
+              if (!ok) return;
+              newProject();
+              // from the Start page, show the new diagram
+              const ui = useUIStore.getState();
+              if (ui.ribbonTab === "start") ui.setRibbonTab("home");
+            })
+          }
         >
           <Plus size={13} />
         </button>
@@ -49,8 +57,8 @@ export function StatusBar() {
         )}
         {errors > 0 && (
           <button
-            className="text-red-600 hover:underline"
-            title="Show the Data Checks"
+            className="text-[color:var(--ss-err)] hover:underline"
+            title="Show the problems"
             onClick={() => {
               const ui = useUIStore.getState();
               if (ui.ribbonTab === "results") ui.setRibbonTab("home");
@@ -62,11 +70,11 @@ export function StatusBar() {
         )}
         <span>{elementCount} elements</span>
         {offline ? (
-          <span className="flex items-center gap-1 text-amber-600">
+          <span className="flex items-center gap-1 text-[color:var(--ss-warn)]">
             <CloudOff size={12} /> backend offline
           </span>
         ) : (
-          <span className="text-emerald-700">backend connected</span>
+          <span className="text-[color:var(--ss-ok)]">backend connected</span>
         )}
       </div>
     </div>

@@ -6,6 +6,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  useStore,
   useStoreApi,
   ViewportPortal,
   type Connection as RFConnection,
@@ -18,6 +19,7 @@ import {
 import {
   Bookmark,
   BoxSelect,
+  Cable,
   ChevronRight,
   ClipboardPaste,
   Copy,
@@ -38,6 +40,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import {
+  portsOf,
   systemBreadcrumb,
   useActiveSystem,
   useProjectStore,
@@ -46,7 +49,7 @@ import { useUIStore } from "../../store/uiStore";
 import { useDismiss } from "../useDismiss";
 import { promptDialog } from "../../dialog";
 import type { PortKind } from "../../types";
-import { ElementNode, type ElementFlowNode } from "./ElementNode";
+import { ElementNode, KIND_COLOR, type ElementFlowNode } from "./ElementNode";
 
 const nodeTypes = { element: ElementNode };
 
@@ -58,7 +61,11 @@ const DEFAULT_H = 78;
 // Automatic fits (opening a project or subsystem, the dock settling) stop at
 // 100 % so a small model is not blown up, and never go below a readable zoom:
 // a model too big for that opens at its centre with the overview map shown.
-const AUTO_FIT = { padding: 0.15, maxZoom: 1, minZoom: 0.5 };
+// Every fit leaves room under the lowest parts for their names, which hang
+// below the parts at 11 px on screen whatever the zoom (.ss-node-label), and
+// above the highest ones for the toolbar floating over the diagram.
+const FIT_PADDING = { x: 0.15, top: "48px", bottom: "32px" } as const;
+const AUTO_FIT = { padding: FIT_PADDING, maxZoom: 1, minZoom: 0.5 };
 
 type CtxMenu = { x: number; y: number; nodeId: string | null };
 
@@ -80,7 +87,7 @@ function MenuBtn({
   return (
     <button
       className={`flex w-full items-center gap-2 px-2.5 py-1 text-left hover:bg-[color:var(--ss-hover)] disabled:opacity-40 disabled:hover:bg-transparent ${
-        danger ? "text-red-600" : ""
+        danger ? "text-[color:var(--ss-err)]" : ""
       }`}
       disabled={disabled}
       onClick={onClick}
@@ -92,14 +99,37 @@ function MenuBtn({
   );
 }
 
-const KIND_COLOR: Record<PortKind, string> = {
-  electrical: "#e08600",
-  mechanical: "#3f4650",
-  signal: "#0e7490",
-  thermal: "#c2410c",
-  fluid: "#2563eb",
-  power: "#e08600",
-};
+/** The zoom as a percentage, with Fit and fixed zoom levels to pick. Its own
+ *  component, so a zoom re-renders only this. */
+function ZoomMenu({ onFit }: { onFit: () => void }) {
+  const zoom = useStore((s) => Math.round(s.transform[2] * 100));
+  const { zoomTo } = useReactFlow();
+  return (
+    <select
+      className="ss-input w-[64px] py-[3px] text-[11px]"
+      aria-label="Zoom"
+      title="Zoom"
+      value="now"
+      onChange={(e) => (e.target.value === "fit" ? onFit() : void zoomTo(Number(e.target.value), { duration: 200 }))}
+      // Its value is always the readout, so an arrow key on the closed list
+      // would pick Fit every time: open the list instead.
+      onKeyDown={(e) => {
+        if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !e.altKey) {
+          e.preventDefault();
+          e.currentTarget.showPicker();
+        }
+      }}
+    >
+      <option value="now" hidden>
+        {zoom}%
+      </option>
+      <option value="fit">Fit</option>
+      <option value="0.5">50%</option>
+      <option value="1">100%</option>
+      <option value="2">200%</option>
+    </select>
+  );
+}
 
 function TopologyCanvasInner() {
   const project = useProjectStore((s) => s.project);
@@ -130,6 +160,12 @@ function TopologyCanvasInner() {
   const [snap, setSnap] = useState(false);
   const [menu, setMenu] = useState<CtxMenu | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuEl = menu?.nodeId ? system?.elements.find((e) => e.id === menu.nodeId) : undefined;
+  // a Monitor or Script without ports yet can still get signals
+  const menuSignals =
+    !!menuEl &&
+    (!!libraryById[menuEl.componentDefId]?.allowDynamicPorts ||
+      portsOf(menuEl, libraryById).some((p) => p.kind === "signal"));
   const [guides, setGuides] = useState<{ x: number[]; y: number[] } | null>(null);
   // node sizes React Flow measured, kept on the controlled nodes (as
   // applyNodeChanges would) so the minimap can draw them. Keyed by element id
@@ -141,6 +177,7 @@ function TopologyCanvasInner() {
 
   const placingId = useUIStore((s) => s.placingComponentId);
   const placingDef = placingId ? libraryById[placingId] : undefined;
+  const offPage = useUIStore((s) => s.ribbonTab === "start" || s.ribbonTab === "results");
   const clipboard = useProjectStore((s) => s.clipboard);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const hovered = useRef(false);
@@ -164,9 +201,42 @@ function TopologyCanvasInner() {
   const selectNew = useCallback((ids: string[]) => {
     if (ids.length) setSelectedNodes(new Set(ids));
   }, []);
+  // pan and zoom to parts (the "." key and the Problems list)
+  const frame = useCallback(
+    (ids: string[]) => void fitView({ nodes: ids.map((id) => ({ id })), padding: 0.3, maxZoom: 1, duration: 200 }),
+    [fitView],
+  );
+  // parts to frame once the sub-system they are in is shown
+  const pendingReveal = useRef<string[] | null>(null);
+  // select parts and frame them, opening their sub-system (the parts of the
+  // first one's sub-system: a problem's parts are in one)
+  const reveal = useCallback(
+    (ids: string[]) => {
+      const st = store.getState();
+      const sys = st.project?.systems.find((sy) => sy.elements.some((e) => e.id === ids[0]));
+      if (!sys) return;
+      const here = ids.filter((id) => sys.elements.some((e) => e.id === id));
+      if (sys.id !== st.activeSystemId) {
+        pendingReveal.current = here;
+        st.setActiveSystem(sys.id);
+      } else {
+        frame(here);
+      }
+      st.select(here[here.length - 1]);
+      setSelectedNodes(new Set(here));
+    },
+    [frame, store],
+  );
+  useEffect(() => {
+    const ui = useUIStore.getState();
+    ui.setRevealElements(reveal);
+    return () => ui.setRevealElements(null);
+  }, [reveal]);
 
+  // the view the last automatic fit left, while the user has not moved it
+  const autoView = useRef("");
   const autoFit = useCallback(
-    (duration = 0) => {
+    (duration = 0, showMap = true) => {
       const { project: p, activeSystemId: sysId } = store.getState();
       const sys = p?.systems.find((sy) => sy.id === sysId);
       if (!sys || sys.elements.length === 0) {
@@ -177,10 +247,11 @@ function TopologyCanvasInner() {
         return;
       }
       void fitView({ ...AUTO_FIT, duration }).then(() => {
+        autoView.current = rfStore.getState().transform.join();
         const { width, height } = rfStore.getState();
         const bounds = getNodesBounds(getNodes());
         const { zoom } = getViewport();
-        if (bounds.width * zoom > width || bounds.height * zoom > height) setShowMiniMap(true);
+        if (showMap && (bounds.width * zoom > width || bounds.height * zoom > height)) setShowMiniMap(true);
       });
     },
     [fitView, getNodes, getNodesBounds, getViewport, rfStore, setViewport, store],
@@ -202,8 +273,9 @@ function TopologyCanvasInner() {
   );
 
   // Fit when a project is loaded or a subsystem entered. Returning to a
-  // subsystem already visited since the load restores its view. An armed
-  // library part belongs to the diagram it was armed on.
+  // subsystem already visited since the load restores its view; one entered
+  // to show a problem frames its parts. An armed library part belongs to the
+  // diagram it was armed on.
   const shown = useRef<{ loads?: number; systemId?: string | null }>({});
   const views = useRef<Record<string, Viewport>>({});
   useEffect(() => {
@@ -214,15 +286,19 @@ function TopologyCanvasInner() {
     useUIStore.getState().setPlacingComponent(null);
     const saved = activeSystemId ? views.current[activeSystemId] : undefined;
     const t = setTimeout(() => {
-      if (saved) void setViewport(saved, { duration: 200 });
+      const ids = pendingReveal.current;
+      pendingReveal.current = null;
+      if (ids) frame(ids);
+      else if (saved) void setViewport(saved, { duration: 200 });
       else autoFit(200);
     }, 120);
     return () => clearTimeout(t);
-  }, [loads, activeSystemId, autoFit, getViewport, setViewport]);
+  }, [loads, activeSystemId, autoFit, frame, getViewport, setViewport]);
 
-  // When the diagram gets smaller (the bottom tray opens, the window shrinks)
-  // and that cuts off part of a model that was entirely in view, re-fit once
-  // the size settles. A view the user zoomed into is left alone.
+  // When the diagram changes size (the bottom tray opens or closes, the
+  // window is resized), re-fit once the size settles: a view the last
+  // automatic fit left follows the diagram both ways; a view the user set is
+  // re-fitted only when the change cuts off a model that was entirely in view.
   useEffect(() => {
     let before: { width: number; height: number } | null = null;
     let settle: ReturnType<typeof setTimeout> | undefined;
@@ -243,7 +319,9 @@ function TopologyCanvasInner() {
           b.y * zoom + y >= 0 &&
           (b.x + b.width) * zoom + x <= w &&
           (b.y + b.height) * zoom + y <= h;
-        if (inView(was.width, was.height) && !inView(width, height)) autoFit(200);
+        // the overview map is shown again only when this change cut the model off
+        const cut = inView(was.width, was.height) && !inView(width, height);
+        if (cut || transform.join() === autoView.current) autoFit(200, cut);
       }, 150);
     });
     return () => {
@@ -251,6 +329,16 @@ function TopologyCanvasInner() {
       clearTimeout(settle);
     };
   }, [rfStore, getNodes, getNodesBounds, autoFit]);
+
+  // the zoom as a CSS variable for the part names (.ss-node-label), set on
+  // the DOM so a zoom does not re-render the diagram
+  useEffect(() => {
+    const set = (zoom: number) => wrapperRef.current?.style.setProperty("--ss-zoom", String(zoom));
+    set(rfStore.getState().transform[2]);
+    return rfStore.subscribe((s, prev) => {
+      if (s.transform[2] !== prev.transform[2]) set(s.transform[2]);
+    });
+  }, [rfStore]);
 
   // re-fit while the dock layout settles after initial mount (panel widths are
   // applied a few frames after the flow instance measures itself)
@@ -328,7 +416,7 @@ function TopologyCanvasInner() {
 
   /** Fit everything on request (toolbar / context menu); a no-op when empty. */
   const fitAll = useCallback(() => {
-    if (getNodes().length > 0) void fitView({ padding: 0.15, duration: 200 });
+    if (getNodes().length > 0) void fitView({ padding: FIT_PADDING, duration: 200 });
   }, [fitView, getNodes]);
 
   const nodes: ElementFlowNode[] = useMemo(() => {
@@ -586,18 +674,17 @@ function TopologyCanvasInner() {
       const t = e.target as HTMLElement;
       if (["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || t.isContentEditable) return;
       const ui = useUIStore.getState();
-      if (ui.ribbonTab === "results" || ui.paramDialogId || ui.dialog) return;
+      if (ui.ribbonTab === "results" || ui.ribbonTab === "start" || ui.paramDialogId || ui.dialog) return;
       e.preventDefault();
       if (selectedNodes.size > 0) {
-        const ids = [...selectedNodes].map((id) => ({ id }));
-        void fitView({ nodes: ids, padding: 0.3, maxZoom: 1, duration: 200 });
+        frame([...selectedNodes]);
       } else {
         autoFit(200);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedNodes, fitView, autoFit]);
+  }, [selectedNodes, frame, autoFit]);
 
   // close the context menu on Escape / outside interactions
   useDismiss(menu !== null, closeMenu, menuRef);
@@ -607,9 +694,12 @@ function TopologyCanvasInner() {
   const future = useProjectStore((s) => s.future.length);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="ss-panel-toolbar justify-between">
-        <div className="flex min-w-0 items-center gap-0.5 text-[12px]">
+    <div className="relative flex h-full flex-col">
+      {/* the toolbar floats over the diagram's top edge as two pills, so the
+          diagram gets the panel's full height; in a narrow panel the tools
+          wrap onto a second row */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 p-1.5">
+        <div className="pointer-events-auto flex min-w-0 items-center gap-0.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-1 py-0.5 text-[12px] shadow-sm empty:hidden">
           {breadcrumb.map((sys, i) => (
             <span key={sys.id} className="flex min-w-0 items-center gap-0.5">
               {i > 0 && <ChevronRight size={12} className="shrink-0 text-[color:var(--ss-text-dim)]" />}
@@ -626,13 +716,14 @@ function TopologyCanvasInner() {
             </span>
           ))}
         </div>
-        <div className="flex items-center gap-0.5">
+        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-0.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-1 py-0.5 shadow-sm">
           <button className="ss-toolbtn" title="Zoom in" onClick={() => void zoomIn()}>
             <ZoomIn size={14} />
           </button>
           <button className="ss-toolbtn" title="Zoom out" onClick={() => void zoomOut()}>
             <ZoomOut size={14} />
           </button>
+          <ZoomMenu onFit={fitAll} />
           <button
             className="ss-toolbtn"
             title="Fit to screen (press . to frame the selection)"
@@ -695,6 +786,18 @@ function TopologyCanvasInner() {
       <div
         ref={wrapperRef}
         className={`relative min-h-0 flex-1${placingDef ? " ss-placing" : ""}`}
+        // on the wrapper, so a part dropped on the empty diagram's card lands too
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          const defId = e.dataTransfer.getData("application/lightsim");
+          if (!defId) return;
+          const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+          store.getState().addElement(defId, { x: pos.x - 46, y: pos.y - 27 });
+        }}
         onMouseEnter={() => (hovered.current = true)}
         onMouseLeave={() => (hovered.current = false)}
         onMouseMove={(e) => {
@@ -787,18 +890,8 @@ function TopologyCanvasInner() {
             store.getState().select(null);
             closeMenu();
           }}
-          onDragOver={(e) => {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = "copy";
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            const defId = e.dataTransfer.getData("application/lightsim");
-            if (!defId) return;
-            const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-            store.getState().addElement(defId, { x: pos.x - 46, y: pos.y - 27 });
-          }}
-          deleteKeyCode={["Delete", "Backspace"]}
+          // not while the Start or Results page hides the diagram
+          deleteKeyCode={offPage ? null : ["Delete", "Backspace"]}
           nodeDragThreshold={4}
           multiSelectionKeyCode={["Control", "Meta", "Shift"]}
           selectionKeyCode={["Shift"]}
@@ -889,7 +982,7 @@ function TopologyCanvasInner() {
         {placingDef && (
           <div
             role="status"
-            className="pointer-events-none absolute left-1/2 top-2 z-10 -translate-x-1/2 whitespace-nowrap rounded border border-[color:var(--ss-accent)] bg-[color:var(--ss-panel)] px-2.5 py-1 text-[12px] text-[color:var(--ss-text)] shadow-sm"
+            className="pointer-events-none absolute left-1/2 top-12 z-10 -translate-x-1/2 whitespace-nowrap rounded border border-[color:var(--ss-accent)] bg-[color:var(--ss-panel)] px-2.5 py-1 text-[12px] text-[color:var(--ss-text)] shadow-sm"
           >
             Click the diagram to place <span className="font-semibold">{placingDef.name}</span> · Esc
             to cancel
@@ -916,6 +1009,30 @@ function TopologyCanvasInner() {
                   Drag port to port to connect (same domain only)
                 </li>
               </ul>
+              {/* the next step as a button (UX-16); the rest of the card lets
+                  clicks through to the diagram, and while a part is armed the
+                  buttons go, so a click in the middle places it */}
+              {!placingDef && (
+                <div className="pointer-events-auto mt-3 flex flex-wrap justify-center gap-2">
+                  <button
+                    className="rounded bg-[color:var(--ss-accent-fill)] px-3 py-1 text-[12px] font-semibold text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--ss-accent)]"
+                    onClick={() => {
+                      useUIStore.getState().focusPanel("components");
+                      requestAnimationFrame(() =>
+                        document.querySelector<HTMLInputElement>("input[aria-label='Search components']")?.focus(),
+                      );
+                    }}
+                  >
+                    Add a part
+                  </button>
+                  <button
+                    className="ss-toolbtn border border-[color:var(--ss-field-border)] px-3"
+                    onClick={() => useUIStore.getState().setRibbonTab("start")}
+                  >
+                    Start from an example
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -953,6 +1070,20 @@ function TopologyCanvasInner() {
                     });
                   }}
                 />
+                {menuSignals && (
+                  <MenuBtn
+                    icon={Cable}
+                    label="Signals…"
+                    onClick={() => {
+                      // its signal inputs and outputs in Data Bus Connections
+                      store.getState().select(menu.nodeId!);
+                      const ui = useUIStore.getState();
+                      ui.setBusSelectedOnly(true);
+                      ui.focusPanel("data-bus");
+                      closeMenu();
+                    }}
+                  />
+                )}
                 <div className="my-1 h-px bg-[color:var(--ss-border)]" />
                 <MenuBtn
                   icon={CopyPlus}

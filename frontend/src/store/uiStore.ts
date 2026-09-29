@@ -1,8 +1,9 @@
 import { create } from "zustand";
 import type { DockviewApi } from "dockview-react";
-import { FONT_SCALE_KEY, THEME_KEY } from "../storageKeys";
+import { FONT_SCALE_KEY, OPEN_LAST_KEY, THEME_KEY } from "../storageKeys";
 
 export type RibbonTab =
+  | "start"
   | "project"
   | "home"
   | "simulations"
@@ -71,9 +72,20 @@ function applyFontScale(scale: number) {
   document.documentElement.style.setProperty("--ss-ui-scale", String(scale));
 }
 
+function loadOpenLast(): boolean {
+  try {
+    return window.localStorage.getItem(OPEN_LAST_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 interface UIState {
   ribbonTab: RibbonTab;
   setRibbonTab: (tab: RibbonTab) => void;
+  /** Skip the Start page: open on Home with the last project (UX-16). */
+  openLastAtStart: boolean;
+  setOpenLastAtStart: (on: boolean) => void;
 
   dockApi: DockviewApi | null;
   setDockApi: (api: DockviewApi) => void;
@@ -93,6 +105,13 @@ interface UIState {
    *  visible diagram and select it; returns the new element's label. */
   insertComponent: ((defId: string) => string | null) | null;
   setInsertComponent: (fn: ((defId: string) => string | null) | null) => void;
+  /** Registered by the topology canvas: select these parts and pan and zoom
+   *  the diagram to them, opening the sub-system they are in. */
+  revealElements: ((ids: string[]) => void) | null;
+  setRevealElements: (fn: ((ids: string[]) => void) | null) => void;
+  /** Data Bus Connections: list only the selected part's signals. */
+  busSelectedOnly: boolean;
+  setBusSelectedOnly: (on: boolean) => void;
 
   /** Live-value overlay chips on canvas nodes (fed from the live run stream). */
   showLiveValues: boolean;
@@ -123,14 +142,28 @@ const initialTheme = loadTheme();
 applyTheme(initialTheme);
 const initialFontScale = loadFontScale();
 applyFontScale(initialFontScale);
+const initialOpenLast = loadOpenLast();
 
 export const useUIStore = create<UIState>((set, get) => ({
-  ribbonTab: "home",
+  // every launch starts on the Start page unless the user chose to skip it
+  ribbonTab: initialOpenLast ? "home" : "start",
   setRibbonTab: (tab) => set({ ribbonTab: tab }),
+  openLastAtStart: initialOpenLast,
+  setOpenLastAtStart: (on) => {
+    try {
+      window.localStorage.setItem(OPEN_LAST_KEY, on ? "1" : "0");
+    } catch {
+      /* storage unavailable: this session only */
+    }
+    set({ openLastAtStart: on });
+  },
 
   dockApi: null,
   setDockApi: (api) => set({ dockApi: api }),
   focusPanel: (id) => {
+    // the Start page hides the workspace: a panel asked for (an error, a
+    // blocked run, an empty state's button) brings the workspace back
+    if (get().ribbonTab === "start") set({ ribbonTab: "home" });
     const dock = get().dockApi;
     const panel = dock?.getPanel(id);
     if (!dock || !panel) return;
@@ -154,6 +187,10 @@ export const useUIStore = create<UIState>((set, get) => ({
   setPlacingComponent: (defId) => set({ placingComponentId: defId }),
   insertComponent: null,
   setInsertComponent: (fn) => set({ insertComponent: fn }),
+  revealElements: null,
+  setRevealElements: (fn) => set({ revealElements: fn }),
+  busSelectedOnly: false,
+  setBusSelectedOnly: (on) => set({ busSelectedOnly: on }),
 
   showLiveValues: true,
   toggleLiveValues: () => set((s) => ({ showLiveValues: !s.showLiveValues })),

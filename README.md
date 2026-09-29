@@ -14,6 +14,12 @@ Linux, runs entirely on your computer, and works offline.
 > checked and how. What changed in each version, and which results moved:
 > [Release notes](docs/RELEASE-NOTES.md).
 
+**Help:** in the app, press **F1** or click **?** (top right) for the
+built-in help: tutorials, how-to guides, a page for every part in the
+library and these documents, with a search box. It opens in your web
+browser and needs no internet connection. Its pages are the Markdown in
+[docs/help](docs/help/index.md) and in docs/.
+
 ![The electric-car example on the diagram, with the E-Motor's values on the right](docs/screenshots/lightsim-0.2.0-topology.png)
 
 ## Quick start
@@ -25,9 +31,10 @@ Linux, runs entirely on your computer, and works offline.
 2. **Install and open it.** The installers are not signed yet, so Windows
    warns the first time: choose *More info → Run anyway*. On Linux, make the
    AppImage runnable once (`chmod +x LightSim-*.AppImage`).
-3. **Run the example.** LightSim opens with an electric car modelled on the
-   2021 Cupra Born. Click any part on the diagram to see and change its
-   values on the right, then press **Run** at the top right.
+3. **Run the example.** LightSim opens on its *Start* page: click the
+   *Battery Electric Car*, an electric car modelled on the 2021 Cupra Born.
+   Click any part on the diagram to see and change its values on the right,
+   then press **Run** at the top right.
 4. **Read the results.** The *Results* tab shows the run: tick channels on
    the left to plot them, and read energy use, consumption and distance in
    the summary under the chart.
@@ -40,13 +47,13 @@ Linux, runs entirely on your computer, and works offline.
 
    ![Energy use of the electric car against its mass, from a three-point sweep](docs/screenshots/lightsim-0.2.0-sweep.png)
 
-**Open** lists a second example, a P2 hybrid sized after the Hyundai Ioniq
-Hybrid and driven on the EPA city and highway cycles, and a third, *FS
-Electric (generic)*, a Formula Student electric car with a 75 m
-acceleration test, an autocross lap and an endurance energy case, next to
-your own projects; each example's entry lists the results to expect.
-Examples open as copies, so change them freely: **Save** keeps your copy as
-a project of your own. To watch a run as it happens, pick the *City Cycle (live, 10×)* case and
+The *Start* page (and **Open**) lists a second example, a P2 hybrid sized
+after the Hyundai Ioniq Hybrid and driven on the EPA city and highway
+cycles, and a third, *FS Electric (generic)*, a Formula Student electric car
+with a 75 m acceleration test, an autocross lap and an endurance energy
+case, next to your own projects; each example's entry lists the results to
+expect. Examples open as copies, so change them freely: **Save** keeps your
+copy as a project of your own. To watch a run as it happens, pick the *City Cycle (live, 10×)* case and
 change values while it runs (try the Driver's P and I gains, or lock the
 Differential).
 
@@ -54,22 +61,24 @@ Differential).
 
 | Area | What works |
 |---|---|
-| **Topology builder** | Drag components from the searchable library tree onto a React Flow canvas, or add one with Enter, a double-click or click-to-place; connect ports (kind-checked), pan/zoom, multi-select, delete, undo/redo (Ctrl+Z / Ctrl+Y), minimap toggle |
-| **Component library** | Declarative catalog in `backend/app/library/components.json` with mandatory units on every parameter (dimensionless = `-`) and first-class lookup tables (`table1d` / `table2d`, dict-keyed by the independent variable) |
+| **Topology builder** | Drag components from the searchable library tree onto a React Flow canvas, or add one with Enter, a double-click or click-to-place; connect ports (kind-checked), pan/zoom with a zoom readout (Fit / 50 / 100 / 200 %) and part names that stay readable at any zoom, multi-select, delete, undo/redo (Ctrl+Z / Ctrl+Y), minimap toggle |
+| **Component library** | Declarative catalog in `backend/app/library/components.json` with mandatory units on every parameter (dimensionless = `-`) and first-class lookup tables (`table1d` / `table2d`, dict-keyed by the independent variable). Every parameter has a plain-words description, typical values and where to find the real number, shown in a card when the pointer rests on it or it has focus in Properties or the parameter dialog; number parameters carry their limits (`minimum`, `exclusiveMinimum`, `maximum`), which turn a field red as it is typed and which Data Checks read too |
 | **Dynamic solver** | Causal multi-pass solver with real states: vehicle speed integrates from net tire force, per-wheel speeds with a longitudinal slip tire model, battery SOC from an equivalent-circuit model, semi-implicit Euler with solver steps of at most 10 ms. Controllers, scripts, the drive cycle, gear choice and the physics all run at every solver step (Script, PID and Lookup blocks can be given a slower *Sample Time*), and motors are held to what their battery, fuel cell or voltage source can supply. The case time step only sets how often results are stored (see [Solver](#solver)) |
 | **Differential** | Locked/unlocked with genuinely different dynamics: unlocked = equal torque split with free output speeds (one wheel on ice spins up), locked = common speed with grip-dependent emergent torque split |
+| **Drive cycles** | The Driving Task drives a standard cycle picked from a list (WLTC class 3b, EPA city UDDS and EPA highway HWFET, bundled in `backend/app/cycles/`) or a profile of typed points; Properties sketches it with its phases, duration, distance and top speed. Choosing a cycle sets the length of the cases that drive it (when the model has one Driving Task, or for the case it is picked in), a case can pick its own, and the library search finds cycles by name |
 | **Driver** | Separate Driver component (speed-following PI): wire a target-speed profile and the Vehicle's speed into it; braking blends recuperation (motor generator quadrant, what the battery or other source can take back) before friction brakes |
 | **Live simulation** | Runs stream over a WebSocket: progress + all channels update live, the solver can be paced against real time (Pacing selector), cancelled, and scalar parameters (e.g. driver PI gains) can be edited mid-run from the Properties panel |
 | **Monitors** | Display-only Monitor component: add named signal inputs, wire anything into them, get live readout cards + sparklines in the Monitors panel |
 | **Scripting** | Script (Function) component: user-written Python `step(t, dt, inputs, state, params)` with named per-instance ports — for hybrid control strategies, custom recuperation logic, signal math. `step()` is called every solver step with `dt` = that step (0.01 s unless the case time step is shorter), or at the block's *Sample Time* with `dt` = the Sample Time when that is longer; wired inputs are fresh on every call. Scripts get `math`, `clamp()` and `interp()` and a small set of builtins; other imports, file access, class definitions and dunder attributes are refused, and each call must return within 2 s. During a run, scripts execute in a separate process that the engine stops if a call overruns, with a 512 MB memory cap; on Linux 5.13+ the kernel (Landlock) also blocks its file and TCP access. What each platform does and does not block: [Known issues and limits](docs/KNOWN-LIMITS.md) |
 | **Maps** | E-Motor with voltage-dependent full-load torque map, power-loss map and unpowered drag torque; combustion engine full-load curve, fuel map and unfired drag torque; battery OCV(SOC) table — all edited in table grids in the Properties panel |
-| **Data Checks** | Pre-run validation: reference integrity, port-kind mismatches, parameter ranges, table data, drive-cycle and road-profile entries (an entry that is not an `x:value` pair of numbers, or points out of order, is an error; a repeated x is a warning), Sample Times (negative or not a finite number is an error, above 0.1 s a warning), script compilation (compile only — script code never runs during checks), driveline solvability (delegated to the solver's model extraction). Errors that block the run when the model cannot drive: an E-Motor with no power source, a motor or engine that reaches no wheel, an open differential with a free output, a missing command or target-speed signal, a speed demand that reaches no motor or engine, two signals wired into one input, a CG height while all wheels are on one axle, and for a lap case a missing Race Track or E-Motor, wheels all on one axle, an engine or clutch on the wheels, Laps that are not a whole number from 1 to 500, and a Custom curvature table that does not start at 0 m, is shorter than 10 m or bends tighter than 0.5 1/m. Warnings for parts the solver would leave out (unconnected, or an input that silently reads 0) and for implausible values (vehicle mass, battery size, auxiliary load, final-drive ratio, wheel load shares that do not add up to 100 %, which the solver scales to 100 % (a 0 % total is an error), a CG height above the wheelbase, a battery that starts empty; for a lap case, a gearbox held in its gear and a Custom closed track that does not close). An all-clear says what was checked; it does not vouch for the results |
+| **Problems** | One list of every problem the model has now: the Data Checks, which run by themselves a moment after a project opens and after every change, and the latest run's warnings and errors, each with a "How to fix" line; a click or Enter selects the part(s) it is about and zooms the diagram to them, and the status bar counts the errors. Data Checks are pre-run validation: reference integrity, port-kind mismatches, parameter limits (from the catalog, also for a case's own values), table data, drive-cycle and road-profile entries (an entry that is not an `x:value` pair of numbers, or points out of order, is an error; a repeated x is a warning), Sample Times (negative or not a finite number is an error, above 0.1 s a warning), script compilation (compile only — script code never runs during checks), driveline solvability (delegated to the solver's model extraction). Errors that block the run when the model cannot drive: an E-Motor with no power source, a motor or engine that reaches no wheel, an open differential with a free output, a missing command or target-speed signal, a speed demand that reaches no motor or engine, two signals wired into one input, a CG height while all wheels are on one axle, and for a lap case a missing Race Track or E-Motor, wheels all on one axle, an engine or clutch on the wheels, Laps that are not a whole number from 1 to 500, and a Custom curvature table that does not start at 0 m, is shorter than 10 m or bends tighter than 0.5 1/m. Warnings for parts the solver would leave out (unconnected, or an input that silently reads 0) and for implausible values (vehicle mass, battery size, auxiliary load, final-drive ratio, wheel load shares that do not add up to 100 %, which the solver scales to 100 % (a 0 % total is an error), a CG height above the wheelbase, a battery that starts empty; for a lap case, a gearbox held in its gear and a Custom closed track that does not close). An all-clear says what was checked; it does not vouch for the results |
 | **Results** | Dedicated full-page Results workspace (own ribbon tab): channel picker grouped per element, multi-channel time-series **chart or table view** that fills in live during the run, summary table (SOC, energy, recuperation, distance, consumption, fuel and CO₂ per km, electrical energy balance error, time a motor was held back by its supply, regeneration a motor's supply could not take) with a *not valid* note on figures the run's checks rule out (see [Run status](#run-status-and-not-valid-figures)), CSV export. Each run keeps a copy of the model and case settings it ran with, the app version and the parameters edited while it ran; *Run info* (ⓘ next to the run picker) shows them and opens that model again as an unsaved copy. Point 0 is the initial state at t = 0, each later point holds the state at its own time, and the run ends exactly at the case duration |
 | **Parameter studies** | Per-case parameter overrides and one-parameter sweeps (Cases & Parameters panel). Each sweep is saved with the project as a study: what was swept on which case, and its results table with a row per point (value, status, run, every summary value; CSV download), kept after its runs leave the Results history |
 | **Electrical** | Two-terminal components: every electrical element has explicit positive (+, red) and negative (−, blue) pins; the solver balances power on the supply rail with the negative terminals as the return (wire to Ground, or leave implicit) |
-| **Canvas** | Signal/data-bus wiring is edited in the Data Bus panel; an optional dashed overlay draws those links on the canvas (the *signal* layer in Layer Configurations, off by default); background-grid toggle; double-click an element for a modal parameter dialog; Shift+click a pin to move it to the next side of its node, Shift+drag a pin to slide it anywhere along the node's edges (Shift+drag elsewhere draws a selection box) |
+| **Canvas** | Signal/data-bus wiring is edited in the Data Bus panel, one row per signal input with a searchable box that offers the outputs (those that share a word with the input's name first, then its unit), so a link is two clicks; a part's right-click menu has *Signals…*; links between two inputs or two outputs are refused; an optional dashed overlay draws those links on the canvas (the *signal* layer in Layer Configurations, off by default); background-grid toggle; double-click an element for a modal parameter dialog; Shift+click a pin to move it to the next side of its node, Shift+drag a pin to slide it anywhere along the node's edges (Shift+drag elsewhere draws a selection box) |
 | **Persistence** | Save/load projects on the backend (single JSON file per project), plus browser Export / Import; the last 20 saved versions of each project can be restored as a copy (Project → Restore…) |
-| **UI shell** | Ribbon tabs act as full-page workspaces (Home = topology + panels; Results = its own page); light/dark theme (persisted); dockable & resizable panels (Dockview) around a large diagram, with Messages, Data Checks, layers, Data Bus and Signal Plot in a collapsible bottom tray (double-click a tab to maximise its group); status bar with live progress |
+| **Help** | Built-in help pages served by the engine at `/help/` (so they work offline) and opened in the system browser: F1 opens the focused parameter's place on its part's page, else the selected part's page or the front page, **?** in the header the front page, and the desktop app's *Help → Documentation* and *Help → Known Limits* the same pages. Tutorials, how-to guides, a generated page per library part (ports, parameters with an anchor each), the drive cycles and the examples, the README's quick start, solver and API sections, and the docs/ pages, with a search over every page. `frontend/scripts/build-docs.mjs` builds them before `npm run dev` and `npm run build`, and fails on a link to a page or heading that does not exist |
+| **UI shell** | A *Start* page at launch and on **New**: continue with the open project, start from an example (with the results to expect) or a blank project, or reopen one of the 8 projects saved last (with the date, the number of parts and a sketch of the diagram); *Skip this page* opens the last project instead, and restored unsaved work always opens on Home. Empty panels offer the next step (the empty diagram *Add a part* and *Start from an example*, Monitors *Place a Monitor*, Results a button that runs the active case by name, such as *Run 'City Cycle'*). Ribbon tabs act as full-page workspaces (Home = topology + panels; Results = its own page); light/dark theme (persisted); dockable & resizable panels (Dockview) around a large diagram, with Messages, Problems, layers, Data Bus and Signal Plot in a collapsible bottom tray (double-click a tab to maximise its group); status bar with live progress |
 
 ![The P2 Hybrid Car example in the dark theme](docs/screenshots/lightsim-0.2.0-hybrid-dark.png)
 
@@ -142,8 +151,8 @@ project file is left as it is, and saving the copy makes a new project.
 
 [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md) is the maintained list,
 including the open bugs that change results and how to work around them; the
-desktop app installs a copy (**Help → Known Limits**). The structural limits
-in short:
+app shows it in its help (**Help → Known Limits**, or F1). The structural
+limits in short:
 
 - One differential and one E-Motor per driveline subgraph (multiple
   independent drivelines — e.g. dual-motor AWD as two axles — work).
@@ -223,7 +232,7 @@ ruff check .                # lint (config in backend/pyproject.toml)
 cd ../frontend
 npm run lint                # ESLint (config in frontend/eslint.config.js)
 npm test                    # unit tests (Vitest)
-npm run build               # type-check + production build
+npm run build               # type-check + production build (and the help pages)
 npx playwright install chromium   # once
 npm run test:e2e            # browser + accessibility tests of the built UI
 
@@ -283,7 +292,8 @@ always refused; the two GPL-licensed parts that do ship come with an
 exception that permits it (the PyInstaller bootloader and, on Linux, the GCC
 runtime library). What is built into Electron itself (Chromium, Node.js) is
 not checked here: Electron ships those notices as `LICENSES.chromium.html`
-next to the executable.
+next to the executable. Build tools whose code does not ship are not listed
+either, such as `marked`, which turns the help's Markdown into HTML.
 
 The desktop builds (the workflow and both build scripts) write both files
 afresh before packaging, and the CI licence check runs on every pull request
@@ -325,12 +335,16 @@ frontend/  React 19 + TypeScript + Vite
   ├─ React Flow      topology canvas with custom element nodes & kind-colored edges
   ├─ Zustand         project graph, selection, undo history, live run state, results
   ├─ Recharts        results time-series charts (live-updating)
-  └─ Tailwind CSS    dense engineering-tool styling
+  ├─ Tailwind CSS    dense engineering-tool styling
+  └─ scripts/build-docs.mjs   the help pages: docs/help/, README sections, docs/,
+                              the catalogue and the cycles → public/help (marked)
 
 backend/   Python + FastAPI
   ├─ app/main.py                   HTTP + WebSocket API (FastAPI app)
-  ├─ app/library/components.json   declarative component catalog (ports, params, maps)
+  ├─ app/library/components.json   declarative component catalog (ports, params with
+                                   limits and help texts, maps)
   ├─ app/library/tracks.json       the Race Track's layouts, drawn for LightSim
+  ├─ app/cycles/                   bundled standard drive cycles (a CSV each, cycles.json), read by app/cycles.py
   ├─ app/schemas.py                pydantic models mirroring the shared JSON data model
   ├─ app/solver/                   causal multi-pass solver package
   │    ├─ maps.py                  shared table parsing + 1D/2D interpolation
@@ -383,6 +397,7 @@ is no token check. To reach a development engine through another host name
 | Method & path | Purpose |
 |---|---|
 | `GET /api/library` | Component definitions |
+| `GET /api/cycles`, `GET /api/cycles/{id}` | The bundled drive cycles (name, region, phases, duration, distance, top speed) / one of them with its trace (`t` in s, `v` in km/h) |
 | `GET /api/projects` | List your saved projects |
 | `GET/PUT/DELETE /api/projects/{id}` | Load / save / delete a project. GET adds the file's `revision` (also sent as the `ETag`); a PUT with `If-Match: "<revision>"` is refused with 409 if the file changed since, and `If-None-Match: *` refuses to replace an existing project |
 | `GET /api/examples` | List the examples shipped with the app, each with `hidden` (hidden from the Open menu) |
@@ -409,6 +424,9 @@ sparse overrides on the instance. Table parameters are dicts keyed by the
 independent variable (`{"1500": 345.6, …}`; 2D maps nest one level, e.g.
 voltage → speed → torque). Elements of components with `allowDynamicPorts`
 (Script, Monitor) carry per-instance named signal ports in `dynamicPorts`.
+A Driving Task's `cycle` names a bundled drive cycle by id (`"wltc-3b"`),
+which it drives instead of its typed `profile`; a case that sets its own
+`profile` for the task drives that instead.
 
 ## Solver
 

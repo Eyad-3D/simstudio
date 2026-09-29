@@ -1,43 +1,32 @@
 {
   "topology-light": [
-    "color-contrast  button \"#%\"",
-    "color-contrast  span \"# elements\"",
-    "color-contrast  span \"Battery Electric Car\"",
     "label-title-only  select \"Active simulation case\""
   ],
   "results-light": [
-    "color-contrast  button \"#%\"",
-    "color-contrast  span \"# elements\"",
-    "color-contrast  span \"Battery Electric Car\"",
     "label-title-only  select \"Active simulation case\"",
-    "scrollable-region-focusable  div \"Summary value Value Unit HV Battery Pack\""
+    "scrollable-region-focusable  div \"Summary value Value Unit HV Battery Pack\"",
+    "scrollable-region-focusable  div \"Summary value · estimate Value Unit Time\""
   ],
   "parameter-dialog-light": [
-    "color-contrast  button \"#%\"",
-    "color-contrast  span \"# elements\"",
-    "color-contrast  span \"Battery Electric Car\"",
-    "label  input[type=text] \"Name\"",
     "label-title-only  select \"Active simulation case\""
   ],
   "topology-dark": [
-    "color-contrast  button \"Run\"",
-    "color-contrast  div \"LightSim\"",
-    "color-contrast  span \"backend connected\"",
     "label-title-only  select \"Active simulation case\""
   ],
   "results-dark": [
-    "color-contrast  b \"success\"",
-    "color-contrast  button \"Run\"",
-    "color-contrast  div \"LightSim\"",
-    "color-contrast  span \"backend connected\"",
     "label-title-only  select \"Active simulation case\"",
-    "scrollable-region-focusable  div \"Summary value Value Unit HV Battery Pack\""
+    "scrollable-region-focusable  div \"Summary value Value Unit HV Battery Pack\"",
+    "scrollable-region-focusable  div \"Summary value · estimate Value Unit Time\""
   ],
   "parameter-dialog-dark": [
-    "color-contrast  button \"Run\"",
-    "color-contrast  div \"LightSim\"",
-    "color-contrast  span \"backend connected\"",
-    "label  input[type=text] \"Name\"",
+    "label-title-only  select \"Active simulation case\""
+  ],
+  "help-light": [],
+  "help-dark": [],
+  "start-light": [
+    "label-title-only  select \"Active simulation case\""
+  ],
+  "start-dark": [
     "label-title-only  select \"Active simulation case\""
   ]
 }

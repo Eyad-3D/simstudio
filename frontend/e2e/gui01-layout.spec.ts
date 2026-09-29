@@ -70,20 +70,22 @@ test.describe("1366x768", () => {
     expect((await canvasShare(page)).pct).toBeCloseTo(start.pct, 0);
   });
 
-  test("GUI-01: Messages and Data Checks tabs carry a problem count", async ({ page }) => {
+  test("GUI-01: the Problems tab carries the problem count; Messages is the log", async ({ page }) => {
     await openApp(page);
     await newProject(page);
     await dropComponent(page, "E-Motor", 300, 200); // unwired: Data Checks finds problems
     await ribbonButton(page, "Simulations");
     await ribbonButton(page, "Checks");
-    await expect(page.locator(".dv-tab[aria-label^='Messages ('] .dv-default-tab[data-badge]")).toHaveCount(1);
-    await expect(page.locator(".dv-tab[aria-label^='Data Checks ('] .dv-default-tab[data-badge]")).toHaveCount(1);
+    await expect(page.locator(".dv-tab[aria-label^='Problems ('] .dv-default-tab[data-badge]")).toHaveCount(1);
+    await expect(page.locator(".dv-tab[aria-label^='Messages'] .dv-default-tab[data-badge]")).toHaveCount(0);
   });
 
   test("GUI-01: the first run's Signal Plot does not cut the model off", async ({ page }) => {
     await openApp(page);
     expect((await nodeLayout(page)).offscreen).toBe(0);
-    await page.locator(".react-flow__pane").first().click({ position: { x: 5, y: 5 } });
+    // a corner the floating toolbar does not cover
+    const pane = page.locator(".react-flow__pane").first();
+    await pane.click({ position: { x: 5, y: (await pane.boundingBox())!.height - 5 } });
     await page.keyboard.press("Control+Enter");
     await expect(page.locator(".ss-zoom.absolute .recharts-line-curve").first()).toBeAttached({ timeout: 60_000 });
     await ribbonButton(page, "Home");
@@ -128,6 +130,13 @@ test.describe("1920x1080", () => {
   test("GUI-01: a tray saved open on a big screen fits a smaller one", async ({ page, context }) => {
     await openApp(page);
     await dockTab(page, "Messages").click();
+    await expect.poll(async () => (await trayAndDock(page)).tray).toBeGreaterThanOrEqual(120);
+    // it opens at 22 % of the dock (208 px here): drag its top edge 100 px up
+    const top = (await page.locator(".dv-edge-group").boundingBox())!.y;
+    await page.mouse.move(960, top);
+    await page.mouse.down();
+    await page.mouse.move(960, top - 100, { steps: 4 });
+    await page.mouse.up();
     await expect.poll(async () => (await trayAndDock(page)).tray).toBeGreaterThanOrEqual(250);
     await page.waitForTimeout(900); // past the 500 ms save delay
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("lightsim-layout-v1")!));

@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from typing import Callable
+from typing import Callable, Iterable
 
 from .library import library_by_id
-from .schemas import DataCheck, ElementInstance, Project
+from .schemas import DataCheck, ElementInstance, ParameterDef, Project
 from .solver import (
     Model,
     ModelError,
@@ -42,46 +42,6 @@ from .solver.network import (
     ports_of,
 )
 from .solver.runtime import AMBIENT_C, AMBIENT_KPA, air_density
-
-# param key → (label, min exclusive, max inclusive)
-NUMERIC_RANGES: dict[str, tuple[str, float, float]] = {
-    "efficiency_pct": ("Efficiency", 0.0, 100.0),
-    "initial_soc_pct": ("Initial SOC", 0.0, 100.0),
-    "min_soc_pct": ("Minimum SOC", 0.0, 100.0),
-    "regen_weight_pct": ("Recuperation weight", -0.001, 100.0),
-    "q4_torque_scale_pct": ("Generator torque scale", -0.001, 200.0),
-    "vehicle_load_share_pct": ("Vehicle load share", 0.0, 100.0),
-    "torque_split_a_pct": ("Torque split", -0.001, 100.0),
-    "initial_fill_pct": ("Initial fill", -0.001, 100.0),
-    "coulombic_efficiency_pct": ("Coulombic efficiency", 0.0, 100.0),
-    "capacity_Ah": ("Charge capacity", -0.001, 1e5),
-    "temperature_C": ("Temperature", -273.15, 1000.0),
-    "max_speed_rpm": ("Maximum speed", -0.001, math.inf),
-    "output_power_limit_kW": ("Output power limit", -0.001, math.inf),
-    "power_limit_margin_pct": ("Power limit margin", -0.001, 100.0),
-    "power_limit_window_s": ("Power check window", -0.001, 60.0),
-    "voltage_class_V": ("Voltage class", -0.001, math.inf),
-    "road_load_a_N": ("Road load A", -math.inf, math.inf),
-    "road_load_b_N_per_kmh": ("Road load B", -math.inf, math.inf),
-    "road_load_c_N_per_kmh2": ("Road load C", -math.inf, math.inf),
-    "cg_height_m": ("Centre of gravity height", -0.001, math.inf),
-    "downforce_cza_m2": ("Downforce area", -math.inf, math.inf),
-    "aero_balance_front_pct": ("Aero balance (front)", -0.001, 100.0),
-    "mu_lateral": ("Lateral friction μ_y", -0.001, math.inf),
-    "mu_nominal_load_N": ("Nominal load Fz0", -0.001, math.inf),
-    "friction_ellipse_exponent": ("Friction ellipse exponent", 0.999, 10.0),  # at least 1
-}
-
-POSITIVE_PARAMS = {
-    "capacity_kWh": "capacity",
-    "mass_kg": "mass",
-    "radius_m": "wheel radius",
-    "ratio": "transmission ratio",
-    "pressure_kPa": "pressure",
-    "wheelbase_m": "wheelbase",
-    "track_front_m": "front track width",
-    "track_rear_m": "rear track width",
-}
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
 PROPULSION = {
@@ -110,16 +70,43 @@ Add = Callable[..., None]
 COARSE_SAMPLE_TIME_S = 0.1
 
 
+def _as_number(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _name(pdef: ParameterDef) -> str:
+    """A parameter's label without its note: 'Charge Capacity (0 = …)'."""
+    return pdef.label.split(" (")[0]
+
+
+def _number_problem(pdef: ParameterDef, value) -> str | None:
+    """What is wrong with a number parameter's value, in words, or None."""
+    v = _as_number(value)
+    if v is None:
+        return "is not a number"
+    problem = pdef.range_problem(v) if math.isfinite(v) else "must be a finite number"
+    return f"{problem} — got {v:g}" if problem else None
+
+
 def validate_project(project: Project) -> list[DataCheck]:
     checks: list[DataCheck] = []
     defs = library_by_id()
 
-    def add(level: str, text: str, el: ElementInstance | None = None) -> None:
+    def add(level: str, text: str, el: ElementInstance | None = None, *,
+            ids: Iterable[str | None] = (), fix: str | None = None) -> None:
+        # every part it is about, `el` first
+        about = list(dict.fromkeys(i for i in (el.id if el else None, *ids) if i in all_elements))
+        first = el or (all_elements[about[0]] if about else None)
         checks.append(DataCheck(
             level=level,  # type: ignore[arg-type]
             text=text,
-            elementId=el.id if el else None,
-            elementLabel=el.label if el else None,
+            elementId=first.id if first else None,
+            elementLabel=first.label if first else None,
+            elementIds=about,
+            fix=fix,
         ))
 
     all_elements = {el.id: el for s in project.systems for el in s.elements}
@@ -158,38 +145,52 @@ def validate_project(project: Project) -> list[DataCheck]:
 
     for system in project.systems:
         for conn in system.connections:
+            # the diagram cannot draw such a wire, so it goes with a part at its end
+            ends = [all_elements[i] for i in (conn.sourceElementId, conn.targetElementId)
+                    if i in all_elements]
             for el_id, port_id in ((conn.sourceElementId, conn.sourcePortId),
                                    (conn.targetElementId, conn.targetPortId)):
                 if el_id not in all_elements:
-                    add("error", f"Connection '{conn.id}' references missing element '{el_id}'.")
+                    add("error", f"Connection '{conn.id}' references missing element '{el_id}'.",
+                        ids=(conn.sourceElementId, conn.targetElementId),
+                        fix=f"The diagram cannot show this wire: delete '{ends[0].label}' (the "
+                            "wire goes with it) and add it again." if ends else None)
                 elif port_of(el_id, port_id) is None:
                     add("error",
                         f"Connection '{conn.id}' references missing port '{port_id}' "
-                        f"on '{all_elements[el_id].label}'.")
+                        f"on '{all_elements[el_id].label}'.", all_elements[el_id],
+                        fix=f"The diagram cannot show this wire: delete '{all_elements[el_id].label}' "
+                            "(the wire goes with it) and add it again.")
             pa = port_of(conn.sourceElementId, conn.sourcePortId)
             pb = port_of(conn.targetElementId, conn.targetPortId)
             if pa and pb and pa.kind != pb.kind and "signal" not in (pa.kind, pb.kind):
                 add("error",
                     f"Connection between '{all_elements[conn.sourceElementId].label}' and "
                     f"'{all_elements[conn.targetElementId].label}' mixes incompatible port "
-                    f"kinds ({pa.kind} ↔ {pb.kind}).")
+                    f"kinds ({pa.kind} ↔ {pb.kind}).",
+                    ids=(conn.sourceElementId, conn.targetElementId))
             elif pa and pb and pa.kind == pb.kind and pa.kind in ("thermal", "fluid"):
                 add("warning",
                     f"Connection between '{all_elements[conn.sourceElementId].label}' and "
                     f"'{all_elements[conn.targetElementId].label}' is a {pa.kind} connection — "
-                    f"this version has no {pa.kind} solver, so it is ignored during simulation.")
+                    f"this version has no {pa.kind} solver, so it is ignored during simulation.",
+                    ids=(conn.sourceElementId, conn.targetElementId))
 
     for dbc in project.dataBusConnections:
         p1 = port_of(dbc.element1Id, dbc.port1Id)
         p2 = port_of(dbc.element2Id, dbc.port2Id)
         if p1 is None or p2 is None:
-            add("error", "Data bus connection references a missing element or port.")
+            add("error", "Data bus connection references a missing element or port.",
+                ids=(dbc.element1Id, dbc.element2Id),
+                fix="Remove it in Data Bus Connections and link the signal again.")
             continue
         if p1.direction == p2.direction and p1.direction in ("input", "output"):
             add("warning",
                 f"Data bus connection links two {p1.direction}s "
                 f"('{all_elements[dbc.element1Id].label}.{p1.name}' ↔ "
-                f"'{all_elements[dbc.element2Id].label}.{p2.name}') — no data will flow.")
+                f"'{all_elements[dbc.element2Id].label}.{p2.name}') — no data will flow.",
+                ids=(dbc.element1Id, dbc.element2Id),
+                fix="Remove it in Data Bus Connections: a link runs from an output to an input.")
 
     # -- signal fan-in: an input takes one source; the solver keeps the last ----
     sources_of: dict[tuple[str, str], list[tuple[str, str]]] = {}
@@ -235,24 +236,9 @@ def validate_project(project: Project) -> list[DataCheck]:
             continue
         params = {p.key: p.default for p in cdef.parameters}
         params.update(el.parameterOverrides)
-        pdef_by_key = {p.key: p for p in cdef.parameters}
-
-        for key, (label, lo, hi) in NUMERIC_RANGES.items():
-            if key in params and pdef_by_key.get(key) and pdef_by_key[key].type == "number":
-                try:
-                    val = float(params[key])  # type: ignore[arg-type]
-                except (TypeError, ValueError):
-                    add("error", f"{label} of '{el.label}' is not a number.", el)
-                    continue
-                if not (lo < val <= hi):
-                    add("error", f"{label} of '{el.label}' must be in ({lo:g}, {hi:g}] — got {val:g}.", el)
-        for key, label in POSITIVE_PARAMS.items():
-            if key in params and pdef_by_key.get(key) and pdef_by_key[key].type == "number":
-                try:
-                    if float(params[key]) <= 0:  # type: ignore[arg-type]
-                        add("error", f"'{el.label}' has a non-positive {label}.", el)
-                except (TypeError, ValueError):
-                    add("error", f"'{el.label}': {label} is not a number.", el)
+        for pdef in cdef.parameters:  # number limits, from the catalogue
+            if pdef.type == "number" and (problem := _number_problem(pdef, params[pdef.key])):
+                add("error", f"{_name(pdef)} of '{el.label}' {problem}.", el)
 
         for pdef in cdef.parameters:
             value = params.get(pdef.key)
@@ -272,24 +258,29 @@ def validate_project(project: Project) -> list[DataCheck]:
                 except ScriptError as e:
                     add("error", str(e), el)
 
-        if cdef.id in ("signal.driving_task", "signal.road_profile"):
+        # a Driving Task on a drive cycle drives the cycle, not its typed
+        # profile; an unknown cycle is build_model's error (below)
+        if cdef.id == "signal.road_profile" or (cdef.id == "signal.driving_task"
+                                                 and not params.get("cycle")):
             for level, text in profile_problems(str(params.get("profile", ""))):
                 add(level, f"'{el.label}' profile: {text}.", el)
-        if "sample_time_s" in pdef_by_key:
-            try:
-                ts = float(params.get("sample_time_s", 0) or 0)  # type: ignore[arg-type]
-            except (TypeError, ValueError):
-                add("error", f"Sample Time of '{el.label}' is not a number.", el)
-            else:
-                if not math.isfinite(ts):
-                    add("error", f"Sample Time of '{el.label}' must be a finite number — got {ts:g}.", el)
-                elif ts < 0:
-                    add("error", f"Sample Time of '{el.label}' must not be negative — got {ts:g} s.", el)
-                elif ts > COARSE_SAMPLE_TIME_S:
-                    add("warning",
-                        f"'{el.label}' runs only every {ts:g} s (its Sample Time); real vehicle "
-                        f"controllers run every 10-100 ms, so results may depend on this "
-                        f"setting.", el)
+        ts = _as_number(params.get("sample_time_s", 0))  # a wrong one is an error above
+        if ts is not None and COARSE_SAMPLE_TIME_S < ts < math.inf:
+            add("warning",
+                f"'{el.label}' runs only every {ts:g} s (its Sample Time); real vehicle "
+                f"controllers run every 10-100 ms, so results may depend on this "
+                f"setting.", el)
+
+    # a case's own values (Cases & Parameters) keep to the same limits
+    for case in project.cases:
+        for el_id, values in case.parameterOverrides.items():
+            el = all_elements.get(el_id)
+            cdef = defs.get(el.componentDefId) if el else None
+            for pdef in cdef.parameters if cdef else ():
+                if pdef.type == "number" and pdef.key in values \
+                        and (problem := _number_problem(pdef, values[pdef.key])):
+                    add("error", f"{_name(pdef)} of '{el.label}' in case '{case.name}' {problem}.",
+                        el, fix="Change or remove the override in Cases & Parameters.")
 
     # -- structural solvability (delegated to model extraction) ------------------
     model = None
@@ -297,12 +288,12 @@ def validate_project(project: Project) -> list[DataCheck]:
         model = build_model(project)
     except ModelError as e:
         for text in e.errors:
-            add("error", text)
+            add("error", text, ids=e.involved.get(text, ()), fix=_model_fix(text))
     if model is not None:
         replaced = _drive_checks(project, model, add)
         for text in model.warnings:
             if text not in replaced:
-                add("warning", text)
+                add("warning", text, ids=model.involved.get(text, ()), fix=_model_fix(text))
 
         for el_id in model.floating_returns:
             el = all_elements.get(el_id)
@@ -322,13 +313,41 @@ def validate_project(project: Project) -> list[DataCheck]:
     if not any(s.elements for s in project.systems):
         add("info", "Model is empty — drag components from the library onto the canvas.")
     if not project.cases:
-        add("warning", "Project has no simulation case defined.")
+        add("warning", "Project has no simulation case defined.",
+            fix="On the Simulations tab, click + (Add case).")
 
     if not checks:
         add("info", "All data checks passed: wiring, power supply, drive path, command "
                     "signals and key parameter ranges were checked. Data Checks cannot tell "
                     "whether the results will be plausible — review them after the run.")
     return checks
+
+
+# what to do about build_model's (and lapsim.problems') messages, by words they contain
+# ponytail: word match; codes on the messages replace it with VAL-10
+MODEL_FIXES = {
+    "needs both outputs connected": "Connect a shaft or wheel to each of its outputs.",
+    "needs both flanges connected": "Connect both of its flanges to the driveline.",
+    "without a Fuel Tank": "Add a Fuel Tank from the library (ICE Powertrain).",
+    "without a Hydrogen Tank": "Add a Hydrogen Tank from the library (Fuel Cell).",
+    "element per model is supported": "Delete the extra ones.",
+    "Bus has two": "Keep one source per bus, or split the bus with a DC-DC Converter.",
+    "more than one primary source": "Keep one source per bus, or split the bus with a DC-DC "
+                                    "Converter.",
+    "which this version of LightSim does not include": "In Properties, choose a Drive Cycle "
+                                                       "from the list, or Custom profile.",
+    "A lap case needs a Vehicle": "Add a Vehicle from the library (Vehicle).",
+    "A lap case needs a Driver": "Add a Driver from the library (Vehicle).",
+    "A lap case needs an E-Motor": "Connect an E-Motor to the wheels' driveline.",
+    "drives E-Motors only": "Set the case's Kind to Cycle, or drive the wheels with E-Motors "
+                            "only.",
+    "does not shift gears": "Set its Default Gear to the gear the lap should be driven in.",
+    "has no layout": "Choose a Layout from the list in Properties.",
+}
+
+
+def _model_fix(text: str) -> str | None:
+    return next((fix for words, fix in MODEL_FIXES.items() if words in text), None)
 
 
 def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
@@ -347,11 +366,11 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
     def of_type(*types: str) -> list[str]:
         return [e for e, c in cdef_of.items() if c.id in types]
 
-    def err(el_id: str, text: str) -> None:
-        add("error", text, elements[el_id])
+    def err(el_id: str, text: str, fix: str | None = None) -> None:
+        add("error", text, elements[el_id], fix=fix)
 
-    def warn(el_id: str, text: str) -> None:
-        add("warning", text, elements[el_id])
+    def warn(el_id: str, text: str, fix: str | None = None) -> None:
+        add("warning", text, elements[el_id], fix=fix)
 
     vehicle_model = model.vehicle is not None
     sources = of_type(*PROPULSION)
@@ -387,14 +406,18 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
             note = (" — it carries none of the vehicle's weight or rolling resistance"
                     if cdef.id == "propulsion.wheel" else "")
             warn(el_id, f"'{label}' is not connected to anything, so the simulation leaves "
-                        f"it out{note}.")
+                        f"it out{note}.",
+                 fix="Wire it into the model, or delete it.")
         elif plus:
             loose = [p.name for p in plus if (el_id, p.id) not in wired]
             if loose:
                 warn(el_id, f"'{label}' has nothing connected to its {' or '.join(loose)}, so "
-                            f"the simulation leaves it out.")
+                            f"the simulation leaves it out.",
+                     fix="Wire it to the electrical bus (a battery's + terminal or an Electric "
+                         "Node).")
         elif cdef.id == "electric.node" and not any(e == el_id for e, _ in wired):
-            warn(el_id, f"'{label}' is not connected to anything.")
+            warn(el_id, f"'{label}' is not connected to anything.",
+                 fix="Wire it into the bus, or delete it.")
 
     # -- energy: every E-Motor needs a source on its bus -------------------------
     fed_from = {d: bus for bus in model.buses for d in bus.dcdc_in}
@@ -408,26 +431,34 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
     motor_on_bus = {m for bus in model.buses for m in bus.motors}
     for m in of_type("motor.emotor"):
         if m not in motor_on_bus:
-            err(m, f"E-Motor '{elements[m].label}' has no live electrical connection.")
+            err(m, f"E-Motor '{elements[m].label}' has no live electrical connection.",
+                fix="Wire its + terminal to a bus that has a battery, fuel cell or voltage source.")
     for bus in model.buses:
         primary = bus.battery or bus.vsource or bus.fuelcell
         if primary and not (bus.motors or bus.consumers or bus.dcdc_in):
             warn(primary, f"'{elements[primary].label}' supplies nothing: no E-Motor, load or "
-                          f"DC-DC converter is connected to its bus.")
+                          f"DC-DC converter is connected to its bus.",
+                 fix="Wire an E-Motor, a Power Consumer or a DC-DC Converter to its bus, or "
+                     "delete it.")
         if supplied(bus):
             continue
         for m in bus.motors:
             err(m, f"E-Motor '{elements[m].label}' has no power source: nothing on its "
                    f"electrical bus is a battery, fuel cell or voltage source, so it "
-                   f"produces no torque.")
+                   f"produces no torque.",
+                fix="Add a battery, fuel cell or voltage source to its bus, or feed the bus "
+                    "from one through a DC-DC Converter.")
         for c in bus.consumers:
             warn(c, f"'{elements[c].label}' is on an electrical bus with no power source — "
-                    f"its demand is not met.")
+                    f"its demand is not met.",
+                 fix="Add a battery, fuel cell or voltage source to its bus.")
 
     # -- drive path: motors and engines must reach the wheels ---------------------
     for text in model.warnings:
         if text in (NO_VEHICLE, NO_WHEELS):
-            add("error", text)
+            add("error", text, ids=model.involved.get(text, ()),
+                fix="Add a Vehicle from the library (Vehicle group); it carries the wheels."
+                if text == NO_VEHICLE else "Connect the wheels to the driveline.")
             replaced.add(text)
     path_errors = False
     for src in sources:
@@ -435,13 +466,16 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
         dl = dl_of.get(src)
         if dl is None:
             err(src, f"{kind} '{label}' is not mechanically connected — it cannot drive "
-                     f"anything.")
+                     f"anything.",
+                fix="Wire its shaft into the driveline that leads to the wheels.")
             path_errors = True
         elif (vehicle_model and not reaches_load(dl)
               and sum(1 for e in dl.element_group if typ(e) in PROPULSION) < 2):
             # (two sources on a wheel-less shaft are a generator set, which is fine)
             err(src, f"{kind} '{label}' is not connected to any wheel — it cannot move the "
-                     f"vehicle.")
+                     f"vehicle.",
+                fix="Connect its driveline to the wheels (through a Final Drive and "
+                    "Differential).")
             path_errors = True
     any_wheels = any(seg.wheels for dl in model.drivelines for seg in dl.segments)
     driven = any(reaches_load(dl) and any(typ(e) in PROPULSION for e in dl.element_group)
@@ -449,7 +483,10 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
     if vehicle_model and any_wheels and not driven and not path_errors:
         add("error", "No E-Motor or Engine is connected to the wheels — the vehicle cannot "
                      "move." if sources else
-                     "The model has no E-Motor or Engine — nothing drives the wheels.")
+                     "The model has no E-Motor or Engine — nothing drives the wheels.",
+            ids=sources or [model.vehicle],
+            fix="Connect a motor or engine shaft through the driveline to the wheels." if sources
+            else "Add an E-Motor or Engine from the library and connect it to the wheels.")
 
     def side_reaches_load(joint: str, port: str) -> bool:
         seen, stack = {joint}, list(mech_peers.get((joint, port), []))
@@ -481,11 +518,14 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
         for w, braked in wheels:
             if not braked:
                 warn(w, f"'{elements[w].label}' has no brake ({n_braked} of {len(wheels)} "
-                        f"wheels have one) — the Driver's brake command cannot slow it.")
+                        f"wheels have one) — the Driver's brake command cannot slow it.",
+                     fix="Add a Brake on this wheel's shaft.")
     for b in of_type("mech.brake"):
         if (b, "sig_demand_in") not in route:
             warn(b, f"Brake '{elements[b].label}' has no Brake Command signal — it will "
-                    f"never apply.")
+                    f"never apply.",
+                 fix=f"In Data Bus Connections, pick the Driver's Brake Command as the source "
+                     f"of {elements[b].label} · Brake Command.")
 
     # -- commands: a speed demand must reach the motors and engines ----------------
     fed_by: dict[str, list[tuple[str, str]]] = defaultdict(list)  # element → inputs it feeds
@@ -507,7 +547,9 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
     for src in sources:
         kind, port, name, effect = PROPULSION[typ(src)]
         if (src, port) not in route:
-            err(src, f"{kind} '{elements[src].label}' has no {name} signal — {effect}.")
+            err(src, f"{kind} '{elements[src].label}' has no {name} signal — {effect}.",
+                fix=f"In Data Bus Connections, pick a source for {elements[src].label} · {name} "
+                    f"(usually the Driver's Traction Command, or a controller's output).")
     tasks = of_type("signal.driving_task")
     drv = model.driver
     if drv is not None:
@@ -517,14 +559,18 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
         if ((drv, "sig_target_in") not in route
                 and any(c.kind not in ("acceleration", "lap") for c in project.cases)):
             err(drv, f"Driver '{label}' has no Target Speed signal — it will hold 0 km/h, "
-                     f"so the vehicle will not move.")
+                     f"so the vehicle will not move.",
+                fix=f"In Data Bus Connections, pick a Driving Task's Target Speed as the source "
+                    f"of {label} · Target Speed.")
         if demands & route.keys() and not commanded(drv) & demands:
             err(drv, f"Driver '{label}' does not command any E-Motor or Engine — wire its "
                      f"Traction Command to them, directly or through a controller.")
         for t in tasks:
             if not fed_by.get(t):
                 warn(t, f"Driving Task '{elements[t].label}' is not wired to anything — its "
-                        f"speed profile is not used.")
+                        f"speed profile is not used.",
+                     fix=f"In Data Bus Connections, pick it as the source of {label} · "
+                         f"Target Speed.")
     elif vehicle_model and tasks and sources and not any(commanded(t) & demands for t in tasks):
         err(tasks[0], f"No Driver follows the Driving Task '{elements[tasks[0]].label}' — add "
                       f"a Driver, wire the task to its Target Speed and its Traction Command "
@@ -536,11 +582,15 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
         if g in dl_of and (g, "sig_gear_in") not in route:
             gear = model.params_of[g].get("default_gear", 1)
             warn(g, f"Gearbox '{elements[g].label}' has no Gear Select signal — it stays in "
-                    f"gear {gear} for the whole run.")
+                    f"gear {gear} for the whole run.",
+                 fix=f"In Data Bus Connections, pick a source for {elements[g].label} · Gear "
+                     f"Select (a Script, Lookup Table or Constant).")
     for c in of_type("mech.clutch"):
         if c in dl_of and (c, "sig_engage_in") not in route:
             warn(c, f"Clutch '{elements[c].label}' has no Engagement signal — it stays fully "
-                    f"engaged for the whole run.")
+                    f"engaged for the whole run.",
+                 fix=f"In Data Bus Connections, pick a source for {elements[c].label} · "
+                     f"Engagement, or leave it engaged.")
     for blk in model.signal_blocks:
         t = typ(blk)
         if t == "signal.road_profile":
@@ -553,7 +603,9 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
         if loose:
             names = ", ".join(f"'{n}'" for n in loose)
             warn(blk, f"'{elements[blk].label}' input{'s' if len(loose) > 1 else ''} {names} "
-                      f"{'are' if len(loose) > 1 else 'is'} not connected — it reads 0 there.")
+                      f"{'are' if len(loose) > 1 else 'is'} not connected — it reads 0 there.",
+                 fix=f"In Data Bus Connections, pick a source for each (search the list for "
+                     f"{elements[blk].label}).")
     return replaced
 
 
@@ -567,9 +619,10 @@ def _lap_checks(project: Project, add: Add) -> None:
             model = build_model(project, {}, case.parameterOverrides)
         except ModelError:
             continue  # reported above
-        for level, text in lapsim.problems(model, case.outputEvery):
-            el = model.elements.get(model.track) if model.track else None
-            add(level, f"Case '{case.name}': {text}", el)
+        track = model.elements.get(model.track) if model.track else None
+        for level, text, parts in lapsim.problems(model, case.outputEvery):
+            add(level, f"Case '{case.name}': {text}", None if parts else track, ids=parts,
+                fix=_model_fix(text))
 
 
 def _plausibility_checks(model: Model, add: Add) -> None:
@@ -674,20 +727,21 @@ def _plausibility_checks(model: Model, add: Add) -> None:
     if model.vehicle is not None and wheels and total <= 0:
         add("error", "Wheel load shares add up to 0 % — no wheel carries the vehicle's "
                      "weight, so it has no grip and cannot move. Give the wheels their share "
-                     "of the weight (together 100 %).")
+                     "of the weight (together 100 %).", ids=[w.el_id for w in wheels])
     elif model.vehicle is not None and wheels and abs(total - 100.0) > WHEEL_SHARE_TOL_PCT:
         split = ", ".join(f"'{model.elements[w.el_id].label}' {w.load_share * 1e4 / total:.3g} %"
                           for w in wheels)
         add("warning", f"Wheel load shares add up to {total:g} %, not 100 % — the solver scales "
                        f"them so the wheels carry the vehicle's whole weight: {split}. Set "
-                       f"them to add up to 100 % to choose the split yourself.")
+                       f"them to add up to 100 % to choose the split yourself.",
+            ids=[w.el_id for w in wheels])
     h = num(model.params_of[model.vehicle], "cg_height_m") if model.vehicle is not None else None
     if wheels and h is not None and h > 0 and len({w.axle for w in wheels}) < 2:
         veh, on = model.elements[model.vehicle], wheels[0].axle
         fix = "Front on the front" if on == "Rear" else "Rear on the rear"
         add("error", f"Vehicle '{veh.label}' has a Centre of Gravity Height of {h:g} m, but all "
                      f"its wheels are on the {on} axle, so no load can shift between "
-                     f"axles. Set Axle to {fix} wheels.", veh)
+                     f"axles. Set Axle to {fix} wheels.", veh, ids=[w.el_id for w in wheels])
 
 
 def _map_checks(model: Model, add: Add) -> None:

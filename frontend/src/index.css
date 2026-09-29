@@ -3,7 +3,9 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --ss-accent: #2f6fb3;
+  --ss-accent: #2b67a8;
+  /* a filled button or badge under white text, in both themes */
+  --ss-accent-fill: #2b67a8;
   --ss-accent-soft: #dce9f7;
   --ss-chrome: #eceff3;
   --ss-border: #c9cfd8;
@@ -12,7 +14,13 @@
   --ss-hover: #e3eaf2;
   --ss-active: #d3deea;
   --ss-text: #24292f;
-  --ss-text-dim: #6b7280;
+  --ss-text-dim: #5b6370;
+  /* status text; each is at least 4.5:1 on chrome, panel, alt, hover and soft */
+  --ss-ok: #05704f;
+  --ss-warn: #a14a07;
+  --ss-err: #c81e1e;
+  /* the border of a text field or select: at least 3:1 on chrome, panel, alt */
+  --ss-field-border: #7a8494;
   --ss-node-border: #8b94a3;
   --ss-node-icon: #3c4654;
   --ss-td-border: #eef0f3;
@@ -22,7 +30,7 @@
 }
 
 .dark {
-  --ss-accent: #5b9bd5;
+  --ss-accent: #6aa6dc;
   --ss-accent-soft: #1d3350;
   --ss-chrome: #14171c;
   --ss-border: #363c46;
@@ -31,7 +39,11 @@
   --ss-hover: #2a303a;
   --ss-active: #333a46;
   --ss-text: #d6dae1;
-  --ss-text-dim: #8a919c;
+  --ss-text-dim: #99a0ab;
+  --ss-ok: #34d399;
+  --ss-warn: #fbbf24;
+  --ss-err: #f87171;
+  --ss-field-border: #6b7584;
   --ss-node-border: #5a6472;
   --ss-node-icon: #aeb6c2;
   --ss-td-border: #2a2f37;
@@ -134,7 +146,7 @@ body,
   border-radius: 3px;
   order: 2;
 }
-/* problem count on the Messages / Data Checks tabs (DockLayout SsTab), drawn
+/* problem count on the Problems tab (DockLayout SsTab), drawn
    between the title and the close button */
 .dockview-theme-ss .dv-default-tab[data-badge]::after {
   content: attr(data-badge);
@@ -195,6 +207,12 @@ body,
 .react-flow__edge-path {
   stroke-width: 1.6;
 }
+/* part names keep at least their 11 px on screen when the diagram is zoomed
+   out: TopologyCanvas keeps the zoom in --ss-zoom */
+.ss-node-label {
+  scale: max(1, calc(1 / var(--ss-zoom, 1)));
+  transform-origin: top center;
+}
 /* node resize handles (visible on the selected node) */
 .react-flow__resize-control.handle.ss-resize-handle {
   width: 7px;
@@ -225,10 +243,14 @@ body,
   outline-offset: -2px;
 }
 .ss-input {
-  @apply rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-1.5 py-0.5 text-[12px] text-[color:var(--ss-text)] outline-none focus:border-[color:var(--ss-accent)];
+  @apply rounded border border-[color:var(--ss-field-border)] bg-[color:var(--ss-panel)] px-1.5 py-0.5 text-[12px] text-[color:var(--ss-text)] outline-none focus:border-[color:var(--ss-accent)];
 }
 .ss-input[aria-invalid="true"] {
-  border-color: #dc2626;
+  border-color: var(--ss-err);
+}
+/* the red border hides the focus colour: a thicker red one shows focus */
+.ss-input[aria-invalid="true"]:focus {
+  box-shadow: inset 0 0 0 1px var(--ss-err);
 }
 /* numbers line up right-aligned in equal-width digits, and a field grows to
    show every digit of its value rather than clipping it (no fixed width) */
@@ -283,6 +305,37 @@ body,
    text is in its tooltip and its open list) */
 .ss-param-grid select {
   width: 5.5rem;
+}
+/* a parameter's help card (UX-10): a popover in the top layer, so no panel
+   clips it, beside the row it explains (left of it, or where there is room) */
+.ss-help-card {
+  inset: auto;
+  margin: 0 6px;
+  position-area: left span-bottom;
+  position-try-fallbacks: flip-inline, flip-block;
+  width: 290px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--ss-border);
+  border-radius: 6px;
+  background: var(--ss-panel);
+  color: var(--ss-text);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+:is(.ss-help-card, .ss-param-help) p + p,
+.ss-help-card div + p {
+  margin-top: 4px;
+}
+/* why a value is outside its limits (UX-10): a line under the field, across
+   the whole row of the parameter grid */
+.ss-param-problem {
+  grid-column: 1 / -1;
+  font-size: 10.5px;
+  text-align: left;
+  color: var(--ss-err);
 }
 
 /* ---- Excel-like spreadsheet grid (table editors) ---- */

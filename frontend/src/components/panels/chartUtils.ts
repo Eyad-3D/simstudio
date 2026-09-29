@@ -2,17 +2,19 @@
 import { useCallback, useRef, useState } from "react";
 import type { Channel } from "../../types";
 
+/** Series colours for chart lines and swatches (at least 3:1 on the panel).
+ *  Several are too faint for text, so names are drawn in the text colour. */
 export const PALETTE = [
   "#2f6fb3",
   "#d97706",
   "#059669",
   "#dc2626",
-  "#7c3aed",
+  "#8b5cf6",
   "#0e7490",
-  "#be185d",
+  "#d0457f",
   "#4d7c0f",
   "#b45309",
-  "#1d4ed8",
+  "#4d7ce8",
 ];
 
 /** Most points drawn per chart (about one min/max pair per pixel column). */

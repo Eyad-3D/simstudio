@@ -16,7 +16,8 @@ export function ParameterDialog() {
   useEffect(() => {
     if (!paramDialogId) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeParamDialog();
+      // the first Esc closes a parameter's help card (UX-10), the next the dialog
+      if (e.key === "Escape" && !document.querySelector(".ss-help-card:popover-open")) closeParamDialog();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
