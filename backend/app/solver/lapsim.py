@@ -237,8 +237,8 @@ def problems(model: Model, output_every: int = 1) -> list[tuple[str, str]]:
         laps = float(tp.get("laps", 1))
     except (TypeError, ValueError):
         laps = 0.0
-    if not 1 <= laps <= 500 or laps != int(laps):
-        out.append(("error", f"Race Track '{label}': Laps must be a whole number from 1 to 500."))
+    if math.isfinite(laps) and laps != int(laps):  # 1 to 500: the catalogue's limits
+        out.append(("error", f"Race Track '{label}': Laps must be a whole number."))
         laps = 1
     if layout != "Custom" and layout not in layouts():
         out.append(("error", f"Race Track '{label}' has no layout '{layout}'."))

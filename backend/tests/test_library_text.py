@@ -93,6 +93,8 @@ UNBOUNDED = {
     ("electric.constant_drive", "power_kW"), ("signal.constant", "value"),
     ("control.pid", "kp"), ("control.pid", "ki"), ("control.pid", "kd"),
     ("control.pid", "out_min"), ("control.pid", "out_max"),
+    # a negative CzA is lift; tyres usually lose grip as the load rises
+    ("vehicle.body", "downforce_cza_m2"), ("propulsion.wheel", "mu_load_sensitivity_per_kN"),
 }
 
 

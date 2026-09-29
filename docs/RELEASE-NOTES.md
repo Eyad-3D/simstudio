@@ -116,7 +116,7 @@ sections.
   Check the current season's rules before relying on them.
 - Load transfer and downforce: the Vehicle gets a *Centre of Gravity
   Height*, a *Wheelbase*, a *Downforce Area (CzA)* (negative for lift) and
-  an *Aero Balance (Front)*, and each Wheel an *Axle* (Front or Rear).
+  a *Front Aero Balance*, and each Wheel an *Axle* (Front or Rear).
   Accelerating, braking and standing on a slope move m·(a + g·sin θ)·h/L
   between the axles, from the previous 10 ms step's acceleration, and
   downforce adds ½·ρ·CzA·v² at the Ambient's air density, split by the
@@ -179,8 +179,8 @@ sections.
   dμ/dFz* (per kN), *Nominal Load Fz0* (0: the wheel's static load) and
   *Friction Ellipse Exponent* (lap cases). The load sensitivity also acts
   on the tyre force of drive cycles and acceleration tests; at its default
-  of 0 no result changes. Vehicle: *Track Width (Front)* and *(Rear)*, for
-  the sideways load transfer of lap cases.
+  of 0 no result changes. Vehicle: *Front Track Width* and *Rear Track
+  Width*, for the sideways load transfer of lap cases.
 - A third example, *FS Electric (generic)*: a typical Formula Student
   electric car to make your own (280 kg, one rear E-Motor through a 4.4
   chain drive and an open differential, a 138s4p 7.2 kWh accumulator with

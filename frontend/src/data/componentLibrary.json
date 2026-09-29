@@ -23,7 +23,7 @@
       "name": "Vehicle",
       "icon": "car",
       "domain": "mechanical",
-      "description": "Longitudinal vehicle body: mass, road load and road grade. Road load comes from the drag coefficient × frontal area and the Wheels' rolling resistance, or, with Road Load From set to coefficients, from A + B·v + C·v² with v in km/h, as coast-down tests publish it (WLTP f0, f1, f2; EPA's lbf, lbf/mph and lbf/mph² values × 4.448, × 2.764 and × 1.717); then Cd, frontal area and the Wheels' rolling resistance are not used. Drag follows the air density the Ambient block sets (1.204 kg/m³ at 20 °C and 101.325 kPa without one), and so does C, which is taken at 1.204 kg/m³. Coast-down (target) coefficients already hold the drag of the gears the wheels turn in neutral: with Coefficients Include Driveline Losses ticked, the final drives, differentials and transfer cases run lossless (gearboxes and motors keep their losses; a coast-down holds only the axle's spin losses, so this leaves out a little); untick it for dyno-set coefficients. The road grade (rise over run, in %) sets the slope angle θ = atan(grade / 100): the weight pulls the car back with m·g·sin θ, and the normal load (rolling resistance, tyre grip) is m·g·cos θ. Load transfer: with a Centre of Gravity Height h, a load of m·(a + g·sin θ)·h/L moves from the front axle to the rear, with L the Wheelbase and a the acceleration over the previous solver step (so the loads are one 10 ms step behind; drag is taken to act at ground height). Each Wheel's Axle setting says which axle it is on, and the Wheels' load shares give the static split, so the centre of gravity's position follows from them. The Downforce Area (CzA) adds ½·ρ·CzA·v², at the air density the Ambient block sets, split between the axles by the Aero Balance (Front); a negative CzA is lift. Downforce adds to the Wheels' rolling resistance, but not to coefficient A. An axle that would carry less than nothing lifts: it carries nothing, the other axle carries the rest, and the run warns. With a height and an area of 0 (the defaults) every wheel keeps its share of the weight. In a lap case the car also corners: a lateral acceleration a_y moves m·a_y·h from the inner to the outer wheels, split between the axles as the weight is (the front axle's static share of the weight takes that share of it), over each axle's Track Width. Front Axle Load and Rear Axle Load are the normal loads on the Front and on the Rear Wheels. Binds to all Wheel elements automatically — no canvas wiring needed for the body itself. Pair it with a Driver element to follow a speed profile.",
+      "description": "Longitudinal vehicle body: mass, road load and road grade. Road load comes from the drag coefficient × frontal area and the Wheels' rolling resistance, or, with Road Load From set to coefficients, from A + B·v + C·v² with v in km/h, as coast-down tests publish it (WLTP f0, f1, f2; EPA's lbf, lbf/mph and lbf/mph² values × 4.448, × 2.764 and × 1.717); then Cd, frontal area and the Wheels' rolling resistance are not used. Drag follows the air density the Ambient block sets (1.204 kg/m³ at 20 °C and 101.325 kPa without one), and so does C, which is taken at 1.204 kg/m³. Coast-down (target) coefficients already hold the drag of the gears the wheels turn in neutral: with Coefficients Include Driveline Losses ticked, the final drives, differentials and transfer cases run lossless (gearboxes and motors keep their losses; a coast-down holds only the axle's spin losses, so this leaves out a little); untick it for dyno-set coefficients. The road grade (rise over run, in %) sets the slope angle θ = atan(grade / 100): the weight pulls the car back with m·g·sin θ, and the normal load (rolling resistance, tyre grip) is m·g·cos θ. Load transfer: with a Centre of Gravity Height h, a load of m·(a + g·sin θ)·h/L moves from the front axle to the rear, with L the Wheelbase and a the acceleration over the previous solver step (so the loads are one 10 ms step behind; drag is taken to act at ground height). Each Wheel's Axle setting says which axle it is on, and the Wheels' load shares give the static split, so the centre of gravity's position follows from them. The Downforce Area (CzA) adds ½·ρ·CzA·v², at the air density the Ambient block sets, split between the axles by the Front Aero Balance; a negative CzA is lift. Downforce adds to the Wheels' rolling resistance, but not to coefficient A. An axle that would carry less than nothing lifts: it carries nothing, the other axle carries the rest, and the run warns. With a height and an area of 0 (the defaults) every wheel keeps its share of the weight. In a lap case the car also corners: a lateral acceleration a_y moves m·a_y·h from the inner to the outer wheels, split between the axles as the weight is (the front axle's static share of the weight takes that share of it), over each axle's Front or Rear Track Width. Front Axle Load and Rear Axle Load are the normal loads on the Front and on the Rear Wheels. Binds to all Wheel elements automatically — no canvas wiring needed for the body itself. Pair it with a Driver element to follow a speed profile.",
       "ports": [
         {
           "id": "sig_grade_in",
@@ -166,14 +166,16 @@
           "label": "Centre of Gravity Height",
           "unit": "m",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "wheelbase_m",
           "label": "Wheelbase",
           "unit": "m",
           "default": 2.7,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "downforce_cza_m2",
@@ -184,24 +186,28 @@
         },
         {
           "key": "aero_balance_front_pct",
-          "label": "Aero Balance (Front)",
+          "label": "Front Aero Balance",
           "unit": "%",
           "default": 50,
-          "type": "number"
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
         },
         {
           "key": "track_front_m",
-          "label": "Track Width (Front)",
+          "label": "Front Track Width",
           "unit": "m",
           "default": 1.55,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         },
         {
           "key": "track_rear_m",
-          "label": "Track Width (Rear)",
+          "label": "Rear Track Width",
           "unit": "m",
           "default": 1.55,
-          "type": "number"
+          "type": "number",
+          "exclusiveMinimum": 0
         }
       ]
     },
@@ -484,7 +490,8 @@
           "label": "Output Power Limit (0 = none)",
           "unit": "kW",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "power_limit_margin_pct",
@@ -492,7 +499,9 @@
           "label": "Power Limit Margin",
           "unit": "%",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
         },
         {
           "key": "power_limit_window_s",
@@ -500,7 +509,9 @@
           "label": "Power Check Window (0 = instant)",
           "unit": "s",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "minimum": 0,
+          "maximum": 60
         },
         {
           "key": "power_limit_enforced",
@@ -516,7 +527,8 @@
           "label": "Voltage Class (0 = none)",
           "unit": "V",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       ],
       "presets": [
@@ -1505,7 +1517,8 @@
           "label": "Lateral Friction μ_y",
           "unit": "-",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "mu_load_sensitivity_per_kN",
@@ -1519,14 +1532,17 @@
           "label": "Nominal Load Fz0",
           "unit": "N",
           "default": 0,
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         {
           "key": "friction_ellipse_exponent",
           "label": "Friction Ellipse Exponent",
           "unit": "-",
           "default": 2,
-          "type": "number"
+          "type": "number",
+          "minimum": 1,
+          "maximum": 10
         }
       ]
     },
@@ -2846,7 +2862,9 @@
           "label": "Laps",
           "unit": "-",
           "default": 1,
-          "type": "number"
+          "type": "number",
+          "minimum": 1,
+          "maximum": 500
         },
         {
           "key": "curvature_table",

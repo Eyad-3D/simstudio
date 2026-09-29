@@ -236,10 +236,12 @@ def test_voltage_class_data_check(cells, flagged):
 
 
 @pytest.mark.parametrize("key, value, expected", [
-    ("output_power_limit_kW", -5, "Output power limit of 'HV Battery Pack' must be in"),
-    ("power_limit_margin_pct", 150, "Power limit margin of 'HV Battery Pack' must be in"),
-    ("power_limit_window_s", -1, "Power check window of 'HV Battery Pack' must be in"),
-    ("voltage_class_V", -600, "Voltage class of 'HV Battery Pack' must be in"),
+    ("output_power_limit_kW", -5, "Output Power Limit of 'HV Battery Pack' must be at least 0 kW — got -5."),
+    ("power_limit_margin_pct", 150,
+     "Power Limit Margin of 'HV Battery Pack' must be at least 0 and at most 100 % — got 150."),
+    ("power_limit_window_s", -1,
+     "Power Check Window of 'HV Battery Pack' must be at least 0 and at most 60 s — got -1."),
+    ("voltage_class_V", -600, "Voltage Class of 'HV Battery Pack' must be at least 0 V — got -600."),
     ("output_power_limit_kW", 80, None),
 ])
 def test_power_limit_parameters_are_range_checked(key, value, expected):
@@ -272,9 +274,11 @@ def test_wheel_load_shares_must_add_up():
      "Rear axle, so no load can shift between axles. Set Axle to Front on the front wheels."),
     ({"cg_height_m": 30, "wheelbase_m": 1.55}, "warning",
      "Vehicle 'Vehicle' has a Centre of Gravity Height of 30 m, above its Wheelbase of 1.55 m"),
-    ({"wheelbase_m": 0}, "error", "'Vehicle' has a non-positive wheelbase."),
-    ({"aero_balance_front_pct": 120}, "error", "Aero balance (front) of 'Vehicle' must be in"),
-    ({"cg_height_m": -0.1}, "error", "Centre of gravity height of 'Vehicle' must be in"),
+    ({"wheelbase_m": 0}, "error", "Wheelbase of 'Vehicle' must be above 0 m — got 0."),
+    ({"aero_balance_front_pct": 120}, "error",
+     "Front Aero Balance of 'Vehicle' must be at least 0 and at most 100 % — got 120."),
+    ({"cg_height_m": -0.1}, "error",
+     "Centre of Gravity Height of 'Vehicle' must be at least 0 m — got -0.1."),
     ({"cg_height_m": 0.55, "downforce_cza_m2": -0.5}, None, None),  # tagged, lift allowed
 ])
 def test_vehicle_geometry_data_checks(values, level, expected):
