@@ -71,12 +71,14 @@ draws the run as it goes. The City Cycle takes a few seconds.
 2. In *Properties*, set *Vehicle Mass* to 2300 and press Enter. The car
    now weighs 2,300 kg instead of 1,927 kg.
 3. Press **Run** again.
-4. On the *Results* page the list at the top left shows the new run. Under
-   *Overlay*, tick the earlier run: the chart draws both, and the full
-   summary opens with a column for each.
+4. On the *Results* page the new run is named *Vehicle Mass 2,300 kg*,
+   after what you changed. The earlier run is drawn faint and dashed under
+   it, and *What changed* on the left lists *Vehicle · Vehicle Mass
+   1,927 → 2,300 kg*.
 
-*Consumption* reads 12.34 kWh/100 km against 11.12: the heavier car uses
-11 % more energy on the same drive.
+*Consumption* reads 12.34 kWh/100 km, *+1.22 (+11.0 %) vs baseline*: the
+heavier car uses 11 % more energy on the same drive than the earlier run,
+the baseline. [How to compare two runs](../how-to/compare-two-runs.md).
 
 ## Next
 

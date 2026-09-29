@@ -337,6 +337,28 @@ sections.
   page, until LightSim closes; they are not saved.
   Moving a cursor on a 1-hour run (36,001 points) with 10 signals plotted
   takes about 2 ms. (RES-06)
+- The *Results* page keeps each case's choices: the ticked channels, the
+  view, the x axis and y axes, the chart's zoom, the X-Y view's X channel
+  and the sweep's figure stay for its next runs, when you go to another
+  page and back, and when LightSim is opened again (they are kept in the
+  app's own storage, not in the project). Before, they went back to the
+  defaults every time the page was left. A new run no longer clears the
+  runs you overlaid. (RES-19)
+- A run is compared with a baseline, the previous run of its case unless
+  you pick another (or *None*) in the new **Baseline** list: the baseline
+  is drawn faint and dashed under the run (**Draw the baseline faint on
+  the chart** turns that off), each headline number gets a line such as
+  *+1.22 (+11.0 %) vs baseline*, and the full summary gets *Baseline*,
+  *Change* and *% change* columns, with changes of 1 % or more in bold
+  and *~ 0* where a change is within the stored rounding. *What changed*
+  lists what differs between the two runs' models: parameters old → new
+  with their units, maps and scripts edited, parts added or removed,
+  wires and Data Bus links, the case's settings and both runs' live edits;
+  a click on a part shows it on the diagram. A run is named after what
+  changed since the previous run of its case (*City Cycle · Vehicle Mass
+  2,300 kg* instead of the clock time) in the run lists, legends and
+  summary; *Run info* edits the name and keeps a note, both stored with
+  the run. (RES-10)
 
 ### Fixed
 
@@ -509,7 +531,7 @@ sections.
   says *cancelled*. It still lists and opens stored runs that say
   *cancelled*, but drops them from the list if it has to rebuild its run
   index.
-  A case's Kind is kept but ignored.
+  A case's Kind is kept but ignored, and so are a run's name and note.
 
 ## 0.2.0 — not published: its changes ship in 0.3.0
 

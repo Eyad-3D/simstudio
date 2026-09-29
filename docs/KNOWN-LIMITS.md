@@ -358,7 +358,12 @@ minimum or an average, for example from the CSV export, or put the
   The summary rounds energies to 1 Wh (battery losses to 0.1 Wh), fuel to
   1 g and consumption to 0.01 per 100 km. CSV export has the same rounding. Treat smaller differences
   between runs as noise; to compare two close variants, lengthen the run
-  (for example, repeat the cycle) so that the difference adds up.
+  (for example, repeat the cycle) so that the difference adds up. The
+  *Results* page marks a change against the baseline run that is no larger
+  than one step of the stored rounding as *~ 0*. It reads that step from
+  the stored digits, so where both values end in 0 (0.07 kWh stored for
+  0.070) it takes the step 10 times larger and a change of up to 10 real
+  steps can read *~ 0*.
   *Roadmap:* ENG-16.
 - **Cursor integrals come from the recorded points.** The *Results*
   chart's cursors integrate the stored points with the trapezoid rule, so
