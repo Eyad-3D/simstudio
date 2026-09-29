@@ -19,7 +19,9 @@ describe("rangeProblem", () => {
       "must be above -273.15 and at most 1000 °C",
     );
     // a dimensionless number has no unit to name
-    expect(rangeProblem(param("mech.gearbox", "default_gear"), 0)).toBe("must be at least 1");
+    expect(rangeProblem(param("mech.final_drive", "ratio"), 0)).toBe("must be above 0");
+    // text stored in a number, as Data Checks say it
+    expect(rangeProblem(param("vehicle.body", "cd"), Number("abc"))).toBe("is not a number");
   });
 
   it("keeps the edges", () => {

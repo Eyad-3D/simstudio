@@ -262,8 +262,8 @@ sections.
   speed, idle speed, tank capacity, fuel density or fuel-cell current, and
   a default gear below 1. Before, these ran without a word (a Driver I
   Gain of −1 ended in "did not drive the cycle"), or the solver quietly
-  used another value (0 for a negative μ, 0.1 for a slip stiffness below
-  it, 1 1/min for an idle speed of 0). (UX-10)
+  used another value (0 for a negative μ, 0.1 for a slip stiffness of 0
+  or less, 1 1/min for an idle speed of 0). (UX-10)
 - A case could run with its own values out of range, such as an Initial
   SOC of 150 %: Data Checks did not look at them. They now do, and name
   the case. (UX-10)

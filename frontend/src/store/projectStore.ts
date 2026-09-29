@@ -26,6 +26,7 @@ import type {
   StudyPoint,
   SystemNode,
 } from "../types";
+import { rangeProblem } from "../paramRules";
 import { useUIStore } from "./uiStore";
 
 export function uid(prefix: string): string {
@@ -1014,6 +1015,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       );
       // scalar edits stream into a running simulation (tables/code apply next run)
       if (activeRun && typeof value !== "object") {
+        // a number outside its limits waits for one inside (Data Checks refuse it)
+        const { project, libraryById } = get();
+        const el = project?.systems.flatMap((s) => s.elements).find((e) => e.id === elementId);
+        const pdef = el && libraryById[el.componentDefId]?.parameters.find((p) => p.key === key);
+        if (pdef?.type === "number" && rangeProblem(pdef, Number(value))) return;
         activeRun.setParam(elementId, key, value);
         logLiveEdit({ t: get().liveT, elementId, key, value });
       }

@@ -1317,6 +1317,20 @@ describe("run snapshots", () => {
     expect(snap.project.systems[0].elements.find((e) => e.id === "el-shaft")?.parameterOverrides).toEqual({});
   });
 
+  it("a live edit outside its limits is kept in the model but not sent to the run", async () => {
+    await start();
+    const { handle, finish } = liveRun();
+    const running = store().run();
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalled());
+    store().setParameter("el-shaft", "efficiency_pct", 150);
+    expect(findElement("el-shaft")?.parameterOverrides.efficiency_pct).toBe(150);
+    store().setParameter("el-shaft", "efficiency_pct", 95);
+    finish();
+    await running;
+    expect(handle.setParam.mock.calls).toEqual([["el-shaft", "efficiency_pct", 95]]);
+    expect(store().runs[0].snapshot!.liveEdits.map((e) => e.value)).toEqual([95]);
+  });
+
   it("each sweep point's snapshot holds its swept value", async () => {
     await start();
     engineFinishesRuns();

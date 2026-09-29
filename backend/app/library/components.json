@@ -99,7 +99,7 @@
           "default": 212,
           "type": "number",
           "description": "The part of the road load that does not change with speed, mostly the tyres' rolling resistance: the force at 0 km/h in F = A + B·v + C·v² (v in km/h). Used only when Road Load From is Coefficients A/B/C.",
-          "typical": "Formula Student car 30–60 N · small car 70–130 N · mid-size EV 100–220 N (the hybrid example 68.64 N) · van 200–350 N.",
+          "typical": "Formula Student car 30–60 N · small car 70–130 N · mid-size EV 100–220 N · van 200–350 N. The hybrid example uses 68.64 N.",
           "whereToFind": "A coast-down test: WLTP f0 on the car's certificate of conformity, or target coefficient A in EPA's Test Car List (lbf × 4.448 = N)."
         },
         {

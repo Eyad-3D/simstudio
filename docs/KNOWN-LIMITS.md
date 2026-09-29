@@ -380,7 +380,9 @@ minimum or an average, for example from the CSV export.
   check each number against its own limits only: a PID's Output Minimum
   above its Output Maximum, or a Default Gear past the last gear, is not
   flagged. A sweep's From and To are not checked as you type; a point
-  outside the limits fails when it runs, with the Data Check's reason.
+  outside the limits fails when it runs, with the Data Check's reason. A
+  case's own value out of range stops the runs of every case, not only
+  its own.
   Properties does not mark a value that differs from the library's default
   and cannot reset it. *Roadmap:* UX-38 (the mark and reset).
 - **Licence.** LightSim is proprietary (`LICENSE`). The desktop app is free

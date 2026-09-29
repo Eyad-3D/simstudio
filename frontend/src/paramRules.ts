@@ -15,8 +15,10 @@ export function limitsText(def: ParameterDef): string | null {
 
 /** Why `value` breaks the parameter's limits ("must be above 0 and at most
  *  100 %"), or null. Same rule and words as ParameterDef.range_problem in
- *  backend/app/schemas.py, which Data Checks use. */
+ *  backend/app/schemas.py, which Data Checks use; like them, text (NaN here)
+ *  "is not a number". */
 export function rangeProblem(def: ParameterDef, value: number): string | null {
+  if (!Number.isFinite(value)) return "is not a number";
   const { minimum: low, exclusiveMinimum: above, maximum: high } = def;
   if ((low == null || value >= low) && (above == null || value > above) && (high == null || value <= high))
     return null;
