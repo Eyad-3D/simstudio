@@ -111,6 +111,22 @@ def test_a_runs_snapshot_comes_back_with_it_and_stays_out_of_the_index(projects_
     assert size["run-snap"] - size["run-plain"] < 2_000
 
 
+def test_a_runs_name_and_note_are_stored_and_listed(projects_dir, result):
+    """RES-10: a run's name and note come back with it and are in the index,
+    so a run list can show them without reading the run."""
+    put("bev-car", make_run(result, "run-plain", 1000))
+    put("bev-car", make_run(result, "run-named", 2000, name="Vehicle Mass 2,300 kg", note="heavier battery"))
+
+    back = client.get("/api/projects/bev-car/runs/run-named").json()
+    assert (back["name"], back["note"]) == ("Vehicle Mass 2,300 kg", "heavier battery")
+    listed = {r["id"]: r for r in client.get("/api/projects/bev-car/runs").json()}
+    assert (listed["run-named"]["name"], listed["run-named"]["note"]) == ("Vehicle Mass 2,300 kg", "heavier battery")
+    assert "name" not in listed["run-plain"] and "note" not in listed["run-plain"]
+
+    long = make_run(result, "run-long", 3000, name="x" * 121)
+    assert client.put("/api/projects/bev-car/runs/run-long", json=long).status_code == 422
+
+
 def test_runs_belong_to_their_project(projects_dir, result):
     put("bev-car", make_run(result, "run-bev", 1000))
     put("hybrid-car", make_run(result, "run-hyb", 2000))

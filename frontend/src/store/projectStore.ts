@@ -3,7 +3,7 @@ import { create } from "zustand";
 import * as api from "../api";
 import { confirmDialog, unsavedChangesDialog } from "../dialog";
 import { loadDraft } from "../persist";
-import { modelFingerprint } from "../provenance";
+import { diffSnapshots, modelFingerprint, nameFromChanges } from "../provenance";
 import type {
   Channel,
   ComponentDef,
@@ -246,6 +246,16 @@ function mainRunOf<R extends Pick<SimRun, "status" | "incomplete" | "sweepId">>(
   return runs.find((r) => !r.incomplete && r.status !== "failed" && !r.sweepId) ?? runs[0];
 }
 
+/** The previous run of a case: its newest run that started before `before`
+ *  and finished normally (not running, stopped or failed), sweep points
+ *  included; runs are newest first. A re-run is named by what changed since
+ *  it and compared with it (RES-10, RES-19). */
+export function previousRunOf(caseId: string, runs: SimRun[], before = Infinity): SimRun | undefined {
+  return runs.find(
+    (r) => r.caseId === caseId && r.startedAt < before && r.status !== "running" && r.status !== "failed" && !r.incomplete,
+  );
+}
+
 /** A study's table row for a point that ran: its status and summary values. */
 function studyPoint(run: SimRun, values: number[]): StudyPoint {
   const notValid = run.result.summary.filter((v) => v.notValid);
@@ -445,6 +455,9 @@ export interface ProjectState {
   clearRuns: () => Promise<void>;
   /** Open the model a run was made with (its snapshot) as an unsaved copy. */
   openRunModel: (runId: string) => void;
+  /** Set a run's name or note (trimmed; empty removes it) and store it
+   *  again; nothing while a run is going. */
+  editRun: (runId: string, edit: { name?: string; note?: string }) => void;
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => {
@@ -631,6 +644,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       liveEdits: [],
     };
     const fingerprint = modelFingerprint(model).catch(() => undefined);
+    // named by what changed since the previous run of its case (a sweep
+    // point is named by its swept value)
+    const prev = extra?.sweepId ? undefined : previousRunOf(caseId, get().runs);
+    const name = prev?.snapshot && snapshot && nameFromChanges(diffSnapshots(prev.snapshot, snapshot, libraryById));
     const partial: SimResult = {
       caseId,
       status: "success",
@@ -646,6 +663,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       status: "running",
       result: partial,
       ...(snapshot ? { snapshot } : {}),
+      ...(name ? { name } : {}),
       ...extra,
     };
     set((s) => ({
@@ -1658,8 +1676,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
       // pre-flight validation gate: block the run on error-level data checks so
       // broken models fail fast (and visibly) instead of deep inside the solver.
-      // A fresh single run starts with a clean overlay set.
-      set({ running: true, overlayRunIds: [] });
+      // The runs the user overlaid stay overlaid (RES-19).
+      set({ running: true });
       if (!(await get().passesRunGate())) {
         set({ running: false });
         return;
@@ -1925,6 +1943,23 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             : ""),
       );
       if (snap.project.cases.some((c) => c.id === run.caseId)) set({ activeCaseId: run.caseId });
+    },
+    editRun: (runId, edit) => {
+      const { runs, running, project } = get();
+      const run = runs.find((r) => r.id === runId);
+      // (while a run is going its first store may still be on its way)
+      if (!run || running || !project) return;
+      const next = { ...run };
+      for (const key of ["name", "note"] as const) {
+        const v = edit[key]?.trim();
+        if (v) next[key] = v;
+        else if (v === "") delete next[key];
+      }
+      if (next.name === run.name && next.note === run.note) return;
+      set((s) => ({ runs: s.runs.map((r) => (r.id === runId ? next : r)) }));
+      // ponytail: stores the whole run again (about 1.5 s for 18,001 points ×
+      // 45 channels); a PATCH of the name and note if renames get frequent
+      void storeRun(project.id, next);
     },
     clearRuns: async () => {
       const { project, log } = get();

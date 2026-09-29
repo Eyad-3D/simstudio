@@ -6,7 +6,7 @@
 // the left and right arrows pan, 0 resets. Nothing is thinned away: uPlot
 // draws the lowest and highest sample of each pixel column, so the full data
 // goes in, a one-sample peak always shows and zooming in shows every sample.
-import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
+import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
 import uPlot from "uplot";
 
 type Range = { min: number; max: number };
@@ -104,17 +104,23 @@ function panBy(u: uPlot, key: string, delta: number, from: uPlot.Scale = u.scale
 /** The whole run again, y scales refitted. */
 const reset = (u: uPlot) => u.setData(u.data, true);
 
+/** Whether the data reach into a zoomed range. */
+function reaches(u: uPlot, range: Range) {
+  const full = fullRange(u, "x");
+  return Boolean(full && range.min < full[1] && range.max > full[0]);
+}
+
 /** Show a zoomed range again (after a rebuild or new data) if the data reaches into it. */
 function restore(u: uPlot, range: Range | null) {
-  const full = fullRange(u, "x");
-  if (range && full && range.min < full[1] && range.max > full[0]) u.setScale("x", range);
+  if (range && reaches(u, range)) u.setScale("x", range);
 }
 
 /** The gestures, and a name for screen readers (and the tests): role img,
  *  labelled with what the chart shows, each y axis's range and, last, its x
  *  range ("Results chart: SOC; % 88.7 to 90.1; t [s] 0 to 600"). `onZoom`
- *  gets the time range while zoomed in, null for the whole run. */
-function gestures(label: string, onZoom: (r: Range | null) => void): uPlot.Plugin {
+ *  gets the time range while zoomed in, null for the whole run, and `reset`
+ *  when the user asked for the whole run. */
+function gestures(label: string, onZoom: (u: uPlot, r: Range | null, reset?: boolean) => void): uPlot.Plugin {
   // the scales a gesture moves: x first, then on the X-Y view every y unit
   const scalesOf = (u: uPlot) =>
     modeOf(u) === 2 ? [...new Set(u.series.slice(1).flatMap((s) => s.facets!.map((f) => f.scale)))] : ["x"];
@@ -182,7 +188,10 @@ function gestures(label: string, onZoom: (r: Range | null) => void): uPlot.Plugi
           },
           // uPlot's own double-click resets x only; this refits y too
           dblclick: (u) => (e) => {
-            if (e.button === 0) reset(u);
+            if (e.button === 0) {
+              onZoom(u, null, true);
+              reset(u);
+            }
             return null;
           },
         },
@@ -221,7 +230,10 @@ function gestures(label: string, onZoom: (r: Range | null) => void): uPlot.Plugi
           else if (e.key === "-") u.batch(() => keys.forEach((k) => zoomAround(u, k, mid(k), 1.25)));
           else if (e.key === "ArrowLeft") panBy(u, keys[0], -span(keys[0]) / 10);
           else if (e.key === "ArrowRight") panBy(u, keys[0], span(keys[0]) / 10);
-          else if (e.key === "0") reset(u);
+          else if (e.key === "0") {
+            onZoom(u, null, true);
+            reset(u);
+          }
           else return;
           e.preventDefault();
         });
@@ -231,7 +243,7 @@ function gestures(label: string, onZoom: (r: Range | null) => void): uPlot.Plugi
         if (key !== "x" || modeOf(u) === 2) return; // only a time zoom is kept, not an X-Y one
         const full = fullRange(u, "x");
         const { min, max } = u.scales.x;
-        onZoom(full && min != null && max != null && (min > full[0] || max < full[1]) ? { min, max } : null);
+        onZoom(u, full && min != null && max != null && (min > full[0] || max < full[1]) ? { min, max } : null);
       },
     },
   };
@@ -339,22 +351,35 @@ export type PlotHandle = { png: (bg: string, name: string) => void; xRange: () =
 /** A chart that fills its parent, legend included. A new `options` builds a new chart, so memoise it on strings and numbers,
  *  never on a live run's objects, which change ten times a second. New `data`
  *  only redraws. A zoomed time range survives both, so ticking a channel or
- *  a live run's new samples keep the zoom. */
+ *  a live run's new samples keep the zoom. `xRange` is the zoom it opens on
+ *  (one kept by the page, RES-19), and `onXRangeChange` hears of each new one. */
 export function Plot({
   options,
   data,
   label,
   ref,
+  xRange,
+  onXRangeChange,
 }: {
   options: PlotOptions;
   data: uPlot.AlignedData;
   label: string;
   ref?: Ref<PlotHandle>;
+  xRange?: Range | null;
+  onXRangeChange?: (r: Range | null) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const plot = useRef<uPlot | null>(null);
   const latest = useRef(data);
-  const zoom = useRef<Range | null>(null);
+  const zoom = useRef<Range | null>(xRange ?? null);
+  const zoomed = useEffectEvent((u: uPlot, r: Range | null, reset?: boolean) => {
+    // a new run that has not reached the zoomed range yet keeps it for
+    // when it does; only the user's double-click or 0 drops it then
+    if (!r && !reset && zoom.current && !reaches(u, zoom.current)) return;
+    if (r?.min === zoom.current?.min && r?.max === zoom.current?.max) return;
+    zoom.current = r;
+    onXRangeChange?.(r);
+  });
   useImperativeHandle(
     ref,
     () => ({
@@ -383,7 +408,7 @@ export function Plot({
         ...options,
         width: el.clientWidth,
         height: el.clientHeight,
-        plugins: [...(options.plugins ?? []), gestures(label, (r) => (zoom.current = r))],
+        plugins: [...(options.plugins ?? []), gestures(label, (u, r, reset) => zoomed(u, r, reset))],
       },
       latest.current,
       el,

@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useEffectEvent, useId, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 import {
   ChartScatter,
@@ -16,8 +16,9 @@ import {
   X,
 } from "lucide-react";
 import { confirmDialog } from "../../dialog";
-import { useActiveRun, useOverlayRuns, useProjectStore } from "../../store/projectStore";
-import { useUIStore } from "../../store/uiStore";
+import { summaryChange } from "../../provenance";
+import { previousRunOf, useActiveRun, useOverlayRuns, useProjectStore } from "../../store/projectStore";
+import { useUIStore, type PlotView } from "../../store/uiStore";
 import type { Channel, SimRun, SummaryValue } from "../../types";
 import { useDismiss } from "../useDismiss";
 import {
@@ -42,7 +43,7 @@ import {
 import { csvText } from "./csv";
 import { MeasurePanel, cursorsIn, measurePlugin } from "./Measure";
 import { Plot, axisStyle, type PlotHandle, type PlotOptions } from "./Plot";
-import { RunInfo } from "./RunInfo";
+import { RunChanges, RunInfo, runLabel, runShort, runTime } from "./RunInfo";
 
 // dash patterns to distinguish channels when several runs are overlaid at once
 const DASHES = [[], [5, 3], [2, 2], [7, 3, 2, 3], [9, 4]];
@@ -58,28 +59,35 @@ const TABLE_ROW_H = 26; // px
 const TABLE_PAGE_ROWS = 80; // drawn before the first scroll event
 const TABLE_OVERSCAN = 10;
 
-function runTime(r: SimRun): string {
-  return new Date(r.startedAt).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
+/** A run's label for tooltips: a named run's clock time too. */
+const runTitle = (r: SimRun) => (r.name ? `${runLabel(r)} · started ${runTime(r)}` : runLabel(r));
 
-function runLabel(r: SimRun): string {
-  // "success" is the usual case and the chart header shows it: leave it out
-  // so the label fits the 280 px picker; any other outcome stays visible
-  const outcome = r.incomplete ? `incomplete (${r.incomplete})` : r.status === "success" ? "" : r.status;
-  return [r.caseName, runTime(r), outcome].filter(Boolean).join(" · ");
-}
+// a change against the baseline from this % up is set in bold (RES-10);
+// neutral colour, as whether up is better depends on the value
+const CHANGE_PCT = 1;
+const NOISE = "Within the stored rounding: treat it as no change (see Known issues)";
 
-/** Compact run label for legends/overlay chips — swept value if present. */
-function runShort(r: SimRun): string {
-  const mark = r.incomplete ? " (incomplete)" : "";
-  if (r.sweepValue !== undefined)
-    return `${r.sweepValue}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}${mark}`;
-  return `${runTime(r)}${mark}`;
+/** A summary value against the baseline's (RES-10): the signed difference
+ *  and % change as text, "~ 0" within the stored rounding, and `big` from
+ *  CHANGE_PCT up; null when either run lacks the row. */
+function changeOf(sv?: SummaryValue, base?: SummaryValue) {
+  if (!sv || !base) return null;
+  const c = summaryChange(sv.value, base.value);
+  if (c.noise) return { diff: "~ 0", pct: "~ 0", noise: true, big: false };
+  const signed = (v: number, digits: number) =>
+    `${v > 0 ? "+" : ""}${v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+  return {
+    diff: signed(c.diff, c.digits),
+    pct: c.pct === null ? "—" : `${signed(c.pct, Math.abs(c.pct) < 1 ? 2 : 1)} %`,
+    noise: false,
+    big: c.pct !== null && Math.abs(c.pct) >= CHANGE_PCT,
+  };
 }
+const changeClass = (ch: ReturnType<typeof changeOf>) =>
+  ch?.noise ? "text-[color:var(--ss-text-dim)]" : ch?.big ? "font-semibold text-[color:var(--ss-accent)]" : "";
+
+// every unit's y axis fits its data until the user sets one
+const AUTO_AXES: Record<string, YAxisCfg> = {};
 
 /** A summary value's marks: its check's pass or fail and limit, and why it
  *  is not valid (spelled out with `why`; always in the tooltip). The table's
@@ -239,34 +247,42 @@ export function ResultsPanel() {
   const running = useProjectStore((s) => s.running);
   const run = useProjectStore((s) => s.run);
   const caseName = useProjectStore((s) => s.project?.cases.find((c) => c.id === s.activeCaseId)?.name);
+  const projectId = useProjectStore((s) => s.project?.id ?? "");
   const theme = useUIStore((s) => s.theme);
+  const resultsView = useUIStore((s) => s.resultsViews[projectId]);
 
   const result = activeRun?.result;
   const selKey = activeRun?.caseId ?? "";
 
-  const [selected, setSelected] = useState<Record<string, string[]>>({});
-  const [view, setView] = useState<"chart" | "table" | "sweep" | "xy">("chart");
-  const [search, setSearch] = useState("");
-  const [sweepPick, setSweepPick] = useState("");
-  const [xyXPick, setXyXPick] = useState(""); // channel picked as the X axis in the X-Y view
-  const [showRunInfo, setShowRunInfo] = useState(false);
+  // the choices the user made for this case: ticked channels, view, axes,
+  // zoom, X-Y channel, sweep figure and baseline, kept across runs and
+  // reloads (RES-19); unset ones take the defaults
+  const plot = selKey ? resultsView?.cases?.[selKey] : undefined;
+  const savePlot = (patch: Partial<PlotView>) => {
+    if (projectId && selKey) useUIStore.getState().setPlotView(projectId, selKey, patch);
+  };
+  const savedChannels = plot?.channels;
+  const sweepPick = plot?.sweepMetric ?? "";
+  const xyXPick = plot?.xKey ?? ""; // channel picked as the X axis in the X-Y view
   // the chart's x axis (time in s, min or h, or distance) and each unit's y axis
-  const [xAxisMode, setXAxisMode] = useState<XAxisMode>("auto");
-  const [yAxes, setYAxes] = useState<Record<string, YAxisCfg>>({});
+  const xAxisMode = plot?.xAxis ?? "auto";
+  const yAxes = plot?.yAxes ?? AUTO_AXES;
+  const comparePrevious = resultsView?.comparePrevious ?? true;
+  const [search, setSearch] = useState("");
+  const [showRunInfo, setShowRunInfo] = useState(false);
   const { ref: chartHost, hasSize } = useHasSize<HTMLDivElement>();
   const plotRef = useRef<PlotHandle>(null);
   // the primary run's measurement cursors (RES-06); their positions live in
   // uiStore, so moving one redraws only the chart and the measurement table
   const cursorsOn = useUIStore((s) => Boolean(activeRun && s.cursors[activeRun.id]));
-  const canMeasure = view !== "sweep" && Boolean(activeRun && timesOf(activeRun).length > 0);
 
   // sensible default channel selection until the user picks for this case
   // (a live run starts with no channels, so it fills in as they arrive)
   const defaultKeys = useMemo(() => defaultChannelKeys(result?.channels ?? []), [result]);
 
   const selectedKeys = useMemo(
-    () => new Set(selKey ? (selected[selKey] ?? defaultKeys) : []),
-    [selected, selKey, defaultKeys],
+    () => new Set(selKey ? (savedChannels ?? defaultKeys) : []),
+    [savedChannels, selKey, defaultKeys],
   );
   const selectedList = useMemo(() => [...selectedKeys], [selectedKeys]);
 
@@ -281,6 +297,10 @@ export function ResultsPanel() {
   const [showIncomplete, setShowIncomplete] = useState(false);
   const completeFamily = useMemo(() => family.filter((r) => !r.incomplete), [family]);
   const incompleteCount = family.length - completeFamily.length;
+  // (a Sweep view kept for the case shows the chart for a run that is not a sweep point)
+  const view = plot?.view === "sweep" && family.length < 2 ? "chart" : (plot?.view ?? "chart");
+  const setView = (v: typeof view) => savePlot({ view: v });
+  const canMeasure = view !== "sweep" && Boolean(activeRun && timesOf(activeRun).length > 0);
 
   const byElement = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -300,6 +320,15 @@ export function ResultsPanel() {
     [activeRun, overlayRuns],
   );
   const multiRun = plotRuns.length > 1;
+  // the run the numbers are compared with (RES-10): the one picked for the
+  // case while it is listed, else the previous run of the case, or none
+  const previous = activeRun ? previousRunOf(activeRun.caseId, runs, activeRun.startedAt) : undefined;
+  const pick = plot?.baselineRunId;
+  const picked = pick ? runs.find((r) => r.id === pick && r.id !== activeRun?.id) : undefined;
+  const baseline = pick === null ? undefined : (picked ?? previous);
+  // drawn faint under the lines, unless it is overlaid already (RES-19)
+  const ghost = comparePrevious && baseline && !overlayRunIds.includes(baseline.id) ? baseline : undefined;
+  const drawnRuns = useMemo(() => (ghost ? [...plotRuns, ghost] : plotRuns), [plotRuns, ghost]);
   const headline = useMemo(() => headlineRows(result?.summary ?? []), [result]);
   const estimate = activeRun?.snapshot?.case.kind === "acceleration" || activeRun?.snapshot?.case.kind === "lap";
   const runColor = (i: number) => PALETTE[i % PALETTE.length];
@@ -309,36 +338,43 @@ export function ResultsPanel() {
     return idx >= 0 ? runColor(idx + 1) : "#c0c6d0";
   };
 
-  // one plotted series per (run × selected channel)
+  // one plotted series per (run × selected channel), the baseline's last
   const seriesDefs = useMemo(() => {
     const defs: {
       dataKey: string;
       unit: string;
       color: string;
       dash?: number[];
+      faint?: boolean;
       legend: string;
       channel: Channel;
       run: SimRun;
     }[] = [];
-    plotRuns.forEach((r, ri) => {
+    drawnRuns.forEach((r, ri) => {
+      const faint = r === ghost;
       for (const c of r.result.channels) {
         const key = channelKey(c);
-        if (!selectedKeys.has(key)) continue;
+        // (the target speed is not what a comparison is about)
+        if (!selectedKeys.has(key) || (faint && c.portId === "sig_demand")) continue;
         const ci = selectedList.indexOf(key);
         const chLabel = c.label.split(" · ")[1] ?? c.label;
         defs.push({
           dataKey: `${r.id}::${key}`,
           unit: c.unit,
-          color: multiRun ? runColor(ri) : channelColor(key),
+          // the baseline in the primary run's colour, dashed and faint
+          color: multiRun ? runColor(faint ? 0 : ri) : channelColor(key),
           // one run: a speed target is dashed, so it still shows where the car follows it
-          dash: multiRun
-            ? selectedList.length > 1
-              ? DASHES[ci % DASHES.length]
-              : undefined
-            : c.portId === "sig_demand"
-              ? [5, 3]
-              : undefined,
-          legend: multiRun ? `${runShort(r)} · ${chLabel}` : chLabel,
+          dash: faint
+            ? [4, 3]
+            : multiRun
+              ? selectedList.length > 1
+                ? DASHES[ci % DASHES.length]
+                : undefined
+              : c.portId === "sig_demand"
+                ? [5, 3]
+                : undefined,
+          faint,
+          legend: faint ? `baseline · ${chLabel}` : multiRun ? `${runShort(r)} · ${chLabel}` : chLabel,
           channel: c,
           run: r,
         });
@@ -348,14 +384,14 @@ export function ResultsPanel() {
     const target = (d: (typeof defs)[number]) => Number(!multiRun && d.channel.portId === "sig_demand");
     return defs.sort((a, b) => target(a) - target(b));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plotRuns, selectedKeys, selectedList, multiRun]);
+  }, [drawnRuns, ghost, selectedKeys, selectedList, multiRun]);
 
   // the x axis: time in the chosen unit, or the distance driven, which needs
   // a Vehicle in every plotted run (else it is time, picked automatically)
   const canDistance =
-    plotRuns.length > 0 && plotRuns.every((r) => r.result.channels.some((c) => c.portId === "sig_distance"));
+    drawnRuns.length > 0 && drawnRuns.every((r) => r.result.channels.some((c) => c.portId === "sig_distance"));
   const xMode = xAxisMode === "distance" && !canDistance ? "auto" : xAxisMode;
-  const xAxis = useMemo(() => xAxisFor(xMode, plotRuns), [xMode, plotRuns]);
+  const xAxis = useMemo(() => xAxisFor(xMode, drawnRuns), [xMode, drawnRuns]);
 
   // uPlot columns: one x column (in s or m), one column per series. Series
   // on the same grid (a run's channels; on a time axis overlaid runs of the
@@ -384,12 +420,15 @@ export function ResultsPanel() {
   // what the series and axes look like, as strings: a live run replaces its
   // channel objects on every flush, and options built from them would rebuild
   // the chart (and drop a zoom box being drawn) ten times a second
-  const seriesLook = JSON.stringify(seriesDefs.map(({ legend, unit, color, dash }) => ({ legend, unit, color, dash })));
+  const seriesLook = JSON.stringify(
+    seriesDefs.map(({ legend, unit, color, dash, faint }) => ({ legend, unit, color, dash, faint })),
+  );
   const xLook = JSON.stringify(xAxis);
   const yLook = JSON.stringify(yAxes);
   const chartOptions = useMemo((): PlotOptions => {
     const axis = axisStyle(theme);
-    const looks: { legend: string; unit: string; color: string; dash?: number[] }[] = JSON.parse(seriesLook);
+    const looks: { legend: string; unit: string; color: string; dash?: number[]; faint?: boolean }[] =
+      JSON.parse(seriesLook);
     const x: XAxis = JSON.parse(xLook);
     const ys: Record<string, YAxisCfg> = JSON.parse(yLook);
     const units = [...new Set(looks.map((d) => d.unit))];
@@ -404,7 +443,8 @@ export function ResultsPanel() {
           label: d.legend,
           scale: d.unit,
           stroke: d.color,
-          width: 1.6,
+          width: d.faint ? 1.2 : 1.6,
+          ...(d.faint ? { alpha: 0.45 } : {}),
           dash: d.dash,
           spanGaps: true,
           points: { show: false },
@@ -675,14 +715,8 @@ export function ResultsPanel() {
   }, []);
 
   const toggle = (key: string) => {
-    if (!selKey) return;
-    setSelected((s) => {
-      const cur = s[selKey] ?? defaultKeys;
-      return {
-        ...s,
-        [selKey]: cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key],
-      };
-    });
+    const cur = savedChannels ?? defaultKeys;
+    savePlot({ channels: cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key] });
   };
 
   if (runs.length === 0 && runsLoading) {
@@ -714,6 +748,15 @@ export function ResultsPanel() {
   }
 
   const otherRuns = runs.filter((r) => r.id !== activeRun?.id);
+  // the summary's value columns: this run, the baseline (with its change),
+  // then the other overlaid runs
+  const columns = activeRun
+    ? [
+        { run: activeRun, head: multiRun ? runShort(activeRun) : baseline ? "This run" : "Value" },
+        ...(baseline ? [{ run: baseline, head: "Baseline" }] : []),
+        ...overlayRuns.filter((r) => r !== baseline).map((r) => ({ run: r, head: runShort(r) })),
+      ]
+    : [];
 
   return (
     <div className="flex h-full">
@@ -726,10 +769,10 @@ export function ResultsPanel() {
               aria-label="Primary run"
               value={activeRun?.id ?? ""}
               onChange={(e) => setActiveRun(e.target.value)}
-              title={`${activeRun ? `${runLabel(activeRun)}${activeRun.incomplete || activeRun.status !== "success" ? "" : " · success"} — ` : ""}primary run (drives the channel list, table and summary)`}
+              title={`${activeRun ? `${runTitle(activeRun)}${activeRun.incomplete || activeRun.status !== "success" ? "" : " · success"} — ` : ""}primary run (drives the channel list, table and summary)`}
             >
               {runs.map((r) => (
-                <option key={r.id} value={r.id}>
+                <option key={r.id} value={r.id} title={runTitle(r)}>
                   {runLabel(r)}
                 </option>
               ))}
@@ -764,6 +807,48 @@ export function ResultsPanel() {
             </button>
           </div>
           {showRunInfo && activeRun && <RunInfo run={activeRun} />}
+
+          {/* the run the numbers are compared with, and what changed since (RES-10) */}
+          {otherRuns.length > 0 && activeRun && (
+            <>
+              <div className="flex items-center gap-1">
+                <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">Baseline</span>
+                <select
+                  className="ss-input min-w-0 flex-1"
+                  aria-label="Baseline run"
+                  value={pick === null ? "none" : (picked?.id ?? "")}
+                  onChange={(e) =>
+                    savePlot({ baselineRunId: e.target.value === "" ? undefined : e.target.value === "none" ? null : e.target.value })
+                  }
+                  title={`${baseline ? `${runTitle(baseline)} — ` : ""}the run the summary and headline numbers are compared with`}
+                >
+                  <option value="">Previous run of this case ({previous ? runShort(previous) : "none yet"})</option>
+                  <option value="none">None</option>
+                  {otherRuns.map((r) => (
+                    <option key={r.id} value={r.id} title={runTitle(r)}>
+                      {runLabel(r)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {baseline && (
+                <>
+                  <label
+                    className="flex cursor-pointer items-center gap-1.5 text-[11px]"
+                    title="Draw the baseline run's lines on the chart, dashed and faint, under this run's"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={comparePrevious}
+                      onChange={(e) => useUIStore.getState().setComparePrevious(projectId, e.target.checked)}
+                    />
+                    Draw the baseline faint on the chart
+                  </label>
+                  <RunChanges run={activeRun} base={baseline} />
+                </>
+              )}
+            </>
+          )}
 
           {/* overlay set */}
           <div className="rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)]">
@@ -803,7 +888,7 @@ export function ResultsPanel() {
                   <label
                     key={r.id}
                     className="flex cursor-pointer items-center gap-1.5 px-1.5 py-0.5 text-[11px] hover:bg-[color:var(--ss-hover)]"
-                    title={runLabel(r)}
+                    title={runTitle(r)}
                   >
                     <input
                       type="checkbox"
@@ -815,7 +900,7 @@ export function ResultsPanel() {
                       style={{ background: overlayRunIds.includes(r.id) ? overlayColorOf(r.id) : "#c0c6d0" }}
                     />
                     <span className="truncate">
-                      {r.sweepValue !== undefined ? runShort(r) : `${r.caseName} · ${runTime(r)}`}
+                      {r.sweepValue !== undefined ? runShort(r) : `${r.caseName} · ${r.name ?? runTime(r)}`}
                     </span>
                   </label>
                 ))}
@@ -946,7 +1031,7 @@ export function ResultsPanel() {
                 className="ss-input max-w-[190px] py-0.5 text-[11px]"
                 aria-label="Sweep metric"
                 value={sweepMetric}
-                onChange={(e) => setSweepPick(e.target.value)}
+                onChange={(e) => savePlot({ sweepMetric: e.target.value })}
                 title="Summary metric to plot against the swept value"
               >
                 {sweepMetrics.map((m) => (
@@ -960,7 +1045,7 @@ export function ResultsPanel() {
               <select
                 className="ss-input max-w-[200px] py-0.5 text-[11px]"
                 value={xyXKey}
-                onChange={(e) => setXyXPick(e.target.value)}
+                onChange={(e) => savePlot({ xKey: e.target.value })}
                 title="Channel to plot on the X axis (the other ticked channels become Y series)"
               >
                 {selectedList.map((k) => {
@@ -980,7 +1065,13 @@ export function ResultsPanel() {
                 className="ss-input py-0.5 text-[11px]"
                 aria-label="X axis"
                 value={xMode}
-                onChange={(e) => setXAxisMode(e.target.value as XAxisMode)}
+                // (a zoom in s is no zoom in m: it is dropped)
+                onChange={(e) =>
+                  savePlot({
+                    xAxis: e.target.value as XAxisMode,
+                    ...((e.target.value === "distance") !== (xAxis.kind === "distance") ? { zoom: undefined } : {}),
+                  })
+                }
                 title="Plot against time or the distance driven"
               >
                 <option value="auto">Time · auto</option>
@@ -996,7 +1087,7 @@ export function ResultsPanel() {
               <AxesMenu
                 units={[...new Set(view === "chart" ? seriesDefs.map((d) => d.unit) : xyYChannels.map((c) => c.unit))]}
                 value={yAxes}
-                onChange={setYAxes}
+                onChange={(v) => savePlot({ yAxes: v })}
               />
             )}
             <div className="flex overflow-hidden rounded border border-[color:var(--ss-border)]">
@@ -1004,6 +1095,7 @@ export function ResultsPanel() {
                 className={`flex items-center gap-1 whitespace-nowrap px-2 py-1 text-[11px] ${
                   view === "chart" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                 }`}
+                aria-pressed={view === "chart"}
                 onClick={() => setView("chart")}
                 title="Time-series chart"
               >
@@ -1013,6 +1105,7 @@ export function ResultsPanel() {
                 className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] ${
                   view === "table" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                 }`}
+                aria-pressed={view === "table"}
                 onClick={() => setView("table")}
                 title="Table view"
               >
@@ -1022,6 +1115,7 @@ export function ResultsPanel() {
                 className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] disabled:opacity-40 ${
                   view === "xy" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                 }`}
+                aria-pressed={view === "xy"}
                 onClick={() => setView("xy")}
                 disabled={selectedKeys.size < 2}
                 title={
@@ -1036,6 +1130,7 @@ export function ResultsPanel() {
                 className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] disabled:opacity-40 ${
                   view === "sweep" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                 }`}
+                aria-pressed={view === "sweep"}
                 onClick={() => setView("sweep")}
                 disabled={family.length < 2}
                 title={family.length < 2 ? "Run a parameter sweep to enable this" : "Metric vs. swept value"}
@@ -1090,20 +1185,31 @@ export function ResultsPanel() {
         {headline.length > 0 && view !== "sweep" && (
           <div className="flex shrink-0 items-center gap-1 border-b border-[color:var(--ss-border)] p-1">
             <dl aria-label="Headline results" className="m-0 flex min-w-0 flex-1 flex-wrap gap-1">
-              {headline.map((s, i) => (
-                <div
-                  key={i}
-                  className="min-w-[128px] flex-1 rounded border border-[color:var(--ss-border)] px-2 py-0.5"
-                  title={s.label}
-                >
-                  <dt className="truncate text-[10px] text-[color:var(--ss-text-dim)]">{s.label}</dt>
-                  <dd className="m-0">
-                    <span className="font-mono text-[15px] font-semibold">{s.value.toLocaleString()}</span>{" "}
-                    <span className="text-[11px] text-[color:var(--ss-text-dim)]">{s.unit}</span>
-                    <SummaryMark sv={s} why />
-                  </dd>
-                </div>
-              ))}
+              {headline.map((s, i) => {
+                const ch = baseline && changeOf(s, baseline.result.summary.find((b) => b.label === s.label));
+                return (
+                  <div
+                    key={i}
+                    className="min-w-[128px] flex-1 rounded border border-[color:var(--ss-border)] px-2 py-0.5"
+                    title={s.label}
+                  >
+                    <dt className="truncate text-[10px] text-[color:var(--ss-text-dim)]">{s.label}</dt>
+                    <dd className="m-0">
+                      <span className="font-mono text-[15px] font-semibold">{s.value.toLocaleString()}</span>{" "}
+                      <span className="text-[11px] text-[color:var(--ss-text-dim)]">{s.unit}</span>
+                      <SummaryMark sv={s} why />
+                      {ch && (
+                        <div
+                          className={`truncate text-[10px] ${changeClass(ch)}`}
+                          title={ch.noise ? NOISE : `Change against the baseline, ${runTitle(baseline)}`}
+                        >
+                          {ch.noise ? "~ 0" : `${ch.diff} (${ch.pct})`} vs baseline
+                        </div>
+                      )}
+                    </dd>
+                  </div>
+                );
+              })}
             </dl>
             {estimate && (
               <span className="shrink-0 px-1 text-[10px] text-[color:var(--ss-text-dim)]" title={ESTIMATE}>
@@ -1189,13 +1295,16 @@ export function ResultsPanel() {
         ) : (
           <div className="min-h-[260px] flex-[3] p-1" ref={chartHost}>
             {seriesDefs.length > 0 && hasSize ? (
-              // a change between time and distance starts from the whole run
+              // each case opens on the zoom it kept (RES-19); a change
+              // between time and distance starts from the whole run
               <Plot
-                key={`chart-${xAxis.kind}`}
+                key={`chart-${selKey}-${xAxis.kind}`}
                 options={chartOptions}
                 data={chartData}
                 label="Results chart"
                 ref={plotRef}
+                xRange={plot?.zoom?.kind === xAxis.kind ? plot.zoom : null}
+                onXRangeChange={(r) => savePlot({ zoom: r ? { kind: xAxis.kind, ...r } : undefined })}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--ss-text-dim)]">
@@ -1221,7 +1330,7 @@ export function ResultsPanel() {
             <summary className="cursor-pointer px-2 py-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
               All summary values ({result.summary.length})
             </summary>
-            <div className="max-h-[130px] overflow-auto" tabIndex={0}>
+            <div className="max-h-[130px] overflow-auto" tabIndex={0} role="region" aria-label="Summary">
               <table className="w-full border-collapse">
                 <thead className="sticky top-0">
                   <tr>
@@ -1232,17 +1341,29 @@ export function ResultsPanel() {
                     ) : (
                       <th className="ss-th">Summary value</th>
                     )}
-                    {plotRuns.map((r, i) => (
-                      <th key={r.id} className="ss-th w-[110px] text-right" title={runLabel(r)}>
-                        {multiRun && (
-                          <span
-                            className="mr-1 inline-block h-2 w-2 rounded-full align-middle"
-                            style={{ background: runColor(i) }}
-                            aria-hidden="true"
-                          />
+                    {columns.map(({ run: r, head }) => (
+                      <Fragment key={r.id}>
+                        <th className="ss-th w-[110px] text-right" title={runTitle(r)}>
+                          {multiRun && plotRuns.includes(r) && (
+                            <span
+                              className="mr-1 inline-block h-2 w-2 rounded-full align-middle"
+                              style={{ background: runColor(plotRuns.indexOf(r)) }}
+                              aria-hidden="true"
+                            />
+                          )}
+                          {head}
+                        </th>
+                        {r === baseline && (
+                          <>
+                            <th className="ss-th w-[80px] whitespace-nowrap text-right" title="This run's value less the baseline's">
+                              Change
+                            </th>
+                            <th className="ss-th w-[80px] whitespace-nowrap text-right" title="The change as a share of the baseline's value">
+                              % change
+                            </th>
+                          </>
                         )}
-                        {multiRun ? runShort(r) : "Value"}
-                      </th>
+                      </Fragment>
                     ))}
                     <th className="ss-th w-[56px]">Unit</th>
                   </tr>
@@ -1258,17 +1379,26 @@ export function ResultsPanel() {
                           <div className="text-[10px] text-[color:var(--ss-warn)]">not valid: {s.notValid}</div>
                         )}
                       </td>
-                      {plotRuns.map((r, ri) => {
+                      {columns.map(({ run: r }, ci) => {
                         const sv = r.result.summary.find((x) => x.label === s.label);
-                        const v = sv?.value;
+                        const ch = r === baseline ? changeOf(s, sv) : null;
                         return (
-                          <td
-                            key={r.id}
-                            className={`ss-td text-right font-mono ${ri > 0 ? "text-[color:var(--ss-text-dim)]" : ""}`}
-                          >
-                            {typeof v === "number" ? v.toLocaleString() : "—"}
-                            <SummaryMark sv={sv} />
-                          </td>
+                          <Fragment key={r.id}>
+                            <td className={`ss-td text-right font-mono ${ci > 0 ? "text-[color:var(--ss-text-dim)]" : ""}`}>
+                              {sv ? sv.value.toLocaleString() : "—"}
+                              <SummaryMark sv={sv} />
+                            </td>
+                            {r === baseline && (
+                              <>
+                                <td className={`ss-td whitespace-nowrap text-right font-mono ${changeClass(ch)}`} title={ch?.noise ? NOISE : undefined}>
+                                  {ch?.diff ?? "—"}
+                                </td>
+                                <td className={`ss-td whitespace-nowrap text-right font-mono ${changeClass(ch)}`} title={ch?.noise ? NOISE : undefined}>
+                                  {ch?.pct ?? "—"}
+                                </td>
+                              </>
+                            )}
+                          </Fragment>
                         );
                       })}
                       <td className="ss-td text-[color:var(--ss-text-dim)]">{s.unit}</td>

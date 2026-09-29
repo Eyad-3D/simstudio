@@ -16,6 +16,8 @@ export const LAYOUT_KEY = "lightsim-layout-v1";
 export const OPEN_LAST_KEY = "lightsim-open-last";
 /** the crash-recovery draft of the working project (persist.ts) */
 export const DRAFT_KEY = "lightsim-draft-v1";
+/** the Results page's plot choices, per project and case (store/uiStore.ts) */
+export const RESULTS_VIEW_KEY = "lightsim-results-view-v1";
 
 const PREFIX = "lightsim-";
 const OLD_PREFIX = "simstudio-";

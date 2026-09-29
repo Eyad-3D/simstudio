@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { DockviewApi } from "dockview-react";
-import { FONT_SCALE_KEY, OPEN_LAST_KEY, THEME_KEY } from "../storageKeys";
+import type { XAxisMode, YAxisCfg } from "../components/panels/chartUtils";
+import { FONT_SCALE_KEY, OPEN_LAST_KEY, RESULTS_VIEW_KEY, THEME_KEY } from "../storageKeys";
 
 export type RibbonTab =
   | "start"
@@ -16,6 +17,38 @@ export type RibbonTab =
 export type EdgeKindFilter = "electrical" | "mechanical" | "signal";
 
 export type Theme = "light" | "dark";
+
+/** What the Results page shows for one case; an unset field takes the page's
+ *  default. Kept per project and case across runs and reloads (RES-19). */
+export interface PlotView {
+  /** ticked channel keys, in the order ticked (their colours follow it) */
+  channels?: string[];
+  view?: "chart" | "table" | "xy" | "sweep";
+  /** the X-Y view's X channel */
+  xKey?: string;
+  /** the summary value the Sweep view plots */
+  sweepMetric?: string;
+  /** the chart's x axis and each unit's y axis (RES-18) */
+  xAxis?: XAxisMode;
+  yAxes?: Record<string, YAxisCfg>;
+  /** the chart's zoom, in s or m; unset: the whole run */
+  zoom?: { kind: "t" | "distance"; min: number; max: number };
+  /** the run the numbers are compared with: unset, the previous run of the
+   *  case; null, none (RES-10) */
+  baselineRunId?: string | null;
+}
+
+/** A project's Results choices: a PlotView per case, and whether the
+ *  baseline run (the previous run of the case, unless another is picked) is
+ *  drawn faint under the lines (unset: yes). */
+export interface ResultsView {
+  comparePrevious?: boolean;
+  cases?: Record<string, PlotView>;
+}
+
+// ponytail: the 50 projects changed last keep their choices (about 120 B a
+// case); plenty for one person, and it keeps the recovery draft's storage free
+const RESULTS_VIEWS_KEPT = 50;
 
 /** A request to show the app's styled confirm/prompt modal (replaces the
  *  native window.confirm/prompt). `resolve` settles the caller's promise. */
@@ -70,6 +103,33 @@ function loadFontScale(): number {
 
 function applyFontScale(scale: number) {
   document.documentElement.style.setProperty("--ss-ui-scale", String(scale));
+}
+
+function loadResultsViews(): Record<string, ResultsView> {
+  try {
+    const saved: unknown = JSON.parse(window.localStorage.getItem(RESULTS_VIEW_KEY) ?? "{}");
+    if (saved && typeof saved === "object" && !Array.isArray(saved)) return saved as Record<string, ResultsView>;
+  } catch {
+    /* storage unavailable or unreadable: the page's defaults */
+  }
+  return {};
+}
+
+/** `views` with one project's entry changed by `fn` and moved last (the
+ *  newest), the oldest beyond RESULTS_VIEWS_KEPT dropped, and saved. */
+function changeResultsView(
+  views: Record<string, ResultsView>,
+  projectId: string,
+  fn: (view: ResultsView) => ResultsView,
+): Record<string, ResultsView> {
+  const { [projectId]: view = {}, ...others } = views;
+  const next = Object.fromEntries([...Object.entries(others).slice(-(RESULTS_VIEWS_KEPT - 1)), [projectId, fn(view)]]);
+  try {
+    window.localStorage.setItem(RESULTS_VIEW_KEY, JSON.stringify(next));
+  } catch {
+    /* storage unavailable: the choices last for this session */
+  }
+  return next;
 }
 
 function loadOpenLast(): boolean {
@@ -142,6 +202,11 @@ interface UIState {
    *  session, not saved (RES-06). */
   cursors: Record<string, [number, number]>;
   setCursors: (runId: string, ab: [number, number] | null) => void;
+
+  /** The Results page's choices by project id, saved in localStorage (RES-19). */
+  resultsViews: Record<string, ResultsView>;
+  setPlotView: (projectId: string, caseId: string, patch: Partial<PlotView>) => void;
+  setComparePrevious: (projectId: string, on: boolean) => void;
 }
 
 const initialTheme = loadTheme();
@@ -244,4 +309,17 @@ export const useUIStore = create<UIState>((set, get) => ({
       else delete cursors[runId];
       return { cursors };
     }),
+
+  resultsViews: loadResultsViews(),
+  setPlotView: (projectId, caseId, patch) =>
+    set((s) => ({
+      resultsViews: changeResultsView(s.resultsViews, projectId, (v) => ({
+        ...v,
+        cases: { ...v.cases, [caseId]: { ...v.cases?.[caseId], ...patch } },
+      })),
+    })),
+  setComparePrevious: (projectId, on) =>
+    set((s) => ({
+      resultsViews: changeResultsView(s.resultsViews, projectId, (v) => ({ ...v, comparePrevious: on })),
+    })),
 }));
