@@ -306,7 +306,7 @@ def test_a_run_counts_every_table_it_reads(monkeypatch):
 
 
 @pytest.mark.parametrize("project_id, case_ids", [
-    ("bev-car", ["case-city", "case-wltc", "case-wltc-hvac"]),
+    ("bev-car", ["case-city", "case-wltc", "case-wltc-hvac", "case-wltc-winter", "case-wltc-summer"]),
     ("hybrid-car", ["case-udds", "case-hwfet", "case-mixed"]),
 ])
 def test_every_example_case_stays_inside_its_maps(project_id, case_ids):

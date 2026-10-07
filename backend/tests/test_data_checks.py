@@ -343,6 +343,9 @@ def test_negative_road_load_coefficients_warn(mode, warned):
 
 def _with_ambients(*values):
     proj = load_example("bev-car")
+    # these Ambients only (the example has one of its own since CON-30)
+    proj.systems[0].elements = [e for e in proj.systems[0].elements
+                                if e.componentDefId != "boundary.ambient"]
     proj.systems[0].elements += [
         el(f"amb{i}", "boundary.ambient", f"Ambient {i}", temperature_C=t, pressure_kPa=p)
         for i, (t, p) in enumerate(values)]
