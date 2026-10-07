@@ -406,3 +406,40 @@ export async function laplogPresets(): Promise<LapLogPreset[]> {
 export async function readLapLog(req: LapLogRequest): Promise<LapLogResult> {
   return request<LapLogResult>("/laplog/read", { method: "POST", body: JSON.stringify(req) });
 }
+
+/** A logged lap for the lap mode calibration (VAL-38). */
+export interface LoggedLapIn {
+  text: string;
+  columns?: Partial<Record<"time" | "distance" | "speed" | "lat_accel" | "power" | "lap", string | null>>;
+  lap?: number | null;
+  speedUnit?: string;
+}
+
+export interface LapPrediction {
+  status: string;
+  lap_time_log_s: number;
+  lap_time_model_s?: number;
+  lap_time_error_pct?: number;
+  speed_rms_kmh?: number;
+  energy_model_kwh?: number;
+  energy_log_kwh?: number;
+  energy_error_pct?: number;
+  messages: string[];
+}
+
+export interface CalibrationResult {
+  fit: { mu_scale: number; cza: number; rms_kmh: number; evaluations: number };
+  calibration_lap: LapPrediction;
+  check_lap?: LapPrediction;
+}
+
+export async function calibrateLap(
+  project: Project,
+  calibration: LoggedLapIn,
+  check?: LoggedLapIn,
+): Promise<CalibrationResult> {
+  return request<CalibrationResult>("/laplog/calibrate", {
+    method: "POST",
+    body: JSON.stringify({ project, calibration, check: check ?? null }),
+  });
+}

@@ -26,6 +26,7 @@ import {
   Timer,
   Trophy,
   FileUp,
+  Crosshair,
   Trash2,
   Undo2,
   Upload,
@@ -35,6 +36,7 @@ import type { Project } from "../types";
 import { resetDockLayout } from "./DockLayout";
 import { useDismiss } from "./useDismiss";
 import { LapImportDialog } from "./LapImportDialog";
+import { CalibrateDialog } from "./CalibrateDialog";
 import { confirmDialog } from "../dialog";
 import { openHelp } from "../help";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
@@ -312,6 +314,7 @@ function HomeTab() {
 function SimulationsTab() {
   const store = useProjectStore();
   const [importing, setImporting] = useState(false);
+  const [calibrating, setCalibrating] = useState(false);
   const cases = store.project?.cases ?? [];
   const activeCase = cases.find((c) => c.id === store.activeCaseId);
   return (
@@ -415,6 +418,14 @@ function SimulationsTab() {
           onClick={() => setImporting(true)}
         />
         {importing && <LapImportDialog onClose={() => setImporting(false)} />}
+        <BigButton
+          icon={Crosshair}
+          label="Calibrate lap"
+          title="Calibrate lap mode on a logged lap: LightSim builds the track from the lap's speed and lateral acceleration, fits the tyres' grip scale and the downforce (CzA) to the logged speed, and checks the prediction on a second lap, blind (lap time, speed RMS and energy errors). The files stay on your computer."
+          disabled={store.running || !store.project}
+          onClick={() => setCalibrating(true)}
+        />
+        {calibrating && <CalibrateDialog onClose={() => setCalibrating(false)} />}
       </RibbonGroup>
     </>
   );

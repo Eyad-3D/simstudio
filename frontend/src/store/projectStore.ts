@@ -454,6 +454,9 @@ export interface ProjectState {
    *  pair of a battery's capacity and Output Power Limit, and save the grid
    *  as a two-factor study of the project. */
   runEnduranceStudy: (args: { caseId: string; batteryId: string; packs: number[]; caps: number[] }) => Promise<void>;
+  /** Apply a lap mode calibration (VAL-38): every wheel's μ, lateral μ and
+   *  load sensitivity times `muScale`, and the Vehicle's CzA (one undo). */
+  applyLapCalibration: (muScale: number, cza: number) => void;
   /** Sequentially run a case once per swept value, each landing in run
    *  history; the study and its results table are saved with the project. */
   runSweep: (config: SweepConfig) => Promise<void>;
@@ -1960,6 +1963,27 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         draft.studies = [...(draft.studies ?? []), study];
       }, false);
       log("info", `Endurance energy study saved (Cases & Parameters → Endurance energy study and Saved studies).`);
+    },
+
+    applyLapCalibration: (muScale, cza) => {
+      const { project, libraryById, log } = get();
+      if (!project) return;
+      const def = (id: string, key: string) =>
+        Number(libraryById[id]?.parameters.find((p) => p.key === key)?.default ?? 0);
+      updateProject((draft) => {
+        for (const sys of draft.systems)
+          for (const e of sys.elements) {
+            if (e.componentDefId === "propulsion.wheel") {
+              for (const key of ["mu", "mu_lateral", "mu_load_sensitivity_per_kN"]) {
+                const v = Number(e.parameterOverrides[key] ?? def(e.componentDefId, key));
+                if (v) e.parameterOverrides[key] = Math.round(v * muScale * 1e4) / 1e4;
+              }
+            } else if (e.componentDefId === "vehicle.body") {
+              e.parameterOverrides.downforce_cza_m2 = cza;
+            }
+          }
+      });
+      log("info", `Lap mode calibration applied: the wheels' grip × ${muScale}, the Vehicle's CzA ${cza} m².`);
     },
 
     runSweep: async ({ caseId, elementId, paramKey, values }) => {

@@ -235,6 +235,14 @@ sections.
   3.754 s), because LightSim's tyres keep their grip past the peak. Its
   defaults (Kp 0.5, Ki 10 1/s) also stay stable at the 10 ms step. No
   model changes unless you add the block.
+- Calibrate lap mode on a logged lap (VAL-38): **Calibrate lap**
+  (Simulations tab) builds the track from a logged lap's speed and lateral
+  acceleration, fits one factor on every tyre's grip and the Vehicle's
+  CzA to the logged speed against distance (least squares), and checks
+  the prediction blind on a second lap: lap time error, speed RMS error
+  and, with the pack power logged, energy error. **Apply to the model**
+  puts the fit in the car. Checked on LightSim's own laps only (blind lap
+  time −0.5 %, energy +0.6 %); no real log is bundled.
 - Wheel: *Lateral Friction μ_y* (0: the same as μ), *Load Sensitivity
   dμ/dFz* (per kN), *Nominal Load Fz0* (0: the wheel's static load) and
   *Friction Ellipse Exponent* (lap cases). The load sensitivity also acts

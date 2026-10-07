@@ -168,8 +168,9 @@ gears, brakes and battery. It is not a driving simulation:
   the driven wheels' braking grip; the drive cycles' Driver does not hold
   regeneration to the grip. Lap times are usually optimistic: a user of
   OpenLAP, a similar point-mass lap simulator, found its F1 example lap
-  7.5-8 % faster than the real car's. Calibrate μ, μ_y and the downforce against a lap your
-  car has driven before trusting a lap time.
+  7.5-8 % faster than the real car's. Calibrate the grip and the downforce
+  against a lap your car has driven (**Calibrate lap**, VAL-38) before
+  trusting a lap time.
 - The car follows the line as drawn, with no track width or racing line.
   Where the curvature changes sign within a metre, as at the skidpad's
   crossover, the speed rises by up to 3 % at that point: a real car cannot
@@ -215,7 +216,7 @@ gears, brakes and battery. It is not a driving simulation:
 *Workaround:* compare lap cases with each other rather than with a stop
 watch, and check the *Time limited by* rows and the Race Track's *Limit*
 channel for what holds the car back.
-*Roadmap:* VAL-12 (calibration against a logged lap), MOD-34 (a dynamic
+*Roadmap:* VAL-38 (a published check on a real logged lap), MOD-34 (a dynamic
 lap model), STD-35 (tracks from GPS or OpenStreetMap), CON-11 (driving a lap's speed as a drive cycle), MOD-08 (state
 of power), MOD-09 (heat over an endurance).
 
@@ -322,6 +323,26 @@ motors it feeds, from the larger of two wheels' slip:
 channel.
 *Roadmap:* MOD-45 (feed-forward from the wheel loads, the tyre's peak slip
 once MOD-16 exists), MOD-16.
+
+### Lap mode calibration fits two numbers on one lap
+
+**Calibrate lap** (VAL-38) fits only a grip factor and the CzA:
+
+- Grip and downforce trade off on one lap, so the two values are not
+  reliable on their own; the check lap's errors are.
+- The track comes from the lateral acceleration over the speed squared:
+  no GPS position, elevation or track width, and lap mode's other limits
+  apply (ideal driver, no transients).
+- It searches a grid (grip 0.6-1.5, CzA 0-5 m²) and takes about 30 s;
+  values outside it are not found.
+- It has been checked on LightSim's own laps only. No accuracy is claimed
+  for a real car until a documented logged lap, with a licence that lets
+  LightSim publish the result, has been used.
+
+*Workaround:* fit on a lap with both slow and fast corners, check on a lap
+from another session, and compare the energy error too.
+*Roadmap:* VAL-38 (a published check on a real log), STD-35 (tracks from
+GPS).
 
 ### Signal units are not checked
 

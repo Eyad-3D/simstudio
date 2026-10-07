@@ -406,3 +406,22 @@ class LapLogRequest(BaseModel):
     lap: Optional[int] = None
     repeatToKm: float = 0.0
     driverChangeS: float = 0.0
+
+
+class LoggedLapIn(BaseModel):
+    """A logged lap for the lap mode calibration (VAL-38)."""
+
+    text: str
+    # {"time" | "distance" | "speed" | "lat_accel" | "power" | "lap": column}
+    columns: dict[str, Optional[str]] = Field(default_factory=dict)
+    lap: Optional[int] = None
+    speedUnit: str = "km/h"
+
+
+class CalibrateRequest(BaseModel):
+    """Calibrate lap mode's grip and downforce on one logged lap and check
+    the prediction on another (VAL-38)."""
+
+    project: Project
+    calibration: LoggedLapIn
+    check: Optional[LoggedLapIn] = None

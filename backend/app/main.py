@@ -49,6 +49,7 @@ from . import cycles, laplog, run_store, security, storage
 from .library import load_library, unit_groups
 from .paths import static_dir
 from .schemas import (
+    CalibrateRequest,
     DataCheck,
     LapLogRequest,
     Project,
@@ -57,7 +58,11 @@ from .schemas import (
     StoredRun,
     ValidateRequest,
 )
+from .solver import calibrate as lap_calibration
 from .solver import simulate
+from .solver.domains import ModelInitError
+from .solver.lapsim import LapError
+from .solver.network import ModelError
 from .validation import validate_project
 from .version import VERSION
 
@@ -328,6 +333,24 @@ def read_laplog(req: LapLogRequest) -> dict:
         return laplog.read_lap(req.text, req.preset, req.columns, req.speedUnit, req.lap,
                                req.repeatToKm, req.driverChangeS).as_dict()
     except laplog.LapLogError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/laplog/calibrate", responses={400: {"description": "A log cannot be read",
+                                                    "model": ErrorDetail}})
+def calibrate_lap(req: CalibrateRequest) -> dict:
+    """Fit lap mode's grip scale and downforce to a logged lap, and predict
+    another logged lap with them (VAL-38). The logs are not stored."""
+    try:
+        logs = [lap_calibration.read_logged_lap(x.text, x.columns, x.lap, x.speedUnit)
+                for x in (req.calibration, req.check) if x is not None]
+        fit = lap_calibration.calibrate(req.project, logs[0])
+        out = {"fit": fit, "calibration_lap": lap_calibration.predict(req.project, logs[0], fit["mu_scale"],
+                                                          fit["cza"])}
+        if len(logs) > 1:
+            out["check_lap"] = lap_calibration.predict(req.project, logs[1], fit["mu_scale"], fit["cza"])
+        return out
+    except (laplog.LapLogError, KeyError, ValueError, LapError, ModelError, ModelInitError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
