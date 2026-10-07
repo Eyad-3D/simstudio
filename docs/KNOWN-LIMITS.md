@@ -552,6 +552,22 @@ minimum or an average, for example from the CSV export, or put the
   questions first are not there yet: start from the example closest to
   your car and change it. *Recent projects* lists projects saved in
   LightSim's projects folder only. *Roadmap:* CON-18, PLT-32.
+- **Scripting LightSim from Python or a terminal: early version.** The
+  `lightsim` Python package and command-line tool (see *Python API* and
+  *Command-line tool* in the help) run from the `backend/` folder of the
+  repository or as the desktop engine's `lightsim-backend run …`; there is
+  no `pip install lightsim` package yet. A parameter study's table in the
+  project file still names its columns by the figures' labels, not their
+  stable keys, so a renamed part changes its column names. *Roadmap:*
+  AI-02, AI-07.
+- **AI access is set from the command line only.** AI assistants are off
+  until you turn them on with `lightsim ai on` and allow folders with
+  `lightsim ai allow`; there is no *Settings → AI access* page in the app
+  yet, and no switch in the app to hide one project from AI tools (use
+  `lightsim ai block <file>`). On Windows, a run of a trusted project with
+  Script blocks opens a private connection on 127.0.0.1 between the engine
+  and its script process for a moment; on Linux it uses no network at all.
+  *Roadmap:* AI-01.
 - **Unsigned installers.** Windows SmartScreen warns on first launch (choose
   *More info → Run anyway*). *Roadmap:* PLT-13.
 - **No macOS version.** Builds exist for Windows 10/11 (x64) and Linux (x64)

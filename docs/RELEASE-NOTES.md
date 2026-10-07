@@ -361,6 +361,38 @@ sections.
   2,300 kg* instead of the clock time) in the run lists, legends and
   summary; *Run info* edits the name and keeps a note, both stored with
   the run. (RES-10)
+- Run LightSim models without the app. The `lightsim` Python package runs
+  a case in your own Python process (`import lightsim as ls;
+  r = ls.run("bev-car", case="City Cycle")`), gives the summary figures by
+  stable key, the channels, CSV, MATLAB MAT-file and JSON export and a
+  pandas table, and lets a script change values (units are checked:
+  `p.set("Vehicle.mass_kg", "1.9 t")`), add and wire parts, add cases,
+  check and save. The `lightsim` command (`python -m lightsim` in
+  `backend/`, or the desktop engine `lightsim-backend`) has `run`,
+  `check`, `export`, `show`, `params`, `parts`, `examples`, `schema`,
+  `notebook` and `version`, each with `--json`, and fixed exit codes for
+  CI pipelines: 0 done, 1 Data Checks failed, 2 run not valid, 3 usage or
+  file error. Help → *Python API* and *Command-line tool*. (AI-02)
+- Every run summary figure has a stable key next to its label, such as
+  `distance_km` or `el-battery.final_soc_pct` (a part's figures are named
+  after the part's id, so renaming the part keeps them); runs keep it,
+  and the Results page compares a run with its baseline by it. Results
+  are unchanged. (AI-07)
+- LightSim's file formats are published: a written specification of the
+  project file, the runs folder, results, studies and the engine's API
+  and live-run messages, with JSON Schemas generated from the engine
+  (`docs/spec/`, and in the help under *Reference*). Its licence, CC BY
+  4.0 for the formats only, awaits the owner's confirmation. The engine's
+  API reference at `/docs` no longer loads anything from the internet.
+  (AI-07)
+- AI access rules for the coming AI assistant connection: off by default;
+  only projects in folders you allow, and not marked `"noAi"`; changes
+  need your confirmation; a project with Script blocks runs only after
+  you trust it, and each run asks first; runs stop after 300 s; every call
+  is logged on your computer. Set with `lightsim ai …`. (AI-01)
+- *What LightSim reads and writes* (Help → *Reference*) lists the file
+  formats that work today, each with the test that checks it, those
+  planned and those built only on request. (STD-34)
 
 ### Fixed
 
