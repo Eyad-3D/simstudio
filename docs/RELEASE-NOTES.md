@@ -32,6 +32,22 @@ sections.
 
 ### New
 
+- Models from other tools: drop an FMU file (a Co-Simulation FMU of FMI
+  2.0 or 3.0, exported from Simulink, Dymola, GT-SUITE or a supplier) on
+  the diagram and it runs with the rest of the car as an *FMU* block. Its
+  *Properties* show the FMI version, kind, the tool that made it, a badge
+  for where it runs (*Runs here*, *Windows only*, *Source only*) and the
+  problems FMPy's checks find, in plain words; *Variables and pins* ticks
+  the FMU's variables into pins and changes start values. LightSim asks
+  once for each FMU whether it may run, and runs it in a separate,
+  locked-down process, so a crashing or hanging FMU stops the run, not the
+  app. It needs the optional FMU pack (FMPy); see [Use a model from another
+  tool](help/how-to/use-an-fmu.md) and *Known issues* for what it does not
+  do yet. In the automatic tests, 12 of the FMI standard's 14 Reference
+  FMUs (version 0.0.39) give the same results as FMPy's own runner, to
+  1e-6; the other two need what this version does not do (StateSpace has
+  array signals, Clocks is a Scheduled Execution FMU).
+  *Roadmap:* STD-01.
 - Battery: *Charge Capacity* (Ah) and *Coulombic Efficiency (charging)*.
   Left at 0, the Charge Capacity comes from the Usable Capacity. Coulombic
   efficiency defaults to 100 %, not the 99 % first proposed: Li-ion cells

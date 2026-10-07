@@ -72,6 +72,7 @@ Differential).
 | **Live simulation** | Runs stream over a WebSocket: progress + all channels update live, the solver can be paced against real time (Pacing selector), cancelled, and scalar parameters (e.g. driver PI gains) can be edited mid-run from the Properties panel |
 | **Monitors** | Display-only Monitor component: add named signal inputs, wire anything into them, get live readout cards + sparklines in the Monitors panel |
 | **Scripting** | Script (Function) component: user-written Python `step(t, dt, inputs, state, params)` with named per-instance ports — for hybrid control strategies, custom recuperation logic, signal math. `step()` is called every solver step with `dt` = that step (0.01 s unless the case time step is shorter), or at the block's *Sample Time* with `dt` = the Sample Time when that is longer; wired inputs are fresh on every call. Scripts get `math`, `clamp()` and `interp()` and a small set of builtins; other imports, file access, class definitions and dunder attributes are refused, and each call must return within 2 s. During a run, scripts execute in a separate process that the engine stops if a call overruns, with a 512 MB memory cap; on Linux 5.13+ the kernel (Landlock) also blocks its file and TCP access. What each platform does and does not block: [Known issues and limits](docs/KNOWN-LIMITS.md) |
+| **FMU parts** | Drop an FMU file (a Co-Simulation FMU of FMI 2.0 or 3.0 from Simulink, Dymola, GT-SUITE or a supplier) on the diagram, or choose one in an *FMU* block, and it runs with the rest of the model. *Properties* show its FMI version, kind, exporting tool, a platform badge (*Runs here*, *Windows only*, *Source only*) and FMPy's validation findings in plain words; *Variables and pins* ticks FMU variables into signal pins (wired on the Data Bus) and sets start values, which are ordinary parameters (so a case can change them). Each FMU runs only once you allow it on your computer, in a process of its own hardened like the Script process, so a crash or hang stops the run, not the engine. Needs the optional FMU pack (`backend/requirements-fmu.txt`, FMPy BSD-2-Clause); see [Use a model from another tool](docs/help/how-to/use-an-fmu.md) |
 | **Maps** | E-Motor with voltage-dependent full-load torque map, power-loss map and unpowered drag torque; combustion engine full-load curve, fuel map and unfired drag torque; battery OCV(SOC) table — all edited in table grids in the Properties panel |
 | **Problems** | One list of every problem the model has now: the Data Checks, which run by themselves a moment after a project opens and after every change, and the latest run's warnings and errors, each with a "How to fix" line; a click or Enter selects the part(s) it is about and zooms the diagram to them, and the status bar counts the errors. Data Checks are pre-run validation: reference integrity, port-kind mismatches, parameter limits (from the catalog, also for a case's own values), table data, drive-cycle and road-profile entries (an entry that is not an `x:value` pair of numbers, or points out of order, is an error; a repeated x is a warning), Sample Times (negative or not a finite number is an error, above 0.1 s a warning), script compilation (compile only — script code never runs during checks), driveline solvability (delegated to the solver's model extraction). Errors that block the run when the model cannot drive: an E-Motor with no power source, a motor or engine that reaches no wheel, an open differential with a free output, a missing command or target-speed signal, a speed demand that reaches no motor or engine, two signals wired into one input, a CG height while all wheels are on one axle, and for a lap case a missing Race Track or E-Motor, wheels all on one axle, an engine or clutch on the wheels, Laps that are not a whole number from 1 to 500, and a Custom curvature table that does not start at 0 m, is shorter than 10 m or bends tighter than 0.5 1/m. Warnings for parts the solver would leave out (unconnected, or an input that silently reads 0) and for implausible values (vehicle mass, battery size, auxiliary load, final-drive ratio, wheel load shares that do not add up to 100 %, which the solver scales to 100 % (a 0 % total is an error), a CG height above the wheelbase, a battery that starts empty; for a lap case, a gearbox held in its gear and a Custom closed track that does not close). An all-clear says what was checked; it does not vouch for the results |
 | **Results** | Dedicated full-page Results workspace (own ribbon tab): channel picker grouped per element, headline numbers above the chart (consumption or fuel, distance, charge and energy; a test's time and speed, with its pass or fail), multi-channel time-series **chart or table view** that fills in live during the run and opens on target against actual speed, with zoom and pan on every chart (mouse wheel, a dragged box, Shift+drag; a double-click shows the whole run), each y axis fitted to its data (*Axes* starts one at 0 or sets its ends) and the x axis in s, min or h or against the distance driven, measurement cursors A and B (*Cursors* or C; typed times, the arrow keys or a dragged line) with each signal's values there, the difference, and its minimum, maximum, mean, RMS and integral between them (kWh from kW) and a time-to-reach form (0 to 100 km/h), the full summary table under the chart (SOC, energy, recuperation, distance, consumption, fuel and CO₂ per km, electrical energy balance error, time a motor was held back by its supply, regeneration a motor's supply could not take) with a *not valid* note on figures the run's checks rule out (see [Run status](#run-status-and-not-valid-figures)), CSV export along the chart's x axis. Each run keeps a copy of the model and case settings it ran with, the app version and the parameters edited while it ran; *Run info* (ⓘ next to the run picker) shows them and opens that model again as an unsaved copy. A run of a case is compared with the previous one (or another run picked as the *Baseline*): it is named after what changed (*Vehicle Mass 2,300 kg*; the name and a note can be edited in *Run info* and are stored with the run), the baseline is drawn faint and dashed with it, the headline numbers and the summary give the change and % change (*~ 0* within the stored rounding), and *What changed* lists the edits between the two, each part a click from the diagram. Each case keeps its ticked channels, view, axes and zoom across runs and restarts, and a new run keeps the runs you overlaid. Point 0 is the initial state at t = 0, each later point holds the state at its own time, and the run ends exactly at the case duration |
@@ -114,6 +115,8 @@ need to be signed in to GitHub, and artifacts expire after 90 days).
 
 Projects are stored one JSON file each, in your own user folder, so they
 survive reinstalls and upgrades. **File → Open Projects Folder** opens it.
+FMU files you import are kept in its `fmus` folder (unpacked in `fmus/unpacked`), with the list of FMUs
+you allowed to run on this computer (`fmus/allowed.json`).
 
 | Platform | Location |
 |---|---|
@@ -160,6 +163,8 @@ limits in short:
   independent drivelines — e.g. dual-motor AWD as two axles — work).
 - One battery or voltage source per electrical bus; DC-DC is unidirectional.
 - Forward driving only (no reverse), no thermal/fluid solving.
+- FMU blocks run Co-Simulation FMUs only, with single-number pins, and the
+  FMU file is kept beside your projects, not inside the project file.
 - Sub-system containers are organizational: physical connections cannot cross
   a container boundary (signals can, via the Data Bus).
 - The canvas bookmark tool is disabled, and the Optimization tab is hidden
@@ -241,6 +246,22 @@ npm run test:e2e            # browser + accessibility tests of the built UI
 cd ../desktop
 npm test                    # the shell's unit tests (plain Node, no install needed)
 ```
+
+FMU parts (STD-01) need the optional FMU pack. Install FMPy without its
+declared dependencies (cmake, jinja2 and nbformat are only for compiling
+FMUs), then point the tests at the Modelica Association's Reference FMUs to
+check every Co-Simulation one against FMPy's own results, as CI does:
+
+```bash
+cd backend
+pip install -r requirements-fmu.txt
+pip install --no-deps fmpy==0.3.32
+# unpack https://github.com/modelica/Reference-FMUs/releases (BSD-2-Clause)
+LIGHTSIM_REFERENCE_FMUS=/path/to/Reference-FMUs-0.0.39 python -m pytest tests/test_fmu.py
+```
+
+`tests/test_fmu.py` also builds a small test FMU with the system C compiler
+(skipped where there is none, as on Windows).
 
 The browser tests start the engine themselves with `python3` (set
 `LIGHTSIM_PYTHON` to use another interpreter; it needs the backend's
@@ -405,6 +426,9 @@ is no token check. To reach a development engine through another host name
 | `GET /api/examples` | List the examples shipped with the app, each with `hidden` (hidden from the Open menu) |
 | `GET /api/examples/{id}` | Load an example as shipped (read-only: no `revision`; the UI opens it as a copy with a new id) |
 | `POST /api/examples/{id}/hide`, `POST /api/examples/restore` | Hide an example from the Open menu / list every hidden one again |
+| `POST /api/fmus?name=&allow=` | Keep an FMU file (the request body, raw bytes) and, with `allow=true`, allow it to run on this computer; answers where it is kept, its fingerprint (SHA-256) and what it is |
+| `POST /api/fmus/describe` | What an FMU block's file is (`fmuPath`, `fmuSha256`, `fmuName`), read without running it: variables, FMI version, kind, tool, platform badge, problems; `found: false` with the reason when the file is not there |
+| `POST /api/fmus/{sha256}/allow` | Allow an FMU (by its fingerprint) to run on this computer |
 | `POST /api/validate` | Run Data Checks on a project payload |
 | `POST /api/simulate` | Validate + solve one case synchronously |
 | `WS /api/simulate/run` | Live run: client sends `start`, then optional `set_param` / `cancel`; server streams `step` / `message` events and a final `done` with the full result |

@@ -51,6 +51,10 @@ or a typed profile.
 **Example**: a model that comes with LightSim. It opens as a copy, so you
 can change it; **Save** keeps your copy as a project of your own.
 
+**FMU**: Functional Mock-up Unit, a model packed in one `.fmu` file by the
+FMI standard (Functional Mock-up Interface), so that one tool can run a
+model made in another. See [Use a model from another tool](how-to/use-an-fmu.md).
+
 **Full-load map**: the most torque a motor or engine can give at each speed
 (and, for an E-Motor, each voltage).
 
