@@ -169,6 +169,42 @@ class SystemNode(BaseModel):
     connections: list[Connection] = Field(default_factory=list)
 
 
+# a reference value's grade (VAL-35): green, amber, red, grey
+Grade = Literal["within", "near", "outside", "missing", "not valid"]
+
+
+class ReferenceValue(BaseModel):
+    """An expected value of a case: a summary value's label, the number,
+    a tolerance (in the value's unit, or % of the reference) and a source."""
+
+    model_config = ConfigDict(extra="allow")
+
+    kpi: str
+    value: float
+    tolerance: float = 5.0
+    tolerancePct: bool = True
+    source: str = ""
+
+
+class ReferenceCheck(BaseModel):
+    """How far a run's value is from a reference, or from a hand calculation."""
+
+    label: str
+    value: Optional[float] = None
+    reference: float
+    unit: str = ""
+    difference: Optional[float] = None
+    differencePct: Optional[float] = None
+    tolerance: float = 0.0  # absolute, in the unit
+    grade: Grade
+    source: str = ""
+    automatic: bool = False
+    # "two-sided": |gap| ≤ tolerance; "at most"/"at least": a bound the
+    # value must keep to (hand calculations)
+    bound: Literal["two-sided", "at most", "at least"] = "two-sided"
+    note: Optional[str] = None
+
+
 class SimCase(BaseModel):
     model_config = PERSISTED
 
@@ -208,6 +244,9 @@ class SimCase(BaseModel):
     # case can tweak values — and a parameter sweep can vary one — without
     # editing the shared topology.
     parameterOverrides: dict[str, dict[str, ParamValue]] = Field(default_factory=dict)
+    # expected values (VAL-35): a summary value's label, the number, its
+    # tolerance and where it comes from; each run says how far it lands
+    references: list[ReferenceValue] = Field(default_factory=list)
 
 
 class StudyFactor(BaseModel):
@@ -310,6 +349,9 @@ class SimResult(BaseModel):
     messages: list[SimMessage]
     channels: list[Channel]
     summary: list[SummaryValue] = Field(default_factory=list)
+    # the case's expected values and the automatic hand calculations, each
+    # with its gap and grade (VAL-35)
+    references: list[ReferenceCheck] = Field(default_factory=list)
 
 
 class LiveEdit(BaseModel):

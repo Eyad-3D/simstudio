@@ -34,6 +34,7 @@ from .domains import ModelInitError, RunContext, build_slaves
 from .maps import OutsideDataError
 from .master import Master, SlaveStepError
 from .network import ModelError, build_model
+from .references import check_references, hand_checks
 from .runtime import (  # noqa: F401 — re-exported for backward compatibility
     AIR_DENSITY,
     CLUTCH_BAND,
@@ -516,6 +517,7 @@ def simulate(
             messages=rt.messages,
             channels=channels,
             summary=summary,
+            references=check_references(case.references, summary) + hand_checks(ctx, channels),
         )
     finally:
         if ctx.sandbox is not None:

@@ -18,6 +18,7 @@ import type {
   PortDef,
   PortSide,
   Project,
+  ReferenceValue,
   RunSnapshot,
   SimResult,
   SimRun,
@@ -417,6 +418,7 @@ export interface ProjectState {
       endDistance: number | null;
       startLine: number;
       referenceTime: number | null;
+      references: ReferenceValue[];
     }>,
   ) => void;
   addCase: () => void;

@@ -164,6 +164,43 @@ export interface SimCase {
    * shared topology.
    */
   parameterOverrides?: Record<string, Record<string, ParamValue>>;
+  /** Expected values (VAL-35): numbers the user trusts, each run graded
+   *  against them. */
+  references?: ReferenceValue[];
+}
+
+/** An expected value of a case (VAL-35): a summary value's label, the
+ *  number, its tolerance and where it comes from. */
+export interface ReferenceValue {
+  kpi: string;
+  value: number;
+  /** in % of the value when tolerancePct (the default), else in its unit */
+  tolerance: number;
+  tolerancePct?: boolean;
+  source?: string;
+}
+
+/** within: green (gap ≤ tolerance); near: amber (≤ 2 × tolerance);
+ *  outside: red; missing: the run has no such value; not valid: the run
+ *  rules the value out. */
+export type ReferenceGrade = "within" | "near" | "outside" | "missing" | "not valid";
+
+/** How far a run's value is from a reference or a hand calculation. */
+export interface ReferenceCheck {
+  label: string;
+  value?: number | null;
+  reference: number;
+  unit: string;
+  difference?: number | null;
+  differencePct?: number | null;
+  /** absolute, in the unit */
+  tolerance: number;
+  grade: ReferenceGrade;
+  source: string;
+  /** an automatic hand calculation, not a value the user typed */
+  automatic: boolean;
+  bound: "two-sided" | "at most" | "at least";
+  note?: string | null;
 }
 
 /** One swept parameter of a study, with its labels as they were when it ran
@@ -252,6 +289,9 @@ export interface SimResult {
   messages: SimMessage[];
   channels: Channel[];
   summary: SummaryValue[];
+  /** the case's expected values and the hand calculations, graded (absent
+   *  on runs from before 0.3) */
+  references?: ReferenceCheck[];
 }
 
 /** A scalar parameter change sent to the engine while a run was going. */

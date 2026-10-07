@@ -123,6 +123,11 @@ either. Also:
   how much regeneration was not recovered.
 - The tolerance (1 % of the run, at least 2 s) is LightSim's own choice:
   test procedures such as WLTP set no allowance for a simulation.
+- The two automatic hand calculations under each run's expected values
+  (VAL-35) are bounds, not predictions: the top speed one reads the gear
+  ratio from the run at its fastest point, and the energy one sums the
+  road load over the recorded points (1 s by default) and allows 3 % for
+  that. Runs with a combustion engine skip the energy check.
 
 *Workaround:* read the Messages panel and the *not valid* notes in the
 summary table.

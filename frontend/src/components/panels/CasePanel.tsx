@@ -6,6 +6,7 @@ import { StudiesList } from "./StudiesList";
 import { CycleSelect } from "./CyclePicker";
 import { NumberInput } from "./PropertiesPanel";
 import { paramName, rangeProblem } from "../../paramRules";
+import { ExpectedValuesEditor } from "./ExpectedValues";
 
 // Only scalar parameters are editable as per-case overrides here; tables and
 // code are edited in Properties. Sweeps additionally require a numeric param.
@@ -471,6 +472,8 @@ export function CasePanel() {
             </>
           )}
         </div>
+
+        <ExpectedValuesEditor c={activeCase} />
 
         {/* -- per-case overrides ------------------------------------------- */}
         <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">

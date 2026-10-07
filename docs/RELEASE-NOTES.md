@@ -374,6 +374,18 @@ sections.
   clutch inputs) the new unit *Fraction* and the road grade *Percent*.
   A loop of signal blocks is named with its blocks only, the order they
   run in each step and the value that arrives one step late.
+- Expected values (VAL-35): each case can hold numbers you trust for its
+  results (a maker's 0-100 km/h time, last year's measured 75 m time, a
+  hand calculation), each with a tolerance in % or in its unit and a
+  source, under *Expected values* in the *Cases* tab. After every run the
+  *Results* page shows the run's value, the expected value, the gap and a
+  coloured grade: *within* the tolerance (green), *near*, within twice it
+  (amber), or *outside* (red). *Run info* lists them with the run, and a
+  saved study's table shows the gap of each point. Every run also gets two
+  automatic hand calculations: its top speed against what each E-Motor's
+  maximum speed allows through the gears, and the energy its batteries
+  gave against the least the car's motion, climb and road load need.
+  [How to](help/how-to/check-against-expected-values.md).
 
 ### Fixed
 
