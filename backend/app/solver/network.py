@@ -395,7 +395,7 @@ def build_model(
     def walk_segment(entries: list[tuple[str, str]], gears: dict[str, float]) -> Segment:
         """Collapse a rigid region into a Segment. `entries` are (el, port)
         vertices on the reference axis (m = 1); joint elements are never
-        crossed. Each lossy element crossed starts a new region
+        crossed. Each gear or shaft crossed starts a new region
         (``Segment.links``); ``Segment.orient`` later points them towards
         the segment's output."""
         seg = Segment()
@@ -416,7 +416,9 @@ def build_model(
             key = (el_id, pid)
             if key in seen_ports or el_id in joint_ids:
                 continue
-            if crossed is not None and crossed < 1.0:  # a lossy element: new region
+            # every gear and shaft crossed starts a new region, lossless ones
+            # too, so the power through each can be told apart (MOD-10)
+            if crossed is not None:
                 seg.links.append((el_id, crossed, region, len(seg.links) + 1))
                 region = len(seg.links)
             seen_ports[key] = region

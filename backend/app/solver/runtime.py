@@ -161,6 +161,11 @@ class BatteryState:
     current: float = 0.0
     power_w: float = 0.0
     p_peak_w: float = 0.0  # the highest terminal power over a solver step, W
+    chem_w: float = 0.0  # the power the cells give up (+) or store (−) this step, W
+    p_low_w: float = 0.0  # the lowest terminal power over a solver step (charging), W
+    p2_j: float = 0.0  # ∫ terminal power² dt, W²·s (for its RMS power)
+    flow: Optional[object] = None  # its energy.Flow (MOD-10)
+    _ocv_at: tuple = (math.nan, None, 0.0)  # (SOC, OCV table, OCV) last read (ocv())
     # the Output Power Limit the terminals are held to, W (output_power_cap_w),
     # whether it and not the cells set this step's deliverable power, and the
     # run checks when a limit or a Voltage Class is set
@@ -169,7 +174,12 @@ class BatteryState:
     check: Optional[TerminalCheck] = None
 
     def ocv(self) -> float:
-        return self.ocv_map.at(self.soc_pct())
+        """The open-circuit voltage at the present SOC (read once per SOC:
+        the source-limit handshake and the bus read it at the same one)."""
+        soc = self.soc
+        if soc != self._ocv_at[0] or self.ocv_map.pts is not self._ocv_at[1]:
+            self._ocv_at = (soc, self.ocv_map.pts, self.ocv_map.at(self.soc_pct()))
+        return self._ocv_at[2]
 
     def soc_pct(self) -> float:
         """The SOC the OCV table is read at, %."""
@@ -291,6 +301,11 @@ class MotorCache:
     # (command, speed, torque, inverter on, electrical W) evaluated by the
     # handshake this step, reused when the mechanics apply the same command
     request: Optional[tuple] = None
+    flow: Optional[object] = None  # its energy.Flow (MOD-10), booked in motor_torque
+    # its shaft power's running totals since its driveline's plan was last
+    # booked (energy.LINEAR_KEYS): the gears it alone drives are worked out
+    # from them (RunContext.derive_gears)
+    mech: list = field(default_factory=lambda: [0.0] * 6)
 
 
 @dataclass
@@ -309,6 +324,8 @@ class EngineCache:
     p_mech_w: float = 0.0
     fuel_used_kg: float = 0.0
     stalled_flagged: bool = False
+    flow: Optional[object] = None  # its energy.Flow (MOD-10), booked in engine_torque
+    mech: list = field(default_factory=lambda: [0.0] * 6)  # as MotorCache.mech
 
 
 @dataclass
@@ -330,6 +347,7 @@ class FuelCellCache:
     power_w: float = 0.0
     h2_kgh: float = 0.0
     energy_wh: float = 0.0
+    h2_j: float = 0.0  # the hydrogen's energy used, J (its heating value)
 
 
 @dataclass
@@ -363,6 +381,10 @@ class DrivelineState:
     layout: Optional[object] = None
     # segment speeds at the end of the last solver step
     omega_end: list[float] = field(default_factory=list)
+    # the energy book's view of the plan (RunContext.driveline_book) and its key
+    book_cache: Optional[tuple] = None
+    omega_start: list[float] = field(default_factory=list)  # segment speeds at the last step's start
+    book_key: Optional[int] = None
 
 
 class Runtime:

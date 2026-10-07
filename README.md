@@ -480,6 +480,13 @@ equal solver steps. Every solver step runs, in this order:
    integrates; the terminal voltage feeds the next step's motor map.
 8. The state signals wired into block inputs (SOC, speeds, torques, tank
    level …) are refreshed, so the next control pass reads current values.
+9. **Energy book** — every part's energy in, out, lost and stored is
+   added up (`app/solver/energy.py`): machines, batteries, consumers and
+   the Vehicle where they work out their power, gears from their sources'
+   running totals (or every step where a clutch's power joins a motor's),
+   so the run result's *energy* list closes part by part and the summary's
+   *Energy balance residual* shows how far the whole model's books are
+   from closing.
 
 Results are recorded at the end of each case time step: point 0 is the
 initial state at t = 0, every later point holds the state at its own time,

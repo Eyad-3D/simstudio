@@ -59,6 +59,34 @@
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Force"
+        },
+        {
+          "id": "sig_p_aero",
+          "name": "Air Drag Power",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_p_roll",
+          "name": "Rolling Resistance Power",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_p_grade",
+          "name": "Climbing Power",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_p_accel",
+          "name": "Acceleration Power",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
         }
       ],
       "parameters": [
@@ -367,6 +395,13 @@
         {
           "id": "sig_power",
           "name": "Discharge Power",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_losses",
+          "name": "Losses",
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Power"
@@ -1284,6 +1319,13 @@
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Power"
+        },
+        {
+          "id": "sig_losses",
+          "name": "Losses",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
         }
       ],
       "parameters": [
@@ -1351,6 +1393,13 @@
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Rotational Speed"
+        },
+        {
+          "id": "sig_losses",
+          "name": "Losses",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
         }
       ],
       "parameters": [
@@ -1457,6 +1506,20 @@
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Rotational Speed"
+        },
+        {
+          "id": "sig_power",
+          "name": "Input Power",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_losses",
+          "name": "Losses",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
         }
       ],
       "parameters": [
@@ -1609,6 +1672,13 @@
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Force"
+        },
+        {
+          "id": "sig_slip_losses",
+          "name": "Slip Losses",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
         }
       ],
       "parameters": [
@@ -1768,6 +1838,13 @@
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Torque"
+        },
+        {
+          "id": "sig_power",
+          "name": "Braking Power",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
         }
       ],
       "parameters": [
@@ -2111,6 +2188,20 @@
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Power"
+        },
+        {
+          "id": "sig_fuel_power",
+          "name": "Fuel Power",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_losses",
+          "name": "Losses",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
         }
       ],
       "parameters": [
@@ -2285,6 +2376,19 @@
           "description": "The CO₂ from burning one kilogram of fuel. It turns the fuel burnt into CO₂ emissions (g/km) in the run summary.",
           "typical": "Petrol 3.17 kg/kg (the default) · diesel about 3.16 kg/kg.",
           "whereToFind": "The fuel's carbon share by mass × 44 ÷ 12 (petrol holds about 86.5 % carbon), or the fuel's datasheet."
+        },
+        {
+          "key": "lhv_MJ_per_kg",
+          "variability": "fixed",
+          "label": "Fuel Heating Value",
+          "unit": "MJ/kg",
+          "default": 42.9,
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 150,
+          "description": "The energy one kilogram of fuel gives when burnt (its lower heating value). It turns the fuel burnt into the engine's Fuel Power and the energy breakdown; it does not change the fuel used.",
+          "typical": "Petrol about 42–43 MJ/kg (the default 42.9) · diesel about 43 MJ/kg · ethanol 27 MJ/kg.",
+          "whereToFind": "The fuel's datasheet or a fuel-properties table (lower, or net, heating value)."
         }
       ]
     },
@@ -2332,6 +2436,20 @@
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Rotational Speed"
+        },
+        {
+          "id": "sig_power",
+          "name": "Transmitted Power",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_losses",
+          "name": "Losses",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
         }
       ],
       "parameters": [
@@ -2449,6 +2567,13 @@
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Rotational Speed"
+        },
+        {
+          "id": "sig_losses",
+          "name": "Slip Losses",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
         }
       ],
       "parameters": [
@@ -2517,6 +2642,20 @@
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Rotational Speed"
+        },
+        {
+          "id": "sig_power",
+          "name": "Input Power",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_losses",
+          "name": "Losses",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
         }
       ],
       "parameters": [
@@ -2635,6 +2774,13 @@
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Mass Flow"
+        },
+        {
+          "id": "sig_losses",
+          "name": "Losses",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
         }
       ],
       "parameters": [

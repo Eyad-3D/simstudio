@@ -259,15 +259,22 @@ minimum or an average, for example from the CSV export, or put the
   power through it, in both directions, but the torque that accelerates the
   driveline's own inertia is not part of that net, and a locked clutch's
   torque is taken from the previous 10 ms step. *Roadmap:* MOD-03.
-- **Shaft and Final Drive power is the total of all motors and engines.**
-  Their *Transmitted Power* channel shows the summed mechanical power of
-  every motor and engine on the driveline, not the power through that part:
-  gear and clutch losses are left out, and every Shaft and Final Drive on
-  the driveline shows the same value. In the P2 Hybrid Car example's Mixed
-  Cycle with a Shaft added between the engine and the clutch, at t = 281 s
-  the engine delivers 9.8 kW and the motor takes 0.6 kW to charge the
-  battery, and the Shaft and the Final Drive both show 9.2 kW. Read the *Mechanical
-  Power* of each motor and engine instead. *Roadmap:* MOD-10.
+- **The energy breakdown leaves out inertia in the gears and reads the
+  flows at the step's start.** Each run lists every part's energy in, out,
+  lost and stored (*energy* in the run result; the parts' *Losses*, *Input
+  Power*, *Braking Power* and *Slip Losses* channels). A gear's power is the
+  motors', engines' and clutches' power reaching it, so the torque that
+  speeds up the driveline's own inertia shows as the *Rotating parts*' store,
+  not as a flow through each gear; a locked differential splits by what each
+  side carried. The flows between parts are worked out separately, so their
+  books together close only to within the *Energy balance residual* (0.01 %
+  on the Battery Electric Car's City Cycle, 0.02 % on the hybrid's Mixed
+  Cycle, 0.24 % on its UDDS, 0.39 % on the Formula Student car's 75 m acceleration, with its
+  wheels spinning). Lap cases book the electrical parts per part, and the
+  mechanics (road load, brakes, gears) as one Vehicle entry from the lap's
+  own energy pass; they have no residual row (see *Lap energy balance
+  error*). *Roadmap:* MOD-03 (gear losses with inertia), VAL-03 (energy
+  audit table).
 - **The air is dry, still and the same along the road.** Air drag uses the
   density the Ambient block's temperature and pressure give (1.204 kg/m³,
   20 °C and 101.325 kPa, without an Ambient), but not the road's altitude

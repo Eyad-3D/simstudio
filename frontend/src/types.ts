@@ -245,6 +245,29 @@ export interface SummaryValue {
   passed?: boolean | null;
 }
 
+/** One part's energy over a run (MOD-10), kWh; its duty values in kW.
+ *  energyIn − energyOut − losses − stored = 0 for every part. */
+export interface EnergyFlow {
+  /** null for a driveline's rotating parts */
+  elementId?: string | null;
+  label: string;
+  /** the component type ("motor.emotor"), or "driveline.inertia" */
+  part: string;
+  energyIn: number;
+  energyOut: number;
+  losses: number;
+  /** change in the energy it stores (+ when it fills) */
+  stored: number;
+  /** the part of energyIn that came back from the road side (regeneration) */
+  energyInReverse?: number;
+  /** its throughput power's peak, mean and RMS; null for wheels and rotating parts */
+  peakPower?: number | null;
+  meanPower?: number | null;
+  rmsPower?: number | null;
+  /** named parts of its losses or store, kWh (the Vehicle's air drag, …) */
+  terms?: Record<string, number>;
+}
+
 export interface SimResult {
   caseId: string;
   /** "cancelled": a stop cut the run short. */
@@ -252,6 +275,8 @@ export interface SimResult {
   messages: SimMessage[];
   channels: Channel[];
   summary: SummaryValue[];
+  /** where the energy went, part by part (MOD-10); absent in runs from before 0.3 */
+  energy?: EnergyFlow[];
 }
 
 /** A scalar parameter change sent to the engine while a run was going. */

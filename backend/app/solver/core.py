@@ -31,6 +31,7 @@ from ..library import unit_groups
 from ..schemas import Channel, Project, SimMessage, SimResult, SummaryValue
 from . import lapsim
 from .domains import ModelInitError, RunContext, build_slaves
+from .energy import add_lap, energy_flows
 from .maps import OutsideDataError
 from .master import Master, SlaveStepError
 from .network import ModelError, build_model
@@ -396,6 +397,16 @@ def simulate(
                     label="CO₂ emissions",
                     value=round(fuel_kg * co2_per_kg * 1000.0 / (ctx.distance / 1000.0), 1),
                     unit="g/km"))
+        ctx.close_book()
+        if lap is not None and ctx.veh_id:  # its mechanics come from the lap's energy pass
+            add_lap(ctx.book, lap.book, ctx.veh_id, model.elements[ctx.veh_id].label)
+        released = ctx.book.released_j()
+        if lap is None and released > 0:
+            # where every part's books together do not close: the flows out
+            # of one part that are not the flows into the next (MOD-10)
+            summary.append(SummaryValue(
+                label="Energy balance residual",
+                value=round(100.0 * ctx.book.residual_j() / released, 4), unit="%"))
         if ctx.throughput_wh > 0:
             # energy no source supplied or absorbed (last-resort clamps), as a
             # share of all the energy that went through the buses
@@ -406,7 +417,7 @@ def simulate(
         # for how long, as a share of the time solved, and how far; per
         # E-Motor or Engine the time above its maximum speed and the highest
         # speed
-        edge_rows: set[str] = set()  # time and speeds, not energy figures
+        edge_rows: set[str] = {"Energy balance residual"}  # time and speeds, not energy figures
         for use in ctx.map_use:
             if use.outside_s <= 0:
                 continue
@@ -526,6 +537,7 @@ def simulate(
             messages=rt.messages,
             channels=channels,
             summary=summary,
+            energy=energy_flows(ctx.book),
         )
     finally:
         if ctx.sandbox is not None:
@@ -600,6 +612,8 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
             yield el_id, "sig_voltage", lambda b=b: b.v_term
             yield el_id, "sig_current", lambda b=b: b.current
             yield el_id, "sig_power", lambda b=b: b.power_w / 1000.0
+            # what the cells give up less what reaches the terminals
+            yield el_id, "sig_losses", lambda b=b: (b.chem_w - b.power_w) / 1000.0
         elif tdef == "motor.emotor" and el_id in ctx.motors:
             mc = ctx.motors[el_id]
             yield el_id, "sig_speed", lambda mc=mc: mc.rpm
@@ -626,7 +640,18 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
         elif tdef == "vehicle.body" and el_id == ctx.veh_id:
             yield el_id, "sig_load_front", lambda: sum(w.n_load for w in ctx.axle_wheels[0])
             yield el_id, "sig_load_rear", lambda: sum(w.n_load for w in ctx.axle_wheels[1])
-        elif tdef == "controller.dcdc":  # no data until the converter first runs
+        if tdef in FLOW_PORTS:  # from the energy book: no data until the part is first booked
+            for port_id, attr in FLOW_PORTS[tdef]:
+                yield el_id, port_id, lambda el_id=el_id, attr=attr: _flow_kw(ctx, el_id, attr)
+        if tdef == "engine.combustion" and el_id in ctx.engines:
+            ec = ctx.engines[el_id]
+            yield el_id, "sig_fuel_power", lambda ec=ec: ec.fuel_kgh / 3600.0 * ctx.fuel_lhv / 1000.0
+            yield el_id, "sig_losses", (
+                lambda ec=ec: (ec.fuel_kgh / 3600.0 * ctx.fuel_lhv - ec.p_mech_w) / 1000.0)
+        elif tdef == "vehicle.body" and el_id == ctx.veh_id and ctx.lap is None:
+            for k, port_id in enumerate(("sig_p_aero", "sig_p_roll", "sig_p_grade", "sig_p_accel")):
+                yield el_id, port_id, lambda k=k: ctx.road_w[k] / 1000.0
+        if tdef == "controller.dcdc":  # no data until the converter first runs
             yield el_id, "sig_power_in", lambda el_id=el_id: _dcdc_kw(ctx, el_id, "in")
             yield el_id, "sig_power_out", lambda el_id=el_id: _dcdc_kw(ctx, el_id, "out")
             yield el_id, "sig_losses", lambda el_id=el_id: _dcdc_kw(ctx, el_id, "loss")
@@ -670,6 +695,10 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
                 yield w.el_id, "sig_torque", (
                     lambda w=w: ctx.last_forces.get(w.el_id, 0.0) * w.radius)
                 yield w.el_id, "sig_normal_load", lambda w=w: w.n_load
+                if ctx.lap is None and ctx.veh_id:  # its tyre force × its slip speed
+                    yield w.el_id, "sig_slip_losses", lambda w=w, o=omega_ref: (
+                        ctx.wheel_end_force.get(w.el_id, 0.0)
+                        * (w.radius * w.m * o() - ctx.v_mid) / 1000.0)
             for el_id2, m2 in seg.element_ms.items():
                 if only is not None and el_id2 not in only:
                     continue
@@ -681,13 +710,10 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
                     yield el_id2, "sig_speed", speed
                 elif tdef2 == "mech.final_drive":
                     yield el_id2, "sig_speed_out", speed
-                    yield el_id2, "sig_power", lambda st=st: st.chain_power_w / 1000.0
                 elif tdef2 == "mech.gearbox":
                     yield el_id2, "sig_speed_out", speed
                     yield el_id2, "sig_gear", lambda el_id2=el_id2: gear_of.get(
                         el_id2, float(ctx.params(el_id2).get("default_gear", 1) or 1))
-                elif tdef2 == "mech.shaft":
-                    yield el_id2, "sig_power", lambda st=st: st.chain_power_w / 1000.0
             for pr in seg.props:
                 if only is not None and pr.el_id not in only:
                     continue
@@ -698,6 +724,25 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
                     rpm_p = abs(omega_p) * RPM
                     return abs(pr.t_ref * (rpm_p / pr.n_ref) ** 2 * omega_p) / 1000.0
                 yield pr.el_id, "sig_shaft_power", shaft_power
+
+
+# channels read from the energy book (MOD-10): (port, Flow attribute, W)
+FLOW_PORTS: dict[str, tuple[tuple[str, str], ...]] = {
+    **{t: (("sig_power", "p_w"), ("sig_losses", "p_loss_w"))
+       for t in ("mech.shaft", "mech.final_drive", "mech.gearbox", "mech.differential",
+                 "mech.transfer_case")},
+    "mech.clutch": (("sig_losses", "p_loss_w"),),
+    "mech.brake": (("sig_power", "p_in_w"),),
+    "fuelcell.stack": (("sig_losses", "p_loss_w"),),
+}
+
+
+def _flow_kw(ctx: RunContext, el_id: str, attr: str) -> Optional[float]:
+    ctx.gear_powers()
+    p = ctx.book.power(el_id, attr)
+    if p is None:  # not booked yet: 0 at point 0, as computed values read there
+        return None if ctx.lap is not None else 0.0
+    return p / 1000.0
 
 
 def _dcdc_kw(ctx: RunContext, el_id: str, which: str) -> Optional[float]:
