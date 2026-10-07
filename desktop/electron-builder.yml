@@ -33,11 +33,33 @@ extraResources:
   - from: ../docs/KNOWN-LIMITS.md
     to: KNOWN-LIMITS.md
 
+# Where the update checks look (PLT-18; off until the user agrees). With
+# --publish never the build only writes latest*.yml and app-update.yml; the
+# release job uploads them with the installers.
+publish:
+  provider: github
+  owner: Eyad-3D
+  repo: simstudio
+  releaseType: release
+
 win:
   target:
     - target: nsis
       arch: [x64]
+    # for company IT: Intune, SCCM and Group Policy install MSIs (PLT-36)
+    - target: msi
+      arch: [x64]
   icon: build/icon.png
+  # Signing (PLT-32): build/sign-windows.cjs signs every .exe, the engine's
+  # .dll and .pyd files that are not signed yet, the installers and the
+  # uninstaller, and only when the build has a certificate (it says how).
+  # The publisher name goes in at build time
+  # (-c.win.signtoolOptions.publisherName=...), so a signed build's
+  # updates are checked against it.
+  signExts: [".dll", ".pyd", ".node"]
+  signtoolOptions:
+    sign: build/sign-windows.cjs
+    signingHashAlgorithms: [sha256]
 
 nsis:
   artifactName: LightSim-Setup-${version}.${ext}
@@ -49,6 +71,45 @@ nsis:
   shortcutName: LightSim
   # shown on the installer's licence page
   license: ../EULA.txt
+  # perMachine false with oneClick false: the installer asks "for all users"
+  # or "only for me". Silent installs: /S (only for me) or /S /allusers (for
+  # all users, as an administrator); docs/help/how-to/deploy-for-it.md.
+
+msi:
+  artifactName: LightSim-${version}-x64.${ext}
+  # Installs for all users into Program Files; msiexec /i ... /quiet.
+  perMachine: true
+  oneClick: true
+  runAfterFinish: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: LightSim
+  # Ties every future MSI to this one so it upgrades in place. NEVER change
+  # it: a new code installs a second LightSim beside the first.
+  upgradeCode: 2EBC7663-2FE2-40E7-9B60-9BCCAB8C1A46
+
+# macOS on Apple silicon (PLT-13). Signed with a Developer ID certificate and
+# notarised by Apple only when the build has the owner's Apple secrets
+# (see .github/workflows/desktop-build.yml); an unsigned Mac build is never
+# published. The engine's files go under Contents/Resources (extraResources),
+# not Contents/MacOS, which notarisation would reject.
+mac:
+  target:
+    - target: dmg
+      arch: [arm64]
+    # the zip is what update checks download on a Mac
+    - target: zip
+      arch: [arm64]
+  icon: build/icon-mac.png
+  category: public.app-category.education
+  minimumSystemVersion: "12.0"
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+
+dmg:
+  artifactName: LightSim-${version}-${arch}.${ext}
 
 linux:
   executableName: lightsim
