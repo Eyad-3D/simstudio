@@ -6,6 +6,7 @@ import type {
   ComponentDef,
   DataCheck,
   ParamValue,
+  RunSources,
   Project,
   SimMessage,
   SimResult,
@@ -263,6 +264,14 @@ export function validateProject(project: Project): Promise<DataCheck[]> {
   return request("/validate", {
     method: "POST",
     body: JSON.stringify({ project }),
+  });
+}
+
+/** The data and methods a run of the case rests on (VAL-37). */
+export function fetchRunSources(project: Project, caseId: string): Promise<RunSources> {
+  return request("/sources", {
+    method: "POST",
+    body: JSON.stringify({ project, caseId }),
   });
 }
 

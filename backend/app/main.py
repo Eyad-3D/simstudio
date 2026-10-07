@@ -50,6 +50,7 @@ from .library import load_library, unit_groups
 from .paths import static_dir
 from .schemas import DataCheck, Project, SimResult, SimulateRequest, StoredRun, ValidateRequest
 from .solver import simulate
+from .sources import RunSources, sources_of
 from .validation import validate_project
 from .version import VERSION
 
@@ -304,6 +305,13 @@ def remove_runs(project_id: str) -> dict:
 @app.post("/api/validate")
 def validate(req: ValidateRequest) -> list[DataCheck]:
     return validate_project(req.project)
+
+
+@app.post("/api/sources")
+def run_sources(req: SimulateRequest) -> RunSources:
+    """The data and methods a run of the case rests on, with their licences,
+    credits and citations (VAL-37). Run info asks with the run's snapshot."""
+    return sources_of(req.project, req.caseId)
 
 
 @app.post("/api/simulate")

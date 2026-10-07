@@ -24,7 +24,7 @@ cleared it for shipping.
 
 ## Status (2026-09-28)
 
-- The register has 51 rows.
+- The register has 52 rows.
 - **Third-party data is now bundled.** The example rebuild (CON-02, CON-03)
   took the Battery Electric Car's vehicle values from FASTSim's
   2021_Cupra_Born.csv, calibrated its motor loss map to FASTSim's default
@@ -90,6 +90,9 @@ cleared it for shipping.
 
 1. Add or update the row in the same change as the data. CI enforces this
    (see below).
+   If the row ships, run `python -m app.sources` from `backend/`: it copies
+   the shipped rows to `backend/app/library/sources.json`, which each run's
+   *Sources & credits* reads (VAL-37); `test_sources.py` fails until you do.
 2. Regulatory cycles, such as UNECE GTR 15 WLTC or the EPA schedules: re-type
    them from the regulation's published tables and cite the regulation and
    the table. Do not copy them from EUPL-licensed code such as JRC `wltp`.

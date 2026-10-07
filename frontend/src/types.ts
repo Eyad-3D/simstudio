@@ -375,3 +375,28 @@ export interface LogMessage {
   text: string;
   time: string; // HH:MM:SS
 }
+
+/** One dataset or method a run rests on (VAL-37). */
+export interface RunSource {
+  /** a data register row (DR-nn), "own" for the project's own values, or a reference */
+  id: string;
+  title: string;
+  source: string;
+  licence: string;
+  credit: string;
+  /** 0: source unknown; 1: known source, not validated; 2: validated */
+  confidence: number;
+  /** the parameters that use it: "Vehicle · Vehicle Mass" */
+  usedBy: string[];
+  kind: "data" | "method" | "own";
+}
+
+export interface RunSources {
+  sources: RunSource[];
+  /** the run rests on values whose source is unknown */
+  unknownProvenance: boolean;
+  /** attribution sentences the data's licences ask for */
+  credits: string[];
+  bibtex: string;
+  cslJson: Record<string, unknown>[];
+}

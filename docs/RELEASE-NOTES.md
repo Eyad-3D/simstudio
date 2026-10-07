@@ -396,6 +396,14 @@ sections.
   coast-downs is within 0.005 %. [What is validated](VALIDATION-STATUS.md)
   has the table and what it does not show. The files are in
   `backend/validation/` and do not ship in the installer.
+- Sources & credits (VAL-37): *Run info* lists the data and methods each
+  run rests on, from the [data register](DATA-REGISTER.md): its drive cycle
+  and the regulation behind it, the example's values and maps, the
+  library's defaults and the values typed into the project, each with its
+  licence, required credit and a trust level (source unknown, known source,
+  validated), and warns when the run uses values whose source is unknown.
+  **BibTeX** and **CSL-JSON** save the citations, starting with LightSim
+  and its version. [How to](help/how-to/cite-your-sources.md).
 
 ### Fixed
 
