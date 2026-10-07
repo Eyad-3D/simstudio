@@ -175,3 +175,60 @@ def test_an_event_on_the_wrong_kind_of_case_is_not_scored():
 def test_endurance_laps_make_22_km():
     assert fs_events.endurance_laps(978.915) == 22
     assert fs_events.endurance_laps(1500.0) == 15
+
+
+# ---- lift-and-coast to an energy target (MOD-44) ----------------------------
+
+
+def _endurance(track: dict):
+    proj = load_example("fs-electric")
+    case = next(c for c in proj.cases if c.id == "case-endurance")
+    case.parameterOverrides["el-track"] = {"layout": "Autocross", "laps": 23, **track}
+    return proj, simulate(proj, "case-endurance")
+
+
+def test_lift_and_coast_trades_lap_time_for_energy():
+    """The trade-off curve: more lift-and-coast before braking takes less
+    energy and more time, monotonically (4 laps of the test car)."""
+    times, energies = [], []
+    for pct in (0, 10, 25, 40, 60):
+        proj = fs_car("Autocross", 4, battery={"output_power_limit_kW": 40,
+                                                "initial_soc_pct": 60})
+        trk = next(e for e in proj.systems[0].elements if e.id == "trk")
+        trk.parameterOverrides["coast_pct"] = pct
+        r = simulate(proj, "case")
+        assert r.status == "success", [m.text for m in r.messages if m.level != "info"]
+        rows = _rows(r)
+        times.append(rows["Total time"].value)
+        energies.append(rows["Energy per lap"].value)
+        assert abs(rows["Lap energy balance error"].value) < 0.5
+        if pct:
+            assert rows["Time limited by lift-and-coast"].value > 0
+            assert rows["Lift-and-coast, mean share"].value == pct
+        else:
+            assert "Time limited by lift-and-coast" not in rows
+    assert times == sorted(times) and len(set(times)) == len(times)
+    assert energies == sorted(energies, reverse=True) and len(set(energies)) == len(energies)
+
+
+@pytest.mark.parametrize("target", [5.0, 4.5])
+def test_an_energy_target_is_met_within_2_percent(target):
+    """The item's metric: on the FS example's endurance (23 laps, 30 kW),
+    the strategy ends within 2 % of the energy target (5.0 kWh: −0.54 %,
+    4.5 kWh: −0.22 %, against 5.33 kWh with no lift-and-coast)."""
+    _, r = _endurance({"energy_target_kWh": target})
+    assert r.status == "success", [m.text for m in r.messages if m.level != "info"]
+    rows = _rows(r)
+    assert rows["Energy target"].value == target
+    assert abs(rows["Energy used against the target"].value) < 2.0
+    assert 0 < rows["Lift-and-coast, mean share"].value < 100
+    net = rows["Energy per lap"].value * 23
+    assert abs(net - target) / target < 0.02
+
+
+def test_an_energy_target_out_of_reach_says_so():
+    _, r = _endurance({"energy_target_kWh": 2.0})
+    rows = _rows(r)
+    assert rows["Lift-and-coast, mean share"].value == 100
+    assert rows["Energy used against the target"].value > 2.0
+    assert any("Energy Target" in m.text for m in r.messages if m.level == "warning")

@@ -257,6 +257,8 @@ export function CasePanel() {
   const trackParams = libraryById["track.lap"]?.parameters ?? [];
   const layoutDef = trackParams.find((p) => p.key === "layout");
   const lapsDef = trackParams.find((p) => p.key === "laps");
+  const coastDef = trackParams.find((p) => p.key === "coast_pct");
+  const targetDef = trackParams.find((p) => p.key === "energy_target_kWh");
   const lapHint = "A lap case is set by the Race Track's layout and laps: Duration, Step and Pacing do not apply.";
   const overrideRows = Object.entries(caseOv ?? {}).flatMap(([elId, params]) =>
     Object.entries(params).map(([key, value]) => ({ elId, key, value })),
@@ -448,6 +450,24 @@ export function CasePanel() {
                   value={Number(effectiveValue(caseOv, track, "laps", lapsDef))}
                   onChange={(v) => setCaseOverride(activeCase.id, track.id, "laps", v)}
                 />
+                {coastDef && targetDef && (
+                  <>
+                    <CaseNumber
+                      name="Lift-and-coast (%)"
+                      title="Energy strategy (a case override): the driver lifts off for this share of each stretch of acceleration that ends in braking, and the car coasts until it has to brake. It saves energy for some lap time; sweep it for the trade-off. An Energy target above 0 sets it lap by lap instead."
+                      def={coastDef}
+                      value={Number(effectiveValue(caseOv, track, "coast_pct", coastDef))}
+                      onChange={(v) => setCaseOverride(activeCase.id, track.id, "coast_pct", v)}
+                    />
+                    <CaseNumber
+                      name="Energy target (kWh)"
+                      title="The net energy the laps may take from the batteries (a case override). Above 0, lap mode chooses each lap's lift-and-coast so that the laps together take about this much, for example the accumulator's usable energy less a margin for an endurance. 0 = off."
+                      def={targetDef}
+                      value={Number(effectiveValue(caseOv, track, "energy_target_kWh", targetDef))}
+                      onChange={(v) => setCaseOverride(activeCase.id, track.id, "energy_target_kWh", v)}
+                    />
+                  </>
+                )}
               </>
             ) : (
               <p className="text-[11px] text-[color:var(--ss-text-dim)]">

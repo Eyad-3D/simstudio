@@ -2828,7 +2828,7 @@
       "name": "Race Track",
       "icon": "flag",
       "domain": "signal",
-      "description": "The line a lap case (case Kind: Lap) drives: its curvature against distance (1/radius; + turns left, − right) and its elevation. A lap case finds the fastest speed along it about every metre, as a quasi-steady-state lap simulation does: in each corner the speed the tyres' lateral grip allows (with the Vehicle's downforce and load transfer, and each Wheel's load sensitivity), then full acceleration out of it and the latest braking into the next, within the tyres' friction ellipse, the E-Motors' full-load curves through the gears and the battery's deliverable power and Output Power Limit. The motors, gears, brakes and battery then drive that speed trace through the same models as a drive cycle, for the energy and the channels. The results are estimates for an ideal driver on the given line: no transients, suspension, yaw or tyre slip, and ideal brake balance. Only E-Motor drivelines: a lap case refuses Combustion Engines and Clutches, holds Gearboxes in their gear and commands the motors itself. Layouts drawn for LightSim, not official layouts: Autocross, a 979 m closed lap (straights up to 78 m, a slalom on 10 m cones, corners of 6 m radius or more, 3 sectors); Skidpad, a right then a left circle on the lane centre, 9.125 m radius (with 2 laps, lap 2's Sector 1 and Sector 2 are the timed right and left circles); Acceleration 75 m, an open straight. They follow Formula Student Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1; FSUK and FSAE may differ, check the current season's rules. Custom uses the Curvature and Elevation tables (paste them from a spreadsheet; from a logged lap, curvature = lateral acceleration / speed², smoothed), Closed Circuit and the Sector Ends. Lap 1 starts at the Vehicle's Initial Speed (no faster than its first corner allows), each later lap at the speed the one before ended with. The Limit channel says what held the car back: 1 cornering grip, 2 traction grip, 3 motor, 4 battery, 5 Output Power Limit, 6 braking. The case's Duration, Step and Pacing do not apply to lap cases; its Store every does.",
+      "description": "The line a lap case (case Kind: Lap) drives: its curvature against distance (1/radius; + turns left, − right) and its elevation. A lap case finds the fastest speed along it about every metre, as a quasi-steady-state lap simulation does: in each corner the speed the tyres' lateral grip allows (with the Vehicle's downforce and load transfer, and each Wheel's load sensitivity), then full acceleration out of it and the latest braking into the next, within the tyres' friction ellipse, the E-Motors' full-load curves through the gears and the battery's deliverable power and Output Power Limit. The motors, gears, brakes and battery then drive that speed trace through the same models as a drive cycle, for the energy and the channels. The results are estimates for an ideal driver on the given line: no transients, suspension, yaw or tyre slip, and ideal brake balance. Only E-Motor drivelines: a lap case refuses Combustion Engines and Clutches, holds Gearboxes in their gear and commands the motors itself. Layouts drawn for LightSim, not official layouts: Autocross, a 979 m closed lap (straights up to 78 m, a slalom on 10 m cones, corners of 6 m radius or more, 3 sectors); Skidpad, a right then a left circle on the lane centre, 9.125 m radius (with 2 laps, lap 2's Sector 1 and Sector 2 are the timed right and left circles); Acceleration 75 m, an open straight. They follow Formula Student Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1; FSUK and FSAE may differ, check the current season's rules. Custom uses the Curvature and Elevation tables (paste them from a spreadsheet; from a logged lap, curvature = lateral acceleration / speed², smoothed), Closed Circuit and the Sector Ends. Lap 1 starts at the Vehicle's Initial Speed (no faster than its first corner allows), each later lap at the speed the one before ended with. The Limit channel says what held the car back: 1 cornering grip, 2 traction grip, 3 motor, 4 battery, 5 Output Power Limit, 6 braking, 7 lift-and-coast. Lift-and-Coast and Energy Target save energy by coasting before the braking points (an energy strategy for an endurance). The case's Duration, Step and Pacing do not apply to lap cases; its Store every does.",
       "ports": [
         {
           "id": "sig_lap_distance",
@@ -2919,6 +2919,31 @@
           "description": "How many laps a lap case drives, one after the other: lap 1 from the Vehicle's Initial Speed (no faster than the first corner allows), each later lap from the speed the one before ended with. A lap case sets it among its own values.",
           "typical": "1 for a standing lap · 2 for a flying lap (the Lap time is the fastest) · about 22 for a Formula Student endurance on a 1 km lap (the FS example 23).",
           "whereToFind": "The event's distance ÷ the lap length (a Formula Student endurance is about 22 km)."
+        },
+        {
+          "key": "coast_pct",
+          "variability": "fixed",
+          "label": "Lift-and-Coast",
+          "unit": "%",
+          "default": 0,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Lift-and-coast before braking, to save energy: the driver lifts off for this share of each stretch of acceleration that ends in braking, and the car coasts (no drive, no brakes) until it has to brake. 0 = full acceleration up to the braking point. An Energy Target above 0 sets it lap by lap instead.",
+          "typical": "0 for the fastest lap · 10-40 % to save energy in an endurance, at the cost of lap time.",
+          "whereToFind": "Your energy strategy: sweep it on an endurance case to see the lap time against the energy."
+        },
+        {
+          "key": "energy_target_kWh",
+          "variability": "fixed",
+          "label": "Energy Target",
+          "unit": "kWh",
+          "default": 0,
+          "type": "number",
+          "minimum": 0,
+          "description": "The net energy the laps may take from the batteries (out less back in). Above 0, lap mode sets each lap's Lift-and-Coast so the laps together take about this much: the least lift-and-coast whose lap fits the energy left per lap left, estimated and corrected lap by lap. 0 = off.",
+          "typical": "The accumulator's usable energy less a margin, for example 5.5 kWh of a 6.3 kWh pack for a Formula Student endurance.",
+          "whereToFind": "The battery's usable capacity (capacity × (initial SOC − minimum SOC)) less the margin you want left at the end."
         },
         {
           "key": "curvature_table",

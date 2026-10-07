@@ -250,6 +250,24 @@ references, rather than with a competition's results.
 *Roadmap:* MOD-43 (more competitions' scoring), MOD-44 (endurance energy
 strategy), MOD-09 (heat over an endurance).
 
+### Lift-and-coast is a simple driver strategy
+
+A Race Track's *Lift-and-Coast* and *Energy Target* (MOD-44) save energy
+only by coasting before the braking points:
+
+- The coast is a share of each stretch of acceleration that ends in
+  braking, from no slower than half the braking speed; it does not
+  regenerate while coasting and never lifts in corners.
+- The *Energy Target* picks each lap's share from an estimate of the
+  lap's energy that it corrects lap by lap. It met targets within 0.6 %
+  on the FS example; a target beyond what full lift-and-coast saves is
+  missed with a warning. It does not lower the power cap for you.
+- Battery temperature is not part of the strategy (no heat model yet).
+
+*Workaround:* combine it with the battery's *Output Power Limit*, and sweep
+both to find the pace you want.
+*Roadmap:* MOD-44 (power-cap search, regeneration level), MOD-09 (heat).
+
 ### Signal units are not checked
 
 Data Checks now report two signals wired into the same input (UX-37), but

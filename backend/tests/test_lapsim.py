@@ -299,7 +299,8 @@ def test_limit_times_add_up():
     Race Track's Limit channel holds only their codes 1-6."""
     result = simulate(fs_car("Autocross", 2, battery={"output_power_limit_kW": 60}, mu=2.2), "case")
     rows = _rows(result)
-    limited = [rows[f"Time limited by {name}"] for name in lapsim.LIMITS]
+    # (lift-and-coast, MOD-44, has a row only in a run that coasts)
+    limited = [rows[f"Time limited by {name}"] for name in lapsim.LIMITS if name != "lift-and-coast"]
     assert sum(limited) == pytest.approx(rows["Total time"], abs=6 * 0.0005)
     assert rows["Time limited by power cap"] > 0 and rows["Time limited by braking"] > 0
     # MOD-39's check counts the same time held at the 60 kW limit

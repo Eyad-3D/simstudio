@@ -58,8 +58,9 @@ from .slave import StepResult
 TRACKS_PATH = Path(__file__).resolve().parent.parent / "library" / "tracks.json"
 # what held the car back on a stretch of track: its code (Race Track Limit
 # channel) is the position here + 1
-LIMITS = ("cornering grip", "traction grip", "motor", "battery", "power cap", "braking")
-CORNER, TRACTION, MOTOR, BATTERY, CAP, BRAKING = range(1, 7)
+LIMITS = ("cornering grip", "traction grip", "motor", "battery", "power cap", "braking",
+          "lift-and-coast")
+CORNER, TRACTION, MOTOR, BATTERY, CAP, BRAKING, COAST = range(1, 8)
 KAPPA_MAX = 0.5  # 1/m: a 2 m radius; a tighter one is a noisy or wrong table
 BALANCE_PCT = 0.5  # lap energy balance error above which the energy per lap is not valid
 MAX_POINTS = 50_000  # recorded points above which a lap case asks for Store every N
@@ -340,6 +341,14 @@ class LapRun:
         # change (FS Rules 2026 v1.1 (FSG) D 7.2.3, D 7.5); the next lap starts
         # from rest. None: no stop
         self.stop_after: Optional[int] = None
+        # lift-and-coast (MOD-44): the share of each stretch of acceleration
+        # before braking that the driver coasts, and the energy the laps may
+        # take, J (0: none), which sets each lap's share instead
+        self.coast = min(1.0, max(0.0, float(tp.get("coast_pct", 0) or 0) / 100.0))
+        self.energy_target_j = max(0.0, float(tp.get("energy_target_kWh", 0) or 0)) * 3.6e6
+        self.coast_used = self.coast > 0 or self.energy_target_j > 0
+        self.coast_laps: list[float] = []  # each lap's share
+        self.strategy: Optional[EnergyStrategy] = None
         self.m = ctx.veh_mass
         self.dp = ctx.params(model.driver) if model.driver else {}
 
@@ -659,26 +668,93 @@ class LapRun:
     def regen_w(self) -> float:
         return max(0.0, min(1.0, float(self.dp.get("regen_weight_pct", 80)) / 100.0))
 
-    def solve(self, v_start: float) -> Profile:
-        """One lap's speed profile from ``v_start``, with the car and the
-        powertrain's force re-read (live edits, the batteries' present state)."""
-        self.read_car()
-        self.envelope()
+    def _forward(self, v_start: float, apex: list[float],
+                 coast: Optional[list[bool]] = None) -> tuple[list[float], list[int]]:
+        """Full acceleration from ``v_start``, Heun's method over each
+        spacing, capped at each point's cornering speed; on the stretches
+        ``coast`` marks, the driver lifts: no drive, the road load and the
+        slope slow the car (lift-and-coast). Returns (speeds, what limited
+        each stretch)."""
         tr = self.track
         n, ds = len(tr.kappa) - 1, tr.ds
-        apex = [self.apex(k, s) for k, s in zip(tr.kappa, tr.sin_t)]
+        kappa, sin_t = tr.kappa, tr.sin_t
         vf = [0.0] * (n + 1)
         why = [MOTOR] * n
-        kappa, sin_t = tr.kappa, tr.sin_t
         vf[0] = min(v_start, apex[0])
         a_prev = 0.0
-        for i in range(n):  # full acceleration, Heun's method over each spacing
+        for i in range(n):
             v = vf[i]
-            a1, why[i] = self._accel(kappa[i], sin_t[i], v, a_prev)
-            v2 = math.sqrt(max(0.0, v * v + 2.0 * a1 * ds))
-            a2, _ = self._accel(kappa[i + 1], sin_t[i + 1], v2, a1)
-            a_prev = 0.5 * (a1 + a2)
-            vf[i + 1] = min(math.sqrt(max(0.0, v * v + 2.0 * a_prev * ds)), apex[i + 1])
+            if coast is not None and coast[i]:
+                a1 = self._coast(kappa[i], sin_t[i], v)
+                v2 = math.sqrt(max(0.0, v * v + 2.0 * a1 * ds))
+                a2 = self._coast(kappa[i + 1], sin_t[i + 1], v2)
+                why[i] = COAST
+                a_prev = 0.0
+                a = 0.5 * (a1 + a2)
+            else:
+                a1, why[i] = self._accel(kappa[i], sin_t[i], v, a_prev)
+                v2 = math.sqrt(max(0.0, v * v + 2.0 * a1 * ds))
+                a2, _ = self._accel(kappa[i + 1], sin_t[i + 1], v2, a1)
+                a = a_prev = 0.5 * (a1 + a2)
+            vf[i + 1] = min(math.sqrt(max(0.0, v * v + 2.0 * a * ds)), apex[i + 1])
+        return vf, why
+
+    def _coast(self, kappa: float, sin_t: float, v: float) -> float:
+        """The acceleration with no drive and no brakes, m/s²: the road load
+        and the slope on the car and its drivelines' inertia."""
+        cos_t = math.sqrt(1.0 - sin_t * sin_t)
+        _, _, _, roll = self.grip(self.loads(v, 0.0, v * v * kappa, sin_t, cos_t))
+        return -self.resist(v, roll, sin_t, cos_t) / self.m_eff
+
+    def _coast_mask(self, prof: Profile, share: float) -> list[bool]:
+        """The stretches where the driver lifts: the last ``share`` of each
+        stretch of acceleration (traction, motor, battery or power cap)
+        that ends where braking begins, from no slower than half the speed
+        at which braking begins (a car does not coast away from rest)."""
+        code, v = prof.code, prof.v
+        n = len(code)
+        mask = [False] * n
+        driving = (TRACTION, MOTOR, BATTERY, CAP)
+        for i in range(1, n):
+            if code[i] == BRAKING and code[i - 1] != BRAKING:
+                j = i
+                while j > 0 and code[j - 1] in driving:
+                    j -= 1
+                w = i - round(share * (i - j))
+                while w < i and v[w] < 0.5 * v[i]:
+                    w += 1
+                for k in range(w, i):
+                    mask[k] = True
+        return mask
+
+    def solve(self, v_start: float, coast: Optional[float] = None,
+              prepared: bool = False) -> Profile:
+        """One lap's speed profile from ``v_start``, with the car and the
+        powertrain's force re-read (live edits, the batteries' present
+        state) unless ``prepared``; ``coast`` the share of each stretch of
+        acceleration before braking driven as lift-and-coast (None: the
+        Race Track's own)."""
+        if not prepared:
+            self.read_car()
+            self.envelope()
+        share = self.coast if coast is None else max(0.0, min(1.0, coast))
+        tr = self.track
+        apex = [self.apex(k, s) for k, s in zip(tr.kappa, tr.sin_t)]
+        vf, why = self._forward(v_start, apex)
+        prof = self._braking(vf, why, apex)
+        if share > 0:
+            mask = self._coast_mask(prof, share)
+            if any(mask):
+                vf, why = self._forward(v_start, apex, mask)
+                prof = self._braking(vf, why, apex)
+        return prof
+
+    def _braking(self, vf: list[float], why: list[int], apex: list[float]) -> Profile:
+        """Full braking back from the lap's end onto the forward pass's
+        speeds ``vf``; the profile and what limited each stretch."""
+        tr = self.track
+        n, ds = len(tr.kappa) - 1, tr.ds
+        kappa, sin_t = tr.kappa, tr.sin_t
         # full braking back from the end; on a closed track, or an open one
         # with a lap to come (driven on from this one's end), over the next
         # lap's corners too (at their cornering speed: the next lap's own
@@ -716,6 +792,7 @@ class LapRun:
                                f"motors do not overcome the road load there).")
             t[i + 1] = t[i] + 2.0 * ds / (v[i] + v[i + 1])
             code[i] = (BRAKING if v[i] < vf[i] or v[i + 1] < vf[i + 1]
+                       else COAST if why[i] == COAST
                        else CORNER if v[i + 1] >= apex[i + 1] * (1.0 - AT_APEX) else why[i])
         return Profile(v=v, t=t, code=code)
 
@@ -752,7 +829,15 @@ class LapRun:
         rows.append(("Energy per lap", round(net / 3.6e6 / done, 4), "kWh"))
         if ctx.batteries and total > 0:
             rows.append(("RMS battery power", round(math.sqrt(self.p_sq / total) / 1000.0, 3), "kW"))
-        rows += [(f"Time limited by {name}", round(s, 3), "s") for name, s in zip(LIMITS, self.limit_s)]
+        rows += [(f"Time limited by {name}", round(s, 3), "s") for name, s in zip(LIMITS, self.limit_s)
+                 if name != "lift-and-coast" or self.coast_used]
+        if self.coast_used and self.coast_laps:
+            rows.append(("Lift-and-coast, mean share", round(100.0 * sum(self.coast_laps)
+                                                             / len(self.coast_laps), 1), "%"))
+        if self.energy_target_j > 0:
+            rows += [("Energy target", round(self.energy_target_j / 3.6e6, 4), "kWh"),
+                     ("Energy used against the target", round(100.0 * (net - self.energy_target_j)
+                                                               / self.energy_target_j, 2), "%")]
         rows.append(("Lap energy balance error", round(self.balance_pct(), 3), "%"))
         return rows
 
@@ -772,6 +857,73 @@ class LapRun:
         parts = (b.kinetic + b.road + b.grade + b.friction + b.gears + b.motors + b.consumers)
         net = self.source_net_j()
         return 100.0 * (parts - net) / max(abs(net), 1e-9)
+
+
+COAST_GRID = (0.0, 0.1, 0.2, 0.3, 0.45, 0.6, 0.8, 1.0)
+REGEN_GUESS = 0.6  # the share of the braking work the estimate takes as won back
+
+
+class EnergyStrategy:
+    """Lift-and-coast to an energy target (MOD-44): before each lap, the
+    share of lift-and-coast whose lap fits the energy left per lap left.
+
+    The lap's energy is estimated from its speed profile: the work the
+    wheels must do, less a share of the braking work regeneration may win
+    back, times a factor learned from the laps driven so far (the battery
+    energy each took over its estimate; 1/0.8 before the first). The
+    estimate against the share is found once, on the first lap's profiles
+    for COAST_GRID, and is linear between those shares. As each lap's
+    budget is what the target leaves after the laps before it, an estimate
+    off by a few per cent on one lap is made up on the next ones."""
+
+    def __init__(self, lap: "LapRun"):
+        self.lap = lap
+        self.curve: list[float] = []
+        self.factor = 1.0 / 0.8
+        self.short = False  # the target could not be met with full lift-and-coast
+
+    def estimate(self, prof: Profile) -> float:
+        lap = self.lap
+        tr = lap.track
+        roll_mg = sum(w.c_rr * w.load_share for w in lap.wheels) * lap.m * GRAVITY
+        drive = braking = 0.0
+        regen_w = lap.regen_w()
+        for i in range(len(prof.v) - 1):
+            v0, v1 = prof.v[i], prof.v[i + 1]
+            vm, a = 0.5 * (v0 + v1), (v1 * v1 - v0 * v0) / (2.0 * tr.ds)
+            sin_t = 0.5 * (tr.sin_t[i] + tr.sin_t[i + 1])
+            cos_t = math.sqrt(1.0 - sin_t * sin_t)
+            f = lap.m_eff * a + lap.resist(vm, roll_mg * cos_t, sin_t, cos_t)
+            if f > 0:
+                drive += f * tr.ds
+            else:
+                braking += min(-f, regen_w * lap.powertrain(vm)[2]) * tr.ds
+        return max(1.0, drive - REGEN_GUESS * braking)
+
+    def choose(self, v_start: float, budget_j: float) -> float:
+        """The least lift-and-coast whose lap is estimated to take no more
+        than ``budget_j``."""
+        lap = self.lap
+        if not self.curve:
+            for k, share in enumerate(COAST_GRID):
+                self.curve.append(self.estimate(lap.solve(v_start, share, prepared=k > 0)))
+            for k in range(1, len(self.curve)):  # (more coasting never takes more)
+                self.curve[k] = min(self.curve[k], self.curve[k - 1])
+        need = [self.factor * e for e in self.curve]
+        if need[0] <= budget_j:
+            return 0.0
+        if need[-1] > budget_j:
+            self.short = True
+            return 1.0
+        for k in range(1, len(need)):
+            if need[k] <= budget_j:
+                f = (need[k - 1] - budget_j) / max(1e-9, need[k - 1] - need[k])
+                return COAST_GRID[k - 1] + f * (COAST_GRID[k] - COAST_GRID[k - 1])
+        return 1.0
+
+    def learn(self, prof: Profile, used_j: float) -> None:
+        if used_j > 0:
+            self.factor = used_j / self.estimate(prof)
 
 
 class LapSlave(_CtxSlave):
@@ -931,10 +1083,18 @@ def run_laps(ctx: RunContext, master: Master, lap: LapRun,
     total = n * lap.laps
     t = 0.0
     v_start = ctx.v
+    e_start = lap.source_net_j()
     for k in range(lap.laps):
         lap.k = k
         ctx.t = t  # (the time an error solving this lap stops the run at)
-        lap.prof = prof = lap.solve(v_start)
+        share = None
+        if lap.energy_target_j > 0:  # this lap's lift-and-coast, to the target
+            lap.strategy = lap.strategy or EnergyStrategy(lap)
+            left = lap.energy_target_j - (lap.source_net_j() - e_start)
+            share = lap.strategy.choose(v_start, left / (lap.laps - k))
+        lap.prof = prof = lap.solve(v_start, share)
+        lap.coast_laps.append(lap.coast if share is None else share)
+        e_lap = lap.source_net_j()
         if k == 0:
             if prof.v[0] < v_start - 1e-6:
                 rt.message("info", f"Lap 1 starts at {prof.v[0] * 3.6:.1f} km/h, not at the "
@@ -967,6 +1127,19 @@ def run_laps(ctx: RunContext, master: Master, lap: LapRun,
                 ctx.publish_sources(t)
                 record(t, round(100.0 * done / total, 1))
         lap.finish_lap(prof)
+        if lap.strategy is not None:
+            lap.strategy.learn(prof, lap.source_net_j() - e_lap)
         v_start = prof.v[-1]
+    if lap.energy_target_j > 0:
+        used = lap.source_net_j() - e_start
+        over = 100.0 * (used - lap.energy_target_j) / lap.energy_target_j
+        if over > 2.0:
+            full = sum(1 for c in lap.coast_laps if c >= 1.0)
+            rt.message("warning", f"The laps took {used / 3.6e6:.3f} kWh, {over:.1f} % more than "
+                                  f"the Race Track's Energy Target of "
+                                  f"{lap.energy_target_j / 3.6e6:g} kWh"
+                                  f"{f', with full lift-and-coast on {full} laps' if full else ''}"
+                                  f": lift-and-coast alone cannot save that much. Lower the "
+                                  f"battery's Output Power Limit as well, or raise the target.")
     return t, False
 

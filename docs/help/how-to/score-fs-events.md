@@ -78,3 +78,18 @@ endurance the car does not finish scores no endurance or efficiency points.
   **FS event** in its case settings.
 - A sweep of an event case gives the points against the swept value in its
   study table.
+
+## Finish the endurance on your energy
+
+If the endurance runs out of energy, or you want to see how much faster
+it could go with a given pack:
+
+1. Pick the endurance case in the *Cases* tab.
+2. Type the energy the car may use in **Energy target (kWh)**, for example
+   the accumulator's usable energy less a margin.
+3. Run it. Lap mode makes the driver lift off and coast before the braking
+   points, just enough to end near the target. The summary shows *Energy
+   used against the target* and the share of lift-and-coast it took.
+
+To see the trade-off yourself, sweep the Race Track's **Lift-and-Coast**
+(%) on the endurance case: lap time rises and energy falls as it grows.

@@ -192,6 +192,19 @@ sections.
   not official results; FSUK and FSAE score differently. Batteries now
   record their highest current and terminal voltage for these checks.
   No existing case changes.
+- Endurance energy strategy (MOD-44): the Race Track gets *Lift-and-Coast*
+  (%), the share of each stretch of acceleration before braking that the
+  driver coasts (no drive, no brakes), and *Energy Target* (kWh), the net
+  energy the laps may take; above 0, lap mode picks each lap's
+  lift-and-coast so the laps end near the target. Both are in a lap case's
+  settings too. On the FS example's *Endurance energy* case (30 kW), 20 %
+  lift-and-coast takes 12 % less energy (0.203 instead of 0.232 kWh a lap)
+  for 0.4 % more time; a 5.0 kWh target ends 0.54 % under it, 4.5 kWh
+  0.22 % under. The summary adds *Time limited by lift-and-coast*,
+  *Lift-and-coast, mean share*, *Energy target* and *Energy used against
+  the target*, and the Race Track's Limit channel the code 7, only in runs
+  that coast; a run with neither set does not change. Sweep *Lift-and-Coast*
+  for the lap time against the energy.
 - Wheel: *Lateral Friction μ_y* (0: the same as μ), *Load Sensitivity
   dμ/dFz* (per kN), *Nominal Load Fz0* (0: the wheel's static load) and
   *Friction Ellipse Exponent* (lap cases). The load sensitivity also acts

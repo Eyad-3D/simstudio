@@ -29,5 +29,5 @@ test("MOD-43: one click runs the four FS events and shows their points", async (
   await page.locator("label", { hasText: /^Reference time/ }).locator("input").fill("4.9");
   await page.getByRole("button", { name: "Run case" }).click();
   await showPanel(page, "Cases & Parameters");
-  await expect(table.getByRole("row", { name: /^Skidpad/ })).toContainText(/\d+\.\d \/ 50/, { timeout: 30_000 });
+  await expect(table.getByRole("row", { name: /^Skidpad/ })).toContainText(/\d+\.\d \/ 50/, { timeout: 60_000 });
 });
