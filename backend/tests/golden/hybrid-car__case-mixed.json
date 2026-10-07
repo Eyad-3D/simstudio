@@ -5,7 +5,7 @@
  "variant": "shipped",
  "case_step_s": 1.0,
  "store_every": 1,
- "change": "CON-26: a run on a typed profile says it is not a standard drive cycle; example monitor ports carry units",
+ "change": "CON-05: lab-style consumption rows (socket energy, MPGe, range, charge-corrected fuel)",
  "status": "success",
  "messages": [
   "info: Case 'Mixed Cycle' solved: 600 steps × 1 s (100 sub-steps each), 601 points recorded, 67 result channels.",
@@ -20,6 +20,8 @@
   "Distance driven": [9.556, "km"],
   "Fuel consumption": [2.88, "l/100km"],
   "CO₂ emissions": [68.0, "g/km"],
+  "Battery energy change, share of fuel energy": [-0.13, "%"],
+  "Fuel consumption, charge-corrected": [2.87, "l/100km"],
   "Electrical energy balance error": [0.0, "%"],
   "Simulated duration": [600.0, "s"]
  },

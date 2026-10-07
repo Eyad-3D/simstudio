@@ -397,12 +397,18 @@ minimum or an average, for example from the CSV export, or put the
   generic maps, it stays about 10 % above. Each case starts at the charge
   the cycle ends with (as a preconditioning drive would leave it), so the
   fuel figure needs no battery-charge correction; start it elsewhere and
-  the figure includes the charge the strategy restores. *Roadmap:* CON-14
-  (sourced maps).
+  the figure includes the charge the strategy restores. The summary's
+  *Fuel consumption, charge-corrected* then estimates the balanced figure
+  by counting the battery's energy at the engine's average efficiency;
+  repeating the cycle until the charge closes, as FASTSim does, is not
+  built yet. *Roadmap:* ENG-33 (charge balancing), sourced maps.
 - **Battery Electric Car:** modelled on the 2021 Cupra Born with FASTSim's
-  values; about 14 kWh/100 km on WLTC at the battery (a car of this class is
-  rated about 15-16 kWh/100 km at the charging socket, charging losses
-  included), 18.9 with heating or air-conditioning on (the 2.5 kW case).
+  values; about 14 kWh/100 km on WLTC at the battery and 16.3 at the
+  charging socket with the default 86 % charger efficiency (a car of this
+  class is rated about 15-16 kWh/100 km at the socket), 18.9 at the battery
+  with heating or air-conditioning on (the 2.5 kW case). The socket figure
+  rests on one charger efficiency for every charge; a real charger's
+  efficiency changes with its power and the battery's temperature.
   Its motor loss map is generic, not the car's measured map. The real car is
   rear-wheel drive and has an 11.5:1 reduction gear with an electronic
   160 km/h limit; the example drives the front axle (its CG height is 0,

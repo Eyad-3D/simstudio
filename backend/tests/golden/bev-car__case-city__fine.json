@@ -5,7 +5,7 @@
  "variant": "fine",
  "case_step_s": 0.005,
  "store_every": 200,
- "change": "CON-26: a run on a typed profile says it is not a standard drive cycle; example monitor ports carry units",
+ "change": "CON-05: lab-style consumption rows (socket energy, MPGe, range, charge-corrected fuel)",
  "status": "success",
  "messages": [
   "info: Case 'City Cycle' solved: 120000 steps × 0.005 s (1 sub-steps each), 601 points recorded, stored every 200, 51 result channels.",
@@ -18,6 +18,9 @@
   "HV Battery Pack — internal losses": [0.0057, "kWh"],
   "Distance driven": [7.292, "km"],
   "Consumption": [11.12, "kWh/100km"],
+  "Consumption at the socket (AC)": [12.93, "kWh/100km"],
+  "Fuel-economy equivalent (MPGe, AC)": [161.9, "MPGe"],
+  "Range at this consumption": [537.8, "km"],
   "Electrical energy balance error": [0.0, "%"],
   "Simulated duration": [600.0, "s"]
  },

@@ -1174,6 +1174,8 @@ class RunContext:
             ec.fuel_used_kg += burn
         elif tank is None and fuel > 0:
             ec.fuel_used_kg += fuel / 3600.0 * self.dt
+        if fuel > 0:  # the work the fuel gave, for a charge-corrected fuel figure (CON-05)
+            ec.work_wh += max(0.0, t_net * omega_e) * self.dt / 3600.0
         ec.torque = t_net
         ec.fuel_kgh = fuel
         ec.p_mech_w = t_net * omega_e

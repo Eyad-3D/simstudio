@@ -31,6 +31,7 @@ from ..library import unit_groups
 from ..schemas import Channel, Project, SimMessage, SimResult, SummaryValue
 from . import lapsim
 from .domains import ModelInitError, RunContext, build_slaves
+from .labfig import LabLog, lab_rows
 from .maps import OutsideDataError
 from .master import Master, SlaveStepError
 from .network import ModelError, build_model
@@ -163,6 +164,8 @@ def simulate(
                     rt.publish(el_id, port_id, value)
 
         publish_routed_states()
+        lablog = LabLog.for_run(model, case.kind)  # per-phase totals (CON-05)
+        lablog.sample(0.0, ctx)
         trace = CycleTrace(ctx)  # target vs vehicle speed, for the run verdict
         if lap is None:  # a lap case follows no target
             trace.sample(0.0)
@@ -265,6 +268,7 @@ def simulate(
                     break
                 if arrived:
                     t = solved  # the last point: the end of the solver step that got there
+                lablog.sample(solved, ctx)
 
                 if pace > 0:
                     target_wall = t / pace
@@ -328,6 +332,7 @@ def simulate(
             ))
 
         summary: list[SummaryValue] = []
+        lab_base: dict[str, str] = {}  # a lab-style row → the row whose validity it shares
         for b in ctx.batteries.values():
             label = model.elements[b.el_id].label
             summary.append(SummaryValue(label=f"{label} — final SOC", value=round(b.soc * 100.0, 2), unit="%"))
@@ -373,8 +378,8 @@ def simulate(
                     label="Consumption", value=round(net_wh / 10.0 / (ctx.distance / 1000.0), 2),
                     unit="kWh/100km"))
             fuel_kg = sum(ec.fuel_used_kg for ec in ctx.engines.values())
+            density = 0.745  # gasoline default when no tank declares one
             if ctx.distance > 100 and fuel_kg > 0:
-                density = 0.745  # gasoline default when no tank declares one
                 co2_per_kg = 3.17  # kg CO₂ per kg of gasoline, likewise
                 if model.fuel_tank:
                     tank_p = ctx.params(model.fuel_tank)
@@ -394,6 +399,9 @@ def simulate(
                     label="CO₂ emissions",
                     value=round(fuel_kg * co2_per_kg * 1000.0 / (ctx.distance / 1000.0), 1),
                     unit="g/km"))
+            # at the socket, range, MPGe, charge-corrected fuel, per phase
+            lab, lab_base = lab_rows(ctx, model, lablog, density)
+            summary += lab
         if ctx.throughput_wh > 0:
             # energy no source supplied or absorbed (last-resort clamps), as a
             # share of all the energy that went through the buses
@@ -497,6 +505,8 @@ def simulate(
                     not_valid[s.label] = "the solution broke down"
         for s in summary:
             s.notValid = not_valid.get(s.label)
+            if s.notValid is None and s.label in lab_base:  # shares its base row's validity
+                s.notValid = not_valid.get(lab_base[s.label])
 
         has_error = any(m.level == "error" for m in rt.messages)
         has_warning = any(m.level == "warning" for m in rt.messages)

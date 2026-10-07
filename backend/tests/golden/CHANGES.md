@@ -754,3 +754,28 @@ Current, Rotational Speed) instead of "No Unit", which changes only the
 unit shown with those monitors' channels.
 
 No headline number or channel moved.
+
+## CON-05: lab-style consumption rows (socket energy, MPGe, range, charge-corrected fuel)
+
+The run summary gained rows worked out from the existing totals: for the
+Battery Electric Car's City Cycle the energy at the socket (12.93
+kWh/100 km with the 86 % default charger efficiency), MPGe (161.9) and the
+range at that consumption (537.8 km); for the hybrid's Mixed Cycle the
+battery's energy change as a share of the fuel energy (-0.13 %) and the
+charge-corrected fuel consumption (2.87 l/100 km shipped, 2.86 fine). The
+City and Mixed Cycles have no phases, so no per-phase rows appear. Engines
+now also add up their brake work (for the correction); nothing they do
+changed.
+
+| Fixture | Number | Old | New | Change |
+|---|---|---|---|---|
+| bev-car City Cycle (shipped step) | Consumption at the socket (AC) | — | 12.93 kWh/100km | new row |
+| bev-car City Cycle (shipped step) | Fuel-economy equivalent (MPGe, AC) | — | 162 MPGe | new row |
+| bev-car City Cycle (shipped step) | Range at this consumption | — | 537.9 km | new row |
+| bev-car City Cycle (fine step) | Consumption at the socket (AC) | — | 12.93 kWh/100km | new row |
+| bev-car City Cycle (fine step) | Fuel-economy equivalent (MPGe, AC) | — | 161.9 MPGe | new row |
+| bev-car City Cycle (fine step) | Range at this consumption | — | 537.8 km | new row |
+| hybrid-car Mixed Cycle (shipped step) | Battery energy change, share of fuel energy | — | -0.13 % | new row |
+| hybrid-car Mixed Cycle (shipped step) | Fuel consumption, charge-corrected | — | 2.87 l/100km | new row |
+| hybrid-car Mixed Cycle (fine step) | Battery energy change, share of fuel energy | — | -0.13 % | new row |
+| hybrid-car Mixed Cycle (fine step) | Fuel consumption, charge-corrected | — | 2.86 l/100km | new row |

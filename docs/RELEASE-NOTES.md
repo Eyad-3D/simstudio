@@ -266,6 +266,19 @@ sections.
   Battery Electric Car's description no longer names an inverter it does
   not have (the motor's loss map holds the inverter's losses). No result
   changes. (CON-26)
+- Run summary, consumption as labs report it: for an electric car the
+  energy at the charging socket (*Consumption at the socket (AC)*, from the
+  battery's new *Charger Efficiency*, 86 % by default as in FASTSim), the
+  US *fuel-economy equivalent* in MPGe (33.705 kWh a gallon) and the *range*
+  the battery's usable energy gives at that consumption; for a hybrid the
+  battery's energy change as a share of the fuel's and a *charge-corrected*
+  fuel consumption; for a case on a cycle with phases each phase's
+  distance and consumption (the WLTC's four phases add up to the whole);
+  and for the FTP-75 the bags weighted as EPA does. Help: *Consumption
+  figures* gives every formula. The Battery Electric Car on WLTC class 3b:
+  14.05 kWh/100 km at the battery, 16.34 at the socket, 128.2 MPGe, 426 km;
+  its phases 10.63 / 11.27 / 12.91 / 17.94 kWh/100 km. No existing figure
+  changes. (CON-05)
 - Help: press F1, or click **?** at the top right, to open LightSim's help
   in your web browser. It comes with the app and needs no internet
   connection: two tutorials, how-to guides, a page for every part with its

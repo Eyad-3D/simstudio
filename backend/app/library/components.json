@@ -412,6 +412,19 @@
           "whereToFind": "A cell test: the charge given out divided by the charge put in over a full cycle at the same temperature; cell papers and some datasheets quote it."
         },
         {
+          "key": "charger_efficiency_pct",
+          "variability": "fixed",
+          "label": "Charger Efficiency",
+          "unit": "%",
+          "default": 86,
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100,
+          "description": "The share of the energy taken from the charging socket that reaches the battery terminals. Not used by the run itself: the summary divides the battery's net energy by it for Consumption at the socket (AC), the figure WLTP and EPA quote for electric cars.",
+          "typical": "86 % (the default, FASTSim's value for plug-in vehicles); about 85-92 % for AC charging, more for DC fast charging (background knowledge, unverified).",
+          "whereToFind": "A charging test: the energy into the battery terminals divided by the energy metered at the wall over a full recharge, charger and battery charging losses included."
+        },
+        {
           "key": "ocv_table",
           "label": "Open-Circuit Voltage",
           "unit": "V",
