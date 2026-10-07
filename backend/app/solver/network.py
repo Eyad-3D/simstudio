@@ -34,7 +34,8 @@ JOINT_TYPES = {"mech.differential", "mech.transfer_case", "mech.clutch"}
 SOURCE_TYPES = {"motor.emotor": "motor", "engine.combustion": "engine"}
 # electrical loads a bus serves before its motors (source-limit handshake)
 CONSUMER_TYPES = ("electric.constant_drive", "electric.climate")
-SIGNAL_BLOCK_TYPES = ("signal.script", "control.pid", "signal.lookup", "signal.road_profile")
+SIGNAL_BLOCK_TYPES = ("signal.script", "control.pid", "signal.lookup", "signal.road_profile",
+                      "control.traction")
 # The gears a coast-down in neutral turns with the wheels: road-load
 # coefficients measured that way already hold their drag, so with the
 # Vehicle's "Coefficients Include Driveline Losses" they run lossless.

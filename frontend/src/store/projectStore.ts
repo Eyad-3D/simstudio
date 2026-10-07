@@ -20,6 +20,7 @@ import type {
   PortSide,
   Project,
   RunSnapshot,
+  SimCase,
   SimResult,
   SimRun,
   StoredRunInfo,
@@ -28,6 +29,7 @@ import type {
   SystemNode,
 } from "../types";
 import { rangeProblem } from "../paramRules";
+import { FS_EVENTS, type FsEvent } from "../fsEvents";
 import { useUIStore } from "./uiStore";
 
 export function uid(prefix: string): string {
@@ -408,6 +410,9 @@ export interface ProjectState {
       startLine: number;
       referenceTime: number | null;
       energyReport: boolean;
+      fsEvent: FsEvent | null;
+      referenceEnergy: number | null;
+      referenceEnergyTime: number | null;
     }>,
   ) => void;
   addCase: () => void;
@@ -428,6 +433,21 @@ export interface ProjectState {
   /** The one-click Formula Student acceleration test: select the first
    *  acceleration case (adding a 75 m one if there is none) and run it. */
   runAccelerationTest: () => Promise<void>;
+  /** The one-click Formula Student events (MOD-43): mark or add an
+   *  Acceleration, Skidpad, Autocross and Endurance case (one undo) and run
+   *  the four; their points show in Cases & Parameters. */
+  runFsEvents: () => Promise<void>;
+  /** Add a cycle case that drives a lap read from a logger or lap simulator
+   *  file (STD-35), adding a Driving Task wired to the Driver when the model
+   *  has none (one undo). */
+  addImportedLap: (lap: api.LapLogResult, name: string, sha256: string) => void;
+  /** The endurance energy study (STU-38): run an endurance case at every
+   *  pair of a battery's capacity and Output Power Limit, and save the grid
+   *  as a two-factor study of the project. */
+  runEnduranceStudy: (args: { caseId: string; batteryId: string; packs: number[]; caps: number[] }) => Promise<void>;
+  /** Apply a lap mode calibration (VAL-38): every wheel's μ, lateral μ and
+   *  load sensitivity times `muScale`, and the Vehicle's CzA (one undo). */
+  applyLapCalibration: (muScale: number, cza: number) => void;
   /** Sequentially run a case once per swept value, each landing in run
    *  history; the study and its results table are saved with the project. */
   runSweep: (config: SweepConfig) => Promise<void>;
@@ -1725,6 +1745,236 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
       set({ activeCaseId: id });
       await get().run();
+    },
+
+    runFsEvents: async () => {
+      const { project, running, log } = get();
+      if (!project || running) return;
+      const track = project.systems.flatMap((sys) => sys.elements).find((e) => e.componentDefId === "track.lap");
+      if (!track) {
+        log("error", "Formula Student events need a Race Track: add one from Driver & Signals.");
+        return;
+      }
+      const layoutOf = (c: SimCase) =>
+        String(c.parameterOverrides?.[track.id]?.layout ?? track.parameterOverrides.layout ?? "Autocross");
+      const lapsOf = (c: SimCase) => Number(c.parameterOverrides?.[track.id]?.laps ?? track.parameterOverrides.laps ?? 1);
+      // an event's case: the one marked for it, else a case of its shape (the
+      // FS example's own cases), else a new one
+      const shapes: Record<FsEvent, (c: SimCase) => boolean> = {
+        acceleration: (c) => c.kind === "acceleration",
+        skidpad: (c) => c.kind === "lap" && layoutOf(c) === "Skidpad",
+        autocross: (c) => c.kind === "lap" && layoutOf(c) === "Autocross" && lapsOf(c) <= 2,
+        endurance: (c) => c.kind === "lap" && lapsOf(c) >= 15,
+      };
+      const ids: Record<FsEvent, string> = { acceleration: "", skidpad: "", autocross: "", endurance: "" };
+      const taken = new Set<string>();
+      for (const ev of FS_EVENTS) {
+        const c =
+          project.cases.find((x) => x.fsEvent === ev && (x.kind ?? "cycle") !== "cycle") ??
+          project.cases.find((x) => !x.fsEvent && !taken.has(x.id) && shapes[ev](x));
+        if (c) {
+          ids[ev] = c.id;
+          taken.add(c.id);
+        }
+      }
+      updateProject((draft) => {
+        for (const ev of FS_EVENTS) {
+          const found = draft.cases.find((c) => c.id === ids[ev]);
+          if (found) {
+            found.fsEvent = ev;
+            continue;
+          }
+          const id = uid("case");
+          ids[ev] = id;
+          // FS Rules 2026 v1.1 (FSG): acceleration 75 m from 0.30 m behind the
+          // line (D 5.1.1, D 5.2.3); skidpad a right and a left circle after an
+          // establishing lap (D 4.2.1); autocross one lap (D 6.2.1); endurance
+          // about 22 km (D 7.1.3) on the Autocross layout (979 m: 22 laps)
+          const lapCase = (name: string, layout: string, laps: number, every = 1): SimCase => ({
+            id, name, duration: 600, timeStep: 1, kind: "lap", outputEvery: every, fsEvent: ev,
+            parameterOverrides: { [track.id]: { layout, laps } },
+          });
+          draft.cases.push(
+            ev === "acceleration"
+              ? { id, name: "Acceleration 75 m", duration: 25, timeStep: 0.01, kind: "acceleration",
+                  endDistance: 75, startLine: 0.3, fsEvent: ev }
+              : ev === "skidpad"
+                ? lapCase("Skidpad", "Skidpad", 2)
+                : ev === "autocross"
+                  ? lapCase("Autocross", "Autocross", 1)
+                  : lapCase("Endurance", "Autocross", 22, 5),
+          );
+        }
+      });
+      for (const ev of FS_EVENTS) {
+        set({ activeCaseId: ids[ev] });
+        await get().run();
+        if (get().running) return;
+        const last = get().runs.find((r) => r.caseId === ids[ev]);
+        if (!last || last.status === "failed") break; // (its messages say why)
+      }
+      const ui = useUIStore.getState();
+      ui.setRibbonTab("home");
+      ui.focusPanel("cases");
+      log("info", "Formula Student events run: their points are in Cases & Parameters → Formula Student points.");
+    },
+
+    addImportedLap: (lap, name, sha256) => {
+      const { project, log } = get();
+      if (!project) return;
+      const all = project.systems.flatMap((sys) => sys.elements.map((e) => ({ e, sys })));
+      const driver = all.find(({ e }) => e.componentDefId === "driver.driver");
+      const task = all.find(({ e }) => e.componentDefId === "signal.driving_task")?.e;
+      if (!task && !driver) {
+        log("error", "An imported lap needs a Driver to follow it: add one from Driver & Signals.");
+        return;
+      }
+      const taskId = task?.id ?? uid("el");
+      const caseId = uid("case");
+      updateProject((draft) => {
+        if (!task && driver) {
+          const sys = draft.systems.find((x) => x.id === driver.sys.id);
+          sys?.elements.push({
+            id: taskId,
+            componentDefId: "signal.driving_task",
+            label: "Imported lap",
+            position: { x: driver.e.position.x - 200, y: driver.e.position.y },
+            parameterOverrides: {},
+          });
+          // its target into the Driver, unless something already feeds it
+          const fed = draft.dataBusConnections.some(
+            (d) =>
+              (d.element2Id === driver.e.id && d.port2Id === "sig_target_in") ||
+              (d.element1Id === driver.e.id && d.port1Id === "sig_target_in"),
+          );
+          if (!fed)
+            draft.dataBusConnections.push({
+              id: uid("dbc"),
+              element1Id: taskId,
+              port1Id: "sig_demand",
+              element2Id: driver.e.id,
+              port2Id: "sig_target_in",
+            });
+        }
+        draft.cases.push({
+          id: caseId,
+          name,
+          duration: Math.ceil(lap.duration_s * 10) / 10,
+          timeStep: 0.1,
+          kind: "cycle",
+          outputEvery: lap.duration_s > 600 ? 10 : 1,
+          ...(lap.repeated > 1 ? { fsEvent: "endurance" as const } : {}),
+          parameterOverrides: { [taskId]: { profile: lap.profile, cycle: "" } },
+        });
+      });
+      set({ activeCaseId: caseId });
+      log(
+        "info",
+        `Imported lap added as case '${name}': ${lap.duration_s.toLocaleString("en", { maximumFractionDigits: 1 })} s, ` +
+          `${(lap.distance_m / 1000).toLocaleString("en", { maximumFractionDigits: 3 })} km` +
+          `${lap.repeated > 1 ? ` (${lap.repeated} laps)` : ""}; source file SHA-256 ${sha256}. ` +
+          "Its speed comes from the file: LightSim gives the energy and the loads for that speed, not the cornering.",
+      );
+    },
+
+    runEnduranceStudy: async ({ caseId, batteryId, packs, caps }) => {
+      const { project, log, libraryById, running } = get();
+      if (!project || running) return;
+      const simCase = project.cases.find((c) => c.id === caseId);
+      const battery = project.systems.flatMap((sy) => sy.elements).find((e) => e.id === batteryId);
+      if (!simCase || !battery || !packs.length || !caps.length) return;
+      const pdefs = libraryById[battery.componentDefId]?.parameters ?? [];
+      const factor = (key: string, values: number[]) => {
+        const d = pdefs.find((p) => p.key === key);
+        return {
+          elementId: batteryId,
+          paramKey: key,
+          elementLabel: battery.label,
+          paramLabel: d?.label ?? key,
+          unit: d && d.unit !== "-" ? d.unit : "",
+          values,
+        };
+      };
+      const sweepId = uid("sweep");
+      const startedAt = Date.now();
+      const points: StudyPoint[] = [];
+      const kpiUnits = new Map<string, string>();
+      set({ running: true });
+      if (!(await get().passesRunGate())) {
+        set({ running: false });
+        return;
+      }
+      sweepAborted = false;
+      log("info", `Endurance energy study: ${packs.length} × ${caps.length} = ${packs.length * caps.length} runs of '${simCase.name}' …`);
+      try {
+        for (const pack of packs) {
+          for (const cap of caps) {
+            if (sweepAborted) break;
+            const runProject = structuredClone(project);
+            const rc = runProject.cases.find((c) => c.id === caseId);
+            if (!rc) break;
+            rc.parameterOverrides = {
+              ...(rc.parameterOverrides ?? {}),
+              [batteryId]: { ...(rc.parameterOverrides?.[batteryId] ?? {}), capacity_kWh: pack, output_power_limit_kW: cap },
+            };
+            try {
+              await executeRun(runProject, caseId, `${simCase.name} · ${pack} kWh, ${cap} kW`, {
+                sweepId,
+                sweepParam: "Pack × power cap",
+                sweepValue: pack,
+                sweepUnit: "kWh",
+              });
+            } catch (e) {
+              log("error", `Study point ${pack} kWh, ${cap} kW failed: ${(e as Error).message}`);
+            }
+            const tabled = new Set(points.map((p) => p.runId));
+            const pointRun = get().runs.find((r) => r.sweepId === sweepId && !tabled.has(r.id));
+            points.push(pointRun ? studyPoint(pointRun, [pack, cap]) : { values: [pack, cap], status: "failed", kpis: {} });
+            for (const v of pointRun?.result.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
+          }
+        }
+      } finally {
+        set({ running: false });
+      }
+      if (get().project?.id !== project.id || !points.length) return;
+      const ran = new Set(points.map((p) => p.values.join(",")));
+      const notRun = packs.flatMap((pack) =>
+        caps.filter((cap) => !ran.has(`${pack},${cap}`)).map((cap): StudyPoint => ({ values: [pack, cap], status: "not run", kpis: {} })),
+      );
+      const study: Study = {
+        id: sweepId,
+        startedAt,
+        caseId,
+        caseName: simCase.name,
+        factors: [factor("capacity_kWh", packs), factor("output_power_limit_kW", caps)],
+        kpis: [...kpiUnits].map(([label, unit]) => ({ label, unit })),
+        points: [...points, ...notRun],
+      };
+      updateProject((draft) => {
+        draft.studies = [...(draft.studies ?? []), study];
+      }, false);
+      log("info", `Endurance energy study saved (Cases & Parameters → Endurance energy study and Saved studies).`);
+    },
+
+    applyLapCalibration: (muScale, cza) => {
+      const { project, libraryById, log } = get();
+      if (!project) return;
+      const def = (id: string, key: string) =>
+        Number(libraryById[id]?.parameters.find((p) => p.key === key)?.default ?? 0);
+      updateProject((draft) => {
+        for (const sys of draft.systems)
+          for (const e of sys.elements) {
+            if (e.componentDefId === "propulsion.wheel") {
+              for (const key of ["mu", "mu_lateral", "mu_load_sensitivity_per_kN"]) {
+                const v = Number(e.parameterOverrides[key] ?? def(e.componentDefId, key));
+                if (v) e.parameterOverrides[key] = Math.round(v * muScale * 1e4) / 1e4;
+              }
+            } else if (e.componentDefId === "vehicle.body") {
+              e.parameterOverrides.downforce_cza_m2 = cza;
+            }
+          }
+      });
+      log("info", `Lap mode calibration applied: the wheels' grip × ${muScale}, the Vehicle's CzA ${cza} m².`);
     },
 
     runSweep: async ({ caseId, elementId, paramKey, values }) => {

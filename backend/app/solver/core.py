@@ -30,7 +30,7 @@ from typing import Callable, Iterator, Optional
 
 from ..library import unit_groups
 from ..schemas import Channel, Project, SimMessage, SimResult, SummaryValue
-from . import balance, lapsim
+from . import balance, fs_events, lapsim
 from .battery import SOP_PULSES, sop
 from .domains import ModelInitError, RunContext, build_slaves
 from .energy import add_lap, energy_flows
@@ -170,6 +170,10 @@ def run_case(
                                "usually optimistic: calibrate the tyres' μ and μ_y and the "
                                "downforce against a lap your car has driven.")
             lap = ctx.lap = lapsim.LapRun(ctx)
+            if case.fsEvent == "endurance" and lap.laps >= 2:  # the driver change
+                lap.stop_after = lap.laps // 2 - 1
+            for level, text in fs_events.lap_check(case, lap.laps, lap.track.length):
+                rt.message(level, text)
         # Phase 1.4: the wholesale-wrapped slaves share all coupling through the
         # RunContext, so the master runs with an empty route table for now; the
         # declared-variable pool takes over as per-component models are extracted.
@@ -590,6 +594,21 @@ def run_case(
                     not_valid[s.label] = "the solution broke down"
         for s in summary:
             s.notValid = not_valid.get(s.label)
+        event = case.fsEvent
+        if event and case.kind != ("acceleration" if event == "acceleration" else "lap") \
+                and not (event == "endurance" and case.kind == "cycle"):
+            rt.message("info", f"The case stands for the Formula Student "
+                               f"{fs_events.NAMES[event]} event, but its kind is "
+                               f"{case.kind.capitalize()}: the event is scored from "
+                               f"{'an Acceleration' if event == 'acceleration' else 'a Lap'} "
+                               f"case only, so this run has no event rows.")
+        elif event and times:
+            rows_ev, msgs_ev = fs_events.event_rows(
+                case, ctx, lap, summary, finished=not stopped and failed_at is None)
+            summary[:0] = [SummaryValue(label=label, value=v, unit=u, limit=lim, passed=ok,
+                                        notValid=nv) for label, v, u, lim, ok, nv in rows_ev]
+            for level, text in msgs_ev:
+                rt.message(level, text)
 
         has_error = any(m.level == "error" for m in rt.messages)
         has_warning = any(m.level == "warning" for m in rt.messages)
@@ -740,7 +759,7 @@ def _bus_channels(ctx: RunContext) -> Iterator[ChannelValue]:
     model, bus = ctx.model, ctx.rt.signal_values
     for el_id, cdef in model.cdef_of.items():
         tdef = cdef.id
-        if tdef in ("signal.constant", "control.pid", "signal.lookup"):
+        if tdef in ("signal.constant", "control.pid", "signal.lookup", "control.traction"):
             ports: tuple[str, ...] = ("sig_out",)
         elif tdef == "signal.driving_task":
             ports = ("sig_demand",)

@@ -190,8 +190,9 @@ gears, brakes and battery. It is not a driving simulation:
   the driven wheels' braking grip; the drive cycles' Driver does not hold
   regeneration to the grip. Lap times are usually optimistic: a user of
   OpenLAP, a similar point-mass lap simulator, found its F1 example lap
-  7.5-8 % faster than the real car's. Calibrate μ, μ_y and the downforce against a lap your
-  car has driven before trusting a lap time.
+  7.5-8 % faster than the real car's. Calibrate the grip and the downforce
+  against a lap your car has driven (**Calibrate lap**, VAL-38) before
+  trusting a lap time.
 - The car follows the line as drawn, with no track width or racing line.
   Where the curvature changes sign within a metre, as at the skidpad's
   crossover, the speed rises by up to 3 % at that point: a real car cannot
@@ -237,10 +238,133 @@ gears, brakes and battery. It is not a driving simulation:
 *Workaround:* compare lap cases with each other rather than with a stop
 watch, and check the *Time limited by* rows and the Race Track's *Limit*
 channel for what holds the car back.
-*Roadmap:* VAL-12 (calibration against a logged lap), MOD-34 (a dynamic
-lap model), STD-35 (tracks from GPS or OpenStreetMap), MOD-43 (events and
-scoring), CON-11 (driving a lap's speed as a drive cycle), MOD-08 (state
+*Roadmap:* VAL-38 (a published check on a real logged lap), MOD-34 (a dynamic
+lap model), STD-35 (tracks from GPS or OpenStreetMap), CON-11 (driving a lap's speed as a drive cycle), MOD-08 (state
 of power), MOD-09 (heat over an endurance).
+
+### Formula Student points are estimates
+
+The *FS event* rows and the *Formula Student points* table score a run
+with the formulas of FS Rules 2026 v1.1 (FSG) D 9. They are not official
+results:
+
+- Only FSG 2026 scoring is built in. FSUK and FSAE use other maximum
+  points and formulas, and a season's rules can change them.
+- The points need the other teams' results: the fastest time and the most
+  efficient energy, which you type in. No competition's results come with
+  LightSim.
+- Each event is one run, with no penalties (cones, off-course, flags) and
+  no second driver or second run.
+- The rule checks are simplified: the current and, without the battery's
+  Formula Student preset, the power are checked at their highest over a
+  solver step, not as a 500 ms average (stricter than D 10.4.1); the
+  voltage check takes the open-circuit voltage at full charge or the
+  highest terminal voltage. Any breach scores the event 0, where the rules
+  take away only the fastest run.
+- The endurance's driver change is a stop at the end of the lap at half
+  distance and a start from rest on the next one; the event time leaves
+  out that restart lap whole, but keeps the braking into the stop. The
+  3 min stop itself is not simulated (no battery recovery or cooling).
+- The skidpad time is the mean of the two circles of one lap of LightSim's
+  Skidpad layout; the rules time a second lap on each circle.
+
+- The endurance energy study varies only the capacity and the Output
+  Power Limit of the first battery; it runs one endurance for each pair, a
+  4 × 4 grid in about 3 min, and a larger pack keeps the car's mass (add
+  the cells' mass to the Vehicle yourself). Grid studies of other
+  parameters are STU-06's work.
+
+*Workaround:* compare points between versions of your car, with the same
+references, rather than with a competition's results.
+*Roadmap:* MOD-43 (more competitions' scoring), MOD-44 (endurance energy
+strategy), MOD-09 (heat over an endurance).
+
+### Lift-and-coast is a simple driver strategy
+
+A Race Track's *Lift-and-Coast* and *Energy Target* (MOD-44) save energy
+only by coasting before the braking points:
+
+- The coast is a share of each stretch of acceleration that ends in
+  braking, from no slower than half the braking speed; it does not
+  regenerate while coasting and never lifts in corners.
+- The *Energy Target* picks each lap's share from an estimate of the
+  lap's energy that it corrects lap by lap. It met targets within 0.6 %
+  on the FS example; a target beyond what full lift-and-coast saves is
+  missed with a warning. It does not lower the power cap for you.
+- Battery temperature is not part of the strategy (no heat model yet).
+
+*Workaround:* combine it with the battery's *Output Power Limit*, and sweep
+both to find the pace you want.
+*Roadmap:* MOD-44 (power-cap search, regeneration level), MOD-09 (heat).
+
+### Imported laps are drive cycles against time
+
+**Import lap** (STD-35) makes a lap from a logger or lap simulator into a
+drive cycle:
+
+- The Driving Task follows speed against time, so a trace against
+  distance is turned into time from its speed; driving it against
+  distance is ENG-34's work.
+- The logger layouts (MoTeC i2, AiM Race Studio, OpenLAP, TUM
+  laptime-simulation) are LightSim's reading of those tools, not checked
+  against teams' files.
+- Only one speed column is read: grade, elevation, GPS position and
+  lateral acceleration are not, so a lap on a hill is driven flat, and a
+  track cannot yet be built from the GPS trace.
+- Laps are split only by a lap number column, not by a GPS start line.
+- The trace is not smoothed: a spike in the speed is driven as it is
+  (LightSim warns about changes faster than 2.5 g). The drive cycles'
+  Driver has no brake balance, so hard braking can lock the driven wheels
+  (see *Lap mode is a quasi-steady-state estimate*).
+- The case keeps the speed trace, not the file; the file's SHA-256 is
+  written to *Messages* only. Saved import settings (presets of your own)
+  are not offered yet.
+
+*Workaround:* pick the columns by hand when a layout does not find them,
+and smooth a noisy speed in a spreadsheet first.
+*Roadmap:* STD-35 (GPS start line, grade, saved presets), ENG-34 (driving
+against distance), STD-02 (keeping the file in the project), STD-07
+(measured data).
+
+### The Traction Control block is a simple slip loop
+
+The *Traction Control* block (MOD-45) limits one demand for all the
+motors it feeds, from the larger of two wheels' slip:
+
+- It reads the slip one solver step late, so at the 10 ms step only low
+  gains are stable (its defaults); at a 1-2 ms step (case Step 0.002 s)
+  higher gains hold the slip within 0.005 of the target.
+- It has no feed-forward from the tyres' load and grip, and no limit per
+  motor: for hub motors, add one block for each motor and wire each its
+  own wheel.
+- LightSim's tyres keep their grip however much they slip, so holding the
+  slip at the peak gains no time yet (MOD-16), and wet grip is the μ you
+  set.
+
+*Workaround:* run launches at a 2 ms step; tune Kp and Ki on the Slip
+channel.
+*Roadmap:* MOD-45 (feed-forward from the wheel loads, the tyre's peak slip
+once MOD-16 exists), MOD-16.
+
+### Lap mode calibration fits two numbers on one lap
+
+**Calibrate lap** (VAL-38) fits only a grip factor and the CzA:
+
+- Grip and downforce trade off on one lap, so the two values are not
+  reliable on their own; the check lap's errors are.
+- The track comes from the lateral acceleration over the speed squared:
+  no GPS position, elevation or track width, and lap mode's other limits
+  apply (ideal driver, no transients).
+- It searches a grid (grip 0.6-1.5, CzA 0-5 m²) and takes about 30 s;
+  values outside it are not found.
+- It has been checked on LightSim's own laps only. No accuracy is claimed
+  for a real car until a documented logged lap, with a licence that lets
+  LightSim publish the result, has been used.
+
+*Workaround:* fit on a lap with both slow and fast corners, check on a lap
+from another session, and compare the energy error too.
+*Roadmap:* VAL-38 (a published check on a real log), STD-35 (tracks from
+GPS).
 
 ### Signal units are not checked
 
@@ -538,7 +662,10 @@ minimum or an average, for example from the CSV export, or put the
   the start line) sits in the faster half of FS Czech Republic 2025's
   3.51-6.44 s: the tyres keep their grip however much they slip (no peak
   and drop), so wheelspin at the launch costs no time, and nothing limits
-  it (no traction control; 49 % of the run is at the tyres' grip limit).
+  it (the example has no traction control; 49 % of the run is at the
+  tyres' grip limit). The *Traction Control* block (MOD-45) holds the
+  slip near a target, but cannot gain time until the tyres lose grip past
+  their peak (MOD-16).
   So its 80 kW is reached at 0.2 s, while the rear wheels still spin: a
   car with traction control reaches it later. At its 10 ms step the front
   wheels' slip and force channels ring at the launch and read high for
@@ -564,8 +691,7 @@ minimum or an average, for example from the CSV export, or put the
   recuperating into the full pack raises its cells to about 4.3 V (594 V),
   which a real accumulator management system would not allow. A
   two-motor variant is not shipped.
-  *Roadmap:* MOD-16 (tyre peak and drop), MOD-43 (driver change and
-  scoring), MOD-08 (pack from cells, current limit), CON-18 (templates,
+  *Roadmap:* MOD-16 (tyre peak and drop), MOD-08 (pack from cells, current limit), CON-18 (templates,
   two-motor variant).
 - **Runs made on an example stay with the copy you ran.** An example opens
   as an unsaved copy, and its runs are stored with that copy: they are

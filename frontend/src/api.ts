@@ -463,3 +463,82 @@ export function runStudyLive(
     done,
   };
 }
+
+/** A logger or lap simulator layout the lap import knows (STD-35). */
+export interface LapLogPreset {
+  name: string;
+  note: string;
+  speedUnit: string;
+}
+
+export interface LapLogRequest {
+  text: string;
+  preset: string;
+  columns?: Partial<Record<"time" | "distance" | "speed" | "lap", string | null>>;
+  speedUnit?: string | null;
+  lap?: number | null;
+  repeatToKm?: number;
+  driverChangeS?: number;
+}
+
+/** A lap read from a file, as a Driving Task profile. */
+export interface LapLogResult {
+  columns: string[];
+  units: Record<string, string>;
+  preset: string;
+  picked: Record<"time" | "distance" | "speed" | "lap", string | null>;
+  laps: { lap: number; span: number; points: number }[];
+  lap: number | null;
+  duration_s: number;
+  distance_m: number;
+  source_distance_m: number | null;
+  repeated: number;
+  profile: string;
+  preview: [number, number][];
+  warnings: string[];
+}
+
+export async function laplogPresets(): Promise<LapLogPreset[]> {
+  return request<LapLogPreset[]>("/laplog/presets");
+}
+
+export async function readLapLog(req: LapLogRequest): Promise<LapLogResult> {
+  return request<LapLogResult>("/laplog/read", { method: "POST", body: JSON.stringify(req) });
+}
+
+/** A logged lap for the lap mode calibration (VAL-38). */
+export interface LoggedLapIn {
+  text: string;
+  columns?: Partial<Record<"time" | "distance" | "speed" | "lat_accel" | "power" | "lap", string | null>>;
+  lap?: number | null;
+  speedUnit?: string;
+}
+
+export interface LapPrediction {
+  status: string;
+  lap_time_log_s: number;
+  lap_time_model_s?: number;
+  lap_time_error_pct?: number;
+  speed_rms_kmh?: number;
+  energy_model_kwh?: number;
+  energy_log_kwh?: number;
+  energy_error_pct?: number;
+  messages: string[];
+}
+
+export interface CalibrationResult {
+  fit: { mu_scale: number; cza: number; rms_kmh: number; evaluations: number };
+  calibration_lap: LapPrediction;
+  check_lap?: LapPrediction;
+}
+
+export async function calibrateLap(
+  project: Project,
+  calibration: LoggedLapIn,
+  check?: LoggedLapIn,
+): Promise<CalibrationResult> {
+  return request<CalibrationResult>("/laplog/calibrate", {
+    method: "POST",
+    body: JSON.stringify({ project, calibration, check: check ?? null }),
+  });
+}

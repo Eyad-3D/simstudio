@@ -66,6 +66,10 @@ engine code, not the old default maps):
 | Live edits survive gear shifts (ENG-04) | `test_live_params.py` |
 | Gear losses act on the power through each gear (MOD-03) | `test_gear_losses.py`, `test_motor_losses.py`, `test_golden.py` |
 | Every part starts at the vehicle's initial speed (MOD-19) | `test_solver.py`, `test_engine.py` |
+| Formula Student events (MOD-43, MOD-44, STU-38) | the dynamic points follow FS Rules 2026 v1.1 (FSG) D 9.1.1 and table 11 (Pmax at Tmin, Pmin at and past Tmax, hand-worked points between) and the efficiency D 9.4 (75 points at EFmin, 18.75 at 1.5 EFmin, 0 past 2 EFmin); the FSG 2020 efficiency formulas give the FSG score calculator's results on hand-worked values (the calculator ships no test values); the four events of the FS example run in under 20 s (8.9 s measured); the skidpad time is the mean of the two circles, the endurance energy counts regeneration at 90 %, the endurance stops at half distance and its time leaves out the restart lap; a voltage over 600 V or an empty pack scores 0; lift-and-coast trades time for energy monotonically, and an energy target of 5.0 or 4.5 kWh ends within 2 % of it (−0.54 %, −0.22 %); an endurance from an imported trace reports its net energy, RMS power and lowest pack voltage | `test_fs_events.py` |
+| Lap import (STD-35) | a lap simulator's trace against distance keeps its distance within 0.5 % (TUM and OpenLAP layouts, LightSim's own lap); a MoTeC-like session gives its fastest full lap; semicolons, decimal commas and speed spikes are read and flagged; a lap repeated to 22 km has one driver change stop; an imported lap runs as a cycle through the API | `test_laplog.py` |
+| Traction Control (MOD-45) | on the FS example's 75 m at a 2 ms step the slip stays within ±0.02 of the 0.1 target from 0.4 s until the power limit takes over, with no spike above 0.3 once moving (about 7 without the block); the defaults stay stable at the 10 ms step | `test_traction_control.py` |
+| Lap mode calibration (VAL-38) | on LightSim's own laps (0.9 × grip, 2.5 m² CzA, with noise), calibrated on the Autocross and checked blind on it driven the other way, the lap time is within 5 % (−0.5 %), the speed RMS under 4 km/h and the energy within 5 % (0.6 %). This checks the method only: no real logged lap has been used | `test_calibrate.py` |
 
 ## Plausibility-checked: the example cars
 
@@ -106,7 +110,8 @@ temperature), electric motor and inverter (generic loss maps), combustion
 engine (no warm-up, turbo lag or restart cost), gearbox and clutch, tyres
 and brakes, fuel cell, DC-DC converter and auxiliary loads. There is no
 thermal model. Lap mode's lap times and energy are not compared with any
-real car or logged lap (calibrating them is VAL-12). See [Known issues and limits](KNOWN-LIMITS.md) for what is
+real car or logged lap: VAL-38's calibration has been checked only on
+LightSim's own laps. See [Known issues and limits](KNOWN-LIMITS.md) for what is
 known to be wrong or missing.
 
 ## Rules for any accuracy claim

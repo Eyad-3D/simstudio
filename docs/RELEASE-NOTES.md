@@ -181,6 +181,74 @@ sections.
   and a Custom curvature above 0.5 1/m. The results are estimates, and say so.
   A Formula Student-sized car (280 kg, 96 kW, μ 1.5) laps the Autocross
   in 61.2 s (62.9 s from a standing start), solved in about 0.15 s.
+- Formula Student events and points (MOD-43): **FS events** (Simulations
+  tab) marks or adds an Acceleration, a Skidpad, an Autocross and an
+  Endurance case, runs the four (about 9 s for the FS example) and shows
+  *Formula Student points* in the *Cases* tab. A case's new *FS event*
+  setting (Acceleration or Lap cases) adds the event's time as the rules
+  take it, the rule checks (80 kW EV 2.2.1, 500 A EV 2.2.2, 600 V EV 4.1.1,
+  and whether the endurance finished on its energy) and an estimate of its
+  points from the case's *Reference time* (the fastest team's time) and,
+  for the endurance, *Reference energy* (the most efficient team's), with
+  the scoring of FS Rules 2026 v1.1 (FSG) table 3, D 9.1.1, table 11 and
+  D 9.4. A broken rule scores 0 (D 10.4.2). An Endurance case stops for
+  the driver change at half distance and restarts from rest (D 7.2.3,
+  D 7.5); its event time leaves out the restart lap (D 7.2.5) and its
+  energy counts regeneration at 90 % (D 7.9.5). The points are estimates,
+  not official results; FSUK and FSAE score differently. Batteries now
+  record their highest current and terminal voltage for these checks.
+  No existing case changes.
+- Endurance energy strategy (MOD-44): the Race Track gets *Lift-and-Coast*
+  (%), the share of each stretch of acceleration before braking that the
+  driver coasts (no drive, no brakes), and *Energy Target* (kWh), the net
+  energy the laps may take; above 0, lap mode picks each lap's
+  lift-and-coast so the laps end near the target. Both are in a lap case's
+  settings too. On the FS example's *Endurance energy* case (30 kW), 20 %
+  lift-and-coast takes 12 % less energy (0.203 instead of 0.232 kWh a lap)
+  for 0.4 % more time; a 5.0 kWh target ends 0.54 % under it, 4.5 kWh
+  0.22 % under. The summary adds *Time limited by lift-and-coast*,
+  *Lift-and-coast, mean share*, *Energy target* and *Energy used against
+  the target*, and the Race Track's Limit channel the code 7, only in runs
+  that coast; a run with neither set does not change. Sweep *Lift-and-Coast*
+  for the lap time against the energy.
+- Import a lap from a data logger or lap simulator (STD-35): **Import lap**
+  (Simulations tab) reads a CSV with a lap's speed against time or
+  distance, with layouts for a generic file, GPS loggers, MoTeC i2, AiM
+  Race Studio, OpenLAP and TUM laptime-simulation (LightSim's reading of
+  those tools, not yet checked against teams' files), a column picker, the
+  speed unit, the lap to take (the fastest full lap by default), a preview
+  and warnings for gaps, spikes and rows left out. It adds a *Cycle* case
+  that drives the lap, optionally repeated to a 22 km endurance with a
+  driver change stop, and adds a Driving Task wired to the Driver if the
+  car has none. A trace against distance is turned into time (t = ∫ ds / v)
+  and keeps its distance within 0.5 %.
+- Endurance energy study (STU-38): an endurance case (a Lap case, or a
+  Cycle case from an imported lap repeated to 22 km) reports the net
+  battery energy, the lowest pack voltage and, from a trace, the RMS
+  battery power, with the endurance energy and rule checks (a Cycle case
+  gets no points). Its *Cases* tab offers a grid of the accumulator's
+  capacity and Output Power Limit (up to 6 × 6) that runs as one saved
+  study and shows a map, marking the pairs that run out of energy *DNF*.
+  Saved studies with two factors name both.
+- A *Traction Control* block (Driver & Signals, MOD-45): wired between the
+  Driver's Traction Command and the E-Motors, with the driven wheels' Slip
+  and the Vehicle's Speed, it ramps the demand up from rest (*Launch Ramp
+  Time*, *Launch Torque*) and then holds the slip at a *Target Slip* (0.1)
+  with a PI loop, below the *Minimum Speed* leaving only the ramp. On the
+  FS example's 75 m case at a 2 ms step (Kp 1, Ki 20 1/s) it holds the
+  slip at 0.095-0.100 until the 80 kW limit takes over, where the slip
+  otherwise reaches 7; the 75 m time does not change (3.756 s against
+  3.754 s), because LightSim's tyres keep their grip past the peak. Its
+  defaults (Kp 0.5, Ki 10 1/s) also stay stable at the 10 ms step. No
+  model changes unless you add the block.
+- Calibrate lap mode on a logged lap (VAL-38): **Calibrate lap**
+  (Simulations tab) builds the track from a logged lap's speed and lateral
+  acceleration, fits one factor on every tyre's grip and the Vehicle's
+  CzA to the logged speed against distance (least squares), and checks
+  the prediction blind on a second lap: lap time error, speed RMS error
+  and, with the pack power logged, energy error. **Apply to the model**
+  puts the fit in the car. Checked on LightSim's own laps only (blind lap
+  time −0.5 %, energy +0.6 %); no real log is bundled.
 - Wheel: *Lateral Friction μ_y* (0: the same as μ), *Load Sensitivity
   dμ/dFz* (per kN), *Nominal Load Fz0* (0: the wheel's static load) and
   *Friction Ellipse Exponent* (lap cases). The load sensitivity also acts

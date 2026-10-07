@@ -7,6 +7,10 @@ import { StudiesList } from "./StudiesList";
 import { CycleSelect } from "./CyclePicker";
 import { NumberInput } from "./PropertiesPanel";
 import { paramName, rangeProblem } from "../../paramRules";
+import { FS_EVENT_NAMES, FS_EVENTS } from "../../fsEvents";
+import type { FsEvent } from "../../types";
+import { FsPoints } from "./FsPoints";
+import { EnduranceStudy } from "./EnduranceStudy";
 
 // Only scalar parameters are editable as per-case overrides here; tables and
 // code are edited in Properties. Sweeps additionally require a numeric param.
@@ -59,6 +63,13 @@ const LAPS: ParameterDef = {
 };
 const REFERENCE_TIME: ParameterDef = {
   key: "referenceTime", label: "Reference time", unit: "s", default: 0, type: "number", exclusiveMinimum: 0,
+};
+const REFERENCE_ENERGY: ParameterDef = {
+  key: "referenceEnergy", label: "Reference energy", unit: "kWh", default: 0, type: "number", exclusiveMinimum: 0,
+};
+const REFERENCE_ENERGY_TIME: ParameterDef = {
+  key: "referenceEnergyTime", label: "Reference energy's time", unit: "s", default: 0, type: "number",
+  exclusiveMinimum: 0,
 };
 
 /** A number row of the case settings: red outside its limits, with a line
@@ -271,6 +282,8 @@ export function CasePanel() {
           e.componentDefId === "signal.driving_task" &&
           effectiveValue(caseOv, e, "mode", taskModeDef) === "distance",
       );
+  const coastDef = trackParams.find((p) => p.key === "coast_pct");
+  const targetDef = trackParams.find((p) => p.key === "energy_target_kWh");
   const lapHint = "A lap case is set by the Race Track's layout and laps: Duration, Step and Pacing do not apply.";
   const overrideRows = Object.entries(caseOv ?? {}).flatMap(([elId, params]) =>
     Object.entries(params).map(([key, value]) => ({ elId, key, value })),
@@ -481,6 +494,24 @@ export function CasePanel() {
                   value={Number(effectiveValue(caseOv, track, "laps", lapsDef))}
                   onChange={(v) => setCaseOverride(activeCase.id, track.id, "laps", v)}
                 />
+                {coastDef && targetDef && (
+                  <>
+                    <CaseNumber
+                      name="Lift-and-coast (%)"
+                      title="Energy strategy (a case override): the driver lifts off for this share of each stretch of acceleration that ends in braking, and the car coasts until it has to brake. It saves energy for some lap time; sweep it for the trade-off. An Energy target above 0 sets it lap by lap instead."
+                      def={coastDef}
+                      value={Number(effectiveValue(caseOv, track, "coast_pct", coastDef))}
+                      onChange={(v) => setCaseOverride(activeCase.id, track.id, "coast_pct", v)}
+                    />
+                    <CaseNumber
+                      name="Energy target (kWh)"
+                      title="The net energy the laps may take from the batteries (a case override). Above 0, lap mode chooses each lap's lift-and-coast so that the laps together take about this much, for example the accumulator's usable energy less a margin for an endurance. 0 = off."
+                      def={targetDef}
+                      value={Number(effectiveValue(caseOv, track, "energy_target_kWh", targetDef))}
+                      onChange={(v) => setCaseOverride(activeCase.id, track.id, "energy_target_kWh", v)}
+                    />
+                  </>
+                )}
               </>
             ) : (
               <p className="text-[11px] text-[color:var(--ss-text-dim)]">
@@ -536,7 +567,7 @@ export function CasePanel() {
               />
               <CaseNumber
                 name="Reference time (s)"
-                title="A time to compare with, for example last year's best run: the results show the gap (positive = slower). Empty = none."
+                title="A time to compare with, for example last year's best run: the results show the gap (positive = slower). For the Formula Student Acceleration event it is the fastest team's time (Tmin), which the points are estimated against. Empty = none."
                 def={REFERENCE_TIME}
                 value={activeCase.referenceTime ?? null}
                 onChange={(v) => setCaseField(activeCase.id, { referenceTime: v })}
@@ -544,7 +575,60 @@ export function CasePanel() {
               />
             </>
           )}
+          {(accel || lap || (activeCase.kind ?? "cycle") === "cycle") && (
+            <label
+              className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+              title="The Formula Student dynamic event this case stands for: the run then reports the event's time as the rules take it, the rule checks (80 kW, 500 A, 600 V) and an estimate of the points against the reference values below. Acceleration needs an Acceleration case, the others a Lap case. Endurance also stops the car for the driver change at half distance; on a Cycle case (an imported lap, repeated) it gives the endurance energy and rule checks only. Scoring: FS Rules 2026 v1.1 (FSG) D 9; FSUK and FSAE score differently, check the current season's rules."
+            >
+              FS event
+              <select
+                className="ss-input w-[112px]"
+                value={activeCase.fsEvent ?? ""}
+                onChange={(e) => setCaseField(activeCase.id, { fsEvent: (e.target.value || null) as FsEvent | null })}
+              >
+                <option value="">None</option>
+                {FS_EVENTS.filter((ev) => accel || lap || ev === "endurance").map((ev) => (
+                  <option key={ev} value={ev}>
+                    {FS_EVENT_NAMES[ev]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {lap && activeCase.fsEvent && (
+            <CaseNumber
+              name="Reference time (s)"
+              title="The fastest team's time in this event (Tmin), for example from last season's results: the points are estimated against it (FS Rules 2026 v1.1 (FSG) D 9.1.1). Empty = no points."
+              def={REFERENCE_TIME}
+              value={activeCase.referenceTime ?? null}
+              onChange={(v) => setCaseField(activeCase.id, { referenceTime: v })}
+              onClear={() => setCaseField(activeCase.id, { referenceTime: null })}
+            />
+          )}
+          {lap && activeCase.fsEvent === "endurance" && (
+            <>
+              <CaseNumber
+                name="Reference energy (kWh)"
+                title="The endurance energy of the most efficient team, as the rules count it (regeneration × 0.9, D 7.9.5): with its time it sets EFmin = T² · E, which the efficiency points are estimated against (D 9.4). Empty = no efficiency points."
+                def={REFERENCE_ENERGY}
+                value={activeCase.referenceEnergy ?? null}
+                onChange={(v) => setCaseField(activeCase.id, { referenceEnergy: v })}
+                onClear={() => setCaseField(activeCase.id, { referenceEnergy: null })}
+              />
+              <CaseNumber
+                name="Its time (s)"
+                title="The endurance time of the most efficient team. Empty = the Reference time."
+                def={REFERENCE_ENERGY_TIME}
+                value={activeCase.referenceEnergyTime ?? null}
+                onChange={(v) => setCaseField(activeCase.id, { referenceEnergyTime: v })}
+                onClear={() => setCaseField(activeCase.id, { referenceEnergyTime: null })}
+              />
+            </>
+          )}
         </div>
+
+        <FsPoints />
+        {activeCase.fsEvent === "endurance" && <EnduranceStudy key={activeCase.id} simCase={activeCase} />}
 
         {/* -- per-case overrides ------------------------------------------- */}
         <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">

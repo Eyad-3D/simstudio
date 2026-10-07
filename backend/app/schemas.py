@@ -224,6 +224,17 @@ class SimCase(BaseModel):
     # build the run's energy report (RES-22): where the sources' energy went,
     # per part and as a Sankey chart
     energyReport: bool = True
+    # a Formula Student dynamic event this case stands for (MOD-43): the run
+    # then reports the event's time as the rules take it, an estimate of its
+    # points against referenceTime (the fastest team's time, Tmin) and the
+    # rule checks; "endurance" also stops the car for the driver change at
+    # half distance and reports the efficiency. None = not an event
+    fsEvent: Optional[Literal["acceleration", "skidpad", "autocross", "endurance"]] = None
+    # the most efficient team's endurance energy, kWh, and its driving time,
+    # s (None: referenceTime), for the efficiency points (FS Rules 2026 v1.1
+    # (FSG) D 9.4: EFmin = T² · E of that team)
+    referenceEnergy: Optional[float] = None
+    referenceEnergyTime: Optional[float] = None
     # Per-case parameter overrides: {elementId: {paramKey: value}}. Layered on
     # top of each element's own parameterOverrides at model-build time, so a
     # case can tweak values — and a parameter sweep can vary one — without
@@ -540,3 +551,35 @@ class StudyRequest(BaseModel):
 
 class ValidateRequest(BaseModel):
     project: Project
+
+
+class LapLogRequest(BaseModel):
+    """A lap from a data logger or lap simulator to read (STD-35)."""
+
+    text: str
+    preset: str = "Generic"
+    # {"time" | "distance" | "speed" | "lap": column name} over the preset's
+    columns: dict[str, Optional[str]] = Field(default_factory=dict)
+    speedUnit: Optional[str] = None
+    lap: Optional[int] = None
+    repeatToKm: float = 0.0
+    driverChangeS: float = 0.0
+
+
+class LoggedLapIn(BaseModel):
+    """A logged lap for the lap mode calibration (VAL-38)."""
+
+    text: str
+    # {"time" | "distance" | "speed" | "lat_accel" | "power" | "lap": column}
+    columns: dict[str, Optional[str]] = Field(default_factory=dict)
+    lap: Optional[int] = None
+    speedUnit: str = "km/h"
+
+
+class CalibrateRequest(BaseModel):
+    """Calibrate lap mode's grip and downforce on one logged lap and check
+    the prediction on another (VAL-38)."""
+
+    project: Project
+    calibration: LoggedLapIn
+    check: Optional[LoggedLapIn] = None

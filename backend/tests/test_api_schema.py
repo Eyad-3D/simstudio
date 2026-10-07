@@ -12,6 +12,8 @@ Left out:
 - POST /api/simulate and POST /api/studies: a generated case may ask for any
   duration and time step and would run the project's control scripts (a
   study, on every core). The solver and study tests cover them.
+- POST /api/laplog/calibrate: it runs about a hundred lap solutions and a
+  lap case of a generated project; test_calibrate.py covers it.
 - the live-run WebSocket, which is not in the schema.
 """
 from __future__ import annotations
@@ -96,7 +98,7 @@ def projects_dir(tmp_path_factory):
         yield
 
 
-@schema.exclude(path=["/api/simulate", "/api/studies"]).parametrize()
+@schema.exclude(path=["/api/simulate", "/api/studies", "/api/laplog/calibrate"]).parametrize()
 # filter_too_much: a whole valid project body (PUT /api/projects/{id}) is
 # hard to generate, and on some random draws Hypothesis discards so many
 # attempts that its health check stops the test (seen on CI and locally
