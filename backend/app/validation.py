@@ -716,6 +716,10 @@ def _plausibility_checks(model: Model, add: Add) -> None:
                                f"auxiliaries use about 0.3–5 kW (up to about 30 kW for a "
                                f"bus's heating and air conditioning). Check the value and "
                                f"its unit.", el)
+        elif cdef.id == "electric.climate" and model.ambient is None:
+            add("info", f"'{el.label}' takes the outside temperature from an Ambient, and the "
+                        f"model has none: it runs at 20 °C, where it neither heats nor cools. "
+                        f"Add an Ambient (Boundaries) and set its Temperature.", el)
         elif cdef.id == "mech.final_drive":
             ratio = num(p, "ratio")
             if ratio is not None and ratio > FINAL_DRIVE_MAX_RATIO:

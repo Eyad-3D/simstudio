@@ -25,6 +25,7 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 
+from .climate import ClimateState, climate_power
 from .maps import Map, MapUse, TableError, interp1, parse_table1d, parse_table2d
 from .network import ROAD_LOAD_ABC, BrakeRef, Driveline, Joint, Model, Segment, SourceRef
 from .profiles import interp_profile, parse_profile
@@ -156,6 +157,8 @@ class RunContext:
         self.fuelcells: dict[str, FuelCellCache] = {}
         self.tanks: dict[str, TankState] = {}
         self.lookup_cache: dict[str, tuple[Map, Map]] = {}
+        # Climate Control parts: their demand table and what they did last step
+        self.climate: dict[str, tuple[Map, ClimateState]] = {}
         self.profile_cache: dict[str, list[tuple[float, float]]] = {}
         self.sources = [(el_id, cdef.id) for el_id, cdef in model.cdef_of.items()
                         if cdef.id in ("signal.constant", "signal.driving_task")]
@@ -237,6 +240,8 @@ class RunContext:
                         el_id=el_id, capacity_kg=cap,
                         mass_kg=cap * max(0.0, min(1.0, float(p.get("initial_fill_pct", 90)) / 100.0)),
                     )
+                elif cdef.id == "electric.climate":
+                    self.climate[el_id] = (self.table(el_id, "demand_table"), ClimateState())
                 elif cdef.id == "signal.lookup":
                     self.lookup_cache[el_id] = (self.table(el_id, "table_1d"),
                                                 self.table(el_id, "table_2d"))
@@ -375,6 +380,34 @@ class RunContext:
 
     def params(self, el_id: str) -> dict:
         return self.model.params_of[el_id]
+
+    def ambient_c(self) -> float:
+        """The outside air temperature, °C: the first Ambient's (read each
+        time, so case values, sweeps and live edits apply), 20 °C without
+        one. Never at or below absolute zero."""
+        if not self.amb_id:
+            return 20.0
+        return max(-273.0, float(self.params(self.amb_id).get("temperature_C", 20)))
+
+    def consumer_demand_w(self, c_id: str) -> float:
+        """The power an electrical consumer asks for this solver step, W: a
+        Power Consumer's demand input or Constant Power Draw; a Climate
+        Control's heating or cooling at the outside temperature."""
+        rt = self.rt
+        if c_id in self.climate:
+            demand, st = self.climate[c_id]
+            on = rt.read_signal(c_id, "sig_on_in")
+            t_out = self.ambient_c()
+            q_kw = demand.at(t_out) if on is None or on >= 0.5 else 0.0
+            if q_kw:
+                self.used(demand, t_out)
+            p_kw, st.cop = climate_power(q_kw, t_out, self.params(c_id))
+            st.heat_w, st.asked_w = q_kw * 1000.0, p_kw * 1000.0
+            return st.asked_w
+        p_kw = rt.read_signal(c_id, "sig_demand_in")
+        if p_kw is None:
+            p_kw = float(self.params(c_id).get("power_kW", 0))
+        return max(0.0, p_kw) * 1000.0
 
     def table(self, el_id: str, key: str) -> Map:
         """A table parameter as a Map. Its "outside the data" setting per
@@ -935,10 +968,7 @@ class RunContext:
                 factor[bus.id] = f
                 load = 0.0
                 for c_id in bus.consumers:
-                    p_kw = rt.read_signal(c_id, "sig_demand_in")
-                    if p_kw is None:
-                        p_kw = float(self.params(c_id).get("power_kW", 0))
-                    demand[c_id] = max(0.0, p_kw) * 1000.0
+                    demand[c_id] = self.consumer_demand_w(c_id)
                     load += demand[c_id]
                 for d in bus.dcdc_in:
                     if d in self.setpoint_dcdcs:
@@ -1837,6 +1867,17 @@ class ElectricalSlave(_CtxSlave):
                 rt.publish(c_id, "sig_power", p_w / 1000.0)
                 load_w += p_w
                 gross_w += p_w
+                if c_id in ctx.climate:
+                    cl = ctx.climate[c_id][1]
+                    # cut back by its source: it heats or cools that much less
+                    heat = cl.heat_w * (p_w / cl.asked_w if cl.asked_w > 0 else 0.0)
+                    cl.energy_j += p_w * dt
+                    if heat > 0:
+                        cl.heat_j += heat * dt
+                    else:
+                        cl.cool_j -= heat * dt
+                    rt.publish(c_id, "sig_heat", heat / 1000.0)
+                    rt.publish(c_id, "sig_cop", cl.cop)
             for m_id in bus.motors:
                 p_w = ctx.motors[m_id].p_elec_w if m_id in ctx.motors else 0.0
                 load_w += p_w

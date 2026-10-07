@@ -454,10 +454,20 @@ minimum or an average, for example from the CSV export, or put the
 ## Not modelled yet
 
 - **No heat or cooling.** There is no thermal solver: temperatures do not
-  change and do not affect batteries, motors or engines. The Ambient
-  component sets only the air density (see above), and thermal or fluid
-  connections are ignored during a run.
+  change and do not affect motors or engines. The Ambient component sets
+  the air density (see above), the Climate Control's outside temperature
+  and the cell temperature of a battery built from cells, and thermal or
+  fluid connections are ignored during a run.
   *Roadmap:* MOD-09.
+- **Heating and air-conditioning are a steady-state estimate.** The
+  Climate Control draws the power its demand table gives at the outside
+  temperature from the first second: there is no cabin that warms up or
+  cools down, so a cold start's first minutes (when a heater runs at
+  5-7 kW) are missing and short trips use too little. Its default table
+  is an estimate for a compact car, not measured data, and it ignores the
+  sun's angle, humidity, speed and the number of people inside.
+  *Workaround:* fit the demand table to logged heater and
+  air-conditioning power for your car. *Roadmap:* MOD-46 (cabin model).
 - **Forward driving only.** No reverse, and no rolling back: a car on a steep
   hill stays put even with no brakes. *Roadmap:* MOD-21, ENG-21.
 - **Drive cycles are longitudinal only.** A drive cycle, performance or

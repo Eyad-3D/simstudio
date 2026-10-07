@@ -353,6 +353,16 @@ def simulate(
             summary.append(SummaryValue(
                 label=f"{model.elements[fc.el_id].label} — energy supplied",
                 value=round(fc.energy_wh / 1000.0, 3), unit="kWh"))
+        for c_id, (_, cl) in ctx.climate.items():
+            label = model.elements[c_id].label
+            summary.append(SummaryValue(label=f"{label} — energy used",
+                                        value=round(cl.energy_j / 3.6e6, 3), unit="kWh"))
+            if cl.heat_j > 0:
+                summary.append(SummaryValue(label=f"{label} — heating delivered",
+                                            value=round(cl.heat_j / 3.6e6, 3), unit="kWh"))
+            if cl.cool_j > 0:
+                summary.append(SummaryValue(label=f"{label} — cooling delivered",
+                                            value=round(cl.cool_j / 3.6e6, 3), unit="kWh"))
         for vs_id, e_wh in ctx.vsource_energy_wh.items():
             summary.append(SummaryValue(
                 label=f"{model.elements[vs_id].label} — energy supplied",
@@ -546,6 +556,8 @@ def _bus_channels(ctx: RunContext) -> Iterator[ChannelValue]:
             ports = ("sig_traction_cmd", "sig_brake_cmd", "sig_accel_pedal", "sig_brake_pedal")
         elif tdef in ("electric.constant_drive", "electric.node"):
             ports = ("sig_power",)
+        elif tdef == "electric.climate":
+            ports = ("sig_power", "sig_heat", "sig_cop")
         elif tdef == "electric.voltage_source":
             ports = ("sig_power", "sig_voltage")
         elif tdef == "mech.brake":

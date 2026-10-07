@@ -1075,6 +1075,151 @@
       ]
     },
     {
+      "id": "electric.climate",
+      "category": "Base Electric",
+      "name": "Climate Control",
+      "icon": "thermometer",
+      "domain": "electrical",
+      "description": "Heating and air-conditioning as an electrical load, from the outside temperature (an estimate until LightSim has a cabin model). The Heating/Cooling Demand table gives the heat the cabin needs at each outside temperature (the first Ambient's Temperature, 20 °C without one). A PTC heater turns every watt into heat; a heat pump moves about 2 W of heat per watt at −7 °C (its COP, a share of the ideal Carnot value), and below its Minimum Outside Temperature the PTC heater takes over. Cooling always runs the air-conditioning compressor. While it heats or cools, the blower adds its own power. The Enable input switches it off below 0.5 (unwired: always on).",
+      "ports": [
+        {
+          "id": "pos",
+          "name": "Positive Terminal (+)",
+          "direction": "bidirectional",
+          "kind": "electrical",
+          "unitGroup": "Power",
+          "side": "left",
+          "polarity": "positive"
+        },
+        {
+          "id": "neg",
+          "name": "Negative Terminal (−)",
+          "direction": "bidirectional",
+          "kind": "electrical",
+          "unitGroup": "Power",
+          "side": "left",
+          "polarity": "negative"
+        },
+        {
+          "id": "sig_on_in",
+          "name": "Enable",
+          "direction": "input",
+          "kind": "signal",
+          "unitGroup": "No Unit"
+        },
+        {
+          "id": "sig_power",
+          "name": "Drawn Power",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_heat",
+          "name": "Heat to Cabin",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_cop",
+          "name": "COP",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "No Unit"
+        }
+      ],
+      "parameters": [
+        {
+          "key": "demand_table",
+          "label": "Heating/Cooling Demand",
+          "unit": "kW",
+          "type": "table1d",
+          "axes": [
+            {
+              "name": "Outside Temperature",
+              "unit": "°C",
+              "outside": "clamp"
+            }
+          ],
+          "default": {
+            "-20": 6.0,
+            "-10": 4.5,
+            "0": 3.0,
+            "10": 1.5,
+            "20": 0,
+            "24": 0,
+            "27": -1.0,
+            "30": -1.9,
+            "35": -2.65,
+            "40": -3.4
+          },
+          "description": "The heat the cabin needs at each outside temperature, once warm or cool: heating positive, cooling negative. The default is an estimate for a compact car kept at 21 °C: it loses about 0.15 kW per degree below 20 °C, and above 24 °C cooling also removes about 1 kW of sun.",
+          "typical": "Compact car about 4 kW of heat at −7 °C and 2.5–3 kW of cooling at 35 °C (the default); larger cars and vans up to twice that; buses 10–30 kW.",
+          "whereToFind": "Logged heater and air-conditioning power against outside temperature, times the COP of the system that logged it; or a cabin heat-loss estimate (kW per degree × the difference to the set point)."
+        },
+        {
+          "key": "heat_source",
+          "label": "Heat Source",
+          "unit": "-",
+          "default": "PTC heater",
+          "type": "enum",
+          "options": ["PTC heater", "Heat pump"],
+          "description": "What makes the heat: a PTC heater (an electric resistance heater, 1 kW of heat per kW) or a heat pump, which moves heat from the outside air into the cabin. Cooling always uses the air-conditioning compressor.",
+          "typical": "PTC heater in many older and cheaper electric cars (the Nissan Leaf 2011–2012); heat pumps in most new ones.",
+          "whereToFind": "The car's specification sheet or brochure (heat pump is usually listed as an option or feature)."
+        },
+        {
+          "key": "cop_carnot_share",
+          "label": "Heat Pump Quality (share of Carnot)",
+          "unit": "-",
+          "default": 0.35,
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "description": "How close the heat pump and air-conditioning come to an ideal machine: their COP is this share of the ideal (Carnot) COP between the cabin and the outside air, each exchanger 15 °C past the air it serves. At 0.35 heating at −7 °C gives a COP of about 1.9 and cooling at 35 °C about 2.2.",
+          "typical": "0.3–0.5 (FASTSim's range); 0.35 by default, an estimate.",
+          "whereToFind": "A measured COP divided by the Carnot COP at the same temperatures, or keep the default."
+        },
+        {
+          "key": "heat_pump_min_C",
+          "label": "Heat Pump Minimum Outside Temperature",
+          "unit": "°C",
+          "default": -10,
+          "type": "number",
+          "minimum": -60,
+          "maximum": 40,
+          "description": "Below this outside temperature the heat pump stops and the PTC heater does the heating (COP 1). Only used with the Heat pump heat source.",
+          "typical": "−10 °C (the default); −15 to −25 °C for heat pumps built for cold climates; 0 to −5 °C for simple ones.",
+          "whereToFind": "The heat pump's specification, or the outside temperature below which the car's heater power jumps in logged data."
+        },
+        {
+          "key": "cabin_setpoint_C",
+          "label": "Cabin Set Point",
+          "unit": "°C",
+          "default": 21,
+          "type": "number",
+          "minimum": 10,
+          "maximum": 35,
+          "description": "The cabin temperature the climate control keeps. It sets how far the heat pump and air-conditioning lift the heat. The demand table is for this set point: change both together.",
+          "typical": "20–22 °C (21 °C by default; test procedures use 22 °C).",
+          "whereToFind": "The test procedure you follow, or the driver's setting in logged data."
+        },
+        {
+          "key": "fan_power_kW",
+          "label": "Blower and Controls",
+          "unit": "kW",
+          "default": 0.2,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 5,
+          "description": "Electrical power the blower, pumps and controls draw while the climate control heats or cools, on top of the heater or compressor power.",
+          "typical": "0.1–0.3 kW for cars (0.2 kW by default); up to 1 kW for buses.",
+          "whereToFind": "The blower's rated power, or logged climate power when the heating and cooling are off but the fan runs."
+        }
+      ]
+    },
+    {
       "id": "boundary.ground",
       "category": "Base Electric",
       "name": "Ground",

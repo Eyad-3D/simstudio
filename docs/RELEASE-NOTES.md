@@ -361,6 +361,25 @@ sections.
   2,300 kg* instead of the clock time) in the run lists, legends and
   summary; *Run info* edits the name and keeps a note, both stored with
   the run. (RES-10)
+- A *Climate Control* part (Base Electric) for heating and
+  air-conditioning: its *Heating/Cooling Demand* table turns the first
+  Ambient's temperature into the heat the cabin needs, and a *PTC heater*
+  (an electric resistance heater, 1 kW of heat per kW) or a *Heat pump*
+  turns that into electrical power on its bus. The heat pump's coefficient
+  of performance (COP, heat moved per kW of electricity) is a share of the
+  ideal (Carnot) value, about 1.9 at −7 °C; below its *Minimum Outside
+  Temperature* (−10 °C) the PTC heater takes over, and cooling always runs
+  the air-conditioning compressor (COP about 2.2 at 35 °C). Its channels
+  are *Drawn Power*, *Heat to Cabin* and *COP*, and the summary gives the
+  energy it used and the heating or cooling it delivered. The default
+  demand is an estimate for a compact car kept at 21 °C, steady state with
+  no warm-up. Added to the Battery Electric Car with an Ambient, it takes
+  the WLTC from 14.00 kWh/100 km at 23 °C to 23.76 at −7 °C with the PTC
+  heater (1.70 times, close to the 41 % range loss AAA measured at −6.7 °C
+  with the heating on, a figure we have not checked at its source), 19.72
+  with the heat pump and 16.77 at 35 °C. Data Checks say when a model has
+  no Ambient, where it sits at 20 °C and does nothing. Existing models do
+  not change. (MOD-41)
 
 ### Fixed
 

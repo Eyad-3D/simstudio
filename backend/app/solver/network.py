@@ -31,6 +31,8 @@ from ..schemas import ComponentDef, ElementInstance, PortDef, Project
 
 JOINT_TYPES = {"mech.differential", "mech.transfer_case", "mech.clutch"}
 SOURCE_TYPES = {"motor.emotor": "motor", "engine.combustion": "engine"}
+# electrical loads a bus serves before its motors (source-limit handshake)
+CONSUMER_TYPES = ("electric.constant_drive", "electric.climate")
 SIGNAL_BLOCK_TYPES = ("signal.script", "control.pid", "signal.lookup", "signal.road_profile")
 # The gears a coast-down in neutral turns with the wheels: road-load
 # coefficients measured that way already hold their drag, so with the
@@ -762,7 +764,7 @@ def build_model(
                     errors.append(about("Bus has two fuel cells — not supported yet.", el_id, bus.fuelcell))
                 else:
                     bus.fuelcell = el_id
-        elif t == "electric.constant_drive":
+        elif t in CONSUMER_TYPES:
             bus = positive_bus(el_id)
             if bus is not None:
                 bus.consumers.append(el_id)
