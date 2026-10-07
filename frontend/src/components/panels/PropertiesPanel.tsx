@@ -7,6 +7,7 @@ import { limitsText, paramName, rangeProblem } from "../../paramRules";
 import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "../SpreadsheetGrid";
 import { KIND_COLOR } from "../canvas/ElementNode";
 import { CyclePreview, CycleSelect } from "./CyclePicker";
+import { SourceBadge, ValueSources } from "./ValueSources";
 import type {
   AxisDef,
   ComponentDef,
@@ -935,6 +936,7 @@ export function ElementForm({
                     {/* the full label is in the help card, or else its tooltip */}
                     <td className="ss-td flex items-center text-[11px]" title={p.description ? undefined : p.label}>
                       <span className="truncate">{p.label}</span>
+                      <SourceBadge src={element.parameterSources?.[p.key]} />
                       {running && p.variability === "fixed" && (
                         <span
                           className="ml-1 shrink-0 text-[10px] italic text-[color:var(--ss-text-dim)]"
@@ -970,6 +972,7 @@ export function ElementForm({
           </tbody>
         </table>
       )}
+      <ValueSources element={element} def={def} />
       {(drivingTask || (roadProfile && cycleDef)) && (
         <div className="flex flex-col gap-1" {...helpProps(cycleDef)}>
           <label className="flex flex-col gap-0.5 text-[11px] text-[color:var(--ss-text-dim)]">

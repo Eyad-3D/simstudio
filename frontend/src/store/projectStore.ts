@@ -15,6 +15,7 @@ import type {
   LogMessage,
   OutsidePolicy,
   ParamValue,
+  ParameterSource,
   PortDef,
   PortSide,
   Project,
@@ -358,6 +359,8 @@ export interface ProjectState {
   setParameter: (elementId: string, key: string, value: ParamValue) => void;
   /** Several parameters at once (a component preset), as one undo step. */
   setParameters: (elementId: string, values: Record<string, ParamValue>) => void;
+  /** Record where a parameter value comes from (CON-13); null forgets it. */
+  setParameterSource: (elementId: string, key: string, source: ParameterSource | null) => void;
   /** A table's outside-the-data settings, one per axis (applies on the next run). */
   setTableOutside: (elementId: string, key: string, policies: OutsidePolicy[]) => void;
   setDynamicPorts: (elementId: string, ports: PortDef[]) => void;
@@ -392,6 +395,8 @@ export interface ProjectState {
   openProject: (id: string) => Promise<void>;
   /** Open an example as an unsaved copy with an id of its own. */
   openExample: (id: string) => Promise<void>;
+  /** Open a project made from a template (CON-18), unsaved. */
+  openNewProject: (project: Project, message: string) => void;
   /** Leave an example out of the Open menu; resolves false when that failed. */
   hideExample: (id: string, name: string) => Promise<boolean>;
   /** Show every hidden example in the Open menu again. */
@@ -1060,6 +1065,22 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         }
       }),
 
+    setParameterSource: (elementId, key, source) =>
+      updateProject(
+        (draft) => {
+          for (const s of draft.systems) {
+            const el = s.elements.find((e) => e.id === elementId);
+            if (!el) continue;
+            const next = { ...el.parameterSources };
+            if (source) next[key] = source;
+            else delete next[key];
+            el.parameterSources = next;
+          }
+        },
+        true,
+        `source:${elementId}:${key}`,
+      ),
+
     setTableOutside: (elementId, key, policies) =>
       updateProject(
         (draft) => {
@@ -1345,6 +1366,28 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       } catch (e) {
         get().log("error", `Failed to open project: ${(e as Error).message}`);
       }
+    },
+
+    openNewProject: (project, message) => {
+      runHistorySeq++; // runs still loading for the project it replaces are dropped
+      set({
+        project,
+        revision: null,
+        exampleId: null,
+        activeSystemId: rootSystemOf(project).id,
+        activeCaseId: project.cases[0]?.id ?? null,
+        activeRunId: null,
+        overlayRunIds: [],
+        selectedElementId: null,
+        past: [],
+        future: [],
+        runs: [],
+        storedRunCount: 0,
+        runsLoading: false,
+        dataChecks: null,
+        dirty: true,
+      });
+      get().log("info", message);
     },
 
     openExample: async (id) => {
