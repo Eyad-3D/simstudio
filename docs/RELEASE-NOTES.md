@@ -255,6 +255,16 @@ sections.
   from and the sources it must never come from, such as the UNECE website,
   ev-database.org and EUPL files; the tests fail on a row that names one.
   (CON-31)
+- A run on a typed profile instead of a standard cycle says so in its
+  messages: its figures cannot be compared with published ones. The
+  examples' *City Cycle* and *Mixed Cycle* are such hand-made demo profiles,
+  and their descriptions now say so; the Properties sketch of a typed
+  profile reads *Custom profile (not a standard cycle)*. The examples'
+  Monitor and Hybrid Control Unit ports show the unit of the signal they
+  are wired to (km/h, N·m, %, V, A, 1/min) instead of bare numbers, and the
+  Battery Electric Car's description no longer names an inverter it does
+  not have (the motor's loss map holds the inverter's losses). No result
+  changes. (CON-26)
 - Help: press F1, or click **?** at the top right, to open LightSim's help
   in your web browser. It comes with the app and needs no internet
   connection: two tutorials, how-to guides, a page for every part with its

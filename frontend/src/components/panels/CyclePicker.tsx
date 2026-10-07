@@ -144,7 +144,7 @@ export function CyclePreview({ cycleId, points }: { cycleId: string; points: [nu
         />
       </svg>
       <figcaption className="mt-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
-        {info ? `${info.name}: ` : "Custom profile: "}
+        {info ? `${info.name}: ` : "Custom profile (not a standard cycle): "}
         {stats}
         {info?.phases.length ? ` · phases ${info.phases.map((p) => p[0]).join(", ")}` : ""}
         {info?.note && <span className="block">{info.note}</span>}

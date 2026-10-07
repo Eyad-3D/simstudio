@@ -107,6 +107,14 @@ def simulate(
         )
     ctx.performance = case.kind != "cycle"  # the trace is sampled every solver step
     ctx.full_throttle = case.kind == "acceleration"
+    if case.kind == "cycle":  # say when the figures cannot be compared (CON-26)
+        for el_id, cdef in model.cdef_of.items():
+            if cdef.id == "signal.driving_task" and not model.params_of[el_id].get("cycle"):
+                rt.message("info", f"Driving Task '{model.elements[el_id].label}' follows a typed "
+                                   f"profile (a demo or your own points), not a standard "
+                                   f"drive cycle: compare its "
+                                   f"figures only with runs on the same profile, not with "
+                                   f"published ones.")
     # the run ends when the vehicle has driven this far, m (None: at the duration)
     end_d = (max(0.0, case.startLine) + case.endDistance
              if case.endDistance and case.endDistance > 0 else None)

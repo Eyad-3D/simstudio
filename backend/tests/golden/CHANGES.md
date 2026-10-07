@@ -741,3 +741,16 @@ constant (bev-car 5,765.68 N on each front wheel and 3,686.25 N on each
 rear one; hybrid-car 30/30/20/20 % of its weight).
 
 No headline number or channel moved.
+
+## CON-26: a run on a typed profile says it is not a standard drive cycle; example monitor ports carry units
+
+A run of kind *Cycle* whose Driving Task follows a typed profile instead of
+a bundled drive cycle now starts with an info message saying its figures
+cannot be compared with published ones. The City Cycle and Mixed Cycle are
+such profiles (9 hand-made points), so the four fixtures gained that
+message. The examples' Monitor and Hybrid Control Unit ports now carry the
+unit of the signal they are wired to (Velocity, Torque, Percent, Voltage,
+Current, Rotational Speed) instead of "No Unit", which changes only the
+unit shown with those monitors' channels.
+
+No headline number or channel moved.

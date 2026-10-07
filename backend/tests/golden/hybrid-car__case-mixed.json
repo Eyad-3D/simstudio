@@ -5,10 +5,11 @@
  "variant": "shipped",
  "case_step_s": 1.0,
  "store_every": 1,
- "change": "Wheel and axle normal loads are recorded (MOD-40)",
+ "change": "CON-26: a run on a typed profile says it is not a standard drive cycle; example monitor ports carry units",
  "status": "success",
  "messages": [
-  "info: Case 'Mixed Cycle' solved: 600 steps × 1 s (100 sub-steps each), 601 points recorded, 67 result channels."
+  "info: Case 'Mixed Cycle' solved: 600 steps × 1 s (100 sub-steps each), 601 points recorded, 67 result channels.",
+  "info: Driving Task 'Vehicle Task' follows a typed profile (a demo or your own points), not a standard drive cycle: compare its figures only with runs on the same profile, not with published ones."
  ],
  "summary": {
   "HV Battery — final SOC": [51.95, "%"],

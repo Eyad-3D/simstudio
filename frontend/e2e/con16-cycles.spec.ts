@@ -25,7 +25,7 @@ test("CON-16: WLTC in three clicks sets the case length and shows the trace's fi
 
   // back to the typed profile: its editor and its own sketch return
   await field.selectOption("");
-  await expect(page.getByText(/^Custom profile: 600 s · /)).toBeVisible();
+  await expect(page.getByText(/^Custom profile \(not a standard cycle\): 600 s · /)).toBeVisible();
   await expect(page.getByRole("button", { name: /^Profile.*Edit…$/ })).toBeVisible();
 });
 
