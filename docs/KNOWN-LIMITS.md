@@ -220,15 +220,22 @@ lap model), STD-35 (tracks from GPS or OpenStreetMap), MOD-43 (events and
 scoring), CON-11 (driving a lap's speed as a drive cycle), MOD-08 (state
 of power), MOD-09 (heat over an endurance).
 
-### Signal units are not checked
+### Signal units are checked, not converted
 
-Data Checks now report two signals wired into the same input (UX-37), but
-units are not checked: a battery's *SOC* output is in % (0-100), and a
-Script, Lookup or PID block that expects 0-1 gets 0-100 without a warning.
+Data Checks warn when a signal wire joins two different units (VAL-17),
+such as a battery's *SOC* in % (0-100) into an input that expects 0-1, or a
+vehicle speed into a rotational speed. Only ports with a unit are judged:
+a Script's ports have one when you pick it next to the port's name, a PID's
+inputs when you set its *Setpoint & Feedback Unit*, a Lookup Table's when
+you set *Input X Unit* and *Input Y Unit*; a port left at *Not set* (No
+Unit) is not checked. The motors', brakes', engine's and clutch's commands
+are 0-1 (Fraction) in the library. Nothing is converted: the number on the
+wire arrives as it is, and the run gives no message.
 
-*Workaround:* in the Data Bus panel, check that the units at both ends of
-each link match; divide percentages by 100 where a block expects 0-1.
-*Roadmap:* VAL-17.
+*Workaround:* set the units of your Script, PID and Lookup inputs, and read
+the warnings in Data Checks; divide by 100 in a Script where a block expects
+0-1.
+*Roadmap:* automatic conversion on wires is not planned yet.
 
 ### Computed values read 0 in the first result point
 

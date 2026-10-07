@@ -652,6 +652,7 @@ function slugify(name: string): string {
 /** Add/rename/remove per-instance signal ports (Script, Monitor). */
 function DynamicPortsEditor({ element }: { element: ElementInstance }) {
   const setDynamicPorts = useProjectStore((s) => s.setDynamicPorts);
+  const unitGroups = useProjectStore((s) => s.unitGroups);
   const ports = element.dynamicPorts ?? [];
   const commit = (next: PortDef[]) => setDynamicPorts(element.id, next);
   const add = (direction: "input" | "output") => {
@@ -713,6 +714,21 @@ function DynamicPortsEditor({ element }: { element: ElementInstance }) {
             onBlur={(e) => e.target.value !== p.name && rename(p, e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
           />
+          <select
+            className="ss-input w-[92px] text-[11px]"
+            aria-label={`Unit of ${p.name}`}
+            title="The unit this port gives or expects. Data Checks warn when a wire joins two different units, such as a SOC in % into a port set to Fraction (0-1); nothing is converted."
+            value={p.unitGroup ?? "No Unit"}
+            onChange={(e) =>
+              commit(ports.map((q) => (q.id === p.id ? { ...q, unitGroup: e.target.value } : q)))
+            }
+          >
+            {Object.entries(unitGroups).map(([group, unit]) => (
+              <option key={group} value={group}>
+                {group === "No Unit" ? "Not set" : unit === "-" || unit === group ? group : `${group} (${unit})`}
+              </option>
+            ))}
+          </select>
           <button
             className="text-[color:var(--ss-text-dim)] hover:text-[color:var(--ss-err)]"
             title="Remove port (disconnects its wires)"

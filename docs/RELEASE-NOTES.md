@@ -29,6 +29,7 @@ sections.
 | The P2 Hybrid Car example takes its road load as EPA's own coefficients (A 68.64 N, B 0.9093 N/(km/h), C 0.025078 N/(km/h)²) with *Coefficients Include Driveline Losses* ticked, so the driveline drag they hold is no longer counted again in its final drive (98 %); its cases start at re-balanced charges (UDDS 56.74 %, HWFET 58.87 %, Mixed 51.92 %) | EPA city (UDDS) 2.94 → 2.84, highway (HWFET) 3.29 → 3.23, Mixed Cycle 2.93 → 2.88 l/100 km, against EPA's 2.91 and 2.94. The city figure is now below EPA's: the model has no cold start | MOD-11 |
 | The P2 Hybrid Car's control script starts or stops the engine only when asked for 0.2 s in a row (at standstill it still stops at once), so one step's reading of the input shaft, which rings for a few steps as the clutch closes, no longer switches it; its cases start at re-balanced charges (UDDS 56.34 %, HWFET 58.92 %, Mixed 51.96 %) | EPA city (UDDS) 2.84 l/100 km unchanged, with 30 engine starts instead of 32; highway (HWFET) 3.23 → 3.24, Mixed Cycle 2.88 l/100 km unchanged. The engine's starts no longer change with small changes to the model or the step (fuel still moves by up to about 0.004 l/100 km at the 10 ms step): with the example as MOD-18 left it, a brake inertia of 0.14 kg·m² or less added an engine start at the 10 ms step only | MOD-18 |
 | The E-Motor's and Engine's Speed, a clutch's Slip Speed and the battery's Terminal Voltage hold the state at their own time, as 0.2.0 promised for every channel (before: the state one solver step, 10 ms, earlier); a clutch that starts open shows its slip from t = 0 on, and a clutch's Torque now includes the part the solver adds as the clutch locks | These channels move by one solver step: a motor spun up from rest no longer reads 0 1/min at t = 0.01 s, and a battery's RC-branch voltage (and the open-circuit voltage's fall with SOC) shows in the step it happens instead of one step later; the R0 drop already did. Scripts and PIDs that read them get the current value, so the hybrid example's channels move slightly. No figure changes: the BEV's, and the hybrid's EPA city (2.84 l/100 km), highway (3.24) and Mixed Cycle (2.88), with the same engine starts | ENG-03 |
+| Signal blocks (Script, PID, Lookup, Road Profile) that read the output of a signal loop now run after the loop's blocks; before, every block from the loop on ran in the order of its internal id, so such a block could read a value one solver step (10 ms) old | Only models with a loop of signal blocks change, by at most one step's delay on the blocks after the loop; Data Checks name the loop's blocks, their order and the value that arrives a step late. The examples have no loop and do not change | VAL-17 |
 
 ### New
 
@@ -361,6 +362,18 @@ sections.
   2,300 kg* instead of the clock time) in the run lists, legends and
   summary; *Run info* edits the name and keeps a note, both stored with
   the run. (RES-10)
+- Data Checks catch signal wires that give wrong numbers without a
+  message (VAL-17): a percentage into an input that expects 0-1 (a
+  battery's *SOC* in %, 0-100, into a Script, PID or Lookup Table input set
+  to *Fraction*, or into a motor's or brake's command), the other way
+  round, and any two different units on one wire (a vehicle speed into a
+  rotational speed). A Script's ports get a unit list next to their names,
+  a PID a *Setpoint & Feedback Unit* and a Lookup Table an *Input X Unit*
+  and *Input Y Unit*; left at *Not set*, a port is not checked. The library
+  gives the 0-1 commands (Driver outputs, motor, brake, throttle and
+  clutch inputs) the new unit *Fraction* and the road grade *Percent*.
+  A loop of signal blocks is named with its blocks only, the order they
+  run in each step and the value that arrives one step late.
 
 ### Fixed
 
