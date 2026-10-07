@@ -102,6 +102,28 @@ cleared it for shipping.
    project record only the cycle's id, so a corrected or resampled cycle gets
    a new id, file and row, and the old one stays.
 
+8. Data may ship only under a licence in
+   [`scripts/licenses/data-allowed.txt`](../scripts/licenses/data-allowed.txt):
+   public-domain dedications and open data licences that ask only for credit
+   (CC0, CC BY 4.0, CDLA-Permissive, the UK and Canadian Open Government
+   Licences), permissive code licences (Apache-2.0, MIT, BSD-3-Clause),
+   reuse rights written into law (US federal works, EU reuse under
+   Decision 2011/833/EU, Japanese official texts), LightSim's own data, and
+   single facts quoted with their source. Never bundle data under a
+   non-commercial (NC) or no-derivatives (ND) licence, a share-alike licence
+   (CC BY-SA, ODbL), GPL, LGPL, AGPL or EUPL, with no licence, or with only
+   a permission on request: such sources may be offered for users to fetch
+   or import themselves. List the row's licence terms in
+   [`scripts/licenses/data-licences.json`](../scripts/licenses/data-licences.json).
+9. Before data from a new outside source reaches a pull request, add the
+   source to
+   [`scripts/licenses/model-sources.json`](../scripts/licenses/model-sources.json)
+   with its licence and one of three classes: **BUNDLE** (may ship, with
+   credit), **USER-IMPORT** (never bundled; the user fetches or imports it
+   on their own terms, such as VECTO missions under EUPL or BPX cell sets
+   under CC BY-SA) or **LEARN** (read for the method, copy nothing, such as
+   OpenLAP under GPL).
+
 Rules 2–5 come from the roadmap research of September 2026 (`open-source-repos`
 §3.1, not kept in this repository). Check them again when the data is added.
 
@@ -130,6 +152,18 @@ fails when:
 - a shipped row is `cleared = no`, or a `cleared = yes` row has an unknown
   licence. Shipped rows that are still `pending` are listed as a warning in
   every test run.
+- a shipped row has no licence terms in `scripts/licenses/data-licences.json`,
+  or a term that `scripts/licenses/data-allowed.txt` does not list (rule 8).
+  Non-commercial, no-derivatives, share-alike and copyleft terms, no licence
+  and permission-on-request fail even if someone adds them to that list, and
+  so does a `licence` column that names one in words. `LicenseRef-Unknown`
+  (provenance not recorded) passes only while the row is `pending`; the
+  owner's sign-off replaces it with the real term.
+- a shipped row whose licence asks for credit (CC BY, OGL, Apache-2.0, MIT,
+  BSD, EU reuse) has no credit text.
+- a model source in `scripts/licenses/model-sources.json` has no class, a
+  BUNDLE source has a licence outside the allow-list, or a shipped row's
+  `source` names a USER-IMPORT or LEARN source (rule 9).
 
 The check reads the files git tracks, so `git add` a new data file before you
 run it. Projects you save while developing go to `backend/dev-projects/`,
