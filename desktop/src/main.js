@@ -223,6 +223,13 @@ async function openDoc(file) {
   if (error) shell.showItemInFolder(file);
 }
 
+// The Idea issue form (.github/ISSUE_TEMPLATE/idea.yml); GitHub fills a
+// form field from the query parameter named after its id.
+function feedbackUrl(version) {
+  const q = new URLSearchParams({ template: "idea.yml", title: "What stopped me: ", version });
+  return `https://github.com/Eyad-3D/simstudio/issues/new?${q}`;
+}
+
 function buildMenu() {
   const projectsDir = path.join(app.getPath("userData"), "projects");
   const knownLimits = bundledDoc("KNOWN-LIMITS.md", "docs/KNOWN-LIMITS.md");
@@ -272,6 +279,13 @@ function buildMenu() {
         {
           label: "Third-Party Notices",
           click: () => openDoc(notices),
+        },
+        { type: "separator" },
+        {
+          // BIZ-35: opens the public Idea form in the browser, with the
+          // version filled in; nothing is sent unless the user submits it.
+          label: "What Stopped You?…",
+          click: () => shell.openExternal(feedbackUrl(app.getVersion())),
         },
         { type: "separator" },
         {

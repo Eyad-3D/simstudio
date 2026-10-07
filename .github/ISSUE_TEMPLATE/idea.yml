@@ -2,6 +2,11 @@ name: Idea
 description: Suggest a feature, an improvement, or a model or template to share.
 labels: [idea]
 body:
+  - type: input
+    id: version
+    attributes:
+      label: LightSim version (optional)
+      description: Help → About shows it. Help → What Stopped You? fills it in.
   - type: textarea
     id: job
     attributes:
