@@ -325,6 +325,14 @@ sections.
   choosing which values its form asks. Your templates are files in the
   projects folder (`templates/`), versioned, and a project records the
   template and version it came from. (CON-18)
+- A fourth example, *Efficient Electric Sedan*, sized after the 2022 Tesla
+  Model 3 RWD from EPA's 2022 Test Car List (test mass, road load, rated
+  power, gearing), asks what low drag buys you: on WLTC it takes 11.8
+  kWh/100 km against the Battery Electric Car's 14.1. On EPA's city and
+  highway cycles it gives 190 and 163 MPGe at the socket, against 185.3 and
+  170.1 in EPA's own tests of the car; the tests hold it within 5 %. The
+  FASTSim vehicle file's mass and motor power, which it cites from
+  evspecifications.com, were not used. (CON-07)
 - Help: press F1, or click **?** at the top right, to open LightSim's help
   in your web browser. It comes with the app and needs no internet
   connection: two tutorials, how-to guides, a page for every part with its

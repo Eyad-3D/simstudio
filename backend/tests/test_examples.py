@@ -22,7 +22,7 @@ from app.main import app
 from app.solver import simulate
 
 client = TestClient(app)
-EXAMPLES = {"bev-car", "fs-electric", "hybrid-car"}
+EXAMPLES = {"aero-bev", "bev-car", "fs-electric", "hybrid-car"}
 
 
 @pytest.fixture

@@ -7803,7 +7803,9 @@ WMTC motorcycle cycles and the long-haul truck route come from its cycle files,
 and the WLTC class 3b, UDDS and HWFET files were first converted from them
 (they equal the EU and EPA tables value for value); and the P2 Hybrid Car's
 auxiliary load, transmission efficiency and wheel inertia follow its vehicle
-database.
+database; the Efficient Electric Sedan's battery size and load split come from
+its 2022_Tesla_Model_3_RWD.csv, and the US label estimate follows the formulas
+of its simdrivelabel module.
 ------------------------------------------------------------------------------
 
 [NOTICE]

@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 KINDS = {"measured", "datasheet", "estimated", "library default", "generated"}
 
 
-@pytest.mark.parametrize("example", ["bev-car", "hybrid-car"])
+@pytest.mark.parametrize("example", ["aero-bev", "bev-car", "hybrid-car"])
 def test_every_example_value_has_a_source_kind(example):
     raw = json.loads((ROOT / "projects" / f"{example}.json").read_text(encoding="utf-8"))
     for system in raw["systems"]:

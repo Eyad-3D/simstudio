@@ -386,6 +386,15 @@ minimum or an average, for example from the CSV export, or put the
 
 ## The examples
 
+- **Efficient Electric Sedan:** a Tesla Model 3 RWD class car with EPA's
+  test mass, road load, rated power and gearing, but the Battery Electric
+  Car's motor maps scaled to 192 kW, not the car's own (more efficient)
+  motor, and a 54 kWh battery from FASTSim's file, which gives no source.
+  Its city figure comes out about 2 % better and its highway figure about
+  4 % worse than EPA's tests of the car. Only one of the seven
+  question-led examples the roadmap plans ships so far (gear ratios,
+  diesel against petrol, a two-wheeler, a truck, a gear-by-battery study
+  and control recipes are still to come). *Roadmap:* CON-07.
 - **P2 Hybrid Car:** sized after the Hyundai Ioniq Hybrid, with its test
   mass and road load from EPA data (EPA's own coefficients A/B/C, with the
   axle's losses counted once), but its engine, motor and battery maps

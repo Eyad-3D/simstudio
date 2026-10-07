@@ -53,8 +53,11 @@ The *Start* page (and **Open**) lists a second example, a P2 hybrid sized
 after the Hyundai Ioniq Hybrid and driven on the EPA city and highway
 cycles, and a third, *FS Electric (generic)*, a Formula Student electric car
 with a 75 m acceleration test, an autocross lap and an endurance energy
-case, next to your own projects; each example's entry lists the results to
-expect. Examples open as copies, so change them freely: **Save** keeps your
+case, and a fourth, *Efficient Electric Sedan*, a Tesla Model 3 RWD class
+car on EPA's test data that asks what low drag buys you, next to your own
+projects; each example's entry lists the results to expect. **Home →
+Templates** starts a new project from a pre-wired template with a short
+form instead. Examples open as copies, so change them freely: **Save** keeps your
 copy as a project of your own. To watch a run as it happens, pick the *City Cycle (live, 10×)* case and
 change values while it runs (try the Driver's P and I gains, or lock the
 Differential).
@@ -405,6 +408,10 @@ is no token check. To reach a development engine through another host name
 | `GET /api/examples` | List the examples shipped with the app, each with `hidden` (hidden from the Open menu) |
 | `GET /api/examples/{id}` | Load an example as shipped (read-only: no `revision`; the UI opens it as a copy with a new id) |
 | `POST /api/examples/{id}/hide`, `POST /api/examples/restore` | Hide an example from the Open menu / list every hidden one again |
+| `GET /api/templates`, `POST /api/templates/{id}/new` | Vehicle templates (built-in and your own) / a new project from one, with its form's `values` |
+| `POST /api/templates`, `DELETE /api/templates/{id}` | Save a model as a template of your own / delete one |
+| `POST /api/label-estimate` | US window-sticker estimate (not certified) from UDDS and HWFET runs, every step listed |
+| `POST /api/vehicle-tests` | One-click vehicle tests (`tests`: `accel_0_100`, `accel_80_120`, `top_speed`, `constant_speed`, `gradeability`, `coast_down`) |
 | `POST /api/validate` | Run Data Checks on a project payload |
 | `POST /api/simulate` | Validate + solve one case synchronously |
 | `WS /api/simulate/run` | Live run: client sends `start`, then optional `set_param` / `cancel`; server streams `step` / `message` events and a final `done` with the full result |
