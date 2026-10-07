@@ -21,7 +21,10 @@ test("STD-10: a table imports from a CSV file with a preview, converted units an
   const preview = page.getByRole("dialog", { name: /Import .* from bad\.csv/ });
   await expect(preview.getByText("Row 3: 'abc' in cell B3")).toBeVisible();
   await expect(preview.getByRole("button", { name: /^Apply/ })).toBeDisabled();
-  await preview.getByRole("button", { name: "Cancel", exact: true }).click();
+  // Esc closes the preview only, not the parameter dialog under it
+  await page.keyboard.press("Escape");
+  await expect(preview).toBeHidden();
+  await expect(dialog).toBeVisible();
 
   // a good one: semicolons, decimal commas and kV, stored in V
   await input.setInputFiles({

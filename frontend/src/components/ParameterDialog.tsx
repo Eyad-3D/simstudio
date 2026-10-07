@@ -17,7 +17,13 @@ export function ParameterDialog() {
     if (!paramDialogId) return;
     const onKey = (e: KeyboardEvent) => {
       // the first Esc closes a parameter's help card (UX-10), the next the dialog
-      if (e.key === "Escape" && !document.querySelector(".ss-help-card:popover-open")) closeParamDialog();
+      // (an import preview over the dialog closes first, on its own)
+      if (
+        e.key === "Escape" &&
+        !document.querySelector(".ss-help-card:popover-open") &&
+        !document.querySelector(".ss-import-dialog")
+      )
+        closeParamDialog();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

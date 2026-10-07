@@ -129,7 +129,7 @@ function ImportTableDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[110] flex items-center justify-center bg-black/35"
+      className="ss-import-dialog fixed inset-0 z-[110] flex items-center justify-center bg-black/35"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
