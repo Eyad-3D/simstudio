@@ -300,6 +300,14 @@ sections.
   Only the air density follows the weather until the climate-control load
   (MOD-41) arrives; the presets' notes say so. No existing case changes.
   (CON-30)
+- **Simulations → Vehicle tests**: one-click 0-100 and 80-120 km/h, top
+  speed with what limits it, consumption and range at 50, 90 and 120 km/h,
+  the steepest grade held at 30 km/h and a virtual coast-down that returns
+  the road-load coefficients A, B and C, each from runs of the model as it
+  is. The Battery Electric Car: 0-100 km/h in 7.12 s, 80-120 in 4.98 s,
+  160 km/h limited by its motor's maximum speed, 9.4 / 14.1 / 19.6 kWh/100
+  km at 50 / 90 / 120 km/h. The hybrid's coast-down gives back its EPA
+  coefficients within 2 %. (CON-06)
 - Help: press F1, or click **?** at the top right, to open LightSim's help
   in your web browser. It comes with the app and needs no internet
   connection: two tutorials, how-to guides, a page for every part with its

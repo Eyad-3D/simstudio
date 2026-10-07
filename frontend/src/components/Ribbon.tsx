@@ -34,6 +34,7 @@ import type { Project } from "../types";
 import { resetDockLayout } from "./DockLayout";
 import { useDismiss } from "./useDismiss";
 import { LabelEstimateDialog } from "./LabelEstimate";
+import { VehicleTestsDialog } from "./VehicleTests";
 import { confirmDialog } from "../dialog";
 import { openHelp } from "../help";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
@@ -313,6 +314,7 @@ function SimulationsTab() {
   const cases = store.project?.cases ?? [];
   const activeCase = cases.find((c) => c.id === store.activeCaseId);
   const [labelOpen, setLabelOpen] = useState(false);
+  const [testsOpen, setTestsOpen] = useState(false);
   return (
     <>
       <RibbonGroup label="Cases">
@@ -402,6 +404,13 @@ function SimulationsTab() {
       </RibbonGroup>
       <RibbonGroup label="Standard figures">
         <BigButton
+          icon={Gauge}
+          label="Vehicle tests"
+          title="One-click vehicle tests: 0-100 and 80-120 km/h, top speed, consumption and range at constant speed, steepest grade, virtual coast-down"
+          disabled={store.running || !store.project}
+          onClick={() => setTestsOpen(true)}
+        />
+        <BigButton
           icon={Fuel}
           label="US label"
           title="US window-sticker estimate (not certified): runs the model on EPA's city and highway cycles and shows each step to the label figures"
@@ -410,6 +419,7 @@ function SimulationsTab() {
         />
       </RibbonGroup>
       {labelOpen && <LabelEstimateDialog onClose={() => setLabelOpen(false)} />}
+      {testsOpen && <VehicleTestsDialog onClose={() => setTestsOpen(false)} />}
     </>
   );
 }

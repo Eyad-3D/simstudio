@@ -552,6 +552,11 @@ minimum or an average, for example from the CSV export, or put the
   with altitude. The electric car's winter and hot-day cases add a fixed
   2.5 kW load instead. Hourly weather files cannot be loaded.
   *Roadmap:* MOD-41, MOD-09, CON-30 (second step).
+- **Vehicle tests leave out a few.** *Vehicle tests* has no hill start, no
+  range test that drives a battery down to empty over repeated cycles (the
+  summary's *Range at this consumption* estimates it from one cycle), and
+  no elasticity test held in one gear. *Roadmap:* CON-06 (follow-up),
+  STU-39.
 - **US label estimate from two cycles only.** *Simulations → US label*
   uses EPA's derived two-cycle method. The five-cycle tests (US06, SC03 at
   35 °C, a cold FTP at −7 °C) need heat and climate models LightSim does

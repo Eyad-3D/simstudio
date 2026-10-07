@@ -388,5 +388,11 @@ class LabelEstimateRequest(BaseModel):
     modelYear: int = 2017
 
 
+class VehicleTestsRequest(BaseModel):
+    """CON-06: a project and the tests to run on it (None: all)."""
+    project: Project
+    tests: Optional[list[str]] = None
+
+
 class ValidateRequest(BaseModel):
     project: Project

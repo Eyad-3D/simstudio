@@ -24,6 +24,7 @@ Endpoints:
   POST /api/validate           run Data Checks on a project
   POST /api/simulate           run a simulation case, returns SimResult
   POST /api/label-estimate     US window-sticker estimate from UDDS and HWFET (CON-32)
+  POST /api/vehicle-tests      one-click vehicle tests: acceleration, top speed, ... (CON-06)
   WS   /api/simulate/run       live run: streams progress/steps, accepts
                                set_param and cancel while running
 """
@@ -46,7 +47,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from . import cycles, label, run_store, security, storage
+from . import cycles, label, run_store, security, storage, vehicle_tests
 from .library import load_library, unit_groups
 from .paths import static_dir
 from .schemas import (
@@ -57,6 +58,7 @@ from .schemas import (
     SimulateRequest,
     StoredRun,
     ValidateRequest,
+    VehicleTestsRequest,
 )
 from .solver import simulate
 from .validation import validate_project
@@ -340,6 +342,20 @@ def us_label_estimate(req: LabelEstimateRequest) -> dict:
     try:
         return label.estimate(req.project, req.caseId, req.modelYear)
     except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+@app.post("/api/vehicle-tests")
+def run_vehicle_tests(req: VehicleTestsRequest) -> dict:
+    """CON-06: 0-100 and 80-120 km/h, top speed, constant-speed consumption,
+    gradeability and a virtual coast-down on the model as it is."""
+    checks = validate_project(req.project)
+    errors = [c.text for c in checks if c.level == "error"]
+    if errors:
+        raise HTTPException(status_code=422, detail=f"Data check failed: {errors[0]}")
+    try:
+        return vehicle_tests.run_tests(req.project, req.tests)
+    except vehicle_tests.TestSetupError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
 
 

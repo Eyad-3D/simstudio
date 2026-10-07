@@ -402,3 +402,17 @@ export function labelEstimate(project: Project, caseId: string | null, modelYear
     body: JSON.stringify({ project, caseId, modelYear }),
   });
 }
+
+/** One figure from the one-click vehicle tests (CON-06). */
+export interface VehicleTestRow {
+  what: string;
+  value: number | null;
+  unit: string;
+  how: string;
+  /** why the figure is missing or what limits it */
+  note: string;
+}
+
+export function vehicleTests(project: Project, tests: string[]): Promise<{ rows: VehicleTestRow[]; note: string }> {
+  return request("/vehicle-tests", { method: "POST", body: JSON.stringify({ project, tests }) });
+}
