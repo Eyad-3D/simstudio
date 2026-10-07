@@ -592,3 +592,13 @@ minimum or an average, for example from the CSV export, or put the
   these terms, and they may change in a later release. The open-source parts
   inside the app keep their own licences, listed in `THIRD-PARTY-NOTICES.txt`
   (*Help → Third-Party Notices*). *Roadmap:* BIZ-01, BIZ-03.
+- **Some licence questions have no clear answer yet.** The licence
+  agreement does not define "non-commercial", so it does not say clearly
+  whether a sponsored Formula Student team, a thesis written at a
+  company or an industry-funded university project is free. It allows
+  installs on "your own computers" only, so not on university lab PCs or
+  a company's software portal, and it has no trial for companies. Licence
+  questions go to a public GitHub issue: there is no private address
+  yet. A [draft FAQ](licensing/licence-faq.md) answers 20 cases and marks
+  the unclear ones *Ask*; a [proposed revision](licensing/EULA-proposal.md)
+  awaits the owner's approval. *Roadmap:* BIZ-29, BIZ-30.
