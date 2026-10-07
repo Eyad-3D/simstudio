@@ -28,6 +28,7 @@ from typing import Callable, Optional
 from .. import cycles
 from ..library import library_by_id
 from ..schemas import ComponentDef, ElementInstance, PortDef, Project
+from .scaling import inertia_scale
 
 JOINT_TYPES = {"mech.differential", "mech.transfer_case", "mech.clutch"}
 SOURCE_TYPES = {"motor.emotor": "motor", "engine.combustion": "engine"}
@@ -467,8 +468,8 @@ def build_model(
                         queue.append((el_id, pid2, m, region, None))
                 enqueue_peers(el_id, pid, m, region)
             elif t in SOURCE_TYPES:
-                if first_visit:
-                    seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
+                if first_visit:  # (a resized machine's rotor: scaling, MOD-47)
+                    seg.inertia += float(p.get("inertia_kgm2", 0)) * inertia_scale(t, p) * m * m
                     seg.sources.append(SourceRef(
                         el_id=el_id, kind=SOURCE_TYPES[t], m=m, region=region))
                 enqueue_peers(el_id, pid, m, region)

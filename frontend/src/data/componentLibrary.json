@@ -1454,6 +1454,45 @@
           "description": "How much torque the motor may use while it brakes the car and recovers energy (as a generator), as a share of its full-load torque at the same speed and voltage: 100 % brakes as hard as it can drive, 50 % half as hard.",
           "typical": "100 % for most motors; 30–70 % to model a battery or inverter that limits recuperation.",
           "whereToFind": "The motor or inverter datasheet's generator (regeneration) torque curve compared with its motor curve, or the vehicle's recuperation limit."
+        },
+        {
+          "key": "torque_scale_pct",
+          "variability": "fixed",
+          "label": "Torque Scale",
+          "unit": "%",
+          "default": 100,
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000,
+          "description": "Resizes the machine as if made longer or shorter: its torque at every speed × this, its losses at that torque × this, and its drag and rotor inertia × this. 100 % uses the maps as typed. Data Checks show the resized machine.",
+          "typical": "100 % (the default) · 50–200 % in a sizing sweep; outside that range use the other machine's own maps.",
+          "whereToFind": "Your sizing study: the torque you need ÷ this machine's peak torque."
+        },
+        {
+          "key": "speed_scale_pct",
+          "variability": "fixed",
+          "label": "Speed Scale",
+          "unit": "%",
+          "default": 100,
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000,
+          "description": "Resizes the machine as if rewound to run faster at the same voltage and power: every speed × this and every torque ÷ this, with the loss at each point that of the matching point, and the Maximum Speed × this. The rotor inertia stays. 100 % uses the maps as typed.",
+          "typical": "100 % (the default) · 50–200 % in a sizing sweep, often with the gear ratio changed the other way.",
+          "whereToFind": "Your sizing study: the maximum speed you want ÷ this machine's."
+        },
+        {
+          "key": "voltage_scale_pct",
+          "variability": "fixed",
+          "label": "Voltage Scale",
+          "unit": "%",
+          "default": 100,
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000,
+          "description": "Resizes the machine as if rewound for another voltage: the full-load map's voltage axis × this, with torque, speed and losses unchanged. Use it to move a 400 V motor to an 800 V bus. 100 % uses the maps as typed.",
+          "typical": "100 % (the default) · 200 % to take a 400 V-class motor to 800 V.",
+          "whereToFind": "The bus voltage you want ÷ the voltage this motor's map was measured at."
         }
       ]
     },
@@ -2927,6 +2966,19 @@
           "description": "The crankshaft and flywheel's resistance to speeding up, added to everything that turns with the engine.",
           "typical": "Car engines with flywheel 0.1–0.3 kg·m² (the default 0.18 kg·m²); small single-cylinder engines 0.02–0.05 kg·m².",
           "whereToFind": "The engine maker's data, or CAD of the crankshaft and flywheel."
+        },
+        {
+          "key": "engine_scale_pct",
+          "variability": "fixed",
+          "label": "Engine Scale",
+          "unit": "%",
+          "default": 100,
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000,
+          "description": "Resizes the engine as if its displacement were × this at the same speeds: its full-load torque, drag torque and inertia × this, and its fuel flow × this at × this torque, so its fuel use per kWh (BSFC) map is unchanged (EPA ALPHA's engine scaling, without its small-engine BSFC adjustment). 100 % uses the maps as typed.",
+          "typical": "100 % (the default) · 50–200 % in a sizing sweep.",
+          "whereToFind": "Your sizing study: the displacement or power you want ÷ this engine's."
         }
       ]
     },

@@ -436,6 +436,21 @@ sections.
   peak (120 A) takes 3.886 s over 75 m instead of 3.744. The parameter
   dialog shows only the fields of the mode chosen. Existing models and the
   examples do not change. (MOD-08)
+- E-Motor: *Torque Scale*, *Speed Scale* and *Voltage Scale*; Combustion
+  Engine: *Engine Scale* (all 100 % by default). They resize the machine
+  with its maps, so a sizing sweep stays realistic: torque × k_T with the
+  loss at that torque × k_T and the drag and rotor inertia × k_T (a longer
+  machine); every speed × k_n and torque ÷ k_n at the same power and the
+  loss of the matching point, the Maximum Speed × k_n (a rewound machine);
+  the full-load map's voltage axis × k_V; an engine's torque, drag, inertia
+  and fuel flow × k at the same fuel use per kWh (EPA ALPHA's engine
+  scaling, without its small-engine fuel adjustment). Data Checks show the
+  resized machine next to the original (*peak torque 465 N·m (was 310),
+  maximum speed 16,000 1/min, peak power 225 kW (was 150)*), check the
+  scaled maps against the bus voltage and the maximum speed as for any
+  map, and warn outside 50–200 %. All four can be swept in a study. The
+  Battery Electric Car's motor at 150 % torque takes it to 100 km/h in
+  5.59 s instead of 7.10. Existing models do not change. (MOD-47)
 
 ### Fixed
 

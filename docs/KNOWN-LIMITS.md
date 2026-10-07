@@ -296,6 +296,17 @@ minimum or an average, for example from the CSV export, or put the
   own energy pass; they have no residual row (see *Lap energy balance
   error*). *Roadmap:* MOD-03 (gear losses with inertia), VAL-03 (energy
   audit table).
+- **Resized machines follow simple scaling rules.** An E-Motor's *Speed
+  Scale* treats the machine as rewound, with each point's loss that of the
+  matching point of the original, as if through an ideal gear: a real
+  faster-running rewind loses more in its iron at the higher frequency.
+  The *Torque Scale* scales every loss with the active length, so end
+  windings and bearings (which do not grow with it) are over-scaled for
+  long machines. The Engine Scale keeps the fuel use per kWh; small engines
+  really lose a little more to heat. Data Checks give the resized machine's
+  peak torque, speed and power, but no chart of the scaled map beside the
+  original yet. Use 50–200 %; beyond it, use the other machine's own maps.
+  *Roadmap:* MOD-12 (e-drive upgrade), MOD-13 (engine Willans line).
 - **The air is dry, still and the same along the road.** Air drag uses the
   density the Ambient block's temperature and pressure give (1.204 kg/m³,
   20 °C and 101.325 kPa, without an Ambient), but not the road's altitude

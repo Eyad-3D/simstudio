@@ -530,6 +530,9 @@ Messages.
   its rev limiter: control scripts should set the throttle to 0, or switch
   the engine off, while the clutch is open. *Engine Torque* is the net
   shaft torque.
+- **Resizing** — an E-Motor's *Torque*, *Speed* and *Voltage Scale* and an
+  engine's *Engine Scale* rescale the machine's maps together
+  (`app/solver/scaling.py` states the rules), for sizing sweeps.
 - **Fuel Tank** — its density turns the fuel burnt into litres, and its
   *CO₂ per kg of Fuel* (3.17 by default, for petrol) gives the *CO₂
   emissions* row of the summary. Without a tank, 0.745 kg/l and 3.17 are

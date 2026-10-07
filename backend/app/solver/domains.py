@@ -62,6 +62,7 @@ from .runtime import (
     tyre_mu,
 )
 from .sandbox import ScriptSandbox, ScriptSpec
+from .scaling import max_speed_rpm, scaled
 from .scripting import ScriptError
 from .slave import ParamResult, Slave, StepResult, VarDef, split_var
 
@@ -226,7 +227,7 @@ class RunContext:
                     self.batteries[el_id] = b
                 elif cdef.id == "motor.emotor":
                     full_load = self.table(el_id, "full_load_torque")
-                    max_rpm = motor_max_rpm(full_load.pts, p.get("max_speed_rpm", 0))
+                    max_rpm = motor_max_rpm(full_load.pts, max_speed_rpm(p))
                     self.motors[el_id] = MotorCache(
                         el_id=el_id,
                         full_load=full_load,
@@ -508,6 +509,7 @@ class RunContext:
             policy = list(own)
         raw = self.params(el_id).get(key)
         pts = parse_table2d(raw) if pdef.type == "table2d" else parse_table1d(raw)
+        pts = scaled(cdef.id, key, pts, self.params(el_id))  # a resized machine (MOD-47)
         uses = [MapUse(el_id, f"'{pdef.label}' table", a.name, a.unit, 0.0) for a in axes]
         self.map_use += uses
         return Map(pts, f"{cdef.name} '{el.label}' {pdef.label}", policy, uses)
@@ -825,18 +827,20 @@ class RunContext:
                 mc = self.motors[el_id]
                 p = self.params(el_id)
                 mc.q4_scale = max(0.0, float(p.get("q4_torque_scale_pct", 100)) / 100.0)
-                mc.full_load.set(parse_table2d(p.get("full_load_torque", {})))
-                mc.loss.set(parse_table2d(p.get("power_loss", {})))
-                mc.drag.set(parse_table1d(p.get("drag_torque", {})))
-                mc.max_rpm = motor_max_rpm(mc.full_load.pts, p.get("max_speed_rpm", 0))
+                for m, key, parse in ((mc.full_load, "full_load_torque", parse_table2d),
+                                      (mc.loss, "power_loss", parse_table2d),
+                                      (mc.drag, "drag_torque", parse_table1d)):
+                    m.set(scaled("motor.emotor", key, parse(p.get(key, {})), p))
+                mc.max_rpm = motor_max_rpm(mc.full_load.pts, max_speed_rpm(p))
             if el_id in self.engines:
                 ec = self.engines[el_id]
                 p = self.params(el_id)
                 ec.idle_rpm = max(1.0, float(p.get("idle_speed_rpm", ec.idle_rpm)))
                 ec.reentry_rpm = float(p.get("fuel_cut_reentry_rpm", ec.reentry_rpm))
-                ec.full_load.set(parse_table1d(p.get("full_load_torque", {})))
-                ec.drag.set(parse_table1d(p.get("drag_torque", {})))
-                ec.fuel_map.set(parse_table2d(p.get("fuel_map", {})))
+                for m, key, parse in ((ec.full_load, "full_load_torque", parse_table1d),
+                                      (ec.drag, "drag_torque", parse_table1d),
+                                      (ec.fuel_map, "fuel_map", parse_table2d)):
+                    m.set(scaled("engine.combustion", key, parse(p.get(key, {})), p))
             if el_id in self.fuelcells:
                 fc = self.fuelcells[el_id]
                 p = self.params(el_id)

@@ -42,7 +42,8 @@ from .solver.network import (
     SIGNAL_BLOCK_TYPES,
     ports_of,
 )
-from .solver.runtime import AMBIENT_C, AMBIENT_KPA, air_density, ocv_mean
+from .solver.runtime import AMBIENT_C, AMBIENT_KPA, RPM, air_density, ocv_mean
+from .solver.scaling import VALID_RANGE, max_speed_rpm, scale_keys, scaled
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
 PROPULSION = {
@@ -722,6 +723,9 @@ def _plausibility_checks(model: Model, add: Add) -> None:
                                f"auxiliaries use about 0.3–5 kW (up to about 30 kW for a "
                                f"bus's heating and air conditioning). Check the value and "
                                f"its unit.", el)
+        elif cdef.id in ("motor.emotor", "engine.combustion") and any(
+                (num(p, k) or 100.0) != 100.0 for k in scale_keys(cdef.id)):
+            _scale_checks(cdef.id, p, el, add)
         elif cdef.id == "electric.climate" and model.ambient is None:
             add("info", f"'{el.label}' takes the outside temperature from an Ambient, and the "
                         f"model has none: it runs at 20 °C, where it neither heats nor cools. "
@@ -752,6 +756,44 @@ def _plausibility_checks(model: Model, add: Add) -> None:
         add("error", f"Vehicle '{veh.label}' has a Centre of Gravity Height of {h:g} m, but all "
                      f"its wheels are on the {on} axle, so no load can shift between "
                      f"axles. Set Axle to {fix} wheels.", veh, ids=[w.el_id for w in wheels])
+
+
+def _scale_checks(part: str, p: dict, el, add: Add) -> None:
+    """A resized motor or engine (MOD-47): the scaled machine next to the
+    original (info), and scales outside the range the rules hold for."""
+    lo, hi = VALID_RANGE
+    for key in scale_keys(part):
+        try:
+            k = float(p.get(key, 100)) / 100.0
+        except (TypeError, ValueError):
+            continue
+        if k > 0 and not lo <= k <= hi:
+            add("warning", f"'{el.label}' is scaled to {k * 100:g} % ({key.replace('_pct', '')}), "
+                           f"outside the {lo * 100:g}–{hi * 100:g} % the scaling rules are meant "
+                           f"for: a machine this much smaller or larger is built differently. "
+                           f"Use its own maps instead.", el)
+    try:
+        if part == "motor.emotor":
+            raw = parse_table2d(p.get("full_load_torque"))
+            new = scaled(part, "full_load_torque", raw, p)
+            peak = (max(t for _, row in raw for _, t in row), max(t for _, row in new for _, t in row))
+            power = tuple(max(t * n / RPM for _, row in fl for n, t in row) / 1000.0
+                          for fl in (raw, new))
+            n_top = (motor_max_rpm(raw, p.get("max_speed_rpm", 0)), motor_max_rpm(new, max_speed_rpm(p)))
+            add("info", f"'{el.label}' is resized: peak torque {peak[1]:,.0f} N·m (was "
+                        f"{peak[0]:,.0f}), maximum speed {n_top[1]:,.0f} 1/min (was "
+                        f"{n_top[0]:,.0f}), peak power {power[1]:,.0f} kW (was {power[0]:,.0f}); "
+                        f"its loss map, drag and inertia are scaled with it.", el)
+        else:
+            raw = parse_table1d(p.get("full_load_torque"))
+            new = scaled(part, "full_load_torque", raw, p)
+            power = tuple(max(t * n / RPM for n, t in fl) / 1000.0 for fl in (raw, new))
+            add("info", f"'{el.label}' is resized: peak torque {max(t for _, t in new):,.0f} N·m "
+                        f"(was {max(t for _, t in raw):,.0f}), peak power {power[1]:,.0f} kW "
+                        f"(was {power[0]:,.0f}); its fuel map, drag and inertia are scaled with "
+                        f"it, at the same fuel use per kWh.", el)
+    except (TableError, ValueError):
+        pass  # reported with the other parameters
 
 
 def _cell_pack_checks(p: dict, el, add: Add) -> None:
@@ -803,10 +845,11 @@ def _map_checks(model: Model, add: Add) -> None:
     elements, params = model.elements, model.params_of
 
     def table(el_id: str, key: str, two_d: bool) -> list | None:
-        try:
-            return (parse_table2d if two_d else parse_table1d)(params[el_id][key])
+        try:  # as the run reads it: a resized machine's maps scaled (MOD-47)
+            pts = (parse_table2d if two_d else parse_table1d)(params[el_id][key])
         except (KeyError, TableError):
             return None
+        return scaled(model.cdef_of[el_id].id, key, pts, params[el_id])
 
     def num(el_id: str, key: str, default: float) -> float:
         try:
@@ -842,7 +885,7 @@ def _map_checks(model: Model, add: Add) -> None:
             if not fl or not loss:
                 continue
             n_curve = motor_max_rpm(fl, 0)
-            n_max = motor_max_rpm(fl, params[el_id].get("max_speed_rpm", 0))
+            n_max = motor_max_rpm(fl, max_speed_rpm(params[el_id]))
             if n_max > n_curve:
                 add("warning", f"E-Motor '{label}': its Maximum Speed ({fmt(n_max)} 1/min) is "
                                f"beyond its full-load data, which ends at {fmt(n_curve)} 1/min — "
@@ -892,10 +935,12 @@ def _map_checks(model: Model, add: Add) -> None:
         if src is None or not bus.motors:
             continue
         if bus.battery:
-            ocv = table(src, "ocv_table", False)
+            cells = params[src].get("pack_model") == CELLS
+            ocv = table(src, "cell_ocv_table" if cells else "ocv_table", False)
             if not ocv:
                 continue
-            volts = (min(v for _, v in ocv), max(v for _, v in ocv))
+            n_s = max(1, round(num(src, "series_cells", 96))) if cells else 1
+            volts = (n_s * min(v for _, v in ocv), n_s * max(v for _, v in ocv))
         elif bus.fuelcell:
             pol = table(src, "polarization", False)
             if not pol:
