@@ -26,7 +26,7 @@ EXIT_OK, EXIT_CHECKS, EXIT_NOT_VALID, EXIT_USAGE = 0, 1, 2, 3
 
 #: the subcommands, for the engine's entry point to tell them from its own options
 COMMANDS = ("run", "check", "export", "show", "params", "parts", "examples", "schema",
-            "notebook", "version")
+            "notebook", "ai", "version")
 
 
 class UsageError(Exception):
@@ -283,6 +283,12 @@ def cmd_version(args) -> int:
     return EXIT_OK
 
 
+def cmd_ai(args) -> int:
+    from .ai_access import cli_ai
+
+    return cli_ai(args, _out)
+
+
 # -- parser -----------------------------------------------------------------------
 def parser() -> argparse.ArgumentParser:
     p = _Parser(prog="lightsim", description="Run, check and read LightSim models.",
@@ -349,6 +355,11 @@ def parser() -> argparse.ArgumentParser:
     n.add_argument("--out", "-o", help="the .ipynb file (default: <project name>.ipynb)")
     n.add_argument("--force", action="store_true", help="replace an existing file")
     n.set_defaults(func=cmd_notebook)
+
+    from .ai_access import add_ai_parser
+
+    add_ai_parser(add("ai", "Show or change what AI assistants may see and do (off by default)."))
+    sub.choices["ai"].set_defaults(func=cmd_ai)
 
     v = add("version", "Print the version of LightSim, its Python API and its file formats.")
     v.set_defaults(func=cmd_version)
