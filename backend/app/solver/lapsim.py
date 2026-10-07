@@ -731,22 +731,22 @@ class LapRun:
             return []
         best = min(range(done), key=lambda k: self.lap_times[k])
         total = sum(self.lap_times)
-        rows = [("Lap time", round(self.lap_times[best], 3), "s")]
+        rows = [("Lap time", self.lap_times[best], "s")]
         if self.laps > 1:
-            rows += [("Lap 1 time", round(self.lap_times[0], 3), "s"),
-                     ("Total time", round(total, 3), "s")]
+            rows += [("Lap 1 time", self.lap_times[0], "s"),
+                     ("Total time", total, "s")]
         if len(tr.sector_ends) > 1:
-            rows += [(f"Sector {k + 1} time", round(st, 3), "s")
+            rows += [(f"Sector {k + 1} time", st, "s")
                      for k, st in enumerate(self.sector_times[best])]
-        rows.append(("Average speed", round(done * tr.length / total * 3.6, 2), "km/h"))
+        rows.append(("Average speed", done * tr.length / total * 3.6, "km/h"))
         if not tr.closed:
-            rows.append(("Speed at the finish", round(ctx.v * 3.6, 2), "km/h"))
+            rows.append(("Speed at the finish", ctx.v * 3.6, "km/h"))
         net = self.source_net_j()
-        rows.append(("Energy per lap", round(net / 3.6e6 / done, 4), "kWh"))
+        rows.append(("Energy per lap", net / 3.6e6 / done, "kWh"))
         if ctx.batteries and total > 0:
-            rows.append(("RMS battery power", round(math.sqrt(self.p_sq / total) / 1000.0, 3), "kW"))
-        rows += [(f"Time limited by {name}", round(s, 3), "s") for name, s in zip(LIMITS, self.limit_s)]
-        rows.append(("Lap energy balance error", round(self.balance_pct(), 3), "%"))
+            rows.append(("RMS battery power", math.sqrt(self.p_sq / total) / 1000.0, "kW"))
+        rows += [(f"Time limited by {name}", s, "s") for name, s in zip(LIMITS, self.limit_s)]
+        rows.append(("Lap energy balance error", self.balance_pct(), "%"))
         return rows
 
     def source_net_j(self) -> float:

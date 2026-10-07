@@ -42,7 +42,8 @@ from .solver.network import (
     ports_of,
 )
 from .solver.profiles import distance_axis, parse_profile
-from .solver.runtime import AMBIENT_C, AMBIENT_KPA, air_density
+from .solver.runtime import AMBIENT_C, AMBIENT_KPA, MAX_SUBSTEP, air_density
+from .solver.stability import solver_step
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
 PROPULSION = {
@@ -308,6 +309,7 @@ def validate_project(project: Project) -> list[DataCheck]:
         _map_checks(model, add)
         _lap_checks(project, add)
         _distance_checks(project, model, add)
+        _step_checks(project, add)
 
         if not model.drivelines and not any(b.consumers for b in model.buses):
             add("info", "Model has no driveline and no electrical loads — nothing will happen.")
@@ -625,6 +627,47 @@ def _lap_checks(project: Project, add: Add) -> None:
         for level, text, parts in lapsim.problems(model, case.outputEvery):
             add(level, f"Case '{case.name}': {text}", None if parts else track, ids=parts,
                 fix=_model_fix(text))
+
+
+def _step_checks(project: Project, add: Add) -> None:
+    """The solver step each case will use (stability.solver_step, ENG-14):
+    a note when a part too stiff for the 10 ms step makes it smaller (the run
+    takes longer, but its results hold), a warning when one is too stiff even
+    for the smallest step, a note for a clutch that can ring as it closes."""
+    seen: set[str] = set()
+    base = None
+    for case in [None, *project.cases]:
+        if case is not None and (case.kind == "lap" or not case.parameterOverrides):
+            continue  # the lap solver steps along the track; no values of its own: as the model
+        try:
+            model = build_model(project, {}, case.parameterOverrides if case else {})
+        except ModelError:
+            return  # reported above
+        choice = solver_step(model)
+        if case is None:
+            base = choice
+        elif (choice.step, choice.warnings) == (base.step, base.warnings):
+            continue  # its own values change nothing here
+        where = f"In case '{case.name}', " if case is not None else ""
+        if choice.step < MAX_SUBSTEP:
+            text = (f"{where}{choice.reason} is too stiff for the solver's {MAX_SUBSTEP * 1000:g} ms "
+                    f"step: the run will use {choice.step * 1000:.3g} ms and take about "
+                    f"{MAX_SUBSTEP / choice.step:.3g} times as long.")
+            if text not in seen:
+                seen.add(text)
+                add("info", text, ids=choice.el_ids,
+                    fix="Nothing to do if the value is right; otherwise lower it (a tyre's Slip "
+                        "Stiffness is about 10 to 30).")
+        for text, ids in choice.warnings:
+            if text in seen:
+                continue
+            seen.add(text)
+            too_stiff = "too stiff" in text
+            add("warning" if too_stiff else "info", f"{where}{text}", ids=ids,
+                fix=("Lower the value: the solver cannot step it reliably." if too_stiff else
+                     "Shown for information: the clutch's energy is conserved. For exact "
+                     "shaft speeds while it closes, set the case's Step to 0.0025 s and "
+                     "Store every to 400 (a point a second)."))
 
 
 def _distance_checks(project: Project, model: Model, add: Add) -> None:

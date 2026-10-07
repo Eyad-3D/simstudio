@@ -91,7 +91,7 @@ def test_check_only_flags_a_run_over_the_limit():
     assert free.status == "warning"
     assert any(m.level == "warning" and "Output Power Limit" in m.text and "80 kW" in m.text
                for m in free.messages)
-    assert s["Time to 100 km/h"].value == 8.55  # as without any limit
+    assert s["Time to 100 km/h"].value == pytest.approx(8.55, abs=0.005)  # as without any limit
 
     held = simulate(_car("0:0; 0.01:100; 30:100", 20.0, 0.1, performance=True,
                          output_power_limit_kW=80, power_limit_window_s=0.5), "case")
@@ -222,7 +222,7 @@ def test_usable_energy_left():
     empty = simulate(_car("0:0; 0.01:100; 30:100", 20.0, 0.1, performance=True,
                           output_power_limit_kW=80, capacity_kWh=0.2), "case")
     row = _rows(empty)[f"{BAT} — usable energy left"]
-    assert row.value == 0.0 and row.passed is False
+    assert row.value == pytest.approx(0.0, abs=1e-9) and row.passed is False
 
 
 def test_cancelled_run_marks_passes_not_valid():

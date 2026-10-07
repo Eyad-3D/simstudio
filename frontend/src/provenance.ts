@@ -58,6 +58,7 @@ const CASE_FIELDS: Record<string, [string, string, unknown?]> = {
   kind: ["Kind", "", "cycle"],
   endDistance: ["Distance", " m"],
   endLaps: ["Laps", ""],
+  chargeBalance: ["Charge balance", ""],
   startLine: ["Start line", " m", 0],
   referenceTime: ["Reference time", " s"],
 };

@@ -29,6 +29,9 @@ sections.
 | The P2 Hybrid Car example takes its road load as EPA's own coefficients (A 68.64 N, B 0.9093 N/(km/h), C 0.025078 N/(km/h)²) with *Coefficients Include Driveline Losses* ticked, so the driveline drag they hold is no longer counted again in its final drive (98 %); its cases start at re-balanced charges (UDDS 56.74 %, HWFET 58.87 %, Mixed 51.92 %) | EPA city (UDDS) 2.94 → 2.84, highway (HWFET) 3.29 → 3.23, Mixed Cycle 2.93 → 2.88 l/100 km, against EPA's 2.91 and 2.94. The city figure is now below EPA's: the model has no cold start | MOD-11 |
 | The P2 Hybrid Car's control script starts or stops the engine only when asked for 0.2 s in a row (at standstill it still stops at once), so one step's reading of the input shaft, which rings for a few steps as the clutch closes, no longer switches it; its cases start at re-balanced charges (UDDS 56.34 %, HWFET 58.92 %, Mixed 51.96 %) | EPA city (UDDS) 2.84 l/100 km unchanged, with 30 engine starts instead of 32; highway (HWFET) 3.23 → 3.24, Mixed Cycle 2.88 l/100 km unchanged. The engine's starts no longer change with small changes to the model or the step (fuel still moves by up to about 0.004 l/100 km at the 10 ms step): with the example as MOD-18 left it, a brake inertia of 0.14 kg·m² or less added an engine start at the 10 ms step only | MOD-18 |
 | The E-Motor's and Engine's Speed, a clutch's Slip Speed and the battery's Terminal Voltage hold the state at their own time, as 0.2.0 promised for every channel (before: the state one solver step, 10 ms, earlier); a clutch that starts open shows its slip from t = 0 on, and a clutch's Torque now includes the part the solver adds as the clutch locks | These channels move by one solver step: a motor spun up from rest no longer reads 0 1/min at t = 0.01 s, and a battery's RC-branch voltage (and the open-circuit voltage's fall with SOC) shows in the step it happens instead of one step later; the R0 drop already did. Scripts and PIDs that read them get the current value, so the hybrid example's channels move slightly. No figure changes: the BEV's, and the hybrid's EPA city (2.84 l/100 km), highway (3.24) and Mixed Cycle (2.88), with the same engine starts | ENG-03 |
+| Stored values and summary numbers keep every digit: 0.2.0 rounded each stored value to 5 decimals and the summary to 1 Wh, 1 g and 0.01 per 100 km | No result moves by more than that rounding, but small differences now show: one more kilogram on the Battery Electric Car takes its City Cycle from 11.1207 to 11.1240 kWh/100 km and its final SOC from 88.7640 to 88.7636 % (both read 11.12 kWh/100 km and 88.76 % before). The *Results* page shows at most 3 decimals; run files, study tables and their CSV have every digit | ENG-16 |
+| A hybrid's *Cycle* cases run charge-balanced (see *New*) | A hybrid case that starts at a charge its cycle does not end with now reports the fuel of a charge-neutral run: the P2 Hybrid Car's Mixed Cycle started at 30 % gives 2.878 l/100 km instead of the single run's 4.048 (which held the fuel spent recharging the battery). The examples' cases already start balanced and keep their figures (one run); their summaries gain three rows and *Messages* one line | ENG-33 |
+| The solver step gets smaller when the tyres' *Slip Stiffness* (or a propeller-type load) is too stiff for 10 ms | Models with stiff tyres no longer give numerical nonsense, and run slower: 5 ms from a *Slip Stiffness* of 20 (with the default share of weight on each wheel), 0.5 ms at 300. The FS Electric example (20) now runs at 5 ms: its 75 m time 3.744 → 3.751 s, 0-100 km/h 2.93 → 2.95 s, time held at 80 kW 3.77 → 3.62 s, 4.22 → 4.23 s at a 40 kW limit; its lap cases do not change. The Battery Electric and P2 Hybrid Cars keep 10 ms | ENG-14 |
 
 ### New
 
@@ -185,7 +188,7 @@ sections.
   electric car to make your own (280 kg, one rear E-Motor through a 4.4
   chain drive and an open differential, a 138s4p 7.2 kWh accumulator with
   the battery's Formula Student Electric preset, load transfer, downforce
-  and load-sensitive tyres). Its cases: *Acceleration 75 m* (3.74 s from
+  and load-sensitive tyres). Its cases: *Acceleration 75 m* (3.75 s from
   the start line, 119 km/h at the line), *Autocross (flying lap)* (57.7 s
   on LightSim's layout) and *Endurance energy* (23 laps, 22.5 km, with the
   Output Power Limit at a 30 kW endurance setting: 5.33 kWh net at the
@@ -194,7 +197,7 @@ sections.
   current season's rules), compares the results with FS Czech Republic
   2025 (acceleration 3.51–6.44 s, median 3.91 s; efficiency 3.19–6.15 kWh,
   median 5.25 kWh) and gives a sweep to try: the Output Power Limit from
-  40 to 80 kW on the 75 m case (4.22 to 3.74 s). The other examples do not
+  40 to 80 kW on the 75 m case (4.23 to 3.75 s). The other examples do not
   change.
 - The diagram's toolbar shows the zoom in % and offers Fit, 50, 100 and
   200 %. It floats over the diagram's top edge, and the bottom panels open
@@ -379,6 +382,59 @@ sections.
   straight starts braking 2.9 m after the profile slows at its 1,927 kg
   and 4.7 m after at 2,500 kg. Existing projects drive over time, as
   before. (ENG-34)
+- Each stored point keeps each channel's lowest, highest and
+  time-averaged value since the point before it, taken at every solver
+  step, so a short peak between two recorded points (a regeneration burst,
+  a torque spike) is in the run file: with *Store every* 10 on the Battery
+  Electric Car's City Cycle, the battery power's recorded points go down
+  to −9.56 kW and the stored lowest value to −11.19 kW, as at every solver
+  step. The battery's energies equal the sum over the solver steps of the
+  stored mean power to 1e-6. The charts do not draw these values yet.
+  Runs take about 15 % longer for it, except when each point is one solver
+  step. (ENG-16)
+- Before a run, LightSim checks the solver step against the stiffest
+  parts of the model: the tyres' *Slip Stiffness* (with the share of the
+  weight each wheel carries) and propeller-type loads. When one is too
+  stiff for the 10 ms step, the run uses a smaller step (to 0.5 ms at
+  least) instead of giving numerical nonsense, and Data Checks and
+  *Messages* say which part asked for it and how much longer the run
+  takes; a part too stiff even for 0.5 ms is a warning. On the Battery
+  Electric Car's City Cycle a *Slip Stiffness* of 300 gave a tyre slip of
+  14 (1,400 %) at 10 ms with no message; it now runs at 0.5 ms with a slip
+  under 0.001. A clutch that can ring as it closes at the 10 ms step gets
+  a note in Data Checks (the P2 Hybrid Car's does). The Battery Electric
+  and P2 Hybrid Cars keep the 10 ms step; the FS Electric example (*Slip
+  Stiffness* 20) runs at 5 ms. (ENG-14)
+- Charge-balanced hybrid runs: a case of kind *Cycle* whose model has an
+  engine and a battery runs the cycle again from the charge the battery
+  ended with, until its stored energy changes by less than 1 % of the
+  fuel's energy (at most 5 runs), so its fuel figure holds no energy the
+  battery gave or took, and the start charge no longer needs setting by
+  hand. *Charge balance* in the case settings (Auto, On, Off) turns it on
+  or off; Auto leaves out paced runs. The summary gives the start SOC it
+  found, the battery's energy change as a share of the fuel's and the
+  number of runs, and *Messages* each run's start and end charge. When it
+  does not settle, the run is a *warning* and the summary adds *Fuel
+  consumption, charge-corrected* from a straight line through the runs.
+  Fuel tank: *Lower Heating Value* (MJ/kg, 43 by default). Started at 30,
+  50 or 70 %, the P2 Hybrid Car's Mixed Cycle now gives 2.878 l/100 km in
+  2 runs (2.8777 from its hand-set start, in 1). (ENG-33)
+- Parameter sweeps run side by side on the computer's processor cores:
+  the engine runs a sweep's points in worker processes (one per core less
+  one, fewer when memory is short; each Script block keeps its own
+  locked-down worker), stores each as a run of the project as it ends and
+  sends back only its summary, so the app and the engine stay responsive.
+  A 16-point mass sweep of the Battery Electric Car's 600 s City Cycle took
+  48.6 s with 3 workers on a 4-processor machine, against 127.3 s one run
+  after another (2.6× faster), with the same results to the last digit;
+  while it ran, the engine answered in 1.5 ms (median; 2.5 ms for 95 % of
+  requests, up to 55 ms as a point's run was stored). A sweep can now have
+  up to 200 points (was 16). **Stop** stops the running points and leaves
+  the rest *not run*. The saved study records how many points ran at once,
+  each point's run time and the sweep's wall time, and its line in *Saved
+  studies* shows the speed-up. For scripts: `POST /api/studies` runs any
+  list of points of a case and answers with each point's summary (the
+  WebSocket `/api/studies/run` streams them). (ENG-05)
 
 ### Fixed
 
