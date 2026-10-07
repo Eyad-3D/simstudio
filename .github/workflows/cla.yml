@@ -1,0 +1,34 @@
+# Outside code needs a signed Contributor Licence Agreement (BIZ-13,
+# CONTRIBUTING.md). This check fails a pull request whose author is not in
+# .github/CLA-SIGNATORIES.txt, so outside code is not merged by mistake.
+# It reads only the pull request's author and the list on the base branch;
+# it runs no code from the pull request.
+name: CLA
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  cla:
+    name: Contributor licence agreement
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: .github/CLA-SIGNATORIES.txt
+          sparse-checkout-cone-mode: false
+      - name: Check the author
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          if grep -v '^#' .github/CLA-SIGNATORIES.txt | sed 's/[[:space:]]*$//' | grep -qixF -- "$AUTHOR"; then
+            echo "$AUTHOR is covered (owner, signed CLA or dependency bot)."
+          else
+            echo "::error::$AUTHOR has not signed LightSim's Contributor Licence Agreement. Outside code cannot be merged without it: see CONTRIBUTING.md."
+            exit 1
+          fi

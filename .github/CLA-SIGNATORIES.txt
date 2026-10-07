@@ -1,0 +1,7 @@
+# GitHub accounts whose pull requests may be merged (BIZ-13), one per line.
+# The owner and copyright holder needs no CLA. Everyone else is added only
+# after the owner has received their signed Contributor Licence Agreement
+# (docs/licensing/CLA-draft.md); record the date and the agreement's
+# version in a comment. Bots listed here only bump dependency versions.
+Eyad-3D
+dependabot[bot]
