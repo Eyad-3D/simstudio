@@ -21,8 +21,11 @@ pip install -r requirements.txt
 python -c "import lightsim; print(lightsim.__version__)"
 ```
 
-Run your scripts from `backend/`, or put `backend/` on `PYTHONPATH`. A
-package you can `pip install lightsim` is planned (see
+Run your scripts from `backend/`, or put `backend/` on `PYTHONPATH`. Or
+build a wheel and install it in any Python 3.11 environment:
+`python scripts/build-wheel.py`, then `pip install
+backend/dist-wheel/lightsim-*.whl`, which also gives you the `lightsim`
+command. LightSim is not on PyPI yet (see
 [Known issues](../../KNOWN-LIMITS.md)). `pandas` is optional: it gives
 you the results as a table (`Result.df`).
 

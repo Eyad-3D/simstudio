@@ -1,0 +1,69 @@
+# The lightsim Python wheel (AI-02): built and tested on every push and pull
+# request that touches the engine; uploaded to PyPI for a version tag, but
+# only once the owner has added the PYPI_API_TOKEN secret (an API token of
+# the PyPI account that holds the "lightsim" name). Without it the upload
+# step is skipped and says so.
+name: Python package
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    paths: ["backend/**", "scripts/build-wheel.py", "VERSION", ".github/workflows/python-package.yml"]
+  workflow_dispatch:
+
+jobs:
+  wheel:
+    name: Build and test the wheel
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Build
+        run: python scripts/build-wheel.py --out dist-wheel
+
+      # Installed into a clean environment, away from the repository
+      - name: Install and run an example
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          if [ -x "$RUNNER_TEMP/venv/bin/python" ]; then PY="$RUNNER_TEMP/venv/bin/python"; else PY="$RUNNER_TEMP/venv/Scripts/python.exe"; fi
+          "$PY" -m pip install dist-wheel/*.whl
+          cd "$RUNNER_TEMP"
+          "$PY" -m lightsim run bev-car --case "City Cycle"
+          "$PY" -c "import lightsim as ls; r = ls.run('hybrid-car'); assert r.ok, r.status"
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: lightsim-wheel
+          path: dist-wheel/*.whl
+          retention-days: 30
+
+  publish:
+    name: Upload to PyPI
+    needs: wheel
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: lightsim-wheel
+          path: dist-wheel
+      - name: Upload
+        env:
+          TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::notice::No PYPI_API_TOKEN secret: the wheel was not uploaded."
+            exit 0
+          fi
+          python -m pip install twine
+          python -m twine upload --non-interactive -u __token__ -p "$TOKEN" dist-wheel/*.whl

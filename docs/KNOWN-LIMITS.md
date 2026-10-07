@@ -555,8 +555,8 @@ minimum or an average, for example from the CSV export, or put the
 - **Scripting LightSim from Python or a terminal: early version.** The
   `lightsim` Python package and command-line tool (see *Python API* and
   *Command-line tool* in the help) run from the `backend/` folder of the
-  repository or as the desktop engine's `lightsim-backend run …`; there is
-  no `pip install lightsim` package yet. A parameter study's table in the
+  repository, as the desktop engine's `lightsim-backend run …`, or as a
+  wheel you build with `scripts/build-wheel.py`; it is not on PyPI yet. A parameter study's table in the
   project file still names its columns by the figures' labels, not their
   stable keys, so a renamed part changes its column names. *Roadmap:*
   AI-02, AI-07.

@@ -52,6 +52,15 @@ jobs:
           GOLDEN_REPORT: ${{ runner.temp }}/golden-report.md
         run: python -m pytest tests/ -q
 
+      # LightSim's own CI uses its command-line tool (AI-02): every example
+      # passes its Data Checks, and the electric car's City Cycle is a valid
+      # run (exit 0; 1 checks failed, 2 run not valid, 3 usage error).
+      - name: Command-line tool on the examples
+        working-directory: backend
+        run: |
+          for p in projects/*.json; do python -m lightsim check "$p"; done
+          python -m lightsim run projects/bev-car.json --case "City Cycle" --json -o "$RUNNER_TEMP/city.mat" > "$RUNNER_TEMP/city.json"
+
       # What the golden fixtures saw on this run: which headline numbers and
       # channels moved, old -> new and against which band
       # (backend/tests/golden/CHANGES.md explains the bands).
@@ -66,7 +75,8 @@ jobs:
 
   # Script blocks run in a worker process that Windows starts its own way (a
   # loopback socket pair, and a job object the engine holds). Run the worker's
-  # tests and the example cars, whose hybrid has a Script block, there too.
+  # tests and the example cars, whose hybrid has a Script block, there too,
+  # with the command-line tool, the AI access rules and the wheel.
   backend-windows:
     name: Backend on Windows (script process)
     runs-on: windows-latest
@@ -84,7 +94,7 @@ jobs:
 
       - name: Tests
         working-directory: backend
-        run: python -m pytest tests/test_script_sandbox.py tests/test_script_safety.py tests/test_examples_plausible.py -q
+        run: python -m pytest tests/test_script_sandbox.py tests/test_script_safety.py tests/test_examples_plausible.py tests/test_cli.py tests/test_ai_access.py tests/test_wheel.py -q
 
   # Fails when the example runs get more than 10 % slower than on the commit
   # this change starts from, timed on the same runner in alternating fresh
