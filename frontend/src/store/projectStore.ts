@@ -446,6 +446,10 @@ export interface ProjectState {
    *  Acceleration, Skidpad, Autocross and Endurance case (one undo) and run
    *  the four; their points show in Cases & Parameters. */
   runFsEvents: () => Promise<void>;
+  /** Add a cycle case that drives a lap read from a logger or lap simulator
+   *  file (STD-35), adding a Driving Task wired to the Driver when the model
+   *  has none (one undo). */
+  addImportedLap: (lap: api.LapLogResult, name: string, sha256: string) => void;
   /** Sequentially run a case once per swept value, each landing in run
    *  history; the study and its results table are saved with the project. */
   runSweep: (config: SweepConfig) => Promise<void>;
@@ -1815,6 +1819,63 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       ui.setRibbonTab("home");
       ui.focusPanel("cases");
       log("info", "Formula Student events run: their points are in Cases & Parameters → Formula Student points.");
+    },
+
+    addImportedLap: (lap, name, sha256) => {
+      const { project, log } = get();
+      if (!project) return;
+      const all = project.systems.flatMap((sys) => sys.elements.map((e) => ({ e, sys })));
+      const driver = all.find(({ e }) => e.componentDefId === "driver.driver");
+      const task = all.find(({ e }) => e.componentDefId === "signal.driving_task")?.e;
+      if (!task && !driver) {
+        log("error", "An imported lap needs a Driver to follow it: add one from Driver & Signals.");
+        return;
+      }
+      const taskId = task?.id ?? uid("el");
+      const caseId = uid("case");
+      updateProject((draft) => {
+        if (!task && driver) {
+          const sys = draft.systems.find((x) => x.id === driver.sys.id);
+          sys?.elements.push({
+            id: taskId,
+            componentDefId: "signal.driving_task",
+            label: "Imported lap",
+            position: { x: driver.e.position.x - 200, y: driver.e.position.y },
+            parameterOverrides: {},
+          });
+          // its target into the Driver, unless something already feeds it
+          const fed = draft.dataBusConnections.some(
+            (d) =>
+              (d.element2Id === driver.e.id && d.port2Id === "sig_target_in") ||
+              (d.element1Id === driver.e.id && d.port1Id === "sig_target_in"),
+          );
+          if (!fed)
+            draft.dataBusConnections.push({
+              id: uid("dbc"),
+              element1Id: taskId,
+              port1Id: "sig_demand",
+              element2Id: driver.e.id,
+              port2Id: "sig_target_in",
+            });
+        }
+        draft.cases.push({
+          id: caseId,
+          name,
+          duration: Math.ceil(lap.duration_s * 10) / 10,
+          timeStep: 0.1,
+          kind: "cycle",
+          outputEvery: lap.duration_s > 600 ? 10 : 1,
+          parameterOverrides: { [taskId]: { profile: lap.profile, cycle: "" } },
+        });
+      });
+      set({ activeCaseId: caseId });
+      log(
+        "info",
+        `Imported lap added as case '${name}': ${lap.duration_s.toLocaleString("en", { maximumFractionDigits: 1 })} s, ` +
+          `${(lap.distance_m / 1000).toLocaleString("en", { maximumFractionDigits: 3 })} km` +
+          `${lap.repeated > 1 ? ` (${lap.repeated} laps)` : ""}; source file SHA-256 ${sha256}. ` +
+          "Its speed comes from the file: LightSim gives the energy and the loads for that speed, not the cornering.",
+      );
     },
 
     runSweep: async ({ caseId, elementId, paramKey, values }) => {

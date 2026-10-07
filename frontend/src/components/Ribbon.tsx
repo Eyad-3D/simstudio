@@ -25,6 +25,7 @@ import {
   Sun,
   Timer,
   Trophy,
+  FileUp,
   Trash2,
   Undo2,
   Upload,
@@ -33,6 +34,7 @@ import * as api from "../api";
 import type { Project } from "../types";
 import { resetDockLayout } from "./DockLayout";
 import { useDismiss } from "./useDismiss";
+import { LapImportDialog } from "./LapImportDialog";
 import { confirmDialog } from "../dialog";
 import { openHelp } from "../help";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
@@ -309,6 +311,7 @@ function HomeTab() {
 
 function SimulationsTab() {
   const store = useProjectStore();
+  const [importing, setImporting] = useState(false);
   const cases = store.project?.cases ?? [];
   const activeCase = cases.find((c) => c.id === store.activeCaseId);
   return (
@@ -404,6 +407,14 @@ function SimulationsTab() {
           disabled={store.running || !store.project}
           onClick={() => void store.runFsEvents()}
         />
+        <BigButton
+          icon={FileUp}
+          label="Import lap"
+          title="Import a lap from a data logger or a lap simulator (CSV: speed against time or distance; layouts for GPS loggers, MoTeC i2, AiM Race Studio, OpenLAP and TUM laptime-simulation) and add it as a drive cycle case, optionally repeated to a 22 km endurance with a driver change stop. LightSim gives the energy and the loads for that speed."
+          disabled={store.running || !store.project}
+          onClick={() => setImporting(true)}
+        />
+        {importing && <LapImportDialog onClose={() => setImporting(false)} />}
       </RibbonGroup>
     </>
   );

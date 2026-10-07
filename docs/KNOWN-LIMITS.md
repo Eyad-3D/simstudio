@@ -268,6 +268,35 @@ only by coasting before the braking points:
 both to find the pace you want.
 *Roadmap:* MOD-44 (power-cap search, regeneration level), MOD-09 (heat).
 
+### Imported laps are drive cycles against time
+
+**Import lap** (STD-35) makes a lap from a logger or lap simulator into a
+drive cycle:
+
+- The Driving Task follows speed against time, so a trace against
+  distance is turned into time from its speed; driving it against
+  distance is ENG-34's work.
+- The logger layouts (MoTeC i2, AiM Race Studio, OpenLAP, TUM
+  laptime-simulation) are LightSim's reading of those tools, not checked
+  against teams' files.
+- Only one speed column is read: grade, elevation, GPS position and
+  lateral acceleration are not, so a lap on a hill is driven flat, and a
+  track cannot yet be built from the GPS trace.
+- Laps are split only by a lap number column, not by a GPS start line.
+- The trace is not smoothed: a spike in the speed is driven as it is
+  (LightSim warns about changes faster than 2.5 g). The drive cycles'
+  Driver has no brake balance, so hard braking can lock the driven wheels
+  (see *Lap mode is a quasi-steady-state estimate*).
+- The case keeps the speed trace, not the file; the file's SHA-256 is
+  written to *Messages* only. Saved import settings (presets of your own)
+  are not offered yet.
+
+*Workaround:* pick the columns by hand when a layout does not find them,
+and smooth a noisy speed in a spreadsheet first.
+*Roadmap:* STD-35 (GPS start line, grade, saved presets), ENG-34 (driving
+against distance), STD-02 (keeping the file in the project), STD-07
+(measured data).
+
 ### Signal units are not checked
 
 Data Checks now report two signals wired into the same input (UX-37), but

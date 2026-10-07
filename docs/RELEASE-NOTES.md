@@ -205,6 +205,17 @@ sections.
   the target*, and the Race Track's Limit channel the code 7, only in runs
   that coast; a run with neither set does not change. Sweep *Lift-and-Coast*
   for the lap time against the energy.
+- Import a lap from a data logger or lap simulator (STD-35): **Import lap**
+  (Simulations tab) reads a CSV with a lap's speed against time or
+  distance, with layouts for a generic file, GPS loggers, MoTeC i2, AiM
+  Race Studio, OpenLAP and TUM laptime-simulation (LightSim's reading of
+  those tools, not yet checked against teams' files), a column picker, the
+  speed unit, the lap to take (the fastest full lap by default), a preview
+  and warnings for gaps, spikes and rows left out. It adds a *Cycle* case
+  that drives the lap, optionally repeated to a 22 km endurance with a
+  driver change stop, and adds a Driving Task wired to the Driver if the
+  car has none. A trace against distance is turned into time (t = ∫ ds / v)
+  and keeps its distance within 0.5 %.
 - Wheel: *Lateral Friction μ_y* (0: the same as μ), *Load Sensitivity
   dμ/dFz* (per kN), *Nominal Load Fz0* (0: the wheel's static load) and
   *Friction Ellipse Exponent* (lap cases). The load sensitivity also acts

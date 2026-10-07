@@ -364,3 +364,45 @@ export function runSimulationLive(
     done,
   };
 }
+
+/** A logger or lap simulator layout the lap import knows (STD-35). */
+export interface LapLogPreset {
+  name: string;
+  note: string;
+  speedUnit: string;
+}
+
+export interface LapLogRequest {
+  text: string;
+  preset: string;
+  columns?: Partial<Record<"time" | "distance" | "speed" | "lap", string | null>>;
+  speedUnit?: string | null;
+  lap?: number | null;
+  repeatToKm?: number;
+  driverChangeS?: number;
+}
+
+/** A lap read from a file, as a Driving Task profile. */
+export interface LapLogResult {
+  columns: string[];
+  units: Record<string, string>;
+  preset: string;
+  picked: Record<"time" | "distance" | "speed" | "lap", string | null>;
+  laps: { lap: number; span: number; points: number }[];
+  lap: number | null;
+  duration_s: number;
+  distance_m: number;
+  source_distance_m: number | null;
+  repeated: number;
+  profile: string;
+  preview: [number, number][];
+  warnings: string[];
+}
+
+export async function laplogPresets(): Promise<LapLogPreset[]> {
+  return request<LapLogPreset[]>("/laplog/presets");
+}
+
+export async function readLapLog(req: LapLogRequest): Promise<LapLogResult> {
+  return request<LapLogResult>("/laplog/read", { method: "POST", body: JSON.stringify(req) });
+}

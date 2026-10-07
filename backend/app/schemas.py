@@ -393,3 +393,16 @@ class SimulateRequest(BaseModel):
 
 class ValidateRequest(BaseModel):
     project: Project
+
+
+class LapLogRequest(BaseModel):
+    """A lap from a data logger or lap simulator to read (STD-35)."""
+
+    text: str
+    preset: str = "Generic"
+    # {"time" | "distance" | "speed" | "lap": column name} over the preset's
+    columns: dict[str, Optional[str]] = Field(default_factory=dict)
+    speedUnit: Optional[str] = None
+    lap: Optional[int] = None
+    repeatToKm: float = 0.0
+    driverChangeS: float = 0.0

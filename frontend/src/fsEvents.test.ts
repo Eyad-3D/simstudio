@@ -8,8 +8,22 @@ const project: Project = {
   systems: [{ id: "s", name: "S", parentId: null, elements: [], connections: [] }],
   dataBusConnections: [],
   cases: [
-    { id: "a", name: "Acc", duration: 25, timeStep: 0.01, kind: "acceleration", fsEvent: "acceleration" },
-    { id: "e", name: "End", duration: 600, timeStep: 1, kind: "lap", fsEvent: "endurance" },
+    {
+      id: "a",
+      name: "Acc",
+      duration: 25,
+      timeStep: 0.01,
+      kind: "acceleration",
+      fsEvent: "acceleration",
+    },
+    {
+      id: "e",
+      name: "End",
+      duration: 600,
+      timeStep: 1,
+      kind: "lap",
+      fsEvent: "endurance",
+    },
   ],
 };
 
@@ -26,12 +40,20 @@ describe("Formula Student points table", () => {
   it("takes each event's newest run and adds up the points", () => {
     const runs = [
       run("r3", "e", [
-        { label: "Endurance time (FS Rules 2026 v1.1 (FSG))", value: 1305, unit: "s" },
+        {
+          label: "Endurance time (FS Rules 2026 v1.1 (FSG))",
+          value: 1305,
+          unit: "s",
+        },
         { label: "Endurance points (estimate)", value: 200.5, unit: "points" },
         { label: "Efficiency points (estimate)", value: 50, unit: "points" },
       ]),
       run("r2", "a", [
-        { label: "Acceleration time (FS Rules 2026 v1.1 (FSG))", value: 3.8, unit: "s" },
+        {
+          label: "Acceleration time (FS Rules 2026 v1.1 (FSG))",
+          value: 3.8,
+          unit: "s",
+        },
         { label: "Acceleration points (estimate)", value: 40, unit: "points" },
       ]),
       run("r1", "a", [{ label: "Acceleration points (estimate)", value: 10, unit: "points" }]),
@@ -47,11 +69,27 @@ describe("Formula Student points table", () => {
   it("names a broken rule and a missing reference", () => {
     const runs = [
       run("r1", "a", [
-        { label: "Acceleration time (FS Rules 2026 v1.1 (FSG))", value: 3.8, unit: "s" },
-        { label: "Rule check: power (EV 2.2.1)", value: 92, unit: "kW", limit: 80, passed: false },
+        {
+          label: "Acceleration time (FS Rules 2026 v1.1 (FSG))",
+          value: 3.8,
+          unit: "s",
+        },
+        {
+          label: "Rule check: power (EV 2.2.1)",
+          value: 92,
+          unit: "kW",
+          limit: 80,
+          passed: false,
+        },
         { label: "Acceleration points (estimate)", value: 0, unit: "points" },
       ]),
-      run("r2", "e", [{ label: "Endurance time (FS Rules 2026 v1.1 (FSG))", value: 1305, unit: "s" }]),
+      run("r2", "e", [
+        {
+          label: "Endurance time (FS Rules 2026 v1.1 (FSG))",
+          value: 1305,
+          unit: "s",
+        },
+      ]),
     ];
     const { rows } = fsPointsTable(project, runs);
     expect(rows[0].breach).toBe("power (EV 2.2.1): 92 kW over 80 kW");

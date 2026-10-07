@@ -11,7 +11,9 @@ test("MOD-43: one click runs the four FS events and shows their points", async (
   await ribbonTab(page, "Simulations").click();
   await page.getByRole("button", { name: "FS events" }).click();
 
-  const table = page.getByRole("table", { name: "Formula Student points table" });
+  const table = page.getByRole("table", {
+    name: "Formula Student points table",
+  });
   await expect(table).toBeVisible({ timeout: 60_000 });
   // every event ran: each has its time
   for (const ev of ["Acceleration", "Skidpad", "Autocross", "Endurance"]) {
@@ -26,7 +28,10 @@ test("MOD-43: one click runs the four FS events and shows their points", async (
   await showPanel(page, "Cases & Parameters");
   await page.getByLabel("Case", { exact: true }).selectOption({ label: "Skidpad" });
   await expect(page.locator("label", { hasText: /^FS event/ }).locator("select")).toHaveValue("skidpad");
-  await page.locator("label", { hasText: /^Reference time/ }).locator("input").fill("4.9");
+  await page
+    .locator("label", { hasText: /^Reference time/ })
+    .locator("input")
+    .fill("4.9");
   await page.getByRole("button", { name: "Run case" }).click();
   await showPanel(page, "Cases & Parameters");
   await expect(table.getByRole("row", { name: /^Skidpad/ })).toContainText(/\d+\.\d \/ 50/, { timeout: 60_000 });

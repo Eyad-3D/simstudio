@@ -38,8 +38,7 @@ export interface FsPointsRow {
   breach?: string;
 }
 
-const value = (run: SimRun, test: (label: string) => boolean) =>
-  run.result.summary.find((s) => test(s.label));
+const value = (run: SimRun, test: (label: string) => boolean) => run.result.summary.find((s) => test(s.label));
 
 /** One row per event (and efficiency) from the newest finished run of the
  *  case marked for it; a total of the points there are. */
@@ -47,9 +46,19 @@ export function fsPointsTable(project: Project, runs: SimRun[]): { rows: FsPoint
   const rows: FsPointsRow[] = [];
   for (const ev of FS_EVENTS) {
     const c = project.cases.find((x) => x.fsEvent === ev);
-    const row: FsPointsRow = { event: ev, caseId: c?.id, caseName: c?.name, maxPoints: FS_MAX_POINTS[ev] };
+    const row: FsPointsRow = {
+      event: ev,
+      caseId: c?.id,
+      caseName: c?.name,
+      maxPoints: FS_MAX_POINTS[ev],
+    };
     rows.push(row);
-    const eff: FsPointsRow = { event: "efficiency", caseId: c?.id, caseName: c?.name, maxPoints: FS_MAX_POINTS.efficiency };
+    const eff: FsPointsRow = {
+      event: "efficiency",
+      caseId: c?.id,
+      caseName: c?.name,
+      maxPoints: FS_MAX_POINTS.efficiency,
+    };
     if (ev === "endurance") rows.push(eff);
     if (!c) {
       row.note = "No case is marked for this event.";
@@ -69,7 +78,8 @@ export function fsPointsTable(project: Project, runs: SimRun[]): { rows: FsPoint
     const pts = value(run, (l) => l === `${name} points (estimate)`);
     row.points = pts?.value;
     const failed = run.result.summary.find((s) => s.label.startsWith("Rule check:") && s.passed === false);
-    if (failed) row.breach = `${failed.label.replace("Rule check: ", "")}: ${failed.value} ${failed.unit} over ${failed.limit} ${failed.unit}`;
+    if (failed)
+      row.breach = `${failed.label.replace("Rule check: ", "")}: ${failed.value} ${failed.unit} over ${failed.limit} ${failed.unit}`;
     if (pts?.notValid) row.note = `Not valid: ${pts.notValid}`;
     else if (pts == null) row.note = "Set the case's Reference time (the fastest team's time).";
     if (ev === "endurance") {
@@ -81,5 +91,8 @@ export function fsPointsTable(project: Project, runs: SimRun[]): { rows: FsPoint
     }
   }
   const scored = rows.filter((r) => r.points != null);
-  return { rows, total: scored.length ? scored.reduce((a, r) => a + (r.points ?? 0), 0) : undefined };
+  return {
+    rows,
+    total: scored.length ? scored.reduce((a, r) => a + (r.points ?? 0), 0) : undefined,
+  };
 }

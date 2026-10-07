@@ -43,12 +43,20 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from . import cycles, run_store, security, storage
+from . import cycles, laplog, run_store, security, storage
 from .library import load_library, unit_groups
 from .paths import static_dir
-from .schemas import DataCheck, Project, SimResult, SimulateRequest, StoredRun, ValidateRequest
+from .schemas import (
+    DataCheck,
+    LapLogRequest,
+    Project,
+    SimResult,
+    SimulateRequest,
+    StoredRun,
+    ValidateRequest,
+)
 from .solver import simulate
 from .validation import validate_project
 from .version import VERSION
@@ -299,6 +307,28 @@ def remove_runs(project_id: str) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"deleted": count, "stored": 0}
+
+
+class ErrorDetail(BaseModel):
+    detail: str
+
+
+@app.get("/api/laplog/presets")
+def get_laplog_presets() -> list[dict]:
+    """The logger and lap simulator layouts the lap import knows (STD-35)."""
+    return [{"name": k, "note": v["note"], "speedUnit": v["speed_unit"]}
+            for k, v in laplog.PRESETS.items()]
+
+
+@app.post("/api/laplog/read", responses={400: {"description": "The file cannot be read as a lap",
+                                               "model": ErrorDetail}})
+def read_laplog(req: LapLogRequest) -> dict:
+    """A lap from a logger or lap simulator CSV as a Driving Task profile."""
+    try:
+        return laplog.read_lap(req.text, req.preset, req.columns, req.speedUnit, req.lap,
+                               req.repeatToKm, req.driverChangeS).as_dict()
+    except laplog.LapLogError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/api/validate")

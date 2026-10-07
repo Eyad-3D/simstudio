@@ -3,7 +3,12 @@ import { useProjectStore } from "../../store/projectStore";
 import { FS_EVENT_NAMES, fsPointsTable } from "../../fsEvents";
 
 const fmt = (v: number | undefined, d: number) =>
-  v == null ? "—" : v.toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d });
+  v == null
+    ? "—"
+    : v.toLocaleString("en-GB", {
+        minimumFractionDigits: d,
+        maximumFractionDigits: d,
+      });
 
 /** The Formula Student points of the newest run of each event's case
  *  (MOD-43), shown once a case is marked for an event. */
@@ -64,9 +69,9 @@ export function FsPoints() {
         </tbody>
       </table>
       <p className="mt-1 text-[10px] text-[color:var(--ss-text-dim)]">
-        Estimates from the scoring formulas of FS Rules 2026 v1.1 (FSG) D 9, not official results. Each event
-        uses the newest finished run of its case; set each case&apos;s reference values (the best teams&apos; time
-        and energy). FSUK and FSAE score differently: check the current season&apos;s rules.
+        Estimates from the scoring formulas of FS Rules 2026 v1.1 (FSG) D 9, not official results. Each event uses the
+        newest finished run of its case; set each case&apos;s reference values (the best teams&apos; time and energy).
+        FSUK and FSAE score differently: check the current season&apos;s rules.
       </p>
     </section>
   );
