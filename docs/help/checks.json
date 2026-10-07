@@ -1,0 +1,1026 @@
+{
+ "_about": "The numbers and messages the help quotes, each with what produces it; backend/tests/test_docs.py checks them (LRN-12). A fact's text must be on its page; its expr, formatted with its format, must give a text inside it, or be true.",
+ "models": {
+  "first-car": {
+   "parts": [
+    [
+     "Vehicle 1",
+     "vehicle.body"
+    ],
+    [
+     "Driving Task 1",
+     "signal.driving_task"
+    ],
+    [
+     "Driver 1",
+     "driver.driver"
+    ],
+    [
+     "HV Battery Pack 1",
+     "battery.generic"
+    ],
+    [
+     "E-Motor 1",
+     "motor.emotor"
+    ],
+    [
+     "Final Drive 1",
+     "mech.final_drive"
+    ],
+    [
+     "Wheel 1",
+     "propulsion.wheel"
+    ]
+   ],
+   "steps": {
+    "parts": {},
+    "wired": {
+     "wires": [
+      [
+       "HV Battery Pack 1",
+       "pos",
+       "E-Motor 1",
+       "pos"
+      ],
+      [
+       "HV Battery Pack 1",
+       "neg",
+       "E-Motor 1",
+       "neg"
+      ],
+      [
+       "E-Motor 1",
+       "shaft",
+       "Final Drive 1",
+       "flange_in"
+      ],
+      [
+       "Final Drive 1",
+       "flange_out",
+       "Wheel 1",
+       "shaft"
+      ]
+     ]
+    },
+    "signals": {
+     "signals": [
+      [
+       "Driving Task 1",
+       "sig_demand",
+       "Driver 1",
+       "sig_target_in"
+      ],
+      [
+       "Vehicle 1",
+       "sig_speed",
+       "Driver 1",
+       "sig_speed_in"
+      ],
+      [
+       "Driver 1",
+       "sig_traction_cmd",
+       "E-Motor 1",
+       "sig_demand_in"
+      ]
+     ]
+    },
+    "share": {
+     "set": {
+      "Wheel 1": {
+       "vehicle_load_share_pct": 100
+      }
+     }
+    },
+    "values": {
+     "set": {
+      "Vehicle 1": {
+       "mass_kg": 1200,
+       "cd": 0.3,
+       "frontal_area_m2": 2.1
+      },
+      "HV Battery Pack 1": {
+       "capacity_kWh": 30
+      },
+      "Driving Task 1": {
+       "cycle": "wltc-3b"
+      }
+     },
+     "case": {
+      "duration": 1800
+     }
+    }
+   }
+  }
+ },
+ "runs": {
+  "bev-city": {
+   "example": "bev-car",
+   "case": "case-city"
+  },
+  "bev-city-2300": {
+   "example": "bev-car",
+   "case": "case-city",
+   "set": {
+    "Vehicle": {
+     "mass_kg": 2300
+    }
+   }
+  },
+  "bev-wltc": {
+   "example": "bev-car",
+   "case": "case-wltc"
+  },
+  "bev-wltc-40": {
+   "example": "bev-car",
+   "case": "case-wltc",
+   "set": {
+    "HV Battery Pack": {
+     "capacity_kWh": 40
+    }
+   }
+  },
+  "bev-wltc-2127": {
+   "example": "bev-car",
+   "case": "case-wltc",
+   "set": {
+    "Vehicle": {
+     "mass_kg": 2127
+    }
+   }
+  },
+  "bev-wltc-hvac": {
+   "example": "bev-car",
+   "case": "case-wltc-hvac"
+  },
+  "bev-wltc-cd": {
+   "example": "bev-car",
+   "case": "case-wltc",
+   "set": {
+    "Vehicle": {
+     "cd": 0.24
+    }
+   }
+  },
+  "hy-udds": {
+   "example": "hybrid-car",
+   "case": "case-udds"
+  },
+  "hy-hwfet": {
+   "example": "hybrid-car",
+   "case": "case-hwfet"
+  },
+  "hy-mixed": {
+   "example": "hybrid-car",
+   "case": "case-mixed"
+  },
+  "hy-udds-12v": {
+   "example": "hybrid-car",
+   "case": "case-udds",
+   "set": {
+    "12 V Loads": {
+     "power_kW": 1.0
+    }
+   }
+  },
+  "hy-hwfet-200": {
+   "example": "hybrid-car",
+   "case": "case-hwfet",
+   "set": {
+    "Vehicle": {
+     "mass_kg": 1674
+    }
+   }
+  },
+  "fs-accel": {
+   "example": "fs-electric",
+   "case": "case-accel-75m"
+  },
+  "fs-accel-40": {
+   "example": "fs-electric",
+   "case": "case-accel-75m",
+   "set": {
+    "Accumulator": {
+     "output_power_limit_kW": 40
+    }
+   }
+  },
+  "fs-autocross": {
+   "example": "fs-electric",
+   "case": "case-autocross"
+  },
+  "fs-endurance": {
+   "example": "fs-electric",
+   "case": "case-endurance"
+  },
+  "fs-endurance-25": {
+   "example": "fs-electric",
+   "case": "case-endurance",
+   "set": {
+    "Accumulator": {
+     "output_power_limit_kW": 25
+    }
+   }
+  },
+  "fs-endurance-35": {
+   "example": "fs-electric",
+   "case": "case-endurance",
+   "set": {
+    "Accumulator": {
+     "output_power_limit_kW": 35
+    }
+   }
+  },
+  "fs-endurance-3p": {
+   "example": "fs-electric",
+   "case": "case-endurance",
+   "set": {
+    "Accumulator": {
+     "capacity_Ah": 10.5
+    }
+   }
+  },
+  "fs-endurance-3p-full": {
+   "example": "fs-electric",
+   "case": "case-endurance",
+   "set": {
+    "Accumulator": {
+     "capacity_Ah": 10.5,
+     "capacity_kWh": 5.41,
+     "internal_resistance_ohm": 0.4
+    },
+    "Vehicle": {
+     "mass_kg": 274
+    }
+   }
+  },
+  "fs-accel-50": {
+   "example": "fs-electric",
+   "case": "case-accel-75m",
+   "set": {
+    "Accumulator": {
+     "output_power_limit_kW": 50
+    }
+   }
+  },
+  "fs-accel-60": {
+   "example": "fs-electric",
+   "case": "case-accel-75m",
+   "set": {
+    "Accumulator": {
+     "output_power_limit_kW": 60
+    }
+   }
+  },
+  "fs-accel-70": {
+   "example": "fs-electric",
+   "case": "case-accel-75m",
+   "set": {
+    "Accumulator": {
+     "output_power_limit_kW": 70
+    }
+   }
+  },
+  "fs-endurance-5p": {
+   "example": "fs-electric",
+   "case": "case-endurance",
+   "set": {
+    "Accumulator": {
+     "capacity_Ah": 17.5
+    }
+   }
+  },
+  "fs-accel-mu13": {
+   "example": "fs-electric",
+   "case": "case-accel-75m",
+   "set": {
+    "Wheel RL": {
+     "mu": 1.3
+    },
+    "Wheel RR": {
+     "mu": 1.3
+    }
+   }
+  },
+  "first-car-wltc": {
+   "model": "first-car@values"
+  }
+ },
+ "facts": [
+  {
+   "page": "tutorials/first-run.md",
+   "text": "the run ends as *success* with *Consumption* 11.12 kWh/100 km",
+   "expr": "status('bev-city') == 'success' and round(v('bev-city', 'Consumption'), 2) == 11.12"
+  },
+  {
+   "page": "tutorials/first-run.md",
+   "text": "11.12 kWh/100 km",
+   "expr": "v('bev-city', 'Consumption')",
+   "format": "{:.2f} kWh/100 km"
+  },
+  {
+   "page": "tutorials/first-run.md",
+   "text": "*Distance driven* 7.292 km",
+   "expr": "v('bev-city', 'Distance driven')",
+   "format": "{:.3f} km"
+  },
+  {
+   "page": "tutorials/first-run.md",
+   "text": "final SOC, 88.76 %",
+   "expr": "v('bev-city', 'HV Battery Pack — final SOC')",
+   "format": "{:.2f} %"
+  },
+  {
+   "page": "tutorials/first-run.md",
+   "text": "*Consumption* reads 12.34 kWh/100 km",
+   "expr": "v('bev-city-2300', 'Consumption')",
+   "format": "{:.2f} kWh/100 km"
+  },
+  {
+   "page": "tutorials/first-run.md",
+   "text": "*+1.22 (+11.0 %) vs baseline*",
+   "expr": "(v('bev-city-2300', 'Consumption') - v('bev-city', 'Consumption'), 100 * (v('bev-city-2300', 'Consumption') / v('bev-city', 'Consumption') - 1))",
+   "format": "+{0[0]:.2f} (+{0[1]:.1f} %)"
+  },
+  {
+   "page": "tutorials/first-electric-car.md",
+   "text": "the run ends as *success*, and the headline numbers read *Consumption* 14.05 kWh/100 km",
+   "expr": "status('bev-wltc') == 'success' and round(v('bev-wltc', 'Consumption'), 2) == 14.05"
+  },
+  {
+   "page": "tutorials/first-electric-car.md",
+   "text": "*Distance driven* 23.267 km.",
+   "expr": "v('bev-wltc', 'Distance driven')",
+   "format": "{:.3f} km"
+  },
+  {
+   "page": "tutorials/first-electric-car.md",
+   "text": "*Consumption* still reads 14.05 kWh/100 km",
+   "expr": "v('bev-wltc-40', 'Consumption')",
+   "format": "{:.2f} kWh/100 km"
+  },
+  {
+   "page": "tutorials/first-electric-car.md",
+   "text": "falls from 84.92 % to 82.11 %",
+   "expr": "(v('bev-wltc', 'HV Battery Pack — final SOC'), v('bev-wltc-40', 'HV Battery Pack — final SOC'))",
+   "format": "{0[0]:.2f} % to {0[1]:.2f} %"
+  },
+  {
+   "page": "tutorials/first-electric-car.md",
+   "text": "lists 5 errors, among them *Vehicle present but no connected wheels — it will not move*",
+   "expr": "count('first-car@parts', 'error') == 5 and check('first-car@parts', 'Vehicle present but no connected wheels — it will not move', 'error')"
+  },
+  {
+   "page": "tutorials/first-electric-car.md",
+   "text": "now lists 2 errors, both about missing signals, such as *Driver 'Driver 1' has no Target Speed signal*",
+   "expr": "count('first-car@wired', 'error') == 2 and check('first-car@wired', \"Driver 'Driver 1' has no Target Speed signal\", 'error')"
+  },
+  {
+   "page": "tutorials/first-electric-car.md",
+   "text": "has no errors left, and one warning: *Wheel load shares add up to 25 %, not 100 %*",
+   "expr": "count('first-car@signals', 'error') == 0 and count('first-car@signals', 'warning') == 1 and check('first-car@signals', 'Wheel load shares add up to 25 %, not 100 %', 'warning')"
+  },
+  {
+   "page": "tutorials/first-electric-car.md",
+   "text": "*Problems* says *All data checks passed*",
+   "expr": "clear('first-car@share') and check('first-car@share', 'All data checks passed', 'info')"
+  },
+  {
+   "page": "tutorials/first-electric-car.md",
+   "text": "the run ends as *success* with *Distance driven* 23.267 km",
+   "expr": "status('first-car-wltc') == 'success' and round(v('first-car-wltc', 'Distance driven'), 3) == 23.267"
+  },
+  {
+   "page": "tutorials/first-electric-car.md",
+   "text": "*Consumption* should be between 11 and 12.5 kWh/100 km",
+   "expr": "11 <= v('first-car-wltc', 'Consumption') <= 12.5"
+  },
+  {
+   "page": "tutorials/first-electric-car.md",
+   "text": "LightSim gives 11.68 kWh/100 km with the values above",
+   "expr": "v('first-car-wltc', 'Consumption')",
+   "format": "{:.2f} kWh/100 km"
+  },
+  {
+   "page": "tutorials/first-electric-car.md",
+   "text": "Your car uses 11.68 kWh/100 km on the WLTC, the example 14.05: 17 % less",
+   "expr": "(v('first-car-wltc', 'Consumption'), v('bev-wltc', 'Consumption'), 100 * (1 - v('first-car-wltc', 'Consumption') / v('bev-wltc', 'Consumption')))",
+   "format": "{0[0]:.2f} kWh/100 km on the WLTC, the example {0[1]:.2f}: {0[2]:.0f} % less"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "*City Cycle* | 11.12 kWh/100 km | 7.292 km | 88.76 % |",
+   "expr": "(v('bev-city', 'Consumption'), v('bev-city', 'Distance driven'), v('bev-city', 'HV Battery Pack — final SOC'))",
+   "format": "*City Cycle* | {0[0]:.2f} kWh/100 km | {0[1]:.3f} km | {0[2]:.2f} % |"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "*WLTC Class 3b* | 14.05 kWh/100 km | 23.267 km | 84.92 % |",
+   "expr": "(v('bev-wltc', 'Consumption'), v('bev-wltc', 'Distance driven'), v('bev-wltc', 'HV Battery Pack — final SOC'))",
+   "format": "*WLTC Class 3b* | {0[0]:.2f} kWh/100 km | {0[1]:.3f} km | {0[2]:.2f} % |"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "*WLTC, heating/air-con on* | 18.89 kWh/100 km | 23.267 km | 83.19 % |",
+   "expr": "(v('bev-wltc-hvac', 'Consumption'), v('bev-wltc-hvac', 'Distance driven'), v('bev-wltc-hvac', 'HV Battery Pack — final SOC'))",
+   "format": "*WLTC, heating/air-con on* | {0[0]:.2f} kWh/100 km | {0[1]:.3f} km | {0[2]:.2f} % |"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "14.05 to 18.89 kWh/100 km, 4.84 kWh/100 km more (34 %)",
+   "expr": "(v('bev-wltc', 'Consumption'), v('bev-wltc-hvac', 'Consumption'), v('bev-wltc-hvac', 'Consumption') - v('bev-wltc', 'Consumption'), 100 * (v('bev-wltc-hvac', 'Consumption') / v('bev-wltc', 'Consumption') - 1))",
+   "format": "{0[0]:.2f} to {0[1]:.2f} kWh/100 km, {0[2]:.2f} kWh/100 km more ({0[3]:.0f} %)"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "14.05 to 14.79 kWh/100 km, 5.3 % more",
+   "expr": "(v('bev-wltc', 'Consumption'), v('bev-wltc-2127', 'Consumption'), 100 * (v('bev-wltc-2127', 'Consumption') / v('bev-wltc', 'Consumption') - 1))",
+   "format": "{0[0]:.2f} to {0[1]:.2f} kWh/100 km, {0[2]:.1f} % more"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "14.05 to 13.42 kWh/100 km, 4.5 % less",
+   "expr": "(v('bev-wltc', 'Consumption'), v('bev-wltc-cd', 'Consumption'), 100 * (1 - v('bev-wltc-cd', 'Consumption') / v('bev-wltc', 'Consumption')))",
+   "format": "{0[0]:.2f} to {0[1]:.2f} kWh/100 km, {0[2]:.1f} % less"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "*Consumption* stays at 14.05 kWh/100 km and the final SOC falls from 84.92 % to 82.11 %",
+   "expr": "(v('bev-wltc-40', 'Consumption'), v('bev-wltc', 'HV Battery Pack — final SOC'), v('bev-wltc-40', 'HV Battery Pack — final SOC'))",
+   "format": "{0[0]:.2f} kWh/100 km and the final SOC falls from {0[1]:.2f} % to {0[2]:.2f} %"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "**0 to 589 s, Low phase.**",
+   "expr": "cycle_phase('wltc-3b', 0)",
+   "format": "**{0[1]:.0f} to {0[2]:,.0f} s, {0[0]} phase.**"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "**589 to 1,022 s, Medium phase.**",
+   "expr": "cycle_phase('wltc-3b', 1)",
+   "format": "**{0[1]:.0f} to {0[2]:,.0f} s, {0[0]} phase.**"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "**1,022 to 1,477 s, High phase.** Main roads up to about 97 km/h",
+   "expr": "cycle_phase('wltc-3b', 2) + (cycle_top('wltc-3b', 2),)",
+   "format": "**{0[1]:,.0f} to {0[2]:,.0f} s, {0[0]} phase.** Main roads up to about {0[3]:.0f} km/h"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "**1,477 to 1,800 s, Extra High phase.** Motorway up to 131 km/h",
+   "expr": "cycle_phase('wltc-3b', 3) + (cycle_top('wltc-3b', 3),)",
+   "format": "**{0[1]:,.0f} to {0[2]:,.0f} s, {0[0]} phase.** Motorway up to {0[3]:.0f} km/h"
+  },
+  {
+   "page": "examples/hybrid-car.md",
+   "text": "*EPA city (UDDS)* | 2.84 l/100 km | 67.0 g/km | 11.99 km |",
+   "expr": "(v('hy-udds', 'Fuel consumption'), v('hy-udds', 'CO₂ emissions'), v('hy-udds', 'Distance driven'))",
+   "format": "*EPA city (UDDS)* | {0[0]:.2f} l/100 km | {0[1]:.1f} g/km | {0[2]:.5g} km |"
+  },
+  {
+   "page": "examples/hybrid-car.md",
+   "text": "*EPA highway (HWFET)* | 3.24 l/100 km | 76.4 g/km | 16.507 km |",
+   "expr": "(v('hy-hwfet', 'Fuel consumption'), v('hy-hwfet', 'CO₂ emissions'), v('hy-hwfet', 'Distance driven'))",
+   "format": "*EPA highway (HWFET)* | {0[0]:.2f} l/100 km | {0[1]:.1f} g/km | {0[2]:.5g} km |"
+  },
+  {
+   "page": "examples/hybrid-car.md",
+   "text": "*Mixed Cycle* | 2.88 l/100 km | 68.0 g/km | 9.556 km |",
+   "expr": "(v('hy-mixed', 'Fuel consumption'), v('hy-mixed', 'CO₂ emissions'), v('hy-mixed', 'Distance driven'))",
+   "format": "*Mixed Cycle* | {0[0]:.2f} l/100 km | {0[1]:.1f} g/km | {0[2]:.5g} km |"
+  },
+  {
+   "page": "examples/hybrid-car.md",
+   "text": "Over the whole cycle the engine starts 30 times",
+   "expr": "rises('hy-udds', 'Hybrid Control Unit · engine_on')",
+   "format": "the engine starts {} times"
+  },
+  {
+   "page": "examples/hybrid-car.md",
+   "text": "2.84 to 3.30 l/100 km, 16 % more",
+   "expr": "(v('hy-udds', 'Fuel consumption'), v('hy-udds-12v', 'Fuel consumption'), 100 * (v('hy-udds-12v', 'Fuel consumption') / v('hy-udds', 'Fuel consumption') - 1))",
+   "format": "{0[0]:.2f} to {0[1]:.2f} l/100 km, {0[2]:.0f} % more"
+  },
+  {
+   "page": "examples/hybrid-car.md",
+   "text": "3.24 to 3.28 l/100 km, about 1 % more",
+   "expr": "(v('hy-hwfet', 'Fuel consumption'), v('hy-hwfet-200', 'Fuel consumption'), 100 * (v('hy-hwfet-200', 'Fuel consumption') / v('hy-hwfet', 'Fuel consumption') - 1))",
+   "format": "{0[0]:.2f} to {0[1]:.2f} l/100 km, about {0[2]:.0f} % more"
+  },
+  {
+   "page": "examples/hybrid-car.md",
+   "text": "In the city: 2.84 against 3.24 l/100 km",
+   "expr": "(v('hy-udds', 'Fuel consumption'), v('hy-hwfet', 'Fuel consumption'))",
+   "format": "In the city: {0[0]:.2f} against {0[1]:.2f} l/100 km"
+  },
+  {
+   "page": "examples/fs-electric.md",
+   "text": "From 0.2 s.** The Accumulator reaches 80 kW",
+   "expr": "message('fs-accel', 'held at its Output Power Limit (80 kW at the terminals) from t = 0.20 s')"
+  },
+  {
+   "page": "examples/fs-electric.md",
+   "text": "**3.74 s.** The car crosses the 75 m line at 119 km/h",
+   "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel', 'Speed at 75 m'))",
+   "format": "**{0[0]:.2f} s.** The car crosses the 75 m line at {0[1]:.0f} km/h"
+  },
+  {
+   "page": "examples/fs-electric.md",
+   "text": "3.744 s from the start line, 118.88 km/h at the line, 0-100 km/h in 2.93 s",
+   "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel', 'Speed at 75 m'), v('fs-accel', 'Time to 100 km/h'))",
+   "format": "{0[0]:.3f} s from the start line, {0[1]:.2f} km/h at the line, 0-100 km/h in {0[2]:.2f} s"
+  },
+  {
+   "page": "examples/fs-electric.md",
+   "text": "57.721 s for the flying lap, 60.32 km/h average",
+   "expr": "(v('fs-autocross', 'Lap time'), v('fs-autocross', 'Average speed'))",
+   "format": "{0[0]:.3f} s for the flying lap, {0[1]:.2f} km/h average"
+  },
+  {
+   "page": "examples/fs-electric.md",
+   "text": "1,428.53 s, 5.33 kWh net from the Accumulator, 25.02 % SOC left",
+   "expr": "(v('fs-endurance', 'Total time'), v('fs-endurance', 'Accumulator — energy delivered') - v('fs-endurance', 'Accumulator — energy recuperated'), v('fs-endurance', 'Accumulator — final SOC'))",
+   "format": "{0[0]:,.2f} s, {0[1]:.2f} kWh net from the Accumulator, {0[2]:.2f} % SOC left"
+  },
+  {
+   "page": "examples/fs-electric.md",
+   "text": "3.744 to 4.223 s, 0.479 s slower, and 95.95 km/h at the line instead of 118.88 km/h",
+   "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel-40', 'Time to 75 m'), v('fs-accel-40', 'Time to 75 m') - v('fs-accel', 'Time to 75 m'), v('fs-accel-40', 'Speed at 75 m'), v('fs-accel', 'Speed at 75 m'))",
+   "format": "{0[0]:.3f} to {0[1]:.3f} s, {0[2]:.3f} s slower, and {0[3]:.2f} km/h at the line instead of {0[4]:.2f} km/h"
+  },
+  {
+   "page": "examples/fs-electric.md",
+   "text": "3.744 to 4.015 s. The car spends 63.8 % of the run at the tyres' grip limit instead of 48.4 %",
+   "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel-mu13', 'Time to 75 m'), v('fs-accel-mu13', \"Time at the tyres' grip limit\"), v('fs-accel', \"Time at the tyres' grip limit\"))",
+   "format": "{0[0]:.3f} to {0[1]:.3f} s. The car spends {0[2]:.1f} % of the run at the tyres' grip limit instead of {0[3]:.1f} %"
+  },
+  {
+   "page": "examples/fs-electric.md",
+   "text": "The car needs 1,454.696 s instead of 1,428.53 s (26 s more) and ends with 34.16 % SOC instead of 25.02 %",
+   "expr": "(v('fs-endurance-25', 'Total time'), v('fs-endurance', 'Total time'), v('fs-endurance-25', 'Total time') - v('fs-endurance', 'Total time'), v('fs-endurance-25', 'Accumulator — final SOC'), v('fs-endurance', 'Accumulator — final SOC'))",
+   "format": "The car needs {0[0]:,.3f} s instead of {0[1]:,.2f} s ({0[2]:.0f} s more) and ends with {0[3]:.2f} % SOC instead of {0[4]:.2f} %"
+  },
+  {
+   "page": "lessons/fs-1-acceleration.md",
+   "text": "*Time to 75 m* 3.744 s and *Speed at 75 m* 118.88 km/h",
+   "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel', 'Speed at 75 m'))",
+   "format": "*Time to 75 m* {0[0]:.3f} s and *Speed at 75 m* {0[1]:.2f} km/h"
+  },
+  {
+   "page": "lessons/fs-1-acceleration.md",
+   "text": "*Gap to reference time* is -0.166 s",
+   "expr": "v('fs-accel', 'Gap to reference time')",
+   "format": "*Gap to reference time* is {:.3f} s"
+  },
+  {
+   "page": "lessons/fs-1-acceleration.md",
+   "text": "*Time at the tyres' grip limit* reads 48.4 %",
+   "expr": "v('fs-accel', \"Time at the tyres' grip limit\")",
+   "format": "reads {:.1f} %"
+  },
+  {
+   "page": "lessons/fs-1-acceleration.md",
+   "text": "*held at the output power limit* for 3.77 s",
+   "expr": "v('fs-accel', 'Accumulator — time held at the output power limit')",
+   "format": "for {:.2f} s"
+  },
+  {
+   "page": "lessons/fs-1-acceleration.md",
+   "text": "held at 80 kW from t = 0.20 s",
+   "expr": "message('fs-accel', 'held at its Output Power Limit (80 kW at the terminals) from t = 0.20 s')"
+  },
+  {
+   "page": "lessons/fs-1-acceleration.md",
+   "text": "4.223 s at 40 kW, 4.032 s at 50 kW, 3.902 s at 60 kW, 3.81 s at 70 kW and 3.744 s at 80 kW",
+   "expr": "tuple(v(r, 'Time to 75 m') for r in ('fs-accel-40', 'fs-accel-50', 'fs-accel-60', 'fs-accel-70', 'fs-accel'))",
+   "format": "{0[0]:.3f} s at 40 kW, {0[1]:.3f} s at 50 kW, {0[2]:.3f} s at 60 kW, {0[3]:.3g} s at 70 kW and {0[4]:.3f} s at 80 kW"
+  },
+  {
+   "page": "lessons/fs-1-acceleration.md",
+   "text": "below about 60 kW the car is slower than the median team",
+   "expr": "v('fs-accel-50', 'Gap to reference time') > 0 and v('fs-accel-60', 'Gap to reference time') < 0"
+  },
+  {
+   "page": "lessons/fs-1-acceleration.md",
+   "text": "the time rises from 3.744 s to 4.015 s, and *Time at the tyres' grip limit* from 48.4 % to 63.8 %",
+   "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel-mu13', 'Time to 75 m'), v('fs-accel', \"Time at the tyres' grip limit\"), v('fs-accel-mu13', \"Time at the tyres' grip limit\"))",
+   "format": "from {0[0]:.3f} s to {0[1]:.3f} s, and *Time at the tyres' grip limit* from {0[2]:.1f} % to {0[3]:.1f} %"
+  },
+  {
+   "page": "lessons/fs-2-endurance.md",
+   "text": "the run ends as *success* after 1,428.53 s (*Total time*), 22.515 km driven, with *Accumulator — final SOC* 25.02 %",
+   "expr": "status('fs-endurance') == 'success' and (v('fs-endurance', 'Total time'), v('fs-endurance', 'Distance driven'), v('fs-endurance', 'Accumulator — final SOC')) == (1428.53, 22.515, 25.02)"
+  },
+  {
+   "page": "lessons/fs-2-endurance.md",
+   "text": "6.5 kWh delivered and 1.167 kWh recuperated: 5.33 kWh net, and *Energy per lap* 0.2319 kWh. Braking gives back 18 % of the energy drawn",
+   "expr": "(v('fs-endurance', 'Accumulator — energy delivered'), v('fs-endurance', 'Accumulator — energy recuperated'), v('fs-endurance', 'Accumulator — energy delivered') - v('fs-endurance', 'Accumulator — energy recuperated'), v('fs-endurance', 'Energy per lap'), 100 * v('fs-endurance', 'Accumulator — energy recuperated') / v('fs-endurance', 'Accumulator — energy delivered'))",
+   "format": "{0[0]:g} kWh delivered and {0[1]:.3f} kWh recuperated: {0[2]:.2f} kWh net, and *Energy per lap* {0[3]:.4f} kWh. Braking gives back {0[4]:.0f} % of the energy drawn"
+  },
+  {
+   "page": "lessons/fs-2-endurance.md",
+   "text": "*RMS battery power* reads 22.853 kW, and the accumulator was held at its limit for 703.27 s, about half the event",
+   "expr": "(v('fs-endurance', 'RMS battery power'), v('fs-endurance', 'Accumulator — time held at the output power limit'), 0.45 < v('fs-endurance', 'Accumulator — time held at the output power limit') / v('fs-endurance', 'Total time') < 0.55)",
+   "format": "*RMS battery power* reads {0[0]:.3f} kW, and the accumulator was held at its limit for {0[1]:.2f} s, about half the event"
+  },
+  {
+   "page": "lessons/fs-2-endurance.md",
+   "text": "*Accumulator — minimum pack voltage* is 472.94 V",
+   "expr": "v('fs-endurance', 'Accumulator — minimum pack voltage')",
+   "format": "is {:.2f} V"
+  },
+  {
+   "page": "lessons/fs-2-endurance.md",
+   "text": "*Time limited by power cap* reads 703.265 s and *Time limited by cornering grip* 434.603 s",
+   "expr": "(v('fs-endurance', 'Time limited by power cap'), v('fs-endurance', 'Time limited by cornering grip'))",
+   "format": "*Time limited by power cap* reads {0[0]:.3f} s and *Time limited by cornering grip* {0[1]:.3f} s"
+  },
+  {
+   "page": "lessons/fs-3-accumulator.md",
+   "text": "the *Total time* is 1,454.696 s at 25 kW, 1,428.53 s at 30 kW and 1,407.635 s at 35 kW; the final SOC 34.16 %, 25.02 % and 16.44 %",
+   "expr": "tuple(v(r, 'Total time') for r in ('fs-endurance-25', 'fs-endurance', 'fs-endurance-35')) + tuple(v(r, 'Accumulator — final SOC') for r in ('fs-endurance-25', 'fs-endurance', 'fs-endurance-35'))",
+   "format": "the *Total time* is {0[0]:,.3f} s at 25 kW, {0[1]:,.2f} s at 30 kW and {0[2]:,.3f} s at 35 kW; the final SOC {0[3]:.2f} %, {0[4]:.2f} % and {0[5]:.2f} %"
+  },
+  {
+   "page": "lessons/fs-3-accumulator.md",
+   "text": "Each 5 kW more saves 21 to 26 s over the event and uses about 9 points more charge",
+   "expr": "(v('fs-endurance', 'Total time') - v('fs-endurance-35', 'Total time'), v('fs-endurance-25', 'Total time') - v('fs-endurance', 'Total time'), (v('fs-endurance-25', 'Accumulator — final SOC') - v('fs-endurance-35', 'Accumulator — final SOC')) / 2)",
+   "format": "saves {0[0]:.0f} to {0[1]:.0f} s over the event and uses about {0[2]:.0f} points"
+  },
+  {
+   "page": "lessons/fs-3-accumulator.md",
+   "text": "accumulator reached its minimum SOC (5 %) at t = 1326 s, and the car stops 347 m into lap 23",
+   "expr": "status('fs-endurance-3p') == 'failed' and message('fs-endurance-3p', 'reached minimum SOC (5 %) at t = 1326 s') and message('fs-endurance-3p', 'stops 347 m into lap 23')"
+  },
+  {
+   "page": "lessons/fs-3-accumulator.md",
+   "text": "With 4 the car finishes with 25.02 % SOC and 1.34 kWh usable energy left; with 5, 41.04 % and 3.075 kWh",
+   "expr": "(v('fs-endurance', 'Accumulator — final SOC'), v('fs-endurance', 'Accumulator — usable energy left'), v('fs-endurance-5p', 'Accumulator — final SOC'), v('fs-endurance-5p', 'Accumulator — usable energy left'))",
+   "format": "With 4 the car finishes with {0[0]:.2f} % SOC and {0[1]:g} kWh usable energy left; with 5, {0[2]:.2f} % and {0[3]:.3f} kWh"
+  },
+  {
+   "page": "lessons/fs-3-accumulator.md",
+   "text": "4p finishes with a margin of 1.34 kWh",
+   "expr": "v('fs-endurance', 'Accumulator — usable energy left')",
+   "format": "margin of {:g} kWh"
+  },
+  {
+   "page": "lessons/fs-3-accumulator.md",
+   "text": "*Vehicle Mass* of 274 kg (six kilograms of cells less), the car still stops in lap 23",
+   "expr": "status('fs-endurance-3p-full') == 'failed' and message('fs-endurance-3p-full', 'into lap 23 of')"
+  },
+  {
+   "page": "theory/why-numbers-differ.md",
+   "text": "it uses 14.05 kWh/100 km on the WLTC at its battery",
+   "expr": "v('bev-wltc', 'Consumption')",
+   "format": "{:.2f} kWh/100 km"
+  },
+  {
+   "page": "theory/why-numbers-differ.md",
+   "text": "14.05 to 14.79 kWh/100 km on the WLTC",
+   "expr": "(v('bev-wltc', 'Consumption'), v('bev-wltc-2127', 'Consumption'))",
+   "format": "{0[0]:.2f} to {0[1]:.2f} kWh/100 km"
+  },
+  {
+   "page": "theory/why-numbers-differ.md",
+   "text": "uses 18.89 kWh/100 km instead of 14.05",
+   "expr": "(v('bev-wltc-hvac', 'Consumption'), v('bev-wltc', 'Consumption'))",
+   "format": "uses {0[0]:.2f} kWh/100 km instead of {0[1]:.2f}"
+  },
+  {
+   "page": "theory/why-numbers-differ.md",
+   "text": "uses 2.84 l/100 km on the EPA city cycle",
+   "expr": "v('hy-udds', 'Fuel consumption')",
+   "format": "uses {:.2f} l/100 km"
+  }
+ ],
+ "recipes": {
+  "Rate limiter": [
+   {
+    "inputs": {
+     "cmd": 1
+    },
+    "expect": {
+     "cmd_out": 0.02
+    }
+   },
+   {
+    "inputs": {
+     "cmd": 1
+    },
+    "expect": {
+     "cmd_out": 0.04
+    }
+   },
+   {
+    "inputs": {
+     "cmd": 1
+    },
+    "expect": {
+     "cmd_out": 0.06
+    }
+   },
+   {
+    "inputs": {
+     "cmd": 0
+    },
+    "expect": {
+     "cmd_out": 0
+    }
+   }
+  ],
+  "PI controller": [
+   {
+    "inputs": {
+     "target": 1000,
+     "actual": 900
+    },
+    "expect": {
+     "cmd": 0.201
+    }
+   },
+   {
+    "inputs": {
+     "target": 1000,
+     "actual": 900
+    },
+    "expect": {
+     "cmd": 0.202
+    }
+   },
+   {
+    "inputs": {
+     "target": 1000,
+     "actual": 0
+    },
+    "expect": {
+     "cmd": 1
+    }
+   },
+   {
+    "inputs": {
+     "target": 1000,
+     "actual": 900
+    },
+    "expect": {
+     "cmd": 0.203
+    }
+   }
+  ],
+  "Table lookup": [
+   {
+    "inputs": {
+     "temp": 5
+    },
+    "expect": {
+     "load_kw": 1.8333333333
+    }
+   },
+   {
+    "inputs": {
+     "temp": -20
+    },
+    "expect": {
+     "load_kw": 4.0
+    }
+   },
+   {
+    "inputs": {
+     "temp": 20
+    },
+    "expect": {
+     "load_kw": 0.5
+    }
+   }
+  ],
+  "Switch with hysteresis": [
+   {
+    "inputs": {
+     "soc": 30
+    },
+    "expect": {
+     "engine_on": 0
+    }
+   },
+   {
+    "inputs": {
+     "soc": 24
+    },
+    "expect": {
+     "engine_on": 1
+    }
+   },
+   {
+    "inputs": {
+     "soc": 30
+    },
+    "expect": {
+     "engine_on": 1
+    }
+   },
+   {
+    "inputs": {
+     "soc": 36
+    },
+    "expect": {
+     "engine_on": 0
+    }
+   },
+   {
+    "inputs": {
+     "soc": 30
+    },
+    "expect": {
+     "engine_on": 0
+    }
+   }
+  ],
+  "Gear-shift schedule": [
+   {
+    "inputs": {
+     "speed": 0
+    },
+    "expect": {
+     "gear": 1
+    }
+   },
+   {
+    "inputs": {
+     "speed": 25
+    },
+    "expect": {
+     "gear": 2
+    }
+   },
+   {
+    "inputs": {
+     "speed": 45
+    },
+    "expect": {
+     "gear": 3
+    }
+   },
+   {
+    "inputs": {
+     "speed": 37
+    },
+    "expect": {
+     "gear": 3
+    }
+   },
+   {
+    "inputs": {
+     "speed": 34
+    },
+    "expect": {
+     "gear": 2
+    }
+   }
+  ],
+  "Regenerative braking by speed": [
+   {
+    "inputs": {
+     "cmd": -0.6,
+     "speed": 10
+    },
+    "expect": {
+     "cmd_out": -0.3
+    }
+   },
+   {
+    "inputs": {
+     "cmd": 0.5,
+     "speed": 10
+    },
+    "expect": {
+     "cmd_out": 0.5
+    }
+   },
+   {
+    "inputs": {
+     "cmd": -0.6,
+     "speed": 3
+    },
+    "expect": {
+     "cmd_out": 0
+    }
+   },
+   {
+    "inputs": {
+     "cmd": -0.6,
+     "speed": 20
+    },
+    "expect": {
+     "cmd_out": -0.6
+    }
+   }
+  ],
+  "Low-pass filter": [
+   {
+    "dt": 0.5,
+    "inputs": {
+     "x": 0
+    },
+    "expect": {
+     "y": 0
+    }
+   },
+   {
+    "dt": 0.5,
+    "inputs": {
+     "x": 1
+    },
+    "expect": {
+     "y": 0.5
+    }
+   },
+   {
+    "dt": 0.5,
+    "inputs": {
+     "x": 1
+    },
+    "expect": {
+     "y": 0.75
+    }
+   }
+  ],
+  "Power limiter": [
+   {
+    "inputs": {
+     "cmd": 1,
+     "rpm": 5000
+    },
+    "expect": {
+     "cmd_out": 0.597869
+    }
+   },
+   {
+    "inputs": {
+     "cmd": 0.3,
+     "rpm": 5000
+    },
+    "expect": {
+     "cmd_out": 0.3
+    }
+   }
+  ],
+  "Launch control": [
+   {
+    "inputs": {
+     "cmd": 1,
+     "slip": 0.3
+    },
+    "expect": {
+     "cmd_out": 0.5
+    }
+   },
+   {
+    "inputs": {
+     "cmd": 1,
+     "slip": 0.05
+    },
+    "expect": {
+     "cmd_out": 0.52
+    }
+   },
+   {
+    "repeat": 24,
+    "inputs": {
+     "cmd": 1,
+     "slip": 0.05
+    },
+    "expect": {
+     "cmd_out": 1.0
+    }
+   }
+  ],
+  "Timer: hold for a while": [
+   {
+    "repeat": 19,
+    "inputs": {
+     "ask": 1
+    },
+    "expect": {
+     "go": 0
+    }
+   },
+   {
+    "inputs": {
+     "ask": 1
+    },
+    "expect": {
+     "go": 1
+    }
+   },
+   {
+    "inputs": {
+     "ask": 0
+    },
+    "expect": {
+     "go": 0
+    }
+   }
+  ]
+ }
+}
