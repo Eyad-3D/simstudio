@@ -34,6 +34,7 @@ from .domains import ModelInitError, RunContext, build_slaves
 from .maps import OutsideDataError
 from .master import Master, SlaveStepError
 from .network import ModelError, build_model
+from .reports import RunRecorder
 from .runtime import (  # noqa: F401 — re-exported for backward compatibility
     AIR_DENSITY,
     CLUTCH_BAND,
@@ -155,6 +156,14 @@ def simulate(
                     rt.publish(el_id, port_id, value)
 
         publish_routed_states()
+        # the energy, duty and limit reports, booked after every solver step
+        recorder = RunRecorder(ctx, energy=getattr(case, "energyReport", True))
+        recorder.lap = lap is not None
+
+        def after_step() -> None:
+            publish_routed_states()
+            recorder.step()
+
         trace = CycleTrace(ctx)  # target vs vehicle speed, for the run verdict
         if lap is None:  # a lap case follows no target
             trace.sample(0.0)
@@ -199,7 +208,7 @@ def simulate(
 
         if lap is not None:  # the laps, one step per stretch of track
             try:
-                solved, stopped = lapsim.run_laps(ctx, master, lap, record, publish_routed_states,
+                solved, stopped = lapsim.run_laps(ctx, master, lap, record, after_step,
                                                   control, apply_control_msg, output_every)
             except SlaveStepError:
                 solved = failed_at = ctx.t  # the failing slave already emitted its error message
@@ -239,7 +248,7 @@ def simulate(
                         ctx.t = t_prev + j * h_sub
                         master.step(ctx.t, h_sub)
                         solved = t_prev + (j + 1) * h_sub
-                        publish_routed_states()
+                        after_step()
                         arrived = end_d is not None and ctx.distance >= end_d
                         trace.sample(solved, last=arrived or (step == steps and j == n - 1))
                         if arrived:
@@ -510,12 +519,16 @@ def simulate(
                     f"({tr.length:,.0f} m, a point every {tr.ds:.2f} m), {len(times)} points "
                     f"recorded{rec_note}, {len(channels)} result channels.")
         rt.messages.insert(0, SimMessage(level="info", text=text))
+        energy, duty, limits = recorder.finish(lap)
         return SimResult(
             caseId=case_id,
             status=status,
             messages=rt.messages,
             channels=channels,
             summary=summary,
+            energy=energy,
+            duty=duty,
+            limits=limits,
         )
     finally:
         if ctx.sandbox is not None:
