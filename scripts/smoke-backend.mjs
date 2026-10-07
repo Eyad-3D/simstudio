@@ -6,13 +6,14 @@
  * left out of the bundle. This starts the real executable and exercises the
  * paths that depend on the bundle being complete: the component library, the
  * example projects, a REST simulation, a live run over the WebSocket, and a
- * run with a Script block (its worker process is a copy of the executable).
+ * run with a Script block (its worker process is a copy of the executable),
+ * and the same executable as the command-line tool (`lightsim-backend run`).
  * (A missing websockets module passed every unit test and would have shipped
  * a broken "Run" button — hence this script.)
  *
  *   node scripts/smoke-backend.mjs [path-to-executable]
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -126,6 +127,16 @@ try {
     fail(`scripted run of '${scripted.name}' returned '${sRun.status}': ${errors.join("; ")}`);
   }
   console.log(`✓ scripted run: '${scripted.name}' ${sRun.status}, script worker ok`);
+
+  // The same executable is the command-line tool (AI-02): a run in its own
+  // process, no server; exit 0 means a valid run.
+  for (const example of ["bev-car", "hybrid-car"]) {
+    const cli = spawnSync(exe, ["run", example, "--json"], { encoding: "utf8", timeout: 300_000 });
+    if (cli.status !== 0) fail(`'lightsim-backend run ${example}' exited ${cli.status}: ${cli.stderr}`);
+    const out = JSON.parse(cli.stdout);
+    if (out.status !== "success") fail(`'lightsim-backend run ${example}' gave ${out.status}`);
+    console.log(`✓ command line: run ${example} → ${out.status}, ${Object.keys(out.kpis).length} figures`);
+  }
 
   console.log("\nfrozen backend smoke test passed");
   stop();
