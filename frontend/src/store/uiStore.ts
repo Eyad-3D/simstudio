@@ -63,6 +63,10 @@ export interface DialogRequest {
   danger?: boolean;
   defaultValue?: string; // prompt only
   placeholder?: string; // prompt only
+  /** confirm only: code to show, one block each (the script trust prompt) */
+  code?: { label: string; code: string }[];
+  /** a line under the message, e.g. that the organisation manages this */
+  note?: string;
   resolve: (value: boolean | string | null) => void;
 }
 

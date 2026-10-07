@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import * as api from "../api";
-import { confirmDialog, unsavedChangesDialog } from "../dialog";
+import { confirmDialog, scriptTrustDialog, unsavedChangesDialog } from "../dialog";
 import { loadDraft } from "../persist";
 import { diffSnapshots, modelFingerprint, nameFromChanges } from "../provenance";
 import type {
@@ -232,6 +232,24 @@ function signalSourceOf(
 }
 
 // handle for the in-flight live run (not in reactive state on purpose)
+/** Script code typed in this window (PLT-35). The user wrote it, so it is
+ *  approved without asking when it runs or is saved. Bounded: the oldest
+ *  versions of long edits are dropped. */
+const typedScripts = new Set<string>();
+/** Saving keeps the scripts typed here approved, so reopening the project
+ *  later does not ask about the user's own code. Best effort. */
+async function approveTypedScripts(project: Project) {
+  const codes = project.systems
+    .flatMap((s) => s.elements)
+    .map((e) => e.parameterOverrides?.code)
+    .filter((c): c is string => typeof c === "string" && typedScripts.has(c));
+  if (codes.length) await api.approveScripts(codes).catch(() => {});
+}
+function rememberTyped(code: string) {
+  typedScripts.add(code);
+  if (typedScripts.size > 500) typedScripts.delete(typedScripts.values().next().value as string);
+}
+
 let activeRun: api.LiveRunHandle | null = null;
 // live parameter edits sent to the in-flight run, for its snapshot
 let liveLog: { runId: string; edits: LiveEdit[] } | null = null;
@@ -433,6 +451,10 @@ export interface ProjectState {
   runDataChecks: () => Promise<DataCheck[]>;
   /** Error-level data-check gate; resolves true when a run/sweep may proceed. */
   passesRunGate: () => Promise<boolean>;
+  /** Show the project's scripts that this user has not approved and ask
+   *  before they run (PLT-35); resolves true when nothing is left to ask.
+   *  `when` "open" offers Open without running scripts, "run" Don't run. */
+  reviewScripts: (when: "open" | "run") => Promise<boolean>;
   run: () => Promise<void>;
   /** The one-click Formula Student acceleration test: select the first
    *  acceleration case (adding a 75 m one if there is none) and run it. */
@@ -1029,6 +1051,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       ),
 
     setParameter: (elementId, key, value) => {
+      if (key === "code" && typeof value === "string") rememberTyped(value);
       updateProject(
         (draft) => {
           for (const s of draft.systems) {
@@ -1342,6 +1365,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         });
         get().log("info", `Project '${project.name}' opened.`);
         void loadRunHistory(project.id);
+        void get().reviewScripts("open");
       } catch (e) {
         get().log("error", `Failed to open project: ${(e as Error).message}`);
       }
@@ -1406,6 +1430,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         if (!project) return;
         try {
           const res = await api.saveProject(project, revision);
+          void approveTypedScripts(project);
           // an edit made while the save was in flight is still unsaved
           set({ dirty: get().project !== project, revision: res.revision ?? revision, exampleId: null });
           log(
@@ -1496,6 +1521,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         });
         get().log("info", `Project '${project.name}' imported.`);
         void loadRunHistory(project.id);
+        void get().reviewScripts("open");
       } catch (e) {
         get().log("error", `Import failed: ${(e as Error).message}`);
       }
@@ -1882,6 +1908,62 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         // backend unreachable — the run's own connection will surface the failure
         log("warning", `Pre-flight data checks unavailable (${(e as Error).message}); running anyway.`);
       }
+      return get().reviewScripts("run");
+    },
+
+    reviewScripts: async (when) => {
+      const { project, log } = get();
+      if (!project) return true;
+      let report: Awaited<ReturnType<typeof api.checkScripts>>;
+      try {
+        report = await api.checkScripts(project);
+      } catch {
+        return true; // engine unreachable: it refuses unapproved code itself
+      }
+      let pending = report.scripts.filter((s) => !s.approved);
+      // code typed in this window is the user's own: no need to ask
+      const typed = pending.filter((s) => typedScripts.has(s.code));
+      pending = pending.filter((s) => !typedScripts.has(s.code));
+      try {
+        const codes = typed.map((s) => s.code);
+        if (codes.length) await api.approveScripts(codes);
+      } catch (e) {
+        log("warning", `Could not record the scripts you typed as approved: ${(e as Error).message}`);
+      }
+      if (pending.length === 0) return true;
+      const n = pending.length;
+      const scripts = countOf(n, "script");
+      const ok = await scriptTrustDialog({
+        title: when === "open" ? `This project contains ${scripts} you have not approved` : `Run ${scripts} you have not approved?`,
+        message:
+          "Scripts are Python code that runs while the model simulates. " +
+          (n === 1 ? "This one came" : "These came") +
+          " with the project, from another computer or changed since you last approved them. " +
+          "Read the code and run it only if you trust where the project came from.",
+        note:
+          report.mode === "always-prompt"
+            ? "Managed by your organisation: LightSim asks every time it opens a project."
+            : undefined,
+        scripts: pending.map((s) => ({ label: s.label, code: s.code })),
+        confirmLabel: "Run scripts",
+        cancelLabel: when === "open" ? "Open without running scripts" : "Don't run",
+      });
+      if (!ok) {
+        log(
+          "warning",
+          when === "open"
+            ? `Opened without running its scripts: ${pending.map((s) => `'${s.label}'`).join(", ")}. Run asks again.`
+            : "Run cancelled: its scripts are not approved.",
+        );
+        return false;
+      }
+      try {
+        await api.approveScripts(pending.map((s) => s.code));
+      } catch (e) {
+        log("error", `Could not approve the scripts: ${(e as Error).message}`);
+        return false;
+      }
+      log("info", `Approved ${scripts} to run.`);
       return true;
     },
 

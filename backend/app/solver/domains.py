@@ -25,6 +25,7 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 
+from .. import script_trust
 from .maps import Map, MapUse, TableError, interp1, parse_table1d, parse_table2d
 from .network import ROAD_LOAD_ABC, BrakeRef, Driveline, Joint, Model, Segment, SourceRef
 from .profiles import interp_profile, parse_profile
@@ -266,6 +267,11 @@ class RunContext:
                 params=dict(self.params(el_id)),
             ))
         if script_specs:
+            # Only code this user has approved runs (app/script_trust.py).
+            try:
+                script_trust.check([(sp.label, sp.code) for sp in script_specs])
+            except script_trust.ScriptsNotApproved as e:
+                raise ModelInitError([str(e)])
             try:
                 self.sandbox = ScriptSandbox(script_specs)
             except ScriptError as e:

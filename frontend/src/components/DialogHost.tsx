@@ -54,8 +54,16 @@ export function DialogHost() {
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <div className="w-[380px] max-w-[92vw] overflow-hidden rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] shadow-2xl">
-        <div className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 py-2.5 text-[13px] font-semibold">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ss-dialog-title"
+        className={`${dialog.code ? "w-[640px]" : "w-[380px]"} max-w-[92vw] overflow-hidden rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] shadow-2xl`}
+      >
+        <div
+          id="ss-dialog-title"
+          className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 py-2.5 text-[13px] font-semibold"
+        >
           {dialog.title}
         </div>
         <div className="px-4 py-3">
@@ -63,6 +71,25 @@ export function DialogHost() {
             <p className="text-[12px] leading-snug text-[color:var(--ss-text-dim)]">
               {dialog.message}
             </p>
+          )}
+          {dialog.note && (
+            <p className="mt-2 text-[12px] font-semibold leading-snug">{dialog.note}</p>
+          )}
+          {dialog.code && (
+            <div className="mt-2 max-h-[50vh] space-y-2 overflow-auto" data-testid="dialog-code">
+              {dialog.code.map((c, i) => (
+                <figure key={i} className="m-0">
+                  <figcaption className="mb-1 text-[12px] font-semibold">{c.label}</figcaption>
+                  <pre
+                    tabIndex={0}
+                    aria-label={`Code of ${c.label}`}
+                    className="m-0 overflow-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] p-2 font-mono text-[11px] leading-snug"
+                  >
+                    {c.code}
+                  </pre>
+                </figure>
+              ))}
+            </div>
           )}
           {dialog.kind === "prompt" && (
             <input
