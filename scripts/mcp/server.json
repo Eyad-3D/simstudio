@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "_comment": "DRAFT for the official MCP Registry (AI-29). Not published: the name must sit under a namespace LightSim controls, which waits for the product name and domain decision (BIZ-07). Then set name, version and the .mcpb release URL and its sha256, and publish with mcp-publisher.",
+  "name": "io.github.eyad-3d/lightsim",
+  "title": "LightSim",
+  "description": "Open, check and run LightSim vehicle simulation models from your AI assistant (local, stdio).",
+  "repository": { "url": "https://github.com/Eyad-3D/simstudio", "source": "github" },
+  "version": "0.3.0",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/Eyad-3D/simstudio/releases/download/v0.3.0/LightSim-0.3.0.mcpb",
+      "fileSha256": "TO-BE-FILLED-AT-RELEASE",
+      "transport": { "type": "stdio" }
+    }
+  ]
+}
