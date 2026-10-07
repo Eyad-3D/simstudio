@@ -443,7 +443,11 @@ function profileAxes(
   mode: string | undefined,
 ): { x: AxisDef; yLabel: string; yUnit: string } {
   if (defId === "signal.driving_task")
-    return { x: { name: "Time", unit: "s" }, yLabel: "Target Speed", yUnit: "km/h" };
+    return {
+      x: mode === "distance" ? { name: "Distance", unit: "m" } : { name: "Time", unit: "s" },
+      yLabel: "Target Speed",
+      yUnit: "km/h",
+    };
   if (defId === "signal.road_profile")
     return {
       x: mode === "time" ? { name: "Time", unit: "s" } : { name: "Distance", unit: "m" },
@@ -1023,6 +1027,7 @@ export function ElementForm({
           <CyclePreview
             cycleId={cycleId}
             points={sortedNumericKeys(profile).map((t) => [Number(t), profile[t]])}
+            byDistance={String(valueOf(def.parameters.find((q) => q.key === "mode")!)) === "distance"}
           />
         </div>
       )}

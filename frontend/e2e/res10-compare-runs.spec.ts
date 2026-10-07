@@ -44,7 +44,9 @@ test("RES-10: a re-run is named by its change and compared with the run before",
   await expect(header).toContainText("Change");
   await expect(header).toContainText("% change");
   await expect(row(page, "Consumption").nth(4)).toHaveText(/^\+\d+(\.\d+)? %$/);
-  await expect(row(page, "Distance driven").nth(3)).toHaveText("~ 0");
+  // the same distance to within the 3 decimals shown (values keep every
+  // digit since ENG-16, so a tiny change reads +0.000 rather than ~ 0)
+  await expect(row(page, "Distance driven").nth(3)).toHaveText(/^[+−-]?0\.000$/);
 
   // what changed, and the part it is about one click away
   const changed = page.getByRole("region", { name: "What changed" });

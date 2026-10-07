@@ -9,8 +9,9 @@ Left out:
 - "the API rejects schema-violating data": pydantic's lax mode accepts
   `false` for a number (as 0.0), which the JSON schema forbids. That is a
   deliberate leniency, not a defect.
-- POST /api/simulate: a generated case may ask for any duration and time step
-  and would run the project's control scripts. The solver tests cover it.
+- POST /api/simulate and POST /api/studies: a generated case may ask for any
+  duration and time step and would run the project's control scripts (a
+  study, on every core). The solver and study tests cover them.
 - the live-run WebSocket, which is not in the schema.
 """
 from __future__ import annotations
@@ -95,7 +96,7 @@ def projects_dir(tmp_path_factory):
         yield
 
 
-@schema.exclude(path="/api/simulate").parametrize()
+@schema.exclude(path=["/api/simulate", "/api/studies"]).parametrize()
 # filter_too_much: a whole valid project body (PUT /api/projects/{id}) is
 # hard to generate, and on some random draws Hypothesis discards so many
 # attempts that its health check stops the test (seen on CI and locally

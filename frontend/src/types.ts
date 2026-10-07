@@ -156,6 +156,19 @@ export interface SimCase {
   kind?: "cycle" | "performance" | "acceleration" | "lap";
   /** End the run when the vehicle has driven startLine + endDistance, m; null/0 = run the duration. */
   endDistance?: number | null;
+  /**
+   * End the run after this many passes through the profile of the Driving
+   * Task the Driver follows, when its Profile Axis is "distance" (ENG-34);
+   * endDistance wins when both are set. null/0 = no lap count.
+   */
+  endLaps?: number | null;
+  /**
+   * Charge balancing (ENG-33): run the cycle again from the charge the battery
+   * ended with until its stored energy changes by less than 1 % of the fuel's
+   * energy. null/absent = on for a cycle case whose model has an engine and a
+   * battery (and is not paced).
+   */
+  chargeBalance?: boolean | null;
   /** Distance driven before the timer starts, m (FS Rules 2026 v1.1 (FSG) D 5.2.3: 0.30 m). */
   startLine?: number;
   /** A time to compare the acceleration test's time with, s; null = none. */
@@ -193,6 +206,8 @@ export interface StudyPoint {
   kpis: Record<string, number>;
   /** summary value label → why the run's checks rule that value out */
   notValid?: Record<string, string>;
+  /** the point's run's wall time, s (ENG-05) */
+  wallS?: number;
 }
 
 /** A parameter study saved with its project (STU-03): what was swept on which
@@ -207,6 +222,9 @@ export interface Study {
   /** the table's KPI columns: run summary values */
   kpis: { label: string; unit: string }[];
   points: StudyPoint[];
+  /** how many points ran at once, and the study's wall time, s (ENG-05) */
+  workers?: number;
+  wallS?: number;
 }
 
 export interface Project {
@@ -235,6 +253,15 @@ export interface Channel {
   unit: string;
   /** value is null where the channel has no data yet (a gap, not a zero). */
   timeSeries: { t: number; value: number | null }[];
+  /**
+   * The lowest, highest and time-averaged value over the output interval that
+   * ends at each point, taken at every solver step (ENG-16), so a peak between
+   * two recorded points is kept; aligned with timeSeries. Absent when every
+   * point is one solver step, and in runs from before 0.3.
+   */
+  min?: (number | null)[];
+  max?: (number | null)[];
+  mean?: (number | null)[];
 }
 
 export interface SummaryValue {

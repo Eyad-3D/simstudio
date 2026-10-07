@@ -382,6 +382,7 @@ def test_hybrid_p2_hcu_charges_low_battery():
         dbc(9, "hcu", "gear", "gb", "sig_gear_in"),
     ]
     proj = project(elements, connections, databus, duration=180, time_step=1.0)
+    proj.cases[0].chargeBalance = False  # one run from the low 40 % (ENG-33 would rebalance it)
     checks = validate_project(proj)
     assert not [c for c in checks if c.level == "error"], [c.text for c in checks]
     result = simulate(proj, "case")

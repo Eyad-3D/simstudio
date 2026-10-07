@@ -23,19 +23,21 @@ summarised by the same code.
 from __future__ import annotations
 
 import math
+import operator
 import time
 from itertools import chain
 from typing import Callable, Iterator, Optional
 
 from ..library import unit_groups
 from ..schemas import Channel, Project, SimMessage, SimResult, SummaryValue
-from . import lapsim
+from . import balance, lapsim
 from .battery import SOP_PULSES, sop
 from .domains import ModelInitError, RunContext, build_slaves
 from .energy import add_lap, energy_flows
 from .maps import OutsideDataError
 from .master import Master, SlaveStepError
 from .network import ModelError, build_model
+from .profiles import distance_axis, lap_length
 from .runtime import (  # noqa: F401 — re-exported for backward compatibility
     AIR_DENSITY,
     CLUTCH_BAND,
@@ -61,6 +63,7 @@ from .runtime import (  # noqa: F401 — re-exported for backward compatibility
     usable_energy_left_wh,
 )
 from .slave import var_name
+from .stability import solver_step
 from .verdict import CycleTrace, judge, terminal_checks
 
 
@@ -70,6 +73,21 @@ def simulate(
     emit: Optional[EmitFn] = None,
     control: Optional[ControlFn] = None,
 ) -> SimResult:
+    """Run a case: once, or, for a hybrid's charge-balanced case, until its
+    battery ends where it started (balance.py, ENG-33)."""
+    return balance.simulate_balanced(project, case_id, emit, control, run_case)
+
+
+def run_case(
+    project: Project,
+    case_id: str,
+    emit: Optional[EmitFn] = None,
+    control: Optional[ControlFn] = None,
+    totals: Optional[dict] = None,
+) -> SimResult:
+    """One run of a case. ``totals``, when given, is filled with what charge
+    balancing needs: each battery's start and end SOC and stored energy
+    change, and the fuel burnt."""
     case = next((c for c in project.cases if c.id == case_id), None)
     if case is None:
         return SimResult(
@@ -95,7 +113,18 @@ def simulate(
     # recorded steps; the last one is shorter when the duration is not a whole
     # number of steps (a remainder under a millionth of a step is absorbed)
     steps = max(1, math.ceil(t_end / dt_rec - 1e-6)) if t_end > 0 else 0
-    n_sub = max(1, math.ceil(dt_rec / MAX_SUBSTEP - 1e-9))
+    # the solver step: MAX_SUBSTEP, or less when a part is too stiff for it (ENG-14)
+    choice = solver_step(model, MAX_SUBSTEP) if case.kind != "lap" else None
+    h_max = choice.step if choice else MAX_SUBSTEP
+    if choice and choice.step < MAX_SUBSTEP:
+        rt.message("info", f"Solver step reduced to {choice.step * 1000:.3g} ms (from "
+                           f"{MAX_SUBSTEP * 1000:g} ms) because {choice.reason} is too stiff "
+                           f"for the larger step: the run takes about "
+                           f"{MAX_SUBSTEP / choice.step:.3g} times as long.")
+    for text, _ in choice.warnings if choice else ():
+        if "too stiff" in text:  # (a clutch that can ring is told by Data Checks only)
+            rt.message("warning", text)
+    n_sub = max(1, math.ceil(dt_rec / h_max - 1e-9))
     dt = dt_rec / n_sub
     output_every = max(1, int(getattr(case, "outputEvery", 1) or 1))
     pace = max(0.0, float(getattr(case, "realtimeFactor", 0.0) or 0.0))
@@ -107,11 +136,22 @@ def simulate(
             caseId=case_id, status="failed", channels=[],
             messages=[SimMessage(level="error", text=t) for t in e.messages],
         )
+    soc_start = {el_id: b.soc for el_id, b in ctx.batteries.items()}
     ctx.performance = case.kind != "cycle"  # the trace is sampled every solver step
     ctx.full_throttle = case.kind == "acceleration"
     # the run ends when the vehicle has driven this far, m (None: at the duration)
     end_d = (max(0.0, case.startLine) + case.endDistance
              if case.endDistance and case.endDistance > 0 else None)
+    if end_d is None and case.endLaps and case.endLaps > 0 and case.kind in ("cycle", "performance"):
+        end_d = _laps_distance(ctx, case.endLaps)
+        if end_d is None:
+            rt.message("warning", f"Case '{case.name}' asks for {case.endLaps:g} laps, but the "
+                                  f"Driver does not follow a Driving Task whose Profile Axis is "
+                                  f"Distance (with at least two points), so the run lasts its "
+                                  f"{t_end:g} s duration.")
+        else:
+            end_d += max(0.0, case.startLine)
+    ctx.end_distance = end_d
 
     try:
         lap = None
@@ -157,6 +197,12 @@ def simulate(
                     rt.publish(el_id, port_id, value)
 
         publish_routed_states()
+        # each point's lowest, highest and time-averaged value over the output
+        # interval it ends, solver step by solver step (ENG-16): kept when an
+        # interval holds more than one solver step (a lap case records every
+        # stretch it solves)
+        env = (_Envelope(ctx, gear_of)
+               if lap is None and (n_sub > 1 or output_every > 1) else None)
         trace = CycleTrace(ctx)  # target vs vehicle speed, for the run verdict
         if lap is None:  # a lap case follows no target
             trace.sample(0.0)
@@ -190,12 +236,16 @@ def simulate(
                 while len(lst) < rec_index:
                     lst.append(None)  # no data yet — a gap, not a zero
                 lst.append(value)
+                if env is not None:
+                    env.record((el_id, port_id), rec_index, value)
+            if env is not None:
+                env.reset()
             if emit:
                 emit({
                     "type": "step",
                     "t": t,
                     "pct": pct,
-                    "values": {f"{el}:{port}": round(val[-1], 5)
+                    "values": {f"{el}:{port}": val[-1]
                                for (el, port), val in rec.items() if len(val) == rec_index + 1},
                 })
 
@@ -233,7 +283,7 @@ def simulate(
                 # -- solver steps ---------------------------------------------------
                 n, h_sub = n_sub, dt
                 if step == steps and short_last:
-                    n = max(1, math.ceil(h_last / MAX_SUBSTEP - 1e-9))
+                    n = max(1, math.ceil(h_last / h_max - 1e-9))
                     h_sub = h_last / n
                 ctx.dt = h_sub
                 try:
@@ -242,6 +292,8 @@ def simulate(
                         master.step(ctx.t, h_sub)
                         solved = t_prev + (j + 1) * h_sub
                         publish_routed_states()
+                        if env is not None:
+                            env.add(h_sub)
                         arrived = end_d is not None and ctx.distance >= end_d
                         trace.sample(solved, last=arrived or (step == steps and j == n - 1))
                         if arrived:
@@ -310,43 +362,42 @@ def simulate(
             if el is None or pdef is None:
                 continue
             unit = unit_map.get(getattr(pdef, "unitGroup", None) or "No Unit", "-")
+            lo, hi, mean = env.series(el_id, port_id, len(values)) if env else (None,) * 3
             channels.append(Channel(
                 elementId=el_id,
                 portId=port_id,
                 label=f"{el.label} · {pdef.name}",
                 unit=unit,
-                timeSeries=[
-                    {"t": times[i], "value": None if vv is None else round(vv, 5)}
-                    for i, vv in enumerate(values)
-                ],
+                timeSeries=[{"t": times[i], "value": vv} for i, vv in enumerate(values)],
+                min=lo, max=hi, mean=mean,
             ))
 
         summary: list[SummaryValue] = []
         for b in ctx.batteries.values():
             label = model.elements[b.el_id].label
-            summary.append(SummaryValue(label=f"{label} — final SOC", value=round(b.soc * 100.0, 2), unit="%"))
-            summary.append(SummaryValue(label=f"{label} — energy delivered", value=round(b.energy_out_wh / 1000.0, 3), unit="kWh"))
-            summary.append(SummaryValue(label=f"{label} — energy recuperated", value=round(b.energy_in_wh / 1000.0, 3), unit="kWh"))
-            summary.append(SummaryValue(label=f"{label} — internal losses", value=round(b.loss_wh / 1000.0, 4), unit="kWh"))
+            summary.append(SummaryValue(label=f"{label} — final SOC", value=b.soc * 100.0, unit="%"))
+            summary.append(SummaryValue(label=f"{label} — energy delivered", value=b.energy_out_wh / 1000.0, unit="kWh"))
+            summary.append(SummaryValue(label=f"{label} — energy recuperated", value=b.energy_in_wh / 1000.0, unit="kWh"))
+            summary.append(SummaryValue(label=f"{label} — internal losses", value=b.loss_wh / 1000.0, unit="kWh"))
             cp = b.cells
             if cp is not None and cp.cells:  # built from cells (MOD-08)
                 summary.append(SummaryValue(label=f"{label} — layout",
                                             value=float(cp.ns * cp.np), unit="cells"))
                 summary.append(SummaryValue(label=f"{label} — charge capacity",
-                                            value=round(b.q_ah, 3), unit="Ah"))
+                                            value=b.q_ah, unit="Ah"))
                 summary.append(SummaryValue(label=f"{label} — pack mass (estimate)",
-                                            value=round(cp.mass_kg, 1), unit="kg"))
+                                            value=cp.mass_kg, unit="kg"))
                 if cp.v_cell_low < math.inf:
                     summary.append(SummaryValue(label=f"{label} — lowest cell voltage",
-                                                value=round(cp.v_cell_low, 4), unit="V",
+                                                value=cp.v_cell_low, unit="V",
                                                 limit=cp.v_min or None))
                     summary.append(SummaryValue(label=f"{label} — highest cell voltage",
-                                                value=round(cp.v_cell_high, 4), unit="V",
+                                                value=cp.v_cell_high, unit="V",
                                                 limit=cp.v_max or None))
             if cp is not None:
                 for what, secs in sorted(cp.limit_s.items()):
                     summary.append(SummaryValue(label=f"{label} — time at {what} limit",
-                                                value=round(secs, 2), unit="s"))
+                                                value=secs, unit="s"))
             if b.check is not None:  # an Output Power Limit or a Voltage Class
                 rows, problems = terminal_checks(label, b.check, usable_energy_left_wh(b) / 1000.0,
                                                  b.depleted_flagged)
@@ -358,42 +409,42 @@ def simulate(
             if mc.limited_s > 0:
                 summary.append(SummaryValue(
                     label=f"{model.elements[mc.el_id].label} — time limited by supply",
-                    value=round(mc.limited_s, 2), unit="s"))
+                    value=mc.limited_s, unit="s"))
             if mc.regen_lost_wh > 0:
                 # recuperation its command asked for that the supply could not
                 # take (a full or charge-limited battery, a fuel cell, a one-way
                 # DC-DC): the motor braked that much less
                 summary.append(SummaryValue(
                     label=f"{model.elements[mc.el_id].label} — regeneration not recovered",
-                    value=round(mc.regen_lost_wh / 1000.0, 4), unit="kWh"))
+                    value=mc.regen_lost_wh / 1000.0, unit="kWh"))
         for ec in ctx.engines.values():
             summary.append(SummaryValue(
                 label=f"{model.elements[ec.el_id].label} — fuel used",
-                value=round(ec.fuel_used_kg, 3), unit="kg"))
+                value=ec.fuel_used_kg, unit="kg"))
         for fc in ctx.fuelcells.values():
             summary.append(SummaryValue(
                 label=f"{model.elements[fc.el_id].label} — energy supplied",
-                value=round(fc.energy_wh / 1000.0, 3), unit="kWh"))
+                value=fc.energy_wh / 1000.0, unit="kWh"))
         for c_id, (_, cl) in ctx.climate.items():
             label = model.elements[c_id].label
             summary.append(SummaryValue(label=f"{label} — energy used",
-                                        value=round(cl.energy_j / 3.6e6, 3), unit="kWh"))
+                                        value=cl.energy_j / 3.6e6, unit="kWh"))
             if cl.heat_j > 0:
                 summary.append(SummaryValue(label=f"{label} — heating delivered",
-                                            value=round(cl.heat_j / 3.6e6, 3), unit="kWh"))
+                                            value=cl.heat_j / 3.6e6, unit="kWh"))
             if cl.cool_j > 0:
                 summary.append(SummaryValue(label=f"{label} — cooling delivered",
-                                            value=round(cl.cool_j / 3.6e6, 3), unit="kWh"))
+                                            value=cl.cool_j / 3.6e6, unit="kWh"))
         for vs_id, e_wh in ctx.vsource_energy_wh.items():
             summary.append(SummaryValue(
                 label=f"{model.elements[vs_id].label} — energy supplied",
-                value=round(e_wh / 1000.0, 3), unit="kWh"))
+                value=e_wh / 1000.0, unit="kWh"))
         if ctx.veh_id:
-            summary.append(SummaryValue(label="Distance driven", value=round(ctx.distance / 1000.0, 3), unit="km"))
+            summary.append(SummaryValue(label="Distance driven", value=ctx.distance / 1000.0, unit="km"))
             net_wh = sum(b.energy_out_wh - b.energy_in_wh for b in ctx.batteries.values())
             if ctx.distance > 100 and net_wh > 0:
                 summary.append(SummaryValue(
-                    label="Consumption", value=round(net_wh / 10.0 / (ctx.distance / 1000.0), 2),
+                    label="Consumption", value=net_wh / 10.0 / (ctx.distance / 1000.0),
                     unit="kWh/100km"))
             fuel_kg = sum(ec.fuel_used_kg for ec in ctx.engines.values())
             if ctx.distance > 100 and fuel_kg > 0:
@@ -412,10 +463,10 @@ def simulate(
                 liters = fuel_kg / density
                 summary.append(SummaryValue(
                     label="Fuel consumption",
-                    value=round(liters * 100.0 / (ctx.distance / 1000.0), 2), unit="l/100km"))
+                    value=liters * 100.0 / (ctx.distance / 1000.0), unit="l/100km"))
                 summary.append(SummaryValue(
                     label="CO₂ emissions",
-                    value=round(fuel_kg * co2_per_kg * 1000.0 / (ctx.distance / 1000.0), 1),
+                    value=fuel_kg * co2_per_kg * 1000.0 / (ctx.distance / 1000.0),
                     unit="g/km"))
         ctx.close_book()
         if lap is not None and ctx.veh_id:  # its mechanics come from the lap's energy pass
@@ -426,13 +477,13 @@ def simulate(
             # of one part that are not the flows into the next (MOD-10)
             summary.append(SummaryValue(
                 label="Energy balance residual",
-                value=round(100.0 * ctx.book.residual_j() / released, 4), unit="%"))
+                value=100.0 * ctx.book.residual_j() / released, unit="%"))
         if ctx.throughput_wh > 0:
             # energy no source supplied or absorbed (last-resort clamps), as a
             # share of all the energy that went through the buses
             summary.append(SummaryValue(
                 label="Electrical energy balance error",
-                value=round(100.0 * ctx.residual_wh / ctx.throughput_wh, 4), unit="%"))
+                value=100.0 * ctx.residual_wh / ctx.throughput_wh, unit="%"))
         # tables the run went past (listed only then, like the rows above):
         # for how long, as a share of the time solved, and how far; per
         # E-Motor or Engine the time above its maximum speed and the highest
@@ -445,14 +496,14 @@ def simulate(
             if use.what == "maximum speed":
                 share_label = f"{label} — time above maximum speed"
                 far = SummaryValue(label=f"{label} — highest speed",
-                                   value=round(use.value), unit="1/min")
+                                   value=use.value, unit="1/min")
             else:
                 share_label = f"{label} — time outside its {use.what} ({use.axis})"
                 far = SummaryValue(label=f"{label} — furthest {use.axis} outside its {use.what}",
-                                   value=round(use.value, 4), unit=use.unit)
+                                   value=use.value, unit=use.unit)
             edge_rows |= {share_label, far.label}
             summary.append(SummaryValue(
-                label=share_label, value=round(100.0 * use.outside_s / max(solved, 1e-9), 2),
+                label=share_label, value=100.0 * use.outside_s / max(solved, 1e-9),
                 unit="%"))
             summary.append(far)
         rows = [SummaryValue(label=label, value=v, unit=u, limit=lim, passed=ok)
@@ -465,7 +516,7 @@ def simulate(
         if lap is not None:  # and so do a lap case's
             summary[:0] = [SummaryValue(label=label, value=v, unit=u) for label, v, u in lap.rows()]
             edge_rows.add("Lap energy balance error")
-        summary.append(SummaryValue(label="Simulated duration", value=round(times[-1], 6) if times else 0.0, unit="s"))
+        summary.append(SummaryValue(label="Simulated duration", value=times[-1] if times else 0.0, unit="s"))
 
         # headline numbers that a failed check makes meaningless say why
         not_valid: dict[str, str] = {}
@@ -551,6 +602,8 @@ def simulate(
                     f"({tr.length:,.0f} m, a point every {tr.ds:.2f} m), {len(times)} points "
                     f"recorded{rec_note}, {len(channels)} result channels.")
         rt.messages.insert(0, SimMessage(level="info", text=text))
+        if totals is not None:
+            totals.update(balance.run_totals(ctx, soc_start))
         return SimResult(
             caseId=case_id,
             status=status,
@@ -562,6 +615,107 @@ def simulate(
     finally:
         if ctx.sandbox is not None:
             ctx.sandbox.close()
+
+
+def _laps_distance(ctx: RunContext, laps: float) -> Optional[float]:
+    """The distance ``laps`` passes through the profile of the Driving Task
+    the Driver follows take, m; None when the Driver follows no Driving Task
+    over distance (or its profile has no length)."""
+    model = ctx.model
+    src = model.signal_route.get((model.driver, "sig_target_in")) if model.driver else None
+    if src is None or model.cdef_of[src[0]].id != "signal.driving_task" \
+            or not distance_axis(ctx.params(src[0])):
+        return None
+    length = lap_length(ctx.profile_points(src[0]))
+    return laps * length if length > 0 else None
+
+
+class _Envelope:
+    """Each channel's lowest, highest and time-averaged value over every
+    output interval (ENG-16), from its value at the end of each solver step,
+    so a peak shorter than the interval between recorded points (a regen
+    burst, a torque spike) is kept. A point's interval runs from the point
+    before it; point 0, the initial state, is its own value.
+
+    Each solver step only appends its values to a buffer; the buffer is
+    reduced (min, max and the time-weighted mean, in C) when a point is
+    recorded or the drivelines change."""
+
+    def __init__(self, ctx: RunContext, gear_of: dict[str, float]):
+        self.ctx, self.gear_of = ctx, gear_of
+        self.bus_keys = [(el, port) for el, port, _ in _bus_channels(ctx)]
+        self.layout = -1
+        self.keys: list[tuple[str, str]] = []  # the buffered rows' channels
+        self.fns: list[Callable[[], Optional[float]]] = []
+        self.rows: list[list[Optional[float]]] = []
+        self.hs: list[float] = []
+        self.out: dict[tuple[str, str], tuple[list, list, list]] = {}
+        self.acc: dict[tuple[str, str], list[float]] = {}  # [lo, hi, ∫v dt, span]
+
+    def add(self, h: float) -> None:
+        """Buffer the channels' values at the end of a solver step of ``h`` s."""
+        if self.layout != self.ctx.layout_version:
+            self._fold()
+            self.layout = self.ctx.layout_version
+            state = list(_state_channel_fns(self.ctx, self.gear_of))
+            self.keys = self.bus_keys + [(el, port) for el, port, _ in state]
+            self.fns = [fn for _, _, fn in state]
+        get = self.ctx.rt.signal_values.get
+        row = [get(k, 0.0) for k in self.bus_keys]
+        row += [fn() for fn in self.fns]
+        self.rows.append(row)
+        self.hs.append(h)
+
+    def _fold(self) -> None:
+        """Reduce the buffered rows into the interval's accumulators."""
+        if not self.rows:
+            return
+        hs, acc = self.hs, self.acc
+        for key, col in zip(self.keys, zip(*self.rows)):
+            if None in col:  # no data yet in part of the interval
+                pairs = [(v, h) for v, h in zip(col, hs) if v is not None]
+                if not pairs:
+                    continue
+                col, h_col = tuple(v for v, _ in pairs), [h for _, h in pairs]
+            else:
+                h_col = hs
+            lo, hi = min(col), max(col)
+            area, span = sum(map(operator.mul, col, h_col)), sum(h_col)
+            a = acc.get(key)
+            if a is None:
+                acc[key] = [lo, hi, area, span]
+            else:
+                a[0], a[1] = min(a[0], lo), max(a[1], hi)
+                a[2] += area
+                a[3] += span
+        self.rows, self.hs = [], []
+
+    def record(self, key: tuple[str, str], index: int, value: float) -> None:
+        """Store the channel's envelope for point ``index``, recorded with
+        ``value``; call reset() once every channel of the point is stored."""
+        self._fold()
+        lists = self.out.get(key)
+        if lists is None:
+            lists = self.out[key] = ([], [], [])
+        for lst in lists:
+            while len(lst) < index:
+                lst.append(None)  # no data yet, as in the channel
+        a = self.acc.get(key)
+        if a is not None and a[3] > 0:
+            lo, hi, mean = min(a[0], value), max(a[1], value), a[2] / a[3]
+        else:
+            lo = hi = mean = value
+        lists[0].append(lo)
+        lists[1].append(hi)
+        lists[2].append(mean)
+
+    def reset(self) -> None:
+        """Start the next output interval."""
+        self.acc = {}
+
+    def series(self, el_id: str, port_id: str, n: int) -> tuple[list, list, list]:
+        lists = self.out.get((el_id, port_id), ([], [], []))
+        return tuple(lst + [None] * (n - len(lst)) for lst in lists)  # type: ignore[return-value]
 
 
 ChannelValue = tuple[str, str, float]  # (element id, port id, value)

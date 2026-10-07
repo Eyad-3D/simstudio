@@ -284,7 +284,7 @@ def test_regeneration_the_supply_cannot_take_is_reported(case):
     assert asked > 0.1
     assert taken(result) + lost == pytest.approx(asked, rel=1e-3), (taken(result), lost, asked)
     if case == "full battery":
-        assert summary["Battery — energy recuperated"] == 0.0
+        assert summary["Battery — energy recuperated"] == pytest.approx(0.0, abs=1e-6)
         assert max(_values(result, "batt", "sig_soc")) <= 100.0
 
 
@@ -317,7 +317,7 @@ def test_a_full_battery_recuperates_nothing_under_the_driver():
     _set(proj, batt={"initial_soc_pct": 100}, veh={"initial_speed_kmh": 100})
     result = _run(proj, 25)
     summary = _summary(result)
-    assert summary["Battery — energy recuperated"] == 0.0
+    assert summary["Battery — energy recuperated"] == pytest.approx(0.0, abs=1e-6)
     assert max(_values(result, "batt", "sig_soc")) <= 100.0
     assert "E-Motor — regeneration not recovered" not in summary
     speed = {p["t"]: p["value"] for p in series(result, "veh", "sig_speed")}

@@ -112,7 +112,7 @@ test("RES-18: the sweep opens on consumption, on an axis that fits", async ({ pa
   await showPanel(page, "Cases & Parameters");
   const sweepElement = page.locator("select", { has: page.locator("option", { hasText: "Element…" }) }).nth(1);
   await sweepElement.selectOption({ label: "Vehicle" });
-  await page.locator("input[type=number][max='16']").fill("3");
+  await page.locator("input[type=number][max='200']").fill("3");
   await page.getByRole("button", { name: "Run sweep (3)" }).click();
   await expect(page.getByPlaceholder("Search channels…")).toBeVisible({ timeout: 60_000 });
   await page.getByRole("button", { name: "Sweep", exact: true }).click();

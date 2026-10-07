@@ -42,8 +42,11 @@ from .solver.network import (
     SIGNAL_BLOCK_TYPES,
     ports_of,
 )
-from .solver.runtime import AMBIENT_C, AMBIENT_KPA, GRAVITY, RPM, air_density, ocv_mean
+from .solver.profiles import distance_axis, parse_profile
+from .solver.runtime import (AMBIENT_C, AMBIENT_KPA, GRAVITY, MAX_SUBSTEP, RPM, air_density,
+                             ocv_mean)
 from .solver.scaling import VALID_RANGE, max_speed_rpm, scale_keys, scaled
+from .solver.stability import solver_step
 from .tyre import parse_tyre_code
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
@@ -309,6 +312,8 @@ def validate_project(project: Project) -> list[DataCheck]:
         _plausibility_checks(model, add)
         _map_checks(model, add)
         _lap_checks(project, add)
+        _distance_checks(project, model, add)
+        _step_checks(project, add)
 
         if not model.drivelines and not any(b.consumers for b in model.buses):
             add("info", "Model has no driveline and no electrical loads — nothing will happen.")
@@ -626,6 +631,104 @@ def _lap_checks(project: Project, add: Add) -> None:
         for level, text, parts in lapsim.problems(model, case.outputEvery):
             add(level, f"Case '{case.name}': {text}", None if parts else track, ids=parts,
                 fix=_model_fix(text))
+
+
+def _step_checks(project: Project, add: Add) -> None:
+    """The solver step each case will use (stability.solver_step, ENG-14):
+    a note when a part too stiff for the 10 ms step makes it smaller (the run
+    takes longer, but its results hold), a warning when one is too stiff even
+    for the smallest step, a note for a clutch that can ring as it closes."""
+    seen: set[str] = set()
+    base = None
+    for case in [None, *project.cases]:
+        if case is not None and (case.kind == "lap" or not case.parameterOverrides):
+            continue  # the lap solver steps along the track; no values of its own: as the model
+        try:
+            model = build_model(project, {}, case.parameterOverrides if case else {})
+        except ModelError:
+            return  # reported above
+        choice = solver_step(model)
+        if case is None:
+            base = choice
+        elif (choice.step, choice.warnings) == (base.step, base.warnings):
+            continue  # its own values change nothing here
+        where = f"In case '{case.name}', " if case is not None else ""
+        if choice.step < MAX_SUBSTEP:
+            text = (f"{where}{choice.reason} is too stiff for the solver's {MAX_SUBSTEP * 1000:g} ms "
+                    f"step: the run will use {choice.step * 1000:.3g} ms and take about "
+                    f"{MAX_SUBSTEP / choice.step:.3g} times as long.")
+            if text not in seen:
+                seen.add(text)
+                add("info", text, ids=choice.el_ids,
+                    fix="Nothing to do if the value is right; otherwise lower it (a tyre's Slip "
+                        "Stiffness is about 10 to 30).")
+        for text, ids in choice.warnings:
+            if text in seen:
+                continue
+            seen.add(text)
+            too_stiff = "too stiff" in text
+            add("warning" if too_stiff else "info", f"{where}{text}", ids=ids,
+                fix=("Lower the value: the solver cannot step it reliably." if too_stiff else
+                     "Shown for information: the clutch's energy is conserved. For exact "
+                     "shaft speeds while it closes, set the case's Step to 0.0025 s and "
+                     "Store every to 400 (a point a second)."))
+
+
+def _distance_checks(project: Project, model: Model, add: Add) -> None:
+    """A Driving Task whose Profile Axis is Distance (ENG-34), as the model
+    sets it and as each case's own values change it: it cannot drive a
+    standard (time-based) cycle, a 0 km/h point before its end stops the car
+    for good, and a case that ends after a number of laps needs one."""
+    tasks = [e for e, c in model.cdef_of.items() if c.id == "signal.driving_task"]
+    seen: set[str] = set()
+
+    def once(level: str, text: str, el_id: str, fix: str) -> None:
+        if text not in seen:
+            seen.add(text)
+            add(level, text, model.elements[el_id], fix=fix)
+
+    variants = [(None, {})] + [(c, c.parameterOverrides) for c in project.cases]
+    for t in tasks:
+        label = model.elements[t].label
+        for case, overrides in variants:
+            ov = overrides.get(t)
+            if case is not None and not ov:
+                continue
+            p = {**model.params_of[t], **(ov or {})}
+            if ov and "profile" in ov and "cycle" not in ov:  # a case's own profile wins
+                p["cycle"] = ""
+            if not distance_axis(p):
+                continue
+            where = f" in case '{case.name}'" if case is not None else ""
+            if p.get("cycle"):
+                once("error", f"Driving Task '{label}'{where} drives the drive cycle "
+                              f"'{p['cycle']}', a speed against time, but its Profile Axis is "
+                              f"Distance.", t,
+                     "Set its Profile Axis to Time, or pick Custom profile and type a speed "
+                     "against distance.")
+                continue
+            pts = parse_profile(str(p.get("profile", "")))
+            stops = [x for x, v in (pts if p.get("repeat") else pts[:-1]) if v <= 0]
+            if stops:
+                once("warning", f"Driving Task '{label}'{where} asks for 0 km/h at "
+                                f"{stops[0]:g} m: over distance the car stops there and does "
+                                f"not drive on (a stop with a waiting time is not modelled "
+                                f"yet).", t,
+                     "Give that point a small speed (for example 5 km/h); at a profile's "
+                     "start, the speed the car sets off towards.")
+    route = model.signal_route
+    src = route.get((model.driver, "sig_target_in")) if model.driver else None
+    for case in project.cases:
+        if not case.endLaps or case.endLaps <= 0 or case.endDistance \
+                or case.kind not in ("cycle", "performance"):
+            continue
+        p = ({**model.params_of[src[0]], **case.parameterOverrides.get(src[0], {})}
+             if src and src[0] in tasks else {})
+        if not distance_axis(p):
+            add("warning", f"Case '{case.name}' ends after {case.endLaps:g} laps, but the Driver "
+                           f"does not follow a Driving Task whose Profile Axis is Distance, so "
+                           f"the run lasts its duration.",
+                fix="Set the Driving Task's Profile Axis to Distance, or clear the case's Laps.")
 
 
 def _plausibility_checks(model: Model, add: Add) -> None:

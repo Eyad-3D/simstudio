@@ -30,7 +30,7 @@ from .climate import ClimateState, climate_power
 from .energy import FUEL_LHV_MJ, H2_LHV_J_PER_KG, ROAD_TERMS, EnergyBook, book_linear
 from .maps import Map, MapUse, TableError, interp1, parse_table1d, parse_table2d
 from .network import ROAD_LOAD_ABC, BrakeRef, Driveline, Joint, Model, Segment, SourceRef
-from .profiles import interp_profile, parse_profile
+from .profiles import distance_axis, interp_profile, parse_profile
 from .runtime import (
     AIR_DENSITY,
     AMBIENT_C,
@@ -303,6 +303,8 @@ class RunContext:
         self.veh_mass = max(1.0, float(veh_p.get("mass_kg", 1800))) if self.veh_id else 0.0
         self.v = max(0.0, float(veh_p.get("initial_speed_kmh", 0)) / 3.6) if self.veh_id else 0.0
         self.distance = 0.0
+        # the case ends when the vehicle has driven this far, m (None: at its duration)
+        self.end_distance: float | None = None
         amb_p = self.params(self.amb_id) if self.amb_id else {}
         self.rho = air_density(max(-273.0, float(amb_p.get("temperature_C", 20))),
                                max(0.0, float(amb_p.get("pressure_kPa", 101.325))))
@@ -781,13 +783,15 @@ class RunContext:
 
     def source_value(self, el_id: str, kind: str, t: float) -> float:
         """A signal source's output (Constant, Driving Task) at time ``t`` —
-        a pure function of time, so it can be evaluated at any instant
-        without side effects."""
+        a pure function of time and, for a Driving Task whose Profile Axis is
+        Distance, of the distance the Vehicle has driven so far, so it can be
+        evaluated at any instant without side effects."""
         p = self.params(el_id)
         if kind == "signal.constant":
             return float(p.get("value", 0))
         scale = float(p.get("scale_pct", 100)) / 100.0
-        return interp_profile(self.profile_points(el_id), t, bool(p.get("repeat", False))) * scale
+        x = self.distance if distance_axis(p) else t
+        return interp_profile(self.profile_points(el_id), x, bool(p.get("repeat", False))) * scale
 
     def publish_sources(self, t: float) -> None:
         """Publish every signal source's output at time ``t``."""

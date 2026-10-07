@@ -12,10 +12,11 @@ energy an electric car uses against its mass.
 3. Choose the part in the **Element…** list and the parameter in the next
    list, for example *Vehicle* and *Vehicle Mass (kg)*. Only numeric
    parameters can be swept.
-4. Set **From**, **to** and **in** … **steps** (at most 16). The values the
-   sweep will run show under the fields.
-5. Click **Run sweep**. The runs go one after the other; **Stop** ends the
-   sweep.
+4. Set **From**, **to** and **in** … **steps** (at most 200). The values
+   the sweep will run show under the fields.
+5. Click **Run sweep**. The runs go side by side, one per processor core
+   (all but one, and fewer when memory is short); *Messages* says how many
+   at a time. **Stop** stops the runs going and leaves the rest not run.
 
 The part's own value does not change: each run applies its value only while
 it runs, as a case override does.
@@ -41,4 +42,10 @@ it runs, as a case override does.
 - A sweep of a Driving Task's *Scale* or a battery's *Initial SOC* can
   show the car failing to follow its cycle: check the status of each row.
 - Results keeps the 20 newest runs; a large sweep can push older runs out
-  of the list. The study table keeps every point.
+  of the list. The study table keeps every point, and every run stays on
+  disk within the project's disk budget for stored runs.
+- The study's line under its name says how many runs went at a time, how
+  long the sweep took and how much faster that was than one run after
+  another.
+- The runs of a sweep show only when it ends: a sweep does not draw its
+  runs live.

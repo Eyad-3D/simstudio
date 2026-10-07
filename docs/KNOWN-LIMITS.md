@@ -105,7 +105,8 @@ either. Also:
   energy include the power that spins the wheels. The time at the grip
   limit counts driven wheels only; there is no peak-slip figure. The time
   and that share follow the solver step when the driveline rings (see *A
-  closing clutch can ring* and *Stiff settings* below), and nothing warns:
+  closing clutch can ring* and *Stiff settings* below), and only a Data
+  Checks note says so:
   at the 10 ms step the P2 Hybrid Car's slipping clutch rings in second
   gear and pushes its driven wheels to the grip limit both ways, so its
   75 m takes 6.474 s against 6.344 s at 1 ms (2 % slower) and it is at
@@ -364,12 +365,20 @@ minimum or an average, for example from the CSV export, or put the
   starts at speed starts every wheel, gear and motor at that speed, and an
   engine behind a closed clutch too; a clutch a Script controls counts as
   open at t = 0, so the engine behind it starts at rest. *Roadmap:* MOD-19.
-- **Stiff settings can cause short wheel-spin spikes at launch.** This is a
-  numerical effect of how the solver steps the tyres: a high tyre *Slip
-  Stiffness*, a very light inertia or a strong clutch can push the solver
-  past its stability limit, and nothing warns when that happens. Keep *Slip
-  Stiffness* near its default, and after changing these settings plot the
-  wheels' *Longitudinal Slip* at launch. A car braked to a stop can also
+- **Stiff settings make runs slower, and some effects remain.** Before a
+  run, LightSim checks whether the tyres' *Slip Stiffness* or a
+  propeller-type load is too stiff for its 10 ms solver step and, if so,
+  uses a smaller step (down to 0.5 ms) and says so in Data Checks and
+  *Messages* (ENG-14): a *Slip Stiffness* of 20 or 30 runs at 5 ms, 100 at
+  1.43 ms, 300 at 0.5 ms, each that many times slower (the FS Electric
+  example, at 20, runs at 5 ms). Beyond that the run warns that the value
+  is too stiff. The limit comes from the solver's stability grid (a launch
+  and a car held braked, `backend/tests/test_numerics.py`): stable up to
+  a gain of 2.94 on its scale, unstable from 3.92; LightSim keeps it at 3
+  or less, so other manoeuvres may still differ. A value edited during a
+  live run is not checked. A strong clutch on a light shaft is only noted
+  (see *A closing clutch can ring* below): its step is not reduced. Below
+  the limit, the step still shows at launch and at a stop. A car braked to a stop can also
   creep with the brake fully applied: under 0.2 km/h at the default *Slip
   Stiffness* of 10, about 2 km/h at 30 and up to 23 km/h at 300, at the
   10 ms solver step. When a car pulls away from rest faster than
@@ -377,7 +386,7 @@ minimum or an average, for example from the CSV export, or put the
   10 ms step, its undriven wheels ring (their tyre force changes sign from
   one step to the next) until it reaches 0.7-2.3 m/s (measured on a 300 kg
   Formula Student car at μ 1-1.6); at a Formula Student launch this moves
-  the 75 m time by about 0.4 %. *Roadmap:* ENG-09, ENG-14.
+  the 75 m time by about 0.4 %. *Roadmap:* ENG-09.
 - **A closing clutch can ring at the 10 ms step.** While a clutch slips by
   more than 0.5 rad/s the solver passes its full torque for the whole
   step, and at 10 ms that overshoots the lock-up: the shaft on either side
@@ -387,7 +396,10 @@ minimum or an average, for example from the CSV export, or put the
   the fuel it costs follows the step: the P2 Hybrid Car's EPA city figure
   reads 2.838 l/100 km at the shipped 10 ms step, 0.017 (0.6 %) above a
   2.5 ms run (2.821), with the same engine starts; its highway and Mixed
-  Cycle figures are about 0.004 above. *Roadmap:* ENG-09.
+  Cycle figures are about 0.004 above. Data Checks note a clutch whose
+  torque can change its slip by more than 20 times that band (10 rad/s) in one
+  step (the P2 Hybrid Car's: 65 rad/s), but the step is not made smaller
+  for it. *Roadmap:* ENG-09.
 - **Fuel-cell hydrogen use is a fixed figure per kWh** (*Specific H₂
   Consumption*, 55 g/kWh by default), which overstates it at part load by up
   to about a third and understates it at full load.
@@ -395,24 +407,41 @@ minimum or an average, for example from the CSV export, or put the
 
 ### Live edits, charts, sweeps and export
 
-- **Values between recorded points are not stored.** Charts draw every
-  stored point (the highest and lowest of each pixel column), and zooming
-  in shows each one, but with *Store every* above 1 the values in between
-  recorded points are never stored, so a short spike or dip between them
-  does not show. Use *Store every* 1 when peaks matter. *Roadmap:* RES-17,
-  ENG-16.
-- **Stored values are rounded.** Every stored value is rounded to 5 decimal
-  places, so small values keep few digits (a tyre slip of 0.0018 keeps two).
-  The summary rounds energies to 1 Wh (battery losses to 0.1 Wh), fuel to
-  1 g and consumption to 0.01 per 100 km. CSV export has the same rounding. Treat smaller differences
-  between runs as noise; to compare two close variants, lengthen the run
-  (for example, repeat the cycle) so that the difference adds up. The
-  *Results* page marks a change against the baseline run that is no larger
-  than one step of the stored rounding as *~ 0*. It reads that step from
-  the stored digits, so where both values end in 0 (0.07 kWh stored for
-  0.070) it takes the step 10 times larger and a change of up to 10 real
-  steps can read *~ 0*.
-  *Roadmap:* ENG-16.
+- **Sweeps run side by side, but single runs do not.** A sweep's runs go
+  in worker processes, one per processor core less one (ENG-05; LightSim
+  counts logical processors, so on a computer with hyper-threading it may
+  start more than its physical cores less one), and fewer when half the
+  computer's memory would not hold them (250 MB each, plus 512 MB for a
+  model with Script blocks). Each worker starts the engine afresh for a
+  sweep (about a second) and builds the model again for every point. A
+  sweep's runs do not draw live, and they are stored on disk and read back
+  when the sweep ends, so a sweep larger than 20 points shows only its 20
+  newest runs in *Results* (its study table keeps every point). A single
+  run (**Run**) still goes in the app's engine process. A study varies one
+  parameter at a time from the app; the engine's `/api/studies` takes any
+  list of points. *Roadmap:* PLT-09 (single runs in a worker), STU-06
+  (studies of several parameters), AI-12 and PLT-25 (the command line and
+  clusters).
+- **Peaks between recorded points are stored but not drawn.** Since 0.3
+  every stored point also keeps each channel's lowest, highest and
+  time-averaged value since the point before it, taken at every solver
+  step (ENG-16), so a regeneration burst between two points is in the run:
+  with *Store every* 10 on the Battery Electric Car's City Cycle, the
+  battery's recorded points go down to −9.56 kW and its stored lowest
+  value to −11.19 kW, the same as every solver step. The *Results* charts,
+  cursors and CSV export use the recorded points only and do not show
+  these values yet; runs stored by earlier versions do not have them.
+  Keeping them makes a run about 15 % slower (none are kept, at no cost,
+  when each point is one solver step: a *Step* of 0.01 s or less and
+  *Store every* 1). *Roadmap:* RES-17.
+- **The Results page shows at most 3 decimals.** Since 0.3, stored values
+  and summary numbers keep full precision (ENG-16): one more kilogram on
+  the Battery Electric Car changes its City Cycle's consumption and final
+  SOC, and the energies equal the solver steps' sum to 1e-6. The *Results*
+  page shows a number with at most 3 decimals, so a change smaller than
+  that reads +0.000 against the baseline; the run's file and the study
+  tables' CSV have every digit. *~ 0* now marks only runs stored by
+  earlier versions, which kept 5 decimals (2 to 4 in the summary).
 - **Cursor integrals come from the recorded points.** The *Results*
   chart's cursors integrate the stored points with the trapezoid rule, so
   they differ a little from the summary's energies, which add up every
@@ -443,10 +472,9 @@ minimum or an average, for example from the CSV export, or put the
   has no cold start, engine warm-up or start-up fuel, so its city figure
   reads below EPA's, whose city test starts cold; on the highway, with its
   generic maps, it stays about 10 % above. Each case starts at the charge
-  the cycle ends with (as a preconditioning drive would leave it), so the
-  fuel figure needs no battery-charge correction; start it elsewhere and
-  the figure includes the charge the strategy restores. *Roadmap:* CON-14
-  (sourced maps).
+  the cycle ends with (as a preconditioning drive would leave it), and its
+  cases run charge-balanced (see below), so started at any charge they
+  give the same fuel figure. *Roadmap:* CON-14 (sourced maps).
 - **Battery Electric Car:** modelled on the 2021 Cupra Born with FASTSim's
   values; about 14 kWh/100 km on WLTC at the battery (a car of this class is
   rated about 15-16 kWh/100 km at the charging socket, charging losses
@@ -460,11 +488,11 @@ minimum or an average, for example from the CSV export, or put the
   still sets it through the ratio.
   *Roadmap:* MOD-12.
 - **FS Electric (generic):** a typical Formula Student electric car, not a
-  real one: replace its values with your car's. Its 75 m time (3.74 s from
+  real one: replace its values with your car's. Its 75 m time (3.75 s from
   the start line) sits in the faster half of FS Czech Republic 2025's
   3.51-6.44 s: the tyres keep their grip however much they slip (no peak
   and drop), so wheelspin at the launch costs no time, and nothing limits
-  it (no traction control; 48 % of the run is at the tyres' grip limit).
+  it (no traction control; 49 % of the run is at the tyres' grip limit).
   So its 80 kW is reached at 0.2 s, while the rear wheels still spin: a
   car with traction control reaches it later. At its 10 ms step the front
   wheels' slip and force channels ring at the launch and read high for
@@ -526,9 +554,40 @@ minimum or an average, for example from the CSV export, or put the
   estimate (see *Lap mode is a quasi-steady-state estimate*). Tyre force
   rises with slip and then stays flat (no peak and drop). *Roadmap:*
   MOD-16, MOD-34.
+- **Charge balancing repeats the whole run.** A hybrid's cycle case is run
+  again from the charge its battery ended with until the battery's stored
+  energy changes by less than 1 % of the fuel's energy (ENG-33): started
+  at 30, 50 or 70 %, the P2 Hybrid Car's Mixed Cycle gives 2.878 l/100 km
+  in 2 runs, against 2.8777 at its hand-set start. Each extra run takes as
+  long as the first, and the *Results* page shows only the last run (the
+  others are listed in *Messages*, not kept in the run history). A live run
+  shows the first run as it goes; later runs show only when they finish. A
+  parameter changed during a live run stops the balancing. The 1 % is
+  SAE J1711's criterion as we know it (background knowledge, not checked
+  against the standard), and the fuel's energy comes from the fuel tank's
+  *Lower Heating Value* (43 MJ/kg unless set). When the charge does not
+  settle in 5 runs, the run is a *warning* and the summary adds the fuel
+  figure corrected to no change of charge, from a straight line through
+  the runs. A model with several batteries balances each from its own end
+  charge. *Roadmap:* ENG-33 (the extra runs kept in the run history).
 - **A simple driver.** The Driver is a PI speed follower: it does not look
   ahead along the cycle or shift gears; gear and clutch logic comes from
   Script blocks. *Roadmap:* MOD-14.
+- **A speed against distance has no stops.** A Driving Task whose *Profile
+  Axis* is *Distance* gives the Driver the target speed at the distance
+  the car has driven. A point of 0 km/h stops the car there for good (Data
+  Checks warn): there is no stop with a waiting time, and a profile that
+  starts at 0 km/h never sets off, so start it at a small speed (for
+  example 5 km/h). The Driver does not brake ahead of a slower point; it
+  follows the target where the car is, so it reaches a slower point a
+  little late: on the Battery Electric Car at 100 km/h it starts braking
+  2.9 m after the profile starts to slow at its own 1,927 kg and 4.7 m
+  after at 2,500 kg. The case's *Duration* is
+  the time limit of a run that ends after a number of *Laps*. The trace is
+  judged against distance: each point's band spans the target's lowest and
+  highest value within the distance the car covers in ±1 s at the target
+  speed (at least ±2 m), widened by ±2 km/h. *Roadmap:* MOD-14 (stops and
+  look-ahead), CON-11 (cycle files with a distance column).
 - **Structural limits.** One battery or voltage source per electrical bus;
   DC-DC converters work in one direction only; one differential and one
   E-Motor per driveline (several independent drivelines, such as dual-motor

@@ -205,6 +205,16 @@ class SimCase(BaseModel):
     # end the run when the vehicle has driven startLine + endDistance, m;
     # None or 0 = run the whole duration
     endDistance: Optional[float] = None
+    # end the run after this many passes through the profile of the Driving
+    # Task the Driver follows, when its Profile Axis is Distance (a lap is its
+    # last point's distance less its first's), counted from startLine;
+    # endDistance wins when both are set. None or 0 = no lap count
+    endLaps: Optional[float] = None
+    # run the cycle again from the charge it ended with until the battery's
+    # stored energy changes by less than 1 % of the fuel's energy (at most 5
+    # runs; solver/balance.py, ENG-33). None = on for a cycle case whose model
+    # has an engine and a battery (and is not paced), False = off, True = on
+    chargeBalance: Optional[bool] = None
     # distance driven before the timer starts, m (FS Rules 2026 v1.1 (FSG) D 5.2.3
     # stages the car 0.30 m behind the start line)
     startLine: float = 0.0
@@ -252,6 +262,7 @@ class StudyPoint(BaseModel):
     incomplete: Optional[str] = None  # why its run did not finish normally
     kpis: dict[str, float] = Field(default_factory=dict)  # KPI label → value
     notValid: dict[str, str] = Field(default_factory=dict)  # KPI label → why
+    wallS: Optional[float] = None  # its run's wall time, s (ENG-05)
 
 
 class Study(BaseModel):
@@ -267,6 +278,9 @@ class Study(BaseModel):
     factors: list[StudyFactor]
     kpis: list[StudyKpi] = Field(default_factory=list)
     points: list[StudyPoint] = Field(default_factory=list)
+    # how many points ran at once and the study's wall time, s (ENG-05)
+    workers: Optional[int] = None
+    wallS: Optional[float] = None
 
 
 class Project(BaseModel):
@@ -299,6 +313,13 @@ class Channel(BaseModel):
     unit: str
     # {t, value}; value is null where a channel has no data yet (gap, not zero)
     timeSeries: list[dict[str, Optional[float]]]
+    # the lowest, highest and time-averaged value over the output interval
+    # that ends at each point, taken at every solver step (ENG-16), so a peak
+    # between two recorded points is kept; aligned with timeSeries (null
+    # where it has no data). Absent when each interval is one solver step
+    min: Optional[list[Optional[float]]] = None
+    max: Optional[list[Optional[float]]] = None
+    mean: Optional[list[Optional[float]]] = None
 
 
 class SummaryValue(BaseModel):
@@ -414,6 +435,28 @@ class DataCheck(BaseModel):
 class SimulateRequest(BaseModel):
     project: Project
     caseId: str
+
+
+class StudyPointRequest(BaseModel):
+    """One point of a study: the case values it sets ({element id: {key:
+    value}}), its factor values for the study table and its run's name."""
+
+    overrides: dict[str, dict[str, ParamValue]] = Field(default_factory=dict)
+    values: list[float] = Field(default_factory=list)
+    label: str = Field("", max_length=200)
+
+
+class StudyRequest(BaseModel):
+    """A study to run on all cores (ENG-05, app/studies.py)."""
+
+    project: Project
+    caseId: str
+    points: list[StudyPointRequest] = Field(min_length=1, max_length=2000)
+    sweepId: str = Field("", max_length=100)
+    sweepParam: Optional[str] = Field(None, max_length=200)
+    sweepUnit: Optional[str] = Field(None, max_length=50)
+    workers: Optional[int] = Field(None, ge=1, le=256)  # None: the default pool size
+    store: bool = True  # store each point as a run of the project
 
 
 class ValidateRequest(BaseModel):

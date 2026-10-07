@@ -27,8 +27,9 @@ Click a line in *What changed* to show that part selected on the diagram.
 - A change of 1 % or more is in bold.
 - *~ 0* means the change is no larger than the rounding the value is
   stored with: treat it as no change (see
-  [Known issues](../../KNOWN-LIMITS.md)). In the example, *Distance
-  driven* reads ~ 0.
+  [Known issues](../../KNOWN-LIMITS.md)). Runs from LightSim 0.3 on keep
+  every digit, so *~ 0* shows only next to a run from an earlier version;
+  a change too small for the 3 decimals shown reads +0.000.
 - A dash means there is nothing to compare: the baseline has no such
   value, or, for *% change*, its value is 0.
 - *% change* is a share of the baseline's value, also for a value in %:

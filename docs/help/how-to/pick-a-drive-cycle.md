@@ -45,6 +45,29 @@ press Enter on it: LightSim adds a Driving Task set to that cycle. Link its
 *Target Speed* to the Driver's in *Data Bus Connections*
 ([how](wire-control-signals.md)).
 
+## Drive a speed against distance
+
+A lap, a track map, a logger's lap or a truck route gives the speed
+against the distance driven, not against time. The Driving Task can follow
+that too:
+
+1. Click the Driving Task and, in *Properties*, set **Profile Axis** to
+   *distance*. Leave **Drive Cycle** on *Custom profile*: the standard
+   cycles are speeds against time.
+2. Open the **Profile** (**Edit…**) and type or paste 'distance:speed'
+   points, in m and km/h: the table's first column now says *Distance
+   (m)*. Start at the speed the car sets off towards (for example 5 km/h,
+   not 0: at 0 km/h the car stays put).
+3. To drive it lap after lap, tick **Repeat Profile**. One lap is the
+   profile's first point to its last.
+4. In the *Cases* tab, type the number of **Laps** for the case, and give
+   it a *Duration* long enough to drive them: it is now the time limit.
+
+The Driver gets the target speed at the distance the car has driven, so a
+heavier or weaker car slows for a corner at the same place, only later in
+time. The run is judged against distance. A point of 0 km/h stops the car
+there for good ([Known issues](../../KNOWN-LIMITS.md)).
+
 ## Which wins
 
 - A case's own cycle wins over everything else.

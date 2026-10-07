@@ -30,8 +30,11 @@ function effectiveValue(
   return caseOv?.[el.id]?.[key] ?? el.parameterOverrides[key] ?? def.default;
 }
 
+// a sweep's points run side by side on the engine's cores (ENG-05)
+const MAX_SWEEP_STEPS = 200;
+
 function linspace(start: number, stop: number, steps: number): number[] {
-  const n = Math.max(1, Math.min(16, Math.round(steps)));
+  const n = Math.max(1, Math.min(MAX_SWEEP_STEPS, Math.round(steps)));
   if (n === 1) return [round(start)];
   const out: number[] = [];
   for (let i = 0; i < n; i++) out.push(round(start + ((stop - start) * i) / (n - 1)));
@@ -49,6 +52,9 @@ const DISTANCE: ParameterDef = {
 };
 const START_LINE: ParameterDef = {
   key: "startLine", label: "Start line", unit: "m", default: 0, type: "number", minimum: 0,
+};
+const LAPS: ParameterDef = {
+  key: "endLaps", label: "Laps", unit: "-", default: 1, type: "number", exclusiveMinimum: 0,
 };
 const REFERENCE_TIME: ParameterDef = {
   key: "referenceTime", label: "Reference time", unit: "s", default: 0, type: "number", exclusiveMinimum: 0,
@@ -247,6 +253,20 @@ export function CasePanel() {
   const trackParams = libraryById["track.lap"]?.parameters ?? [];
   const layoutDef = trackParams.find((p) => p.key === "layout");
   const lapsDef = trackParams.find((p) => p.key === "laps");
+  // a Driving Task over distance (ENG-34): a cycle or performance case can
+  // end after a number of passes through its profile
+  const taskModeDef = libraryById["signal.driving_task"]?.parameters.find((p) => p.key === "mode");
+  const distanceTask =
+    !accel &&
+    !lap &&
+    taskModeDef !== undefined &&
+    project.systems
+      .flatMap((s) => s.elements)
+      .some(
+        (e) =>
+          e.componentDefId === "signal.driving_task" &&
+          effectiveValue(caseOv, e, "mode", taskModeDef) === "distance",
+      );
   const lapHint = "A lap case is set by the Race Track's layout and laps: Duration, Step and Pacing do not apply.";
   const overrideRows = Object.entries(caseOv ?? {}).flatMap(([elId, params]) =>
     Object.entries(params).map(([key, value]) => ({ elId, key, value })),
@@ -444,6 +464,37 @@ export function CasePanel() {
                 Add a Race Track from Driver &amp; Signals: its layout and laps set a lap case.
               </p>
             ))}
+          {!accel && !lap && (
+            <label
+              className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+              title="Charge balancing (for hybrids): run the cycle again from the charge the battery ended with, until its stored energy changes by less than 1 % of the fuel's energy (at most 5 runs), so the fuel figure holds no energy the battery gave or took. Auto: on for a Cycle case whose model has an engine and a battery, and not paced."
+            >
+              Charge balance
+              <select
+                className="ss-input w-[112px]"
+                value={activeCase.chargeBalance == null ? "auto" : activeCase.chargeBalance ? "on" : "off"}
+                onChange={(e) =>
+                  setCaseField(activeCase.id, {
+                    chargeBalance: e.target.value === "auto" ? null : e.target.value === "on",
+                  })
+                }
+              >
+                <option value="auto">Auto</option>
+                <option value="on">On</option>
+                <option value="off">Off</option>
+              </select>
+            </label>
+          )}
+          {distanceTask && (
+            <CaseNumber
+              name="Laps"
+              title="The run ends after this many passes through the Driving Task's profile over distance (one pass: its first point to its last; tick its Repeat Profile to drive more than one). The Duration is then the time limit: a car that has not finished by then gets a warning. Empty = run the whole Duration."
+              def={LAPS}
+              value={activeCase.endLaps ?? null}
+              onChange={(v) => setCaseField(activeCase.id, { endLaps: v })}
+              onClear={() => setCaseField(activeCase.id, { endLaps: null })}
+            />
+          )}
           {accel && (
             <>
               <CaseNumber
@@ -659,9 +710,9 @@ export function CasePanel() {
               className="ss-input"
               value={swSteps}
               min={1}
-              max={16}
+              max={MAX_SWEEP_STEPS}
               step={1}
-              onChange={(e) => setSwSteps(Math.max(1, Math.min(16, Math.round(Number(e.target.value) || 1))))}
+              onChange={(e) => setSwSteps(Math.max(1, Math.min(MAX_SWEEP_STEPS, Math.round(Number(e.target.value) || 1))))}
             />
             <span>steps</span>
           </div>

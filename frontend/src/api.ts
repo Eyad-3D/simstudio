@@ -364,3 +364,100 @@ export function runSimulationLive(
     done,
   };
 }
+
+// ---- studies on all cores (ENG-05) ------------------------------------------
+
+/** One point of a study as the engine reports it when its run ends. */
+export interface StudyPointEvent {
+  index: number;
+  values: number[];
+  status: SimResult["status"] | "not run";
+  runId?: string | null;
+  incomplete?: string | null;
+  /** the run's wall time, s */
+  wallS?: number;
+  /** runs the run store deleted to keep to its disk budget */
+  pruned?: string[];
+  summary?: SimResult["summary"];
+}
+
+export interface StudyTotals {
+  workers: number;
+  /** the whole study's wall time, s */
+  wallS: number;
+  /** its points' wall times added up, s */
+  pointWallS: number;
+  speedup: number;
+}
+
+export interface StudyRequest {
+  project: Project;
+  caseId: string;
+  points: { overrides: Record<string, Record<string, ParamValue>>; values: number[]; label?: string }[];
+  sweepId?: string;
+  sweepParam?: string | null;
+  sweepUnit?: string | null;
+  workers?: number;
+}
+
+export interface StudyHandle {
+  cancel: () => void;
+  /** Resolves when the study ends (also when stopped), rejects on transport failure. */
+  done: Promise<StudyTotals>;
+}
+
+/** Run a study's points side by side in the engine's worker processes; each
+ *  point is stored as a run of the project and reported as it ends. */
+export function runStudyLive(
+  req: StudyRequest,
+  callbacks: { onStarted?: (workers: number) => void; onPoint?: (p: StudyPointEvent) => void } = {},
+): StudyHandle {
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${window.location.host}${BASE}/studies/run`);
+  let settled = false;
+  let resolveDone!: (t: StudyTotals) => void;
+  let rejectDone!: (e: Error) => void;
+  const done = new Promise<StudyTotals>((resolve, reject) => {
+    resolveDone = resolve;
+    rejectDone = reject;
+  });
+  const fail = (message: string) => {
+    if (settled) return;
+    settled = true;
+    rejectDone(new Error(message));
+  };
+  ws.onopen = () => ws.send(JSON.stringify({ type: "start", ...req }));
+  ws.onmessage = (raw) => {
+    let msg: Record<string, unknown>;
+    try {
+      msg = JSON.parse(raw.data as string);
+    } catch {
+      return;
+    }
+    switch (msg.type) {
+      case "started":
+        callbacks.onStarted?.(Number(msg.workers));
+        break;
+      case "point":
+        callbacks.onPoint?.(msg as unknown as StudyPointEvent);
+        break;
+      case "done":
+        settled = true;
+        resolveDone(msg as unknown as StudyTotals);
+        ws.close();
+        break;
+      case "error":
+        fail(String(msg.detail ?? "study error"));
+        ws.close();
+        break;
+    }
+  };
+  ws.onerror = () => fail("Study connection failed — is the backend running?");
+  ws.onclose = () => fail("Study connection closed unexpectedly.");
+  return {
+    cancel: () => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "cancel" }));
+    },
+    done,
+  };
+}

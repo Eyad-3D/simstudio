@@ -12,6 +12,7 @@ import pytest
 from helpers import bev_axle, conn, dbc, el, project, series
 
 import app.solver.core as core
+import app.solver.stability as stability
 from app.solver import simulate
 from app.solver.runtime import AIR_DENSITY, CLUTCH_BAND, GRAVITY
 
@@ -284,9 +285,12 @@ UNSTABLE_HOLD = {(0.0025, 100), (0.0025, 300), (0.005, 100), (0.005, 300), (0.01
                  (0.01, 100), (0.01, 300), (0.02, 30), (0.02, 100), (0.02, 300)}
 
 
-def _unstable_cells(monkeypatch, build, bad):
+def _unstable_cells(monkeypatch, build, bad, guarded=False):
     """(step, slip stiffness) cells where bad(result) holds; steps above the
-    10 ms cap are reached by raising the cap."""
+    10 ms cap are reached by raising the cap. Unless ``guarded``, the
+    pre-run step check (ENG-14) is off, so the grid shows the solver itself."""
+    if not guarded:
+        monkeypatch.setattr(stability, "TYRE_GAIN_MAX", math.inf)
     cells = set()
     for h in STEPS:
         monkeypatch.setattr(core, "MAX_SUBSTEP", h)
@@ -329,3 +333,19 @@ def test_braked_car_stays_at_rest(monkeypatch):
         return not max(v for t, v in _v(result) if t > 11.0) * 3.6 < 0.5
     cells = _unstable_cells(monkeypatch, build, bad)
     assert cells == UNSTABLE_HOLD, _moved(cells, UNSTABLE_HOLD)
+
+
+def test_the_step_check_leaves_no_unstable_cell(monkeypatch):
+    """With the pre-run step check (ENG-14) every cell of both grids is
+    stable: a stiffness too high for the step gets a smaller step."""
+    def launch_bad(result):
+        slips = [abs(p["value"]) for w in ("whl", "whr") for p in series(result, w, "sig_slip")]
+        return not all(math.isfinite(s) for s in slips) or max(slips) >= 0.1
+
+    def hold(case_step, k_slip):
+        return _free_axle(case_step, 20.0, k_slip=k_slip, crr=0.0, cd=0.0, brake_nm=1400.0)
+
+    def hold_bad(result):
+        return not max(v for t, v in _v(result) if t > 11.0) * 3.6 < 0.5
+    assert _unstable_cells(monkeypatch, _launch, launch_bad, guarded=True) == set()
+    assert _unstable_cells(monkeypatch, hold, hold_bad, guarded=True) == set()

@@ -2648,7 +2648,7 @@
       "name": "Driving Task",
       "icon": "route",
       "domain": "signal",
-      "description": "Time-based target-speed profile (piecewise-linear). Pick a standard cycle in Drive Cycle, or type 't:speed' pairs separated by ';' in Profile. Wire the output to the Driver's Target Speed input.",
+      "description": "Target-speed profile (piecewise-linear) over time or over distance. Pick a standard cycle in Drive Cycle, or type 'x:speed' pairs separated by ';' in Profile, with x the time in s or, with Profile Axis set to Distance, the distance the Vehicle has driven in m. Wire the output to the Driver's Target Speed input.",
       "ports": [
         {
           "id": "sig_demand",
@@ -2672,13 +2672,24 @@
         },
         {
           "key": "profile",
-          "label": "Profile (t:speed; …)",
+          "label": "Profile (x:speed; …)",
           "unit": "-",
           "default": "0:0; 30:50; 120:50; 150:80; 300:80; 330:30; 480:30; 540:0; 600:0",
           "type": "string",
-          "description": "The target speed over time as 'time:speed' pairs (s and km/h) separated by ';'. Between two points the speed follows a straight line; after the last it holds. Used when Drive Cycle is Custom profile.",
+          "description": "The target speed as 'x:speed' pairs separated by ';': x is the time in s, or with Profile Axis set to Distance the distance driven in m; speed in km/h. Between two points the speed follows a straight line; after the last it holds. Used when Drive Cycle is Custom profile.",
           "typical": "A few points for a simple test (the default: 0 to 80 km/h and back over 600 s) up to one point a second for a measured trace.",
-          "whereToFind": "Type your test's speed trace, or paste it from a spreadsheet into the profile table (Edit…); a logged drive at 1 point a second works too."
+          "whereToFind": "Type your test's speed trace, or paste it from a spreadsheet into the profile table (Edit…); a logged drive at 1 point a second works too, and a logged lap as speed against distance with Profile Axis set to Distance."
+        },
+        {
+          "key": "mode",
+          "label": "Profile Axis",
+          "unit": "-",
+          "default": "time",
+          "type": "enum",
+          "options": ["time", "distance"],
+          "description": "Time: x is the time since the run started, in s (a drive cycle). Distance: x is the distance the Vehicle has driven, in m, so the car slows for a corner at the same place whatever its speed, mass or power (a lap, a route, a logged lap). Standard drive cycles are speeds against time: a Driving Task on one must use Time.",
+          "typical": "Time for drive cycles; Distance for a lap, a track map, a logged lap or a truck route.",
+          "whereToFind": "How your speed data is laid out: against time (a drive cycle, a time log) or against distance (a lap simulator, a logger's distance channel, a route)."
         },
         {
           "key": "scale_pct",
@@ -2697,7 +2708,7 @@
           "unit": "-",
           "default": false,
           "type": "boolean",
-          "description": "Ticked: after its last point the profile or cycle starts again from its first, for as long as the case runs. Unticked: the last speed holds.",
+          "description": "Ticked: after its last point the profile or cycle starts again from its first, for as long as the case runs. Unticked: the last speed holds. With Profile Axis set to Distance, one pass through the profile is a lap, and a case can end after a number of laps.",
           "typical": "Unticked for a standard cycle driven once; ticked for a range test that repeats a cycle until the case ends.",
           "whereToFind": "Your test procedure: a range test repeats its cycle until the battery is empty (make the case's Duration long enough)."
         }
@@ -3077,6 +3088,17 @@
           "description": "The mass of a litre of fuel. It turns the kilograms burnt into litres for Fuel consumption (l/100 km).",
           "typical": "Petrol 0.72–0.775 kg/l (the default 0.745) · diesel 0.82–0.845 kg/l.",
           "whereToFind": "The fuel's standard or datasheet: EN 228 petrol 0.720–0.775 kg/l and EN 590 diesel 0.820–0.845 kg/l, at 15 °C."
+        },
+        {
+          "key": "lhv_MJ_per_kg",
+          "label": "Lower Heating Value",
+          "unit": "MJ/kg",
+          "default": 43,
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "The energy in a kilogram of the fuel (lower heating value). It sets the fuel's energy that a hybrid's charge balancing compares the battery's energy change with: a charge-balanced run's battery may change by at most 1 % of it.",
+          "typical": "Petrol about 42–43 MJ/kg (the default 43) · diesel about 43 MJ/kg (background knowledge, unverified).",
+          "whereToFind": "The fuel's datasheet or standard; a fuel's analysis certificate gives its net calorific value."
         },
         {
           "key": "co2_kg_per_kg",
