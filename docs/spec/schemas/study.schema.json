@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lightsim:schema:study:1",
+  "title": "LightSim parameter study (an entry of a project's 'studies')",
+  "description": "Format version 1. Generated from LightSim's data models; the specification is docs/spec/README.md (CC BY 4.0).",
+  "$defs": {
+    "StudyFactor": {
+      "additionalProperties": true,
+      "description": "One swept parameter of a study, with its labels as they were when it\nran (the element may be renamed or removed since).",
+      "properties": {
+        "elementId": {
+          "title": "Elementid",
+          "type": "string"
+        },
+        "paramKey": {
+          "title": "Paramkey",
+          "type": "string"
+        },
+        "elementLabel": {
+          "default": "",
+          "title": "Elementlabel",
+          "type": "string"
+        },
+        "paramLabel": {
+          "default": "",
+          "title": "Paramlabel",
+          "type": "string"
+        },
+        "unit": {
+          "default": "",
+          "title": "Unit",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "elementId",
+        "paramKey"
+      ],
+      "title": "StudyFactor",
+      "type": "object"
+    },
+    "StudyKpi": {
+      "additionalProperties": true,
+      "description": "A column of a study's results table: a run summary value.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "unit": {
+          "default": "",
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "StudyKpi",
+      "type": "object"
+    },
+    "StudyPoint": {
+      "additionalProperties": true,
+      "description": "A row of a study's results table: one point and its answers.",
+      "properties": {
+        "values": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Values",
+          "type": "array"
+        },
+        "runId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runid"
+        },
+        "status": {
+          "enum": [
+            "success",
+            "failed",
+            "warning",
+            "cancelled",
+            "not run"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "incomplete": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incomplete"
+        },
+        "kpis": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Kpis",
+          "type": "object"
+        },
+        "notValid": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Notvalid",
+          "type": "object"
+        }
+      },
+      "required": [
+        "values",
+        "status"
+      ],
+      "title": "StudyPoint",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "startedAt": {
+      "title": "Startedat",
+      "type": "integer"
+    },
+    "caseId": {
+      "title": "Caseid",
+      "type": "string"
+    },
+    "caseName": {
+      "default": "",
+      "title": "Casename",
+      "type": "string"
+    },
+    "factors": {
+      "items": {
+        "$ref": "#/$defs/StudyFactor"
+      },
+      "title": "Factors",
+      "type": "array"
+    },
+    "kpis": {
+      "items": {
+        "$ref": "#/$defs/StudyKpi"
+      },
+      "title": "Kpis",
+      "type": "array"
+    },
+    "points": {
+      "items": {
+        "$ref": "#/$defs/StudyPoint"
+      },
+      "title": "Points",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "startedAt",
+    "caseId",
+    "factors"
+  ],
+  "type": "object"
+}

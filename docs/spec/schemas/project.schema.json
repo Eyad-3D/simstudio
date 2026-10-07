@@ -1,0 +1,713 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lightsim:schema:project:1",
+  "title": "LightSim project file",
+  "description": "Format version 1. Generated from LightSim's data models; the specification is docs/spec/README.md (CC BY 4.0).",
+  "$defs": {
+    "Connection": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "sourceElementId": {
+          "title": "Sourceelementid",
+          "type": "string"
+        },
+        "sourcePortId": {
+          "title": "Sourceportid",
+          "type": "string"
+        },
+        "targetElementId": {
+          "title": "Targetelementid",
+          "type": "string"
+        },
+        "targetPortId": {
+          "title": "Targetportid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sourceElementId",
+        "sourcePortId",
+        "targetElementId",
+        "targetPortId"
+      ],
+      "title": "Connection",
+      "type": "object"
+    },
+    "DataBusConnection": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "element1Id": {
+          "title": "Element1Id",
+          "type": "string"
+        },
+        "port1Id": {
+          "title": "Port1Id",
+          "type": "string"
+        },
+        "element2Id": {
+          "title": "Element2Id",
+          "type": "string"
+        },
+        "port2Id": {
+          "title": "Port2Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "element1Id",
+        "port1Id",
+        "element2Id",
+        "port2Id"
+      ],
+      "title": "DataBusConnection",
+      "type": "object"
+    },
+    "ElementInstance": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "componentDefId": {
+          "title": "Componentdefid",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "position": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Position",
+          "type": "object"
+        },
+        "parameterOverrides": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": {
+                  "additionalProperties": {
+                    "type": "number"
+                  },
+                  "type": "object"
+                },
+                "type": "object"
+              },
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              }
+            ]
+          },
+          "title": "Parameteroverrides",
+          "type": "object"
+        },
+        "dynamicPorts": {
+          "items": {
+            "$ref": "#/$defs/PortDef"
+          },
+          "title": "Dynamicports",
+          "type": "array"
+        },
+        "portSides": {
+          "additionalProperties": {
+            "enum": [
+              "left",
+              "right",
+              "top",
+              "bottom"
+            ],
+            "type": "string"
+          },
+          "title": "Portsides",
+          "type": "object"
+        },
+        "portOffsets": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Portoffsets",
+          "type": "object"
+        },
+        "tableOutside": {
+          "additionalProperties": {
+            "items": {
+              "enum": [
+                "error",
+                "clamp",
+                "linear"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Tableoutside",
+          "type": "object"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size"
+        },
+        "isSubSystem": {
+          "default": false,
+          "title": "Issubsystem",
+          "type": "boolean"
+        },
+        "subSystemId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subsystemid"
+        }
+      },
+      "required": [
+        "id",
+        "componentDefId",
+        "label",
+        "position"
+      ],
+      "title": "ElementInstance",
+      "type": "object"
+    },
+    "PortDef": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "input",
+            "output",
+            "bidirectional"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "power",
+            "signal",
+            "mechanical",
+            "electrical",
+            "thermal",
+            "fluid"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "unitGroup": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unitgroup"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "enum": [
+                "left",
+                "right"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Side"
+        },
+        "polarity": {
+          "anyOf": [
+            {
+              "enum": [
+                "positive",
+                "negative"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Polarity"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "direction",
+        "kind"
+      ],
+      "title": "PortDef",
+      "type": "object"
+    },
+    "SimCase": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "duration": {
+          "default": 600.0,
+          "title": "Duration",
+          "type": "number"
+        },
+        "timeStep": {
+          "default": 1.0,
+          "title": "Timestep",
+          "type": "number"
+        },
+        "outputEvery": {
+          "default": 1,
+          "title": "Outputevery",
+          "type": "integer"
+        },
+        "realtimeFactor": {
+          "default": 0.0,
+          "title": "Realtimefactor",
+          "type": "number"
+        },
+        "kind": {
+          "default": "cycle",
+          "enum": [
+            "cycle",
+            "performance",
+            "acceleration",
+            "lap"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "endDistance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enddistance"
+        },
+        "startLine": {
+          "default": 0.0,
+          "title": "Startline",
+          "type": "number"
+        },
+        "referenceTime": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Referencetime"
+        },
+        "parameterOverrides": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "additionalProperties": {
+                    "additionalProperties": {
+                      "type": "number"
+                    },
+                    "type": "object"
+                  },
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": {
+                    "type": "number"
+                  },
+                  "type": "object"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "title": "Parameteroverrides",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "SimCase",
+      "type": "object"
+    },
+    "Study": {
+      "additionalProperties": true,
+      "description": "A parameter study saved with its project (STU-03): what was swept on\nwhich case, and its compact results table.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "startedAt": {
+          "title": "Startedat",
+          "type": "integer"
+        },
+        "caseId": {
+          "title": "Caseid",
+          "type": "string"
+        },
+        "caseName": {
+          "default": "",
+          "title": "Casename",
+          "type": "string"
+        },
+        "factors": {
+          "items": {
+            "$ref": "#/$defs/StudyFactor"
+          },
+          "title": "Factors",
+          "type": "array"
+        },
+        "kpis": {
+          "items": {
+            "$ref": "#/$defs/StudyKpi"
+          },
+          "title": "Kpis",
+          "type": "array"
+        },
+        "points": {
+          "items": {
+            "$ref": "#/$defs/StudyPoint"
+          },
+          "title": "Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "startedAt",
+        "caseId",
+        "factors"
+      ],
+      "title": "Study",
+      "type": "object"
+    },
+    "StudyFactor": {
+      "additionalProperties": true,
+      "description": "One swept parameter of a study, with its labels as they were when it\nran (the element may be renamed or removed since).",
+      "properties": {
+        "elementId": {
+          "title": "Elementid",
+          "type": "string"
+        },
+        "paramKey": {
+          "title": "Paramkey",
+          "type": "string"
+        },
+        "elementLabel": {
+          "default": "",
+          "title": "Elementlabel",
+          "type": "string"
+        },
+        "paramLabel": {
+          "default": "",
+          "title": "Paramlabel",
+          "type": "string"
+        },
+        "unit": {
+          "default": "",
+          "title": "Unit",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "elementId",
+        "paramKey"
+      ],
+      "title": "StudyFactor",
+      "type": "object"
+    },
+    "StudyKpi": {
+      "additionalProperties": true,
+      "description": "A column of a study's results table: a run summary value.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "unit": {
+          "default": "",
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "StudyKpi",
+      "type": "object"
+    },
+    "StudyPoint": {
+      "additionalProperties": true,
+      "description": "A row of a study's results table: one point and its answers.",
+      "properties": {
+        "values": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Values",
+          "type": "array"
+        },
+        "runId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runid"
+        },
+        "status": {
+          "enum": [
+            "success",
+            "failed",
+            "warning",
+            "cancelled",
+            "not run"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "incomplete": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incomplete"
+        },
+        "kpis": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Kpis",
+          "type": "object"
+        },
+        "notValid": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Notvalid",
+          "type": "object"
+        }
+      },
+      "required": [
+        "values",
+        "status"
+      ],
+      "title": "StudyPoint",
+      "type": "object"
+    },
+    "SystemNode": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parentid"
+        },
+        "elements": {
+          "items": {
+            "$ref": "#/$defs/ElementInstance"
+          },
+          "title": "Elements",
+          "type": "array"
+        },
+        "connections": {
+          "items": {
+            "$ref": "#/$defs/Connection"
+          },
+          "title": "Connections",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "SystemNode",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "default": 1,
+      "title": "Schemaversion",
+      "type": "integer"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "systems": {
+      "items": {
+        "$ref": "#/$defs/SystemNode"
+      },
+      "title": "Systems",
+      "type": "array"
+    },
+    "dataBusConnections": {
+      "items": {
+        "$ref": "#/$defs/DataBusConnection"
+      },
+      "title": "Databusconnections",
+      "type": "array"
+    },
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/SimCase"
+      },
+      "title": "Cases",
+      "type": "array"
+    },
+    "studies": {
+      "items": {
+        "$ref": "#/$defs/Study"
+      },
+      "title": "Studies",
+      "type": "array"
+    },
+    "noAi": {
+      "default": false,
+      "description": "true hides the project from AI tools (the MCP server, an in-app assistant), whatever folders they may see.",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "systems"
+  ],
+  "type": "object"
+}

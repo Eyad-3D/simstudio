@@ -261,8 +261,17 @@ class Study(BaseModel):
     points: list[StudyPoint] = Field(default_factory=list)
 
 
+def _project_schema_extra(schema: dict) -> None:
+    # read from the file's extra fields, not a model field, so files that
+    # leave it out stay byte-for-byte as they were (lightsim/ai_access.py)
+    schema["properties"]["noAi"] = {
+        "type": "boolean", "default": False,
+        "description": "true hides the project from AI tools (the MCP server, an in-app "
+                       "assistant), whatever folders they may see."}
+
+
 class Project(BaseModel):
-    model_config = PERSISTED
+    model_config = ConfigDict(extra="allow", json_schema_extra=_project_schema_extra)
 
     id: str
     name: str

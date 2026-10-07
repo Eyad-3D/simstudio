@@ -1,0 +1,449 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lightsim:schema:library:1",
+  "title": "LightSim component library (GET /api/library 'components' entries)",
+  "description": "Format version 1. Generated from LightSim's data models; the specification is docs/spec/README.md (CC BY 4.0).",
+  "$defs": {
+    "AxisDef": {
+      "description": "Independent-variable axis of a tabular parameter (fixed per component).",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "outside": {
+          "anyOf": [
+            {
+              "enum": [
+                "error",
+                "clamp",
+                "linear"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outside"
+        }
+      },
+      "required": [
+        "name",
+        "unit"
+      ],
+      "title": "AxisDef",
+      "type": "object"
+    },
+    "ComponentDef": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "icon": {
+          "title": "Icon",
+          "type": "string"
+        },
+        "domain": {
+          "enum": [
+            "mechanical",
+            "electrical",
+            "thermal",
+            "signal",
+            "fluid"
+          ],
+          "title": "Domain",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "ports": {
+          "items": {
+            "$ref": "#/$defs/PortDef"
+          },
+          "title": "Ports",
+          "type": "array"
+        },
+        "parameters": {
+          "items": {
+            "$ref": "#/$defs/ParameterDef"
+          },
+          "title": "Parameters",
+          "type": "array"
+        },
+        "allowDynamicPorts": {
+          "default": false,
+          "title": "Allowdynamicports",
+          "type": "boolean"
+        },
+        "presets": {
+          "items": {
+            "$ref": "#/$defs/ComponentPreset"
+          },
+          "title": "Presets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "category",
+        "name",
+        "icon",
+        "domain",
+        "ports",
+        "parameters"
+      ],
+      "title": "ComponentDef",
+      "type": "object"
+    },
+    "ComponentPreset": {
+      "description": "Named parameter values for a component, e.g. a competition's limits,\nwith a note on where they come from.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "values": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": {
+                  "additionalProperties": {
+                    "type": "number"
+                  },
+                  "type": "object"
+                },
+                "type": "object"
+              },
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              }
+            ]
+          },
+          "title": "Values",
+          "type": "object"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "values"
+      ],
+      "title": "ComponentPreset",
+      "type": "object"
+    },
+    "ParameterDef": {
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              "type": "object"
+            },
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            }
+          ],
+          "title": "Default"
+        },
+        "type": {
+          "enum": [
+            "number",
+            "enum",
+            "boolean",
+            "string",
+            "code",
+            "table1d",
+            "table2d"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "options": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Options"
+        },
+        "axes": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/AxisDef"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Axes"
+        },
+        "variability": {
+          "default": "tunable",
+          "enum": [
+            "fixed",
+            "tunable"
+          ],
+          "title": "Variability",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "typical": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Typical"
+        },
+        "whereToFind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wheretofind"
+        },
+        "minimum": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Minimum"
+        },
+        "exclusiveMinimum": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exclusiveminimum"
+        },
+        "maximum": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maximum"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "unit",
+        "default",
+        "type"
+      ],
+      "title": "ParameterDef",
+      "type": "object"
+    },
+    "PortDef": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "input",
+            "output",
+            "bidirectional"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "power",
+            "signal",
+            "mechanical",
+            "electrical",
+            "thermal",
+            "fluid"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "unitGroup": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unitgroup"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "enum": [
+                "left",
+                "right"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Side"
+        },
+        "polarity": {
+          "anyOf": [
+            {
+              "enum": [
+                "positive",
+                "negative"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Polarity"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "direction",
+        "kind"
+      ],
+      "title": "PortDef",
+      "type": "object"
+    }
+  },
+  "items": {
+    "$ref": "#/$defs/ComponentDef"
+  },
+  "type": "array"
+}

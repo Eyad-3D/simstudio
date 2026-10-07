@@ -237,7 +237,7 @@ export interface Channel {
 export interface SummaryValue {
   /** Stable name of the figure ("distance_km", "el-battery.final_soc_pct"):
    *  the same across labels, languages and versions (docs/spec/results.md).
-   *  Missing on runs stored before 0.3. Compare rows with summaryId(). */
+   *  Missing on runs stored before 0.3. Compare rows with sameFigure(). */
   key?: string;
   label: string;
   value: number;

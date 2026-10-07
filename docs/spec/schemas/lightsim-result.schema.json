@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lightsim:schema:lightsim-result:1",
+  "title": "LightSim result export (lightsim run --out result.json)",
+  "description": "Format version 1. Generated from LightSim's data models; the specification is docs/spec/README.md (CC BY 4.0).",
+  "type": "object",
+  "required": [
+    "format",
+    "formatVersion",
+    "caseId",
+    "status",
+    "kpis",
+    "summary",
+    "messages"
+  ],
+  "properties": {
+    "format": {
+      "const": "lightsim-result"
+    },
+    "formatVersion": {
+      "const": 1
+    },
+    "project": {
+      "type": "string"
+    },
+    "caseId": {
+      "type": "string"
+    },
+    "caseName": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "success",
+        "warning",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "valid": {
+      "type": "boolean"
+    },
+    "kpis": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "units": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "notValid": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "summary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "value",
+          "unit"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "notValid": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "passed": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "level",
+          "text"
+        ],
+        "properties": {
+          "level": {
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "time": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      }
+    },
+    "channels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "label",
+          "unit",
+          "values"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
