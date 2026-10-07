@@ -29,12 +29,13 @@ it runs, as a case override does.
   failed is left out, or drawn hollow with **Show incomplete** ticked.
 - To compare the runs over time, click **Chart**, then **Overlay family**
   in the *Overlay* box on the left: every run of the sweep is drawn.
-- The sweep is also saved with the project as a study, under *Saved
-  studies* at the bottom of the *Cases* tab: a table with a row per value,
-  the run's status and every summary figure. Click the study's name to
-  show or hide its table; the download button next to it saves the table
-  as CSV. A study stays after its runs leave the *Results* history, and is
-  kept on disk once you save the project.
+- The sweep is also kept as a study, under *Saved studies* at the bottom
+  of the *Cases* tab: a table with a row per value, the run's status and
+  every summary figure. Click the study's name to show or hide its table;
+  the download button next to it saves the table as CSV. A study stays
+  after its runs leave the *Results* history. It is kept on disk with the
+  project's runs, not in the project file, so a sweep does not change the
+  project and needs no **Save**.
 
 ## Good to know
 

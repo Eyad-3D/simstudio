@@ -550,8 +550,37 @@ minimum or an average, for example from the CSV export, or put the
   with LightSim and a blank project. Ready-made starting points for other
   layouts (two motors, a fuel-cell car) and templates that ask a few
   questions first are not there yet: start from the example closest to
-  your car and change it. *Recent projects* lists projects saved in
-  LightSim's projects folder only. *Roadmap:* CON-18, PLT-32.
+  your car and change it. *Roadmap:* CON-18, PLT-32.
+- **Project files outside the projects folder: what is missing.**
+  `.lightsim` files open from anywhere, but:
+  - The AppImage does not register the file type, so a double-click does
+    not open LightSim there; use **File → Open…**, or the .deb package. No
+    macOS version yet.
+  - Runs next to a `.lightsim` file count against the 500 MB per-project
+    budget but not the 2 GB total: delete runs you no longer need.
+  - LightSim notices a change on disk by looking every 4 s while its window
+    is in front, not at once.
+  - **Save As** a project that was already saved makes a copy with an id of
+    its own; its runs and studies stay with the original.
+  - Runs and backups always go next to the file; keeping them in the app's
+    own folder instead is not a setting yet.
+  *Roadmap:* PLT-33.
+- **Attached files are kept, not used yet.** A project can carry files
+  (Project → Attached): they are copied into its resources folder, travel
+  with Save As, **Export** (a `.lightsim.zip`) and **Import**, and Data
+  Checks report one that is missing or changed. No part reads an attached
+  FMU, AI model or data file yet. A file is one level deep (no folders
+  inside resources) and at most 1 GB. *Roadmap:* STD-02, STD-08.
+- **The trust question protects runs in the app only.** Before the first
+  run of a project with Script blocks or attached FMUs or AI models,
+  LightSim asks whether you trust it, and remembers the answer by a
+  fingerprint of that code (a changed script or file asks again; your own
+  edits in the app do not). The question is asked by the app's window; the
+  engine itself does not refuse to run untrusted code. Projects you saved
+  before 0.3.0 ask once too. *Roadmap:* STD-02, PLT-02.
+- **Study tables are keyed by the figure's name.** A study's results table
+  names each column by the summary figure's label; a figure renamed in a
+  later version starts a new column. *Roadmap:* PLT-34.
 - **Unsigned installers.** Windows SmartScreen warns on first launch (choose
   *More info → Run anyway*). *Roadmap:* PLT-13.
 - **No macOS version.** Builds exist for Windows 10/11 (x64) and Linux (x64)

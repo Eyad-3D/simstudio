@@ -361,6 +361,36 @@ sections.
   2,300 kg* instead of the clock time) in the run lists, legends and
   summary; *Run info* edits the name and keeps a note, both stored with
   the run. (RES-10)
+- Projects can live in any folder as `.lightsim` files: **File → Open…**,
+  **File → Open Recent**, **Save As…** (also on the Home tab), a
+  double-click on the file (Windows, Linux .deb) or a drop on the window.
+  Runs, backups and attached files sit next to the file, the runs and
+  backups in folders git ignores. *Recent files* is listed in **Home →
+  Open** and on the *Start* page. LightSim looks at the open file every
+  few seconds and offers to reload it when it changed on disk (a git pull,
+  another window). The window can never name a file itself: only the
+  desktop app's own Open and Save dialogs, a double-click or a drop can.
+  (PLT-33)
+- Project files record their format version and the LightSim that saved
+  them. Older files are upgraded step by step as they open; the first save
+  keeps the old file as `pre-migration-v1.json` in the project's backups. A
+  file from a newer LightSim opens read-only, says which version to
+  install, and is never saved over. (PLT-07)
+- Running a sweep no longer changes the project: studies (what was swept
+  and the results table) are kept with the project's runs, as
+  `studies/<id>.json`, so git shows only model edits and two people's
+  sweeps never collide. (PLT-34)
+- Files can be attached to a project (**Project → Attached**): models from
+  other tools (FMUs), AI models (ONNX) and measured data are copied into
+  the project's resources folder, listed with their size and a fingerprint
+  (SHA-256 hash) so a missing or changed file shows in the list and in
+  Data Checks. **Export** of a project with attached files saves a
+  `.lightsim.zip` with all of them, and **Import** opens one. Parameters
+  of the new *file* type pick an attached file. A project carrying code
+  (Script blocks, FMUs, AI models) asks once whether you trust it before
+  its first run. (STD-02)
+- **Export** saves `<id>.lightsim` (it was `<id>.json`); **Import** takes
+  `.lightsim`, `.json` and `.zip` files.
 
 ### Fixed
 
@@ -529,6 +559,13 @@ sections.
   So does a case whose own value is out of range: change or remove it in
   *Cases & Parameters*. A stored value out of range shows red in its field
   as soon as the project opens.
+- Project files are now in format 2 (PLT-07). A 0.2.0 file opens as
+  before: its studies move out of the file into the project's runs folder
+  (they stay listed under *Saved studies*), and the first save keeps the
+  file as it was in **Project → Restore…**'s folder as
+  `pre-migration-v1.json`. No results change.
+- Going back to 0.2.0: it opens format 2 files, but shows no studies (they
+  are next to the runs now) and keeps attached files only as a list.
 - Going back to 0.2.0: it cannot open a project with a study point that
   says *cancelled*. It still lists and opens stored runs that say
   *cancelled*, but drops them from the list if it has to rebuild its run
