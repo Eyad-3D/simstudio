@@ -11,7 +11,7 @@ async function sweepVehicleMass(page: Page, steps: number): Promise<void> {
   await showPanel(page, "Cases & Parameters");
   const sweepElement = page.locator("select", { has: page.locator("option", { hasText: "Element…" }) }).nth(1);
   await sweepElement.selectOption({ label: "Vehicle" });
-  await page.locator("input[type=number][max='16']").fill(String(steps));
+  await page.locator("input[type=number][max='200']").fill(String(steps));
   await page.getByRole("button", { name: `Run sweep (${steps})` }).click();
   await expect(page.getByPlaceholder("Search channels…")).toBeVisible({ timeout: 60_000 });
 }

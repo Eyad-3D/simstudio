@@ -235,8 +235,8 @@ function signalSourceOf(
 let activeRun: api.LiveRunHandle | null = null;
 // live parameter edits sent to the in-flight run, for its snapshot
 let liveLog: { runId: string; edits: LiveEdit[] } | null = null;
-// set by stopRun so an in-flight parameter sweep aborts after the current point
-let sweepAborted = false;
+// the sweep running in the engine's worker processes (ENG-05); stopRun stops it
+let activeStudy: api.StudyHandle | null = null;
 // bumped per run-history load, so an answer for an earlier load is dropped
 let runHistorySeq = 0;
 
@@ -257,19 +257,6 @@ export function previousRunOf(caseId: string, runs: SimRun[], before = Infinity)
 }
 
 /** A study's table row for a point that ran: its status and summary values. */
-function studyPoint(run: SimRun, values: number[]): StudyPoint {
-  const notValid = run.result.summary.filter((v) => v.notValid);
-  return {
-    values,
-    runId: run.id,
-    status: run.status === "running" ? "failed" : run.status,
-    ...(run.incomplete ? { incomplete: run.incomplete } : {}),
-    // (a value JSON cannot carry would make the project unsavable)
-    kpis: Object.fromEntries(run.result.summary.filter((v) => Number.isFinite(v.value)).map((v) => [v.label, v.value])),
-    ...(notValid.length ? { notValid: Object.fromEntries(notValid.map((v) => [v.label, v.notValid!])) } : {}),
-  };
-}
-
 /** Undo and redo step through edits, not studies: a project from the
  *  history gets the studies the project has now. */
 function keepStudies(target: Project, current: Project): Project {
@@ -416,6 +403,7 @@ export interface ProjectState {
       kind: "cycle" | "performance" | "acceleration" | "lap";
       endDistance: number | null;
       endLaps: number | null;
+      chargeBalance: boolean | null;
       startLine: number;
       referenceTime: number | null;
     }>,
@@ -1767,43 +1755,66 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         return;
       }
 
-      sweepAborted = false;
+      // the points run side by side in the engine's worker processes
+      // (ENG-05); each is stored as a run of the project as it ends, and
+      // only its summary comes back here
       log(
         "info",
         `Sweep: ${el?.label ?? elementId} · ${paramLabel} over ${values.length} value(s) …`,
       );
+      const byIndex = new Map<number, StudyPoint>();
+      let totals: api.StudyTotals | undefined;
+      set({ livePct: 0 });
       try {
-        for (const value of values) {
-          if (sweepAborted) break;
-          // clone the project so the swept override is scoped to this one run
-          const runProject = structuredClone(project);
-          const rc = runProject.cases.find((c) => c.id === caseId);
-          if (!rc) break;
-          rc.parameterOverrides = {
-            ...(rc.parameterOverrides ?? {}),
-            [elementId]: { ...(rc.parameterOverrides?.[elementId] ?? {}), [paramKey]: value },
-          };
-          const label = `${simCase.name} · ${paramLabel}=${value}${unit}`;
-          try {
-            await executeRun(runProject, caseId, label, {
-              sweepId,
-              sweepParam: paramLabel,
-              sweepValue: value,
-              sweepUnit: paramUnit,
-            });
-          } catch (e) {
-            log("error", `Sweep point ${paramLabel}=${value} failed: ${(e as Error).message}`);
-            // keep going with the remaining points
-          }
-          // this point's run: the newest run of the sweep not in the table yet
-          const tabled = new Set(points.map((p) => p.runId));
-          const pointRun = get().runs.find((r) => r.sweepId === sweepId && !tabled.has(r.id));
-          points.push(pointRun ? studyPoint(pointRun, [value]) : { values: [value], status: "failed", kpis: {} });
-          for (const v of pointRun?.result.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
-        }
+        const handle = api.runStudyLive(
+          {
+            project: structuredClone({ ...project, studies: undefined }) as Project,
+            caseId,
+            points: values.map((value) => ({
+              overrides: { [elementId]: { [paramKey]: value } },
+              values: [value],
+              label: `${simCase.name} · ${paramLabel}=${value}${unit}`,
+            })),
+            sweepId,
+            sweepParam: paramLabel,
+            sweepUnit: paramUnit,
+          },
+          {
+            onStarted: (workers) =>
+              log("info", `Sweep running ${countOf(workers, "point")} at a time, one per processor core.`),
+            onPoint: (e) => {
+              const notValid = (e.summary ?? []).filter((v) => v.notValid);
+              byIndex.set(e.index, {
+                values: e.values,
+                ...(e.runId ? { runId: e.runId } : {}),
+                status: e.status,
+                ...(e.incomplete ? { incomplete: e.incomplete } : {}),
+                ...(e.wallS != null ? { wallS: e.wallS } : {}),
+                kpis: Object.fromEntries((e.summary ?? []).filter((v) => Number.isFinite(v.value)).map((v) => [v.label, v.value])),
+                ...(notValid.length ? { notValid: Object.fromEntries(notValid.map((v) => [v.label, v.notValid!])) } : {}),
+              });
+              for (const v of e.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
+              if (e.status === "failed") log("error", `Sweep point ${paramLabel}=${e.values[0]}${unit} failed.`);
+              if (e.pruned?.length) {
+                log("warning", `Stored runs reached the disk budget: deleted the ${e.pruned.length} oldest run(s).`);
+              }
+              set({ livePct: (100 * byIndex.size) / values.length });
+            },
+          },
+        );
+        activeStudy = handle;
+        totals = await handle.done;
+      } catch (e) {
+        log("error", `Sweep failed: ${(e as Error).message}`);
       } finally {
+        activeStudy = null;
         set({ running: false });
       }
+      // the points' runs, from the run store
+      if (get().project?.id === project.id) await loadRunHistory(project.id);
+      points.push(
+        ...values.map((v, i): StudyPoint => byIndex.get(i) ?? { values: [v], status: "not run", kpis: {} }),
+      );
       const family = get()
         .runs.filter((r) => r.sweepId === sweepId)
         .sort((a, b) => (a.sweepValue ?? 0) - (b.sweepValue ?? 0));
@@ -1824,7 +1835,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         // save the study with the project (unless another one was opened
         // meanwhile), with a row for every value, run or not
         if (get().project?.id === project.id) {
-          const notRun = values.slice(points.length).map((v): StudyPoint => ({ values: [v], status: "not run", kpis: {} }));
           const study: Study = {
             id: sweepId,
             startedAt,
@@ -1834,7 +1844,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
               { elementId, paramKey, elementLabel: el?.label ?? elementId, paramLabel, unit: paramUnit, values },
             ],
             kpis: [...kpiUnits].map(([label, kpiUnit]) => ({ label, unit: kpiUnit })),
-            points: [...points, ...notRun],
+            points,
+            ...(totals ? { workers: totals.workers, wallS: totals.wallS } : {}),
           };
           updateProject((draft) => {
             draft.studies = [...(draft.studies ?? []), study];
@@ -1887,7 +1898,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     },
 
     stopRun: () => {
-      sweepAborted = true;
+      activeStudy?.cancel();
       if (activeRun) {
         activeRun.cancel();
         get().log("info", "Stop requested — waiting for the solver to wind down …");

@@ -25,6 +25,10 @@ Endpoints:
   POST /api/simulate           run a simulation case, returns SimResult
   WS   /api/simulate/run       live run: streams progress/steps, accepts
                                set_param and cancel while running
+  POST /api/studies            run a study's points on all cores, returns
+                               each point's summary (runs are stored)
+  WS   /api/studies/run        the same, streaming each point as it ends,
+                               accepts cancel
 """
 from __future__ import annotations
 
@@ -45,10 +49,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from . import cycles, run_store, security, storage
+from . import cycles, run_store, security, storage, studies
 from .library import load_library, unit_groups
 from .paths import static_dir
-from .schemas import DataCheck, Project, SimResult, SimulateRequest, StoredRun, ValidateRequest
+from .schemas import (
+    DataCheck,
+    Project,
+    SimResult,
+    SimulateRequest,
+    StoredRun,
+    StudyRequest,
+    ValidateRequest,
+)
 from .solver import simulate
 from .validation import validate_project
 from .version import VERSION
@@ -408,6 +420,111 @@ async def run_simulation_live(ws: WebSocket) -> None:
     finally:
         recv_task.cancel()
         if not client_gone:
+            try:
+                await ws.close()
+            except RuntimeError:
+                pass
+
+
+def _study_args(req: StudyRequest):
+    points = [studies.StudyPointSpec(overrides=p.overrides, values=p.values, label=p.label)
+              for p in req.points]
+    options = studies.StudyOptions(sweep_id=req.sweepId, sweep_param=req.sweepParam,
+                                   sweep_unit=req.sweepUnit, workers=req.workers,
+                                   store=req.store)
+    return points, options
+
+
+def _study_blocked(req: StudyRequest) -> str | None:
+    """Why the study cannot start (no such case, Data Check errors), or None."""
+    if not any(c.id == req.caseId for c in req.project.cases):
+        return f"Simulation case '{req.caseId}' not found."
+    errors = [c for c in validate_project(req.project) if c.level == "error"]
+    if errors:
+        return "Data check failed: " + "; ".join(c.text for c in errors[:5])
+    return None
+
+
+@app.post("/api/studies")
+async def run_study(req: StudyRequest) -> dict:
+    """Run every point (in a pool of worker processes) and answer once all
+    are done: each point's status, run id and summary, and the pool's size,
+    wall time and speed-up. For a headless caller; the app uses the
+    WebSocket below to see points as they end and to stop a study."""
+    blocked = _study_blocked(req)
+    if blocked:
+        raise HTTPException(status_code=400, detail=blocked)
+    points, options = _study_args(req)
+    found: list[dict] = []
+
+    async def collect(event: dict) -> None:
+        found.append(event)
+
+    totals = await studies.run_study(req.project, req.caseId, points, options, collect,
+                                     asyncio.Event())
+    return {**totals, "points": sorted(found, key=lambda e: e["index"])}
+
+
+@app.websocket("/api/studies/run")
+async def run_study_live(ws: WebSocket) -> None:
+    """Study channel. Client → server: {"type": "start", …StudyRequest},
+    then optionally {"type": "cancel"}. Server → client: {"type": "started",
+    "workers"}, a {"type": "point", …} as each point ends (in the order they
+    end), then {"type": "done", "workers", "wallS", "pointWallS",
+    "speedup"}; {"type": "error", "detail"} when it cannot start."""
+    await ws.accept()
+    try:
+        first = await ws.receive_json()
+    except (WebSocketDisconnect, ValueError):
+        return
+    try:
+        if first.get("type") != "start":
+            raise ValueError("First message must be 'start'.")
+        req = StudyRequest.model_validate(first)
+    except (ValueError, ValidationError) as e:
+        detail = (f"Invalid study: {e.error_count()} schema error(s)."
+                  if isinstance(e, ValidationError) else str(e))
+        await ws.send_json({"type": "error", "detail": detail})
+        await ws.close()
+        return
+    blocked = await asyncio.to_thread(_study_blocked, req)
+    if blocked:
+        await ws.send_json({"type": "error", "detail": blocked})
+        await ws.close()
+        return
+    points, options = _study_args(req)
+    stop = asyncio.Event()
+    gone = False
+
+    async def send(event: dict) -> None:
+        nonlocal gone
+        if gone:
+            return
+        try:
+            await ws.send_json(event)
+        except (WebSocketDisconnect, RuntimeError):
+            gone = True
+            stop.set()
+
+    async def receive_loop() -> None:
+        try:
+            while True:
+                msg = await ws.receive_json()
+                if msg.get("type") == "cancel":
+                    stop.set()
+        except (WebSocketDisconnect, ValueError, RuntimeError):
+            stop.set()  # client gone: stop the study
+
+    options.workers = options.workers or studies.default_workers(req.project, len(points))
+    await send({"type": "started", "workers": min(options.workers, len(points)),
+                "points": len(points)})
+    recv_task = asyncio.create_task(receive_loop())
+    try:
+        totals = await studies.run_study(req.project, req.caseId, points, options, send, stop)
+        await send({"type": "done", **totals})
+    finally:
+        recv_task.cancel()
+        if not gone:
             try:
                 await ws.close()
             except RuntimeError:

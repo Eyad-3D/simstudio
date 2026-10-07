@@ -98,6 +98,16 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
         <div className="border-t border-[color:var(--ss-border)] px-1.5 py-1">
           <div className="mb-1 text-[10px] text-[color:var(--ss-text-dim)]">
             Case '{study.caseName}' · {factor.values.length} value(s)
+            {study.workers && study.wallS != null && (
+              <>
+                {" "}
+                · {study.workers} at a time, {study.wallS.toFixed(1)} s
+                {(() => {
+                  const sum = study.points.reduce((t, p) => t + (p.wallS ?? 0), 0);
+                  return sum > 0 ? ` (${(sum / study.wallS).toFixed(1)}× faster than one after another)` : "";
+                })()}
+              </>
+            )}
           </div>
           {study.kpis.length > 0 && (
             <label className="mb-1 flex items-center gap-1 text-[11px] text-[color:var(--ss-text-dim)]">

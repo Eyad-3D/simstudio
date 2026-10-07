@@ -26,6 +26,7 @@ vi.mock("../api", () => ({
   validateProject: vi.fn(),
   runSimulation: vi.fn(),
   runSimulationLive: vi.fn(),
+  runStudyLive: vi.fn(),
   listRuns: vi.fn(),
   fetchRun: vi.fn(),
   storeRun: vi.fn(),
@@ -120,6 +121,72 @@ function engineFinishesRuns() {
   }));
 }
 
+/** The engine's study runner (ENG-05) as the mocks see it: each point is run
+ *  through the runSimulationLive mock, one after another, stored in `disk`
+ *  as a run of the project and reported as it ends; a stop cancels the
+ *  running point and leaves the rest not run. */
+let storedAt = 0;
+function engineRunsStudies() {
+  api.runStudyLive.mockImplementation((req, callbacks = {}) => {
+    let stopped = false;
+    let current: { cancel: () => void } | null = null;
+    const done = (async () => {
+      callbacks.onStarted?.(2);
+      for (const [index, pt] of req.points.entries()) {
+        if (stopped) {
+          callbacks.onPoint?.({ index, values: pt.values, status: "not run" });
+          continue;
+        }
+        const project = structuredClone(req.project);
+        const simCase = project.cases.find((c) => c.id === req.caseId)!;
+        simCase.parameterOverrides = { ...(simCase.parameterOverrides ?? {}) };
+        for (const [elId, values] of Object.entries(pt.overrides)) {
+          simCase.parameterOverrides[elId] = { ...(simCase.parameterOverrides[elId] ?? {}), ...values };
+        }
+        const handle = api.runSimulationLive(project, req.caseId, {});
+        current = handle;
+        if (stopped) handle.cancel();
+        const result = await handle.done;
+        const at = result.messages.find((m) => /cancel/i.test(m.text))?.text.match(/t = ([^ ]+ s)/);
+        const incomplete =
+          result.status === "failed" ? "failed" : result.status === "cancelled" ? `stopped at t = ${at?.[1]}` : undefined;
+        const runId = `run-${req.sweepId}-${index}`;
+        const run: SimRun = {
+          id: runId,
+          caseId: req.caseId,
+          caseName: pt.label ?? simCase.name,
+          startedAt: Date.now() + ++storedAt,
+          status: result.status,
+          result,
+          sweepId: req.sweepId,
+          sweepParam: req.sweepParam ?? undefined,
+          sweepValue: pt.values[0],
+          sweepUnit: req.sweepUnit ?? undefined,
+          ...(incomplete ? { incomplete } : {}),
+          snapshot: { project, case: simCase, appVersion: "0.1.0", liveEdits: [] },
+        };
+        folder(req.project.id).set(runId, run);
+        callbacks.onPoint?.({
+          index,
+          values: pt.values,
+          status: result.status,
+          runId,
+          ...(incomplete ? { incomplete } : {}),
+          summary: result.summary,
+        });
+      }
+      return { workers: 2, wallS: 1, pointWallS: 2, speedup: 2 };
+    })();
+    return {
+      cancel: () => {
+        stopped = true;
+        current?.cancel();
+      },
+      done,
+    };
+  });
+}
+
 beforeEach(async () => {
   // fresh module instances per test: the store keeps module-level state
   // (undo coalescing, the active run) that must not leak between tests
@@ -152,6 +219,7 @@ beforeEach(async () => {
   api.saveProject.mockResolvedValue({ saved: "fixture" });
 
   disk = new Map();
+  engineRunsStudies();
   api.listRuns.mockImplementation(async (projectId) =>
     [...folder(projectId).values()].sort((a, b) => b.startedAt - a.startedAt).map(info),
   );
