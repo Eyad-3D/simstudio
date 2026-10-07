@@ -265,7 +265,7 @@ export function FmuPanel({ element, compact }: { element: ElementInstance; compa
                   <tbody>
                     {shown.map((v) => {
                       const key = START_PREFIX + v.name;
-                      const changed = key in params;
+                      const changed = key in params && Number(params[key]) !== v.start;
                       const short = v.name.split(".").pop() ?? v.name;
                       return (
                         <tr key={v.name} title={v.description || undefined}>

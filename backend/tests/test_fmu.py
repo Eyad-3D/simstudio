@@ -241,6 +241,24 @@ def test_describe_reports_validation_problems_in_plain_words(tmp_path):
                for w in d["warnings"])
 
 
+@needs_fmpy
+def test_describe_does_not_read_other_files_through_the_xml(tmp_path):
+    """An FMU's XML cannot pull a file from the computer into what LightSim
+    shows (and saves, as the block's name)."""
+    f = tmp_path / "xxe.fmu"
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOP-SECRET")
+    with zipfile.ZipFile(f, "w") as zf:
+        zf.writestr("modelDescription.xml", f"""<?xml version="1.0"?>
+<!DOCTYPE fmiModelDescription [<!ENTITY x SYSTEM "{secret.as_uri()}">]>
+<fmiModelDescription fmiVersion="2.0" modelName="&x;" guid="{{1}}">
+  <CoSimulation modelIdentifier="B"/><ModelVariables/><ModelStructure/>
+</fmiModelDescription>""")
+    d = info.describe(f)
+    assert "TOP-SECRET" not in repr(d)
+    assert not d["ok"]
+
+
 # ---- running it ----------------------------------------------------------------
 
 @needs_fmpy

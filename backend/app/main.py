@@ -328,10 +328,18 @@ _FMU_ERRORS = {400: {"description": "Not an FMU, too big, unknown or an unreadab
 async def import_fmu(request: Request, name: str = "model.fmu", allow: bool = False) -> FmuImport:
     """Keep an FMU file the user chose (and, with ``allow``, allow it to run:
     the UI asks first). Returns where it is kept and what it is."""
+    too_big = HTTPException(status_code=400, detail=(
+        f"The FMU is larger than {fmu_store.MAX_FMU_BYTES >> 20} MB."))
     size = request.headers.get("content-length")
     if size and size.isdigit() and int(size) > fmu_store.MAX_FMU_BYTES:
-        raise HTTPException(status_code=400, detail="The FMU is too large.")
-    data = await request.body()
+        raise too_big
+    chunks, total = [], 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > fmu_store.MAX_FMU_BYTES:
+            raise too_big
+        chunks.append(chunk)
+    data = b"".join(chunks)
     try:
         sha, path = await asyncio.to_thread(fmu_store.store_bytes, data)
     except fmu_store.FmuFileError as e:

@@ -29,6 +29,10 @@ NUMERIC_TYPES = frozenset({
     "Int32", "UInt32", "Int64", "UInt64",  # FMI 3.0
 })
 
+#: The largest modelDescription.xml LightSim reads (FMUs with tens of
+#: thousands of variables stay well under it).
+MAX_DESCRIPTION_BYTES = 256 * 1024 * 1024
+
 _cache: dict[tuple[str, int, int], dict] = {}
 
 
@@ -130,10 +134,15 @@ def _describe(path: Path) -> dict:
     try:
         with zipfile.ZipFile(path) as zf:
             names = zf.namelist()
+            xml_size = zf.getinfo("modelDescription.xml").file_size if (
+                "modelDescription.xml" in names) else 0
     except (OSError, zipfile.BadZipFile):
         return _broken("This is not an FMU: an FMU is a zip file, and this file is not one.")
     if "modelDescription.xml" not in names:
         return _broken("This is not an FMU: it has no modelDescription.xml.")
+    if xml_size > MAX_DESCRIPTION_BYTES:
+        return _broken(f"Its description (modelDescription.xml) is larger than "
+                       f"{MAX_DESCRIPTION_BYTES >> 20} MB.")
     if not fmpy_available():
         return _broken(NOT_INSTALLED, fmpyMissing=True)
 

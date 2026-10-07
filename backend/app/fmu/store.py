@@ -15,10 +15,11 @@ the stored FMUs, keyed by SHA-256: importing a file counts as allowing it
 refused by Data Checks until the user allows it. Editing the file inside the
 FMU changes its hash, so a changed FMU has to be allowed again.
 
-Unpacking. A run loads an FMU from an unpacked copy in the system temp
-folder, made once per file (by hash) and reused. Unpacking checks every name
-(no absolute paths or ``..``) and the total size, so a hostile archive cannot
-write outside its folder or fill the disk.
+Unpacking. A run loads an FMU from an unpacked copy in ``fmus/unpacked``
+(the user's own folder, not the shared temp folder), made once per file (by
+hash) and reused. Unpacking checks every name (no absolute paths or ``..``)
+and the total size, so a hostile archive cannot write outside its folder or
+fill the disk.
 """
 from __future__ import annotations
 
@@ -153,7 +154,9 @@ def allow(sha: str, name: str) -> None:
 # ---- unpacking -----------------------------------------------------------------
 
 def _unpack_root() -> Path:
-    return Path(tempfile.gettempdir()) / "lightsim-fmu"
+    # in the user's own folder, not the shared temp folder, where another
+    # account on the computer could plant files for LightSim to load
+    return fmu_dir() / "unpacked"
 
 
 def unpacked(path: Path, sha: str | None = None) -> Path:

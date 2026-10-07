@@ -36,7 +36,7 @@ def problems(label: str, params: dict, ports: list) -> list[tuple[str, str, str 
     out: list[tuple[str, str, str | None]] = []
     if not fmpy_available():
         return [("error", f"'{label}': {NOT_INSTALLED}",
-                 "Install the FMU pack (see the help page 'Use models from other tools').")]
+                 "Install the FMU pack (see the help page 'Use a model from another tool (FMU)').")]
     try:
         path = locate(params)
     except FmuFileError as e:
