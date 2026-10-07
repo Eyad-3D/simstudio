@@ -36,11 +36,16 @@ export function NodeMarks({ elementId }: { elementId: string }) {
       )}
       {p && (
         <div
-          className="pointer-events-none absolute left-1/2 top-full z-10 mt-[17px] -translate-x-1/2 whitespace-nowrap rounded px-1 text-[9.5px] leading-tight tabular-nums text-[color:var(--ss-text-dim)]"
-          style={{ background: "color-mix(in srgb, var(--ss-panel) 85%, transparent)" }}
+          className="pointer-events-none absolute left-1/2 top-full z-10 mt-[17px] w-[128px] -translate-x-1/2 text-center text-[9.5px] leading-tight tabular-nums text-[color:var(--ss-text-dim)]"
           data-energy-label
         >
-          in {kwh(p.inKWh)} · out {kwh(p.outKWh)} · lost {kwh(p.lostKWh)} kWh
+          <span className="rounded px-1" style={{ background: "color-mix(in srgb, var(--ss-panel) 85%, transparent)" }}>
+            lost <b className="text-[color:var(--ss-text)]">{kwh(p.lostKWh)}</b> kWh
+          </span>
+          <br />
+          <span className="rounded px-1" style={{ background: "color-mix(in srgb, var(--ss-panel) 85%, transparent)" }}>
+            in {kwh(p.inKWh)} · out {kwh(p.outKWh)}
+          </span>
         </div>
       )}
     </>
@@ -68,7 +73,7 @@ export function EnergyBars() {
     <div
       role="region"
       aria-label="Energy lost per part"
-      className="absolute right-2 top-2 z-10 w-[280px] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-[11px] shadow-md"
+      className="absolute right-2 top-12 z-10 w-[280px] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-[11px] shadow-md"
     >
       <div className="mb-1 flex items-center gap-1">
         <b>Energy lost per part</b>

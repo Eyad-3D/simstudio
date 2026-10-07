@@ -104,7 +104,8 @@ export function sankeyLayout(e: EnergyReport, dark = false, height = 300, gap = 
   const sources: EnergyFlow[] = [...e.sources];
   const sinks: EnergyFlow[] = [...e.sinks];
   const rem = e.remainderKWh;
-  if (Math.abs(rem) > 1e-6) {
+  // (a remainder within the books' rounding is no band)
+  if (Math.abs(rem) > 1e-4 * Math.max(e.sourceKWh, 1e-9)) {
     const band = { label: "Not accounted for", kWh: Math.abs(rem), group: "remainder" };
     if (rem > 0) sinks.push(band);
     else sources.push(band);

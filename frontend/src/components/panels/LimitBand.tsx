@@ -80,13 +80,20 @@ export function LimitLegend({ run, onTime }: { run: SimRun; onTime: boolean }) {
       aria-label="What limits the car"
       className="flex shrink-0 flex-col gap-0.5 border-t border-[color:var(--ss-border)] px-2 py-1 text-[11px]"
     >
-      <label
-        className="flex cursor-pointer items-center gap-1.5 text-[color:var(--ss-text-dim)]"
-        title="A band along the bottom of the chart says, at every moment, what held the car back: the tyres' grip, the motor or engine, the battery or a set power limit. Each solver step counts as the first of these that applies (braking, grip, set limit, supply, motor or engine), else coasting or the driver's demand met."
+      <button
+        className="flex items-center gap-1.5 self-start rounded px-0.5 text-[color:var(--ss-text-dim)] hover:bg-[color:var(--ss-hover)]"
+        aria-pressed={show}
+        onClick={() => setShow(!show)}
+        title="A band along the bottom of the chart says, at every moment, what held the car back: the tyres' grip, the motor or engine, the battery or a set power limit. Each solver step counts as the first of these that applies (braking, grip, set limit, supply, motor or engine), else coasting or the driver's demand met. Click to show or hide the band."
       >
-        <input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} />
+        <span
+          aria-hidden="true"
+          className={`inline-block h-3 w-3 rounded-sm border border-[color:var(--ss-border)] text-center text-[9px] leading-[10px] ${show ? "bg-[color:var(--ss-accent)] text-white" : ""}`}
+        >
+          {show ? "✓" : ""}
+        </span>
         What limits the car{!onTime && show ? " (drawn on a time axis)" : ""}
-      </label>
+      </button>
       {lim.lanes.map((lane) => (
         <div key={lane.label} className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
           {lim.lanes.length > 1 && <span className="font-semibold">{lane.label}:</span>}

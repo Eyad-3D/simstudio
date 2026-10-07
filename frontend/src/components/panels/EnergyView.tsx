@@ -6,9 +6,11 @@ import { downloadText, energyCsv, sankeyLayout, type SankeyNode } from "../../re
 import { useUIStore } from "../../store/uiStore";
 import type { SimRun } from "../../types";
 
-const W = 900; // the chart's drawing width; it scales to the panel
+const W = 1040; // the chart's drawing width; it scales to the panel
 const NODE_W = 12;
-const COL_X = [190, 360, 530, 700];
+// sources (labels to their left), the energy in, the groups (labels to
+// their left, over the bands), each sink (labels to its right)
+const COL_X = [210, 310, 510, 700];
 const LABEL_GAP = 13; // px between label baselines
 const kwh = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: v >= 10 ? 2 : 3, minimumFractionDigits: 0 });
 const pct = (v: number, total: number) => (total > 0 ? `${((100 * v) / total).toFixed(1)} %` : "");
@@ -139,8 +141,6 @@ export function EnergyView({ run }: { run: SimRun }) {
             const x = COL_X[n.column];
             const clickable = Boolean(n.elementId);
             const ly = labelY(n);
-            const right = n.column >= 2;
-            const tx = n.column === 0 ? x - 6 : x + NODE_W + 6;
             return (
               <g
                 key={n.id}
@@ -154,10 +154,10 @@ export function EnergyView({ run }: { run: SimRun }) {
                 </rect>
                 {n.column !== 1 && (
                   <text
-                    x={tx}
+                    x={n.column === 3 ? x + NODE_W + 6 : x - 6}
                     y={ly}
                     dominantBaseline="middle"
-                    textAnchor={right ? "start" : "end"}
+                    textAnchor={n.column === 3 ? "start" : "end"}
                     data-ink="ink"
                     data-halo=""
                     fill="var(--ss-text)"
@@ -166,10 +166,13 @@ export function EnergyView({ run }: { run: SimRun }) {
                     paintOrder="stroke"
                     fontWeight={n.column === 2 ? 600 : 400}
                   >
-                    {n.label}{" "}
-                    <tspan data-ink="dim" fill="var(--ss-text-dim)">
-                      {kwh(n.kWh)} kWh · {pct(n.kWh, total)}
-                    </tspan>
+                    {n.label}
+                    {n.column !== 2 && (
+                      <tspan data-ink="dim" fill="var(--ss-text-dim)">
+                        {" "}
+                        {kwh(n.kWh)} kWh · {pct(n.kWh, total)}
+                      </tspan>
+                    )}
                   </text>
                 )}
                 {n.column === 1 && (

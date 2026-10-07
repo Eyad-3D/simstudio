@@ -42,7 +42,7 @@ export function DutyView({ run }: { run: SimRun }) {
     <div className="flex min-h-[260px] flex-[3] flex-col overflow-auto">
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 text-[11px] text-[color:var(--ss-text-dim)]">
         <span title="RMS, the root-mean-square, is the mean that sets heating: a part's losses grow with the square of its current, so its cooling is sized from the RMS, not the peak.">
-          Highest, lowest, mean and RMS over the run, from every second solver step
+          Highest, lowest, mean and RMS over the run, from the solver's own steps
         </span>
         <label className="flex items-center gap-1" title={`Time a power was above this, from the stored points (one every ${stored})`}>
           Time above
