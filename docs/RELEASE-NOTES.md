@@ -361,6 +361,24 @@ sections.
   2,300 kg* instead of the clock time) in the run lists, legends and
   summary; *Run info* edits the name and keeps a note, both stored with
   the run. (RES-10)
+- Driving Task: *Profile Axis*, *Time* (as before, the default) or
+  *Distance*. Over distance the profile's points are 'distance:speed'
+  pairs in m and km/h, and the Driver gets the target speed at the
+  distance the car has driven, as lap simulators, track maps, loggers and
+  truck missions describe a route: a heavier or weaker car slows for a
+  corner at the same place, only later in time. The profile table's x
+  axis says *Distance (m)*. A case of kind *Cycle* or *Performance* then
+  has a **Laps** field: with *Repeat Profile* ticked, the run ends after
+  that many passes through the profile (one pass is its first point to
+  its last), with the *Duration* as its time limit (a warning when time
+  runs out first). The trace is judged against distance (±2 km/h within
+  ±1 s of travel at the target speed). Data Checks refuse a standard drive
+  cycle on the distance axis, and warn about a 0 km/h point before the
+  end (the car stops there for good) and about Laps with no Driving Task
+  over distance. On the Battery Electric Car, a 1,500 m lap with a 100 km/h
+  straight starts braking 2.9 m after the profile slows at its 1,927 kg
+  and 4.7 m after at 2,500 kg. Existing projects drive over time, as
+  before. (ENG-34)
 
 ### Fixed
 

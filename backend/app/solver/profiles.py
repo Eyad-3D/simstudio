@@ -1,5 +1,8 @@
 """Profile parsing for the Driving Task and Road Profile ('x:value; x:value; …').
 
+A Driving Task's x is the time (s) or, with its Profile Axis set to Distance,
+the distance the Vehicle has driven (m); see distance_axis.
+
 The solver parses each profile once per run and looks points up by binary
 search, so a long drive cycle costs next to nothing per solver step.
 """
@@ -84,3 +87,15 @@ def interp_profile(points: list[tuple[float, float]], t: float, repeat: bool) ->
     if tb == ta:
         return vb
     return va + (vb - va) * (t - ta) / (tb - ta)
+
+
+def distance_axis(params: dict) -> bool:
+    """Whether a Driving Task's profile is a speed against distance (its
+    Profile Axis, ``mode``, is "distance") rather than against time."""
+    return str(params.get("mode", "time")) == "distance"
+
+
+def lap_length(points: list[tuple[float, float]]) -> float:
+    """One pass through a profile, in its x unit: from its first point to its
+    last (0 for fewer than two points)."""
+    return points[-1][0] - points[0][0] if len(points) > 1 else 0.0

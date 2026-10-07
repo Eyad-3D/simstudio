@@ -14,6 +14,11 @@ light version of it while the run goes, so a live run warns early):
 - distance driven against the distance the target asks for;
 - non-finite (NaN / inf) values in any channel.
 
+A Driving Task whose Profile Axis is Distance sets a speed against the
+distance driven: its trace is judged against distance (distance_trace_metrics),
+each point's band spanning the target's lowest and highest value within the
+distance the car covers in ±1 s at the target speed (at least ±BAND_MIN_M).
+
 A run whose trace leaves the WLTP band for more than 1 % of its duration
 (at least 2 s) did not follow the cycle: its status is at best "warning"
 and the figures per distance are flagged not valid. A run that covers less
@@ -44,16 +49,19 @@ failed power or voltage check makes the run at best "warning".
 from __future__ import annotations
 
 import math
+from bisect import bisect_left, bisect_right
 from collections import deque
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
 from .maps import MapUse
+from .profiles import distance_axis
 from .runtime import TerminalCheck
 
 WLTP_TOL_KMH = 2.0
 EPA_TOL_KMH = 2.0 * 1.609344  # ±2 mph
 BAND_S = 1.0  # ± time tolerance of both bands
+BAND_MIN_M = 2.0  # ± distance tolerance at least, for a trace against distance
 OUTSIDE_SHARE = 0.01  # share of the duration the trace may spend outside the band
 OUTSIDE_MIN_S = 2.0
 NOT_DRIVEN_SHARE = 0.05  # below this share of the cycle distance the car did not drive
@@ -86,6 +94,9 @@ class CycleTrace:
         # a Constant or Driving Task target is evaluated at the sample's own
         # time; any other source is read as last published (≤ 1 solver step old)
         self.src_kind = dict(ctx.sources).get(self.src[0]) if self.src else None
+        # a Driving Task's speed against distance is judged against distance
+        self.by_distance = (self.src_kind == "signal.driving_task"
+                            and distance_axis(ctx.params(self.src[0])))
         self.times: list[float] = []
         self.target: list[float] = []
         self.speed: list[float] = []
@@ -132,6 +143,8 @@ class CycleTrace:
         return None
 
     def metrics(self) -> TraceMetrics | None:
+        if self.by_distance:
+            return distance_trace_metrics(self.times, self.dist, self.target, self.speed)
         return trace_metrics(self.times, self.target, self.speed)
 
 
@@ -161,6 +174,65 @@ def trace_metrics(ts: list[float], tgt: list[float], spd: list[float]) -> TraceM
             while ts[dq[0]] < ts[i] - BAND_S - 1e-9:
                 dq.popleft()
         t_lo, t_hi = tgt[lows[0]], tgt[highs[0]]
+        dt = ts[i] - ts[i - 1]
+        if spd[i] < t_lo - WLTP_TOL_KMH or spd[i] > t_hi + WLTP_TOL_KMH:
+            out_wltp += dt
+        if spd[i] < t_lo - EPA_TOL_KMH or spd[i] > t_hi + EPA_TOL_KMH:
+            out_epa += dt
+        err = spd[i] - tgt[i]
+        sq += err * err * dt
+        if abs(err) > abs(worst):
+            worst, t_worst = err, ts[i]
+    duration = ts[-1] - ts[0]
+    cycle_m = sum(0.5 * (tgt[k] + tgt[k - 1]) / 3.6 * (ts[k] - ts[k - 1]) for k in range(1, n))
+    return TraceMetrics(
+        duration_s=duration,
+        cycle_km=cycle_m / 1000.0,
+        max_err_kmh=worst,
+        t_max_err=t_worst,
+        rms_kmh=math.sqrt(sq / duration) if duration > 0 else 0.0,
+        outside_wltp_s=out_wltp,
+        outside_epa_s=out_epa,
+    )
+
+
+class _RangeMinMax:
+    """Lowest and highest of a list over any index range, in O(1) per query
+    (sparse tables)."""
+
+    def __init__(self, values: list[float]):
+        self.lo, self.hi = [values], [values]
+        k = 1
+        while 2 * k <= len(values):
+            lo, hi = self.lo[-1], self.hi[-1]
+            self.lo.append([min(lo[i], lo[i + k]) for i in range(len(lo) - k)])
+            self.hi.append([max(hi[i], hi[i + k]) for i in range(len(hi) - k)])
+            k *= 2
+
+    def __call__(self, a: int, b: int) -> tuple[float, float]:
+        """(min, max) of values[a:b], b > a."""
+        j = (b - a).bit_length() - 1
+        lo, hi = self.lo[j], self.hi[j]
+        return min(lo[a], lo[b - (1 << j)]), max(hi[a], hi[b - (1 << j)])
+
+
+def distance_trace_metrics(ts: list[float], xs: list[float], tgt: list[float],
+                           spd: list[float]) -> TraceMetrics | None:
+    """Trace error of a run whose target is a speed against distance: as
+    trace_metrics, but each point's band spans the target's lowest and
+    highest value over the samples within the distance driven in ±BAND_S at
+    the point's target speed (at least ±BAND_MIN_M) of its distance ``xs``
+    (m, never falling). The time outside the band still counts in s."""
+    n = len(ts)
+    if n < 2:
+        return None
+    rng = _RangeMinMax(tgt)
+    out_wltp = out_epa = sq = 0.0
+    worst, t_worst = 0.0, ts[0]
+    for i in range(1, n):
+        w = max(BAND_MIN_M, tgt[i] / 3.6 * BAND_S)
+        a, b = bisect_left(xs, xs[i] - w - 1e-9), bisect_right(xs, xs[i] + w + 1e-9)
+        t_lo, t_hi = rng(a, b)
         dt = ts[i] - ts[i - 1]
         if spd[i] < t_lo - WLTP_TOL_KMH or spd[i] > t_hi + WLTP_TOL_KMH:
             out_wltp += dt
@@ -312,12 +384,23 @@ def judge(trace: CycleTrace, distance_m: float, series: dict, performance: bool 
                                                        OUTSIDE_SHARE * m.duration_s):
             not_followed = True
             messages.append(("warning", (
-                f"Cycle not followed: the speed was outside the ±2 km/h, ±1 s trace tolerance "
+                f"Cycle not followed: the speed was outside the ±2 km/h, "
+                f"{'±1 s of travel' if trace.by_distance else '±1 s'} trace tolerance "
                 f"for {m.outside_wltp_s:.0f} s of {m.duration_s:.0f} s (EPA ±2 mph band: "
                 f"{m.outside_epa_s:.0f} s), up to {abs(m.max_err_kmh):.1f} km/h "
                 f"{'above' if m.max_err_kmh > 0 else 'below'} the target at "
                 f"t = {m.t_max_err:g} s (RMS {m.rms_kmh:.2f} km/h); it drove {km:.2f} of "
                 f"{m.cycle_km:.2f} km. Consumption figures per distance are not valid.")))
+    end_d = trace.ctx.end_distance
+    if (end_d is not None and not trace.ctx.full_throttle and not stopped
+            and distance_m < end_d - 1e-6):
+        # a case that ends at a distance or a lap count ran out of time first
+        what = (f"{case.endLaps:g} laps ({end_d:,.0f} m)"
+                if case is not None and not case.endDistance and case.endLaps else f"{end_d:,.0f} m")
+        messages.append(("warning", f"The vehicle did not drive the case's {what} within its "
+                                    f"{duration_s:g} s duration; it drove {distance_m:,.0f} m. "
+                                    f"Make the Duration longer: it is the run's time limit "
+                                    f"here."))
     if trace.ctx.full_throttle and trace.times:
         rows += _acceleration(trace, case, stopped, messages)
     elif performance and trace.times:

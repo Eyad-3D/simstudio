@@ -50,6 +50,9 @@ const DISTANCE: ParameterDef = {
 const START_LINE: ParameterDef = {
   key: "startLine", label: "Start line", unit: "m", default: 0, type: "number", minimum: 0,
 };
+const LAPS: ParameterDef = {
+  key: "endLaps", label: "Laps", unit: "-", default: 1, type: "number", exclusiveMinimum: 0,
+};
 const REFERENCE_TIME: ParameterDef = {
   key: "referenceTime", label: "Reference time", unit: "s", default: 0, type: "number", exclusiveMinimum: 0,
 };
@@ -247,6 +250,20 @@ export function CasePanel() {
   const trackParams = libraryById["track.lap"]?.parameters ?? [];
   const layoutDef = trackParams.find((p) => p.key === "layout");
   const lapsDef = trackParams.find((p) => p.key === "laps");
+  // a Driving Task over distance (ENG-34): a cycle or performance case can
+  // end after a number of passes through its profile
+  const taskModeDef = libraryById["signal.driving_task"]?.parameters.find((p) => p.key === "mode");
+  const distanceTask =
+    !accel &&
+    !lap &&
+    taskModeDef !== undefined &&
+    project.systems
+      .flatMap((s) => s.elements)
+      .some(
+        (e) =>
+          e.componentDefId === "signal.driving_task" &&
+          effectiveValue(caseOv, e, "mode", taskModeDef) === "distance",
+      );
   const lapHint = "A lap case is set by the Race Track's layout and laps: Duration, Step and Pacing do not apply.";
   const overrideRows = Object.entries(caseOv ?? {}).flatMap(([elId, params]) =>
     Object.entries(params).map(([key, value]) => ({ elId, key, value })),
@@ -444,6 +461,16 @@ export function CasePanel() {
                 Add a Race Track from Driver &amp; Signals: its layout and laps set a lap case.
               </p>
             ))}
+          {distanceTask && (
+            <CaseNumber
+              name="Laps"
+              title="The run ends after this many passes through the Driving Task's profile over distance (one pass: its first point to its last; tick its Repeat Profile to drive more than one). The Duration is then the time limit: a car that has not finished by then gets a warning. Empty = run the whole Duration."
+              def={LAPS}
+              value={activeCase.endLaps ?? null}
+              onChange={(v) => setCaseField(activeCase.id, { endLaps: v })}
+              onClear={() => setCaseField(activeCase.id, { endLaps: null })}
+            />
+          )}
           {accel && (
             <>
               <CaseNumber

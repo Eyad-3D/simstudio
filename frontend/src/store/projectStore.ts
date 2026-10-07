@@ -415,6 +415,7 @@ export interface ProjectState {
       realtimeFactor: number;
       kind: "cycle" | "performance" | "acceleration" | "lap";
       endDistance: number | null;
+      endLaps: number | null;
       startLine: number;
       referenceTime: number | null;
     }>,

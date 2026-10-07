@@ -197,6 +197,11 @@ class SimCase(BaseModel):
     # end the run when the vehicle has driven startLine + endDistance, m;
     # None or 0 = run the whole duration
     endDistance: Optional[float] = None
+    # end the run after this many passes through the profile of the Driving
+    # Task the Driver follows, when its Profile Axis is Distance (a lap is its
+    # last point's distance less its first's), counted from startLine;
+    # endDistance wins when both are set. None or 0 = no lap count
+    endLaps: Optional[float] = None
     # distance driven before the timer starts, m (FS Rules 2026 v1.1 (FSG) D 5.2.3
     # stages the car 0.30 m behind the start line)
     startLine: float = 0.0

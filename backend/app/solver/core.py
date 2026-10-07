@@ -34,6 +34,7 @@ from .domains import ModelInitError, RunContext, build_slaves
 from .maps import OutsideDataError
 from .master import Master, SlaveStepError
 from .network import ModelError, build_model
+from .profiles import distance_axis, lap_length
 from .runtime import (  # noqa: F401 — re-exported for backward compatibility
     AIR_DENSITY,
     CLUTCH_BAND,
@@ -110,6 +111,16 @@ def simulate(
     # the run ends when the vehicle has driven this far, m (None: at the duration)
     end_d = (max(0.0, case.startLine) + case.endDistance
              if case.endDistance and case.endDistance > 0 else None)
+    if end_d is None and case.endLaps and case.endLaps > 0 and case.kind in ("cycle", "performance"):
+        end_d = _laps_distance(ctx, case.endLaps)
+        if end_d is None:
+            rt.message("warning", f"Case '{case.name}' asks for {case.endLaps:g} laps, but the "
+                                  f"Driver does not follow a Driving Task whose Profile Axis is "
+                                  f"Distance (with at least two points), so the run lasts its "
+                                  f"{t_end:g} s duration.")
+        else:
+            end_d += max(0.0, case.startLine)
+    ctx.end_distance = end_d
 
     try:
         lap = None
@@ -520,6 +531,19 @@ def simulate(
     finally:
         if ctx.sandbox is not None:
             ctx.sandbox.close()
+
+
+def _laps_distance(ctx: RunContext, laps: float) -> Optional[float]:
+    """The distance ``laps`` passes through the profile of the Driving Task
+    the Driver follows take, m; None when the Driver follows no Driving Task
+    over distance (or its profile has no length)."""
+    model = ctx.model
+    src = model.signal_route.get((model.driver, "sig_target_in")) if model.driver else None
+    if src is None or model.cdef_of[src[0]].id != "signal.driving_task" \
+            or not distance_axis(ctx.params(src[0])):
+        return None
+    length = lap_length(ctx.profile_points(src[0]))
+    return laps * length if length > 0 else None
 
 
 ChannelValue = tuple[str, str, float]  # (element id, port id, value)

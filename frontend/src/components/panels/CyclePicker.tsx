@@ -62,7 +62,16 @@ const traces = new Map<string, Promise<api.CycleTrace>>();
 
 /** A small speed-over-time sketch of the chosen cycle, its phases marked, or
  *  of the typed profile, with its duration, distance and top speed. */
-export function CyclePreview({ cycleId, points }: { cycleId: string; points: [number, number][] }) {
+export function CyclePreview({
+  cycleId,
+  points,
+  byDistance = false,
+}: {
+  cycleId: string;
+  points: [number, number][];
+  /** the typed profile is a speed against distance (m), not time (ENG-34) */
+  byDistance?: boolean;
+}) {
   const info = useProjectStore((s) => s.cycles.find((c) => c.id === cycleId));
   const [trace, setTrace] = useState<api.CycleTrace | null>(null);
   const id = info?.id;
@@ -97,7 +106,11 @@ export function CyclePreview({ cycleId, points }: { cycleId: string; points: [nu
   const H = 64;
   const x = (t: number) => ((t - t0) / (t1 - t0 || 1)) * W;
   const y = (v: number) => H - 2 - (v / (vmax || 1)) * (H - 4);
-  const stats = `${(t1 - t0).toLocaleString("en")} s · ${km.toFixed(2)} km · top ${vmax.toFixed(1)} km/h`;
+  // a typed profile over distance: its x axis is the distance itself
+  const stats =
+    byDistance && !cycleId
+      ? `${(t1 - t0).toLocaleString("en")} m · top ${vmax.toFixed(1)} km/h`
+      : `${(t1 - t0).toLocaleString("en")} s · ${km.toFixed(2)} km · top ${vmax.toFixed(1)} km/h`;
   return (
     <figure className="m-0">
       <svg
@@ -105,7 +118,7 @@ export function CyclePreview({ cycleId, points }: { cycleId: string; points: [nu
         preserveAspectRatio="none"
         className="h-16 w-full rounded border border-[color:var(--ss-field-border)] bg-[color:var(--ss-panel-alt)]"
         role="img"
-        aria-label={`Speed over time, ${info?.name ?? "custom profile"}: ${stats}`}
+        aria-label={`Speed over ${byDistance && !cycleId ? "distance" : "time"}, ${info?.name ?? "custom profile"}: ${stats}`}
       >
         {info?.phases.slice(1).map(([name, start]) => (
           <line

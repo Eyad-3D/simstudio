@@ -57,6 +57,7 @@ const CASE_FIELDS: Record<string, [string, string, unknown?]> = {
   outputEvery: ["Store every", "", 1],
   kind: ["Kind", "", "cycle"],
   endDistance: ["Distance", " m"],
+  endLaps: ["Laps", ""],
   startLine: ["Start line", " m", 0],
   referenceTime: ["Reference time", " s"],
 };

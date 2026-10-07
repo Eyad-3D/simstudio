@@ -469,6 +469,21 @@ minimum or an average, for example from the CSV export, or put the
 - **A simple driver.** The Driver is a PI speed follower: it does not look
   ahead along the cycle or shift gears; gear and clutch logic comes from
   Script blocks. *Roadmap:* MOD-14.
+- **A speed against distance has no stops.** A Driving Task whose *Profile
+  Axis* is *Distance* gives the Driver the target speed at the distance
+  the car has driven. A point of 0 km/h stops the car there for good (Data
+  Checks warn): there is no stop with a waiting time, and a profile that
+  starts at 0 km/h never sets off, so start it at a small speed (for
+  example 5 km/h). The Driver does not brake ahead of a slower point; it
+  follows the target where the car is, so it reaches a slower point a
+  little late: on the Battery Electric Car at 100 km/h it starts braking
+  2.9 m after the profile starts to slow at its own 1,927 kg and 4.7 m
+  after at 2,500 kg. The case's *Duration* is
+  the time limit of a run that ends after a number of *Laps*. The trace is
+  judged against distance: each point's band spans the target's lowest and
+  highest value within the distance the car covers in ±1 s at the target
+  speed (at least ±2 m), widened by ±2 km/h. *Roadmap:* MOD-14 (stops and
+  look-ahead), CON-11 (cycle files with a distance column).
 - **Structural limits.** One battery or voltage source per electrical bus;
   DC-DC converters work in one direction only; one differential and one
   E-Motor per driveline (several independent drivelines, such as dual-motor
