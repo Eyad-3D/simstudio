@@ -227,9 +227,29 @@ function buildMenu() {
   const projectsDir = path.join(app.getPath("userData"), "projects");
   const knownLimits = bundledDoc("KNOWN-LIMITS.md", "docs/KNOWN-LIMITS.md");
   const notices = bundledDoc("THIRD-PARTY-NOTICES.txt", "THIRD-PARTY-NOTICES.txt");
-  // The help pages, served by the engine, open in the system browser; before
-  // the engine is up, Known Limits is the file installed with the app.
-  const helpPage = (page) => (appOrigin ? shell.openExternal(`${appOrigin}/help/${page}`) : openDoc(knownLimits));
+  // The help pages, served by the engine, open in the window's Help panel
+  // (LRN-09); in the system browser if the window cannot show them, and
+  // before the engine is up Known Limits is the file installed with the app.
+  const inWindow = async (call) => {
+    if (!mainWindow || !appOrigin) return false;
+    try {
+      return (await mainWindow.webContents.executeJavaScript(call)) === true;
+    } catch {
+      return false;
+    }
+  };
+  const helpPage = async (page) => {
+    if (await inWindow(`window.lightsimHelp ? window.lightsimHelp(${JSON.stringify(page)}) : false`)) return;
+    return appOrigin ? shell.openExternal(`${appOrigin}/help/${page}`) : openDoc(knownLimits);
+  };
+  const pages = [
+    ["Your First Electric Car (Tutorial)", "tutorials/first-electric-car.html"],
+    ["Formula Student Lessons", "lessons/fs-1-acceleration.html"],
+    ["Examples Guide", "examples/bev-car.html"],
+    ["Results Numbers Explained", "reference/results.html"],
+    ["Keyboard Shortcuts", "reference/keyboard-shortcuts.html"],
+    ["Glossary", "glossary.html"],
+  ].map(([label, page]) => ({ label, click: () => helpPage(page) }));
   const template = [
     {
       label: "File",
@@ -265,10 +285,29 @@ function buildMenu() {
           registerAccelerator: false, // the page handles F1 (the selected part's page)
           click: () => helpPage("index.html"),
         },
+        ...pages,
+        { type: "separator" },
         {
           label: "Known Limits",
           click: () => helpPage("known-limits.html"),
         },
+        {
+          label: "What Is Validated",
+          click: () => helpPage("validation.html"),
+        },
+        {
+          label: "Release Notes",
+          click: () => helpPage("release-notes.html"),
+        },
+        {
+          label: "Show the First-Steps Tour",
+          click: () => inWindow("window.lightsimTour ? (window.lightsimTour(), true) : false"),
+        },
+        {
+          label: "Report a Problem…",
+          click: () => shell.openExternal("https://github.com/Eyad-3D/simstudio/issues"),
+        },
+        { type: "separator" },
         {
           label: "Third-Party Notices",
           click: () => openDoc(notices),

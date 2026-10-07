@@ -19,6 +19,13 @@ export const DRAFT_KEY = "lightsim-draft-v1";
 /** the Results page's plot choices, per project and case (store/uiStore.ts) */
 export const RESULTS_VIEW_KEY = "lightsim-results-view-v1";
 
+/** the app version that last ran, for What's new (help.ts) */
+export const LAST_VERSION_KEY = "lightsim-last-version";
+/** the first-steps tour and step bar: done, dismissed, steps ticked (tour.ts) */
+export const TOUR_KEY = "lightsim-tour-v1";
+/** the Help panel's width in px (components/HelpPanel.tsx) */
+export const HELP_WIDTH_KEY = "lightsim-help-width";
+
 const PREFIX = "lightsim-";
 const OLD_PREFIX = "simstudio-";
 

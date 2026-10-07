@@ -19,6 +19,7 @@
     "@xyflow/react": "^12.11.6",
     "dockview": "^8.3.1",
     "dockview-react": "^8.3.1",
+    "driver.js": "1.9.0",
     "lucide-react": "^1.47.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

@@ -9,7 +9,9 @@ import {
   type IDockviewPanelHeaderProps,
   type IDockviewPanelProps,
 } from "dockview-react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, CircleHelp } from "lucide-react";
+import { openHelp, PANEL_HELP } from "../help";
+import { hintFor } from "../tour";
 import { LAYOUT_KEY } from "../storageKeys";
 import { problemCounts, useProjectStore } from "../store/projectStore";
 import { useUIStore } from "../store/uiStore";
@@ -39,11 +41,13 @@ const ssTheme: DockviewTheme = {
 // the topology canvas does so — React Flow's pointer math assumes an unscaled
 // ancestor (CSS zoom would offset drags); every other panel scales via .ss-zoom.
 const wrap = (Component: React.ComponentType, opts: { zoom?: boolean } = {}) => {
-  const Panel = (_props: IDockviewPanelProps) => (
+  // data-help-panel: F1 inside the panel opens its help page (App.tsx)
+  const Panel = (props: IDockviewPanelProps) => (
     <div
       className={`h-full w-full overflow-hidden bg-[color:var(--ss-panel)]${
         opts.zoom === false ? "" : " ss-zoom"
       }`}
+      data-help-panel={PANEL_HELP[props.api.id]}
     >
       <Component />
     </div>
@@ -146,6 +150,37 @@ function SsTab(props: IDockviewPanelHeaderProps) {
           <path d="M2.1 27.3L0 25.2L11.55 13.65L0 2.1L2.1 0L13.65 11.55L25.2 0L27.3 2.1L15.75 13.65L27.3 25.2L25.2 27.3L13.65 15.75L2.1 27.3Z" />
         </svg>
       </span>
+    </div>
+  );
+}
+
+// A "?" for the group's active panel, which opens that panel's help page
+// (LRN-09), and the bottom tray's open/close control.
+function HeaderActions(props: IDockviewHeaderActionsProps) {
+  const { group } = props;
+  const [panelId, setPanelId] = useState(() => group.activePanel?.id);
+  useEffect(() => {
+    const d = group.api.onDidActivePanelChange((e) => {
+      setPanelId(e.panel?.id);
+      if (e.panel) hintFor(e.panel.id); // the panel's first-use hint, once
+    });
+    return () => d.dispose();
+  }, [group]);
+  const page = panelId ? PANEL_HELP[panelId] : undefined;
+  const title = (panelId && (FULL_TITLES[panelId] ?? group.activePanel?.title)) || "this panel";
+  return (
+    <div className="flex items-center">
+      {page && (
+        <button
+          className="ss-toolbtn mx-0.5"
+          title={`Help on ${title} (F1)`}
+          aria-label={`Help on ${title}`}
+          onClick={() => openHelp(page)}
+        >
+          <CircleHelp size={12} />
+        </button>
+      )}
+      <TrayToggle {...props} />
     </div>
   );
 }
@@ -415,7 +450,7 @@ export function DockLayout() {
       <DockviewReact
         components={components}
         defaultTabComponent={SsTab}
-        rightHeaderActionsComponent={TrayToggle}
+        rightHeaderActionsComponent={HeaderActions}
         onReady={onReady}
         theme={ssTheme}
       />

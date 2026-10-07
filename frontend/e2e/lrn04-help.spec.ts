@@ -59,17 +59,17 @@ test("LRN-04: the help works offline, has every section, searches fast and carri
   expect(outside).toEqual([]);
 });
 
-test("LRN-04: F1 opens the selected part's page, the Help button the front page", async ({ page, context }) => {
+test("LRN-04: F1 opens the selected part's page, the Help menu the front page, both inside the app", async ({ page }) => {
   await openApp(page);
   await page.locator(".react-flow__node", { hasText: "Vehicle Task" }).first().click();
-  const [part] = await Promise.all([context.waitForEvent("page"), page.keyboard.press("F1")]);
-  await expect(part).toHaveURL(/\/help\/reference\/components\/signal\.driving_task\.html$/);
-  await expect(part.getByRole("heading", { level: 1 })).toHaveText("Driving Task");
+  await page.keyboard.press("F1");
+  const help = page.getByRole("complementary", { name: "Help" });
+  const frame = page.frameLocator("iframe[title='Help page']");
+  await expect(help).toBeVisible();
+  await expect(frame.getByRole("heading", { level: 1 })).toHaveText("Driving Task");
   // each parameter has an anchor, for links straight to it
-  await expect(part.locator("#cycle")).toHaveCount(1);
-  const [front] = await Promise.all([
-    context.waitForEvent("page"),
-    page.getByRole("button", { name: "Help (F1)" }).click(),
-  ]);
-  await expect(front).toHaveURL(/\/help\/index\.html$/);
+  await expect(frame.locator("#cycle")).toHaveCount(1);
+  await page.getByRole("button", { name: "Help", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Documentation" }).click();
+  await expect(frame.getByRole("heading", { level: 1 })).toHaveText("LightSim help");
 });

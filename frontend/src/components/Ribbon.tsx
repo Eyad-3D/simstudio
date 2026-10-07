@@ -3,7 +3,6 @@ import {
   AArrowDown,
   AArrowUp,
   CheckCircle2,
-  CircleHelp,
   Copy,
   Download,
   EyeOff,
@@ -33,7 +32,7 @@ import type { Project } from "../types";
 import { resetDockLayout } from "./DockLayout";
 import { useDismiss } from "./useDismiss";
 import { confirmDialog } from "../dialog";
-import { openHelp } from "../help";
+import { HelpMenu } from "./HelpMenu";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
 import {
   FONT_SCALE_MAX,
@@ -681,6 +680,7 @@ function GlobalRunControl() {
           onClick={() => void run()}
           disabled={!project}
           title="Run the active case (Ctrl+Enter)"
+          data-tour="run"
         >
           <Play size={11} /> Run
         </button>
@@ -750,6 +750,7 @@ export function Ribbon() {
                 : "text-[color:var(--ss-text)] hover:bg-[color:var(--ss-hover)]"
             }`}
             onClick={() => setTab(t.id)}
+            data-tour={`tab-${t.id}`}
           >
             {t.label}
           </button>
@@ -763,14 +764,7 @@ export function Ribbon() {
           </span>
           <div className="h-4 w-px bg-[color:var(--ss-border)]" />
           <FontSizeControl />
-          <button
-            className="rounded p-1 hover:bg-[color:var(--ss-hover)]"
-            title="Help (F1)"
-            aria-label="Help (F1)"
-            onClick={() => openHelp()}
-          >
-            <CircleHelp size={13} />
-          </button>
+          <HelpMenu />
           <button
             className="rounded p-1 hover:bg-[color:var(--ss-hover)]"
             title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
