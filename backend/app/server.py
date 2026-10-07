@@ -13,6 +13,12 @@ import uvicorn
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["mcp"]:  # the AI assistants' connection over stdio (app/ai/cli.py)
+        from .ai.cli import main as mcp_main
+
+        return mcp_main(argv[1:])
+
     parser = argparse.ArgumentParser(prog="lightsim-backend")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--host", default="127.0.0.1")

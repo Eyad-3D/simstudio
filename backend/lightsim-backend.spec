@@ -13,6 +13,8 @@ datas = [
     ("app/cycles/*", "app/cycles"),  # the drive-cycle library (CON-16)
     ("projects/*.json", "projects"),  # not projects/runs/: a dev's stored runs
     ("../VERSION", "."),  # single source of truth, read by app/version.py
+    # the skill pack for AI assistants, served by `lightsim-backend mcp` (AI-08)
+    ("app/ai/skills", "app/ai/skills"),
 ]
 binaries = []
 
@@ -31,6 +33,10 @@ hiddenimports = [
 # Live simulation streams over a WebSocket, so the protocol implementation and
 # the websockets package behind it have to travel with the frozen build.
 hiddenimports += collect_submodules("websockets")
+
+# `lightsim-backend mcp` (app/ai) is imported only when that command runs;
+# list it so the frozen build carries it and the MCP wire types it uses.
+hiddenimports += collect_submodules("app.ai") + collect_submodules("mcp_types")
 
 # GNU Readline is GPL-3.0: on Linux the stdlib readline module would pull
 # libreadline into the bundle, which a proprietary app cannot ship. Nothing

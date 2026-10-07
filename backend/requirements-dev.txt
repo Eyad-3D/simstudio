@@ -2,3 +2,4 @@
 pytest>=9.1.1
 httpx2  # required by starlette TestClient
 schemathesis>=4.28,<5  # API checks against the OpenAPI schema (tests/test_api_schema.py)
+mcp>=2.2,<3  # the official MCP client, to test app/ai/mcp_server.py the way AI apps use it

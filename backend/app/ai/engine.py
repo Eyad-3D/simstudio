@@ -1,0 +1,293 @@
+"""The thin adapter between the AI tools and LightSim's engine.
+
+Every tool in :mod:`app.ai.mcp_server` reaches projects, runs, Data Checks
+and the solver through :class:`Engine` and nothing else. Today it calls the
+engine's own modules in-process (no web server, no network). When the
+automation lane's ``lightsim`` Python package (AI-02) lands, this is the one
+file to switch over to it.
+
+Which projects an assistant may see (AI-01's intent, until its Settings >
+AI access screen exists):
+
+- the user's saved projects (the folder the app saves to),
+- the examples shipped with the app, read-only,
+- project files in folders the user listed when connecting the assistant
+  (``--allow-folder``), and nothing outside them,
+- never a project whose file sets ``"noAI": true``: it is left out of every
+  list and reads as not found.
+"""
+from __future__ import annotations
+
+import gzip
+import json
+import os
+import re
+import sys
+import threading
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable, Optional
+
+from .. import run_store, storage
+from ..library import library_by_id
+from ..paths import projects_dir
+from ..schemas import ComponentDef, DataCheck, Project, SimResult, StoredRun
+from ..validation import validate_project
+
+#: The project-file flag that hides a project from every AI connection.
+NO_AI_FLAG = "noAI"
+#: Prefix of an example's reference ("example:bev-car").
+EXAMPLE_PREFIX = "example:"
+#: Prefix of a blank project to build ("new:My car"); saved only by an edit.
+NEW_PREFIX = "new:"
+#: The library part that runs user-written Python.
+SCRIPT_COMPONENT = "signal.script"
+
+
+class NotFound(LookupError):
+    """No project or run by that name that the assistant may see."""
+
+
+@dataclass(frozen=True)
+class ProjectHandle:
+    """Where a project the assistant asked for lives."""
+
+    ref: str  # what the assistant calls it: "bev-car", "example:bev-car" or a path
+    kind: str  # "user", "example" or "folder"
+    path: Path
+    project_id: str  # the id runs are stored under
+
+    @property
+    def read_only(self) -> bool:
+        return self.kind in ("example", "new")
+
+
+def default_projects_dir() -> Path:
+    """The folder the desktop app saves projects to.
+
+    The app passes it to its engine in ``LIGHTSIM_PROJECTS_DIR``; an AI app
+    starting the engine does not, so this works out the same place Electron
+    uses (its per-user data folder, then ``projects``).
+    """
+    if os.environ.get("LIGHTSIM_PROJECTS_DIR"):
+        return projects_dir()
+    if getattr(sys, "frozen", False) or os.environ.get("LIGHTSIM_AI_DESKTOP_DATA"):
+        home = Path.home()
+        if sys.platform == "win32":
+            base = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
+        elif sys.platform == "darwin":
+            base = home / "Library" / "Application Support"
+        else:
+            base = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
+        return base / "LightSim" / "projects"
+    return projects_dir()  # a source checkout: backend/dev-projects
+
+
+def _hidden_from_ai(path: Path) -> bool:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False  # unreadable: loading it reports the problem
+    return isinstance(raw, dict) and raw.get(NO_AI_FLAG) is True
+
+
+class Engine:
+    """Projects, runs, Data Checks and the solver, as the AI tools see them."""
+
+    def __init__(
+        self,
+        user_folder: Optional[Path] = None,
+        allowed_folders: tuple[Path, ...] = (),
+        include_examples: bool = True,
+    ) -> None:
+        self.user_folder = Path(user_folder) if user_folder else default_projects_dir()
+        self.allowed_folders = tuple(Path(f).expanduser().resolve() for f in allowed_folders)
+        self.include_examples = include_examples
+        # the engine's own modules read the projects folder from here
+        os.environ["LIGHTSIM_PROJECTS_DIR"] = str(self.user_folder)
+
+    # -- projects ---------------------------------------------------------
+
+    def list_projects(self) -> list[dict]:
+        out = []
+        for entry in storage.list_projects():
+            if not _hidden_from_ai(storage.project_path(entry["id"])):
+                out.append(self._entry(entry["id"], "user", entry))
+        if self.include_examples:
+            for entry in storage.list_examples():
+                if not _hidden_from_ai(storage.example_path(entry["id"])):
+                    out.append(self._entry(EXAMPLE_PREFIX + entry["id"], "example", entry))
+        for folder in self.allowed_folders:
+            for f in sorted(folder.glob("*.json")):
+                if _hidden_from_ai(f):
+                    continue
+                try:
+                    raw = json.loads(f.read_text(encoding="utf-8"))
+                    out.append(self._entry(str(f), "folder", raw))
+                except (OSError, ValueError, AttributeError):
+                    continue
+        return out
+
+    @staticmethod
+    def _entry(ref: str, kind: str, raw: dict) -> dict:
+        return {
+            "project": ref,
+            "name": str(raw.get("name", "")),
+            "kind": kind,
+            "description": raw.get("description"),
+        }
+
+    def resolve(self, ref: str) -> ProjectHandle:
+        """The project the assistant named, if it may see it."""
+        ref = (ref or "").strip()
+        if not ref:
+            raise NotFound("Name a project: lightsim_list_projects lists them.")
+        try:
+            if ref.startswith(EXAMPLE_PREFIX):
+                if not self.include_examples:
+                    raise NotFound(ref)
+                ex_id = ref[len(EXAMPLE_PREFIX):]
+                handle = ProjectHandle(ref, "example", storage.example_path(ex_id), ex_id)
+            elif storage.SAFE_ID.fullmatch(ref):
+                handle = ProjectHandle(ref, "user", storage.project_path(ref), ref)
+            else:
+                path = Path(ref).expanduser().resolve()
+                if path.suffix != ".json" or not any(path.parent == f for f in self.allowed_folders):
+                    raise NotFound(ref)
+                handle = ProjectHandle(str(path), "folder", path, "file-" + _slug(path.stem))
+        except ValueError:
+            raise NotFound(ref) from None
+        if not handle.path.is_file() or _hidden_from_ai(handle.path):
+            raise NotFound(
+                f"No project '{ref}' that the assistant may see: lightsim_list_projects lists them."
+            )
+        return handle
+
+    def load(self, ref: str) -> tuple[ProjectHandle, Project, Optional[str]]:
+        """The project and the revision of its file (None for an example
+        or a new project)."""
+        if (ref or "").strip().startswith(NEW_PREFIX):
+            name = ref.strip()[len(NEW_PREFIX):].strip()[:80] or "New Project"
+            return ProjectHandle(ref.strip(), "new", Path(), "new"), blank_project(name), None
+        handle = self.resolve(ref)
+        data = handle.path.read_bytes()
+        try:
+            project = Project.model_validate_json(data)
+        except ValueError as e:
+            raise NotFound(f"Project '{ref}' could not be read: {e}") from None
+        return handle, project, None if handle.read_only else storage.revision_of(data)
+
+    def save(self, handle: ProjectHandle, project: Project, expected: Optional[str]) -> tuple[str, str]:
+        """Save an edited project; returns (its reference, new revision).
+
+        An example is never written: the edit is saved as a new project of
+        the user's, as the app's Save does with an example's copy. A file in
+        an allowed folder is replaced the same safe way the app saves.
+        """
+        if handle.kind == "example":
+            project = project.model_copy(update={"id": _free_id(project.id + "-ai"),
+                                                 "name": f"{project.name} (AI edit)"})
+            return project.id, storage.save_project(project, None, create_only=True)
+        if handle.kind == "new":
+            project = project.model_copy(update={"id": _free_id(project.name.lower())})
+            return project.id, storage.save_project(project, None, create_only=True)
+        if handle.kind == "user":
+            if project.id != handle.project_id:
+                project = project.model_copy(update={"id": handle.project_id})
+            return handle.ref, storage.save_project(project, expected)
+        current = handle.path.read_bytes()
+        if expected and storage.revision_of(current) != expected:
+            raise storage.ConflictError("The file changed since it was read.")
+        data = json.dumps(project.model_dump(mode="json"), indent=2).encode("utf-8")
+        storage._write_atomic(handle.path, data)
+        return handle.ref, storage.revision_of(data)
+
+    # -- library, checks and runs ----------------------------------------
+
+    @staticmethod
+    def library() -> dict[str, ComponentDef]:
+        return library_by_id()
+
+    @staticmethod
+    def checks(project: Project) -> list[DataCheck]:
+        return validate_project(project)
+
+    @staticmethod
+    def has_scripts(project: Project) -> bool:
+        return any(e.componentDefId == SCRIPT_COMPONENT for s in project.systems for e in s.elements)
+
+    @staticmethod
+    def simulate(
+        project: Project,
+        case_id: str,
+        *,
+        max_seconds: float,
+        cancel: threading.Event,
+        progress: Optional[Callable[[float], None]] = None,
+    ) -> SimResult:
+        """Run a case as fast as the machine allows (a case's real-time
+        pacing is for watching a live run, not for an assistant), stopping
+        it after ``max_seconds`` of wall-clock time or when ``cancel`` is set.
+        Data Checks run first, as the app's Run does."""
+        from ..solver import simulate
+
+        errors = [c for c in validate_project(project) if c.level == "error"]
+        if errors:
+            return SimResult(
+                caseId=case_id, status="failed", channels=[],
+                messages=[{"level": "error", "text": f"Data check failed: {c.text}"} for c in errors],
+            )
+        unpaced = project.model_copy(update={
+            "cases": [c.model_copy(update={"realtimeFactor": 0.0}) for c in project.cases],
+        })
+        deadline = time.monotonic() + max_seconds
+
+        def control() -> list[dict]:
+            if cancel.is_set() or time.monotonic() > deadline:
+                return [{"type": "cancel"}]
+            return []
+
+        def emit(event: dict) -> None:
+            if progress and event.get("type") == "step" and isinstance(event.get("pct"), (int, float)):
+                progress(float(event["pct"]))
+
+        return simulate(unpaced, case_id, emit, control)
+
+    @staticmethod
+    def stored_runs(handle: ProjectHandle) -> list[dict]:
+        """The app's stored runs of the project, newest first."""
+        try:
+            return run_store.list_runs(handle.project_id)
+        except ValueError:
+            return []
+
+    @staticmethod
+    def stored_run(handle: ProjectHandle, run_id: str) -> StoredRun:
+        try:
+            data = run_store.run_path(handle.project_id, run_id).read_bytes()
+        except (FileNotFoundError, ValueError):
+            raise NotFound(f"No run '{run_id}' of this project.") from None
+        return StoredRun.model_validate_json(gzip.decompress(data))
+
+
+def blank_project(name: str) -> Project:
+    """An empty project as the app's Start > Blank project makes it."""
+    return Project.model_validate({
+        "id": "new", "name": name,
+        "systems": [{"id": "sys-root", "name": name, "parentId": None, "elements": [], "connections": []}],
+        "dataBusConnections": [],
+        "cases": [{"id": "case-1", "name": "Case 1", "duration": 600, "timeStep": 1}],
+    })
+
+
+def _slug(text: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]+", "-", text).strip("-")[:100] or "project"
+
+
+def _free_id(base: str) -> str:
+    base = _slug(base)
+    candidate, n = base, 2
+    while storage.project_path(candidate).exists():
+        candidate, n = f"{base}-{n}", n + 1
+    return candidate
