@@ -71,7 +71,7 @@ NOT_DATA = [
 # inlines frontend/src/data and copies frontend/public; the shell's asar
 # holds desktop/src.
 SHIPPED = [
-    "backend/projects/*", "backend/app/library/*", "backend/app/cycles/*",
+    "backend/projects/*", "backend/app/library/*", "backend/app/cycles/*", "backend/app/templates/*",
     "frontend/src/data/*", "frontend/public/*", "desktop/src/*",
 ]
 

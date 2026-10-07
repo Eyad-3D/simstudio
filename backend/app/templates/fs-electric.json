@@ -1,0 +1,66 @@
+{
+  "id": "fs-electric",
+  "name": "Formula Student electric",
+  "version": 1,
+  "example": "fs-electric",
+  "description": "A Formula Student electric car with one rear motor, chain drive and open differential, the battery's Formula Student preset, an acceleration case and autocross and endurance lap cases, with typical values (not a real car) as the starting point.",
+  "slots": {
+    "Battery": "el-battery",
+    "E-Drive 1": "el-motor",
+    "Driveline": "el-final-drive",
+    "Chassis": "el-vehicle",
+    "Driver": "el-driver"
+  },
+  "form": [
+    {
+      "elementId": "el-vehicle",
+      "key": "mass_kg",
+      "label": "Mass with driver",
+      "unit": "kg",
+      "default": 280,
+      "help": "",
+      "minimum": 100,
+      "maximum": 600
+    },
+    {
+      "elementId": "el-vehicle",
+      "key": "cg_height_m",
+      "label": "Centre of gravity height",
+      "unit": "m",
+      "default": 0.28,
+      "help": "",
+      "minimum": 0.1,
+      "maximum": 0.6
+    },
+    {
+      "elementId": "el-vehicle",
+      "key": "downforce_cza_m2",
+      "label": "Downforce area (CzA)",
+      "unit": "m²",
+      "default": 3.0,
+      "help": "Negative for lift.",
+      "minimum": -1,
+      "maximum": 6
+    },
+    {
+      "elementId": "el-battery",
+      "key": "capacity_kWh",
+      "label": "Accumulator usable capacity",
+      "unit": "kWh",
+      "default": 7.21,
+      "help": "",
+      "minimum": 1,
+      "maximum": 15
+    },
+    {
+      "elementId": "el-final-drive",
+      "key": "ratio",
+      "label": "Final drive ratio",
+      "unit": "-",
+      "default": 4.4,
+      "help": "",
+      "minimum": 1,
+      "maximum": 15
+    }
+  ]
+}

@@ -308,6 +308,23 @@ sections.
   160 km/h limited by its motor's maximum speed, 9.4 / 14.1 / 19.6 kWh/100
   km at 50 / 90 / 120 km/h. The hybrid's coast-down gives back its EPA
   coefficients within 2 %. (CON-06)
+- Value sources: every number and table of a part can carry its source, a
+  kind (measured, datasheet, estimated, generated or library default) and
+  a confidence (0 not checked, 1 agrees with its source, 2 source and
+  method checked, ADVISOR's scale). Properties tags each value that has one
+  and counts the values still at their library default; *Value sources*
+  records, changes or forgets one. The Battery Electric Car's and P2 Hybrid
+  Car's values all carry theirs, from the data register. Data Checks' all
+  clear now says how many of the model's values are still at their library
+  default with no source. Saved in the project file as each part's
+  `parameterSources`; older versions keep it untouched. (CON-13)
+- **Home → Templates**: start a project from a pre-wired vehicle template
+  with a short form (*Electric car, one motor*, *P2 hybrid car*, *Formula
+  Student electric*), each with named slots (Battery, E-Drive 1, Engine,
+  Driveline, Chassis, ...); or save any model as a template of your own,
+  choosing which values its form asks. Your templates are files in the
+  projects folder (`templates/`), versioned, and a project records the
+  template and version it came from. (CON-18)
 - Help: press F1, or click **?** at the top right, to open LightSim's help
   in your web browser. It comes with the app and needs no internet
   connection: two tutorials, how-to guides, a page for every part with its

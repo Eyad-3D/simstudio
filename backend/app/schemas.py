@@ -394,5 +394,21 @@ class VehicleTestsRequest(BaseModel):
     tests: Optional[list[str]] = None
 
 
+class TemplateNewRequest(BaseModel):
+    """CON-18: the form's values (by field index, or 'elementId.key') and
+    the new project's name."""
+    values: dict[str, ParamValue] = Field(default_factory=dict)
+    name: Optional[str] = None
+
+
+class TemplateSaveRequest(BaseModel):
+    """CON-18: a model saved as a template, with the form it will ask."""
+    project: Project
+    name: str
+    description: str = ""
+    form: list[dict] = Field(default_factory=list)
+    slots: dict[str, str] = Field(default_factory=dict)
+
+
 class ValidateRequest(BaseModel):
     project: Project

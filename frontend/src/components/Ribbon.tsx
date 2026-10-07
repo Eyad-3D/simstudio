@@ -35,6 +35,7 @@ import { resetDockLayout } from "./DockLayout";
 import { useDismiss } from "./useDismiss";
 import { LabelEstimateDialog } from "./LabelEstimate";
 import { VehicleTestsDialog } from "./VehicleTests";
+import { TemplatesDialog } from "./TemplatesDialog";
 import { confirmDialog } from "../dialog";
 import { openHelp } from "../help";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
@@ -244,14 +245,22 @@ function OpenProjectButton() {
 function HomeTab() {
   const store = useProjectStore();
   const fileRef = useRef<HTMLInputElement>(null);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   return (
     <>
+      {templatesOpen && <TemplatesDialog onClose={() => setTemplatesOpen(false)} />}
       <RibbonGroup label="Project">
         <BigButton
           icon={FilePlus2}
           label="New"
           title="New project: from an example or blank (the Start page)"
           onClick={() => useUIStore.getState().setRibbonTab("start")}
+        />
+        <BigButton
+          icon={LayoutGrid}
+          label="Templates"
+          title="Start from a pre-wired vehicle template with a short form, or save this model as a template"
+          onClick={() => setTemplatesOpen(true)}
         />
         <OpenProjectButton />
         <BigButton

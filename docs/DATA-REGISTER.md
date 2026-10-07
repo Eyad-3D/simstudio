@@ -14,7 +14,7 @@ cleared it for shipping.
 | `id` | Stable row id (`DR-nn`). Other rows refer to it. |
 | `file` | Repository path of the file that holds the data. |
 | `dataset` | `*` for the file as a whole. Inside the component catalogue it is `<component>.<parameter>`; inside an example project it is `<element>.<parameter>`, or `<case>/<element>.<parameter>` for a value one case sets (such as a case's own typed drive cycle). Every map, curve and drive or grade profile has its own row; a bundled drive cycle is a file of its own (`backend/app/cycles/`), so its row uses `*`. |
-| `kind` | `example-project`, `component-defaults`, `drive-cycle`, `grade-profile`, `map`, `curve`, `table`, `generated-copy` or `test-fixture`. |
+| `kind` | `example-project`, `component-defaults`, `drive-cycle`, `grade-profile`, `map`, `curve`, `table`, `track-layouts`, `template`, `generated-copy` or `test-fixture`. |
 | `source` | Where the numbers come from: a URL or document, `Synthetic / created for LightSim` (only when the history shows it), or `Provenance unknown`. |
 | `history` | What git history and the research notes say about the source. |
 | `licence`, `credit` | The licence the data is under and the credit text it requires. |
@@ -25,7 +25,7 @@ cleared it for shipping.
 
 ## Status (2026-10-07)
 
-- The register has 69 rows.
+- The register has 72 rows.
 - **The drive-cycle library has 27 cycles** (CON-04), built by
   `scripts/cycles/build_cycles.py` from official texts where their terms
   allow reuse (CON-31): the WLTC classes 1, 2, 3a and 3b, their city cycles

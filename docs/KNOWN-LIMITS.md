@@ -552,6 +552,17 @@ minimum or an average, for example from the CSV export, or put the
   with altitude. The electric car's winter and hot-day cases add a fixed
   2.5 kW load instead. Hourly weather files cannot be loaded.
   *Roadmap:* MOD-41, MOD-09, CON-30 (second step).
+- **Templates: slots are names only.** A template's slots say which part
+  plays which role, but swapping a slot's part for another while keeping
+  its wiring, a shared signal naming convention across templates (so one
+  control script runs on several), two-motor, series-hybrid, fuel-cell,
+  petrol and two-wheeler templates, and a picture per template are not
+  there yet. *Roadmap:* CON-18 (follow-up), UX-33, UX-16.
+- **Value sources stop at the project file.** The sources and confidence
+  levels recorded for a part's values (CON-13) are saved with the project
+  but are not yet listed in result exports or run reports, carry no
+  uncertainty (±) a study could sample, and the Formula Student example's
+  values have none recorded yet. *Roadmap:* RES-14, STU-23, VAL-37.
 - **Vehicle tests leave out a few.** *Vehicle tests* has no hill start, no
   range test that drives a battery down to empty over repeated cycles (the
   summary's *Range at this consumption* estimates it from one cycle), and

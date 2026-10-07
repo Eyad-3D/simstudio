@@ -25,6 +25,9 @@ Endpoints:
   POST /api/simulate           run a simulation case, returns SimResult
   POST /api/label-estimate     US window-sticker estimate from UDDS and HWFET (CON-32)
   POST /api/vehicle-tests      one-click vehicle tests: acceleration, top speed, ... (CON-06)
+  GET  /api/templates          vehicle templates with slots and a form (CON-18)
+  POST /api/templates/{id}/new a new project from a template and the form's values
+  POST /api/templates          save a model as a template; DELETE one of the user's
   WS   /api/simulate/run       live run: streams progress/steps, accepts
                                set_param and cancel while running
 """
@@ -47,7 +50,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from . import cycles, label, run_store, security, storage, vehicle_tests
+from . import cycles, label, run_store, security, storage, templates, vehicle_tests
 from .library import load_library, unit_groups
 from .paths import static_dir
 from .schemas import (
@@ -57,6 +60,8 @@ from .schemas import (
     SimResult,
     SimulateRequest,
     StoredRun,
+    TemplateNewRequest,
+    TemplateSaveRequest,
     ValidateRequest,
     VehicleTestsRequest,
 )
@@ -159,6 +164,44 @@ def hide_example(example_id: str) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"hidden": example_id}
+
+
+@app.get("/api/templates")
+def get_templates() -> list[dict]:
+    return templates.listing()
+
+
+@app.post("/api/templates/{template_id}/new")
+def new_from_template(template_id: str, req: TemplateNewRequest) -> dict:
+    """A new, unsaved project from a template, the form's values written in."""
+    try:
+        return templates.instantiate(template_id, req.values, req.name).model_dump(mode="json")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found")
+    except ValueError as e:  # TemplateError, or a bad id
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.post("/api/templates")
+def save_template(req: TemplateSaveRequest) -> dict:
+    try:
+        form = [templates.FormField.model_validate(f) for f in req.form]
+        t = templates.save_user_template(req.project, req.name, req.description, form, req.slots)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return t.model_dump(mode="json", exclude={"project"})
+
+
+@app.delete("/api/templates/{template_id}")
+def delete_template(template_id: str) -> dict:
+    try:
+        templates.delete_user_template(template_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found "
+                                                    f"among your own (built-in ones stay)")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"deleted": template_id}
 
 
 def _etag(revision: str) -> str:

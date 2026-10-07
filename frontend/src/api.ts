@@ -416,3 +416,56 @@ export interface VehicleTestRow {
 export function vehicleTests(project: Project, tests: string[]): Promise<{ rows: VehicleTestRow[]; note: string }> {
   return request("/vehicle-tests", { method: "POST", body: JSON.stringify({ project, tests }) });
 }
+
+/** A field of a template's form: the value a new project asks for (CON-18). */
+export interface TemplateField {
+  elementId: string;
+  key: string;
+  label: string;
+  unit: string;
+  default: ParamValue;
+  minimum?: number | null;
+  maximum?: number | null;
+  help?: string;
+}
+
+/** A vehicle template: a pre-wired model with named slots and a form. */
+export interface VehicleTemplate {
+  id: string;
+  name: string;
+  description: string;
+  version: number;
+  builtin: boolean;
+  example?: string | null;
+  slots: Record<string, string>;
+  form: TemplateField[];
+}
+
+export async function listTemplates(): Promise<VehicleTemplate[]> {
+  try {
+    return await request<VehicleTemplate[]>("/templates");
+  } catch {
+    return [];
+  }
+}
+
+export function newFromTemplate(id: string, values: Record<string, ParamValue>, name: string): Promise<Project> {
+  return request(`/templates/${encodeURIComponent(id)}/new`, {
+    method: "POST",
+    body: JSON.stringify({ values, name }),
+  });
+}
+
+export function saveTemplate(body: {
+  project: Project;
+  name: string;
+  description: string;
+  form: TemplateField[];
+  slots: Record<string, string>;
+}): Promise<VehicleTemplate> {
+  return request("/templates", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function deleteTemplate(id: string): Promise<unknown> {
+  return request(`/templates/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
