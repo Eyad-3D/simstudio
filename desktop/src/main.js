@@ -40,6 +40,12 @@ let appOrigin = null;
 /** Help → Updates (PLT-18); set once the app is ready. */
 let updates = null;
 
+// The window only talks to the engine on 127.0.0.1, so it needs no proxy,
+// and looking one up (WPAD on Windows) is a query on the network: none from
+// the first request on. An update check the user agreed to switches its
+// session to the system's proxy (src/updates.js).
+app.commandLine.appendSwitch("no-proxy-server");
+
 // The machine-wide policy file IT can put on a PC (PLT-36, src/policy.js).
 // Read once per launch; it is written by an administrator, not by the app.
 const policy = readPolicy();
@@ -431,10 +437,6 @@ async function createWindow() {
  */
 function stopSpellCheckDownloads() {
   const ses = session.defaultSession;
-  // The window only talks to the engine on 127.0.0.1, so no proxy is needed,
-  // and looking one up (WPAD on Windows) is a network query. An update check
-  // the user agreed to switches to the system's proxy (src/updates.js).
-  ses.setProxy({ mode: "direct" }).catch(() => {});
   try {
     ses.setSpellCheckerEnabled(false);
     ses.setSpellCheckerDictionaryDownloadURL("http://127.0.0.1:9/");
