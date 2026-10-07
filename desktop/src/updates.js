@@ -211,8 +211,13 @@ function initUpdates({ app, dialog, shell, getWindow, policy, logEvent, rebuildM
   };
 
   /** electron-updater, loaded only once checks are allowed. */
-  function getUpdater() {
+  async function getUpdater() {
     if (updater) return updater;
+    // Until now the app ran without a proxy (main.js); a company network may
+    // need the system's to reach GitHub.
+    try {
+      await require("electron").session.defaultSession.setProxy({ mode: "system" });
+    } catch { /* direct, then */ }
     const { autoUpdater } = require("electron-updater");
     autoUpdater.autoDownload = false; // nothing downloads before the user agrees
     autoUpdater.autoInstallOnAppQuit = true; // what "Install on quit" means
@@ -234,7 +239,7 @@ function initUpdates({ app, dialog, shell, getWindow, policy, logEvent, rebuildM
     busy = true;
     save({ lastCheck: Date.now() });
     try {
-      const result = await getUpdater().checkForUpdates();
+      const result = await (await getUpdater()).checkForUpdates();
       const info = result && result.isUpdateAvailable ? result.updateInfo : null;
       if (!info) {
         if (manual) await dialog.showMessageBox(getWindow(), { type: "info", title: "Updates", message: `LightSim ${app.getVersion()} is the newest version.` });
@@ -262,7 +267,7 @@ function initUpdates({ app, dialog, shell, getWindow, policy, logEvent, rebuildM
       if (response === 0) {
         if (mode === "install") {
           try {
-            await getUpdater().downloadUpdate();
+            await (await getUpdater()).downloadUpdate();
             logEvent(`updates: ${info.version} downloaded; installs on quit`);
           } catch (err) {
             dialog.showErrorBox("Updates", `The download failed:\n${err && err.message ? err.message : err}`);

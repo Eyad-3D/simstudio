@@ -427,10 +427,14 @@ async function createWindow() {
  * Electron's spell checker fetches its dictionaries from Google's servers
  * (on Linux, and on Windows when it uses Hunspell). LightSim contacts
  * nothing outside the computer unless the user agrees (PLT-18), so it is off
- * and any download it still tries goes nowhere.
+ * and any download it still tries goes nowhere. No proxy lookup either.
  */
 function stopSpellCheckDownloads() {
   const ses = session.defaultSession;
+  // The window only talks to the engine on 127.0.0.1, so no proxy is needed,
+  // and looking one up (WPAD on Windows) is a network query. An update check
+  // the user agreed to switches to the system's proxy (src/updates.js).
+  ses.setProxy({ mode: "direct" }).catch(() => {});
   try {
     ses.setSpellCheckerEnabled(false);
     ses.setSpellCheckerDictionaryDownloadURL("http://127.0.0.1:9/");
