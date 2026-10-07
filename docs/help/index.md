@@ -7,8 +7,10 @@ results.
 
 New to LightSim? [Your first run](tutorials/first-run.md) opens an example
 car from the *Start* page, runs it and reads the results. Then
-[Build an electric car from scratch](tutorials/from-scratch.md) shows how
-the parts fit together.
+[Your first electric car](tutorials/first-electric-car.md) runs the
+example on the test cycle and builds a small electric car of your own, in
+fifteen minutes. Formula Student teams can go on with the three
+[Formula Student lessons](lessons/fs-1-acceleration.md).
 
 ## What is in this help
 
