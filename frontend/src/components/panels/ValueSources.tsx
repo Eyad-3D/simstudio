@@ -69,9 +69,10 @@ export function ValueSources({ element, def }: { element: ElementInstance; def: 
               <span className="w-[96px] shrink-0 truncate" title={p.label}>
                 {p.label}
               </span>
-              <span className="min-w-0 flex-1 text-[color:var(--ss-text-dim)]">
+              {/* one line; the source in full in the tooltip */}
+              <span className="min-w-0 flex-1 truncate text-[color:var(--ss-text-dim)]" title={src.source || undefined}>
                 {src.kind}, confidence {src.confidence}
-                {src.source && <span className="block truncate" title={src.source}>{src.source}</span>}
+                {src.source && ` · ${src.source}`}
               </span>
               <button
                 className="ss-toolbtn px-1"
