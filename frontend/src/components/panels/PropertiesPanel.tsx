@@ -10,6 +10,8 @@ import { KIND_COLOR } from "../canvas/ElementNode";
 import { CyclePreview, CycleSelect } from "./CyclePicker";
 import { SourceBadge, ValueSources } from "./ValueSources";
 import { ImportFromFileButton, type ImportTarget } from "../ImportTableDialog";
+import { FmuPanel } from "./FmuPanel";
+import { FMU_DEF_ID, FMU_FILE_KEYS } from "../../fmu";
 import type {
   AxisDef,
   ComponentDef,
@@ -883,12 +885,19 @@ export function ElementForm({
       element.parameterOverrides[key] ?? def.parameters.find((q) => q.key === key)?.default;
     return (p: ParameterDef) => !p.showIf || p.showIf.values.includes(value(p.showIf.key) as ScalarValue);
   }, [def, element.parameterOverrides]);
+  // an FMU block's file parameters are shown (and set) by its FMU panel
+  const fmuBlock = def.id === FMU_DEF_ID;
   const scalarParams = useMemo(
     () =>
       def.parameters.filter(
-        (p) => !isBig(p) && p.key !== "cycle" && !(roadProfile && cycleId && p.key === "mode") && shown(p),
+        (p) =>
+          !isBig(p) &&
+          p.key !== "cycle" &&
+          !(roadProfile && cycleId && p.key === "mode") &&
+          !(fmuBlock && FMU_FILE_KEYS.includes(p.key)) &&
+          shown(p),
       ),
-    [def, roadProfile, cycleId, shown],
+    [def, roadProfile, cycleId, fmuBlock, shown],
   );
   const bigParams = useMemo(
     () => def.parameters.filter((p) => isBig(p) && !((drivingTask || roadProfile) && cycleId && isProfile(p)) && shown(p)),
@@ -1206,7 +1215,11 @@ export function ElementForm({
           )}
         </div>
       ))}
-      {def.allowDynamicPorts && <DynamicPortsEditor element={element} />}
+      {fmuBlock ? (
+        <FmuPanel element={element} compact={compact} />
+      ) : (
+        def.allowDynamicPorts && <DynamicPortsEditor element={element} />
+      )}
       {def.ports.length > 0 && (
         <div>
           <div className="mb-1 text-[11px] font-semibold text-[color:var(--ss-text-dim)]">

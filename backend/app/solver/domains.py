@@ -26,6 +26,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Optional
 
+from ..fmu import FmuError, FmuFileError
 from .battery import CELLS, PACK, CellPack
 from .climate import ClimateState, climate_power
 from .energy import FUEL_LHV_MJ, H2_LHV_J_PER_KG, ROAD_TERMS, EnergyBook, book_linear
@@ -66,6 +67,8 @@ from .sandbox import ScriptSandbox, ScriptSpec
 from .scaling import max_speed_rpm, scaled
 from .scripting import ScriptError
 from .slave import ParamResult, Slave, StepResult, VarDef, split_var
+
+FMU_COMPONENT = "signal.fmu"  # app/fmu/block.COMPONENT_ID
 
 
 class ModelInitError(Exception):
@@ -302,6 +305,31 @@ class RunContext:
             except ScriptError as e:
                 raise ModelInitError([str(e)])
 
+        # FMU blocks (STD-01): one locked-down worker process per block, so
+        # the FMU's compiled code never runs in the engine. Only built when
+        # the model has FMU blocks.
+        self.fmus: dict = {}  # element id -> fmu.sandbox.FmuSandbox
+        fmu_ids = [el_id for el_id in model.signal_blocks
+                   if model.cdef_of[el_id].id == FMU_COMPONENT]
+        if fmu_ids:
+            # imported here: the FMU worker process imports this package, and
+            # the FMU modules import the worker
+            from ..fmu.block import spec_for as fmu_spec_for
+            from ..fmu.sandbox import FmuSandbox
+            self.fmu_ports: dict[str, tuple[list[str], list[str]]] = {}
+            try:
+                for el_id in fmu_ids:
+                    el = model.elements[el_id]
+                    ports = list(el.dynamicPorts or [])
+                    spec = fmu_spec_for(el_id, el.label, self.params(el_id), ports)
+                    self.fmu_ports[el_id] = (
+                        [p.id for p in ports if p.direction == "input"],
+                        [p.id for p in ports if p.direction == "output"])
+                    self.fmus[el_id] = FmuSandbox(spec)
+            except (FmuError, FmuFileError) as e:
+                self.close_sandboxes()
+                raise ModelInitError([str(e)])
+
         # ---- driveline & vehicle states --------------------------------------
         self.veh_id = model.vehicle
         veh_p = self.params(self.veh_id) if self.veh_id else {}
@@ -433,6 +461,13 @@ class RunContext:
             bus.vsource or bus.dcdc_in or bus.dcdc_out for bus in model.buses))
 
     # ---- shared helpers ---------------------------------------------------------
+
+    def close_sandboxes(self) -> None:
+        """Stop the run's worker processes (Script blocks and FMUs)."""
+        if getattr(self, "sandbox", None) is not None:
+            self.sandbox.close()
+        for fmu in getattr(self, "fmus", {}).values():
+            fmu.close()
 
     def params(self, el_id: str) -> dict:
         return self.model.params_of[el_id]
@@ -814,6 +849,14 @@ class RunContext:
         label = model.elements[el_id].label
         pdef = next(
             (pp for pp in model.cdef_of[el_id].parameters if pp.key == key), None)
+        if model.cdef_of[el_id].id == FMU_COMPONENT and key != "sample_time_s":
+            # an FMU's start values are set before it initialises
+            rt.warn_once(
+                f"live-structural:{el_id}:{key}",
+                f"'{label}' changed — FMU start values take effect on the next run.",
+                level="info",
+            )
+            return "deferred"
         if pdef is not None and pdef.variability == "fixed":
             # kept out of the live set, so a later gear shift (which re-walks
             # the driveline from it) cannot apply it early either
@@ -1885,8 +1928,10 @@ class _CtxSlave(Slave):
         return {}
 
 
-# blocks that may run slower than the solver step (their Sample Time)
-SAMPLED_BLOCKS = ("signal.script", "control.pid", "signal.lookup", "control.traction")
+# blocks that may run slower than the solver step (their Sample Time; an
+# FMU's Communication Step)
+SAMPLED_BLOCKS = ("signal.script", "control.pid", "signal.lookup", "control.traction",
+                  "signal.fmu")
 
 
 class ControlSlave(_CtxSlave):
@@ -1951,6 +1996,16 @@ class ControlSlave(_CtxSlave):
                         rt.warn_once(f"script-out:{el_id}:{key}",
                                      f"Script '{el.label}' returned '{key}' which is not one "
                                      f"of its output ports — value dropped.")
+            elif kind == FMU_COMPONENT:
+                in_ids, out_ids = ctx.fmu_ports[el_id]
+                values = [rt.read_signal(el_id, k) or 0.0 for k in in_ids]
+                try:
+                    outs = ctx.fmus[el_id].step(t, dt, values)
+                except FmuError as e:
+                    rt.message("error", str(e))
+                    return StepResult(status="error", detail=str(e))
+                for key, value in zip(out_ids, outs):
+                    rt.publish(el_id, key, value)
             elif kind == "control.pid":
                 sp = rt.read_signal(el_id, "sig_setpoint_in") or 0.0
                 fb = rt.read_signal(el_id, "sig_feedback_in") or 0.0

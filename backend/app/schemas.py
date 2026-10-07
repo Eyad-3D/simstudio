@@ -6,7 +6,7 @@ them, so a save through the engine never drops what a (newer) UI stored.
 """
 from __future__ import annotations
 
-from typing import Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -662,6 +662,31 @@ class TemplateSaveRequest(BaseModel):
     description: str = ""
     form: list[dict] = Field(default_factory=list)
     slots: dict[str, str] = Field(default_factory=dict)
+
+
+class ErrorDetail(BaseModel):
+    detail: str
+
+
+class FmuRef(BaseModel):
+    """An FMU block's file parameters (see app/fmu/store.locate)."""
+    fmuPath: str = ""
+    fmuSha256: str = ""
+    fmuName: str = ""
+
+
+class FmuImport(BaseModel):
+    """An FMU file as the import dialog shows it."""
+    found: bool = True
+    #: why the file was not found (found = False)
+    problem: str = ""
+    sha256: str = ""
+    path: str = ""
+    name: str = ""
+    #: allowed to run on this computer
+    allowed: bool = False
+    #: app/fmu/info.describe: variables, FMI version, kind, tool, platforms
+    info: dict[str, Any] = Field(default_factory=dict)
 
 
 class ValidateRequest(BaseModel):

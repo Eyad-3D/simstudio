@@ -41,6 +41,9 @@ Endpoints:
   GET  /api/examples/{id}      one example, read-only (opened as a copy)
   POST /api/examples/{id}/hide leave an example out of the Open menu
   POST /api/examples/restore   show every hidden example again
+  POST /api/fmus               import an FMU file (raw bytes; ?name=, ?allow=)
+  POST /api/fmus/describe      what an FMU block's file is (variables, platforms)
+  POST /api/fmus/{sha}/allow   allow an FMU to run on this computer
   POST /api/validate           run Data Checks on a project
   POST /api/simulate           run a simulation case, returns SimResult
   POST /api/label-estimate     US window-sticker estimate from UDDS and HWFET (CON-32)
@@ -96,12 +99,17 @@ from . import (
     vehicle_tests,
 )
 from .dataio.api import router as dataio_router
+from .fmu import info as fmu_info
+from .fmu import store as fmu_store
 from .library import load_library, unit_groups
 from .migrations import NewerFileError
 from .paths import static_dir
 from .schemas import (
     CalibrateRequest,
     DataCheck,
+    ErrorDetail,
+    FmuImport,
+    FmuRef,
     LabelEstimateRequest,
     LapLogRequest,
     Project,
@@ -497,10 +505,6 @@ def remove_runs(project_id: str) -> dict:
     return {"deleted": count, "stored": 0}
 
 
-class ErrorDetail(BaseModel):
-    detail: str
-
-
 @app.get("/api/laplog/presets")
 def get_laplog_presets() -> list[dict]:
     """The logger and lap simulator layouts the lap import knows (STD-35)."""
@@ -781,6 +785,66 @@ def post_trust(fingerprint: str) -> dict:
 def _checks(project: Project) -> list[DataCheck]:
     """Data Checks, with those for the project's attached files."""
     return [*validate_project(project), *attachments.check(project)]
+
+
+_FMU_ERRORS = {400: {"description": "Not an FMU, too big, unknown or an unreadable body",
+                      "model": ErrorDetail}}
+
+
+@app.post("/api/fmus", responses=_FMU_ERRORS, openapi_extra={
+    "requestBody": {"required": True,
+                    "content": {"application/octet-stream": {"schema": {"type": "string",
+                                                                          "format": "binary"}}}}})
+async def import_fmu(request: Request, name: str = "model.fmu", allow: bool = False) -> FmuImport:
+    """Keep an FMU file the user chose (and, with ``allow``, allow it to run:
+    the UI asks first). Returns where it is kept and what it is."""
+    too_big = HTTPException(status_code=400, detail=(
+        f"The FMU is larger than {fmu_store.MAX_FMU_BYTES >> 20} MB."))
+    size = request.headers.get("content-length")
+    if size and size.isdigit() and int(size) > fmu_store.MAX_FMU_BYTES:
+        raise too_big
+    chunks, total = [], 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > fmu_store.MAX_FMU_BYTES:
+            raise too_big
+        chunks.append(chunk)
+    data = b"".join(chunks)
+    try:
+        sha, path = await asyncio.to_thread(fmu_store.store_bytes, data)
+    except fmu_store.FmuFileError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    file_name = Path(name.replace("\\", "/")).name[:200] or "model.fmu"
+    if allow:
+        fmu_store.allow(sha, file_name)
+    info = await asyncio.to_thread(fmu_info.describe, path)
+    return FmuImport(sha256=sha, path=str(path), name=file_name,
+                     allowed=fmu_store.is_allowed(sha), info=info)
+
+
+@app.post("/api/fmus/describe", responses=_FMU_ERRORS)
+def describe_fmu(ref: FmuRef) -> FmuImport:
+    """What an FMU block's file is, read without running it; ``found`` is
+    False (with the reason in ``problem``) when the file is not there."""
+    params = {"fmu_path": ref.fmuPath, "fmu_sha256": ref.fmuSha256, "fmu_name": ref.fmuName}
+    try:
+        path = fmu_store.locate(params)
+    except fmu_store.FmuFileError as e:
+        return FmuImport(found=False, problem=str(e), name=ref.fmuName,
+                         sha256=ref.fmuSha256, path=ref.fmuPath)
+    sha = fmu_store.sha256_of_cached(path)
+    return FmuImport(sha256=sha, path=str(path), name=ref.fmuName or path.name,
+                     allowed=fmu_store.is_allowed(sha), info=fmu_info.describe(path))
+
+
+@app.post("/api/fmus/{sha256}/allow", responses=_FMU_ERRORS)
+def allow_fmu(sha256: str, name: str = "") -> dict:
+    """Allow an FMU (by its fingerprint) to run on this computer."""
+    try:
+        fmu_store.allow(sha256, name or sha256[:12])
+    except fmu_store.FmuFileError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"allowed": True}
 
 
 @app.post("/api/validate")

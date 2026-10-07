@@ -872,6 +872,45 @@ minimum or an average, for example from the CSV export, or put the
 
   This makes a harmful script much harder to write, not impossible. Open
   projects only from people you trust. *Roadmap:* PLT-02.
+- **FMU blocks are a first version.** An FMU block (a model from another
+  tool, see [Use a model from another tool](help/how-to/use-an-fmu.md))
+  runs Co-Simulation FMUs of FMI 2.0 and 3.0 only. Not yet:
+  - Model Exchange FMUs (they need LightSim's solver), FMI 1.0 FMUs, and
+    FMUs with source code only: LightSim does not compile them.
+  - Variables that are not single numbers: arrays, text, binary data and
+    clocks cannot be pins. Integers and on/off values pass as numbers.
+  - Units: a pin passes the number as it is, in the FMU's unit, as for any
+    signal (see *Signal units are not checked*).
+  - Changes during a live run: start values apply when the run starts.
+  - Iteration: values pass once per communication step, so a signal loop
+    through an FMU and back arrives one step late, as between Script
+    blocks.
+  - Lap cases do not run signal blocks, FMUs included.
+
+  The FMU file is not saved inside the project yet: LightSim keeps a copy in
+  your LightSim folder (`fmus`, beside your projects) and the project
+  points at it. On another computer, import the FMU again. *Roadmap:*
+  STD-02.
+- **FMU support is an optional pack.** It needs FMPy (BSD-2-Clause) and its
+  NumPy, lxml, attrs and lark. The desktop installers do not include it
+  yet; without it, Data Checks say so and every other model runs. *Roadmap:*
+  STD-01.
+- **FMUs run in a separate, locked-down process, but how locked-down
+  depends on your system.** An FMU is compiled code from another company or
+  tool. LightSim runs it only after you allow it on your computer (once per
+  FMU file), and never inside the engine: each FMU block gets a process of
+  its own that the engine stops if a step takes longer than 30 s, with a
+  2 GB memory cap. A crash ends that process and the run, not LightSim.
+  - *Linux 5.13 or newer:* the process can read only the FMU's own files
+    and the system libraries, writes no files and makes no TCP connections.
+    Not blocked: UDP and local sockets.
+  - *Windows:* the process has the memory cap and ends when LightSim ends,
+    but nothing stops it reading or writing your files or using the
+    network.
+  - *Older Linux:* only the memory cap and a limit that stops it writing
+    data into files apply.
+
+  Allow FMUs only from people you trust. *Roadmap:* PLT-02.
 - **Runs with Script blocks take longer than in 0.1.0.** Controllers and
   scripts now run every 10 ms, and every script step is a round trip to the
   script process. On a test machine the P2 Hybrid Car's Mixed Cycle takes

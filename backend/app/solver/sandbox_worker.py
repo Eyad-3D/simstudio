@@ -261,8 +261,13 @@ _NET_BIND_TCP = 1 << 0
 _NET_CONNECT_TCP = 1 << 1
 
 
-def _apply_landlock(note) -> str:
-    """Best effort. Returns a short description of what was enforced."""
+def _apply_landlock(note, read_paths=()) -> str:
+    """Best effort. Returns a short description of what was enforced.
+
+    ``read_paths`` are folders (or files) the process may still read, and
+    load code from, after the lock: an FMU worker needs its unpacked FMU and
+    the system libraries the FMU's code links against. Nothing else on the
+    filesystem stays reachable, and nothing at all is writable."""
     import ctypes
 
     libc = ctypes.CDLL(None, use_errno=True)
@@ -290,7 +295,11 @@ def _apply_landlock(note) -> str:
     if ruleset_fd < 0:
         return f"landlock: create_ruleset failed (errno {ctypes.get_errno()})"
 
-    # No rules are added, so every handled access is denied.
+    # Only the read-only rules below are added, so every other handled access
+    # is denied.
+    allowed_read = 0
+    for p in read_paths:
+        allowed_read += _add_read_rule(libc, ruleset_fd, p)
     if libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
         os.close(ruleset_fd)
         return "landlock: PR_SET_NO_NEW_PRIVS failed"
@@ -300,7 +309,34 @@ def _apply_landlock(note) -> str:
     if rc != 0:
         return f"landlock: restrict_self failed (errno {ctypes.get_errno()})"
     net = "no TCP" if abi >= 4 else "TCP not covered (ABI<4)"
-    return f"landlock ABI {abi}: no filesystem access, {net}"
+    fs = f"read-only access to {allowed_read} paths" if read_paths else "no filesystem access"
+    return f"landlock ABI {abi}: {fs}, {net}"
+
+
+_SYS_landlock_add_rule = 445
+_LANDLOCK_RULE_PATH_BENEATH = 1
+# EXECUTE, READ_FILE and READ_DIR: enough to load a shared library and read
+# data files beneath a folder; WRITE_FILE and the rest stay denied.
+_FS_READ_EXEC = (1 << 0) | (1 << 2) | (1 << 3)
+
+
+def _add_read_rule(libc, ruleset_fd: int, path) -> int:
+    """Allow reading (and loading code) beneath one path. 1 if added."""
+    import ctypes
+    try:
+        fd = os.open(str(path), os.O_PATH | os.O_CLOEXEC)
+    except (OSError, AttributeError):
+        return 0
+    try:
+        is_dir = os.path.isdir(str(path))
+        access = _FS_READ_EXEC if is_dir else (1 << 0) | (1 << 2)
+        attr = struct.pack("=Qi", access, fd)
+        buf = ctypes.create_string_buffer(attr, len(attr))
+        rc = libc.syscall(_SYS_landlock_add_rule, ctypes.c_int(ruleset_fd),
+                          ctypes.c_int(_LANDLOCK_RULE_PATH_BENEATH), buf, ctypes.c_uint32(0))
+        return 1 if rc == 0 else 0
+    finally:
+        os.close(fd)
 
 
 def windows_job(process_handle: int, mem_bytes: int):
@@ -378,16 +414,23 @@ def close_windows_job(job) -> None:
     k32.CloseHandle(job)
 
 
-def harden(sock_fd: int, mem_bytes: int) -> str:
+def harden(sock_fd: int, mem_bytes: int, *, read_paths=(), drop_modules: bool = True) -> str:
     """Drop privileges before any user code runs. Returns a one-line summary of
-    what was enforced (the engine logs it for the record)."""
+    what was enforced (the engine logs it for the record).
+
+    ``read_paths`` stay readable under Landlock (the FMU worker's unpacked FMU
+    and system libraries; empty for Script blocks: no filesystem at all).
+    ``drop_modules`` blocks Python modules Script code has no business
+    reaching; the FMU worker keeps them because FMPy needs them and its
+    untrusted code is native, which Python-level blocks do not stop."""
     notes = []
     if sys.platform == "win32":
         # The memory cap and kill-with-the-engine come from the job object the
         # engine put this process in (windows_job); the rest is done here.
         os.environ.clear()  # no secrets from the engine's environment
-        _drop_modules()
-        return "windows: environment cleared, modules dropped"
+        if drop_modules:
+            _drop_modules()
+        return "windows: environment cleared" + (", modules dropped" if drop_modules else "")
 
     # POSIX
     _close_inherited_fds(keep={0, 1, 2, sock_fd})
@@ -410,11 +453,12 @@ def harden(sock_fd: int, mem_bytes: int) -> str:
 
     if sys.platform.startswith("linux"):
         try:
-            notes.append(_apply_landlock(notes))
+            notes.append(_apply_landlock(notes, read_paths))
         except Exception as e:  # noqa: BLE001
             notes.append(f"landlock: not applied ({e})")
 
-    _drop_modules()
+    if drop_modules:
+        _drop_modules()
     return "; ".join(notes)
 
 

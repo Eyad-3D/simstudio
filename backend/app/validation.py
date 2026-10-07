@@ -15,6 +15,8 @@ import math
 from collections import defaultdict
 from typing import Callable, Iterable
 
+from .fmu.block import COMPONENT_ID as FMU_COMPONENT
+from .fmu.block import problems as fmu_problems
 from .library import library_by_id
 from .schemas import DataCheck, ElementInstance, ParameterDef, Project
 from .solver import (
@@ -265,6 +267,10 @@ def validate_project(project: Project) -> list[DataCheck]:
                     check_script(str(value or ""), el.label)
                 except ScriptError as e:
                     add("error", str(e), el)
+
+        if cdef.id == FMU_COMPONENT:  # reads the FMU file; never runs it
+            for level, text, fix in fmu_problems(el.label, params, el.dynamicPorts):
+                add(level, text, el, fix=fix)
 
         # a Driving Task or Road Profile on a drive cycle follows the cycle,
         # not its typed profile; an unknown cycle is build_model's error (below)

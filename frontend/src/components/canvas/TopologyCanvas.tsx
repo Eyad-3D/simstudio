@@ -50,6 +50,7 @@ import {
 import { useUIStore } from "../../store/uiStore";
 import { useDismiss } from "../useDismiss";
 import { promptDialog } from "../../dialog";
+import { dropFmuFile } from "../../fmu";
 import type { PortKind } from "../../types";
 import { ElementNode, KIND_COLOR, type ElementFlowNode } from "./ElementNode";
 import { EnergyBars } from "./EnergyOverlay";
@@ -819,9 +820,18 @@ function TopologyCanvasInner() {
         }}
         onDrop={(e) => {
           e.preventDefault();
+          const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+          // an FMU file from the desktop becomes an FMU block (STD-01)
+          const fmus = [...e.dataTransfer.files].filter((f) => f.name.toLowerCase().endsWith(".fmu"));
+          if (fmus.length) {
+            void (async () => {
+              for (const [i, f] of fmus.entries())
+                await dropFmuFile(f, { x: pos.x - 46 + 30 * i, y: pos.y - 27 + 30 * i });
+            })();
+            return;
+          }
           const defId = e.dataTransfer.getData("application/lightsim");
           if (!defId) return;
-          const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
           store.getState().addElement(defId, { x: pos.x - 46, y: pos.y - 27 });
         }}
         onMouseEnter={() => (hovered.current = true)}

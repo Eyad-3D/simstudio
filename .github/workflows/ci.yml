@@ -37,6 +37,19 @@ jobs:
         working-directory: backend
         run: python -m pip install -r requirements-dev.txt ruff
 
+      # The optional FMU pack (STD-01) and the Modelica Association's
+      # Reference FMUs (BSD-2-Clause), which tests/test_fmu.py runs against
+      # FMPy's own results.
+      - name: Install the FMU pack and the Reference FMUs
+        working-directory: backend
+        run: |
+          python -m pip install -r requirements-fmu.txt
+          python -m pip install --no-deps "fmpy==0.3.32"
+          curl -fsSL -o "$RUNNER_TEMP/reference-fmus.zip" \
+            https://github.com/modelica/Reference-FMUs/releases/download/v0.0.39/Reference-FMUs-0.0.39.zip
+          python -m zipfile -e "$RUNNER_TEMP/reference-fmus.zip" "$RUNNER_TEMP/reference-fmus"
+          echo "LIGHTSIM_REFERENCE_FMUS=$RUNNER_TEMP/reference-fmus" >> "$GITHUB_ENV"
+
       - name: Lint
         working-directory: backend
         run: ruff check .
@@ -82,9 +95,22 @@ jobs:
         working-directory: backend
         run: python -m pip install -r requirements-dev.txt
 
+      # FMUs run in a worker process too (STD-01): the Reference FMUs' Windows
+      # code through that worker, against FMPy's own results.
+      - name: Install the FMU pack and the Reference FMUs
+        working-directory: backend
+        shell: bash
+        run: |
+          python -m pip install -r requirements-fmu.txt
+          python -m pip install --no-deps "fmpy==0.3.32"
+          curl -fsSL -o "$RUNNER_TEMP/reference-fmus.zip" \
+            https://github.com/modelica/Reference-FMUs/releases/download/v0.0.39/Reference-FMUs-0.0.39.zip
+          python -m zipfile -e "$RUNNER_TEMP/reference-fmus.zip" "$RUNNER_TEMP/reference-fmus"
+          echo "LIGHTSIM_REFERENCE_FMUS=$RUNNER_TEMP/reference-fmus" >> "$GITHUB_ENV"
+
       - name: Tests
         working-directory: backend
-        run: python -m pytest tests/test_script_sandbox.py tests/test_script_safety.py tests/test_examples_plausible.py -q
+        run: python -m pytest tests/test_script_sandbox.py tests/test_script_safety.py tests/test_examples_plausible.py tests/test_fmu.py -q
 
   # Fails when the example runs get more than 10 % slower than on the commit
   # this change starts from, timed on the same runner in alternating fresh
@@ -181,6 +207,13 @@ jobs:
       - name: Install the engine
         working-directory: backend
         run: python -m pip install -r requirements.txt
+
+      # So e2e/std01-fmu.spec.ts can drop an FMU (it skips without the pack)
+      - name: Install the FMU pack
+        working-directory: backend
+        run: |
+          python -m pip install -r requirements-fmu.txt
+          python -m pip install --no-deps "fmpy==0.3.32"
 
       - name: Install and build the UI
         working-directory: frontend

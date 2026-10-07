@@ -1,0 +1,15 @@
+# The FMU pack (STD-01): what the engine needs to run FMU parts. Optional:
+# without it every other model runs and Data Checks say FMU support is missing.
+#
+# FMPy itself declares more than it needs here (cmake, a 42 MB wheel, plus
+# jinja2 and nbformat, used only to compile source FMUs and write notebooks),
+# so install it without its declared dependencies, after these:
+#
+#   pip install -r requirements-fmu.txt
+#   pip install --no-deps "fmpy==0.3.32"
+#
+# Licences: FMPy BSD-2-Clause; NumPy and lxml BSD-3-Clause; attrs and lark MIT.
+numpy>=2.1.3
+lxml>=5.3.0
+attrs>=24.2.0
+lark>=1.2.2  # FMPy's variable-name check (fmpy.validation)
