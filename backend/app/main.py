@@ -23,6 +23,7 @@ Endpoints:
   POST /api/examples/restore   show every hidden example again
   POST /api/validate           run Data Checks on a project
   POST /api/simulate           run a simulation case, returns SimResult
+  POST /api/label-estimate     US window-sticker estimate from UDDS and HWFET (CON-32)
   WS   /api/simulate/run       live run: streams progress/steps, accepts
                                set_param and cancel while running
 """
@@ -45,10 +46,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from . import cycles, run_store, security, storage
+from . import cycles, label, run_store, security, storage
 from .library import load_library, unit_groups
 from .paths import static_dir
-from .schemas import DataCheck, Project, SimResult, SimulateRequest, StoredRun, ValidateRequest
+from .schemas import (
+    DataCheck,
+    LabelEstimateRequest,
+    Project,
+    SimResult,
+    SimulateRequest,
+    StoredRun,
+    ValidateRequest,
+)
 from .solver import simulate
 from .validation import validate_project
 from .version import VERSION
@@ -318,6 +327,20 @@ def run_simulation(req: SimulateRequest) -> SimResult:
             channels=[],
         )
     return simulate(req.project, req.caseId)
+
+
+@app.post("/api/label-estimate")
+def us_label_estimate(req: LabelEstimateRequest) -> dict:
+    """CON-32: the model on EPA's city and highway cycles, adjusted to a US
+    window-sticker estimate, every step shown; not a certified value."""
+    checks = validate_project(req.project)
+    errors = [c.text for c in checks if c.level == "error"]
+    if errors:
+        raise HTTPException(status_code=422, detail=f"Data check failed: {errors[0]}")
+    try:
+        return label.estimate(req.project, req.caseId, req.modelYear)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
 
 @app.websocket("/api/simulate/run")

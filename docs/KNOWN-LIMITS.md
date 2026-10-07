@@ -545,6 +545,11 @@ minimum or an average, for example from the CSV export, or put the
   clicks). In a 1366 × 768 window the bottom panel shows two rows at a
   time; drag its top edge up to see more. *Roadmap:* UX-15 (follow-up),
   UX-11.
+- **US label estimate from two cycles only.** *Simulations → US label*
+  uses EPA's derived two-cycle method. The five-cycle tests (US06, SC03 at
+  35 °C, a cold FTP at −7 °C) need heat and climate models LightSim does
+  not have, and plug-in hybrids (charge-depleting runs and utility
+  factors) are not covered. *Roadmap:* CON-21.
 - **27 standard drive cycles, no files of your own.** The Driving Task's
   *Drive Cycle* list has the WLTC (classes 1 to 3b, their city cycles and
   phases), NEDC, the EPA cycles, two motorcycle cycles and a long-haul truck

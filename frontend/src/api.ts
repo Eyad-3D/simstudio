@@ -372,3 +372,33 @@ export function runSimulationLive(
     done,
   };
 }
+
+/** One step of the US label estimate: a figure and how it was worked out. */
+export interface LabelStep {
+  what: string;
+  value: number;
+  unit: string;
+  how: string;
+}
+
+/** CON-32: the US window-sticker estimate from UDDS and HWFET runs. */
+export interface LabelEstimate {
+  notCertified: string;
+  electric: boolean;
+  modelYearCoefficients: number;
+  coefficients: Record<string, number>;
+  chargerEfficiency: number | null;
+  usableKwh: number | null;
+  /** the case run for each cycle (udds, hwfet) */
+  cases: Record<string, string>;
+  problems: string[];
+  figures: Record<string, number>;
+  steps: LabelStep[];
+}
+
+export function labelEstimate(project: Project, caseId: string | null, modelYear: number): Promise<LabelEstimate> {
+  return request("/label-estimate", {
+    method: "POST",
+    body: JSON.stringify({ project, caseId, modelYear }),
+  });
+}

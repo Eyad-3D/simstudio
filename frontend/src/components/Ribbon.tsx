@@ -11,6 +11,7 @@ import {
   FolderOpen,
   Gauge,
   History,
+  Fuel,
   LayoutGrid,
   ListChecks,
   Moon,
@@ -32,6 +33,7 @@ import * as api from "../api";
 import type { Project } from "../types";
 import { resetDockLayout } from "./DockLayout";
 import { useDismiss } from "./useDismiss";
+import { LabelEstimateDialog } from "./LabelEstimate";
 import { confirmDialog } from "../dialog";
 import { openHelp } from "../help";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
@@ -310,6 +312,7 @@ function SimulationsTab() {
   const store = useProjectStore();
   const cases = store.project?.cases ?? [];
   const activeCase = cases.find((c) => c.id === store.activeCaseId);
+  const [labelOpen, setLabelOpen] = useState(false);
   return (
     <>
       <RibbonGroup label="Cases">
@@ -397,6 +400,16 @@ function SimulationsTab() {
           onClick={() => void store.runAccelerationTest()}
         />
       </RibbonGroup>
+      <RibbonGroup label="Standard figures">
+        <BigButton
+          icon={Fuel}
+          label="US label"
+          title="US window-sticker estimate (not certified): runs the model on EPA's city and highway cycles and shows each step to the label figures"
+          disabled={store.running || !store.project}
+          onClick={() => setLabelOpen(true)}
+        />
+      </RibbonGroup>
+      {labelOpen && <LabelEstimateDialog onClose={() => setLabelOpen(false)} />}
     </>
   );
 }

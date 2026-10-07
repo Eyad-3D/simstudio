@@ -279,6 +279,16 @@ sections.
   14.05 kWh/100 km at the battery, 16.34 at the socket, 128.2 MPGe, 426 km;
   its phases 10.63 / 11.27 / 12.91 / 17.94 kWh/100 km. No existing figure
   changes. (CON-05)
+- **Simulations → US label**: a US window-sticker estimate, marked *not
+  certified*. It runs the model on EPA's city (UDDS) and highway (HWFET)
+  cycles and shows each step from the lab figures to the label ones, by
+  EPA's derived five-cycle equations (2008 or 2017 coefficients), as
+  FASTSim's label module computes them (the tests hold LightSim within
+  0.5 % of FASTSim's formulas): city, highway and combined MPGe and
+  kWh/100 mi and the range for an electric car, mpg and l/100 km for a car
+  with an engine. The Battery Electric Car gets 104 MPGe combined and 213
+  miles; the P2 Hybrid Car 56 city, 48 highway and 52 combined mpg (the
+  real car's label: 58, 60 and 59). (CON-32)
 - Help: press F1, or click **?** at the top right, to open LightSim's help
   in your web browser. It comes with the app and needs no internet
   connection: two tutorials, how-to guides, a page for every part with its

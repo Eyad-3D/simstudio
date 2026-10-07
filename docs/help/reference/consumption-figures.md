@@ -41,6 +41,34 @@ them: **FTP weighted consumption** or **FTP weighted fuel consumption** =
 or fuel of its two bags over their distance. LightSim has no cold start, so
 bag 1 and bag 3 come out the same.
 
+## US label estimate
+
+**Simulations → US label** gives the figures a US window sticker would
+show, worked out from two runs: EPA's city cycle (UDDS) and its highway
+cycle (HWFET). Click **Run UDDS and HWFET**. A case that already drives
+one of them is run as it is (the hybrid example has both, each starting
+at its balanced charge); otherwise the active case is copied onto the
+cycle. The dialog lists every step:
+
+1. The lab figures of the two runs, per mile: the energy at the battery
+   for an electric car, the miles per US gallon for a car with an engine
+   (a hybrid's charge-corrected fuel).
+2. The label figures, by EPA's derived five-cycle equations, the way
+   FASTSim computes them: city = 1 ÷ (intercept + slope ÷ lab city), and
+   the same for the highway with its own coefficients. EPA changed the
+   coefficients for 2017 and later model years; pick the years in the
+   dialog. For an electric car the label may be at most 30 % below the
+   lab figure (EPA's 0.7 factor), and it is given at the socket (÷ the
+   Charger Efficiency).
+3. Combined: 55 % city and 45 % highway (1 ÷ (0.55 ÷ city + 0.45 ÷
+   highway) for miles per gallon), the range as the battery's usable
+   energy ÷ the combined energy at the battery, and MPGe as 33.7 ÷ kWh
+   per mile.
+
+Every result says *Simulated estimate, not a certified value*. The full
+five-cycle test (with US06, the air-conditioning cycle SC03 and a cold
+start) needs heat and climate models LightSim does not have yet.
+
 ## Good to know
 
 - These figures are simulated, not certified.

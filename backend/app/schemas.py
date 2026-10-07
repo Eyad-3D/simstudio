@@ -380,5 +380,13 @@ class SimulateRequest(BaseModel):
     caseId: str
 
 
+class LabelEstimateRequest(BaseModel):
+    """CON-32: a project, the case to base the two EPA runs on (None: its
+    first Cycle case) and the model year that picks EPA's coefficients."""
+    project: Project
+    caseId: Optional[str] = None
+    modelYear: int = 2017
+
+
 class ValidateRequest(BaseModel):
     project: Project
