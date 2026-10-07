@@ -154,6 +154,8 @@ function SsTab(props: IDockviewPanelHeaderProps) {
   );
 }
 
+const HELP_BUTTON_MIN_WIDTH = 230;
+
 // A "?" for the group's active panel, which opens that panel's help page
 // (LRN-09), and the bottom tray's open/close control.
 function HeaderActions(props: IDockviewHeaderActionsProps) {
@@ -166,7 +168,14 @@ function HeaderActions(props: IDockviewHeaderActionsProps) {
     });
     return () => d.dispose();
   }, [group]);
-  const page = panelId ? PANEL_HELP[panelId] : undefined;
+  // only where the tabs keep their room (the narrow library column at
+  // 1366 px has none); F1 inside the panel opens the same page
+  const [roomy, setRoomy] = useState(() => group.api.width >= HELP_BUTTON_MIN_WIDTH);
+  useEffect(() => {
+    const d = group.api.onDidDimensionsChange((e) => setRoomy(e.width >= HELP_BUTTON_MIN_WIDTH));
+    return () => d.dispose();
+  }, [group]);
+  const page = panelId && roomy ? PANEL_HELP[panelId] : undefined;
   const title = (panelId && (FULL_TITLES[panelId] ?? group.activePanel?.title)) || "this panel";
   return (
     <div className="flex items-center">
