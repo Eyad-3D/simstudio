@@ -1,6 +1,7 @@
-// STU-03: each parameter sweep is saved with its project as a study with its
-// results table; a second sweep adds a study instead of replacing the first,
-// and both survive a reload and a save.
+// STU-03: each parameter sweep is saved as a study with its results table; a
+// second sweep adds a study instead of replacing the first, and both survive
+// a reload and a save. PLT-34: studies are kept with the runs, so a sweep
+// leaves the saved model file as it is.
 import { expect, test, type Page } from "@playwright/test";
 import { expectProject, openApp, ribbonTab, showPanel } from "./app";
 import { importProject } from "./ui-helpers";
@@ -67,11 +68,22 @@ test("STU-03: two sweeps give two saved studies that survive a reload and a save
   await expect(await studies(page)).toHaveCount(2);
   expect(await tableOf(page, 1)).toEqual(first);
 
-  // saved: they are in the project file
+  // saved: the model file holds no studies; they are kept with the runs
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expectProject(page, name, { unsaved: false });
   const saved = await (await page.request.get(`/api/projects/${id}`)).json();
-  expect(saved.studies.map((s: { points: unknown[] }) => s.points.length)).toEqual([2, 3]);
-  expect(saved.studies[0].factors[0]).toMatchObject({ elementLabel: "Vehicle", paramLabel: "Vehicle Mass", values: [mass * 0.5, mass * 1.5] });
-  expect(Object.keys(saved.studies[0].points[0].kpis).length).toBeGreaterThan(3);
+  expect(saved.studies).toBeUndefined();
+  const kept = await (await page.request.get(`/api/projects/${id}/studies`)).json();
+  expect(kept.map((s: { points: unknown[] }) => s.points.length)).toEqual([2, 3]);
+  expect(kept[0].factors[0]).toMatchObject({ elementLabel: "Vehicle", paramLabel: "Vehicle Mass", values: [mass * 0.5, mass * 1.5] });
+  expect(Object.keys(kept[0].points[0].kpis).length).toBeGreaterThan(3);
+
+  // PLT-34: another sweep leaves the saved file byte-identical, and the
+  // project clean
+  const revision = async () => (await (await page.request.get(`/api/projects/${id}/revision`)).json()).revision;
+  const before = await revision();
+  await sweepVehicleMass(page, 2);
+  expect(await revision()).toBe(before);
+  await expectProject(page, name, { unsaved: false });
+  await expect(await studies(page)).toHaveCount(3);
 });

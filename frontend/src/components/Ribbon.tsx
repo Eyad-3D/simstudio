@@ -686,6 +686,7 @@ function ProjectTab() {
           <span className="text-[11px] text-[color:var(--ss-text-dim)]">Project name</span>
           <input
             className="ss-input w-[220px]"
+            aria-label="Project name"
             value={project?.name ?? ""}
             onChange={(e) => root && renameSystem(root.id, e.target.value)}
           />
