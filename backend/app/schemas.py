@@ -50,6 +50,11 @@ class AxisDef(BaseModel):
     outside: Optional[OutsidePolicy] = None
 
 
+class ShowIf(BaseModel):
+    key: str
+    values: list[ScalarValue]
+
+
 class ParameterDef(BaseModel):
     key: str
     label: str
@@ -74,6 +79,9 @@ class ParameterDef(BaseModel):
     minimum: Optional[float] = None
     exclusiveMinimum: Optional[float] = None
     maximum: Optional[float] = None
+    # Shown only while another parameter of the part has one of these values
+    # ({"key": "pack_model", "values": ["Cells"]}); the UI hides it otherwise.
+    showIf: Optional[ShowIf] = None
 
     def range_problem(self, value: float) -> Optional[str]:
         """Why `value` breaks the limits ("must be above 0 and at most 100 %"),

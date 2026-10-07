@@ -62,6 +62,9 @@ export interface ParameterDef {
   minimum?: number | null;
   exclusiveMinimum?: number | null;
   maximum?: number | null;
+  /** Shown only while another parameter of the part has one of these values
+   *  (a battery's cell fields when it is built from cells). */
+  showIf?: { key: string; values: ScalarValue[] } | null;
 }
 
 export interface ComponentDef {

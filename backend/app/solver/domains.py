@@ -25,6 +25,7 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 
+from .battery import CELLS, PACK, CellPack
 from .climate import ClimateState, climate_power
 from .energy import FUEL_LHV_MJ, H2_LHV_J_PER_KG, ROAD_TERMS, EnergyBook, book_linear
 from .maps import Map, MapUse, TableError, interp1, parse_table1d, parse_table2d
@@ -150,6 +151,7 @@ class RunContext:
         # speed": a motor's Maximum Speed, an engine's full-load curve's last
         # speed). The run summary lists the records with outside_s > 0.
         self.map_use: list[MapUse] = []
+        self.amb_id = model.ambient  # sets the air density (None: 20 °C, 101.325 kPa)
 
         # ---- element caches --------------------------------------------------
         self.batteries: dict[str, BatteryState] = {}
@@ -170,13 +172,23 @@ class RunContext:
             label = model.elements[el_id].label
             try:
                 if cdef.id == "battery.generic":
-                    ocv_map = self.table(el_id, "ocv_table")
-                    # Usable Capacity is the open-circuit energy from full to
-                    # empty; without a Charge Capacity (old projects have none)
-                    # the amp-hours come from it at the OCV table's mean voltage
-                    q_ah = max(0.0, float(p.get("capacity_Ah", 0) or 0)) or (
-                        max(1e-3, float(p.get("capacity_kWh", 60))) * 1000.0
-                        / max(1e-6, ocv_mean(ocv_map.pts, ocv_map.linear[0])))
+                    cells = self.cell_pack(el_id, p)
+                    if cells is not None and cells.cells:  # built from cells (MOD-08)
+                        ocv_map = self.table(el_id, "cell_ocv_table")
+                        cells.cell_ocv = Map(ocv_map.pts, ocv_map.name, ocv_map.policy,
+                                             ocv_map.uses)
+                        ocv_map = Map([(x, v * cells.ns) for x, v in ocv_map.pts],
+                                      f"{ocv_map.name} × {cells.ns} in series",
+                                      ocv_map.policy, ocv_map.uses)
+                        q_ah = cells.np * cells.cell_ah
+                    else:
+                        ocv_map = self.table(el_id, "ocv_table")
+                        # Usable Capacity is the open-circuit energy from full to
+                        # empty; without a Charge Capacity (old projects have none)
+                        # the amp-hours come from it at the OCV table's mean voltage
+                        q_ah = max(0.0, float(p.get("capacity_Ah", 0) or 0)) or (
+                            max(1e-3, float(p.get("capacity_kWh", 60))) * 1000.0
+                            / max(1e-6, ocv_mean(ocv_map.pts, ocv_map.linear[0])))
                     b = BatteryState(
                         el_id=el_id,
                         soc=float(p.get("initial_soc_pct", 90)) / 100.0,
@@ -190,6 +202,13 @@ class RunContext:
                         eta_charge=min(1.0, max(1e-3, float(
                             p.get("coulombic_efficiency_pct", 100)) / 100.0)),
                     )
+                    b.cells = cells
+                    if cells is not None:
+                        cells.soc_weak = b.soc
+                        if cells.cells:  # the resistance of a pulse starting now
+                            cells.r_cell_now = cells.r_cell(b.soc_pct(), self.ambient_c(), 0.0)
+                            b.r0 = cells.r_pack(cells.r_cell_now)
+                            cells.v_cell = (min(cells.ocv_cells(b.soc)), max(cells.ocv_cells(b.soc)))
                     # read without the Error check: the first step stops the
                     # run, with its time, if the SOC is outside an Error axis
                     b.v_term = interp1(ocv_map.pts, b.soc_pct(), ocv_map.linear[0])
@@ -283,7 +302,6 @@ class RunContext:
         self.veh_mass = max(1.0, float(veh_p.get("mass_kg", 1800))) if self.veh_id else 0.0
         self.v = max(0.0, float(veh_p.get("initial_speed_kmh", 0)) / 3.6) if self.veh_id else 0.0
         self.distance = 0.0
-        self.amb_id = model.ambient  # sets the air density (None: 20 °C, 101.325 kPa)
         amb_p = self.params(self.amb_id) if self.amb_id else {}
         self.rho = air_density(max(-273.0, float(amb_p.get("temperature_C", 20))),
                                max(0.0, float(amb_p.get("pressure_kPa", 101.325))))
@@ -418,6 +436,44 @@ class RunContext:
         if not self.amb_id:
             return 20.0
         return max(-273.0, float(self.params(self.amb_id).get("temperature_C", 20)))
+
+    def cell_pack(self, el_id: str, p: dict) -> CellPack | None:
+        """A battery's cells (Defined By: Cells), or its pack-level limits
+        (Pack values with a current or voltage limit or a derating band), or
+        None (a pack with no limits: as before 0.3)."""
+        def num(key: str, default: float) -> float:
+            return float(p.get(key, default) or 0)
+
+        band = max(0.0, num("soc_derate_band_pct", 0)) / 100.0
+        if str(p.get("pack_model", PACK)) == CELLS:
+            ns = max(1, int(round(num("series_cells", 96))))
+            n_par = max(1, int(round(num("parallel_cells", 30))))
+            return CellPack(
+                ns=ns, np=n_par, cells=True,
+                cell_ah=max(1e-6, num("cell_capacity_Ah", 5.0)),
+                v_min=max(0.0, num("cell_min_voltage_V", 2.5)),
+                v_max=max(0.0, num("cell_max_voltage_V", 4.2)),
+                dcr=max(1e-9, num("cell_resistance_ohm", 0.02)),
+                r_factor=self.table(el_id, "cell_resistance_factor"),
+                t_factor=self.table(el_id, "cell_temperature_factor"),
+                i_dis=max(0.0, num("cell_max_discharge_A", 15)),
+                i_dis_peak=max(0.0, num("cell_peak_discharge_A", 30)),
+                i_ch=max(0.0, num("cell_max_charge_A", 5)),
+                i_ch_peak=max(0.0, num("cell_peak_charge_A", 10)),
+                peak_s=max(0.0, num("cell_peak_duration_s", 10)),
+                r_ic=max(0.0, num("interconnect_resistance_ohm", 0.0002)),
+                r_contactor=max(0.0, num("contactor_resistance_ohm", 0.0005)),
+                weak_cap=min(1.0, max(1e-3, num("weak_cell_capacity_pct", 100) / 100.0)),
+                weak_res=max(0.5, num("weak_cell_resistance_pct", 100) / 100.0),
+                mass_kg=ns * n_par * max(0.0, num("cell_mass_kg", 0.07))
+                * max(1.0, num("packaging_factor", 1.4)),
+                band=band)
+        limits = [max(0.0, num(k, 0)) for k in ("max_discharge_current_A", "max_charge_current_A",
+                                                "min_voltage_V", "max_voltage_V")]
+        if not any(limits) and not band:
+            return None
+        return CellPack(i_dis=limits[0], i_ch=limits[1], v_min=limits[2], v_max=limits[3],
+                        band=band)
 
     def consumer_demand_w(self, c_id: str) -> float:
         """The power an electrical consumer asks for this solver step, W: a
@@ -974,12 +1030,35 @@ class RunContext:
         Output Power Limit, and max charge power, and never past its minimum
         SOC or 100 %. Recuperation is not held to the limit. Sets b.capped for
         the step, so call it once per step (not for trial lookups)."""
+        cp = b.cells
+        if cp is not None:  # its cells' or pack's limits, as its BMS sets them (MOD-08)
+            t_c = self.ambient_c()
+            pulse_dis = cp.pulse_s if cp.pulse_sign > 0 else 0.0
+            pulse_ch = cp.pulse_s if cp.pulse_sign < 0 else 0.0
+            if cp.cells:  # the resistance of the pulse going on (of one starting now at rest)
+                cp.r_cell_now = cp.r_cell(b.soc_pct(), t_c, cp.pulse_s if cp.pulse_sign else 0.0)
+                b.r0 = cp.r_pack(cp.r_cell_now)
+            b.i_dis_lim, cp.bound_dis, b.i_ch_lim, cp.bound_ch = cp.currents(
+                b.soc, b.min_soc, t_c, pulse_dis, pulse_ch, b.ocv(), b.r0)
         a_volt, i_mpp, i_floor, i_full = self.battery_currents(b)
         i_dis = min(i_mpp, i_floor)
+        if cp is not None:
+            if b.i_dis_lim >= i_dis:
+                cp.bound_dis = None  # (another limit is tighter)
+            i_dis = min(i_dis, b.i_dis_lim)
+            if b.i_ch_lim >= i_full:
+                cp.bound_ch = None
+            i_full = min(i_full, b.i_ch_lim)
         deliver = i_dis * (a_volt - i_dis * b.r0)
         b.capped = deliver > b.p_cap_w
-        return (min(deliver, b.p_cap_w),
-                min(b.max_charge_w, i_full * (a_volt + i_full * b.r0)))
+        absorb = min(b.max_charge_w, i_full * (a_volt + i_full * b.r0))
+        if cp is not None:
+            if b.max_charge_w < i_full * (a_volt + i_full * b.r0):
+                cp.bound_ch = None
+            if b.capped:
+                cp.bound_dis = None
+            b.deliver_w, b.absorb_w = min(deliver, b.p_cap_w), absorb
+        return min(deliver, b.p_cap_w), absorb
 
     def root_window(self, root) -> tuple[float, float]:
         """(deliver, absorb) of a source tree's own source over the step."""
@@ -1148,7 +1227,18 @@ class RunContext:
             b = self.batteries[root.battery]
             label = model.elements[b.el_id].label
             _, i_mpp, i_floor, _ = self.battery_currents(b)
-            if discharge and b.capped:  # a limit the user set: info, not a warning
+            cp = b.cells
+            bound = (cp.bound_dis if discharge else cp.bound_ch) if cp is not None else None
+            if bound is not None:  # its battery management system's limit: info
+                which = "discharge" if discharge else "charge"
+                amps = b.i_dis_lim if discharge else b.i_ch_lim
+                rt.warn_once(f"bms:{which}:{bound}:{b.el_id}",
+                             f"Battery '{label}' held at its {which} limit from t = {t:.2f} s "
+                             f"({amps:,.0f} A, set by its {bound} limit) — the motors "
+                             f"{'get less torque' if discharge else 'regenerate less'}, as a "
+                             f"battery management system would. The run summary says for how "
+                             f"long.", level="info")
+            elif discharge and b.capped:  # a limit the user set: info, not a warning
                 rt.warn_once(f"cap:{b.el_id}",
                              f"Battery '{label}' held at its Output Power Limit "
                              f"({b.p_cap_w / 1000.0:g} kW at the terminals) from t = {t:.2f} s — "
@@ -2471,6 +2561,22 @@ class ElectricalSlave(_CtxSlave):
                 # start: the next step's read stops the run, with its time)
                 b.v_term = (interp1(b.ocv_map.pts, b.soc_pct(), b.ocv_map.linear[0])
                             - b.v_rc - current * b.r0)
+                cp = b.cells
+                if cp is not None:  # its BMS's view (MOD-08)
+                    cp.track(current, dt, eta, b.q_ah)
+                    if cp.cells:
+                        b.v_term += cp.weak_shift(b.soc)
+                        cp.v_cell = lo, hi = cp.cell_voltages(b.soc, current)
+                        if lo < cp.v_cell_low:
+                            cp.v_cell_low = lo
+                        if hi > cp.v_cell_high:
+                            cp.v_cell_high = hi
+                    if cp.bound_dis and p_w > 0 and p_w >= b.deliver_w * (1.0 - 1e-3):
+                        cp.limit_s[f"discharge {cp.bound_dis}"] = (
+                            cp.limit_s.get(f"discharge {cp.bound_dis}", 0.0) + dt)
+                    elif cp.bound_ch and p_w < 0 and -p_w >= b.absorb_w * (1.0 - 1e-3):
+                        cp.limit_s[f"charge {cp.bound_ch}"] = (
+                            cp.limit_s.get(f"charge {cp.bound_ch}", 0.0) + dt)
                 ctx.bus_voltage[bus.id] = b.v_term
                 if b.check is not None:
                     # held at the cap (the motors' torque search stops a hair

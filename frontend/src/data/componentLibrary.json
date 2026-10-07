@@ -351,7 +351,7 @@
       "name": "HV Battery Pack",
       "icon": "battery-charging",
       "domain": "electrical",
-      "description": "Equivalent-circuit battery pack: OCV(SOC) lookup table with series resistance R0 and an optional RC pair for voltage transients (RC disabled when either RC parameter is 0). SOC counts the charge that flows (amp-hours) and the OCV table is read at that SOC. Charge Capacity sets the amp-hours; left at 0 they come from the Usable Capacity at the OCV table's mean voltage, so a full-to-empty discharge gives out the Usable Capacity. Coulombic Efficiency is the share of the charging current that is stored (Li-ion cells store about 99.9 %, so it defaults to 100 %). Charging power is limited by the maximum charge power. The Output Power Limit caps the power the terminals give (volts × amps), less the Power Limit Margin: the motors get what is left after the other loads, and recuperation is not limited. With a limit or a Voltage Class set, the run summary checks the terminal power, averaged over the Power Check Window, against the limit, and the highest pack voltage (open-circuit at 100 % SOC, or at the terminals while recuperating) against the Voltage Class; 0 turns either off. With Hold Power to Limit off, the power is only checked, not held.",
+      "description": "Equivalent-circuit battery pack: OCV(SOC) lookup table with series resistance R0 and an optional RC pair for voltage transients (RC disabled when either RC parameter is 0). SOC counts the charge that flows (amp-hours) and the OCV table is read at that SOC. Charge Capacity sets the amp-hours; left at 0 they come from the Usable Capacity at the OCV table's mean voltage, so a full-to-empty discharge gives out the Usable Capacity. Coulombic Efficiency is the share of the charging current that is stored (Li-ion cells store about 99.9 %, so it defaults to 100 %). Charging power is limited by the maximum charge power. The Output Power Limit caps the power the terminals give (volts × amps), less the Power Limit Margin: the motors get what is left after the other loads, and recuperation is not limited. With a limit or a Voltage Class set, the run summary checks the terminal power, averaged over the Power Check Window, against the limit, and the highest pack voltage (open-circuit at 100 % SOC, or at the terminals while recuperating) against the Voltage Class; 0 turns either off. With Hold Power to Limit off, the power is only checked, not held. Defined By: Cells builds the pack from a cell datasheet and a layout (cells in series × in parallel) instead: its resistance then rises in long pulses, at low charge and in the cold (the Ambient's temperature), and the cells' current and voltage limits hold, as a battery management system keeps them; with Pack values, a pack current and voltage limit can be set (0 = none).",
       "ports": [
         {
           "id": "pos",
@@ -405,11 +405,97 @@
           "direction": "output",
           "kind": "signal",
           "unitGroup": "Power"
+        },
+        {
+          "id": "sig_p_dis_2s",
+          "name": "Discharge Power Limit 2 s",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_p_dis_10s",
+          "name": "Discharge Power Limit 10 s",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_p_dis_30s",
+          "name": "Discharge Power Limit 30 s",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_p_ch_2s",
+          "name": "Charge Power Limit 2 s",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_p_ch_10s",
+          "name": "Charge Power Limit 10 s",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_p_ch_30s",
+          "name": "Charge Power Limit 30 s",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Power"
+        },
+        {
+          "id": "sig_i_dis_limit",
+          "name": "Discharge Current Limit",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Current"
+        },
+        {
+          "id": "sig_i_ch_limit",
+          "name": "Charge Current Limit",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Current"
+        },
+        {
+          "id": "sig_v_cell_min",
+          "name": "Lowest Cell Voltage",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Voltage"
+        },
+        {
+          "id": "sig_v_cell_max",
+          "name": "Highest Cell Voltage",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "Voltage"
         }
       ],
       "parameters": [
         {
+          "key": "pack_model",
+          "variability": "fixed",
+          "label": "Defined By",
+          "unit": "-",
+          "default": "Pack values",
+          "type": "enum",
+          "options": [
+            "Pack values",
+            "Cells"
+          ],
+          "description": "Pack values: you give the whole pack's capacity, open-circuit voltage and resistance. Cells: LightSim builds the pack from a cell datasheet and a layout (cells in series × in parallel), with resistance that rises in the cold, at low charge and in long pulses, and with the cells' current and voltage limits.",
+          "typical": "Pack values for consumption studies with a known pack · Cells to size a pack from cells, or for launch, cold and Formula Student accumulator studies.",
+          "whereToFind": "Your data: a pack datasheet (Pack values) or a cell datasheet and the pack layout (Cells)."
+        },
+        {
           "key": "capacity_kWh",
+          "showIf": {"key": "pack_model", "values": ["Pack values"]},
           "variability": "fixed",
           "label": "Usable Capacity",
           "unit": "kWh",
@@ -422,6 +508,7 @@
         },
         {
           "key": "capacity_Ah",
+          "showIf": {"key": "pack_model", "values": ["Pack values"]},
           "variability": "fixed",
           "label": "Charge Capacity (0 = from Usable Capacity)",
           "unit": "Ah",
@@ -448,6 +535,7 @@
         },
         {
           "key": "ocv_table",
+          "showIf": {"key": "pack_model", "values": ["Pack values"]},
           "label": "Open-Circuit Voltage",
           "unit": "V",
           "type": "table1d",
@@ -468,6 +556,7 @@
         },
         {
           "key": "internal_resistance_ohm",
+          "showIf": {"key": "pack_model", "values": ["Pack values"]},
           "label": "Series Resistance R0",
           "unit": "Ω",
           "default": 0.08,
@@ -597,6 +686,540 @@
           "description": "The highest voltage the pack may reach. The run checks the highest pack voltage (open-circuit at 100 % SOC, or at the terminals while recuperating) against it, and Data Checks warn when the open-circuit voltage at 100 % SOC is above it. 0 = no check.",
           "typical": "0 for most studies · Formula Student electric cars 600 V (FS Rules 2026 v1.1 (FSG) EV 4.1.1; the preset sets it) · the rating of a car's 400 V or 800 V system.",
           "whereToFind": "The competition's rules, or the highest voltage the inverter and the other high-voltage parts are rated for."
+        },
+        {
+          "key": "max_discharge_current_A",
+          "variability": "fixed",
+          "label": "Max Discharge Current (0 = none)",
+          "unit": "A",
+          "default": 0,
+          "type": "number",
+          "minimum": 0,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Pack values"
+            ]
+          },
+          "description": "The most current the pack gives, as its battery management system allows: the motors get less torque rather than more current. 0 = no limit.",
+          "typical": "0 for most studies · Formula Student 500 A (FS Rules 2026 v1.1 (FSG) EV 2.2.2; the preset sets it) · car packs 300–1,000 A.",
+          "whereToFind": "The battery management system's discharge current limit, or the cells' maximum current × the cells in parallel."
+        },
+        {
+          "key": "max_charge_current_A",
+          "variability": "fixed",
+          "label": "Max Charge Current (0 = none)",
+          "unit": "A",
+          "default": 0,
+          "type": "number",
+          "minimum": 0,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Pack values"
+            ]
+          },
+          "description": "The most current the pack takes back while recuperating or charged by a DC-DC converter: the motors brake less and the friction brakes do the rest. 0 = no limit (Max Charge Power still applies).",
+          "typical": "0 for most studies · car packs 100–400 A · Formula Student packs 50–150 A.",
+          "whereToFind": "The battery management system's charge current limit, or the cells' maximum charge current × the cells in parallel."
+        },
+        {
+          "key": "min_voltage_V",
+          "variability": "fixed",
+          "label": "Minimum Pack Voltage (0 = none)",
+          "unit": "V",
+          "default": 0,
+          "type": "number",
+          "minimum": 0,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Pack values"
+            ]
+          },
+          "description": "The pack's terminal voltage never falls below this: the current is held so that the voltage drop across R0 keeps it there, as a battery management system does. 0 = no limit (the pack still stops at its maximum-power point).",
+          "typical": "0 for most studies · about 2.5–3.0 V per cell in series (a 96-cell pack 240–290 V).",
+          "whereToFind": "The cells' minimum voltage × the cells in series, or the battery management system's undervoltage limit."
+        },
+        {
+          "key": "max_voltage_V",
+          "variability": "fixed",
+          "label": "Maximum Pack Voltage (0 = none)",
+          "unit": "V",
+          "default": 0,
+          "type": "number",
+          "minimum": 0,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Pack values"
+            ]
+          },
+          "description": "The pack's terminal voltage never rises above this while it is charged: the charging current is held below what would push it higher. 0 = no limit.",
+          "typical": "0 for most studies · about 4.2 V per cell in series for NMC cells, 3.65 V for LFP.",
+          "whereToFind": "The cells' maximum (charge cut-off) voltage × the cells in series."
+        },
+        {
+          "key": "series_cells",
+          "variability": "fixed",
+          "label": "Cells in Series (s)",
+          "unit": "-",
+          "default": 96,
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1000,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "How many cells (or parallel groups of cells) are connected in series: it multiplies the cell's voltage. The 96 of '96s30p'.",
+          "typical": "Car packs 96–110 (400 V class) or 192–200 (800 V class) · Formula Student 120–144.",
+          "whereToFind": "The pack's layout, written as e.g. 96s30p; or the pack's nominal voltage ÷ the cell's."
+        },
+        {
+          "key": "parallel_cells",
+          "variability": "fixed",
+          "label": "Cells in Parallel (p)",
+          "unit": "-",
+          "default": 30,
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1000,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "How many cells are connected in parallel in each series group: it multiplies the capacity and the currents and divides the resistance. The 30 of '96s30p'.",
+          "typical": "Large pouch or prismatic cells 1–3 · cylindrical 18650 or 21700 cells 10–80 · Formula Student 3–6.",
+          "whereToFind": "The pack's layout, or the pack's capacity (Ah) ÷ the cell's."
+        },
+        {
+          "key": "cell_capacity_Ah",
+          "variability": "fixed",
+          "label": "Cell Capacity",
+          "unit": "Ah",
+          "default": 5.0,
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2000,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "The charge one cell holds from 0 to 100 % SOC. The pack's charge capacity is this × the cells in parallel.",
+          "typical": "18650 cells 2.5–3.5 Ah · 21700 cells 4–5 Ah (the default 5 Ah, a typical NMC cell, not a real product) · pouch and prismatic cells 20–200 Ah.",
+          "whereToFind": "The cell datasheet's rated (nominal) capacity."
+        },
+        {
+          "key": "cell_ocv_table",
+          "label": "Cell Open-Circuit Voltage",
+          "unit": "V",
+          "type": "table1d",
+          "axes": [
+            {
+              "name": "SOC",
+              "unit": "%",
+              "outside": "clamp"
+            }
+          ],
+          "default": {
+            "0": 3.0,
+            "5": 3.3,
+            "10": 3.42,
+            "20": 3.53,
+            "30": 3.6,
+            "40": 3.66,
+            "50": 3.72,
+            "60": 3.8,
+            "70": 3.89,
+            "80": 3.98,
+            "90": 4.08,
+            "100": 4.2
+          },
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "One cell's resting voltage at each state of charge. The pack's is this × the cells in series. The default is a typical NMC cell curve (3.0–4.2 V), not a real product's.",
+          "typical": "NMC cells about 3.0–4.2 V · LFP cells 2.8–3.6 V, flat between 20 and 90 %.",
+          "whereToFind": "The cell datasheet's OCV curve, or a slow (C/20) discharge test."
+        },
+        {
+          "key": "cell_min_voltage_V",
+          "variability": "fixed",
+          "label": "Cell Minimum Voltage",
+          "unit": "V",
+          "default": 2.5,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "No cell's terminal voltage falls below this: the pack's current is held so the weakest cell stays at or above it, as a battery management system does. 0 = no limit.",
+          "typical": "NMC 2.5–3.0 V (the default 2.5 V) · LFP 2.0–2.5 V.",
+          "whereToFind": "The cell datasheet's discharge cut-off voltage."
+        },
+        {
+          "key": "cell_max_voltage_V",
+          "variability": "fixed",
+          "label": "Cell Maximum Voltage",
+          "unit": "V",
+          "default": 4.2,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "No cell's terminal voltage rises above this while charging: the charging current is held below what would push it higher. 0 = no limit.",
+          "typical": "NMC 4.2 V (the default) · LFP 3.65 V.",
+          "whereToFind": "The cell datasheet's charge cut-off voltage."
+        },
+        {
+          "key": "cell_resistance_ohm",
+          "variability": "fixed",
+          "label": "Cell DC Resistance",
+          "unit": "Ω",
+          "default": 0.02,
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "One cell's resistance for a 10 s pulse at 25 °C and 50 % SOC. The Cell Resistance Factor and Cell Temperature Factor tables scale it for other pulse lengths, charges and temperatures.",
+          "typical": "21700 cells 15–30 mΩ (the default 20 mΩ) · high-power 18650 cells 10–20 mΩ · large pouch cells 0.5–2 mΩ.",
+          "whereToFind": "The cell datasheet's DC internal resistance (DCIR), or a pulse test: the voltage step ÷ the current step after 10 s."
+        },
+        {
+          "key": "cell_resistance_factor",
+          "variability": "fixed",
+          "label": "Cell Resistance Factor",
+          "unit": "-",
+          "type": "table2d",
+          "axes": [
+            {
+              "name": "Pulse Length",
+              "unit": "s",
+              "outside": "clamp"
+            },
+            {
+              "name": "SOC",
+              "unit": "%",
+              "outside": "clamp"
+            }
+          ],
+          "default": {
+            "2": {
+              "0": 1.53,
+              "10": 1.105,
+              "20": 0.935,
+              "50": 0.85,
+              "80": 0.85,
+              "100": 0.8925
+            },
+            "10": {
+              "0": 1.8,
+              "10": 1.3,
+              "20": 1.1,
+              "50": 1.0,
+              "80": 1.0,
+              "100": 1.05
+            },
+            "30": {
+              "0": 2.16,
+              "10": 1.56,
+              "20": 1.32,
+              "50": 1.2,
+              "80": 1.2,
+              "100": 1.26
+            },
+            "120": {
+              "0": 2.7,
+              "10": 1.95,
+              "20": 1.65,
+              "50": 1.5,
+              "80": 1.5,
+              "100": 1.575
+            }
+          },
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "The cell's resistance as a multiple of its DC resistance, by how long the current has flowed one way (the pulse length) and the SOC: longer pulses and low charge sag more. Held at the table's edges. The default is an estimate.",
+          "typical": "About 0.85 for a 2 s pulse, 1.0 at 10 s, 1.2 at 30 s and 1.5 at 120 s, rising to about 1.8 near empty (the default shape, an estimate).",
+          "whereToFind": "A hybrid pulse power characterisation (HPPC) test: the resistance after 2, 10, 30 and 120 s at several SOCs, divided by the 10 s, 50 % value."
+        },
+        {
+          "key": "cell_temperature_factor",
+          "variability": "fixed",
+          "label": "Cell Temperature Factor",
+          "unit": "-",
+          "type": "table1d",
+          "axes": [
+            {
+              "name": "Cell Temperature",
+              "unit": "°C",
+              "outside": "clamp"
+            }
+          ],
+          "default": {
+            "-20": 4.0,
+            "-10": 2.6,
+            "0": 1.8,
+            "10": 1.35,
+            "25": 1.0,
+            "40": 0.8,
+            "60": 0.7
+          },
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "The cell's resistance as a multiple of its value at 25 °C. The cells are at the first Ambient's temperature (20 °C without one) until LightSim has a thermal model. The default is an estimate for lithium-ion cells.",
+          "typical": "About 1.8 at 0 °C, 2.6 at −10 °C and 4 at −20 °C (the default, an estimate).",
+          "whereToFind": "The cell datasheet's resistance against temperature, or pulse tests in a climate chamber."
+        },
+        {
+          "key": "cell_max_discharge_A",
+          "variability": "fixed",
+          "label": "Cell Continuous Discharge Current",
+          "unit": "A",
+          "default": 15,
+          "type": "number",
+          "minimum": 0,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "The current one cell may give for pulses longer than the Peak Duration; the pack gives this × the cells in parallel. 0 = no limit.",
+          "typical": "21700 energy cells 10–20 A (the default 15 A, 3C) · power cells 30–45 A.",
+          "whereToFind": "The cell datasheet's maximum continuous discharge current."
+        },
+        {
+          "key": "cell_peak_discharge_A",
+          "variability": "fixed",
+          "label": "Cell Peak Discharge Current",
+          "unit": "A",
+          "default": 30,
+          "type": "number",
+          "minimum": 0,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "The current one cell may give in a pulse up to the Peak Duration. 0 = the continuous current.",
+          "typical": "About twice the continuous current (the default 30 A, 6C, for 10 s).",
+          "whereToFind": "The cell datasheet's pulse (peak) discharge current and its duration."
+        },
+        {
+          "key": "cell_max_charge_A",
+          "variability": "fixed",
+          "label": "Cell Continuous Charge Current",
+          "unit": "A",
+          "default": 5,
+          "type": "number",
+          "minimum": 0,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "The current one cell may take for pulses longer than the Peak Duration, while recuperating or charged by a DC-DC converter. 0 = no limit.",
+          "typical": "21700 energy cells 1–2C (the default 5 A, 1C) · fast-charge cells 3–4C.",
+          "whereToFind": "The cell datasheet's maximum continuous charge current."
+        },
+        {
+          "key": "cell_peak_charge_A",
+          "variability": "fixed",
+          "label": "Cell Peak Charge Current",
+          "unit": "A",
+          "default": 10,
+          "type": "number",
+          "minimum": 0,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "The current one cell may take in a pulse up to the Peak Duration (regenerative braking). 0 = the continuous current.",
+          "typical": "About twice the continuous charge current (the default 10 A, 2C, for 10 s).",
+          "whereToFind": "The cell datasheet's pulse charge (regen) current and its duration."
+        },
+        {
+          "key": "cell_peak_duration_s",
+          "variability": "fixed",
+          "label": "Peak Duration",
+          "unit": "s",
+          "default": 10,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 600,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "How long the peak currents may flow: once the current has flowed one way for longer, the continuous currents apply.",
+          "typical": "10 s (the default) · 2–30 s on datasheets.",
+          "whereToFind": "The cell datasheet's pulse current rating."
+        },
+        {
+          "key": "interconnect_resistance_ohm",
+          "variability": "fixed",
+          "label": "Interconnect Resistance (per series group)",
+          "unit": "Ω",
+          "default": 0.0002,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "The resistance of the busbars, welds and fuses between one series group and the next; the pack adds it once per cell in series.",
+          "typical": "0.1–0.5 mΩ per series group (the default 0.2 mΩ).",
+          "whereToFind": "The pack's measured resistance minus the cells', ÷ the cells in series; or the busbar design."
+        },
+        {
+          "key": "contactor_resistance_ohm",
+          "variability": "fixed",
+          "label": "Contactor and Cable Resistance",
+          "unit": "Ω",
+          "default": 0.0005,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "The resistance of the main contactors, fuse and cables to the pack's terminals, added once.",
+          "typical": "0.3–2 mΩ (the default 0.5 mΩ).",
+          "whereToFind": "The contactors' and fuse's datasheets plus the cables' resistance."
+        },
+        {
+          "key": "cell_mass_kg",
+          "variability": "fixed",
+          "label": "Cell Mass",
+          "unit": "kg",
+          "default": 0.07,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 50,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "One cell's mass. The run summary gives the pack's estimated mass: cells × this × the Packaging Factor. It does not change the Vehicle Mass.",
+          "typical": "18650 cells 0.045–0.05 kg · 21700 cells 0.065–0.07 kg (the default) · pouch cells 0.3–1 kg.",
+          "whereToFind": "The cell datasheet's mass."
+        },
+        {
+          "key": "packaging_factor",
+          "variability": "fixed",
+          "label": "Packaging Factor",
+          "unit": "-",
+          "default": 1.4,
+          "type": "number",
+          "minimum": 1,
+          "maximum": 5,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "The pack's mass ÷ its cells' mass: housing, busbars, cooling and electronics. An estimate.",
+          "typical": "Car packs 1.3–1.6 (the default 1.4) · Formula Student accumulators 1.3–1.8.",
+          "whereToFind": "A comparable pack's mass ÷ its cells' mass, or your design's mass budget."
+        },
+        {
+          "key": "weak_cell_capacity_pct",
+          "variability": "fixed",
+          "label": "Weakest Group Capacity",
+          "unit": "%",
+          "default": 100,
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "One series group's capacity as a share of the others' (an aged or weak group). It empties first, so the pack's limits follow it. 100 % = all groups alike.",
+          "typical": "100 % for a new pack (the default) · 90–97 % for an aged one.",
+          "whereToFind": "The battery management system's lowest group capacity, or cell-matching data."
+        },
+        {
+          "key": "weak_cell_resistance_pct",
+          "variability": "fixed",
+          "label": "Weakest Group Resistance",
+          "unit": "%",
+          "default": 100,
+          "type": "number",
+          "minimum": 50,
+          "maximum": 1000,
+          "showIf": {
+            "key": "pack_model",
+            "values": [
+              "Cells"
+            ]
+          },
+          "description": "One series group's resistance as a share of the others'. It sags most under load, so the pack's voltage limit follows it. 100 % = all groups alike.",
+          "typical": "100 % for a new pack (the default) · 110–150 % for an aged or poorly cooled group.",
+          "whereToFind": "The battery management system's group resistance readings, or cell-matching data."
+        },
+        {
+          "key": "soc_derate_band_pct",
+          "variability": "fixed",
+          "label": "SOC Derating Band",
+          "unit": "%",
+          "default": 0,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 50,
+          "description": "Within this many SOC points above the Minimum SOC the discharge current limit falls linearly to 0, and within this many below 100 % the charge limit, as a battery management system eases off near empty and full. 0 = off.",
+          "typical": "0 (the default) · 2–10 % for a BMS that derates near its limits (FASTSim's buffers).",
+          "whereToFind": "The battery management system's power-limit maps against SOC."
         }
       ],
       "presets": [
@@ -606,9 +1229,10 @@
             "output_power_limit_kW": 80,
             "power_limit_window_s": 0.5,
             "voltage_class_V": 600,
-            "power_limit_enforced": true
+            "power_limit_enforced": true,
+            "max_discharge_current_A": 500
           },
-          "note": "FS Rules 2026 v1.1 (FSG): 80 kW at the accumulator outlet (EV 2.2.1), measured as volts × amps (EV 4.6.1), 600 V DC (EV 4.1.1), judged on a 500 ms moving average (D 10.4.1). FSUK 2026 Rules V1.0 (EV2.3.1, EV4.1.1) and FSAE Rules 2025 V1.0 (EV.3.3, EV.3.4) set the same 80 kW and 600 V but differ in detail: FSAE also judges 100 ms at a time (set the window to 0 for a check at least as strict) and allows no regeneration below 5 km/h. Not modelled: the 500 A current limit (FSG EV 2.2.2, FSUK EV2.3.1; MOD-08). Check the current season's rules before you rely on these values."
+          "note": "FS Rules 2026 v1.1 (FSG): 80 kW at the accumulator outlet (EV 2.2.1), measured as volts × amps (EV 4.6.1), 600 V DC (EV 4.1.1), judged on a 500 ms moving average (D 10.4.1). FSUK 2026 Rules V1.0 (EV2.3.1, EV4.1.1) and FSAE Rules 2025 V1.0 (EV.3.3, EV.3.4) set the same 80 kW and 600 V but differ in detail: FSAE also judges 100 ms at a time (set the window to 0 for a check at least as strict) and allows no regeneration below 5 km/h. 500 A as the pack's Max Discharge Current (FSG EV 2.2.2, FSUK EV2.3.1; with Defined By: Cells, set the cells' currents instead). Check the current season's rules before you rely on these values."
         }
       ]
     },

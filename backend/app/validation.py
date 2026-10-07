@@ -31,6 +31,7 @@ from .solver import (
     parse_table2d,
     profile_problems,
 )
+from .solver.battery import CELLS
 from .solver.maps import inner_range
 from .solver.network import (
     AXLE_GEAR_TYPES,
@@ -41,7 +42,7 @@ from .solver.network import (
     SIGNAL_BLOCK_TYPES,
     ports_of,
 )
-from .solver.runtime import AMBIENT_C, AMBIENT_KPA, air_density
+from .solver.runtime import AMBIENT_C, AMBIENT_KPA, air_density, ocv_mean
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
 PROPULSION = {
@@ -697,14 +698,19 @@ def _plausibility_checks(model: Model, add: Add) -> None:
             if soc0 is not None and soc_min is not None and soc0 <= soc_min:
                 add("warning", f"'{el.label}' starts at {soc0:g} % SOC, at or below its "
                                f"minimum of {soc_min:g} % — it can deliver no energy.", el)
+            cells = p.get("pack_model") == CELLS
+            n_s = max(1, round(num(p, "series_cells") or 96)) if cells else 1
+            table = "cell_ocv_table" if cells else "ocv_table"
+            if cells:
+                _cell_pack_checks(p, el, add)
             v_class = num(p, "voltage_class_V")
             if v_class is not None and v_class > 0:
                 try:  # read at 100 % as the run reads it
-                    ocv = parse_table1d(p.get("ocv_table"))
+                    ocv = parse_table1d(p.get(table))
                 except TableError:
                     ocv = []  # reported with the other parameters
-                linear = (el.tableOutside.get("ocv_table") or [""])[0] == "linear"
-                v_full = interp1(ocv, 100.0, linear) if ocv else 0.0
+                linear = (el.tableOutside.get(table) or [""])[0] == "linear"
+                v_full = n_s * interp1(ocv, 100.0, linear) if ocv else 0.0
                 if v_full > v_class:
                     add("warning", f"'{el.label}' reaches {v_full:g} V open-circuit at 100 % "
                                    f"SOC, above its Voltage Class of {v_class:g} V — fewer cells "
@@ -746,6 +752,41 @@ def _plausibility_checks(model: Model, add: Add) -> None:
         add("error", f"Vehicle '{veh.label}' has a Centre of Gravity Height of {h:g} m, but all "
                      f"its wheels are on the {on} axle, so no load can shift between "
                      f"axles. Set Axle to {fix} wheels.", veh, ids=[w.el_id for w in wheels])
+
+
+def _cell_pack_checks(p: dict, el, add: Add) -> None:
+    """A battery built from cells (MOD-08): what its layout gives (info),
+    and cell limits that leave the cells no room (warnings)."""
+    def num(key: str, default: float) -> float:
+        try:
+            return float(p.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    n_s, n_p = max(1, round(num("series_cells", 96))), max(1, round(num("parallel_cells", 30)))
+    try:
+        ocv = parse_table1d(p.get("cell_ocv_table"))
+    except TableError:
+        return  # reported with the other parameters
+    cap = num("cell_capacity_Ah", 5.0)
+    r_pack = (n_s * num("cell_resistance_ohm", 0.02) / n_p + n_s * num("interconnect_resistance_ohm", 0.0002)
+              + num("contactor_resistance_ohm", 0.0005))
+    v_lo, v_hi = n_s * ocv[0][1], n_s * ocv[-1][1]
+    kwh = n_p * cap * n_s * ocv_mean(ocv) / 1000.0
+    mass = n_s * n_p * num("cell_mass_kg", 0.07) * max(1.0, num("packaging_factor", 1.4))
+    add("info", f"'{el.label}' is built from cells: {n_s}s{n_p}p of {cap:g} Ah gives "
+                f"{n_p * cap:g} Ah, {kwh:.1f} kWh, {v_lo:.0f}–{v_hi:.0f} V open-circuit, "
+                f"{r_pack * 1000:.1f} mΩ for a 10 s pulse at 25 °C and 50 % SOC, and about "
+                f"{mass:.0f} kg (an estimate; the Vehicle Mass is not changed).", el)
+    v_min, v_max = num("cell_min_voltage_V", 2.5), num("cell_max_voltage_V", 4.2)
+    if v_min > 0 and v_min >= ocv[-1][1]:
+        add("warning", f"'{el.label}' has a Cell Minimum Voltage of {v_min:g} V, at or above "
+                       f"the cell's open-circuit voltage when full ({ocv[-1][1]:g} V): it can "
+                       f"give no current. Check the value.", el)
+    if v_max > 0 and v_max <= ocv[0][1]:
+        add("warning", f"'{el.label}' has a Cell Maximum Voltage of {v_max:g} V, at or below "
+                       f"the cell's open-circuit voltage when empty ({ocv[0][1]:g} V): it can "
+                       f"take no charge. Check the value.", el)
 
 
 def _map_checks(model: Model, add: Add) -> None:

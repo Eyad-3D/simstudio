@@ -165,6 +165,13 @@ class BatteryState:
     p_low_w: float = 0.0  # the lowest terminal power over a solver step (charging), W
     p2_j: float = 0.0  # ∫ terminal power² dt, W²·s (for its RMS power)
     flow: Optional[object] = None  # its energy.Flow (MOD-10)
+    # built from cells or with pack limits (battery.CellPack, MOD-08), and
+    # this step's current limits (A) and window (W) from the handshake
+    cells: Optional[object] = None
+    i_dis_lim: float = math.inf
+    i_ch_lim: float = math.inf
+    deliver_w: float = math.inf
+    absorb_w: float = math.inf
     _ocv_at: tuple = (math.nan, None, 0.0)  # (SOC, OCV table, OCV) last read (ocv())
     # the Output Power Limit the terminals are held to, W (output_power_cap_w),
     # whether it and not the cells set this step's deliverable power, and the
@@ -178,7 +185,10 @@ class BatteryState:
         the source-limit handshake and the bus read it at the same one)."""
         soc = self.soc
         if soc != self._ocv_at[0] or self.ocv_map.pts is not self._ocv_at[1]:
-            self._ocv_at = (soc, self.ocv_map.pts, self.ocv_map.at(self.soc_pct()))
+            v = self.ocv_map.at(self.soc_pct())
+            if self.cells is not None:  # a weak group sags the pack (MOD-08)
+                v += self.cells.weak_shift(soc)
+            self._ocv_at = (soc, self.ocv_map.pts, v)
         return self._ocv_at[2]
 
     def soc_pct(self) -> float:

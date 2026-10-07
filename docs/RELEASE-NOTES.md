@@ -111,10 +111,11 @@ sections.
   Car, an 80 kW limit takes its 0-100 km/h from 7.10 to 12.76 s.
 - Summary rows can carry a limit and a *pass* or *fail* marker.
 - Presets: the battery's *Apply preset: Formula Student Electric* sets
-  80 kW, a 0.5 s window, 600 V and Hold Power to Limit in one step (one
-  undo). Its values come from FS Rules 2026 v1.1 (FSG) EV 2.2.1, EV 4.1.1
-  and D 10.4.1, checked against FSUK 2026 Rules V1.0 and FSAE Rules 2025
-  V1.0, which differ in detail; the 500 A current limit is not modelled.
+  80 kW, a 0.5 s window, 600 V, Hold Power to Limit and a 500 A *Max
+  Discharge Current* in one step (one undo). Its values come from FS Rules
+  2026 v1.1 (FSG) EV 2.2.1, EV 2.2.2, EV 4.1.1 and D 10.4.1, checked
+  against FSUK 2026 Rules V1.0 and FSAE Rules 2025 V1.0, which differ in
+  detail.
   Check the current season's rules before relying on them.
 - Load transfer and downforce: the Vehicle gets a *Centre of Gravity
   Height*, a *Wheelbase*, a *Downforce Area (CzA)* (negative for lift) and
@@ -405,6 +406,36 @@ sections.
   0.421 and the 0.25 kW consumer 0.042 kWh. Pages that draw these as flows
   come later (RES-22, RES-07); an energy audit table is VAL-03. Bookkeeping
   every part every solver step costs about 3-6 % of a run's time. (MOD-10)
+- Battery: *Defined By* *Pack values* (as before) or *Cells*. With *Cells*
+  you enter a cell datasheet (capacity, open-circuit voltage curve, minimum
+  and maximum voltage, DC resistance, continuous and peak currents, mass)
+  and a layout (*Cells in Series* × *Cells in Parallel*, e.g. 96s30p), and
+  LightSim builds the pack: its charge capacity, voltage and resistance
+  (with interconnect and contactor resistance), and an estimate of its mass
+  (cells × cell mass × a *Packaging Factor*), all given in Data Checks
+  before the run and in the summary after it. The resistance rises with the
+  pulse length (2 to 120 s, as VECTO's tables do), at low charge and in the
+  cold (*Cell Resistance Factor* and *Cell Temperature Factor*, estimates by
+  default; the cells are at the Ambient's temperature), so the pack sags in
+  long pulses and in winter: the Battery Electric Car built from 96s30p
+  21700-type cells takes 7.32 s to 100 km/h at −7 °C against 7.09 s at
+  20 °C. The battery management system's limits hold: the current never
+  exceeds the cells' continuous or, for pulses up to the *Peak Duration*,
+  peak current, no cell goes below its minimum or above its maximum
+  voltage, and an optional *Weakest Group* (less capacity, more resistance)
+  sets them, as the weakest module does in a real string. New channels:
+  *Discharge* and *Charge Power Limit* for 2, 10 and 30 s (the state of
+  power), *Discharge* and *Charge Current Limit*, *Lowest* and *Highest
+  Cell Voltage*; the summary gives the time held at each limit and the
+  lowest and highest cell voltage. With *Pack values*, a *Max Discharge
+  Current*, *Max Charge Current*, *Minimum* and *Maximum Pack Voltage* (0 =
+  none) do the same for the whole pack: at 300 A the Battery Electric Car
+  takes 10.02 s to 100 km/h instead of 7.10. A *SOC Derating Band* (both
+  modes) lowers the limits linearly to 0 near empty and full, as FASTSim's
+  buffers do. The Formula Student car built from 138s4p cells with a 30 A
+  peak (120 A) takes 3.886 s over 75 m instead of 3.744. The parameter
+  dialog shows only the fields of the mode chosen. Existing models and the
+  examples do not change. (MOD-08)
 
 ### Fixed
 

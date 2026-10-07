@@ -130,15 +130,36 @@ summary table.
 level); MOD-16 (a tyre whose force drops past its peak, so wheelspin
 costs time); RES-38 (time per limiting regime and peak slip).
 
-### A battery has a power limit but no current limit
+### Battery limits are a battery management system's tables, not cell physics
 
 A battery delivers power up to its maximum-power point (the most its
-internal resistance lets through: about 420 kW for the default pack at 90 %
+resistance lets through: about 420 kW for the default pack at 90 %
 charge), or up to its *Output Power Limit* when one is set, and takes back
-up to its *Max Charge Power*. There are no current limits: the 500 A limit
-of Formula Student (FS Rules 2026 v1.1 (FSG) EV 2.2.2, FSUK 2026 EV2.3.1) is
-not modelled or checked. Fuel cells have no ramp rate, and DC-DC converters
-have no power rating.
+up to its *Max Charge Power*. Since 0.3 it can also hold the current and
+voltage as a battery management system does: with *Defined By: Pack
+values*, a *Max Discharge Current*, *Max Charge Current* and minimum and
+maximum pack voltage (0 = none, as in every existing model); with
+*Defined By: Cells*, the cells' continuous and peak currents and their
+minimum and maximum voltage, for the weakest series group. These are the
+limits a BMS keeps (fidelity L1), with these simplifications:
+
+- The resistance comes from tables (pulse length, SOC, temperature), not an
+  electrochemical model; the default tables are estimates. The pulse length
+  is the time the current has flowed one way, so the step after the current
+  reverses still uses the old pulse's resistance.
+- The cells are at the first Ambient's temperature: they do not warm up
+  under load (MOD-09). There is no hysteresis and no second RC pair
+  (MOD-51), and no ageing.
+- A cell's voltage limit is met at the start of each 10 ms step; the
+  open-circuit voltage then falls a little over the step, so a cell can end
+  it a few millivolts past its limit (at most 2 mV in the tests).
+- The 2, 10 and 30 s power-limit channels are the state of power for a
+  pulse starting from the present state; the handshake holds the motors to
+  the limit of the pulse going on (the 2 s values at a pulse's start).
+- No pulse test has been compared with a published cell's data yet (that
+  needs a licence-clear cell data set, CON-19).
+
+Fuel cells have no ramp rate, and DC-DC converters have no power rating.
 
 The Output Power Limit is ideal: it holds the terminal power (volts × amps)
 exactly at every solver step, with none of a real limiter's lag or
@@ -150,10 +171,10 @@ over the limit is a violation is not counted on its own (a window of 0
 gives a check at least as strict). The *Voltage Class* check compares the
 highest terminal voltage of a solver step, not a 500 ms average.
 
-*Workaround:* check the battery's *Current* channel against what the real
-pack or its management system allows, and reduce the motor's torque map or
-add a limit in a Script if needed.
-*Roadmap:* MOD-08 (current limits), ENG-02 (follow-up).
+*Workaround:* for a real pack, fit the resistance tables to a pulse test
+(HPPC) of its cells.
+*Roadmap:* MOD-09 (cell temperature), MOD-51 (2RC and hysteresis), ENG-02
+(follow-up).
 
 ### Lap mode is a quasi-steady-state estimate
 
@@ -442,8 +463,10 @@ minimum or an average, for example from the CSV export, or put the
   Rules 2026 v1.1 (FSG) EV 2.2.4 forbids; at 20 % they lock only below
   walking pace).
   Lap mode holds regeneration to the rear tyres' grip, so the example's
-  own cases hardly depend on it. The 500 A current limit (EV 2.2.2) is not
-  checked (the cases stay under 160 A), nor are the cells' own limits:
+  own cases hardly depend on it. The 500 A current limit (EV 2.2.2) is
+  not set in the example (its cases stay under 160 A; the battery's preset
+  sets it), and its pack is defined by pack values, so the cells' own limits
+  are not checked:
   recuperating into the full pack raises its cells to about 4.3 V (594 V),
   which a real accumulator management system would not allow. A
   two-motor variant is not shipped.

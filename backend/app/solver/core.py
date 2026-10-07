@@ -30,6 +30,7 @@ from typing import Callable, Iterator, Optional
 from ..library import unit_groups
 from ..schemas import Channel, Project, SimMessage, SimResult, SummaryValue
 from . import lapsim
+from .battery import SOP_PULSES, sop
 from .domains import ModelInitError, RunContext, build_slaves
 from .energy import add_lap, energy_flows
 from .maps import OutsideDataError
@@ -327,6 +328,25 @@ def simulate(
             summary.append(SummaryValue(label=f"{label} — energy delivered", value=round(b.energy_out_wh / 1000.0, 3), unit="kWh"))
             summary.append(SummaryValue(label=f"{label} — energy recuperated", value=round(b.energy_in_wh / 1000.0, 3), unit="kWh"))
             summary.append(SummaryValue(label=f"{label} — internal losses", value=round(b.loss_wh / 1000.0, 4), unit="kWh"))
+            cp = b.cells
+            if cp is not None and cp.cells:  # built from cells (MOD-08)
+                summary.append(SummaryValue(label=f"{label} — layout",
+                                            value=float(cp.ns * cp.np), unit="cells"))
+                summary.append(SummaryValue(label=f"{label} — charge capacity",
+                                            value=round(b.q_ah, 3), unit="Ah"))
+                summary.append(SummaryValue(label=f"{label} — pack mass (estimate)",
+                                            value=round(cp.mass_kg, 1), unit="kg"))
+                if cp.v_cell_low < math.inf:
+                    summary.append(SummaryValue(label=f"{label} — lowest cell voltage",
+                                                value=round(cp.v_cell_low, 4), unit="V",
+                                                limit=cp.v_min or None))
+                    summary.append(SummaryValue(label=f"{label} — highest cell voltage",
+                                                value=round(cp.v_cell_high, 4), unit="V",
+                                                limit=cp.v_max or None))
+            if cp is not None:
+                for what, secs in sorted(cp.limit_s.items()):
+                    summary.append(SummaryValue(label=f"{label} — time at {what} limit",
+                                                value=round(secs, 2), unit="s"))
             if b.check is not None:  # an Output Power Limit or a Voltage Class
                 rows, problems = terminal_checks(label, b.check, usable_energy_left_wh(b) / 1000.0,
                                                  b.depleted_flagged)
@@ -614,6 +634,19 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
             yield el_id, "sig_power", lambda b=b: b.power_w / 1000.0
             # what the cells give up less what reaches the terminals
             yield el_id, "sig_losses", lambda b=b: (b.chem_w - b.power_w) / 1000.0
+            cp = b.cells
+            if cp is not None:  # its BMS's limits (MOD-08)
+                yield el_id, "sig_i_dis_limit", lambda b=b: (
+                    b.i_dis_lim if b.i_dis_lim < math.inf else None)
+                yield el_id, "sig_i_ch_limit", lambda b=b: (
+                    b.i_ch_lim if b.i_ch_lim < math.inf else None)
+            if cp is not None and cp.cells:
+                yield el_id, "sig_v_cell_min", lambda cp=cp: cp.v_cell[0]
+                yield el_id, "sig_v_cell_max", lambda cp=cp: cp.v_cell[1]
+                for k, d in enumerate(SOP_PULSES):
+                    for side, port in ((0, f"sig_p_dis_{d:g}s"), (1, f"sig_p_ch_{d:g}s")):
+                        yield el_id, port, lambda b=b, k=k, side=side: (
+                            _state_of_power(ctx, b)[k][side] / 1000.0)
         elif tdef == "motor.emotor" and el_id in ctx.motors:
             mc = ctx.motors[el_id]
             yield el_id, "sig_speed", lambda mc=mc: mc.rpm
@@ -743,6 +776,15 @@ def _flow_kw(ctx: RunContext, el_id: str, attr: str) -> Optional[float]:
     if p is None:  # not booked yet: 0 at point 0, as computed values read there
         return None if ctx.lap is not None else 0.0
     return p / 1000.0
+
+
+def _state_of_power(ctx: RunContext, b) -> list[tuple[float, float]]:
+    """A battery built from cells: its state of power now (battery.sop),
+    worked out once per recorded point."""
+    key = (ctx.book.n, b.soc, b.v_rc)
+    if b.cells.sop_at[0] != key:
+        b.cells.sop_at = (key, sop(b.cells, b.soc, b.min_soc, ctx.ambient_c(), b.ocv(), b.v_rc))
+    return b.cells.sop_at[1]
 
 
 def _dcdc_kw(ctx: RunContext, el_id: str, which: str) -> Optional[float]:

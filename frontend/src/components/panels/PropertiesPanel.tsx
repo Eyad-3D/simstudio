@@ -15,6 +15,7 @@ import type {
   ParameterDef,
   ParamValue,
   PortDef,
+  ScalarValue,
   Table1D,
   Table2D,
 } from "../../types";
@@ -786,10 +787,19 @@ export function ElementForm({
   // gets a full-width row of its own below the table
   const drivingTask = def.id === "signal.driving_task";
   const cycleId = String(element.parameterOverrides.cycle ?? "");
-  const scalarParams = useMemo(() => def.parameters.filter((p) => !isBig(p) && p.key !== "cycle"), [def]);
+  // a parameter that applies only to one setting of another is hidden otherwise
+  const shown = useMemo(() => {
+    const value = (key: string) =>
+      element.parameterOverrides[key] ?? def.parameters.find((q) => q.key === key)?.default;
+    return (p: ParameterDef) => !p.showIf || p.showIf.values.includes(value(p.showIf.key) as ScalarValue);
+  }, [def, element.parameterOverrides]);
+  const scalarParams = useMemo(
+    () => def.parameters.filter((p) => !isBig(p) && p.key !== "cycle" && shown(p)),
+    [def, shown],
+  );
   const bigParams = useMemo(
-    () => def.parameters.filter((p) => isBig(p) && !(drivingTask && cycleId && isProfile(p))),
-    [def, drivingTask, cycleId],
+    () => def.parameters.filter((p) => isBig(p) && !(drivingTask && cycleId && isProfile(p)) && shown(p)),
+    [def, drivingTask, cycleId, shown],
   );
   const valueOf = (p: ParameterDef): ParamValue =>
     element.parameterOverrides[p.key] ?? p.default;
