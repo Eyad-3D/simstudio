@@ -12,7 +12,7 @@ it("sketches the typed profile only while no cycle is named", async () => {
   const points: [number, number][] = [[0, 0], [600, 80]];
   act(() => useProjectStore.setState({ cycles: [] }));
   await act(async () => root.render(<CyclePreview cycleId="" points={points} />));
-  expect(host.textContent).toMatch(/^Custom profile: 600 s/);
+  expect(host.textContent).toMatch(/^Custom profile \(not a standard cycle\): 600 s/);
   // a newer file's cycle this version lacks: the typed profile is not what runs
   await act(async () => root.render(<CyclePreview cycleId="nedc" points={points} />));
   expect(host.textContent).toBe("");

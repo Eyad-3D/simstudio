@@ -338,6 +338,7 @@ class EngineCache:
     fuel_kgh: float = 0.0
     p_mech_w: float = 0.0
     fuel_used_kg: float = 0.0
+    work_wh: float = 0.0  # brake work while fired, W·h
     stalled_flagged: bool = False
     flow: Optional[object] = None  # its energy.Flow (MOD-10), booked in engine_torque
     mech: list = field(default_factory=lambda: [0.0] * 6)  # as MotorCache.mech

@@ -102,10 +102,20 @@ add("Reference", "reference/components/index.md", "# Components\n\nEvery part in
   [...new Set(lib.components.map((c) => c.category))].map((cat) => `## ${cat}\n\n` + lib.components.filter((c) => c.category === cat)
     .map((c) => `- [${c.name}](${c.id}.md): ${cell((c.description ?? "").split(/(?<=\.) /)[0])}`).join("\n")).join("\n\n"));
 const cycles = JSON.parse(read("backend/app/cycles/cycles.json")).cycles;
+// duration, distance and top speed from the trace itself, as the app shows them
+const traceFigures = (id) => {
+  const rows = read(`backend/app/cycles/${id}.csv`).trim().split("\n").slice(1).map((l) => l.split(",").map(Number));
+  const km = rows.slice(1).reduce((s, [t, v], i) => s + ((t - rows[i][0]) * (v + rows[i][1])) / 7200, 0);
+  return { s: rows[rows.length - 1][0] - rows[0][0], km, vmax: Math.max(...rows.map((r) => r[1])), grade: rows[0].length > 2 };
+};
 add("Reference", "reference/drive-cycles.md", "# Drive cycles\n\nThe standard cycles LightSim includes. Pick one in a Driving Task's " +
-  "**Drive Cycle** field ([how](../how-to/pick-a-drive-cycle.md)). Where the traces come from: [Data sources](../../DATA-REGISTER.md).\n\n" +
-  "| Cycle | Id | Region | Duration | Distance | Phases |\n|---|---|---|---|---|---|\n" + Object.entries(cycles).map(([id, c]) =>
-    `| ${c.name} | \`${id}\` | ${c.region} | ${c.published[0].toLocaleString("en")} s | ${c.published[1].toFixed(2)} km | ${c.phases.map((p) => p[0]).join(", ") || "none"} |`).join("\n") + "\n");
+  "**Drive Cycle** field ([how](../how-to/pick-a-drive-cycle.md)); a Road Profile's **Grade From Cycle** takes the road grade of a cycle that has one. " +
+  "Each cycle comes from an official text whose terms allow LightSim to ship it, or from a permissive copy checked against one. " +
+  "Where each trace comes from, and on what terms: [Data sources](../../DATA-REGISTER.md), by the register row in the last column.\n\n" +
+  "| Cycle | Id | Region | Duration | Distance | Top speed | Phases | Source | Row |\n|---|---|---|---|---|---|---|---|---|\n" + Object.entries(cycles).map(([id, c]) => {
+    const f = traceFigures(id);
+    return `| ${c.name}${f.grade ? " (with grade)" : ""} | \`${id}\` | ${c.region} | ${f.s.toLocaleString("en")} s | ${f.km.toFixed(2)} km | ${f.vmax.toFixed(1)} km/h | ${c.phases.map((p) => p[0]).join(", ") || "none"} | ${cell(c.source)} | ${c.register} |`;
+  }).join("\n") + "\n");
 
 // ---- anchors: heading ids as GitHub makes them, so links match the repo ----
 const slugger = () => {

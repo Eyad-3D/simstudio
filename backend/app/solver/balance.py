@@ -19,12 +19,13 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from ..schemas import Project, SimMessage, SimResult, SummaryValue
+from .energy import FUEL_LHV_MJ
 from .network import ModelError, build_model
 from .runtime import ocv_mean
 
 BALANCE_SHARE = 0.01  # battery energy change / fuel energy that counts as balanced
 MAX_RUNS = 5
-LHV_MJ_PER_KG = 43.0  # petrol, when no fuel tank sets one (background knowledge)
+LHV_MJ_PER_KG = FUEL_LHV_MJ  # petrol, when no fuel tank sets one
 
 RunFn = Callable[..., SimResult]
 

@@ -534,6 +534,19 @@
           "whereToFind": "A cell test: the charge given out divided by the charge put in over a full cycle at the same temperature; cell papers and some datasheets quote it."
         },
         {
+          "key": "charger_efficiency_pct",
+          "variability": "fixed",
+          "label": "Charger Efficiency",
+          "unit": "%",
+          "default": 86,
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 100,
+          "description": "The share of the energy taken from the charging socket that reaches the battery terminals. Not used by the run itself: the summary divides the battery's net energy by it for Consumption at the socket (AC), the figure WLTP and EPA quote for electric cars.",
+          "typical": "86 % (the default, FASTSim's value for plug-in vehicles); about 85-92 % for AC charging, more for DC fast charging (background knowledge, unverified).",
+          "whereToFind": "A charging test: the energy into the battery terminals divided by the energy metered at the wall over a full recharge, charger and battery charging losses included."
+        },
+        {
           "key": "ocv_table",
           "showIf": {"key": "pack_model", "values": ["Pack values"]},
           "label": "Open-Circuit Voltage",
@@ -1764,10 +1777,10 @@
           "key": "power_kW",
           "label": "Constant Power Draw",
           "unit": "kW",
-          "default": 2.5,
+          "default": 0.25,
           "type": "number",
           "description": "The electrical power the consumer draws all the time, unless its Power demand input is wired. A negative value counts as 0. When its source cannot supply it, it is cut back and Messages says so.",
-          "typical": "Low-voltage loads 0.2–0.5 kW (the BEV example 0.25 kW) · heating or air-conditioning 1–3 kW (the BEV example's heating/air-con case 2.5 kW).",
+          "typical": "Low-voltage loads 0.2–0.5 kW (the default and the BEV example: 0.25 kW, FASTSim's auxiliary load) · heating or air-conditioning 1–3 kW (the BEV example's heating/air-con case 2.5 kW).",
           "whereToFind": "A logged current × voltage on the vehicle, or the loads' datasheet powers added up; FASTSim's vehicle files give an auxiliary load (auxKw)."
         }
       ]
@@ -2419,11 +2432,11 @@
           "key": "rolling_resistance",
           "label": "Rolling Resistance Coeff.",
           "unit": "-",
-          "default": 0.012,
+          "default": 0.0085,
           "type": "number",
           "minimum": 0,
           "description": "The tyre's rolling resistance: a force of this coefficient × the wheel's load holds the car back. Not used when the Vehicle takes its road load from Coefficients A/B/C.",
-          "typical": "Low-rolling-resistance car tyres 0.006–0.009 · other car tyres 0.010–0.013 (the BEV example 0.011) · Formula Student slicks 0.015–0.025.",
+          "typical": "Car tyres of EU label class C 0.0078–0.009 (the default, 0.0085) · low-rolling-resistance tyres 0.006–0.0077 · class D and E 0.0091 and up (the BEV example 0.011) · Formula Student slicks 0.015–0.025.",
           "whereToFind": "The tyre's EU label (class A: 0.0065 or less, class C: 0.0078–0.009), the tyre maker's data, or a coast-down fit."
         },
         {
@@ -2666,9 +2679,9 @@
           "default": "",
           "type": "string",
           "variability": "fixed",
-          "description": "A standard drive cycle the task follows instead of its typed Profile: WLTC class 3b, EPA city (UDDS) or EPA highway (HWFET). Custom profile drives the typed points. Scale and Repeat Profile still apply.",
-          "typical": "WLTC class 3b for European figures; EPA city and highway for US ones; Custom profile for your own test.",
-          "whereToFind": "The regulation your figures are compared with: WLTP (UN GTR No. 15) in Europe, EPA's city (FTP) and highway tests in the United States."
+          "description": "A standard drive cycle the task follows instead of its typed Profile: the WLTC classes and phases, NEDC, the EPA cycles (UDDS, HWFET, FTP-75, US06, SC03, LA92, New York City), motorcycle cycles and a truck route, each with its source. Custom profile drives the typed points. Scale and Repeat Profile still apply.",
+          "typical": "WLTC class 3b for most European cars; EPA city (UDDS) and highway (HWFET) for US figures; WMTC for motorcycles; Custom profile for your own test.",
+          "whereToFind": "The regulation your figures are compared with: WLTP (EU Regulation 2017/1151) in Europe, EPA's city and highway tests (40 CFR Parts 86 and 600) in the United States. The WLTC class follows from the vehicle's rated power per kg: class 3 above 34 W/kg."
         },
         {
           "key": "profile",
@@ -2829,6 +2842,28 @@
           "typical": "101.325 kPa at sea level; about 90 kPa at 1,000 m and 80 kPa at 2,000 m (1 bar = 100 kPa).",
           "whereToFind": "A weather record (the station pressure, not the value reduced to sea level), or the standard atmosphere at your altitude."
         }
+      ],
+      "presets": [
+        {
+          "name": "Cold day (−7 °C)",
+          "values": { "temperature_C": -7, "pressure_kPa": 101.325 },
+          "note": "The cold test temperature of EPA's cold FTP (20 °F, 40 CFR Part 86 Subpart C) and the EU's Type 6 low-temperature test (−7 °C), at sea-level pressure. Only the air density follows it: LightSim has no heating load from the outside temperature yet (MOD-41), so add the heater's power yourself, as the Battery Electric Car's winter case does."
+        },
+        {
+          "name": "Standard day (23 °C)",
+          "values": { "temperature_C": 23, "pressure_kPa": 101.325 },
+          "note": "The temperature of a WLTP Type 1 test (23 °C, Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 6), at sea-level pressure (101.325 kPa, the standard atmosphere)."
+        },
+        {
+          "name": "Hot and sunny day (35 °C)",
+          "values": { "temperature_C": 35, "pressure_kPa": 101.325 },
+          "note": "The temperature of EPA's air-conditioning test SC03 (95 °F, 40 CFR Part 86), at sea-level pressure. The test also shines 850 W/m² of simulated sun on the car; LightSim has no sun or air-conditioning load from the weather yet (MOD-41), so add the air-conditioning power yourself, as the Battery Electric Car's summer case does."
+        },
+        {
+          "name": "High altitude (1,500 m)",
+          "values": { "temperature_C": 5.25, "pressure_kPa": 84.56 },
+          "note": "The standard atmosphere (ISO 2533) at 1,500 m: 84.56 kPa and 5.25 °C (15 °C at sea level, 6.5 K colder per km), about 16 % thinner air than at sea level. Engine power does not fall with the thinner air in LightSim."
+        }
       ]
     },
     {
@@ -2968,13 +3003,18 @@
             { "name": "Torque", "unit": "N·m", "outside": "error" }
           ],
           "default": {
-            "800": { "0": 0.6, "50": 1.6, "100": 3.1, "150": 4.8, "175": 5.8 },
-            "1000": { "0": 0.6, "50": 1.6, "100": 3.1, "150": 4.8, "175": 5.8 },
-            "2000": { "0": 0.9, "50": 3.0, "100": 5.8, "150": 8.7, "175": 10.2 },
-            "3000": { "0": 1.4, "50": 4.5, "100": 8.6, "150": 12.9, "175": 15.2 },
-            "4000": { "0": 2.1, "50": 6.2, "100": 11.7, "150": 17.5, "175": 20.6 },
-            "5000": { "0": 3.0, "50": 8.1, "100": 15.2, "150": 22.7, "175": 26.8 },
-            "6000": { "0": 4.2, "50": 10.4, "100": 19.2, "150": 28.6, "175": 33.8 }
+            "800": { "0": 0.257, "10": 0.421, "20": 0.585, "30": 0.749, "45": 0.995, "60": 1.24, "80": 1.594, "100": 2.024, "120": 2.516, "140": 3.028, "160": 3.417, "175": 3.709 },
+            "1000": { "0": 0.327, "10": 0.531, "20": 0.735, "30": 0.939, "45": 1.244, "60": 1.55, "80": 1.962, "100": 2.433, "120": 2.991, "140": 3.607, "160": 4.148, "175": 4.502 },
+            "1500": { "0": 0.521, "10": 0.823, "20": 1.126, "30": 1.429, "45": 1.882, "60": 2.336, "80": 2.941, "100": 3.549, "120": 4.245, "140": 5.055, "160": 5.932, "175": 6.477 },
+            "2000": { "0": 0.744, "10": 1.144, "20": 1.545, "30": 1.946, "45": 2.547, "60": 3.148, "80": 3.948, "100": 4.75, "120": 5.568, "140": 6.523, "160": 7.594, "175": 8.449 },
+            "2500": { "0": 1.004, "10": 1.503, "20": 2.002, "30": 2.501, "45": 3.251, "60": 4.0, "80": 4.998, "100": 5.996, "120": 6.995, "140": 8.103, "160": 9.348, "175": 10.368 },
+            "3000": { "0": 1.307, "10": 1.907, "20": 2.507, "30": 3.107, "45": 4.007, "60": 4.906, "80": 6.106, "100": 7.306, "120": 8.506, "140": 9.786, "160": 11.227, "175": 12.427 },
+            "3500": { "0": 1.664, "10": 2.368, "20": 3.072, "30": 3.775, "45": 4.831, "60": 5.886, "80": 7.292, "100": 8.699, "120": 10.106, "140": 11.578, "160": 13.301, "175": 14.712 },
+            "4000": { "0": 2.087, "10": 2.898, "20": 3.71, "30": 4.521, "45": 5.738, "60": 6.955, "80": 8.578, "100": 10.201, "120": 11.826, "140": 13.495, "160": 15.512, "175": 17.143 },
+            "4500": { "0": 2.586, "10": 3.511, "20": 4.436, "30": 5.361, "45": 6.749, "60": 8.136, "80": 9.986, "100": 11.836, "120": 13.703, "140": 15.667, "160": 18.075, "175": 19.906 },
+            "5000": { "0": 3.176, "10": 4.222, "20": 5.268, "30": 6.314, "45": 7.883, "60": 9.453, "80": 11.545, "100": 13.637, "120": 15.812, "140": 18.267, "160": 21.105, "175": 22.954 },
+            "5500": { "0": 3.876, "10": 5.053, "20": 6.229, "30": 7.406, "45": 9.171, "60": 10.935, "80": 13.288, "100": 15.642, "120": 18.32, "140": 21.418, "160": 24.671, "175": 26.589 },
+            "6000": { "0": 4.71, "10": 6.027, "20": 7.346, "30": 8.666, "45": 10.644, "60": 12.621, "80": 15.258, "100": 18.092, "120": 21.613, "140": 25.508, "160": 29.253, "175": 31.495 }
           },
           "description": "The fuel the fired engine burns at each speed and torque. It comes out of the Fuel Tank, and the run adds it up for Fuel used, Fuel consumption and CO₂ emissions.",
           "typical": "A few tenths of a kg/h at idle to 15–25 kg/h at full load for a car engine.",
@@ -3922,7 +3962,7 @@
       "name": "Road Profile",
       "icon": "mountain",
       "domain": "signal",
-      "description": "Road grade profile over distance (or time), piecewise-linear 'x:grade%' pairs. Wire the grade output to the Vehicle's Road Grade input; in distance mode it follows the Vehicle's distance automatically when unwired.",
+      "description": "Road grade profile over distance (or time), piecewise-linear 'x:grade%' pairs, or the grade a bundled drive cycle carries. Wire the grade output to the Vehicle's Road Grade input; in distance mode it follows the Vehicle's distance automatically when unwired.",
       "ports": [
         {
           "id": "sig_distance_in",
@@ -3940,6 +3980,17 @@
         }
       ],
       "parameters": [
+        {
+          "key": "cycle",
+          "label": "Grade From Cycle",
+          "unit": "-",
+          "default": "",
+          "type": "string",
+          "variability": "fixed",
+          "description": "A bundled drive cycle whose grade column sets the road's grade, such as the long-haul truck route. The grade is placed along the distance the cycle covers, so each hill stays where it is if the car falls behind the cycle; Profile and Profile Axis are then not used. Custom profile uses the typed points.",
+          "typical": "The same cycle as the Driving Task's Drive Cycle, for a route with hills; Custom profile otherwise.",
+          "whereToFind": "Only cycles marked 'with grade' in the list carry a grade."
+        },
         {
           "key": "profile",
           "label": "Profile (x:grade%; …)",

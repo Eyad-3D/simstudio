@@ -31,15 +31,16 @@ from ..schemas import (
     LimitLane,
     LimitReport,
 )
+from .energy import FUEL_LHV_MJ, H2_LHV_J_PER_KG
 from .maps import interp1
 from .runtime import GRAVITY, RPM, SPEED_LIMIT_BAND, tyre_mu
 
 WH = 1.0 / 3600.0  # W·s → Wh
-# Lower heating values, kWh/kg (background knowledge, unverified): petrol
-# about 43 MJ/kg; hydrogen 33.3 kWh/kg, as the fuel cell's help says. A
-# Fuel Tank with a 'lhv_MJ_per_kg' value uses that instead.
-LHV_FUEL_KWH_PER_KG = 43.0 / 3.6
-LHV_H2_KWH_PER_KG = 33.3
+# Lower heating values, kWh/kg, as the part books use them (energy.py):
+# petrol 42.9 MJ/kg and hydrogen 119.96 MJ/kg (33.3 kWh/kg). A Fuel Tank's
+# 'lhv_MJ_per_kg' value is used instead when it has one.
+LHV_FUEL_KWH_PER_KG = FUEL_LHV_MJ / 3.6
+LHV_H2_KWH_PER_KG = H2_LHV_J_PER_KG / 3.6e6
 
 # What held a driveline back in a solver step, in the order they are
 # checked: the first that applies names the step.
@@ -430,7 +431,7 @@ class RunRecorder:
         lhv = LHV_FUEL_KWH_PER_KG
         if model.fuel_tank:
             try:
-                lhv = float(ctx.params(model.fuel_tank).get("lhv_MJ_per_kg", 43.0)) / 3.6
+                lhv = float(ctx.params(model.fuel_tank).get("lhv_MJ_per_kg", FUEL_LHV_MJ)) / 3.6
             except (TypeError, ValueError):
                 pass
         fuel_wh: dict[str, float] = {}  # per engine

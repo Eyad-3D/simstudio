@@ -8,6 +8,7 @@ import { LABEL_RRC, describeTyre, parseTyreCode, tyreValues } from "../../tyre";
 import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "../SpreadsheetGrid";
 import { KIND_COLOR } from "../canvas/ElementNode";
 import { CyclePreview, CycleSelect } from "./CyclePicker";
+import { SourceBadge, ValueSources } from "./ValueSources";
 import type {
   AxisDef,
   ComponentDef,
@@ -788,9 +789,11 @@ export function ElementForm({
   const running = useProjectStore((s) => s.running);
   const openParamDialog = useUIStore((s) => s.openParamDialog);
 
-  // a Driving Task on a drive cycle has no typed profile to edit; the cycle
-  // gets a full-width row of its own below the table
+  // a Driving Task on a drive cycle has no typed profile to edit, nor a
+  // Road Profile that takes its grade from one (CON-11); the cycle gets a
+  // full-width row of its own below the table
   const drivingTask = def.id === "signal.driving_task";
+  const roadProfile = def.id === "signal.road_profile";
   const cycleId = String(element.parameterOverrides.cycle ?? "");
   // a parameter that applies only to one setting of another is hidden otherwise
   const shown = useMemo(() => {
@@ -799,12 +802,15 @@ export function ElementForm({
     return (p: ParameterDef) => !p.showIf || p.showIf.values.includes(value(p.showIf.key) as ScalarValue);
   }, [def, element.parameterOverrides]);
   const scalarParams = useMemo(
-    () => def.parameters.filter((p) => !isBig(p) && p.key !== "cycle" && shown(p)),
-    [def, shown],
+    () =>
+      def.parameters.filter(
+        (p) => !isBig(p) && p.key !== "cycle" && !(roadProfile && cycleId && p.key === "mode") && shown(p),
+      ),
+    [def, roadProfile, cycleId, shown],
   );
   const bigParams = useMemo(
-    () => def.parameters.filter((p) => isBig(p) && !(drivingTask && cycleId && isProfile(p)) && shown(p)),
-    [def, drivingTask, cycleId, shown],
+    () => def.parameters.filter((p) => isBig(p) && !((drivingTask || roadProfile) && cycleId && isProfile(p)) && shown(p)),
+    [def, drivingTask, roadProfile, cycleId, shown],
   );
   const valueOf = (p: ParameterDef): ParamValue =>
     element.parameterOverrides[p.key] ?? p.default;
@@ -888,6 +894,7 @@ export function ElementForm({
     onBlur: (e: React.FocusEvent) => e.relatedTarget?.closest(".ss-help-card") || setFocused(null),
   });
   const profile = drivingTask ? profileToTable(String(valueOf(def.parameters.find(isProfile)!))) : {};
+  // (a Road Profile from a file older than CON-11 has a catalogue with it)
   const cycleDef = def.parameters.find((p) => p.key === "cycle")!;
 
   return (
@@ -966,6 +973,7 @@ export function ElementForm({
                     {/* the full label is in the help card, or else its tooltip */}
                     <td className="ss-td flex items-center text-[11px]" title={p.description ? undefined : p.label}>
                       <span className="truncate">{p.label}</span>
+                      <SourceBadge src={element.parameterSources?.[p.key]} />
                       {running && p.variability === "fixed" && (
                         <span
                           className="ml-1 shrink-0 text-[10px] italic text-[color:var(--ss-text-dim)]"
@@ -1006,11 +1014,12 @@ export function ElementForm({
           {describeTyre(tyre, radiusFactor)}
         </p>
       )}
-      {drivingTask && (
+      <ValueSources element={element} def={def} />
+      {(drivingTask || (roadProfile && cycleDef)) && (
         <div className="flex flex-col gap-1" {...helpProps(cycleDef)}>
           <label className="flex flex-col gap-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
             <span>
-              Drive Cycle
+              {cycleDef.label}
               {running && (
                 <span className="ml-1 text-[10px] italic" title="Structural parameter — a live edit takes effect on the next run">
                   (next run)
@@ -1019,16 +1028,21 @@ export function ElementForm({
             </span>
             <CycleSelect
               value={cycleId}
-              label="Drive Cycle"
+              label={cycleDef.label}
               description={cycleDef.description}
-              onChange={(v) => setDrivingCycle(element.id, v)}
+              gradeOnly={roadProfile}
+              onChange={(v) => (drivingTask ? setDrivingCycle(element.id, v) : setParameter(element.id, "cycle", v))}
             />
           </label>
-          <CyclePreview
-            cycleId={cycleId}
-            points={sortedNumericKeys(profile).map((t) => [Number(t), profile[t]])}
-            byDistance={String(valueOf(def.parameters.find((q) => q.key === "mode")!)) === "distance"}
-          />
+          {(drivingTask || cycleId) && (
+            <CyclePreview
+              cycleId={cycleId}
+              points={sortedNumericKeys(profile).map((t) => [Number(t), profile[t]])}
+              byDistance={
+                drivingTask && String(valueOf(def.parameters.find((q) => q.key === "mode")!)) === "distance"
+              }
+            />
+          )}
         </div>
       )}
       {compact && bigParams.length > 0 && (

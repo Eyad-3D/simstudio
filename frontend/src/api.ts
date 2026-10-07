@@ -112,6 +112,14 @@ export interface CycleInfo {
   duration_s: number;
   distance_km: number;
   vmax_kmh: number;
+  /** the document it comes from, with any credit its terms ask for (CON-31) */
+  source?: string;
+  /** why LightSim may ship it: EU-2011/833, US-17USC105, Apache-2.0, ... */
+  reuse?: string;
+  /** who it is for, in a sentence */
+  note?: string;
+  /** it carries a road grade a Road Profile can take */
+  grade?: boolean;
 }
 
 /** A drive cycle with its trace: time (s) and speed (km/h). */
@@ -541,4 +549,101 @@ export async function calibrateLap(
     method: "POST",
     body: JSON.stringify({ project, calibration, check: check ?? null }),
   });
+}
+
+/** One step of the US label estimate: a figure and how it was worked out. */
+export interface LabelStep {
+  what: string;
+  value: number;
+  unit: string;
+  how: string;
+}
+
+/** CON-32: the US window-sticker estimate from UDDS and HWFET runs. */
+export interface LabelEstimate {
+  notCertified: string;
+  electric: boolean;
+  modelYearCoefficients: number;
+  coefficients: Record<string, number>;
+  chargerEfficiency: number | null;
+  usableKwh: number | null;
+  /** the case run for each cycle (udds, hwfet) */
+  cases: Record<string, string>;
+  problems: string[];
+  figures: Record<string, number>;
+  steps: LabelStep[];
+}
+
+export function labelEstimate(project: Project, caseId: string | null, modelYear: number): Promise<LabelEstimate> {
+  return request("/label-estimate", {
+    method: "POST",
+    body: JSON.stringify({ project, caseId, modelYear }),
+  });
+}
+
+/** One figure from the one-click vehicle tests (CON-06). */
+export interface VehicleTestRow {
+  what: string;
+  value: number | null;
+  unit: string;
+  how: string;
+  /** why the figure is missing or what limits it */
+  note: string;
+}
+
+export function vehicleTests(project: Project, tests: string[]): Promise<{ rows: VehicleTestRow[]; note: string }> {
+  return request("/vehicle-tests", { method: "POST", body: JSON.stringify({ project, tests }) });
+}
+
+/** A field of a template's form: the value a new project asks for (CON-18). */
+export interface TemplateField {
+  elementId: string;
+  key: string;
+  label: string;
+  unit: string;
+  default: ParamValue;
+  minimum?: number | null;
+  maximum?: number | null;
+  help?: string;
+}
+
+/** A vehicle template: a pre-wired model with named slots and a form. */
+export interface VehicleTemplate {
+  id: string;
+  name: string;
+  description: string;
+  version: number;
+  builtin: boolean;
+  example?: string | null;
+  slots: Record<string, string>;
+  form: TemplateField[];
+}
+
+export async function listTemplates(): Promise<VehicleTemplate[]> {
+  try {
+    return await request<VehicleTemplate[]>("/templates");
+  } catch {
+    return [];
+  }
+}
+
+export function newFromTemplate(id: string, values: Record<string, ParamValue>, name: string): Promise<Project> {
+  return request(`/templates/${encodeURIComponent(id)}/new`, {
+    method: "POST",
+    body: JSON.stringify({ values, name }),
+  });
+}
+
+export function saveTemplate(body: {
+  project: Project;
+  name: string;
+  description: string;
+  form: TemplateField[];
+  slots: Record<string, string>;
+}): Promise<VehicleTemplate> {
+  return request("/templates", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function deleteTemplate(id: string): Promise<unknown> {
+  return request(`/templates/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

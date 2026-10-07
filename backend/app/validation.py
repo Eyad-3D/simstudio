@@ -263,10 +263,9 @@ def validate_project(project: Project) -> list[DataCheck]:
                 except ScriptError as e:
                     add("error", str(e), el)
 
-        # a Driving Task on a drive cycle drives the cycle, not its typed
-        # profile; an unknown cycle is build_model's error (below)
-        if cdef.id == "signal.road_profile" or (cdef.id == "signal.driving_task"
-                                                 and not params.get("cycle")):
+        # a Driving Task or Road Profile on a drive cycle follows the cycle,
+        # not its typed profile; an unknown cycle is build_model's error (below)
+        if cdef.id in ("signal.road_profile", "signal.driving_task") and not params.get("cycle"):
             for level, text in profile_problems(str(params.get("profile", ""))):
                 add(level, f"'{el.label}' profile: {text}.", el)
         ts = _as_number(params.get("sample_time_s", 0))  # a wrong one is an error above
@@ -324,10 +323,34 @@ def validate_project(project: Project) -> list[DataCheck]:
             fix="On the Simulations tab, click + (Add case).")
 
     if not checks:
+        total, at_default = value_provenance(project, defs)
+        share = (f" {at_default} of the model's {total} values are still at their library "
+                 f"default with no source recorded (CON-13)." if total else "")
         add("info", "All data checks passed: wiring, power supply, drive path, command "
                     "signals and key parameter ranges were checked. Data Checks cannot tell "
-                    "whether the results will be plausible — review them after the run.")
+                    "whether the results will be plausible — review them after the run."
+                    + share)
     return checks
+
+
+def value_provenance(project: Project, defs: dict) -> tuple[int, int]:
+    """CON-13: how many number and table values the model's parts have, and
+    how many of them still hold the library default with no source recorded
+    (a part's parameterSources, which the UI keeps per parameter key)."""
+    total = at_default = 0
+    for system in project.systems:
+        for el in system.elements:
+            cdef = defs.get(el.componentDefId)
+            if cdef is None:
+                continue
+            sources = getattr(el, "parameterSources", None) or {}
+            for pdef in cdef.parameters:
+                if pdef.type not in ("number", "table1d", "table2d"):
+                    continue
+                total += 1
+                if pdef.key not in el.parameterOverrides and pdef.key not in sources:
+                    at_default += 1
+    return total, at_default
 
 
 # what to do about build_model's (and lapsim.problems') messages, by words they contain

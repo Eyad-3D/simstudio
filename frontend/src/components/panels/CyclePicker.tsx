@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import * as api from "../../api";
 import { useProjectStore } from "../../store/projectStore";
 
-/** "WLTC class 3b · 1,800 s · 23.27 km" */
+/** "WLTC class 3b · 1,800 s · 23.27 km" (", with grade" when it has one) */
 export const cycleText = (c: api.CycleInfo) =>
-  `${c.name} · ${c.duration_s.toLocaleString("en")} s · ${c.distance_km.toFixed(2)} km`;
+  `${c.name} · ${c.duration_s.toLocaleString("en")} s · ${c.distance_km.toFixed(2)} km${c.grade ? " · with grade" : ""}`;
 
 /** The Driving Task's Drive Cycle field (CON-16): the bundled standard cycles
  *  grouped by region, each with its length, or "" for the typed profile. The
@@ -13,15 +13,19 @@ export function CycleSelect({
   value,
   label,
   description,
+  gradeOnly = false,
   onChange,
 }: {
   value: string;
   label: string;
   /** the parameter's help text, read out with the field */
   description?: string | null;
+  /** list only the cycles that carry a road grade (a Road Profile's list) */
+  gradeOnly?: boolean;
   onChange: (cycleId: string) => void;
 }) {
-  const cycles = useProjectStore((s) => s.cycles);
+  const all = useProjectStore((s) => s.cycles);
+  const cycles = gradeOnly ? all.filter((c) => c.grade) : all;
   const regions = [...new Set(cycles.map((c) => c.region))];
   const chosen = cycles.find((c) => c.id === value);
   return (
@@ -56,6 +60,16 @@ export function CycleSelect({
     </select>
   );
 }
+
+/** Why LightSim may ship the cycle (its reuse basis, CON-31), in words. */
+export const reuseText = (basis: string | undefined) =>
+  ({
+    "EU-2011/833": "EU legal text, reused under Decision 2011/833/EU",
+    "US-17USC105": "US Government work",
+    "JP-Art13": "Japanese official notice, free of copyright",
+    "Apache-2.0": "Apache-2.0 copy",
+    MIT: "MIT copy",
+  })[basis ?? ""] ?? (basis || "reuse basis not recorded");
 
 // traces fetched once per session: the bundled cycles never change while it runs
 const traces = new Map<string, Promise<api.CycleTrace>>();
@@ -122,7 +136,7 @@ export function CyclePreview({
       >
         {info?.phases.slice(1).map(([name, start]) => (
           <line
-            key={name}
+            key={`${name}-${start}`}
             x1={x(start)}
             x2={x(start)}
             y1={0}
@@ -143,9 +157,15 @@ export function CyclePreview({
         />
       </svg>
       <figcaption className="mt-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
-        {info ? `${info.name}: ` : "Custom profile: "}
+        {info ? `${info.name}: ` : "Custom profile (not a standard cycle): "}
         {stats}
         {info?.phases.length ? ` · phases ${info.phases.map((p) => p[0]).join(", ")}` : ""}
+        {info?.note && <span className="block">{info.note}</span>}
+        {info?.source && (
+          <span className="block" data-testid="cycle-source">
+            Source: {info.source} ({reuseText(info.reuse)}; data register {info.register}).
+          </span>
+        )}
       </figcaption>
     </figure>
   );

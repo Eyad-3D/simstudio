@@ -633,6 +633,15 @@ minimum or an average, for example from the CSV export, or put the
 
 ## The examples
 
+- **Efficient Electric Sedan:** a Tesla Model 3 RWD class car with EPA's
+  test mass, road load, rated power and gearing, but the Battery Electric
+  Car's motor maps scaled to 192 kW, not the car's own (more efficient)
+  motor, and a 54 kWh battery from FASTSim's file, which gives no source.
+  Its city figure comes out about 2 % better and its highway figure about
+  4 % worse than EPA's tests of the car. Only one of the seven
+  question-led examples the roadmap plans ships so far (gear ratios,
+  diesel against petrol, a two-wheeler, a truck, a gear-by-battery study
+  and control recipes are still to come). *Roadmap:* CON-07.
 - **P2 Hybrid Car:** sized after the Hyundai Ioniq Hybrid, with its test
   mass and road load from EPA data (EPA's own coefficients A/B/C, with the
   axle's losses counted once), but its engine, motor and battery maps
@@ -644,11 +653,17 @@ minimum or an average, for example from the CSV export, or put the
   generic maps, it stays about 10 % above. Each case starts at the charge
   the cycle ends with (as a preconditioning drive would leave it), and its
   cases run charge-balanced (see below), so started at any charge they
-  give the same fuel figure. *Roadmap:* CON-14 (sourced maps).
+  give the same fuel figure. With *Charge balance* off, the summary's
+  *Fuel consumption, charge-corrected* estimates the balanced figure from
+  one run by counting the battery's energy at the engine's average
+  efficiency. *Roadmap:* CON-14 (sourced maps).
 - **Battery Electric Car:** modelled on the 2021 Cupra Born with FASTSim's
-  values; about 14 kWh/100 km on WLTC at the battery (a car of this class is
-  rated about 15-16 kWh/100 km at the charging socket, charging losses
-  included), 18.9 with heating or air-conditioning on (the 2.5 kW case).
+  values; about 14 kWh/100 km on WLTC at the battery and 16.3 at the
+  charging socket with the default 86 % charger efficiency (a car of this
+  class is rated about 15-16 kWh/100 km at the socket), 18.9 at the battery
+  with heating or air-conditioning on (the 2.5 kW case). The socket figure
+  rests on one charger efficiency for every charge; a real charger's
+  efficiency changes with its power and the battery's temperature.
   Its motor loss map is generic, not the car's measured map. The real car is
   rear-wheel drive and has an 11.5:1 reduction gear with an electronic
   160 km/h limit; the example drives the front axle (its CG height is 0,
@@ -830,13 +845,46 @@ minimum or an average, for example from the CSV export, or put the
   clicks). In a 1366 × 768 window the bottom panel shows two rows at a
   time; drag its top edge up to see more. *Roadmap:* UX-15 (follow-up),
   UX-11.
-- **Three standard drive cycles.** The Driving Task's *Drive Cycle* list
-  has WLTC class 3b, EPA city (UDDS) and EPA highway (HWFET). Other cycles
-  (NEDC, FTP-75, US06, the WLTC of other classes) and cycle files of your
-  own are not in it yet: type or paste their points into the Profile. A
-  cycle has no grade. A project that names a drive cycle, opened in 0.2.0,
-  drives the typed profile instead, with no warning. *Roadmap:* CON-04,
-  CON-11, PLT-07.
+- **Weather presets set only the air.** The Ambient's presets (cold,
+  standard, hot and sunny, high altitude) set its temperature and pressure,
+  so only the air density follows them: no heating or air-conditioning
+  load, no sun, no cold battery or engine, and engine power does not fall
+  with altitude. The electric car's winter and hot-day cases add a fixed
+  2.5 kW load instead. Hourly weather files cannot be loaded.
+  *Roadmap:* MOD-41, MOD-09, CON-30 (second step).
+- **Templates: slots are names only.** A template's slots say which part
+  plays which role, but swapping a slot's part for another while keeping
+  its wiring, a shared signal naming convention across templates (so one
+  control script runs on several), two-motor, series-hybrid, fuel-cell,
+  petrol and two-wheeler templates, and a picture per template are not
+  there yet. *Roadmap:* CON-18 (follow-up), UX-33, UX-16.
+- **Value sources stop at the project file.** The sources and confidence
+  levels recorded for a part's values (CON-13) are saved with the project
+  but are not yet listed in result exports or run reports, carry no
+  uncertainty (±) a study could sample, and the Formula Student example's
+  values have none recorded yet. *Roadmap:* RES-14, STU-23, VAL-37.
+- **Vehicle tests leave out a few.** *Vehicle tests* has no hill start, no
+  range test that drives a battery down to empty over repeated cycles (the
+  summary's *Range at this consumption* estimates it from one cycle), and
+  no elasticity test held in one gear. *Roadmap:* CON-06 (follow-up),
+  STU-39.
+- **US label estimate from two cycles only.** *Simulations → US label*
+  uses EPA's derived two-cycle method. The five-cycle tests (US06, SC03 at
+  35 °C, a cold FTP at −7 °C) need heat and climate models LightSim does
+  not have, and plug-in hybrids (charge-depleting runs and utility
+  factors) are not covered. *Roadmap:* CON-21.
+- **27 standard drive cycles, no files of your own.** The Driving Task's
+  *Drive Cycle* list has the WLTC (classes 1 to 3b, their city cycles and
+  phases), NEDC, the EPA cycles, two motorcycle cycles and a long-haul truck
+  route. Cycle files of your own (CSV, Excel, a logged lap against
+  distance) cannot be added to the list yet: type or paste their points
+  into the Profile. Japan's JC08 and WLTC, China's CLTC and the Artemis
+  cycles are not included (CLTC and Artemis may never be, because their
+  terms do not allow LightSim to ship them). Only the long-haul route
+  carries a road grade. The FTP-75 and the motorcycle FTP leave out the
+  real test's 10-minute soak, and nothing models a cold start. A project that names a drive cycle, opened in
+  0.2.0, drives the typed profile instead, with no warning. *Roadmap:*
+  CON-34, STD-10, STD-35, PLT-07.
 - **Few starting points.** The *Start* page offers the examples that come
   with LightSim and a blank project. Ready-made starting points for other
   layouts (two motors, a fuel-cell car) and templates that ask a few

@@ -1,7 +1,7 @@
 """Break the shipped examples on purpose, one fault at a time (VAL-01).
 
 Every element, every wire and every signal link of the examples is deleted
-in turn (156 faults) and Data Checks run on the result. A fault must never
+in turn (157 faults) and Data Checks run on the result. A fault must never
 get an all-clear unless it is on the reviewed list of harmless ones, and a
 fault that stops the car must block the run with an error.
 
@@ -32,10 +32,12 @@ HARMLESS = {
                    "db-14", "db-15", "db-16", "db-17", "db-18"},
 }
 # Faults that do matter but that Data Checks cannot tell from a deliberate
-# model: deleting the auxiliary load is a legitimate simplification, and an
-# unwired engine Enable means "always on", as in any conventional car.
+# model: deleting the auxiliary load is a legitimate simplification, an
+# unwired engine Enable means "always on", as in any conventional car, and
+# without its Ambient the electric car runs at the standard air its Ambient
+# gives by default, so only its winter and hot-day cases (CON-30) change.
 KNOWN_GAPS = {
-    "bev-car": {"el-consumer"},
+    "bev-car": {"el-consumer", "el-ambient"},
     "fs-electric": set(),
     "hybrid-car": {"db-7", "el-aux"},
 }
@@ -99,7 +101,7 @@ def outcome():
 
 
 def test_corpus_is_complete(outcome):
-    assert sum(len(v) for v in outcome.values()) == 156
+    assert sum(len(v) for v in outcome.values()) == 157
     for name in EXAMPLES:
         listed = HARMLESS[name] | KNOWN_GAPS[name] | STOPS_THE_CAR[name]
         assert listed <= outcome[name].keys(), "a reviewed fault id no longer exists"
@@ -128,8 +130,8 @@ def test_harmless_faults_raise_no_alarm(name, outcome):
 def test_check_coverage_is_at_least_90_percent(outcome):
     consequential = [(n, fid) for n in EXAMPLES for fid in outcome[n] if fid not in HARMLESS[n]]
     flagged = [(n, fid) for n, fid in consequential if outcome[n][fid] != "info"]
-    assert len(consequential) == 130
-    assert len(flagged) / len(consequential) >= 0.9  # 127 of 130 today
+    assert len(consequential) == 131
+    assert len(flagged) / len(consequential) >= 0.9  # 127 of 131 today
 
 
 @pytest.mark.parametrize("name", EXAMPLES)

@@ -23,6 +23,11 @@ Endpoints:
   POST /api/examples/restore   show every hidden example again
   POST /api/validate           run Data Checks on a project
   POST /api/simulate           run a simulation case, returns SimResult
+  POST /api/label-estimate     US window-sticker estimate from UDDS and HWFET (CON-32)
+  POST /api/vehicle-tests      one-click vehicle tests: acceleration, top speed, ... (CON-06)
+  GET  /api/templates          vehicle templates with slots and a form (CON-18)
+  POST /api/templates/{id}/new a new project from a template and the form's values
+  POST /api/templates          save a model as a template; DELETE one of the user's
   WS   /api/simulate/run       live run: streams progress/steps, accepts
                                set_param and cancel while running
   POST /api/studies            run a study's points on all cores, returns
@@ -49,19 +54,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import cycles, laplog, run_store, security, storage, studies
+from . import cycles, label, laplog, run_store, security, storage, studies, templates, vehicle_tests
 from .library import load_library, unit_groups
 from .paths import static_dir
 from .schemas import (
     CalibrateRequest,
     DataCheck,
+    LabelEstimateRequest,
     LapLogRequest,
     Project,
     SimResult,
     SimulateRequest,
     StoredRun,
     StudyRequest,
+    TemplateNewRequest,
+    TemplateSaveRequest,
     ValidateRequest,
+    VehicleTestsRequest,
 )
 from .solver import calibrate as lap_calibration
 from .solver import simulate
@@ -166,6 +175,44 @@ def hide_example(example_id: str) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"hidden": example_id}
+
+
+@app.get("/api/templates")
+def get_templates() -> list[dict]:
+    return templates.listing()
+
+
+@app.post("/api/templates/{template_id}/new")
+def new_from_template(template_id: str, req: TemplateNewRequest) -> dict:
+    """A new, unsaved project from a template, the form's values written in."""
+    try:
+        return templates.instantiate(template_id, req.values, req.name).model_dump(mode="json")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found")
+    except ValueError as e:  # TemplateError, or a bad id
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.post("/api/templates")
+def save_template(req: TemplateSaveRequest) -> dict:
+    try:
+        form = [templates.FormField.model_validate(f) for f in req.form]
+        t = templates.save_user_template(req.project, req.name, req.description, form, req.slots)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return t.model_dump(mode="json", exclude={"project"})
+
+
+@app.delete("/api/templates/{template_id}")
+def delete_template(template_id: str) -> dict:
+    try:
+        templates.delete_user_template(template_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found "
+                                                    f"among your own (built-in ones stay)")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"deleted": template_id}
 
 
 def _etag(revision: str) -> str:
@@ -376,6 +423,34 @@ def run_simulation(req: SimulateRequest) -> SimResult:
             channels=[],
         )
     return simulate(req.project, req.caseId)
+
+
+@app.post("/api/label-estimate")
+def us_label_estimate(req: LabelEstimateRequest) -> dict:
+    """CON-32: the model on EPA's city and highway cycles, adjusted to a US
+    window-sticker estimate, every step shown; not a certified value."""
+    checks = validate_project(req.project)
+    errors = [c.text for c in checks if c.level == "error"]
+    if errors:
+        raise HTTPException(status_code=422, detail=f"Data check failed: {errors[0]}")
+    try:
+        return label.estimate(req.project, req.caseId, req.modelYear)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+@app.post("/api/vehicle-tests")
+def run_vehicle_tests(req: VehicleTestsRequest) -> dict:
+    """CON-06: 0-100 and 80-120 km/h, top speed, constant-speed consumption,
+    gradeability and a virtual coast-down on the model as it is."""
+    checks = validate_project(req.project)
+    errors = [c.text for c in checks if c.level == "error"]
+    if errors:
+        raise HTTPException(status_code=422, detail=f"Data check failed: {errors[0]}")
+    try:
+        return vehicle_tests.run_tests(req.project, req.tests)
+    except vehicle_tests.TestSetupError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
 
 @app.websocket("/api/simulate/run")

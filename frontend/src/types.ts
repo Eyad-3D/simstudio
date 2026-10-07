@@ -104,6 +104,21 @@ export interface ElementInstance {
   size?: { width: number; height: number } | null;
   isSubSystem?: boolean;
   subSystemId?: string | null;
+  /** Where each parameter value comes from (CON-13), by parameter key. */
+  parameterSources?: Record<string, ParameterSource>;
+}
+
+/** The kinds of origin a parameter value can have (CON-13). */
+export type SourceKind = "measured" | "datasheet" | "estimated" | "library default" | "generated";
+
+/** Where a value comes from and how sure it is: confidence on ADVISOR's
+ *  scale, 0 not checked, 1 agrees with its source, 2 source and method
+ *  checked. */
+export interface ParameterSource {
+  source: string;
+  kind: SourceKind;
+  confidence: 0 | 1 | 2;
+  note?: string;
 }
 
 export interface Connection {

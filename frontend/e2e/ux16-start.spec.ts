@@ -11,10 +11,10 @@ const projectName = (page: Page) => page.getByText("Project name").locator("xpat
 test("UX-16: a first launch shows Start, and an example runs in two clicks", async ({ page }) => {
   await page.goto("/");
   await expect(startHeading(page)).toBeVisible();
-  const card = page.getByRole("button", { name: /^Battery Electric Car, 22 parts · opens as a copy$/ });
+  const card = page.getByRole("button", { name: /^Battery Electric Car, 23 parts · opens as a copy$/ });
   // its "what to expect" is its description, not part of its name
   await expect(card).toHaveAccessibleDescription(/What to expect/);
-  await expect(card.locator("svg rect")).toHaveCount(22); // the sketch of its diagram
+  await expect(card.locator("svg rect")).toHaveCount(23); // the sketch of its diagram (with its Ambient, CON-30)
   // the Formula Student example is listed too, with its own results to expect
   await expect(
     page.getByRole("button", { name: /^FS Electric \(generic\), \d+ parts · opens as a copy$/ }),
@@ -75,12 +75,12 @@ test("UX-16: a saved project is listed under Recent with its date and size", asy
   await ribbonTab(page, "Start").click();
   await page.keyboard.press("Delete"); // the hidden diagram keeps its selected part
   const card = page.getByRole("region", { name: "Recent projects" }).getByRole("button", { name: new RegExp(`^${name},`) });
-  await expect(card).toContainText(/Saved .+ · 22 parts/);
-  await expect(card.locator("svg rect")).toHaveCount(22);
+  await expect(card).toContainText(/Saved .+ · 23 parts/);
+  await expect(card.locator("svg rect")).toHaveCount(23);
 
   // it reopens from there, asking first about unsaved work
   await page.getByRole("button", { name: /^Continue with/ }).click();
-  await expect(nodes(page)).toHaveCount(22);
+  await expect(nodes(page)).toHaveCount(23);
   await ribbonTab(page, "Project").click();
   await projectName(page).fill(`${name} edited`);
   await ribbonTab(page, "Start").click();

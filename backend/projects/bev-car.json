@@ -2,7 +2,7 @@
   "id": "bev-car",
   "schemaVersion": 1,
   "name": "Battery Electric Car",
-  "description": "Compact electric car modelled on the 2021 Cupra Born 58 kWh (VW ID.3 class), with the values of FASTSim's vehicle file (Apache-2.0): 1,927 kg, Cd 0.27, 2.31 m², 150 kW e-motor, 62 kWh battery with 58 kWh usable, 0.25 kW auxiliaries. HV battery → inverter → e-motor → single-speed reduction gear → wheels, driven over a speed profile.\nWhat to expect (energy at the battery terminals):\n• WLTC Class 3b: 14.1 kWh/100 km (a car of this class is rated about 15–16 kWh/100 km at the charging socket, charging losses included)\n• WLTC with heating/air-con on (2.5 kW): 18.9 kWh/100 km\n• City Cycle: 11.1 kWh/100 km\n• Full power: 0–100 km/h in 7.1 s, top speed 160 km/h (Cupra: 7.3 s, 160 km/h)",
+  "description": "Compact electric car modelled on the 2021 Cupra Born 58 kWh (VW ID.3 class), with the values of FASTSim's vehicle file (Apache-2.0): 1,927 kg, Cd 0.27, 2.31 m², 150 kW e-motor, 62 kWh battery with 58 kWh usable, 0.25 kW auxiliaries. HV battery → e-motor (its loss map holds the inverter's losses; there is no inverter part) → single-speed reduction gear → wheels, driven over a speed profile.\nWhat to expect (energy at the battery terminals):\n• WLTC Class 3b: 14.1 kWh/100 km, 16.3 at the charging socket (a car of this class is rated about 15–16 kWh/100 km at the socket)\n• WLTC with heating/air-con on (2.5 kW): 18.9 kWh/100 km\n• WLTC on a winter day (−7 °C, heating 2.5 kW): 19.5 kWh/100 km; on a hot day (35 °C, air-con 2.5 kW): 18.6 (only the air's density follows the weather; the heating and air-con power is a fixed assumption)\n• City Cycle (a hand-made demo profile, not a standard cycle): 11.1 kWh/100 km\n• Full power: 0–100 km/h in 7.1 s, top speed 160 km/h (Cupra: 7.3 s, 160 km/h)",
   "systems": [
     {
       "id": "sys-root",
@@ -23,6 +23,29 @@
             "rolling_resistance": 0.011,
             "vehicle_load_share_pct": 19.5,
             "axle": "Rear"
+          },
+          "parameterSources": {
+            "radius_m": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "inertia_kgm2": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "rolling_resistance": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "vehicle_load_share_pct": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1,
+              "note": "61 % of the weight on the driven axle, split evenly"
+            }
           }
         },
         {
@@ -47,6 +70,23 @@
             "mass_kg": 1927,
             "cd": 0.27,
             "frontal_area_m2": 2.31
+          },
+          "parameterSources": {
+            "mass_kg": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "cd": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "frontal_area_m2": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            }
           }
         },
         {
@@ -59,6 +99,14 @@
           },
           "parameterOverrides": {
             "regen_weight_pct": 98
+          },
+          "parameterSources": {
+            "regen_weight_pct": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1,
+              "note": "FASTSim's maxRegen"
+            }
           }
         },
         {
@@ -76,14 +124,14 @@
               "name": "speed",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Velocity"
             },
             {
               "id": "motor_torque",
               "name": "motor_torque",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Torque"
             },
             {
               "id": "traction_cmd",
@@ -128,6 +176,29 @@
             "rolling_resistance": 0.011,
             "vehicle_load_share_pct": 30.5,
             "axle": "Front"
+          },
+          "parameterSources": {
+            "radius_m": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "inertia_kgm2": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "rolling_resistance": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "vehicle_load_share_pct": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1,
+              "note": "61 % of the weight on the driven axle, split evenly"
+            }
           }
         },
         {
@@ -151,6 +222,19 @@
           "parameterOverrides": {
             "capacity_kWh": 62,
             "min_soc_pct": 4
+          },
+          "parameterSources": {
+            "capacity_kWh": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "min_soc_pct": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1,
+              "note": "58 of 62 kWh usable"
+            }
           }
         },
         {
@@ -163,6 +247,14 @@
           },
           "parameterOverrides": {
             "power_kW": 0.25
+          },
+          "parameterSources": {
+            "power_kW": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1,
+              "note": "FASTSim's auxKw"
+            }
           }
         },
         {
@@ -384,6 +476,23 @@
               "12000": 0.78,
               "16000": 0.9
             }
+          },
+          "parameterSources": {
+            "full_load_torque": {
+              "source": "Synthetic, created for LightSim; 150 kW from FASTSim's 2021_Cupra_Born.csv; DR-22",
+              "kind": "generated",
+              "confidence": 0
+            },
+            "power_loss": {
+              "source": "Synthetic, calibrated to FASTSim's default motor efficiency curve; DR-23",
+              "kind": "generated",
+              "confidence": 0
+            },
+            "drag_torque": {
+              "source": "Synthetic, created for LightSim; DR-24",
+              "kind": "generated",
+              "confidence": 0
+            }
           }
         },
         {
@@ -397,6 +506,20 @@
           "parameterOverrides": {
             "ratio": 12.8,
             "efficiency_pct": 98
+          },
+          "parameterSources": {
+            "ratio": {
+              "source": "Chosen for LightSim: the motor's 16,000 1/min at the car's 160 km/h; DR-01",
+              "kind": "estimated",
+              "confidence": 0,
+              "note": "the real car has 11.5:1 (background knowledge, unverified)"
+            },
+            "efficiency_pct": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1,
+              "note": "FASTSim's 98 % transmission efficiency"
+            }
           }
         },
         {
@@ -409,6 +532,14 @@
           },
           "parameterOverrides": {
             "efficiency_pct": 100
+          },
+          "parameterSources": {
+            "efficiency_pct": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1,
+              "note": "the transmission's losses are all in the final drive"
+            }
           }
         },
         {
@@ -445,6 +576,29 @@
             "rolling_resistance": 0.011,
             "vehicle_load_share_pct": 19.5,
             "axle": "Rear"
+          },
+          "parameterSources": {
+            "radius_m": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "inertia_kgm2": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "rolling_resistance": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "vehicle_load_share_pct": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1,
+              "note": "61 % of the weight on the driven axle, split evenly"
+            }
           }
         },
         {
@@ -481,6 +635,29 @@
             "rolling_resistance": 0.011,
             "vehicle_load_share_pct": 30.5,
             "axle": "Front"
+          },
+          "parameterSources": {
+            "radius_m": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "inertia_kgm2": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "rolling_resistance": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "vehicle_load_share_pct": {
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "kind": "datasheet",
+              "confidence": 1,
+              "note": "61 % of the weight on the driven axle, split evenly"
+            }
           }
         },
         {
@@ -490,6 +667,16 @@
           "position": {
             "x": 740,
             "y": 40
+          },
+          "parameterOverrides": {}
+        },
+        {
+          "id": "el-ambient",
+          "componentDefId": "boundary.ambient",
+          "label": "Ambient",
+          "position": {
+            "x": 740,
+            "y": 215
           },
           "parameterOverrides": {}
         },
@@ -508,21 +695,21 @@
               "name": "soc",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Percent"
             },
             {
               "id": "voltage",
               "name": "voltage",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Voltage"
             },
             {
               "id": "current",
               "name": "current",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Current"
             }
           ]
         }
@@ -765,6 +952,44 @@
       "parameterOverrides": {
         "el-task": {
           "cycle": "wltc-3b"
+        },
+        "el-consumer": {
+          "power_kW": 2.5
+        }
+      }
+    },
+    {
+      "id": "case-wltc-winter",
+      "name": "WLTC, winter day (−7 °C, heating on)",
+      "duration": 1800.0,
+      "timeStep": 1.0,
+      "realtimeFactor": 0.0,
+      "parameterOverrides": {
+        "el-task": {
+          "cycle": "wltc-3b"
+        },
+        "el-ambient": {
+          "temperature_C": -7,
+          "pressure_kPa": 101.325
+        },
+        "el-consumer": {
+          "power_kW": 2.5
+        }
+      }
+    },
+    {
+      "id": "case-wltc-summer",
+      "name": "WLTC, hot day (35 °C, air-con on)",
+      "duration": 1800.0,
+      "timeStep": 1.0,
+      "realtimeFactor": 0.0,
+      "parameterOverrides": {
+        "el-task": {
+          "cycle": "wltc-3b"
+        },
+        "el-ambient": {
+          "temperature_C": 35,
+          "pressure_kPa": 101.325
         },
         "el-consumer": {
           "power_kW": 2.5

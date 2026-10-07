@@ -11,6 +11,7 @@ import {
   FolderOpen,
   Gauge,
   History,
+  Fuel,
   LayoutGrid,
   ListChecks,
   Moon,
@@ -37,6 +38,9 @@ import { resetDockLayout } from "./DockLayout";
 import { useDismiss } from "./useDismiss";
 import { LapImportDialog } from "./LapImportDialog";
 import { CalibrateDialog } from "./CalibrateDialog";
+import { LabelEstimateDialog } from "./LabelEstimate";
+import { VehicleTestsDialog } from "./VehicleTests";
+import { TemplatesDialog } from "./TemplatesDialog";
 import { confirmDialog } from "../dialog";
 import { openHelp } from "../help";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
@@ -246,14 +250,22 @@ function OpenProjectButton() {
 function HomeTab() {
   const store = useProjectStore();
   const fileRef = useRef<HTMLInputElement>(null);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   return (
     <>
+      {templatesOpen && <TemplatesDialog onClose={() => setTemplatesOpen(false)} />}
       <RibbonGroup label="Project">
         <BigButton
           icon={FilePlus2}
           label="New"
           title="New project: from an example or blank (the Start page)"
           onClick={() => useUIStore.getState().setRibbonTab("start")}
+        />
+        <BigButton
+          icon={LayoutGrid}
+          label="Templates"
+          title="Start from a pre-wired vehicle template with a short form, or save this model as a template"
+          onClick={() => setTemplatesOpen(true)}
         />
         <OpenProjectButton />
         <BigButton
@@ -317,6 +329,8 @@ function SimulationsTab() {
   const [calibrating, setCalibrating] = useState(false);
   const cases = store.project?.cases ?? [];
   const activeCase = cases.find((c) => c.id === store.activeCaseId);
+  const [labelOpen, setLabelOpen] = useState(false);
+  const [testsOpen, setTestsOpen] = useState(false);
   return (
     <>
       <RibbonGroup label="Cases">
@@ -427,6 +441,24 @@ function SimulationsTab() {
         />
         {calibrating && <CalibrateDialog onClose={() => setCalibrating(false)} />}
       </RibbonGroup>
+      <RibbonGroup label="Standard figures">
+        <BigButton
+          icon={Gauge}
+          label="Vehicle tests"
+          title="One-click vehicle tests: 0-100 and 80-120 km/h, top speed, consumption and range at constant speed, steepest grade, virtual coast-down"
+          disabled={store.running || !store.project}
+          onClick={() => setTestsOpen(true)}
+        />
+        <BigButton
+          icon={Fuel}
+          label="US label"
+          title="US window-sticker estimate (not certified): runs the model on EPA's city and highway cycles and shows each step to the label figures"
+          disabled={store.running || !store.project}
+          onClick={() => setLabelOpen(true)}
+        />
+      </RibbonGroup>
+      {labelOpen && <LabelEstimateDialog onClose={() => setLabelOpen(false)} />}
+      {testsOpen && <VehicleTestsDialog onClose={() => setTestsOpen(false)} />}
     </>
   );
 }

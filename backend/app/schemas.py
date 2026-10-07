@@ -547,6 +547,34 @@ class StudyRequest(BaseModel):
     sweepUnit: Optional[str] = Field(None, max_length=50)
     workers: Optional[int] = Field(None, ge=1, le=256)  # None: the default pool size
     store: bool = True  # store each point as a run of the project
+class LabelEstimateRequest(BaseModel):
+    """CON-32: a project, the case to base the two EPA runs on (None: its
+    first Cycle case) and the model year that picks EPA's coefficients."""
+    project: Project
+    caseId: Optional[str] = None
+    modelYear: int = 2017
+
+
+class VehicleTestsRequest(BaseModel):
+    """CON-06: a project and the tests to run on it (None: all)."""
+    project: Project
+    tests: Optional[list[str]] = None
+
+
+class TemplateNewRequest(BaseModel):
+    """CON-18: the form's values (by field index, or 'elementId.key') and
+    the new project's name."""
+    values: dict[str, ParamValue] = Field(default_factory=dict)
+    name: Optional[str] = None
+
+
+class TemplateSaveRequest(BaseModel):
+    """CON-18: a model saved as a template, with the form it will ask."""
+    project: Project
+    name: str
+    description: str = ""
+    form: list[dict] = Field(default_factory=list)
+    slots: dict[str, str] = Field(default_factory=dict)
 
 
 class ValidateRequest(BaseModel):

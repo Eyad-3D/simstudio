@@ -318,16 +318,28 @@ def build_model(
             params_of[el_id].update(ov)
             if "profile" in ov and "cycle" not in ov:  # a case's own profile wins
                 params_of[el_id]["cycle"] = ""
-    # a Driving Task on a bundled drive cycle drives its trace (CON-16)
+    # a Driving Task on a bundled drive cycle drives its trace (CON-16); a
+    # Road Profile on one takes the cycle's grade along its distance (CON-11)
     for el_id, cdef in cdef_of.items():
-        cycle_id = params_of[el_id].get("cycle") if cdef.id == "signal.driving_task" else None
-        if cycle_id:
-            try:
-                params_of[el_id]["profile"] = cycles.profile_text(str(cycle_id))
-            except KeyError:
-                errors.append(about(f"Driving Task '{elements[el_id].label}' uses the drive cycle "
-                                    f"'{cycle_id}', which this version of LightSim does not include.",
-                                    el_id))
+        if cdef.id not in ("signal.driving_task", "signal.road_profile"):
+            continue
+        cycle_id = params_of[el_id].get("cycle")
+        if not cycle_id:
+            continue
+        what = "Driving Task" if cdef.id == "signal.driving_task" else "Road Profile"
+        if str(cycle_id) not in cycles.CYCLES:
+            errors.append(about(f"{what} '{elements[el_id].label}' uses the drive cycle "
+                                f"'{cycle_id}', which this version of LightSim does not include.",
+                                el_id))
+        elif cdef.id == "signal.driving_task":
+            params_of[el_id]["profile"] = cycles.profile_text(str(cycle_id))
+        elif not cycles.has_grade(str(cycle_id)):
+            errors.append(about(f"Road Profile '{elements[el_id].label}' takes its grade from the "
+                                f"drive cycle '{cycles.CYCLES[str(cycle_id)]['name']}', which has "
+                                f"no grade; pick a cycle with a grade, or Custom profile.", el_id))
+        else:
+            params_of[el_id]["profile"] = cycles.grade_profile_text(str(cycle_id))
+            params_of[el_id]["mode"] = "distance"
     # road load from coefficients that hold the axle's drag: the axle gears
     # run lossless (both settings are fixed, so this holds for the whole run)
     veh_p = next((params_of[e] for e, c in cdef_of.items() if c.id == "vehicle.body"), {})

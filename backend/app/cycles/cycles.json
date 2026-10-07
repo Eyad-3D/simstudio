@@ -1,33 +1,564 @@
 {
   "_about": [
-    "The standard drive cycles bundled with LightSim (backend/app/cycles.py).",
-    "Each id has a <id>.csv trace (t_s, speed_kmh). 'register' is its row in",
-    "docs/data-register.csv; 'phases' are [name, start s, end s]; 'published'",
-    "is the regulation's [duration s, distance km], which test_cycles.py holds",
-    "the trace to. Never change a shipped trace in place: a changed cycle gets a",
-    "new id, so a run stored with the old one can still be reproduced."
+    "The standard drive cycles bundled with LightSim (backend/app/cycles.py), built by",
+    "scripts/cycles/build_cycles.py. Each id has a <id>.csv trace (t_s, speed_kmh and,",
+    "where the road climbs, grade_pct). 'register' is its row in docs/data-register.csv;",
+    "'source' the document it was taken from and 'reuse' the reason LightSim may ship it",
+    "(docs/DATA-REGISTER.md lists the bases); 'phases' are [name, start s, end s];",
+    "'published' the [duration s, distance km] its source states, where one does;",
+    "'fingerprint' the sum of its 1 Hz speeds in km/h and the SHA-256 of its CSV, which",
+    "test_cycles.py recomputes. Never change a shipped trace in place: a changed cycle",
+    "gets a new id, so a run stored with the old one can still be reproduced."
   ],
   "cycles": {
     "wltc-3b": {
       "name": "WLTC class 3b",
       "region": "Europe / UN (WLTP)",
       "register": "DR-25",
-      "phases": [["Low", 0, 589], ["Medium", 589, 1022], ["High", 1022, 1477], ["Extra High", 1477, 1800]],
-      "published": [1800, 23.266]
+      "source": "Commission Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 1, Tables A1/7, A1/9, A1/11, A1/12. Source: EUR-Lex, © European Union; converted to a CSV in km/h",
+      "reuse": "EU-2011/833",
+      "phases": [
+        [
+          "Low",
+          0,
+          589
+        ],
+        [
+          "Medium",
+          589,
+          1022
+        ],
+        [
+          "High",
+          1022,
+          1477
+        ],
+        [
+          "Extra High",
+          1477,
+          1800
+        ]
+      ],
+      "note": "Most cars: over 34 W/kg and a top speed of 120 km/h or more.",
+      "published": [
+        1800,
+        23.266
+      ],
+      "fingerprint": {
+        "speed_sum_kmh": 83758.6,
+        "sha256": "122375343b339ff3117d034694652bc2dca491059ab1ea2d8bd78d6ec2725e11"
+      }
+    },
+    "wltc-3a": {
+      "name": "WLTC class 3a",
+      "region": "Europe / UN (WLTP)",
+      "register": "DR-70",
+      "source": "Commission Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 1, Tables A1/7, A1/8, A1/10, A1/12. Source: EUR-Lex, © European Union; converted to a CSV in km/h",
+      "reuse": "EU-2011/833",
+      "phases": [
+        [
+          "Low",
+          0,
+          589
+        ],
+        [
+          "Medium",
+          589,
+          1022
+        ],
+        [
+          "High",
+          1022,
+          1477
+        ],
+        [
+          "Extra High",
+          1477,
+          1800
+        ]
+      ],
+      "note": "Over 34 W/kg with a top speed under 120 km/h.",
+      "fingerprint": {
+        "speed_sum_kmh": 83496.9,
+        "sha256": "c516cae091ac84ec7a922d1444188be8705b0a74df59b8374f7c8187fbcfa297"
+      }
+    },
+    "wltc-2": {
+      "name": "WLTC class 2",
+      "region": "Europe / UN (WLTP)",
+      "register": "DR-71",
+      "source": "Commission Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 1, Tables A1/3 to A1/6. Source: EUR-Lex, © European Union; converted to a CSV in km/h",
+      "reuse": "EU-2011/833",
+      "phases": [
+        [
+          "Low",
+          0,
+          589
+        ],
+        [
+          "Medium",
+          589,
+          1022
+        ],
+        [
+          "High",
+          1022,
+          1477
+        ],
+        [
+          "Extra High",
+          1477,
+          1800
+        ]
+      ],
+      "note": "22 to 34 W/kg (small, low-powered cars and vans).",
+      "fingerprint": {
+        "speed_sum_kmh": 81536.9,
+        "sha256": "62a83dd1ec23ba06ebef3ab5fc648daef4ac5576db747cf35455737af84e45e7"
+      }
+    },
+    "wltc-1": {
+      "name": "WLTC class 1",
+      "region": "Europe / UN (WLTP)",
+      "register": "DR-72",
+      "source": "Commission Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 1, Tables A1/1, A1/2 and A1/1 again. Source: EUR-Lex, © European Union; converted to a CSV in km/h",
+      "reuse": "EU-2011/833",
+      "phases": [
+        [
+          "Low",
+          0,
+          589
+        ],
+        [
+          "Medium",
+          589,
+          1022
+        ],
+        [
+          "Low",
+          1022,
+          1611
+        ]
+      ],
+      "note": "22 W/kg or less (very low-powered vehicles).",
+      "fingerprint": {
+        "speed_sum_kmh": 41139.6,
+        "sha256": "8d95506f2d87628888374a3a8baa451419213d87d516145e377209be91180f78"
+      }
+    },
+    "wltc-3b-city": {
+      "name": "WLTC city, class 3b",
+      "region": "Europe / UN (WLTP)",
+      "register": "DR-73",
+      "source": "Commission Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 1, Tables A1/7 and A1/9 (paragraph 3.5). Source: EUR-Lex, © European Union; converted to a CSV in km/h",
+      "reuse": "EU-2011/833",
+      "phases": [
+        [
+          "Low",
+          0,
+          589
+        ],
+        [
+          "Medium",
+          589,
+          1022
+        ]
+      ],
+      "note": "Low and Medium phases only: the city cycle electric and plug-in cars are also tested on.",
+      "fingerprint": {
+        "speed_sum_kmh": 28261.5,
+        "sha256": "1d2b420c3d34b2f8939dbe59fa7cb34a72c4e3d36d65ff8557b7b46c6367f0d4"
+      }
+    },
+    "wltc-3a-city": {
+      "name": "WLTC city, class 3a",
+      "region": "Europe / UN (WLTP)",
+      "register": "DR-74",
+      "source": "Commission Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 1, Tables A1/7 and A1/8 (paragraph 3.5). Source: EUR-Lex, © European Union; converted to a CSV in km/h",
+      "reuse": "EU-2011/833",
+      "phases": [
+        [
+          "Low",
+          0,
+          589
+        ],
+        [
+          "Medium",
+          589,
+          1022
+        ]
+      ],
+      "note": "Low and Medium phases only.",
+      "fingerprint": {
+        "speed_sum_kmh": 28136.0,
+        "sha256": "9dac5963ebf5f234288052fed7252806383a9cb773ddd04aeb772931678e21f5"
+      }
+    },
+    "wltc-3-low": {
+      "name": "WLTC class 3, Low phase",
+      "region": "Europe / UN (WLTP)",
+      "register": "DR-75",
+      "source": "Commission Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 1, Table A1/7. Source: EUR-Lex, © European Union; converted to a CSV in km/h",
+      "reuse": "EU-2011/833",
+      "phases": [],
+      "note": "One phase on its own, from 0 to 589 s of class 3a and 3b.",
+      "fingerprint": {
+        "speed_sum_kmh": 11140.3,
+        "sha256": "a75cb90818f7ee336ab6c4d9aa900fb600fe4b589853ae05c6f628cb58ec26bb"
+      }
+    },
+    "wltc-3a-medium": {
+      "name": "WLTC class 3a, Medium phase",
+      "region": "Europe / UN (WLTP)",
+      "register": "DR-76",
+      "source": "Commission Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 1, Table A1/8. Source: EUR-Lex, © European Union; converted to a CSV in km/h",
+      "reuse": "EU-2011/833",
+      "phases": [],
+      "note": "One phase on its own.",
+      "fingerprint": {
+        "speed_sum_kmh": 16995.7,
+        "sha256": "99c9e5c6db70a161773b55b21c30bfdbd2ac69174bf9c1a5e5121effbe4d37bd"
+      }
+    },
+    "wltc-3b-medium": {
+      "name": "WLTC class 3b, Medium phase",
+      "region": "Europe / UN (WLTP)",
+      "register": "DR-77",
+      "source": "Commission Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 1, Table A1/9. Source: EUR-Lex, © European Union; converted to a CSV in km/h",
+      "reuse": "EU-2011/833",
+      "phases": [],
+      "note": "One phase on its own.",
+      "fingerprint": {
+        "speed_sum_kmh": 17121.2,
+        "sha256": "a27c5530d140ed0f93753a232a3ad71c525e944743f5f07b37bfb91890393186"
+      }
+    },
+    "wltc-3a-high": {
+      "name": "WLTC class 3a, High phase",
+      "region": "Europe / UN (WLTP)",
+      "register": "DR-78",
+      "source": "Commission Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 1, Table A1/10. Source: EUR-Lex, © European Union; converted to a CSV in km/h",
+      "reuse": "EU-2011/833",
+      "phases": [],
+      "note": "One phase on its own.",
+      "fingerprint": {
+        "speed_sum_kmh": 25646.0,
+        "sha256": "69923444052e78439c7c862bd60841c512f0565ec852f335985406346c654b67"
+      }
+    },
+    "wltc-3b-high": {
+      "name": "WLTC class 3b, High phase",
+      "region": "Europe / UN (WLTP)",
+      "register": "DR-79",
+      "source": "Commission Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 1, Table A1/11. Source: EUR-Lex, © European Union; converted to a CSV in km/h",
+      "reuse": "EU-2011/833",
+      "phases": [],
+      "note": "One phase on its own.",
+      "fingerprint": {
+        "speed_sum_kmh": 25782.2,
+        "sha256": "3d568d9a889416b38cb90d09086baf3b1f6a5b09e4d5ea6cc1135fc13fdca4b9"
+      }
+    },
+    "wltc-3-extra-high": {
+      "name": "WLTC class 3, Extra High phase",
+      "region": "Europe / UN (WLTP)",
+      "register": "DR-80",
+      "source": "Commission Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 1, Table A1/12. Source: EUR-Lex, © European Union; converted to a CSV in km/h",
+      "reuse": "EU-2011/833",
+      "phases": [],
+      "note": "One phase on its own, the same for class 3a and 3b.",
+      "fingerprint": {
+        "speed_sum_kmh": 29714.9,
+        "sha256": "67482dd1ce456107228d159c986e67adee7aff2262a2ed04ddf01d5c97b3dbe9"
+      }
+    },
+    "nedc": {
+      "name": "NEDC (withdrawn)",
+      "region": "Europe (before WLTP)",
+      "register": "DR-81",
+      "source": "UN/ECE Regulation No 83 as published in OJ L 42, 15.2.2012, Annex 4a, Tables 1 and 2 (manual-gearbox operations). Source: EUR-Lex, © European Union; converted to a CSV in km/h",
+      "reuse": "EU-2011/833",
+      "phases": [
+        [
+          "Urban 1",
+          0,
+          195
+        ],
+        [
+          "Urban 2",
+          195,
+          390
+        ],
+        [
+          "Urban 3",
+          390,
+          585
+        ],
+        [
+          "Urban 4",
+          585,
+          780
+        ],
+        [
+          "Extra-urban",
+          780,
+          1180
+        ]
+      ],
+      "note": "Replaced by WLTP for new cars from 2017-2019; for comparing with older published figures. The gear changes hold their speed for 2 s, as the regulation's tables say.",
+      "fingerprint": {
+        "speed_sum_kmh": 39701.5,
+        "sha256": "8d9b60c9dc71faa6cf8a6e86615f0af5ddc87ca4e0cf16bcbbcf78af6e27ca57"
+      }
     },
     "udds": {
       "name": "EPA city (UDDS)",
       "region": "United States (EPA)",
       "register": "DR-34",
-      "phases": [["Bag 1", 0, 505], ["Bag 2", 505, 1369]],
-      "published": [1369, 11.9896]
+      "source": "40 CFR Part 86, Appendix I; EPA's uddscol.txt",
+      "reuse": "US-17USC105",
+      "phases": [
+        [
+          "Bag 1",
+          0,
+          505
+        ],
+        [
+          "Bag 2",
+          505,
+          1369
+        ]
+      ],
+      "note": "The city cycle of EPA fuel-economy tests (also called LA4 or FTP-72).",
+      "published": [
+        1369,
+        11.9896
+      ],
+      "fingerprint": {
+        "speed_sum_kmh": 43164.88,
+        "sha256": "87e6efeecfeeac9532f55077f9f37cec2bb2a8345cf2746b0dea2fe6d8b7ca6c"
+      }
     },
     "hwfet": {
       "name": "EPA highway (HWFET)",
       "region": "United States (EPA)",
       "register": "DR-35",
+      "source": "40 CFR Part 600, Appendix I; EPA's hwycol.txt",
+      "reuse": "US-17USC105",
       "phases": [],
-      "published": [765, 16.5119]
+      "note": "The highway cycle of EPA fuel-economy tests.",
+      "published": [
+        765,
+        16.5119
+      ],
+      "fingerprint": {
+        "speed_sum_kmh": 59423.604,
+        "sha256": "5a3e46e1a34ef3531c779988a7cc07ecb62f144390f2ec5b39572f02141f36c8"
+      }
+    },
+    "ftp-75": {
+      "name": "EPA FTP-75 (without the soak)",
+      "region": "United States (EPA)",
+      "register": "DR-82",
+      "source": "40 CFR Part 86, Appendix I, and 86.137; EPA's ftpcol.txt",
+      "reuse": "US-17USC105",
+      "phases": [
+        [
+          "Bag 1 (cold start)",
+          0,
+          505
+        ],
+        [
+          "Bag 2 (stabilised)",
+          505,
+          1369
+        ],
+        [
+          "Bag 3 (hot start)",
+          1369,
+          1874
+        ]
+      ],
+      "note": "The UDDS and a repeat of its first 505 s. The real test parks the car for 10 minutes before Bag 3; this trace leaves the soak out, and LightSim does not model the cold start.",
+      "fingerprint": {
+        "speed_sum_kmh": 63969.993,
+        "sha256": "9f768e2f69230a4bac29a520af616ff477358f796646ca647dc530535f46bfb9"
+      }
+    },
+    "us06": {
+      "name": "EPA US06",
+      "region": "United States (EPA)",
+      "register": "DR-83",
+      "source": "40 CFR Part 86, Appendix I; EPA's us06col.txt",
+      "reuse": "US-17USC105",
+      "phases": [],
+      "note": "Hard accelerations and high speed: one of EPA's supplemental (five-cycle) tests.",
+      "fingerprint": {
+        "speed_sum_kmh": 46395.287,
+        "sha256": "88aad61b1ae411dd49c1d15961544885d949984416100fc5bde27ea6f9ce4408"
+      }
+    },
+    "sc03": {
+      "name": "EPA SC03",
+      "region": "United States (EPA)",
+      "register": "DR-84",
+      "source": "40 CFR Part 86, Appendix I; EPA's sc03col.txt",
+      "reuse": "US-17USC105",
+      "phases": [],
+      "note": "The air-conditioning test of EPA's five-cycle method (run at 35 °C with sun in the real test).",
+      "fingerprint": {
+        "speed_sum_kmh": 20738.318,
+        "sha256": "99158a3ca4617797ed0ad78c555ae4cec8b709c2e6352e9580c62c468f3c5c67"
+      }
+    },
+    "la92": {
+      "name": "LA92 (Unified cycle, hot)",
+      "region": "United States (EPA)",
+      "register": "DR-85",
+      "source": "EPA's la92dds.txt (the first 1,435 s of the LA92 Dynamometer Driving Schedule)",
+      "reuse": "US-17USC105",
+      "phases": [],
+      "note": "Faster than the FTP, with fewer stops; used by California's air board and for heavy-duty class 3 vehicles.",
+      "fingerprint": {
+        "speed_sum_kmh": 56870.668,
+        "sha256": "548ee01b80670f6b4a8529a710a60decd7ca647637ec113da907708fff14e010"
+      }
+    },
+    "nycc": {
+      "name": "EPA New York City Cycle",
+      "region": "United States (EPA)",
+      "register": "DR-86",
+      "source": "EPA's epa-new-york-city-cycle.txt",
+      "reuse": "US-17USC105",
+      "phases": [],
+      "note": "Slow stop-and-go city traffic.",
+      "fingerprint": {
+        "speed_sum_kmh": 6827.479,
+        "sha256": "8fa020203daad6be762972c92d362c0dbc97f435a537de418a498306eaf1770a"
+      }
+    },
+    "ftp-mc-1b": {
+      "name": "EPA motorcycle FTP, class I-B",
+      "region": "United States (EPA)",
+      "register": "DR-87",
+      "source": "40 CFR Part 86, Appendix I; EPA's ftpmc1b.txt",
+      "reuse": "US-17USC105",
+      "phases": [
+        [
+          "Bag 1 (cold start)",
+          0,
+          505
+        ],
+        [
+          "Bag 2 (stabilised)",
+          505,
+          1369
+        ],
+        [
+          "Bag 3 (hot start)",
+          1369,
+          1874
+        ]
+      ],
+      "note": "The FTP with lower speeds from 164 to 332 s and from 1,533 to 1,701 s, for motorcycles of 50 to 169 cc; without the 10-minute soak.",
+      "fingerprint": {
+        "speed_sum_kmh": 55641.0,
+        "sha256": "19b78fb610a278d4401a95efa0eb0999a916c1840a5060ec9fc6e582a361cfb8"
+      }
+    },
+    "wmtc": {
+      "name": "WMTC (motorcycles, parts 1-3)",
+      "region": "Motorcycles (UN GTR 2)",
+      "register": "DR-88",
+      "source": "UN GTR No. 2 (WMTC), as shipped in FASTSim 2.1.5 (wmtc_all.csv)",
+      "reuse": "Apache-2.0",
+      "phases": [
+        [
+          "Part 1",
+          0,
+          600
+        ],
+        [
+          "Part 2",
+          600,
+          1200
+        ],
+        [
+          "Part 3",
+          1200,
+          1800
+        ]
+      ],
+      "note": "The world motorcycle test cycle, all three parts (the version for the fastest class).",
+      "fingerprint": {
+        "speed_sum_kmh": 104095.4,
+        "sha256": "3c88b2499c3f01d4299226f4a89a16f008d13e3ccc92457d424aef2bf1fe576c"
+      }
+    },
+    "wmtc-part1": {
+      "name": "WMTC part 1",
+      "region": "Motorcycles (UN GTR 2)",
+      "register": "DR-89",
+      "source": "UN GTR No. 2 (WMTC), as shipped in FASTSim 2.1.5 (wmtc_part1.csv)",
+      "reuse": "Apache-2.0",
+      "phases": [],
+      "note": "Urban part, up to 60 km/h.",
+      "fingerprint": {
+        "speed_sum_kmh": 14637.2,
+        "sha256": "65a5e4b0521c5fc20d37282253faba0bf21aa9654e7936b032c8103dbdb79dba"
+      }
+    },
+    "wmtc-part2": {
+      "name": "WMTC part 2",
+      "region": "Motorcycles (UN GTR 2)",
+      "register": "DR-90",
+      "source": "UN GTR No. 2 (WMTC), as shipped in FASTSim 2.1.5 (wmtc_part2.csv)",
+      "reuse": "Apache-2.0",
+      "phases": [],
+      "note": "Rural part, up to 95 km/h.",
+      "fingerprint": {
+        "speed_sum_kmh": 32803.9,
+        "sha256": "78ee0c5045dc3dce332057f8e50df4c9c7589635875b0a7b9e7295db464c0c8e"
+      }
+    },
+    "wmtc-part3": {
+      "name": "WMTC part 3",
+      "region": "Motorcycles (UN GTR 2)",
+      "register": "DR-91",
+      "source": "UN GTR No. 2 (WMTC), as shipped in FASTSim 2.1.5 (wmtc_part3.csv)",
+      "reuse": "Apache-2.0",
+      "phases": [],
+      "note": "Motorway part, up to 125 km/h.",
+      "fingerprint": {
+        "speed_sum_kmh": 56654.3,
+        "sha256": "11b3b4dc39a4ad44dc0fcf5ebee28ed1089b41b0ca32fbbf77af3a38480ca121"
+      }
+    },
+    "long-haul": {
+      "name": "Long-haul truck route (804.6 km, with grade)",
+      "region": "Heavy trucks (research)",
+      "register": "DR-92",
+      "source": "FASTSim 2.1.5 longHaulDriveCycle.csv (NREL)",
+      "reuse": "Apache-2.0",
+      "phases": [],
+      "note": "A 23-hour truck trip with the road's grade (from -2.3 to +2.9 %). A run takes a long time; start with the 100 km excerpt.",
+      "fingerprint": {
+        "speed_sum_kmh": 2896612.291,
+        "sha256": "0f62115041d8366d1a7f137fc313ead159eed441e4f3b2f5894f860fdca138fd"
+      }
+    },
+    "long-haul-100km": {
+      "name": "Long-haul truck route, first 100 km (with grade)",
+      "region": "Heavy trucks (research)",
+      "register": "DR-93",
+      "source": "The first 100 km of FASTSim 2.1.5 longHaulDriveCycle.csv (NREL)",
+      "reuse": "Apache-2.0",
+      "phases": [],
+      "note": "Ends at speed where the route passes 100 km.",
+      "fingerprint": {
+        "speed_sum_kmh": 360052.028,
+        "sha256": "cc2647bf4793ed5b77a413585beda090adc882bff07a9fddbae0463c1fa9ad61"
+      }
     }
   }
 }

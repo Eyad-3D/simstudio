@@ -34,6 +34,7 @@ sections.
 | Stored values and summary numbers keep every digit: 0.2.0 rounded each stored value to 5 decimals and the summary to 1 Wh, 1 g and 0.01 per 100 km | No result moves by more than that rounding, but small differences now show: one more kilogram on the Battery Electric Car takes its City Cycle from 11.1207 to 11.1240 kWh/100 km and its final SOC from 88.7640 to 88.7636 % (both read 11.12 kWh/100 km and 88.76 % before). The *Results* page shows at most 3 decimals; run files, study tables and their CSV have every digit | ENG-16 |
 | A hybrid's *Cycle* cases run charge-balanced (see *New*) | A hybrid case that starts at a charge its cycle does not end with now reports the fuel of a charge-neutral run: the P2 Hybrid Car's Mixed Cycle started at 30 % gives 2.878 l/100 km instead of the single run's 4.048 (which held the fuel spent recharging the battery). The examples' cases already start balanced and keep their figures (one run); their summaries gain three rows and *Messages* one line | ENG-33 |
 | The solver step gets smaller when the tyres' *Slip Stiffness* (or a propeller-type load) is too stiff for 10 ms | Models with stiff tyres no longer give numerical nonsense, and run slower: 5 ms from a *Slip Stiffness* of 20 (with the default share of weight on each wheel), 0.5 ms at 300. The FS Electric example (20) now runs at 5 ms: its 75 m time 3.744 → 3.751 s, 0-100 km/h 2.93 → 2.95 s, time held at 80 kW 3.77 → 3.62 s, 4.22 → 4.23 s at a 40 kW limit; its lap cases do not change. The Battery Electric and P2 Hybrid Cars keep 10 ms | ENG-14 |
+| New library defaults with a source (CON-14): a Power Consumer draws 0.25 kW (was 2.5 kW, a heating level; FASTSim's auxiliary load for electric cars), a Wheel's rolling resistance is 0.0085 (was 0.012; the middle of EU tyre label class C, Regulation (EU) 2020/740), and the Engine's fuel map is a synthetic map with a best-efficiency region (best 221 g/kWh at 2,500 1/min; was a map of unknown origin, 277 g/kWh at 2,000 1/min and 100 N·m, now 227) | Models that keep these defaults use less energy: the Battery Electric Car with every value at its default takes 13.32 kWh/100 km on WLTC class 3b instead of 19.98 (the example itself, 14.05, does not change), and a default engine burns about 18 % less fuel at part load. The examples set their own values and do not change | CON-14 |
 
 ### New
 
@@ -309,6 +310,105 @@ sections.
   cycle's name, such as *udds*, lists it: activate it to add a Driving Task
   that drives it. The three cycles are the ones the examples used; their
   figures are within 0.04 % of the published ones. (CON-16)
+- The drive-cycle library has 27 cycles (it had 3): the WLTC of classes 1,
+  2, 3a and 3b, their city cycles and each class 3 phase on its own, typed
+  from the EU's Regulation 2017/1151 on EUR-Lex; the NEDC from UN
+  Regulation No 83 as the EU published it; EPA's FTP-75, US06, SC03, LA92,
+  New York City cycle and motorcycle FTP from EPA's schedule files; the
+  WMTC motorcycle cycle and its parts, and a long-haul truck route with its
+  road grade (804.6 km, and its first 100 km), from FASTSim. Each cycle
+  names its source and the reason LightSim may ship it under its sketch,
+  and carries a fingerprint (the sum of its 1 Hz speeds and a SHA-256 of
+  its file) that the tests check, so no trace can change unseen. The
+  WLTC class 3b, UDDS and HWFET files the examples use did not change:
+  they equal the EU and EPA tables value for value. (CON-04, CON-31)
+- Road Profile: *Grade From Cycle* takes the road's grade from a cycle that
+  carries one (the long-haul route), placed along the distance the cycle
+  covers, so one cycle gives both the speed and the hills. (CON-11)
+- Data register: every row now says why LightSim may ship the data (its
+  *reuse basis*), and DATA-REGISTER.md lists, in order, where data may come
+  from and the sources it must never come from, such as the UNECE website,
+  ev-database.org and EUPL files; the tests fail on a row that names one.
+  (CON-31)
+- A run on a typed profile instead of a standard cycle says so in its
+  messages: its figures cannot be compared with published ones. The
+  examples' *City Cycle* and *Mixed Cycle* are such hand-made demo profiles,
+  and their descriptions now say so; the Properties sketch of a typed
+  profile reads *Custom profile (not a standard cycle)*. The examples'
+  Monitor and Hybrid Control Unit ports show the unit of the signal they
+  are wired to (km/h, N·m, %, V, A, 1/min) instead of bare numbers, and the
+  Battery Electric Car's description no longer names an inverter it does
+  not have (the motor's loss map holds the inverter's losses). No result
+  changes. (CON-26)
+- Run summary, consumption as labs report it: for an electric car the
+  energy at the charging socket (*Consumption at the socket (AC)*, from the
+  battery's new *Charger Efficiency*, 86 % by default as in FASTSim), the
+  US *fuel-economy equivalent* in MPGe (33.705 kWh a gallon) and the *range*
+  the battery's usable energy gives at that consumption; for a hybrid
+  case with *Charge balance* off the battery's energy change as a share of
+  the fuel's and a *charge-corrected* fuel consumption from that one run
+  (with it on, the default for a hybrid's cycle, charge balancing gives
+  them: see ENG-33); for a case on a cycle with phases each phase's
+  distance and consumption (the WLTC's four phases add up to the whole);
+  and for the FTP-75 the bags weighted as EPA does. Help: *Consumption
+  figures* gives every formula. The Battery Electric Car on WLTC class 3b:
+  14.05 kWh/100 km at the battery, 16.34 at the socket, 128.2 MPGe, 426 km;
+  its phases 10.63 / 11.27 / 12.91 / 17.94 kWh/100 km. No existing figure
+  changes. (CON-05)
+- **Simulations → US label**: a US window-sticker estimate, marked *not
+  certified*. It runs the model on EPA's city (UDDS) and highway (HWFET)
+  cycles and shows each step from the lab figures to the label ones, by
+  EPA's derived five-cycle equations (2008 or 2017 coefficients), as
+  FASTSim's label module computes them (the tests hold LightSim within
+  0.5 % of FASTSim's formulas): city, highway and combined MPGe and
+  kWh/100 mi and the range for an electric car, mpg and l/100 km for a car
+  with an engine. The Battery Electric Car gets 104 MPGe combined and 213
+  miles; the P2 Hybrid Car 56 city, 48 highway and 52 combined mpg (the
+  real car's label: 58, 60 and 59). (CON-32)
+- Weather presets on the Ambient: *Cold day (−7 °C)* (EPA's cold FTP and
+  the EU's low-temperature test), *Standard day (23 °C)* (WLTP),
+  *Hot and sunny day (35 °C)* (EPA's air-conditioning test SC03) and *High
+  altitude (1,500 m)* (the standard atmosphere: 84.56 kPa, 5.25 °C), each
+  with its source. The Battery Electric Car has an Ambient (at its
+  defaults, the air it had before) and two new cases, *WLTC, winter day
+  (−7 °C, heating on)* at 19.5 kWh/100 km and *WLTC, hot day (35 °C,
+  air-con on)* at 18.6, against 18.9 at 20 °C with the same 2.5 kW load.
+  Only the air density follows the weather until the climate-control load
+  (MOD-41) arrives; the presets' notes say so. No existing case changes.
+  (CON-30)
+- **Simulations → Vehicle tests**: one-click 0-100 and 80-120 km/h, top
+  speed with what limits it, consumption and range at 50, 90 and 120 km/h,
+  the steepest grade held at 30 km/h and a virtual coast-down that returns
+  the road-load coefficients A, B and C, each from runs of the model as it
+  is. The Battery Electric Car: 0-100 km/h in 7.12 s, 80-120 in 4.98 s,
+  160 km/h limited by its motor's maximum speed, 9.4 / 14.1 / 19.6 kWh/100
+  km at 50 / 90 / 120 km/h. The hybrid's coast-down gives back its EPA
+  coefficients within 2 %. (CON-06)
+- Value sources: every number and table of a part can carry its source, a
+  kind (measured, datasheet, estimated, generated or library default) and
+  a confidence (0 not checked, 1 agrees with its source, 2 source and
+  method checked, ADVISOR's scale). Properties tags each value that has one
+  and counts the values still at their library default; *Value sources*
+  records, changes or forgets one. The Battery Electric Car's and P2 Hybrid
+  Car's values all carry theirs, from the data register. Data Checks' all
+  clear now says how many of the model's values are still at their library
+  default with no source. Saved in the project file as each part's
+  `parameterSources`; older versions keep it untouched. (CON-13)
+- **Home → Templates**: start a project from a pre-wired vehicle template
+  with a short form (*Electric car, one motor*, *P2 hybrid car*, *Formula
+  Student electric*), each with named slots (Battery, E-Drive 1, Engine,
+  Driveline, Chassis, ...); or save any model as a template of your own,
+  choosing which values its form asks. Your templates are files in the
+  projects folder (`templates/`), versioned, and a project records the
+  template and version it came from. (CON-18)
+- A fourth example, *Efficient Electric Sedan*, sized after the 2022 Tesla
+  Model 3 RWD from EPA's 2022 Test Car List (test mass, road load, rated
+  power, gearing), asks what low drag buys you: on WLTC it takes 11.8
+  kWh/100 km against the Battery Electric Car's 14.1. On EPA's city and
+  highway cycles it gives 190 and 163 MPGe at the socket, against 185.3 and
+  170.1 in EPA's own tests of the car; the tests hold it within 5 %. The
+  FASTSim vehicle file's mass and motor power, which it cites from
+  evspecifications.com, were not used. (CON-07)
 - Help: press F1, or click **?** at the top right, to open LightSim's help
   in your web browser. It comes with the app and needs no internet
   connection: two tutorials, how-to guides, a page for every part with its

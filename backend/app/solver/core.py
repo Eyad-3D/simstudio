@@ -34,6 +34,7 @@ from . import balance, fs_events, lapsim
 from .battery import SOP_PULSES, sop
 from .domains import ModelInitError, RunContext, build_slaves
 from .energy import add_lap, energy_flows
+from .labfig import LabLog, lab_rows
 from .maps import OutsideDataError
 from .master import Master, SlaveStepError
 from .network import ModelError, build_model
@@ -140,6 +141,14 @@ def run_case(
     soc_start = {el_id: b.soc for el_id, b in ctx.batteries.items()}
     ctx.performance = case.kind != "cycle"  # the trace is sampled every solver step
     ctx.full_throttle = case.kind == "acceleration"
+    if case.kind == "cycle":  # say when the figures cannot be compared (CON-26)
+        for el_id, cdef in model.cdef_of.items():
+            if cdef.id == "signal.driving_task" and not model.params_of[el_id].get("cycle"):
+                rt.message("info", f"Driving Task '{model.elements[el_id].label}' follows a typed "
+                                   f"profile (a demo or your own points), not a standard "
+                                   f"drive cycle: compare its "
+                                   f"figures only with runs on the same profile, not with "
+                                   f"published ones.")
     # the run ends when the vehicle has driven this far, m (None: at the duration)
     end_d = (max(0.0, case.startLine) + case.endDistance
              if case.endDistance and case.endDistance > 0 else None)
@@ -216,6 +225,8 @@ def run_case(
             publish_routed_states()
             recorder.step()
 
+        lablog = LabLog.for_run(model, case.kind)  # per-phase totals (CON-05)
+        lablog.sample(0.0, ctx)
         trace = CycleTrace(ctx)  # target vs vehicle speed, for the run verdict
         if lap is None:  # a lap case follows no target
             trace.sample(0.0)
@@ -324,6 +335,7 @@ def run_case(
                     break
                 if arrived:
                     t = solved  # the last point: the end of the solver step that got there
+                lablog.sample(solved, ctx)
 
                 if pace > 0:
                     target_wall = t / pace
@@ -386,6 +398,7 @@ def run_case(
             ))
 
         summary: list[SummaryValue] = []
+        lab_base: dict[str, str] = {}  # a lab-style row → the row whose validity it shares
         for b in ctx.batteries.values():
             label = model.elements[b.el_id].label
             summary.append(SummaryValue(label=f"{label} — final SOC", value=b.soc * 100.0, unit="%"))
@@ -460,8 +473,8 @@ def run_case(
                     label="Consumption", value=net_wh / 10.0 / (ctx.distance / 1000.0),
                     unit="kWh/100km"))
             fuel_kg = sum(ec.fuel_used_kg for ec in ctx.engines.values())
+            density = 0.745  # gasoline default when no tank declares one
             if ctx.distance > 100 and fuel_kg > 0:
-                density = 0.745  # gasoline default when no tank declares one
                 co2_per_kg = 3.17  # kg CO₂ per kg of gasoline, likewise
                 if model.fuel_tank:
                     tank_p = ctx.params(model.fuel_tank)
@@ -481,6 +494,12 @@ def run_case(
                     label="CO₂ emissions",
                     value=fuel_kg * co2_per_kg * 1000.0 / (ctx.distance / 1000.0),
                     unit="g/km"))
+            # at the socket, range, MPGe, charge-corrected fuel, per phase
+            # (a charge-balanced hybrid case gets its correction from
+            # balance.py, ENG-33)
+            lab, lab_base = lab_rows(ctx, model, lablog, density,
+                                     balanced=balance.applies(project, case))
+            summary += lab
         ctx.close_book()
         if lap is not None and ctx.veh_id:  # its mechanics come from the lap's energy pass
             add_lap(ctx.book, lap.book, ctx.veh_id, model.elements[ctx.veh_id].label)
@@ -594,6 +613,8 @@ def run_case(
                     not_valid[s.label] = "the solution broke down"
         for s in summary:
             s.notValid = not_valid.get(s.label)
+            if s.notValid is None and s.label in lab_base:  # shares its base row's validity
+                s.notValid = not_valid.get(lab_base[s.label])
         event = case.fsEvent
         if event and case.kind != ("acceleration" if event == "acceleration" else "lap") \
                 and not (event == "endurance" and case.kind == "cycle"):

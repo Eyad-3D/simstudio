@@ -44,7 +44,7 @@ from app.solver.runtime import RPM
 from app.solver.verdict import trace_metrics
 from app.storage import load_example
 
-EXAMPLES = ("bev-car", "fs-electric", "hybrid-car")
+EXAMPLES = ("aero-bev", "bev-car", "fs-electric", "hybrid-car")
 MPH = 1.609344
 # 1 kWh put into (taken from) the hybrid's battery is worth this much fuel
 # the engine burnt (saved): petrol 42.9 MJ/kg x 0.745 kg/l = 8.88 kWh/l,

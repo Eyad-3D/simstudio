@@ -22,7 +22,7 @@ const SYNONYMS: Record<string, string> = {
   "boundary.ground": "earth",
   "propulsion.wheel": "tyre tire",
   "vehicle.body": "chassis car",
-  "signal.driving_task": "drive cycle speed profile wltp",
+  "signal.driving_task": "drive cycle speed profile wltp wltc nedc epa ftp",
   "signal.road_profile": "slope gradient hill",
   "signal.script": "python code",
   "signal.monitor": "scope probe",

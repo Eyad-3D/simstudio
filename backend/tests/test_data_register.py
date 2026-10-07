@@ -23,9 +23,27 @@ LIBRARY = "backend/app/library/components.json"
 
 COLUMNS = [
     "id", "file", "dataset", "kind", "description", "source", "history",
-    "licence", "credit", "ships_in_installer", "cleared", "notes",
+    "licence", "reuse_basis", "credit", "ships_in_installer", "cleared", "notes",
 ]
-REQUIRED = ["id", "file", "dataset", "kind", "description", "source", "licence", "credit"]
+REQUIRED = ["id", "file", "dataset", "kind", "description", "source", "licence",
+            "reuse_basis", "credit"]
+# Why LightSim may ship a row's data (DATA-REGISTER.md, "Where data may come
+# from"); a row lists one or more, separated by "; ".
+REUSE_BASES = {
+    "EU-2011/833", "US-17USC105", "JP-Art13", "Apache-2.0", "MIT", "BSD-3-Clause", "CC-BY-4.0",
+    "CDLA-Permissive-2.0", "OGL-Canada-2.0", "LightSim-own", "Facts", "Derived", "Unknown",
+}
+# The bases a bundled drive cycle may rest on: an official text that allows
+# reuse, or a permissive copy of one (CON-31).
+CYCLE_BASES = {"EU-2011/833", "US-17USC105", "JP-Art13", "Apache-2.0", "MIT"}
+# Sources whose terms do not allow reuse in a paid app, or that LightSim must
+# not bundle (DATA-REGISTER.md, "Never take data from"). A row may name them
+# only to say it does not use them ("not ..."), so the check reads the
+# source column, where only real sources go.
+BANNED_SOURCES = [
+    "ev-database.org", "evspecifications.com", "unece.org", "gaia-charge", "fastsim-vehicles",
+    "vecto", "jrc wltp", "openlap", "racetrack-database", "gb/t 38146",
+]
 # Third-party data credited in THIRD-PARTY-NOTICES.txt (Help > Third-Party
 # Notices), with the register rows that use it.
 BUNDLED_DATA = ROOT / "scripts" / "licenses" / "bundled-data.json"
@@ -53,7 +71,7 @@ NOT_DATA = [
 # inlines frontend/src/data and copies frontend/public; the shell's asar
 # holds desktop/src.
 SHIPPED = [
-    "backend/projects/*", "backend/app/library/*", "backend/app/cycles/*",
+    "backend/projects/*", "backend/app/library/*", "backend/app/cycles/*", "backend/app/templates/*",
     "frontend/src/data/*", "frontend/public/*", "desktop/src/*",
 ]
 
@@ -208,9 +226,38 @@ def test_nothing_ships_that_is_not_cleared(rows):
 
 
 def _needs_credit(credit: str) -> bool:
-    """A credit text of its own, rather than "None ..." or "Same as DR-nn"
-    (that row's credit then covers it)."""
-    return not credit.startswith(("None", "Same as"))
+    """A credit text of its own, rather than "None ...", "Same as DR-nn"
+    (that row's credit then covers it) or EUR-Lex's acknowledgement alone,
+    which the app shows with each cycle (test_eu_credit_is_shown_with_the_cycle)."""
+    return not credit.startswith(("None", "Same as")) and not (
+        credit.startswith("Source: EUR-Lex") and "FASTSim" not in credit)
+
+
+def test_every_row_names_why_lightsim_may_ship_it(rows):
+    """CON-31: every row says on what basis it may be reused, from the list
+    in DATA-REGISTER.md; a bundled drive cycle only on an official text that
+    allows reuse or a permissive copy of one; and no row takes data from a
+    banned source."""
+    for row in rows:
+        bases = row["reuse_basis"].split("; ")
+        assert set(bases) <= REUSE_BASES, f"{row['id']}: unknown reuse basis {row['reuse_basis']!r}"
+        if row["kind"] == "drive-cycle" and row["file"].startswith("backend/app/cycles/"):
+            assert set(bases) <= CYCLE_BASES, f"{row['id']}: a bundled cycle on {bases}"
+        source = row["source"].lower()
+        hits = [b for b in BANNED_SOURCES if b in source]
+        assert not hits, f"{row['id']}: its source names {hits}, which LightSim must not use"
+
+
+def test_eu_credit_is_shown_with_the_cycle(rows):
+    """Data reused under Decision 2011/833/EU must acknowledge EUR-Lex; for
+    the bundled cycles the acknowledgement is in the source the cycle list
+    shows (cycles.json)."""
+    cycles = json.loads((ROOT / "backend/app/cycles/cycles.json").read_text(encoding="utf-8"))["cycles"]
+    for row in rows:
+        if "EU-2011/833" in row["reuse_basis"]:
+            assert "Source: EUR-Lex" in row["credit"], row["id"]
+            cycle_id = Path(row["file"]).stem
+            assert "Source: EUR-Lex, © European Union" in cycles[cycle_id]["source"], row["id"]
 
 
 def test_credited_data_appears_in_the_third_party_notices(rows):

@@ -2,7 +2,7 @@
   "id": "hybrid-car",
   "schemaVersion": 1,
   "name": "P2 Hybrid Car",
-  "description": "P2 parallel hybrid sized after the Hyundai Ioniq Hybrid Blue: 1.6-litre petrol engine, clutch, 32 kW e-motor on the input of a 6-speed gearbox, 1.56 kWh battery; test mass and road load from the EPA 2022 Test Car List (EPA's own coefficients A/B/C, which already hold the axle's drag, so the final drive runs lossless). Its Hybrid Control Unit script launches electrically, stops the engine at standstill, when coasting and at low demand, and holds the battery near 55 %.\nWhat to expect (battery charge balanced over each cycle):\n• EPA city (UDDS): 2.8 l/100 km (Ioniq Blue, EPA city test: 2.91 l/100 km, with a cold start this model does not have)\n• EPA highway (HWFET): 3.2 l/100 km (EPA highway test: 2.94 l/100 km)\n• Mixed Cycle: 2.9 l/100 km\n• Engine off at every stop, about 30 engine starts on the city cycle",
+  "description": "P2 parallel hybrid sized after the Hyundai Ioniq Hybrid Blue: 1.6-litre petrol engine, clutch, 32 kW e-motor on the input of a 6-speed gearbox, 1.56 kWh battery; test mass and road load from the EPA 2022 Test Car List (EPA's own coefficients A/B/C, which already hold the axle's drag, so the final drive runs lossless). Its Hybrid Control Unit script launches electrically, stops the engine at standstill, when coasting and at low demand, and holds the battery near 55 %.\nWhat to expect (battery charge balanced over each cycle):\n• EPA city (UDDS): 2.8 l/100 km (Ioniq Blue, EPA city test: 2.91 l/100 km, with a cold start this model does not have)\n• EPA highway (HWFET): 3.2 l/100 km (EPA highway test: 2.94 l/100 km)\n• Mixed Cycle (a hand-made demo profile, not a standard cycle): 2.9 l/100 km\n• Engine off at every stop, about 30 engine starts on the city cycle",
   "systems": [
     {
       "id": "sys-root",
@@ -26,6 +26,42 @@
             "road_load_b_N_per_kmh": 0.9093,
             "road_load_c_N_per_kmh2": 0.025078,
             "abc_include_driveline_losses": true
+          },
+          "parameterSources": {
+            "mass_kg": {
+              "source": "EPA 2022 Test Car List, Hyundai Ioniq Blue, test MHYX10066415 (US Government work); docs/data-register.csv DR-02",
+              "kind": "datasheet",
+              "confidence": 1,
+              "note": "ETW 3,250 lb"
+            },
+            "road_load_a_N": {
+              "source": "EPA 2022 Test Car List, Hyundai Ioniq Blue, test MHYX10066415 (US Government work); docs/data-register.csv DR-02",
+              "kind": "datasheet",
+              "confidence": 1,
+              "note": "15.431 lbf x 4.448"
+            },
+            "road_load_b_N_per_kmh": {
+              "source": "EPA 2022 Test Car List, Hyundai Ioniq Blue, test MHYX10066415 (US Government work); docs/data-register.csv DR-02",
+              "kind": "datasheet",
+              "confidence": 1,
+              "note": "0.32897 lbf/mph x 2.764"
+            },
+            "road_load_c_N_per_kmh2": {
+              "source": "EPA 2022 Test Car List, Hyundai Ioniq Blue, test MHYX10066415 (US Government work); docs/data-register.csv DR-02",
+              "kind": "datasheet",
+              "confidence": 1,
+              "note": "0.014602 lbf/mph2 x 1.717"
+            },
+            "cd": {
+              "source": "Fitted to EPA's road load (an effective value, used only in the drag-and-rolling-resistance mode); DR-02",
+              "kind": "estimated",
+              "confidence": 1
+            },
+            "frontal_area_m2": {
+              "source": "The library default 2.2 m2, kept for the fit; DR-02",
+              "kind": "estimated",
+              "confidence": 0
+            }
           }
         },
         {
@@ -67,14 +103,14 @@
               "name": "soc",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Percent"
             },
             {
               "id": "speed",
               "name": "speed",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Velocity"
             },
             {
               "id": "traction",
@@ -88,14 +124,14 @@
               "name": "motor_rpm",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Rotational Speed"
             },
             {
               "id": "engine_rpm",
               "name": "engine_rpm",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Rotational Speed"
             },
             {
               "id": "motor_cmd",
@@ -149,28 +185,28 @@
               "name": "engine_rpm",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Rotational Speed"
             },
             {
               "id": "soc",
               "name": "soc",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Percent"
             },
             {
               "id": "fuel",
               "name": "fuel",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Percent"
             },
             {
               "id": "clutch_slip",
               "name": "clutch_slip",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Rotational Speed"
             }
           ]
         },
@@ -375,6 +411,23 @@
                 "150": 26.904
               }
             }
+          },
+          "parameterSources": {
+            "full_load_torque": {
+              "source": "Synthetic; peak torque and power from Hyundai's published figures (background knowledge, unverified); DR-27",
+              "kind": "generated",
+              "confidence": 0
+            },
+            "fuel_map": {
+              "source": "Synthetic Willans-line model, created for LightSim; DR-29",
+              "kind": "generated",
+              "confidence": 0
+            },
+            "drag_torque": {
+              "source": "Synthetic, 1.25 x the fuel model's friction; DR-28",
+              "kind": "generated",
+              "confidence": 0
+            }
           }
         },
         {
@@ -418,6 +471,18 @@
           "parameterOverrides": {
             "ratio": 3.38,
             "efficiency_pct": 98
+          },
+          "parameterSources": {
+            "ratio": {
+              "source": "From EPA's N/V of 32.6 1/min per mph with the 6th gear and a 0.31 m wheel; DR-02",
+              "kind": "estimated",
+              "confidence": 1
+            },
+            "efficiency_pct": {
+              "source": "FASTSim 2.1.5 (Apache-2.0); docs/data-register.csv HEV files; DR-02",
+              "kind": "datasheet",
+              "confidence": 1
+            }
           }
         },
         {
@@ -430,6 +495,13 @@
           },
           "parameterOverrides": {
             "efficiency_pct": 100
+          },
+          "parameterSources": {
+            "efficiency_pct": {
+              "source": "FASTSim 2.1.5 (Apache-2.0); docs/data-register.csv HEV files; DR-02",
+              "kind": "datasheet",
+              "confidence": 1
+            }
           }
         },
         {
@@ -454,6 +526,28 @@
             },
             "internal_resistance_ohm": 0.1,
             "initial_soc_pct": 55
+          },
+          "parameterSources": {
+            "capacity_kWh": {
+              "source": "1.56 kWh (background knowledge, unverified); DR-02",
+              "kind": "estimated",
+              "confidence": 0
+            },
+            "initial_soc_pct": {
+              "source": "Charge-balanced over the Mixed Cycle by LightSim; DR-02",
+              "kind": "generated",
+              "confidence": 1
+            },
+            "internal_resistance_ohm": {
+              "source": "Synthetic, created for LightSim; DR-02",
+              "kind": "generated",
+              "confidence": 0
+            },
+            "ocv_table": {
+              "source": "Derived from the library's OCV table, scaled to 240 V; DR-33",
+              "kind": "generated",
+              "confidence": 0
+            }
           }
         },
         {
@@ -606,6 +700,23 @@
               "6000": 0.23,
               "8000": 0.27
             }
+          },
+          "parameterSources": {
+            "full_load_torque": {
+              "source": "Synthetic; 32 kW and 170 N m from Hyundai's published figures (background knowledge, unverified); DR-30",
+              "kind": "generated",
+              "confidence": 0
+            },
+            "power_loss": {
+              "source": "Synthetic, created for LightSim; DR-31",
+              "kind": "generated",
+              "confidence": 0
+            },
+            "drag_torque": {
+              "source": "Synthetic, created for LightSim; DR-32",
+              "kind": "generated",
+              "confidence": 0
+            }
           }
         },
         {
@@ -632,6 +743,28 @@
             "rolling_resistance": 0.0064,
             "vehicle_load_share_pct": 30,
             "axle": "Front"
+          },
+          "parameterSources": {
+            "radius_m": {
+              "source": "195/65 R15 tyres (background knowledge, unverified); DR-02",
+              "kind": "estimated",
+              "confidence": 0
+            },
+            "inertia_kgm2": {
+              "source": "FASTSim 2.1.5 (Apache-2.0); docs/data-register.csv default wheel inertia; DR-02",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "rolling_resistance": {
+              "source": "Fitted to EPA's road load over UDDS and HWFET (used only in the drag-and-rolling-resistance mode); DR-02",
+              "kind": "estimated",
+              "confidence": 1
+            },
+            "vehicle_load_share_pct": {
+              "source": "Created for LightSim: 60 % of the weight on the front axle; DR-02",
+              "kind": "estimated",
+              "confidence": 0
+            }
           }
         },
         {
@@ -648,6 +781,28 @@
             "rolling_resistance": 0.0064,
             "vehicle_load_share_pct": 30,
             "axle": "Front"
+          },
+          "parameterSources": {
+            "radius_m": {
+              "source": "195/65 R15 tyres (background knowledge, unverified); DR-02",
+              "kind": "estimated",
+              "confidence": 0
+            },
+            "inertia_kgm2": {
+              "source": "FASTSim 2.1.5 (Apache-2.0); docs/data-register.csv default wheel inertia; DR-02",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "rolling_resistance": {
+              "source": "Fitted to EPA's road load over UDDS and HWFET (used only in the drag-and-rolling-resistance mode); DR-02",
+              "kind": "estimated",
+              "confidence": 1
+            },
+            "vehicle_load_share_pct": {
+              "source": "Created for LightSim: 60 % of the weight on the front axle; DR-02",
+              "kind": "estimated",
+              "confidence": 0
+            }
           }
         },
         {
@@ -704,6 +859,28 @@
             "rolling_resistance": 0.0064,
             "vehicle_load_share_pct": 20,
             "axle": "Rear"
+          },
+          "parameterSources": {
+            "radius_m": {
+              "source": "195/65 R15 tyres (background knowledge, unverified); DR-02",
+              "kind": "estimated",
+              "confidence": 0
+            },
+            "inertia_kgm2": {
+              "source": "FASTSim 2.1.5 (Apache-2.0); docs/data-register.csv default wheel inertia; DR-02",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "rolling_resistance": {
+              "source": "Fitted to EPA's road load over UDDS and HWFET (used only in the drag-and-rolling-resistance mode); DR-02",
+              "kind": "estimated",
+              "confidence": 1
+            },
+            "vehicle_load_share_pct": {
+              "source": "Created for LightSim: 60 % of the weight on the front axle; DR-02",
+              "kind": "estimated",
+              "confidence": 0
+            }
           }
         },
         {
@@ -720,6 +897,28 @@
             "rolling_resistance": 0.0064,
             "vehicle_load_share_pct": 20,
             "axle": "Rear"
+          },
+          "parameterSources": {
+            "radius_m": {
+              "source": "195/65 R15 tyres (background knowledge, unverified); DR-02",
+              "kind": "estimated",
+              "confidence": 0
+            },
+            "inertia_kgm2": {
+              "source": "FASTSim 2.1.5 (Apache-2.0); docs/data-register.csv default wheel inertia; DR-02",
+              "kind": "datasheet",
+              "confidence": 1
+            },
+            "rolling_resistance": {
+              "source": "Fitted to EPA's road load over UDDS and HWFET (used only in the drag-and-rolling-resistance mode); DR-02",
+              "kind": "estimated",
+              "confidence": 1
+            },
+            "vehicle_load_share_pct": {
+              "source": "Created for LightSim: 60 % of the weight on the front axle; DR-02",
+              "kind": "estimated",
+              "confidence": 0
+            }
           }
         },
         {
@@ -752,6 +951,13 @@
           },
           "parameterOverrides": {
             "power_kW": 0.5
+          },
+          "parameterSources": {
+            "power_kW": {
+              "source": "FASTSim 2.1.5 (Apache-2.0); docs/data-register.csv HEV auxiliary load; DR-02",
+              "kind": "datasheet",
+              "confidence": 1
+            }
           }
         }
       ],
