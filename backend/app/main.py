@@ -1,6 +1,7 @@
 """LightSim backend — FastAPI app.
 
 Endpoints:
+  GET  /docs                   this API's reference page (offline; /openapi.json)
   GET  /api/library            component library definitions
   GET  /api/cycles             the bundled standard drive cycles
   GET  /api/cycles/{id}        one drive cycle with its trace (t, v)
@@ -42,10 +43,11 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from . import cycles, run_store, security, storage
+from . import api_docs, cycles, run_store, security, storage
 from .library import load_library, unit_groups
 from .paths import static_dir
 from .schemas import DataCheck, Project, SimResult, SimulateRequest, StoredRun, ValidateRequest
@@ -53,7 +55,9 @@ from .solver import simulate
 from .validation import validate_project
 from .version import VERSION
 
-app = FastAPI(title="LightSim API", version=VERSION)
+# FastAPI's own /docs and /redoc load their scripts from a CDN; ours is
+# served from here so it works offline (AI-07)
+app = FastAPI(title="LightSim API", version=VERSION, docs_url=None, redoc_url=None)
 
 # Built frontend bundle (produced by `npm run build` → frontend/dist). When it
 # exists we serve it below so the whole app runs from this one process at :8000
@@ -82,6 +86,11 @@ app.add_middleware(
     hosts=security.allowed_hosts(),
     origins=() if LAUNCH_TOKEN else security.DEV_ORIGINS,
 )
+
+
+@app.get("/docs", include_in_schema=False)
+def api_reference() -> HTMLResponse:
+    return HTMLResponse(api_docs.render(app.openapi()))
 
 
 @app.get("/api/health")
