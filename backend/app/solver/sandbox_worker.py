@@ -20,13 +20,17 @@ not need, as strongly as each platform allows without root:
   without Landlock, only the resource limits, the closed descriptors and the
   restricted namespace apply — see ``docs/KNOWN-LIMITS.md``.
 * **Windows** — the engine puts the worker in a Job object (via ``ctypes``)
-  with a memory cap and kill-on-close, holding its only handle, so the worker
-  and anything it starts die with the engine; the worker clears its
-  environment. The Windows standard library offers no portable way to filter
-  filesystem or network syscalls, so there the real guarantees are the memory
-  cap, the parent's kill-on-timeout, and the in-process restriction (the
-  allow-listed builtins and import block, which the engine applies before this
-  layer). This is stated honestly rather than papered over.
+  with a memory cap, a limit of one process (it cannot start programs), UI
+  limits and kill-on-close, holding its only handle, so the worker dies with
+  the engine; the worker clears its environment and lowers itself to the low
+  integrity level, after which it cannot write to the user's files, folders
+  or registry (PLT-35). Not blocked on Windows: reading files and network
+  connections; that needs the worker started as an AppContainer process, a
+  follow-up. The in-process restriction (the allow-listed builtins and import
+  block, which the engine applies before this layer) is the guard there.
+* **macOS** — the POSIX steps above where macOS has them, then Apple's
+  sandbox (``sandbox_init``) denies file writes, IP network traffic and
+  starting programs.
 
 Seccomp is deliberately *not* used: a syscall-level allow-list strict enough to
 matter is easy to get wrong (one missing syscall kills the worker with SIGSYS
@@ -314,9 +318,15 @@ def windows_job(process_handle: int, mem_bytes: int):
 
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
+    JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008
     JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
+    JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION = 0x00000400
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+    JobObjectBasicUIRestrictions = 4
     JobObjectExtendedLimitInformation = 9
+    # no clipboard, desktop switching, system or display settings, global
+    # atoms, other processes' window handles, or logging Windows off
+    JOB_OBJECT_UILIMIT_ALL = 0x000000FF
 
     class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
         _fields_ = [
@@ -355,18 +365,100 @@ def windows_job(process_handle: int, mem_bytes: int):
     if not job:
         return None, "windows job: CreateJobObject failed"
     info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    # one process: the worker cannot start programs (PLT-35)
     info.BasicLimitInformation.LimitFlags = (
-        JOB_OBJECT_LIMIT_PROCESS_MEMORY | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE)
+        JOB_OBJECT_LIMIT_PROCESS_MEMORY | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        | JOB_OBJECT_LIMIT_ACTIVE_PROCESS | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION)
+    info.BasicLimitInformation.ActiveProcessLimit = 1
     info.ProcessMemoryLimit = mem_bytes
     if not k32.SetInformationJobObject(
             job, JobObjectExtendedLimitInformation, ctypes.byref(info),
             ctypes.sizeof(info)):
         k32.CloseHandle(job)
         return None, f"windows job: SetInformationJobObject failed ({ctypes.get_last_error()})"
+    ui = wintypes.DWORD(JOB_OBJECT_UILIMIT_ALL)
+    k32.SetInformationJobObject(job, JobObjectBasicUIRestrictions, ctypes.byref(ui),
+                                ctypes.sizeof(ui))  # best effort
     if not k32.AssignProcessToJobObject(job, process_handle):
         k32.CloseHandle(job)
         return None, f"windows job: AssignProcessToJobObject failed ({ctypes.get_last_error()})"
-    return job, "windows job: memory-capped, killed with the engine"
+    return job, "windows job: memory-capped, one process, killed with the engine"
+
+
+def _windows_low_integrity() -> str:
+    """Lower this process to Windows' low integrity level, for good: from now
+    on it cannot write to anything of the user's (files, folders and registry
+    keys are medium integrity unless marked otherwise), whatever it runs. A
+    process can lower its own level but never raise it again. Handles opened
+    before (the engine socket) keep working."""
+    import ctypes
+    from ctypes import wintypes
+
+    adv = ctypes.WinDLL("advapi32", use_last_error=True)
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    TOKEN_QUERY, TOKEN_ADJUST_DEFAULT = 0x0008, 0x0080
+    TokenIntegrityLevel = 25
+    SE_GROUP_INTEGRITY = 0x00000020
+
+    class SID_AND_ATTRIBUTES(ctypes.Structure):
+        _fields_ = [("Sid", ctypes.c_void_p), ("Attributes", wintypes.DWORD)]
+
+    class TOKEN_MANDATORY_LABEL(ctypes.Structure):
+        _fields_ = [("Label", SID_AND_ATTRIBUTES)]
+
+    k32.GetCurrentProcess.restype = wintypes.HANDLE
+    k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    k32.LocalFree.argtypes = (ctypes.c_void_p,)
+    adv.OpenProcessToken.argtypes = (wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE))
+    adv.ConvertStringSidToSidW.argtypes = (wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_void_p))
+    adv.GetLengthSid.argtypes = (ctypes.c_void_p,)
+    adv.GetLengthSid.restype = wintypes.DWORD
+    adv.SetTokenInformation.argtypes = (wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD)
+
+    token = wintypes.HANDLE()
+    if not adv.OpenProcessToken(k32.GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_DEFAULT,
+                                ctypes.byref(token)):
+        return f"low integrity: OpenProcessToken failed ({ctypes.get_last_error()})"
+    sid = ctypes.c_void_p()
+    try:
+        if not adv.ConvertStringSidToSidW("S-1-16-4096", ctypes.byref(sid)):  # Low Mandatory Level
+            return f"low integrity: ConvertStringSidToSid failed ({ctypes.get_last_error()})"
+        label = TOKEN_MANDATORY_LABEL()
+        label.Label.Sid = sid
+        label.Label.Attributes = SE_GROUP_INTEGRITY
+        size = ctypes.sizeof(label) + adv.GetLengthSid(sid)
+        if not adv.SetTokenInformation(token, TokenIntegrityLevel, ctypes.byref(label), size):
+            return f"low integrity: SetTokenInformation failed ({ctypes.get_last_error()})"
+        return "low integrity: cannot write the user's files"
+    finally:
+        if sid:
+            k32.LocalFree(sid)
+        k32.CloseHandle(token)
+
+
+# macOS: Apple's sandbox, through the same call its command-line tools use.
+# It denies writing files, network traffic to or from IP addresses (the
+# engine socket is a local socket pair, which stays open) and starting
+# programs. Reading is left alone, as the interpreter still loads its modules.
+_MAC_PROFILE = (
+    "(version 1)(allow default)"
+    "(deny file-write*)"
+    "(deny network-outbound (remote ip))(deny network-inbound (local ip))(deny network-bind)"
+    "(deny process-exec*)(deny process-fork)"
+)
+
+
+def _apply_mac_sandbox() -> str:
+    import ctypes
+
+    lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+    lib.sandbox_init.argtypes = (ctypes.c_char_p, ctypes.c_uint64, ctypes.POINTER(ctypes.c_char_p))
+    lib.sandbox_init.restype = ctypes.c_int
+    err = ctypes.c_char_p()
+    if lib.sandbox_init(_MAC_PROFILE.encode(), 0, ctypes.byref(err)) != 0:
+        msg = err.value.decode(errors="replace") if err.value else "unknown error"
+        return f"mac sandbox: not applied ({msg})"
+    return "mac sandbox: no file writes, no IP network, no programs"
 
 
 def close_windows_job(job) -> None:
@@ -386,8 +478,12 @@ def harden(sock_fd: int, mem_bytes: int) -> str:
         # The memory cap and kill-with-the-engine come from the job object the
         # engine put this process in (windows_job); the rest is done here.
         os.environ.clear()  # no secrets from the engine's environment
+        try:
+            note = _windows_low_integrity()
+        except Exception as e:  # noqa: BLE001
+            note = f"low integrity: not applied ({e})"
         _drop_modules()
-        return "windows: environment cleared, modules dropped"
+        return f"windows: environment cleared, modules dropped; {note}"
 
     # POSIX
     _close_inherited_fds(keep={0, 1, 2, sock_fd})
@@ -413,6 +509,11 @@ def harden(sock_fd: int, mem_bytes: int) -> str:
             notes.append(_apply_landlock(notes))
         except Exception as e:  # noqa: BLE001
             notes.append(f"landlock: not applied ({e})")
+    elif sys.platform == "darwin":
+        try:
+            notes.append(_apply_mac_sandbox())
+        except Exception as e:  # noqa: BLE001
+            notes.append(f"mac sandbox: not applied ({e})")
 
     _drop_modules()
     return "; ".join(notes)
