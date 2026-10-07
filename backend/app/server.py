@@ -3,6 +3,10 @@
 The desktop shell starts this as a child process, so it binds to loopback
 only, takes its port from the command line, and prints a single READY line the
 shell waits for before opening a window.
+
+Given a command first (``lightsim-backend run car.json``), it is the
+``lightsim`` command-line tool instead (lightsim/cli.py): it runs the model
+in this process and starts no server.
 """
 from __future__ import annotations
 
@@ -13,10 +17,15 @@ import uvicorn
 
 
 def main(argv: list[str] | None = None) -> int:
+    args_in = sys.argv[1:] if argv is None else argv
+    if args_in and not args_in[0].startswith("-"):
+        from lightsim.cli import main as cli_main  # the command-line tool
+
+        return cli_main(args_in)
     parser = argparse.ArgumentParser(prog="lightsim-backend")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--host", default="127.0.0.1")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(args_in)
 
     from .main import app  # imported late so --help stays instant
 
