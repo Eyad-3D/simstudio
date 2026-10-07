@@ -28,12 +28,14 @@ export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
   const project = useProjectStore((s) => s.project);
   const running = useProjectStore((s) => s.running);
   const runEnduranceStudy = useProjectStore((s) => s.runEnduranceStudy);
+  // kept with the project's runs (PLT-34)
+  const studies = useProjectStore((s) => s.studies);
   const battery = project?.systems.flatMap((s) => s.elements).find((e) => e.componentDefId === "battery.generic");
   const ov = simCase.parameterOverrides?.[battery?.id ?? ""] ?? {};
   const pack = Number(ov.capacity_kWh ?? battery?.parameterOverrides.capacity_kWh ?? 7);
   const [packs, setPacks] = useState(() => [0.8, 0.9, 1, 1.1].map((f) => Math.round(pack * f * 10) / 10).join(", "));
   const [caps, setCaps] = useState("20, 30, 40, 50");
-  const study = [...(project?.studies ?? [])]
+  const study = [...studies]
     .reverse()
     .find(
       (st) =>

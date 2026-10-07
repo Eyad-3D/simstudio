@@ -8,6 +8,7 @@ import {
   Download,
   EyeOff,
   FileDown,
+  FileInput,
   FilePlus2,
   FileSpreadsheet,
   FileUp,
@@ -19,11 +20,13 @@ import {
   LayoutGrid,
   ListChecks,
   Moon,
+  Paperclip,
   Play,
   Plus,
   Redo2,
   RotateCcw,
   Save,
+  SaveAll,
   Settings2,
   Sliders,
   Square,
@@ -34,6 +37,7 @@ import {
   Trash2,
   Undo2,
   Upload,
+  X,
 } from "lucide-react";
 import * as api from "../api";
 import type { Project } from "../types";
@@ -47,6 +51,7 @@ import { VehicleTestsDialog } from "./VehicleTests";
 import { TemplatesDialog } from "./TemplatesDialog";
 import { downloadParameterTemplate, useParameterSheet } from "./ParameterSheet";
 import { confirmDialog } from "../dialog";
+import { desktop } from "../desktop";
 import { openHelp } from "../help";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
 import {
@@ -113,6 +118,15 @@ function BigButton({
   );
 }
 
+/** Open a project file the user picked or dropped as a new project: a zip
+ *  bundle (with its attached files) or a project's JSON. */
+export async function importFile(f: File): Promise<void> {
+  if (!(await confirmReplaceProject(`Importing '${f.name}'`))) return;
+  const store = useProjectStore.getState();
+  if (/\.zip$/i.test(f.name)) await store.importBundle(f);
+  else await store.importProject(await f.text());
+}
+
 /** A menu heading: the Open menu lists the user's projects and the examples
  *  apart. */
 function MenuHeading({ children }: { children: React.ReactNode }) {
@@ -156,9 +170,12 @@ function OpenProjectButton() {
   const [open, setOpen] = useState(false);
   const [projects, setProjects] = useState<api.ProjectEntry[]>([]);
   const [examples, setExamples] = useState<api.ExampleEntry[]>([]);
+  const [files, setFiles] = useState<api.RecentFile[]>([]);
   const ref = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const openProject = useProjectStore((s) => s.openProject);
+  const openFile = useProjectStore((s) => s.openFile);
+  const forgetFile = useProjectStore((s) => s.forgetFile);
   const openExample = useProjectStore((s) => s.openExample);
   const hideExample = useProjectStore((s) => s.hideExample);
   const restoreExamples = useProjectStore((s) => s.restoreExamples);
@@ -197,6 +214,7 @@ function OpenProjectButton() {
               setProjects([]);
             }
             await listExamples();
+            setFiles((await api.listFiles().catch(() => [])) ?? []);
           }
           setOpen(!open);
         }}
@@ -207,6 +225,40 @@ function OpenProjectButton() {
           aria-label="Open project"
           className="absolute left-0 top-[54px] z-50 max-h-[60vh] w-[400px] overflow-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] py-1 shadow-lg"
         >
+          {desktop() && (
+            <button
+              role="menuitem"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] font-medium hover:bg-[color:var(--ss-accent-soft)]"
+              onClick={() => choose("a project file", () => openFile())}
+            >
+              <FileInput size={14} /> Open file… <span className="ml-auto text-[10px] text-[color:var(--ss-text-dim)]">Ctrl+O</span>
+            </button>
+          )}
+          {files.length > 0 && (
+            <div role="group" aria-label="Recent files" className="border-b border-[color:var(--ss-border)]">
+              <MenuHeading>Recent files</MenuHeading>
+              {files.map((f) => (
+                <div key={f.id} className="flex items-stretch">
+                  <ProjectMenuItem
+                    entry={{ ...f, id: f.path, description: f.exists ? f.description : "File not found" }}
+                    onClick={() => f.exists && choose(f.name, () => openProject(f.id))}
+                  />
+                  <button
+                    role="menuitem"
+                    className="shrink-0 px-2 text-[color:var(--ss-text-dim)] hover:bg-[color:var(--ss-accent-soft)] hover:text-[color:var(--ss-text)]"
+                    title="Remove from Recent files (the file stays where it is)"
+                    aria-label={`Remove '${f.name}' from Recent files`}
+                    onClick={async () => {
+                      await forgetFile(f.id);
+                      setFiles((await api.listFiles().catch(() => [])) ?? []);
+                    }}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div role="group" aria-label="Your projects">
             <MenuHeading>Your projects</MenuHeading>
             {projects.length === 0 && <MenuNote>None saved yet</MenuNote>}
@@ -279,20 +331,37 @@ function HomeTab() {
           title={store.exampleId ? "Save this copy of the example as a new project (the example stays as it is)" : "Save"}
           onClick={() => void store.saveRemote()}
         />
-        <BigButton icon={Download} label="Export" onClick={store.exportProject} title="Download project as JSON" />
-        <BigButton icon={Upload} label="Import" onClick={() => fileRef.current?.click()} title="Import project JSON" />
+        {desktop() && (
+          <BigButton
+            icon={SaveAll}
+            label="Save As…"
+            title="Save the project as a .lightsim file in a folder you choose (Ctrl+Shift+S)"
+            onClick={() => void store.saveAs()}
+          />
+        )}
+        <BigButton
+          icon={Download}
+          label="Export"
+          onClick={() => void store.exportProject()}
+          title="Download the project as a .lightsim file (a .zip with its attached files, if it has any)"
+        />
+        <BigButton
+          icon={Upload}
+          label="Import"
+          onClick={() => fileRef.current?.click()}
+          title="Open a project file (.lightsim, .json or a .zip bundle) as a new project"
+        />
         <input
           ref={fileRef}
           type="file"
-          accept=".json,application/json"
+          accept=".lightsim,.json,.zip,application/json,application/zip"
           className="hidden"
           onChange={async (e) => {
             const input = e.target;
             const f = input.files?.[0];
             input.value = "";
             if (!f) return;
-            const text = await f.text();
-            if (await confirmReplaceProject(`Importing '${f.name}'`)) store.importProject(text);
+            await importFile(f);
           }}
         />
       </RibbonGroup>
@@ -716,6 +785,7 @@ function ProjectTab() {
           <span className="text-[11px] text-[color:var(--ss-text-dim)]">Project name</span>
           <input
             className="ss-input w-[220px]"
+            aria-label="Project name"
             value={project?.name ?? ""}
             onChange={(e) => root && renameSystem(root.id, e.target.value)}
           />
@@ -737,7 +807,151 @@ function ProjectTab() {
         />
         {cardOpen && <ExampleCardDialog onClose={() => setCardOpen(false)} />}
       </RibbonGroup>
+      <RibbonGroup label="Files">
+        <AttachmentsButton />
+      </RibbonGroup>
+      <ProjectFileNote />
     </>
+  );
+}
+
+/** Where the open project is saved, and whether it is read-only. */
+function ProjectFileNote() {
+  const filePath = useProjectStore((s) => s.filePath);
+  const readOnly = useProjectStore((s) => s.readOnly);
+  const revision = useProjectStore((s) => s.revision);
+  const exampleId = useProjectStore((s) => s.exampleId);
+  const where = filePath
+    ? filePath
+    : exampleId
+      ? "A copy of an example, not saved yet"
+      : revision
+        ? "LightSim's projects folder (File → Open Projects Folder)"
+        : "Not saved yet";
+  return (
+    <div className="flex max-w-[420px] flex-col justify-center gap-0.5 px-2 text-[11px] text-[color:var(--ss-text-dim)]">
+      <span>
+        Saved in: <span className="text-[color:var(--ss-text)] [overflow-wrap:anywhere]">{where}</span>
+      </span>
+      {readOnly && (
+        <span role="status" className="font-semibold text-[color:var(--ss-warn)]">
+          Read-only: {readOnly}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Files kept with the project (STD-02): FMUs, AI models, measured data. Each
+ *  is copied into the project's resources folder; the list shows whether a
+ *  file is missing or changed since it was attached. */
+function AttachmentsButton() {
+  const [open, setOpen] = useState(false);
+  const [onDisk, setOnDisk] = useState<api.AttachedFile[]>([]);
+  const ref = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const project = useProjectStore((s) => s.project);
+  const offline = useProjectStore((s) => s.offline);
+  const readOnly = useProjectStore((s) => s.readOnly);
+  const attachFile = useProjectStore((s) => s.attachFile);
+  const detachFile = useProjectStore((s) => s.detachFile);
+  useDismiss(open, () => setOpen(false), ref, button);
+  const listed = project?.attachments ?? [];
+  const refresh = async () => {
+    if (project) setOnDisk((await api.listAttachments(project.id).catch(() => [])) ?? []);
+  };
+  const status = (path: string, sha256: string) => {
+    const file = onDisk.find((f) => f.path === path);
+    return !file ? "missing" : file.sha256 !== sha256 ? "changed since attached" : "";
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <BigButton
+        ref={button}
+        icon={Paperclip}
+        label="Attached"
+        title="Files kept with the project: other tools' models (FMUs), AI models, measured data"
+        disabled={!project || offline}
+        onClick={async () => {
+          if (!open) await refresh();
+          setOpen(!open);
+        }}
+      />
+      {open && (
+        <div
+          role="menu"
+          aria-label="Attached files"
+          className="absolute left-0 top-[54px] z-50 max-h-[60vh] w-[360px] overflow-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] py-1 shadow-lg"
+        >
+          <MenuHeading>Attached files</MenuHeading>
+          {listed.length === 0 && (
+            <MenuNote>
+              None. An attached file is copied into the project&apos;s resources folder and goes with
+              the project when it is saved, exported or moved.
+            </MenuNote>
+          )}
+          {listed.map((a) => {
+            const problem = status(a.path, a.sha256);
+            return (
+              <div key={a.path} className="flex items-center gap-2 px-3 py-1.5 text-[12px]">
+                <Paperclip size={12} className="shrink-0 text-[color:var(--ss-text-dim)]" />
+                <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                  {a.path.replace(/^resources\//, "")}
+                  <span className="ml-1 text-[10px] text-[color:var(--ss-text-dim)]">
+                    {Math.max(1, Math.round(a.bytes / 1024)).toLocaleString("en")} kB
+                  </span>
+                  {problem && <span className="ml-1 text-[10px] font-semibold text-[color:var(--ss-warn)]">{problem}</span>}
+                </span>
+                <button
+                  role="menuitem"
+                  className="shrink-0 px-1 text-[color:var(--ss-text-dim)] hover:text-[color:var(--ss-text)]"
+                  aria-label={`Remove '${a.path}'`}
+                  title="Remove it from the project and delete it from the resources folder"
+                  disabled={Boolean(readOnly)}
+                  onClick={async () => {
+                    const ok = await confirmDialog({
+                      title: "Remove the attached file?",
+                      message: `'${a.path}' is taken off the project and deleted from its resources folder.`,
+                      confirmLabel: "Remove",
+                      danger: true,
+                    });
+                    if (!ok) return;
+                    await detachFile(a.path);
+                    await refresh();
+                  }}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            );
+          })}
+          <button
+            role="menuitem"
+            className="mt-1 block w-full border-t border-[color:var(--ss-border)] px-3 py-1.5 text-left text-[12px] text-[color:var(--ss-accent)] hover:bg-[color:var(--ss-accent-soft)] disabled:opacity-40"
+            disabled={Boolean(readOnly)}
+            onClick={() => input.current?.click()}
+          >
+            Attach a file…
+          </button>
+          <input
+            ref={input}
+            type="file"
+            aria-label="Attach a file"
+            className="hidden"
+            onChange={async (e) => {
+              const el = e.target;
+              const f = el.files?.[0];
+              el.value = "";
+              if (!f) return;
+              await attachFile(f);
+              await refresh();
+            }}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 

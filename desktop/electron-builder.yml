@@ -33,6 +33,16 @@ extraResources:
   - from: ../docs/KNOWN-LIMITS.md
     to: KNOWN-LIMITS.md
 
+# Double-clicking a .lightsim file opens it in LightSim (PLT-33). The .deb
+# registers the MIME type and the .desktop entry; Windows' installer adds
+# the file type. The AppImage cannot register file types on its own.
+fileAssociations:
+  - ext: lightsim
+    name: LightSim project
+    description: LightSim vehicle simulation project
+    mimeType: application/x-lightsim
+    role: Editor
+
 win:
   target:
     - target: nsis

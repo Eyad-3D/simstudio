@@ -592,6 +592,8 @@ function ParameterInput({
       return (
         <NumberInput value={Number(value)} onChange={onChange} label={def.label} def={def} describedBy={describedBy} />
       );
+    case "file":
+      return <FileInput def={def} value={String(value ?? "")} onChange={onChange} />;
     case "code":
       return (
         <textarea
@@ -624,6 +626,56 @@ function ParameterInput({
         />
       );
   }
+}
+
+/** A file parameter (STD-02): one of the project's attached files, or a new
+ *  one attached on the spot (copied into the project's resources folder). */
+function FileInput({ def, value, onChange }: { def: ParameterDef; value: string; onChange: (v: ParamValue) => void }) {
+  const attachments = useProjectStore((s) => s.project?.attachments) ?? [];
+  const attachFile = useProjectStore((s) => s.attachFile);
+  const input = useRef<HTMLInputElement>(null);
+  const accept = def.accept ?? [];
+  const fits = (path: string) => accept.length === 0 || accept.some((ext) => path.toLowerCase().endsWith(ext.toLowerCase()));
+  const choices = attachments.filter((a) => fits(a.path) || a.path === value);
+  const known = value === "" || attachments.some((a) => a.path === value);
+  return (
+    <div className="flex w-full items-center gap-1">
+      <select
+        className="ss-input min-w-0 flex-1"
+        aria-label={def.label}
+        aria-description={def.description ?? undefined}
+        aria-invalid={!known || undefined}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">(no file)</option>
+        {!known && <option value={value}>{value} (not attached)</option>}
+        {choices.map((a) => (
+          <option key={a.path} value={a.path}>
+            {a.path.replace(/^resources\//, "")}
+          </option>
+        ))}
+      </select>
+      <button className="ss-toolbtn shrink-0 px-1.5" title="Attach a file to the project and use it here" onClick={() => input.current?.click()}>
+        Attach…
+      </button>
+      <input
+        ref={input}
+        type="file"
+        className="hidden"
+        aria-label={`Attach a file for ${def.label}`}
+        accept={accept.join(",") || undefined}
+        onChange={async (e) => {
+          const el = e.target;
+          const f = el.files?.[0];
+          el.value = "";
+          if (!f) return;
+          const path = await attachFile(f);
+          if (path) onChange(path);
+        }}
+      />
+    </div>
+  );
 }
 
 const OUTSIDE_LABELS: Record<OutsidePolicy, string> = {

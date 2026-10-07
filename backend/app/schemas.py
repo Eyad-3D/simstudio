@@ -10,6 +10,8 @@ from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .migrations import CURRENT_VERSION
+
 ScalarValue = Union[bool, int, float, str]
 # Tabular parameter data is a dict keyed by the independent variable
 # (JSON object keys are strings; they hold numeric text, e.g. "1500").
@@ -62,8 +64,12 @@ class ParameterDef(BaseModel):
     # For table parameters this is the unit of the dependent value.
     unit: str
     default: ParamValue
-    type: Literal["number", "enum", "boolean", "string", "code", "table1d", "table2d"]
+    # "file": the value names a file attached to the project
+    # ("resources/<name>", STD-02); "" while none is chosen
+    type: Literal["number", "enum", "boolean", "string", "code", "table1d", "table2d", "file"]
     options: Optional[list[str]] = None
+    # file parameters: the file extensions it takes, e.g. [".fmu"]
+    accept: Optional[list[str]] = None
     # table1d: exactly one axis; table2d: [outer, inner] axes.
     axes: Optional[list[AxisDef]] = None
     # FMI-style variability: "fixed" parameters are baked in at model build
@@ -319,8 +325,9 @@ class StudyPoint(BaseModel):
 
 
 class Study(BaseModel):
-    """A parameter study saved with its project (STU-03): what was swept on
-    which case, and its compact results table."""
+    """A parameter study (STU-03): what was swept on which case, and its
+    compact results table. Kept with the project's runs, not in the model
+    file (PLT-34), so running a sweep never changes the model."""
 
     model_config = PERSISTED
 
@@ -358,24 +365,38 @@ class ExampleCard(BaseModel):
     narrative: list[str] = Field(default_factory=list)  # what happens when
 
 
+class Attachment(BaseModel):
+    """A file kept with the project (STD-02), in its resources folder. The
+    hash is the file's when it was attached, so a changed file is noticed."""
+
+    model_config = PERSISTED
+
+    # where it is, relative to the project: "resources/<name>"
+    path: str = Field(pattern=r"^resources/[^/\\.][^/\\]*$")
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    bytes: int = Field(ge=0)
+
+
 class Project(BaseModel):
     model_config = PERSISTED
 
     id: str
     name: str
-    # Project-file format version; bump when the shape changes so loaders can
-    # migrate. Files written before versioning load as version 1.
-    schemaVersion: int = 1
+    # Project-file format version (app/migrations.py upgrades older files on
+    # load; files written before versioning are version 1) and the LightSim
+    # that saved the file; both are set on every save (PLT-07).
+    schemaVersion: int = CURRENT_VERSION
+    savedWith: Optional[str] = None
     # Short human-readable summary, shown in the Open menu so example projects
     # are self-describing. Optional — user-created projects usually omit it.
     description: str | None = None
     systems: list[SystemNode]
     dataBusConnections: list[DataBusConnection] = Field(default_factory=list)
     cases: list[SimCase] = Field(default_factory=list)
-    # parameter studies run on this project, oldest first
-    studies: list[Study] = Field(default_factory=list)
     # an example's card (CON-15); user projects may have one too
     card: Optional[ExampleCard] = None
+    # files kept with the project (FMUs, AI models, measured data), STD-02
+    attachments: list[Attachment] = Field(default_factory=list)
 
 
 class SimMessage(BaseModel):

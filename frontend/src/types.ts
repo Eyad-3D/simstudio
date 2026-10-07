@@ -45,8 +45,12 @@ export interface ParameterDef {
   /** Required; "-" marks dimensionless. For tables: unit of the dependent value. */
   unit: string;
   default: ParamValue;
-  type: "number" | "enum" | "boolean" | "string" | "code" | "table1d" | "table2d";
+  /** "file": the value names a file attached to the project
+   *  ("resources/<name>", STD-02); "" while none is chosen. */
+  type: "number" | "enum" | "boolean" | "string" | "code" | "table1d" | "table2d" | "file";
   options?: string[];
+  /** file parameters: the file extensions it takes, e.g. [".fmu"] */
+  accept?: string[] | null;
   /** table1d: one axis; table2d: [outer, inner]. */
   axes?: AxisDef[];
   /** FMI-style variability: "fixed" params are baked in at model build (live
@@ -277,8 +281,9 @@ export interface StudyPoint {
   wallS?: number;
 }
 
-/** A parameter study saved with its project (STU-03): what was swept on which
- *  case, and its compact results table (it outlives the runs it came from). */
+/** A parameter study (STU-03): what was swept on which case, and its compact
+ *  results table (it outlives the runs it came from). Kept with the
+ *  project's runs, not in the model file (PLT-34). */
 export interface Study {
   id: string;
   /** epoch ms */
@@ -294,20 +299,32 @@ export interface Study {
   wallS?: number;
 }
 
+/** A file kept with the project (STD-02) in its resources folder; the hash
+ *  is the file's when it was attached, so a changed file is noticed. */
+export interface Attachment {
+  /** relative to the project: "resources/<name>" */
+  path: string;
+  sha256: string;
+  bytes: number;
+}
+
 export interface Project {
   id: string;
   name: string;
-  /** Project-file format version (files from before versioning are v1). */
+  /** Project-file format version (files from before versioning are v1); the
+   *  engine upgrades older files on load and sets it on save (PLT-07). */
   schemaVersion?: number;
+  /** The LightSim version that last saved the file. */
+  savedWith?: string | null;
   /** Short human-readable summary (example projects set this; usually omitted). */
   description?: string | null;
   systems: SystemNode[];
   dataBusConnections: DataBusConnection[];
   cases: SimCase[];
-  /** Parameter studies run on this project, oldest first. */
-  studies?: Study[];
   /** An example's card (CON-15): what it answers and what to expect. */
   card?: ExampleCard | null;
+  /** Files kept with the project: FMUs, AI models, measured data (STD-02). */
+  attachments?: Attachment[];
 }
 
 /** What an example answers and what to expect from it (CON-15); its
@@ -330,6 +347,10 @@ export interface ExampleCard {
   /** what happens when, step by step */
   narrative: string[];
 }
+
+/** A project as a file from before 0.3.0 (format 1) may hold it: with its
+ *  studies, which now live with the runs (PLT-34). */
+export type LegacyProject = Project & { studies?: Study[] };
 
 export interface SimMessage {
   level: "info" | "warning" | "error";

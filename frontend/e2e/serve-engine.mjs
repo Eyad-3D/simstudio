@@ -66,7 +66,9 @@ const child = spawn(
   {
     cwd: backend,
     stdio: "inherit",
-    env: { ...process.env, LIGHTSIM_PROJECTS_DIR: projects, LIGHTSIM_STATIC_DIR: dist },
+    // LIGHTSIM_DEV_FILE_PATHS: the tests act as the desktop shell, which
+    // alone names .lightsim file paths (backend/app/security.py)
+    env: { ...process.env, LIGHTSIM_PROJECTS_DIR: projects, LIGHTSIM_STATIC_DIR: dist, LIGHTSIM_DEV_FILE_PATHS: "1" },
   },
 );
 console.log(`engine pid ${child.pid} on http://127.0.0.1:${port} (projects in ${projects})`);

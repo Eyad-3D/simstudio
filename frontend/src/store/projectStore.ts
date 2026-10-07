@@ -2,10 +2,12 @@ import { useMemo } from "react";
 import { create } from "zustand";
 import * as api from "../api";
 import { confirmDialog, unsavedChangesDialog } from "../dialog";
+import { desktop } from "../desktop";
 import { loadDraft } from "../persist";
 import { diffSnapshots, modelFingerprint, nameFromChanges } from "../provenance";
 import { dutyKpis } from "../reports";
 import type {
+  Attachment,
   Channel,
   ComponentDef,
   Connection,
@@ -13,6 +15,7 @@ import type {
   DataCheck,
   ElementInstance,
   ExampleCard,
+  LegacyProject,
   LiveEdit,
   LogMessage,
   OutsidePolicy,
@@ -33,6 +36,7 @@ import type {
 } from "../types";
 import { rangeProblem } from "../paramRules";
 import { FS_EVENTS, type FsEvent } from "../fsEvents";
+import { codeOf, fingerprintOf } from "../trust";
 import { useUIStore } from "./uiStore";
 
 export function uid(prefix: string): string {
@@ -52,11 +56,36 @@ function exampleCopy(example: Project): Project {
   return { ...structuredClone(example), id: uid(example.id.slice(0, 120)) };
 }
 
-/** Split a project read from disk into the project and its file revision. */
-function fromDisk(stored: api.StoredProject): { project: Project; revision: string | null } {
-  const { revision, ...project } = stored;
-  return { project, revision: revision ?? null };
+/** Split a project read from disk into the project and the bookkeeping that
+ *  comes with it: its file revision, where it is (a .lightsim file outside
+ *  the projects folder) and why it is read-only (a newer LightSim's file). */
+function fromDisk(stored: api.StoredProject): {
+  project: Project;
+  revision: string | null;
+  filePath: string | null;
+  readOnly: string | null;
+  upgradedFrom: number | null;
+} {
+  const { revision, filePath, readOnly, upgradedFrom, ...project } = stored;
+  return {
+    project,
+    revision: revision ?? null,
+    filePath: filePath ?? null,
+    readOnly: readOnly ?? null,
+    upgradedFrom: upgradedFrom ?? null,
+  };
 }
+
+/** A project from before 0.3.0 may carry its studies; they now live with the
+ *  runs (PLT-34). Returns the project without them, and them. */
+function splitStudies(project: LegacyProject): { project: Project; studies: Study[] } {
+  const { studies, ...rest } = project;
+  return { project: rest, studies: Array.isArray(studies) ? studies : [] };
+}
+
+/** What a project opened afresh starts with: no studies (they load with its
+ *  runs), not a file outside the projects folder, not read-only. */
+const NO_FILE = { studies: [] as Study[], filePath: null, readOnly: null };
 
 // Saves run one after another, so a second Save starts from the revision the
 // first one returned instead of looking like a conflict with it.
@@ -245,6 +274,15 @@ let liveLog: { runId: string; edits: LiveEdit[] } | null = null;
 let activeStudy: api.StudyHandle | null = null;
 // bumped per run-history load, so an answer for an earlier load is dropped
 let runHistorySeq = 0;
+// The project (by id) whose code the user is trusted to change in this
+// session: one made here, an example, or one whose code the user agreed to
+// run (STD-02). Code edited in the app since is the user's own and runs
+// without asking again; a project opened, imported or reloaded from disk
+// clears it, so code that came from outside is asked about.
+let trustedProject: string | null = null;
+// a revision of the open project's file already offered for reload (checkDisk)
+let offeredRevision: string | null = null;
+let diskCheckBusy = false;
 
 /** The run Results opens on: the newest complete run that is not a sweep
  *  point, or the newest run when there is none (runs are newest first). */
@@ -260,13 +298,6 @@ export function previousRunOf(caseId: string, runs: SimRun[], before = Infinity)
   return runs.find(
     (r) => r.caseId === caseId && r.startedAt < before && r.status !== "running" && r.status !== "failed" && !r.incomplete,
   );
-}
-
-/** A study's table row for a point that ran: its status and summary values. */
-/** Undo and redo step through edits, not studies: a project from the
- *  history gets the studies the project has now. */
-function keepStudies(target: Project, current: Project): Project {
-  return target.studies === current.studies ? target : { ...target, studies: current.studies };
 }
 
 /** Why a finished run is not a complete result, or undefined when it is.
@@ -295,6 +326,15 @@ export interface ProjectState {
   /** Revision of the project file the open copy was loaded from or last saved
    *  as; a save is refused if the file changed since. null: not on disk yet. */
   revision: string | null;
+  /** Where the open project's .lightsim file is when it is one outside the
+   *  projects folder (PLT-33), else null. */
+  filePath: string | null;
+  /** Why the open project must not be saved over (a file from a newer
+   *  LightSim, PLT-07), else null. */
+  readOnly: string | null;
+  /** The open project's parameter studies, oldest first; kept with its runs,
+   *  not in the model file (PLT-34). */
+  studies: Study[];
   /** The example the open project is an unsaved copy of (its id), else null.
    *  Save keeps the copy as a new project; the example is never written. */
   exampleId: string | null;
@@ -399,8 +439,26 @@ export interface ProjectState {
   /** Show every hidden example in the Open menu again. */
   restoreExamples: () => Promise<void>;
   saveRemote: () => Promise<void>;
-  exportProject: () => void;
-  importProject: (json: string) => void;
+  /** Save the project as a .lightsim file the user picks (desktop app only,
+   *  PLT-33); resolves true once saved. */
+  saveAs: () => Promise<boolean>;
+  /** Pick a .lightsim file in the system's Open dialog and open it (desktop app). */
+  openFile: () => Promise<void>;
+  /** Take a file off Recent files (the file itself stays). */
+  forgetFile: (id: string) => Promise<void>;
+  /** Notice the open project's file changing on disk (a git pull, another
+   *  window) and offer to reload it; the app calls this every few seconds. */
+  checkDisk: () => Promise<void>;
+  exportProject: () => Promise<void>;
+  /** Open a project file's JSON as a new, unsaved project (upgraded by the
+   *  engine to the current format first). */
+  importProject: (json: string) => Promise<void>;
+  /** Open a zip bundle (a project with its attached files). */
+  importBundle: (zip: Blob) => Promise<void>;
+  /** Attach a file to the project (STD-02); resolves with its path, or null. */
+  attachFile: (file: File) => Promise<string | null>;
+  /** Remove an attached file from the project and its resources folder. */
+  detachFile: (path: string) => Promise<void>;
   /** Open `project` as a new, unsaved project named `name`: it gets an id of
    *  its own, so saving it never replaces another project's file. */
   openAsCopy: (project: Project, name: string, note: string) => void;
@@ -440,7 +498,9 @@ export interface ProjectState {
    *  the cycle's length, in the same undo step. */
   setDrivingCycle: (elementId: string, cycleId: string, caseId?: string) => void;
   runDataChecks: () => Promise<DataCheck[]>;
-  /** Error-level data-check gate; resolves true when a run/sweep may proceed. */
+  /** Error-level data-check gate, and the one-time question whether the
+   *  user trusts the code the project carries; resolves true when a
+   *  run/sweep may proceed. */
   passesRunGate: () => Promise<boolean>;
   run: () => Promise<void>;
   /** The one-click Formula Student acceleration test: select the first
@@ -462,7 +522,7 @@ export interface ProjectState {
    *  load sensitivity times `muScale`, and the Vehicle's CzA (one undo). */
   applyLapCalibration: (muScale: number, cza: number) => void;
   /** Sequentially run a case once per swept value, each landing in run
-   *  history; the study and its results table are saved with the project. */
+   *  history; the study and its results table are kept with the runs. */
   runSweep: (config: SweepConfig) => Promise<void>;
   /** Delete a saved study (its runs stay in the history). */
   removeStudy: (studyId: string) => void;
@@ -548,6 +608,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
   async function loadRunHistory(projectId: string): Promise<void> {
     const seq = ++runHistorySeq;
     const current = () => seq === runHistorySeq && get().project?.id === projectId;
+    void loadStudies(projectId);
     let index: StoredRunInfo[];
     try {
       index = await api.listRuns(projectId);
@@ -600,6 +661,116 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     if (unreadable > 0 && current()) {
       get().log("warning", `${unreadable} stored run(s) could not be read and are not listed.`);
     }
+  }
+
+  /** Whether the code in `project` may run (STD-02): none, code the user
+   *  trusted before (by fingerprint), their own edits to a trusted project,
+   *  or a yes to the one-time question now. */
+  async function trustsCode(project: Project): Promise<boolean> {
+    const code = codeOf(project, get().libraryById);
+    if (!code) return true;
+    let fingerprint: string;
+    try {
+      fingerprint = await fingerprintOf(code);
+    } catch {
+      return true; // no Web Crypto (a plain-http page): nothing to remember it by
+    }
+    const remember = () => api.trustFingerprint(fingerprint)?.catch?.(() => undefined);
+    if (trustedProject === project.id) {
+      void remember();
+      return true;
+    }
+    try {
+      if (await api.isTrusted(fingerprint)) {
+        trustedProject = project.id;
+        return true;
+      }
+    } catch {
+      /* ask */
+    }
+    const yes = await confirmDialog({
+      title: "Run this project's code?",
+      message:
+        `'${project.name}' carries code that runs on your computer when the model runs: ${code.items.join(", ")}. ` +
+        "Run it only if you trust where the project came from. LightSim asks once; it asks again when that code changes.",
+      confirmLabel: "Trust and run",
+      cancelLabel: "Cancel",
+    });
+    if (!yes) return false;
+    trustedProject = project.id;
+    await remember();
+    return true;
+  }
+
+  /** Open an imported project as a new, unsaved one. */
+  function openImported(project: Project, studies: Study[], readOnly: string | null, note: string): void {
+    project.dataBusConnections ??= [];
+    project.cases ??= [];
+    runHistorySeq++;
+    trustedProject = null;
+    set({
+      project,
+      revision: null,
+      exampleId: null,
+      activeSystemId: project.systems.find((s) => s.parentId === null)?.id ?? project.systems[0]?.id,
+      activeCaseId: project.cases[0]?.id ?? null,
+      activeRunId: null,
+      overlayRunIds: [],
+      selectedElementId: null,
+      past: [],
+      future: [],
+      runs: [],
+      storedRunCount: 0,
+      runsLoading: false,
+      ...NO_FILE,
+      readOnly,
+      dataChecks: null,
+      dirty: true,
+    });
+    get().log("info", note);
+    adoptStudies(project.id, studies);
+    void loadRunHistory(project.id);
+  }
+
+  /** List the project's studies (kept with its runs, PLT-34), keeping any
+   *  made in this session that the engine does not have (a failed store). */
+  async function loadStudies(projectId: string): Promise<void> {
+    let stored: Study[];
+    try {
+      stored = (await api.listStudies(projectId)) ?? [];
+    } catch {
+      return; // the studies list stays as it is; the runs warning covers it
+    }
+    if (get().project?.id !== projectId) return;
+    set((s) => {
+      const ids = new Set(stored.map((st) => st.id));
+      const extra = s.studies.filter((st) => !ids.has(st.id));
+      return { studies: [...stored, ...extra].sort((a, b) => a.startedAt - b.startedAt) };
+    });
+  }
+
+  /** Keep studies with the project's runs (an old file's or a draft's). */
+  function adoptStudies(projectId: string, studies: Study[]): void {
+    if (studies.length === 0) return;
+    set((s) => ({ studies: [...s.studies.filter((st) => !studies.some((n) => n.id === st.id)), ...studies] }));
+    for (const study of studies) {
+      api.storeStudy(projectId, study)?.catch?.((e: Error) =>
+        get().log("warning", `Study could not be stored with the runs (${e.message}); it is kept for this session only.`),
+      );
+    }
+  }
+
+  /** Say what opening a file from disk found: an older format upgraded, or
+   *  a newer LightSim's file that stays read-only. */
+  function noteFormat(name: string, upgradedFrom: number | null, readOnly: string | null): void {
+    const { log } = get();
+    if (readOnly) log("warning", `'${name}' is read-only. ${readOnly}`);
+    else if (upgradedFrom !== null)
+      log(
+        "info",
+        `'${name}' was saved in an older file format (${upgradedFrom}); LightSim upgraded it. ` +
+          "Saving writes the new format and keeps the old file in its backups (Project → Restore…).",
+      );
   }
 
   /** Add a live edit to the in-flight run's snapshot. Edits of one parameter
@@ -658,9 +829,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     const { libraryById, log, appVersion } = get();
     const runId = uid("run");
     const simCase = projectToRun.cases.find((c) => c.id === caseId);
-    // the model is the project without its saved studies (results, not
-    // model): the engine runs it and the snapshot keeps it
-    const { studies: _studies, ...model } = projectToRun;
+    // the engine runs the model and the snapshot keeps it
+    const model = projectToRun;
     const snapshot: RunSnapshot | undefined = simCase && {
       project: model,
       case: simCase,
@@ -792,6 +962,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     cycles: [],
     project: null,
     revision: null,
+    filePath: null,
+    readOnly: null,
+    studies: [],
     exampleId: null,
     activeSystemId: null,
     selectedElementId: null,
@@ -826,9 +999,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const draft = loadDraft();
       const unsaved = Boolean(draft && !draft.clean);
       const exampleId = draft ? (draft.example ?? null) : demo.project.id;
-      let { project, revision } = draft
-        ? { project: draft.project, revision: draft.revision ?? null }
-        : { project: exampleCopy(demo.project), revision: null };
+      const legacy = splitStudies(draft ? (draft.project as LegacyProject) : exampleCopy(demo.project));
+      let project = legacy.project;
+      let revision: string | null = draft ? (draft.revision ?? null) : null;
+      let filePath: string | null = null;
+      let readOnly: string | null = null;
       if (draft?.clean && !lib.offline) {
         // nothing was unsaved: reopen the project from disk (it may be newer
         // than the kept copy), or an example's current version (an update may
@@ -838,7 +1013,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           if (exampleId) {
             project = { ...(await api.fetchExample(exampleId)), id: draft.project.id };
           } else {
-            ({ project, revision } = fromDisk(await api.fetchProject(draft.project.id)));
+            ({ project, revision, filePath, readOnly } = fromDisk(await api.fetchProject(draft.project.id)));
           }
         } catch {
           /* keep the copy */
@@ -854,11 +1029,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         cycles,
         project,
         revision,
+        filePath,
+        readOnly,
         exampleId,
         activeSystemId: rootSystemOf(project).id,
         activeCaseId: project.cases[0]?.id ?? null,
         dirty: unsaved,
       });
+      trustedProject = exampleId ? project.id : null;
+      if (!lib.offline) adoptStudies(project.id, legacy.studies);
       const log = get().log;
       log("info", `Component library loaded (${lib.components.length} components).`);
       if (draft && unsaved) {
@@ -1327,7 +1506,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (past.length === 0 || !project) return;
       const prev = past[past.length - 1];
       set({
-        project: keepStudies(prev, project),
+        project: prev,
         past: past.slice(0, -1),
         future: [project, ...future].slice(0, HISTORY_LIMIT),
         dirty: true,
@@ -1338,7 +1517,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (future.length === 0 || !project) return;
       const next = future[0];
       set({
-        project: keepStudies(next, project),
+        project: next,
         future: future.slice(1),
         past: [...past.slice(-(HISTORY_LIMIT - 1)), project],
         dirty: true,
@@ -1369,15 +1548,20 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         runs: [],
         storedRunCount: 0,
         runsLoading: false,
+        ...NO_FILE,
         dataChecks: null,
         dirty: false,
       });
+      trustedProject = project.id;
       get().log("info", "New project created.");
     },
 
     openProject: async (id) => {
       try {
-        const { project, revision } = fromDisk(await api.fetchProject(id));
+        const { project, revision, filePath, readOnly, upgradedFrom } = fromDisk(await api.fetchProject(id));
+        runHistorySeq++; // runs still loading for the project it replaces are dropped
+        trustedProject = null;
+        offeredRevision = null;
         set({
           project,
           revision,
@@ -1392,10 +1576,13 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           runs: [],
           storedRunCount: 0,
           runsLoading: false,
+          ...NO_FILE,
           dataChecks: null,
           dirty: false,
         });
-        get().log("info", `Project '${project.name}' opened.`);
+        set({ filePath, readOnly });
+        get().log("info", filePath ? `Project '${project.name}' opened from ${filePath}.` : `Project '${project.name}' opened.`);
+        noteFormat(project.name, upgradedFrom, readOnly);
         void loadRunHistory(project.id);
       } catch (e) {
         get().log("error", `Failed to open project: ${(e as Error).message}`);
@@ -1448,9 +1635,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         runs: [],
         storedRunCount: 0,
         runsLoading: false,
+        ...NO_FILE,
         dataChecks: null,
         dirty: false,
       });
+      trustedProject = project.id; // shipped with the app
       get().log(
         "info",
         `Example '${project.name}' opened as a copy. Save keeps it as a new project of yours; the example stays as it is.`,
@@ -1514,17 +1703,23 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
     saveRemote: () => {
       const save = async () => {
-        const { project, revision, exampleId, log } = get();
+        const { project, revision, exampleId, log, readOnly, filePath } = get();
         if (!project) return;
+        if (readOnly) {
+          log("error", `Not saved: ${readOnly}`);
+          return;
+        }
+        const where = filePath ? ` to ${filePath}` : " to the server";
         try {
           const res = await api.saveProject(project, revision);
           // an edit made while the save was in flight is still unsaved
           set({ dirty: get().project !== project, revision: res.revision ?? revision, exampleId: null });
+          offeredRevision = null;
           log(
             "info",
             exampleId
-              ? `Project '${project.name}' saved to the server as a new project; the example it was copied from is unchanged.`
-              : `Project '${project.name}' saved to the server.`,
+              ? `Project '${project.name}' saved${where} as a new project; the example it was copied from is unchanged.`
+              : `Project '${project.name}' saved${where}.`,
           );
         } catch (e) {
           if ((e as { status?: number }).status !== 409) {
@@ -1555,7 +1750,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             const res = await api.saveProject(project);
             // edits made while the dialog was open were not in this save
             set({ dirty: get().project !== project, revision: res.revision ?? null, exampleId: null });
-            log("info", `Project '${project.name}' saved to the server, replacing the version on disk ` +
+            log("info", `Project '${project.name}' saved${where}, replacing the version on disk ` +
               "(Project → Restore opens that version again).");
           } catch (e2) {
             log("error", `Save failed: ${(e2 as Error).message}. Use Export to download the project file instead.`);
@@ -1567,49 +1762,209 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       return next;
     },
 
-    exportProject: () => {
-      const { project } = get();
-      if (!project) return;
-      const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${project.id}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      get().log("info", `Project exported as ${project.id}.json.`);
+    saveAs: async () => {
+      const { project, log, readOnly } = get();
+      const shell = desktop();
+      if (!project || !shell) return false;
+      let picked;
+      try {
+        picked = await shell.saveFileAs(project.id, project.name);
+      } catch (e) {
+        log("error", `Save As failed: ${(e as Error).message}`);
+        return false;
+      }
+      if (!picked) return false; // cancelled
+      const saved = { ...project, id: picked.id };
+      try {
+        // the system's Save dialog already asked before replacing a file
+        const res = await api.saveProject(saved);
+        const sameProject = picked.id === project.id;
+        runHistorySeq++;
+        offeredRevision = null;
+        set((s) => ({
+          project: s.project === project ? saved : { ...s.project!, id: picked.id },
+          revision: res.revision ?? null,
+          filePath: picked.path,
+          readOnly: null,
+          exampleId: null,
+          dirty: s.project !== project,
+          ...(sameProject ? {} : { runs: [], storedRunCount: 0, studies: [], activeRunId: null, overlayRunIds: [] }),
+        }));
+        if (trustedProject === project.id) trustedProject = picked.id;
+        log(
+          "info",
+          `Project '${project.name}' saved as ${picked.path}.` +
+            (readOnly ? " It is in this LightSim's file format now." : "") +
+            (sameProject ? "" : " It is a copy: the runs stay with the project it came from."),
+        );
+        void loadRunHistory(picked.id);
+        return true;
+      } catch (e) {
+        log("error", `Save As failed: ${(e as Error).message}`);
+        return false;
+      }
     },
 
-    importProject: (json) => {
+    openFile: async () => {
+      const shell = desktop();
+      if (!shell) return;
       try {
-        // a file saved from the engine's API may carry its revision: drop it
-        const { project } = fromDisk(JSON.parse(json) as api.StoredProject);
-        if (!project.id || !Array.isArray(project.systems)) {
+        const picked = await shell.openFile();
+        if (picked) await get().openProject(picked.id);
+      } catch (e) {
+        get().log("error", `Could not open the file: ${(e as Error).message}`);
+      }
+    },
+
+    forgetFile: async (id) => {
+      try {
+        await api.forgetFile(id);
+      } catch (e) {
+        get().log("error", `Could not remove it from Recent files: ${(e as Error).message}`);
+      }
+    },
+
+    checkDisk: async () => {
+      const { project, revision, offline } = get();
+      if (!project || !revision || offline || diskCheckBusy) return;
+      diskCheckBusy = true;
+      try {
+        await saveQueue; // a save in flight changes the file itself
+        if (get().project !== project && get().project?.id !== project.id) return;
+        const onDisk = await api.fetchRevision(project.id);
+        const now = get();
+        if (now.project?.id !== project.id || now.revision !== revision) return; // saved or reopened meanwhile
+        if (onDisk === revision || onDisk === offeredRevision) return;
+        offeredRevision = onDisk;
+        if (onDisk === null) {
+          now.log("warning", `The file of '${project.name}' was deleted or moved on disk; Save writes it again.`);
+          return;
+        }
+        const reload = await confirmDialog({
+          title: "Project changed on disk",
+          message:
+            `'${project.name}' was changed on disk (for example by a git pull, or saved from another window). ` +
+            (now.dirty
+              ? "Reload it to see that version: your unsaved changes here would be lost. Keep editing to save yours over it later (Save asks first)."
+              : "Reload it to see that version?"),
+          confirmLabel: "Reload",
+          cancelLabel: now.dirty ? "Keep my changes" : "Not now",
+          danger: now.dirty,
+        });
+        if (reload && get().project?.id === project.id) {
+          const keepCase = get().activeCaseId;
+          await get().openProject(project.id);
+          if (get().project?.cases.some((c) => c.id === keepCase)) set({ activeCaseId: keepCase });
+        }
+      } catch {
+        /* the engine is busy or gone: try again next time */
+      } finally {
+        diskCheckBusy = false;
+      }
+    },
+
+    exportProject: async () => {
+      const { project, log } = get();
+      if (!project) return;
+      const download = (blob: Blob, name: string) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+      if ((project.attachments ?? []).length > 0) {
+        try {
+          download(await api.exportBundle(project), `${project.id}.lightsim.zip`);
+          log("info", `Project exported with its attached files as ${project.id}.lightsim.zip.`);
+          return;
+        } catch (e) {
+          log("warning", `The attached files could not be packed (${(e as Error).message}); exporting the project file only.`);
+        }
+      }
+      download(new Blob([JSON.stringify(project, null, 2)], { type: "application/json" }), `${project.id}.lightsim`);
+      log("info", `Project exported as ${project.id}.lightsim.`);
+    },
+
+    importProject: async (json) => {
+      const { log, offline } = get();
+      let raw: api.StoredProject;
+      try {
+        raw = JSON.parse(json) as api.StoredProject;
+        if (!raw || typeof raw !== "object" || !raw.id || !Array.isArray(raw.systems)) {
           throw new Error("not a LightSim project file");
         }
-        project.dataBusConnections ??= [];
-        project.cases ??= [];
-        set({
-          project,
-          revision: null,
-          exampleId: null,
-          activeSystemId: project.systems.find((s) => s.parentId === null)?.id ?? project.systems[0]?.id,
-          activeCaseId: project.cases[0]?.id ?? null,
-          activeRunId: null,
-          overlayRunIds: [],
-          selectedElementId: null,
-          past: [],
-          future: [],
-          runs: [],
-          storedRunCount: 0,
-          runsLoading: false,
-          dataChecks: null,
-          dirty: true,
-        });
-        get().log("info", `Project '${project.name}' imported.`);
-        void loadRunHistory(project.id);
+      } catch (e) {
+        log("error", `Import failed: ${(e as Error).message}`);
+        return;
+      }
+      // a file saved from the engine's API may carry bookkeeping: drop it
+      const { project: parsed } = fromDisk(raw);
+      let reply: api.UpgradeReply | undefined;
+      if (!offline) {
+        try {
+          reply = await api.upgradeProject(parsed);
+        } catch (e) {
+          log("error", `Import failed: ${(e as Error).message}`);
+          return;
+        }
+      }
+      // offline (no engine): open it as it is; the engine upgrades it on save
+      const { project, studies } = reply ? { project: reply.project, studies: reply.studies } : splitStudies(parsed);
+      openImported(project, studies, reply?.readOnly ?? null, `Project '${project.name}' imported.`);
+      noteFormat(project.name, reply?.upgradedFrom ?? null, reply?.readOnly ?? null);
+    },
+
+    importBundle: async (zip) => {
+      let reply: api.UpgradeReply;
+      try {
+        reply = await api.importBundle(zip);
       } catch (e) {
         get().log("error", `Import failed: ${(e as Error).message}`);
+        return;
+      }
+      const n = reply.project.attachments?.length ?? 0;
+      openImported(reply.project, reply.studies, reply.readOnly, `Project '${reply.project.name}' imported with ${n} attached file(s).`);
+      noteFormat(reply.project.name, reply.upgradedFrom, reply.readOnly);
+    },
+
+    attachFile: async (file) => {
+      const { project, log, readOnly } = get();
+      if (!project || readOnly) return null;
+      let info: api.AttachedFile;
+      try {
+        info = await api.uploadAttachment(project.id, file, file.name);
+      } catch (e) {
+        log("error", `Could not attach '${file.name}': ${(e as Error).message}`);
+        return null;
+      }
+      if (get().project?.id !== project.id) return null;
+      const ref: Attachment = { path: info.path, sha256: info.sha256, bytes: info.bytes };
+      updateProject((draft) => {
+        draft.attachments = [...(draft.attachments ?? []).filter((a) => a.path !== ref.path), ref];
+      });
+      log(
+        "info",
+        `Attached '${info.name}' (${(info.bytes / 1024).toLocaleString("en", { maximumFractionDigits: 0 })} kB) to the project` +
+          (info.name !== file.name ? ` as '${info.name}'` : "") +
+          "; save the project to keep it in the list.",
+      );
+      return info.path;
+    },
+
+    detachFile: async (path) => {
+      const { project, log } = get();
+      if (!project) return;
+      updateProject((draft) => {
+        draft.attachments = (draft.attachments ?? []).filter((a) => a.path !== path);
+      });
+      try {
+        await api.deleteAttachment(project.id, path.replace(/^resources\//, ""));
+        log("info", `Removed '${path}' from the project and its resources folder.`);
+      } catch (e) {
+        if (!(e as Error).message.startsWith("404"))
+          log("warning", `'${path}' is off the project's list, but the file could not be deleted: ${(e as Error).message}`);
       }
     },
 
@@ -1630,6 +1985,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         runs: [],
         storedRunCount: 0,
         runsLoading: false,
+        ...NO_FILE,
         dataChecks: null,
         dirty: true,
       });
@@ -2015,7 +2371,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       try {
         const handle = api.runStudyLive(
           {
-            project: structuredClone({ ...project, studies: undefined }) as Project,
+            project: structuredClone(project),
             caseId,
             points: grid.map(([pack, cap]) => ({
               overrides: { [batteryId]: { capacity_kWh: pack, output_power_limit_kW: cap } },
@@ -2071,10 +2427,14 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         points: [...points, ...notRun],
         ...(totals ? { workers: totals.workers, wallS: totals.wallS } : {}),
       };
-      updateProject((draft) => {
-        draft.studies = [...(draft.studies ?? []), study];
-      }, false);
-      log("info", `Endurance energy study saved (Cases & Parameters → Endurance energy study and Saved studies).`);
+      // kept with the project's runs, not in the model file (PLT-34)
+      set((s) => ({ studies: [...s.studies, study] }));
+      try {
+        await api.storeStudy(project.id, study);
+        log("info", `Endurance energy study saved with the runs (Cases & Parameters → Endurance energy study and Saved studies).`);
+      } catch (e) {
+        log("warning", `The study could not be stored with the runs (${(e as Error).message}); it is kept for this session only.`);
+      }
     },
 
     applyLapCalibration: (muScale, cza) => {
@@ -2141,7 +2501,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       try {
         const handle = api.runStudyLive(
           {
-            project: structuredClone({ ...project, studies: undefined }) as Project,
+            project: structuredClone(project),
             caseId,
             points: values.map((value) => ({
               overrides: { [elementId]: { [paramKey]: value } },
@@ -2227,14 +2587,17 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             points,
             ...(totals ? { workers: totals.workers, wallS: totals.wallS } : {}),
           };
-          updateProject((draft) => {
-            draft.studies = [...(draft.studies ?? []), study];
-          }, false);
-          log(
-            "info",
-            `Sweep saved as a study of '${project.name}' (Cases & Parameters → Saved studies); ` +
-              "save the project to keep it on disk.",
-          );
+          set((s) => ({ studies: [...s.studies, study] }));
+          try {
+            await api.storeStudy(project.id, study);
+            log(
+              "info",
+              `Sweep saved as a study of '${project.name}' (Cases & Parameters → Saved studies), ` +
+                "with its runs; the model file is unchanged.",
+            );
+          } catch (e) {
+            log("warning", `The study could not be stored with the runs (${(e as Error).message}); it is kept for this session only.`);
+          }
         }
         // overlay the complete family: lowest swept value is the primary run,
         // the rest are overlaid, so all appear together in Results by default.
@@ -2249,15 +2612,23 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
     },
 
-    removeStudy: (studyId) =>
-      updateProject((draft) => {
-        draft.studies = (draft.studies ?? []).filter((st) => st.id !== studyId);
-      }, false),
+    removeStudy: (studyId) => {
+      const { project, log } = get();
+      set((s) => ({ studies: s.studies.filter((st) => st.id !== studyId) }));
+      if (!project) return;
+      api.deleteStudy(project.id, studyId)?.catch?.((e: Error) => {
+        if (!e.message.startsWith("404")) log("error", `Could not delete the study: ${e.message}`);
+      });
+    },
 
     /** Error-level data-check gate shared by run + runSweep. */
     passesRunGate: async () => {
       const { project, log } = get();
       if (!project) return false;
+      if (!(await trustsCode(project))) {
+        log("warning", "Run cancelled: the project's code was not trusted. Run again to be asked again.");
+        return false;
+      }
       try {
         const checks = await api.validateProject(project);
         set({ dataChecks: checks });

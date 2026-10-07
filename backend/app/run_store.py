@@ -1,16 +1,23 @@
 """Run history persistence — one gzip-compressed JSON file per finished run.
 
-A project's runs live in ``runs/<project id>/`` inside
-:func:`app.paths.projects_dir`, next to the project files, so they survive a
+A project's runs live in its runs folder (:func:`app.storage.location`):
+``runs/<project id>/`` inside :func:`app.paths.projects_dir`, or
+``<name>.lightsim-runs/`` beside a .lightsim file, so they survive a
 reload, an app restart and opening another project. ``index.json`` in that
 folder lists each run's case, start time, status and summary values, so the
 history can be listed without decompressing every run. The index is repaired
 from the run files if it goes missing or falls out of step with them.
 
+The project's parameter studies (a sweep's definition and results table)
+are kept there too, as ``studies/<study id>.json``, and not in the model
+file (PLT-34): running a sweep leaves the model file as it is, so git shows
+only real model edits and two people's sweeps never collide.
+
 This is a stop-gap until the columnar run store (Arrow/Parquet) lands.
 """
 from __future__ import annotations
 
+import contextlib
 import gzip
 import json
 import shutil
@@ -18,8 +25,8 @@ import threading
 import zlib
 from pathlib import Path
 
-from .schemas import StoredRun
-from .storage import _write_atomic, project_path, safe_id, user_dir
+from .schemas import StoredRun, Study
+from .storage import _write_atomic, location, project_path, safe_id, user_dir
 
 #: Disk budget for one project's stored runs. When a new run takes the project
 #: over it, its oldest runs are deleted and the caller is told which.
@@ -38,7 +45,12 @@ _safe_id = safe_id
 
 
 def _runs_dir(project_id: str) -> Path:
-    return user_dir() / "runs" / _safe_id(project_id, "project")
+    return location(project_id).runs
+
+
+def _make_runs_dir(project_id: str) -> Path:
+    loc = location(project_id)
+    return loc.make_dir(loc.runs)
 
 
 def _valid_entry(e: object, files: dict) -> bool:
@@ -111,7 +123,7 @@ def save_run(project_id: str, run: StoredRun) -> tuple[list[dict], list[str]]:
     name = _safe_id(run.id, "run") + _SUFFIX
     data = gzip.compress(run.model_dump_json(exclude_unset=True).encode("utf-8"), compresslevel=6)
     with _lock:
-        folder.mkdir(parents=True, exist_ok=True)
+        _make_runs_dir(project_id)
         entries = [e for e in _load_index(folder) if e["id"] != run.id]
         _write_atomic(folder / name, data)
         entries.append(_entry(run, len(data)))
@@ -186,7 +198,24 @@ def delete_run(project_id: str, run_id: str) -> bool:
 
 
 def clear_runs(project_id: str) -> int:
-    """Delete every stored run of the project; returns how many there were."""
+    """Delete every stored run of the project (its studies stay); returns
+    how many there were."""
+    folder = _runs_dir(project_id)
+    with _lock:
+        if not folder.is_dir():
+            return 0
+        runs = list(folder.glob(f"*{_SUFFIX}"))
+        for path in runs:
+            path.unlink(missing_ok=True)
+        (folder / _INDEX).unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            folder.rmdir()  # only if nothing else (studies, .gitignore) is in it
+    return len(runs)
+
+
+def clear_all(project_id: str) -> int:
+    """Delete the project's runs and studies (the project is being deleted);
+    returns how many runs there were."""
     folder = _runs_dir(project_id)
     with _lock:
         if not folder.is_dir():
@@ -194,3 +223,60 @@ def clear_runs(project_id: str) -> int:
         count = len(list(folder.glob(f"*{_SUFFIX}")))
         shutil.rmtree(folder)
     return count
+
+
+# ---- studies (PLT-34) ------------------------------------------------------
+
+_STUDIES = "studies"
+
+
+def _study_path(project_id: str, study_id: str) -> Path:
+    return _runs_dir(project_id) / _STUDIES / f"{_safe_id(study_id, 'study')}.json"
+
+
+def list_studies(project_id: str) -> list[dict]:
+    """The project's studies, oldest first (by when each was started).
+    Files that are not a study are skipped."""
+    folder = _runs_dir(project_id) / _STUDIES
+    out = []
+    for path in folder.glob("*.json") if folder.is_dir() else []:
+        try:
+            out.append(Study.model_validate_json(path.read_bytes()).model_dump(mode="json"))
+        except (OSError, ValueError):
+            continue
+    return sorted(out, key=lambda s: (s["startedAt"], s["id"]))
+
+
+def save_study(project_id: str, study: Study) -> None:
+    """Store (or replace) a study."""
+    path = _study_path(project_id, study.id)
+    with _lock:
+        _make_runs_dir(project_id)
+        path.parent.mkdir(exist_ok=True)
+        _write_atomic(path, study.model_dump_json(indent=1).encode("utf-8"))
+
+
+def delete_study(project_id: str, study_id: str) -> bool:
+    path = _study_path(project_id, study_id)
+    with _lock:
+        if not path.is_file():
+            return False
+        path.unlink()
+    return True
+
+
+def adopt_studies(project_id: str, studies: list[dict]) -> int:
+    """Keep studies an upgrade took out of a version 1 file (PLT-07) with the
+    project's runs. A study already stored is left as it is, so reading the
+    old file again changes nothing. Returns how many were stored."""
+    stored = 0
+    for raw in studies:
+        try:
+            study = Study.model_validate(raw)
+            if _study_path(project_id, study.id).exists():
+                continue
+            save_study(project_id, study)
+            stored += 1
+        except ValueError:
+            continue  # a malformed study: the old file still has it
+    return stored

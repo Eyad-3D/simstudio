@@ -11,9 +11,11 @@ from fastapi.testclient import TestClient
 
 from app import storage
 from app.main import app
+from app.migrations import CURRENT_VERSION
 from app.paths import EXAMPLES_DIR
 from app.schemas import Project
 from app.validation import validate_project
+from app.version import VERSION
 
 client = TestClient(app)
 
@@ -54,6 +56,14 @@ def _roundtrip(body: dict) -> dict:
     assert got.status_code == 200, got.text
     data = got.json()
     data.pop("revision", None)  # save bookkeeping (PLT-04), not project content
+    # every save writes the current format and the app version (PLT-07,
+    # tests/test_migrations.py); the rest must come back as it was sent
+    assert (data["schemaVersion"], data["savedWith"]) == (CURRENT_VERSION, VERSION)
+    for stamp in ("schemaVersion", "savedWith"):
+        if stamp in body:
+            data[stamp] = body[stamp]
+        else:
+            del data[stamp]
     return data
 
 
@@ -153,29 +163,33 @@ def _study(study_id: str, values: list[float]) -> dict:
     }
 
 
-def test_studies_are_saved_with_the_project(tmp_path):
-    """STU-03: every study and its results table come back after a save."""
+def test_studies_are_kept_with_the_runs_not_in_the_file(tmp_path):
+    """STU-03, PLT-34: a study and its results table come back from the run
+    store; the model file never holds them."""
     body = Project.model_validate(_example("bev-car")).model_dump(mode="json")
     body["id"] = "studies"
-    assert body["studies"] == [], "a project without studies has an empty list"
-    body["studies"] = [_study("sweep-1", [1500.0, 1800.0]), _study("sweep-2", [1200.0, 1400.0, 1600.0])]
-    full = Project.model_validate(body).model_dump(mode="json")
-    assert _roundtrip(full) == full
-    assert full["studies"][1]["points"][2]["kpis"] == {}
-    on_disk = json.loads((tmp_path / "studies.json").read_text(encoding="utf-8"))
-    assert [len(s["points"]) for s in on_disk["studies"]] == [2, 3]
-    assert on_disk["studies"][1]["points"][2]["status"] == "not run"
+    assert "studies" not in body, "the model has no studies"
+    _roundtrip(body)
+    for study in (_study("sweep-1", [1500.0, 1800.0]), _study("sweep-2", [1200.0, 1400.0, 1600.0])):
+        res = client.put(f"/api/projects/studies/studies/{study['id']}", json=study)
+        assert res.status_code == 200, res.text
+    got = client.get("/api/projects/studies/studies").json()
+    assert [len(s["points"]) for s in got] == [2, 3]
+    assert got[1]["points"][2]["status"] == "not run"
+    assert got[1]["points"][2]["kpis"] == {}
+    assert "studies" not in json.loads((tmp_path / "studies.json").read_text(encoding="utf-8"))
+    assert client.delete("/api/projects/studies/studies/sweep-1").status_code == 200
+    assert [s["id"] for s in client.get("/api/projects/studies/studies").json()] == ["sweep-2"]
 
 
 def test_study_tables_are_typed():
-    body = _example("bev-car")
-    body["id"] = "studies"
-    body["studies"] = [_study("sweep-1", [1500.0, 1800.0])]
-    body["studies"][0]["points"][0]["kpis"]["HV Battery Pack — final SOC"] = "high"
-    assert client.put("/api/projects/studies", json=body).status_code == 422
-    body["studies"] = [_study("sweep-1", [1500.0, 1800.0])]
-    body["studies"][0]["points"][0]["status"] = "done"
-    assert client.put("/api/projects/studies", json=body).status_code == 422
+    study = _study("sweep-1", [1500.0, 1800.0])
+    study["points"][0]["kpis"]["HV Battery Pack — final SOC"] = "high"
+    assert client.put("/api/projects/studies/studies/sweep-1", json=study).status_code == 422
+    study = _study("sweep-1", [1500.0, 1800.0])
+    study["points"][0]["status"] = "done"
+    assert client.put("/api/projects/studies/studies/sweep-1", json=study).status_code == 422
+    assert client.put("/api/projects/studies/studies/other", json=_study("sweep-1", [1.0, 2.0])).status_code == 400
 
 
 def test_an_acceleration_case_is_saved_with_its_line_and_reference(tmp_path):
