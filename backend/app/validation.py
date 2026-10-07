@@ -43,8 +43,7 @@ from .solver.network import (
     ports_of,
 )
 from .solver.profiles import distance_axis, parse_profile
-from .solver.runtime import (AMBIENT_C, AMBIENT_KPA, GRAVITY, MAX_SUBSTEP, RPM, air_density,
-                             ocv_mean)
+from .solver.runtime import AMBIENT_C, AMBIENT_KPA, GRAVITY, MAX_SUBSTEP, RPM, air_density, ocv_mean
 from .solver.scaling import VALID_RANGE, max_speed_rpm, scale_keys, scaled
 from .solver.stability import solver_step
 from .tyre import parse_tyre_code
