@@ -1,0 +1,44 @@
+# Raises, or pulls, a published release's staged rollout (PLT-18).
+#
+# A release starts with stagingPercentage (10 % by default) in its latest*.yml
+# files: only that share of the installs that agreed to update checks is
+# offered it. Each install draws its random number once and keeps it on the
+# computer, so nothing about the user is sent. Run this workflow to go to
+# 50 %, then 100 %, a couple of days apart; or with 0 to stop offering a bad
+# release (installs that already took it keep it: publish a fixed version).
+name: Update rollout
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v0.3.0"
+        type: string
+        required: true
+      percent:
+        description: "Share of opted-in installs offered the update, 0-100 (0 pulls it, 100 offers it to all)"
+        type: string
+        required: true
+
+jobs:
+  rollout:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Set the rollout of ${{ inputs.tag }} to ${{ inputs.percent }} %
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          PERCENT: ${{ inputs.percent }}
+        run: |
+          case "$PERCENT" in ''|*[!0-9]*) echo "::error::percent must be a whole number"; exit 1;; esac
+          if [ "$PERCENT" -gt 100 ]; then echo "::error::percent must be 0-100"; exit 1; fi
+          mkdir yml && cd yml
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'latest*.yml'
+          for f in latest*.yml; do
+            sed -i '/^stagingPercentage:/d' "$f"
+            if [ "$PERCENT" -lt 100 ]; then echo "stagingPercentage: $PERCENT" >> "$f"; fi
+            echo "$f:"; cat "$f"
+          done
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber latest*.yml
