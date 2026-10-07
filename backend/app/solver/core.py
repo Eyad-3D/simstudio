@@ -518,8 +518,7 @@ def simulate(
             summary=summary,
         )
     finally:
-        if ctx.sandbox is not None:
-            ctx.sandbox.close()
+        ctx.close_sandboxes()
 
 
 ChannelValue = tuple[str, str, float]  # (element id, port id, value)
@@ -535,7 +534,7 @@ def _bus_channels(ctx: RunContext) -> Iterator[ChannelValue]:
             ports: tuple[str, ...] = ("sig_out",)
         elif tdef == "signal.driving_task":
             ports = ("sig_demand",)
-        elif tdef == "signal.script":
+        elif tdef in ("signal.script", "signal.fmu"):
             ports = tuple(po.id for po in (model.elements[el_id].dynamicPorts or [])
                           if po.direction == "output")
         elif tdef == "signal.road_profile":

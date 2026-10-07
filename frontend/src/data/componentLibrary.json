@@ -1846,6 +1846,62 @@
       ]
     },
     {
+      "id": "signal.fmu",
+      "category": "Driver & Signals",
+      "name": "FMU (Model from Another Tool)",
+      "icon": "package",
+      "domain": "signal",
+      "allowDynamicPorts": true,
+      "description": "Runs a model exported from another tool (Simulink, Dymola, GT-SUITE, a supplier) as an FMU file: a Co-Simulation FMU in the FMI 2.0 or 3.0 standard. Choose the file, then tick the FMU variables to use as signal pins and wire them on the Data Bus. The FMU runs in a separate locked-down process and only after you allow it on this computer.",
+      "ports": [],
+      "parameters": [
+        {
+          "key": "fmu_path",
+          "variability": "fixed",
+          "label": "FMU File",
+          "unit": "-",
+          "type": "string",
+          "default": "",
+          "description": "Where the FMU file is kept on this computer. Set by choosing or dropping an FMU file; LightSim keeps its own copy, so moving the original does not break the block.",
+          "typical": "A .fmu file of a few hundred kB to tens of MB.",
+          "whereToFind": "Export it from the tool the model was built in (Simulink, Dymola, GT-SUITE), or ask the supplier for a Co-Simulation FMU for your operating system."
+        },
+        {
+          "key": "fmu_sha256",
+          "variability": "fixed",
+          "label": "FMU Fingerprint",
+          "unit": "-",
+          "type": "string",
+          "default": "",
+          "description": "A fingerprint (SHA-256) of the FMU file's contents: it tells LightSim the file is still the one you set up and allowed to run.",
+          "typical": "64 letters and digits, set when the file is chosen.",
+          "whereToFind": "Set by LightSim when you choose the file; you never type it (a changed FMU gets a new one)."
+        },
+        {
+          "key": "fmu_name",
+          "variability": "fixed",
+          "label": "FMU Name",
+          "unit": "-",
+          "type": "string",
+          "default": "",
+          "description": "The FMU file's name, as shown in messages.",
+          "typical": "The file name, such as BatteryThermal.fmu.",
+          "whereToFind": "Set by LightSim when you choose the file."
+        },
+        {
+          "key": "sample_time_s",
+          "label": "Communication Step (0 = solver step)",
+          "unit": "s",
+          "default": 0,
+          "type": "number",
+          "minimum": 0,
+          "description": "How often LightSim exchanges values with the FMU and lets it run on; the FMU's outputs hold in between. 0, or any time shorter than the solver step (at most 10 ms), steps it every solver step.",
+          "typical": "0 for most FMUs; the FMU's own suggested step (shown under FMU details) for a slow or heavy model.",
+          "whereToFind": "The FMU's default experiment step size, or the supplier's documentation of the model."
+        }
+      ]
+    },
+    {
       "id": "signal.monitor",
       "category": "Driver & Signals",
       "name": "Monitor",
