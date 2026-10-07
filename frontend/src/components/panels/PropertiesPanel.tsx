@@ -4,6 +4,7 @@ import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import { componentHelpPage, openHelp } from "../../help";
 import { limitsText, paramName, rangeProblem } from "../../paramRules";
+import { LABEL_RRC, describeTyre, parseTyreCode, tyreValues } from "../../tyre";
 import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "../SpreadsheetGrid";
 import { KIND_COLOR } from "../canvas/ElementNode";
 import { CyclePreview, CycleSelect } from "./CyclePicker";
@@ -15,6 +16,7 @@ import type {
   ParameterDef,
   ParamValue,
   PortDef,
+  ScalarValue,
   Table1D,
   Table2D,
 } from "../../types";
@@ -786,13 +788,44 @@ export function ElementForm({
   // gets a full-width row of its own below the table
   const drivingTask = def.id === "signal.driving_task";
   const cycleId = String(element.parameterOverrides.cycle ?? "");
-  const scalarParams = useMemo(() => def.parameters.filter((p) => !isBig(p) && p.key !== "cycle"), [def]);
+  // a parameter that applies only to one setting of another is hidden otherwise
+  const shown = useMemo(() => {
+    const value = (key: string) =>
+      element.parameterOverrides[key] ?? def.parameters.find((q) => q.key === key)?.default;
+    return (p: ParameterDef) => !p.showIf || p.showIf.values.includes(value(p.showIf.key) as ScalarValue);
+  }, [def, element.parameterOverrides]);
+  const scalarParams = useMemo(
+    () => def.parameters.filter((p) => !isBig(p) && p.key !== "cycle" && shown(p)),
+    [def, shown],
+  );
   const bigParams = useMemo(
-    () => def.parameters.filter((p) => isBig(p) && !(drivingTask && cycleId && isProfile(p))),
-    [def, drivingTask, cycleId],
+    () => def.parameters.filter((p) => isBig(p) && !(drivingTask && cycleId && isProfile(p)) && shown(p)),
+    [def, drivingTask, cycleId, shown],
   );
   const valueOf = (p: ParameterDef): ParamValue =>
     element.parameterOverrides[p.key] ?? p.default;
+  const valueOfKey = (key: string): ParamValue | undefined =>
+    element.parameterOverrides[key] ?? def.parameters.find((q) => q.key === key)?.default;
+  // A Wheel's tyre (MOD-48): a code that reads fills in the radius and the
+  // tyre estimates, a label class the rolling resistance, in one undo step
+  const wheel = def.id === "propulsion.wheel";
+  const tyre = wheel ? parseTyreCode(String(valueOfKey("tyre_code") ?? "")) : null;
+  const radiusFactor = Number(valueOfKey("rolling_radius_factor") ?? 0.97) || 0.97;
+  const change = (key: string, v: ParamValue) => {
+    if (wheel && (key === "tyre_code" || key === "rolling_radius_factor")) {
+      const spec = key === "tyre_code" ? parseTyreCode(String(v)) : tyre;
+      if (spec) {
+        const values = tyreValues(spec, key === "rolling_radius_factor" ? Number(v) || radiusFactor : radiusFactor);
+        setParameters(element.id, key === "tyre_code" ? { ...values, [key]: v } : { [key]: v, radius_m: values.radius_m });
+        return;
+      }
+    }
+    if (wheel && key === "tyre_label_class" && LABEL_RRC[String(v)] !== undefined) {
+      setParameters(element.id, { [key]: v, rolling_resistance: LABEL_RRC[String(v)] / 1000 });
+      return;
+    }
+    setParameter(element.id, key, v);
+  };
   const problemOf = (p: ParameterDef) => (p.type === "number" ? rangeProblem(p, Number(valueOf(p))) : null);
   // the dialog and Properties can show the same part: ids must not clash
   const formId = useId();
@@ -943,7 +976,7 @@ export function ElementForm({
                         def={p}
                         value={valueOf(p)}
                         describedBy={`${formId}${p.key}-problem`}
-                        onChange={(v) => setParameter(element.id, p.key, v)}
+                        onChange={(v) => change(p.key, v)}
                       />
                     </td>
                     <td className="ss-td whitespace-nowrap text-[11px] text-[color:var(--ss-text-dim)]">{p.unit}</td>
@@ -963,6 +996,11 @@ export function ElementForm({
             })}
           </tbody>
         </table>
+      )}
+      {tyre && (
+        <p className="text-[11px] text-[color:var(--ss-text-dim)]" data-testid="tyre-summary">
+          {describeTyre(tyre, radiusFactor)}
+        </p>
       )}
       {drivingTask && (
         <div className="flex flex-col gap-1" {...helpProps(cycleDef)}>

@@ -130,15 +130,36 @@ summary table.
 level); MOD-16 (a tyre whose force drops past its peak, so wheelspin
 costs time); RES-38 (time per limiting regime and peak slip).
 
-### A battery has a power limit but no current limit
+### Battery limits are a battery management system's tables, not cell physics
 
 A battery delivers power up to its maximum-power point (the most its
-internal resistance lets through: about 420 kW for the default pack at 90 %
+resistance lets through: about 420 kW for the default pack at 90 %
 charge), or up to its *Output Power Limit* when one is set, and takes back
-up to its *Max Charge Power*. There are no current limits: the 500 A limit
-of Formula Student (FS Rules 2026 v1.1 (FSG) EV 2.2.2, FSUK 2026 EV2.3.1) is
-not modelled or checked. Fuel cells have no ramp rate, and DC-DC converters
-have no power rating.
+up to its *Max Charge Power*. Since 0.3 it can also hold the current and
+voltage as a battery management system does: with *Defined By: Pack
+values*, a *Max Discharge Current*, *Max Charge Current* and minimum and
+maximum pack voltage (0 = none, as in every existing model); with
+*Defined By: Cells*, the cells' continuous and peak currents and their
+minimum and maximum voltage, for the weakest series group. These are the
+limits a BMS keeps (fidelity L1), with these simplifications:
+
+- The resistance comes from tables (pulse length, SOC, temperature), not an
+  electrochemical model; the default tables are estimates. The pulse length
+  is the time the current has flowed one way, so the step after the current
+  reverses still uses the old pulse's resistance.
+- The cells are at the first Ambient's temperature: they do not warm up
+  under load (MOD-09). There is no hysteresis and no second RC pair
+  (MOD-51), and no ageing.
+- A cell's voltage limit is met at the start of each 10 ms step; the
+  open-circuit voltage then falls a little over the step, so a cell can end
+  it a few millivolts past its limit (at most 2 mV in the tests).
+- The 2, 10 and 30 s power-limit channels are the state of power for a
+  pulse starting from the present state; the handshake holds the motors to
+  the limit of the pulse going on (the 2 s values at a pulse's start).
+- No pulse test has been compared with a published cell's data yet (that
+  needs a licence-clear cell data set, CON-19).
+
+Fuel cells have no ramp rate, and DC-DC converters have no power rating.
 
 The Output Power Limit is ideal: it holds the terminal power (volts × amps)
 exactly at every solver step, with none of a real limiter's lag or
@@ -150,10 +171,10 @@ over the limit is a violation is not counted on its own (a window of 0
 gives a check at least as strict). The *Voltage Class* check compares the
 highest terminal voltage of a solver step, not a 500 ms average.
 
-*Workaround:* check the battery's *Current* channel against what the real
-pack or its management system allows, and reduce the motor's torque map or
-add a limit in a Script if needed.
-*Roadmap:* MOD-08 (current limits), ENG-02 (follow-up).
+*Workaround:* for a real pack, fit the resistance tables to a pulse test
+(HPPC) of its cells.
+*Roadmap:* MOD-09 (cell temperature), MOD-51 (2RC and hysteresis), ENG-02
+(follow-up).
 
 ### Lap mode is a quasi-steady-state estimate
 
@@ -259,15 +280,42 @@ minimum or an average, for example from the CSV export, or put the
   power through it, in both directions, but the torque that accelerates the
   driveline's own inertia is not part of that net, and a locked clutch's
   torque is taken from the previous 10 ms step. *Roadmap:* MOD-03.
-- **Shaft and Final Drive power is the total of all motors and engines.**
-  Their *Transmitted Power* channel shows the summed mechanical power of
-  every motor and engine on the driveline, not the power through that part:
-  gear and clutch losses are left out, and every Shaft and Final Drive on
-  the driveline shows the same value. In the P2 Hybrid Car example's Mixed
-  Cycle with a Shaft added between the engine and the clutch, at t = 281 s
-  the engine delivers 9.8 kW and the motor takes 0.6 kW to charge the
-  battery, and the Shaft and the Final Drive both show 9.2 kW. Read the *Mechanical
-  Power* of each motor and engine instead. *Roadmap:* MOD-10.
+- **The energy breakdown leaves out inertia in the gears and reads the
+  flows at the step's start.** Each run lists every part's energy in, out,
+  lost and stored (*energy* in the run result; the parts' *Losses*, *Input
+  Power*, *Braking Power* and *Slip Losses* channels). A gear's power is the
+  motors', engines' and clutches' power reaching it, so the torque that
+  speeds up the driveline's own inertia shows as the *Rotating parts*' store,
+  not as a flow through each gear; a locked differential splits by what each
+  side carried. The flows between parts are worked out separately, so their
+  books together close only to within the *Energy balance residual* (0.01 %
+  on the Battery Electric Car's City Cycle, 0.02 % on the hybrid's Mixed
+  Cycle, 0.24 % on its UDDS, 0.39 % on the Formula Student car's 75 m acceleration, with its
+  wheels spinning). Lap cases book the electrical parts per part, and the
+  mechanics (road load, brakes, gears) as one Vehicle entry from the lap's
+  own energy pass; they have no residual row (see *Lap energy balance
+  error*). *Roadmap:* MOD-03 (gear losses with inertia), VAL-03 (energy
+  audit table).
+- **Resized machines follow simple scaling rules.** An E-Motor's *Speed
+  Scale* treats the machine as rewound, with each point's loss that of the
+  matching point of the original, as if through an ideal gear: a real
+  faster-running rewind loses more in its iron at the higher frequency.
+  The *Torque Scale* scales every loss with the active length, so end
+  windings and bearings (which do not grow with it) are over-scaled for
+  long machines. The Engine Scale keeps the fuel use per kWh; small engines
+  really lose a little more to heat. Data Checks give the resized machine's
+  peak torque, speed and power, but no chart of the scaled map beside the
+  original yet. Use 50–200 %; beyond it, use the other machine's own maps.
+  *Roadmap:* MOD-12 (e-drive upgrade), MOD-13 (engine Willans line).
+- **A tyre code gives estimates, not the tyre's data.** The tyre estimates
+  a Tyre Code fills in are the same for every size: Rill's guess for a
+  passenger-car tyre on a dry road, scaled by its load index, with no speed
+  rating, pressure, compound or wear. Racing and Formula Student tyres grip
+  more (μ 1.4-1.7) and their codes carry no load index, so only their
+  radius is filled in. The overload check uses the static load standing
+  still, not the load transfer while braking or cornering. *Workaround:*
+  replace the estimates with your tyre's test data. *Roadmap:* MOD-16
+  (tyre model beyond μ and its load).
 - **The air is dry, still and the same along the road.** Air drag uses the
   density the Ambient block's temperature and pressure give (1.204 kg/m³,
   20 °C and 101.325 kPa, without an Ambient), but not the road's altitude
@@ -435,8 +483,10 @@ minimum or an average, for example from the CSV export, or put the
   Rules 2026 v1.1 (FSG) EV 2.2.4 forbids; at 20 % they lock only below
   walking pace).
   Lap mode holds regeneration to the rear tyres' grip, so the example's
-  own cases hardly depend on it. The 500 A current limit (EV 2.2.2) is not
-  checked (the cases stay under 160 A), nor are the cells' own limits:
+  own cases hardly depend on it. The 500 A current limit (EV 2.2.2) is
+  not set in the example (its cases stay under 160 A; the battery's preset
+  sets it), and its pack is defined by pack values, so the cells' own limits
+  are not checked:
   recuperating into the full pack raises its cells to about 4.3 V (594 V),
   which a real accumulator management system would not allow. A
   two-motor variant is not shipped.
@@ -454,10 +504,20 @@ minimum or an average, for example from the CSV export, or put the
 ## Not modelled yet
 
 - **No heat or cooling.** There is no thermal solver: temperatures do not
-  change and do not affect batteries, motors or engines. The Ambient
-  component sets only the air density (see above), and thermal or fluid
-  connections are ignored during a run.
+  change and do not affect motors or engines. The Ambient component sets
+  the air density (see above), the Climate Control's outside temperature
+  and the cell temperature of a battery built from cells, and thermal or
+  fluid connections are ignored during a run.
   *Roadmap:* MOD-09.
+- **Heating and air-conditioning are a steady-state estimate.** The
+  Climate Control draws the power its demand table gives at the outside
+  temperature from the first second: there is no cabin that warms up or
+  cools down, so a cold start's first minutes (when a heater runs at
+  5-7 kW) are missing and short trips use too little. Its default table
+  is an estimate for a compact car, not measured data, and it ignores the
+  sun's angle, humidity, speed and the number of people inside.
+  *Workaround:* fit the demand table to logged heater and
+  air-conditioning power for your car. *Roadmap:* MOD-46 (cabin model).
 - **Forward driving only.** No reverse, and no rolling back: a car on a steep
   hill stays put even with no brakes. *Roadmap:* MOD-21, ENG-21.
 - **Drive cycles are longitudinal only.** A drive cycle, performance or

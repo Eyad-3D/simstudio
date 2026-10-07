@@ -741,3 +741,31 @@ constant (bev-car 5,765.68 N on each front wheel and 3,686.25 N on each
 rear one; hybrid-car 30/30/20/20 % of its weight).
 
 No headline number or channel moved.
+
+## Every part reports its energy in, out and lost; Final Drive power is its own (MOD-10, MOD-41)
+
+Every run now books each part's energy in, out, lost and stored (MOD-10).
+That adds channels (bev-car 51 -> 67, hybrid-car 67 -> 88: Losses on the
+battery, engine and gears, Transmitted/Input Power on gearboxes and
+differentials, Fuel Power on the engine, Braking Power on brakes, Slip
+Losses on wheels and the clutch, and the Vehicle's air drag, rolling
+resistance, climbing and acceleration powers) and a summary row, *Energy
+balance residual*, so the first message's channel count changes.
+
+The only stored channel that moved is the Final Drive's *Transmitted
+Power* in the hybrid: it was the total of every motor and engine on the
+driveline and is now the power through the Final Drive itself, after the
+clutch's and gearbox's losses (18.54 -> 17.68 kW at t = 20 s). The BEV's
+Final Drive has only its motor before it and did not move. Before
+regenerating, `LIGHTSIM_GOLDEN_EXACT=1` reported nothing else: no headline
+number or other channel moved at 1e-6 (MOD-41's Climate Control is a new
+part the examples do not use).
+
+| Fixture | Number | Old | New | Change |
+|---|---|---|---|---|
+| bev-car City Cycle (shipped step) | Energy balance residual | — | 0.0111 % | new row |
+| bev-car City Cycle (fine step) | Energy balance residual | — | 0.0056 % | new row |
+| hybrid-car Mixed Cycle (shipped step) | Energy balance residual | — | 0.0187 % | new row |
+| hybrid-car Mixed Cycle (shipped step) | channels that moved | | 1 | 1 outside their tube |
+| hybrid-car Mixed Cycle (fine step) | Energy balance residual | — | 0.0048 % | new row |
+| hybrid-car Mixed Cycle (fine step) | channels that moved | | 1 | 1 outside their tube |

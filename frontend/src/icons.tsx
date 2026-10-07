@@ -32,6 +32,7 @@ import {
   SlidersHorizontal,
   Table,
   Target,
+  Thermometer,
   User,
   Zap,
   type LucideIcon,
@@ -71,6 +72,7 @@ const REGISTRY: Record<string, LucideIcon> = {
   mountain: Mountain,
   user: User,
   flag: Flag,
+  thermometer: Thermometer,
 };
 
 export function componentIcon(key: string): LucideIcon {

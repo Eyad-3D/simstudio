@@ -195,7 +195,8 @@ class Map:
     def at(self, x: float, y: float | None = None) -> float:
         for i in self.error_axes:
             v = y if i else x
-            if self.edge(i, v) is not None:
+            b = self.bounds[i]  # (edge(i, v), inline: read every solver step)
+            if b is not None and (v < b[0] or v > b[1]):
                 lo, hi = self.ranges[i]
                 use = self.uses[i]
                 raise OutsideDataError(
@@ -212,6 +213,9 @@ class Map:
         first = []
         for i in self.counted:
             v = point[i]
+            b = self.bounds[i]  # (edge(i, v), inline: booked every solver step)
+            if b is None or b[0] <= v <= b[1] or v != v:
+                continue
             e = self.edge(i, v)
             if e is not None and self.uses[i].count(v, e, t, dt):
                 first.append(self.uses[i])

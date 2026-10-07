@@ -248,6 +248,7 @@ Simulation engine
 Example data
 ------------
   FASTSim vehicle and drive-cycle data 2.1.5 — Apache-2.0
+  Project Chrono tyre data main (2026-10-07) — BSD-3-Clause
 
 ==============================================================================
 @reduxjs/toolkit 2.12.0
@@ -7821,6 +7822,24 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 The standard text of Apache-2.0 is in the appendix.
+
+==============================================================================
+Project Chrono tyre data main (2026-10-07)
+Licence: BSD-3-Clause
+Source: https://github.com/projectchrono/chrono
+Used in: example data
+The tyre load-index table and the four coefficients of the TMeasy passenger-car
+parameter guess (GuessPassCar70Par, after Rill's 'engineer's guess'), taken from
+src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.cpp into backend/app/library/
+tyres.json, which fills a Wheel's radius and tyre estimates from its size code.
+------------------------------------------------------------------------------
+
+[NOTICE]
+
+Copyright (c) 2016, Project Chrono Development Team
+All rights reserved.
+
+The standard text of BSD-3-Clause is in the appendix.
 
 ==============================================================================
 APPENDIX: STANDARD LICENCE TEXTS

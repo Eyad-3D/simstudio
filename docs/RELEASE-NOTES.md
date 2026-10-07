@@ -29,6 +29,8 @@ sections.
 | The P2 Hybrid Car example takes its road load as EPA's own coefficients (A 68.64 N, B 0.9093 N/(km/h), C 0.025078 N/(km/h)²) with *Coefficients Include Driveline Losses* ticked, so the driveline drag they hold is no longer counted again in its final drive (98 %); its cases start at re-balanced charges (UDDS 56.74 %, HWFET 58.87 %, Mixed 51.92 %) | EPA city (UDDS) 2.94 → 2.84, highway (HWFET) 3.29 → 3.23, Mixed Cycle 2.93 → 2.88 l/100 km, against EPA's 2.91 and 2.94. The city figure is now below EPA's: the model has no cold start | MOD-11 |
 | The P2 Hybrid Car's control script starts or stops the engine only when asked for 0.2 s in a row (at standstill it still stops at once), so one step's reading of the input shaft, which rings for a few steps as the clutch closes, no longer switches it; its cases start at re-balanced charges (UDDS 56.34 %, HWFET 58.92 %, Mixed 51.96 %) | EPA city (UDDS) 2.84 l/100 km unchanged, with 30 engine starts instead of 32; highway (HWFET) 3.23 → 3.24, Mixed Cycle 2.88 l/100 km unchanged. The engine's starts no longer change with small changes to the model or the step (fuel still moves by up to about 0.004 l/100 km at the 10 ms step): with the example as MOD-18 left it, a brake inertia of 0.14 kg·m² or less added an engine start at the 10 ms step only | MOD-18 |
 | The E-Motor's and Engine's Speed, a clutch's Slip Speed and the battery's Terminal Voltage hold the state at their own time, as 0.2.0 promised for every channel (before: the state one solver step, 10 ms, earlier); a clutch that starts open shows its slip from t = 0 on, and a clutch's Torque now includes the part the solver adds as the clutch locks | These channels move by one solver step: a motor spun up from rest no longer reads 0 1/min at t = 0.01 s, and a battery's RC-branch voltage (and the open-circuit voltage's fall with SOC) shows in the step it happens instead of one step later; the R0 drop already did. Scripts and PIDs that read them get the current value, so the hybrid example's channels move slightly. No figure changes: the BEV's, and the hybrid's EPA city (2.84 l/100 km), highway (3.24) and Mixed Cycle (2.88), with the same engine starts | ENG-03 |
+| Shaft and Final Drive *Transmitted Power* is the power through that part (its input), not the total of every motor and engine on the driveline; Gearboxes, Differentials and Transfer Cases get the same channel, and each of them a *Losses* channel | In the P2 Hybrid Car's Mixed Cycle with a Shaft between the engine and the clutch, at t = 281 s the Shaft shows the engine's 9.75 kW and the Final Drive 8.88 kW, where both showed 9.2 kW; the Battery Electric Car's Final Drive shows what it did (one motor, no gears before it). No summary figure changes | MOD-10 |
+| A battery's *internal losses* include the loss in its RC pair (current × the RC pair's voltage), as well as in R0 | Only batteries with an RC pair change: their internal losses rise by about the RC pair's share of the voltage drop. The examples have none | MOD-10 |
 
 ### New
 
@@ -109,10 +111,11 @@ sections.
   Car, an 80 kW limit takes its 0-100 km/h from 7.10 to 12.76 s.
 - Summary rows can carry a limit and a *pass* or *fail* marker.
 - Presets: the battery's *Apply preset: Formula Student Electric* sets
-  80 kW, a 0.5 s window, 600 V and Hold Power to Limit in one step (one
-  undo). Its values come from FS Rules 2026 v1.1 (FSG) EV 2.2.1, EV 4.1.1
-  and D 10.4.1, checked against FSUK 2026 Rules V1.0 and FSAE Rules 2025
-  V1.0, which differ in detail; the 500 A current limit is not modelled.
+  80 kW, a 0.5 s window, 600 V, Hold Power to Limit and a 500 A *Max
+  Discharge Current* in one step (one undo). Its values come from FS Rules
+  2026 v1.1 (FSG) EV 2.2.1, EV 2.2.2, EV 4.1.1 and D 10.4.1, checked
+  against FSUK 2026 Rules V1.0 and FSAE Rules 2025 V1.0, which differ in
+  detail.
   Check the current season's rules before relying on them.
 - Load transfer and downforce: the Vehicle gets a *Centre of Gravity
   Height*, a *Wheelbase*, a *Downforce Area (CzA)* (negative for lift) and
@@ -361,6 +364,109 @@ sections.
   2,300 kg* instead of the clock time) in the run lists, legends and
   summary; *Run info* edits the name and keeps a note, both stored with
   the run. (RES-10)
+- A *Climate Control* part (Base Electric) for heating and
+  air-conditioning: its *Heating/Cooling Demand* table turns the first
+  Ambient's temperature into the heat the cabin needs, and a *PTC heater*
+  (an electric resistance heater, 1 kW of heat per kW) or a *Heat pump*
+  turns that into electrical power on its bus. The heat pump's coefficient
+  of performance (COP, heat moved per kW of electricity) is a share of the
+  ideal (Carnot) value, about 1.9 at −7 °C; below its *Minimum Outside
+  Temperature* (−10 °C) the PTC heater takes over, and cooling always runs
+  the air-conditioning compressor (COP about 2.2 at 35 °C). Its channels
+  are *Drawn Power*, *Heat to Cabin* and *COP*, and the summary gives the
+  energy it used and the heating or cooling it delivered. The default
+  demand is an estimate for a compact car kept at 21 °C, steady state with
+  no warm-up. Added to the Battery Electric Car with an Ambient, it takes
+  the WLTC from 14.00 kWh/100 km at 23 °C to 23.76 at −7 °C with the PTC
+  heater (1.70 times, close to the 41 % range loss AAA measured at −6.7 °C
+  with the heating on, a figure we have not checked at its source), 19.72
+  with the heat pump and 16.77 at 35 °C. Data Checks say when a model has
+  no Ambient, where it sits at 20 °C and does nothing. Existing models do
+  not change. (MOD-41)
+- Every run books where the energy goes, part by part: for each battery,
+  voltage source, fuel tank, engine, fuel cell, E-Motor, DC-DC converter,
+  consumer, clutch, gear, differential, brake, wheel and the Vehicle, the
+  energy that went in, came out and was lost and the change in what it
+  stores, so that in − out − lost − stored is 0 for each. It is in the run
+  result as *energy* (kWh), with each part's peak, mean and RMS power (kW;
+  RMS power is what sizes an inverter's or motor's cooling) and the
+  Vehicle's air drag, rolling resistance, climbing and acceleration. New
+  channels: *Losses* on batteries, engines, fuel cells, Shafts, Final
+  Drives, Gearboxes, Differentials and Transfer Cases; *Fuel Power* on
+  engines; *Braking Power* on brakes; *Slip Losses* on wheels and clutches;
+  *Air Drag Power*, *Rolling Resistance Power*, *Climbing Power* and
+  *Acceleration Power* on the Vehicle. The summary's new *Energy balance
+  residual* says how far the parts' books together are from closing, as a
+  share of the energy the sources gave: 0.01 % (BEV City Cycle), 0.08 %
+  (WLTC), 0.02 % (hybrid Mixed Cycle), 0.24 % (hybrid UDDS, with 30 engine starts), 0.39 % (FS 75 m acceleration). The
+  Fuel Tank gets a *Fuel Heating Value* (42.9 MJ/kg, petrol) for the fuel's
+  energy; it does not change the fuel used. On the Battery Electric Car's
+  City Cycle the battery gave 0.881 kWh, the E-Motor lost 0.086, the Final
+  Drive 0.017, the tyres' slip 0.004, air drag 0.242, rolling resistance
+  0.421 and the 0.25 kW consumer 0.042 kWh. Pages that draw these as flows
+  come later (RES-22, RES-07); an energy audit table is VAL-03. Bookkeeping
+  every part every solver step costs about 3-6 % of a run's time. (MOD-10)
+- Battery: *Defined By* *Pack values* (as before) or *Cells*. With *Cells*
+  you enter a cell datasheet (capacity, open-circuit voltage curve, minimum
+  and maximum voltage, DC resistance, continuous and peak currents, mass)
+  and a layout (*Cells in Series* × *Cells in Parallel*, e.g. 96s30p), and
+  LightSim builds the pack: its charge capacity, voltage and resistance
+  (with interconnect and contactor resistance), and an estimate of its mass
+  (cells × cell mass × a *Packaging Factor*), all given in Data Checks
+  before the run and in the summary after it. The resistance rises with the
+  pulse length (2 to 120 s, as VECTO's tables do), at low charge and in the
+  cold (*Cell Resistance Factor* and *Cell Temperature Factor*, estimates by
+  default; the cells are at the Ambient's temperature), so the pack sags in
+  long pulses and in winter: the Battery Electric Car built from 96s30p
+  21700-type cells takes 7.32 s to 100 km/h at −7 °C against 7.09 s at
+  20 °C. The battery management system's limits hold: the current never
+  exceeds the cells' continuous or, for pulses up to the *Peak Duration*,
+  peak current, no cell goes below its minimum or above its maximum
+  voltage, and an optional *Weakest Group* (less capacity, more resistance)
+  sets them, as the weakest module does in a real string. New channels:
+  *Discharge* and *Charge Power Limit* for 2, 10 and 30 s (the state of
+  power), *Discharge* and *Charge Current Limit*, *Lowest* and *Highest
+  Cell Voltage*; the summary gives the time held at each limit and the
+  lowest and highest cell voltage. With *Pack values*, a *Max Discharge
+  Current*, *Max Charge Current*, *Minimum* and *Maximum Pack Voltage* (0 =
+  none) do the same for the whole pack: at 300 A the Battery Electric Car
+  takes 10.02 s to 100 km/h instead of 7.10. A *SOC Derating Band* (both
+  modes) lowers the limits linearly to 0 near empty and full, as FASTSim's
+  buffers do. The Formula Student car built from 138s4p cells with a 30 A
+  peak (120 A) takes 3.886 s over 75 m instead of 3.744. The parameter
+  dialog shows only the fields of the mode chosen. Existing models and the
+  examples do not change. (MOD-08)
+- E-Motor: *Torque Scale*, *Speed Scale* and *Voltage Scale*; Combustion
+  Engine: *Engine Scale* (all 100 % by default). They resize the machine
+  with its maps, so a sizing sweep stays realistic: torque × k_T with the
+  loss at that torque × k_T and the drag and rotor inertia × k_T (a longer
+  machine); every speed × k_n and torque ÷ k_n at the same power and the
+  loss of the matching point, the Maximum Speed × k_n (a rewound machine);
+  the full-load map's voltage axis × k_V; an engine's torque, drag, inertia
+  and fuel flow × k at the same fuel use per kWh (EPA ALPHA's engine
+  scaling, without its small-engine fuel adjustment). Data Checks show the
+  resized machine next to the original (*peak torque 465 N·m (was 310),
+  maximum speed 16,000 1/min, peak power 225 kW (was 150)*), check the
+  scaled maps against the bus voltage and the maximum speed as for any
+  map, and warn outside 50–200 %. All four can be swept in a study. The
+  Battery Electric Car's motor at 150 % torque takes it to 100 km/h in
+  5.59 s instead of 7.10. Existing models do not change. (MOD-47)
+- Wheel: *Tyre Code*. Typing a tyre's size code, such as `205/55 R16 91V`
+  (also `P…`, `…ZR…`, `XL`, `LT…`, `…C 107/105R`, or a Formula Student
+  `20.5x7.0-13`), fills in the *Wheel Radius* (the unloaded radius, rim ÷ 2
+  + width × aspect ratio = 315.95 mm here, × a new *Rolling Radius Factor*
+  of 0.97 = 0.3065 m) and, with a load index, estimates of the *Slip
+  Stiffness* (18.4), *μ* (1.13), *Lateral Friction μ_y* (1.00), *Nominal
+  Load* (half the load-index capacity: 3,017 N for load index 91, 615 kg)
+  and *Load Sensitivity* (−0.013 per kN), after Rill's "engineer's guess"
+  for a passenger-car tyre as Project Chrono's TMeasy tyre implements it
+  (BSD-3-Clause, credited in Help > Third-Party Notices). One undo step
+  takes it all back, and the form says what the code means. A *Rolling
+  Resistance Label Class* (A to E, EU Regulation 2020/740) sets the *Rolling
+  Resistance* to 0.0060-0.0110. Data Checks warn when a wheel carries more
+  than its load index allows standing still, when a code cannot be read,
+  and (info) when the Wheel Radius is more than 3 % from the code's.
+  Existing models do not change. (MOD-48)
 
 ### Fixed
 

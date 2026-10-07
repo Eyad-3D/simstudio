@@ -25,6 +25,9 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 
+from .battery import CELLS, PACK, CellPack
+from .climate import ClimateState, climate_power
+from .energy import FUEL_LHV_MJ, H2_LHV_J_PER_KG, ROAD_TERMS, EnergyBook, book_linear
 from .maps import Map, MapUse, TableError, interp1, parse_table1d, parse_table2d
 from .network import ROAD_LOAD_ABC, BrakeRef, Driveline, Joint, Model, Segment, SourceRef
 from .profiles import interp_profile, parse_profile
@@ -59,6 +62,7 @@ from .runtime import (
     tyre_mu,
 )
 from .sandbox import ScriptSandbox, ScriptSpec
+from .scaling import max_speed_rpm, scaled
 from .scripting import ScriptError
 from .slave import ParamResult, Slave, StepResult, VarDef, split_var
 
@@ -148,6 +152,7 @@ class RunContext:
         # speed": a motor's Maximum Speed, an engine's full-load curve's last
         # speed). The run summary lists the records with outside_s > 0.
         self.map_use: list[MapUse] = []
+        self.amb_id = model.ambient  # sets the air density (None: 20 °C, 101.325 kPa)
 
         # ---- element caches --------------------------------------------------
         self.batteries: dict[str, BatteryState] = {}
@@ -156,6 +161,8 @@ class RunContext:
         self.fuelcells: dict[str, FuelCellCache] = {}
         self.tanks: dict[str, TankState] = {}
         self.lookup_cache: dict[str, tuple[Map, Map]] = {}
+        # Climate Control parts: their demand table and what they did last step
+        self.climate: dict[str, tuple[Map, ClimateState]] = {}
         self.profile_cache: dict[str, list[tuple[float, float]]] = {}
         self.sources = [(el_id, cdef.id) for el_id, cdef in model.cdef_of.items()
                         if cdef.id in ("signal.constant", "signal.driving_task")]
@@ -166,13 +173,23 @@ class RunContext:
             label = model.elements[el_id].label
             try:
                 if cdef.id == "battery.generic":
-                    ocv_map = self.table(el_id, "ocv_table")
-                    # Usable Capacity is the open-circuit energy from full to
-                    # empty; without a Charge Capacity (old projects have none)
-                    # the amp-hours come from it at the OCV table's mean voltage
-                    q_ah = max(0.0, float(p.get("capacity_Ah", 0) or 0)) or (
-                        max(1e-3, float(p.get("capacity_kWh", 60))) * 1000.0
-                        / max(1e-6, ocv_mean(ocv_map.pts, ocv_map.linear[0])))
+                    cells = self.cell_pack(el_id, p)
+                    if cells is not None and cells.cells:  # built from cells (MOD-08)
+                        ocv_map = self.table(el_id, "cell_ocv_table")
+                        cells.cell_ocv = Map(ocv_map.pts, ocv_map.name, ocv_map.policy,
+                                             ocv_map.uses)
+                        ocv_map = Map([(x, v * cells.ns) for x, v in ocv_map.pts],
+                                      f"{ocv_map.name} × {cells.ns} in series",
+                                      ocv_map.policy, ocv_map.uses)
+                        q_ah = cells.np * cells.cell_ah
+                    else:
+                        ocv_map = self.table(el_id, "ocv_table")
+                        # Usable Capacity is the open-circuit energy from full to
+                        # empty; without a Charge Capacity (old projects have none)
+                        # the amp-hours come from it at the OCV table's mean voltage
+                        q_ah = max(0.0, float(p.get("capacity_Ah", 0) or 0)) or (
+                            max(1e-3, float(p.get("capacity_kWh", 60))) * 1000.0
+                            / max(1e-6, ocv_mean(ocv_map.pts, ocv_map.linear[0])))
                     b = BatteryState(
                         el_id=el_id,
                         soc=float(p.get("initial_soc_pct", 90)) / 100.0,
@@ -186,6 +203,13 @@ class RunContext:
                         eta_charge=min(1.0, max(1e-3, float(
                             p.get("coulombic_efficiency_pct", 100)) / 100.0)),
                     )
+                    b.cells = cells
+                    if cells is not None:
+                        cells.soc_weak = b.soc
+                        if cells.cells:  # the resistance of a pulse starting now
+                            cells.r_cell_now = cells.r_cell(b.soc_pct(), self.ambient_c(), 0.0)
+                            b.r0 = cells.r_pack(cells.r_cell_now)
+                            cells.v_cell = (min(cells.ocv_cells(b.soc)), max(cells.ocv_cells(b.soc)))
                     # read without the Error check: the first step stops the
                     # run, with its time, if the SOC is outside an Error axis
                     b.v_term = interp1(ocv_map.pts, b.soc_pct(), ocv_map.linear[0])
@@ -203,7 +227,7 @@ class RunContext:
                     self.batteries[el_id] = b
                 elif cdef.id == "motor.emotor":
                     full_load = self.table(el_id, "full_load_torque")
-                    max_rpm = motor_max_rpm(full_load.pts, p.get("max_speed_rpm", 0))
+                    max_rpm = motor_max_rpm(full_load.pts, max_speed_rpm(p))
                     self.motors[el_id] = MotorCache(
                         el_id=el_id,
                         full_load=full_load,
@@ -237,6 +261,8 @@ class RunContext:
                         el_id=el_id, capacity_kg=cap,
                         mass_kg=cap * max(0.0, min(1.0, float(p.get("initial_fill_pct", 90)) / 100.0)),
                     )
+                elif cdef.id == "electric.climate":
+                    self.climate[el_id] = (self.table(el_id, "demand_table"), ClimateState())
                 elif cdef.id == "signal.lookup":
                     self.lookup_cache[el_id] = (self.table(el_id, "table_1d"),
                                                 self.table(el_id, "table_2d"))
@@ -277,7 +303,6 @@ class RunContext:
         self.veh_mass = max(1.0, float(veh_p.get("mass_kg", 1800))) if self.veh_id else 0.0
         self.v = max(0.0, float(veh_p.get("initial_speed_kmh", 0)) / 3.6) if self.veh_id else 0.0
         self.distance = 0.0
-        self.amb_id = model.ambient  # sets the air density (None: 20 °C, 101.325 kPa)
         amb_p = self.params(self.amb_id) if self.amb_id else {}
         self.rho = air_density(max(-273.0, float(amb_p.get("temperature_C", 20))),
                                max(0.0, float(amb_p.get("pressure_kPa", 101.325))))
@@ -370,11 +395,106 @@ class RunContext:
         # per-step electrical energy balance: what no source supplied or took
         self.residual_wh = 0.0
         self.throughput_wh = 0.0
+        # every part's energy in, out, lost and stored (MOD-10)
+        self.book = EnergyBook()
+        self.vsource_w: dict[str, float] = {}  # each voltage source's power this step
+        self.wheel_end_force: dict[str, float] = {}  # tyre force at the step's end speeds, N
+        self.v_mid = 0.0  # the vehicle's mean speed over the last solver step, m/s
+        # the road-load powers of the last solver step, W (Vehicle channels),
+        # and their energies over the run, J, in ROAD_TERMS' order
+        self.road_w = [0.0] * 4
+        self.road_j = [0.0] * 4
+        self.veh_j = [0.0] * 7  # the Vehicle's running totals (book_vehicle)
+        self.elec_book: tuple | None = None  # see electrical_book
+        # each driveline's rotating parts: kinetic energy gained, J, their
+        # inertias per segment, and the speeds its plan opened with
+        self.rot_ke_j = [0.0] * len(self.dls)
+        self.rot_inertia: list[list[float]] = [[] for _ in self.dls]
+        self.rot_first: list[list[float] | None] = [None] * len(self.dls)
+        self.mech_key: int | None = None  # see mech_book
+        self.gear_powers_n = -1  # see gear_powers
+        self.mech_cache: tuple = ((), {})
+        tank_p = self.params(model.fuel_tank) if model.fuel_tank else {}
+        self.fuel_lhv = max(1e-3, float(tank_p.get("lhv_MJ_per_kg", FUEL_LHV_MJ))) * 1e6  # J/kg
+        # the parts that book themselves where they work out their power
+        for cache in (*self.batteries.values(), *self.motors.values(), *self.engines.values()):
+            cache.flow = self.flow(cache.el_id)
+        self.consumer_flow = {c_id: self.flow(c_id) for bus in model.buses
+                              for c_id in bus.consumers}
+        # parts booked by book_electrical (rare: it runs only when there are any)
+        self.rare_flows = bool(self.fuelcells or any(
+            bus.vsource or bus.dcdc_in or bus.dcdc_out for bus in model.buses))
 
     # ---- shared helpers ---------------------------------------------------------
 
     def params(self, el_id: str) -> dict:
         return self.model.params_of[el_id]
+
+    def ambient_c(self) -> float:
+        """The outside air temperature, °C: the first Ambient's (read each
+        time, so case values, sweeps and live edits apply), 20 °C without
+        one. Never at or below absolute zero."""
+        if not self.amb_id:
+            return 20.0
+        return max(-273.0, float(self.params(self.amb_id).get("temperature_C", 20)))
+
+    def cell_pack(self, el_id: str, p: dict) -> CellPack | None:
+        """A battery's cells (Defined By: Cells), or its pack-level limits
+        (Pack values with a current or voltage limit or a derating band), or
+        None (a pack with no limits: as before 0.3)."""
+        def num(key: str, default: float) -> float:
+            return float(p.get(key, default) or 0)
+
+        band = max(0.0, num("soc_derate_band_pct", 0)) / 100.0
+        if str(p.get("pack_model", PACK)) == CELLS:
+            ns = max(1, int(round(num("series_cells", 96))))
+            n_par = max(1, int(round(num("parallel_cells", 30))))
+            return CellPack(
+                ns=ns, np=n_par, cells=True,
+                cell_ah=max(1e-6, num("cell_capacity_Ah", 5.0)),
+                v_min=max(0.0, num("cell_min_voltage_V", 2.5)),
+                v_max=max(0.0, num("cell_max_voltage_V", 4.2)),
+                dcr=max(1e-9, num("cell_resistance_ohm", 0.02)),
+                r_factor=self.table(el_id, "cell_resistance_factor"),
+                t_factor=self.table(el_id, "cell_temperature_factor"),
+                i_dis=max(0.0, num("cell_max_discharge_A", 15)),
+                i_dis_peak=max(0.0, num("cell_peak_discharge_A", 30)),
+                i_ch=max(0.0, num("cell_max_charge_A", 5)),
+                i_ch_peak=max(0.0, num("cell_peak_charge_A", 10)),
+                peak_s=max(0.0, num("cell_peak_duration_s", 10)),
+                r_ic=max(0.0, num("interconnect_resistance_ohm", 0.0002)),
+                r_contactor=max(0.0, num("contactor_resistance_ohm", 0.0005)),
+                weak_cap=min(1.0, max(1e-3, num("weak_cell_capacity_pct", 100) / 100.0)),
+                weak_res=max(0.5, num("weak_cell_resistance_pct", 100) / 100.0),
+                mass_kg=ns * n_par * max(0.0, num("cell_mass_kg", 0.07))
+                * max(1.0, num("packaging_factor", 1.4)),
+                band=band)
+        limits = [max(0.0, num(k, 0)) for k in ("max_discharge_current_A", "max_charge_current_A",
+                                                "min_voltage_V", "max_voltage_V")]
+        if not any(limits) and not band:
+            return None
+        return CellPack(i_dis=limits[0], i_ch=limits[1], v_min=limits[2], v_max=limits[3],
+                        band=band)
+
+    def consumer_demand_w(self, c_id: str) -> float:
+        """The power an electrical consumer asks for this solver step, W: a
+        Power Consumer's demand input or Constant Power Draw; a Climate
+        Control's heating or cooling at the outside temperature."""
+        rt = self.rt
+        if c_id in self.climate:
+            demand, st = self.climate[c_id]
+            on = rt.read_signal(c_id, "sig_on_in")
+            t_out = self.ambient_c()
+            q_kw = demand.at(t_out) if on is None or on >= 0.5 else 0.0
+            if q_kw:
+                self.used(demand, t_out)
+            p_kw, st.cop = climate_power(q_kw, t_out, self.params(c_id))
+            st.heat_w, st.asked_w = q_kw * 1000.0, p_kw * 1000.0
+            return st.asked_w
+        p_kw = rt.read_signal(c_id, "sig_demand_in")
+        if p_kw is None:
+            p_kw = float(self.params(c_id).get("power_kW", 0))
+        return max(0.0, p_kw) * 1000.0
 
     def table(self, el_id: str, key: str) -> Map:
         """A table parameter as a Map. Its "outside the data" setting per
@@ -389,6 +509,7 @@ class RunContext:
             policy = list(own)
         raw = self.params(el_id).get(key)
         pts = parse_table2d(raw) if pdef.type == "table2d" else parse_table1d(raw)
+        pts = scaled(cdef.id, key, pts, self.params(el_id))  # a resized machine (MOD-47)
         uses = [MapUse(el_id, f"'{pdef.label}' table", a.name, a.unit, 0.0) for a in axes]
         self.map_use += uses
         return Map(pts, f"{cdef.name} '{el.label}' {pdef.label}", policy, uses)
@@ -523,6 +644,9 @@ class RunContext:
         return None
 
     def rebuild_plan(self, st: DrivelineState, initial: bool = False) -> None:
+        if not initial and st.book_key is not None:  # the old plan's books are done
+            self.derive_gears(st)
+            self.close_rotating(self.dls.index(st))
         st.plan = make_plan(st.dl, self.model.params_of, self.gear_of)
         st.layout = None
         self.layout_version += 1
@@ -703,18 +827,20 @@ class RunContext:
                 mc = self.motors[el_id]
                 p = self.params(el_id)
                 mc.q4_scale = max(0.0, float(p.get("q4_torque_scale_pct", 100)) / 100.0)
-                mc.full_load.set(parse_table2d(p.get("full_load_torque", {})))
-                mc.loss.set(parse_table2d(p.get("power_loss", {})))
-                mc.drag.set(parse_table1d(p.get("drag_torque", {})))
-                mc.max_rpm = motor_max_rpm(mc.full_load.pts, p.get("max_speed_rpm", 0))
+                for m, key, parse in ((mc.full_load, "full_load_torque", parse_table2d),
+                                      (mc.loss, "power_loss", parse_table2d),
+                                      (mc.drag, "drag_torque", parse_table1d)):
+                    m.set(scaled("motor.emotor", key, parse(p.get(key, {})), p))
+                mc.max_rpm = motor_max_rpm(mc.full_load.pts, max_speed_rpm(p))
             if el_id in self.engines:
                 ec = self.engines[el_id]
                 p = self.params(el_id)
                 ec.idle_rpm = max(1.0, float(p.get("idle_speed_rpm", ec.idle_rpm)))
                 ec.reentry_rpm = float(p.get("fuel_cut_reentry_rpm", ec.reentry_rpm))
-                ec.full_load.set(parse_table1d(p.get("full_load_torque", {})))
-                ec.drag.set(parse_table1d(p.get("drag_torque", {})))
-                ec.fuel_map.set(parse_table2d(p.get("fuel_map", {})))
+                for m, key, parse in ((ec.full_load, "full_load_torque", parse_table1d),
+                                      (ec.drag, "drag_torque", parse_table1d),
+                                      (ec.fuel_map, "fuel_map", parse_table2d)):
+                    m.set(scaled("engine.combustion", key, parse(p.get(key, {})), p))
             if el_id in self.fuelcells:
                 fc = self.fuelcells[el_id]
                 p = self.params(el_id)
@@ -852,9 +978,34 @@ class RunContext:
         if p_asked is not None and p_asked < 0:
             mc.regen_lost_wh += (p_elec - p_asked) * self.dt / 3600.0
         mc.torque = t_net
-        mc.p_mech_w = t_net * omega_m
+        mc.p_mech_w = p_mech = t_net * omega_m
         mc.p_elec_w = p_elec
-        mc.p_loss_w = p_elec - mc.p_mech_w
+        mc.p_loss_w = p_elec - p_mech
+        # its energy book (MOD-10), inline: every solver step
+        f, dt = mc.flow, self.dt
+        if p_elec >= 0.0:
+            f.in_j += p_elec * dt
+        else:
+            f.out_j -= p_elec * dt
+        acc = mc.mech  # (LINEAR_KEYS)
+        if p_mech >= 0.0:
+            f.out_j += p_mech * dt
+            acc[0] += p_mech * dt
+            acc[2] += p_mech * p_mech * dt
+            if p_mech > acc[4]:
+                acc[4] = p_mech
+        else:
+            f.in_j -= p_mech * dt
+            f.in_rev_j -= p_mech * dt
+            acc[1] -= p_mech * dt
+            acc[3] += p_mech * p_mech * dt
+            if -p_mech > acc[5]:
+                acc[5] = -p_mech
+        if p_elec:
+            if p_elec > f.peak_w or -p_elec > f.peak_w:
+                f.peak_w = abs(p_elec)
+            f.p_int += p_elec * dt
+            f.p2_int += p_elec * p_elec * dt
         return t_net
 
     # ---- source-limit handshake --------------------------------------------------
@@ -883,12 +1034,35 @@ class RunContext:
         Output Power Limit, and max charge power, and never past its minimum
         SOC or 100 %. Recuperation is not held to the limit. Sets b.capped for
         the step, so call it once per step (not for trial lookups)."""
+        cp = b.cells
+        if cp is not None:  # its cells' or pack's limits, as its BMS sets them (MOD-08)
+            t_c = self.ambient_c()
+            pulse_dis = cp.pulse_s if cp.pulse_sign > 0 else 0.0
+            pulse_ch = cp.pulse_s if cp.pulse_sign < 0 else 0.0
+            if cp.cells:  # the resistance of the pulse going on (of one starting now at rest)
+                cp.r_cell_now = cp.r_cell(b.soc_pct(), t_c, cp.pulse_s if cp.pulse_sign else 0.0)
+                b.r0 = cp.r_pack(cp.r_cell_now)
+            b.i_dis_lim, cp.bound_dis, b.i_ch_lim, cp.bound_ch = cp.currents(
+                b.soc, b.min_soc, t_c, pulse_dis, pulse_ch, b.ocv(), b.r0)
         a_volt, i_mpp, i_floor, i_full = self.battery_currents(b)
         i_dis = min(i_mpp, i_floor)
+        if cp is not None:
+            if b.i_dis_lim >= i_dis:
+                cp.bound_dis = None  # (another limit is tighter)
+            i_dis = min(i_dis, b.i_dis_lim)
+            if b.i_ch_lim >= i_full:
+                cp.bound_ch = None
+            i_full = min(i_full, b.i_ch_lim)
         deliver = i_dis * (a_volt - i_dis * b.r0)
         b.capped = deliver > b.p_cap_w
-        return (min(deliver, b.p_cap_w),
-                min(b.max_charge_w, i_full * (a_volt + i_full * b.r0)))
+        absorb = min(b.max_charge_w, i_full * (a_volt + i_full * b.r0))
+        if cp is not None:
+            if b.max_charge_w < i_full * (a_volt + i_full * b.r0):
+                cp.bound_ch = None
+            if b.capped:
+                cp.bound_dis = None
+            b.deliver_w, b.absorb_w = min(deliver, b.p_cap_w), absorb
+        return min(deliver, b.p_cap_w), absorb
 
     def root_window(self, root) -> tuple[float, float]:
         """(deliver, absorb) of a source tree's own source over the step."""
@@ -935,10 +1109,13 @@ class RunContext:
                 factor[bus.id] = f
                 load = 0.0
                 for c_id in bus.consumers:
-                    p_kw = rt.read_signal(c_id, "sig_demand_in")
-                    if p_kw is None:
-                        p_kw = float(self.params(c_id).get("power_kW", 0))
-                    demand[c_id] = max(0.0, p_kw) * 1000.0
+                    if c_id in self.climate:
+                        demand[c_id] = self.consumer_demand_w(c_id)
+                    else:  # (consumer_demand_w, inline: every solver step)
+                        p_kw = rt.read_signal(c_id, "sig_demand_in")
+                        if p_kw is None:
+                            p_kw = float(self.params(c_id).get("power_kW", 0))
+                        demand[c_id] = max(0.0, p_kw) * 1000.0
                     load += demand[c_id]
                 for d in bus.dcdc_in:
                     if d in self.setpoint_dcdcs:
@@ -1054,7 +1231,18 @@ class RunContext:
             b = self.batteries[root.battery]
             label = model.elements[b.el_id].label
             _, i_mpp, i_floor, _ = self.battery_currents(b)
-            if discharge and b.capped:  # a limit the user set: info, not a warning
+            cp = b.cells
+            bound = (cp.bound_dis if discharge else cp.bound_ch) if cp is not None else None
+            if bound is not None:  # its battery management system's limit: info
+                which = "discharge" if discharge else "charge"
+                amps = b.i_dis_lim if discharge else b.i_ch_lim
+                rt.warn_once(f"bms:{which}:{bound}:{b.el_id}",
+                             f"Battery '{label}' held at its {which} limit from t = {t:.2f} s "
+                             f"({amps:,.0f} A, set by its {bound} limit) — the motors "
+                             f"{'get less torque' if discharge else 'regenerate less'}, as a "
+                             f"battery management system would. The run summary says for how "
+                             f"long.", level="info")
+            elif discharge and b.capped:  # a limit the user set: info, not a warning
                 rt.warn_once(f"cap:{b.el_id}",
                              f"Battery '{label}' held at its Output Power Limit "
                              f"({b.p_cap_w / 1000.0:g} kW at the terminals) from t = {t:.2f} s — "
@@ -1176,7 +1364,29 @@ class RunContext:
             ec.fuel_used_kg += fuel / 3600.0 * self.dt
         ec.torque = t_net
         ec.fuel_kgh = fuel
-        ec.p_mech_w = t_net * omega_e
+        ec.p_mech_w = p_mech = t_net * omega_e
+        # its energy book (MOD-10), inline: the shaft side every solver step
+        # (the fuel's energy is added from the fuel used, by close_book)
+        f, dt = ec.flow, self.dt
+        acc = ec.mech  # (LINEAR_KEYS)
+        if p_mech >= 0.0:
+            f.out_j += p_mech * dt
+            acc[0] += p_mech * dt
+            acc[2] += p_mech * p_mech * dt
+            if p_mech > acc[4]:
+                acc[4] = p_mech
+        else:
+            f.in_j -= p_mech * dt
+            f.in_rev_j -= p_mech * dt
+            acc[1] -= p_mech * dt
+            acc[3] += p_mech * p_mech * dt
+            if -p_mech > acc[5]:
+                acc[5] = -p_mech
+        if p_mech:
+            if p_mech > f.peak_w or -p_mech > f.peak_w:
+                f.peak_w = abs(p_mech)
+            f.p_int += p_mech * dt
+            f.p2_int += p_mech * p_mech * dt
         return t_net
 
     def wheel_force(self, w, omega_ref: float,
@@ -1240,6 +1450,365 @@ class RunContext:
         if abs(omega) > W_EPS:
             return -_sign(omega) * cap
         return -max(-cap, min(cap, tau_other + j_over_dt * omega))
+
+    # ---- energy book (MOD-10) -----------------------------------------------------
+
+    def flow(self, el_id: str, key: str | None = None):
+        cdef = self.model.cdef_of[el_id]
+        return self.book.flow(key or el_id, el_id, self.model.elements[el_id].label, cdef.id)
+
+    def book_electrical(self, dt: float) -> None:
+        """Book this solver step's fuel cells, voltage sources and DC-DC
+        converters (run after the electrical buses, only when the model has
+        any: batteries, motors, engines and consumers book themselves)."""
+        n = self.book.n
+        flows = self.book.flows
+        for fc in self.fuelcells.values():
+            p_h2 = fc.h2_kgh * H2_LHV_J_PER_KG / 3600.0
+            fc.h2_j += p_h2 * dt
+            if p_h2 or fc.power_w:
+                (flows.get(fc.el_id) or self.flow(fc.el_id)).step(
+                    n, dt, p_h2, fc.power_w, 0.0, 0.0, fc.power_w)
+        for vs_id, p in self.vsource_w.items():
+            (flows.get(vs_id) or self.flow(vs_id)).step(
+                n, dt, -p if p < 0 else 0.0, p if p > 0 else 0.0, -p, 0.0, p)
+        for d_id, (p_in, p_out) in self.dcdc_flows.items():
+            if p_in or p_out:
+                (flows.get(d_id) or self.flow(d_id)).step(n, dt, p_in, p_out)
+
+    def driveline_book(self, st: DrivelineState) -> tuple:
+        """What book_driveline needs of a driveline that changes only with its
+        plan: per segment its sources' (cache, region) and its stages'
+        (region, parent, efficiency, flow) from the outermost in; the segment
+        order, parents before children, with each segment's split below it;
+        the clutches' flows; the brakes' and wheels' flows. Built on first
+        use and again after a gear shift or lock toggle."""
+        key = self.layout_version
+        if st.book_key == key:
+            return st.book_cache
+        dl = st.dl
+        segs = dl.segments
+        sources = [[(self.motors.get(src.el_id) or self.engines.get(src.el_id), src.region)
+                    for src in seg.sources
+                    if src.el_id in self.motors or src.el_id in self.engines] for seg in segs]
+        stages = [[(r, seg.stages[r].parent, seg.stages[r].eff, self.flow(seg.stages[r].el_id))
+                   for r in reversed(seg.stage_order)] for seg in segs]
+        splits = {j.parent_seg: (j, self.flow(j.el_id))
+                  for j in dl.joints if j.kind == "split" and j.parent_seg >= 0}
+        children = {c for j, _ in splits.values() for c in (j.child_a, j.child_b)}
+        order = [s for s in range(len(segs)) if s not in children]
+        for s_idx in order:  # grows while iterating: parents before their children
+            if s_idx in splits:
+                order += [splits[s_idx][0].child_a, splits[s_idx][0].child_b]
+        # only the segments with something to pass on: sources, clutches, splits
+        fed = {s for s in range(len(segs)) if sources[s]} | set(splits) | {
+            c for j in dl.joints if j.kind == "clutch" for c in (j.child_a, j.child_b)}
+        changed = True
+        while changed:  # and everything below them
+            changed = False
+            for s_idx, (j, _) in splits.items():
+                if s_idx in fed and not {j.child_a, j.child_b} <= fed:
+                    fed |= {j.child_a, j.child_b}
+                    changed = True
+        order = [s for s in order if s in fed]
+        clutches = [self.flow(j.el_id) for j in dl.joints if j.kind == "clutch"]
+        brakes = [[(br, self.flow(br.el_id)) for br in seg.brakes] for seg in segs]
+        wheels = [(w.el_id, w.radius * w.m, s_idx, self.flow(w.el_id))
+                  for s_idx, seg in enumerate(segs) for w in seg.wheels]
+        braked = [s_idx for s_idx, seg in enumerate(segs) if seg.brakes]
+        # How its gears are booked. Each region a gear or split takes its
+        # power from is fed by sources, clutches, a gear's output or a
+        # split's share. Fed by one of them alone, its power is a fixed
+        # multiple of that input's in each direction, so its books follow
+        # from running totals (LINEAR_KEYS) kept upstream; fed by sources
+        # and clutches together, the solver step keeps a running total of
+        # their sum (mixed). derive_gears then books everything at the end.
+        # Anything else (a gear's output joined by another input, a locked
+        # split, whose share changes every step) is walked every step.
+        feeds: dict[tuple[int, int], list] = defaultdict(list)
+        for s_idx in order:
+            for src_cache, region in sources[s_idx]:
+                feeds[(s_idx, region)].append(("src", src_cache))
+            for r, parent, _, _ in stages[s_idx]:
+                feeds[(s_idx, parent)].append(("stage", r))
+            if s_idx in splits:
+                j = splits[s_idx][0]
+                feeds[(j.child_a, j.child_a_region)].append(("split", None))
+                feeds[(j.child_b, j.child_b_region)].append(("split", None))
+        for j in dl.joints:
+            if j.kind == "clutch":
+                feeds[(j.child_a, j.child_a_region)].append(("clutch", (j, -1)))
+                feeds[(j.child_b, j.child_b_region)].append(("clutch", (j, 1)))
+        taken = {(s_idx, r) for s_idx in order for r, _, _, _ in stages[s_idx]}
+        taken |= {(s_idx, segs[s_idx].out_region) for s_idx in splits}
+        mixed = []  # (region, its sources, its clutches (joint, side)), summed every step
+        walk = any(bool(self.params(j.el_id).get("locked", j.locked)) for j, _ in splits.values())
+        for key2 in taken:
+            kinds = [kind for kind, _ in feeds[key2]]
+            if len(kinds) > 1 and any(kind in ("stage", "split") for kind in kinds):
+                walk = True
+            elif len(kinds) > 1 or kinds == ["clutch"]:
+                mixed.append((key2, [c for kind, c in feeds[key2] if kind == "src"],
+                              [c for kind, c in feeds[key2] if kind == "clutch"], [0.0] * 6))
+        linear = not walk
+        k = self.dls.index(st)
+        self.rot_inertia[k] = [max(1e-4, seg.inertia) for seg in segs]
+        st.book_key = key
+        st.book_cache = (sources, stages, splits, order, clutches, brakes, wheels, braked, k,
+                         linear, [] if walk else mixed)
+        return st.book_cache
+
+    def close_rotating(self, k: int) -> None:
+        """Add a driveline's rotating parts' kinetic energy gained under its
+        current plan (from the speeds it opened with to the last step's)."""
+        first, last = self.rot_first[k], self.dls[k].omega_end
+        if first is not None:
+            self.rot_ke_j[k] += sum(0.5 * j * (w1 * w1 - w0 * w0) for j, w0, w1
+                                    in zip(self.rot_inertia[k], first, last))
+        self.rot_first[k] = None
+
+    def mech_book(self) -> tuple:
+        """What the mechanics book every solver step, for the current plans:
+        every wheel's (id, radius × speed factor, driveline, segment, flow),
+        and per driveline that has gears to book (by id) its driveline_book.
+        Built again after a gear shift or lock toggle."""
+        if self.mech_key == self.layout_version:
+            return self.mech_cache
+        wheels, gears = [], {}
+        for st in self.dls:
+            if st.plan.over_constrained or not st.plan.n:
+                continue
+            cache = self.driveline_book(st)
+            wheels += [(el_id, rm, st, s_idx, f) for el_id, rm, s_idx, f in cache[6]]
+            gears[id(st)] = cache
+        self.mech_key, self.mech_cache = self.layout_version, (wheels, gears)
+        return self.mech_cache
+
+    def derive_gears(self, st: DrivelineState) -> None:
+        """Book a linear driveline's gears and splits (driveline_book) from
+        its sources' running totals since its plan was last booked, then
+        start those totals again: run when its plan changes and when the
+        run ends."""
+        cache = st.book_cache
+        if cache is None or not cache[9]:
+            return
+        sources, stages, splits, order = cache[:4]
+        acc_at: dict[tuple[int, int], list] = {}
+        for key, _, _, acc in cache[10]:  # the regions summed every step
+            acc_at[key] = list(acc)
+            acc[:] = [0.0] * 6
+        for s_idx in order:
+            for src_cache, region in sources[s_idx]:
+                acc_at.setdefault((s_idx, region), list(src_cache.mech))
+                src_cache.mech[:] = [0.0] * 6
+            for r, parent, eff, f in stages[s_idx]:
+                acc = acc_at.get((s_idx, r))
+                if acc is not None:
+                    acc_at[(s_idx, parent)] = book_linear(f, acc, eff)
+            sp = splits.get(s_idx)
+            acc = acc_at.get((s_idx, st.dl.segments[s_idx].out_region)) if sp else None
+            if acc is None:
+                continue
+            j, f = sp
+            out = book_linear(f, acc, j.eff)
+            for child, region, share in ((j.child_a, j.child_a_region, 1.0 - j.f_b),
+                                         (j.child_b, j.child_b_region, j.f_b)):
+                acc_at[(child, region)] = [out[0] * share, out[1] * share,
+                                           out[2] * share * share, out[3] * share * share,
+                                           out[4] * share, out[5] * share]
+
+    def book_mixed(self, st: DrivelineState, omega: list[float], dt: float, cache: tuple) -> None:
+        """A derived driveline's solver step: its clutches, and the running
+        totals of the regions where sources and clutches meet."""
+        n = self.book.n
+        torque = st.clutch_torque
+        # a clutch's power at the step's mean speeds: the torque it carried
+        # acted over the whole step, while its slip closed (or opened)
+        end = st.omega_end
+        omega = [0.5 * (w0 + w1) for w0, w1 in zip(omega, end)]
+        for f, (j, _, _, _) in zip(cache[4], st.layout.clutches):
+            t_c = torque.get(j.el_id, 0.0)
+            p_a = t_c * j.child_a_m * omega[j.child_a]
+            p_b = t_c * j.child_b_m * omega[j.child_b]
+            if p_a or p_b:
+                f.port2(n, dt, p_a, p_b)
+        for _, srcs, clutches, acc in cache[10]:
+            p = 0.0
+            for src_cache in srcs:
+                p += src_cache.p_mech_w
+            for j, side in clutches:
+                t_c = torque.get(j.el_id, 0.0)
+                p += (t_c * j.child_b_m * omega[j.child_b] if side > 0
+                      else -t_c * j.child_a_m * omega[j.child_a])
+            if p >= 0.0:
+                acc[0] += p * dt
+                acc[2] += p * p * dt
+                if p > acc[4]:
+                    acc[4] = p
+            else:
+                acc[1] -= p * dt
+                acc[3] += p * p * dt
+                if -p > acc[5]:
+                    acc[5] = -p
+
+    def gear_powers(self) -> None:
+        """Set the last solver step's powers of the linear drivelines' gears
+        (their channels: derive_gears books their energy), once per point
+        recorded."""
+        if self.gear_powers_n == self.book.n:
+            return
+        self.gear_powers_n = self.book.n
+        for st in self.dls:
+            cache = st.book_cache
+            if cache is not None and cache[9] and st.book_key == self.layout_version:
+                self.book_gears(st, self.layout(st), st.omega_start, 0.0, cache,
+                                self.book.n - 1)
+
+    def book_wheels(self, wheels: list, dt: float) -> None:
+        """Book every wheel for this solver step: it takes in its tyre force ×
+        its rim speed (from the axle) and gives the vehicle its force × the
+        vehicle's mean speed; the difference is its slip loss. (Its channel
+        is worked out when a point is recorded: no powers kept here.)"""
+        v_mid, end_force = self.v_mid, self.wheel_end_force
+        for el_id, rm, st, s_idx, f in wheels:
+            force = end_force[el_id]
+            if force:
+                p_a = force * rm * st.omega_end[s_idx]
+                p_b = force * v_mid
+                if p_a >= 0.0:
+                    f.in_j += p_a * dt
+                else:
+                    f.out_j -= p_a * dt
+                if p_b >= 0.0:
+                    f.out_j += p_b * dt
+                else:
+                    f.in_j -= p_b * dt
+                    f.in_rev_j -= p_b * dt
+
+    def book_gears(self, st: DrivelineState, lay: DrivelineLayout, omega: list[float],
+                   dt: float, cache: tuple, n: int | None = None) -> None:
+        """Book a driveline's gears, splits and clutches for solver step
+        ``n`` (the one being booked when None): the power through each gear
+        is the sources' and clutches' power reaching it (at the step's start
+        speeds ``omega``, as the solve read them), passed on less its loss in
+        the direction it flows; a split passes its input power to its outputs
+        in its torque split (a locked one in the split it carried). With
+        ``dt`` 0 it only sets the parts' last-step powers (their channels)."""
+        sources, stages, splits, order, clutch_flows = cache[:5]
+        if n is None:
+            n = self.book.n
+        segs = st.dl.segments
+        p_at = [[0.0] * len(seg.stages) for seg in segs]
+        for s_idx in order:
+            for src_cache, region in sources[s_idx]:
+                p_at[s_idx][region] += src_cache.p_mech_w
+        for (j, _, _, _), f in zip(lay.clutches, clutch_flows):
+            t_c = st.clutch_torque.get(j.el_id, 0.0)
+            p_a = t_c * j.child_a_m * omega[j.child_a]
+            p_b = t_c * j.child_b_m * omega[j.child_b]
+            p_at[j.child_a][j.child_a_region] -= p_a
+            p_at[j.child_b][j.child_b_region] += p_b
+            if p_a or p_b:
+                f.port2(n, dt, p_a, p_b)
+        for s_idx in order:
+            pts = p_at[s_idx]
+            for r, parent, eff, f in stages[s_idx]:
+                p = pts[r]
+                if p > 0.0:
+                    p_out = p * eff
+                    f.in_j += p * dt
+                    f.out_j += p_out * dt
+                    f.p_in_w, f.p_out_w = p, p_out
+                    if p > f.peak_w:
+                        f.peak_w = p
+                elif p < 0.0:  # flowing back: it asks 1/eff of the road side
+                    p_out = p / eff
+                    f.in_j -= p_out * dt
+                    f.in_rev_j -= p_out * dt
+                    f.out_j -= p * dt
+                    f.p_in_w, f.p_out_w = -p_out, -p
+                    if -p > f.peak_w:
+                        f.peak_w = -p
+                else:
+                    continue
+                f.p_w = p
+                f.n = n
+                f.p_int += p * dt
+                f.p2_int += p * p * dt
+                pts[parent] += p_out
+            sp = splits.get(s_idx)
+            if sp is None:
+                continue
+            j, f = sp
+            p = pts[segs[s_idx].out_region]
+            if not p:
+                continue
+            p_out = p * j.eff if p >= 0 else p / j.eff
+            share_b = j.f_b
+            if dt and bool(self.params(j.el_id).get("locked", j.locked)):
+                # the split it carried: each side's torque × speed
+                pa = st.joint_torque_a.get(j.el_id, 0.0) * j.child_a_m * omega[j.child_a]
+                pb = st.joint_torque_b.get(j.el_id, 0.0) * j.child_b_m * omega[j.child_b]
+                if abs(pa + pb) > 1e-9:
+                    share_b = min(1.0, max(0.0, pb / (pa + pb)))
+            f.port2(n, dt, p, p_out)
+            p_at[j.child_a][j.child_a_region] += (1.0 - share_b) * p_out
+            p_at[j.child_b][j.child_b_region] += share_b * p_out
+
+    def book_brakes(self, seg_brakes: list, tb: float, omega: float, dt: float) -> None:
+        """Book a segment's brakes, which act with the torque ``tb`` at its
+        mean speed ``omega``, shared in proportion to what each was asked."""
+        n = self.book.n
+        p_brake = -tb * omega  # braking power, W
+        caps = [br.max_torque * abs(br.m) * max(0.0, min(1.0, self.rt.read_signal(
+            br.el_id, "sig_demand_in") or 0.0)) for br, _ in seg_brakes]
+        total = sum(caps)
+        for (_, f), cap in zip(seg_brakes, caps):
+            share = cap / total if total > 0 else 1.0 / len(seg_brakes)
+            f.step(n, dt, share * p_brake, 0.0)
+
+    def close_book(self) -> None:
+        """Book what is kept as running totals: the batteries (their energy
+        out and in and their losses, as the summary gives them), the engines'
+        and fuel cells' fuel and their tanks, the consumers' mean power, the
+        Vehicle and its road-load terms, and each driveline's rotating parts
+        (their kinetic energy gained, net over the run)."""
+        for b in self.batteries.values():
+            f = b.flow
+            f.in_j, f.out_j = b.energy_in_wh * 3600.0, b.energy_out_wh * 3600.0
+            f.in_rev_j = f.in_j
+            f.stored_j = f.in_j - f.out_j - b.loss_wh * 3600.0
+            f.peak_w = max(b.p_peak_w, -b.p_low_w)
+            f.p_int, f.p2_int = f.out_j - f.in_j, b.p2_j
+        fuel_j = 0.0
+        for ec in self.engines.values():
+            fuel = ec.fuel_used_kg * self.fuel_lhv
+            ec.flow.in_j += fuel - ec.flow.fuel_j
+            ec.flow.fuel_j = fuel  # (close_book may run again: a cancelled run's result)
+            fuel_j += fuel
+        if self.model.fuel_tank and self.engines:
+            tank = self.flow(self.model.fuel_tank)
+            tank.out_j, tank.stored_j = fuel_j, -fuel_j
+        if self.model.h2_tank and self.fuelcells:
+            h2 = sum(fc.h2_j for fc in self.fuelcells.values())
+            tank = self.flow(self.model.h2_tank)
+            tank.out_j, tank.stored_j = h2, -h2
+        for f in self.consumer_flow.values():
+            f.p_int = f.in_j
+        if self.veh_id and self.book.time_s > 0:
+            f = self.flow(self.veh_id)
+            (f.in_j, f.out_j, f.stored_j, f.in_rev_j, f.peak_w, f.p_int,
+             f.p2_int) = self.veh_j
+            f.terms = dict(zip(ROAD_TERMS, self.road_j))
+        for k, ke in enumerate(self.rot_ke_j):
+            if self.dls[k].book_key is None:
+                continue  # never booked
+            self.derive_gears(self.dls[k])
+            self.close_rotating(k)
+            ke = self.rot_ke_j[k]
+            rot = self.book.flow(f"rotating:{k}", None, "Rotating parts" if len(self.dls) < 2
+                                 else f"Rotating parts (driveline {k + 1})", "driveline.inertia")
+            rot.in_j, rot.out_j, rot.stored_j = max(ke, 0.0), max(-ke, 0.0), ke
 
     # ---- gear selection ---------------------------------------------------------
 
@@ -1631,7 +2200,14 @@ class MechanicalSlave(_CtxSlave):
         ctx.allocate_motor_power(requests, t)
 
         # mechanics ------------------------------------------------------------
+        wheel_book, gear_book = ctx.mech_book()  # its energy book (MOD-10)
+        braking = []  # (brakes, torque, start speed, driveline, segment) to book
+        v0 = ctx.v
+        v_den0 = max(abs(v0), V_EPS)
+        last_forces = ctx.last_forces
+        sig_route, sig_values = ctx.model.signal_route, rt.signal_values
         for st, omega_seg in zip(active, omegas):
+            omega_seg_start = omega_seg
             plan = st.plan
             lay = ctx.layout(st)
             n = plan.n
@@ -1653,6 +2229,7 @@ class MechanicalSlave(_CtxSlave):
                 clutch_cap.append(cap_c)
             # torque-source bookkeeping for joint channels
             torque_above: dict[int, float] = defaultdict(float)  # root seg → torque at axis
+            brake_t = [0.0] * len(st.dl.segments)  # each segment's brake torque
             for s_idx, seg in enumerate(st.dl.segments):
                 g = plan.gvec[s_idx]
                 for i, k, val in lay.inertia[s_idx]:
@@ -1686,23 +2263,41 @@ class MechanicalSlave(_CtxSlave):
                     torque_above[plan.root_of_seg[s_idx]] += (
                         t_out / max(1e-9, plan.scale_of_seg[s_idx]))
                 for w in seg.wheels:
-                    f, tq, dmp = ctx.wheel_force(w, omega)
-                    tau += tq
-                    ctx.last_forces[w.el_id] = f
-                    if dmp > 0:
-                        c = dt * dmp
-                        for i, k, gi, gk in lay.pairs[s_idx]:
-                            m_mat[i][k] += c * gi * gk
+                    # wheel_force(w, omega), inline (every solver step)
+                    n_load = w.n_load
+                    if n_load <= 0:
+                        last_forces[w.el_id] = 0.0
+                        continue
+                    mu = tyre_mu(w, n_load) if w.dmu_per_n else w.mu
+                    k_slip = w.c_slip * ((w.m * omega * w.radius - v0) / v_den0)
+                    f = n_load * (mu if k_slip > mu else -mu if k_slip < -mu else k_slip)
+                    tau += -f * w.radius * w.m
+                    last_forces[w.el_id] = f
+                    if not abs(k_slip) >= mu:  # not saturated: damping, implicit
+                        dmp = n_load * w.c_slip * w.radius ** 2 * w.m ** 2 / v_den0
+                        if dmp > 0:
+                            c = dt * dmp
+                            for i, k, gi, gk in lay.pairs[s_idx]:
+                                m_mat[i][k] += c * gi * gk
                 tau += ctx.prop_torque(seg, omega) if seg.props else 0.0
-                cap = ctx.brake_capacity(seg) if seg.brakes else 0.0
+                cap = 0.0
+                for br in seg.brakes:  # brake_capacity(seg), inline
+                    route = sig_route.get((br.el_id, "sig_demand_in"))
+                    cmd = (sig_values.get(route) if route is not None else None) or 0.0
+                    cmd = max(0.0, min(1.0, cmd))
+                    sig_values[(br.el_id, "sig_torque")] = cmd * br.max_torque
+                    cap += cmd * br.max_torque * br.m
                 if cap > 0:
                     # static hold only when this segment carries a coordinate
                     coord = lay.hold_coord[s_idx]
                     if coord is not None and abs(omega) <= W_EPS:
                         j_over_dt = max(m_mat[coord][coord], 1e-4) / dt
-                        tau += ctx.apply_brake(tau, omega, cap, j_over_dt)
+                        brake_t[s_idx] = ctx.apply_brake(tau, omega, cap, j_over_dt)
                     else:
-                        tau += -_sign(omega) * cap
+                        brake_t[s_idx] = -_sign(omega) * cap
+                    tau += brake_t[s_idx]
+                    if brake_t[s_idx]:
+                        braking.append((s_idx, brake_t[s_idx], omega))
                 for i in range(n):
                     q_vec[i] += g[i] * tau
 
@@ -1788,17 +2383,41 @@ class MechanicalSlave(_CtxSlave):
                             st.joint_torque_a[j.el_id] = val
                         else:
                             st.joint_torque_b[j.el_id] = val
+            gb = gear_book.get(id(st))
+            if gb is not None:
+                if ctx.rot_first[gb[8]] is None:  # the speeds its plan opened with
+                    ctx.rot_first[gb[8]] = omega_seg_start
+                if gb[3]:
+                    if not gb[9]:
+                        ctx.book_gears(st, lay, omega_seg_start, dt, gb)
+                    elif gb[4]:  # clutches: what derive_gears cannot know
+                        ctx.book_mixed(st, omega_seg_start, dt, gb)
+                st.omega_start = omega_seg_start
+                for s_idx, tb, w0 in braking:  # braking power at the step's mean speed
+                    ctx.book_brakes(gb[5][s_idx], tb, 0.5 * (w0 + omega_seg[s_idx]), dt)
+            braking.clear()
 
         # vehicle --------------------------------------------------------------
         if ctx.veh_id:
             f_tire = 0.0
             f_roll = 0.0
             at_grip = False  # a driven wheel at the tyres' grip limit (acceleration tests)
+            v = ctx.v
+            v_den = max(abs(v), V_EPS)
+            end_force = ctx.wheel_end_force
             for st in active:  # at the wheel speeds just integrated
                 driven = ctx.full_throttle and any(seg.sources for seg in st.dl.segments)
                 for s_idx, seg in enumerate(st.dl.segments):
                     for w in seg.wheels:
-                        f_w = ctx.wheel_force(w, st.omega_end[s_idx], damping=False)[0]
+                        # wheel_force(w, …, damping=False)[0], inline (every solver step)
+                        n_load = w.n_load
+                        if n_load <= 0:
+                            f_w = 0.0
+                        else:
+                            mu = tyre_mu(w, n_load) if w.dmu_per_n else w.mu
+                            k_slip = w.c_slip * ((w.m * st.omega_end[s_idx] * w.radius - v) / v_den)
+                            f_w = n_load * (mu if k_slip > mu else -mu if k_slip < -mu else k_slip)
+                        end_force[w.el_id] = f_w
                         f_tire += f_w
                         f_roll += w.c_rr * w.n_load
                         if driven and abs(f_w) >= tyre_mu(w, w.n_load) * w.n_load > 0:
@@ -1815,6 +2434,33 @@ class MechanicalSlave(_CtxSlave):
             ctx.distance += ctx.v * dt
             rt.publish(ctx.veh_id, "sig_speed", ctx.v * 3.6)
             rt.publish(ctx.veh_id, "sig_distance", ctx.distance)
+            # its energy book (MOD-10), inline: the tyres' power in, air drag and
+            # rolling resistance lost, kinetic and potential energy stored, at
+            # the step's mean speed (so its books close as its speed was
+            # integrated); close_book makes its Flow of the running totals
+            v_mid = ctx.v_mid = 0.5 * (v_start + ctx.v)
+            ke_w = 0.5 * ctx.veh_mass * (ctx.v * ctx.v - v_start * v_start) / dt
+            road = ctx.road_w  # [air drag, rolling resistance, climbing, acceleration], W
+            p_aero, p_roll, p_grade = f_aero * v_mid, f_roll * roll_taper * v_mid, f_grade * v_mid
+            road[0], road[1], road[2], road[3] = p_aero, p_roll, p_grade, ke_w
+            acc = ctx.road_j
+            acc[0] += p_aero * dt
+            acc[1] += p_roll * dt
+            acc[2] += p_grade * dt
+            acc[3] += ke_w * dt
+            tot = ctx.veh_j  # in, out, stored, from the road side, peak, ∫P, ∫P²
+            p_in = f_tire * v_mid
+            if p_in >= 0:
+                tot[0] += p_in * dt
+            else:
+                tot[1] -= p_in * dt
+                tot[3] -= p_in * dt
+            tot[2] += (ke_w + p_grade) * dt
+            if p_in > tot[4] or -p_in > tot[4]:
+                tot[4] = abs(p_in)
+            tot[5] += p_in * dt
+            tot[6] += p_in * p_in * dt
+            ctx.book_wheels(wheel_book, dt)
         return StepResult()
 
 
@@ -1837,6 +2483,23 @@ class ElectricalSlave(_CtxSlave):
                 rt.publish(c_id, "sig_power", p_w / 1000.0)
                 load_w += p_w
                 gross_w += p_w
+                if p_w:  # its energy book (MOD-10), inline: all of it is used up
+                    f = ctx.consumer_flow[c_id]
+                    f.in_j += p_w * dt
+                    f.p2_int += p_w * p_w * dt
+                    if p_w > f.peak_w:
+                        f.peak_w = p_w
+                if c_id in ctx.climate:
+                    cl = ctx.climate[c_id][1]
+                    # cut back by its source: it heats or cools that much less
+                    heat = cl.heat_w * (p_w / cl.asked_w if cl.asked_w > 0 else 0.0)
+                    cl.energy_j += p_w * dt
+                    if heat > 0:
+                        cl.heat_j += heat * dt
+                    else:
+                        cl.cool_j -= heat * dt
+                    rt.publish(c_id, "sig_heat", heat / 1000.0)
+                    rt.publish(c_id, "sig_cop", cl.cop)
             for m_id in bus.motors:
                 p_w = ctx.motors[m_id].p_elec_w if m_id in ctx.motors else 0.0
                 load_w += p_w
@@ -1872,6 +2535,7 @@ class ElectricalSlave(_CtxSlave):
                 ctx.used(b.ocv_map, b.soc_pct())
                 disc = max(0.0, a_volt * a_volt - 4.0 * b.r0 * p_w)
                 current = (a_volt - math.sqrt(disc)) / (2.0 * b.r0)
+                a_volt_rc = b.v_rc  # the RC pair's voltage the current met over the step
                 if b.r1 > 0 and b.tau > 0:
                     b.v_rc = (b.v_rc + dt * current * b.r1 / b.tau) / (1.0 + dt / b.tau)
                 # the SOC counts charge (A·h); only a share of the charging
@@ -1884,10 +2548,16 @@ class ElectricalSlave(_CtxSlave):
                     b.energy_out_wh += p_w * dt / 3600.0
                 else:
                     b.energy_in_wh += -p_w * dt / 3600.0
-                b.loss_wh += current * current * b.r0 * dt / 3600.0
+                # its resistances' loss: R0 and, with an RC pair, the voltage
+                # across it (over the step: the voltage the current met)
+                b.loss_wh += (current * current * b.r0 + current * a_volt_rc) * dt / 3600.0
                 if current < 0:  # charge not stored
                     b.loss_wh += (1.0 - eta) * ocv * -current * dt / 3600.0
+                b.chem_w = eta * ocv * current  # the energy the cells give up (+) or store (−)
                 b.current, b.power_w = current, p_w
+                b.p2_j += p_w * p_w * dt  # (for its RMS power)
+                if p_w < b.p_low_w:
+                    b.p_low_w = p_w
                 if p_w > b.p_peak_w:
                     b.p_peak_w = p_w
                 # the terminal voltage at the step's end: its current on the
@@ -1895,6 +2565,22 @@ class ElectricalSlave(_CtxSlave):
                 # start: the next step's read stops the run, with its time)
                 b.v_term = (interp1(b.ocv_map.pts, b.soc_pct(), b.ocv_map.linear[0])
                             - b.v_rc - current * b.r0)
+                cp = b.cells
+                if cp is not None:  # its BMS's view (MOD-08)
+                    cp.track(current, dt, eta, b.q_ah)
+                    if cp.cells:
+                        b.v_term += cp.weak_shift(b.soc)
+                        cp.v_cell = lo, hi = cp.cell_voltages(b.soc, current)
+                        if lo < cp.v_cell_low:
+                            cp.v_cell_low = lo
+                        if hi > cp.v_cell_high:
+                            cp.v_cell_high = hi
+                    if cp.bound_dis and p_w > 0 and p_w >= b.deliver_w * (1.0 - 1e-3):
+                        cp.limit_s[f"discharge {cp.bound_dis}"] = (
+                            cp.limit_s.get(f"discharge {cp.bound_dis}", 0.0) + dt)
+                    elif cp.bound_ch and p_w < 0 and -p_w >= b.absorb_w * (1.0 - 1e-3):
+                        cp.limit_s[f"charge {cp.bound_ch}"] = (
+                            cp.limit_s.get(f"charge {cp.bound_ch}", 0.0) + dt)
                 ctx.bus_voltage[bus.id] = b.v_term
                 if b.check is not None:
                     # held at the cap (the motors' torque search stops a hair
@@ -1906,6 +2592,7 @@ class ElectricalSlave(_CtxSlave):
                 vs_p = ctx.params(bus.vsource)
                 ctx.bus_voltage[bus.id] = float(vs_p.get("voltage_V", 400))
                 ctx.vsource_energy_wh[bus.vsource] += load_w * dt / 3600.0
+                ctx.vsource_w[bus.vsource] = load_w
                 rt.publish(bus.vsource, "sig_power", load_w / 1000.0)
                 rt.publish(bus.vsource, "sig_voltage", ctx.bus_voltage[bus.id])
             elif bus.fuelcell:
@@ -1951,6 +2638,11 @@ class ElectricalSlave(_CtxSlave):
                              f"clamp fired, so energy results are not reliable.")
             ctx.residual_wh += abs(residual_w) * dt / 3600.0
             ctx.throughput_wh += gross_w * dt / 3600.0
+        if ctx.rare_flows:
+            ctx.book_electrical(dt)
+        book = ctx.book
+        book.time_s += dt
+        book.n += 1
         return StepResult()
 
 

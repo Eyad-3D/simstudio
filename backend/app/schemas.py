@@ -50,6 +50,11 @@ class AxisDef(BaseModel):
     outside: Optional[OutsidePolicy] = None
 
 
+class ShowIf(BaseModel):
+    key: str
+    values: list[ScalarValue]
+
+
 class ParameterDef(BaseModel):
     key: str
     label: str
@@ -74,6 +79,9 @@ class ParameterDef(BaseModel):
     minimum: Optional[float] = None
     exclusiveMinimum: Optional[float] = None
     maximum: Optional[float] = None
+    # Shown only while another parameter of the part has one of these values
+    # ({"key": "pack_model", "values": ["Cells"]}); the UI hides it otherwise.
+    showIf: Optional[ShowIf] = None
 
     def range_problem(self, value: float) -> Optional[str]:
         """Why `value` breaks the limits ("must be above 0 and at most 100 %"),
@@ -304,12 +312,40 @@ class SummaryValue(BaseModel):
     passed: Optional[bool] = None
 
 
+class EnergyFlow(BaseModel):
+    """One part's energy over a run (MOD-10), in kWh, with the duty values
+    of its throughput power in kW. For every part energyIn − energyOut −
+    losses − stored = 0; energyIn and energyOut are both ≥ 0 (what entered
+    and what left it at any port), and energyInReverse is the part of
+    energyIn that came back from the road side (regeneration, a dragged
+    engine)."""
+
+    elementId: Optional[str] = None  # None for a driveline's rotating parts
+    label: str
+    part: str  # the component type ("motor.emotor"), or "driveline.inertia"
+    energyIn: float
+    energyOut: float
+    losses: float
+    stored: float  # change in the energy it stores (+ when it fills)
+    energyInReverse: float = 0.0
+    # its throughput power's largest magnitude, mean and root mean square,
+    # kW (None for wheels and rotating parts, which keep none)
+    peakPower: Optional[float] = None
+    meanPower: Optional[float] = None
+    rmsPower: Optional[float] = None
+    # named parts of its losses or stored energy, kWh (the Vehicle's air
+    # drag, rolling resistance, climbing and acceleration)
+    terms: dict[str, float] = Field(default_factory=dict)
+
+
 class SimResult(BaseModel):
     caseId: str
     status: Literal["success", "failed", "warning", "cancelled"]
     messages: list[SimMessage]
     channels: list[Channel]
     summary: list[SummaryValue] = Field(default_factory=list)
+    # where the energy went, part by part (MOD-10)
+    energy: list[EnergyFlow] = Field(default_factory=list)
 
 
 class LiveEdit(BaseModel):

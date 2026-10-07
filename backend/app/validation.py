@@ -31,6 +31,7 @@ from .solver import (
     parse_table2d,
     profile_problems,
 )
+from .solver.battery import CELLS
 from .solver.maps import inner_range
 from .solver.network import (
     AXLE_GEAR_TYPES,
@@ -41,7 +42,9 @@ from .solver.network import (
     SIGNAL_BLOCK_TYPES,
     ports_of,
 )
-from .solver.runtime import AMBIENT_C, AMBIENT_KPA, air_density
+from .solver.runtime import AMBIENT_C, AMBIENT_KPA, GRAVITY, RPM, air_density, ocv_mean
+from .solver.scaling import VALID_RANGE, max_speed_rpm, scale_keys, scaled
+from .tyre import parse_tyre_code
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
 PROPULSION = {
@@ -697,14 +700,19 @@ def _plausibility_checks(model: Model, add: Add) -> None:
             if soc0 is not None and soc_min is not None and soc0 <= soc_min:
                 add("warning", f"'{el.label}' starts at {soc0:g} % SOC, at or below its "
                                f"minimum of {soc_min:g} % — it can deliver no energy.", el)
+            cells = p.get("pack_model") == CELLS
+            n_s = max(1, round(num(p, "series_cells") or 96)) if cells else 1
+            table = "cell_ocv_table" if cells else "ocv_table"
+            if cells:
+                _cell_pack_checks(p, el, add)
             v_class = num(p, "voltage_class_V")
             if v_class is not None and v_class > 0:
                 try:  # read at 100 % as the run reads it
-                    ocv = parse_table1d(p.get("ocv_table"))
+                    ocv = parse_table1d(p.get(table))
                 except TableError:
                     ocv = []  # reported with the other parameters
-                linear = (el.tableOutside.get("ocv_table") or [""])[0] == "linear"
-                v_full = interp1(ocv, 100.0, linear) if ocv else 0.0
+                linear = (el.tableOutside.get(table) or [""])[0] == "linear"
+                v_full = n_s * interp1(ocv, 100.0, linear) if ocv else 0.0
                 if v_full > v_class:
                     add("warning", f"'{el.label}' reaches {v_full:g} V open-circuit at 100 % "
                                    f"SOC, above its Voltage Class of {v_class:g} V — fewer cells "
@@ -716,6 +724,13 @@ def _plausibility_checks(model: Model, add: Add) -> None:
                                f"auxiliaries use about 0.3–5 kW (up to about 30 kW for a "
                                f"bus's heating and air conditioning). Check the value and "
                                f"its unit.", el)
+        elif cdef.id in ("motor.emotor", "engine.combustion") and any(
+                (num(p, k) or 100.0) != 100.0 for k in scale_keys(cdef.id)):
+            _scale_checks(cdef.id, p, el, add)
+        elif cdef.id == "electric.climate" and model.ambient is None:
+            add("info", f"'{el.label}' takes the outside temperature from an Ambient, and the "
+                        f"model has none: it runs at 20 °C, where it neither heats nor cools. "
+                        f"Add an Ambient (Boundaries) and set its Temperature.", el)
         elif cdef.id == "mech.final_drive":
             ratio = num(p, "ratio")
             if ratio is not None and ratio > FINAL_DRIVE_MAX_RATIO:
@@ -735,6 +750,7 @@ def _plausibility_checks(model: Model, add: Add) -> None:
                        f"them so the wheels carry the vehicle's whole weight: {split}. Set "
                        f"them to add up to 100 % to choose the split yourself.",
             ids=[w.el_id for w in wheels])
+    _tyre_checks(model, wheels, add)
     h = num(model.params_of[model.vehicle], "cg_height_m") if model.vehicle is not None else None
     if wheels and h is not None and h > 0 and len({w.axle for w in wheels}) < 2:
         veh, on = model.elements[model.vehicle], wheels[0].axle
@@ -742,6 +758,118 @@ def _plausibility_checks(model: Model, add: Add) -> None:
         add("error", f"Vehicle '{veh.label}' has a Centre of Gravity Height of {h:g} m, but all "
                      f"its wheels are on the {on} axle, so no load can shift between "
                      f"axles. Set Axle to {fix} wheels.", veh, ids=[w.el_id for w in wheels])
+
+
+def _tyre_checks(model: Model, wheels: list, add: Add) -> None:
+    """Wheels with a Tyre Code (MOD-48): a code that is not one, a radius
+    far from the code's, and a wheel carrying more than its load index."""
+    total = sum(w.load_share for w in wheels)
+    mass = None
+    if model.vehicle is not None:
+        try:
+            mass = float(model.params_of[model.vehicle].get("mass_kg", 1800))
+        except (TypeError, ValueError):
+            mass = None
+    for w in wheels:
+        p, el = model.params_of[w.el_id], model.elements[w.el_id]
+        code = str(p.get("tyre_code", "") or "").strip()
+        if not code:
+            continue
+        spec = parse_tyre_code(code)
+        if spec is None:
+            add("warning", f"'{el.label}' has a Tyre Code '{code}' LightSim cannot read: write it "
+                           f"as on the sidewall, e.g. 205/55 R16 91V or 20.5x7.0-13.", el)
+            continue
+        try:
+            factor = float(p.get("rolling_radius_factor", 0.97))
+        except (TypeError, ValueError):
+            factor = 0.97
+        expected = spec.unloaded_radius_m * factor
+        if abs(w.radius - expected) > 0.03 * expected:
+            add("info", f"'{el.label}' has a Wheel Radius of {w.radius:g} m, but its tyre "
+                        f"{spec.code} rolls on about {expected:.3f} m — retype the code to fill "
+                        f"it in, or check the radius.", el)
+        max_load = spec.max_load_n
+        if max_load and mass and total > 0:
+            load = mass * GRAVITY * w.load_share / total
+            if load > max_load:
+                add("warning", f"'{el.label}' carries {load / GRAVITY:,.0f} kg standing still, more "
+                               f"than its tyre's load index {spec.load_index} allows "
+                               f"({max_load / GRAVITY:,.0f} kg): fit a tyre with a higher load "
+                               f"index, or check the Vehicle Mass and the load shares.", el)
+
+
+def _scale_checks(part: str, p: dict, el, add: Add) -> None:
+    """A resized motor or engine (MOD-47): the scaled machine next to the
+    original (info), and scales outside the range the rules hold for."""
+    lo, hi = VALID_RANGE
+    for key in scale_keys(part):
+        try:
+            k = float(p.get(key, 100)) / 100.0
+        except (TypeError, ValueError):
+            continue
+        if k > 0 and not lo <= k <= hi:
+            add("warning", f"'{el.label}' is scaled to {k * 100:g} % ({key.replace('_pct', '')}), "
+                           f"outside the {lo * 100:g}–{hi * 100:g} % the scaling rules are meant "
+                           f"for: a machine this much smaller or larger is built differently. "
+                           f"Use its own maps instead.", el)
+    try:
+        if part == "motor.emotor":
+            raw = parse_table2d(p.get("full_load_torque"))
+            new = scaled(part, "full_load_torque", raw, p)
+            peak = (max(t for _, row in raw for _, t in row), max(t for _, row in new for _, t in row))
+            power = tuple(max(t * n / RPM for _, row in fl for n, t in row) / 1000.0
+                          for fl in (raw, new))
+            n_top = (motor_max_rpm(raw, p.get("max_speed_rpm", 0)), motor_max_rpm(new, max_speed_rpm(p)))
+            add("info", f"'{el.label}' is resized: peak torque {peak[1]:,.0f} N·m (was "
+                        f"{peak[0]:,.0f}), maximum speed {n_top[1]:,.0f} 1/min (was "
+                        f"{n_top[0]:,.0f}), peak power {power[1]:,.0f} kW (was {power[0]:,.0f}); "
+                        f"its loss map, drag and inertia are scaled with it.", el)
+        else:
+            raw = parse_table1d(p.get("full_load_torque"))
+            new = scaled(part, "full_load_torque", raw, p)
+            power = tuple(max(t * n / RPM for n, t in fl) / 1000.0 for fl in (raw, new))
+            add("info", f"'{el.label}' is resized: peak torque {max(t for _, t in new):,.0f} N·m "
+                        f"(was {max(t for _, t in raw):,.0f}), peak power {power[1]:,.0f} kW "
+                        f"(was {power[0]:,.0f}); its fuel map, drag and inertia are scaled with "
+                        f"it, at the same fuel use per kWh.", el)
+    except (TableError, ValueError):
+        pass  # reported with the other parameters
+
+
+def _cell_pack_checks(p: dict, el, add: Add) -> None:
+    """A battery built from cells (MOD-08): what its layout gives (info),
+    and cell limits that leave the cells no room (warnings)."""
+    def num(key: str, default: float) -> float:
+        try:
+            return float(p.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    n_s, n_p = max(1, round(num("series_cells", 96))), max(1, round(num("parallel_cells", 30)))
+    try:
+        ocv = parse_table1d(p.get("cell_ocv_table"))
+    except TableError:
+        return  # reported with the other parameters
+    cap = num("cell_capacity_Ah", 5.0)
+    r_pack = (n_s * num("cell_resistance_ohm", 0.02) / n_p + n_s * num("interconnect_resistance_ohm", 0.0002)
+              + num("contactor_resistance_ohm", 0.0005))
+    v_lo, v_hi = n_s * ocv[0][1], n_s * ocv[-1][1]
+    kwh = n_p * cap * n_s * ocv_mean(ocv) / 1000.0
+    mass = n_s * n_p * num("cell_mass_kg", 0.07) * max(1.0, num("packaging_factor", 1.4))
+    add("info", f"'{el.label}' is built from cells: {n_s}s{n_p}p of {cap:g} Ah gives "
+                f"{n_p * cap:g} Ah, {kwh:.1f} kWh, {v_lo:.0f}–{v_hi:.0f} V open-circuit, "
+                f"{r_pack * 1000:.1f} mΩ for a 10 s pulse at 25 °C and 50 % SOC, and about "
+                f"{mass:.0f} kg (an estimate; the Vehicle Mass is not changed).", el)
+    v_min, v_max = num("cell_min_voltage_V", 2.5), num("cell_max_voltage_V", 4.2)
+    if v_min > 0 and v_min >= ocv[-1][1]:
+        add("warning", f"'{el.label}' has a Cell Minimum Voltage of {v_min:g} V, at or above "
+                       f"the cell's open-circuit voltage when full ({ocv[-1][1]:g} V): it can "
+                       f"give no current. Check the value.", el)
+    if v_max > 0 and v_max <= ocv[0][1]:
+        add("warning", f"'{el.label}' has a Cell Maximum Voltage of {v_max:g} V, at or below "
+                       f"the cell's open-circuit voltage when empty ({ocv[0][1]:g} V): it can "
+                       f"take no charge. Check the value.", el)
 
 
 def _map_checks(model: Model, add: Add) -> None:
@@ -758,10 +886,11 @@ def _map_checks(model: Model, add: Add) -> None:
     elements, params = model.elements, model.params_of
 
     def table(el_id: str, key: str, two_d: bool) -> list | None:
-        try:
-            return (parse_table2d if two_d else parse_table1d)(params[el_id][key])
+        try:  # as the run reads it: a resized machine's maps scaled (MOD-47)
+            pts = (parse_table2d if two_d else parse_table1d)(params[el_id][key])
         except (KeyError, TableError):
             return None
+        return scaled(model.cdef_of[el_id].id, key, pts, params[el_id])
 
     def num(el_id: str, key: str, default: float) -> float:
         try:
@@ -797,7 +926,7 @@ def _map_checks(model: Model, add: Add) -> None:
             if not fl or not loss:
                 continue
             n_curve = motor_max_rpm(fl, 0)
-            n_max = motor_max_rpm(fl, params[el_id].get("max_speed_rpm", 0))
+            n_max = motor_max_rpm(fl, max_speed_rpm(params[el_id]))
             if n_max > n_curve:
                 add("warning", f"E-Motor '{label}': its Maximum Speed ({fmt(n_max)} 1/min) is "
                                f"beyond its full-load data, which ends at {fmt(n_curve)} 1/min — "
@@ -847,10 +976,12 @@ def _map_checks(model: Model, add: Add) -> None:
         if src is None or not bus.motors:
             continue
         if bus.battery:
-            ocv = table(src, "ocv_table", False)
+            cells = params[src].get("pack_model") == CELLS
+            ocv = table(src, "cell_ocv_table" if cells else "ocv_table", False)
             if not ocv:
                 continue
-            volts = (min(v for _, v in ocv), max(v for _, v in ocv))
+            n_s = max(1, round(num(src, "series_cells", 96))) if cells else 1
+            volts = (n_s * min(v for _, v in ocv), n_s * max(v for _, v in ocv))
         elif bus.fuelcell:
             pol = table(src, "polarization", False)
             if not pol:

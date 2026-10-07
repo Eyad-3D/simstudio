@@ -173,7 +173,8 @@ def test_example_data_is_credited_with_its_notice(notices, allowed):
     appendix = text.split("APPENDIX: STANDARD LICENCE TEXTS", 1)[1]
     assert "Apache License" in appendix and "Version 2.0" in appendix
     bom = notices.bill_of_materials(data)["components"]
-    assert [(c["type"], c["licenses"]) for c in bom] == [("data", [{"expression": "Apache-2.0"}])]
+    assert ("data", [{"expression": "Apache-2.0"}]) in [(c["type"], c["licenses"]) for c in bom]
+    assert all(c["type"] == "data" for c in bom)
 
     # the committed notices file (Help → Third-Party Notices) carries it too
     committed = (SCRIPT.parents[1] / "THIRD-PARTY-NOTICES.txt").read_text(encoding="utf-8")
