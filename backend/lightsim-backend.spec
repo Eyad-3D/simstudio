@@ -5,7 +5,7 @@ Produces a self-contained ``lightsim-backend`` folder (one directory, not one
 file — it starts faster and electron-builder ships directories happily) that
 the desktop app launches as a child process. Users never install Python.
 """
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 datas = [
     ("app/library/components.json", "app/library"),
@@ -37,6 +37,22 @@ hiddenimports += collect_submodules("websockets")
 # here reads a terminal, and every importer (site, rlcompleter,
 # websockets.cli) falls back when it is missing.
 excludes = ["tkinter", "matplotlib", "numpy.testing", "pytest", "readline"]
+
+# The FMU pack (STD-01, backend/requirements-fmu.txt) goes in only when it is
+# installed in the build environment; whether the installer carries it is an
+# owner decision (docs/KNOWN-LIMITS.md). Only what running an FMU needs comes
+# along: the FMI XML schemas FMPy checks against and its small logging helper
+# library, not its GUI, web app, compiler templates or bundled solvers.
+try:
+    import fmpy  # noqa: F401
+except ImportError:
+    fmpy = None
+if fmpy is not None:
+    datas += collect_data_files("fmpy", includes=["schema/**/*.xsd", "logging/**/*"])
+    hiddenimports += ["fmpy.fmi2", "fmpy.fmi3", "fmpy.validation", "app.fmu.worker"]
+    excludes += ["fmpy.gui", "fmpy.webapp", "fmpy.ssp", "fmpy.cross_check",
+                 "fmpy.container_fmu", "fmpy.sundials", "fmpy.template", "jinja2",
+                 "nbformat", "cmake"]
 
 a = Analysis(
     ["run_backend.py"],
