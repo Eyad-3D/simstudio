@@ -20,16 +20,17 @@ test("VAL-35: an expected value is added in seconds and graded after every run",
   await ribbonTab(page, "Home").click();
   await showPanel(page, "Cases & Parameters");
   await page.getByRole("button", { name: "Add", exact: true }).click();
-  const kpi = page.getByLabel("Result (summary value)");
+  // the example's own expected value comes first; the new row is the last
+  const kpi = page.getByLabel("Result (summary value)").last();
   await kpi.fill("Distance driven");
-  await page.locator("label", { hasText: /^Expected/ }).locator("input").fill("0.2");
-  await page.getByLabel("Tolerance", { exact: true }).fill("0.05");
-  await page.getByLabel("Tolerance in").selectOption("unit");
-  await page.getByPlaceholder(/^Source, e.g./).fill("hand calculation");
+  await page.locator("label", { hasText: /^Expected/ }).locator("input").last().fill("0.2");
+  await page.getByLabel("Tolerance", { exact: true }).last().fill("0.05");
+  await page.getByLabel("Tolerance in").last().selectOption("unit");
+  await page.getByPlaceholder(/^Source, e.g./).last().fill("hand calculation");
   expect(Date.now() - started).toBeLessThan(30_000);
 
   await runActiveCase(page);
-  const mine = page.getByRole("region", { name: "Expected values" }).first().locator("li").first();
+  const mine = page.getByRole("region", { name: "Expected values" }).first().locator("li", { hasText: "Distance driven" });
   await expect(mine).toContainText("Distance driven");
   await expect(mine).toContainText(/outside|near|within/);
   await expect(mine).toContainText("km");

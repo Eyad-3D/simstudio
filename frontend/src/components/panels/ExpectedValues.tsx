@@ -176,8 +176,9 @@ export function ExpectedValuesEditor({ c }: { c: SimCase }) {
                   <option value="unit">in its unit</option>
                 </select>
               </div>
-              <input
-                className="ss-input mt-0.5 w-full"
+              <textarea
+                className="ss-input mt-0.5 w-full resize-y"
+                rows={r.source && r.source.length > 40 ? 3 : 1}
                 aria-label="Source"
                 placeholder="Source, e.g. maker's figure or FSG 2025 best time"
                 value={r.source ?? ""}
