@@ -636,3 +636,10 @@ evaluation, learning, research and other non-commercial purposes under the
 [End-User Licence Agreement](EULA.txt); commercial use needs a separate
 licence. Third-party components keep their own licences; they are listed,
 with their licence texts, in `THIRD-PARTY-NOTICES.txt`.
+
+Not sure whether your use counts as non-commercial? The draft
+[licence FAQ](docs/licensing/licence-faq.md) answers 20 everyday cases
+(Formula Student teams, theses, lab PCs, company trials), and
+[EULA 1.1: proposed changes](docs/licensing/EULA-proposal.md) shows the
+revision under review. Both are drafts: until the owner approves them,
+`EULA.txt` alone decides.
