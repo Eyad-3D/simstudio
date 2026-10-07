@@ -112,6 +112,14 @@ export interface CycleInfo {
   duration_s: number;
   distance_km: number;
   vmax_kmh: number;
+  /** the document it comes from, with any credit its terms ask for (CON-31) */
+  source?: string;
+  /** why LightSim may ship it: EU-2011/833, US-17USC105, Apache-2.0, ... */
+  reuse?: string;
+  /** who it is for, in a sentence */
+  note?: string;
+  /** it carries a road grade a Road Profile can take */
+  grade?: boolean;
 }
 
 /** A drive cycle with its trace: time (s) and speed (km/h). */

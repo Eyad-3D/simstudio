@@ -539,13 +539,18 @@ minimum or an average, for example from the CSV export, or put the
   clicks). In a 1366 × 768 window the bottom panel shows two rows at a
   time; drag its top edge up to see more. *Roadmap:* UX-15 (follow-up),
   UX-11.
-- **Three standard drive cycles.** The Driving Task's *Drive Cycle* list
-  has WLTC class 3b, EPA city (UDDS) and EPA highway (HWFET). Other cycles
-  (NEDC, FTP-75, US06, the WLTC of other classes) and cycle files of your
-  own are not in it yet: type or paste their points into the Profile. A
-  cycle has no grade. A project that names a drive cycle, opened in 0.2.0,
-  drives the typed profile instead, with no warning. *Roadmap:* CON-04,
-  CON-11, PLT-07.
+- **27 standard drive cycles, no files of your own.** The Driving Task's
+  *Drive Cycle* list has the WLTC (classes 1 to 3b, their city cycles and
+  phases), NEDC, the EPA cycles, two motorcycle cycles and a long-haul truck
+  route. Cycle files of your own (CSV, Excel, a logged lap against
+  distance) cannot be added to the list yet: type or paste their points
+  into the Profile. Japan's JC08 and WLTC, China's CLTC and the Artemis
+  cycles are not included (CLTC and Artemis may never be, because their
+  terms do not allow LightSim to ship them). Only the long-haul route
+  carries a road grade. The FTP-75 and the motorcycle FTP leave out the
+  real test's 10-minute soak, and nothing models a cold start. A project that names a drive cycle, opened in
+  0.2.0, drives the typed profile instead, with no warning. *Roadmap:*
+  CON-34, STD-10, STD-35, PLT-07.
 - **Few starting points.** The *Start* page offers the examples that come
   with LightSim and a blank project. Ready-made starting points for other
   layouts (two motors, a fuel-cell car) and templates that ask a few

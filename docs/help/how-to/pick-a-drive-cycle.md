@@ -45,6 +45,15 @@ press Enter on it: LightSim adds a Driving Task set to that cycle. Link its
 *Target Speed* to the Driver's in *Data Bus Connections*
 ([how](wire-control-signals.md)).
 
+## A route with hills
+
+The long-haul truck route carries the road's grade as well as its speed.
+To drive its hills, add a **Road Profile** part, choose the same cycle in
+its **Grade From Cycle** list, and link its *Road Grade* to the Vehicle's
+in *Data Bus Connections*. The grade is placed along the distance the cycle
+covers, so each hill stays where it is when the car falls behind the
+cycle. Only cycles marked *with grade* are offered.
+
 ## Which wins
 
 - A case's own cycle wins over everything else.
@@ -61,8 +70,13 @@ cycle too.
   keeps its own *Duration*. A case of kind *Acceleration* or *Lap* follows
   no target speed at all: it ignores the Driving Task, its cycle and its
   profile.
-- LightSim has three standard cycles today; others, and cycle files of
-  your own, are not in the list yet: type or paste their points into the
-  *Profile* instead ([Known issues](../../KNOWN-LIMITS.md)).
+- LightSim has 27 standard cycles. Under the sketch, a line names the
+  document each comes from (an EU regulation, EPA's schedule files or
+  FASTSim's copy) and why LightSim may ship it. Cycle files of your own are
+  not in the list yet: type or paste their points into the *Profile*
+  instead ([Known issues](../../KNOWN-LIMITS.md)).
+- Which WLTC? Most cars are class 3b. The class follows from the car's
+  rated power per kilogram: class 3 above 34 W/kg (3a when its top speed is
+  below 120 km/h), class 2 from 22 to 34 W/kg, class 1 at 22 W/kg or less.
 - A project that names a cycle, opened in LightSim 0.2.0, drives the typed
   profile instead, with no warning.

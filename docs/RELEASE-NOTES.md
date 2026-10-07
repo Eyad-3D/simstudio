@@ -235,6 +235,26 @@ sections.
   cycle's name, such as *udds*, lists it: activate it to add a Driving Task
   that drives it. The three cycles are the ones the examples used; their
   figures are within 0.04 % of the published ones. (CON-16)
+- The drive-cycle library has 27 cycles (it had 3): the WLTC of classes 1,
+  2, 3a and 3b, their city cycles and each class 3 phase on its own, typed
+  from the EU's Regulation 2017/1151 on EUR-Lex; the NEDC from UN
+  Regulation No 83 as the EU published it; EPA's FTP-75, US06, SC03, LA92,
+  New York City cycle and motorcycle FTP from EPA's schedule files; the
+  WMTC motorcycle cycle and its parts, and a long-haul truck route with its
+  road grade (804.6 km, and its first 100 km), from FASTSim. Each cycle
+  names its source and the reason LightSim may ship it under its sketch,
+  and carries a fingerprint (the sum of its 1 Hz speeds and a SHA-256 of
+  its file) that the tests check, so no trace can change unseen. The
+  WLTC class 3b, UDDS and HWFET files the examples use did not change:
+  they equal the EU and EPA tables value for value. (CON-04, CON-31)
+- Road Profile: *Grade From Cycle* takes the road's grade from a cycle that
+  carries one (the long-haul route), placed along the distance the cycle
+  covers, so one cycle gives both the speed and the hills. (CON-11)
+- Data register: every row now says why LightSim may ship the data (its
+  *reuse basis*), and DATA-REGISTER.md lists, in order, where data may come
+  from and the sources it must never come from, such as the UNECE website,
+  ev-database.org and EUPL files; the tests fail on a row that names one.
+  (CON-31)
 - Help: press F1, or click **?** at the top right, to open LightSim's help
   in your web browser. It comes with the app and needs no internet
   connection: two tutorials, how-to guides, a page for every part with its
