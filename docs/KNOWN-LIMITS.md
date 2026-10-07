@@ -559,14 +559,22 @@ minimum or an average, for example from the CSV export, or put the
 - **No automatic updates yet.** Download a newer version from the GitHub
   Releases page and install it over the old one; your projects are kept.
   *Roadmap:* PLT-18.
-- **The help is a first draft.** F1, or **?** at the top right, opens
-  LightSim's help in your web browser, served from your computer: two
-  tutorials, how-to guides, a page for every part in the library, and the
-  documents that come with each release. It is new: if a page does not
-  match what the app shows, the app is right. There are no pictures of the
-  app beyond the quick start's, the help opens outside the app window, and
-  it is not online yet. *Roadmap:* LRN-09 (help inside the app), LRN-04
-  (follow-up: online).
+- **The help is a first draft.** F1, or the **?** menu at the top right,
+  opens LightSim's help in a panel inside the app, served from your
+  computer. If a page does not match what the app shows, the app is right.
+  The numbers the tutorials, lessons and example pages quote are checked
+  against the app by the automatic tests; the words around them and the
+  click paths are not, and there are no pictures of the app beyond the
+  quick start's. The help is not online yet. The Formula Student lessons
+  cannot read a lap trace from your logger or lap simulator (roadmap
+  STD-35) and cannot export a design-review pack (RES-14); they say what
+  to do instead. *Roadmap:* LRN-04 (follow-up: online), LRN-12 (replaying
+  the tutorials' clicks in the browser tests).
+- **The first-steps tour is short.** It points at the screen's main parts
+  only; it does not walk you through a run, and its steps are not checked
+  against a band. The step bar's *Set values* ticks on any change of a
+  part's value. Automated browsers get neither the tour nor the bar.
+  *Roadmap:* UX-26, LRN-07.
 - **The parameter texts are first drafts.** Rest the pointer on a
   parameter, or move to it with Tab, to see what it is, its usual values
   and where to find the real number; each part's help page lists the same

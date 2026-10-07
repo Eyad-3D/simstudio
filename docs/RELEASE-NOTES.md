@@ -235,15 +235,44 @@ sections.
   cycle's name, such as *udds*, lists it: activate it to add a Driving Task
   that drives it. The three cycles are the ones the examples used; their
   figures are within 0.04 % of the published ones. (CON-16)
-- Help: press F1, or click **?** at the top right, to open LightSim's help
-  in your web browser. It comes with the app and needs no internet
-  connection: two tutorials, how-to guides, a page for every part with its
-  ports and parameters, the drive cycles, the keyboard shortcuts, the Script
-  API and the documents that come with each release (known issues, release
-  notes, what is validated, data sources), with a search box. With a part
-  selected on the diagram, F1 opens that part's page. In the desktop app,
-  *Help → Documentation* opens the front page, and *Help → Known Limits*
-  now opens the known issues there. (LRN-04)
+- Help: press F1, or open the **?** menu at the top right, to read
+  LightSim's help in a panel beside your work. It comes with the app and
+  needs no internet connection: tutorials, how-to guides, a page for every
+  part with its ports and parameters, the drive cycles, the keyboard
+  shortcuts, the Script API and the documents that come with each release
+  (known issues, release notes, what is validated, data sources), with a
+  search box. F1 opens the page of what you are on: the parameter in the
+  field or card, else the selected part, else the panel the focus is in;
+  each panel's **?** next to its tabs opens its how-to page. The panel
+  goes back, home and to your web browser (for tabs and bookmarks), and
+  can be made wider; links out of the help open in the browser. The **?**
+  menu, and the desktop app's *Help* menu, list the main pages, *Report a
+  problem…* and the first-steps tour. After an update, the release notes
+  open once by themselves. (LRN-04, LRN-09)
+- New help pages: *Your first electric car*, a 15-minute tutorial that
+  runs the example on the WLTC and builds a small car of your own, with a
+  check after each step; three Formula Student lessons (the 75 m time,
+  endurance energy, the accumulator's size); a lesson page for each
+  example with what happens when, its reference results and exercises
+  with answers; a *Script cookbook* of ten control recipes (rate limiter,
+  PI controller, table lookup, hysteresis switch, gear shifts,
+  regenerative braking by speed, low-pass filter, power limiter, launch
+  control, timer); *Results summary values*, which says what every summary
+  number means and how it is worked out; *Why a result differs from the
+  official figure*; and a glossary of 76 terms, each with a link of its
+  own. The automatic tests run every number these pages quote and every
+  recipe, and fail when one no longer matches the app. (LRN-07, LRN-10,
+  LRN-12, LRN-15, LRN-16, LRN-26)
+- On *Results*, rest the pointer on a row of *All summary values* to read
+  what it means; **what they mean** in the table's header opens the page
+  that defines them all. (LRN-10)
+- First steps for new users: a short tour of the screen on the first
+  start (skip it with **×** or Esc; the **?** menu shows it again), and a
+  slim bar under the ribbon with five steps (*Build*, *Set values*,
+  *Choose tests*, *Run*, *Read results*) that tick themselves off as you
+  do them; click a step to go to the panel that does it, or hide the bar
+  with its **×**. Data Bus Connections, Cases and Results each explain
+  themselves in one line the first time you open them. (UX-26)
 - A *Start* page opens when LightSim starts and when you press **New**:
   continue with the open project, start from one of the examples (its card
   says what results to expect) or a blank project, or reopen one of the 8

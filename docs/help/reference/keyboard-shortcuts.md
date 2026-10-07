@@ -6,7 +6,7 @@ On a Mac, use Cmd where this page says Ctrl.
 
 | Keys | What they do |
 |---|---|
-| F1 | Open this help: the selected part's page, or the front page |
+| F1 | Open this help beside your work: the page of the parameter you are in, the selected part or the panel you are working in, or the front page |
 | Ctrl+Enter | Run the active case (not while you type in a script) |
 | Ctrl+S | Save the project |
 | Ctrl+Z | Undo (not while you type in a field) |
