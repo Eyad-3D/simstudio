@@ -361,6 +361,43 @@ sections.
   2,300 kg* instead of the clock time) in the run lists, legends and
   summary; *Run info* edits the name and keeps a note, both stored with
   the run. (RES-10)
+- **Copy for AI** (*Project* tab): copies a short Markdown summary of the
+  model and its last run to the clipboard, to paste into any chatbot: the
+  parts and wiring, every value changed from the library defaults (with
+  units), the cases, the run's key results with their *not valid* notes,
+  the Data Check messages, the version and a line saying the results are
+  not validated. The examples' summaries are 4.9 to 6.2 KB (the target is
+  under 8 KB). **Hide values** replaces the values and results with `[hidden]`.
+  LightSim sends nothing. (AI-30)
+- **AI assistants can use LightSim** over the Model Context Protocol (MCP):
+  `lightsim-backend mcp` is a local server that an AI app starts and talks
+  to over stdin and stdout, with no network port. Nine tools list the
+  projects, outline a model (the Copy for AI text), read a part, run the
+  Data Checks, run a case, query a run's channels (minimum, maximum, mean,
+  end value and a thinned series of at most 500 points), compare two runs,
+  explain a message and edit a model. Answers stay under 20 KB. It follows
+  the MCP revision of 28 July 2026 (stateless, long runs as Tasks,
+  confirmations as `input_required`) and still answers apps that use the
+  older handshake. It is read-only unless you confirm in the AI app:
+  saving an edit and running a project with Script blocks ask first (on
+  Windows, Script projects do not run unless you allowed it when
+  connecting); a project file with `"noAI": true` stays hidden; an
+  assistant's run stops after 5 minutes; every request goes into a local
+  log, `.ai/audit.jsonl` in the projects folder. (AI-03)
+- **A skill pack for AI assistants**: nine short guides in the open Agent
+  Skills format (build a BEV, build a P2 hybrid, wiring rules, units and
+  parameters, Script blocks, verifying a model, *not valid* flags, what
+  LightSim cannot do, explaining a result). Their component reference and
+  known-limits summary are generated from the app. A connected assistant
+  reads them from LightSim. (AI-08)
+- **Connect AI** (*Project* tab) adds LightSim to Claude Desktop, Claude
+  Code, VS Code (GitHub Copilot), the GitHub Copilot CLI, OpenAI Codex,
+  Gemini CLI or Cursor with one click, keeping a backup of the app's
+  settings file, and shows when an assistant last used LightSim. In a
+  terminal: `lightsim-backend mcp install --client <app>`, `uninstall`
+  and `status`. `scripts/mcp/build-mcpb.py` builds an MCP Bundle (.mcpb)
+  for one-click installs; it runs the installed LightSim or says where to
+  get it. (AI-29) See *Use an AI assistant with LightSim* in the help.
 
 ### Fixed
 

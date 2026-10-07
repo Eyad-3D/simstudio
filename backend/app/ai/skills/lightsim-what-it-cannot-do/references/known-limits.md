@@ -84,4 +84,5 @@ Point 0 of every run is the initial state at t = 0.
 - **The help is a first draft.** F1, or **?** at the top right, opens LightSim's help in your web browser, served from your computer: two tutorials, how-to guides, a page for every part in the library, and the documents that come with each release.
 - **The parameter texts are first drafts.** Rest the pointer on a parameter, or move to it with Tab, to see what it is, its usual values and where to find the real number; each part's help page lists the same texts.
 - **Limits are checked one parameter at a time.** Data Checks and the form check each number against its own limits only: a PID's Output Minimum above its Output Maximum, or a Default Gear past the last gear, is not flagged.
+- **The AI connection is new and partly provisional.** The MCP server follows the 28 July 2026 revision as the official MCP SDK (version 2.3) implements it; its Tasks support (long runs) uses the task shapes of the 2025-11-25 revision, because the Tasks extension's own messages were not available to check against…
 - **Licence.** LightSim is proprietary (`LICENSE`).

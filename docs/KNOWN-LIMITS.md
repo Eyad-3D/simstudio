@@ -585,6 +585,25 @@ minimum or an average, for example from the CSV export, or put the
   outside them (no finish line, a 0 m start line, no reference gap).
   Properties does not mark a value that differs from the library's default
   and cannot reset it. *Roadmap:* UX-38 (the mark and reset).
+- **The AI connection is new and partly provisional.** The MCP server
+  follows the 28 July 2026 revision as the official MCP SDK (version 2.3)
+  implements it; its Tasks support (long runs) uses the task shapes of the
+  2025-11-25 revision, because the Tasks extension's own messages were not
+  available to check against, so an AI app may run cases without a task
+  and wait for them. Whether a project with Script blocks may run on
+  Windows is set for the whole connection (`--trust-scripts`), not per
+  project; the folders an assistant may see are set when it connects, not
+  in LightSim's settings; and the only way to hide one project is
+  `"noAI": true` in its file. A change an assistant saves to a project
+  that is open in LightSim does not show there until you open it again,
+  and a save from the app over it is refused as a conflict (the earlier
+  version stays in *Restore…*). Connect AI writes the AI apps' settings
+  files where those apps kept them in 2026; an app that moves its file
+  needs an update to LightSim. On the Linux AppImage the AI app can start
+  LightSim only while LightSim is open (install the .deb instead). The
+  skill pack has not yet been measured with an AI benchmark. *Roadmap:*
+  AI-01 (settings, trusted projects), AI-04 (edits in an open window),
+  AI-16 (benchmark).
 - **Licence.** LightSim is proprietary (`LICENSE`). The desktop app is free
   for evaluation, learning, research and other non-commercial use under its
   end-user licence agreement (`EULA.txt`, installed with the app);
