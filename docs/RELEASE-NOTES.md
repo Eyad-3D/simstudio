@@ -224,6 +224,17 @@ sections.
   capacity and Output Power Limit (up to 6 × 6) that runs as one saved
   study and shows a map, marking the pairs that run out of energy *DNF*.
   Saved studies with two factors name both.
+- A *Traction Control* block (Driver & Signals, MOD-45): wired between the
+  Driver's Traction Command and the E-Motors, with the driven wheels' Slip
+  and the Vehicle's Speed, it ramps the demand up from rest (*Launch Ramp
+  Time*, *Launch Torque*) and then holds the slip at a *Target Slip* (0.1)
+  with a PI loop, below the *Minimum Speed* leaving only the ramp. On the
+  FS example's 75 m case at a 2 ms step (Kp 1, Ki 20 1/s) it holds the
+  slip at 0.095-0.100 until the 80 kW limit takes over, where the slip
+  otherwise reaches 7; the 75 m time does not change (3.756 s against
+  3.754 s), because LightSim's tyres keep their grip past the peak. Its
+  defaults (Kp 0.5, Ki 10 1/s) also stay stable at the 10 ms step. No
+  model changes unless you add the block.
 - Wheel: *Lateral Friction μ_y* (0: the same as μ), *Load Sensitivity
   dμ/dFz* (per kN), *Nominal Load Fz0* (0: the wheel's static load) and
   *Friction Ellipse Exponent* (lap cases). The load sensitivity also acts

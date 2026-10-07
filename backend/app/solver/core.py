@@ -550,7 +550,7 @@ def _bus_channels(ctx: RunContext) -> Iterator[ChannelValue]:
     model, bus = ctx.model, ctx.rt.signal_values
     for el_id, cdef in model.cdef_of.items():
         tdef = cdef.id
-        if tdef in ("signal.constant", "control.pid", "signal.lookup"):
+        if tdef in ("signal.constant", "control.pid", "signal.lookup", "control.traction"):
             ports: tuple[str, ...] = ("sig_out",)
         elif tdef == "signal.driving_task":
             ports = ("sig_demand",)

@@ -24,6 +24,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import Optional
 
 from .maps import Map, MapUse, TableError, interp1, parse_table1d, parse_table2d
 from .network import ROAD_LOAD_ABC, BrakeRef, Driveline, Joint, Model, Segment, SourceRef
@@ -242,6 +243,10 @@ class RunContext:
                                                 self.table(el_id, "table_2d"))
                 elif cdef.id == "control.pid":
                     self.pid_state[el_id] = {"integral": 0.0, "prev_err": 0.0}
+                elif cdef.id == "control.traction":
+                    # the limit's integral part, and when the launch began (None:
+                    # not launching)
+                    self.pid_state[el_id] = {"integral": 1.0, "launch_t": None}
             except TableError as e:
                 table_errors.append(f"'{label}': {e}")
         if table_errors:
@@ -1306,7 +1311,7 @@ class _CtxSlave(Slave):
 
 
 # blocks that may run slower than the solver step (their Sample Time)
-SAMPLED_BLOCKS = ("signal.script", "control.pid", "signal.lookup")
+SAMPLED_BLOCKS = ("signal.script", "control.pid", "signal.lookup", "control.traction")
 
 
 class ControlSlave(_CtxSlave):
@@ -1388,6 +1393,13 @@ class ControlSlave(_CtxSlave):
                 out = max(lo, min(hi, kp * err + ki * st_pid["integral"] + kd * deriv))
                 st_pid["prev_err"] = err
                 rt.publish(el_id, "sig_out", out)
+            elif kind == "control.traction":
+                rt.publish(el_id, "sig_out", traction_control(
+                    ctx.pid_state[el_id], p, t, dt,
+                    rt.read_signal(el_id, "sig_demand_in") or 0.0,
+                    rt.read_signal(el_id, "sig_slip_in"),
+                    rt.read_signal(el_id, "sig_slip2_in"),
+                    rt.read_signal(el_id, "sig_speed_in")))
             elif kind == "signal.lookup":
                 t1, t2 = ctx.lookup_cache[el_id]
                 x_in = rt.read_signal(el_id, "sig_x_in") or 0.0
@@ -1412,6 +1424,44 @@ class ControlSlave(_CtxSlave):
                 rt.publish(el_id, "sig_grade",
                            interp_profile(pts, x_in, bool(p.get("repeat", False))))
         return StepResult()
+
+
+def traction_control(st: dict, p: dict, t: float, dt: float, demand: float,
+                     slip: Optional[float], slip2: Optional[float],
+                     speed_kmh: Optional[float]) -> float:
+    """The Traction Control block (MOD-45): the demand, held to a limit
+    that keeps the driven wheels' slip at the target. Launch: from rest the
+    limit ramps from the Launch Torque share to 1 over the Launch Ramp
+    Time, and slip control starts only above the Minimum Speed (below it
+    a slip is a ratio over a speed near 0). Then a PI loop on the larger of
+    the two slips: limit = clamp(I + Kp·(target − slip)), with
+    I += Ki·(target − slip)·dt held to 0..1 (anti-windup). Braking and
+    regeneration (a demand of 0 or less) pass through."""
+    target = float(p.get("target_slip", 0.1))
+    kp = float(p.get("kp", 0.5))
+    ki = float(p.get("ki", 10.0))
+    ramp = max(0.0, float(p.get("launch_ramp_s", 0.3)))
+    start = min(1.0, max(0.0, float(p.get("launch_torque_pct", 60)) / 100.0))
+    v_min = max(0.0, float(p.get("min_speed_kmh", 5)))
+    if demand <= 0:
+        st["integral"], st["launch_t"] = 1.0, None
+        return demand
+    slow = speed_kmh is not None and abs(speed_kmh) < v_min
+    if slow and st["launch_t"] is None:
+        st["launch_t"] = t
+    limit = 1.0
+    if st["launch_t"] is not None and ramp > 0:
+        limit = min(1.0, start + (1.0 - start) * (t - st["launch_t"]) / ramp)
+    slips = [s for s in (slip, slip2) if s is not None]
+    if slips and not slow:
+        err = target - max(slips)
+        st["integral"] = min(1.0, max(0.0, st["integral"] + ki * err * dt))
+        limit = min(limit, max(0.0, min(1.0, st["integral"] + kp * err)))
+    elif slow:
+        st["integral"] = limit  # the loop takes over from the launch ramp
+    if limit >= 1.0:
+        st["launch_t"] = None if not slow else st["launch_t"]
+    return min(demand, limit)
 
 
 class GearSlave(_CtxSlave):

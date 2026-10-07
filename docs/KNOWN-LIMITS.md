@@ -303,6 +303,26 @@ and smooth a noisy speed in a spreadsheet first.
 against distance), STD-02 (keeping the file in the project), STD-07
 (measured data).
 
+### The Traction Control block is a simple slip loop
+
+The *Traction Control* block (MOD-45) limits one demand for all the
+motors it feeds, from the larger of two wheels' slip:
+
+- It reads the slip one solver step late, so at the 10 ms step only low
+  gains are stable (its defaults); at a 1-2 ms step (case Step 0.002 s)
+  higher gains hold the slip within 0.005 of the target.
+- It has no feed-forward from the tyres' load and grip, and no limit per
+  motor: for hub motors, add one block for each motor and wire each its
+  own wheel.
+- LightSim's tyres keep their grip however much they slip, so holding the
+  slip at the peak gains no time yet (MOD-16), and wet grip is the μ you
+  set.
+
+*Workaround:* run launches at a 2 ms step; tune Kp and Ki on the Slip
+channel.
+*Roadmap:* MOD-45 (feed-forward from the wheel loads, the tyre's peak slip
+once MOD-16 exists), MOD-16.
+
 ### Signal units are not checked
 
 Data Checks now report two signals wired into the same input (UX-37), but
@@ -499,7 +519,10 @@ minimum or an average, for example from the CSV export, or put the
   the start line) sits in the faster half of FS Czech Republic 2025's
   3.51-6.44 s: the tyres keep their grip however much they slip (no peak
   and drop), so wheelspin at the launch costs no time, and nothing limits
-  it (no traction control; 48 % of the run is at the tyres' grip limit).
+  it (the example has no traction control; 48 % of the run is at the
+  tyres' grip limit). The *Traction Control* block (MOD-45) holds the
+  slip near a target, but cannot gain time until the tyres lose grip past
+  their peak (MOD-16).
   So its 80 kW is reached at 0.2 s, while the rear wheels still spin: a
   car with traction control reaches it later. At its 10 ms step the front
   wheels' slip and force channels ring at the launch and read high for

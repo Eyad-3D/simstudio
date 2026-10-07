@@ -2590,6 +2590,132 @@
       ]
     },
     {
+      "id": "control.traction",
+      "category": "Driver & Signals",
+      "name": "Traction Control",
+      "icon": "activity",
+      "domain": "signal",
+      "description": "Launch and traction control: passes the Driver's Traction Command to the E-Motors, held to a limit that keeps the driven wheels' slip at a target. From rest it ramps the limit up over the Launch Ramp Time, then a PI loop on the measured slip (the larger of two wheels) lowers it whenever a wheel spins. Braking and regeneration pass through. Wire Demand from the Driver's Traction Command, Slip (and Slip 2) from the driven wheels, Speed from the Vehicle, and Output to the E-Motors' Demand.",
+      "ports": [
+        {
+          "id": "sig_demand_in",
+          "name": "Demand",
+          "direction": "input",
+          "kind": "signal",
+          "unitGroup": "No Unit"
+        },
+        {
+          "id": "sig_slip_in",
+          "name": "Slip",
+          "direction": "input",
+          "kind": "signal",
+          "unitGroup": "No Unit"
+        },
+        {
+          "id": "sig_slip2_in",
+          "name": "Slip 2",
+          "direction": "input",
+          "kind": "signal",
+          "unitGroup": "No Unit"
+        },
+        {
+          "id": "sig_speed_in",
+          "name": "Speed",
+          "direction": "input",
+          "kind": "signal",
+          "unitGroup": "Speed"
+        },
+        {
+          "id": "sig_out",
+          "name": "Output",
+          "direction": "output",
+          "kind": "signal",
+          "unitGroup": "No Unit"
+        }
+      ],
+      "parameters": [
+        {
+          "key": "target_slip",
+          "label": "Target Slip",
+          "unit": "-",
+          "default": 0.1,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "The slip the loop holds the driven wheels at: (wheel speed − vehicle speed) ÷ vehicle speed. Near the tyre's grip peak gives the most push; LightSim's tyres keep their grip past it (no drop yet), so a little above where the force stops rising is enough.",
+          "typical": "0.1 (10 %); 0.05-0.15 for racing tyres.",
+          "whereToFind": "The tyre's force-against-slip curve (where it peaks), or the slip your car's traction control holds in logged launches."
+        },
+        {
+          "key": "kp",
+          "label": "Proportional Gain",
+          "unit": "-",
+          "default": 0.5,
+          "type": "number",
+          "minimum": 0,
+          "description": "How much the limit drops for each unit of slip above the target, at once.",
+          "typical": "0.5 at the 10 ms solver step (more makes the limit swing); 1-2 at a 1-2 ms step (case Step 0.002 s), which holds the slip closer to the target.",
+          "whereToFind": "Tune it on the model's acceleration case: watch the Slip channel settle."
+        },
+        {
+          "key": "ki",
+          "label": "Integral Gain",
+          "unit": "1/s",
+          "default": 10.0,
+          "type": "number",
+          "minimum": 0,
+          "description": "How fast the limit follows a lasting slip error (the part that holds the slip at the target). It stops growing at 0 and 1 (anti-windup).",
+          "typical": "10 1/s at the 10 ms solver step; 20-40 1/s at a 1-2 ms step.",
+          "whereToFind": "Tune it on the model's acceleration case."
+        },
+        {
+          "key": "launch_ramp_s",
+          "label": "Launch Ramp Time",
+          "unit": "s",
+          "default": 0.3,
+          "type": "number",
+          "minimum": 0,
+          "description": "From rest, the limit rises from the Launch Torque share to full over this time. Slip control starts once the car is faster than the Minimum Speed. 0 = no ramp.",
+          "typical": "0.2-0.5 s for a Formula Student launch.",
+          "whereToFind": "Your launch control's settings, or a logged launch."
+        },
+        {
+          "key": "launch_torque_pct",
+          "label": "Launch Torque",
+          "unit": "%",
+          "default": 60,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "The share of the Driver's demand the launch ramp starts at.",
+          "typical": "50-80 % on dry tarmac, less in the wet.",
+          "whereToFind": "Your launch control's settings, or a logged launch."
+        },
+        {
+          "key": "min_speed_kmh",
+          "label": "Minimum Speed",
+          "unit": "km/h",
+          "default": 5,
+          "type": "number",
+          "minimum": 0,
+          "description": "Below this vehicle speed the slip is a ratio over a speed near 0 and means little, so only the launch ramp limits the demand. Needs the Speed input wired; without it the loop runs from the start.",
+          "typical": "3-10 km/h.",
+          "whereToFind": "Your traction control's settings."
+        },
+        {
+          "key": "sample_time_s",
+          "label": "Sample Time",
+          "unit": "s",
+          "default": 0,
+          "type": "number",
+          "minimum": 0,
+          "description": "How often the block runs, as a real controller does; it holds its output in between. 0 = every solver step.",
+          "typical": "0 · 0.001-0.01 s for a real traction control unit.",
+          "whereToFind": "Your controller's loop rate (a 100 Hz loop is 0.01 s)."
+        }
+      ]
+    },
+    {
       "id": "control.pid",
       "category": "Driver & Signals",
       "name": "PID Controller",
