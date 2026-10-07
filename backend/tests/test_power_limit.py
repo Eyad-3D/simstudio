@@ -255,8 +255,10 @@ def test_presets_name_real_parameters():
                     assert types[key] == "number" and not isinstance(value, bool), (comp.id, key)
     battery = next(c for c in load_library() if c.id == "battery.generic")
     fs = next(p for p in battery.presets if p.name == "Formula Student Electric")
+    # (500 A: FS Rules 2026 v1.1 (FSG) EV 2.2.2, the pack's current limit since MOD-08)
     assert fs.values == {"output_power_limit_kW": 80, "power_limit_window_s": 0.5,
-                         "voltage_class_V": 600, "power_limit_enforced": True}
+                         "voltage_class_V": 600, "power_limit_enforced": True,
+                         "max_discharge_current_A": 500}
     for rules in ("FS Rules 2026 v1.1 (FSG)", "FSUK 2026", "FSAE Rules 2025", "500 A",
                   "current season"):
         assert rules in fs.note
