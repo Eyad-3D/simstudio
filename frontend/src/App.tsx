@@ -6,8 +6,10 @@ import { Ribbon } from "./components/Ribbon";
 import { StartPage } from "./components/StartPage";
 import { StatusBar } from "./components/StatusBar";
 import { ResultsPanel } from "./components/panels/ResultsPanel";
+import { importFile } from "./components/Ribbon";
+import { desktop } from "./desktop";
 import { componentHelpPage, openHelp } from "./help";
-import { useProjectStore } from "./store/projectStore";
+import { confirmReplaceProject, useProjectStore } from "./store/projectStore";
 import { useUIStore } from "./store/uiStore";
 import { saveDraft } from "./persist";
 
@@ -90,11 +92,77 @@ export default function App() {
       await useProjectStore.getState().saveRemote();
       return !useProjectStore.getState().dirty;
     };
+    // the desktop shell's File menu, a double-clicked .lightsim file (PLT-33)
+    window.lightsimSaveAs = () => useProjectStore.getState().saveAs();
+    window.lightsimOpenProjectId = async (id) => {
+      if (!(await confirmReplaceProject("Opening a project file"))) return false;
+      await useProjectStore.getState().openProject(id);
+      useUIStore.getState().setRibbonTab("home");
+      return useProjectStore.getState().project?.id === id;
+    };
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
       delete window.lightsimSave;
+      delete window.lightsimSaveAs;
+      delete window.lightsimOpenProjectId;
     };
   }, []);
+
+  // a project file changed on disk (a git pull, another window) offers a
+  // reload: look every few seconds while the window is in front (PLT-33)
+  useEffect(() => {
+    const check = () => {
+      if (document.visibilityState === "visible") void useProjectStore.getState().checkDisk();
+    };
+    const timer = setInterval(check, 4000);
+    window.addEventListener("focus", check);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", check);
+    };
+  }, []);
+
+  // a project file dropped on the window opens: a .lightsim file by its
+  // place on disk in the desktop app, else as an imported copy
+  useEffect(() => {
+    const isFileDrag = (e: DragEvent) => Boolean(e.dataTransfer?.types.includes("Files"));
+    const onDragOver = (e: DragEvent) => {
+      if (isFileDrag(e)) e.preventDefault();
+    };
+    const onDrop = async (e: DragEvent) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      const f = e.dataTransfer?.files[0];
+      if (!f || !/\.(lightsim|json|zip)$/i.test(f.name)) return;
+      const shell = desktop();
+      if (shell && /\.lightsim$/i.test(f.name)) {
+        if (!(await confirmReplaceProject(`Opening '${f.name}'`))) return;
+        try {
+          const picked = await shell.openDroppedFile(f);
+          if (picked) await useProjectStore.getState().openProject(picked.id);
+        } catch (err) {
+          useProjectStore.getState().log("error", `Could not open '${f.name}': ${(err as Error).message}`);
+        }
+      } else {
+        await importFile(f);
+      }
+      useUIStore.getState().setRibbonTab("home");
+    };
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
+  // the window's title names the project and its file
+  const title = useProjectStore((s) =>
+    s.project ? `${s.dirty ? "• " : ""}${s.project.name}${s.filePath ? ` — ${s.filePath}` : ""}${s.readOnly ? " (read-only)" : ""} — LightSim` : "LightSim",
+  );
+  useEffect(() => {
+    document.title = title;
+  }, [title]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -124,9 +192,17 @@ export default function App() {
         if (target.tagName === "TEXTAREA" || target.isContentEditable) return;
         e.preventDefault();
         if (!store.running) void store.run();
+      } else if (e.key.toLowerCase() === "s" && e.shiftKey && desktop()) {
+        e.preventDefault();
+        void store.saveAs();
       } else if (e.key.toLowerCase() === "s") {
         e.preventDefault();
         void store.saveRemote();
+      } else if (e.key.toLowerCase() === "o" && desktop()) {
+        e.preventDefault();
+        void confirmReplaceProject("Opening a project file").then((ok) => {
+          if (ok) void store.openFile();
+        });
       } else if (!typing && e.key.toLowerCase() === "z" && !e.shiftKey) {
         e.preventDefault();
         store.undo();

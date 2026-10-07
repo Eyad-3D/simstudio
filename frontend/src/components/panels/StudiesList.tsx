@@ -152,11 +152,11 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
   );
 }
 
-/** Studies saved with the project (STU-03), newest first and the newest
+/** The project's studies (STU-03), kept with its runs (PLT-34), newest first and the newest
  *  opened: each sweep's definition and its results table, a row per point.
  *  Nothing is shown before the first study. */
 export function StudiesList() {
-  const studies = useProjectStore((s) => s.project?.studies ?? NO_STUDIES);
+  const studies = useProjectStore((s) => s.studies ?? NO_STUDIES);
   const [toggled, setToggled] = useState<Record<string, boolean>>({});
   if (studies.length === 0) return null;
   const newest = studies[studies.length - 1].id;
@@ -167,8 +167,8 @@ export function StudiesList() {
         <FlaskConical size={12} /> Saved studies ({studies.length})
       </div>
       <p className="mb-2 text-[11px] text-[color:var(--ss-text-dim)]">
-        Each sweep is kept with the project with its table of results, also after its runs leave the
-        Results history. Save the project to keep new studies on disk.
+        Each sweep is kept with the project&apos;s runs with its table of results, also after its runs
+        leave the Results history. Running a sweep does not change the model file.
       </p>
       {[...studies].reverse().map((st) => {
         const open = toggled[st.id] ?? st.id === newest;

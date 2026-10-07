@@ -51,7 +51,7 @@ function Card({
     >
       <Thumb pts={pts} />
       <span className="text-[13px] font-semibold text-[color:var(--ss-text)]">{title}</span>
-      <span className="text-[11px] text-[color:var(--ss-text-dim)]">{meta}</span>
+      <span className="text-[11px] text-[color:var(--ss-text-dim)] [overflow-wrap:anywhere]">{meta}</span>
       {text && (
         <span id={`${id}-text`} className="whitespace-pre-line text-[11px] leading-snug text-[color:var(--ss-text-dim)]">
           {text}
@@ -72,18 +72,24 @@ export function StartPage() {
   const offline = useProjectStore((s) => s.offline);
   const openLast = useUIStore((s) => s.openLastAtStart);
   const setOpenLast = useUIStore((s) => s.setOpenLastAtStart);
-  const [recent, setRecent] = useState<api.ProjectEntry[] | null>(null);
+  const [recent, setRecent] = useState<(api.ProjectEntry & { path?: string })[] | null>(null);
   const [examples, setExamples] = useState<api.ExampleEntry[]>([]);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     // New hides the button it was pressed on: start the keyboard here
     heading.current?.focus({ preventScroll: true });
-    void Promise.all([api.listProjects().catch(() => []), api.listExamples().catch(() => [])]).then(
-      ([projects, shipped]) => {
-        setRecent(projects.sort((a, b) => (b.modified ?? 0) - (a.modified ?? 0)).slice(0, 8));
-        setExamples(shipped.filter((e) => !e.hidden));
-      },
-    );
+    void Promise.all([
+      api.listProjects().catch(() => []),
+      api.listExamples().catch(() => []),
+      api.listFiles().catch(() => []),
+    ]).then(([projects, shipped, files]) => {
+      // projects in the projects folder and .lightsim files anywhere (PLT-33),
+      // by when each was last saved or opened
+      const at = (p: api.ProjectEntry & { opened?: number }) => Math.max(p.modified ?? 0, p.opened ?? 0);
+      const all = [...projects, ...(files ?? []).filter((f) => f.exists)];
+      setRecent(all.sort((a, b) => at(b) - at(a)).slice(0, 8));
+      setExamples(shipped.filter((e) => !e.hidden));
+    });
   }, []);
 
   const home = () => useUIStore.getState().setRibbonTab("home");
@@ -159,7 +165,7 @@ export function StartPage() {
               key={p.id}
               id={`start-recent-${p.id}`}
               title={p.name}
-              meta={[p.modified ? `Saved ${new Date(p.modified).toLocaleString()}` : "", parts(p.elements)]
+              meta={[p.path ?? "", p.modified ? `Saved ${new Date(p.modified).toLocaleString()}` : "", parts(p.elements)]
                 .filter(Boolean)
                 .join(" · ")}
               pts={p.thumb}

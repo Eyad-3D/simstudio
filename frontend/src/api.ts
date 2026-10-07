@@ -11,6 +11,7 @@ import type {
   SimResult,
   SimRun,
   StoredRunInfo,
+  Study,
 } from "./types";
 import fallbackLibrary from "./data/componentLibrary.json";
 import fallbackProject from "./data/demoProject.json";
@@ -28,9 +29,18 @@ export class ApiError extends Error {
   }
 }
 
-/** A project as read from disk. `revision` names that version of the file (it
- *  is bookkeeping for conflict-checked saves, not part of the project). */
-export type StoredProject = Project & { revision?: string };
+/** A project as read from disk, with bookkeeping that is not part of the
+ *  project: `revision` names that version of the file (for conflict-checked
+ *  saves); `filePath` is where a .lightsim file outside the projects folder
+ *  is (PLT-33); `upgradedFrom` is the older file format it was upgraded
+ *  from; `readOnly` says why it must not be saved over (a file from a newer
+ *  LightSim, PLT-07). */
+export type StoredProject = Project & {
+  revision?: string;
+  filePath?: string;
+  upgradedFrom?: number;
+  readOnly?: string;
+};
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -196,6 +206,127 @@ export function saveProject(
     headers,
     body: JSON.stringify(project),
   });
+}
+
+/** The revision of the project's file on disk now (null: no file). */
+export async function fetchRevision(projectId: string): Promise<string | null> {
+  return (await request<{ revision: string | null }>(`/projects/${encodeURIComponent(projectId)}/revision`)).revision;
+}
+
+/** A project file read by the engine and upgraded to the current format. */
+export interface UpgradeReply {
+  project: Project;
+  /** studies an upgrade took out of the file, to keep with the runs */
+  studies: Study[];
+  upgradedFrom: number | null;
+  readOnly: string | null;
+}
+
+/** An imported file's JSON in the current format (PLT-07). */
+export function upgradeProject(raw: unknown): Promise<UpgradeReply> {
+  return request("/projects/upgrade", { method: "POST", body: JSON.stringify(raw) });
+}
+
+// ---- .lightsim files anywhere (PLT-33) ------------------------------------
+
+/** A .lightsim file the user opened or saved (Recent files). */
+export interface RecentFile extends ProjectEntry {
+  path: string;
+  /** when it was last opened, ms since 1970 */
+  opened: number;
+  /** false when the file is not there any more */
+  exists: boolean;
+}
+
+export function listFiles(): Promise<RecentFile[]> {
+  return request("/files");
+}
+
+/** Take a file off Recent files (the file itself stays). */
+export function forgetFile(projectId: string): Promise<{ forgotten: string }> {
+  return request(`/files/${encodeURIComponent(projectId)}`, { method: "DELETE" });
+}
+
+// ---- studies (kept with the runs, PLT-34) ---------------------------------
+
+const studiesPath = (projectId: string) => `/projects/${encodeURIComponent(projectId)}/studies`;
+
+export function listStudies(projectId: string): Promise<Study[]> {
+  return request(studiesPath(projectId));
+}
+
+export function storeStudy(projectId: string, study: Study): Promise<{ saved: string }> {
+  return request(`${studiesPath(projectId)}/${encodeURIComponent(study.id)}`, {
+    method: "PUT",
+    body: JSON.stringify(study),
+  });
+}
+
+export function deleteStudy(projectId: string, studyId: string): Promise<{ deleted: string }> {
+  return request(`${studiesPath(projectId)}/${encodeURIComponent(studyId)}`, { method: "DELETE" });
+}
+
+// ---- attached files (STD-02) ----------------------------------------------
+
+/** A file in the project's resources folder. */
+export interface AttachedFile {
+  /** "resources/<name>" */
+  path: string;
+  name: string;
+  sha256: string;
+  bytes: number;
+  /** "fmu", "onnx", "data", "model", "program" or "file" */
+  kind: string;
+}
+
+const attachmentsPath = (projectId: string) => `/projects/${encodeURIComponent(projectId)}/attachments`;
+
+export function listAttachments(projectId: string): Promise<AttachedFile[]> {
+  return request(attachmentsPath(projectId));
+}
+
+/** Copy a file into the project's resources folder. */
+export function uploadAttachment(projectId: string, file: Blob, name: string): Promise<AttachedFile> {
+  return request(`${attachmentsPath(projectId)}?name=${encodeURIComponent(name)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: file,
+  });
+}
+
+/** Delete a file from the project's resources folder. */
+export function deleteAttachment(projectId: string, name: string): Promise<{ deleted: string }> {
+  return request(`${attachmentsPath(projectId)}/${encodeURIComponent(name)}`, { method: "DELETE" });
+}
+
+/** The project and its attached files as one zip file. */
+export async function exportBundle(project: Project): Promise<Blob> {
+  const res = await fetch(`${BASE}/bundle`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project }),
+  });
+  if (!res.ok) throw new ApiError(res.status, `${res.status} ${res.statusText}`);
+  return res.blob();
+}
+
+/** Unpack a bundle: its project (upgraded) with its files attached. */
+export function importBundle(zip: Blob): Promise<UpgradeReply> {
+  return request("/bundle/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/zip" },
+    body: zip,
+  });
+}
+
+// ---- trust: code the user agreed to run (STD-02) ---------------------------
+
+export async function isTrusted(fingerprint: string): Promise<boolean> {
+  return (await request<{ trusted: boolean }>(`/trust/${fingerprint}`)).trusted;
+}
+
+export function trustFingerprint(fingerprint: string): Promise<{ trusted: boolean }> {
+  return request(`/trust/${fingerprint}`, { method: "POST" });
 }
 
 // ---- backups (earlier versions the engine keeps when a save replaces one) --

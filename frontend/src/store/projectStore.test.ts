@@ -9,6 +9,7 @@ import type {
   SimResult,
   SimRun,
   StoredRunInfo,
+  Study,
 } from "../types";
 
 // The store talks to the engine only through api.ts; every call is mocked so
@@ -31,6 +32,19 @@ vi.mock("../api", () => ({
   storeRun: vi.fn(),
   deleteRun: vi.fn(),
   deleteRuns: vi.fn(),
+  listStudies: vi.fn(),
+  storeStudy: vi.fn(),
+  deleteStudy: vi.fn(),
+  upgradeProject: vi.fn(),
+  importBundle: vi.fn(),
+  exportBundle: vi.fn(),
+  fetchRevision: vi.fn(),
+  listFiles: vi.fn(),
+  forgetFile: vi.fn(),
+  uploadAttachment: vi.fn(),
+  deleteAttachment: vi.fn(),
+  isTrusted: vi.fn(),
+  trustFingerprint: vi.fn(),
 }));
 
 const library = libraryJson as unknown as {
@@ -173,6 +187,17 @@ beforeEach(async () => {
     folder(projectId).clear();
     return { deleted, stored: 0 };
   });
+  // studies live with the runs (PLT-34); imports are upgraded by the engine
+  api.listStudies.mockResolvedValue([]);
+  api.storeStudy.mockImplementation(async (_projectId, study) => ({ saved: study.id }));
+  api.deleteStudy.mockImplementation(async (_projectId, studyId) => ({ deleted: studyId }));
+  api.upgradeProject.mockImplementation(async (raw) => {
+    const { studies, ...project } = raw as Project & { studies?: Study[] };
+    return { project, studies: studies ?? [], upgradedFrom: null, readOnly: null };
+  });
+  api.fetchRevision.mockResolvedValue(null);
+  api.isTrusted.mockResolvedValue(false);
+  api.trustFingerprint.mockResolvedValue({ trusted: true });
 });
 
 describe("start-up", () => {
@@ -373,7 +398,7 @@ describe("examples", () => {
     api.fetchExample.mockResolvedValue(example());
     for (const other of [
       () => store().newProject(),
-      () => store().importProject(JSON.stringify(fixture({ id: "imported" }))),
+      () => void store().importProject(JSON.stringify(fixture({ id: "imported" }))),
       () => store().openAsCopy(fixture(), "Copy", "Opened a copy."),
       () => store().openProject("fixture"),
     ]) {
@@ -509,7 +534,7 @@ describe("project lifecycle", () => {
     const file = fixture({ id: "imported", name: "Imported" }) as Partial<Project>;
     delete file.dataBusConnections;
     delete file.cases;
-    store().importProject(JSON.stringify(file));
+    await store().importProject(JSON.stringify(file));
     expect(store().project?.id).toBe("imported");
     expect(store().project?.dataBusConnections).toEqual([]);
     expect(store().project?.cases).toEqual([]);
@@ -537,8 +562,8 @@ describe("project lifecycle", () => {
 
   it("Import rejects files that are not projects and keeps the current one", async () => {
     await start();
-    store().importProject("{broken");
-    store().importProject(JSON.stringify({ name: "no id or systems" }));
+    await store().importProject("{broken");
+    await store().importProject(JSON.stringify({ name: "no id or systems" }));
     expect(store().project?.id).toBe("fixture");
     expect(store().dirty).toBe(false);
     expect(messages().filter((m) => m.startsWith("error: Import failed"))).toHaveLength(2);
@@ -1422,15 +1447,15 @@ describe("run snapshots", () => {
     expect(store().project!.cases[0].parameterOverrides).toBeUndefined(); // the project is untouched
   });
 
-  it("the model left out of a snapshot is only the project's saved studies", async () => {
+  it("a snapshot keeps the model as it ran, and studies are not in it", async () => {
     await start();
     engineFinishesRuns();
     await store().runSweep({ caseId: "case-1", elementId: "el-shaft", paramKey: "efficiency_pct", values: [80] });
-    expect(store().project!.studies).toHaveLength(1);
+    expect(store().studies).toHaveLength(1);
     await store().run();
-    const { studies: _studies, ...model } = store().project!;
+    const model = store().project!;
     expect(store().runs[0].snapshot!.project).toEqual(model);
-    expect(store().runs[0].snapshot!.project.studies).toBeUndefined();
+    expect("studies" in store().runs[0].snapshot!.project).toBe(false);
     expect(api.runSimulationLive.mock.lastCall![0]).toEqual(model); // what the engine ran
   });
 
@@ -1588,11 +1613,12 @@ describe("studies", () => {
     });
   }
 
-  it("a finished sweep is saved with the project as a study with its results table", async () => {
+  it("a finished sweep is kept with the runs as a study with its results table", async () => {
     await start();
     engineAnswers();
+    const before = store().project;
     await sweep([80, 95]);
-    const [study] = store().project!.studies!;
+    const [study] = store().studies;
     const runIds = store()
       .runs.slice()
       .reverse()
@@ -1626,20 +1652,20 @@ describe("studies", () => {
       ],
     });
     expect(study.id).toBe(store().runs[0].sweepId);
-    // part of the project, so it is saved (and kept in the recovery draft) with it
-    expect(store().dirty).toBe(true);
-    expect(store().past).toHaveLength(0); // not an edit to undo
-    await store().saveRemote();
-    expect(api.saveProject.mock.calls[0][0].studies).toEqual([study]);
+    // PLT-34: stored with the runs; the model is untouched, so nothing to save
+    expect(api.storeStudy).toHaveBeenCalledWith("fixture", study);
+    expect(store().project).toBe(before);
+    expect(store().dirty).toBe(false);
+    expect(store().past).toHaveLength(0);
   });
 
   it("a second 16-point sweep leaves the first study's table intact", async () => {
     await start();
     engineAnswers();
     await sweep(range(16, 60));
-    const first = structuredClone(store().project!.studies![0]);
+    const first = structuredClone(store().studies[0]);
     await sweep(range(16, 80));
-    const studies = store().project!.studies!;
+    const studies = store().studies;
     expect(studies).toHaveLength(2);
     expect(studies[0]).toEqual(first);
     expect(studies[1].points.map((p) => p.kpis.Energy)).toEqual(range(16, 80).map((v) => v * 2));
@@ -1669,7 +1695,7 @@ describe("studies", () => {
     await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalled());
     store().stopRun();
     await running;
-    expect(store().project!.studies![0].points).toEqual([
+    expect(store().studies[0].points).toEqual([
       expect.objectContaining({ values: [80], status: "cancelled", incomplete: "stopped at t = 3 s" }),
       { values: [90], status: "not run", kpis: {} },
       { values: [95], status: "not run", kpis: {} },
@@ -1715,7 +1741,7 @@ describe("studies", () => {
       }),
     }));
     await sweep([80]);
-    expect(store().project!.studies![0].points[0].kpis).toEqual({ Energy: 1 });
+    expect(store().studies[0].points[0].kpis).toEqual({ Energy: 1 });
   });
 
   it("undo and redo leave studies alone; a study can be deleted", async () => {
@@ -1723,26 +1749,42 @@ describe("studies", () => {
     engineAnswers();
     store().renameElement("el-bat", "Pack");
     await sweep([80, 90]);
-    const studies = store().project!.studies;
+    const studies = store().studies;
     store().undo();
     expect(findElement("el-bat")?.label).toBe("Battery");
-    expect(store().project!.studies).toBe(studies);
+    expect(store().studies).toBe(studies);
     store().redo();
-    expect(store().project!.studies).toBe(studies);
+    expect(store().studies).toBe(studies);
 
-    store().removeStudy(studies![0].id);
-    expect(store().project!.studies).toEqual([]);
+    store().removeStudy(studies[0].id);
+    expect(store().studies).toEqual([]);
+    expect(api.deleteStudy).toHaveBeenCalledWith("fixture", studies[0].id);
     expect(store().runs).toHaveLength(2); // its runs stay in the history
   });
 
-  it("a study saved with a project comes back when it is opened again", async () => {
+  it("a project's studies come back from the run store when it is opened again", async () => {
     await start();
     engineAnswers();
     await sweep([80, 90]);
     const saved = store().project!;
+    const studies = structuredClone(store().studies);
     api.fetchProject.mockResolvedValue(structuredClone(saved));
+    api.listStudies.mockResolvedValue(studies);
     await store().openProject(saved.id);
-    expect(store().project!.studies).toEqual(saved.studies);
+    await vi.waitFor(() => expect(store().studies).toEqual(studies));
+  });
+
+  it("studies in an old file or draft move to the run store (PLT-34)", async () => {
+    await start();
+    const old = { ...fixture({ id: "old" }), studies: [{ id: "s-old", startedAt: 1, caseId: "case-1", caseName: "C", factors: [], kpis: [], points: [] }] };
+    api.upgradeProject.mockImplementation(async (raw) => {
+      const { studies, ...project } = raw as typeof old;
+      return { project, studies, upgradedFrom: 1, readOnly: null };
+    });
+    await store().importProject(JSON.stringify(old));
+    expect("studies" in store().project!).toBe(false);
+    expect(store().studies.map((s) => s.id)).toEqual(["s-old"]);
+    expect(api.storeStudy).toHaveBeenCalledWith("old", old.studies[0]);
   });
 });
 
@@ -1808,5 +1850,122 @@ describe("drive cycles (CON-16)", () => {
     store().setDrivingCycle("t1", "wltc-3b");
     expect(findElement("t1")!.parameterOverrides.cycle).toBe("wltc-3b");
     expect(durations()).toEqual([600, 300, 20, 25, 600]);
+  });
+});
+
+describe("project files (PLT-07, PLT-33, STD-02)", () => {
+  /** Answer the open confirm dialog. */
+  async function answer(title: RegExp, yes: boolean) {
+    await vi.waitFor(() => expect(useUIStore.getState().dialog?.title).toMatch(title));
+    useUIStore.getState().dialog!.resolve(yes);
+    useUIStore.getState().closeDialog(); // as DialogHost does
+  }
+
+  it("a newer LightSim's file opens read-only and Save refuses", async () => {
+    await store().init();
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1", readOnly: "Saved by LightSim 0.9.0." });
+    await store().openProject("fixture");
+    expect(store().readOnly).toBe("Saved by LightSim 0.9.0.");
+    expect("readOnly" in store().project!).toBe(false);
+    store().renameElement("el-bat", "Pack");
+    await store().saveRemote();
+    expect(api.saveProject).not.toHaveBeenCalled();
+    expect(messages()).toContain("error: Not saved: Saved by LightSim 0.9.0.");
+  });
+
+  it("a file outside the projects folder says where it is and is saved there", async () => {
+    await store().init();
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1", filePath: "/repo/car.lightsim", upgradedFrom: 1 });
+    await store().openProject("fixture");
+    expect(store().filePath).toBe("/repo/car.lightsim");
+    expect(messages().some((m) => m.includes("older file format (1)"))).toBe(true);
+    api.saveProject.mockResolvedValueOnce({ saved: "fixture", revision: "r2" });
+    store().renameElement("el-bat", "Pack");
+    await store().saveRemote();
+    expect(api.saveProject.mock.lastCall![0]).not.toHaveProperty("filePath");
+    expect(messages()).toContain("info: Project 'Fixture' saved to /repo/car.lightsim.");
+  });
+
+  it("Save As saves under the id the shell gives and points at the new file", async () => {
+    await start();
+    const saveFileAs = vi.fn().mockResolvedValue({ id: "fixture-a1b2c3", path: "/repo/copy.lightsim", name: "copy" });
+    window.lightsimDesktop = { openFile: vi.fn(), saveFileAs, openDroppedFile: vi.fn(), showFile: vi.fn() };
+    try {
+      api.saveProject.mockResolvedValueOnce({ saved: "fixture-a1b2c3", revision: "r9" });
+      expect(await store().saveAs()).toBe(true);
+      expect(saveFileAs).toHaveBeenCalledWith("fixture", "Fixture");
+      expect(api.saveProject).toHaveBeenCalledWith(expect.objectContaining({ id: "fixture-a1b2c3" }));
+      expect(store()).toMatchObject({ filePath: "/repo/copy.lightsim", revision: "r9", dirty: false });
+      expect(store().project!.id).toBe("fixture-a1b2c3");
+      saveFileAs.mockResolvedValueOnce(null); // cancelled
+      expect(await store().saveAs()).toBe(false);
+    } finally {
+      delete window.lightsimDesktop;
+    }
+  });
+
+  it("a change on disk offers a reload, once per version", async () => {
+    await store().init();
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1" });
+    await store().openProject("fixture");
+    api.fetchRevision.mockResolvedValue("r1");
+    await store().checkDisk();
+    expect(useUIStore.getState().dialog).toBeNull();
+    api.fetchRevision.mockResolvedValue("r2"); // a git pull
+    api.fetchProject.mockResolvedValueOnce({ ...fixture({ name: "Pulled" }), revision: "r2" });
+    const check = store().checkDisk();
+    await answer(/changed on disk/, true);
+    await check;
+    expect(store().project!.name).toBe("Pulled");
+    expect(store().revision).toBe("r2");
+    api.fetchRevision.mockResolvedValue("r3");
+    const again = store().checkDisk();
+    await answer(/changed on disk/, false);
+    await again;
+    await store().checkDisk(); // not asked twice about r3
+    expect(useUIStore.getState().dialog).toBeNull();
+  });
+
+  it("code from outside is run only once the user trusts it, and asked about once", async () => {
+    await store().init();
+    const script = { ...el("el-script", "signal.script", "Script"), parameterOverrides: { code: "out = 1" } };
+    api.fetchProject.mockResolvedValueOnce({ ...fixture({ systems: [{ ...fixture().systems[0], elements: [script] }] }), revision: "r1" });
+    await store().openProject("fixture");
+    engineFinishesRuns();
+    const run = store().run();
+    await answer(/Run this project's code/, false);
+    await run;
+    expect(api.runSimulationLive).not.toHaveBeenCalled();
+    const again = store().run();
+    await answer(/Run this project's code/, true);
+    await again;
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
+    expect(api.trustFingerprint).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f]{64}$/));
+    // the user's own edit to the code runs without asking
+    store().setParameter("el-script", "code", "out = 2");
+    await store().run();
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(2);
+    expect(useUIStore.getState().dialog).toBeNull();
+  });
+
+  it("a project without code, or an example, runs without asking", async () => {
+    await start();
+    engineFinishesRuns();
+    await store().run();
+    expect(api.isTrusted).not.toHaveBeenCalled();
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
+  });
+
+  it("an attached file is listed in the project; removing it deletes the file", async () => {
+    await start();
+    api.uploadAttachment.mockResolvedValue({ path: "resources/motor.fmu", name: "motor.fmu", sha256: "a".repeat(64), bytes: 2048, kind: "fmu" });
+    api.deleteAttachment.mockResolvedValue({ deleted: "motor.fmu" });
+    const path = await store().attachFile(new File(["x"], "motor.fmu"));
+    expect(path).toBe("resources/motor.fmu");
+    expect(store().project!.attachments).toEqual([{ path: "resources/motor.fmu", sha256: "a".repeat(64), bytes: 2048 }]);
+    expect(store().dirty).toBe(true);
+    await store().detachFile("resources/motor.fmu");
+    expect(store().project!.attachments).toEqual([]);
+    expect(api.deleteAttachment).toHaveBeenCalledWith("fixture", "motor.fmu");
   });
 });
