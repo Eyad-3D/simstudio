@@ -362,6 +362,36 @@ sections.
   summary; *Run info* edits the name and keeps a note, both stored with
   the run. (RES-10)
 
+- Scripts from someone else are shown before they run. Opening or
+  importing a project whose Script blocks hold code you have not approved
+  on this computer shows that code with **Run scripts** and **Open without
+  running scripts**, and **Run** asks again; the engine itself refuses to
+  run such code, for every kind of run. Code you type, the examples' code
+  and the scripts of the projects you had already saved count as approved;
+  an approval holds for that exact code
+  ([how](help/how-to/open-a-project-with-scripts.md)). (PLT-35)
+- The script process is locked down further: on Windows it runs at the low
+  integrity level, so it cannot change your files, and it cannot start
+  programs. On macOS, Apple's sandbox stops it writing files, starting
+  programs and using the network. (PLT-35)
+- Update checks that ask first. The desktop app asks once whether to check
+  for updates once a day (**Help → Updates** changes the answer); a check
+  sends only the version and platform. A new version shows what it changes
+  in your results and offers *Install on quit*, *Skip this version* or
+  *Later*; nothing installs without asking. Releases reach users in stages
+  ([how](help/how-to/check-for-updates.md)). (PLT-18)
+- For labs and company IT: the setup program installs silently for all
+  users (`/S /allusers`), a new MSI package installs and upgrades with
+  `msiexec /quiet`, and a machine-wide `policy.json` fixes update checks,
+  the script prompt, the examples and the projects folder for every user
+  ([how](help/how-to/deploy-for-it.md)). (PLT-36)
+- The build can sign every Windows file (the app, the engine, their
+  libraries, the installers and the MSI) and builds a signed, notarised
+  macOS version for Apple silicon, once the owner's certificates are set
+  up; this release is unsigned and has no Mac version unless its download
+  page says otherwise. Every Windows build is scanned with Microsoft
+  Defender and test-installed. (PLT-32, PLT-13)
+
 ### Fixed
 
 - A battery's SOC can be compared with measured SOC: a constant 1C
@@ -480,6 +510,12 @@ sections.
   (RES-18)
 - The summary's scroll box could not be reached with the keyboard. (RES-30)
 
+- The desktop app fetched spell-check dictionaries from Google's servers
+  when it started on Linux, and looked for a network proxy on Windows,
+  though LightSim promises to contact nothing outside your computer. Both
+  are off; a test of every packaged build now fails on any request beyond
+  the computer. (PLT-18)
+
 ### Upgrading from a 0.2.0 build
 
 - A battery without a Charge Capacity gets it from its Usable Capacity ÷
@@ -529,6 +565,11 @@ sections.
   So does a case whose own value is out of range: change or remove it in
   *Cases & Parameters*. A stored value out of range shows red in its field
   as soon as the project opens.
+- The first start of 0.3.0 counts the scripts in the projects already in
+  your projects folder as approved. A project you receive later asks
+  before its scripts run.
+- The desktop app asks once whether to check for updates; until you say
+  yes it checks nothing.
 - Going back to 0.2.0: it cannot open a project with a study point that
   says *cancelled*. It still lists and opens stored runs that say
   *cancelled*, but drops them from the list if it has to rebuild its run
