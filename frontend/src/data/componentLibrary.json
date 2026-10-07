@@ -3130,17 +3130,6 @@
           "whereToFind": "The fuel's standard or datasheet: EN 228 petrol 0.720–0.775 kg/l and EN 590 diesel 0.820–0.845 kg/l, at 15 °C."
         },
         {
-          "key": "lhv_MJ_per_kg",
-          "label": "Lower Heating Value",
-          "unit": "MJ/kg",
-          "default": 43,
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "description": "The energy in a kilogram of the fuel (lower heating value). It sets the fuel's energy that a hybrid's charge balancing compares the battery's energy change with: a charge-balanced run's battery may change by at most 1 % of it.",
-          "typical": "Petrol about 42–43 MJ/kg (the default 43) · diesel about 43 MJ/kg (background knowledge, unverified).",
-          "whereToFind": "The fuel's datasheet or standard; a fuel's analysis certificate gives its net calorific value."
-        },
-        {
           "key": "co2_kg_per_kg",
           "label": "CO₂ per kg of Fuel",
           "unit": "kg/kg",
@@ -3160,7 +3149,7 @@
           "type": "number",
           "exclusiveMinimum": 0,
           "maximum": 150,
-          "description": "The energy one kilogram of fuel gives when burnt (its lower heating value). It turns the fuel burnt into the engine's Fuel Power and the energy breakdown; it does not change the fuel used.",
+          "description": "The energy one kilogram of fuel gives when burnt (its lower heating value). It turns the fuel burnt into the engine's Fuel Power and the energy breakdown, and it is the fuel energy a hybrid's charge balancing compares the battery's energy change with (a charge-balanced run's battery may change by at most 1 % of it). It does not change the fuel used.",
           "typical": "Petrol about 42–43 MJ/kg (the default 42.9) · diesel about 43 MJ/kg · ethanol 27 MJ/kg.",
           "whereToFind": "The fuel's datasheet or a fuel-properties table (lower, or net, heating value)."
         }
