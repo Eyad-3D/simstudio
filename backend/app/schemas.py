@@ -203,6 +203,17 @@ class SimCase(BaseModel):
     # a time to compare the acceleration test's time with, s (e.g. last
     # year's best run); None = none
     referenceTime: Optional[float] = None
+    # a Formula Student dynamic event this case stands for (MOD-43): the run
+    # then reports the event's time as the rules take it, an estimate of its
+    # points against referenceTime (the fastest team's time, Tmin) and the
+    # rule checks; "endurance" also stops the car for the driver change at
+    # half distance and reports the efficiency. None = not an event
+    fsEvent: Optional[Literal["acceleration", "skidpad", "autocross", "endurance"]] = None
+    # the most efficient team's endurance energy, kWh, and its driving time,
+    # s (None: referenceTime), for the efficiency points (FS Rules 2026 v1.1
+    # (FSG) D 9.4: EFmin = T² · E of that team)
+    referenceEnergy: Optional[float] = None
+    referenceEnergyTime: Optional[float] = None
     # Per-case parameter overrides: {elementId: {paramKey: value}}. Layered on
     # top of each element's own parameterOverrides at model-build time, so a
     # case can tweak values — and a parameter sweep can vary one — without

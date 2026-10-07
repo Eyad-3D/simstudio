@@ -1890,12 +1890,15 @@ class ElectricalSlave(_CtxSlave):
                 b.current, b.power_w = current, p_w
                 if p_w > b.p_peak_w:
                     b.p_peak_w = p_w
+                if current > b.i_peak_a:
+                    b.i_peak_a = current
                 # the terminal voltage at the step's end: its current on the
                 # state it left (read without the Error check, as at the
                 # start: the next step's read stops the run, with its time)
                 b.v_term = (interp1(b.ocv_map.pts, b.soc_pct(), b.ocv_map.linear[0])
                             - b.v_rc - current * b.r0)
                 ctx.bus_voltage[bus.id] = b.v_term
+                b.v_peak = max(b.v_peak, b.v_term)
                 if b.check is not None:
                     # held at the cap (the motors' torque search stops a hair
                     # below it), or over a limit that is only checked

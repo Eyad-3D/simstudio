@@ -29,7 +29,7 @@ from typing import Callable, Iterator, Optional
 
 from ..library import unit_groups
 from ..schemas import Channel, Project, SimMessage, SimResult, SummaryValue
-from . import lapsim
+from . import fs_events, lapsim
 from .domains import ModelInitError, RunContext, build_slaves
 from .maps import OutsideDataError
 from .master import Master, SlaveStepError
@@ -127,6 +127,10 @@ def simulate(
                                "usually optimistic: calibrate the tyres' μ and μ_y and the "
                                "downforce against a lap your car has driven.")
             lap = ctx.lap = lapsim.LapRun(ctx)
+            if case.fsEvent == "endurance" and lap.laps >= 2:  # the driver change
+                lap.stop_after = lap.laps // 2 - 1
+            for level, text in fs_events.lap_check(case, lap.laps, lap.track.length):
+                rt.message(level, text)
         # Phase 1.4: the wholesale-wrapped slaves share all coupling through the
         # RunContext, so the master runs with an empty route table for now; the
         # declared-variable pool takes over as per-component models are extracted.
@@ -489,6 +493,20 @@ def simulate(
                     not_valid[s.label] = "the solution broke down"
         for s in summary:
             s.notValid = not_valid.get(s.label)
+        event = case.fsEvent
+        if event and case.kind != ("acceleration" if event == "acceleration" else "lap"):
+            rt.message("info", f"The case stands for the Formula Student "
+                               f"{fs_events.NAMES[event]} event, but its kind is "
+                               f"{case.kind.capitalize()}: the event is scored from "
+                               f"{'an Acceleration' if event == 'acceleration' else 'a Lap'} "
+                               f"case only, so this run has no event rows.")
+        elif event and times:
+            rows_ev, msgs_ev = fs_events.event_rows(
+                case, ctx, lap, summary, finished=not stopped and failed_at is None)
+            summary[:0] = [SummaryValue(label=label, value=v, unit=u, limit=lim, passed=ok,
+                                        notValid=nv) for label, v, u, lim, ok, nv in rows_ev]
+            for level, text in msgs_ev:
+                rt.message(level, text)
 
         has_error = any(m.level == "error" for m in rt.messages)
         has_warning = any(m.level == "warning" for m in rt.messages)

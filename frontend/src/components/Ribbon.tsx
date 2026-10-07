@@ -24,6 +24,7 @@ import {
   Square,
   Sun,
   Timer,
+  Trophy,
   Trash2,
   Undo2,
   Upload,
@@ -395,6 +396,13 @@ function SimulationsTab() {
           title="Formula Student acceleration test: runs the first Acceleration case, or adds one (75 m, staged 0.30 m behind the start line, 25 s time limit) and runs it. FS Rules 2026 v1.1 (FSG): D 5.1.1 75 m, D 5.2.3 0.30 m staging, D 9.2.1 25 s (driverless runs only). FSUK and FSAE may differ: check the current season's rules."
           disabled={store.running || !store.project}
           onClick={() => void store.runAccelerationTest()}
+        />
+        <BigButton
+          icon={Trophy}
+          label="FS events"
+          title="Formula Student dynamic events: marks (or adds) an Acceleration, a Skidpad, an Autocross and an Endurance case (22 laps of the Autocross layout, about 22 km, with the driver change), runs the four and shows their points in Cases & Parameters → Formula Student points. Set each case's reference values (the best teams' time and energy) for the points. Scoring: FS Rules 2026 v1.1 (FSG) D 9, estimates, not official results; FSUK and FSAE score differently."
+          disabled={store.running || !store.project}
+          onClick={() => void store.runFsEvents()}
         />
       </RibbonGroup>
     </>

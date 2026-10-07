@@ -19,6 +19,7 @@ import type {
   PortSide,
   Project,
   RunSnapshot,
+  SimCase,
   SimResult,
   SimRun,
   StoredRunInfo,
@@ -27,6 +28,7 @@ import type {
   SystemNode,
 } from "../types";
 import { rangeProblem } from "../paramRules";
+import { FS_EVENTS, type FsEvent } from "../fsEvents";
 import { useUIStore } from "./uiStore";
 
 export function uid(prefix: string): string {
@@ -417,6 +419,9 @@ export interface ProjectState {
       endDistance: number | null;
       startLine: number;
       referenceTime: number | null;
+      fsEvent: FsEvent | null;
+      referenceEnergy: number | null;
+      referenceEnergyTime: number | null;
     }>,
   ) => void;
   addCase: () => void;
@@ -437,6 +442,10 @@ export interface ProjectState {
   /** The one-click Formula Student acceleration test: select the first
    *  acceleration case (adding a 75 m one if there is none) and run it. */
   runAccelerationTest: () => Promise<void>;
+  /** The one-click Formula Student events (MOD-43): mark or add an
+   *  Acceleration, Skidpad, Autocross and Endurance case (one undo) and run
+   *  the four; their points show in Cases & Parameters. */
+  runFsEvents: () => Promise<void>;
   /** Sequentially run a case once per swept value, each landing in run
    *  history; the study and its results table are saved with the project. */
   runSweep: (config: SweepConfig) => Promise<void>;
@@ -1734,6 +1743,78 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
       set({ activeCaseId: id });
       await get().run();
+    },
+
+    runFsEvents: async () => {
+      const { project, running, log } = get();
+      if (!project || running) return;
+      const track = project.systems.flatMap((sys) => sys.elements).find((e) => e.componentDefId === "track.lap");
+      if (!track) {
+        log("error", "Formula Student events need a Race Track: add one from Driver & Signals.");
+        return;
+      }
+      const layoutOf = (c: SimCase) =>
+        String(c.parameterOverrides?.[track.id]?.layout ?? track.parameterOverrides.layout ?? "Autocross");
+      const lapsOf = (c: SimCase) => Number(c.parameterOverrides?.[track.id]?.laps ?? track.parameterOverrides.laps ?? 1);
+      // an event's case: the one marked for it, else a case of its shape (the
+      // FS example's own cases), else a new one
+      const shapes: Record<FsEvent, (c: SimCase) => boolean> = {
+        acceleration: (c) => c.kind === "acceleration",
+        skidpad: (c) => c.kind === "lap" && layoutOf(c) === "Skidpad",
+        autocross: (c) => c.kind === "lap" && layoutOf(c) === "Autocross" && lapsOf(c) <= 2,
+        endurance: (c) => c.kind === "lap" && lapsOf(c) >= 15,
+      };
+      const ids: Record<FsEvent, string> = { acceleration: "", skidpad: "", autocross: "", endurance: "" };
+      const taken = new Set<string>();
+      for (const ev of FS_EVENTS) {
+        const c =
+          project.cases.find((x) => x.fsEvent === ev) ??
+          project.cases.find((x) => !x.fsEvent && !taken.has(x.id) && shapes[ev](x));
+        if (c) {
+          ids[ev] = c.id;
+          taken.add(c.id);
+        }
+      }
+      updateProject((draft) => {
+        for (const ev of FS_EVENTS) {
+          const found = draft.cases.find((c) => c.id === ids[ev]);
+          if (found) {
+            found.fsEvent = ev;
+            continue;
+          }
+          const id = uid("case");
+          ids[ev] = id;
+          // FS Rules 2026 v1.1 (FSG): acceleration 75 m from 0.30 m behind the
+          // line (D 5.1.1, D 5.2.3); skidpad a right and a left circle after an
+          // establishing lap (D 4.2.1); autocross one lap (D 6.2.1); endurance
+          // about 22 km (D 7.1.3) on the Autocross layout (979 m: 22 laps)
+          const lapCase = (name: string, layout: string, laps: number, every = 1): SimCase => ({
+            id, name, duration: 600, timeStep: 1, kind: "lap", outputEvery: every, fsEvent: ev,
+            parameterOverrides: { [track.id]: { layout, laps } },
+          });
+          draft.cases.push(
+            ev === "acceleration"
+              ? { id, name: "Acceleration 75 m", duration: 25, timeStep: 0.01, kind: "acceleration",
+                  endDistance: 75, startLine: 0.3, fsEvent: ev }
+              : ev === "skidpad"
+                ? lapCase("Skidpad", "Skidpad", 2)
+                : ev === "autocross"
+                  ? lapCase("Autocross", "Autocross", 1)
+                  : lapCase("Endurance", "Autocross", 22, 5),
+          );
+        }
+      });
+      for (const ev of FS_EVENTS) {
+        set({ activeCaseId: ids[ev] });
+        await get().run();
+        if (get().running) return;
+        const last = get().runs.find((r) => r.caseId === ids[ev]);
+        if (!last || last.status === "failed") break; // (its messages say why)
+      }
+      const ui = useUIStore.getState();
+      ui.setRibbonTab("home");
+      ui.focusPanel("cases");
+      log("info", "Formula Student events run: their points are in Cases & Parameters → Formula Student points.");
     },
 
     runSweep: async ({ caseId, elementId, paramKey, values }) => {

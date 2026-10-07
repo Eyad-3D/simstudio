@@ -336,6 +336,10 @@ class LapRun:
         tp = ctx.params(model.track)
         self.track = load_track(tp, spacing)
         self.laps = int(float(tp.get("laps", 1)))
+        # the lap (from 0) that ends at a standstill for the endurance's driver
+        # change (FS Rules 2026 v1.1 (FSG) D 7.2.3, D 7.5); the next lap starts
+        # from rest. None: no stop
+        self.stop_after: Optional[int] = None
         self.m = ctx.veh_mass
         self.dp = ctx.params(model.driver) if model.driver else {}
 
@@ -679,8 +683,11 @@ class LapRun:
         # with a lap to come (driven on from this one's end), over the next
         # lap's corners too (at their cornering speed: the next lap's own
         # start is not known yet)
-        wrap = tr.closed or self.k + 1 < self.laps
+        stop = self.k == self.stop_after
+        wrap = (tr.closed or self.k + 1 < self.laps) and not stop
         vb = vf + apex[1:] if wrap else vf[:]
+        if stop:
+            vb[n] = 0.0  # into the driver change area
         if wrap:
             vb[n] = min(vb[n], apex[0])  # where the next lap starts
             kappa, sin_t = kappa + kappa[1:], sin_t + sin_t[1:]

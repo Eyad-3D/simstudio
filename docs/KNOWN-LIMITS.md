@@ -216,9 +216,39 @@ gears, brakes and battery. It is not a driving simulation:
 watch, and check the *Time limited by* rows and the Race Track's *Limit*
 channel for what holds the car back.
 *Roadmap:* VAL-12 (calibration against a logged lap), MOD-34 (a dynamic
-lap model), STD-35 (tracks from GPS or OpenStreetMap), MOD-43 (events and
-scoring), CON-11 (driving a lap's speed as a drive cycle), MOD-08 (state
+lap model), STD-35 (tracks from GPS or OpenStreetMap), CON-11 (driving a lap's speed as a drive cycle), MOD-08 (state
 of power), MOD-09 (heat over an endurance).
+
+### Formula Student points are estimates
+
+The *FS event* rows and the *Formula Student points* table score a run
+with the formulas of FS Rules 2026 v1.1 (FSG) D 9. They are not official
+results:
+
+- Only FSG 2026 scoring is built in. FSUK and FSAE use other maximum
+  points and formulas, and a season's rules can change them.
+- The points need the other teams' results: the fastest time and the most
+  efficient energy, which you type in. No competition's results come with
+  LightSim.
+- Each event is one run, with no penalties (cones, off-course, flags) and
+  no second driver or second run.
+- The rule checks are simplified: the current and, without the battery's
+  Formula Student preset, the power are checked at their highest over a
+  solver step, not as a 500 ms average (stricter than D 10.4.1); the
+  voltage check takes the open-circuit voltage at full charge or the
+  highest terminal voltage. Any breach scores the event 0, where the rules
+  take away only the fastest run.
+- The endurance's driver change is a stop at the end of the lap at half
+  distance and a start from rest on the next one; the event time leaves
+  out that restart lap whole, but keeps the braking into the stop. The
+  3 min stop itself is not simulated (no battery recovery or cooling).
+- The skidpad time is the mean of the two circles of one lap of LightSim's
+  Skidpad layout; the rules time a second lap on each circle.
+
+*Workaround:* compare points between versions of your car, with the same
+references, rather than with a competition's results.
+*Roadmap:* MOD-43 (more competitions' scoring), MOD-44 (endurance energy
+strategy), MOD-09 (heat over an endurance).
 
 ### Signal units are not checked
 
@@ -440,8 +470,7 @@ minimum or an average, for example from the CSV export, or put the
   recuperating into the full pack raises its cells to about 4.3 V (594 V),
   which a real accumulator management system would not allow. A
   two-motor variant is not shipped.
-  *Roadmap:* MOD-16 (tyre peak and drop), MOD-43 (driver change and
-  scoring), MOD-08 (pack from cells, current limit), CON-18 (templates,
+  *Roadmap:* MOD-16 (tyre peak and drop), MOD-08 (pack from cells, current limit), CON-18 (templates,
   two-motor variant).
 - **Runs made on an example stay with the copy you ran.** An example opens
   as an unsaved copy, and its runs are stored with that copy: they are

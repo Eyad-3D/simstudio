@@ -175,6 +175,23 @@ sections.
   and a Custom curvature above 0.5 1/m. The results are estimates, and say so.
   A Formula Student-sized car (280 kg, 96 kW, μ 1.5) laps the Autocross
   in 61.2 s (62.9 s from a standing start), solved in about 0.15 s.
+- Formula Student events and points (MOD-43): **FS events** (Simulations
+  tab) marks or adds an Acceleration, a Skidpad, an Autocross and an
+  Endurance case, runs the four (about 9 s for the FS example) and shows
+  *Formula Student points* in the *Cases* tab. A case's new *FS event*
+  setting (Acceleration or Lap cases) adds the event's time as the rules
+  take it, the rule checks (80 kW EV 2.2.1, 500 A EV 2.2.2, 600 V EV 4.1.1,
+  and whether the endurance finished on its energy) and an estimate of its
+  points from the case's *Reference time* (the fastest team's time) and,
+  for the endurance, *Reference energy* (the most efficient team's), with
+  the scoring of FS Rules 2026 v1.1 (FSG) table 3, D 9.1.1, table 11 and
+  D 9.4. A broken rule scores 0 (D 10.4.2). An Endurance case stops for
+  the driver change at half distance and restarts from rest (D 7.2.3,
+  D 7.5); its event time leaves out the restart lap (D 7.2.5) and its
+  energy counts regeneration at 90 % (D 7.9.5). The points are estimates,
+  not official results; FSUK and FSAE score differently. Batteries now
+  record their highest current and terminal voltage for these checks.
+  No existing case changes.
 - Wheel: *Lateral Friction μ_y* (0: the same as μ), *Load Sensitivity
   dμ/dFz* (per kN), *Nominal Load Fz0* (0: the wheel's static load) and
   *Friction Ellipse Exponent* (lap cases). The load sensitivity also acts

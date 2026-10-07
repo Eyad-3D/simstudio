@@ -127,6 +127,9 @@ export interface SystemNode {
   connections: Connection[];
 }
 
+/** A Formula Student dynamic event (MOD-43). */
+export type FsEvent = "acceleration" | "skidpad" | "autocross" | "endurance";
+
 export interface SimCase {
   id: string;
   name: string;
@@ -157,6 +160,16 @@ export interface SimCase {
   startLine?: number;
   /** A time to compare the acceleration test's time with, s; null = none. */
   referenceTime?: number | null;
+  /**
+   * A Formula Student dynamic event this case stands for (MOD-43): the run
+   * reports the event's time, the points against referenceTime (the fastest
+   * team's time) and the rule checks; "endurance" stops the car for the
+   * driver change at half distance and reports the efficiency. Absent = none.
+   */
+  fsEvent?: FsEvent | null;
+  /** The most efficient team's endurance energy, kWh, and its time, s (null: referenceTime). */
+  referenceEnergy?: number | null;
+  referenceEnergyTime?: number | null;
   /**
    * Per-case parameter overrides: { elementId: { paramKey: value } }. Layered
    * on top of each element's own parameterOverrides at solve time, so a case

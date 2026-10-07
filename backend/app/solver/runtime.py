@@ -161,6 +161,8 @@ class BatteryState:
     current: float = 0.0
     power_w: float = 0.0
     p_peak_w: float = 0.0  # the highest terminal power over a solver step, W
+    i_peak_a: float = 0.0  # the highest discharge current over a solver step, A
+    v_peak: float = 0.0  # the highest terminal voltage at a solver step's end, V
     # the Output Power Limit the terminals are held to, W (output_power_cap_w),
     # whether it and not the cells set this step's deliverable power, and the
     # run checks when a limit or a Voltage Class is set
