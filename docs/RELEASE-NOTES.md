@@ -289,6 +289,17 @@ sections.
   with an engine. The Battery Electric Car gets 104 MPGe combined and 213
   miles; the P2 Hybrid Car 56 city, 48 highway and 52 combined mpg (the
   real car's label: 58, 60 and 59). (CON-32)
+- Weather presets on the Ambient: *Cold day (−7 °C)* (EPA's cold FTP and
+  the EU's low-temperature test), *Standard day (23 °C)* (WLTP),
+  *Hot and sunny day (35 °C)* (EPA's air-conditioning test SC03) and *High
+  altitude (1,500 m)* (the standard atmosphere: 84.56 kPa, 5.25 °C), each
+  with its source. The Battery Electric Car has an Ambient (at its
+  defaults, the air it had before) and two new cases, *WLTC, winter day
+  (−7 °C, heating on)* at 19.5 kWh/100 km and *WLTC, hot day (35 °C,
+  air-con on)* at 18.6, against 18.9 at 20 °C with the same 2.5 kW load.
+  Only the air density follows the weather until the climate-control load
+  (MOD-41) arrives; the presets' notes say so. No existing case changes.
+  (CON-30)
 - Help: press F1, or click **?** at the top right, to open LightSim's help
   in your web browser. It comes with the app and needs no internet
   connection: two tutorials, how-to guides, a page for every part with its

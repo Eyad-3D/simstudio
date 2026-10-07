@@ -545,6 +545,13 @@ minimum or an average, for example from the CSV export, or put the
   clicks). In a 1366 × 768 window the bottom panel shows two rows at a
   time; drag its top edge up to see more. *Roadmap:* UX-15 (follow-up),
   UX-11.
+- **Weather presets set only the air.** The Ambient's presets (cold,
+  standard, hot and sunny, high altitude) set its temperature and pressure,
+  so only the air density follows them: no heating or air-conditioning
+  load, no sun, no cold battery or engine, and engine power does not fall
+  with altitude. The electric car's winter and hot-day cases add a fixed
+  2.5 kW load instead. Hourly weather files cannot be loaded.
+  *Roadmap:* MOD-41, MOD-09, CON-30 (second step).
 - **US label estimate from two cycles only.** *Simulations → US label*
   uses EPA's derived two-cycle method. The five-cycle tests (US06, SC03 at
   35 °C, a cold FTP at −7 °C) need heat and climate models LightSim does

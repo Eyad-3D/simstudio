@@ -1910,6 +1910,28 @@
           "typical": "101.325 kPa at sea level; about 90 kPa at 1,000 m and 80 kPa at 2,000 m (1 bar = 100 kPa).",
           "whereToFind": "A weather record (the station pressure, not the value reduced to sea level), or the standard atmosphere at your altitude."
         }
+      ],
+      "presets": [
+        {
+          "name": "Cold day (−7 °C)",
+          "values": { "temperature_C": -7, "pressure_kPa": 101.325 },
+          "note": "The cold test temperature of EPA's cold FTP (20 °F, 40 CFR Part 86 Subpart C) and the EU's Type 6 low-temperature test (−7 °C), at sea-level pressure. Only the air density follows it: LightSim has no heating load from the outside temperature yet (MOD-41), so add the heater's power yourself, as the Battery Electric Car's winter case does."
+        },
+        {
+          "name": "Standard day (23 °C)",
+          "values": { "temperature_C": 23, "pressure_kPa": 101.325 },
+          "note": "The temperature of a WLTP Type 1 test (23 °C, Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 6), at sea-level pressure (101.325 kPa, the standard atmosphere)."
+        },
+        {
+          "name": "Hot and sunny day (35 °C)",
+          "values": { "temperature_C": 35, "pressure_kPa": 101.325 },
+          "note": "The temperature of EPA's air-conditioning test SC03 (95 °F, 40 CFR Part 86), at sea-level pressure. The test also shines 850 W/m² of simulated sun on the car; LightSim has no sun or air-conditioning load from the weather yet (MOD-41), so add the air-conditioning power yourself, as the Battery Electric Car's summer case does."
+        },
+        {
+          "name": "High altitude (1,500 m)",
+          "values": { "temperature_C": 5.25, "pressure_kPa": 84.56 },
+          "note": "The standard atmosphere (ISO 2533) at 1,500 m: 84.56 kPa and 5.25 °C (15 °C at sea level, 6.5 K colder per km), about 16 % thinner air than at sea level. Engine power does not fall with the thinner air in LightSim."
+        }
       ]
     },
     {
