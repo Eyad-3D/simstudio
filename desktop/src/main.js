@@ -9,13 +9,14 @@
  * frontend's relative `/api` calls work untouched.
  */
 
-const { app, BrowserWindow, Menu, dialog, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const net = require("node:net");
 const path = require("node:path");
 const fs = require("node:fs");
 const { copyOldProjects } = require("./old-projects");
+const { EngineFiles, isProjectFile, projectFilesIn, suggestedName, withSuffix } = require("./project-files");
 
 const HEALTH_TIMEOUT_MS = 40_000;
 const isWindows = process.platform === "win32";
@@ -33,8 +34,16 @@ let quitting = false;
 // its first page load, and the engine answers with an HttpOnly cookie that
 // the UI then sends by itself (see backend/app/security.py).
 const launchToken = crypto.randomBytes(32).toString("hex");
+// A second secret only this process has (never the window): the engine takes
+// file paths only from requests that carry it (PLT-33, backend/app/security.py).
+const shellToken = crypto.randomBytes(32).toString("hex");
 /** The engine's origin once it is running; the window never leaves it. */
 let appOrigin = null;
+/** @type {EngineFiles | null} the engine's file routes, once it runs */
+let engineFiles = null;
+/** .lightsim files to open once the window is ready (a double-click at launch). */
+const pendingFiles = [];
+let windowReady = false;
 
 // The UI keeps its settings (theme, dock layout, crash-recovery draft) in
 // localStorage, which is keyed by origin — so the port must stay the same
@@ -162,6 +171,7 @@ function startBackend(port) {
       LIGHTSIM_PROJECTS_DIR: projectsDir,
       LIGHTSIM_STATIC_DIR: staticDir,
       LIGHTSIM_TOKEN: launchToken,
+      LIGHTSIM_SHELL_TOKEN: shellToken,
       PYTHONUNBUFFERED: "1",
     },
   });
@@ -223,6 +233,39 @@ async function openDoc(file) {
   if (error) shell.showItemInFolder(file);
 }
 
+/** Run one of the window's file commands (App.tsx); false if it cannot. */
+function inWindow(script) {
+  if (!mainWindow || mainWindow.isDestroyed() || !windowReady) return Promise.resolve(false);
+  return mainWindow.webContents.executeJavaScript(script).catch(() => false);
+}
+
+/** Open a .lightsim file the user picked or double-clicked, in the window. */
+async function openProjectFile(file) {
+  if (!engineFiles || !windowReady) {
+    pendingFiles.push(file);
+    return;
+  }
+  try {
+    const info = await engineFiles.open(file);
+    app.addRecentDocument(info.path);
+    await inWindow(`window.lightsimOpenProjectId ? window.lightsimOpenProjectId(${JSON.stringify(info.id)}) : false`);
+    buildMenu();
+  } catch (err) {
+    dialog.showErrorBox("LightSim could not open the file", `${file}\n\n${err.message || err}`);
+  }
+}
+
+/** The files the File → Open Recent menu lists (none before the engine runs). */
+let recentFiles = [];
+async function refreshRecent() {
+  if (!engineFiles) return;
+  try {
+    recentFiles = (await engineFiles.recent()).filter((f) => f.exists).slice(0, 10);
+  } catch {
+    recentFiles = [];
+  }
+}
+
 function buildMenu() {
   const projectsDir = path.join(app.getPath("userData"), "projects");
   const knownLimits = bundledDoc("KNOWN-LIMITS.md", "docs/KNOWN-LIMITS.md");
@@ -234,6 +277,35 @@ function buildMenu() {
     {
       label: "File",
       submenu: [
+        {
+          label: "Open…",
+          accelerator: "CmdOrCtrl+O",
+          registerAccelerator: false, // the page handles the keys (it asks about unsaved work first)
+          click: () => inWindow("window.lightsimOpenFile ? window.lightsimOpenFile() : false"),
+        },
+        {
+          label: "Open Recent",
+          submenu: recentFiles.length
+            ? recentFiles.map((f) => ({
+                label: `${f.name} — ${f.path}`,
+                click: () => inWindow(`window.lightsimOpenProjectId ? window.lightsimOpenProjectId(${JSON.stringify(f.id)}) : false`),
+              }))
+            : [{ label: "No recent files", enabled: false }],
+        },
+        { type: "separator" },
+        {
+          label: "Save",
+          accelerator: "CmdOrCtrl+S",
+          registerAccelerator: false,
+          click: () => inWindow("window.lightsimSave ? window.lightsimSave() : false"),
+        },
+        {
+          label: "Save As…",
+          accelerator: "CmdOrCtrl+Shift+S",
+          registerAccelerator: false,
+          click: () => inWindow("window.lightsimSaveAs ? window.lightsimSaveAs() : false"),
+        },
+        { type: "separator" },
         {
           label: "Open Projects Folder",
           click: () => shell.openPath(projectsDir),
@@ -344,6 +416,62 @@ function askBeforeUnsavedUnload(win) {
   });
 }
 
+/** Answer the window's file requests (preload.js) only when they come from
+ *  the engine's own page. */
+function fromApp(event) {
+  try {
+    return Boolean(appOrigin) && new URL(event.senderFrame.url).origin === appOrigin;
+  } catch {
+    return false;
+  }
+}
+
+function handleFileRequests() {
+  const filters = [{ name: "LightSim project", extensions: ["lightsim"] }];
+  ipcMain.handle("lightsim:open-file", async (event) => {
+    if (!fromApp(event) || !engineFiles) return null;
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: "Open a LightSim project",
+      properties: ["openFile"],
+      filters,
+    });
+    if (canceled || !filePaths[0]) return null;
+    const info = await engineFiles.open(filePaths[0]);
+    app.addRecentDocument(info.path);
+    await refreshRecent();
+    buildMenu();
+    return info;
+  });
+  ipcMain.handle("lightsim:save-file-as", async (event, projectId, name) => {
+    if (!fromApp(event) || !engineFiles) return null;
+    const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: "Save the project as",
+      defaultPath: path.join(app.getPath("documents"), suggestedName(name)),
+      filters,
+      properties: ["showOverwriteConfirmation", "createDirectory"],
+    });
+    if (canceled || !filePath) return null;
+    const info = await engineFiles.saveAs(withSuffix(filePath), projectId);
+    app.addRecentDocument(info.path);
+    await refreshRecent();
+    buildMenu();
+    return info;
+  });
+  ipcMain.handle("lightsim:open-dropped", async (event, file) => {
+    if (!fromApp(event) || !engineFiles || !file || !isProjectFile(file) || !fs.existsSync(file)) return null;
+    const info = await engineFiles.open(file);
+    app.addRecentDocument(info.path);
+    await refreshRecent();
+    buildMenu();
+    return info;
+  });
+  ipcMain.handle("lightsim:show-file", async (event, projectId) => {
+    if (!fromApp(event) || !engineFiles) return;
+    const file = (await engineFiles.recent()).find((f) => f.id === projectId);
+    if (file) shell.showItemInFolder(file.path);
+  });
+}
+
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1600,
@@ -358,6 +486,7 @@ async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      preload: path.join(__dirname, "preload.js"),
     },
   });
   askBeforeUnsavedUnload(mainWindow);
@@ -385,9 +514,15 @@ async function createWindow() {
     startBackend(port);
     await waitForBackend(port);
     appOrigin = `http://127.0.0.1:${port}`;
+    engineFiles = new EngineFiles(appOrigin, launchToken, shellToken);
     await mainWindow.loadURL(`${appOrigin}/`, {
       extraHeaders: `Authorization: Bearer ${launchToken}\n`,
     });
+    windowReady = true;
+    await refreshRecent();
+    buildMenu();
+    // files double-clicked to start the app
+    for (const file of pendingFiles.splice(0)) await openProjectFile(file);
   } catch (err) {
     dialog.showErrorBox("LightSim could not start", String(err.message || err));
     app.quit();
@@ -397,14 +532,24 @@ async function createWindow() {
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  // a .lightsim file double-clicked while the app runs comes in a second
+  // instance's command line
+  app.on("second-instance", (_event, argv, cwd) => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
+    for (const file of projectFilesIn(argv.slice(1), cwd)) void openProjectFile(file);
   });
+  // macOS hands files over this way (before or after launch)
+  app.on("open-file", (event, file) => {
+    event.preventDefault();
+    if (isProjectFile(file)) void openProjectFile(file);
+  });
+  pendingFiles.push(...projectFilesIn(process.argv.slice(1)));
 
   app.whenReady().then(() => {
+    handleFileRequests();
     buildMenu();
     createWindow();
     app.on("activate", () => {

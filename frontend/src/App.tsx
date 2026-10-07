@@ -94,7 +94,22 @@ export default function App() {
     };
     // the desktop shell's File menu, a double-clicked .lightsim file (PLT-33)
     window.lightsimSaveAs = () => useProjectStore.getState().saveAs();
+    window.lightsimOpenFile = async () => {
+      if (!(await confirmReplaceProject("Opening a project file"))) return false;
+      await useProjectStore.getState().openFile();
+      return true;
+    };
     window.lightsimOpenProjectId = async (id) => {
+      // a file double-clicked to start the app waits for start-up to finish
+      await new Promise<void>((resolve) => {
+        if (useProjectStore.getState().loaded) return resolve();
+        const unsub = useProjectStore.subscribe((s) => {
+          if (s.loaded) {
+            unsub();
+            resolve();
+          }
+        });
+      });
       if (!(await confirmReplaceProject("Opening a project file"))) return false;
       await useProjectStore.getState().openProject(id);
       useUIStore.getState().setRibbonTab("home");
@@ -104,6 +119,7 @@ export default function App() {
       window.removeEventListener("beforeunload", onBeforeUnload);
       delete window.lightsimSave;
       delete window.lightsimSaveAs;
+      delete window.lightsimOpenFile;
       delete window.lightsimOpenProjectId;
     };
   }, []);

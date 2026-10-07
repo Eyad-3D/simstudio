@@ -28,6 +28,8 @@ declare global {
     lightsimDesktop?: DesktopBridge;
     /** called by the shell: open project `id` (File → Open, a double-clicked file) */
     lightsimOpenProjectId?: (id: string) => Promise<boolean>;
+    /** called by the shell: File → Open… */
+    lightsimOpenFile?: () => Promise<boolean>;
     /** called by the shell: File → Save As… */
     lightsimSaveAs?: () => Promise<boolean>;
   }
