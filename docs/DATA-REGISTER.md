@@ -24,7 +24,7 @@ cleared it for shipping.
 
 ## Status (2026-09-28)
 
-- The register has 45 rows.
+- The register has 51 rows.
 - **Third-party data is now bundled.** The example rebuild (CON-02, CON-03)
   took the Battery Electric Car's vehicle values from FASTSim's
   2021_Cupra_Born.csv, calibrated its motor loss map to FASTSim's default
@@ -56,6 +56,13 @@ cleared it for shipping.
   2026 v1.1 (FSG) and its reference results facts from the FS Czech Republic
   2025 results; it ships no tyre test data and no track of its own (its lap
   cases use the Race Track's layouts, DR-38).
+- The reference suite (`backend/validation/`, DR-61 to DR-66, VAL-05)
+  copies individual facts from EPA's 2022 Test Car List, fueleconomy.gov and
+  FASTSim's Apache-2.0 vehicle files into small case files. It is test data
+  and does not ship. EPA's disclaimers page (re-checked 2026-10-07) allows
+  free use "for non-commercial, scientific and educational purposes" and
+  says commercial use may be protected; the owner should confirm that this
+  fits LightSim's own test suite.
 - **Every other shipped map, curve, profile and default value still has
   unknown provenance.** All of them except the fuel density (a textbook
   value added in `4af7f9c`) first appear in the root commit of the main

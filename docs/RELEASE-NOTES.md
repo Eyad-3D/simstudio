@@ -386,6 +386,16 @@ sections.
   maximum speed allows through the gears, and the energy its batteries
   gave against the least the car's motion, climb and road load need.
   [How to](help/how-to/check-against-expected-values.md).
+- A reference suite of real cars (VAL-05): four 2022 electric cars
+  (Tesla Model 3 RWD, Chevrolet Bolt EUV, Nissan Leaf 40 kWh, MINI Cooper
+  SE) built from EPA's Test Car List and FASTSim's vehicle files, with no
+  input tuned to the results, drive EPA's city and highway cycles on every
+  change. Their energy at the wall is within 9 % of EPA's unadjusted
+  figures on all eight (4.5 % on average); a virtual coast-down gives back
+  EPA's road load within 0.02 %, and an exact-answer tier of three
+  coast-downs is within 0.005 %. [What is validated](VALIDATION-STATUS.md)
+  has the table and what it does not show. The files are in
+  `backend/validation/` and do not ship in the installer.
 
 ### Fixed
 
