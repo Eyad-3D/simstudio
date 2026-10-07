@@ -858,3 +858,11 @@ changed.
 | hybrid-car Mixed Cycle (shipped step) | Fuel consumption, charge-corrected | — | 2.87 l/100km | new row |
 | hybrid-car Mixed Cycle (fine step) | Battery energy change, share of fuel energy | — | -0.13 % | new row |
 | hybrid-car Mixed Cycle (fine step) | Fuel consumption, charge-corrected | — | 2.86 l/100km | new row |
+## Store the examples' reference results (CON-15)
+
+Nothing changed in the solver. `update_golden.py` now also writes each
+example's stored reference results (`backend/projects/reference/`), which
+the app shows when an example opens; this entry is the note they carry. The
+fixtures were rewritten only to name it.
+
+No headline number or channel moved.

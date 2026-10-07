@@ -63,9 +63,9 @@ const CASE_FIELDS: Record<string, [string, string, unknown?]> = {
   referenceTime: ["Reference time", " s"],
   energyReport: ["Energy report", "", true],
 };
-// the case's identity, its overrides (compared per parameter) and its pacing,
-// which changes no result
-const NOT_A_SETTING = new Set(["id", "name", "parameterOverrides", "realtimeFactor"]);
+// the case's identity, its overrides (compared per parameter), its pacing and
+// its expected values (VAL-35), which change no result
+const NOT_A_SETTING = new Set(["id", "name", "parameterOverrides", "realtimeFactor", "references"]);
 
 /** What changed from `base` to `next`: the case, each parameter as the
  *  solver used it (the case's override, else the part's, else the library

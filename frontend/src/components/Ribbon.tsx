@@ -12,6 +12,7 @@ import {
   Gauge,
   History,
   Fuel,
+  IdCard,
   LayoutGrid,
   ListChecks,
   Moon,
@@ -35,6 +36,7 @@ import {
 import * as api from "../api";
 import type { Project } from "../types";
 import { resetDockLayout } from "./DockLayout";
+import { ExampleCardDialog } from "./ExampleCardEditor";
 import { useDismiss } from "./useDismiss";
 import { LapImportDialog } from "./LapImportDialog";
 import { CalibrateDialog } from "./CalibrateDialog";
@@ -672,6 +674,7 @@ function ProjectTab() {
   const project = useProjectStore((s) => s.project);
   const renameSystem = useProjectStore((s) => s.renameSystem);
   const root = project?.systems.find((s) => s.parentId === null);
+  const [cardOpen, setCardOpen] = useState(false);
   return (
     <>
       <RibbonGroup label="Project Settings">
@@ -689,6 +692,16 @@ function ProjectTab() {
       </RibbonGroup>
       <RibbonGroup label="Versions">
         <RestoreVersionButton />
+      </RibbonGroup>
+      <RibbonGroup label="Example">
+        <BigButton
+          icon={IdCard}
+          label="Card…"
+          title="The project's card: the question it answers, its difficulty, what you learn, what happens when and how far its results are checked"
+          disabled={!project}
+          onClick={() => setCardOpen(true)}
+        />
+        {cardOpen && <ExampleCardDialog onClose={() => setCardOpen(false)} />}
       </RibbonGroup>
     </>
   );

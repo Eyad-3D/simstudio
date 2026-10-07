@@ -12,6 +12,7 @@ import type {
   DataBusConnection,
   DataCheck,
   ElementInstance,
+  ExampleCard,
   LiveEdit,
   LogMessage,
   OutsidePolicy,
@@ -20,6 +21,7 @@ import type {
   PortDef,
   PortSide,
   Project,
+  ReferenceValue,
   RunSnapshot,
   SimCase,
   SimResult,
@@ -376,6 +378,8 @@ export interface ProjectState {
   addDataBus: (el1: string, p1: string, el2: string, p2: string, replaceId?: string) => void;
   removeDataBus: (id: string) => void;
   renameSystem: (systemId: string, name: string) => void;
+  /** Set or change the project's card (CON-15); null removes it. */
+  setCard: (card: ExampleCard | null) => void;
 
   undo: () => void;
   redo: () => void;
@@ -418,6 +422,7 @@ export interface ProjectState {
       fsEvent: FsEvent | null;
       referenceEnergy: number | null;
       referenceEnergyTime: number | null;
+      references: ReferenceValue[];
     }>,
   ) => void;
   addCase: () => void;
@@ -1288,6 +1293,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         draft.dataBusConnections = draft.dataBusConnections.filter((d) => d.id !== id);
       }),
 
+    setCard: (card) =>
+      updateProject(
+        (draft) => {
+          draft.card = card;
+        },
+        true,
+        "card",
+      ),
+
     renameSystem: (systemId, name) =>
       updateProject(
         (draft) => {
@@ -1432,6 +1446,41 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         "info",
         `Example '${project.name}' opened as a copy. Save keeps it as a new project of yours; the example stays as it is.`,
       );
+      // its stored reference results, so Results has something to show at
+      // once (CON-15); a Run recomputes them
+      let stored: api.StoredReference[];
+      try {
+        stored = await api.fetchExampleReference(id);
+      } catch {
+        return; // an engine without them: the Results page starts empty
+      }
+      if (get().project?.id !== project.id || stored.length === 0) return;
+      const runs: SimRun[] = stored.flatMap((s) => {
+        const c = project.cases.find((cc) => cc.id === s.caseId);
+        if (!c) return [];
+        return [
+          {
+            id: `stored-${s.caseId}`,
+            caseId: s.caseId,
+            caseName: c.name,
+            startedAt: Date.parse(s.creation.date) || 0,
+            status: s.result.status,
+            result: s.result,
+            name: "Stored result",
+            note: `Stored with LightSim ${s.creation.appVersion} on ${s.creation.date}: only the comparison signals are kept. Press Run to recompute.`,
+            snapshot: { project, case: c, appVersion: s.creation.appVersion, liveEdits: [] },
+          },
+        ];
+      });
+      set((st) => {
+        const own = new Set(st.runs.map((r) => r.caseId));
+        const add = runs.filter((r) => !own.has(r.caseId));
+        const all = [...st.runs, ...add];
+        return {
+          runs: all,
+          activeRunId: st.activeRunId ?? add.find((r) => r.caseId === st.activeCaseId)?.id ?? null,
+        };
+      });
     },
 
     hideExample: async (id, name) => {

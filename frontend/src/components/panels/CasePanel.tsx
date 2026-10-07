@@ -11,6 +11,7 @@ import { FS_EVENT_NAMES, FS_EVENTS } from "../../fsEvents";
 import type { FsEvent } from "../../types";
 import { FsPoints } from "./FsPoints";
 import { EnduranceStudy } from "./EnduranceStudy";
+import { ExpectedValuesEditor } from "./ExpectedValues";
 
 // Only scalar parameters are editable as per-case overrides here; tables and
 // code are edited in Properties. Sweeps additionally require a numeric param.
@@ -629,6 +630,7 @@ export function CasePanel() {
 
         <FsPoints />
         {activeCase.fsEvent === "endurance" && <EnduranceStudy key={activeCase.id} simCase={activeCase} />}
+        <ExpectedValuesEditor c={activeCase} />
 
         {/* -- per-case overrides ------------------------------------------- */}
         <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">

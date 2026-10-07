@@ -126,7 +126,9 @@ def embedded_datasets() -> set[tuple[str, str]]:
     # the tracked examples only: a developer's own files there are not shipped
     # by CI (the engine used to save projects there in development)
     for rel in data_files():
-        if not fnmatch(rel, "backend/projects/*.json"):
+        # (fnmatch's * also crosses "/": the stored results in
+        # projects/reference/ are not projects)
+        if not fnmatch(rel, "backend/projects/*.json") or rel.count("/") != 2:
             continue
         project = json.loads((ROOT / rel).read_text(encoding="utf-8"))
         component_of = {}

@@ -1,0 +1,92 @@
+{
+  "id": "epa-2022-tesla-model3-rwd",
+  "version": 1,
+  "name": "2022 Tesla Model 3 RWD",
+  "mode": "blind",
+  "mode_note": "No input was tuned to the EPA results: the road load, test weight and gearing are EPA's own test data, the powertrain values are FASTSim's published vehicle file, and the conversions are the suite's fixed rules (README.md).",
+  "cycles": {
+    "udds": "87e6efeecfeeac9532f55077f9f37cec2bb2a8345cf2746b0dea2fe6d8b7ca6c",
+    "hwfet": "5a3e46e1a34ef3531c779988a7cc07ecb62f144390f2ec5b39572f02141f36c8"
+  },
+  "target": {
+    "what": "EPA unadjusted energy at the wall socket, charging losses included",
+    "udds_mpge": 185.3,
+    "hwfet_mpge": 170.1,
+    "source": "fueleconomy-gov",
+    "fueleconomy_gov_id": 45013,
+    "repeat_tests": {
+      "udds": [
+        [
+          "NTSL10071574",
+          185.3
+        ]
+      ],
+      "hwfet": [
+        [
+          "NTSL10071575",
+          170.1
+        ]
+      ]
+    },
+    "repeat_tests_source": "epa-test-car-list-2022"
+  },
+  "tolerance_pct": 15,
+  "epa": {
+    "test_weight_lb": 4250,
+    "target_abc_lbf": [
+      37.17,
+      0.047,
+      0.0144
+    ],
+    "set_abc_lbf": [
+      -2.29,
+      -0.0129,
+      0.0131
+    ],
+    "n_per_v_rpm_per_mph": 115.0,
+    "drive": "2-Wheel Drive, Rear",
+    "source": "epa-test-car-list-2022"
+  },
+  "fastsim": {
+    "motor_kW": 239.0,
+    "battery_kWh": 54.0,
+    "battery_max_kW": 201.2,
+    "wheel_radius_m": 0.33435,
+    "aux_kW": 0.25,
+    "charger_efficiency": 0.86,
+    "regen_pct": 98,
+    "motor_efficiency": {
+      "power_out_pct": [
+        0,
+        2,
+        4,
+        6,
+        8,
+        10,
+        20,
+        40,
+        60,
+        80,
+        100
+      ],
+      "efficiency_pct": [
+        84,
+        86,
+        88,
+        90,
+        91,
+        92,
+        94,
+        95,
+        95,
+        94,
+        93
+      ]
+    },
+    "source": "fastsim-f2-vehicles",
+    "file": "2022 Tesla Model 3 RWD.yaml"
+  },
+  "notes": [
+    "The model drives the front axle; without a centre of gravity height nothing in the model depends on which axle is driven."
+  ]
+}

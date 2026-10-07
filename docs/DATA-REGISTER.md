@@ -25,7 +25,7 @@ cleared it for shipping.
 
 ## Status (2026-10-07)
 
-- The register has 82 rows.
+- The register has 92 rows.
 - **The drive-cycle library has 27 cycles** (CON-04), built by
   `scripts/cycles/build_cycles.py` from official texts where their terms
   allow reuse (CON-31): the WLTC classes 1, 2, 3a and 3b, their city cycles
@@ -64,6 +64,13 @@ cleared it for shipping.
   2026 v1.1 (FSG) and its reference results facts from the FS Czech Republic
   2025 results; it ships no tyre test data and no track of its own (its lap
   cases use the Race Track's layouts, DR-38).
+- The reference suite (`backend/validation/`, DR-61 to DR-66, VAL-05)
+  copies individual facts from EPA's 2022 Test Car List, fueleconomy.gov and
+  FASTSim's Apache-2.0 vehicle files into small case files. It is test data
+  and does not ship. EPA's disclaimers page (re-checked 2026-10-07) allows
+  free use "for non-commercial, scientific and educational purposes" and
+  says commercial use may be protected; the owner should confirm that this
+  fits LightSim's own test suite.
 - **Every other shipped map, curve, profile and default value still has
   unknown provenance.** All of them except the fuel density (a textbook
   value added in `4af7f9c`) first appear in the root commit of the main
@@ -99,6 +106,9 @@ cleared it for shipping.
 
 1. Add or update the row in the same change as the data. CI enforces this
    (see below).
+   If the row ships, run `python -m app.sources` from `backend/`: it copies
+   the shipped rows to `backend/app/library/sources.json`, which each run's
+   *Sources & credits* reads (VAL-37); `test_sources.py` fails until you do.
 2. Take data only from a source whose terms allow reuse inside a paid app,
    and record that basis in `reuse_basis`. For drive cycles, in this order
    (CON-31):

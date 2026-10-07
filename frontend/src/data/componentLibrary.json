@@ -14,6 +14,7 @@
     "Percent": "%",
     "Acceleration": "g",
     "Curvature": "1/m",
+    "Fraction": "-",
     "No Unit": "-"
   },
   "components": [
@@ -30,7 +31,7 @@
           "name": "Road Grade",
           "direction": "input",
           "kind": "signal",
-          "unitGroup": "No Unit"
+          "unitGroup": "Percent"
         },
         {
           "id": "sig_speed",
@@ -284,28 +285,28 @@
           "name": "Traction Command",
           "direction": "output",
           "kind": "signal",
-          "unitGroup": "No Unit"
+          "unitGroup": "Fraction"
         },
         {
           "id": "sig_brake_cmd",
           "name": "Brake Command",
           "direction": "output",
           "kind": "signal",
-          "unitGroup": "No Unit"
+          "unitGroup": "Fraction"
         },
         {
           "id": "sig_accel_pedal",
           "name": "Accel Pedal (raw)",
           "direction": "output",
           "kind": "signal",
-          "unitGroup": "No Unit"
+          "unitGroup": "Fraction"
         },
         {
           "id": "sig_brake_pedal",
           "name": "Brake Pedal (raw)",
           "direction": "output",
           "kind": "signal",
-          "unitGroup": "No Unit"
+          "unitGroup": "Fraction"
         }
       ],
       "parameters": [
@@ -1288,7 +1289,7 @@
           "name": "Traction Command",
           "direction": "input",
           "kind": "signal",
-          "unitGroup": "No Unit"
+          "unitGroup": "Fraction"
         },
         {
           "id": "sig_speed",
@@ -2542,7 +2543,7 @@
           "name": "Brake Command",
           "direction": "input",
           "kind": "signal",
-          "unitGroup": "No Unit"
+          "unitGroup": "Fraction"
         },
         {
           "id": "sig_torque",
@@ -2897,7 +2898,7 @@
           "name": "Throttle",
           "direction": "input",
           "kind": "signal",
-          "unitGroup": "No Unit"
+          "unitGroup": "Fraction"
         },
         {
           "id": "sig_on_in",
@@ -3315,7 +3316,7 @@
           "name": "Engagement",
           "direction": "input",
           "kind": "signal",
-          "unitGroup": "No Unit"
+          "unitGroup": "Fraction"
         },
         {
           "id": "sig_torque",
@@ -3851,6 +3852,17 @@
           "whereToFind": "The range the input it feeds takes."
         },
         {
+          "key": "signal_unit",
+          "label": "Setpoint & Feedback Unit",
+          "unit": "-",
+          "default": "Not set",
+          "type": "enum",
+          "options": ["Not set", "Power", "Voltage", "Current", "Velocity", "Temperature", "Torque", "Rotational Speed", "Force", "Distance", "Mass", "Mass Flow", "Percent", "Acceleration", "Curvature", "Fraction"],
+          "description": "The unit its Setpoint and Feedback inputs expects. Data Checks compare it with the unit of the signal wired in and warn on a mismatch, such as a battery SOC in % (0-100) into an input set to Fraction (0-1). It converts nothing.",
+          "typical": "Not set (no check); Fraction for a 0-1 command or share, Percent for a SOC or road grade in %.",
+          "whereToFind": "What the block's table or gains were written for."
+        },
+        {
           "key": "sample_time_s",
           "label": "Sample Time (0 = solver step)",
           "unit": "s",
@@ -3933,6 +3945,28 @@
           "whereToFind": "Your strategy or measured data, typed or pasted from a spreadsheet into the table editor (Edit…)."
         },
         {
+          "key": "x_unit",
+          "label": "Input X Unit",
+          "unit": "-",
+          "default": "Not set",
+          "type": "enum",
+          "options": ["Not set", "Power", "Voltage", "Current", "Velocity", "Temperature", "Torque", "Rotational Speed", "Force", "Distance", "Mass", "Mass Flow", "Percent", "Acceleration", "Curvature", "Fraction"],
+          "description": "The unit its Input X expects. Data Checks compare it with the unit of the signal wired in and warn on a mismatch, such as a battery SOC in % (0-100) into an input set to Fraction (0-1). It converts nothing.",
+          "typical": "Not set (no check); Fraction for a 0-1 command or share, Percent for a SOC or road grade in %.",
+          "whereToFind": "What the block's table or gains were written for."
+        },
+        {
+          "key": "y_unit",
+          "label": "Input Y Unit",
+          "unit": "-",
+          "default": "Not set",
+          "type": "enum",
+          "options": ["Not set", "Power", "Voltage", "Current", "Velocity", "Temperature", "Torque", "Rotational Speed", "Force", "Distance", "Mass", "Mass Flow", "Percent", "Acceleration", "Curvature", "Fraction"],
+          "description": "The unit its Input Y (2D mode) expects. Data Checks compare it with the unit of the signal wired in and warn on a mismatch, such as a battery SOC in % (0-100) into an input set to Fraction (0-1). It converts nothing.",
+          "typical": "Not set (no check); Fraction for a 0-1 command or share, Percent for a SOC or road grade in %.",
+          "whereToFind": "What the block's table or gains were written for."
+        },
+        {
           "key": "sample_time_s",
           "label": "Sample Time (0 = solver step)",
           "unit": "s",
@@ -3965,7 +3999,7 @@
           "name": "Road Grade",
           "direction": "output",
           "kind": "signal",
-          "unitGroup": "No Unit"
+          "unitGroup": "Percent"
         }
       ],
       "parameters": [

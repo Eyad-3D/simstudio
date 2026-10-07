@@ -210,6 +210,43 @@ export interface SimCase {
    * shared topology.
    */
   parameterOverrides?: Record<string, Record<string, ParamValue>>;
+  /** Expected values (VAL-35): numbers the user trusts, each run graded
+   *  against them. */
+  references?: ReferenceValue[];
+}
+
+/** An expected value of a case (VAL-35): a summary value's label, the
+ *  number, its tolerance and where it comes from. */
+export interface ReferenceValue {
+  kpi: string;
+  value: number;
+  /** in % of the value when tolerancePct (the default), else in its unit */
+  tolerance: number;
+  tolerancePct?: boolean;
+  source?: string;
+}
+
+/** within: green (gap ≤ tolerance); near: amber (≤ 2 × tolerance);
+ *  outside: red; missing: the run has no such value; not valid: the run
+ *  rules the value out. */
+export type ReferenceGrade = "within" | "near" | "outside" | "missing" | "not valid";
+
+/** How far a run's value is from a reference or a hand calculation. */
+export interface ReferenceCheck {
+  label: string;
+  value?: number | null;
+  reference: number;
+  unit: string;
+  difference?: number | null;
+  differencePct?: number | null;
+  /** absolute, in the unit */
+  tolerance: number;
+  grade: ReferenceGrade;
+  source: string;
+  /** an automatic hand calculation, not a value the user typed */
+  automatic: boolean;
+  bound: "two-sided" | "at most" | "at least";
+  note?: string | null;
 }
 
 /** One swept parameter of a study, with its labels as they were when it ran
@@ -269,6 +306,29 @@ export interface Project {
   cases: SimCase[];
   /** Parameter studies run on this project, oldest first. */
   studies?: Study[];
+  /** An example's card (CON-15): what it answers and what to expect. */
+  card?: ExampleCard | null;
+}
+
+/** What an example answers and what to expect from it (CON-15); its
+ *  expected results are its cases' reference values. */
+export interface ExampleCard {
+  question: string;
+  tags: string[];
+  difficulty: "beginner" | "intermediate" | "advanced";
+  /** about how long its cases take to run, s */
+  runTimeS?: number | null;
+  /** what you will learn */
+  learn: string[];
+  /** demo: shows the workflow; plausibility-checked: results in bands from
+   *  real cars; validated: compared with measurements of that car */
+  status: "demo" | "plausibility-checked" | "validated";
+  features: string[];
+  author: string;
+  version: string;
+  licence: string;
+  /** what happens when, step by step */
+  narrative: string[];
 }
 
 export interface SimMessage {
@@ -415,6 +475,9 @@ export interface SimResult {
   energy?: EnergyReport | null;
   duty?: DutyPart[];
   limits?: LimitReport | null;
+  /** the case's expected values and the hand calculations, graded (absent
+   *  on runs from before 0.3) */
+  references?: ReferenceCheck[];
 }
 
 /** A scalar parameter change sent to the engine while a run was going. */
@@ -497,4 +560,29 @@ export interface LogMessage {
   level: "info" | "warning" | "error";
   text: string;
   time: string; // HH:MM:SS
+}
+
+/** One dataset or method a run rests on (VAL-37). */
+export interface RunSource {
+  /** a data register row (DR-nn), "own" for the project's own values, or a reference */
+  id: string;
+  title: string;
+  source: string;
+  licence: string;
+  credit: string;
+  /** 0: source unknown; 1: known source, not validated; 2: validated */
+  confidence: number;
+  /** the parameters that use it: "Vehicle · Vehicle Mass" */
+  usedBy: string[];
+  kind: "data" | "method" | "own";
+}
+
+export interface RunSources {
+  sources: RunSource[];
+  /** the run rests on values whose source is unknown */
+  unknownProvenance: boolean;
+  /** attribution sentences the data's licences ask for */
+  credits: string[];
+  bibtex: string;
+  cslJson: Record<string, unknown>[];
 }

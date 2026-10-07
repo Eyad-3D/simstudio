@@ -39,6 +39,7 @@ from .maps import OutsideDataError
 from .master import Master, SlaveStepError
 from .network import ModelError, build_model
 from .profiles import distance_axis, lap_length
+from .references import check_references, hand_checks
 from .reports import RunRecorder
 from .runtime import (  # noqa: F401 — re-exported for backward compatibility
     AIR_DENSITY,
@@ -664,6 +665,7 @@ def run_case(
             energy=energy,
             duty=duty,
             limits=limits,
+            references=check_references(case.references, summary) + hand_checks(ctx, channels),
         )
     finally:
         if ctx.sandbox is not None:

@@ -35,6 +35,7 @@ sections.
 | A hybrid's *Cycle* cases run charge-balanced (see *New*) | A hybrid case that starts at a charge its cycle does not end with now reports the fuel of a charge-neutral run: the P2 Hybrid Car's Mixed Cycle started at 30 % gives 2.878 l/100 km instead of the single run's 4.048 (which held the fuel spent recharging the battery). The examples' cases already start balanced and keep their figures (one run); their summaries gain three rows and *Messages* one line | ENG-33 |
 | The solver step gets smaller when the tyres' *Slip Stiffness* (or a propeller-type load) is too stiff for 10 ms | Models with stiff tyres no longer give numerical nonsense, and run slower: 5 ms from a *Slip Stiffness* of 20 (with the default share of weight on each wheel), 0.5 ms at 300. The FS Electric example (20) now runs at 5 ms: its 75 m time 3.744 → 3.751 s, 0-100 km/h 2.93 → 2.95 s, time held at 80 kW 3.77 → 3.62 s, 4.22 → 4.23 s at a 40 kW limit; its lap cases do not change. The Battery Electric and P2 Hybrid Cars keep 10 ms | ENG-14 |
 | New library defaults with a source (CON-14): a Power Consumer draws 0.25 kW (was 2.5 kW, a heating level; FASTSim's auxiliary load for electric cars), a Wheel's rolling resistance is 0.0085 (was 0.012; the middle of EU tyre label class C, Regulation (EU) 2020/740), and the Engine's fuel map is a synthetic map with a best-efficiency region (best 221 g/kWh at 2,500 1/min; was a map of unknown origin, 277 g/kWh at 2,000 1/min and 100 N·m, now 227) | Models that keep these defaults use less energy: the Battery Electric Car with every value at its default takes 13.32 kWh/100 km on WLTC class 3b instead of 19.98 (the example itself, 14.05, does not change), and a default engine burns about 18 % less fuel at part load. The examples set their own values and do not change | CON-14 |
+| Signal blocks (Script, PID, Lookup, Road Profile) that read the output of a signal loop now run after the loop's blocks; before, every block from the loop on ran in the order of its internal id, so such a block could read a value one solver step (10 ms) old | Only models with a loop of signal blocks change, by at most one step's delay on the blocks after the loop; Data Checks name the loop's blocks, their order and the value that arrives a step late. The examples have no loop and do not change | VAL-17 |
 
 ### New
 
@@ -746,6 +747,62 @@ sections.
 - These reports change no result: the summary and the channels are as
   before. Runs stored before this version have no Energy, Duty or limit
   band; run their case again.
+- Data Checks catch signal wires that give wrong numbers without a
+  message (VAL-17): a percentage into an input that expects 0-1 (a
+  battery's *SOC* in %, 0-100, into a Script, PID or Lookup Table input set
+  to *Fraction*, or into a motor's or brake's command), the other way
+  round, and any two different units on one wire (a vehicle speed into a
+  rotational speed). A Script's ports get a unit list next to their names,
+  a PID a *Setpoint & Feedback Unit* and a Lookup Table an *Input X Unit*
+  and *Input Y Unit*; left at *Not set*, a port is not checked. The library
+  gives the 0-1 commands (Driver outputs, motor, brake, throttle and
+  clutch inputs) the new unit *Fraction* and the road grade *Percent*.
+  A loop of signal blocks is named with its blocks only, the order they
+  run in each step and the value that arrives one step late.
+- Expected values (VAL-35): each case can hold numbers you trust for its
+  results (a maker's 0-100 km/h time, last year's measured 75 m time, a
+  hand calculation), each with a tolerance in % or in its unit and a
+  source, under *Expected values* in the *Cases* tab. After every run the
+  *Results* page shows the run's value, the expected value, the gap and a
+  coloured grade: *within* the tolerance (green), *near*, within twice it
+  (amber), or *outside* (red). *Run info* lists them with the run, and a
+  saved study's table shows the gap of each point. Every run also gets two
+  automatic hand calculations: its top speed against what each E-Motor's
+  maximum speed allows through the gears, and the energy its batteries
+  gave against the least the car's motion, climb and road load need.
+  [How to](help/how-to/check-against-expected-values.md).
+- A reference suite of real cars (VAL-05): four 2022 electric cars
+  (Tesla Model 3 RWD, Chevrolet Bolt EUV, Nissan Leaf 40 kWh, MINI Cooper
+  SE) built from EPA's Test Car List and FASTSim's vehicle files, with no
+  input tuned to the results, drive EPA's city and highway cycles on every
+  change. Their energy at the wall is within 9 % of EPA's unadjusted
+  figures on all eight (4.5 % on average); a virtual coast-down gives back
+  EPA's road load within 0.02 %, and an exact-answer tier of three
+  coast-downs is within 0.005 %. [What is validated](VALIDATION-STATUS.md)
+  has the table and what it does not show. The files are in
+  `backend/validation/` and do not ship in the installer.
+- Sources & credits (VAL-37): *Run info* lists the data and methods each
+  run rests on, from the [data register](DATA-REGISTER.md): its drive cycle
+  and the regulation behind it, the example's values and maps, the
+  library's defaults and the values typed into the project, each with its
+  licence, required credit and a trust level (source unknown, known source,
+  validated), and warns when the run uses values whose source is unknown.
+  **BibTeX** and **CSL-JSON** save the citations, starting with LightSim
+  and its version. [How to](help/how-to/cite-your-sources.md).
+- Example cards and stored results (CON-15): each example carries a card
+  (Project → **Card…**): the question it answers, its difficulty and run
+  time, what you learn, what happens when, the features it uses, its
+  status (demo, plausibility-checked or validated), author, version and
+  licence; its expected results are its cases' expected values, each with
+  a band and a source (the bands of the plausibility tests, EPA's figures
+  for the hybrid, FS Czech Republic 2025 for the FS car). An example opened
+  from **Open** or the *Start* page shows its stored results in *Results*
+  at once, named *Stored result* (only the comparison signals: speed,
+  target, battery SOC and power, motor speed and torque, fuel rate); **Run**
+  recomputes them and compares with the stored run. CI checks every example
+  has a card and expected values, lands within them, and still gives its
+  stored results, which change only with a note in
+  `backend/tests/golden/CHANGES.md`. No result changes.
 
 ### Fixed
 

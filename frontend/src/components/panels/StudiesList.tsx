@@ -3,7 +3,9 @@ import { ChevronDown, ChevronRight, Download, FlaskConical, X } from "lucide-rea
 import { confirmDialog } from "../../dialog";
 import { useProjectStore } from "../../store/projectStore";
 import type { Study, StudyPoint } from "../../types";
+import { checkReference, gapText } from "../../references";
 import { csvText } from "./csv";
+import { GradeChip } from "./ExpectedValues";
 
 const NO_STUDIES: Study[] = [];
 
@@ -47,6 +49,10 @@ function exportStudyCsv(study: Study) {
 function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onToggle: () => void }) {
   const removeStudy = useProjectStore((s) => s.removeStudy);
   const [kpi, setKpi] = useState(() => defaultKpi(study));
+  // the case's expected value for this result, if it has one (VAL-35)
+  const ref = useProjectStore(
+    (s) => s.project?.cases.find((c) => c.id === study.caseId)?.references?.find((r) => r.kpi === kpi),
+  );
   const factor = study.factors[0];
   const kpiUnit = study.kpis.find((k) => k.label === kpi)?.unit;
   const when = new Date(study.startedAt).toLocaleString();
@@ -129,6 +135,11 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
                   {study.factors.map((f) => `${f.paramLabel}${f.unit ? ` [${f.unit}]` : ""}`).join(", ")}
                 </th>
                 <th className="ss-th text-right">{kpiUnit ? `[${kpiUnit}]` : "Value"}</th>
+                {ref && (
+                  <th className="ss-th" title={`Gap to the expected ${ref.value.toLocaleString()}${kpiUnit ? ` ${kpiUnit}` : ""}${ref.source ? ` (${ref.source})` : ""}`}>
+                    Expected
+                  </th>
+                )}
                 <th className="ss-th">Status</th>
               </tr>
             </thead>
@@ -145,6 +156,18 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
                     >
                       {typeof v === "number" ? v.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "—"}
                     </td>
+                    {ref && (
+                      <td className="ss-td whitespace-nowrap">
+                        {(() => {
+                          const c = checkReference(ref, typeof v === "number" ? v : undefined, kpiUnit ?? "", notValid);
+                          return (
+                            <>
+                              <GradeChip check={c} /> <span className="font-mono">{gapText(c)}</span>
+                            </>
+                          );
+                        })()}
+                      </td>
+                    )}
                     <td
                       className={`ss-td ${p.status === "success" && !p.incomplete ? "" : "text-[color:var(--ss-text-dim)]"}`}
                     >

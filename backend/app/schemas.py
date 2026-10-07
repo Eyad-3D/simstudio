@@ -177,6 +177,42 @@ class SystemNode(BaseModel):
     connections: list[Connection] = Field(default_factory=list)
 
 
+# a reference value's grade (VAL-35): green, amber, red, grey
+Grade = Literal["within", "near", "outside", "missing", "not valid"]
+
+
+class ReferenceValue(BaseModel):
+    """An expected value of a case: a summary value's label, the number,
+    a tolerance (in the value's unit, or % of the reference) and a source."""
+
+    model_config = ConfigDict(extra="allow")
+
+    kpi: str
+    value: float
+    tolerance: float = 5.0
+    tolerancePct: bool = True
+    source: str = ""
+
+
+class ReferenceCheck(BaseModel):
+    """How far a run's value is from a reference, or from a hand calculation."""
+
+    label: str
+    value: Optional[float] = None
+    reference: float
+    unit: str = ""
+    difference: Optional[float] = None
+    differencePct: Optional[float] = None
+    tolerance: float = 0.0  # absolute, in the unit
+    grade: Grade
+    source: str = ""
+    automatic: bool = False
+    # "two-sided": |gap| ≤ tolerance; "at most"/"at least": a bound the
+    # value must keep to (hand calculations)
+    bound: Literal["two-sided", "at most", "at least"] = "two-sided"
+    note: Optional[str] = None
+
+
 class SimCase(BaseModel):
     model_config = PERSISTED
 
@@ -240,6 +276,9 @@ class SimCase(BaseModel):
     # case can tweak values — and a parameter sweep can vary one — without
     # editing the shared topology.
     parameterOverrides: dict[str, dict[str, ParamValue]] = Field(default_factory=dict)
+    # expected values (VAL-35): a summary value's label, the number, its
+    # tolerance and where it comes from; each run says how far it lands
+    references: list[ReferenceValue] = Field(default_factory=list)
 
 
 class StudyFactor(BaseModel):
@@ -297,6 +336,28 @@ class Study(BaseModel):
     wallS: Optional[float] = None
 
 
+class ExampleCard(BaseModel):
+    """What an example answers and what to expect from it (CON-15): shown in
+    the Project tab and the Open menu; its expected results are the cases'
+    reference values (SimCase.references)."""
+
+    model_config = PERSISTED
+
+    question: str = ""
+    tags: list[str] = Field(default_factory=list)
+    difficulty: Literal["beginner", "intermediate", "advanced"] = "beginner"
+    runTimeS: Optional[float] = None  # about how long its cases take to run, s
+    learn: list[str] = Field(default_factory=list)  # what you will learn
+    # demo: shows the workflow only; plausibility-checked: its results fall in
+    # bands from real cars; validated: compared with measurements of that car
+    status: Literal["demo", "plausibility-checked", "validated"] = "demo"
+    features: list[str] = Field(default_factory=list)
+    author: str = ""
+    version: str = ""
+    licence: str = ""
+    narrative: list[str] = Field(default_factory=list)  # what happens when
+
+
 class Project(BaseModel):
     model_config = PERSISTED
 
@@ -313,6 +374,8 @@ class Project(BaseModel):
     cases: list[SimCase] = Field(default_factory=list)
     # parameter studies run on this project, oldest first
     studies: list[Study] = Field(default_factory=list)
+    # an example's card (CON-15); user projects may have one too
+    card: Optional[ExampleCard] = None
 
 
 class SimMessage(BaseModel):
@@ -457,6 +520,9 @@ class SimResult(BaseModel):
     energy: Optional[EnergyReport] = None
     duty: list[DutyPart] = Field(default_factory=list)
     limits: Optional[LimitReport] = None
+    # the case's expected values and the automatic hand calculations, each
+    # with its gap and grade (VAL-35)
+    references: list[ReferenceCheck] = Field(default_factory=list)
 
 
 class LiveEdit(BaseModel):

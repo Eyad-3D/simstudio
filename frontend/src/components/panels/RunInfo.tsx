@@ -4,6 +4,8 @@ import { diffSnapshots } from "../../provenance";
 import { confirmReplaceProject, useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import type { SimRun } from "../../types";
+import { ReferenceList } from "./ExpectedValues";
+import { RunSourcesView } from "./RunSourcesView";
 
 /** The clock time a run started. */
 export function runTime(r: SimRun): string {
@@ -143,6 +145,14 @@ export function RunInfo({ run }: { run: SimRun }) {
         </dd>
         <dt>Version</dt>
         <dd>LightSim {snap.appVersion ?? "(unknown)"}</dd>
+        {run.result.references && run.result.references.length > 0 && (
+          <>
+            <dt>Expected</dt>
+            <dd>
+              <ReferenceList checks={run.result.references} />
+            </dd>
+          </>
+        )}
         <dt>Live edits</dt>
         <dd>
           {snap.liveEdits.length === 0 ? (
@@ -159,6 +169,7 @@ export function RunInfo({ run }: { run: SimRun }) {
           )}
         </dd>
       </dl>
+      <RunSourcesView run={run} />
       <div className="border-t border-[color:var(--ss-border)] px-1.5 py-1">
         <button
           className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5"

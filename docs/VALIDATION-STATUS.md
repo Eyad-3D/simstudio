@@ -1,12 +1,14 @@
 # What is validated, and what is not
 
-- Last reviewed: 24 September 2026, for version 0.2.0. This page is updated
+- Last reviewed: 7 October 2026, for version 0.3.0. This page is updated
   with every release, together with [Known issues and limits](KNOWN-LIMITS.md).
 
-**In one line:** LightSim's results have **not** been validated against
-measured vehicle data yet. The engine is tested against exact answers, and
-the three example cars are checked for believable numbers, but that is not
-the same as validation.
+**In one line:** the energy four production electric cars use on EPA's
+city and highway test cycles has been compared with EPA's official results,
+blind (no input tuned to them): LightSim is within 9 % on all eight
+figures (4.5 % on average). Nothing else is validated: the engine is
+tested against exact answers, and the example cars are checked for
+believable numbers, but that is not the same as validation.
 
 Three words are used carefully on this page:
 
@@ -17,7 +19,8 @@ Three words are used carefully on this page:
   not show it is right, because some inputs were tuned or invented.
 - **Validated** — a result is compared with measurements of the same real
   vehicle, on the same test, with inputs that were not tuned to that
-  measurement, and the error is reported. Nothing is validated yet.
+  measurement, and the error is reported. Only the reference suite below
+  meets this.
 
 ## Verified: the engine does what its equations say
 
@@ -71,6 +74,68 @@ engine code, not the old default maps):
 | Traction Control (MOD-45) | on the FS example's 75 m at a 2 ms step the slip stays within ±0.02 of the 0.1 target from 0.4 s until the power limit takes over, with no spike above 0.3 once moving (about 7 without the block); the defaults stay stable at the 10 ms step | `test_traction_control.py` |
 | Lap mode calibration (VAL-38) | on LightSim's own laps (0.9 × grip, 2.5 m² CzA, with noise), calibrated on the Autocross and checked blind on it driven the other way, the lap time is within 5 % (−0.5 %), the speed RMS under 4 km/h and the energy within 5 % (0.6 %). This checks the method only: no real logged lap has been used | `test_calibrate.py` |
 
+## Validated: electric cars against EPA's tests (reference suite v1)
+
+The reference suite (`backend/validation/`, roadmap VAL-05) builds four
+production electric cars from published data and drives EPA's city (UDDS)
+and highway (HWFET) cycles. Each result is compared with EPA's
+*unadjusted* energy from the wall socket for the same car, the figure
+behind the window sticker before EPA's real-world adjustment. CI runs it on
+every change (`test_reference_suite.py`).
+
+- **Data**: test weight, road-load coefficients, gearing and results from
+  EPA's 2022 Test Car List and fueleconomy.gov; the motor, battery,
+  auxiliary and charger values from FASTSim's Apache-2.0 vehicle files
+  (sources in `backend/validation/suite.json` and the
+  [data register](DATA-REGISTER.md), DR-61 to DR-66).
+- **Blind**: no input was tuned to these results. The motor's efficiency is
+  FASTSim's one generic curve, the same for all four cars; the rules that
+  turn the data into a model are fixed in `suite.json` and the suite's
+  [README](../backend/validation/README.md).
+- **Metric**: Wh per km at the wall, LightSim's battery energy plus the
+  battery's own losses divided by a charger efficiency of 0.86.
+
+Measured on 7 October 2026:
+
+| Car | Cycle | EPA, Wh/km | LightSim, Wh/km | Gap | EPA's repeat tests |
+|---|---|---|---|---|---|
+| 2022 Tesla Model 3 RWD | UDDS | 113.0 | 120.9 | +7.0 % | one test |
+| | HWFET | 123.1 | 133.7 | +8.6 % | one test |
+| 2022 Chevrolet Bolt EUV | UDDS | 117.5 | 118.2 | +0.6 % | 114.1-121.1 (6 % apart) |
+| | HWFET | 140.6 | 151.1 | +7.5 % | 139.8-141.3 |
+| 2022 Nissan Leaf (40 kWh) | UDDS | 119.3 | 117.6 | −1.4 % | 118.3-120.4 |
+| | HWFET | 148.3 | 154.3 | +4.1 % | 148.2-148.4 |
+| 2022 MINI Cooper SE | UDDS | 123.5 | 115.1 | −6.8 % | one test |
+| | HWFET | 145.9 | 145.9 | 0.0 % | one test |
+
+Mean of the gaps' sizes 4.5 %, largest 8.6 %, against a tolerance of 15 %
+(blind). The suite also checks, for each car:
+
+| Check | Tolerance | Measured |
+|---|---|---|
+| A virtual coast-down from 130 km/h gives back EPA's road load, 20-120 km/h | 2 % | 0.01-0.02 % |
+| Halving the solver step (10 to 5 ms) moves the city energy | 0.5 % | 0.16-0.17 % |
+| Exact-answer tier: three coast-downs with closed-form answers | 0.5 % | 0.000-0.005 % |
+
+What this does and does not show:
+
+- The charger efficiency alone moves every figure: 0.82 or 0.90 instead of
+  0.86 shifts them by about ±5 %. EPA's own repeat tests of one car differ
+  by up to 6 % (the Bolt EUV's city tests). Gaps below about 5 % are
+  within that noise.
+- The highway figures are higher than EPA's for three cars of four. The
+  motor's generic curve and the flat 350 V battery are the likeliest
+  reasons; a calibrated tier (motor losses tuned on one cycle, checked on
+  the other) is the next step.
+- It covers steady energy use on two gentle cycles at 20-25 °C: no
+  acceleration, top speed, cold weather, heating, ageing or range test.
+- The Bolt EUV and the Leaf use FASTSim's powertrain values of related
+  models (2017 Bolt EV, 2016 Leaf 30 kWh) with the 2022 cars' own motor
+  power and battery size where FASTSim has no file; each case file says
+  which.
+- Four cars of one class (compact and mid-size electric cars) is a small set; the
+  roadmap asks for seven, within ±5 % calibrated.
+
 ## Plausibility-checked: the example cars
 
 `backend/tests/test_examples_plausible.py` holds the examples to bands from
@@ -104,7 +169,7 @@ Formula Student car.
 
 ## Not validated
 
-Everything else, including every component model on its own: battery
+Everything but the energy use above, including every component model on its own: battery
 (internal resistance only; no current or voltage limit, no ageing, no
 temperature), electric motor and inverter (generic loss maps), combustion
 engine (no warm-up, turbo lag or restart cost), gearbox and clutch, tyres
@@ -135,3 +200,10 @@ predictions within ±15 %."*
 
 Not to be claimed until then: "accurate", "validated", "certified", or that
 LightSim replaces any named commercial tool.
+
+The one claim the reference suite supports today, in this form only:
+*"LightSim reproduces the EPA unadjusted city (UDDS) and highway (HWFET)
+energy at the wall of 4 production electric cars of model year 2022 within
+±9 % (mean 4.5 %), blind: no input tuned to those results"*, with a link to
+this page. It says nothing about any other figure, and "accurate" or
+"validated" without that context stays off limits.

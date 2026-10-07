@@ -54,7 +54,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
-from . import cycles, label, laplog, run_store, security, storage, studies, templates, vehicle_tests
+from . import (
+    cycles,
+    label,
+    laplog,
+    reference_results,
+    run_store,
+    security,
+    storage,
+    studies,
+    templates,
+    vehicle_tests,
+)
 from .library import load_library, unit_groups
 from .paths import static_dir
 from .schemas import (
@@ -77,6 +88,7 @@ from .solver import simulate
 from .solver.domains import ModelInitError
 from .solver.lapsim import LapError
 from .solver.network import ModelError
+from .sources import RunSources, sources_of
 from .validation import validate_project
 from .version import VERSION
 
@@ -159,6 +171,18 @@ def get_example(example_id: str) -> dict:
         raise HTTPException(status_code=404, detail=f"Example '{example_id}' not found")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/examples/{example_id}/reference")
+def example_reference(example_id: str) -> list[dict]:
+    """The example's stored reference runs (CON-15): what the app shows in
+    Results when the example opens, before anything is run."""
+    try:
+        if not storage.example_path(example_id).is_file():
+            raise FileNotFoundError(example_id)
+    except (FileNotFoundError, ValueError):
+        raise HTTPException(status_code=404, detail=f"Example '{example_id}' not found")
+    return reference_results.stored_results(example_id)
 
 
 @app.post("/api/examples/restore")
@@ -409,6 +433,13 @@ def calibrate_lap(req: CalibrateRequest) -> dict:
 @app.post("/api/validate")
 def validate(req: ValidateRequest) -> list[DataCheck]:
     return validate_project(req.project)
+
+
+@app.post("/api/sources")
+def run_sources(req: SimulateRequest) -> RunSources:
+    """The data and methods a run of the case rests on, with their licences,
+    credits and citations (VAL-37). Run info asks with the run's snapshot."""
+    return sources_of(req.project, req.caseId)
 
 
 @app.post("/api/simulate")

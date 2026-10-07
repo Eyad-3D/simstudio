@@ -1,0 +1,49 @@
+{
+  "name": "LightSim reference suite",
+  "version": "1.0",
+  "about": "Real vehicles with official test results, run through LightSim and compared automatically (VAL-05). README.md explains the rules; backend/tests/test_reference_suite.py runs it in CI.",
+  "exact": "exact.json",
+  "cases": [
+    "cases/epa-2022-tesla-model3-rwd.json",
+    "cases/epa-2022-chevrolet-bolt-euv.json",
+    "cases/epa-2022-nissan-leaf-40.json",
+    "cases/epa-2022-mini-cooper-se.json"
+  ],
+  "rules": {
+    "test_mass": "equivalent test weight (EPA's dynamometer inertia setting), lb x 0.45359237 kg",
+    "rotating_inertia_pct": 1.5,
+    "rotating_inertia_note": "EPA ALPHA's convention, simulated inertia = test weight x 1.015, all of it put in the four wheels; motor, gear and brake inertias are 0",
+    "road_load": "EPA target coefficients A, B, C (lbf, lbf/mph, lbf/mph^2) x 4.448222, x 2.763930, x 1.717157 to N, N/(km/h), N/(km/h)^2, with Coefficients Include Driveline Losses ticked so the final drive and differential run lossless",
+    "overall_ratio": "EPA's N/V ratio (motor 1/min per mph) turned into the gear ratio for the wheel radius: ratio = N/V x 2 pi r / (60 x 0.44704)",
+    "motor_loss": "FASTSim's efficiency against output power (as % of the motor's power): loss = P / eff - P, the same for driving and recuperating; no loss at zero power and no drag torque, so the spin losses the road load holds are not counted twice",
+    "motor_full_load": "constant torque up to a third of the maximum speed, then the motor's power; maximum speed = N/V x 110 mph",
+    "battery": "a flat 350 V open-circuit voltage; internal resistance giving 1.5 % loss at a 1C discharge (FASTSim's 97 % round trip split each way): R = 0.015 x 350^2 / (kWh x 1000)",
+    "wall_energy": "(net energy at the battery terminals + the battery's internal losses) / charger efficiency, per km of the cycle driven; the charger efficiency is FASTSim's 0.86, uncertain by +/- 0.04",
+    "mpge_to_wh_per_km": "33,705 Wh per US gallon equivalent / (mpge x 1.609344 km per mile)",
+    "coastdown_pct": 2.0,
+    "step_halving_pct": 0.5
+  },
+  "sources": {
+    "epa-test-car-list-2022": {
+      "title": "Data on Cars Used for Testing Fuel Economy, model year 2022 (22-testcar-2023-06-13.xlsx)",
+      "author": "U.S. Environmental Protection Agency",
+      "url": "https://www.epa.gov/compliance-and-fuel-economy-data/data-cars-used-testing-fuel-economy",
+      "accessed": "2026-10-07",
+      "terms": "EPA disclaimers page: documents 'may be freely distributed and used for non-commercial, scientific and educational purposes'; commercial use may be protected (https://www.epa.gov/web-policies-and-procedures/epa-disclaimers). Only individual facts are copied here."
+    },
+    "fueleconomy-gov": {
+      "title": "fueleconomy.gov vehicle data (vehicles.csv): UCity and UHighway, unadjusted",
+      "author": "U.S. Department of Energy and U.S. Environmental Protection Agency",
+      "url": "https://www.fueleconomy.gov/feg/epadata/vehicles.csv.zip",
+      "accessed": "2026-10-07",
+      "terms": "U.S. Government data; the site's own terms were not re-checked (DATA-REGISTER rule 5). Only individual facts are copied here."
+    },
+    "fastsim-f2-vehicles": {
+      "title": "FASTSim vehicle files, cal_and_val/f2-vehicles (commit 6a07d4d of 28 Sep 2026)",
+      "author": "Alliance for Energy Innovation, LLC (National Laboratory of the Rockies, formerly NREL)",
+      "url": "https://github.com/NatLabRockies/fastsim",
+      "accessed": "2026-10-07",
+      "terms": "Apache-2.0 (the repository's LICENSE and NOTICE)"
+    }
+  }
+}

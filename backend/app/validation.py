@@ -234,6 +234,9 @@ def validate_project(project: Project) -> list[DataCheck]:
                 f"Remove all but one of them.",
                 all_elements[el_id])
 
+    # -- signal units (VAL-17): a wire that changes nothing about the number ----
+    _unit_checks(sources_of, all_elements, port_of, defs, add)
+
     # -- parameter sanity --------------------------------------------------------
     for el in all_elements.values():
         cdef = defs.get(el.componentDefId)
@@ -351,6 +354,55 @@ def value_provenance(project: Project, defs: dict) -> tuple[int, int]:
                 if pdef.key not in el.parameterOverrides and pdef.key not in sources:
                     at_default += 1
     return total, at_default
+# Inputs whose unit a block declares in a parameter (VAL-17): PID and Lookup
+# ports have no unit of their own, so the user says what they were written
+# for. "Not set" (or a missing value) means no check.
+DECLARED_UNIT = {
+    ("control.pid", "sig_setpoint_in"): "signal_unit",
+    ("control.pid", "sig_feedback_in"): "signal_unit",
+    ("signal.lookup", "sig_x_in"): "x_unit",
+    ("signal.lookup", "sig_y_in"): "y_unit",
+}
+UNDECLARED = ("No Unit", "Not set", "", None)
+
+
+def _unit_checks(sources_of, all_elements, port_of, defs, add: Add) -> None:
+    """Warn where a signal wire joins two different units (VAL-17): a SOC in
+    % into an input that expects 0-1, a speed into a rotational speed. A port
+    with no unit (No Unit, or a PID or Lookup unit left Not set) is not
+    judged. Nothing is converted; the warning says what arrives."""
+    def unit_of(el_id: str, port_id: str):
+        el = all_elements[el_id]
+        key = DECLARED_UNIT.get((el.componentDefId, port_id))
+        if key is not None:
+            cdef = defs.get(el.componentDefId)
+            pdef = next((p for p in cdef.parameters if p.key == key), None) if cdef else None
+            value = el.parameterOverrides.get(key, pdef.default if pdef else None)
+            return None if value in UNDECLARED else str(value)
+        port = port_of(el_id, port_id)
+        return None if port is None or port.unitGroup in UNDECLARED else port.unitGroup
+
+    for (dst_el, dst_port), srcs in sources_of.items():
+        dst_unit = unit_of(dst_el, dst_port)
+        for src_el, src_port in srcs:
+            src_unit = unit_of(src_el, src_port)
+            if dst_unit is None or src_unit is None or dst_unit == src_unit:
+                continue
+            src = f"'{all_elements[src_el].label}.{port_of(src_el, src_port).name}'"
+            dst = f"'{all_elements[dst_el].label}.{port_of(dst_el, dst_port).name}'"
+            if {src_unit, dst_unit} == {"Percent", "Fraction"}:
+                text = (f"{src} gives a value in {'% (0-100)' if src_unit == 'Percent' else '0-1'}"
+                        f" but {dst} expects {'0-1' if dst_unit == 'Fraction' else '% (0-100)'}: "
+                        f"the block gets a number {'100 times too large' if src_unit == 'Percent' else '100 times too small'}"
+                        f", and the run gives no message.")
+                fix = ("Divide by 100 in a Script between them (or multiply, the other way), "
+                       "or rescale the block's table or gains; then set its unit to match.")
+            else:
+                text = (f"{src} is a {src_unit} signal but {dst} expects {dst_unit}: the number "
+                        f"is passed on as it is, without converting it.")
+                fix = ("Check that this is the signal you meant; put a Script between them to "
+                       "convert it, or correct the input's unit.")
+            add("warning", text, all_elements[dst_el], ids=(src_el,), fix=fix)
 
 
 # what to do about build_model's (and lapsim.problems') messages, by words they contain
@@ -373,6 +425,8 @@ MODEL_FIXES = {
                             "only.",
     "does not shift gears": "Set its Default Gear to the gear the lap should be driven in.",
     "has no layout": "Choose a Layout from the list in Properties.",
+    "form a loop": "If a step's delay matters, break the loop: feed one of the blocks from a "
+                   "signal outside it, or merge the blocks into one Script.",
 }
 
 

@@ -875,10 +875,16 @@ def build_model(
     remaining = set(block_ids)
     while remaining:
         ready_s = sorted(s for s in remaining if not (block_deps[s] & remaining))
-        if not ready_s:  # cycle: evaluate in stable order with one-step delay
-            warnings.append(about("Signal blocks form a loop — resolved with a one-step delay.",
-                                  *sorted(remaining)))
-            ready_s = sorted(remaining)
+        if not ready_s:
+            # a loop (VAL-17): run the first loop whose inputs come from
+            # nothing else still waiting, its blocks in a stable order, so a
+            # value going back round the loop arrives one solver step late
+            loop = next(c for c in signal_loops(remaining, block_deps)
+                        if not (set().union(*(block_deps[s] for s in c)) & remaining) - set(c))
+            ready_s = sorted(loop)
+            warnings.append(about(loop_warning(ready_s, block_deps,
+                                               {s: elements[s].label for s in ready_s}),
+                                  *ready_s))
         for s in ready_s:
             ordered.append(s)
             remaining.discard(s)
@@ -905,3 +911,51 @@ def build_model(
         track=track,
         rewalk=lambda dl, gears: extract_driveline(set(dl.element_group), gears, []),
     )
+
+
+def signal_loops(nodes: set[str], deps: dict[str, set[str]]) -> list[list[str]]:
+    """The loops among ``nodes`` (strongly connected groups of two or more
+    blocks, or one that feeds itself), each sorted, in a stable order.
+    ``deps[a]`` holds the blocks whose outputs ``a`` reads."""
+    index: dict[str, int] = {}
+    low: dict[str, int] = {}
+    stack: list[str] = []
+    on_stack: set[str] = set()
+    loops: list[list[str]] = []
+
+    def visit(v: str) -> None:  # Tarjan; a model has a handful of blocks
+        index[v] = low[v] = len(index)
+        stack.append(v)
+        on_stack.add(v)
+        for w in sorted(deps[v] & nodes):
+            if w not in index:
+                visit(w)
+                low[v] = min(low[v], low[w])
+            elif w in on_stack:
+                low[v] = min(low[v], index[w])
+        if low[v] == index[v]:
+            group = []
+            while True:
+                w = stack.pop()
+                on_stack.discard(w)
+                group.append(w)
+                if w == v:
+                    break
+            if len(group) > 1 or v in deps[v]:
+                loops.append(sorted(group))
+
+    for v in sorted(nodes):
+        if v not in index:
+            visit(v)
+    return sorted(loops)
+
+
+def loop_warning(order: list[str], deps: dict[str, set[str]], label: dict[str, str]) -> str:
+    """What a signal loop does, in words: its blocks, the order they run in
+    and which values arrive a step late."""
+    late = [f"'{label[a]}' reads '{label[b]}'" for i, a in enumerate(order)
+            for b in sorted(deps[a] & set(order)) if order.index(b) >= i]
+    names = ", ".join(f"'{label[s]}'" for s in order)
+    return (f"Signal blocks {names} form a loop. Every solver step they run in this order, "
+            f"and LightSim inserts a one-step delay (at most 10 ms) where {'; '.join(late)}: "
+            f"that value is the one from the step before.")

@@ -1,8 +1,10 @@
 # LightSim: known issues and limits
 
 LightSim is still an early version. You can build, run and inspect models,
-but the component physics are simplified, **nothing has been validated
-against measured vehicles yet**, and some results are known to be wrong.
+but the component physics are simplified, **only the energy use of four
+electric cars on EPA's city and highway cycles has been compared with
+official test results** (within 9 %, see [What is validated](VALIDATION-STATUS.md)),
+and some results are known to be wrong.
 This page lists what we know, what you can do about it today, and which
 roadmap item tracks the fix.
 
@@ -124,6 +126,11 @@ either. Also:
   how much regeneration was not recovered.
 - The tolerance (1 % of the run, at least 2 s) is LightSim's own choice:
   test procedures such as WLTP set no allowance for a simulation.
+- The two automatic hand calculations under each run's expected values
+  (VAL-35) are bounds, not predictions: the top speed one reads the gear
+  ratio from the run at its fastest point, and the energy one sums the
+  road load over the recorded points (1 s by default) and allows 3 % for
+  that. Runs with a combustion engine skip the energy check.
 
 *Workaround:* read the Messages panel and the *not valid* notes in the
 summary table.
@@ -366,15 +373,34 @@ from another session, and compare the energy error too.
 *Roadmap:* VAL-38 (a published check on a real log), STD-35 (tracks from
 GPS).
 
-### Signal units are not checked
+### Signal units are checked, not converted
 
-Data Checks now report two signals wired into the same input (UX-37), but
-units are not checked: a battery's *SOC* output is in % (0-100), and a
-Script, Lookup or PID block that expects 0-1 gets 0-100 without a warning.
+Data Checks warn when a signal wire joins two different units (VAL-17),
+such as a battery's *SOC* in % (0-100) into an input that expects 0-1, or a
+vehicle speed into a rotational speed. Only ports with a unit are judged:
+a Script's ports have one when you pick it next to the port's name, a PID's
+inputs when you set its *Setpoint & Feedback Unit*, a Lookup Table's when
+you set *Input X Unit* and *Input Y Unit*; a port left at *Not set* (No
+Unit) is not checked. The motors', brakes', engine's and clutch's commands
+are 0-1 (Fraction) in the library. Nothing is converted: the number on the
+wire arrives as it is, and the run gives no message.
 
-*Workaround:* in the Data Bus panel, check that the units at both ends of
-each link match; divide percentages by 100 where a block expects 0-1.
-*Roadmap:* VAL-17.
+*Workaround:* set the units of your Script, PID and Lookup inputs, and read
+the warnings in Data Checks; divide by 100 in a Script where a block expects
+0-1.
+*Roadmap:* automatic conversion on wires is not planned yet.
+
+### An example's stored result holds a few signals
+
+An example opened from **Open** or the *Start* page shows its stored
+results (CON-15), named *Stored result*: the summary, the expected values
+and seven comparison signals (vehicle speed and target, battery SOC and
+power, motor speed and torque, engine fuel rate) every second. The other
+channels appear only after **Run**. The stored runs are not saved with the
+project and are not kept when LightSim restarts; the run lists call them
+*not stored on disk*.
+
+*Workaround:* press **Run** for every channel.
 
 ### Computed values read 0 in the first result point
 

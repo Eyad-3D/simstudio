@@ -51,6 +51,7 @@ import { EnergyView } from "./EnergyView";
 import { LimitLegend, limitsPlugin } from "./LimitBand";
 import { StaleBanner } from "./StaleBanner";
 import { useReportsStore } from "../../store/reportsStore";
+import { ReferenceList } from "./ExpectedValues";
 
 // dash patterns to distinguish channels when several runs are overlaid at once
 const DASHES = [[], [5, 3], [2, 2], [7, 3, 2, 3], [9, 4]];
@@ -1271,6 +1272,13 @@ export function ResultsPanel() {
                 estimates
               </span>
             )}
+          </div>
+        )}
+
+        {/* expected values and hand calculations (VAL-35) */}
+        {result?.references && result.references.length > 0 && view !== "sweep" && view !== "energy" && view !== "duty" && (
+          <div className="max-h-[96px] shrink-0 overflow-y-auto border-b border-[color:var(--ss-border)] px-2 py-0.5">
+            <ReferenceList checks={result.references} compact />
           </div>
         )}
 

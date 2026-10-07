@@ -148,6 +148,9 @@ describe("comparing two runs", () => {
       Object.assign(s.case, { outputEvery: 1, kind: "cycle", realtimeFactor: 5, endDistance: null, startLine: 0 }),
     );
     expect(texts(snap(), same)).toEqual([]);
+    // expected values (VAL-35) change no result either
+    const expected = snap((s) => Object.assign(s.case, { references: [{ kpi: "Consumption", value: 11, tolerance: 5 }] }));
+    expect(texts(snap(), expected)).toEqual([]);
     // a setting this code does not know yet shows by its field name
     const later = snap((s) => Object.assign(s.case, { stopAtLap: 3 }));
     expect(texts(snap(), later)).toEqual(["Case · stopAtLap — → 3"]);

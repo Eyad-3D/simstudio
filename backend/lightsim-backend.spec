@@ -11,9 +11,11 @@ datas = [
     ("app/library/components.json", "app/library"),
     ("app/library/tracks.json", "app/library"),  # the Race Track's layouts
     ("app/library/tyres.json", "app/library"),  # the Wheel's tyre codes (MOD-48)
+    ("app/library/sources.json", "app/library"),  # the data register, per run (VAL-37)
     ("app/cycles/*", "app/cycles"),  # the drive-cycle library (CON-16)
     ("app/templates/*", "app/templates"),  # the built-in vehicle templates (CON-18)
     ("projects/*.json", "projects"),  # not projects/runs/: a dev's stored runs
+    ("projects/reference/*.json", "projects/reference"),  # examples' stored results (CON-15)
     ("../VERSION", "."),  # single source of truth, read by app/version.py
 ]
 binaries = []
