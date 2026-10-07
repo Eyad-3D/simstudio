@@ -8,3 +8,9 @@ export function csvText(rows: (string | number)[][]): string {
   };
   return rows.map((r) => r.map(quote).join(",")).join("\n");
 }
+
+/** Rows as a CSV file Excel opens as written: UTF-8 with a byte-order mark,
+ *  so "N·m" and "°C" do not turn into "NÂ·m" and "Â°C". */
+export function csvBlob(rows: (string | number)[][]): Blob {
+  return new Blob(["\ufeff" + csvText(rows)], { type: "text/csv;charset=utf-8" });
+}

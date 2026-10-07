@@ -692,6 +692,21 @@ describe("undo / redo", () => {
     expect(findElement("el-bat")?.parameterOverrides).toEqual({});
   });
 
+  it("an imported parameter sheet is one edit across parts that one undo takes back (STD-36)", async () => {
+    await start();
+    const past = store().past.length;
+    store().applyParameterChanges([
+      { elementId: "el-bat", key: "voltage_class_V", value: 600 },
+      { elementId: "el-node", key: "anything", value: 1 },
+    ]);
+    expect(findElement("el-bat")?.parameterOverrides).toEqual({ voltage_class_V: 600 });
+    expect(findElement("el-node")?.parameterOverrides).toEqual({ anything: 1 });
+    expect(store().past).toHaveLength(past + 1);
+    store().undo();
+    expect(findElement("el-bat")?.parameterOverrides).toEqual({});
+    expect(findElement("el-node")?.parameterOverrides).toEqual({});
+  });
+
   it("a new edit after undo discards the redo branch", async () => {
     await start();
     store().renameElement("el-bat", "A");

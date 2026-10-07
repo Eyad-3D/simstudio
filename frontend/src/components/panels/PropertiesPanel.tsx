@@ -9,6 +9,7 @@ import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "
 import { KIND_COLOR } from "../canvas/ElementNode";
 import { CyclePreview, CycleSelect } from "./CyclePicker";
 import { SourceBadge, ValueSources } from "./ValueSources";
+import { ImportFromFileButton, type ImportTarget } from "../ImportTableDialog";
 import type {
   AxisDef,
   ComponentDef,
@@ -92,12 +93,17 @@ function Table1DEditor({
   valueLabel,
   valueUnit,
   onChange,
+  importTarget,
+  onImport,
 }: {
   value: Table1D;
   axis: AxisDef;
   valueLabel: string;
   valueUnit: string;
   onChange: (v: Table1D) => void;
+  /** offers "Import from file…" for this parameter (STD-10) */
+  importTarget?: ImportTarget;
+  onImport?: (v: Table1D | Table2D | string) => void;
 }) {
   const [selRange, setSelRange] = useState<GridRange | null>(null);
   const keys = sortedNumericKeys(value);
@@ -214,6 +220,9 @@ function Table1DEditor({
         >
           <Trash2 size={12} /> Delete row(s)
         </button>
+        {importTarget && (
+          <ImportFromFileButton target={importTarget} onApply={onImport ?? ((v) => onChange(v as Table1D))} />
+        )}
       </div>
       <p className="text-[10px] leading-tight text-[color:var(--ss-text-dim)]">{GRID_HINT}</p>
     </div>
@@ -231,12 +240,14 @@ function Table2DEditor({
   valueLabel,
   valueUnit,
   onChange,
+  importTarget,
 }: {
   value: Table2D;
   axes: [AxisDef, AxisDef];
   valueLabel: string;
   valueUnit: string;
   onChange: (v: Table2D) => void;
+  importTarget?: ImportTarget;
 }) {
   const [selRange, setSelRange] = useState<GridRange | null>(null);
   const outerKeys = sortedNumericKeys(value);
@@ -409,6 +420,7 @@ function Table2DEditor({
         >
           <Trash2 size={12} /> Row(s)
         </button>
+        {importTarget && <ImportFromFileButton target={importTarget} onApply={(v) => onChange(v as Table2D)} />}
       </div>
       <p className="text-[10px] leading-tight text-[color:var(--ss-text-dim)]">{GRID_HINT}</p>
     </div>
@@ -477,6 +489,8 @@ function ProfileGridEditor({
       valueLabel={yLabel}
       valueUnit={yUnit}
       onChange={(t) => onChange(tableToProfile(t))}
+      importTarget={{ componentDefId: defId, paramKey: "profile", mode }}
+      onImport={(v) => onChange(String(v))}
     />
   );
 }
@@ -1120,6 +1134,7 @@ export function ElementForm({
               valueLabel={p.label}
               valueUnit={p.unit}
               onChange={(v) => setParameter(element.id, p.key, v)}
+              importTarget={{ componentDefId: def.id, paramKey: p.key }}
             />
           ) : p.type === "table2d" && p.axes?.length === 2 ? (
             <Table2DEditor
@@ -1128,6 +1143,7 @@ export function ElementForm({
               valueLabel={p.label}
               valueUnit={p.unit}
               onChange={(v) => setParameter(element.id, p.key, v)}
+              importTarget={{ componentDefId: def.id, paramKey: p.key }}
             />
           ) : (
             <ParameterInput

@@ -34,6 +34,7 @@ Endpoints:
                                each point's summary (runs are stored)
   WS   /api/studies/run        the same, streaming each point as it ends,
                                accepts cancel
+  Results export, table and parameter-sheet import: app/dataio/api.py
 """
 from __future__ import annotations
 
@@ -66,6 +67,7 @@ from . import (
     templates,
     vehicle_tests,
 )
+from .dataio.api import router as dataio_router
 from .library import load_library, unit_groups
 from .paths import static_dir
 from .schemas import (
@@ -121,6 +123,9 @@ app.add_middleware(
     hosts=security.allowed_hosts(),
     origins=() if LAUNCH_TOKEN else security.DEV_ORIGINS,
 )
+
+
+app.include_router(dataio_router)
 
 
 @app.get("/api/health")

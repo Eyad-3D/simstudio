@@ -635,8 +635,8 @@ minimum or an average, for example from the CSV export, or put the
   the Battery Electric Car changes its City Cycle's consumption and final
   SOC, and the energies equal the solver steps' sum to 1e-6. The *Results*
   page shows a number with at most 3 decimals, so a change smaller than
-  that reads +0.000 against the baseline; the run's file and the study
-  tables' CSV have every digit. *~ 0* now marks only runs stored by
+  that reads +0.000 against the baseline; the run's file, its CSV and
+  .mat export and the study tables' CSV have every digit. *~ 0* now marks only runs stored by
   earlier versions, which kept 5 decimals (2 to 4 in the summary).
 - **Cursor integrals come from the recorded points.** The *Results*
   chart's cursors integrate the stored points with the trapezoid rule, so
@@ -810,13 +810,48 @@ minimum or an average, for example from the CSV export, or put the
 - **Unfinished parts of the app.** The Optimization tab is hidden until it is
   implemented, and the canvas bookmark tool is disabled. *Roadmap:* STU-04.
 
+### Files in and out
+
+- **The .mat export is checked with SciPy and GNU Octave, not with MATLAB
+  itself yet.** The tests read every exported channel back through
+  SciPy's `loadmat` with the same values and units, and the files load in
+  Octave 8.4. Reading them in MATLAB, and `lightsim_run.m`, are a manual
+  check before each release; text with characters beyond ASCII (N·m, °C)
+  is stored as UTF-16, which MATLAB documents but which that check must
+  confirm. *Roadmap:* STD-09.
+- **No Parquet or HDF5 export yet.** Results go out as .mat, CSV and the
+  run card (JSON); Parquet comes with the Python package (AI-02).
+  *Roadmap:* STD-09.
+- **`lightsim_run.m` is not installed with the app.** Copy it from the
+  `matlab` folder of LightSim's source. With the AppImage, give it the
+  engine's path (the engine lives inside the AppImage; extract it with
+  `--appimage-extract`). *Roadmap:* STD-09, AI-02.
+- **The table import reads values, not formulas or formats.** From an
+  `.xlsx` file it takes the value Excel saved with each formula; a
+  workbook saved by a program that does not store those values (some
+  scripts that write Excel files) gives empty cells. Dates and times are
+  read as Excel's day numbers. Old `.xls` and OpenDocument `.ods` files
+  must be saved as `.xlsx` or CSV first. *Roadmap:* STD-10.
+- **A unit LightSim does not know is refused.** The import converts the
+  common units of speed, rotational speed, torque, power, energy,
+  voltage, current, charge, mass, mass flow, distance, time, temperature,
+  force, pressure, curvature and resistance. Other units (for example
+  kg·m² written as g·cm²) must be converted in the file first. A speed or
+  grade without a unit is guessed from its values, and the preview asks
+  you to confirm. *Roadmap:* STD-16.
+- **The parameter sheet does not hold scripts, case values or when a value
+  changed.** Script blocks stay in the project; a case's own values
+  (*Cases & Parameters*) are not in the sheet; the *Source* and *Notes*
+  columns are for your team and are not read back. *Roadmap:* STD-36,
+  UX-24.
+
 ## Using and installing the app
 
 - **Stored runs have a disk budget.** Finished runs are kept on disk with
   their project, up to 500 MB per project and 2 GB in all; past that the
   oldest are deleted (runs of projects that were never saved go first), and
   the app shows at most the 20 newest. Export runs you need to keep for
-  good to CSV. *Roadmap:* RES-02, RES-09.
+  good to CSV or as a MATLAB .mat file. *Roadmap:* RES-02, RES-09.
 - **Scripts run in a separate, locked-down process, but how locked-down
   depends on your system.** Script blocks hold Python code that comes with
   the project. LightSim checks that code first: Data Checks only compile it,

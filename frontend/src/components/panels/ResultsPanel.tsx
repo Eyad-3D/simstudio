@@ -17,6 +17,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { downloadBlob, exportRunFile } from "../../api";
 import { confirmDialog } from "../../dialog";
 import { summaryChange } from "../../provenance";
 import { previousRunOf, useActiveRun, useOverlayRuns, useProjectStore } from "../../store/projectStore";
@@ -42,7 +43,7 @@ import {
   type XAxisMode,
   type YAxisCfg,
 } from "./chartUtils";
-import { csvText } from "./csv";
+import { csvBlob } from "./csv";
 import { MeasurePanel, cursorsIn, measurePlugin } from "./Measure";
 import { Plot, axisStyle, type PlotHandle, type PlotOptions } from "./Plot";
 import { RunChanges, RunInfo, runLabel, runShort, runTime } from "./RunInfo";
@@ -245,13 +246,24 @@ function exportCsv(run: SimRun, keys: Set<string>, name: string, x: XAxis) {
     ...(dist ? [clean(dist[i + dist.length - n] / x.div), clean(pt.t)] : [clean(pt.t / x.div)]),
     ...channels.map((c) => c.timeSeries[i]?.value ?? ""),
   ]);
-  const blob = new Blob([csvText([header, ...rows])], { type: "text/csv" });
+  const blob = csvBlob([header, ...rows]);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = `${name}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** The whole run for MATLAB or Python: every channel, its units and the run
+ *  details, as a .mat file the engine writes (STD-09). */
+async function exportMat(run: SimRun) {
+  try {
+    const { blob, name } = await exportRunFile(run, "mat");
+    downloadBlob(blob, name);
+  } catch (e) {
+    useProjectStore.getState().log("error", `The .mat export failed: ${(e as Error).message}`);
+  }
 }
 
 export function ResultsPanel() {
@@ -1226,6 +1238,14 @@ export function ResultsPanel() {
               }
             >
               <Download size={12} /> <span className="@max-[880px]:sr-only">CSV</span>
+            </button>
+            <button
+              className="ss-toolbtn border border-[color:var(--ss-border)]"
+              disabled={!result || !activeRun || activeRun.status === "running"}
+              title="Export the primary run for MATLAB or Python (.mat): every channel with its unit, and the run's details"
+              onClick={() => activeRun && void exportMat(activeRun)}
+            >
+              <Download size={12} /> <span className="@max-[880px]:sr-only">MATLAB</span>
             </button>
           </div>
         </div>

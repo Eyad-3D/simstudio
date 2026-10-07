@@ -12,6 +12,13 @@ if __name__ == "__main__":
     # running from source.
     multiprocessing.freeze_support()
 
+    # `lightsim-backend run|export|import-table|params ...` is the command
+    # line (app/dataio/cli.py); anything else starts the server
+    if len(sys.argv) > 1 and sys.argv[1] in ("run", "export", "import-table", "params"):
+        from app.dataio.cli import main as cli_main
+
+        sys.exit(cli_main(sys.argv[1:]))
+
     from app.server import main
 
     sys.exit(main())

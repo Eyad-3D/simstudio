@@ -14,8 +14,9 @@ the parts fit together.
 
 - **Tutorials** take you through LightSim once, from start to end.
 - **How-to guides** answer one question each, for example
-  [how to pick a drive cycle](how-to/pick-a-drive-cycle.md) or
-  [how to run a parameter sweep](how-to/parameter-sweep.md).
+  [how to pick a drive cycle](how-to/pick-a-drive-cycle.md),
+  [how to run a parameter sweep](how-to/parameter-sweep.md) or
+  [how to use results in MATLAB and Python](how-to/use-results-in-matlab-and-python.md).
 - **Examples** describe the cars that come with LightSim and the results
   to expect from them.
 - **Reference** lists every [part in the library](reference/components/index.md)

@@ -803,6 +803,31 @@ sections.
   has a card and expected values, lands within them, and still gives its
   stored results, which change only with a note in
   `backend/tests/golden/CHANGES.md`. No result changes.
+- Results for MATLAB and Python: **MATLAB** on the *Results* page saves the
+  run as a `.mat` file (MATLAB and SciPy read it), with a struct per part
+  holding `t` and its channels, and `meta` with every channel's unit and
+  the run's details (project, case, app version, model fingerprint,
+  status, summary, the parameters that differ from the defaults, live
+  edits and the figures that are not valid). `matlab/lightsim_run.m` runs
+  a case from a MATLAB script and returns a table, and the engine runs a
+  case from the command line (`lightsim-backend run project.json --case
+  "WLTC Class 3b" --out wltc.mat`). CSV files from *Results* and from
+  studies start with a byte-order mark, so Excel shows N·m and °C as
+  written. (STD-09)
+- **Import from file…** under every table, map and drive profile reads it
+  from a CSV file (any separator, decimal comma) or an Excel workbook: it
+  finds the headers and axes, reads the units written in them and
+  converts them (rpm, W, m/s, mph, the FASTSim cycle layout and loggers'
+  unit rows), shows the curve or map before anything changes, and names
+  the row and cell of anything it refuses. The import is one undo step.
+  (STD-10)
+- The *Parameters* tab exports every parameter of the model to one Excel
+  workbook (tables and maps on sheets of their own) or CSV file, and
+  **Import sheet** reads it back with a list of every change before it is
+  applied as one undo step; rows with a wrong unit, an unknown part or
+  key, or a value the parameter cannot hold are refused with their row
+  numbers. **FS template** saves the Formula Student example's sheet to
+  fill in. (STD-36)
 
 ### Fixed
 

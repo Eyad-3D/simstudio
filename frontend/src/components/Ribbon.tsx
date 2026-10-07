@@ -7,7 +7,10 @@ import {
   Copy,
   Download,
   EyeOff,
+  FileDown,
   FilePlus2,
+  FileSpreadsheet,
+  FileUp,
   FolderOpen,
   Gauge,
   History,
@@ -27,7 +30,6 @@ import {
   Sun,
   Timer,
   Trophy,
-  FileUp,
   Crosshair,
   Trash2,
   Undo2,
@@ -43,6 +45,7 @@ import { CalibrateDialog } from "./CalibrateDialog";
 import { LabelEstimateDialog } from "./LabelEstimate";
 import { VehicleTestsDialog } from "./VehicleTests";
 import { TemplatesDialog } from "./TemplatesDialog";
+import { downloadParameterTemplate, useParameterSheet } from "./ParameterSheet";
 import { confirmDialog } from "../dialog";
 import { openHelp } from "../help";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
@@ -521,6 +524,7 @@ function ResultsTab() {
 }
 
 function ParametersTab() {
+  const sheet = useParameterSheet();
   const running = useProjectStore((s) => s.running);
   const run = useProjectStore((s) => s.run);
   const stopRun = useProjectStore((s) => s.stopRun);
@@ -569,6 +573,36 @@ function ParametersTab() {
           onClick={() => void run()}
         />
         <BigButton icon={Square} label="Stop" disabled={!running} onClick={stopRun} />
+      </RibbonGroup>
+      <RibbonGroup label="Parameter Sheet">
+        <BigButton
+          icon={FileDown}
+          label="Export sheet"
+          title="Every parameter of every part in one Excel workbook (.xlsx), tables and maps on sheets of their own"
+          disabled={!project}
+          onClick={sheet.exportXlsx}
+        />
+        <BigButton
+          icon={FileSpreadsheet}
+          label="Export CSV"
+          title="Every parameter in one CSV file (tables as text in their cell; use .xlsx to edit tables)"
+          disabled={!project}
+          onClick={sheet.exportCsv}
+        />
+        <BigButton
+          icon={FileUp}
+          label="Import sheet"
+          title="Read a parameter sheet back: you see every change before it is applied"
+          disabled={!project || running}
+          onClick={sheet.pickFile}
+        />
+        {sheet.elements}
+        <BigButton
+          icon={Download}
+          label="FS template"
+          title="The Formula Student example's parameter sheet, to fill in with your car's numbers"
+          onClick={downloadParameterTemplate}
+        />
       </RibbonGroup>
     </>
   );

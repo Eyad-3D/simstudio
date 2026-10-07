@@ -353,6 +353,9 @@ export interface ProjectState {
   setParameters: (elementId: string, values: Record<string, ParamValue>) => void;
   /** Record where a parameter value comes from (CON-13); null forgets it. */
   setParameterSource: (elementId: string, key: string, source: ParameterSource | null) => void;
+  /** Values for parameters of several parts (an imported parameter sheet,
+   *  STD-36), as one undo step. */
+  applyParameterChanges: (changes: { elementId: string; key: string; value: ParamValue }[]) => void;
   /** A table's outside-the-data settings, one per axis (applies on the next run). */
   setTableOutside: (elementId: string, key: string, policies: OutsidePolicy[]) => void;
   setDynamicPorts: (elementId: string, ports: PortDef[]) => void;
@@ -1096,6 +1099,12 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         true,
         `source:${elementId}:${key}`,
       ),
+    applyParameterChanges: (changes) =>
+      updateProject((draft) => {
+        for (const s of draft.systems)
+          for (const el of s.elements)
+            for (const c of changes) if (c.elementId === el.id) el.parameterOverrides[c.key] = c.value;
+      }),
 
     setTableOutside: (elementId, key, policies) =>
       updateProject(
