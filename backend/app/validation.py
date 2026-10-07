@@ -258,10 +258,9 @@ def validate_project(project: Project) -> list[DataCheck]:
                 except ScriptError as e:
                     add("error", str(e), el)
 
-        # a Driving Task on a drive cycle drives the cycle, not its typed
-        # profile; an unknown cycle is build_model's error (below)
-        if cdef.id == "signal.road_profile" or (cdef.id == "signal.driving_task"
-                                                 and not params.get("cycle")):
+        # a Driving Task or Road Profile on a drive cycle follows the cycle,
+        # not its typed profile; an unknown cycle is build_model's error (below)
+        if cdef.id in ("signal.road_profile", "signal.driving_task") and not params.get("cycle"):
             for level, text in profile_problems(str(params.get("profile", ""))):
                 add(level, f"'{el.label}' profile: {text}.", el)
         ts = _as_number(params.get("sample_time_s", 0))  # a wrong one is an error above

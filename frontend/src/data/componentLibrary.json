@@ -1745,9 +1745,9 @@
           "default": "",
           "type": "string",
           "variability": "fixed",
-          "description": "A standard drive cycle the task follows instead of its typed Profile: WLTC class 3b, EPA city (UDDS) or EPA highway (HWFET). Custom profile drives the typed points. Scale and Repeat Profile still apply.",
-          "typical": "WLTC class 3b for European figures; EPA city and highway for US ones; Custom profile for your own test.",
-          "whereToFind": "The regulation your figures are compared with: WLTP (UN GTR No. 15) in Europe, EPA's city (FTP) and highway tests in the United States."
+          "description": "A standard drive cycle the task follows instead of its typed Profile: the WLTC classes and phases, NEDC, the EPA cycles (UDDS, HWFET, FTP-75, US06, SC03, LA92, New York City), motorcycle cycles and a truck route, each with its source. Custom profile drives the typed points. Scale and Repeat Profile still apply.",
+          "typical": "WLTC class 3b for most European cars; EPA city (UDDS) and highway (HWFET) for US figures; WMTC for motorcycles; Custom profile for your own test.",
+          "whereToFind": "The regulation your figures are compared with: WLTP (EU Regulation 2017/1151) in Europe, EPA's city and highway tests (40 CFR Parts 86 and 600) in the United States. The WLTC class follows from the vehicle's rated power per kg: class 3 above 34 W/kg."
         },
         {
           "key": "profile",
@@ -2771,7 +2771,7 @@
       "name": "Road Profile",
       "icon": "mountain",
       "domain": "signal",
-      "description": "Road grade profile over distance (or time), piecewise-linear 'x:grade%' pairs. Wire the grade output to the Vehicle's Road Grade input; in distance mode it follows the Vehicle's distance automatically when unwired.",
+      "description": "Road grade profile over distance (or time), piecewise-linear 'x:grade%' pairs, or the grade a bundled drive cycle carries. Wire the grade output to the Vehicle's Road Grade input; in distance mode it follows the Vehicle's distance automatically when unwired.",
       "ports": [
         {
           "id": "sig_distance_in",
@@ -2789,6 +2789,17 @@
         }
       ],
       "parameters": [
+        {
+          "key": "cycle",
+          "label": "Grade From Cycle",
+          "unit": "-",
+          "default": "",
+          "type": "string",
+          "variability": "fixed",
+          "description": "A bundled drive cycle whose grade column sets the road's grade, such as the long-haul truck route. The grade is placed along the distance the cycle covers, so each hill stays where it is if the car falls behind the cycle; Profile and Profile Axis are then not used. Custom profile uses the typed points.",
+          "typical": "The same cycle as the Driving Task's Drive Cycle, for a route with hills; Custom profile otherwise.",
+          "whereToFind": "Only cycles marked 'with grade' in the list carry a grade."
+        },
         {
           "key": "profile",
           "label": "Profile (x:grade%; …)",

@@ -18,13 +18,27 @@ cleared it for shipping.
 | `source` | Where the numbers come from: a URL or document, `Synthetic / created for LightSim` (only when the history shows it), or `Provenance unknown`. |
 | `history` | What git history and the research notes say about the source. |
 | `licence`, `credit` | The licence the data is under and the credit text it requires. |
+| `reuse_basis` | Why LightSim, a paid app, may ship the data, from the list below, one or more separated by `; `: `EU-2011/833` (EU legal texts on EUR-Lex), `US-17USC105` (US Government works), `JP-Art13` (Japanese laws and official notices), `Apache-2.0`, `MIT`, `CC-BY-4.0`, `CDLA-Permissive-2.0` or `OGL-Canada-2.0` (permissive licences), `LightSim-own` (created for LightSim), `Facts` (figures quoted from a public document), `Derived` (made by LightSim from other rows) or `Unknown`. |
 | `ships_in_installer` | `yes` or `no`. The engine bundle carries `backend/projects/`, the component catalogue and the drive cycles in `backend/app/cycles/` (`backend/lightsim-backend.spec`). The UI bundle inlines `frontend/src/data/` as its offline fallback. |
 | `cleared` | The owner's sign-off that LightSim may ship the data: `yes` (the licence is known and allows it), `no` (it must not ship) or `pending` (not yet confirmed). |
 | `notes` | Caveats and open actions. |
 
-## Status (2026-09-28)
+## Status (2026-10-07)
 
-- The register has 45 rows.
+- The register has 69 rows.
+- **The drive-cycle library has 27 cycles** (CON-04), built by
+  `scripts/cycles/build_cycles.py` from official texts where their terms
+  allow reuse (CON-31): the WLTC classes 1, 2, 3a and 3b, their city cycles
+  and phases from the EU's Regulation 2017/1151 on EUR-Lex, the NEDC from
+  UN Regulation No 83 as the EU published it, and the EPA cycles (FTP-75,
+  US06, SC03, LA92, New York City, motorcycle FTP) from EPA's schedule
+  files. The WMTC motorcycle cycles and the long-haul truck route are
+  FASTSim's Apache-2.0 copies. Every cycle has a fingerprint (the sum of its
+  1 Hz speeds and the SHA-256 of its file) that `test_cycles.py` recomputes.
+- **WLTC class 3b, UDDS and HWFET are now checked against the official
+  tables.** The files, first converted from FASTSim's copies, equal the EU
+  regulation's tables and EPA's files value for value, so rule 2 holds for
+  them and DR-25 now cites the EU text.
 - **Third-party data is now bundled.** The example rebuild (CON-02, CON-03)
   took the Battery Electric Car's vehicle values from FASTSim's
   2021_Cupra_Born.csv, calibrated its motor loss map to FASTSim's default
@@ -34,16 +48,10 @@ cleared it for shipping.
   Car List (a US Government work; EPA's own terms were not re-checked, rule
   5). FASTSim's credit and NOTICE are in THIRD-PARTY-NOTICES.txt (Help >
   Third-Party Notices), listed in `scripts/licenses/bundled-data.json`.
-- The three regulatory cycles are FASTSim's copies, converted to km/h and
-  checked against the regulations' own figures (duration, distance, top
-  speed, 0.1 km/h or 0.1 mph grid, WLTC phase distances). They were not
-  re-typed from the regulation tables as rule 2 asks, because epa.gov and
-  unece.org could not be reached when they were added; re-check them against
-  the tables when they can.
-- Those three cycles are LightSim's drive-cycle library (`backend/app/cycles/`,
-  CON-16): one CSV each, holding the same points the example cases carried
-  before, and `cycles.json` for their names, phases and published figures
-  (DR-46). The examples and the Driving Task's *Drive Cycle* name them by id.
+- The cycles live in `backend/app/cycles/` (CON-16): one CSV each and
+  `cycles.json` for their names, sources, phases and fingerprints (DR-46).
+  The examples, the Driving Task's *Drive Cycle* and the Road Profile's
+  *Grade From Cycle* name them by id.
 - The examples' new engine, motor and battery maps are synthetic, created
   for LightSim in that change; their rows say what they are calibrated to.
 - The Race Track's layouts (`backend/app/library/tracks.json`, DR-38) are
@@ -75,7 +83,15 @@ cleared it for shipping.
     name the LightSim LICENSE and become `cleared = yes`. Any value that was
     taken from somewhere else needs its source recorded instead, or it should
     be replaced.
-  - The owner should sign off the FASTSim (Apache-2.0) and EPA rows.
+  - The owner should sign off the FASTSim (Apache-2.0), EU and EPA rows.
+    Two questions are the owner's: EPA's website disclaimer says that
+    "commercial use of the documents available from the EPA websites may be
+    protected", although the schedules are US Government works in the Code
+    of Federal Regulations (rule 5); and EUR-Lex asks for its source to be
+    acknowledged, which the app does with each cycle, but Help >
+    Third-Party Notices cannot list it until the licence gate
+    (`scripts/licenses/allowed.txt`, BIZ-34) accepts a non-SPDX term for
+    Decision 2011/833/EU.
   - Once every shipped row is cleared, make `pending` fail for shipped rows
     in the check (see below), so that later data cannot ship unconfirmed.
 
@@ -83,11 +99,51 @@ cleared it for shipping.
 
 1. Add or update the row in the same change as the data. CI enforces this
    (see below).
-2. Regulatory cycles, such as UNECE GTR 15 WLTC or the EPA schedules: re-type
-   them from the regulation's published tables and cite the regulation and
-   the table. Do not copy them from EUPL-licensed code such as JRC `wltp`.
-3. FASTSim cycles and vehicles are Apache-2.0: ship their licence and NOTICE
-   text and give the credit it asks for.
+2. Take data only from a source whose terms allow reuse inside a paid app,
+   and record that basis in `reuse_basis`. For drive cycles, in this order
+   (CON-31):
+   1. the EU's copy of the regulation on EUR-Lex: Commission Regulation (EU)
+      2017/1151, Annex XXI, Sub-Annex 1 for the WLTC, and the UN Regulations
+      the EU publishes in its Official Journal, such as Regulation No 83 for
+      the NEDC (OJ L 42, 15.2.2012). EUR-Lex allows reuse "for commercial or
+      non-commercial purposes" under Decision 2011/833/EU if the source is
+      acknowledged and changes are noted: credit "Source: EUR-Lex, ©
+      European Union" and say what was changed ("converted to a CSV in
+      km/h");
+   2. US federal texts and EPA's schedule files, US Government works (cite
+      the CFR, which EPA calls the official source; see rule 5);
+   3. official notices the law leaves free of copyright, such as Japan's
+      (Copyright Act Article 13: JC08 and the Japanese WLTC);
+   4. Apache-2.0 or MIT copies, such as FASTSim's, as the shipped file or as
+      a cross-check.
+
+   Re-type a cycle from its table, or check a copy against the table value
+   for value (`scripts/cycles/build_cycles.py` does both), and cite the
+   regulation and the table. Vehicle data may come from OpenEV Data
+   (CDLA-Permissive-2.0), the EEA's CO₂ monitoring data (CC-BY-4.0),
+   fueleconomy.gov and NRCan's ratings (Open Government Licence – Canada),
+   with credit.
+3. Never take data from these, not even to check a value by hand:
+   - the UNECE website (its terms forbid reuse without written permission;
+     use the EU's copy of the same regulation instead);
+   - ev-database.org (prior permission and manual copying only) and
+     evspecifications.com (scraping forbidden);
+   - the gaia-charge/evdb database (CC BY-SA 4.0, share-alike) and the
+     fastsim-vehicles database (no licence; rule 4);
+   - EUPL, GPL or LGPL files: VECTO's missions, JRC `wltp`, the TUM
+     racetrack database, OpenLAP;
+   - standards sold by their publisher, such as China's CLTC (GB/T
+     38146.1-2019), and traces without clear terms, such as Artemis. Users
+     may import these themselves (CON-34); LightSim does not ship them.
+
+   `test_data_register.py` fails when a row's source names one of these.
+   FASTSim: read its licence from its LICENSE file, not the PyPI classifier
+   (fastsim 3.1.0 says "Other/Proprietary" while its LICENSE is
+   Apache-2.0), keep the 2.1.5 NOTICE holder (Alliance for Sustainable
+   Energy, LLC) for data from 2.1.5 and use the new holder (Alliance for
+   Energy Innovation, LLC) for data from 3.x. FASTSim cycles and vehicles
+   are Apache-2.0: ship their licence and NOTICE text and give the credit it
+   asks for.
 4. The FASTSim vehicle database has no licence file. Do not bundle it. Fetch
    it only when the user asks, with credit, until NREL (now NLR) confirms the
    terms.
@@ -102,8 +158,11 @@ cleared it for shipping.
    project record only the cycle's id, so a corrected or resampled cycle gets
    a new id, file and row, and the old one stays.
 
-Rules 2–5 come from the roadmap research of September 2026 (`open-source-repos`
-§3.1, not kept in this repository). Check them again when the data is added.
+Rules 2–5 come from the roadmap research of September 2026 (`content` and
+`open-source-repos` §3.1, not kept in this repository); the EUR-Lex terms
+were read on its legal notice page on 2026-10-07. Check them again when the
+data is added, and before each release check whether the fastsim-vehicles
+database has gained a licence file.
 
 ## The check
 
