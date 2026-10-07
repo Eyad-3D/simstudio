@@ -1904,38 +1904,57 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         set({ running: false });
         return;
       }
-      sweepAborted = false;
       log("info", `Endurance energy study: ${packs.length} × ${caps.length} = ${packs.length * caps.length} runs of '${simCase.name}' …`);
+      // every pack × cap point, run side by side in the engine's worker
+      // processes as a sweep's are (ENG-05)
+      const grid = packs.flatMap((pack) => caps.map((cap) => [pack, cap]));
+      const byIndex = new Map<number, StudyPoint>();
+      let totals: api.StudyTotals | undefined;
+      set({ livePct: 0 });
       try {
-        for (const pack of packs) {
-          for (const cap of caps) {
-            if (sweepAborted) break;
-            const runProject = structuredClone(project);
-            const rc = runProject.cases.find((c) => c.id === caseId);
-            if (!rc) break;
-            rc.parameterOverrides = {
-              ...(rc.parameterOverrides ?? {}),
-              [batteryId]: { ...(rc.parameterOverrides?.[batteryId] ?? {}), capacity_kWh: pack, output_power_limit_kW: cap },
-            };
-            try {
-              await executeRun(runProject, caseId, `${simCase.name} · ${pack} kWh, ${cap} kW`, {
-                sweepId,
-                sweepParam: "Pack × power cap",
-                sweepValue: pack,
-                sweepUnit: "kWh",
+        const handle = api.runStudyLive(
+          {
+            project: structuredClone({ ...project, studies: undefined }) as Project,
+            caseId,
+            points: grid.map(([pack, cap]) => ({
+              overrides: { [batteryId]: { capacity_kWh: pack, output_power_limit_kW: cap } },
+              values: [pack, cap],
+              label: `${simCase.name} · ${pack} kWh, ${cap} kW`,
+            })),
+            sweepId,
+            sweepParam: "Pack × power cap",
+            sweepUnit: "kWh",
+          },
+          {
+            onPoint: (e) => {
+              const notValid = (e.summary ?? []).filter((v) => v.notValid);
+              byIndex.set(e.index, {
+                values: e.values,
+                ...(e.runId ? { runId: e.runId } : {}),
+                status: e.status,
+                ...(e.incomplete ? { incomplete: e.incomplete } : {}),
+                ...(e.wallS != null ? { wallS: e.wallS } : {}),
+                kpis: Object.fromEntries(
+                  (e.summary ?? []).filter((v) => Number.isFinite(v.value)).map((v) => [v.label, v.value]),
+                ),
+                ...(notValid.length ? { notValid: Object.fromEntries(notValid.map((v) => [v.label, v.notValid!])) } : {}),
               });
-            } catch (e) {
-              log("error", `Study point ${pack} kWh, ${cap} kW failed: ${(e as Error).message}`);
-            }
-            const tabled = new Set(points.map((p) => p.runId));
-            const pointRun = get().runs.find((r) => r.sweepId === sweepId && !tabled.has(r.id));
-            points.push(pointRun ? studyPoint(pointRun, [pack, cap]) : { values: [pack, cap], status: "failed", kpis: {} });
-            for (const v of pointRun?.result.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
-          }
-        }
+              for (const v of e.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
+              if (e.status === "failed") log("error", `Study point ${e.values[0]} kWh, ${e.values[1]} kW failed.`);
+              set({ livePct: (100 * byIndex.size) / grid.length });
+            },
+          },
+        );
+        activeStudy = handle;
+        totals = await handle.done;
+      } catch (e) {
+        log("error", `Endurance energy study failed: ${(e as Error).message}`);
       } finally {
+        activeStudy = null;
         set({ running: false });
       }
+      if (get().project?.id === project.id) await loadRunHistory(project.id);
+      points.push(...[...byIndex.entries()].sort((a, b) => a[0] - b[0]).map(([, pt]) => pt));
       if (get().project?.id !== project.id || !points.length) return;
       const ran = new Set(points.map((p) => p.values.join(",")));
       const notRun = packs.flatMap((pack) =>
@@ -1949,6 +1968,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         factors: [factor("capacity_kWh", packs), factor("output_power_limit_kW", caps)],
         kpis: [...kpiUnits].map(([label, unit]) => ({ label, unit })),
         points: [...points, ...notRun],
+        ...(totals ? { workers: totals.workers, wallS: totals.wallS } : {}),
       };
       updateProject((draft) => {
         draft.studies = [...(draft.studies ?? []), study];
