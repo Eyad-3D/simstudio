@@ -4,6 +4,7 @@ import * as api from "../api";
 import { confirmDialog, unsavedChangesDialog } from "../dialog";
 import { loadDraft } from "../persist";
 import { diffSnapshots, modelFingerprint, nameFromChanges } from "../provenance";
+import { dutyKpis } from "../reports";
 import type {
   Channel,
   ComponentDef,
@@ -265,7 +266,10 @@ function studyPoint(run: SimRun, values: number[]): StudyPoint {
     status: run.status === "running" ? "failed" : run.status,
     ...(run.incomplete ? { incomplete: run.incomplete } : {}),
     // (a value JSON cannot carry would make the project unsavable)
-    kpis: Object.fromEntries(run.result.summary.filter((v) => Number.isFinite(v.value)).map((v) => [v.label, v.value])),
+    // and each part's duty (RES-39)
+    kpis: Object.fromEntries(
+      [...run.result.summary, ...dutyKpis(run.result)].filter((v) => Number.isFinite(v.value)).map((v) => [v.label, v.value]),
+    ),
     ...(notValid.length ? { notValid: Object.fromEntries(notValid.map((v) => [v.label, v.notValid!])) } : {}),
   };
 }
@@ -417,6 +421,7 @@ export interface ProjectState {
       endDistance: number | null;
       startLine: number;
       referenceTime: number | null;
+      energyReport: boolean;
     }>,
   ) => void;
   addCase: () => void;
@@ -1798,7 +1803,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           const tabled = new Set(points.map((p) => p.runId));
           const pointRun = get().runs.find((r) => r.sweepId === sweepId && !tabled.has(r.id));
           points.push(pointRun ? studyPoint(pointRun, [value]) : { values: [value], status: "failed", kpis: {} });
-          for (const v of pointRun?.result.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
+          for (const v of pointRun ? [...pointRun.result.summary, ...dutyKpis(pointRun.result)] : [])
+            if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
         }
       } finally {
         set({ running: false });

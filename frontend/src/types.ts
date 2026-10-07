@@ -157,6 +157,8 @@ export interface SimCase {
   startLine?: number;
   /** A time to compare the acceleration test's time with, s; null = none. */
   referenceTime?: number | null;
+  /** Build the run's energy report (RES-22); absent = on. */
+  energyReport?: boolean;
   /**
    * Per-case parameter overrides: { elementId: { paramKey: value } }. Layered
    * on top of each element's own parameterOverrides at solve time, so a case
@@ -245,6 +247,79 @@ export interface SummaryValue {
   passed?: boolean | null;
 }
 
+/** One row of the energy table (RES-22), kWh: in − out − lost − stored is 0
+ *  for a part that keeps its books. */
+export interface EnergyPart {
+  /** null for a row that is not one part (the driveline's gears together) */
+  elementId?: string | null;
+  label: string;
+  kind: string;
+  inKWh: number;
+  outKWh: number;
+  /** lost, or used by a consumer */
+  lostKWh: number;
+  /** the change of what it stores */
+  storedKWh: number;
+  /** its loss as a share of the sources' energy, % */
+  lostPct: number;
+}
+
+/** A band of the energy Sankey chart. */
+export interface EnergyFlow {
+  label: string;
+  kWh: number;
+  /** "source" or "released" on the left; "road", "stored", "brakes",
+   *  "losses", "loads" or "recovered" on the right */
+  group: string;
+  elementId?: string | null;
+}
+
+export interface EnergyReport {
+  parts: EnergyPart[];
+  sources: EnergyFlow[];
+  sinks: EnergyFlow[];
+  sourceKWh: number;
+  /** the sources less the sinks: what the books do not explain */
+  remainderKWh: number;
+  remainderPct: number;
+  /** the run's electrical energy balance error, % */
+  balanceErrorPct?: number | null;
+}
+
+/** A part's duty for one quantity (RES-39), over the run's solver steps. */
+export interface DutyRow {
+  quantity: string;
+  unit: string;
+  max: number;
+  min: number;
+  mean: number;
+  /** root-mean-square: the mean that sets heating */
+  rms: number;
+}
+
+export interface DutyPart {
+  elementId: string;
+  label: string;
+  kind: string;
+  rows: DutyRow[];
+}
+
+/** What held one driveline back (RES-38). */
+export interface LimitLane {
+  label: string;
+  elementIds: string[];
+  /** [t in s, index into LimitReport.states] from each change on */
+  changes: [number, number][];
+  /** seconds in each state */
+  seconds: Record<string, number>;
+}
+
+export interface LimitReport {
+  states: string[];
+  lanes: LimitLane[];
+  tEnd: number;
+}
+
 export interface SimResult {
   caseId: string;
   /** "cancelled": a stop cut the run short. */
@@ -252,6 +327,10 @@ export interface SimResult {
   messages: SimMessage[];
   channels: Channel[];
   summary: SummaryValue[];
+  /** the run's reports (absent on older runs, failed ones and live runs until they end) */
+  energy?: EnergyReport | null;
+  duty?: DutyPart[];
+  limits?: LimitReport | null;
 }
 
 /** A scalar parameter change sent to the engine while a run was going. */

@@ -36,12 +36,14 @@ import {
   Trash2,
   Undo2,
   Waypoints,
+  Zap,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
 import {
   portsOf,
   systemBreadcrumb,
+  useActiveRun,
   useActiveSystem,
   useProjectStore,
 } from "../../store/projectStore";
@@ -50,6 +52,9 @@ import { useDismiss } from "../useDismiss";
 import { promptDialog } from "../../dialog";
 import type { PortKind } from "../../types";
 import { ElementNode, KIND_COLOR, type ElementFlowNode } from "./ElementNode";
+import { EnergyBars } from "./EnergyOverlay";
+import { useReportsStore } from "../../store/reportsStore";
+import { useStaleness } from "../panels/StaleBanner";
 
 const nodeTypes = { element: ElementNode };
 
@@ -138,6 +143,9 @@ function TopologyCanvasInner() {
   const selectedElementId = useProjectStore((s) => s.selectedElementId);
   const system = useActiveSystem();
   const store = useProjectStore;
+  // the run shown in Results: wires added since it (UX-41), and its energy (RES-22)
+  const staleWires = useStaleness(useActiveRun()).wireIds;
+  const showEnergy = useReportsStore((s) => s.showEnergy);
   const visibleKinds = useUIStore((s) => s.visibleKinds);
   const {
     fitView,
@@ -457,10 +465,20 @@ function TopologyCanvasInner() {
         type: "smoothstep",
         style: { stroke: KIND_COLOR[kind] },
         selected: selectedEdges.has(c.id),
+        // a wire added since the run shown in Results (UX-41)
+        ...(staleWires.has(c.id)
+          ? {
+              label: "●",
+              ariaLabel: "Wire added since the results shown",
+              labelStyle: { fill: "var(--ss-accent)", fontSize: 11 },
+              labelBgStyle: { fill: "var(--ss-panel)" },
+              labelBgPadding: [2, 0] as [number, number],
+            }
+          : {}),
       });
     }
     return out;
-  }, [system, project, libraryById, visibleKinds, selectedEdges]);
+  }, [system, project, libraryById, visibleKinds, selectedEdges, staleWires]);
 
   // Signal / data-bus links as a dashed overlay (render-only). These are stored
   // globally in project.dataBusConnections, not as canvas edges; we draw a
@@ -772,6 +790,14 @@ function TopologyCanvasInner() {
             <Magnet size={14} />
           </button>
           <button
+            className={`ss-toolbtn ${showEnergy ? "bg-[color:var(--ss-active)]" : ""}`}
+            title="Energy: label each part with its energy in, out and lost in the run shown in Results, and chart the losses"
+            aria-pressed={showEnergy}
+            onClick={() => useReportsStore.getState().setShowEnergy(!showEnergy)}
+          >
+            <Zap size={14} />
+          </button>
+          <button
             className={`ss-toolbtn ${showMiniMap ? "bg-[color:var(--ss-active)]" : ""}`}
             title="Toggle minimap"
             onClick={() => setShowMiniMap((v) => !v)}
@@ -979,6 +1005,7 @@ function TopologyCanvasInner() {
             />
           )}
         </ReactFlow>
+        <EnergyBars />
         {placingDef && (
           <div
             role="status"

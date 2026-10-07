@@ -12,6 +12,7 @@ import type { ComponentDef, ElementInstance, PortDef, PortKind, PortSide } from 
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import { componentIcon } from "../../icons";
+import { NodeMarks } from "./EnergyOverlay";
 
 export type ElementNodeData = {
   element: ElementInstance;
@@ -296,6 +297,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
             {badge.unit ? ` ${badge.unit}` : ""}
           </div>
         )}
+        <NodeMarks elementId={element.id} />
         {issue && (
           <span
             className={`absolute -right-1.5 -top-1.5 z-20 flex h-3.5 w-3.5 items-center justify-center rounded-full text-white shadow ${

@@ -3,6 +3,7 @@ import uPlot from "uplot";
 import {
   ChartScatter,
   Download,
+  Gauge,
   Image as ImageIcon,
   Info,
   Layers,
@@ -14,6 +15,7 @@ import {
   Table2,
   TrendingUp,
   X,
+  Zap,
 } from "lucide-react";
 import { confirmDialog } from "../../dialog";
 import { summaryChange } from "../../provenance";
@@ -44,6 +46,11 @@ import { csvText } from "./csv";
 import { MeasurePanel, cursorsIn, measurePlugin } from "./Measure";
 import { Plot, axisStyle, type PlotHandle, type PlotOptions } from "./Plot";
 import { RunChanges, RunInfo, runLabel, runShort, runTime } from "./RunInfo";
+import { DutyView } from "./DutyView";
+import { EnergyView } from "./EnergyView";
+import { LimitLegend, limitsPlugin } from "./LimitBand";
+import { StaleBanner } from "./StaleBanner";
+import { useReportsStore } from "../../store/reportsStore";
 
 // dash patterns to distinguish channels when several runs are overlaid at once
 const DASHES = [[], [5, 3], [2, 2], [7, 3, 2, 3], [9, 4]];
@@ -314,7 +321,9 @@ export function ResultsPanel() {
   // (a Sweep view kept for the case shows the chart for a run that is not a sweep point)
   const view = plot?.view === "sweep" && family.length < 2 ? "chart" : (plot?.view ?? "chart");
   const setView = (v: typeof view) => savePlot({ view: v });
-  const canMeasure = view !== "sweep" && Boolean(activeRun && timesOf(activeRun).length > 0);
+  const report = view === "energy" || view === "duty"; // the run's reports (RES-22, RES-39)
+  const canMeasure = view !== "sweep" && !report && Boolean(activeRun && timesOf(activeRun).length > 0);
+  const showLimits = useReportsStore((s) => s.showLimits);
 
   const byElement = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -477,7 +486,7 @@ export function ResultsPanel() {
           grid: { ...axis.grid, show: i === 0 },
         })),
       ],
-      plugins: [measurePlugin(x.kind)],
+      plugins: [measurePlugin(x.kind), limitsPlugin(x.kind)],
       cursor: {
         drag: { x: true, y: false },
         // runs on other time grids have gaps in the merged columns: read the
@@ -495,7 +504,9 @@ export function ResultsPanel() {
         },
       },
     };
-  }, [seriesLook, xLook, yLook, theme]);
+    // (the limit band is drawn from the store: a switch redraws it)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seriesLook, xLook, yLook, theme, showLimits]);
 
   // table shows only the active run (aligned time grid), every sample; only
   // the rows scrolled into view are drawn (see onTableScroll)
@@ -1154,6 +1165,26 @@ export function ResultsPanel() {
               >
                 <TrendingUp size={12} /> Sweep
               </button>
+              <button
+                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] ${
+                  view === "energy" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
+                }`}
+                aria-pressed={view === "energy"}
+                onClick={() => setView("energy")}
+                title="Energy: where the battery's or fuel's energy went, as a Sankey chart and per part"
+              >
+                <Zap size={12} /> <span className="@max-[880px]:sr-only">Energy</span>
+              </button>
+              <button
+                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] ${
+                  view === "duty" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
+                }`}
+                aria-pressed={view === "duty"}
+                onClick={() => setView("duty")}
+                title="Duty: each motor's, battery's and engine's highest, mean and RMS power, torque and current"
+              >
+                <Gauge size={12} /> <span className="@max-[880px]:sr-only">Duty</span>
+              </button>
             </div>
             <button
               className={`ss-toolbtn border border-[color:var(--ss-border)] ${cursorsOn ? "bg-[color:var(--ss-active)]" : ""}`}
@@ -1167,7 +1198,7 @@ export function ResultsPanel() {
             </button>
             <button
               className="ss-toolbtn border border-[color:var(--ss-border)]"
-              disabled={view === "table"}
+              disabled={view === "table" || report}
               title="Export the chart as a PNG image"
               onClick={() =>
                 plotRef.current?.png(
@@ -1197,6 +1228,9 @@ export function ResultsPanel() {
             </button>
           </div>
         </div>
+
+        {/* the model has changed since this run (UX-41) */}
+        {activeRun && <StaleBanner run={activeRun} />}
 
         {/* the run's headline numbers, each with its marks, in view at once */}
         {headline.length > 0 && view !== "sweep" && (
@@ -1240,7 +1274,11 @@ export function ResultsPanel() {
           </div>
         )}
 
-        {view === "table" ? (
+        {view === "energy" && activeRun ? (
+          <EnergyView run={activeRun} />
+        ) : view === "duty" && activeRun ? (
+          <DutyView run={activeRun} />
+        ) : view === "table" ? (
           <div className="min-h-[260px] flex-[3] overflow-auto" onScroll={onTableScroll}>
             {activeChannels.length > 0 && tableData.length > 0 ? (
               <table className="w-full border-collapse" aria-rowcount={tableData.length + 1}>
@@ -1334,6 +1372,8 @@ export function ResultsPanel() {
             )}
           </div>
         )}
+
+        {view === "chart" && activeRun && <LimitLegend run={activeRun} onTime={xAxis.kind === "t"} />}
 
         {cursorsOn && canMeasure && activeRun && (
           <MeasurePanel run={activeRun} series={seriesDefs} kind={view === "chart" ? xAxis.kind : "t"} />
