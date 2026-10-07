@@ -216,6 +216,14 @@ sections.
   driver change stop, and adds a Driving Task wired to the Driver if the
   car has none. A trace against distance is turned into time (t = ∫ ds / v)
   and keeps its distance within 0.5 %.
+- Endurance energy study (STU-38): an endurance case (a Lap case, or a
+  Cycle case from an imported lap repeated to 22 km) reports the net
+  battery energy, the lowest pack voltage and, from a trace, the RMS
+  battery power, with the endurance energy and rule checks (a Cycle case
+  gets no points). Its *Cases* tab offers a grid of the accumulator's
+  capacity and Output Power Limit (up to 6 × 6) that runs as one saved
+  study and shows a map, marking the pairs that run out of energy *DNF*.
+  Saved studies with two factors name both.
 - Wheel: *Lateral Friction μ_y* (0: the same as μ), *Load Sensitivity
   dμ/dFz* (per kN), *Nominal Load Fz0* (0: the wheel's static load) and
   *Friction Ellipse Exponent* (lap cases). The load sensitivity also acts

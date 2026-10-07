@@ -494,7 +494,8 @@ def simulate(
         for s in summary:
             s.notValid = not_valid.get(s.label)
         event = case.fsEvent
-        if event and case.kind != ("acceleration" if event == "acceleration" else "lap"):
+        if event and case.kind != ("acceleration" if event == "acceleration" else "lap") \
+                and not (event == "endurance" and case.kind == "cycle"):
             rt.message("info", f"The case stands for the Formula Student "
                                f"{fs_events.NAMES[event]} event, but its kind is "
                                f"{case.kind.capitalize()}: the event is scored from "

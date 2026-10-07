@@ -1899,6 +1899,9 @@ class ElectricalSlave(_CtxSlave):
                             - b.v_rc - current * b.r0)
                 ctx.bus_voltage[bus.id] = b.v_term
                 b.v_peak = max(b.v_peak, b.v_term)
+                b.v_low = min(b.v_low, b.v_term)
+                b.p_sq_ws += p_w * p_w * dt
+                b.t_on += dt
                 if b.check is not None:
                     # held at the cap (the motors' torque search stops a hair
                     # below it), or over a limit that is only checked

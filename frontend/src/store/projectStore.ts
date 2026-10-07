@@ -450,6 +450,10 @@ export interface ProjectState {
    *  file (STD-35), adding a Driving Task wired to the Driver when the model
    *  has none (one undo). */
   addImportedLap: (lap: api.LapLogResult, name: string, sha256: string) => void;
+  /** The endurance energy study (STU-38): run an endurance case at every
+   *  pair of a battery's capacity and Output Power Limit, and save the grid
+   *  as a two-factor study of the project. */
+  runEnduranceStudy: (args: { caseId: string; batteryId: string; packs: number[]; caps: number[] }) => Promise<void>;
   /** Sequentially run a case once per swept value, each landing in run
    *  history; the study and its results table are saved with the project. */
   runSweep: (config: SweepConfig) => Promise<void>;
@@ -1772,7 +1776,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const taken = new Set<string>();
       for (const ev of FS_EVENTS) {
         const c =
-          project.cases.find((x) => x.fsEvent === ev) ??
+          project.cases.find((x) => x.fsEvent === ev && (x.kind ?? "cycle") !== "cycle") ??
           project.cases.find((x) => !x.fsEvent && !taken.has(x.id) && shapes[ev](x));
         if (c) {
           ids[ev] = c.id;
@@ -1865,6 +1869,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           timeStep: 0.1,
           kind: "cycle",
           outputEvery: lap.duration_s > 600 ? 10 : 1,
+          ...(lap.repeated > 1 ? { fsEvent: "endurance" as const } : {}),
           parameterOverrides: { [taskId]: { profile: lap.profile, cycle: "" } },
         });
       });
@@ -1876,6 +1881,85 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           `${lap.repeated > 1 ? ` (${lap.repeated} laps)` : ""}; source file SHA-256 ${sha256}. ` +
           "Its speed comes from the file: LightSim gives the energy and the loads for that speed, not the cornering.",
       );
+    },
+
+    runEnduranceStudy: async ({ caseId, batteryId, packs, caps }) => {
+      const { project, log, libraryById, running } = get();
+      if (!project || running) return;
+      const simCase = project.cases.find((c) => c.id === caseId);
+      const battery = project.systems.flatMap((sy) => sy.elements).find((e) => e.id === batteryId);
+      if (!simCase || !battery || !packs.length || !caps.length) return;
+      const pdefs = libraryById[battery.componentDefId]?.parameters ?? [];
+      const factor = (key: string, values: number[]) => {
+        const d = pdefs.find((p) => p.key === key);
+        return {
+          elementId: batteryId,
+          paramKey: key,
+          elementLabel: battery.label,
+          paramLabel: d?.label ?? key,
+          unit: d && d.unit !== "-" ? d.unit : "",
+          values,
+        };
+      };
+      const sweepId = uid("sweep");
+      const startedAt = Date.now();
+      const points: StudyPoint[] = [];
+      const kpiUnits = new Map<string, string>();
+      set({ running: true });
+      if (!(await get().passesRunGate())) {
+        set({ running: false });
+        return;
+      }
+      sweepAborted = false;
+      log("info", `Endurance energy study: ${packs.length} × ${caps.length} = ${packs.length * caps.length} runs of '${simCase.name}' …`);
+      try {
+        for (const pack of packs) {
+          for (const cap of caps) {
+            if (sweepAborted) break;
+            const runProject = structuredClone(project);
+            const rc = runProject.cases.find((c) => c.id === caseId);
+            if (!rc) break;
+            rc.parameterOverrides = {
+              ...(rc.parameterOverrides ?? {}),
+              [batteryId]: { ...(rc.parameterOverrides?.[batteryId] ?? {}), capacity_kWh: pack, output_power_limit_kW: cap },
+            };
+            try {
+              await executeRun(runProject, caseId, `${simCase.name} · ${pack} kWh, ${cap} kW`, {
+                sweepId,
+                sweepParam: "Pack × power cap",
+                sweepValue: pack,
+                sweepUnit: "kWh",
+              });
+            } catch (e) {
+              log("error", `Study point ${pack} kWh, ${cap} kW failed: ${(e as Error).message}`);
+            }
+            const tabled = new Set(points.map((p) => p.runId));
+            const pointRun = get().runs.find((r) => r.sweepId === sweepId && !tabled.has(r.id));
+            points.push(pointRun ? studyPoint(pointRun, [pack, cap]) : { values: [pack, cap], status: "failed", kpis: {} });
+            for (const v of pointRun?.result.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
+          }
+        }
+      } finally {
+        set({ running: false });
+      }
+      if (get().project?.id !== project.id || !points.length) return;
+      const ran = new Set(points.map((p) => p.values.join(",")));
+      const notRun = packs.flatMap((pack) =>
+        caps.filter((cap) => !ran.has(`${pack},${cap}`)).map((cap): StudyPoint => ({ values: [pack, cap], status: "not run", kpis: {} })),
+      );
+      const study: Study = {
+        id: sweepId,
+        startedAt,
+        caseId,
+        caseName: simCase.name,
+        factors: [factor("capacity_kWh", packs), factor("output_power_limit_kW", caps)],
+        kpis: [...kpiUnits].map(([label, unit]) => ({ label, unit })),
+        points: [...points, ...notRun],
+      };
+      updateProject((draft) => {
+        draft.studies = [...(draft.studies ?? []), study];
+      }, false);
+      log("info", `Endurance energy study saved (Cases & Parameters → Endurance energy study and Saved studies).`);
     },
 
     runSweep: async ({ caseId, elementId, paramKey, values }) => {

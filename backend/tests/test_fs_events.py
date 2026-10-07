@@ -232,3 +232,49 @@ def test_an_energy_target_out_of_reach_says_so():
     assert rows["Lift-and-coast, mean share"].value == 100
     assert rows["Energy used against the target"].value > 2.0
     assert any("Energy Target" in m.text for m in r.messages if m.level == "warning")
+
+
+# ---- the endurance energy study (STU-38) -------------------------------------
+
+
+def test_an_endurance_from_a_lap_trace_reports_its_energy():
+    """The item's metric: from one imported lap trace (here repeated to
+    5 km to keep the test short), the run reports the net energy, the end
+    SOC and the RMS power, and the rule checks; no points, as its time is
+    the trace's."""
+    from helpers import dbc, el
+    from test_laplog import _motec
+
+    from app import laplog
+    lap = laplog.read_lap(_motec(), "MoTeC i2 CSV", repeat_to_km=5, driver_change_s=60)
+    proj = load_example("fs-electric")
+    proj.systems[0].elements.append(el("task", "signal.driving_task", "Imported lap"))
+    drv = next(e for e in proj.systems[0].elements if e.componentDefId == "driver.driver")
+    proj.dataBusConnections.append(dbc(99, "task", "sig_demand", drv.id, "sig_target_in"))
+    case = proj.cases[0]
+    case.kind, case.endDistance, case.startLine, case.fsEvent = "cycle", None, 0.0, "endurance"
+    case.duration, case.timeStep, case.outputEvery = lap.points[-1][0], 0.1, 10
+    case.parameterOverrides = {"task": {"profile": lap.profile(), "cycle": ""}}
+    r = simulate(proj, case.id)
+    assert r.status == "success", [m.text for m in r.messages if m.level != "info"]
+    rows = _rows(r)
+    out = rows["Accumulator — energy delivered"].value
+    back = rows["Accumulator — energy recuperated"].value
+    assert rows["Net battery energy (out − back in)"].value == pytest.approx(out - back, abs=2e-3)
+    assert rows["Endurance energy (regeneration × 0.9)"].value == pytest.approx(
+        out - 0.9 * back, abs=2e-3)
+    assert 5 < rows["RMS battery power"].value < 80
+    assert 400 < rows["Lowest pack voltage"].value < 600
+    assert "Accumulator — final SOC" in rows
+    assert rows["Endurance finished on its energy"].passed
+    assert not any("points" in label for label in rows)
+    assert any("trace's own" in m.text for m in r.messages)
+
+
+def test_a_lap_endurance_reports_net_energy_and_lowest_voltage():
+    proj = fs_car("Autocross", 2, battery={"output_power_limit_kW": 40, "initial_soc_pct": 60})
+    proj.cases[0].fsEvent = "endurance"
+    rows = _rows(simulate(proj, "case"))
+    assert rows["Net battery energy (out − back in)"].value == pytest.approx(
+        2 * rows["Energy per lap"].value, abs=2e-3)
+    assert rows["Lowest pack voltage"].value < rows["Rule check: voltage (EV 4.1.1)"].value

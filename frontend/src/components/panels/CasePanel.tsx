@@ -9,6 +9,7 @@ import { paramName, rangeProblem } from "../../paramRules";
 import { FS_EVENT_NAMES, FS_EVENTS } from "../../fsEvents";
 import type { FsEvent } from "../../types";
 import { FsPoints } from "./FsPoints";
+import { EnduranceStudy } from "./EnduranceStudy";
 
 // Only scalar parameters are editable as per-case overrides here; tables and
 // code are edited in Properties. Sweeps additionally require a numeric param.
@@ -500,10 +501,10 @@ export function CasePanel() {
               />
             </>
           )}
-          {(accel || lap) && (
+          {(accel || lap || (activeCase.kind ?? "cycle") === "cycle") && (
             <label
               className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-              title="The Formula Student dynamic event this case stands for: the run then reports the event's time as the rules take it, the rule checks (80 kW, 500 A, 600 V) and an estimate of the points against the reference values below. Acceleration needs an Acceleration case, the others a Lap case. Endurance also stops the car for the driver change at half distance. Scoring: FS Rules 2026 v1.1 (FSG) D 9; FSUK and FSAE score differently, check the current season's rules."
+              title="The Formula Student dynamic event this case stands for: the run then reports the event's time as the rules take it, the rule checks (80 kW, 500 A, 600 V) and an estimate of the points against the reference values below. Acceleration needs an Acceleration case, the others a Lap case. Endurance also stops the car for the driver change at half distance; on a Cycle case (an imported lap, repeated) it gives the endurance energy and rule checks only. Scoring: FS Rules 2026 v1.1 (FSG) D 9; FSUK and FSAE score differently, check the current season's rules."
             >
               FS event
               <select
@@ -512,7 +513,7 @@ export function CasePanel() {
                 onChange={(e) => setCaseField(activeCase.id, { fsEvent: (e.target.value || null) as FsEvent | null })}
               >
                 <option value="">None</option>
-                {FS_EVENTS.map((ev) => (
+                {FS_EVENTS.filter((ev) => accel || lap || ev === "endurance").map((ev) => (
                   <option key={ev} value={ev}>
                     {FS_EVENT_NAMES[ev]}
                   </option>
@@ -553,6 +554,7 @@ export function CasePanel() {
         </div>
 
         <FsPoints />
+        {activeCase.fsEvent === "endurance" && <EnduranceStudy key={activeCase.id} simCase={activeCase} />}
 
         {/* -- per-case overrides ------------------------------------------- */}
         <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">

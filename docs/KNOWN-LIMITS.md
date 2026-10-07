@@ -245,6 +245,12 @@ results:
 - The skidpad time is the mean of the two circles of one lap of LightSim's
   Skidpad layout; the rules time a second lap on each circle.
 
+- The endurance energy study varies only the capacity and the Output
+  Power Limit of the first battery; it runs one endurance for each pair, a
+  4 × 4 grid in about 3 min, and a larger pack keeps the car's mass (add
+  the cells' mass to the Vehicle yourself). Grid studies of other
+  parameters are STU-06's work.
+
 *Workaround:* compare points between versions of your car, with the same
 references, rather than with a competition's results.
 *Roadmap:* MOD-43 (more competitions' scoring), MOD-44 (endurance energy

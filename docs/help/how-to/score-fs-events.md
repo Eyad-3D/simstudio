@@ -93,3 +93,25 @@ it could go with a given pack:
 
 To see the trade-off yourself, sweep the Race Track's **Lift-and-Coast**
 (%) on the endurance case: lap time rises and energy falls as it grows.
+
+## Size the accumulator: the endurance energy study
+
+The *Endurance energy study* shows how pack size and power cap trade off.
+
+1. Pick a case marked **FS event** *Endurance* in the *Cases* tab. It can
+   be a Lap case, or a Cycle case made from an imported lap repeated to
+   22 km ([Import a lap](import-a-lap.md)).
+2. Under **Endurance energy study**, type the accumulator capacities
+   (kWh) and the Output Power Limits (kW) to try, up to 6 of each,
+   separated by commas.
+3. Click **Run**. Each pair runs the whole endurance, about 10 s each:
+   a 4 × 4 grid takes about 3 min.
+4. The map shows one figure for every pair: pick it in **Show** (the
+   endurance energy, the net battery energy, the time, the points, the
+   RMS battery power or the lowest pack voltage). A pair whose pack ran
+   out before the last lap reads *DNF*. The whole table is also saved
+   under *Saved studies*.
+
+Every endurance run also reports the net battery energy (out less back
+in), the lowest pack voltage and, for an imported trace, the RMS battery
+power. A Cycle case gives no points: its time is the trace's own.

@@ -45,7 +45,8 @@ const value = (run: SimRun, test: (label: string) => boolean) => run.result.summ
 export function fsPointsTable(project: Project, runs: SimRun[]): { rows: FsPointsRow[]; total?: number } {
   const rows: FsPointsRow[] = [];
   for (const ev of FS_EVENTS) {
-    const c = project.cases.find((x) => x.fsEvent === ev);
+    // (an endurance from an imported trace, a Cycle case, has no points)
+    const c = project.cases.find((x) => x.fsEvent === ev && (x.kind ?? "cycle") !== "cycle");
     const row: FsPointsRow = {
       event: ev,
       caseId: c?.id,

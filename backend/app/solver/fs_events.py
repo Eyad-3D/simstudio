@@ -30,6 +30,7 @@ with that tool; LightSim scores with the 2026 rules.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Optional
 
@@ -224,6 +225,8 @@ def event_rows(case, ctx, lap, summary: list, finished: bool) -> tuple[list[tupl
     messages (level, text)) for a case with an fsEvent. ``summary`` the
     run's rows so far; ``finished``: the run went to its end."""
     ev = case.fsEvent
+    if case.kind == "cycle":  # an endurance driven from a speed trace (STU-38)
+        return _trace_endurance_rows(ctx, finished)
     by_label = {s.label: s for s in summary}
     values = {k: s.value for k, s in by_label.items()}
     rows: list[tuple] = []
@@ -248,6 +251,7 @@ def event_rows(case, ctx, lap, summary: list, finished: bool) -> tuple[list[tupl
                      None, None, why))
         rows.append(("Endurance finished on its energy", 1.0 if not depleted else 0.0, "-",
                      None, not depleted, None))
+        rows += _energy_rows(ctx, rms=False)
     rows += [(*r, None) for r in check_rows]
     res = EventResult(ev, t, finished=done, breach=breaches[0] if breaches else None,
                       energy_kwh=energy)
@@ -294,3 +298,41 @@ def lap_check(case, laps: int, lap_m: float) -> list[tuple[str, str]]:
                                  f"(D 7.2.5)."))
     return out
 
+
+
+def _energy_rows(ctx, rms: bool) -> list[tuple]:
+    """The accumulator's endurance figures (STU-38): the net energy out of
+    the batteries (out less back in), the lowest pack voltage and, with
+    ``rms``, the RMS terminal power, all at the solver step."""
+    batts = list(ctx.batteries.values())
+    if not batts:
+        return []
+    net = sum(b.energy_out_wh - b.energy_in_wh for b in batts) / 1000.0
+    rows = [("Net battery energy (out − back in)", round(net, 4), "kWh", None, None, None)]
+    if rms:
+        t_on = max(b.t_on for b in batts)
+        p_rms = math.sqrt(sum(b.p_sq_ws for b in batts) / t_on) if t_on > 0 else 0.0
+        rows.append(("RMS battery power", round(p_rms / 1000.0, 3), "kW", None, None, None))
+    v_low = min(b.v_low for b in batts)
+    if math.isfinite(v_low):
+        rows.append(("Lowest pack voltage", round(v_low, 2), "V", None, None, None))
+    return rows
+
+
+def _trace_endurance_rows(ctx, finished: bool) -> tuple[list[tuple], list[tuple]]:
+    """An endurance driven as a drive cycle (an imported lap, repeated):
+    its energy figures and rule checks, but no points, as its time is the
+    trace's own."""
+    depleted = any(b.depleted_flagged for b in ctx.batteries.values())
+    check_rows, breaches = _checks(ctx)
+    rows = [("Endurance energy (regeneration × 0.9)",
+             round(endurance_energy_kwh(ctx.batteries.values()), 4), "kWh", None, None, None),
+            ("Endurance finished on its energy", 0.0 if depleted else 1.0, "-", None,
+             not depleted and finished, None),
+            *_energy_rows(ctx, rms=True), *[(*r, None) for r in check_rows]]
+    msgs = [("info", "Endurance from a speed trace: its time is the trace's own, so the run "
+                     "gives the energy and the rule checks but no points (a Lap case gives "
+                     "those).")]
+    for b in breaches:
+        msgs.append(("warning", f"Endurance: {b}."))
+    return rows, msgs
