@@ -183,7 +183,8 @@ def trace_metrics(ts: list[float], tgt: list[float], spd: list[float]) -> TraceM
     )
 
 
-CheckRow = tuple[str, float, str, float | None, bool | None]  # label, value, unit, limit, passed
+# label, value, unit, limit, passed, and the row's stable key (SummaryValue.key)
+CheckRow = tuple[str, float, str, float | None, bool | None, str]
 
 
 @dataclass
@@ -193,7 +194,7 @@ class Verdict:
     cycle_not_followed: bool = False
     broke_down: bool = False  # non-finite values: no number of the run is valid
     # summary rows of a performance or acceleration test: (label, value,
-    # unit, limit, passed)
+    # unit, limit, passed, key)
     rows: tuple[CheckRow, ...] = ()
     beyond_reason: str = ""  # why data-dependent figures are not valid, or ""
 
@@ -228,9 +229,9 @@ def beyond_data(uses: Iterable[MapUse], duration_s: float,
     return out
 
 
-def terminal_checks(label: str, chk: TerminalCheck, left_kwh: float,
+def terminal_checks(el_id: str, label: str, chk: TerminalCheck, left_kwh: float,
                     depleted: bool) -> tuple[list[CheckRow], list[str]]:
-    """Summary rows and warnings of battery ``label``'s TerminalCheck; its
+    """Summary rows and warnings of battery ``label`` (element ``el_id``)'s TerminalCheck; its
     usable energy left, kWh, passes unless it reached its minimum SOC
     (``depleted``). The power rows need a limit, the maximum voltage a class."""
     rows: list[CheckRow] = []
@@ -239,11 +240,12 @@ def terminal_checks(label: str, chk: TerminalCheck, left_kwh: float,
         limit_kw = chk.limit_w / 1000.0
         ok = chk.avg_peak_w <= chk.limit_w * (1.0 + 1e-9)
         rows += [
-            (f"{label} — peak terminal power", round(chk.peak_w / 1000.0, 3), "kW", None, None),
+            (f"{label} — peak terminal power", round(chk.peak_w / 1000.0, 3), "kW", None, None,
+             f"{el_id}.peak_terminal_power_kw"),
             (f"{label} — peak terminal power, averaged", round(chk.avg_peak_w / 1000.0, 3), "kW",
-             limit_kw, ok),
+             limit_kw, ok, f"{el_id}.peak_terminal_power_averaged_kw"),
             (f"{label} — time {'held at' if chk.enforced else 'over'} the output power limit",
-             round(chk.limit_s, 2), "s", None, None),
+             round(chk.limit_s, 2), "s", None, None, f"{el_id}.time_at_power_limit_s"),
         ]
         if not ok:
             over = f", averaged over {chk.window_s:g} s," if chk.window_s > 0 else ""
@@ -253,7 +255,8 @@ def terminal_checks(label: str, chk: TerminalCheck, left_kwh: float,
     if chk.v_class > 0:
         v_max = max(chk.v_full, chk.v_peak)
         ok = v_max <= chk.v_class * (1.0 + 1e-9)
-        rows.append((f"{label} — maximum pack voltage", round(v_max, 2), "V", chk.v_class, ok))
+        rows.append((f"{label} — maximum pack voltage", round(v_max, 2), "V", chk.v_class, ok,
+                     f"{el_id}.max_pack_voltage_v"))
         if not ok:
             where = ("open-circuit at 100 % SOC" if chk.v_full >= chk.v_peak
                      else f"at its terminals {'while recuperating ' if chk.p_at_v_peak < 0 else ''}"
@@ -261,8 +264,10 @@ def terminal_checks(label: str, chk: TerminalCheck, left_kwh: float,
             warnings.append(f"Battery '{label}' exceeds its Voltage Class of {chk.v_class:g} V: "
                             f"{v_max:.1f} V {where}.")
     rows += [
-        (f"{label} — minimum pack voltage", round(chk.v_min, 2), "V", None, None),
-        (f"{label} — usable energy left", round(left_kwh, 3), "kWh", None, not depleted),
+        (f"{label} — minimum pack voltage", round(chk.v_min, 2), "V", None, None,
+         f"{el_id}.min_pack_voltage_v"),
+        (f"{label} — usable energy left", round(left_kwh, 3), "kWh", None, not depleted,
+         f"{el_id}.usable_energy_left_kwh"),
     ]
     return rows, warnings
 
@@ -322,7 +327,7 @@ def judge(trace: CycleTrace, distance_m: float, series: dict, performance: bool 
         rows += _acceleration(trace, case, stopped, messages)
     elif performance and trace.times:
         level, v_max = max(trace.target), max(trace.speed)
-        rows.append(("Maximum speed", round(v_max, 2), "km/h", None, None))
+        rows.append(("Maximum speed", round(v_max, 2), "km/h", None, None, "max_speed_kmh"))
         t_level = _time_to(trace.times, trace.speed, level)
         if t_level is None:
             if not stopped:  # a stopped run only did not get there yet
@@ -330,7 +335,8 @@ def judge(trace: CycleTrace, distance_m: float, series: dict, performance: bool 
                                          f"{level:.4g} km/h target; its maximum speed was "
                                          f"{v_max:.1f} km/h."))
         elif t_level > trace.times[0]:  # no time when it started at the target or above
-            rows.append((f"Time to {level:.4g} km/h", round(t_level, 2), "s", None, None))
+            rows.append((f"Time to {level:.4g} km/h", round(t_level, 2), "s", None, None,
+                         "time_to_target_s"))
     model = trace.ctx.model
     beyond = beyond_data(uses, duration_s,
                          lambda el: f"{model.cdef_of[el].name} '{model.elements[el].label}'")
@@ -355,12 +361,13 @@ def _acceleration(trace: CycleTrace, case, stopped: bool,
     t_end = _time_to(ts, dist, start + d) if d else None
     if t_end is not None:
         timed = t_end - _time_to(ts, dist, start)
-        rows += [(f"Time to {d:g} m", round(timed, 3), "s", case.duration, True),
+        rows += [(f"Time to {d:g} m", round(timed, 3), "s", case.duration, True,
+                  "accel_time_s"),
                  (f"Speed at {d:g} m", round(_time_to(ts, dist, start + d, trace.speed), 2),
-                  "km/h", None, None)]
+                  "km/h", None, None, "accel_end_speed_kmh")]
         if case.referenceTime and case.referenceTime > 0:  # the form marks 0 or less red
             rows.append(("Gap to reference time", round(timed - case.referenceTime, 3), "s",
-                         None, None))
+                         None, None, "accel_gap_to_reference_s"))
     elif d and not stopped:  # a stopped run only did not get there yet
         messages.append(("warning", f"Acceleration test: the vehicle did not reach the {d:g} m "
                                     f"line within the case's {case.duration:g} s (its time "
@@ -368,20 +375,21 @@ def _acceleration(trace: CycleTrace, case, stopped: bool,
                                     f"the {d:g} m."))
     t100 = _time_to(ts, trace.speed, 100.0)
     if t100 is not None and t100 > ts[0]:
-        rows.append(("Time to 100 km/h", round(t100, 2), "s", None, None))
+        rows.append(("Time to 100 km/h", round(t100, 2), "s", None, None, "time_to_100_kmh_s"))
     run_s = ts[-1] - ts[0]
     for b in ctx.batteries.values():
         label = ctx.model.elements[b.el_id].label
         if b.check is None or b.check.limit_w <= 0:
             rows.append((f"{label} — peak terminal power", round(b.p_peak_w / 1000.0, 3), "kW",
-                         None, None))
+                         None, None, f"{b.el_id}.peak_terminal_power_kw"))
         if run_s > 0:
             rows.append((f"{label} — mean terminal power",
                          round((b.energy_out_wh - b.energy_in_wh) * 3.6 / run_s, 3), "kW",
-                         None, None))
+                         None, None, f"{b.el_id}.mean_terminal_power_kw"))
     if run_s > 0:
         rows.append(("Time at the tyres' grip limit",
-                     round(100.0 * ctx.grip_limited_s / run_s, 1), "%", None, None))
+                     round(100.0 * ctx.grip_limited_s / run_s, 1), "%", None, None,
+                     "grip_limit_time_pct"))
     if ctx.batteries and not any(b.check and b.check.limit_w > 0 for b in ctx.batteries.values()):
         messages.append(("info", "Acceleration test: no battery has an Output Power Limit, so "
                                  "the terminal power was not checked against one. Formula "

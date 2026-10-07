@@ -294,6 +294,11 @@ class Channel(BaseModel):
 
 
 class SummaryValue(BaseModel):
+    # stable name of the figure, for scripts, the CLI and studies (AI-07):
+    # "<elementId>.<metric>" for a part's figure, "<metric>" for the run's
+    # (docs/spec/results.md lists them). Never changes with a label or a
+    # language; "" on runs stored before keys existed
+    key: str = ""
     label: str
     value: float
     unit: str

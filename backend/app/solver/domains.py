@@ -389,7 +389,8 @@ class RunContext:
             policy = list(own)
         raw = self.params(el_id).get(key)
         pts = parse_table2d(raw) if pdef.type == "table2d" else parse_table1d(raw)
-        uses = [MapUse(el_id, f"'{pdef.label}' table", a.name, a.unit, 0.0) for a in axes]
+        uses = [MapUse(el_id, f"'{pdef.label}' table", a.name, a.unit, 0.0, table=key)
+                for a in axes]
         self.map_use += uses
         return Map(pts, f"{cdef.name} '{el.label}' {pdef.label}", policy, uses)
 

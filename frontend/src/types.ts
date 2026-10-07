@@ -235,6 +235,10 @@ export interface Channel {
 }
 
 export interface SummaryValue {
+  /** Stable name of the figure ("distance_km", "el-battery.final_soc_pct"):
+   *  the same across labels, languages and versions (docs/spec/results.md).
+   *  Missing on runs stored before 0.3. Compare rows with summaryId(). */
+  key?: string;
   label: string;
   value: number;
   unit: string;
@@ -335,3 +339,8 @@ export interface LogMessage {
   text: string;
   time: string; // HH:MM:SS
 }
+
+/** Whether two summary rows (of two runs) are the same figure: by their
+ *  stable keys, or by label when a run stored before 0.3 has none. */
+export const sameFigure = (a: Pick<SummaryValue, "key" | "label">, b: Pick<SummaryValue, "key" | "label">): boolean =>
+  a.key && b.key ? a.key === b.key : a.label === b.label;

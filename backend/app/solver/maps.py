@@ -121,6 +121,12 @@ def interp2(sheets: Sheets2D, x_outer: float, x_inner: float,
     return ya + (yb - ya) * (x_outer - xa) / (xb - xa)
 
 
+def slug(text: str) -> str:
+    """``text`` as a lower-case word for a summary key: "Full-Load Torque"
+    → "full_load_torque"."""
+    return "_".join("".join(c if c.isalnum() else " " for c in text.lower()).split())
+
+
 @dataclass
 class MapUse:
     """How far a run went past the data of one table axis, or past a
@@ -139,6 +145,7 @@ class MapUse:
     outside_s: float = 0.0  # solver seconds outside
     value: float = 0.0
     t: float = 0.0
+    table: str = ""  # the table parameter's key ("" for the maximum speed)
 
     def count(self, value: float, edge: float, t: float, dt: float) -> bool:
         """Add a step outside at ``value``; True the first time."""
