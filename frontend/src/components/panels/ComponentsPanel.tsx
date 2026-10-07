@@ -25,6 +25,7 @@ const SYNONYMS: Record<string, string> = {
   "signal.driving_task": "drive cycle speed profile wltp",
   "signal.road_profile": "slope gradient hill",
   "signal.script": "python code",
+  "signal.fmu": "fmi functional mock-up simulink dymola gt-suite modelica co-simulation import",
   "signal.monitor": "scope probe",
   "container.system": "subsystem group",
   "fuel.h2_tank": "h2",

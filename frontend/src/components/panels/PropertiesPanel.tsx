@@ -7,6 +7,8 @@ import { limitsText, paramName, rangeProblem } from "../../paramRules";
 import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "../SpreadsheetGrid";
 import { KIND_COLOR } from "../canvas/ElementNode";
 import { CyclePreview, CycleSelect } from "./CyclePicker";
+import { FmuPanel } from "./FmuPanel";
+import { FMU_DEF_ID, FMU_FILE_KEYS } from "../../fmu";
 import type {
   AxisDef,
   ComponentDef,
@@ -786,7 +788,12 @@ export function ElementForm({
   // gets a full-width row of its own below the table
   const drivingTask = def.id === "signal.driving_task";
   const cycleId = String(element.parameterOverrides.cycle ?? "");
-  const scalarParams = useMemo(() => def.parameters.filter((p) => !isBig(p) && p.key !== "cycle"), [def]);
+  // an FMU block's file parameters are shown (and set) by its FMU panel
+  const fmuBlock = def.id === FMU_DEF_ID;
+  const scalarParams = useMemo(
+    () => def.parameters.filter((p) => !isBig(p) && p.key !== "cycle" && !(fmuBlock && FMU_FILE_KEYS.includes(p.key))),
+    [def, fmuBlock],
+  );
   const bigParams = useMemo(
     () => def.parameters.filter((p) => isBig(p) && !(drivingTask && cycleId && isProfile(p))),
     [def, drivingTask, cycleId],
@@ -1065,7 +1072,11 @@ export function ElementForm({
           )}
         </div>
       ))}
-      {def.allowDynamicPorts && <DynamicPortsEditor element={element} />}
+      {fmuBlock ? (
+        <FmuPanel element={element} compact={compact} />
+      ) : (
+        def.allowDynamicPorts && <DynamicPortsEditor element={element} />
+      )}
       {def.ports.length > 0 && (
         <div>
           <div className="mb-1 text-[11px] font-semibold text-[color:var(--ss-text-dim)]">
