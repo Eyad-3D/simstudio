@@ -12,12 +12,12 @@ from __future__ import annotations
 import pytest
 from helpers import conn, el, example_result, project, series
 
+from app.library import library_by_id
 from app.solver import simulate
 from app.solver.battery import CELLS
 from app.solver.maps import interp1, interp2, parse_table1d, parse_table2d
 from app.storage import load_example
 from app.validation import validate_project
-from app.library import library_by_id
 
 LIB = {p.key: p.default for p in library_by_id()["battery.generic"].parameters}
 CELL_OCV = parse_table1d(LIB["cell_ocv_table"])

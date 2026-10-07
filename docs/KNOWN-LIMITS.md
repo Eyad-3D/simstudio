@@ -307,6 +307,15 @@ minimum or an average, for example from the CSV export, or put the
   peak torque, speed and power, but no chart of the scaled map beside the
   original yet. Use 50–200 %; beyond it, use the other machine's own maps.
   *Roadmap:* MOD-12 (e-drive upgrade), MOD-13 (engine Willans line).
+- **A tyre code gives estimates, not the tyre's data.** The tyre estimates
+  a Tyre Code fills in are the same for every size: Rill's guess for a
+  passenger-car tyre on a dry road, scaled by its load index, with no speed
+  rating, pressure, compound or wear. Racing and Formula Student tyres grip
+  more (μ 1.4-1.7) and their codes carry no load index, so only their
+  radius is filled in. The overload check uses the static load standing
+  still, not the load transfer while braking or cornering. *Workaround:*
+  replace the estimates with your tyre's test data. *Roadmap:* MOD-16
+  (tyre model beyond μ and its load).
 - **The air is dry, still and the same along the road.** Air drag uses the
   density the Ambient block's temperature and pressure give (1.204 kg/m³,
   20 °C and 101.325 kPa, without an Ambient), but not the road's altitude

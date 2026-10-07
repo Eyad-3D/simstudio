@@ -42,8 +42,9 @@ from .solver.network import (
     SIGNAL_BLOCK_TYPES,
     ports_of,
 )
-from .solver.runtime import AMBIENT_C, AMBIENT_KPA, RPM, air_density, ocv_mean
+from .solver.runtime import AMBIENT_C, AMBIENT_KPA, GRAVITY, RPM, air_density, ocv_mean
 from .solver.scaling import VALID_RANGE, max_speed_rpm, scale_keys, scaled
+from .tyre import parse_tyre_code
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
 PROPULSION = {
@@ -749,6 +750,7 @@ def _plausibility_checks(model: Model, add: Add) -> None:
                        f"them so the wheels carry the vehicle's whole weight: {split}. Set "
                        f"them to add up to 100 % to choose the split yourself.",
             ids=[w.el_id for w in wheels])
+    _tyre_checks(model, wheels, add)
     h = num(model.params_of[model.vehicle], "cg_height_m") if model.vehicle is not None else None
     if wheels and h is not None and h > 0 and len({w.axle for w in wheels}) < 2:
         veh, on = model.elements[model.vehicle], wheels[0].axle
@@ -756,6 +758,45 @@ def _plausibility_checks(model: Model, add: Add) -> None:
         add("error", f"Vehicle '{veh.label}' has a Centre of Gravity Height of {h:g} m, but all "
                      f"its wheels are on the {on} axle, so no load can shift between "
                      f"axles. Set Axle to {fix} wheels.", veh, ids=[w.el_id for w in wheels])
+
+
+def _tyre_checks(model: Model, wheels: list, add: Add) -> None:
+    """Wheels with a Tyre Code (MOD-48): a code that is not one, a radius
+    far from the code's, and a wheel carrying more than its load index."""
+    total = sum(w.load_share for w in wheels)
+    mass = None
+    if model.vehicle is not None:
+        try:
+            mass = float(model.params_of[model.vehicle].get("mass_kg", 1800))
+        except (TypeError, ValueError):
+            mass = None
+    for w in wheels:
+        p, el = model.params_of[w.el_id], model.elements[w.el_id]
+        code = str(p.get("tyre_code", "") or "").strip()
+        if not code:
+            continue
+        spec = parse_tyre_code(code)
+        if spec is None:
+            add("warning", f"'{el.label}' has a Tyre Code '{code}' LightSim cannot read: write it "
+                           f"as on the sidewall, e.g. 205/55 R16 91V or 20.5x7.0-13.", el)
+            continue
+        try:
+            factor = float(p.get("rolling_radius_factor", 0.97))
+        except (TypeError, ValueError):
+            factor = 0.97
+        expected = spec.unloaded_radius_m * factor
+        if abs(w.radius - expected) > 0.03 * expected:
+            add("info", f"'{el.label}' has a Wheel Radius of {w.radius:g} m, but its tyre "
+                        f"{spec.code} rolls on about {expected:.3f} m — retype the code to fill "
+                        f"it in, or check the radius.", el)
+        max_load = spec.max_load_n
+        if max_load and mass and total > 0:
+            load = mass * GRAVITY * w.load_share / total
+            if load > max_load:
+                add("warning", f"'{el.label}' carries {load / GRAVITY:,.0f} kg standing still, more "
+                               f"than its tyre's load index {spec.load_index} allows "
+                               f"({max_load / GRAVITY:,.0f} kg): fit a tyre with a higher load "
+                               f"index, or check the Vehicle Mass and the load shares.", el)
 
 
 def _scale_checks(part: str, p: dict, el, add: Add) -> None:

@@ -50,6 +50,26 @@
         "DR-34",
         "DR-35"
       ]
+    },
+    {
+      "name": "Project Chrono tyre data",
+      "version": "main (2026-10-07)",
+      "license": "BSD-3-Clause",
+      "url": "https://github.com/projectchrono/chrono",
+      "purl": "pkg:github/projectchrono/chrono",
+      "used": [
+        "The tyre load-index table and the four coefficients of the TMeasy passenger-car",
+        "parameter guess (GuessPassCar70Par, after Rill's 'engineer's guess'), taken from",
+        "src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.cpp into backend/app/library/",
+        "tyres.json, which fills a Wheel's radius and tyre estimates from its size code."
+      ],
+      "notice": [
+        "Copyright (c) 2016, Project Chrono Development Team",
+        "All rights reserved."
+      ],
+      "register": [
+        "DR-51"
+      ]
     }
   ]
 }

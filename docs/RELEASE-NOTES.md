@@ -451,6 +451,22 @@ sections.
   map, and warn outside 50–200 %. All four can be swept in a study. The
   Battery Electric Car's motor at 150 % torque takes it to 100 km/h in
   5.59 s instead of 7.10. Existing models do not change. (MOD-47)
+- Wheel: *Tyre Code*. Typing a tyre's size code, such as `205/55 R16 91V`
+  (also `P…`, `…ZR…`, `XL`, `LT…`, `…C 107/105R`, or a Formula Student
+  `20.5x7.0-13`), fills in the *Wheel Radius* (the unloaded radius, rim ÷ 2
+  + width × aspect ratio = 315.95 mm here, × a new *Rolling Radius Factor*
+  of 0.97 = 0.3065 m) and, with a load index, estimates of the *Slip
+  Stiffness* (18.4), *μ* (1.13), *Lateral Friction μ_y* (1.00), *Nominal
+  Load* (half the load-index capacity: 3,017 N for load index 91, 615 kg)
+  and *Load Sensitivity* (−0.013 per kN), after Rill's "engineer's guess"
+  for a passenger-car tyre as Project Chrono's TMeasy tyre implements it
+  (BSD-3-Clause, credited in Help > Third-Party Notices). One undo step
+  takes it all back, and the form says what the code means. A *Rolling
+  Resistance Label Class* (A to E, EU Regulation 2020/740) sets the *Rolling
+  Resistance* to 0.0060-0.0110. Data Checks warn when a wheel carries more
+  than its load index allows standing still, when a code cannot be read,
+  and (info) when the Wheel Radius is more than 3 % from the code's.
+  Existing models do not change. (MOD-48)
 
 ### Fixed
 

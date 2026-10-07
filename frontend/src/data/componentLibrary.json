@@ -2469,6 +2469,42 @@
           "description": "How much grip a tyre keeps one way while it uses some the other way in a lap case: (Fx ÷ Fx,max)ⁿ + (Fy ÷ Fy,max)ⁿ ≤ 1. 2 is an ellipse; a higher n keeps more grip for braking or speeding up in a corner, 1 the least. Lap cases use the wheels' mean.",
           "typical": "2 (the default) · 1.5–3 to fit a tyre's combined-slip data.",
           "whereToFind": "Combined-slip tyre data (a fit of the shape of its friction limit), or leave it at 2."
+        },
+        {
+          "key": "tyre_code",
+          "variability": "fixed",
+          "label": "Tyre Code",
+          "unit": "-",
+          "default": "",
+          "type": "string",
+          "description": "The tyre's size code, such as 205/55 R16 91V or (Formula Student) 20.5x7.0-13. Typing one fills in the Wheel Radius (the unloaded radius × the Rolling Radius Factor) and, with a load index, estimates of the slip stiffness and friction; Data Checks warn when the wheel carries more than its load index allows.",
+          "typical": "Small cars 175/65 R14 82T–195/65 R15 91H · mid-size 205/55 R16 91V–225/45 R17 94W · Formula Student 16x7.5-10 or 20.5x7.0-13.",
+          "whereToFind": "The tyre's sidewall, the door-pillar placard or the vehicle's specification."
+        },
+        {
+          "key": "rolling_radius_factor",
+          "variability": "fixed",
+          "label": "Rolling Radius Factor",
+          "unit": "-",
+          "default": 0.97,
+          "type": "number",
+          "minimum": 0.85,
+          "maximum": 1,
+          "description": "The rolling radius as a share of the unloaded radius: the tyre is squashed under load. Used when a Tyre Code fills in the Wheel Radius.",
+          "typical": "0.96–0.98 for car tyres (0.97 by default) · 0.95–0.97 for low-pressure racing tyres.",
+          "whereToFind": "The distance the car rolls per wheel turn ÷ 2π, ÷ the unloaded radius; or the tyre maker's rolling circumference."
+        },
+        {
+          "key": "tyre_label_class",
+          "variability": "fixed",
+          "label": "Rolling Resistance Label Class",
+          "unit": "-",
+          "default": "—",
+          "type": "enum",
+          "options": ["—", "A", "B", "C", "D", "E"],
+          "description": "The EU tyre label's fuel-efficiency class. Choosing one sets the Rolling Resistance to that class's typical value: A 0.0060, B 0.0072, C 0.0084, D 0.0098, E 0.0110 (Regulation (EU) 2020/740: A at most 6.5 N/kN, E 10.6 N/kN or more). — keeps the value you type.",
+          "typical": "B or C for most new car tyres · A for low-rolling-resistance tyres.",
+          "whereToFind": "The tyre's EU label (the fuel-pump symbol) or the EPREL database."
         }
       ]
     },
