@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Download, FlaskConical, X } from "lucide-rea
 import { confirmDialog } from "../../dialog";
 import { useProjectStore } from "../../store/projectStore";
 import type { Study, StudyPoint } from "../../types";
-import { csvText } from "./csv";
+import { csvBlob } from "./csv";
 
 const NO_STUDIES: Study[] = [];
 
@@ -36,7 +36,7 @@ function exportStudyCsv(study: Study) {
     p.runId ?? "",
     ...study.kpis.map((k) => (k.label in p.kpis ? String(p.kpis[k.label]) : "")),
   ]);
-  const url = URL.createObjectURL(new Blob([csvText([header, ...rows])], { type: "text/csv" }));
+  const url = URL.createObjectURL(csvBlob([header, ...rows]));
   const a = document.createElement("a");
   a.href = url;
   a.download = `lightsim-study-${study.factors[0]?.paramKey ?? "sweep"}-${study.id}.csv`;
