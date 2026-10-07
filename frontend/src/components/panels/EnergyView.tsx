@@ -228,7 +228,7 @@ export function EnergyView({ run }: { run: SimRun }) {
           </tbody>
         </table>
         <p className="mt-1 text-[10px] text-[color:var(--ss-text-dim)]">
-          Booked every second solver step from each part's power. A wheel's In and Out are net (driving less braking).
+          Booked every fourth solver step from each part's power. A wheel's In and Out are net (driving less braking).
           * The gears, clutches and spinning parts are worked out as what is left of the shaft energy; see Known issues.
         </p>
       </div>

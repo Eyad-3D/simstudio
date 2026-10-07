@@ -44,10 +44,10 @@ LHV_H2_KWH_PER_KG = 33.3
 # What held a driveline back in a solver step, in the order they are
 # checked: the first that applies names the step.
 LIMIT_STATES = ["braking", "grip", "set_limit", "supply", "machine", "coasting", "demand"]
-# The books sample every second solver step (20 ms at the usual 10 ms),
-# which keeps them under 5 % of a run's time; their totals still cover the
+# The books sample every fourth solver step (40 ms at the usual 10 ms),
+# which keeps them near 5 % of a run's time (the CI's budget is 10 %); their totals still cover the
 # whole run, and the energy remainder shows what sampling misses.
-SAMPLE_EVERY = 2
+SAMPLE_EVERY = 4
 MAX_CHANGES = 4000  # per lane; a busier lane is drawn from bins (the times stay exact)
 
 
