@@ -18,7 +18,18 @@ axis in the chart view's **Time · auto** list: then it is `t_min` or
 comes one column per ticked channel, headed with its name and unit, such
 as `HV Battery Pack · SOC [%]`, and a row for every stored point of the
 run. Spreadsheets open it directly; a
-comma in a part's name is quoted.
+comma in a part's name is quoted. The file is UTF-8 with a byte-order
+mark (a marker at its start), so Excel shows units such as N·m and °C as
+written.
+
+## The whole run for MATLAB or Python
+
+Click **MATLAB** above the chart. LightSim saves the run as a `.mat` file:
+every channel of every part, with its unit, and the run's details (project,
+case, app version, status, summary, the parameters that differ from the
+library's defaults). MATLAB opens it with `load`, Python with SciPy's
+`scipy.io.loadmat`. What is inside, and how to run LightSim from a MATLAB
+script: [Use LightSim results in MATLAB and Python](use-results-in-matlab-and-python.md).
 
 ## The chart as a picture
 
@@ -32,6 +43,12 @@ A parameter sweep is saved as a study at the bottom of the *Cases* tab.
 The download button next to a study saves its table, a row per swept value
 with every summary figure, as CSV
 ([more about sweeps](parameter-sweep.md)).
+
+## Every parameter as a spreadsheet
+
+**Export sheet** on the *Parameters* tab saves every parameter of every
+part to one Excel workbook, and **Import sheet** reads it back:
+[Edit parameters in a spreadsheet](edit-parameters-in-a-spreadsheet.md).
 
 ## The whole project
 

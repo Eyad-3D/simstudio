@@ -193,7 +193,7 @@ def export_sheets(project: Project, tables_inline: bool = False) -> list[OutShee
          "matches rows by Part ID and Key and refuses a row whose unit differs."],
         ["Source and Notes are for your team (where a number comes from); LightSim does "
          "not read them back."],
-        ["Import the file in LightSim with Project → Import parameters…: it lists every "
+        ["Import the file in LightSim with Import sheet on the Parameters tab: it lists every "
          "change before applying it."],
     ], header_rows=0, widths=[18, 90])
     widths = [22, 16, 18, 30, 22, 22, 9, 16, 9, 28, 28]
