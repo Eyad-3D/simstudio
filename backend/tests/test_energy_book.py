@@ -15,7 +15,7 @@ from app.storage import load_example
 
 
 def _flows(result) -> dict:
-    return {f.label: f for f in result.energy}
+    return {f.label: f for f in result.partEnergy}
 
 
 def _row(result, label):
@@ -26,8 +26,8 @@ def _row(result, label):
     ("bev-car", "case-city"), ("hybrid-car", "case-mixed"), ("fs-electric", "case-accel-75m")])
 def test_each_part_closes_and_all_together_nearly(project_id, case_id):
     r = example_result(project_id, case_id)
-    assert r.energy
-    for f in r.energy:
+    assert r.partEnergy
+    for f in r.partEnergy:
         assert f.energyIn >= 0 and f.energyOut >= 0
         assert f.energyIn - f.energyOut - f.losses - f.stored == pytest.approx(0.0, abs=2e-6)
     # every flow out of one part is (nearly) the flow into the next: what
@@ -145,7 +145,7 @@ def test_awd_front_and_rear_final_drives_show_their_own_power():
 def test_a_locked_differential_is_walked_every_step_and_still_closes():
     proj = bev_axle(locked=True)
     r = simulate(proj, "case")
-    for f in r.energy:
+    for f in r.partEnergy:
         assert f.energyIn - f.energyOut - f.losses - f.stored == pytest.approx(0.0, abs=2e-6)
     assert abs(_row(r, "Energy balance residual").value) < 0.5
 

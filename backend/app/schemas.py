@@ -221,6 +221,9 @@ class SimCase(BaseModel):
     # a time to compare the acceleration test's time with, s (e.g. last
     # year's best run); None = none
     referenceTime: Optional[float] = None
+    # build the run's energy report (RES-22): where the sources' energy went,
+    # per part and as a Sankey chart
+    energyReport: bool = True
     # Per-case parameter overrides: {elementId: {paramKey: value}}. Layered on
     # top of each element's own parameterOverrides at model-build time, so a
     # case can tweak values — and a parameter sweep can vary one — without
@@ -333,7 +336,7 @@ class SummaryValue(BaseModel):
     passed: Optional[bool] = None
 
 
-class EnergyFlow(BaseModel):
+class PartEnergyFlow(BaseModel):
     """One part's energy over a run (MOD-10), in kWh, with the duty values
     of its throughput power in kW. For every part energyIn − energyOut −
     losses − stored = 0; energyIn and energyOut are both ≥ 0 (what entered
@@ -357,6 +360,78 @@ class EnergyFlow(BaseModel):
     # named parts of its losses or stored energy, kWh (the Vehicle's air
     # drag, rolling resistance, climbing and acceleration)
     terms: dict[str, float] = Field(default_factory=dict)
+class EnergyPart(BaseModel):
+    """One row of the energy table (RES-22), kWh: in − out − lost − stored
+    is 0 for a part that keeps its books."""
+
+    elementId: Optional[str] = None  # None for a row that is not one part
+    label: str
+    kind: str  # its component type, or "driveline"
+    inKWh: float
+    outKWh: float
+    lostKWh: float  # lost, or used by a consumer
+    storedKWh: float = 0.0  # the change of what it stores
+    lostPct: float = 0.0  # its loss as a share of the sources' energy, %
+
+
+class EnergyFlow(BaseModel):
+    """A band of the energy Sankey chart: a source of the car's energy or
+    a place it went."""
+
+    label: str
+    kWh: float
+    # "source" or "released" (height or speed given up) on the left;
+    # "road", "stored", "brakes", "losses", "loads", "recovered" on the right
+    group: str
+    elementId: Optional[str] = None
+
+
+class EnergyReport(BaseModel):
+    parts: list[EnergyPart] = Field(default_factory=list)
+    sources: list[EnergyFlow] = Field(default_factory=list)
+    sinks: list[EnergyFlow] = Field(default_factory=list)
+    sourceKWh: float = 0.0  # the sources together
+    # what the books do not explain: the sources less the sinks
+    remainderKWh: float = 0.0
+    remainderPct: float = 0.0  # of the sources' energy
+    # the run's electrical energy balance error, %, as its summary row
+    balanceErrorPct: Optional[float] = None
+
+
+class DutyRow(BaseModel):
+    """A part's duty for one quantity (RES-39), over the run's solver
+    steps: the highest and lowest value, the time mean and the RMS (the
+    root-mean-square, the mean that sets heating)."""
+
+    quantity: str
+    unit: str
+    max: float
+    min: float
+    mean: float
+    rms: float
+
+
+class DutyPart(BaseModel):
+    elementId: str
+    label: str
+    kind: str
+    rows: list[DutyRow]
+
+
+class LimitLane(BaseModel):
+    """What held one driveline back (RES-38): the state from each change
+    on, [t in s, index into LimitReport.states], and the seconds in each."""
+
+    label: str  # its motors and engines
+    elementIds: list[str]
+    changes: list[list[float]]
+    seconds: dict[str, float]
+
+
+class LimitReport(BaseModel):
+    states: list[str]
+    lanes: list[LimitLane]
+    tEnd: float
 
 
 class SimResult(BaseModel):
@@ -365,8 +440,12 @@ class SimResult(BaseModel):
     messages: list[SimMessage]
     channels: list[Channel]
     summary: list[SummaryValue] = Field(default_factory=list)
-    # where the energy went, part by part (MOD-10)
-    energy: list[EnergyFlow] = Field(default_factory=list)
+    # where the energy went, part by part, from every part's own books (MOD-10)
+    partEnergy: list[PartEnergyFlow] = Field(default_factory=list)
+    # the run's reports (absent on runs from before 0.3 and failed runs)
+    energy: Optional[EnergyReport] = None
+    duty: list[DutyPart] = Field(default_factory=list)
+    limits: Optional[LimitReport] = None
 
 
 class LiveEdit(BaseModel):

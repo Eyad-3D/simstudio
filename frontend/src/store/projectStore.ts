@@ -4,6 +4,7 @@ import * as api from "../api";
 import { confirmDialog, unsavedChangesDialog } from "../dialog";
 import { loadDraft } from "../persist";
 import { diffSnapshots, modelFingerprint, nameFromChanges } from "../provenance";
+import { dutyKpis } from "../reports";
 import type {
   Channel,
   ComponentDef,
@@ -406,6 +407,7 @@ export interface ProjectState {
       chargeBalance: boolean | null;
       startLine: number;
       referenceTime: number | null;
+      energyReport: boolean;
     }>,
   ) => void;
   addCase: () => void;
@@ -1790,10 +1792,17 @@ export const useProjectStore = create<ProjectState>((set, get) => {
                 status: e.status,
                 ...(e.incomplete ? { incomplete: e.incomplete } : {}),
                 ...(e.wallS != null ? { wallS: e.wallS } : {}),
-                kpis: Object.fromEntries((e.summary ?? []).filter((v) => Number.isFinite(v.value)).map((v) => [v.label, v.value])),
+                // (a value JSON cannot carry would make the project unsavable)
+                // and each part's duty (RES-39)
+                kpis: Object.fromEntries(
+                  [...(e.summary ?? []), ...dutyKpis({ duty: e.duty } as SimResult)]
+                    .filter((v) => Number.isFinite(v.value))
+                    .map((v) => [v.label, v.value]),
+                ),
                 ...(notValid.length ? { notValid: Object.fromEntries(notValid.map((v) => [v.label, v.notValid!])) } : {}),
               });
-              for (const v of e.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
+              for (const v of [...(e.summary ?? []), ...dutyKpis({ duty: e.duty } as SimResult)])
+                if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
               if (e.status === "failed") log("error", `Sweep point ${paramLabel}=${e.values[0]}${unit} failed.`);
               if (e.pruned?.length) {
                 log("warning", `Stored runs reached the disk budget: deleted the ${e.pruned.length} oldest run(s).`);

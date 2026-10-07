@@ -61,6 +61,7 @@ const CASE_FIELDS: Record<string, [string, string, unknown?]> = {
   chargeBalance: ["Charge balance", ""],
   startLine: ["Start line", " m", 0],
   referenceTime: ["Reference time", " s"],
+  energyReport: ["Energy report", "", true],
 };
 // the case's identity, its overrides (compared per parameter) and its pacing,
 // which changes no result

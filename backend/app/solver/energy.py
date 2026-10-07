@@ -56,7 +56,7 @@ def book_linear(f: "Flow", acc: list, eff: float) -> list:
     return through_stage(acc, eff)
 
 
-# the Vehicle's named terms (EnergyFlow.terms)
+# the Vehicle's named terms (PartEnergyFlow.terms)
 ROAD_TERMS = ("air drag", "rolling resistance", "climbing", "acceleration")
 
 
@@ -218,13 +218,13 @@ def add_lap(book: EnergyBook, lap_book, veh_id: str, label: str) -> None:
 
 def energy_flows(book: EnergyBook) -> list:
     """The book as the run result's energy list (kWh, kW), in ORDER."""
-    from ..schemas import EnergyFlow
+    from ..schemas import PartEnergyFlow
 
     def rank(f: Flow) -> int:
         return ORDER.index(f.part) if f.part in ORDER else len(ORDER)
 
     kwh = 1.0 / 3.6e6
-    return [EnergyFlow(
+    return [PartEnergyFlow(
         elementId=f.el_id, label=f.label, part=f.part,
         energyIn=round(f.in_j * kwh, 6), energyOut=round(f.out_j * kwh, 6),
         losses=round(f.loss_j * kwh, 6), stored=round(f.stored_j * kwh, 6),

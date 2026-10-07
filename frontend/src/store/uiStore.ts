@@ -23,7 +23,7 @@ export type Theme = "light" | "dark";
 export interface PlotView {
   /** ticked channel keys, in the order ticked (their colours follow it) */
   channels?: string[];
-  view?: "chart" | "table" | "xy" | "sweep";
+  view?: "chart" | "table" | "xy" | "sweep" | "energy" | "duty";
   /** the X-Y view's X channel */
   xKey?: string;
   /** the summary value the Sweep view plots */

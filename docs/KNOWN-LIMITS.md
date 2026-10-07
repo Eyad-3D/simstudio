@@ -405,6 +405,52 @@ minimum or an average, for example from the CSV export, or put the
   to about a third and understates it at full load.
   *Roadmap:* MOD-20.
 
+### Energy, duty and limit reports
+
+- **The gears, clutches and spinning parts are one row, worked out from
+  what is left.** The *Energy* view measures each motor, engine, battery,
+  DC-DC converter, consumer, friction brake, propeller and tyre, and the
+  car's road load and speed, but no part of the driveline between them
+  reports its own losses yet. Their row is the motors' and engines' shaft
+  energy less what the wheels, brakes and propellers took, so it also holds
+  the clutches' slip and the change in the spinning parts' speed, and it
+  cannot show a mistake in the driveline. *Roadmap:* MOD-10.
+- **The books sample every fourth solver step.** The energy, the duty and
+  the limit band add up every fourth solver step (40 ms at the usual
+  10 ms), weighted by the time since the last, so a run is about 5 %
+  slower (measured: 5.5 % on the Battery Electric Car, 1.8 % on the P2
+  Hybrid Car). What sampling misses shows in *Not accounted for*: at most
+  0.14 % on the examples' cycles (the hybrid's EPA city cycle), 0.48 % on
+  the Formula Student car's 75 m acceleration, where the tyres spin hard;
+  a state shorter than 40 ms can be missed by the limit band. *Roadmap:* ENG-16.
+- **Fuel energy uses one heating value.** The Sankey's fuel energy is the
+  fuel burnt × 43 MJ/kg, a petrol value (background knowledge, not checked
+  against a source); hydrogen uses 33.3 kWh/kg. A diesel or other fuel's
+  engine losses are off by the difference in heating value. *Roadmap:*
+  RES-22.
+- **A wheel's In and Out are net.** The table gives each wheel the energy
+  its shaft gave it less what braking took, and the same for the car, so a
+  wheel that drove and braked shows the difference; its *Lost* (the tyre's
+  slip) is complete.
+- **A motor's current is its DC current.** The *Duty* view's *DC current*
+  is the motor's electrical power over its bus voltage; the current in the
+  motor's windings (phase current), which sets the inverter's sizing, is
+  not modelled. *Time above* comes from the stored points, not the solver
+  steps. *Roadmap:* RES-39.
+- **The limit band is a rule of thumb.** Each step is named by the first
+  state that applies, in a fixed order: braking, tyre grip, set power
+  limit, battery or supply, motor or engine, coasting, demand met. *Motor
+  or engine* means the driver asked for at least 99.9 % of the torque, a
+  motor was within 2 % of its maximum speed, or an engine gave 99 % of its
+  full-load torque; a control script that asks for less than full torque
+  never shows it. The band is drawn only on a time axis. *Roadmap:* RES-38.
+- **Change marks compare with the run's stored model.** The dots and the
+  *These results are from before …* note compare the model on screen with
+  the copy the run kept: a run stored before 0.2.0 kept none and gets no
+  marks, edits made while a run was going are not counted, and a part or
+  wire you removed is counted in the note but has nothing to carry a dot.
+  *Roadmap:* UX-41.
+
 ### Live edits, charts, sweeps and export
 
 - **Sweeps run side by side, but single runs do not.** A sweep's runs go

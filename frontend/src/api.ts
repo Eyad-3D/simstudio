@@ -379,6 +379,8 @@ export interface StudyPointEvent {
   /** runs the run store deleted to keep to its disk budget */
   pruned?: string[];
   summary?: SimResult["summary"];
+  /** each part's duty (RES-39) */
+  duty?: SimResult["duty"];
 }
 
 export interface StudyTotals {

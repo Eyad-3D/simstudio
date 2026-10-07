@@ -391,7 +391,7 @@ sections.
   consumer, clutch, gear, differential, brake, wheel and the Vehicle, the
   energy that went in, came out and was lost and the change in what it
   stores, so that in − out − lost − stored is 0 for each. It is in the run
-  result as *energy* (kWh), with each part's peak, mean and RMS power (kW;
+  result as *partEnergy* (kWh), with each part's peak, mean and RMS power (kW;
   RMS power is what sizes an inverter's or motor's cooling) and the
   Vehicle's air drag, rolling resistance, climbing and acceleration. New
   channels: *Losses* on batteries, engines, fuel cells, Shafts, Final
@@ -406,8 +406,8 @@ sections.
   energy; it does not change the fuel used. On the Battery Electric Car's
   City Cycle the battery gave 0.881 kWh, the E-Motor lost 0.086, the Final
   Drive 0.017, the tyres' slip 0.004, air drag 0.242, rolling resistance
-  0.421 and the 0.25 kW consumer 0.042 kWh. Pages that draw these as flows
-  come later (RES-22, RES-07); an energy audit table is VAL-03. Bookkeeping
+  0.421 and the 0.25 kW consumer 0.042 kWh. Results → **Energy** (RES-22)
+  draws the car's energy as flows; an energy audit table is VAL-03. Bookkeeping
   every part every solver step costs about 3-6 % of a run's time. (MOD-10)
 - Battery: *Defined By* *Pack values* (as before) or *Cells*. With *Cells*
   you enter a cell datasheet (capacity, open-circuit voltage curve, minimum
@@ -541,6 +541,43 @@ sections.
   studies* shows the speed-up. For scripts: `POST /api/studies` runs any
   list of points of a case and answers with each point's summary (the
   WebSocket `/api/studies/run` streams them). (ENG-05)
+- Results → **Energy**: where the battery's, fuel's or hydrogen's energy
+  went, as a Sankey chart (bands as wide as the energy they carry) from
+  the sources through groups (air and rolling, speed and height kept,
+  friction brakes, losses in parts, loads, charged back) to each place,
+  with what the books cannot place as its own band, *Not accounted for*,
+  beside the run's electrical energy balance error; and a table of each
+  part's energy in, out, lost and stored change, in kWh and as a share of
+  the sources. **CSV** and **SVG** save them. On the Battery Electric
+  Car's City Cycle the battery gives 0.887 kWh, air drag takes 27.3 % and
+  rolling resistance 47.5 %, and 0.07 % is not accounted for. A case's
+  **Energy report** (Cases tab, on by default) turns it off. The
+  diagram's lightning button labels each part with its energy and opens a
+  bar chart of the losses with a **Hide below** slider; a click on a bar
+  selects the part. The energy is added up while the run goes, from the
+  power each part already reports; the gears, clutches and spinning parts
+  are one row worked out from what is left (MOD-10 will measure them part
+  by part). (RES-22)
+- A band along the bottom of the Results chart says what held the car
+  back at every moment: braking, tyre grip, a set power limit, the battery
+  or supply, the motor or engine, coasting, or nothing (the driver's
+  demand met), one strip per driveline, with the time in each under the
+  chart. The Formula Student car's 75 m acceleration: tyre grip for 1.92 s,
+  then the 80 kW limit for 2.05 s. (RES-38)
+- Results → **Duty**: each E-Motor's, battery's, engine's, fuel cell's and
+  DC-DC converter's highest, lowest, mean and RMS (the mean that sets
+  heating) power, torque and current over the run, from the solver's own
+  steps, with the time spent above a power you type and CSV export. Each
+  part's RMS power and current and peak power are also columns of a
+  parameter study. (RES-39)
+- Parts and wires you change after a run get a dot on the diagram (an
+  edited case one in the Cases tab), and Results says *These results are
+  from before 3 changes to the model*, with **Re-run** and **Show
+  changes** (part, parameter, old → new). The marks clear when the next
+  run finishes. (UX-41)
+- These reports change no result: the summary and the channels are as
+  before. Runs stored before this version have no Energy, Duty or limit
+  band; run their case again.
 
 ### Fixed
 

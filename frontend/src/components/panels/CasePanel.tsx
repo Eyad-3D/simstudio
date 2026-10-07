@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Play, Plus, Sliders, Square, X } from "lucide-react";
-import { useProjectStore } from "../../store/projectStore";
+import { useActiveRun, useProjectStore } from "../../store/projectStore";
+import { useStaleness } from "./StaleBanner";
 import type { ComponentDef, ElementInstance, ParamValue, ParameterDef } from "../../types";
 import { StudiesList } from "./StudiesList";
 import { CycleSelect } from "./CyclePicker";
@@ -170,6 +171,7 @@ export function CasePanel() {
   const setDrivingCycle = useProjectStore((s) => s.setDrivingCycle);
   const run = useProjectStore((s) => s.run);
   const stopRun = useProjectStore((s) => s.stopRun);
+  const staleness = useStaleness(useActiveRun());
   const runSweep = useProjectStore((s) => s.runSweep);
 
   const cases = project?.cases ?? [];
@@ -237,6 +239,8 @@ export function CasePanel() {
     setSwStop(round(base * 1.5 || 1));
   };
 
+  // cases changed since the run shown in Results (UX-41)
+  const staleCases = staleness.caseIds;
   if (!project || !activeCase) {
     return (
       <div className="px-3 py-2 text-[12px] text-[color:var(--ss-text-dim)]">
@@ -285,10 +289,18 @@ export function CasePanel() {
         >
           {cases.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name}
+              {staleCases.has(c.id) ? `${c.name} •` : c.name}
             </option>
           ))}
         </select>
+        {staleCases.has(activeCase.id) && (
+          <span
+            className="h-2 w-2 shrink-0 rounded-full bg-[color:var(--ss-accent)]"
+            role="img"
+            aria-label="Changed since the results shown"
+            title="This case changed since the run shown in Results (•)"
+          />
+        )}
         <div className="ml-auto flex items-center gap-1">
           <button
             className="ss-toolbtn border border-[color:var(--ss-border)]"
@@ -430,6 +442,17 @@ export function CasePanel() {
               <option value="acceleration">Acceleration</option>
               <option value="lap">Lap</option>
             </select>
+          </label>
+          <label
+            className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+            title="Every run of this case gets an Energy view in Results: where the battery's or fuel's energy went, as a Sankey chart and a table per part, and Energy labels on the diagram."
+          >
+            Energy report
+            <input
+              type="checkbox"
+              checked={activeCase.energyReport ?? true}
+              onChange={(e) => setCaseField(activeCase.id, { energyReport: e.target.checked })}
+            />
           </label>
           {lap &&
             (track && layoutDef && lapsDef ? (

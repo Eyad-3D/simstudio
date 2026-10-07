@@ -98,8 +98,18 @@ line between the points.
 **Recuperation**: braking with the motor running as a generator, which
 charges the battery instead of heating the brakes.
 
+**RMS**: root-mean-square, the square root of the mean of a value's
+squares over time. For a current or a power that swings up and down it is
+the mean that sets heating, so parts are cooled and sized from it
+([Size parts from their duty](how-to/size-parts-from-their-duty.md)).
+
 **Run**: one simulation of a case. Its status is *success*, *warning*,
 *cancelled* or *failed*.
+
+**Sankey chart**: a flow chart whose bands are as wide as the energy they
+carry. The *Energy* view in *Results* draws one from the battery or the
+fuel to where the energy went
+([See where the energy went](how-to/see-where-the-energy-went.md)).
 
 **Sample Time**: how often a Script, PID or Lookup block runs, in s. At 0 it
 runs at every solver step.

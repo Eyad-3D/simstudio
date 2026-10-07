@@ -38,6 +38,7 @@ from .maps import OutsideDataError
 from .master import Master, SlaveStepError
 from .network import ModelError, build_model
 from .profiles import distance_axis, lap_length
+from .reports import RunRecorder
 from .runtime import (  # noqa: F401 — re-exported for backward compatibility
     AIR_DENSITY,
     CLUTCH_BAND,
@@ -203,6 +204,14 @@ def run_case(
         # stretch it solves)
         env = (_Envelope(ctx, gear_of)
                if lap is None and (n_sub > 1 or output_every > 1) else None)
+        # the energy, duty and limit reports, booked after every solver step
+        recorder = RunRecorder(ctx, energy=getattr(case, "energyReport", True))
+        recorder.lap = lap is not None
+
+        def after_step() -> None:
+            publish_routed_states()
+            recorder.step()
+
         trace = CycleTrace(ctx)  # target vs vehicle speed, for the run verdict
         if lap is None:  # a lap case follows no target
             trace.sample(0.0)
@@ -251,7 +260,7 @@ def run_case(
 
         if lap is not None:  # the laps, one step per stretch of track
             try:
-                solved, stopped = lapsim.run_laps(ctx, master, lap, record, publish_routed_states,
+                solved, stopped = lapsim.run_laps(ctx, master, lap, record, after_step,
                                                   control, apply_control_msg, output_every)
             except SlaveStepError:
                 solved = failed_at = ctx.t  # the failing slave already emitted its error message
@@ -291,7 +300,7 @@ def run_case(
                         ctx.t = t_prev + j * h_sub
                         master.step(ctx.t, h_sub)
                         solved = t_prev + (j + 1) * h_sub
-                        publish_routed_states()
+                        after_step()
                         if env is not None:
                             env.add(h_sub)
                         arrived = end_d is not None and ctx.distance >= end_d
@@ -604,13 +613,17 @@ def run_case(
         rt.messages.insert(0, SimMessage(level="info", text=text))
         if totals is not None:
             totals.update(balance.run_totals(ctx, soc_start))
+        energy, duty, limits = recorder.finish(lap)
         return SimResult(
             caseId=case_id,
             status=status,
             messages=rt.messages,
             channels=channels,
             summary=summary,
-            energy=energy_flows(ctx.book),
+            partEnergy=energy_flows(ctx.book),
+            energy=energy,
+            duty=duty,
+            limits=limits,
         )
     finally:
         if ctx.sandbox is not None:

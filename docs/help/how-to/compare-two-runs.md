@@ -71,3 +71,19 @@ Bus links, the case's settings, and the parameters edited while either run
 was going. Moving or renaming a part changes no result, so it is left out.
 For a run stored before runs kept a copy of their model, the list says so;
 its numbers are still compared.
+
+## See what changed since the results on screen
+
+When you change the model after a run, the run shown in *Results* no
+longer matches it:
+
+- each part you edited or added gets a small dot at its top left on the
+  diagram, a wire you added gets a dot along it, and an edited case gets a
+  dot next to the case list in the *Cases* tab;
+- *Results* says *These results are from before 3 changes to the model*.
+  Click **Show changes** for the list (part, parameter, old → new, with
+  units; click a part to show it on the diagram), or **Re-run** to run the
+  case again.
+
+The marks clear when the new run finishes. Picking an older run in the run
+list compares the model with that run instead.

@@ -219,6 +219,9 @@ async def run_study(project: Project, case_id: str, points: list[StudyPointSpec]
                     "pruned": pruned,
                     "summary": [s.model_dump() for s in result.summary
                                 if math.isfinite(s.value)],
+                    # each part's duty, for the study table's RMS and peak
+                    # columns (RES-39)
+                    "duty": [d.model_dump() for d in result.duty],
                 })
         stopper.cancel()
     finally:
