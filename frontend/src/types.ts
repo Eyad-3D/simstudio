@@ -255,6 +255,29 @@ export interface Project {
   cases: SimCase[];
   /** Parameter studies run on this project, oldest first. */
   studies?: Study[];
+  /** An example's card (CON-15): what it answers and what to expect. */
+  card?: ExampleCard | null;
+}
+
+/** What an example answers and what to expect from it (CON-15); its
+ *  expected results are its cases' reference values. */
+export interface ExampleCard {
+  question: string;
+  tags: string[];
+  difficulty: "beginner" | "intermediate" | "advanced";
+  /** about how long its cases take to run, s */
+  runTimeS?: number | null;
+  /** what you will learn */
+  learn: string[];
+  /** demo: shows the workflow; plausibility-checked: results in bands from
+   *  real cars; validated: compared with measurements of that car */
+  status: "demo" | "plausibility-checked" | "validated";
+  features: string[];
+  author: string;
+  version: string;
+  licence: string;
+  /** what happens when, step by step */
+  narrative: string[];
 }
 
 export interface SimMessage {

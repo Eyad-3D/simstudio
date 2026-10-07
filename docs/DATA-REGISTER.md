@@ -24,7 +24,7 @@ cleared it for shipping.
 
 ## Status (2026-09-28)
 
-- The register has 52 rows.
+- The register has 55 rows.
 - **Third-party data is now bundled.** The example rebuild (CON-02, CON-03)
   took the Battery Electric Car's vehicle values from FASTSim's
   2021_Cupra_Born.csv, calibrated its motor loss map to FASTSim's default

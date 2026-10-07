@@ -3,6 +3,37 @@
   "schemaVersion": 1,
   "name": "P2 Hybrid Car",
   "description": "P2 parallel hybrid sized after the Hyundai Ioniq Hybrid Blue: 1.6-litre petrol engine, clutch, 32 kW e-motor on the input of a 6-speed gearbox, 1.56 kWh battery; test mass and road load from the EPA 2022 Test Car List (EPA's own coefficients A/B/C, which already hold the axle's drag, so the final drive runs lossless). Its Hybrid Control Unit script launches electrically, stops the engine at standstill, when coasting and at low demand, and holds the battery near 55 %.\nWhat to expect (battery charge balanced over each cycle):\n• EPA city (UDDS): 2.8 l/100 km (Ioniq Blue, EPA city test: 2.91 l/100 km, with a cold start this model does not have)\n• EPA highway (HWFET): 3.2 l/100 km (EPA highway test: 2.94 l/100 km)\n• Mixed Cycle: 2.9 l/100 km\n• Engine off at every stop, about 30 engine starts on the city cycle",
+  "card": {
+    "question": "How much fuel does a parallel hybrid save on EPA's city and highway cycles, and when does its engine run?",
+    "tags": [
+      "hybrid",
+      "fuel use",
+      "EPA cycles",
+      "control script"
+    ],
+    "difficulty": "intermediate",
+    "runTimeS": 25,
+    "learn": [
+      "Read fuel consumption with the battery's charge balanced over the cycle",
+      "Follow a Script that starts and stops the engine",
+      "See why the city result is below EPA's (no cold start)"
+    ],
+    "status": "plausibility-checked",
+    "features": [
+      "Combustion Engine, Clutch, 6-speed Gearbox",
+      "P2 E-Motor on the gearbox input",
+      "Hybrid Control Unit (Script)",
+      "Road load as EPA coefficients A/B/C"
+    ],
+    "author": "LightSim",
+    "version": "0.3.0",
+    "licence": "LightSim's own (LICENSE); test mass and road load from the EPA 2022 Test Car List, see the data register DR-02",
+    "narrative": [
+      "0 s: the car starts electrically; the engine is off and the clutch open.",
+      "When the demand rises, the Hybrid Control Unit closes the clutch and starts the engine; at stops, when coasting and at low demand it stops it again.",
+      "The script holds the battery near 55 %, so each cycle ends at about the charge it started with."
+    ]
+  },
   "systems": [
     {
       "id": "sys-root",
@@ -1055,7 +1086,23 @@
         "el-battery": {
           "initial_soc_pct": 56.34
         }
-      }
+      },
+      "references": [
+        {
+          "kpi": "Fuel consumption",
+          "value": 2.91,
+          "tolerance": 10,
+          "tolerancePct": true,
+          "source": "EPA 2022 Test Car List, Ioniq Hybrid Blue, FTP 80.8 mpg (2.91 l/100 km); EPA's test starts cold, the model does not"
+        },
+        {
+          "kpi": "HV Battery — final SOC",
+          "value": 56.34,
+          "tolerance": 1,
+          "tolerancePct": false,
+          "source": "Charge-sustaining: the case's starting charge, within 1 point"
+        }
+      ]
     },
     {
       "id": "case-hwfet",
@@ -1070,7 +1117,23 @@
         "el-battery": {
           "initial_soc_pct": 58.92
         }
-      }
+      },
+      "references": [
+        {
+          "kpi": "Fuel consumption",
+          "value": 2.94,
+          "tolerance": 15,
+          "tolerancePct": true,
+          "source": "EPA 2022 Test Car List, Ioniq Hybrid Blue, HWFE 80.1 mpg (2.94 l/100 km)"
+        },
+        {
+          "kpi": "HV Battery — final SOC",
+          "value": 58.92,
+          "tolerance": 1,
+          "tolerancePct": false,
+          "source": "Charge-sustaining: the case's starting charge, within 1 point"
+        }
+      ]
     },
     {
       "id": "case-mixed",
@@ -1082,7 +1145,16 @@
         "el-battery": {
           "initial_soc_pct": 51.96
         }
-      }
+      },
+      "references": [
+        {
+          "kpi": "Fuel consumption",
+          "value": 2.88,
+          "tolerance": 3,
+          "tolerancePct": true,
+          "source": "LightSim 0.3.0's own result: a regression check only, as no real car drives this hand-typed cycle"
+        }
+      ]
     },
     {
       "id": "case-mixed-live",
@@ -1094,7 +1166,16 @@
         "el-battery": {
           "initial_soc_pct": 51.96
         }
-      }
+      },
+      "references": [
+        {
+          "kpi": "Fuel consumption",
+          "value": 2.88,
+          "tolerance": 3,
+          "tolerancePct": true,
+          "source": "LightSim 0.3.0's own result: a regression check only, as no real car drives this hand-typed cycle"
+        }
+      ]
     }
   ]
 }

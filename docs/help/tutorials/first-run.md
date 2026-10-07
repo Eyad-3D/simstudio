@@ -41,8 +41,13 @@ The list at the top right, next to **Run**, holds the model's cases. A case
 is one simulation job: the drive cycle, how long it runs and a few
 settings. *City Cycle* is picked, a 600 s drive in town.
 
+The *Results* tab already holds a run of each case, named *Stored result*:
+the example's results as LightSim stored them, with only a few signals.
+
 Press **Run**, or Ctrl+Enter. LightSim changes to the *Results* page and
-draws the run as it goes. The City Cycle takes a few seconds.
+draws the run as it goes. The City Cycle takes a few seconds. Your run is
+compared with the stored one, and its numbers read *~ 0 vs baseline*: the
+same.
 
 ## 4. Read the results
 
@@ -61,6 +66,10 @@ draws the run as it goes. The City Cycle takes a few seconds.
   that time. Roll the mouse wheel over the chart to zoom in on a moment;
   a double-click shows the whole run again
   ([all the chart's keys](../reference/keyboard-shortcuts.md#on-a-chart)).
+- Under the numbers, a line compares *Consumption* with the value the
+  example expects, 11.12 kWh/100 km ± 3 %, and reads **within**.
+  *Hand calculations: 2 passed* folds away two checks LightSim works out
+  itself ([more](../how-to/check-against-expected-values.md)).
 - The word at the top of the chart says how the run went. *success* means
   the car followed its target speed and its parts stayed inside their data.
   It does not mean the numbers match a real car.

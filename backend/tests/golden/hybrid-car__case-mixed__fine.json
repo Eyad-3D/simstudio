@@ -5,7 +5,7 @@
  "variant": "fine",
  "case_step_s": 0.005,
  "store_every": 200,
- "change": "Wheel and axle normal loads are recorded (MOD-40)",
+ "change": "Store the examples' reference results (CON-15)",
  "status": "success",
  "messages": [
   "info: Case 'Mixed Cycle' solved: 120000 steps × 0.005 s (1 sub-steps each), 601 points recorded, stored every 200, 67 result channels."

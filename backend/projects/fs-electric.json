@@ -3,6 +3,37 @@
   "schemaVersion": 1,
   "name": "FS Electric (generic)",
   "description": "Formula Student electric car to make your own: typical values, not a real car (typical — replace with your data). 280 kg with driver; one rear E-Motor (230 N·m, about 100 kW) through a 4.4 chain drive and an open differential; front wheels unpowered, with brakes; Accumulator 138s4p, 580 V full, 7.2 kWh, 0.3 Ω, with the battery's Formula Student Electric preset; CG height 0.28 m, wheelbase 1.53 m, CdA 1.2 m², CzA 3.0 m² (45 % front); tyres μ 1.5 with a load sensitivity of −0.2 per kN.\nRules, FS Rules 2026 v1.1 (FSG): 80 kW at the accumulator outlet (EV 2.2.1), judged on a 500 ms moving average (D 10.4.1); 500 A (EV 2.2.2, not modelled); 600 V DC (EV 4.1.1); 75 m acceleration (D 5.1.1) staged 0.3 m behind the line (D 5.2.3); the 25 s limit for driverless runs only (D 9.2.1); endurance about 22 km (D 7.1.3). FSUK and FSAE may differ: check the current season's rules.\nWhat to expect (estimates):\n• Acceleration 75 m: 3.74 s from the start line, 119 km/h at the line, 0–100 km/h in 2.93 s, held at 80 kW for 3.8 s, from 0.2 s, while the rear wheels still spin at the launch (no traction control, MOD-16) (FS Czech Republic 2025, 35 EV teams: 3.51–6.44 s, median 3.91 s, the case's reference time)\n• Autocross (flying lap): 57.7 s on LightSim's own 979 m layout\n• Endurance energy: 23 laps (22.5 km) with the Output Power Limit at 30 kW, a typical endurance setting, and no driver change: 5.33 kWh net at the accumulator (energy delivered minus energy recuperated, or Energy per lap × 23), 18 % of the energy drawn recuperated, 25 % SOC left, 473–594 V (FS Czech Republic 2025 efficiency, 14 scored teams: 3.19–6.15 kWh, median 5.25 kWh)\nSweep: on Acceleration 75 m, sweep Accumulator · Output Power Limit from 40 to 80 in 5 steps: 4.22 s at 40 kW to 3.74 s at 80 kW.",
+  "card": {
+    "question": "How fast is a typical Formula Student electric car over 75 m, round an autocross lap, and how much energy does an endurance take?",
+    "tags": [
+      "Formula Student",
+      "acceleration",
+      "lap mode",
+      "energy"
+    ],
+    "difficulty": "intermediate",
+    "runTimeS": 5,
+    "learn": [
+      "Run an acceleration test and a lap case",
+      "See the Output Power Limit hold the battery at 80 kW",
+      "Compare a result with a competition's field"
+    ],
+    "status": "plausibility-checked",
+    "features": [
+      "Acceleration case with a start line",
+      "Lap mode on the Race Track",
+      "Battery Output Power Limit (Formula Student Electric preset)",
+      "Load transfer, downforce and load-sensitive tyres"
+    ],
+    "author": "LightSim",
+    "version": "0.3.0",
+    "licence": "LightSim's own (LICENSE); typical values, no real car (data register DR-41)",
+    "narrative": [
+      "Acceleration 75 m: the car rolls 0.30 m to the start line at full throttle; the battery's 80 kW limit holds the motor from about 1 s on, and the rear tyres are at their grip limit for about half the run.",
+      "Autocross: the lap solver finds the fastest speed at every metre; corners are limited by grip, straights by the power cap.",
+      "Endurance energy: 23 laps with the limit at 30 kW, the energy a team's efficiency score counts."
+    ]
+  },
   "systems": [
     {
       "id": "sys-root",
@@ -744,7 +775,16 @@
       "realtimeFactor": 0.0,
       "endDistance": 75.0,
       "startLine": 0.3,
-      "referenceTime": 3.91
+      "referenceTime": 3.91,
+      "references": [
+        {
+          "kpi": "Time to 75 m",
+          "value": 4.0,
+          "tolerance": 0.5,
+          "tolerancePct": false,
+          "source": "FS Czech Republic 2025, best times of 35 EV teams: 3.51-6.44 s, median 3.91 s (the band of test_examples_plausible.py, 3.5-4.5 s)"
+        }
+      ]
     },
     {
       "id": "case-autocross",
@@ -758,7 +798,16 @@
           "layout": "Autocross",
           "laps": 2
         }
-      }
+      },
+      "references": [
+        {
+          "kpi": "Lap time",
+          "value": 57.72,
+          "tolerance": 3,
+          "tolerancePct": true,
+          "source": "LightSim 0.3.0's own result on its own 979 m layout: a regression check only"
+        }
+      ]
     },
     {
       "id": "case-endurance",
@@ -776,7 +825,16 @@
         "el-battery": {
           "output_power_limit_kW": 30
         }
-      }
+      },
+      "references": [
+        {
+          "kpi": "Energy per lap",
+          "value": 0.2026,
+          "tolerance": 0.0643,
+          "tolerancePct": false,
+          "source": "FS Czech Republic 2025 efficiency, 14 scored teams: 3.19-6.15 kWh over the endurance, divided by the case's 23 laps (0.139-0.267 kWh a lap)"
+        }
+      ]
     }
   ]
 }

@@ -462,6 +462,39 @@
       "licence": "Same as the rows it copies",
       "credit": "Same as the rows it copies",
       "cleared": "pending"
+    },
+    {
+      "id": "DR-68",
+      "file": "backend/projects/reference/bev-car.json",
+      "dataset": "*",
+      "kind": "test-fixture",
+      "description": "Stored reference results of the bev-car example (CON-15): each case's status, summary values, expected-value grades and comparison signals every second, and how they were made; the app shows them when the example opens",
+      "source": "LightSim's own solver output for the example",
+      "licence": "Derived from DR-01 and the data it uses; LightSim's own output (LICENSE)",
+      "credit": "Same as DR-01",
+      "cleared": "pending"
+    },
+    {
+      "id": "DR-69",
+      "file": "backend/projects/reference/fs-electric.json",
+      "dataset": "*",
+      "kind": "test-fixture",
+      "description": "Stored reference results of the fs-electric example (CON-15): each case's status, summary values, expected-value grades and comparison signals every second, and how they were made; the app shows them when the example opens",
+      "source": "LightSim's own solver output for the example",
+      "licence": "Derived from DR-41 and the data it uses; LightSim's own output (LICENSE)",
+      "credit": "Same as DR-41",
+      "cleared": "pending"
+    },
+    {
+      "id": "DR-70",
+      "file": "backend/projects/reference/hybrid-car.json",
+      "dataset": "*",
+      "kind": "test-fixture",
+      "description": "Stored reference results of the hybrid-car example (CON-15): each case's status, summary values, expected-value grades and comparison signals every second, and how they were made; the app shows them when the example opens",
+      "source": "LightSim's own solver output for the example",
+      "licence": "Derived from DR-02 and the data it uses; LightSim's own output (LICENSE)",
+      "credit": "Same as DR-02",
+      "cleared": "pending"
     }
   ]
 }

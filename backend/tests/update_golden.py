@@ -4,6 +4,9 @@
     python tests/update_golden.py                   # diff report, writes nothing
     python tests/update_golden.py --reason "Title"  # regenerate every fixture
 
+It also rewrites the examples' stored reference results
+(backend/projects/reference/, CON-15) with the same note.
+
 Regenerate only for an intended behaviour change. The reason is required:
 it becomes the heading of a new entry in tests/golden/CHANGES.md, with the
 headline numbers that moved (old -> new) filled in, and every fixture
@@ -18,6 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from golden_compare import (  # noqa: E402
     CASES,
@@ -31,6 +35,10 @@ from golden_compare import (  # noqa: E402
     run,
     snapshot,
 )
+
+from app import reference_results  # noqa: E402
+from app.solver import simulate  # noqa: E402
+from app.storage import load_example  # noqa: E402
 
 CASE_NAMES = {"case-city": "City Cycle", "case-mixed": "Mixed Cycle"}
 
@@ -86,6 +94,12 @@ def main() -> int:
         path.write_text(dump(snapshot(project_id, case_id, variant, result=result,
                                       change=args.reason)), encoding="utf-8")
         print(f"wrote {path.name}")
+
+    # the examples' stored reference results (CON-15), with the same note
+    for example_id in ("bev-car", "fs-electric", "hybrid-car"):
+        project = load_example(example_id)
+        stored = {c.id: simulate(project, c.id) for c in project.cases if not c.realtimeFactor}
+        print(f"wrote {reference_results.write(example_id, project, stored, args.reason).name}")
 
     text = CHANGES.read_text(encoding="utf-8")
     if f"## {args.reason}\n" in text:

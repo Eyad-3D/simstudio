@@ -404,6 +404,20 @@ sections.
   validated), and warns when the run uses values whose source is unknown.
   **BibTeX** and **CSL-JSON** save the citations, starting with LightSim
   and its version. [How to](help/how-to/cite-your-sources.md).
+- Example cards and stored results (CON-15): each example carries a card
+  (Project → **Card…**): the question it answers, its difficulty and run
+  time, what you learn, what happens when, the features it uses, its
+  status (demo, plausibility-checked or validated), author, version and
+  licence; its expected results are its cases' expected values, each with
+  a band and a source (the bands of the plausibility tests, EPA's figures
+  for the hybrid, FS Czech Republic 2025 for the FS car). An example opened
+  from **Open** or the *Start* page shows its stored results in *Results*
+  at once, named *Stored result* (only the comparison signals: speed,
+  target, battery SOC and power, motor speed and torque, fuel rate); **Run**
+  recomputes them and compares with the stored run. CI checks every example
+  has a card and expected values, lands within them, and still gives its
+  stored results, which change only with a note in
+  `backend/tests/golden/CHANGES.md`. No result changes.
 
 ### Fixed
 

@@ -13,6 +13,7 @@ datas = [
     ("app/library/sources.json", "app/library"),  # the data register, per run (VAL-37)
     ("app/cycles/*", "app/cycles"),  # the drive-cycle library (CON-16)
     ("projects/*.json", "projects"),  # not projects/runs/: a dev's stored runs
+    ("projects/reference/*.json", "projects/reference"),  # examples' stored results (CON-15)
     ("../VERSION", "."),  # single source of truth, read by app/version.py
 ]
 binaries = []

@@ -741,3 +741,12 @@ constant (bev-car 5,765.68 N on each front wheel and 3,686.25 N on each
 rear one; hybrid-car 30/30/20/20 % of its weight).
 
 No headline number or channel moved.
+
+## Store the examples' reference results (CON-15)
+
+Nothing changed in the solver. `update_golden.py` now also writes each
+example's stored reference results (`backend/projects/reference/`), which
+the app shows when an example opens; this entry is the note they carry. The
+fixtures were rewritten only to name it.
+
+No headline number or channel moved.

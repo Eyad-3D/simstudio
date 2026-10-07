@@ -45,7 +45,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
-from . import cycles, run_store, security, storage
+from . import cycles, reference_results, run_store, security, storage
 from .library import load_library, unit_groups
 from .paths import static_dir
 from .schemas import DataCheck, Project, SimResult, SimulateRequest, StoredRun, ValidateRequest
@@ -133,6 +133,18 @@ def get_example(example_id: str) -> dict:
         raise HTTPException(status_code=404, detail=f"Example '{example_id}' not found")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/examples/{example_id}/reference")
+def example_reference(example_id: str) -> list[dict]:
+    """The example's stored reference runs (CON-15): what the app shows in
+    Results when the example opens, before anything is run."""
+    try:
+        if not storage.example_path(example_id).is_file():
+            raise FileNotFoundError(example_id)
+    except (FileNotFoundError, ValueError):
+        raise HTTPException(status_code=404, detail=f"Example '{example_id}' not found")
+    return reference_results.stored_results(example_id)
 
 
 @app.post("/api/examples/restore")

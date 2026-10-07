@@ -300,6 +300,28 @@ class Study(BaseModel):
     points: list[StudyPoint] = Field(default_factory=list)
 
 
+class ExampleCard(BaseModel):
+    """What an example answers and what to expect from it (CON-15): shown in
+    the Project tab and the Open menu; its expected results are the cases'
+    reference values (SimCase.references)."""
+
+    model_config = PERSISTED
+
+    question: str = ""
+    tags: list[str] = Field(default_factory=list)
+    difficulty: Literal["beginner", "intermediate", "advanced"] = "beginner"
+    runTimeS: Optional[float] = None  # about how long its cases take to run, s
+    learn: list[str] = Field(default_factory=list)  # what you will learn
+    # demo: shows the workflow only; plausibility-checked: its results fall in
+    # bands from real cars; validated: compared with measurements of that car
+    status: Literal["demo", "plausibility-checked", "validated"] = "demo"
+    features: list[str] = Field(default_factory=list)
+    author: str = ""
+    version: str = ""
+    licence: str = ""
+    narrative: list[str] = Field(default_factory=list)  # what happens when
+
+
 class Project(BaseModel):
     model_config = PERSISTED
 
@@ -316,6 +338,8 @@ class Project(BaseModel):
     cases: list[SimCase] = Field(default_factory=list)
     # parameter studies run on this project, oldest first
     studies: list[Study] = Field(default_factory=list)
+    # an example's card (CON-15); user projects may have one too
+    card: Optional[ExampleCard] = None
 
 
 class SimMessage(BaseModel):

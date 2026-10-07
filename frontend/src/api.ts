@@ -267,6 +267,17 @@ export function validateProject(project: Project): Promise<DataCheck[]> {
   });
 }
 
+/** An example's stored reference runs (CON-15). */
+export interface StoredReference {
+  caseId: string;
+  result: SimResult;
+  creation: { appVersion: string; date: string; gitCommit?: string | null; note: string };
+}
+
+export function fetchExampleReference(id: string): Promise<StoredReference[]> {
+  return request(`/examples/${encodeURIComponent(id)}/reference`);
+}
+
 /** The data and methods a run of the case rests on (VAL-37). */
 export function fetchRunSources(project: Project, caseId: string): Promise<RunSources> {
   return request("/sources", {

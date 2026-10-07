@@ -244,6 +244,18 @@ the warnings in Data Checks; divide by 100 in a Script where a block expects
 0-1.
 *Roadmap:* automatic conversion on wires is not planned yet.
 
+### An example's stored result holds a few signals
+
+An example opened from **Open** or the *Start* page shows its stored
+results (CON-15), named *Stored result*: the summary, the expected values
+and seven comparison signals (vehicle speed and target, battery SOC and
+power, motor speed and torque, engine fuel rate) every second. The other
+channels appear only after **Run**. The stored runs are not saved with the
+project and are not kept when LightSim restarts; the run lists call them
+*not stored on disk*.
+
+*Workaround:* press **Run** for every channel.
+
 ### Computed values read 0 in the first result point
 
 Point 0 of every run is the initial state at t = 0. Vehicle speed, distance,

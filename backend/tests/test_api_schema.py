@@ -43,6 +43,8 @@ UNDECLARED = {
     },
     ("delete", "/api/projects/{project_id}"): {"400": "Invalid project id", "404": "No such project"},
     ("post", "/api/validate"): {"400": "Unreadable request body"},
+    ("post", "/api/sources"): {"400": "Unreadable request body"},
+    ("get", "/api/examples/{example_id}/reference"): {"404": "No such example"},
     ("get", "/api/projects/{project_id}/runs"): {"400": "Invalid project id"},
     ("delete", "/api/projects/{project_id}/runs"): {"400": "Invalid project id"},
     ("get", "/api/projects/{project_id}/runs/{run_id}"): {"400": "Invalid id", "404": "No such run"},

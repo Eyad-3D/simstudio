@@ -3,6 +3,38 @@
   "schemaVersion": 1,
   "name": "Battery Electric Car",
   "description": "Compact electric car modelled on the 2021 Cupra Born 58 kWh (VW ID.3 class), with the values of FASTSim's vehicle file (Apache-2.0): 1,927 kg, Cd 0.27, 2.31 m², 150 kW e-motor, 62 kWh battery with 58 kWh usable, 0.25 kW auxiliaries. HV battery → inverter → e-motor → single-speed reduction gear → wheels, driven over a speed profile.\nWhat to expect (energy at the battery terminals):\n• WLTC Class 3b: 14.1 kWh/100 km (a car of this class is rated about 15–16 kWh/100 km at the charging socket, charging losses included)\n• WLTC with heating/air-con on (2.5 kW): 18.9 kWh/100 km\n• City Cycle: 11.1 kWh/100 km\n• Full power: 0–100 km/h in 7.1 s, top speed 160 km/h (Cupra: 7.3 s, 160 km/h)",
+  "card": {
+    "question": "How much energy does a compact electric car use in the city, on the WLTC, and with the heating on?",
+    "tags": [
+      "battery electric",
+      "energy use",
+      "drive cycles",
+      "WLTC"
+    ],
+    "difficulty": "beginner",
+    "runTimeS": 10,
+    "learn": [
+      "Read the energy per 100 km and the battery's state of charge after a cycle",
+      "See what an auxiliary load such as heating costs on a cycle",
+      "Compare two runs of one car"
+    ],
+    "status": "plausibility-checked",
+    "features": [
+      "Driving Task with a bundled drive cycle",
+      "Battery, E-Motor, single-speed reduction gear",
+      "Auxiliary load (Power Consumer)",
+      "Live run at 10× real time"
+    ],
+    "author": "LightSim",
+    "version": "0.3.0",
+    "licence": "LightSim's own (LICENSE); vehicle values from FASTSim (Apache-2.0), see the data register DR-01",
+    "narrative": [
+      "0 s: the car starts at 90 % charge, standing.",
+      "On the City Cycle it accelerates to 50 km/h, cruises and stops twice; braking recuperates energy into the battery.",
+      "On the WLTC it drives four phases, Low, Medium, High and Extra High, up to 131 km/h; the air drag of the Extra High phase uses the most energy.",
+      "With the heating/air-con on, the 2.5 kW load runs the whole 1,800 s and adds about 4.8 kWh/100 km."
+    ]
+  },
   "systems": [
     {
       "id": "sys-root",
@@ -742,7 +774,16 @@
       "name": "City Cycle",
       "duration": 600.0,
       "timeStep": 1.0,
-      "realtimeFactor": 0.0
+      "realtimeFactor": 0.0,
+      "references": [
+        {
+          "kpi": "Consumption",
+          "value": 11.12,
+          "tolerance": 3,
+          "tolerancePct": true,
+          "source": "LightSim 0.3.0's own result: a regression check only, as no real car drives this hand-typed cycle"
+        }
+      ]
     },
     {
       "id": "case-wltc",
@@ -754,7 +795,16 @@
         "el-task": {
           "cycle": "wltc-3b"
         }
-      }
+      },
+      "references": [
+        {
+          "kpi": "Consumption",
+          "value": 15.0,
+          "tolerance": 2.0,
+          "tolerancePct": false,
+          "source": "Compact electric cars of this class: about 15-16 kWh/100 km rated at the charging socket, 13.5-14.5 at the battery (background knowledge, unverified); the band of test_examples_plausible.py, 13-17"
+        }
+      ]
     },
     {
       "id": "case-wltc-hvac",
@@ -769,14 +819,32 @@
         "el-consumer": {
           "power_kW": 2.5
         }
-      }
+      },
+      "references": [
+        {
+          "kpi": "Consumption",
+          "value": 18.88,
+          "tolerance": 3,
+          "tolerancePct": true,
+          "source": "Hand calculation: the WLTC case's 14.05 kWh/100 km plus the extra 2.25 kW over 1,800 s and 23.27 km (4.83 kWh/100 km)"
+        }
+      ]
     },
     {
       "id": "case-city-live",
       "name": "City Cycle (live, 10×)",
       "duration": 600.0,
       "timeStep": 1.0,
-      "realtimeFactor": 10.0
+      "realtimeFactor": 10.0,
+      "references": [
+        {
+          "kpi": "Consumption",
+          "value": 11.12,
+          "tolerance": 3,
+          "tolerancePct": true,
+          "source": "LightSim 0.3.0's own result: a regression check only, as no real car drives this hand-typed cycle"
+        }
+      ]
     }
   ]
 }
