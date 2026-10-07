@@ -9,13 +9,15 @@
  * frontend's relative `/api` calls work untouched.
  */
 
-const { app, BrowserWindow, Menu, dialog, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, session, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const net = require("node:net");
 const path = require("node:path");
 const fs = require("node:fs");
 const { copyOldProjects } = require("./old-projects");
+const { readPolicy, expandPath } = require("./policy");
+const { initUpdates } = require("./updates");
 
 const HEALTH_TIMEOUT_MS = 40_000;
 const isWindows = process.platform === "win32";
@@ -35,6 +37,22 @@ let quitting = false;
 const launchToken = crypto.randomBytes(32).toString("hex");
 /** The engine's origin once it is running; the window never leaves it. */
 let appOrigin = null;
+/** Help → Updates (PLT-18); set once the app is ready. */
+let updates = null;
+
+// The machine-wide policy file IT can put on a PC (PLT-36, src/policy.js).
+// Read once per launch; it is written by an administrator, not by the app.
+const policy = readPolicy();
+
+/**
+ * Where projects are saved: the app's data folder, or the first folder of
+ * the policy's projectsRoots (for example a network drive in a lab).
+ */
+function projectsDir() {
+  const roots = policy.settings.projectsRoots;
+  if (roots && roots.length) return path.resolve(expandPath(roots[0]));
+  return path.join(app.getPath("userData"), "projects");
+}
 
 // The UI keeps its settings (theme, dock layout, crash-recovery draft) in
 // localStorage, which is keyed by origin — so the port must stay the same
@@ -151,17 +169,20 @@ async function waitForBackend(port) {
 
 function startBackend(port) {
   const { command, args, staticDir, cwd } = resolveBackend();
-  const projectsDir = path.join(app.getPath("userData"), "projects");
-  fs.mkdirSync(projectsDir, { recursive: true });
+  const projects = projectsDir();
+  fs.mkdirSync(projects, { recursive: true });
 
   backend = spawn(command, [...args, "--port", String(port), "--host", "127.0.0.1"], {
     cwd,
     windowsHide: true,
     env: {
       ...process.env,
-      LIGHTSIM_PROJECTS_DIR: projectsDir,
+      LIGHTSIM_PROJECTS_DIR: projects,
       LIGHTSIM_STATIC_DIR: staticDir,
       LIGHTSIM_TOKEN: launchToken,
+      // the settings the policy file fixes that the engine applies
+      // (scriptTrust, examples); the UI reads them from /api/policy
+      LIGHTSIM_POLICY: JSON.stringify(policy.settings),
       PYTHONUNBUFFERED: "1",
     },
   });
@@ -183,7 +204,7 @@ function startBackend(port) {
     dialog.showErrorBox(
       "Simulation engine stopped",
       `LightSim's background engine exited unexpectedly (code ${code}).\n\n` +
-        `Saved projects are safe in:\n${projectsDir}\n\nRestart LightSim to continue.\n\n${backendLog.slice(-1500)}`,
+        `Saved projects are safe in:\n${projects}\n\nRestart LightSim to continue.\n\n${backendLog.slice(-1500)}`,
     );
   });
 }
@@ -224,7 +245,7 @@ async function openDoc(file) {
 }
 
 function buildMenu() {
-  const projectsDir = path.join(app.getPath("userData"), "projects");
+  const projects = projectsDir();
   const knownLimits = bundledDoc("KNOWN-LIMITS.md", "docs/KNOWN-LIMITS.md");
   const notices = bundledDoc("THIRD-PARTY-NOTICES.txt", "THIRD-PARTY-NOTICES.txt");
   // The help pages, served by the engine, open in the system browser; before
@@ -236,7 +257,7 @@ function buildMenu() {
       submenu: [
         {
           label: "Open Projects Folder",
-          click: () => shell.openPath(projectsDir),
+          click: () => shell.openPath(projects),
         },
         { type: "separator" },
         { role: isWindows ? "quit" : "close" },
@@ -274,6 +295,8 @@ function buildMenu() {
           click: () => openDoc(notices),
         },
         { type: "separator" },
+        { label: "Updates", submenu: updates ? updates.menuItems() : [] },
+        { type: "separator" },
         {
           label: "About LightSim",
           click: async () => {
@@ -286,7 +309,7 @@ function buildMenu() {
                 "This is an early version: the physics are simplified, nothing is " +
                 "validated against measured vehicles yet, and some results are known " +
                 "to be wrong. Read Known Limits before relying on a number.\n\n" +
-                `Projects folder:\n${projectsDir}\n\n` +
+                `Projects folder:\n${projects}\n\n` +
                 "Copyright © 2026 Eyad Abualkhair. All rights reserved.\n" +
                 "Free for non-commercial use; commercial use needs a licence (see EULA.txt).\n" +
                 "Includes open-source software and data under their own licences (Help → Third-Party Notices).",
@@ -358,6 +381,9 @@ async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Electron's spell checker downloads its dictionaries from Google on
+      // Linux; LightSim contacts nothing outside the computer (PLT-18).
+      spellcheck: false,
     },
   });
   askBeforeUnsavedUnload(mainWindow);
@@ -388,9 +414,29 @@ async function createWindow() {
     await mainWindow.loadURL(`${appOrigin}/`, {
       extraHeaders: `Authorization: Bearer ${launchToken}\n`,
     });
+    // The update question comes once the UI is up, never before: until the
+    // user says yes, nothing leaves the computer.
+    updates?.start().catch((err) => logEvent(`updates: ${err.message || err}`));
   } catch (err) {
     dialog.showErrorBox("LightSim could not start", String(err.message || err));
     app.quit();
+  }
+}
+
+/**
+ * Electron's spell checker fetches its dictionaries from Google's servers
+ * (on Linux, and on Windows when it uses Hunspell). LightSim contacts
+ * nothing outside the computer unless the user agrees (PLT-18), so it is off
+ * and any download it still tries goes nowhere.
+ */
+function stopSpellCheckDownloads() {
+  const ses = session.defaultSession;
+  try {
+    ses.setSpellCheckerEnabled(false);
+    ses.setSpellCheckerDictionaryDownloadURL("http://127.0.0.1:9/");
+    if (process.platform !== "darwin") ses.setSpellCheckerLanguages([]);
+  } catch (err) {
+    logEvent(`spell checker: ${err.message || err}`);
   }
 }
 
@@ -405,6 +451,17 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(() => {
+    stopSpellCheckDownloads();
+    if (policy.found) {
+      logEvent(`policy: ${policy.file} sets ${JSON.stringify(policy.settings)}`);
+      for (const problem of policy.problems) logEvent(`policy: ${problem}`);
+    }
+    updates = initUpdates({
+      app, dialog, shell, logEvent,
+      policy: policy.settings,
+      getWindow: () => mainWindow,
+      rebuildMenu: buildMenu,
+    });
     buildMenu();
     createWindow();
     app.on("activate", () => {

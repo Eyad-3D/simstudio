@@ -4,7 +4,7 @@
   "version": "0.2.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "LightSim \u2014 desktop app for simulating vehicle energy use, range and powertrains",
+  "description": "LightSim — desktop app for simulating vehicle energy use, range and powertrains",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -27,5 +27,11 @@
     "type": "git",
     "url": "https://github.com/Eyad-3D/simstudio.git"
   },
-  "desktopName": "lightsim.desktop"
+  "desktopName": "lightsim.desktop",
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  },
+  "overrides": {
+    "sax": "1.4.1"
+  }
 }
