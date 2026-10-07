@@ -69,6 +69,10 @@ add("Reference", "reference/api.md", section("API"), "README.md");
 for (const [sec, path, src] of [["Validation", "validation.md", "VALIDATION-STATUS.md"], ["Known issues", "known-limits.md", "KNOWN-LIMITS.md"],
   ["Release notes", "release-notes.md", "RELEASE-NOTES.md"], ["Data sources", "data-sources.md", "DATA-REGISTER.md"]])
   add(sec, path, read(`docs/${src}`), `docs/${src}`);
+// what LightSim reads and writes (STD-34), and the file-format specification (AI-07)
+add("Reference", "reference/formats.md", read("docs/FORMATS.md"), "docs/FORMATS.md");
+for (const f of readdirSync(join(root, "docs", "spec")).filter((f) => f.endsWith(".md")).sort((a, b) => (b === "README.md") - (a === "README.md") || a.localeCompare(b)))
+  add("Reference", `reference/spec/${f === "README.md" ? "index.md" : f}`, read(`docs/spec/${f}`), `docs/spec/${f}`);
 // ---- generated: examples, components, drive cycles -------------------------
 for (const f of readdirSync(join(root, "backend", "projects")).filter((f) => f.endsWith(".json")).sort()) {
   const p = JSON.parse(read(`backend/projects/${f}`));
