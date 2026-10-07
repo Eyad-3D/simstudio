@@ -25,6 +25,7 @@ Endpoints:
   POST /api/simulate           run a simulation case, returns SimResult
   WS   /api/simulate/run       live run: streams progress/steps, accepts
                                set_param and cancel while running
+  Results export, table and parameter-sheet import: app/dataio/api.py
 """
 from __future__ import annotations
 
@@ -46,6 +47,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
 from . import cycles, run_store, security, storage
+from .dataio.api import router as dataio_router
 from .library import load_library, unit_groups
 from .paths import static_dir
 from .schemas import DataCheck, Project, SimResult, SimulateRequest, StoredRun, ValidateRequest
@@ -82,6 +84,9 @@ app.add_middleware(
     hosts=security.allowed_hosts(),
     origins=() if LAUNCH_TOKEN else security.DEV_ORIGINS,
 )
+
+
+app.include_router(dataio_router)
 
 
 @app.get("/api/health")
