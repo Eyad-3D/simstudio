@@ -31,16 +31,29 @@ class InstallError(Exception):
     """The settings could not be changed safely; nothing was written."""
 
 
+#: Tests point every AI app's settings at a scratch folder with this.
+SANDBOX_ENV = "LIGHTSIM_AI_CONFIG_HOME"
+
+
+def _sandbox() -> Optional[Path]:
+    value = os.environ.get(SANDBOX_ENV)
+    return Path(value) if value else None
+
+
 def _home() -> Path:
-    return Path.home()
+    return _sandbox() or Path.home()
 
 
 def _appdata() -> Path:
+    if _sandbox():
+        return _home() / "AppData" / "Roaming"
     return Path(os.environ.get("APPDATA") or _home() / "AppData" / "Roaming")
 
 
 def _app_config(*parts: str) -> Path:
     """An app's folder in the system's per-user settings place."""
+    if _sandbox():
+        return _home().joinpath(".config", *parts)
     if sys.platform == "win32":
         return _appdata().joinpath(*parts)
     if sys.platform == "darwin":
@@ -75,7 +88,8 @@ CLIENTS: dict[str, Client] = {
                       "mcpServers",
                       lambda cmd: {"type": "local", "command": cmd[0], "args": cmd[1:], "tools": ["*"]}),
     "codex": Client("OpenAI Codex",
-                    lambda: Path(os.environ.get("CODEX_HOME") or _home() / ".codex") / "config.toml",
+                    lambda: (_home() / ".codex" if _sandbox() else
+                             Path(os.environ.get("CODEX_HOME") or _home() / ".codex")) / "config.toml",
                     "mcp_servers", _plain, toml=True),
     "gemini": Client("Gemini CLI", lambda: _home() / ".gemini" / "settings.json", "mcpServers", _plain),
     "cursor": Client("Cursor", lambda: _home() / ".cursor" / "mcp.json", "mcpServers", _plain),
@@ -90,6 +104,17 @@ def server_command() -> list[str]:
         return [sys.executable, "mcp"]
     entry = Path(__file__).resolve().parents[2] / "run_backend.py"
     return [sys.executable, str(entry), "mcp"]
+
+
+def command_warning() -> Optional[str]:
+    """Why the command may stop working, or None: an AppImage's engine
+    lives in a folder that exists only while LightSim runs."""
+    appdir = os.environ.get("APPDIR")
+    if os.environ.get("APPIMAGE") and appdir and sys.executable.startswith(appdir):
+        return ("LightSim runs from an AppImage, whose files exist only while it is open: "
+                "the AI app can start LightSim only while LightSim is running. Install the "
+                ".deb package for a connection that always works.")
+    return None
 
 
 def _client(name: str) -> Client:

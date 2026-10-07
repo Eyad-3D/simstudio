@@ -364,3 +364,42 @@ export function runSimulationLive(
     done,
   };
 }
+
+// ---- AI assistants (AI-30, AI-29) ------------------------------------------
+
+/** The Markdown summary Copy for AI puts on the clipboard: the engine writes
+ *  it (the same text its MCP lightsim_overview tool returns); nothing is sent
+ *  anywhere else. */
+export function aiOverview(
+  project: Project,
+  run: SimRun | undefined,
+  hideValues: boolean,
+): Promise<{ text: string; bytes: number }> {
+  const brief = run
+    ? {
+        caseName: run.caseName,
+        status: run.status,
+        incomplete: run.incomplete ?? null,
+        summary: run.result.summary ?? [],
+        messages: run.result.messages ?? [],
+      }
+    : null;
+  return request("/ai/overview", { method: "POST", body: JSON.stringify({ project, run: brief, hideValues }) });
+}
+
+export interface AiConnection {
+  /** the command an AI app runs to start LightSim's MCP server */
+  command: string[];
+  warning?: string | null;
+  clients: { id: string; title: string; installed: boolean; configPath: string }[];
+  /** the newest entry of the local audit log: when an assistant last used LightSim */
+  lastUsed?: { t: number; tool?: string; client?: string } | null;
+}
+
+export function aiConnection(): Promise<AiConnection> {
+  return request("/ai/connect");
+}
+
+export function aiConnect(client: string, add: boolean): Promise<AiConnection> {
+  return request(`/ai/connect/${encodeURIComponent(client)}`, { method: add ? "PUT" : "DELETE" });
+}

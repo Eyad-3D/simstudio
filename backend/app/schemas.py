@@ -382,3 +382,40 @@ class SimulateRequest(BaseModel):
 
 class ValidateRequest(BaseModel):
     project: Project
+
+
+class OverviewRun(BaseModel):
+    """The run *Copy for AI* summarises: its key results and messages only."""
+
+    caseName: str = ""
+    status: str = ""
+    incomplete: Optional[str] = None
+    summary: list[SummaryValue] = Field(default_factory=list)
+    messages: list[SimMessage] = Field(default_factory=list)
+
+
+class OverviewRequest(BaseModel):
+    project: Project
+    run: Optional[OverviewRun] = None
+    hideValues: bool = False
+
+
+class OverviewText(BaseModel):
+    text: str
+    bytes: int
+
+
+class AiClientState(BaseModel):
+    id: str
+    title: str
+    installed: bool
+    configPath: str
+
+
+class AiConnection(BaseModel):
+    """What Help > Connect an AI assistant shows."""
+
+    command: list[str]
+    warning: Optional[str] = None
+    clients: list[AiClientState]
+    lastUsed: Optional[dict] = None

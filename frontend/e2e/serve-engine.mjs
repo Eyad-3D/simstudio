@@ -66,7 +66,13 @@ const child = spawn(
   {
     cwd: backend,
     stdio: "inherit",
-    env: { ...process.env, LIGHTSIM_PROJECTS_DIR: projects, LIGHTSIM_STATIC_DIR: dist },
+    // Connect an AI assistant writes AI apps' settings: into the temp folder
+    env: {
+      ...process.env,
+      LIGHTSIM_PROJECTS_DIR: projects,
+      LIGHTSIM_STATIC_DIR: dist,
+      LIGHTSIM_AI_CONFIG_HOME: join(projects, ".ai-apps"),
+    },
   },
 );
 console.log(`engine pid ${child.pid} on http://127.0.0.1:${port} (projects in ${projects})`);

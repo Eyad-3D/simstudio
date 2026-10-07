@@ -184,6 +184,10 @@ interface UIState {
   openParamDialog: (elementId: string, paramKey?: string) => void;
   closeParamDialog: () => void;
 
+  /** The Connect an AI assistant window (AI-29) is open. */
+  aiConnectOpen: boolean;
+  setAiConnectOpen: (open: boolean) => void;
+
   /** Styled confirm/prompt modal (see dialog.ts helpers). */
   dialog: DialogRequest | null;
   openDialog: (req: DialogRequest) => void;
@@ -271,6 +275,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   openParamDialog: (elementId, paramKey) =>
     set({ paramDialogId: elementId, paramDialogKey: paramKey ?? null }),
   closeParamDialog: () => set({ paramDialogId: null, paramDialogKey: null }),
+
+  aiConnectOpen: false,
+  setAiConnectOpen: (open) => set({ aiConnectOpen: open }),
 
   dialog: null,
   openDialog: (req) => set({ dialog: req }),

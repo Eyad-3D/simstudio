@@ -12,6 +12,9 @@ Left out:
 - POST /api/simulate: a generated case may ask for any duration and time step
   and would run the project's control scripts. The solver tests cover it.
 - the live-run WebSocket, which is not in the schema.
+- PUT and DELETE /api/ai/connect/{client}: they write the AI apps' own
+  settings files in the user's home folder. tests/test_ai_endpoints.py
+  covers them with a temporary home.
 """
 from __future__ import annotations
 
@@ -95,7 +98,7 @@ def projects_dir(tmp_path_factory):
         yield
 
 
-@schema.exclude(path="/api/simulate").parametrize()
+@schema.exclude(path="/api/simulate").exclude(path="/api/ai/connect/{client}").parametrize()
 # filter_too_much: a whole valid project body (PUT /api/projects/{id}) is
 # hard to generate, and on some random draws Hypothesis discards so many
 # attempts that its health check stops the test (seen on CI and locally
