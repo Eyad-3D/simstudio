@@ -159,18 +159,22 @@ def _annotate(result: SimResult, model, history, done: bool, why: Optional[str])
     messages = list(result.messages)
     messages.insert(1, SimMessage(level="info" if done else "warning",
                                   text=f"{head}. " + "; ".join(lines) + "."))
-    rows = [SummaryValue(label=f"{label(el)} — charge-balanced start SOC", value=s0 * 100.0,
+    rows = [SummaryValue(key=f"{el}.balanced_start_soc_pct",
+                         label=f"{label(el)} — charge-balanced start SOC", value=s0 * 100.0,
                          unit="%", notValid=None if done else "charge balancing did not settle")
             for el, (s0, _, _) in last_b.items()]
     if fuel_j > 0:
-        rows.append(SummaryValue(label="Battery energy change, share of fuel energy",
+        rows.append(SummaryValue(key="battery_energy_change_pct_of_fuel",
+                                 label="Battery energy change, share of fuel energy",
                                  value=100.0 * d_e / fuel_j, unit="%",
                                  limit=BALANCE_SHARE * 100.0, passed=done))
-    rows.append(SummaryValue(label="Charge balance runs", value=float(len(history)), unit="-"))
+    rows.append(SummaryValue(key="charge_balance_runs", label="Charge balance runs",
+                             value=float(len(history)), unit="-"))
     if not done:
         fit = _fit_zero([(de, f) for _, de, _, f in history if f is not None])
         if fit is not None:
-            rows.append(SummaryValue(label="Fuel consumption, charge-corrected", value=fit,
+            rows.append(SummaryValue(key="fuel_consumption_corrected_l_per_100km",
+                                     label="Fuel consumption, charge-corrected", value=fit,
                                      unit="l/100km"))
             messages.insert(2, SimMessage(level="info", text=(
                 f"Fuel consumption corrected to no change of charge: {fit:.3f} l/100 km, from a "

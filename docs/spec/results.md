@@ -50,6 +50,11 @@ A result (`SimResult`, [`schemas/result.schema.json`](schemas/result.schema.json
 | `messages` | list of `{level, text}` | What the run reported: `level` is `info`, `warning` or `error`, `text` the message |
 | `channels` | list of [Channel](#channel) | The recorded signals |
 | `summary` | list of [Summary row](#summary-row) | The figures, in the order the app shows them |
+| `partEnergy` | list of [Part energy](#part-energy) | Each part's energy books over the run |
+| `energy` | [Energy report](#energy-report) or null | Where the sources' energy went, as the *Energy* view shows it |
+| `duty` | list of [Duty](#duty) | Each part's highest, lowest, mean and RMS power, torque and current |
+| `limits` | [Limits](#limits) or null | What held the car back at each moment |
+| `references` | list of [Reference check](#reference-check) | How far the run is from the case's expected values and the automatic hand calculations |
 
 ### Channel
 
@@ -59,6 +64,7 @@ A result (`SimResult`, [`schemas/result.schema.json`](schemas/result.schema.json
 | `label` | text | "part label · port name", as the app shows it |
 | `unit` | text | Its unit |
 | `timeSeries` | list of `{t, value}` | `t` in s; `value` is null where the channel has no data yet (a gap, not a zero) |
+| `min`, `max`, `mean` | list of numbers or null, or absent | For each point, the lowest, highest and time-averaged value since the point before, taken at every solver step; absent when each point is one solver step, and on a parameter sweep's runs |
 
 Every channel of a run has the same times. Point 0 is the state at t = 0,
 each later point the state at its own time, and the last point is at the
@@ -70,11 +76,71 @@ case's duration (or where the run stopped).
 |---|---|---|
 | `key` | text | The figure's [stable key](#summary-keys). Empty on runs stored before 0.3 |
 | `label` | text | What the app shows. It names the part by its label and may change between versions: do not look figures up by label |
-| `value` | number | The figure, rounded as the app shows it |
+| `value` | number | The figure, at full precision (the app shows at most 3 decimals) |
 | `unit` | text | Its unit |
 | `notValid` | text or null | Why the figure is not valid (for example `cycle not followed`); null when it is |
 | `limit` | number or null | A check's limit, in the row's unit |
 | `passed` | true, false or null | Whether the value kept to its check |
+
+### Part energy
+
+One part's energy over the run, in kWh, from the part's own books: for
+every part `energyIn` − `energyOut` − `losses` − `stored` = 0.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `elementId` | text or null | The part; null for a driveline's rotating parts together |
+| `label` | text | Its label |
+| `part` | text | Its component type (`motor.emotor`), or `driveline.inertia` |
+| `energyIn`, `energyOut` | number, kWh | What entered and what left it, at any port (both ≥ 0) |
+| `losses` | number, kWh | What it lost |
+| `stored` | number, kWh | The change in what it stores (+ when it fills) |
+| `energyInReverse` | number, kWh | The part of `energyIn` that came back from the road side (regeneration, a dragged engine) |
+| `peakPower`, `meanPower`, `rmsPower` | number, kW, or null | Its throughput power's largest magnitude, mean and root mean square; null for wheels and rotating parts |
+| `terms` | object | Named parts of its losses or store, kWh: the Vehicle's air drag, rolling resistance, climbing and acceleration |
+
+### Energy report
+
+What the *Energy* view draws (null when the case's `energyReport` is off).
+
+| Field | Type | Meaning |
+|---|---|---|
+| `parts` | list | A row per part: `elementId`, `label`, `kind`, `inKWh`, `outKWh`, `lostKWh` (lost, or used by a consumer), `storedKWh` and `lostPct` (its loss as a % of the sources' energy) |
+| `sources`, `sinks` | list | The bands of the Sankey chart: `label`, `kWh`, `group` (`source` or `released` on the left; `road`, `stored`, `brakes`, `losses`, `loads` or `recovered` on the right) and `elementId` |
+| `sourceKWh` | number, kWh | The sources' energy together |
+| `remainderKWh`, `remainderPct` | number | What the books do not explain: the sources less the sinks, in kWh and as a % of the sources |
+| `balanceErrorPct` | number or null | The run's electrical energy balance error, % |
+
+### Duty
+
+| Field | Type | Meaning |
+|---|---|---|
+| `elementId`, `label`, `kind` | text | The part |
+| `rows` | list | One per quantity: `quantity` (*Shaft power*, *Torque*, *Current*…), `unit`, and its `max`, `min`, `mean` and `rms` (root mean square) over the run's solver steps |
+
+### Limits
+
+| Field | Type | Meaning |
+|---|---|---|
+| `states` | list of text | What can hold the car back: `braking`, `grip`, `set_limit`, `supply`, `machine`, `coasting` or `demand` (the driver's demand met) |
+| `lanes` | list | One per driveline: `label` (its motors and engines), `elementIds`, `changes` (`[t in s, index into states]` from each change on) and `seconds` (state → seconds in it) |
+| `tEnd` | number, s | The time the lanes cover |
+
+### Reference check
+
+| Field | Type | Meaning |
+|---|---|---|
+| `label` | text | The summary row, or the hand calculation |
+| `value` | number or null | The run's value; null when the run has none |
+| `reference` | number | The expected value |
+| `unit` | text | Their unit |
+| `difference`, `differencePct` | number or null | The run's value less the reference, and as a % of it |
+| `tolerance` | number | The tolerance, in the unit |
+| `grade` | `within`, `near`, `outside`, `missing` or `not valid` | How it lands |
+| `source` | text | Where the reference comes from |
+| `automatic` | true or false | true for a hand calculation LightSim makes itself |
+| `bound` | `two-sided`, `at most` or `at least` | `two-sided`: the gap must be within the tolerance; the others: a bound the value must keep to |
+| `note` | text or null | A remark on the check |
 
 ## Summary keys
 

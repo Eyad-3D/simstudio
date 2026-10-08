@@ -148,7 +148,7 @@
               "name": "traction",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Fraction"
             },
             {
               "id": "motor_rpm",
@@ -169,14 +169,14 @@
               "name": "motor_cmd",
               "direction": "output",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Fraction"
             },
             {
               "id": "throttle",
               "name": "throttle",
               "direction": "output",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Fraction"
             },
             {
               "id": "engine_on",
@@ -190,7 +190,7 @@
               "name": "clutch_cmd",
               "direction": "output",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Fraction"
             },
             {
               "id": "gear",

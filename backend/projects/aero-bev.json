@@ -161,7 +161,7 @@
               "name": "traction_cmd",
               "direction": "input",
               "kind": "signal",
-              "unitGroup": "No Unit"
+              "unitGroup": "Fraction"
             }
           ]
         },

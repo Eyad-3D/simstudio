@@ -34,8 +34,36 @@ own (and future versions add more), and keeps them when it saves.
 | `systems` | list of [System](#system), required | The diagram: the top system (its `parentId` is null) and any sub-systems |
 | `dataBusConnections` | list of [Signal link](#signal-link) | The signal links (the *Data Bus* panel) |
 | `cases` | list of [Case](#case) | The cases to run |
-| `studies` | list of [Study](#study) | Parameter studies run on the project, oldest first |
+| `savedWith` | text or null | The LightSim version that last saved the file |
+| `card` | [Example card](#example-card) or null | What an example answers and what to expect from it; your own projects may have one too |
+| `attachments` | list of [Attached file](#attached-file) | Files kept with the project, such as FMUs or measured data |
 | `noAi` | true or false, default false | true hides the project from AI tools, whatever folders they may see (see AI access in the [command-line reference](../help/reference/command-line.md#ai-access)) |
+
+Parameter studies are not in the project file: they are kept with the
+project's runs (see [Study](#study)). A file from before 0.3.0 may still
+carry a `studies` list; LightSim moves it to the runs when it opens the file.
+
+### Example card
+
+| Field | Type | Meaning |
+|---|---|---|
+| `question` | text | The question the example answers |
+| `tags` | list of text | Words to find it by |
+| `difficulty` | `beginner`, `intermediate` or `advanced` | For whom it is written |
+| `runTimeS` | number, s, or null | About how long its cases take to run |
+| `learn` | list of text | What you will learn |
+| `status` | `demo`, `plausibility-checked` or `validated` | *demo*: shows the workflow only; *plausibility-checked*: its results fall in bands from real cars; *validated*: compared with measurements of that car |
+| `features` | list of text | The parts and features it uses |
+| `author`, `version`, `licence` | text | Who made it, for which LightSim version, and on what terms |
+| `narrative` | list of text | What happens when, step by step |
+
+### Attached file
+
+| Field | Type | Meaning |
+|---|---|---|
+| `path` | text | Where it is, relative to the project: `resources/<name>` |
+| `sha256` | text, 64 hex digits | Its SHA-256 hash when it was attached, so a changed file is noticed |
+| `bytes` | whole number | Its size |
 
 ## System
 
@@ -148,13 +176,30 @@ values for any parameter.
 | `realtimeFactor` | number, default 0 | 0: run as fast as possible; N: pace the run at N times real time |
 | `endDistance` | number, m, or null | Stop when the car has driven this far past the start line; null or 0: run the duration |
 | `startLine` | number, m, default 0 | Distance driven before the timer starts (Formula Student: 0.30 m) |
-| `referenceTime` | number, s, or null | A time to compare an acceleration test with |
+| `referenceTime` | number, s, or null | A time to compare an acceleration test with; for a Formula Student event, the fastest team's time |
+| `endLaps` | number or null | End the run after this many passes through the profile of a Driving Task whose Profile Axis is Distance; `endDistance` wins when both are set |
+| `chargeBalance` | true, false or null | Run the cycle again from the charge it ended with until the battery's stored energy changes by less than 1 % of the fuel's energy (at most 5 runs). null: on for a cycle case of a hybrid (an engine, a battery and an E-Motor) that is not paced |
+| `energyReport` | true or false, default true | Build the run's energy report (where the sources' energy went) |
+| `fsEvent` | `acceleration`, `skidpad`, `autocross`, `endurance` or null | The Formula Student dynamic event the case stands for: the run then reports the event's time, an estimate of its points and the rule checks |
+| `referenceEnergy`, `referenceEnergyTime` | number or null | The most efficient team's endurance energy (kWh) and driving time (s; null: `referenceTime`), for the efficiency points |
+| `references` | list of [Expected value](#expected-value) | Values this case's runs are compared with |
 | `parameterOverrides` | object | Part id → parameter key → value: this case's own values, layered over the parts' own. A Race Track's layout and laps are set here |
+
+### Expected value
+
+| Field | Type | Meaning |
+|---|---|---|
+| `kpi` | text | The summary row it is compared with, by label |
+| `value` | number | The expected value, in that row's unit |
+| `tolerance` | number, default 5 | How far a run may be from it and still be *within* |
+| `tolerancePct` | true or false, default true | true: `tolerance` is a % of `value`; false: it is in the row's unit |
+| `source` | text | Where the value comes from |
 
 ## Study
 
 A study is a parameter sweep the app ran: the values swept on one case,
-and a results table with a row per point. Studies stay with the project
+and a results table with a row per point. Studies are kept with the
+project's runs, as `runs/<project id>/studies/<study id>.json`, and stay
 after their runs leave the run history. Its schema is
 [`schemas/study.schema.json`](schemas/study.schema.json).
 

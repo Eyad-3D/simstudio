@@ -3206,7 +3206,7 @@
           "type": "number",
           "exclusiveMinimum": 0,
           "maximum": 150,
-          "description": "The energy one kilogram of fuel gives when burnt (its lower heating value). It turns the fuel burnt into the engine's Fuel Power and the energy breakdown, and it is the fuel energy a hybrid's charge balancing compares the battery's energy change with (a charge-balanced run's battery may change by at most 1 % of it). It does not change the fuel used.",
+          "description": "The energy one kilogram of fuel gives when burnt (its lower heating value). It sets the engine's Fuel Power, the energy breakdown and the fuel energy a hybrid's charge balancing compares the battery with (at most 1 % of it). It does not change the fuel used.",
           "typical": "Petrol about 42–43 MJ/kg (the default 42.9) · diesel about 43 MJ/kg · ethanol 27 MJ/kg.",
           "whereToFind": "The fuel's datasheet or a fuel-properties table (lower, or net, heating value)."
         }

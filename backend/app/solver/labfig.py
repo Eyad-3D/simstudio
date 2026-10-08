@@ -94,8 +94,8 @@ def lab_rows(ctx, model, log: LabLog, density_kg_per_l: float,
     if km <= 0.1:
         return rows, base
 
-    def add(label: str, value: float, unit: str, of: str) -> None:
-        rows.append(SummaryValue(label=label, value=value, unit=unit))
+    def add(label: str, value: float, unit: str, of: str, key: str) -> None:
+        rows.append(SummaryValue(key=key, label=label, value=value, unit=unit))
         base[label] = of
 
     net_wh = sum(b.energy_out_wh - b.energy_in_wh for b in ctx.batteries.values())
@@ -108,14 +108,16 @@ def lab_rows(ctx, model, log: LabLog, density_kg_per_l: float,
                 for b in ctx.batteries.values()]
         eff = max(1.0, min(100.0, sum(effs) / len(effs))) / 100.0
         ac = dc / eff
-        add("Consumption at the socket (AC)", ac, "kWh/100km", "Consumption")
+        add("Consumption at the socket (AC)", ac, "kWh/100km", "Consumption",
+            "consumption_ac_kwh_per_100km")
         add("Fuel-economy equivalent (MPGe, AC)",
-            KWH_PER_GALLON / (ac / 100.0 * KM_PER_MILE), "MPGe", "Consumption")
+            KWH_PER_GALLON / (ac / 100.0 * KM_PER_MILE), "MPGe", "Consumption", "mpge_ac")
         usable_wh = sum(b.q_ah * (1.0 - min(1.0, max(0.0, b.min_soc)))
                         * ocv_mean(b.ocv_map.pts, b.ocv_map.linear[0], b.min_soc * 100.0, 100.0)
                         for b in ctx.batteries.values() if b.min_soc < 1.0)
         if usable_wh > 0:
-            add("Range at this consumption", usable_wh / (dc * 10.0), "km", "Consumption")
+            add("Range at this consumption", usable_wh / (dc * 10.0), "km", "Consumption",
+                "range_km")
 
     if fuel_kg > 0 and ctx.batteries and not balanced:
         work_wh = sum(ec.work_wh for ec in ctx.engines.values())
@@ -125,28 +127,31 @@ def lab_rows(ctx, model, log: LabLog, density_kg_per_l: float,
         # the battery's stored energy change (+ when it ends fuller), as
         # charge balancing gives it (ENG-33)
         share = -100.0 * net_wh * 3600.0 / (fuel_kg * lhv)
-        add("Battery energy change, share of fuel energy", share, "%", "Fuel consumption")
+        add("Battery energy change, share of fuel energy", share, "%", "Fuel consumption",
+            "battery_energy_change_pct_of_fuel")
         if work_wh > 0:
             corrected = fuel_kg * (1.0 + net_wh / work_wh)
             add("Fuel consumption, charge-corrected",
-                corrected / density_kg_per_l * 100.0 / km, "l/100km", "Fuel consumption")
+                corrected / density_kg_per_l * 100.0 / km, "l/100km", "Fuel consumption",
+                "fuel_consumption_corrected_l_per_100km")
 
     # per phase, from the totals logged at each phase end
     done = log.marks[1:]
     per_phase: list[tuple[str, float, float, float]] = []  # name, km, kWh, kg
-    for (name, _, _), a, b in zip(log.phases, log.marks, done):
+    for k, ((name, _, _), a, b) in enumerate(zip(log.phases, log.marks, done), start=1):
         d_km = (b.distance_m - a.distance_m) / 1000.0
         per_phase.append((name, d_km, (b.net_wh - a.net_wh) / 1000.0, b.fuel_kg - a.fuel_kg))
         if d_km <= 0:
             continue
-        add(f"Phase {name} — distance", d_km, "km", "Consumption" if electric else "Fuel consumption")
+        add(f"Phase {name} — distance", d_km, "km", "Consumption" if electric else "Fuel consumption",
+            f"phase{k}_distance_km")
         if electric or (net_wh > 0 and fuel_kg <= 0):
             add(f"Phase {name} — consumption", (b.net_wh - a.net_wh) / 10.0 / d_km,
-                "kWh/100km", "Consumption")
+                "kWh/100km", "Consumption", f"phase{k}_consumption_kwh_per_100km")
         if fuel_kg > 0:
             add(f"Phase {name} — fuel consumption",
                 (b.fuel_kg - a.fuel_kg) / density_kg_per_l * 100.0 / d_km,
-                "l/100km", "Fuel consumption")
+                "l/100km", "Fuel consumption", f"phase{k}_fuel_consumption_l_per_100km")
 
     # EPA's FTP weighting of its three bags
     if len(per_phase) == 3 and all(p[0].startswith("Bag ") for p in per_phase):
@@ -156,10 +161,10 @@ def lab_rows(ctx, model, log: LabLog, density_kg_per_l: float,
             if electric:
                 add("FTP weighted consumption",
                     100.0 * (wc * (e1 + e2) / (d1 + d2) + wh * (e3 + e2) / (d3 + d2)),
-                    "kWh/100km", "Consumption")
+                    "kWh/100km", "Consumption", "ftp_consumption_kwh_per_100km")
             if fuel_kg > 0:
                 add("FTP weighted fuel consumption",
                     100.0 / density_kg_per_l
                     * (wc * (f1 + f2) / (d1 + d2) + wh * (f3 + f2) / (d3 + d2)),
-                    "l/100km", "Fuel consumption")
+                    "l/100km", "Fuel consumption", "ftp_fuel_consumption_l_per_100km")
     return rows, base

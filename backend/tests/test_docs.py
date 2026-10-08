@@ -282,8 +282,8 @@ def test_the_readme_api_table_matches_the_routes():
 
 def test_the_readme_names_the_bundled_cycles_and_examples():
     cycles = json.loads((ROOT / "backend" / "app" / "cycles" / "cycles.json").read_text(encoding="utf-8"))
-    assert set(cycles["cycles"]) == {"wltc-3b", "udds", "hwfet"}, "README's cycle list needs updating"
-    for word in ("WLTC class 3b", "UDDS", "HWFET"):
+    assert f"one of {len(cycles['cycles'])} standard drive cycles" in README, "README's cycle count needs updating"
+    for word in ("WLTC", "NEDC", "UDDS", "HWFET", "US06", "WMTC"):
         assert word in README
     files = sorted(f.name for f in (ROOT / "backend" / "projects").glob("*.json"))
     line = next(line for line in README.splitlines() if "example projects (" in line)

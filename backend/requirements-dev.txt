@@ -6,3 +6,4 @@ scipy>=1.14  # reads exported .mat files back (tests/test_results_export.py, tes
 openpyxl>=3.1  # writes Excel files the import tests read; MIT, tests only
 jsonschema>=4.20  # checks files against the published schemas (tests/test_spec.py); MIT, tests only
 mcp>=2.2,<3  # the official MCP client, to test app/ai/mcp_server.py the way AI apps use it
+pandas>=2.2  # the Python API page's r.df example (tests/test_spec.py runs every example); BSD-3-Clause, tests only
