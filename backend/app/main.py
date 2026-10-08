@@ -142,6 +142,7 @@ from .solver import calibrate as lap_calibration
 from .solver import simulate
 from .solver.domains import ModelInitError
 from .solver.lapsim import LapError
+from .solver.maps import OutsideDataError
 from .solver.network import ModelError
 from .sources import RunSources, sources_of
 from .validation import validate_project
@@ -626,8 +627,12 @@ def calibrate_lap(req: CalibrateRequest) -> dict:
         if len(logs) > 1:
             out["check_lap"] = lap_calibration.predict(req.project, logs[1], fit["mu_scale"], fit["cza"])
         return out
-    except (laplog.LapLogError, KeyError, ValueError, LapError, ModelError, ModelInitError) as e:
+    except (laplog.LapLogError, KeyError, ValueError, LapError, ModelError, ModelInitError,
+            OutsideDataError) as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except (TypeError, ArithmeticError) as e:  # a log LightSim has not met yet
+        raise HTTPException(status_code=400, detail=f"The log cannot be used for calibration "
+                                                    f"({e}): check its columns and units.")
 
 
 # ---- studies (PLT-34) -------------------------------------------------------

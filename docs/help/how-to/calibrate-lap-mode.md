@@ -15,7 +15,9 @@ A CSV file of one lap, or of a session with a lap number column, with:
 - optional: the accumulator's power (kW), for the energy check.
 
 Column names such as *Time*, *Lap Distance*, *Ground Speed*, *G Lat* and
-*Pack Power* are found on their own. The files stay on your computer.
+*Pack Power* are found on their own. Rows with a blank cell in one of the
+columns used (loggers often leave the distance blank at first) are left
+out. The files stay on your computer.
 
 ## Calibrate and check
 
