@@ -123,6 +123,19 @@ def check(t: Template, project: Project) -> None:
             raise TemplateError(f"Form field '{f.label}': '{el.label}' has no parameter '{f.key}'.")
 
 
+def _unit(f: FormField) -> str:
+    return f" {f.unit}" if f.unit else ""
+
+
+def _limits(f: FormField) -> str:
+    """A form field's allowed range in words; a limit may be on one side."""
+    if f.minimum is not None and f.maximum is not None:
+        return f"between {f.minimum:g} and {f.maximum:g}{_unit(f)}"
+    if f.minimum is not None:
+        return f"at least {f.minimum:g}{_unit(f)}"
+    return f"at most {f.maximum:g}{_unit(f)}"
+
+
 def instantiate(template_id: str, values: dict[str, ParamValue], name: str | None = None) -> Project:
     """A new project from a template: its model with the form's values
     (by field index as text, or 'elementId.key'), recording the template."""
@@ -134,8 +147,8 @@ def instantiate(template_id: str, values: dict[str, ParamValue], name: str | Non
         value = values.get(str(i), values.get(f"{f.elementId}.{f.key}", f.default))
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if f.minimum is not None and value < f.minimum or f.maximum is not None and value > f.maximum:
-                raise TemplateError(f"{f.label}: {value:g} {f.unit} is outside "
-                                    f"{f.minimum:g} to {f.maximum:g} {f.unit}.")
+                raise TemplateError(f"{f.label}: {value:g}{_unit(f)} is not allowed; the value "
+                                    f"must be {_limits(f)}.")
         els[f.elementId].parameterOverrides[f.key] = value
     project.id = f"{t.id}-{uuid.uuid4().hex[:8]}"
     project.name = name or f"{t.name} (new)"
