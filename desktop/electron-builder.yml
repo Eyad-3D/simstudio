@@ -32,6 +32,12 @@ extraResources:
     to: sbom.cdx.json
   - from: ../docs/KNOWN-LIMITS.md
     to: KNOWN-LIMITS.md
+  # lightsim_run.m, to run cases from MATLAB or Octave (STD-09): installed
+  # at resources/matlab/, next to the engine it finds by its own place
+  # (docs/help/how-to/use-results-in-matlab-and-python.md)
+  - from: ../matlab
+    to: matlab
+    filter: ["*.m"]
 
 # Double-clicking a .lightsim file opens it in LightSim (PLT-33). The .deb
 # registers the MIME type and the .desktop entry; Windows' installer adds
