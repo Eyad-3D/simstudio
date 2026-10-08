@@ -381,6 +381,7 @@ pub fn causalize(
         whens,
         structure_key: String::new(),
         stats,
+        jac_pattern: Default::default(),
     };
     model.structure_key = crate::key::structure_key(&model);
     Ok(model)

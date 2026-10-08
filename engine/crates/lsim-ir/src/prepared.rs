@@ -17,6 +17,7 @@
 
 use crate::expr::Expr;
 use crate::flat::{FlatSystem, Origin, VarId};
+use crate::runtime::SparsityPattern;
 use serde::{Deserialize, Serialize};
 
 /// An unknown of the sorted system: a variable or a state's derivative.
@@ -182,4 +183,8 @@ pub struct PreparedModel {
     pub structure_key: String,
     /// counts for the report
     pub stats: PrepStats,
+    /// the structural sparsity of `∂[x'; g]/∂y` through the assignments
+    /// (rows and columns in `y = [x; z]` order), for colouring and sparse LU
+    #[serde(default)]
+    pub jac_pattern: SparsityPattern,
 }
