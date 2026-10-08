@@ -23,12 +23,15 @@ expect, so LightSim shows it to you and asks before it runs.
   code: change one character, or open a project where someone changed it,
   and it asks again.
 - The scripts in the projects you had saved before your first start of
-  LightSim 0.3.0: those you wrote yourself.
+  LightSim 0.3.0: those you wrote yourself. This is done once, and only
+  for your own projects folder, not one your organisation put on a shared
+  drive.
 
-Approvals are kept in the hidden file `.script-trust.json` in your
-projects folder (**File → Open Projects Folder** in the desktop app).
-Delete it to be asked again about every script; LightSim then counts the
-projects in the folder as yours again.
+Approvals are kept in the hidden file `.script-trust.json` in your own
+LightSim folder, not in the projects folder: `%APPDATA%\LightSim` on
+Windows, `~/Library/Application Support/LightSim` on macOS and
+`~/.config/LightSim` on Linux. Delete it to be asked again about every
+script, including those in the projects you had saved before 0.3.0.
 
 ## Good to know
 

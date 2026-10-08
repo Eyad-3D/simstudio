@@ -34,6 +34,32 @@ def projects_dir() -> Path:
     return Path(override).expanduser() if override else DEV_PROJECTS_DIR
 
 
+def data_dir() -> Path:
+    """This user's own LightSim folder, for what must stay with the user and
+    never sit in a projects folder others may share or write to: which
+    scripts they approved, and markers of one-time steps.
+
+    The desktop shell sets ``LIGHTSIM_DATA_DIR`` to its per-user app-data
+    folder (Electron's userData, which also holds the default projects
+    folder). A packaged engine started without the shell (by an AI app)
+    works out the same folder. In development and tests it is the projects
+    folder.
+    """
+    override = os.environ.get("LIGHTSIM_DATA_DIR")
+    if override:
+        return Path(override).expanduser()
+    if getattr(sys, "frozen", False):
+        home = Path.home()
+        if sys.platform == "win32":
+            base = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
+        elif sys.platform == "darwin":
+            base = home / "Library" / "Application Support"
+        else:
+            base = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config")
+        return base / "LightSim"
+    return projects_dir()
+
+
 def static_dir() -> Path | None:
     """Built frontend to serve, or ``None`` when running API-only.
 

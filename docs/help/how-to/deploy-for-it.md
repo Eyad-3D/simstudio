@@ -88,7 +88,9 @@ runs, settings and logs are in their own folder:
 | Linux | `~/.config/LightSim` |
 
 `main.log` there records the app's events, including the policy file it
-read and any keys it ignored.
+read and any keys it ignored. Which scripts and FMUs each user allowed to
+run is kept there too, never in the projects folder, even when the policy
+puts projects on a shared drive.
 
 ## What LightSim does on the network
 

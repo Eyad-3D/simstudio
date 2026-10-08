@@ -18,8 +18,8 @@ outside the folder gets in only when the user picks it in the app, which
 uploads its bytes (``store_bytes``).
 
 Trust. An FMU is native code from a third party, so it runs only once the
-user has allowed it on this computer. The allowed list is a JSON file next to
-the stored FMUs, keyed by SHA-256: the app asks when a file is imported,
+user has allowed it on this computer. The allowed list is a JSON file in the
+user's own LightSim folder (``app.paths.data_dir``), keyed by SHA-256: the app asks when a file is imported,
 and an FMU that arrives in someone else's project is refused by Data Checks
 until the user allows it. Editing the file inside the
 FMU changes its hash, so a changed FMU has to be allowed again.
@@ -46,6 +46,7 @@ import zipfile
 import zlib
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+from ..paths import data_dir
 from ..storage import user_dir
 from . import FmuFileError  # noqa: F401 — re-exported
 
@@ -65,7 +66,9 @@ def fmu_dir() -> Path:
 
 
 def _trust_file() -> Path:
-    return fmu_dir() / "allowed.json"
+    # with the user's other approvals, never in a projects folder that a
+    # policy may put on a shared drive (app.paths.data_dir)
+    return data_dir() / "fmu-allowed.json"
 
 
 def sha256_of(path: Path) -> str:
@@ -155,11 +158,11 @@ def allow(sha: str, name: str) -> None:
     with _lock:
         allowed = _read_allowed()
         allowed[sha] = {"name": str(name)[:200]}
-        folder = fmu_dir()
-        folder.mkdir(parents=True, exist_ok=True)
-        tmp = folder / ".allowed.json.part"
+        target = _trust_file()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(f".{target.name}.part")
         tmp.write_text(json.dumps(allowed, indent=1, sort_keys=True), "utf-8")
-        os.replace(tmp, _trust_file())
+        os.replace(tmp, target)
 
 
 # ---- unpacking -----------------------------------------------------------------

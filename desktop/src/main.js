@@ -193,6 +193,9 @@ function startBackend(port) {
     env: {
       ...process.env,
       LIGHTSIM_PROJECTS_DIR: projects,
+      // this user's own folder: script approvals and other answers that must
+      // never sit in a projects folder others can write (backend/app/paths.py)
+      LIGHTSIM_DATA_DIR: app.getPath("userData"),
       LIGHTSIM_STATIC_DIR: staticDir,
       LIGHTSIM_TOKEN: launchToken,
       LIGHTSIM_SHELL_TOKEN: shellToken,

@@ -9,12 +9,19 @@ every run checks each Script block's code against the code this user trusts:
 * code the user approved in the app's prompt ("Run scripts");
 * code the user typed or pasted into a Script block in the app (the UI
   approves it as it is entered);
-* on the first start of a version with this check, the code in the projects
-  already in the projects folder, which this user saved before.
+* once per installation, on the first start of a version with this check,
+  the code in the projects already in this user's own projects folder,
+  which they saved before. Never again after that, and never from a
+  projects folder outside the user's own LightSim folder (a policy's
+  ``projectsRoots`` on a shared drive): other people's files are there.
 
 Approval is remembered per exact code: a SHA-256 hash of its text, kept in
-``.script-trust.json`` in the projects folder. Changing one character asks
-again. With the policy file's ``scriptTrust: "always-prompt"`` (PLT-36),
+``.script-trust.json`` in the user's own LightSim folder
+(:func:`app.paths.data_dir`), not in the projects folder, which may be
+shared. Changing one character asks again; deleting the file forgets every
+approval (the projects are not scanned again: a marker file,
+``.script-trust-migrated``, records that the first-start step was done).
+With the policy file's ``scriptTrust: "always-prompt"`` (PLT-36),
 approvals last only until LightSim closes.
 
 The check runs where the solver starts the Script worker (solver/domains.py),
@@ -30,12 +37,13 @@ import os
 import threading
 from pathlib import Path
 
-from .paths import EXAMPLES_DIR, projects_dir
+from .paths import EXAMPLES_DIR, data_dir, projects_dir
 
 log = logging.getLogger(__name__)
 
 SCRIPT_COMPONENT = "signal.script"
 _FILE = ".script-trust.json"
+_MIGRATED = ".script-trust-migrated"
 _lock = threading.Lock()
 _session: set[str] = set()  # approvals that last until the engine stops
 _builtin: set[str] | None = None
@@ -133,14 +141,12 @@ def _builtin_hashes() -> set[str]:
 
 
 def _store() -> Path:
-    return projects_dir() / _FILE
+    return data_dir() / _FILE
 
 
-def _read() -> set[str] | None:
+def _read() -> set[str]:
     try:
         raw = json.loads(_store().read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return None
     except (OSError, ValueError):
         return set()
     return {h for h in raw.get("approved", []) if isinstance(h, str)} if isinstance(raw, dict) else set()
@@ -154,23 +160,41 @@ def _write(hashes: set[str]) -> None:
     os.replace(tmp, path)
 
 
+def _own_projects_folder() -> bool:
+    """Whether the projects folder is inside this user's own LightSim
+    folder (the default), not one a policy put elsewhere, such as a shared
+    lab drive."""
+    try:
+        own = data_dir().resolve()
+        folder = projects_dir().resolve()
+    except OSError:
+        return False
+    return folder == own or own in folder.parents
+
+
 def _saved() -> set[str]:
-    """Approvals on disk. The first time, the scripts of the projects this
-    user already saved in the projects folder count as approved."""
+    """Approvals on disk. Once per installation (no marker yet), the scripts
+    of the projects this user already saved in their own projects folder
+    count as approved; a missing approvals file afterwards means nothing is
+    approved, never "scan the projects again"."""
     hashes = _read()
-    if hashes is not None:
+    marker = data_dir() / _MIGRATED
+    if marker.exists():
         return hashes
-    hashes = set()
     folder = projects_dir()
-    for f in sorted(folder.glob("*.json")) if folder.is_dir() else []:
-        try:
-            raw = json.loads(f.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if isinstance(raw, dict):
-            hashes |= {code_hash(s["code"]) for s in project_scripts(raw)}
+    if _own_projects_folder() and folder.is_dir():
+        for f in sorted(folder.glob("*.json")):
+            try:
+                raw = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(raw, dict):
+                hashes |= {code_hash(s["code"]) for s in project_scripts(raw)}
     try:
         _write(hashes)
+        marker.write_text("The scripts of the projects saved before this LightSim version "
+                          "checked scripts were approved once. Delete .script-trust.json "
+                          "to forget every approval.\n", encoding="utf-8")
     except OSError as e:
         log.warning("script trust: could not write %s (%s)", _store(), e)
     return hashes
