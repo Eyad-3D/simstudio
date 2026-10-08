@@ -325,6 +325,14 @@ NEEDS_ATTRIBUTION = {
     "Apache-2.0", "MIT", "BSD-3-Clause", "LicenseRef-EU-Reuse",
 }
 CLASSES = {"BUNDLE", "USER-IMPORT", "LEARN"}
+# The shipped rows whose licence was not recorded before the gate (BIZ-34)
+# existed. Only these may ship with LicenseRef-Unknown, and only while
+# pending; a new row needs its real licence terms. This list may only
+# shrink: remove an id once the owner's sign-off records its real terms.
+GRANDFATHERED_UNKNOWN = frozenset({
+    "DR-01", "DR-02", "DR-03", "DR-04", "DR-05", "DR-06", "DR-07", "DR-08", "DR-09", "DR-10",
+    "DR-11", "DR-12", "DR-14", "DR-15", "DR-16", "DR-17", "DR-18", "DR-19", "DR-33",
+})
 
 
 def allowed_data_terms() -> set[str]:
@@ -370,9 +378,11 @@ def _same_as(licence: str) -> list[str]:
     return [f"DR-{n:02d}" for n in ids]
 
 
-def licence_problems(row: dict[str, str], terms: dict[str, list[str]], allowed: set[str]) -> list[str]:
+def licence_problems(row: dict[str, str], terms: dict[str, list[str]], allowed: set[str],
+                     grandfathered: frozenset[str] = GRANDFATHERED_UNKNOWN) -> list[str]:
     """Why a shipped row may not ship under its licence terms (empty: it may).
-    An unknown licence passes only while the owner's sign-off is pending: it
+    An unknown licence passes only for a row recorded before the gate
+    (``grandfathered``) and only while the owner's sign-off is pending: it
     is the state the register records today, not a licence."""
     rid, problems = row["id"], []
     own = terms.get(rid, [])
@@ -380,7 +390,11 @@ def licence_problems(row: dict[str, str], terms: dict[str, list[str]], allowed: 
         if REFUSED_TERM.search(term):
             problems.append(f"{rid}: {term} must never ship (scripts/licenses/data-allowed.txt)")
         elif term == UNKNOWN:
-            if row["cleared"] != "pending":
+            if rid not in grandfathered:
+                problems.append(f"{rid}: a new dataset cannot ship with an unknown licence; record "
+                                f"its real licence terms (only the rows recorded before the gate, "
+                                f"GRANDFATHERED_UNKNOWN, may wait for the owner's sign-off)")
+            elif row["cleared"] != "pending":
                 problems.append(f"{rid}: cleared = {row['cleared']}, but its licence is still unknown")
         elif term not in allowed:
             problems.append(f"{rid}: {term} is not in scripts/licenses/data-allowed.txt "
@@ -414,7 +428,8 @@ def test_shipped_data_is_under_an_allowed_licence(rows):
     ("EUPL-1.2", ["EUPL-1.2"], "pending", "must never ship"),
     ("No licence stated", ["LicenseRef-NoLicence"], "pending", "must never ship"),
     ("ODC-By 1.0", ["ODC-By-1.0"], "pending", "not in scripts/licenses/data-allowed.txt"),
-    ("Unknown (not recorded)", [UNKNOWN], "yes", "still unknown"),
+    ("Unknown (not recorded)", [UNKNOWN], "yes", "cannot ship with an unknown licence"),
+    ("Unknown (not recorded)", [UNKNOWN], "pending", "cannot ship with an unknown licence"),
     ("Unknown (not recorded)", ["LicenseRef-LightSim"], "pending", "disagree"),
     ("Apache-2.0, as is its share-alike sibling", ["Apache-2.0"], "pending", "licence column names"),
     ("Same as DR-90", ["LicenseRef-LightSim"], "pending", "lacks their terms"),
@@ -425,6 +440,20 @@ def test_the_gate_refuses_unsuitable_licences(licence, row_terms, cleared, expec
     terms = {"DR-99": row_terms, "DR-90": ["Apache-2.0"]}
     problems = licence_problems(row, terms, allowed_data_terms())
     assert any(expect in p for p in problems), problems
+
+
+def test_only_the_grandfathered_rows_wait_for_a_licence():
+    """A grandfathered row with an unknown licence passes while pending and
+    fails once cleared; the list names only rows that still have an unknown
+    licence, so it shrinks as the owner signs them off."""
+    row = {"id": "DR-03", "licence": "Unknown (not recorded)", "cleared": "pending"}
+    assert licence_problems(row, {"DR-03": [UNKNOWN]}, allowed_data_terms()) == []
+    row["cleared"] = "yes"
+    assert any("still unknown" in p
+               for p in licence_problems(row, {"DR-03": [UNKNOWN]}, allowed_data_terms()))
+    terms = data_licences()
+    stale = sorted(rid for rid in GRANDFATHERED_UNKNOWN if UNKNOWN not in terms.get(rid, []))
+    assert not stale, f"remove from GRANDFATHERED_UNKNOWN (their licence is now known): {stale}"
 
 
 def test_the_gate_passes_suitable_licences():

@@ -6,9 +6,10 @@
     "LicenseRef- names defined in data-allowed.txt. A row whose parts come from",
     "several places lists every term. backend/tests/test_data_register.py fails",
     "when a shipped row has no entry here, or a term that data-allowed.txt does not",
-    "list. 'LicenseRef-Unknown' (provenance not recorded) passes only while the",
-    "row is cleared = pending, and is listed as a warning; the owner's sign-off",
-    "replaces it with the real term."
+    "list. 'LicenseRef-Unknown' (provenance not recorded) passes only for the rows",
+    "recorded before the gate (GRANDFATHERED_UNKNOWN in the test) while they are",
+    "cleared = pending, and is listed as a warning; the owner's sign-off replaces",
+    "it with the real term. A new row needs its real terms."
   ],
   "rows": {
     "DR-01": ["Apache-2.0", "LicenseRef-Unknown"],
