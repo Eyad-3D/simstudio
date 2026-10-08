@@ -48,12 +48,16 @@ could push harder, but the tyres would only spin) and the power limit
 accumulator was *held at the output power limit* for 3.61 s.
 *Messages* says the accumulator was held at 80 kW from t = 0.37 s.
 
-So the tyres set the pace only at the launch: in the first 0.37 s the
-rear tyres spin (the slip line jumps), because the model has no traction
-control. After that the 80 kW limit sets the pace to the line: the
-*Discharge Power* line stays flat at 80 kW, while the rear tyres keep
-slipping at their grip limit for about half the run (LightSim's tyres lose
-no grip when they slip, so that costs no time).
+So the tyres set the pace for about half the run: from the launch until
+about 1.9 s the rear tyres spin at their grip limit (the slip line jumps
+at the launch and falls back only slowly), because the model has no
+traction control. The accumulator reaches 80 kW already at 0.37 s, but
+until the tyres grip again part of that power only spins the wheels
+faster: more power would not make the car quicker there, only more grip
+would (or, on a real car whose tyres lose grip as they spin, traction
+control; LightSim's tyres lose none). From about 1.9 s to the line the
+80 kW limit sets the pace: the *Discharge Power* line stays flat at 80 kW
+and the slip stays small.
 
 ## 4. See what the power limit costs
 

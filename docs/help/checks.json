@@ -560,6 +560,12 @@
   },
   {
    "page": "examples/fs-electric.md",
+   "text": "**From about 1.9 s.** The rear tyres grip again",
+   "expr": "0.01 * v('fs-accel', \"Time at the tyres' grip limit\") * v('fs-accel', 'Simulated duration')",
+   "format": "**From about {:.1f} s.** The rear tyres grip again"
+  },
+  {
+   "page": "examples/fs-electric.md",
    "text": "**3.75 s.** The car crosses the 75 m line at 119 km/h",
    "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel', 'Speed at 75 m'))",
    "format": "**{0[0]:.2f} s.** The car crosses the 75 m line at {0[1]:.0f} km/h"
@@ -628,6 +634,18 @@
    "page": "lessons/fs-1-acceleration.md",
    "text": "held at 80 kW from t = 0.37 s",
    "expr": "message('fs-accel', 'held at its Output Power Limit (80 kW at the terminals) from t = 0.37 s')"
+  },
+  {
+   "page": "lessons/fs-1-acceleration.md",
+   "text": "from the launch until about 1.9 s the rear tyres spin at their grip limit",
+   "expr": "0.01 * v('fs-accel', \"Time at the tyres' grip limit\") * v('fs-accel', 'Simulated duration')",
+   "format": "until about {:.1f} s the rear tyres spin"
+  },
+  {
+   "page": "lessons/fs-1-acceleration.md",
+   "text": "From about 1.9 s to the line the 80 kW limit sets the pace",
+   "expr": "0.01 * v('fs-accel', \"Time at the tyres' grip limit\") * v('fs-accel', 'Simulated duration')",
+   "format": "From about {:.1f} s to the line"
   },
   {
    "page": "lessons/fs-1-acceleration.md",
