@@ -153,6 +153,13 @@ Which figures a run has depends on the model and the case: a figure
 appears only when it applies (a fuel figure needs an engine, the lap
 figures a lap case, the "outside" figures a run that left a table's data).
 
+Figures the tables below do not list (newer rows, such as a battery
+built from cells, a Climate Control or a Formula Student event) take their
+key by the same rule: a part's figure is `<id>.` and the figure's words in
+lower case joined by `_`, then its unit (`<id>.energy_used_kwh`); a run's
+figure the same without the part (`rule_check_current_ev_2_2_2_a` for
+*Rule check: current (EV 2.2.2)*).
+
 ### The run's figures
 
 | Key | Label in the app | Unit |
@@ -180,6 +187,21 @@ figures a lap case, the "outside" figures a run that left a table's data).
 | `rms_battery_power_kw` | RMS battery power | kW |
 | `time_limited_by_cornering_grip_s`, `time_limited_by_traction_grip_s`, `time_limited_by_motor_s`, `time_limited_by_battery_s`, `time_limited_by_power_cap_s`, `time_limited_by_braking_s` | Time limited by … | s |
 | `lap_energy_balance_error_pct` | Lap energy balance error | % |
+| `sector3_time_s` … | Sector 3 time … (more sectors, more keys) | s |
+| `consumption_ac_kwh_per_100km` | Consumption at the socket (AC) | kWh/100km |
+| `mpge_ac` | Fuel-economy equivalent (MPGe, AC) | MPGe |
+| `range_km` | Range at this consumption | km |
+| `phase1_distance_km`, `phase2_distance_km`, `phase3_distance_km`, `phase4_distance_km` … | Phase *name* — distance (a cycle's phases in order: the WLTC's Low to Extra High, the FTP's bags) | km |
+| `phase1_consumption_kwh_per_100km`, `phase2_consumption_kwh_per_100km`, `phase3_consumption_kwh_per_100km`, `phase4_consumption_kwh_per_100km` … | Phase *name* — consumption | kWh/100km |
+| `phase1_fuel_consumption_l_per_100km`, `phase2_fuel_consumption_l_per_100km` … | Phase *name* — fuel consumption | l/100km |
+| `ftp_consumption_kwh_per_100km`, `ftp_fuel_consumption_l_per_100km` | FTP weighted consumption, fuel consumption | kWh/100km, l/100km |
+| `battery_energy_change_pct_of_fuel` | Battery energy change, share of fuel energy | % |
+| `fuel_consumption_corrected_l_per_100km` | Fuel consumption, charge-corrected | l/100km |
+| `charge_balance_runs` | Charge balance runs | - |
+| `time_limited_by_lift_and_coast_s` | Time limited by lift-and-coast | s |
+| `lift_and_coast_share_pct` | Lift-and-coast, mean share | % |
+| `energy_target_kwh`, `energy_against_target_pct` | Energy target, Energy used against the target | kWh, % |
+| `energy_balance_residual_pct` | Energy balance residual | % |
 
 ### A part's figures
 
@@ -202,6 +224,7 @@ figures a lap case, the "outside" figures a run that left a table's data).
 | `<id>.regen_not_recovered_kwh` | *E-Motor* — regeneration not recovered | kWh |
 | `<id>.fuel_used_kg` | *Engine* — fuel used | kg |
 | `<id>.energy_supplied_kwh` | *Fuel cell* or *voltage source* — energy supplied | kWh |
+| `<id>.balanced_start_soc_pct` | *Battery* — charge-balanced start SOC | % |
 | `<id>.time_above_max_speed_pct` | *Motor or engine* — time above maximum speed | % |
 | `<id>.highest_speed_rpm` | *Motor or engine* — highest speed | 1/min |
 | `<id>.outside_<table>_<axis>_time_pct` | *Part* — time outside its '*Table*' table (*axis*); `<table>` is the parameter key, `<axis>` the axis name in lower case with `_` for spaces and signs | % |

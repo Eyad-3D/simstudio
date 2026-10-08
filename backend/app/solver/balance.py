@@ -11,8 +11,9 @@ found. If it does not settle, the fuel figure is also given corrected to no
 change of charge, by a straight line through the runs' fuel against their
 battery energy change (SAE J1711's correction, from the runs it has).
 
-It is on by default (SimCase.chargeBalance None) for a cycle case whose
-model has an engine and a battery, and off for a paced (live tuning) run.
+It is on by default (SimCase.chargeBalance None) for a cycle case of a
+hybrid (an engine, a battery and an E-Motor), and off for a paced (live
+tuning) run.
 """
 from __future__ import annotations
 

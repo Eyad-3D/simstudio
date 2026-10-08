@@ -12,7 +12,7 @@ from app import reference_results
 from app.main import app
 from app.storage import load_example
 
-EXAMPLES = ("bev-car", "fs-electric", "hybrid-car")
+EXAMPLES = ("aero-bev", "bev-car", "fs-electric", "hybrid-car")
 CHANGES = reference_results.DIR.parents[1] / "tests" / "golden" / "CHANGES.md"
 client = TestClient(app)
 

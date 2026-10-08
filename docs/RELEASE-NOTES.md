@@ -735,7 +735,7 @@ sections.
   and P2 Hybrid Cars keep the 10 ms step; the FS Electric example (*Slip
   Stiffness* 20) runs at 5 ms. (ENG-14)
 - Charge-balanced hybrid runs: a case of kind *Cycle* whose model has an
-  engine and a battery runs the cycle again from the charge the battery
+  engine, a battery and an E-Motor runs the cycle again from the charge the battery
   ended with, until its stored energy changes by less than 1 % of the
   fuel's energy (at most 5 runs), so its fuel figure holds no energy the
   battery gave or took, and the start charge no longer needs setting by

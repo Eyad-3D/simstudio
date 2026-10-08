@@ -3,6 +3,36 @@
   "schemaVersion": 1,
   "name": "Efficient Electric Sedan",
   "description": "Efficient electric sedan sized after the 2022 Tesla Model 3 RWD, to answer one question: what does low drag buy you? Test mass 1,928 kg and road load (EPA's coefficients A/B/C, which hold the axle's drag) from EPA's 2022 Test Car List, 192 kW rated power (EPA), a 9.0 reduction gear (from EPA's N/V), 54 kWh battery (FASTSim's file, no source given). Same layout as the Battery Electric Car, with its motor maps scaled to 192 kW, so the difference between the two is mostly the road load: compare their WLTC runs.\nWhat to expect (lab values, before EPA's label adjustment):\n• EPA city (UDDS): 11.1 kWh/100 km at the socket, 190 MPGe (EPA's test of this car: 185.3 MPGe)\n• EPA highway (HWFET): 12.9 kWh/100 km at the socket, 163 MPGe (EPA: 170.1 MPGe)\n• WLTC Class 3b: 11.8 kWh/100 km at the battery, against the Battery Electric Car's 14.1",
+  "card": {
+    "question": "What does low drag buy an electric car? How much less energy does an efficient sedan use than a compact car on the same cycles?",
+    "tags": [
+      "battery electric",
+      "energy use",
+      "road load",
+      "EPA cycles"
+    ],
+    "difficulty": "beginner",
+    "runTimeS": 15,
+    "learn": [
+      "Give the road load as EPA's coefficients A, B and C",
+      "Read consumption at the socket and MPGe as EPA reports them",
+      "Compare two cars run against run on the WLTC"
+    ],
+    "status": "plausibility-checked",
+    "features": [
+      "Road load as EPA coefficients A/B/C",
+      "Lab-style figures: at the socket, MPGe, range",
+      "Standard drive cycles: UDDS, HWFET, WLTC"
+    ],
+    "author": "LightSim",
+    "version": "0.3.0",
+    "licence": "LightSim's own (LICENSE); EPA test values (US Government work) and FASTSim values (Apache-2.0), see the data register DR-97",
+    "narrative": [
+      "EPA city (UDDS): many starts and stops; braking with the motor gives much of the energy back.",
+      "EPA highway (HWFET): steady 50 to 96 km/h, where air drag takes most of the energy.",
+      "WLTC Class 3b: the same cycle as the Battery Electric Car's, to compare the two."
+    ]
+  },
   "systems": [
     {
       "id": "sys-root",
@@ -952,7 +982,16 @@
         "el-task": {
           "cycle": "udds"
         }
-      }
+      },
+      "references": [
+        {
+          "kpi": "Fuel-economy equivalent (MPGe, AC)",
+          "value": 185.3,
+          "tolerance": 5,
+          "tolerancePct": true,
+          "source": "EPA's test of the 2022 Tesla Model 3 RWD, unadjusted city (UDDS) result, 2022 Test Car List (US Government work)"
+        }
+      ]
     },
     {
       "id": "case-hwfet",
@@ -964,7 +1003,16 @@
         "el-task": {
           "cycle": "hwfet"
         }
-      }
+      },
+      "references": [
+        {
+          "kpi": "Fuel-economy equivalent (MPGe, AC)",
+          "value": 170.1,
+          "tolerance": 5,
+          "tolerancePct": true,
+          "source": "EPA's test of the 2022 Tesla Model 3 RWD, unadjusted highway (HWFET) result, 2022 Test Car List (US Government work)"
+        }
+      ]
     },
     {
       "id": "case-wltc",
@@ -976,7 +1024,16 @@
         "el-task": {
           "cycle": "wltc-3b"
         }
-      }
+      },
+      "references": [
+        {
+          "kpi": "Consumption",
+          "value": 11.78,
+          "tolerance": 3,
+          "tolerancePct": true,
+          "source": "LightSim 0.3.0's own result: a regression check only, as no WLTC test of this car at the battery was found"
+        }
+      ]
     }
   ]
 }

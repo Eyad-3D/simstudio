@@ -254,8 +254,9 @@ class SimCase(BaseModel):
     endLaps: Optional[float] = None
     # run the cycle again from the charge it ended with until the battery's
     # stored energy changes by less than 1 % of the fuel's energy (at most 5
-    # runs; solver/balance.py, ENG-33). None = on for a cycle case whose model
-    # has an engine and a battery (and is not paced), False = off, True = on
+    # runs; solver/balance.py, ENG-33). None = on for a cycle case of a hybrid
+    # (an engine, a battery and an E-Motor) that is not paced, False = off,
+    # True = on
     chargeBalance: Optional[bool] = None
     # distance driven before the timer starts, m (FS Rules 2026 v1.1 (FSG) D 5.2.3
     # stages the car 0.30 m behind the start line)
