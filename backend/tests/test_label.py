@@ -128,3 +128,26 @@ def test_an_own_case_runs_only_when_it_drives_the_cycle_as_published():
     assert label.label_cases(project, None, notes)["udds"].id == "label-udds"
     assert "for 600 s only" in notes[0]
 
+
+def test_a_live_case_is_run_without_pacing(monkeypatch):
+    """A live UDDS case (realtimeFactor > 0) would hold the request for the
+    cycle's length: the label runs it unpaced."""
+    import app.solver
+    from app.schemas import SimResult, SummaryValue
+
+    project = load_example("hybrid-car")
+    for c in project.cases:
+        c.realtimeFactor = 1.0
+    paced = []
+
+    def fake(trial, case_id):
+        paced.append(next(c for c in trial.cases if c.id == case_id).realtimeFactor)
+        return SimResult(caseId=case_id, status="success", messages=[], channels=[], summary=[
+            SummaryValue(label="Distance driven", value=10.0, unit="km"),
+            SummaryValue(label="Fuel consumption", value=4.0, unit="l/100km")])
+
+    monkeypatch.setattr(app.solver, "simulate", fake)
+    out = label.estimate(project)
+    assert paced == [0, 0] and out["cases"] == {"udds": "EPA city (UDDS)",
+                                                "hwfet": "EPA highway (HWFET)"}
+    assert all(c.realtimeFactor == 1.0 for c in project.cases)  # the project is not changed

@@ -143,9 +143,10 @@ def label_cases(project: Project, base_case_id: str | None = None,
     """The case to run for each cycle: one of the project's own that drives
     it as published (the hybrid example has one for each, each with its
     balanced start charge), or else a copy of the base case (the first
-    Cycle case) set to the cycle as published and its length. ``notes``
-    gets a line for each own case passed over because it changes the cycle
-    (scaled, repeated, cut short)."""
+    Cycle case) set to the cycle as published and its length. A live case
+    runs as a copy that is not paced. ``notes`` gets a line for each own
+    case passed over because it changes the cycle (scaled, repeated, cut
+    short)."""
     cases = [c for c in project.cases if c.kind == "cycle"]
     base = next((c for c in cases if c.id == base_case_id), cases[0] if cases else None)
     tasks = [e for s in project.systems for e in s.elements
@@ -174,6 +175,9 @@ def label_cases(project: Project, base_case_id: str | None = None,
             own.endDistance = None
             own.endLaps = None
             own.realtimeFactor = 0
+        elif own.realtimeFactor:  # a live case: the same run, not paced to the clock
+            own = own.model_copy(deep=True)
+            own.realtimeFactor = 0
         out[cycle_id] = own
     return out
 
@@ -194,8 +198,7 @@ def estimate(project: Project, base_case_id: str | None = None, model_year: int 
     runs: dict[str, dict[str, float]] = {}
     for cycle_id, case in chosen.items():
         trial = project.model_copy(deep=True)
-        if not any(c.id == case.id for c in trial.cases):
-            trial.cases.append(case)
+        trial.cases = [c for c in trial.cases if c.id != case.id] + [case]
         result = simulate(trial, case.id)
         rows = {s.label: s for s in result.summary}
         for label in ("Consumption", "Fuel consumption", "Fuel consumption, charge-corrected"):

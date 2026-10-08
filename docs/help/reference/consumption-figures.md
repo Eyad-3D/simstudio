@@ -50,7 +50,8 @@ cycle (HWFET). Click **Run UDDS and HWFET**. A case that already drives
 one of them is run as it is (the hybrid example has both, each starting
 at its balanced charge); otherwise the active case is copied onto the
 cycle. A case that changes the cycle (scaled, repeated, cut short) is
-not used. The dialog lists every step:
+not used, and a live case runs without waiting for the clock. The dialog
+lists every step:
 
 1. The lab figures of the two runs, per mile: the energy at the battery
    for an electric car, the miles per US gallon for a car with an engine

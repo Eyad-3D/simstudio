@@ -387,7 +387,8 @@ sections.
   real car's label: 58, 60 and 59). A model with a fuel cell or a voltage
   source gets no label: their energy is in neither figure. A case of the
   project's own that scales, repeats or cuts short UDDS or HWFET is passed
-  over with a note. (CON-32)
+  over with a note, and a live case runs without waiting for the clock.
+  (CON-32)
 - Weather presets on the Ambient: *Cold day (−7 °C)* (EPA's cold FTP and
   the EU's low-temperature test), *Standard day (23 °C)* (WLTP),
   *Hot and sunny day (35 °C)* (EPA's air-conditioning test SC03) and *High
