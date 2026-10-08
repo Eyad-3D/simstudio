@@ -105,6 +105,9 @@ def test_four_events_score_on_the_fs_example_in_time():
         assert 0 < pts.value <= p_max and pts.limit == p_max
         assert rows["Rule check: voltage (EV 4.1.1)"].passed
         assert rows["Rule check: current (EV 2.2.2)"].passed
+        # the power's 500 ms average is kept in lap mode too
+        power = rows["Rule check: power, 500 ms average (EV 2.2.1)"]
+        assert 0 < power.value <= 80 * (1 + 1e-6) and power.passed
     assert 0 < end["Efficiency points (estimate)"].value <= 75
     # the endurance energy counts regeneration at 90 % (D 7.9.5)
     out = end["Accumulator — energy delivered"].value
