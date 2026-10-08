@@ -122,20 +122,26 @@ jobs:
         run: python scripts/third-party-notices.py
 
       # Which platforms this run can sign. Secrets cannot be tested in an
-      # `if:`, so this step reads them and says yes or no.
+      # `if:`, so this step reads them and says yes or no. For Windows it
+      # asks the signing hook itself (route() in desktop/build/sign-windows.cjs),
+      # so the two never disagree: every Azure setting, secrets included, or
+      # the signing command.
       - name: Signing available?
         id: signing
         shell: bash
         env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          LIGHTSIM_AZURE_ENDPOINT: ${{ vars.LIGHTSIM_AZURE_ENDPOINT }}
+          LIGHTSIM_AZURE_ACCOUNT: ${{ vars.LIGHTSIM_AZURE_ACCOUNT }}
           LIGHTSIM_AZURE_PROFILE: ${{ vars.LIGHTSIM_AZURE_PROFILE }}
           LIGHTSIM_SIGN_COMMAND: ${{ secrets.LIGHTSIM_SIGN_COMMAND }}
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
         run: |
           win=false; mac=false
-          if [ -n "$AZURE_CLIENT_ID" ] && [ -n "$LIGHTSIM_AZURE_PROFILE" ]; then win=true; fi
-          if [ -n "$LIGHTSIM_SIGN_COMMAND" ]; then win=true; fi
+          if [ "$(node desktop/build/sign-windows.cjs --route)" != none ]; then win=true; fi
           if [ -n "$MAC_CSC_LINK" ] && [ -n "$APPLE_API_KEY" ]; then mac=true; fi
           echo "windows=$win" >> "$GITHUB_OUTPUT"
           echo "mac=$mac" >> "$GITHUB_OUTPUT"
@@ -460,7 +466,10 @@ jobs:
           ROLLOUT: ${{ inputs.rollout || '10' }}
         run: |
           case "$ROLLOUT" in ''|*[!0-9]*) echo "::error::rollout must be a whole number"; exit 1;; esac
-          for f in artifacts/*/latest*.yml; do
+          # any depth: the Mac artifact keeps its release/ folder
+          # (artifacts/lightsim-macos/release/latest-mac.yml)
+          shopt -s nullglob globstar
+          for f in artifacts/**/latest*.yml; do
             [ -f "$f" ] || continue
             sed -i '/^stagingPercentage:/d' "$f"
             if [ "$ROLLOUT" -lt 100 ]; then echo "stagingPercentage: $ROLLOUT" >> "$f"; fi

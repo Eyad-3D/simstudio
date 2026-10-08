@@ -8,7 +8,9 @@
  *
  * Signing needs a certificate the owner pays for, so it only happens when the
  * build has one. With none set, this logs once and leaves the file unsigned:
- * local and pull-request builds still work. Two routes, picked by what is set:
+ * local and pull-request builds still work. Two routes, picked by what is set
+ * (all of a route's settings, secrets included; route() is also what the
+ * workflow's "Signing available?" step asks, so the two always agree):
  *
  *   Azure Artifact Signing (formerly Trusted Signing)
  *     AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET   an app registration
@@ -32,10 +34,26 @@ const path = require("node:path");
 let warned = false;
 let azureReady = false;
 
+/** What Azure Artifact Signing needs: the app registration (secrets) and
+ *  the account and profile (repository variables). */
+const AZURE = [
+  "AZURE_TENANT_ID", "AZURE_CLIENT_ID", "AZURE_CLIENT_SECRET",
+  "LIGHTSIM_AZURE_ENDPOINT", "LIGHTSIM_AZURE_ACCOUNT", "LIGHTSIM_AZURE_PROFILE",
+];
+
+/** "azure", "command" or null (unsigned). A route is taken only when all of
+ *  its settings are there: the variables alone, without the secrets, would
+ *  start a signing that cannot sign and fail every Windows build. */
 function route(env = process.env) {
-  if (env.LIGHTSIM_AZURE_ENDPOINT && env.LIGHTSIM_AZURE_ACCOUNT && env.LIGHTSIM_AZURE_PROFILE) return "azure";
+  if (AZURE.every((key) => env[key])) return "azure";
   if (env.LIGHTSIM_SIGN_COMMAND) return "command";
   return null;
+}
+
+/** The Azure settings that are missing when only some are set (names only). */
+function missingAzure(env = process.env) {
+  const missing = AZURE.filter((key) => !env[key]);
+  return missing.length === AZURE.length ? [] : missing;
 }
 
 const psQuote = (s) => `'${String(s).replace(/'/g, "''")}'`;
@@ -81,6 +99,8 @@ exports.default = async function sign(configuration) {
   if (!which) {
     if (!warned) {
       console.log("  • no signing certificate is set: building UNSIGNED (see desktop/build/sign-windows.cjs)");
+      const missing = missingAzure();
+      if (missing.length) console.log(`  • Azure Artifact Signing is only partly set up; missing: ${missing.join(", ")}`);
       warned = true;
     }
     return;
@@ -99,3 +119,11 @@ exports.default = async function sign(configuration) {
 };
 
 exports.route = route;
+exports.missingAzure = missingAzure;
+
+// `node build/sign-windows.cjs --route` prints the route this environment
+// signs with ("none" without one), for the workflow's "Signing available?"
+// step.
+if (require.main === module && process.argv.includes("--route")) {
+  process.stdout.write(`${route() ?? "none"}\n`);
+}

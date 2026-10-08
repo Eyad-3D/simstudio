@@ -2,7 +2,8 @@
 
 The block's parameters:
 
-* ``fmu_path`` / ``fmu_sha256`` / ``fmu_name`` — which FMU (see ``store``);
+* ``fmu_sha256`` — which FMU (see ``store``); ``fmu_path`` and ``fmu_name``
+  only say where it was kept and what it is called;
 * ``sample_time_s`` — how often the FMU steps (0: every solver step);
 * ``start:<variable>`` — a start value the user set for an FMU parameter or
   input, applied before the FMU initialises (the FMU's own start value
@@ -19,7 +20,7 @@ from pathlib import Path
 from . import NOT_INSTALLED, FmuError, fmpy_available
 from .info import describe, this_folders
 from .sandbox import FmuSpec
-from .store import FmuFileError, is_allowed, locate, sha256_of_cached, unpacked
+from .store import FmuFileError, is_allowed, locate, unpacked
 
 COMPONENT_ID = "signal.fmu"
 START_PREFIX = "start:"
@@ -67,11 +68,15 @@ def problems(label: str, params: dict, ports: list) -> list[tuple[str, str, str 
                 out.append(("warning", f"FMU '{label}' has a start value for '{name}', which "
                                        f"is not a parameter or input of its FMU; it is ignored.",
                             None))
-    sha = str(params.get("fmu_sha256") or "") or sha256_of_cached(path)
-    if not is_allowed(sha):
+    if not is_allowed(_sha(params)):
         out.append(("error", f"FMU {not_allowed_text(label)}",
                     "Select the block and click 'Allow this FMU to run'."))
     return out
+
+
+def _sha(params: dict) -> str:
+    """The FMU's fingerprint, as locate() found it by."""
+    return str(params.get("fmu_sha256") or "").strip().lower()
 
 
 def library_path(unzip_dir: Path, info: dict) -> Path:
@@ -92,7 +97,10 @@ def spec_for(el_id: str, label: str, params: dict, ports: list) -> FmuSpec:
     info = describe(path)
     if not info.get("ok"):
         raise FmuError(f"FMU '{label}': " + " ".join(info.get("problems", [])))
-    sha = sha256_of_cached(path)
+    # the fingerprint the block names, which locate() found the kept copy
+    # by; unpacked() checks the bytes it unpacks against it, so the file that
+    # runs is the one allowed (never a cached hash of a file that may change)
+    sha = _sha(params)
     if not is_allowed(sha):
         raise FmuError(f"FMU {not_allowed_text(label)}")
     by_name = {v["name"]: v for v in info["variables"]}
@@ -115,7 +123,7 @@ def spec_for(el_id: str, label: str, params: dict, ports: list) -> FmuSpec:
         except (TypeError, ValueError):
             raise FmuError(f"FMU '{label}': the start value of '{v['name']}' is not a "
                            f"number.") from None
-    unzip = unpacked(path, sha)
+    unzip = unpacked(sha)
     return FmuSpec(
         el_id=el_id, label=label, unzip_dir=str(unzip),
         library_path=str(library_path(unzip, info)),

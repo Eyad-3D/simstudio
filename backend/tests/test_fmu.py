@@ -146,28 +146,120 @@ def test_store_refuses_a_file_that_is_not_a_zip():
 def test_locate_explains_a_missing_file(tmp_path):
     with pytest.raises(store.FmuFileError, match="Import the FMU again"):
         store.locate({"fmu_path": str(tmp_path / "gone.fmu"), "fmu_name": "Gone.fmu"})
+    with pytest.raises(store.FmuFileError, match="not found on this computer"):
+        store.locate({"fmu_sha256": "0" * 64, "fmu_name": "Gone.fmu"})
     with pytest.raises(store.FmuFileError, match="No FMU file chosen"):
         store.locate({})
 
 
-def test_locate_notices_a_changed_file(tmp_path):
-    f = tmp_path / "a.fmu"
-    with zipfile.ZipFile(f, "w") as zf:
-        zf.writestr("modelDescription.xml", "<x/>")
-    params = {"fmu_path": str(f), "fmu_sha256": "0" * 64}
-    with pytest.raises(store.FmuFileError, match="contents changed"):
-        store.locate(params)
+def _zip(entries: dict[str, bytes | str], *, stored: bool = False) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED if stored else zipfile.ZIP_DEFLATED) as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
 
 
-@pytest.mark.parametrize("bad", ["../evil.txt", "/abs/evil.txt", "a/../../evil.txt"])
+def test_locate_notices_a_damaged_copy():
+    sha = "0" * 64
+    path = store.stored_path(sha)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(_zip({"modelDescription.xml": "<x/>"}))
+    with pytest.raises(store.FmuFileError, match="damaged"):
+        store.locate({"fmu_sha256": sha, "fmu_name": "A.fmu"})
+
+
+def test_a_path_in_the_project_is_never_touched(tmp_path, monkeypatch):
+    """A project from someone else names its FMU by a network path: checking
+    whether it exists would make Windows connect to that host (and send the
+    user's sign-in), so LightSim never looks at it; only its own copies, by
+    fingerprint."""
+    touched = []
+    real_stat = os.stat
+
+    def spy(path, *args, **kwargs):
+        touched.append(str(path))
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", spy)
+    for where in ("//attacker.example/share/battery.fmu", r"\\attacker.example\share\b.fmu",
+                  "/net/attacker.example/b.fmu"):
+        params = {"fmu_path": where, "fmu_sha256": "ab" * 32, "fmu_name": "battery.fmu"}
+        checks = validate_project(_fmu_project(params))
+        assert any(c.level == "error" for c in checks)
+        with pytest.raises(store.FmuFileError, match="not found on this computer"):
+            store.locate(params)
+    assert not [p for p in touched if "attacker" in p]
+
+    # nor is a real file elsewhere used, even one with the right fingerprint:
+    # only a file the user imported in the app (its bytes uploaded) runs
+    monkeypatch.setattr(os, "stat", real_stat)
+    elsewhere = tmp_path / "shared" / "battery.fmu"
+    elsewhere.parent.mkdir()
+    elsewhere.write_bytes(_zip({"modelDescription.xml": "<x/>"}))
+    sha = store.sha256_of(elsewhere)
+    store.allow(sha, "battery.fmu")
+    with pytest.raises(store.FmuFileError, match="not found on this computer"):
+        store.locate({"fmu_path": str(elsewhere), "fmu_sha256": sha})
+    kept = store.store_bytes(elsewhere.read_bytes())[1]
+    assert store.locate({"fmu_path": str(elsewhere), "fmu_sha256": sha}) == kept
+
+
+def test_a_kept_fmu_swapped_after_its_check_does_not_run():
+    """The file that is unpacked is hashed as it is copied: a kept FMU whose
+    bytes changed after Data Checks hashed it (same size and time, so the
+    cached hash still says it is the allowed one) is refused, not unpacked
+    under the allowed fingerprint."""
+    good = _zip({"modelDescription.xml": "<good/>", "binaries/x": "A" * 64}, stored=True)
+    sha, kept = store.store_bytes(good)
+    store.allow(sha, "a.fmu")
+    params = {"fmu_sha256": sha, "fmu_name": "a.fmu"}
+    assert store.locate(params) == kept  # Data Checks: hashed and cached
+    st = kept.stat()
+    evil = good.replace(b"A" * 64, b"B" * 64)
+    assert len(evil) == len(good) and evil != good
+    kept.write_bytes(evil)
+    os.utime(kept, ns=(st.st_atime_ns, st.st_mtime_ns))
+    assert store.locate(params) == kept  # the cache cannot tell
+    with pytest.raises(store.FmuFileError, match="does not match the FMU that was allowed"):
+        store.unpacked(sha)
+    assert not (store.fmu_dir() / "unpacked" / sha).exists()
+    assert [p.name for p in (store.fmu_dir() / "unpacked").iterdir()] == []  # no copies left
+    # the real file unpacks
+    kept.write_bytes(good)
+    assert (store.unpacked(sha) / "modelDescription.xml").read_text() == "<good/>"
+
+
+@pytest.mark.parametrize("bad", ["../evil.txt", "/abs/evil.txt", "a/../../evil.txt",
+                                 "binaries/D:/evil.dll", "C:evil.txt", "binaries/C:x/evil.dll",
+                                 "a/b:c.dll"])
 def test_unpacking_refuses_names_outside_the_folder(tmp_path, bad):
-    f = tmp_path / "bad.fmu"
-    with zipfile.ZipFile(f, "w") as zf:
-        zf.writestr("modelDescription.xml", "<x/>")
-        zf.writestr(bad, "x")
+    sha, _ = store.store_bytes(_zip({"modelDescription.xml": "<x/>", bad: "x"}))
     with pytest.raises(store.FmuFileError, match="unsafe name"):
-        store.unpacked(f)
+        store.unpacked(sha)
     assert not (tmp_path / "evil.txt").exists()
+
+
+def test_unpacking_reads_windows_names_as_windows_does():
+    # binaries/D:/evil.dll would land on drive D: on Windows (D:evil.dll)
+    for name in ("binaries/D:/evil.dll", "D:/x", "binaries/x:y", "a//b/..", "/x", "a/../b"):
+        assert store._unsafe(name), name
+    for name in ("modelDescription.xml", "binaries/win64/Model.dll", "resources/a b.txt",
+                 "binaries/x86_64-windows/M.dll", "documentation/index.html"):
+        assert not store._unsafe(name), name
+
+
+def test_a_damaged_fmu_fails_with_a_plain_message():
+    """A bad CRC (or another fault in the archive) is a plain FmuFileError,
+    which Data Checks and runs report, never an unhandled exception."""
+    data = bytearray(_zip({"modelDescription.xml": "<x/>",
+                           "sources/model.c": "#include <stdio.h>\n" * 10}, stored=True))
+    i = data.find(b"#include")
+    data[i] ^= 0x01
+    sha, _ = store.store_bytes(bytes(data))
+    with pytest.raises(store.FmuFileError, match="damaged"):
+        store.unpacked(sha)
+    assert not (store.fmu_dir() / "unpacked" / sha).exists()
 
 
 def test_allowed_list_is_per_fingerprint():
@@ -284,14 +376,23 @@ def test_fmu_runs_with_the_rest_of_the_model(test_fmu):
 @needs_fmpy
 @needs_cc
 def test_communication_step_holds_outputs_between_steps(test_fmu):
+    """With a Communication Step the FMU exchanges values only at its sample
+    instants and its outputs hold in between; it is never ahead of the
+    engine (it catches up to the end of the solver step at each exchange)."""
     params = _import(test_fmu) | {"sample_time_s": 0.25}
     result = simulate(_fmu_project(params), "case")
     assert result.status in ("success", "warning")
-    t_fmu = [v for _, v in _series(result, "fmu", "t_fmu")]
-    # the FMU only moves on in 0.25 s steps
-    assert all(abs(v / 0.25 - round(v / 0.25)) < 1e-9 for v in t_fmu)
-    assert 0.25 in t_fmu and 0.3 not in t_fmu
-    assert t_fmu[-1] == pytest.approx(2.0, abs=1e-9)
+    t_fmu = _series(result, "fmu", "t_fmu")
+    h = 0.01  # the solver step
+    for t, v in t_fmu:
+        assert v <= t + 1e-9, f"at t = {t} the FMU is already at {v}"
+        assert t - v < 0.25 + h + 1e-9, f"at t = {t} the FMU is still at {v}"
+    # the FMU only moves on at the sample instants: 0, 0.25, 0.5 … 1.75
+    moved = sorted({round(v, 9) for _, v in t_fmu if v > 0})
+    assert moved == pytest.approx([k * 0.25 + h for k in range(8)], abs=1e-9)
+    # it is not set back when the engine's samples fall between its steps
+    values = [v for _, v in t_fmu]
+    assert values == sorted(values)
 
 
 @needs_fmpy
@@ -336,6 +437,48 @@ def test_a_misbehaving_fmu_fails_the_run_not_the_engine(test_fmu, mode, expect):
     # the engine is fine: the same FMU behaving runs straight after
     ok = simulate(_fmu_project(_import(test_fmu)), "case")
     assert ok.status in ("success", "warning")
+
+
+@needs_fmpy
+@needs_cc
+def test_a_damaged_fmu_fails_the_run_with_a_message(test_fmu):
+    """An archive that Data Checks can read but that fails to unpack (a bad
+    CRC) fails the run with a plain message, over REST too, and leaves no
+    worker behind."""
+    data = bytearray(_zip({i.filename: zipfile.ZipFile(test_fmu).read(i.filename)
+                           for i in zipfile.ZipFile(test_fmu).infolist()}, stored=True))
+    i = data.find(b"#include")
+    data[i] ^= 0x01
+    bad = test_fmu.parent / "Damaged.fmu"
+    bad.write_bytes(bytes(data))
+    good = _fmu_project(_import(test_fmu)).systems[0].elements[1]
+    good.id, good.label = "good", "Good"
+    proj = _fmu_project(_import(bad))
+    proj.systems[0].elements.insert(1, good)  # started first, so it must be stopped
+    assert not [c for c in validate_project(proj) if c.level == "error"]
+    before = set(multiprocessing.active_children())
+    result = simulate(proj, "case")
+    assert result.status == "failed"
+    assert any("damaged" in m.text for m in result.messages), [m.text for m in result.messages]
+    _no_new_workers(before)
+
+    from app.main import app
+    r = TestClient(app).post("/api/simulate", json={"project": proj.model_dump(), "caseId": "case"})
+    assert r.status_code == 200 and r.json()["status"] == "failed"
+
+
+@needs_fmpy
+@needs_cc
+def test_an_unexpected_error_while_starting_an_fmu_fails_the_run(test_fmu, monkeypatch):
+    from app.fmu import sandbox
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("no more processes")
+
+    monkeypatch.setattr(sandbox, "FmuSandbox", boom)
+    result = simulate(_fmu_project(_import(test_fmu)), "case")
+    assert result.status == "failed"
+    assert any("could not be set up: no more processes" in m.text for m in result.messages)
 
 
 @needs_fmpy

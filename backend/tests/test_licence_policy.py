@@ -180,3 +180,20 @@ def test_example_data_is_credited_with_its_notice(notices, allowed):
     committed = (SCRIPT.parents[1] / "THIRD-PARTY-NOTICES.txt").read_text(encoding="utf-8")
     assert fastsim.name in notices.contents(committed)
     assert notice in committed
+
+
+def test_the_fmu_packs_lgpl_parts_fail_the_check(notices, allowed):
+    """NumPy's and lxml's metadata name only permissive licences, but their
+    wheels carry LGPL code (libquadmath; GNU libiconv). clarifications.json
+    records that, so an engine frozen with the FMU pack fails the check until
+    the owner decides (backend/lightsim-backend.spec)."""
+    _, clarified, _, _ = notices.load_policy()
+    engine = notices.ENGINE
+    numpy = notices.Component(engine, "numpy", "2.4.6", "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
+                              texts=[("LICENSE.txt", "Name: libquadmath\nFiles: numpy.libs/libquadmath*.so\n"
+                                                     "License: LGPL-2.1-or-later")])
+    lxml = notices.Component(engine, "lxml", "6.1.3", "BSD-3-Clause",
+                             texts=[("LICENSES.txt", "**iconv**: LGPL 2.1, https://www.gnu.org/licenses/")])
+    problems = notices.check([numpy, lxml], allowed, clarified["python"])
+    assert [p.split(" ", 1)[0] for p in problems] == ["numpy", "lxml"]
+    assert all("LGPL-2.1-or-later" in p and "is not allowed" in p for p in problems)

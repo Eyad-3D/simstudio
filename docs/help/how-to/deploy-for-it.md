@@ -88,7 +88,9 @@ runs, settings and logs are in their own folder:
 | Linux | `~/.config/LightSim` |
 
 `main.log` there records the app's events, including the policy file it
-read and any keys it ignored.
+read and any keys it ignored. Which scripts and FMUs each user allowed to
+run is kept there too, never in the projects folder, even when the policy
+puts projects on a shared drive.
 
 ## What LightSim does on the network
 
@@ -98,9 +100,12 @@ read and any keys it ignored.
 - LightSim contacts nothing outside the computer unless a user agrees to
   update checks (or your policy file turns them on). It looks up no proxy
   until then.
-- Update checks go to `github.com` and, for a download,
-  `objects.githubusercontent.com`, once a day. They send only the app's
-  version and platform. They use the computer's proxy settings.
+- Update checks go to `github.com` and `release-assets.githubusercontent.com`,
+  once a day, and every check uses both: it reads the list of releases from
+  github.com, which sends it on to release-assets.githubusercontent.com
+  for the release's `latest.yml` file (a download comes from there too).
+  Allow both. They send only the app's version and platform. They use the
+  computer's proxy settings.
 
 ## Fix settings for everyone: the policy file
 
@@ -108,12 +113,16 @@ Put a file named `policy.json` in:
 
 | System | Path |
 |---|---|
-| Windows | `%ProgramData%\LightSim\policy.json` (usually `C:\ProgramData\LightSim\policy.json`) |
+| Windows | `C:\ProgramData\LightSim\policy.json` (on the drive Windows is installed on) |
 | macOS | `/Library/Application Support/LightSim/policy.json` |
 | Linux | `/etc/lightsim/policy.json` |
 
 Only administrators can write these folders, so users cannot change the
-file. LightSim reads it at each start. A setting it fixes shows as
+file. LightSim finds the Windows folder from where Windows is installed,
+not from the `ProgramData` variable, and the installed app does not pass
+users' own `LIGHTSIM_*` environment variables to its engine, so users
+cannot point it at another file or switch the script check off that way.
+LightSim reads it at each start. A setting it fixes shows as
 *managed by your organisation* and cannot be changed in the app. A key
 that is missing leaves the setting to each user. A key LightSim does not
 know, or a value it does not accept, is ignored and noted in `main.log`.

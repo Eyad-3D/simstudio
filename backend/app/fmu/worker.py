@@ -11,7 +11,7 @@ with the same tools as the Script sandbox (``solver/sandbox_worker.harden``):
 every inherited file descriptor but the engine socket closed, a memory cap,
 no files written, no core dumps, an empty environment, death with the
 engine, and on Linux with Landlock read-only access to the unpacked FMU and
-the system libraries only (no other files, no TCP). FMPy and NumPy are
+the system libraries only (no other files; no TCP from Linux 6.7). FMPy and NumPy are
 imported first, while the filesystem is still open. On Windows and macOS
 the guarantees are the ones the Script sandbox documents (memory cap and
 kill-with-the-engine on Windows; resource limits on macOS) — see

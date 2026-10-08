@@ -1014,7 +1014,8 @@ sections.
   running scripts**, and **Run** asks again; the engine itself refuses to
   run such code, for every kind of run. Code you type, the examples' code
   and the scripts of the projects you had already saved count as approved;
-  an approval holds for that exact code
+  approvals are kept in your own LightSim folder, not the projects folder,
+  and an approval holds for that exact code
   ([how](help/how-to/open-a-project-with-scripts.md)). (PLT-35)
 - The script process is locked down further: on Windows it runs at the low
   integrity level, so it cannot change your files, and it cannot start
@@ -1231,8 +1232,9 @@ sections.
 - Going back to 0.2.0: it opens format 2 files, but shows no studies (they
   are next to the runs now) and keeps attached files only as a list.
 - The first start of 0.3.0 counts the scripts in the projects already in
-  your projects folder as approved. A project you receive later asks
-  before its scripts run.
+  your projects folder as approved, once, and only in your own projects
+  folder (not one a policy file puts on a shared drive). A project you
+  receive later asks before its scripts run.
 - The desktop app asks once whether to check for updates; until you say
   yes it checks nothing.
 - Going back to 0.2.0: it cannot open a project with a study point that

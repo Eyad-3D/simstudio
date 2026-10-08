@@ -5,6 +5,8 @@ Produces a self-contained ``lightsim-backend`` folder (one directory, not one
 file — it starts faster and electron-builder ships directories happily) that
 the desktop app launches as a child process. Users never install Python.
 """
+import os
+
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 datas = [
@@ -52,21 +54,32 @@ hiddenimports += collect_submodules("app.ai") + collect_submodules("mcp_types")
 # websockets.cli) falls back when it is missing.
 excludes = ["tkinter", "matplotlib", "numpy.testing", "pytest", "readline"]
 
-# The FMU pack (STD-01, backend/requirements-fmu.txt) goes in only when it is
-# installed in the build environment; whether the installer carries it is an
-# owner decision (docs/KNOWN-LIMITS.md). Only what running an FMU needs comes
-# along: the FMI XML schemas FMPy checks against and its small logging helper
-# library, not its GUI, web app, compiler templates or bundled solvers.
-try:
-    import fmpy  # noqa: F401
-except ImportError:
-    fmpy = None
-if fmpy is not None:
+# The FMU pack (STD-01, backend/requirements-fmu.txt) goes in only when the
+# build asks for it: LIGHTSIM_FREEZE_FMU_PACK=1. OWNER DECISION PENDING: the
+# NumPy and lxml wheels it needs carry LGPL code (NumPy's libquadmath, and
+# GNU libiconv linked into lxml), which scripts/licenses/allowed.txt does
+# not allow, so a build that takes the pack fails the licence check
+# (scripts/licenses/clarifications.json) until the owner decides
+# (docs/KNOWN-LIMITS.md). Without the switch the pack stays out even when it
+# is installed here (developers install it to run the tests): app/fmu and
+# the lightsim package import FMPy and pandas inside functions, which
+# PyInstaller would otherwise follow. With it, only what running an FMU
+# needs comes along: the FMI XML schemas FMPy checks against and its small
+# logging helper library, not its GUI, web app, compiler templates or
+# bundled solvers.
+if os.environ.get("LIGHTSIM_FREEZE_FMU_PACK") == "1":
+    try:
+        import fmpy  # noqa: F401
+    except ImportError:
+        raise SystemExit("LIGHTSIM_FREEZE_FMU_PACK=1, but the FMU pack is not installed "
+                         "(backend/requirements-fmu.txt)") from None
     datas += collect_data_files("fmpy", includes=["schema/**/*.xsd", "logging/**/*"])
     hiddenimports += ["fmpy.fmi2", "fmpy.fmi3", "fmpy.validation", "app.fmu.worker"]
     excludes += ["fmpy.gui", "fmpy.webapp", "fmpy.ssp", "fmpy.cross_check",
                  "fmpy.container_fmu", "fmpy.sundials", "fmpy.template", "jinja2",
                  "nbformat", "cmake"]
+else:
+    excludes += ["fmpy", "numpy", "lxml", "pandas"]
 
 a = Analysis(
     ["run_backend.py"],

@@ -44,6 +44,7 @@ vi.mock("../api", () => ({
   forgetFile: vi.fn(),
   uploadAttachment: vi.fn(),
   deleteAttachment: vi.fn(),
+  listAttachments: vi.fn(),
   isTrusted: vi.fn(),
   trustFingerprint: vi.fn(),
 }));
@@ -266,6 +267,7 @@ beforeEach(async () => {
   api.fetchRevision.mockResolvedValue(null);
   api.isTrusted.mockResolvedValue(false);
   api.trustFingerprint.mockResolvedValue({ trusted: true });
+  api.listAttachments.mockResolvedValue([]);
 });
 
 describe("start-up", () => {
@@ -2046,6 +2048,51 @@ describe("project files (PLT-07, PLT-33, STD-02)", () => {
     await store().run();
     expect(api.runSimulationLive).toHaveBeenCalledTimes(2);
     expect(useUIStore.getState().dialog).toBeNull();
+  });
+
+  it("an attached file replaced on disk asks again, even in a trusted project", async () => {
+    await store().init();
+    const attachments = [{ path: "resources/motor.fmu", sha256: "a".repeat(64), bytes: 2048 }];
+    const onDisk = (sha256: string) => [{ path: "resources/motor.fmu", name: "motor.fmu", sha256, bytes: 2048, kind: "fmu" }];
+    api.listAttachments.mockResolvedValue(onDisk("a".repeat(64)));
+    api.fetchProject.mockResolvedValueOnce({ ...fixture({ attachments }), revision: "r1" });
+    await store().openProject("fixture");
+    engineFinishesRuns();
+    const first = store().run();
+    await answer(/Run this project's code/, true);
+    await first;
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
+    const trusted = api.trustFingerprint.mock.calls[0][0];
+    // a git pull replaces motor.fmu; the project file still records the old one
+    api.listAttachments.mockResolvedValue(onDisk("b".repeat(64)));
+    const second = store().run();
+    await vi.waitFor(() => expect(useUIStore.getState().dialog?.message).toMatch(/motor\.fmu \(changed since it was attached\)/));
+    await answer(/Run this project's code/, false);
+    await second;
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
+    const third = store().run();
+    await answer(/Run this project's code/, true);
+    await third;
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(2);
+    expect(api.trustFingerprint.mock.calls.at(-1)![0]).not.toBe(trusted);
+  });
+
+  it("asks, rather than runs, when no fingerprint can be made", async () => {
+    await store().init();
+    const attachments = [{ path: "resources/motor.fmu", sha256: "a".repeat(64), bytes: 2048 }];
+    api.fetchProject.mockResolvedValueOnce({ ...fixture({ attachments }), revision: "r1" });
+    await store().openProject("fixture");
+    engineFinishesRuns();
+    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(new Error("no Web Crypto"));
+    try {
+      const run = store().run();
+      await answer(/Run this project's code/, false);
+      await run;
+      expect(api.runSimulationLive).not.toHaveBeenCalled();
+      expect(api.trustFingerprint).not.toHaveBeenCalled();
+    } finally {
+      digest.mockRestore();
+    }
   });
 
   it("a project without code, or an example, runs without asking", async () => {

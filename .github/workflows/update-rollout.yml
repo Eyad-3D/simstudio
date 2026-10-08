@@ -3,7 +3,8 @@
 # A release starts with stagingPercentage (10 % by default) in its latest*.yml
 # files: only that share of the installs that agreed to update checks is
 # offered it. Each install draws its random number once and keeps it on the
-# computer, so nothing about the user is sent. Run this workflow to go to
+# computer, and update checks send zeros in place of that ID
+# (desktop/src/updates.js), so nothing about the user is sent. Run this workflow to go to
 # 50 %, then 100 %, a couple of days apart; or with 0 to stop offering a bad
 # release (installs that already took it keep it: publish a fixed version).
 name: Update rollout

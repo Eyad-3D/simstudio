@@ -876,8 +876,9 @@ minimum or an average, for example from the CSV export, or put the
   process and the run fails, even for loops the first check cannot
   interrupt; a script that asks for too much memory hits a 512 MB cap.
   - *Linux 5.13 or newer:* the system also stops that process from opening
-    any file, starting programs and making or accepting TCP connections.
-    Not blocked: other network traffic (UDP) and local sockets. On older
+    any file and starting programs; from Linux 6.7 on, also from making or
+    accepting TCP connections. Not blocked: other network traffic (UDP),
+    local sockets, and TCP before Linux 6.7. On older
     Linux, only the memory cap and a limit that stops it writing data into
     files apply; it could still delete files.
   - *Windows:* the process has the memory cap, ends when LightSim ends,
@@ -908,16 +909,23 @@ minimum or an average, for example from the CSV export, or put the
   - Iteration: values pass once per communication step, so a signal loop
     through an FMU and back arrives one step late, as between Script
     blocks.
+  - With a *Communication Step*, the FMU runs on only when it exchanges
+    values: it catches up to LightSim's time with the inputs of that
+    moment, and its outputs then hold, so they can be up to one
+    Communication Step old (never ahead of LightSim's time).
   - Lap cases do not run signal blocks, FMUs included.
 
   The FMU file is not saved inside the project yet: LightSim keeps a copy in
   your LightSim folder (`fmus`, beside your projects) and the project
-  points at it. On another computer, import the FMU again. *Roadmap:*
+  names it by its fingerprint. A path written in a project is never
+  opened. On another computer, import the FMU again. *Roadmap:*
   STD-02.
 - **FMU support is an optional pack.** It needs FMPy (BSD-2-Clause) and its
   NumPy, lxml, attrs and lark. The desktop installers do not include it
-  yet; without it, Data Checks say so and every other model runs. *Roadmap:*
-  STD-01.
+  yet; without it, Data Checks say so and every other model runs. The
+  NumPy and lxml downloads carry LGPL-licensed parts (NumPy's libquadmath,
+  and GNU libiconv inside lxml), so the pack can go into the installers
+  only once the owner has decided how to ship those. *Roadmap:* STD-01.
 - **FMUs run in a separate, locked-down process, but how locked-down
   depends on your system.** An FMU is compiled code from another company or
   tool. LightSim runs it only after you allow it on your computer (once per
@@ -925,11 +933,16 @@ minimum or an average, for example from the CSV export, or put the
   its own that the engine stops if a step takes longer than 30 s, with a
   2 GB memory cap. A crash ends that process and the run, not LightSim.
   - *Linux 5.13 or newer:* the process can read only the FMU's own files
-    and the system libraries, writes no files and makes no TCP connections.
-    Not blocked: UDP and local sockets.
-  - *Windows:* the process has the memory cap and ends when LightSim ends,
-    but nothing stops it reading or writing your files or using the
-    network.
+    and the system libraries and writes no files; from Linux 6.7 on it also
+    makes no TCP connections. Not blocked: UDP, local sockets, and TCP
+    before Linux 6.7.
+  - *Windows:* the process has the memory cap, ends when LightSim ends,
+    cannot start programs and runs at Windows' low integrity level, as the
+    script process does, so it cannot change your files. It can still read
+    files and use the network.
+  - *macOS:* Apple's sandbox stops the process writing files, starting
+    programs and using the network, as for scripts; it can still read
+    files. FMUs are not tested on a Mac yet.
   - *Older Linux:* only the memory cap and a limit that stops it writing
     data into files apply.
 
@@ -1042,7 +1055,8 @@ minimum or an average, for example from the CSV export, or put the
 - **The trust question for attached files protects runs in the app only.**
   Before the first run of a project with attached FMUs, AI models or
   programs, LightSim asks whether you trust it, and remembers the answer by
-  a fingerprint of those files (a changed file asks again). The question is
+  a fingerprint of those files as they are on disk (a file changed since
+  it was attached, by a teammate or a git pull, asks again). The question is
   asked by the app's window; the engine itself does not refuse to run them
   (an FMU block runs only an FMU you allowed on this computer). Script
   blocks are not part of this question: their code is shown for you to

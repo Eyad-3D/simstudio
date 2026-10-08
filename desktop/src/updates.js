@@ -12,11 +12,15 @@
  * With checks on, LightSim asks GitHub, where its downloads are, once a day
  * whether a newer version exists. The request names only the app's version
  * and platform (User-Agent "LightSim/<version> (<platform>)"); GitHub sees the
- * computer's internet address, as with any download. Nothing installs without
+ * computer's internet address, as with any download. electron-updater would
+ * also send a random ID it keeps for each install (x-user-staging-id), which
+ * would let GitHub link all of one install's checks: LightSim sends zeros in
+ * its place, the same for every install (requestHeaders). Nothing installs without
  * the user's say: a new version offers "Install on quit", "Skip this version"
  * or "Later", with the release notes' "Your results will change" part shown
  * first. Releases roll out in stages (stagingPercentage in latest.yml): each
- * install draws a random number once and keeps it on the computer.
+ * install draws a random number once and keeps it on the computer; it is
+ * compared there and never sent.
  *
  * Installs that cannot replace themselves only say a new version exists and
  * open its download page: .deb packages (they need an install command), MSI
@@ -45,6 +49,44 @@ const QUESTION = {
     "change this later in Help → Updates.",
   buttons: ["Yes", "No", "Ask later"],
 };
+
+/** Sent in place of electron-updater's per-install ID (x-user-staging-id). */
+const NO_INSTALL_ID = "00000000-0000-0000-0000-000000000000";
+
+/**
+ * The headers of every update request: the version and platform, not
+ * Electron's full browser User-Agent, and no ID of the install.
+ * electron-updater merges these over its own, so the zeros replace the
+ * random ID it keeps in userData/.updaterId; the staged rollout still
+ * compares that ID on the computer.
+ */
+function requestHeaders(version, platform, arch) {
+  return {
+    "User-Agent": `LightSim/${version} (${platform}-${arch})`,
+    "x-user-staging-id": NO_INSTALL_ID,
+  };
+}
+
+/**
+ * Set electron-updater up: nothing downloads before the user agrees, and its
+ * requests use the computer's proxy. Electron sends them through a session
+ * of its own (the "electron-updater" partition), which main.js's
+ * --no-proxy-server leaves direct; a company network may need its proxy to
+ * reach GitHub.
+ */
+async function configureUpdater(autoUpdater, { version, platform, arch, logEvent }) {
+  autoUpdater.autoDownload = false; // nothing downloads before the user agrees
+  autoUpdater.autoInstallOnAppQuit = true; // what "Install on quit" means
+  autoUpdater.allowPrerelease = false;
+  autoUpdater.logger = { info: () => {}, warn: (m) => logEvent(`updates: ${m}`), error: (m) => logEvent(`updates: ${m}`), debug: () => {} };
+  autoUpdater.requestHeaders = requestHeaders(version, platform, arch);
+  try {
+    await autoUpdater.netSession.setProxy({ mode: "system" });
+  } catch (err) {
+    logEvent(`updates: could not use the system proxy (${err && err.message ? err.message : err}); checking directly`);
+  }
+  return autoUpdater;
+}
 
 /**
  * What kind of install this is, which decides whether it can update itself.
@@ -213,19 +255,10 @@ function initUpdates({ app, dialog, shell, getWindow, policy, logEvent, rebuildM
   /** electron-updater, loaded only once checks are allowed. */
   async function getUpdater() {
     if (updater) return updater;
-    // Until now the app ran without a proxy (main.js); a company network may
-    // need the system's to reach GitHub.
-    try {
-      await require("electron").session.defaultSession.setProxy({ mode: "system" });
-    } catch { /* direct, then */ }
     const { autoUpdater } = require("electron-updater");
-    autoUpdater.autoDownload = false; // nothing downloads before the user agrees
-    autoUpdater.autoInstallOnAppQuit = true; // what "Install on quit" means
-    autoUpdater.allowPrerelease = false;
-    autoUpdater.logger = { info: () => {}, warn: (m) => logEvent(`updates: ${m}`), error: (m) => logEvent(`updates: ${m}`), debug: () => {} };
-    // Only the version and platform, not Electron's full browser User-Agent.
-    autoUpdater.requestHeaders = { "User-Agent": `LightSim/${app.getVersion()} (${process.platform}-${process.arch})` };
-    updater = autoUpdater;
+    updater = await configureUpdater(autoUpdater, {
+      version: app.getVersion(), platform: process.platform, arch: process.arch, logEvent,
+    });
     return updater;
   }
 
@@ -342,6 +375,9 @@ function initUpdates({ app, dialog, shell, getWindow, policy, logEvent, rebuildM
 module.exports = {
   DAY_MS,
   QUESTION,
+  NO_INSTALL_ID,
+  requestHeaders,
+  configureUpdater,
   installKind,
   canInstall,
   decideMode,

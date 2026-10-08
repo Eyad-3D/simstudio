@@ -1,6 +1,7 @@
 """Scripts run only once this user has approved their code (PLT-35)."""
 import copy
 import json
+import sys
 
 import pytest
 from fastapi.testclient import TestClient
@@ -114,6 +115,69 @@ def test_projects_already_saved_here_count_as_approved(trust):
     assert client.post("/api/scripts/check", json={"project": other}).json()["unapproved"] == 1
 
 
+def test_deleting_the_approvals_forgets_them_and_does_not_rescan(trust):
+    """The help says: delete .script-trust.json to be asked again about every
+    script. That must not count the projects in the folder as approved
+    again, such as one from someone else opened without running its
+    scripts and then saved."""
+    project, _ = foreign(hybrid())
+    script_trust.trusted_hashes()  # the first start: nothing saved yet
+    assert (trust / ".script-trust-migrated").exists()
+    (trust / "from-someone.json").write_text(json.dumps(project))  # opened, then saved
+    assert client.post("/api/scripts/check", json={"project": project}).json()["unapproved"] == 1
+    (trust / ".script-trust.json").unlink()
+    script_trust._reset_for_tests()  # a new launch
+    assert client.post("/api/scripts/check", json={"project": project}).json()["unapproved"] == 1
+    # an approval made afterwards is remembered as before
+    code = next(s["code"] for s in client.post("/api/scripts/check", json={"project": project})
+                .json()["scripts"] if not s["approved"])
+    client.post("/api/scripts/approve", json={"codes": [code]})
+    script_trust._reset_for_tests()
+    assert client.post("/api/scripts/check", json={"project": project}).json()["unapproved"] == 0
+
+
+def test_approvals_are_the_users_own_not_the_projects_folders(tmp_path, monkeypatch):
+    """Approvals live in the user's own LightSim folder. A projects folder
+    elsewhere (a policy's projectsRoots on a shared lab drive) is never
+    scanned, and an approvals file anyone can write there means nothing."""
+    monkeypatch.delenv("LIGHTSIM_SCRIPT_TRUST", raising=False)
+    monkeypatch.delenv("LIGHTSIM_POLICY", raising=False)
+    own, shared = tmp_path / "userData", tmp_path / "lab-drive"
+    shared.mkdir()
+    monkeypatch.setenv("LIGHTSIM_DATA_DIR", str(own))
+    monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(shared))
+    script_trust._reset_for_tests()
+    try:
+        project, _ = foreign(hybrid())
+        (shared / "theirs.json").write_text(json.dumps(project))
+        code = next(s["code"] for s in script_trust.project_scripts(project)
+                    if "someone else" in s["code"])
+        (shared / ".script-trust.json").write_text(
+            json.dumps({"approved": [script_trust.code_hash(code)]}))
+        assert not script_trust.is_approved(code)
+        assert (own / ".script-trust-migrated").exists()
+        script_trust.approve([code])
+        assert script_trust.code_hash(code) in json.loads(
+            (own / ".script-trust.json").read_text())["approved"]
+    finally:
+        script_trust._reset_for_tests()
+
+
+def test_a_packaged_engine_ignores_the_test_switch(trust, monkeypatch):
+    """LIGHTSIM_SCRIPT_TRUST=off is for the test suite: in the packaged app a
+    user's own environment variable must not turn the check (or the
+    organisation's always-prompt policy) off."""
+    monkeypatch.setenv("LIGHTSIM_SCRIPT_TRUST", "off")
+    assert script_trust.mode() == "off"
+    monkeypatch.setenv("LIGHTSIM_DATA_DIR", str(trust))  # as the desktop shell sets it
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert script_trust.mode() == "prompt"
+    monkeypatch.setenv("LIGHTSIM_POLICY", json.dumps({"scriptTrust": "always-prompt"}))
+    assert script_trust.mode() == "always-prompt"
+    project, _ = foreign(hybrid())
+    assert client.post("/api/scripts/check", json={"project": project}).json()["unapproved"] == 1
+
+
 def test_always_prompt_forgets_approvals_when_lightsim_closes(trust, monkeypatch):
     monkeypatch.setenv("LIGHTSIM_POLICY", json.dumps({"scriptTrust": "always-prompt"}))
     project, _ = foreign(hybrid())
@@ -140,3 +204,19 @@ def test_bad_requests(trust):
     # a malformed project is scanned, not crashed on
     assert client.post("/api/scripts/check", json={"project": {"systems": [1, {"elements": "x"}]}}).json() == {
         "mode": "prompt", "scripts": [], "unapproved": 0}
+
+
+def test_the_users_own_folder(monkeypatch, tmp_path):
+    from app import paths
+
+    monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(tmp_path / "projects"))
+    monkeypatch.delenv("LIGHTSIM_DATA_DIR", raising=False)
+    assert paths.data_dir() == tmp_path / "projects"  # development and tests
+    monkeypatch.setenv("LIGHTSIM_DATA_DIR", str(tmp_path / "userData"))
+    assert paths.data_dir() == tmp_path / "userData"  # set by the desktop shell
+    if sys.platform.startswith("linux"):
+        # a packaged engine an AI app starts: Electron's userData folder
+        monkeypatch.delenv("LIGHTSIM_DATA_DIR")
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        assert paths.data_dir() == tmp_path / "config" / "LightSim"

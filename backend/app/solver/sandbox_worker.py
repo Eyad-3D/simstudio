@@ -14,7 +14,8 @@ not need, as strongly as each platform allows without root:
   file) and the open-file count with ``resource.setrlimit``; clears the
   environment; and, when the kernel offers it (Landlock, Linux ≥ 5.13, via
   ``ctypes`` — no root, no seccomp), forbids the process every filesystem
-  access and every outbound/*listening* TCP connection. Landlock is inherited
+  access and, from Linux 6.7 (Landlock ABI 4), every outbound/*listening*
+  TCP connection. Landlock is inherited
   across ``execve``, so even a program the code manages to start stays caged.
   What Landlock does *not* cover: UDP and Unix-domain sockets, and, on kernels
   without Landlock, only the resource limits, the closed descriptors and the
