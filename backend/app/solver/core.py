@@ -753,7 +753,10 @@ class _Envelope:
         if self.layout != self.ctx.layout_version:
             self._fold()
             self.layout = self.ctx.layout_version
-            state = list(_state_channel_fns(self.ctx, self.gear_of))
+            # a channel worked out once per recorded point keeps its recorded
+            # value as its envelope (record): too costly for every step
+            state = [s for s in _state_channel_fns(self.ctx, self.gear_of)
+                     if not getattr(s[2], "per_point", False)]
             self.keys = self.bus_keys + [(el, port) for el, port, _ in state]
             self.fns = [fn for _, _, fn in state]
         get = self.ctx.rt.signal_values.get
@@ -895,8 +898,8 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
                 yield el_id, "sig_v_cell_max", lambda cp=cp: cp.v_cell[1]
                 for k, d in enumerate(SOP_PULSES):
                     for side, port in ((0, f"sig_p_dis_{d:g}s"), (1, f"sig_p_ch_{d:g}s")):
-                        yield el_id, port, lambda b=b, k=k, side=side: (
-                            _state_of_power(ctx, b)[k][side] / 1000.0)
+                        yield el_id, port, _per_point(lambda b=b, k=k, side=side: (
+                            _state_of_power(ctx, b)[k][side] / 1000.0))
         elif tdef == "motor.emotor" and el_id in ctx.motors:
             mc = ctx.motors[el_id]
             yield el_id, "sig_speed", lambda mc=mc: mc.rpm
@@ -924,8 +927,12 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
             yield el_id, "sig_load_front", lambda: sum(w.n_load for w in ctx.axle_wheels[0])
             yield el_id, "sig_load_rear", lambda: sum(w.n_load for w in ctx.axle_wheels[1])
         if tdef in FLOW_PORTS:  # from the energy book: no data until the part is first booked
+            # a driveline's gears and clutches have their powers worked out
+            # per recorded point (gear_powers); brakes and stacks every step
+            gears = tdef not in ("mech.brake", "fuelcell.stack")
             for port_id, attr in FLOW_PORTS[tdef]:
-                yield el_id, port_id, lambda el_id=el_id, attr=attr: _flow_kw(ctx, el_id, attr)
+                fn = lambda el_id=el_id, attr=attr, g=gears: _flow_kw(ctx, el_id, attr, g)  # noqa: E731
+                yield el_id, port_id, _per_point(fn) if gears else fn
         if tdef == "engine.combustion" and el_id in ctx.engines:
             ec = ctx.engines[el_id]
             yield el_id, "sig_fuel_power", lambda ec=ec: ec.fuel_kgh / 3600.0 * ctx.fuel_lhv / 1000.0
@@ -1020,8 +1027,16 @@ FLOW_PORTS: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
-def _flow_kw(ctx: RunContext, el_id: str, attr: str) -> Optional[float]:
-    ctx.gear_powers()
+def _per_point(fn: Callable[[], Optional[float]]) -> Callable[[], Optional[float]]:
+    """Mark a channel getter worked out once per recorded point: the
+    envelope (_Envelope) leaves it out."""
+    fn.per_point = True  # type: ignore[attr-defined]
+    return fn
+
+
+def _flow_kw(ctx: RunContext, el_id: str, attr: str, gears: bool = True) -> Optional[float]:
+    if gears:
+        ctx.gear_powers()
     p = ctx.book.power(el_id, attr)
     if p is None:  # not booked yet: 0 at point 0, as computed values read there
         return None if ctx.lap is not None else 0.0
