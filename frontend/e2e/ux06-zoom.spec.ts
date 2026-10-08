@@ -83,7 +83,7 @@ test("UX-06: '.' frames the selected part at up to 100 %", async ({ page }) => {
   expect(await zoomOf(page)).toBeLessThanOrEqual(1);
 });
 
-/** The BEV example copied 16 times on a 4x4 grid: 368 parts (23 each). */
+/** The BEV example copied 16 times on a 4x4 grid: 368 parts (23 each, with its Ambient). */
 async function bigModel(page: Page) {
   const bev = await (await page.request.get("/api/examples/bev-car")).json();
   const root = bev.systems[0];
