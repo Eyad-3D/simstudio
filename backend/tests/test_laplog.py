@@ -59,6 +59,27 @@ def _motec(laps=((0, 40.0), (1, 30.0), (2, 31.0), (3, 50.0))):
     return "\n".join(lines)
 
 
+def test_a_short_trace_keeps_its_distance_to_its_end():
+    """The resampling keeps the trace's last part of a 0.2 s step: a 75 m
+    acceleration against distance kept 68.8 m (−8.3 %) and a 115 m trace
+    113.9 m before. Repeated, each lap starts where the last one ended."""
+    v_end = 132 / 3.6
+    acc = "Distance [m],Speed [km/h]\n" + "\n".join(
+        f"{d},{math.sqrt(d / 75) * v_end * 3.6:.4f}" for d in range(76))
+    out = laplog.read_lap(acc, "OpenLAP")
+    assert out.distance_m == pytest.approx(75.0, rel=0.005)
+    assert out.points[-1][1] == pytest.approx(132.0, abs=0.01)
+    assert not any("from the file's own distance" in w for w in out.warnings)
+    flat = "Distance [m],Speed [km/h]\n" + "\n".join(f"{d},50" for d in range(116))
+    one = laplog.read_lap(flat, "OpenLAP")
+    assert one.distance_m == pytest.approx(115.0, rel=1e-6)
+    assert one.points[-1][0] == pytest.approx(115 / (50 / 3.6), abs=1e-4)
+    five = laplog.read_lap(flat, "OpenLAP", repeat_to_km=0.575)
+    assert five.repeated == 5 and five.distance_m == pytest.approx(575.0, rel=1e-6)
+    timed = "time,speed\n" + "\n".join(f"{i * 0.05:.2f},60" for i in range(1440))
+    assert laplog.read_lap(timed, "Generic").points[-1][0] == pytest.approx(71.95)
+
+
 def test_a_logged_session_gives_its_fastest_full_lap():
     out = laplog.read_lap(_motec(), "MoTeC i2 CSV")
     assert out.picked == {"time": "Time", "distance": "Lap Distance", "speed": "Ground Speed",
@@ -79,7 +100,7 @@ def test_semicolons_decimal_commas_and_spikes():
                                for i in range(100)]
     out = laplog.read_lap("\n".join(rows), "Generic",
                           columns={"time": "Zeit", "speed": "Geschw"})
-    assert out.points[-1][0] == pytest.approx(9.8, abs=0.01)
+    assert out.points[-1][0] == pytest.approx(9.9, abs=0.01)  # the trace's own end
     assert any("2.5 g" in w for w in out.warnings)
 
 

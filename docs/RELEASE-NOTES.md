@@ -240,7 +240,8 @@ sections.
   that drives the lap, optionally repeated to a 22 km endurance with a
   driver change stop, and adds a Driving Task wired to the Driver if the
   car has none. A trace against distance is turned into time (t = ∫ ds / v)
-  and keeps its distance within 0.5 %.
+  and keeps its distance within 0.5 %; the resampled trace ends at the
+  file's own last point, so a 75 m run keeps its 75 m.
 - Endurance energy study (STU-38): an endurance case (a Lap case, or a
   Cycle case from an imported lap repeated to 22 km) reports the net
   battery energy, the lowest pack voltage and, from a trace, the RMS
