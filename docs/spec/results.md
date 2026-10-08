@@ -215,7 +215,7 @@ figure the same without the part (`rule_check_current_ev_2_2_2_a` for
 | `<id>.internal_losses_kwh` | *Battery* — internal losses | kWh |
 | `<id>.peak_terminal_power_kw` | *Battery* — peak terminal power | kW |
 | `<id>.peak_terminal_power_averaged_kw` | *Battery* — peak terminal power, averaged (checked against the Output Power Limit) | kW |
-| `<id>.time_at_power_limit_s` | *Battery* — time held at (or over) the output power limit | s |
+| `<id>.time_at_power_limit_s` | *Battery* — time held at (or over) the output power limit (*time held at the power cap (limit less margin)* when a Power Limit Margin is set) | s |
 | `<id>.max_pack_voltage_v` | *Battery* — maximum pack voltage (checked against the Voltage Class) | V |
 | `<id>.min_pack_voltage_v` | *Battery* — minimum pack voltage | V |
 | `<id>.usable_energy_left_kwh` | *Battery* — usable energy left | kWh |

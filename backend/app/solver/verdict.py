@@ -316,7 +316,9 @@ def terminal_checks(el_id: str, label: str, chk: TerminalCheck, left_kwh: float,
              f"{el_id}.peak_terminal_power_kw"),
             (f"{label} — peak terminal power, averaged", chk.avg_peak_w / 1000.0, "kW",
              limit_kw, ok, f"{el_id}.peak_terminal_power_averaged_kw"),
-            (f"{label} — time {'held at' if chk.enforced else 'over'} the output power limit",
+            (f"{label} — time held at the power cap (limit less margin)" if chk.enforced
+             and chk.margin_pct > 0 else
+             f"{label} — time {'held at' if chk.enforced else 'over'} the output power limit",
              chk.limit_s, "s", None, None, f"{el_id}.time_at_power_limit_s"),
         ]
         if not ok:

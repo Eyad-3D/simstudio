@@ -115,7 +115,9 @@ sections.
   road-load coefficient that is not a number or a negative Maximum Speed
   (errors).
 - Battery: *Output Power Limit* (kW at the terminals, volts × amps, as a
-  Formula Student energy meter measures it), with a *Power Limit Margin*,
+  Formula Student energy meter measures it), with a *Power Limit Margin*
+  (0 to 100 %: the motors are held to the limit less it, and Messages and
+  the summary name the margin),
   a *Power Check Window*, *Hold Power to Limit* (untick it to only check
   the limit) and a *Voltage Class* (V); 0 turns the limit and the class
   off, as in every existing model. The limit caps discharge only: the

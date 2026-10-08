@@ -215,6 +215,7 @@ class TerminalCheck:
     v_class: float  # 0 = no Voltage Class
     v_full: float  # open-circuit voltage at 100 % SOC
     enforced: bool = True  # the limit holds the power (else it is only checked)
+    margin_pct: float = 0.0  # held to the limit less this margin, % (0-100)
     peak_w: float = 0.0
     avg_peak_w: float = 0.0
     t_avg_peak: float = 0.0
@@ -255,7 +256,13 @@ def output_power_cap_w(p: dict) -> float:
     limit_kw = float(p.get("output_power_limit_kW", 0) or 0)
     if limit_kw <= 0 or not p.get("power_limit_enforced", True):
         return math.inf
-    return limit_kw * 1000.0 * (1.0 - float(p.get("power_limit_margin_pct", 0) or 0) / 100.0)
+    return max(0.0, limit_kw * 1000.0 * (1.0 - power_limit_margin(p) / 100.0))
+
+
+def power_limit_margin(p: dict) -> float:
+    """A battery's Power Limit Margin, %, held to 0-100 (Data Checks refuse
+    others; a run started without them never gets a negative cap)."""
+    return min(100.0, max(0.0, float(p.get("power_limit_margin_pct", 0) or 0)))
 
 
 def ocv_mean(points: list, linear: bool = False, lo: float = 0.0, hi: float = 100.0) -> float:

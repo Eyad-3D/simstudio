@@ -61,6 +61,7 @@ from .runtime import (
     motor_max_rpm,
     ocv_mean,
     output_power_cap_w,
+    power_limit_margin,
     solve_linear,
     tyre_mu,
 )
@@ -228,6 +229,7 @@ class RunContext:
                             v_class=max(0.0, v_class),
                             v_full=interp1(ocv_map.pts, 100.0, ocv_map.linear[0]),
                             enforced=bool(p.get("power_limit_enforced", True)),
+                            margin_pct=power_limit_margin(p) if b.p_cap_w < math.inf else 0.0,
                             v_peak=b.v_term, v_min=b.v_term)
                     self.batteries[el_id] = b
                 elif cdef.id == "motor.emotor":
@@ -1195,8 +1197,8 @@ class RunContext:
                                      f"to its input — it supplies nothing.")
                     inflow += self.dcdc_setpoint_w.get(d, 0.0)
             k = 1.0
-            if fixed > deliver + inflow:
-                k = (deliver + inflow) / fixed
+            if fixed > 0.0 and fixed > deliver + inflow:  # (no fixed load: nothing to cut)
+                k = max(0.0, deliver + inflow) / fixed
                 if not (root.battery or root.vsource or root.fuelcell):
                     rt.warn_once(f"nosrc:{root.id}",
                                  "An electrical bus has load but no source — demand is unmet.")
@@ -1302,11 +1304,15 @@ class RunContext:
                              f"battery management system would. The run summary says for how "
                              f"long.", level="info")
             elif discharge and b.capped:  # a limit the user set: info, not a warning
+                margin = b.check.margin_pct if b.check is not None else 0.0
+                held = (f"its Output Power Limit less its {margin:g} % margin "
+                        f"({b.p_cap_w / 1000.0:g} of {b.check.limit_w / 1000.0:g} kW at the "
+                        f"terminals)" if margin > 0 else
+                        f"its Output Power Limit ({b.p_cap_w / 1000.0:g} kW at the terminals)")
                 rt.warn_once(f"cap:{b.el_id}",
-                             f"Battery '{label}' held at its Output Power Limit "
-                             f"({b.p_cap_w / 1000.0:g} kW at the terminals) from t = {t:.2f} s — "
-                             f"the motors get what is left after the other loads. The run "
-                             f"summary says for how long.", level="info")
+                             f"Battery '{label}' held at {held} from t = {t:.2f} s — the motors "
+                             f"get what is left after the other loads. The run summary says for "
+                             f"how long.", level="info")
             elif discharge and i_floor < i_mpp:
                 if not b.depleted_flagged:
                     b.depleted_flagged = True
