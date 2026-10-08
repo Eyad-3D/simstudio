@@ -949,7 +949,10 @@ sections.
   `check`, `export`, `show`, `params`, `parts`, `examples`, `schema`,
   `notebook` and `version`, each with `--json`, and fixed exit codes for
   CI pipelines: 0 done, 1 Data Checks failed, 2 run not valid, 3 usage or
-  file error. Help → *Python API* and *Command-line tool*. (AI-02)
+  file error. `run --set` changes a value for that run, also where the
+  case sets its own. A live case (paced for watching in the app) runs
+  without waiting, with the app's figures. Help → *Python API* and
+  *Command-line tool*. (AI-02)
 - Every run summary figure has a stable key next to its label, such as
   `distance_km` or `el-battery.final_soc_pct` (a part's figures are named
   after the part's id, so renaming the part keeps them); runs keep it,
@@ -988,7 +991,9 @@ sections.
   the MCP revision of 28 July 2026 (stateless, long runs as Tasks,
   confirmations as `input_required`) and still answers apps that use the
   older handshake. It is read-only unless you confirm in the AI app:
-  saving an edit and running a project with Script blocks ask first (on
+  saving an edit (the version it replaces is kept as a backup, beside a
+  file in an allowed folder in `<file>-backups`) and running a project
+  with Script blocks ask first (on
   Windows, Script projects do not run unless you allowed it when
   connecting); a project file with `"noAI": true` stays hidden; an
   assistant's run stops after 5 minutes; every request goes into a local

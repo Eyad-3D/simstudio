@@ -191,3 +191,28 @@ def test_the_package_opens_no_network_socket(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", refuse)
     r = ls.run("bev-car", case="City Cycle")
     assert r.ok
+
+
+def test_a_live_case_runs_without_waiting_and_gives_the_apps_figures(city):
+    # 'City Cycle (live, 10×)' is City Cycle paced at 10× for watching in
+    # the app: 60 s of waiting for its 600 s
+    import time
+
+    t0 = time.monotonic()
+    live = ls.run("bev-car", case="case-city-live")
+    assert time.monotonic() - t0 < 30
+    assert live.status == "success" and live.kpis == city.kpis
+    p = ls.load("bev-car")
+    assert p.case("case-city-live").realtimeFactor == 10, "the project keeps its pace"
+
+
+def test_an_unpaced_live_case_stays_unbalanced_as_in_the_app():
+    from lightsim._engine import engine
+
+    balance = engine("solver.balance")
+    p = ls.load("hybrid-car")
+    live, plain = p.case("Mixed Cycle (live, 10×)"), p.case("Mixed Cycle")
+    fast = balance.unpaced(live)
+    assert fast.realtimeFactor == 0 and live.realtimeFactor == 10
+    assert balance.applies(p.model, fast) is balance.applies(p.model, live) is False
+    assert balance.unpaced(plain) is plain and balance.applies(p.model, plain)

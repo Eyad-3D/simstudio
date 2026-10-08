@@ -22,7 +22,8 @@ values yourself before setting them:
 
 With `model_edit`, a value may be a number (in the parameter's unit) or a
 text with that unit ("150 kW"); a text in another unit is refused, never
-converted.
+converted. Write the decimal sign as a dot ("1.5 kg"): a comma only groups
+thousands ("1,500 kg"), and "1,5 kg" is refused.
 
 ## Kinds of value
 

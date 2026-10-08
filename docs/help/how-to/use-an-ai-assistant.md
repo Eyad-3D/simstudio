@@ -58,11 +58,14 @@ refuse every change.
 - It starts LightSim's engine itself and talks to it directly. Nothing
   opens a network port.
 - It sees your saved projects and the examples, and the folders you
-  allowed. A project file that contains `"noAI": true` stays hidden.
+  allowed. A project file that contains `"noAi": true` stays hidden, and
+  so does a link in an allowed folder to a file outside them.
 - It can read, check and run models. It can propose changes as a dry run;
   saving one needs your **Allow this** in the AI app. An example is never
   changed: the edit is saved as a new project. LightSim keeps the previous
-  version of a project as a backup, as for every save.
+  version of a project as a backup, as for every save. For a file in a
+  folder you allowed, the backups are kept beside it, in a folder named
+  after it (`car.json-backups`, which git ignores).
 - A project with Script blocks (Python code) runs only after you allow
   it. On Windows, where LightSim's script sandbox is weak, it does not run
   at all unless you added `--trust-scripts` to the connection.

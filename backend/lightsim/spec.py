@@ -25,6 +25,12 @@ FORMAT_VERSIONS = {
     "lightsim-result": 1,
 }
 
+#: What each schema says about its licence. docs/spec/README.md holds the
+#: draft licence, which waits for the owner's decision; until the owner
+#: confirms it, a schema names no licence of its own. When it is confirmed,
+#: name it here and regenerate the schemas (``lightsim schema --out``).
+LICENCE_NOTE = "Licence: a draft waiting for the owner's decision, see docs/spec/README.md."
+
 _TITLES = {
     "project": "LightSim project file",
     "run": "LightSim stored run (runs/<project id>/<run id>.json.gz, gzip-compressed)",
@@ -96,7 +102,7 @@ def json_schemas() -> dict[str, dict]:
             "$id": f"urn:lightsim:schema:{name}:{version}",
             "title": _TITLES[name],
             "description": (f"Format version {version}. Generated from LightSim's data models; "
-                            f"the specification is docs/spec/README.md (CC BY 4.0)."),
+                            f"the specification is docs/spec/README.md. {LICENCE_NOTE}"),
             **{k: v for k, v in schema.items() if k not in ("title", "description")},
         }
     return out

@@ -37,6 +37,14 @@ def test_committed_schemas_are_up_to_date():
             f"in backend/ and note the change in docs/spec/CHANGELOG.md")
 
 
+def test_the_schemas_claim_no_licence_the_owner_has_not_granted():
+    draft = "Draft licence" in (SPEC / "README.md").read_text(encoding="utf-8")
+    for name, schema in json_schemas().items():
+        assert ("draft" in schema["description"]) == draft, name
+        if draft:
+            assert "CC BY" not in schema["description"], name
+
+
 @pytest.mark.parametrize("path", EXAMPLES, ids=lambda p: p.stem)
 def test_example_projects_validate(path):
     _validator("project").validate(json.loads(path.read_text(encoding="utf-8")))

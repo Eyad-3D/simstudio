@@ -75,6 +75,24 @@ def test_set_changes_a_value_for_one_run():
     assert heavy["kpis"][key] > light["kpis"][key]
 
 
+def test_set_wins_over_the_cases_own_value(tmp_path):
+    # the HVAC case sets the Power Consumer's power itself (2.5 kW)
+    out = tmp_path / "hvac.json"
+    r = cli("run", "bev-car", "--case", "WLTC, heating/air-con on", "--time-limit", "2",
+            "--set", "Power Consumer.power_kW=5", "-o", str(out))
+    assert r.returncode in (0, 2), r.stderr
+    drawn = json.loads(out.read_text(encoding="utf-8"))["channels"]["el-consumer:sig_power"]
+    assert drawn["values"][1:4] == [5, 5, 5]
+
+    from lightsim.cli import _apply_sets
+
+    p = ls.load("hybrid-car")
+    cases = [c.id for c in p.cases]
+    _apply_sets(p, ["HV Battery.initial_soc_pct=70"], cases)
+    assert {p.get("HV Battery.initial_soc_pct", case=c) for c in cases} == {70}
+    assert p.get("HV Battery.initial_soc_pct") == 70
+
+
 def test_export_a_stored_run(tmp_path):
     loadmat = pytest.importorskip("scipy.io").loadmat
     first = tmp_path / "run.json"

@@ -100,12 +100,8 @@ def cmd_run(args) -> int:
     from . import Project
 
     project = Project.load(args.project)
-    for assignment in args.set or []:
-        ref, sep, value = assignment.partition("=")
-        if not sep:
-            raise UsageError(f"--set '{assignment}': write Part.parameter=value.")
-        project.set(ref.strip(), _typed(value.strip()))
     cases = [c.id for c in project.cases] if args.all_cases else [project.case(args.case).id]
+    _apply_sets(project, args.set or [], cases)
     if len(cases) > 1 and any("{case}" not in o for o in args.out or []):
         raise UsageError("With --all-cases, put {case} in each --out file name.")
     code, payload, texts = EXIT_OK, [], []
@@ -118,6 +114,21 @@ def cmd_run(args) -> int:
         texts.append(_result_text(result, written))
     _out(args, payload[0] if len(payload) == 1 else payload, "\n\n".join(texts))
     return code
+
+
+def _apply_sets(project, assignments: Sequence[str], cases: Sequence[str]) -> None:
+    """Apply --set values. Each is set on the part and as the own value of
+    every case that runs: a case's own value wins over the part's, so
+    setting the part alone would leave a case that sets that key (the
+    hybrid's start charge, the HVAC case's power) running on its own."""
+    for assignment in assignments:
+        ref, sep, value = assignment.partition("=")
+        if not sep:
+            raise UsageError(f"--set '{assignment}': write Part.parameter=value.")
+        ref, typed = ref.strip(), _typed(value.strip())
+        project.set(ref, typed)
+        for case_id in cases:
+            project.set(ref, typed, case=case_id)
 
 
 def _typed(text: str):
