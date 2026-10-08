@@ -325,6 +325,27 @@ export interface Project {
   card?: ExampleCard | null;
   /** Files kept with the project: FMUs, AI models, measured data (STD-02). */
   attachments?: Attachment[];
+  /** Drive cycles of the user's own, imported from a file (CON-11). */
+  cycles?: ProjectCycle[];
+}
+
+/** A drive cycle of the user's own, kept in the project file (CON-11): a
+ *  speed (km/h) and/or a road grade (%) at each point of `x`, the time in s
+ *  or, with axis "distance", the distance driven in m. A Driving Task or
+ *  Road Profile names it by id in its `cycle`, like a bundled cycle. */
+export interface ProjectCycle {
+  /** "own:" and up to 64 letters, digits, ".", "_" or "-" */
+  id: string;
+  name: string;
+  axis: "time" | "distance";
+  x: number[];
+  /** km/h, one per x; needed against time */
+  speed?: number[] | null;
+  /** %, one per x */
+  grade?: number[] | null;
+  /** where it came from, e.g. the file it was imported from */
+  source?: string;
+  note?: string;
 }
 
 /** What an example answers and what to expect from it (CON-15); its

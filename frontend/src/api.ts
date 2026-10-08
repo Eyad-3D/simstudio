@@ -136,6 +136,12 @@ export interface CycleInfo {
   note?: string;
   /** it carries a road grade a Road Profile can take */
   grade?: boolean;
+  /** one of the project's own (CON-11), not a bundled cycle */
+  own?: boolean;
+  /** what its points are against; bundled cycles are against time */
+  axis?: "time" | "distance";
+  /** it has a speed a Driving Task can drive (an own cycle may have a grade only) */
+  speed?: boolean;
 }
 
 /** A drive cycle with its trace: time (s) and speed (km/h). */
@@ -955,6 +961,45 @@ export function importTableFile(
   return request("/import/table", {
     method: "POST",
     body: JSON.stringify({ filename: file.name, data: file.data, ...target, ...options }),
+  });
+}
+
+/** A drive cycle of one's own as read from a CSV or Excel file (CON-11):
+ *  the table import's answer, with up to three columns. */
+export interface CycleImport
+  extends Omit<TableImport, "kind" | "value" | "yColumn" | "transpose" | "preview"> {
+  kind: "cycle";
+  axis: "time" | "distance";
+  /** -1: none */
+  speedColumn: number | null;
+  gradeColumn: number | null;
+  /** the cycle, ready to keep in the project; null when it cannot be read */
+  cycle: { axis: "time" | "distance"; x: number[]; speed: number[] | null; grade: number[] | null } | null;
+  /** its duration, distance and top speed */
+  info: CycleInfo | null;
+  /** [[x, speed]] (or [[x, grade]] without a speed) for the preview chart */
+  preview: [number, number][] | null;
+}
+
+export interface CycleImportOptions {
+  sheet?: string;
+  range?: string;
+  axis?: "time" | "distance";
+  xColumn?: number;
+  /** -1: none */
+  speedColumn?: number;
+  gradeColumn?: number;
+  units?: Record<string, string>;
+  decimal?: "comma" | "point";
+}
+
+export function importCycleFile(
+  file: { name: string; data: string },
+  options: CycleImportOptions = {},
+): Promise<CycleImport> {
+  return request("/import/cycle", {
+    method: "POST",
+    body: JSON.stringify({ filename: file.name, data: file.data, ...options }),
   });
 }
 

@@ -72,6 +72,7 @@ test("CON-11: a Road Profile takes its grade from a cycle that has one", async (
     "Custom profile (typed points)",
     /^Long-haul truck route \(804\.6 km, with grade\) · 83,042 s · 804\.62 km · with grade$/,
     /^Long-haul truck route, first 100 km \(with grade\) · 5,903 s · 100\.01 km · with grade$/,
+    "Import a cycle from a file…", // a file of one's own with a grade (CON-11)
   ]);
   await expect(page.getByLabel("Profile Axis")).toBeVisible();
   await field.selectOption("long-haul-100km");
