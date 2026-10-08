@@ -423,7 +423,8 @@ function buildMenu() {
         { type: "separator" },
         {
           // BIZ-35: opens the public Idea form in the browser, with the
-          // version filled in; nothing is sent unless the user submits it.
+          // version in the link: GitHub sees that visit (and the version),
+          // and nothing the user writes is sent until they submit the form.
           label: "What Stopped You?…",
           click: () => shell.openExternal(feedbackUrl(app.getVersion())),
         },
