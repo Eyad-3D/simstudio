@@ -15,8 +15,9 @@ uses. Sweep it on the endurance:
 3. Choose *Accumulator* and *Output Power Limit (0 = none) (kW)*; set
    **From** 25, **to** 35, **in** 3 steps: 25, 30 and 35 kW.
 4. Click **Run sweep**. The three runs take about half a minute.
-5. On the *Results* page click **Sweep**, and pick *Total time* in the
-   list next to it; then pick *Accumulator — final SOC*.
+5. Click **Show results** in the notice it ends with, then **Sweep**
+   above the chart, and pick *Total time* in the list next to it; then
+   pick *Accumulator — final SOC*.
 
 The swept value takes the place of the case's own 30 kW for each run.
 

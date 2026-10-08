@@ -9,7 +9,8 @@ changed, a list says what you changed, and the new run is named after it.
 1. Run a case, for example the Battery Electric Car's *City Cycle*.
 2. Click the **Home** tab, then the **Vehicle** on the diagram.
 3. In *Properties*, set *Vehicle Mass* to 2300 and press Enter.
-4. Press **Run**.
+4. Press **Run**. When it ends, click **Show results** in the notice at
+   the bottom right.
 
 The *Results* page opens on the new run, named *Vehicle Mass 2,300 kg*
 after what changed. On the left, **Baseline** reads *Previous run of this

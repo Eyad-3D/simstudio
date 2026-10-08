@@ -17,7 +17,8 @@ On the *Start* page, under *New from an example*, click **Battery
 Electric Car**. In the list next to **Run** at the top right, pick *WLTC
 Class 3b*: the Worldwide harmonised Light vehicles Test Cycle (WLTC), the
 1,800 s test that cars are rated on in Europe. Press **Run**. The run
-takes about half a minute.
+takes about half a minute; when it ends, click **Show results** in the
+notice at the bottom right.
 
 **Check:** the run ends as *success*, and the headline numbers read
 *Consumption* 14.05 kWh/100 km and *Distance driven* 23.267 km.
@@ -30,7 +31,7 @@ braking put back, per 100 km ([how each number is worked out](../reference/resul
 1. Click the **Home** tab, then the **HV Battery Pack** on the diagram.
 2. In *Properties* on the right, set *Usable Capacity* from 62 to 40 and
    press Enter.
-3. Press **Run** again.
+3. Press **Run** again, and **Show results** when it ends.
 
 The *Results* page compares the new run with the one before, the
 baseline ([how](../how-to/compare-two-runs.md)).
@@ -133,7 +134,7 @@ Make it a small city car, lighter than the example:
 3. Click *Driving Task 1* and pick *WLTC class 3b* in *Drive Cycle*.
    LightSim sets the case, *Case 1*, to the cycle's 1,800 s.
 
-Press **Run**.
+Press **Run**, and **Show results** when it ends.
 
 **Check:** the run ends as *success* with *Distance driven* 23.267 km.
 *Consumption* should be between 9.5 and 11.5 kWh/100 km: LightSim gives

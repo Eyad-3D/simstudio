@@ -25,7 +25,7 @@ In the list next to **Run** at the top right, pick *Acceleration 75 m*.
 This case is an acceleration test: the driver holds full throttle from
 standstill, and the run is timed from the start line, 0.3 m in front of
 the car (FS Rules 2026 D 5.2.3), to the 75 m line. Press **Run**. The run
-takes under a second.
+takes under a second; click **Show results** in the notice it ends with.
 
 **Check:** the headline numbers read *Time to 75 m* 3.751 s and *Speed at
 75 m* 118.86 km/h. *Gap to reference time* is -0.159 s: the case's
@@ -67,8 +67,8 @@ the limit: run the test once for each value.
 1. Open the *Cases* tab on the right and scroll to *Parameter sweep*.
 2. Choose *Accumulator* and *Output Power Limit (0 = none) (kW)*.
 3. Set **From** 40, **to** 80, **in** 5 steps: 40, 50, 60, 70 and 80 kW.
-4. Click **Run sweep**, then **Sweep** above the chart on the *Results*
-   page.
+4. Click **Run sweep**. When it ends, click **Show results** in the
+   notice at the bottom right, then **Sweep** above the chart.
 
 **Check:** the sweep plots *Time to 75 m* against the power limit: 4.232 s
 at 40 kW, 4.040 s at 50 kW, 3.910 s at 60 kW, 3.82 s at 70 kW and 3.751 s

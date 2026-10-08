@@ -44,8 +44,10 @@ settings. *City Cycle* is picked, a 600 s drive in town.
 The *Results* tab already holds a run of each case, named *Stored result*:
 the example's results as LightSim stored them, with only a few signals.
 
-Press **Run**, or Ctrl+Enter. LightSim changes to the *Results* page and
-draws the run as it goes. The City Cycle takes a few seconds. Your run is
+Click the **Results** tab, then press **Run**, or Ctrl+Enter. LightSim
+draws the run as it goes. The City Cycle takes a few seconds. (Run from
+another page, the page stays as it is, and a notice at the bottom right
+offers **Show results** when the run ends.) Your run is
 compared with the stored one, and its numbers read *~ 0 vs baseline*: the
 same.
 
@@ -81,7 +83,8 @@ same.
 1. Click the **Home** tab at the top, then the **Vehicle** on the diagram.
 2. In *Properties*, set *Vehicle Mass* to 2300 and press Enter. The car
    now weighs 2,300 kg instead of 1,927 kg.
-3. Press **Run** again.
+3. Press **Run** again. When it ends, click **Show results** in the
+   notice at the bottom right.
 4. On the *Results* page the new run is named *Vehicle Mass 2,300 kg*,
    after what you changed. The earlier run is drawn faint and dashed with
    it, and *What changed* on the left lists *Vehicle · Vehicle Mass

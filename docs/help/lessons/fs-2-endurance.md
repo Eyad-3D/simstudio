@@ -10,7 +10,8 @@ about 15 minutes. Do
 
 Open **FS Electric (generic)** from the *Start* page again, or go on with
 your copy from lesson 1. In the list next to **Run**, pick *Endurance
-energy* and press **Run**. The run takes about 10 to 15 s.
+energy* and press **Run**. The run takes about 10 to 15 s; click
+**Show results** in the notice it ends with.
 
 This is a *Lap* case: the car drives 23 laps of LightSim's own 979 m
 Autocross layout, as fast as its tyres, motor and accumulator allow at

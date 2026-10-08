@@ -7,8 +7,9 @@ did between them: for example the energy the battery gave from 150 to
 
 ## Read the energy between two times
 
-1. Run a case. The *Results* page opens with the battery's
-   **Discharge Power** ticked on the left.
+1. Run a case, and click **Show results** in the notice it ends with.
+   The *Results* page opens with the battery's **Discharge Power** ticked
+   on the left.
 2. Click **Cursors** above the chart, or press C. Lines A and B appear
    on the chart, with their time fields and a table under it.
 3. Click the **A** field under the chart, type `150` and press Tab.
