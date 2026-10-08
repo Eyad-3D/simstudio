@@ -9,14 +9,29 @@ license-file.workspace = true
 repository.workspace = true
 
 [features]
-default = ["sundials"]
-# SUNDIALS CVODE and IDA (BSD-3-Clause), the production integrators
+# both backends: the exact-answer suite runs every case on each and checks
+# they agree; a production build may drop diffsol (default-features = false,
+# features = ["sundials"])
+default = ["sundials", "diffsol"]
+# SUNDIALS CVODES and IDAS (BSD-3-Clause), the production integrators,
+# built in-tree with only a C compiler
 sundials = ["dep:lsim-sundials-sys"]
+# diffsol (MIT, pure Rust): the second backend, for cross-checks
+diffsol = ["dep:diffsol"]
 
 [dependencies]
 lsim-ir.workspace = true
 thiserror.workspace = true
 lsim-sundials-sys = { workspace = true, optional = true }
+faer.workspace = true
+rayon.workspace = true
+diffsol = { workspace = true, optional = true }
+
+[dev-dependencies]
+lsim-lib.workspace = true
+lsim-prep.workspace = true
+lsim-codegen.workspace = true
+toml.workspace = true
 
 [lints]
 workspace = true

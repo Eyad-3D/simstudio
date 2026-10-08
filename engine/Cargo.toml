@@ -40,6 +40,16 @@ cranelift-module = "=0.134.4"
 cranelift-native = "=0.134.4"
 # the C compiler driver that builds the vendored SUNDIALS (lsim-sundials-sys)
 cc = { version = "=1.6.0", features = ["parallel"] }
+# the sparse LU inside SUNDIALS (KLU is LGPL) and the dense LU of the
+# initialisation; MIT
+faer = { version = "=0.24.4", default-features = false, features = ["std", "linalg", "sparse-linalg"] }
+# parallel sweeps
+rayon = "=1.12.0"
+# the pure-Rust second integrator (cross-checks); pinned: its API changes
+# between minor versions
+diffsol = { version = "=0.17.1", default-features = false, features = ["nalgebra", "faer"] }
+# reading the reference problems' checkpoints in tests (benchmarks/reference)
+toml = { version = "=0.9.12", default-features = false, features = ["std", "parse", "serde"] }
 pyo3 = { version = "=0.29.3", features = ["abi3-py311"] }
 
 [workspace.lints.rust]
