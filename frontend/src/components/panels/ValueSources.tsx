@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useProjectStore } from "../../store/projectStore";
-import type { ComponentDef, ElementInstance, ParameterDef, ParameterSource, SourceKind } from "../../types";
+import type { ComponentDef, ElementInstance, ParameterDef, ParameterSource, ScalarValue, SourceKind } from "../../types";
 
 export const SOURCE_KINDS: SourceKind[] = ["measured", "datasheet", "estimated", "generated", "library default"];
 export const CONFIDENCE = ["0 · not checked", "1 · agrees with its source", "2 · source and method checked"];
@@ -28,10 +28,20 @@ export function SourceBadge({ src }: { src?: ParameterSource }) {
   );
 }
 
+/** The part's values that can have a source and that apply to it: a value
+ *  shown only for another setting (a battery's cell values with Defined By
+ *  Pack values, MOD-08) is left out, as the parameter form leaves it out. */
+function sourcedParams(el: ElementInstance, def: ComponentDef) {
+  const value = (key: string) => el.parameterOverrides[key] ?? def.parameters.find((q) => q.key === key)?.default;
+  return def.parameters.filter(
+    (p) => sourced(p) && (!p.showIf || p.showIf.values.includes(value(p.showIf.key) as ScalarValue)),
+  );
+}
+
 /** How many of a part's values have a recorded source, and how many still
  *  hold the library's default. */
 export function sourceCounts(el: ElementInstance, def: ComponentDef) {
-  const params = def.parameters.filter(sourced);
+  const params = sourcedParams(el, def);
   const withSource = params.filter((p) => el.parameterSources?.[p.key]).length;
   const atDefault = params.filter((p) => !(p.key in el.parameterOverrides) && !el.parameterSources?.[p.key]).length;
   return { total: params.length, withSource, atDefault };
@@ -41,7 +51,7 @@ export function sourceCounts(el: ElementInstance, def: ComponentDef) {
  *  form to record or change that. */
 export function ValueSources({ element, def }: { element: ElementInstance; def: ComponentDef }) {
   const setParameterSource = useProjectStore((s) => s.setParameterSource);
-  const params = def.parameters.filter(sourced);
+  const params = sourcedParams(element, def);
   const [key, setKey] = useState("");
   const [source, setSource] = useState("");
   const [kind, setKind] = useState<SourceKind>("datasheet");

@@ -2009,10 +2009,11 @@ describe("project files (PLT-07, PLT-33, STD-02)", () => {
     expect(useUIStore.getState().dialog).toBeNull();
   });
 
-  it("code from outside is run only once the user trusts it, and asked about once", async () => {
+  it("attached code from outside is run only once the user trusts it, and asked about once", async () => {
     await store().init();
-    const script = { ...el("el-script", "signal.script", "Script"), parameterOverrides: { code: "out = 1" } };
-    api.fetchProject.mockResolvedValueOnce({ ...fixture({ systems: [{ ...fixture().systems[0], elements: [script] }] }), revision: "r1" });
+    // an attached FMU (Script blocks have their own review, PLT-35)
+    const attachments = [{ path: "resources/motor.fmu", sha256: "a".repeat(64), bytes: 2048 }];
+    api.fetchProject.mockResolvedValueOnce({ ...fixture({ attachments }), revision: "r1" });
     await store().openProject("fixture");
     engineFinishesRuns();
     const run = store().run();
@@ -2024,8 +2025,8 @@ describe("project files (PLT-07, PLT-33, STD-02)", () => {
     await again;
     expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
     expect(api.trustFingerprint).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f]{64}$/));
-    // the user's own edit to the code runs without asking
-    store().setParameter("el-script", "code", "out = 2");
+    // the user's own edits to a trusted project run without asking
+    store().renameElement("el-bat", "Pack");
     await store().run();
     expect(api.runSimulationLive).toHaveBeenCalledTimes(2);
     expect(useUIStore.getState().dialog).toBeNull();

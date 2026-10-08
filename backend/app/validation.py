@@ -356,6 +356,11 @@ def value_provenance(project: Project, defs: dict) -> tuple[int, int]:
             for pdef in cdef.parameters:
                 if pdef.type not in ("number", "table1d", "table2d"):
                     continue
+                if pdef.showIf is not None:  # only for another setting (MOD-08's cell values)
+                    shown = el.parameterOverrides.get(pdef.showIf.key, next(
+                        (q.default for q in cdef.parameters if q.key == pdef.showIf.key), None))
+                    if shown not in pdef.showIf.values:
+                        continue
                 total += 1
                 if pdef.key not in el.parameterOverrides and pdef.key not in sources:
                     at_default += 1
