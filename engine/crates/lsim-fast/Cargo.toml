@@ -1,0 +1,15 @@
+[package]
+name = "lsim-fast"
+description = "Fast mode: the same equations solved as an inverse model on the prescribed speed trace, fixed steps, flagging the moments the vehicle could not follow"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license-file.workspace = true
+repository.workspace = true
+
+[dependencies]
+lsim-ir.workspace = true
+
+[lints]
+workspace = true
