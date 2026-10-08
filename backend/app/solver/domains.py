@@ -28,7 +28,7 @@ from typing import Optional
 
 from .. import script_trust
 from ..fmu import FmuError, FmuFileError
-from .battery import CELLS, PACK, CellPack
+from .battery import CELLS, PACK, CellPack, rc_horizon
 from .climate import ClimateState, climate_power
 from .energy import FUEL_LHV_MJ, H2_LHV_J_PER_KG, ROAD_TERMS, EnergyBook, book_linear
 from .maps import Map, MapUse, TableError, interp1, parse_table1d, parse_table2d
@@ -1075,12 +1075,29 @@ class RunContext:
     def battery_currents(self, b: BatteryState) -> tuple[float, float, float, float]:
         """(source voltage behind R0, maximum-power-point current, discharge
         current that reaches the minimum SOC within the step, charge current
-        that reaches 100 % within it)."""
+        that reaches 100 % within it). With a weak group, the pack stops
+        where that group reaches them (MOD-08): the same current flows
+        through every group in series."""
         soc_per_amp = self.dt / 3600.0 / b.q_ah  # SOC one ampere moves over the step
         a_volt = b.ocv() - b.v_rc
-        return (a_volt, max(0.0, a_volt) / (2.0 * b.r0),
-                max(0.0, (b.soc - b.min_soc) / soc_per_amp),
-                max(0.0, (1.0 - b.soc) / (soc_per_amp * b.eta_charge)))
+        i_floor = max(0.0, (b.soc - b.min_soc) / soc_per_amp)
+        i_full = max(0.0, (1.0 - b.soc) / (soc_per_amp * b.eta_charge))
+        cp = b.cells
+        if cp is not None and cp.weak:
+            w_floor, w_full = cp.weak_currents(b.min_soc, soc_per_amp, b.eta_charge)
+            i_floor, i_full = min(i_floor, w_floor), min(i_full, w_full)
+        return a_volt, max(0.0, a_volt) / (2.0 * b.r0), i_floor, i_full
+
+    @staticmethod
+    def weak_first(b: BatteryState, empty: bool) -> bool:
+        """A battery's weak group reaches its minimum SOC (``empty``) or 100 %
+        before the rest of the pack."""
+        cp = b.cells
+        if cp is None or not cp.weak:
+            return False
+        if empty:
+            return (cp.soc_weak - b.min_soc) * cp.weak_cap < b.soc - b.min_soc
+        return (1.0 - cp.soc_weak) * cp.weak_cap < 1.0 - b.soc
 
     def battery_full(self, b: BatteryState) -> bool:
         """Too full to take its max charge power for a whole solver step."""
@@ -1101,8 +1118,18 @@ class RunContext:
             if cp.cells:  # the resistance of the pulse going on (of one starting now at rest)
                 cp.r_cell_now = cp.r_cell(b.soc_pct(), t_c, cp.pulse_s if cp.pulse_sign else 0.0)
                 b.r0 = cp.r_pack(cp.r_cell_now)
+            # the voltage limits hold at the step's end, with the RC pair as
+            # the step leaves it; with no current limit the derating band
+            # lowers the maximum-power-point current and the current at the
+            # Max Charge Power
+            v_keep, r_rc = rc_horizon(b.v_rc, b.r1, b.tau,
+                                      1.0 / (1.0 + self.dt / b.tau) if b.tau > 0 else 1.0)
+            a_volt = b.ocv() - b.v_rc
+            root = math.sqrt(max(0.0, a_volt * a_volt + 4.0 * b.r0 * b.max_charge_w))
+            i_free = (max(0.0, a_volt) / (2.0 * b.r0),
+                      2.0 * b.max_charge_w / (a_volt + root) if a_volt + root > 0 else math.inf)
             b.i_dis_lim, cp.bound_dis, b.i_ch_lim, cp.bound_ch = cp.currents(
-                b.soc, b.min_soc, t_c, pulse_dis, pulse_ch, b.ocv(), b.r0)
+                b.soc, b.min_soc, t_c, pulse_dis, pulse_ch, b.ocv(), b.r0, v_keep, r_rc, i_free)
         a_volt, i_mpp, i_floor, i_full = self.battery_currents(b)
         i_dis = min(i_mpp, i_floor)
         if cp is not None:
@@ -1310,17 +1337,26 @@ class RunContext:
             elif discharge and i_floor < i_mpp:
                 if not b.depleted_flagged:
                     b.depleted_flagged = True
-                    rt.message("warning",
-                               f"Battery '{label}' reached minimum SOC ({b.min_soc * 100:.0f} %) at "
-                               f"t = {t:.0f} s — no further discharge; the motors get only what "
-                               f"is left.")
+                    if self.weak_first(b, empty=True):
+                        rt.message("warning",
+                                   f"Battery '{label}': its weakest group reached minimum SOC "
+                                   f"({b.min_soc * 100:.0f} %) at t = {t:.0f} s, with the pack at "
+                                   f"{b.soc * 100:.0f} % — no further discharge, as the same "
+                                   f"current flows through every group; the motors get only "
+                                   f"what is left.")
+                    else:
+                        rt.message("warning",
+                                   f"Battery '{label}' reached minimum SOC ({b.min_soc * 100:.0f} %) "
+                                   f"at t = {t:.0f} s — no further discharge; the motors get only "
+                                   f"what is left.")
             elif discharge:
                 rt.warn_once(f"maxp:{b.el_id}",
                              f"Battery '{label}' demand exceeds its deliverable power — motor "
                              f"torque limited at the maximum power point.")
             elif self.battery_full(b):
+                which = ": its weakest group is" if self.weak_first(b, empty=False) else " is"
                 rt.warn_once(f"full:{b.el_id}",
-                             f"Battery '{label}' is full — regenerative torque limited.")
+                             f"Battery '{label}'{which} full — regenerative torque limited.")
             else:
                 rt.warn_once(f"chg:{b.el_id}",
                              f"Charging exceeds max charge power of '{label}' — regenerative "
@@ -2690,7 +2726,7 @@ class ElectricalSlave(_CtxSlave):
                     cp.track(current, dt, eta, b.q_ah)
                     if cp.cells:
                         b.v_term += cp.weak_shift(b.soc)
-                        cp.v_cell = lo, hi = cp.cell_voltages(b.soc, current)
+                        cp.v_cell = lo, hi = cp.cell_voltages(b.soc, current, b.v_rc)
                         if lo < cp.v_cell_low:
                             cp.v_cell_low = lo
                         if hi > cp.v_cell_high:

@@ -270,8 +270,12 @@ def ocv_mean(points: list, linear: bool = False, lo: float = 0.0, hi: float = 10
 
 
 def usable_energy_left_wh(b: BatteryState) -> float:
-    """The open-circuit energy a battery can still give before its minimum SOC, W·h."""
+    """The open-circuit energy a battery can still give before its minimum SOC
+    (or before its weak group reaches it, which stops the pack), W·h."""
     soc, floor = max(0.0, min(1.0, b.soc)), max(0.0, min(1.0, b.min_soc))
+    cp = b.cells
+    if cp is not None and cp.weak:  # the pack's SOC when the weak group gets there
+        floor = max(floor, soc - max(0.0, cp.soc_weak - floor) * cp.weak_cap)
     if soc <= floor:
         return 0.0
     return b.q_ah * (soc - floor) * ocv_mean(b.ocv_map.pts, b.ocv_map.linear[0],

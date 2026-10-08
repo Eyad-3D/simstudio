@@ -648,8 +648,9 @@ sections.
   20 °C. The battery management system's limits hold: the current never
   exceeds the cells' continuous or, for pulses up to the *Peak Duration*,
   peak current, no cell goes below its minimum or above its maximum
-  voltage, and an optional *Weakest Group* (less capacity, more resistance)
-  sets them, as the weakest module does in a real string. New channels:
+  voltage (with an RC pair's voltage too), and an optional *Weakest Group*
+  (less capacity, more resistance) sets them and stops the pack when it
+  reaches the *Minimum SOC*, as the weakest module does in a real string. New channels:
   *Discharge* and *Charge Power Limit* for 2, 10 and 30 s (the state of
   power), *Discharge* and *Charge Current Limit*, *Lowest* and *Highest
   Cell Voltage*; the summary gives the time held at each limit and the
@@ -658,7 +659,8 @@ sections.
   none) do the same for the whole pack: at 300 A the Battery Electric Car
   takes 10.02 s to 100 km/h instead of 7.10. A *SOC Derating Band* (both
   modes) lowers the limits linearly to 0 near empty and full, as FASTSim's
-  buffers do. The Formula Student car built from 138s4p cells with a 30 A
+  buffers do (without a current limit, the maximum-power-point current,
+  which Data Checks point out). The Formula Student car built from 138s4p cells with a 30 A
   peak (120 A) takes 3.886 s over 75 m instead of 3.744. The parameter
   dialog shows only the fields of the mode chosen. Existing models and the
   examples do not change. (MOD-08)

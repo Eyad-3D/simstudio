@@ -160,7 +160,16 @@ limits a BMS keeps (fidelity L1), with these simplifications:
   (MOD-51), and no ageing.
 - A cell's voltage limit is met at the start of each 10 ms step; the
   open-circuit voltage then falls a little over the step, so a cell can end
-  it a few millivolts past its limit (at most 2 mV in the tests).
+  it a few millivolts past its limit (at most 2 mV in the tests). The RC
+  pair's voltage counts against the limits too, shared evenly by the
+  series cells.
+- The weakest group stops the pack when it reaches the *Minimum SOC* (or
+  100 % when charging), as the same current flows through every group; the
+  pack's own SOC is then higher.
+- Without a current limit (*Pack values*), the *SOC Derating Band* lowers
+  the current at the pack's maximum-power point, far more than most loads
+  draw, so it holds the motors back only close to the *Minimum SOC*; Data
+  Checks say so. Set a *Max Discharge Current* for a taper.
 - The 2, 10 and 30 s power-limit channels are the state of power for a
   pulse starting from the present state; the handshake holds the motors to
   the limit of the pulse going on (the 2 s values at a pulse's start).

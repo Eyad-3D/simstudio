@@ -1008,7 +1008,8 @@ def _state_of_power(ctx: RunContext, b) -> list[tuple[float, float]]:
     worked out once per recorded point."""
     key = (ctx.book.n, b.soc, b.v_rc)
     if b.cells.sop_at[0] != key:
-        b.cells.sop_at = (key, sop(b.cells, b.soc, b.min_soc, ctx.ambient_c(), b.ocv(), b.v_rc))
+        b.cells.sop_at = (key, sop(b.cells, b.soc, b.min_soc, ctx.ambient_c(), b.ocv(), b.v_rc,
+                                   b.r1, b.tau))
     return b.cells.sop_at[1]
 
 
