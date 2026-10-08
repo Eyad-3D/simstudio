@@ -27,7 +27,8 @@ own, and the runs stay with the original.
 
 **Home → Open** and the *Start* page list the files you opened lately under
 *Recent files*. The cross next to a file takes it off the list; the file
-itself stays where it is.
+itself stays where it is, and if the project is open, **Save** still
+writes to it.
 
 ## What is next to the file
 

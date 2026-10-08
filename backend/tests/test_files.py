@@ -100,7 +100,30 @@ def test_a_reopened_file_finds_its_runs_and_is_on_recent_files(repo):
     # taken off Recent files, the file itself stays
     assert client.delete("/api/files/team-car").status_code == 200
     assert client.get("/api/files").json() == [] and path.is_file()
-    assert client.get("/api/projects/team-car").status_code == 404
+    assert client.delete("/api/files/team-car").status_code == 404
+    # opened again, it is back on the list under the same id, with its runs
+    assert _open(path)["id"] == "team-car"
+    assert [f["id"] for f in client.get("/api/files").json()] == ["team-car"]
+    assert [r["id"] for r in client.get("/api/projects/team-car/runs").json()] == ["run-1"]
+
+
+def test_taking_the_open_file_off_recent_files_keeps_saving_to_it(repo, projects):
+    path = _write(repo / "car.lightsim", {**_example(), "id": "team-car"})
+    _open(path)
+    body = client.get("/api/projects/team-car").json()
+    rev = body.pop("revision")
+    for key in ("filePath", "upgradedFrom"):
+        body.pop(key, None)
+    assert client.delete("/api/files/team-car").status_code == 200
+    # the window that has it open: no "deleted on disk", and Save writes the file
+    assert client.get("/api/projects/team-car/revision").json() == {"revision": rev}
+    body["name"] = "Team car"
+    _save(body, rev)
+    assert json.loads(path.read_text(encoding="utf-8"))["name"] == "Team car"
+    assert not (projects / "team-car.json").exists()
+    assert client.get("/api/files").json() == []
+    # an app restart reads the hidden entry from disk too
+    assert files.lookup("team-car") == path and files.recent() == []
 
 
 def test_a_copy_whose_id_is_taken_gets_its_own(repo, projects):
