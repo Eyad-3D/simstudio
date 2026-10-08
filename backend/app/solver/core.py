@@ -769,17 +769,24 @@ class _Envelope:
         """Reduce the buffered rows into the interval's accumulators."""
         if not self.rows:
             return
-        hs, acc = self.hs, self.acc
+        hs, acc, mul = self.hs, self.acc, operator.mul
+        span_all = sum(hs)  # a full column's span
         for key, col in zip(self.keys, zip(*self.rows)):
-            if None in col:  # no data yet in part of the interval
+            # min() raises TypeError on two or more values with a None among
+            # them, so a full column (the usual case) is not scanned for None
+            try:
+                lo, hi = min(col), max(col)
+            except TypeError:
+                lo = None
+            if lo is not None:
+                area, span = sum(map(mul, col, hs)), span_all
+            else:  # no data yet in part of the interval
                 pairs = [(v, h) for v, h in zip(col, hs) if v is not None]
                 if not pairs:
                     continue
                 col, h_col = tuple(v for v, _ in pairs), [h for _, h in pairs]
-            else:
-                h_col = hs
-            lo, hi = min(col), max(col)
-            area, span = sum(map(operator.mul, col, h_col)), sum(h_col)
+                lo, hi = min(col), max(col)
+                area, span = sum(map(mul, col, h_col)), sum(h_col)
             a = acc.get(key)
             if a is None:
                 acc[key] = [lo, hi, area, span]
