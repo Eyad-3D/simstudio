@@ -51,6 +51,8 @@ same.
 
 ## 4. Read the results
 
+**Check:** the run ends as *success* with *Consumption* 11.12 kWh/100 km.
+
 - The numbers above the chart sum up the run: *Consumption*
   11.12 kWh/100 km, *Distance driven* 7.292 km, the battery's final SOC,
   88.76 %, and the energy it gave and took back. **All summary values**
@@ -85,13 +87,15 @@ same.
    it, and *What changed* on the left lists *Vehicle · Vehicle Mass
    1,927 → 2,300 kg*.
 
-*Consumption* reads 12.34 kWh/100 km, *+1.22 (+11.0 %) vs baseline*: the
-heavier car uses 11 % more energy on the same drive than the earlier run,
-the baseline. [How to compare two runs](../how-to/compare-two-runs.md).
+**Check:** *Consumption* reads 12.34 kWh/100 km, *+1.22 (+11.0 %) vs
+baseline*.
+
+The heavier car uses 11 % more energy on the same drive than the
+earlier run, the baseline. [How to compare two runs](../how-to/compare-two-runs.md).
 
 ## Next
 
-- [Build an electric car from scratch](from-scratch.md).
+- [Your first electric car](first-electric-car.md), in 15 minutes.
 - [Pick a drive cycle](../how-to/pick-a-drive-cycle.md), such as the WLTC
   that cars are rated on.
 - [Run a parameter sweep](../how-to/parameter-sweep.md) to try many masses

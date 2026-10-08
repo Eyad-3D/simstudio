@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { downloadBlob, exportRunFile } from "../../api";
 import { confirmDialog } from "../../dialog";
+import { openHelp, useSummaryDefinition } from "../../help";
 import { summaryChange } from "../../provenance";
 import { previousRunOf, useActiveRun, useOverlayRuns, useProjectStore } from "../../store/projectStore";
 import { useUIStore, type PlotView } from "../../store/uiStore";
@@ -367,6 +368,7 @@ export function ResultsPanel() {
   const drawnRuns = useMemo(() => (ghost ? [...plotRuns, ghost] : plotRuns), [plotRuns, ghost]);
   const headline = useMemo(() => headlineRows(result?.summary ?? []), [result]);
   const estimate = activeRun?.snapshot?.case.kind === "acceleration" || activeRun?.snapshot?.case.kind === "lap";
+  const define = useSummaryDefinition(); // each row's hover text (LRN-10)
   const runColor = (i: number) => PALETTE[i % PALETTE.length];
   const channelColor = (key: string) => PALETTE[Math.max(0, selectedList.indexOf(key)) % PALETTE.length];
   const overlayColorOf = (id: string) => {
@@ -1428,7 +1430,16 @@ export function ResultsPanel() {
                         Summary value · estimate
                       </th>
                     ) : (
-                      <th className="ss-th">Summary value</th>
+                      <th className="ss-th">
+                        Summary value{" "}
+                        <button
+                          className="text-[color:var(--ss-accent)] underline"
+                          title="What each summary value means and how it is worked out"
+                          onClick={() => openHelp("reference/results.html")}
+                        >
+                          what they mean
+                        </button>
+                      </th>
                     )}
                     {columns.map(({ run: r, head }) => (
                       <Fragment key={r.id}>
@@ -1460,7 +1471,7 @@ export function ResultsPanel() {
                 <tbody>
                   {result.summary.map((s, i) => (
                     <tr key={i} className="hover:bg-[color:var(--ss-hover)]">
-                      <td className="ss-td">
+                      <td className="ss-td" title={define(s.label)}>
                         {s.label}
                         {/* the reason under the label, where there is room; the
                             value cells keep a short marker (reason in its tooltip) */}

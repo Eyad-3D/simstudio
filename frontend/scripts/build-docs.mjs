@@ -51,13 +51,27 @@ function section(title) {
 }
 
 // ---- written for the help: docs/help/ -------------------------------------
-const DIRS = { "": "Get started", tutorials: "Tutorials", "how-to": "How-to guides", reference: "Reference", theory: "Theory" };
+const DIRS = { "": "Get started", tutorials: "Tutorials", lessons: "Tutorials", "how-to": "How-to guides", reference: "Reference",
+  theory: "Theory" };
 for (const [dir, sec] of Object.entries(DIRS)) {
   const d = join(root, "docs", "help", dir);
   if (!existsSync(d)) continue;
-  for (const f of readdirSync(d).filter((f) => f.endsWith(".md")).sort((a, b) => (b === "index.md") - (a === "index.md") || a.localeCompare(b))) {
+  // the index first, then the pages a newcomer reads first, then by name
+  const rank = (f) => ["index.md", "first-run.md", "first-electric-car.md"].indexOf(f) >>> 0;
+  for (const f of readdirSync(d).filter((f) => f.endsWith(".md")).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))) {
     const path = posix.join(dir, f);
-    add(f === "glossary.md" ? "Glossary" : sec, path, read(`docs/help/${path}`));
+    if (f !== "glossary.md") {
+      add(sec, path, read(`docs/help/${path}`));
+      continue;
+    }
+    // each term gets an anchor, for links straight to it: glossary.html#data-bus
+    const ids = [];
+    const md = read(`docs/help/${path}`).replace(/^\*\*(.+?)\*\*:/gm, (all, term) => {
+      const id = term.split(",")[0].toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "");
+      ids.push(id);
+      return `<span id="${id}"></span>${all}`;
+    });
+    add("Glossary", path, md, undefined, ids);
   }
 }
 add("Get started", "quick-start.md", section("Quick start"), "README.md");
@@ -78,12 +92,16 @@ for (const f of readdirSync(join(root, "backend", "projects")).filter((f) => f.e
   const p = JSON.parse(read(`backend/projects/${f}`));
   const text = (p.description ?? "").split("\n").map((l) => l.replace(/^• /, "- ")).join("\n").replace(/^(?!- )(.+)$/gm, "$1\n")
     .replace(/^(- .*)\n(?!- |\n)/gm, "$1\n\n"); // a plain line after a list is not part of its last item
-  add("Examples", `examples/${p.id}.md`, `# ${p.name}\n\n${text}\n\n` +
+  // a lesson page written for the example (LRN-16), or its card's text
+  const own = `docs/help/examples/${p.id}.md`;
+  const page = existsSync(join(root, own)) ? read(own).trimEnd() : `# ${p.name}\n\n${text}`;
+  add("Examples", `examples/${p.id}.md`, `${page}\n\n## Open it\n\n` +
     // an acceleration test ends at its line and a lap case on its track, not at its duration
     `Its cases: ${p.cases.map((c) => `*${c.name}* (${c.kind === "lap" ? "lap mode" : c.kind === "acceleration"
       ? `acceleration test over ${c.endDistance} m` : `${c.duration.toLocaleString("en")} s`})`).join(", ")}.\n\n` +
     "Open it from the *Start* page, under *New from an example*, or with **Open** on the *Home* tab. " +
-    "It opens as a copy, so change it freely; **Save** keeps your copy as a project of your own.\n");
+    "It opens as a copy, so change it freely; **Save** keeps your copy as a project of your own.\n",
+  existsSync(join(root, own)) ? own : `backend/projects/${f}`);
 }
 const lib = JSON.parse(read("backend/app/library/components.json"));
 for (const c of lib.components) {
@@ -199,5 +217,14 @@ if (broken.length) throw new Error(`Broken links in the help:\n${broken.join("\n
 mkdirSync(join(out, "images"), { recursive: true });
 for (const [to, from] of images) copyFileSync(join(root, from), join(out, to));
 writeFileSync(join(out, "search-index.js"), `window.HELP_INDEX=${JSON.stringify(index)};\n`);
+// the Results summary's hover texts (LRN-10): each row of the Results
+// reference as a pattern (*part* and the like match any name, *N* a number)
+// and its definition's first sentence, with the row's anchor-free page
+const terms = [...read("docs/help/reference/results.md").matchAll(/^\| \*\*(.+?)\*\* \| [^|]* \| (.+?) \|$/gm)].map(([, name, text]) => ({
+  pattern: "^" + name.replace(/[.+?^${}()[\]\\|]/g, "\\$&").replace(/\*N\*/g, "[\\d.]+").replace(/\*(?:part|what|axis)\*/g, ".+") + "$",
+  text: text.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/[*]/g, "").split(/(?<=\.) /)[0].replace(/\.?$/, "."),
+}));
+if (terms.length < 30) throw new Error(`docs/help/reference/results.md: only ${terms.length} summary rows found`);
+writeFileSync(join(out, "summary-terms.json"), JSON.stringify(terms));
 for (const f of ["help.js", "help.css"]) copyFileSync(join(here, "help-assets", f), join(out, f));
 console.log(`help: ${pages.length} pages in ${used.length} sections, LightSim ${VERSION}, ${Date.now() - t0} ms → ${out}`);

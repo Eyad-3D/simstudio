@@ -13,6 +13,8 @@ type Param = { key: string; description: string; typical: string; whereToFind: s
 const library: { components: { id: string; parameters: Param[] }[] } = JSON.parse(
   readFileSync(new URL("../src/data/componentLibrary.json", import.meta.url), "utf8"),
 );
+/** The Help panel's page (LRN-09). */
+const helpFrame = (page: Page) => page.locator("iframe[title='Help page']");
 const param = (defId: string, key: string) =>
   library.components.find((c) => c.id === defId)!.parameters.find((p) => p.key === key)!;
 
@@ -110,10 +112,7 @@ async function emotorProperties(page: Page) {
   return { field, row: page.locator("tr", { has: field }), card: page.locator(".ss-help-card:popover-open") };
 }
 
-test("UX-10: a help card explains a parameter on hover and on focus, and Esc closes it", async ({
-  page,
-  context,
-}) => {
+test("UX-10: a help card explains a parameter on hover and on focus, and Esc closes it", async ({ page }) => {
   const q4 = param("motor.emotor", "q4_torque_scale_pct");
   const { field, row, card } = await emotorProperties(page);
 
@@ -130,12 +129,10 @@ test("UX-10: a help card explains a parameter on hover and on focus, and Esc clo
   // it stays while the pointer moves onto it, and links to the parameter's help
   await card.hover();
   await page.waitForTimeout(400);
-  const [more] = await Promise.all([
-    context.waitForEvent("page"),
-    card.getByRole("button", { name: "More in the help (F1)" }).click(),
-  ]);
-  await expect(more).toHaveURL(/\/help\/reference\/components\/motor\.emotor\.html#q4_torque_scale_pct$/);
-  await more.close();
+  // (the help opens in its panel inside the app, LRN-09)
+  await card.getByRole("button", { name: "More in the help (F1)" }).click();
+  await expect(helpFrame(page)).toHaveAttribute("src", /\/help\/reference\/components\/motor\.emotor\.html#q4_torque_scale_pct$/);
+  await page.getByRole("button", { name: "Close the help" }).click();
   await page.mouse.move(5, 5);
   await expect(card).toHaveCount(0);
 
@@ -147,14 +144,11 @@ test("UX-10: a help card explains a parameter on hover and on focus, and Esc clo
   await expect(card).toHaveCount(0);
   await expect(field).toBeFocused();
   // F1 on a parameter opens that parameter's help
-  const [help] = await Promise.all([context.waitForEvent("page"), page.keyboard.press("F1")]);
-  await expect(help).toHaveURL(/motor\.emotor\.html#q4_torque_scale_pct$/);
+  await page.keyboard.press("F1");
+  await expect(helpFrame(page)).toHaveAttribute("src", /motor\.emotor\.html#q4_torque_scale_pct$/);
 });
 
-test("UX-10: a click into a field keeps its card, Tab past the card closes it, and F1 opens what it shows", async ({
-  page,
-  context,
-}) => {
+test("UX-10: a click into a field keeps its card, Tab past the card closes it, and F1 opens what it shows", async ({ page }) => {
   const q4 = param("motor.emotor", "q4_torque_scale_pct");
   const { field, row, card } = await emotorProperties(page);
   // a real click: the card opens with the focus and stays when the button
@@ -186,9 +180,9 @@ test("UX-10: a click into a field keeps its card, Tab past the card closes it, a
   // F1 with a card open from hovering opens the parameter it shows
   await row.hover();
   await expect(card).toContainText(q4.description, { timeout: 1000 });
-  const [help] = await Promise.all([context.waitForEvent("page"), page.keyboard.press("F1")]);
-  await expect(help).toHaveURL(/motor\.emotor\.html#q4_torque_scale_pct$/);
-  await help.close();
+  await page.keyboard.press("F1");
+  await expect(helpFrame(page)).toHaveAttribute("src", /motor\.emotor\.html#q4_torque_scale_pct$/);
+  await page.getByRole("button", { name: "Close the help" }).click();
   await page.mouse.move(5, 5);
 
   // a dialog opened with Enter leaves the focus behind it: no card there

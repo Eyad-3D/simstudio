@@ -15,11 +15,13 @@ Linux, runs entirely on your computer, and works offline.
 > checked and how. What changed in each version, and which results moved:
 > [Release notes](docs/RELEASE-NOTES.md).
 
-**Help:** in the app, press **F1** or click **?** (top right) for the
-built-in help: tutorials, how-to guides, a page for every part in the
-library and these documents, with a search box. It opens in your web
-browser and needs no internet connection. Its pages are the Markdown in
-[docs/help](docs/help/index.md) and in docs/.
+**Help:** in the app, press **F1** or open the **?** menu (top right) for
+the built-in help: tutorials, Formula Student lessons, how-to guides, a
+page for every part in the library and these documents, with a search box.
+It opens in a panel beside your work and needs no internet connection. Its
+pages are the Markdown in [docs/help](docs/help/index.md) and in docs/; the
+tests check every number its tutorials and lessons quote against the app
+(`docs/help/checks.json`).
 
 ![The electric-car example on the diagram, with the E-Motor's values on the right](docs/screenshots/lightsim-0.2.0-topology.png)
 
@@ -89,7 +91,7 @@ Differential).
 | **Files in and out** | Results as a MATLAB `.mat` file (a struct per part with its channels, units and the run's details; read by MATLAB and SciPy), CSV that Excel opens with its units intact, `matlab/lightsim_run.m` to run a case from a MATLAB script, and a command line (`lightsim-backend run|export|import-table|params`). Every table, map and drive profile reads from a CSV or Excel file with a preview and unit conversion; every parameter of a model goes out to one Excel sheet and back with a list of changes ([help](docs/help/how-to/use-results-in-matlab-and-python.md)) |
 | **Persistence** | Save/load projects on the backend (single JSON file per project), plus browser Export / Import; the last 20 saved versions of each project can be restored as a copy (Project → Restore…) |
 | **AI assistants** | *Copy for AI* (Project tab) copies a short Markdown summary of the model and its last run (under 8 KB; *Hide values* hides the numbers) to paste into any chatbot; nothing is sent. `lightsim-backend mcp` is a local MCP server (stdio, no network port) with nine tools to list, outline, check, run, query, compare, explain and edit models, read-only unless the user confirms in the AI app; *Connect AI* adds it to Claude, VS Code, Copilot, Codex, Gemini or Cursor with one click (or `lightsim-backend mcp install --client <app>`). A skill pack in the Agent Skills format (`backend/app/ai/skills/`) teaches assistants how to model in LightSim. Code: `backend/app/ai/`; how to use it: [Use an AI assistant](docs/help/how-to/use-an-ai-assistant.md) |
-| **Help** | Built-in help pages served by the engine at `/help/` (so they work offline) and opened in the system browser: F1 opens the focused parameter's place on its part's page, else the selected part's page or the front page, **?** in the header the front page, and the desktop app's *Help → Documentation* and *Help → Known Limits* the same pages. Tutorials, how-to guides, a generated page per library part (ports, parameters with an anchor each), the drive cycles and the examples, the README's quick start, solver and API sections, and the docs/ pages, with a search over every page. `frontend/scripts/build-docs.mjs` builds them before `npm run dev` and `npm run build`, and fails on a link to a page or heading that does not exist |
+| **Help** | Built-in help pages served by the engine at `/help/` (so they work offline) and shown in a Help panel inside the app (**Open in browser** hands a page to the system browser): F1 opens the focused parameter's place on its part's page, else the selected part's page, else the focused panel's how-to page or the front page; each panel's **?** opens its page, the header's **?** menu and the desktop app's *Help* menu list the main pages, and the release notes open once after an update. A first-steps tour (driver.js) and a step bar guide new users. Tutorials, how-to guides, a generated page per library part (ports, parameters with an anchor each), the drive cycles and the examples, the README's quick start, solver and API sections, and the docs/ pages, with a search over every page. `frontend/scripts/build-docs.mjs` builds them before `npm run dev` and `npm run build`, and fails on a link to a page or heading that does not exist |
 | **UI shell** | A *Start* page at launch and on **New**: continue with the open project, start from an example (with the results to expect) or a blank project, or reopen one of the 8 projects saved last (with the date, the number of parts and a sketch of the diagram); *Skip this page* opens the last project instead, and restored unsaved work always opens on Home. Empty panels offer the next step (the empty diagram *Add a part* and *Start from an example*, Monitors *Place a Monitor*, Results a button that runs the active case by name, such as *Run 'City Cycle'*). Ribbon tabs act as full-page workspaces (Home = topology + panels; Results = its own page); light/dark theme (persisted); dockable & resizable panels (Dockview) around a large diagram, with Messages, Problems, layers, Data Bus and Signal Plot in a collapsible bottom tray (double-click a tab to maximise its group); status bar with live progress |
 
 ![The P2 Hybrid Car example in the dark theme](docs/screenshots/lightsim-0.2.0-hybrid-dark.png)

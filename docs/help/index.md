@@ -7,8 +7,10 @@ results.
 
 New to LightSim? [Your first run](tutorials/first-run.md) opens an example
 car from the *Start* page, runs it and reads the results. Then
-[Build an electric car from scratch](tutorials/from-scratch.md) shows how
-the parts fit together.
+[Your first electric car](tutorials/first-electric-car.md) runs the
+example on the test cycle and builds a small electric car of your own, in
+fifteen minutes. Formula Student teams can go on with the three
+[Formula Student lessons](lessons/fs-1-acceleration.md).
 
 ## What is in this help
 
@@ -43,16 +45,21 @@ says what the automatic tests check.
 
 ## Opening this help
 
-- Press **F1** in LightSim. With a part selected on the diagram, F1 opens
-  that part's page; otherwise it opens this one.
-- Click the **?** button at the top right of the window, next to the text
-  size buttons.
-- In the desktop app, choose **Help → Documentation**.
+- Press **F1** in LightSim. It opens the page of what you are on: the
+  parameter you are typing in, else the part selected on the diagram, else
+  the panel you are working in; otherwise this page.
+- Click **?** next to a panel's tabs for that panel's page.
+- Open the **?** menu at the top right of the window, next to the text
+  size buttons, for the main pages. In the desktop app, the **Help** menu
+  lists the same pages.
 
-The help opens in your web browser, so you can keep pages open in tabs and
-bookmark them. LightSim serves it from your computer: it needs no internet
-connection. To find a page, type any words from it into **Search the help**
-at the top left.
+The help opens in a panel on the right of the window, beside your work.
+Its buttons go back, to this front page and to your web browser (**Open
+in browser**), where you can keep pages open in tabs and bookmark them;
+drag its left edge to make it wider, and press Esc in it to close it. LightSim
+serves the help from your computer: it needs no internet connection. To
+find a page, type any words from it into **Search the help** at the top
+left of the page.
 
 This help is new in LightSim 0.3 and still a first draft. If a page does
 not match what you see in the app, the app is right.

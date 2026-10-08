@@ -7,9 +7,11 @@ import { Ribbon } from "./components/Ribbon";
 import { StartPage } from "./components/StartPage";
 import { StatusBar } from "./components/StatusBar";
 import { ResultsPanel } from "./components/panels/ResultsPanel";
+import { FirstSteps } from "./components/FirstSteps";
+import { HelpPanel } from "./components/HelpPanel";
 import { importFile } from "./components/Ribbon";
 import { desktop } from "./desktop";
-import { componentHelpPage, openHelp } from "./help";
+import { componentHelpPage, openHelp, whatsNewOnce } from "./help";
 import { confirmReplaceProject, useProjectStore } from "./store/projectStore";
 import { useUIStore } from "./store/uiStore";
 import { saveDraft } from "./persist";
@@ -34,6 +36,14 @@ export default function App() {
       initStarted = true;
       void useProjectStore.getState().init();
     }
+  }, []);
+
+  // What's new: the release notes, once, on the first start after an update
+  useEffect(() => {
+    const show = (v: string | null) => v !== null && (whatsNewOnce(v), true);
+    if (show(useProjectStore.getState().appVersion)) return;
+    const unsub = useProjectStore.subscribe((s) => show(s.appVersion) && unsub());
+    return unsub;
   }, []);
 
   // autosave the working project to localStorage (debounced) and flush on
@@ -185,13 +195,15 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "F1") {
         // the parameter in the open help card, else the focused parameter's
-        // help, else the selected part's help page, else the help's front page
+        // help, else the selected part's help page, else the help of the
+        // panel or page the focus is in, else the help's front page
         e.preventDefault();
         const { project, selectedElementId } = useProjectStore.getState();
         const el = project?.systems.flatMap((s) => s.elements).find((x) => x.id === selectedElementId);
         const at = document.querySelector(".ss-help-card:popover-open") ?? (e.target instanceof Element ? e.target : null);
         const param = at?.closest("[data-help]")?.getAttribute("data-help");
-        openHelp(param ?? (el ? componentHelpPage(el.componentDefId) : undefined));
+        const panel = at?.closest("[data-help-panel]")?.getAttribute("data-help-panel");
+        openHelp(param ?? (el ? componentHelpPage(el.componentDefId) : (panel ?? undefined)));
         return;
       }
       const meta = e.ctrlKey || e.metaKey;
@@ -235,7 +247,9 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <Ribbon />
-      <div className="relative min-h-0 flex-1 p-1">
+      <FirstSteps />
+      <div className="flex min-h-0 flex-1">
+      <div className="relative min-h-0 min-w-0 flex-1 p-1">
         {loaded ? (
           <>
             {/* Home / model workspace — kept mounted (hidden on the Results
@@ -264,6 +278,8 @@ export default function App() {
             Loading LightSim…
           </div>
         )}
+      </div>
+      <HelpPanel />
       </div>
       <StatusBar />
       <ParameterDialog />

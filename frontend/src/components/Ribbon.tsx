@@ -5,7 +5,6 @@ import {
   Bot,
   CheckCircle2,
   ClipboardCopy,
-  CircleHelp,
   Copy,
   Download,
   EyeOff,
@@ -54,7 +53,7 @@ import { TemplatesDialog } from "./TemplatesDialog";
 import { downloadParameterTemplate, useParameterSheet } from "./ParameterSheet";
 import { confirmDialog } from "../dialog";
 import { desktop } from "../desktop";
-import { openHelp } from "../help";
+import { HelpMenu } from "./HelpMenu";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
 import {
   FONT_SCALE_MAX,
@@ -1073,6 +1072,7 @@ function GlobalRunControl() {
           onClick={() => void run()}
           disabled={!project}
           title="Run the active case (Ctrl+Enter)"
+          data-tour="run"
         >
           <Play size={11} /> Run
         </button>
@@ -1142,6 +1142,7 @@ export function Ribbon() {
                 : "text-[color:var(--ss-text)] hover:bg-[color:var(--ss-hover)]"
             }`}
             onClick={() => setTab(t.id)}
+            data-tour={`tab-${t.id}`}
           >
             {t.label}
           </button>
@@ -1155,14 +1156,7 @@ export function Ribbon() {
           </span>
           <div className="h-4 w-px bg-[color:var(--ss-border)]" />
           <FontSizeControl />
-          <button
-            className="rounded p-1 hover:bg-[color:var(--ss-hover)]"
-            title="Help (F1)"
-            aria-label="Help (F1)"
-            onClick={() => openHelp()}
-          >
-            <CircleHelp size={13} />
-          </button>
+          <HelpMenu />
           <button
             className="rounded p-1 hover:bg-[color:var(--ss-hover)]"
             title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
