@@ -22,6 +22,29 @@ The link is made: the box shows the source and its unit. To change it, pick
 another source in the same box; to remove it, click the bin at the end of
 the row (**Remove connection**).
 
+## Link many inputs at once
+
+Click **Connect several…** in the panel's toolbar. Choose one of:
+
+- **One output to every part of a type**: pick the inputs (for example
+  *every Brake · Brake Command (4)*, an input that two or more parts of one
+  type have), then the output that should feed them all. Inputs that
+  already have a source keep it unless you tick **Replace the sources they
+  have**; a signal wired on the diagram is never replaced (delete it
+  there).
+- **Matching names**: every input with no source gets the one output of
+  the same name: *Brake Command* takes *Driver · Brake Command*. Case,
+  spaces and underscores do not count, so a Script's *vehicle_speed* takes
+  *Vehicle · Vehicle Speed*, and a part's name counts too (*Battery SOC*
+  takes *Battery · SOC*). An output with another unit, or on the input's own
+  part, is left out, and an input that two outputs match is listed for you
+  to pick its source in its row. With **Selected part** ticked, only links
+  to and from the selected part are made.
+
+The list under the choices shows each link that will be made, and each
+input that is left alone with the reason. **Connect** makes them all; one
+**Undo** (Ctrl+Z) takes them all back.
+
 ## Find the row you need
 
 - Type in **Search signals…** to list only the rows that mention a part or
