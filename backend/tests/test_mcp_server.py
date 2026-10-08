@@ -381,6 +381,25 @@ def test_a_link_to_a_file_outside_the_allowed_folders_is_not_listed(folder, tmp_
             assert tool(server, "lightsim_overview", {"project": ref})["isError"], ref
 
 
+def test_a_decimal_comma_is_refused_not_read_as_thousands():
+    from app.ai.edits import EditError, apply_operations
+    from app.storage import load_example
+
+    bev = load_example("bev-car")
+
+    def mass(text):
+        edited, _ = apply_operations(bev, [{"op": "set", "element": "Vehicle", "param": "mass_kg",
+                                            "value": text}])
+        return next(e for s in edited.systems for e in s.elements
+                    if e.label == "Vehicle").parameterOverrides["mass_kg"]
+
+    for text in ("1,5 kg", "1950,5", "1,5000 kg", "1, 950 kg"):
+        with pytest.raises(EditError, match="dot as the decimal sign"):
+            mass(text)
+    assert mass("1,950 kg") == mass("1950") == 1950
+    assert mass("1,950.5 kg") == 1950.5
+
+
 def test_edits_off_with_read_only(folder):
     server = make_server(folder, allow_edits=False)
     ops = [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 1500}]

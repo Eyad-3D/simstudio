@@ -49,6 +49,9 @@ class EditError(ValueError):
 
 _CASE_FIELDS = {"name": str, "kind": str, "duration": float, "timeStep": float, "endDistance": float}
 _UNIT_VALUE = re.compile(r"^\s*([-+]?\d[\d,]*(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*(.*?)\s*$")
+#: A number whose commas only group thousands ("1,500.5"). Any other comma
+#: is refused: "1,5" is one and a half to a German or French writer.
+_GROUPED = re.compile(r"[-+]?\d{1,3}(?:,\d{3})*(?:\.\d+)?(?:[eE][-+]?\d+)?")
 
 
 def _norm_unit(u: str) -> str:
@@ -123,10 +126,13 @@ def _parse_value(cdef: ComponentDef, key: str, value: Any) -> tuple[Any, str]:
             m = _UNIT_VALUE.match(value)
             if not m:
                 raise EditError(f"{pdef.label} needs a number in {pdef.unit}, not '{value}'.")
-            unit = m.group(2)
+            number, unit = m.group(1), m.group(2)
+            if "," in number and not _GROUPED.fullmatch(number):
+                raise EditError(f"{pdef.label}: '{value.strip()}' has a comma that does not group "
+                                "thousands. Use a dot as the decimal sign (1.5, not 1,5).")
             if unit and _norm_unit(unit) != _norm_unit(pdef.unit):
                 raise EditError(f"{pdef.label} is in {pdef.unit}, not {unit}: convert the value first.")
-            value = float(m.group(1).replace(",", ""))
+            value = float(number.replace(",", ""))
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise EditError(f"{pdef.label} needs a number in {pdef.unit}.")
         problem = pdef.range_problem(float(value))
