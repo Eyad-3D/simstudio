@@ -92,3 +92,32 @@ def test_a_log_the_calibration_cannot_read_is_refused():
     res = client.post("/api/laplog/calibrate", json={
         "project": proj.model_dump(mode="json"), "calibration": {"text": "a,b\n1,2\n3,4"}})
     assert res.status_code == 400
+
+
+def _circle_log(distance=lambda i: float(i), blank_first=0) -> str:
+    """200 rows at 36 km/h on a circle (0.5 g), 0.1 s apart."""
+    lines = ["Time,Lap Distance,Ground Speed,G Lat"]
+    for i in range(200):
+        d = "" if i < blank_first else f"{distance(i):g}"
+        lines.append(f"{i * 0.1:.1f},{d},36,0.5")
+    return "\n".join(lines)
+
+
+def test_blank_distance_cells_are_left_out():
+    """A logger often leaves the distance blank for its first samples: those
+    rows are left out (they raised a TypeError, an HTTP 500)."""
+    log = read_logged_lap(_circle_log(blank_first=3))
+    assert log.s[-1] == pytest.approx(196.0)
+    assert log.time_s == pytest.approx(19.6)
+
+
+def test_a_lap_that_does_not_move_is_refused():
+    with pytest.raises(laplog.LapLogError, match="distance does not change"):
+        read_logged_lap(_circle_log(distance=lambda i: 0.0))
+    client = TestClient(app)
+    proj = load_example("fs-electric")
+    res = client.post("/api/laplog/calibrate", json={
+        "project": proj.model_dump(mode="json"),
+        "calibration": {"text": _circle_log(distance=lambda i: 0.0)}})
+    assert res.status_code == 400
+    assert "distance does not change" in res.json()["detail"]

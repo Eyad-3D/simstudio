@@ -1231,7 +1231,7 @@
           "type": "number",
           "minimum": 0,
           "maximum": 50,
-          "description": "Within this many SOC points above the Minimum SOC the discharge current limit falls linearly to 0, and within this many below 100 % the charge limit, as a battery management system eases off near empty and full. 0 = off.",
+          "description": "Within this many SOC points above the Minimum SOC the discharge current limit falls linearly to 0, and within this many below 100 % the charge limit, as a battery management system eases off. With no current limit it lowers the maximum-power-point current, which bites only near empty. 0 = off.",
           "typical": "0 (the default) · 2–10 % for a BMS that derates near its limits (FASTSim's buffers).",
           "whereToFind": "The battery management system's power-limit maps against SOC."
         }

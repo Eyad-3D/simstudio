@@ -103,7 +103,7 @@ class LapImport:
     picked: dict[str, Optional[str]]  # role → column
     laps: list[dict]  # {lap, duration_s, distance_m}
     lap: Optional[int]  # the lap taken (None: the whole file)
-    points: list[tuple[float, float]]  # (t s, speed km/h), every STEP_S
+    points: list[tuple[float, float]]  # (t s, speed km/h), every STEP_S and at the end
     distance_m: float  # of the profile, as the solver integrates it
     source_distance_m: Optional[float]  # the lap's own distance column, if any
     warnings: list[str] = field(default_factory=list)
@@ -323,12 +323,16 @@ def read_lap(text: str, preset: str = "Generic", columns: Optional[dict] = None,
     if spikes:
         warnings.append(f"{spikes} steps change speed faster than 2.5 g: check the speed "
                         f"column for spikes (wheel spin or a lost GPS fix).")
-    # resample every STEP_S
+    # resample every STEP_S, and at the trace's own end (the last part of a
+    # step, cut off, lost up to 0.2 s of driving: 8 % of a 75 m run)
     pts: list[tuple[float, float]] = []
     j = 0
-    n = math.floor(tv[-1][0] / STEP_S + 1e-9)
-    for k in range(n + 1):
-        t = k * STEP_S
+    t_end = tv[-1][0]
+    n = math.floor(t_end / STEP_S + 1e-9)
+    times = [k * STEP_S for k in range(n + 1)]
+    if round(t_end, 4) > round(times[-1], 4):
+        times.append(t_end)
+    for t in times:
         while j + 1 < len(tv) and tv[j + 1][0] < t:
             j += 1
         (ta, va), (tb, vb) = tv[j], tv[min(j + 1, len(tv) - 1)]

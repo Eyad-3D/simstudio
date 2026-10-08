@@ -26,6 +26,7 @@ from ..schemas import Project, SimCase
 from . import lapsim
 from .core import simulate
 from .domains import RunContext
+from .maps import OutsideDataError
 from .network import build_model
 from .runtime import Runtime
 
@@ -81,8 +82,10 @@ def read_logged_lap(text: str, columns: Optional[dict] = None, lap: Optional[int
         i = idx[r]
         return row[i] if i is not None and i < len(row) else None
 
-    rows = [r for r in data if val("speed", r) is not None and val("lat_accel", r) is not None
-            and (val("time", r) is not None or val("distance", r) is not None)]
+    # rows with a number in every column the lap is read from (a logger
+    # often leaves the distance blank for its first samples)
+    used = [r for r in ("speed", "lat_accel", "time", "distance") if idx[r] is not None]
+    rows = [r for r in data if all(val(k, r) is not None for k in used)]
     if idx["lap"] is not None:
         laps = sorted({int(val("lap", r)) for r in rows if val("lap", r) is not None})
         if lap is None and len(laps) > 2:
@@ -124,6 +127,9 @@ def read_logged_lap(text: str, columns: Optional[dict] = None, lap: Optional[int
                      for i in range(1, len(rows))) / 3600.0
     # resample every POINT_M, then smooth the curvature
     length = s[-1]
+    if not length > 0:
+        raise laplog.LapLogError("The lap's distance does not change (or the car does not "
+                                 "move): pick the distance or speed column of a lap driven.")
     n = max(5, int(length / POINT_M))
     grid = [length * k / n for k in range(n + 1)]
     pairs_v = list(zip(s, v))
@@ -207,7 +213,7 @@ def calibrate(project: Project, log: LoggedLap) -> dict:
                 cz = c_lo + (c_hi - c_lo) * j / (n - 1)
                 try:
                     err = _speed_rms(project, log, mu, cz)
-                except lapsim.LapError:
+                except (lapsim.LapError, OutsideDataError):  # (a run that cannot drive it)
                     err = math.inf
                 evals += 1
                 if err < best[0]:
@@ -215,6 +221,10 @@ def calibrate(project: Project, log: LoggedLap) -> dict:
         d_mu, d_c = (mu_hi - mu_lo) / (n - 1), (c_hi - c_lo) / (n - 1)
         mu_lo, mu_hi = max(0.3, best[1] - d_mu), best[1] + d_mu
         c_lo, c_hi = max(0.0, best[2] - d_c), best[2] + d_c
+    if not math.isfinite(best[0]):
+        raise laplog.LapLogError("Lap mode cannot drive the logged lap with any grip and "
+                                 "downforce tried: check the log's units and the model's "
+                                 "maps.")
     return {"mu_scale": round(best[1], 4), "cza": round(best[2], 3),
             "rms_kmh": round(best[0] * 3.6, 3), "evaluations": evals}
 

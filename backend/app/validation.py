@@ -901,6 +901,20 @@ def _plausibility_checks(model: Model, add: Add) -> None:
             table = "cell_ocv_table" if cells else "ocv_table"
             if cells:
                 _cell_pack_checks(p, el, add)
+            band = num(p, "soc_derate_band_pct") or 0.0
+            if (not cells and band > 0 and not num(p, "max_discharge_current_A")
+                    and not num(p, "min_voltage_V")):
+                try:  # the most current the pack gives where the band starts
+                    v = interp1(parse_table1d(p.get("ocv_table")), (soc_min or 0.0) + band)
+                    r0 = max(1e-6, num(p, "internal_resistance_ohm") or 0.08)
+                    amps = f" (about {v / (2.0 * r0):,.0f} A where the band starts)"
+                except TableError:
+                    amps = ""  # reported with the other parameters
+                add("info", f"'{el.label}' has a SOC Derating Band but no Max Discharge Current "
+                            f"or Minimum Pack Voltage: the band lowers the current at the pack's "
+                            f"maximum-power point{amps}, far more than most loads draw, so it "
+                            f"holds the motors back only close to the Minimum SOC. Set a Max "
+                            f"Discharge Current for a battery management system's taper.", el)
             v_class = num(p, "voltage_class_V")
             if v_class is not None and v_class > 0:
                 try:  # read at 100 % as the run reads it

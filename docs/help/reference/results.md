@@ -131,8 +131,7 @@ rows, after FS Rules 2026 v1.1 (FSG) D 9. The points are estimates
 | **Efficiency points (estimate)** | points | The efficiency points, from the case's *Reference energy* |
 | **Net battery energy (out − back in)** | kWh | The energy the batteries gave less what went back in |
 | **Lowest pack voltage** | V | The lowest voltage at the batteries' terminals |
-| **Rule check: power (EV 2.2.1)** | kW | The highest power from the accumulator, against the 80 kW rule |
-| **Rule check: power, 500 ms average (EV 2.2.1)** | kW | The same, averaged over 500 ms as the rules judge it |
+| **Rule check: power, 500 ms average (EV 2.2.1)** | kW | The highest power from the accumulator averaged over 500 ms, as the rules judge it (D 10.4.1), against the 80 kW rule |
 | **Rule check: current (EV 2.2.2)** | A | The highest current from the accumulator, against the 500 A rule |
 | **Rule check: voltage (EV 4.1.1)** | V | The highest accumulator voltage, against the 600 V rule |
 

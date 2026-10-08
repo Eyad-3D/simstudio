@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Grid3x3 } from "lucide-react";
+import { packKwh } from "../../fsEvents";
 import { useProjectStore } from "../../store/projectStore";
 import type { SimCase } from "../../types";
 
@@ -30,9 +31,15 @@ export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
   const runEnduranceStudy = useProjectStore((s) => s.runEnduranceStudy);
   // kept with the project's runs (PLT-34)
   const studies = useProjectStore((s) => s.studies);
+  const libraryById = useProjectStore((s) => s.libraryById);
   const battery = project?.systems.flatMap((s) => s.elements).find((e) => e.componentDefId === "battery.generic");
-  const ov = simCase.parameterOverrides?.[battery?.id ?? ""] ?? {};
-  const pack = Number(ov.capacity_kWh ?? battery?.parameterOverrides.capacity_kWh ?? 7);
+  // its energy as the case runs it (built from cells: from its cells)
+  const kwh = packKwh({
+    ...Object.fromEntries((libraryById["battery.generic"]?.parameters ?? []).map((d) => [d.key, d.default])),
+    ...battery?.parameterOverrides,
+    ...simCase.parameterOverrides?.[battery?.id ?? ""],
+  });
+  const pack = Number.isFinite(kwh) && kwh > 0 ? kwh : 7;
   const [packs, setPacks] = useState(() => [0.8, 0.9, 1, 1.1].map((f) => Math.round(pack * f * 10) / 10).join(", "));
   const [caps, setCaps] = useState("20, 30, 40, 50");
   const study = [...studies]
@@ -65,8 +72,8 @@ export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
         Endurance energy study
       </div>
       <p className="mb-1 text-[11px] text-[color:var(--ss-text-dim)]">
-        Runs this endurance at every pair of {battery.label}&apos;s capacity and Output Power Limit, to see how pack
-        size and power cap trade off. Each run takes about 10 s.
+        Runs this endurance at every pair of {battery.label}&apos;s capacity (its charge in Ah scales with it) and
+        Output Power Limit, to see how pack size and power cap trade off. Each run takes about 10 s.
       </p>
       <div className="grid gap-1">
         <label className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]">

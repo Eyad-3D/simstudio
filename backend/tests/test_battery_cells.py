@@ -179,3 +179,125 @@ def test_fs_acceleration_from_cells_keeps_to_the_cells_limits():
     assert s["Accumulator — time at discharge current limit"] > 1.0
     # slower than the example's 3.74 s, held to 120 A
     assert s["Time to 75 m"] > 3.8
+
+
+def _pack_bench(load_kw: float, duration: float = 60.0, **battery):
+    """A pack-values battery feeding a constant load."""
+    elements = [el("batt", "battery.generic", "Pack", **battery),
+                el("load", "electric.constant_drive", "Load", power_kW=load_kw)]
+    return project(elements, [conn(1, "batt", "pos", "load", "pos"),
+                              conn(2, "batt", "neg", "load", "neg")], [],
+                   duration=duration, time_step=0.1)
+
+
+def test_an_rc_pair_counts_against_the_pack_voltage_limit():
+    """The RC pair's voltage adds to R0's drop: the minimum pack voltage holds
+    with it too (it fell 13 V past it before)."""
+    r = simulate(_pack_bench(80.0, duration=120.0, capacity_kWh=20, initial_soc_pct=50,
+                             min_voltage_V=320, rc_resistance_ohm=0.05,
+                             rc_time_constant_s=20), "case")
+    v = series(r, "batt", "sig_voltage")
+    assert min(x["value"] for x in v) >= 320 - 2e-3
+    assert _summary(r)["Pack — time at discharge pack voltage limit"] > 60
+
+
+def test_an_rc_pair_counts_against_the_cell_voltage_limit():
+    """Built from cells, the RC pair's voltage is shared by the series cells:
+    the cells keep to their minimum with it, and the lowest cell voltage
+    reported is the one the pack's terminal voltage implies."""
+    r = simulate(bench(30.0, duration=60.0, series_cells=96, parallel_cells=10,
+                       cell_min_voltage_V=3.5, initial_soc_pct=30, rc_resistance_ohm=0.1,
+                       rc_time_constant_s=20), "case")
+    v, i = series(r, "batt", "sig_voltage"), series(r, "batt", "sig_current")
+    vmin = series(r, "batt", "sig_v_cell_min")
+    wiring = 96 * 0.0002 + 0.0005  # interconnects and contactors carry no cell voltage
+    for k in range(1, len(v)):
+        implied = (v[k]["value"] + i[k]["value"] * wiring) / 96
+        assert vmin[k]["value"] == pytest.approx(implied, abs=1e-6)
+        assert implied >= 3.5 - 2e-3
+    s = _summary(r)
+    assert s["Pack — lowest cell voltage"] == pytest.approx(3.5, abs=2e-3)
+    assert s["Pack — time at discharge cell voltage limit"] > 0
+
+
+def test_an_empty_weak_group_stops_the_pack():
+    """In series the same current flows through every group, so the string
+    holds the weak group's charge: at 50 % of the capacity it empties
+    (50 → 10 %) when the pack has given half of that, at 30 %."""
+    r = simulate(bench(40.0, duration=400.0, series_cells=96, parallel_cells=2,
+                       cell_capacity_Ah=5.0, weak_cell_capacity_pct=50, initial_soc_pct=50,
+                       min_soc_pct=10), "case")
+    soc, i = series(r, "batt", "sig_soc"), series(r, "batt", "sig_current")
+    assert min(x["value"] for x in soc) == pytest.approx(30.0, abs=1e-6)
+    assert all(x["value"] <= 1e-9 for x in i if x["t"] >= 240)
+    assert any("weakest group reached minimum SOC (10 %)" in m.text and m.level == "warning"
+               for m in r.messages)
+
+
+def test_the_derating_band_without_a_current_limit_lowers_the_maximum_power_current():
+    """Pack values with a derating band and no current limit: the band lowers
+    the maximum-power-point current to 0 (it did nothing before the minimum
+    SOC), and Data Checks say how far above the load that is."""
+    r0 = 1.0  # a resistive pack, so a 20 kW load meets the band
+    proj = _pack_bench(20.0, duration=150.0, capacity_kWh=2, initial_soc_pct=40,
+                       min_soc_pct=10, soc_derate_band_pct=20, internal_resistance_ohm=r0)
+    r = simulate(proj, "case")
+    ocv = parse_table1d(LIB["ocv_table"])
+    soc = series(r, "batt", "sig_soc")
+    lim = series(r, "batt", "sig_i_dis_limit")
+    for k in range(1, len(soc)):
+        s_pct = soc[k - 1]["value"]  # the limit is set at the step's start
+        k_band = min(1.0, max(0.0, (s_pct - 10.0) / 20.0))
+        if 0.05 < k_band < 1.0:
+            assert lim[k]["value"] == pytest.approx(
+                k_band * interp1(ocv, s_pct) / (2 * r0), rel=0.01)
+    assert _summary(r)["Pack — time at discharge SOC derating limit"] > 5
+    assert min(x["value"] for x in soc) > 10.0  # the band holds it off the minimum
+    texts = [c.text for c in validate_project(proj) if c.level == "info"]
+    assert any("SOC Derating Band but no Max Discharge Current" in t for t in texts)
+
+
+def _live_edit(proj, case_id: str, edits: list[dict], at_call: int = 50):
+    calls = {"n": 0}
+
+    def control():
+        calls["n"] += 1
+        return edits if calls["n"] == at_call else []
+
+    return simulate(proj, case_id, control=control)
+
+
+def _fs_from_cells():
+    p = load_example("fs-electric")
+    for e in p.systems[0].elements:
+        if e.id == "el-battery":
+            e.parameterOverrides.update({
+                "pack_model": CELLS, "series_cells": 110, "parallel_cells": 4,
+                "cell_capacity_Ah": 3.5, "cell_resistance_ohm": 0.015})
+    return p
+
+
+def test_a_live_edit_keeps_a_cell_packs_voltage():
+    """A live edit of a battery built from cells kept its cells' voltage curve
+    (it swapped in the hidden pack table: 524 V at the end instead of 406 V)."""
+    plain = simulate(_fs_from_cells(), "case-accel-75m")
+    edited = _live_edit(_fs_from_cells(), "case-accel-75m", [
+        {"type": "set_param", "elementId": "el-battery", "key": "min_soc_pct", "value": 6}])
+    v0 = series(plain, "el-battery", "sig_voltage")[-1]["value"]
+    v1 = series(edited, "el-battery", "sig_voltage")[-1]["value"]
+    assert v1 == pytest.approx(v0, rel=1e-9)
+    assert _summary(edited)["Time to 75 m"] == pytest.approx(_summary(plain)["Time to 75 m"])
+
+
+def test_a_live_edit_of_the_cell_voltage_curve_applies():
+    flat = {"0": 3.5, "100": 3.5}
+    r = _live_edit(bench(5.0, duration=10.0, series_cells=96, parallel_cells=2,
+                         initial_soc_pct=80), "case",
+                   [{"type": "set_param", "elementId": "batt", "key": "cell_ocv_table",
+                     "value": flat},
+                    {"type": "set_param", "elementId": "batt", "key": "ocv_table",
+                     "value": {"0": 100, "100": 100}}])
+    v = series(r, "batt", "sig_voltage")
+    assert v[0]["value"] > 96 * 3.9  # the default curve at 80 %
+    assert 96 * 3.5 - 20 < v[-1]["value"] < 96 * 3.5  # the cells' new one, less the drop
+    assert any("not used by a battery built from cells" in m.text for m in r.messages)

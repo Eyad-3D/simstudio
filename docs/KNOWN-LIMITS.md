@@ -160,7 +160,16 @@ limits a BMS keeps (fidelity L1), with these simplifications:
   (MOD-51), and no ageing.
 - A cell's voltage limit is met at the start of each 10 ms step; the
   open-circuit voltage then falls a little over the step, so a cell can end
-  it a few millivolts past its limit (at most 2 mV in the tests).
+  it a few millivolts past its limit (at most 2 mV in the tests). The RC
+  pair's voltage counts against the limits too, shared evenly by the
+  series cells.
+- The weakest group stops the pack when it reaches the *Minimum SOC* (or
+  100 % when charging), as the same current flows through every group; the
+  pack's own SOC is then higher.
+- Without a current limit (*Pack values*), the *SOC Derating Band* lowers
+  the current at the pack's maximum-power point, far more than most loads
+  draw, so it holds the motors back only close to the *Minimum SOC*; Data
+  Checks say so. Set a *Max Discharge Current* for a taper.
 - The 2, 10 and 30 s power-limit channels are the state of power for a
   pulse starting from the present state; the handshake holds the motors to
   the limit of the pulse going on (the 2 s values at a pulse's start).
@@ -262,9 +271,10 @@ results:
   LightSim.
 - Each event is one run, with no penalties (cones, off-course, flags) and
   no second driver or second run.
-- The rule checks are simplified: the current and, without the battery's
-  Formula Student preset, the power are checked at their highest over a
-  solver step, not as a 500 ms average (stricter than D 10.4.1); the
+- The rule checks are simplified: the power is the highest 500 ms moving
+  average of the solver steps' power, as D 10.4.1 judges it, whatever the
+  battery's *Power Check Window*; the current is checked at its highest
+  over a solver step, not as a 500 ms average (stricter than D 10.4.1); the
   voltage check takes the open-circuit voltage at full charge or the
   highest terminal voltage. Any breach scores the event 0, where the rules
   take away only the fastest run.
@@ -276,10 +286,12 @@ results:
   Skidpad layout; the rules time a second lap on each circle.
 
 - The endurance energy study varies only the capacity and the Output
-  Power Limit of the first battery; it runs one endurance for each pair, a
-  4 × 4 grid in about 3 min, and a larger pack keeps the car's mass (add
-  the cells' mass to the Vehicle yourself). Grid studies of other
-  parameters are STU-06's work.
+  Power Limit of the first battery (with the capacity, its *Charge
+  Capacity* in the same proportion, or for a pack built from cells, the
+  cell's capacity); it runs one endurance for each pair, a
+  4 × 4 grid in about 3 min, and a larger pack keeps the car's mass and
+  resistance (add the cells' mass to the Vehicle yourself). Grid studies of
+  other parameters are STU-06's work.
 
 *Workaround:* compare points between versions of your car, with the same
 references, rather than with a competition's results.

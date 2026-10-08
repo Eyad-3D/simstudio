@@ -1,6 +1,6 @@
 // STU-38: on the FS example's endurance case, a grid of pack size and power
 // cap runs as one study and shows a map, with the runs that run out of
-// energy marked DNF.
+// energy marked DNF, and each pack size runs its own pack.
 import { expect, test } from "@playwright/test";
 import { openApp, openFromMenu, showPanel } from "./app";
 
@@ -28,7 +28,13 @@ test("STU-38: a pack size × power cap grid runs as one study with a map", async
   const map = page.getByRole("table", { name: "Endurance energy map" });
   await expect(map).toBeVisible({ timeout: 150_000 });
   await expect(map.getByRole("cell")).toHaveCount(4);
-  // a 4 kWh pack does not last 22 km at 60 kW
-  await expect(map.getByRole("row", { name: /^4/ })).toContainText("DNF");
-  await expect(map.getByRole("row", { name: /^7\.2/ }).getByRole("cell").first()).not.toContainText("DNF");
+  // a 4 kWh pack does not last 22 km even at 30 kW (the example's pack used
+  // 5.3 kWh there), the 7.2 kWh pack does
+  const small = map.getByRole("row", { name: /^4/ }).getByRole("cell");
+  const large = map.getByRole("row", { name: /^7\.2/ }).getByRole("cell");
+  await expect(small.first()).toContainText("DNF");
+  await expect(large.first()).not.toContainText("DNF");
+  // the pack size changes the run: in the same power column the two packs
+  // give different figures (the study once ran one pack size throughout)
+  for (const k of [0, 1]) expect(await small.nth(k).textContent()).not.toBe(await large.nth(k).textContent());
 });

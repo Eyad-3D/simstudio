@@ -58,6 +58,7 @@ from .runtime import (  # noqa: F401 — re-exported for backward compatibility
     EngineCache,
     FuelCellCache,
     MotorCache,
+    MovingAverage,
     Runtime,
     SingularMatrixError,
     TankState,
@@ -146,6 +147,9 @@ def run_case(
     soc_start = {el_id: b.soc for el_id, b in ctx.batteries.items()}
     ctx.performance = case.kind != "cycle"  # the trace is sampled every solver step
     ctx.full_throttle = case.kind == "acceleration"
+    if case.fsEvent:  # its power rule check, on the rules' own average (MOD-43)
+        for b in ctx.batteries.values():
+            b.rule_avg = MovingAverage(fs_events.RULE_WINDOW_S)
     if case.kind == "cycle":  # say when the figures cannot be compared (CON-26)
         for el_id, cdef in model.cdef_of.items():
             if cdef.id == "signal.driving_task" and not model.params_of[el_id].get("cycle"):
@@ -1008,7 +1012,8 @@ def _state_of_power(ctx: RunContext, b) -> list[tuple[float, float]]:
     worked out once per recorded point."""
     key = (ctx.book.n, b.soc, b.v_rc)
     if b.cells.sop_at[0] != key:
-        b.cells.sop_at = (key, sop(b.cells, b.soc, b.min_soc, ctx.ambient_c(), b.ocv(), b.v_rc))
+        b.cells.sop_at = (key, sop(b.cells, b.soc, b.min_soc, ctx.ambient_c(), b.ocv(), b.v_rc,
+                                   b.r1, b.tau))
     return b.cells.sop_at[1]
 
 

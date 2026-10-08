@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fsPointsTable } from "./fsEvents";
+import { fsPointsTable, packKwh, packOverrides, tableMean } from "./fsEvents";
 import type { Project, SimRun, SummaryValue } from "./types";
 
 const project: Project = {
@@ -75,7 +75,7 @@ describe("Formula Student points table", () => {
           unit: "s",
         },
         {
-          label: "Rule check: power (EV 2.2.1)",
+          label: "Rule check: power, 500 ms average (EV 2.2.1)",
           value: 92,
           unit: "kW",
           limit: 80,
@@ -92,8 +92,40 @@ describe("Formula Student points table", () => {
       ]),
     ];
     const { rows } = fsPointsTable(project, runs);
-    expect(rows[0].breach).toBe("power (EV 2.2.1): 92 kW over 80 kW");
+    expect(rows[0].breach).toBe("power, 500 ms average (EV 2.2.1): 92 kW over 80 kW");
     expect(rows[3].note).toMatch(/Reference time/);
     expect(rows[4].note).toMatch(/Reference energy/);
+  });
+});
+
+describe("the endurance study's pack axis (STU-38)", () => {
+  it("scales the charge capacity with the kWh when one is set", () => {
+    // the FS example: 14 Ah and 7.21 kWh; the engine reads the charge from the Ah
+    const fs = { pack_model: "Pack values", capacity_kWh: 7.21, capacity_Ah: 14 };
+    expect(packKwh(fs)).toBe(7.21);
+    const small = packOverrides(fs, 3.0);
+    expect(small.capacity_kWh).toBe(3.0);
+    expect(small.capacity_Ah).toBeCloseTo((14 * 3.0) / 7.21, 12);
+    expect(packOverrides(fs, 7.21).capacity_Ah).toBeCloseTo(14, 12);
+    // no Charge Capacity: the amp-hours already follow the kWh
+    expect(packOverrides({ capacity_kWh: 60, capacity_Ah: 0 }, 45)).toEqual({ capacity_kWh: 45 });
+  });
+
+  it("scales the cell's charge for a pack built from cells", () => {
+    const cells = {
+      pack_model: "Cells",
+      series_cells: 100,
+      parallel_cells: 2,
+      cell_capacity_Ah: 5,
+      cell_ocv_table: { "0": 3.0, "100": 4.0 },
+    };
+    expect(tableMean(cells.cell_ocv_table)).toBeCloseTo(3.5, 12);
+    expect(packKwh(cells)).toBeCloseTo(3.5, 12); // 100 × 2 × 5 Ah × 3.5 V
+    expect(packOverrides(cells, 7)).toEqual({ cell_capacity_Ah: 10 });
+  });
+
+  it("reads a table's mean with its ends held", () => {
+    expect(tableMean({ "20": 2, "80": 4 })).toBeCloseTo((20 * 2 + 60 * 3 + 20 * 4) / 100, 12);
+    expect(Number.isNaN(tableMean("x"))).toBe(true);
   });
 });

@@ -122,3 +122,22 @@ def test_cold_wltc_rises_into_the_published_band_and_a_heat_pump_lowers_it():
         return s["HV Battery Pack — energy delivered"] - s["HV Battery Pack — energy recuperated"]
     extra = net(ptc) - net(warm)
     assert 0.8 * extra < ptc["Climate Control — energy used"] < extra
+
+
+def test_a_live_edit_of_the_demand_table_applies():
+    calls = {"n": 0}
+
+    def control():
+        calls["n"] += 1
+        if calls["n"] != 20:
+            return []
+        return [{"type": "set_param", "elementId": "clim", "key": "demand_table",
+                 "value": {"-20": 1.0, "40": 1.0}},
+                {"type": "set_param", "elementId": "clim", "key": "fan_power_kW", "value": 0.5}]
+
+    r = simulate(_axle_with_climate(-10.0), "case", control=control)
+    power = {round(p["t"], 3): p["value"] for p in series(r, "clim", "sig_power")}
+    assert power[5.0] == pytest.approx(4.7)
+    # 1 kW of heat from a PTC heater and the 0.5 kW blower
+    assert power[30.0] == pytest.approx(1.5)
+    assert power[60.0] == pytest.approx(1.5)

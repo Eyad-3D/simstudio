@@ -204,8 +204,9 @@ sections.
   Endurance case, runs the four (about 9 s for the FS example) and shows
   *Formula Student points* in the *Cases* tab. A case's new *FS event*
   setting (Acceleration or Lap cases) adds the event's time as the rules
-  take it, the rule checks (80 kW EV 2.2.1, 500 A EV 2.2.2, 600 V EV 4.1.1,
-  and whether the endurance finished on its energy) and an estimate of its
+  take it, the rule checks (80 kW EV 2.2.1 on a 500 ms average as D 10.4.1
+  judges it, whatever the battery's *Power Check Window*, 500 A EV 2.2.2,
+  600 V EV 4.1.1, and whether the endurance finished on its energy) and an estimate of its
   points from the case's *Reference time* (the fastest team's time) and,
   for the endurance, *Reference energy* (the most efficient team's), with
   the scoring of FS Rules 2026 v1.1 (FSG) table 3, D 9.1.1, table 11 and
@@ -239,13 +240,15 @@ sections.
   that drives the lap, optionally repeated to a 22 km endurance with a
   driver change stop, and adds a Driving Task wired to the Driver if the
   car has none. A trace against distance is turned into time (t = ∫ ds / v)
-  and keeps its distance within 0.5 %.
+  and keeps its distance within 0.5 %; the resampled trace ends at the
+  file's own last point, so a 75 m run keeps its 75 m.
 - Endurance energy study (STU-38): an endurance case (a Lap case, or a
   Cycle case from an imported lap repeated to 22 km) reports the net
   battery energy, the lowest pack voltage and, from a trace, the RMS
   battery power, with the endurance energy and rule checks (a Cycle case
   gets no points). Its *Cases* tab offers a grid of the accumulator's
-  capacity and Output Power Limit (up to 6 × 6) that runs as one saved
+  capacity (its *Charge Capacity*, or a cell pack's cell capacity, scaled
+  with it) and Output Power Limit (up to 6 × 6) that runs as one saved
   study and shows a map, marking the pairs that run out of energy *DNF*.
   Saved studies with two factors name both.
 - A *Traction Control* block (Driver & Signals, MOD-45): wired between the
@@ -648,8 +651,9 @@ sections.
   20 °C. The battery management system's limits hold: the current never
   exceeds the cells' continuous or, for pulses up to the *Peak Duration*,
   peak current, no cell goes below its minimum or above its maximum
-  voltage, and an optional *Weakest Group* (less capacity, more resistance)
-  sets them, as the weakest module does in a real string. New channels:
+  voltage (with an RC pair's voltage too), and an optional *Weakest Group*
+  (less capacity, more resistance) sets them and stops the pack when it
+  reaches the *Minimum SOC*, as the weakest module does in a real string. New channels:
   *Discharge* and *Charge Power Limit* for 2, 10 and 30 s (the state of
   power), *Discharge* and *Charge Current Limit*, *Lowest* and *Highest
   Cell Voltage*; the summary gives the time held at each limit and the
@@ -658,7 +662,8 @@ sections.
   none) do the same for the whole pack: at 300 A the Battery Electric Car
   takes 10.02 s to 100 km/h instead of 7.10. A *SOC Derating Band* (both
   modes) lowers the limits linearly to 0 near empty and full, as FASTSim's
-  buffers do. The Formula Student car built from 138s4p cells with a 30 A
+  buffers do (without a current limit, the maximum-power-point current,
+  which Data Checks point out). The Formula Student car built from 138s4p cells with a 30 A
   peak (120 A) takes 3.886 s over 75 m instead of 3.744. The parameter
   dialog shows only the fields of the mode chosen. Existing models and the
   examples do not change. (MOD-08)
