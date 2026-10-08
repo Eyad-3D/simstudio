@@ -25,7 +25,6 @@ from __future__ import annotations
 import math
 import operator
 import time
-from itertools import chain
 from typing import Callable, Iterator, Optional
 
 from .. import cycles
@@ -269,18 +268,32 @@ def run_case(
         t = 0.0
         arrived = False  # the vehicle reached end_d: the run ends in this step
 
+        # the recorded channels: those on the bus, and the state channels'
+        # getters, kept while the drivelines stay as they are
+        rec_bus = [(el_id, port_id) for el_id, port_id, _ in _bus_channels(ctx)]
+        rec_fns: list[ChannelFn] = []
+        rec_layout = -1
+
         def record(t: float, pct: float) -> None:
             """Store the channels as the point at time t, and stream them."""
+            nonlocal rec_fns, rec_layout
+            if rec_layout != ctx.layout_version:
+                rec_layout = ctx.layout_version
+                rec_fns = list(_state_channel_fns(ctx, gear_of))
             times.append(t)
             rec_index = len(times) - 1
             rec = rt.series
-            for el_id, port_id, value in chain(_bus_channels(ctx), _state_channels(ctx, gear_of)):
-                lst = rec[(el_id, port_id)]
+            bus = rt.signal_values
+            values = [(key, bus.get(key, 0.0)) for key in rec_bus]
+            values += [((el_id, port_id), value) for el_id, port_id, fn in rec_fns
+                       if (value := fn()) is not None]  # (None: no data yet)
+            for key, value in values:
+                lst = rec[key]
                 while len(lst) < rec_index:
                     lst.append(None)  # no data yet — a gap, not a zero
                 lst.append(value)
                 if env is not None:
-                    env.record((el_id, port_id), rec_index, value)
+                    env.record(key, rec_index, value)
             if env is not None:
                 env.reset()
             if emit:
@@ -878,16 +891,6 @@ def _bus_channels(ctx: RunContext) -> Iterator[ChannelValue]:
             continue
         for port_id in ports:
             yield el_id, port_id, bus.get((el_id, port_id), 0.0)
-
-
-def _state_channels(ctx: RunContext, gear_of: dict[str, float],
-                    only: Optional[set[str]] = None) -> Iterator[ChannelValue]:
-    """Recorded channels computed from states and element caches (batteries,
-    machines, tanks, driveline). ``only`` limits them to those elements."""
-    for el_id, port_id, fn in _state_channel_fns(ctx, gear_of, only):
-        value = fn()
-        if value is not None:
-            yield el_id, port_id, value
 
 
 ChannelFn = tuple[str, str, Callable[[], Optional[float]]]  # value getter, None = no data yet
