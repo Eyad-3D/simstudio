@@ -39,7 +39,7 @@ from .keys import fill_keys
 from .labfig import LabLog, lab_rows
 from .maps import OutsideDataError, slug
 from .master import Master, SlaveStepError
-from .network import ModelError, build_model
+from .network import NO_WHEELS, ModelError, build_model, moves_unpowered
 from .profiles import distance_axis, lap_length
 from .references import check_references, hand_checks
 from .reports import RunRecorder
@@ -115,6 +115,8 @@ def run_case(
 
     rt = Runtime(model, emit)
     for w in model.warnings:
+        if w == NO_WHEELS and moves_unpowered(model):
+            continue  # a coast-down: it moves, with nothing driving it
         rt.message("warning", w)
 
     dt_rec = max(1e-4, case.timeStep)
@@ -131,8 +133,7 @@ def run_case(
                            f"for the larger step: the run takes about "
                            f"{MAX_SUBSTEP / choice.step:.3g} times as long.")
     for text, _ in choice.warnings if choice else ():
-        if "too stiff" in text:  # (a clutch that can ring is told by Data Checks only)
-            rt.message("warning", text)
+        rt.message("warning", text)
     n_sub = max(1, math.ceil(dt_rec / h_max - 1e-9))
     dt = dt_rec / n_sub
     output_every = max(1, int(getattr(case, "outputEvery", 1) or 1))

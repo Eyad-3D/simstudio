@@ -14,7 +14,7 @@ from helpers import bev_axle, conn, dbc, el, project, series
 import app.solver.core as core
 import app.solver.stability as stability
 from app.solver import simulate
-from app.solver.runtime import AIR_DENSITY, CLUTCH_BAND, GRAVITY
+from app.solver.runtime import AIR_DENSITY, GRAVITY
 
 RPM = 60.0 / (2.0 * math.pi)
 # Loss-free maps over the whole range a motor runs in (0-12000 1/min,
@@ -177,9 +177,12 @@ def test_clutch_engagement_loses_the_two_inertia_energy():
     slip moved linearly between the two points: that sum is the energy lost
     to within 0.1 %, where a slip one step late (the step's start instead
     of its end) is 0.6 % off. The slip is the motor's speed minus the
-    load's at every point, and below its capacity the clutch's torque is
-    capacity / band × that slip: the part the implicit solve adds as the
-    clutch locks, which the energy sum alone hardly sees."""
+    load's at every point. The clutch slips at its capacity until its slip
+    would pass through zero; in that step it sticks (the torque that ends
+    the slip, within its capacity), and from then on it holds both sides
+    together with no slip and, nothing loading them, no torque. (Before,
+    a smooth band of 0.5 rad/s let it creep into lock-up, and at a coarse
+    step it overshot and rang.)"""
     j1, j2 = 0.045, 0.5
     els = [el("src", "electric.voltage_source", "Supply", voltage_V=350),
            el("bus", "electric.node", "Bus"),
@@ -209,10 +212,12 @@ def test_clutch_engagement_loses_the_two_inertia_energy():
         assert s * RPM == pytest.approx(m["value"] - ld["value"], abs=1e-3), m["t"]
     in_clutch = sum(torque[k] * (slip[k - 1] + slip[k]) / 2 for k in range(1, len(slip))) * 0.01
     assert in_clutch == pytest.approx(loss, rel=0.001)
-    locking = [(t_c, s) for t_c, s in zip(torque, slip) if 1e-4 < abs(t_c) < 1.0 - 1e-4]
-    assert len(locking) > 5
-    for t_c, s in locking:  # without the implicit part 0.598 instead of 0.403 N·m
-        assert t_c == pytest.approx(1.0 / CLUTCH_BAND * s, abs=1e-4)
+    stuck = next(k for k, s in enumerate(slip) if k > 150 and s == 0.0)
+    assert 0.0 < torque[stuck] < 1.0  # the step it sticks in: what ends the slip
+    assert all(s > 0 for s in slip[151:stuck])  # it slipped one way only, at its capacity
+    assert all(t_c == pytest.approx(1.0, abs=1e-12) for t_c in torque[152:stuck])
+    assert all(s == 0.0 for s in slip[stuck:])
+    assert all(t_c == pytest.approx(0.0, abs=1e-9) for t_c in torque[stuck + 1:])
 
 
 # ---- battery -------------------------------------------------------------------

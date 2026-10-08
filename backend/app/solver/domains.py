@@ -38,7 +38,6 @@ from .runtime import (
     AIR_DENSITY,
     AMBIENT_C,
     AMBIENT_KPA,
-    CLUTCH_BAND,
     GRAVITY,
     RPM,
     SPEED_LIMIT_BAND,
@@ -445,6 +444,9 @@ class RunContext:
         self.book = EnergyBook()
         self.vsource_w: dict[str, float] = {}  # each voltage source's power this step
         self.wheel_end_force: dict[str, float] = {}  # tyre force at the step's end speeds, N
+        # the tyre force the axle felt over the step (its implicit part
+        # included), N
+        self.wheel_axle_force: dict[str, float] = {}
         self.v_mid = 0.0  # the vehicle's mean speed over the last solver step, m/s
         # the road-load powers of the last solver step, W (Vehicle channels),
         # and their energies over the run, J, in ROAD_TERMS' order
@@ -1194,7 +1196,8 @@ class RunContext:
         """Electrical power of the powered motor: shaft power + map loss."""
         return torque * omega_m + mc.loss.at(abs(omega_m) * RPM, abs(torque)) * 1000.0
 
-    def motor_torque(self, mc: MotorCache, demand: float, omega_m: float) -> float:
+    def motor_torque(self, mc: MotorCache, demand: float, omega_m: float,
+                     book_shaft: bool = True) -> float:
         """Shaft torque of an E-Motor for a traction command in [-1, 1].
 
         The loss map (motor + inverter) holds every loss of the powered
@@ -1208,7 +1211,12 @@ class RunContext:
         source-limit handshake gave this motor for the step; when not even the
         spin losses fit, the inverter shuts off. Regeneration cut this way is
         booked as not recovered (the generator power the command asked for
-        minus what the bus took), so none of it disappears unreported."""
+        minus what the bus took), so none of it disappears unreported.
+
+        Its books take in the electrical power and give out the shaft power;
+        ``book_shaft`` False leaves the shaft side to the caller (the
+        mechanical step books it at the speed the shaft turned at over the
+        step, book_shaft_power)."""
         rpm = abs(omega_m) * RPM
         req, mc.request = mc.request, None
         if req is not None and req[0] == demand and req[1] == omega_m:
@@ -1264,20 +1272,8 @@ class RunContext:
             f.in_j += p_elec * dt
         else:
             f.out_j -= p_elec * dt
-        acc = mc.mech  # (LINEAR_KEYS)
-        if p_mech >= 0.0:
-            f.out_j += p_mech * dt
-            acc[0] += p_mech * dt
-            acc[2] += p_mech * p_mech * dt
-            if p_mech > acc[4]:
-                acc[4] = p_mech
-        else:
-            f.in_j -= p_mech * dt
-            f.in_rev_j -= p_mech * dt
-            acc[1] -= p_mech * dt
-            acc[3] += p_mech * p_mech * dt
-            if -p_mech > acc[5]:
-                acc[5] = -p_mech
+        if book_shaft:
+            self.book_shaft_power(mc, p_mech)
         if p_elec:
             if p_elec > f.peak_w or -p_elec > f.peak_w:
                 f.peak_w = abs(p_elec)
@@ -1598,7 +1594,7 @@ class RunContext:
             rt.warn_once(f"nosrc:{root.id}",
                          "An electrical bus has load but no source — demand is unmet.")
 
-    def engine_torque(self, ec: EngineCache, omega_e: float) -> float:
+    def engine_torque(self, ec: EngineCache, omega_e: float, book_shaft: bool = True) -> float:
         """Shaft torque of the combustion engine.
 
         The full-load curve and fuel map are brake (net, flywheel) maps, as on
@@ -1613,7 +1609,9 @@ class RunContext:
         Below the full-load curve's first speed (starting, stalling) a fired
         engine gives that point's torque and burns that point's fuel: the
         start-up rule, so the curve and the fuel map are read only between
-        its first and last speed."""
+        its first and last speed. Its books give out the shaft power (the
+        fuel's energy is added by close_book); ``book_shaft`` False leaves
+        that to the caller, as for motor_torque."""
         rt, model = self.rt, self.model
         rpm = abs(omega_e) * RPM
         throttle = rt.read_signal(ec.el_id, "sig_throttle_in")
@@ -1679,15 +1677,25 @@ class RunContext:
             ec.fuel_used_kg += burn
         elif tank is None and fuel > 0:
             ec.fuel_used_kg += fuel / 3600.0 * self.dt
-        if fuel > 0:  # the work the fuel gave, for a charge-corrected fuel figure (CON-05)
-            ec.work_wh += max(0.0, t_net * omega_e) * self.dt / 3600.0
         ec.torque = t_net
         ec.fuel_kgh = fuel
         ec.p_mech_w = p_mech = t_net * omega_e
-        # its energy book (MOD-10), inline: the shaft side every solver step
-        # (the fuel's energy is added from the fuel used, by close_book)
-        f, dt = ec.flow, self.dt
-        acc = ec.mech  # (LINEAR_KEYS)
+        if book_shaft:
+            self.book_shaft_power(ec, p_mech)
+        return t_net
+
+    def book_shaft_power(self, cache: MotorCache | EngineCache, p_mech: float) -> None:
+        """Book an E-Motor's or Engine's shaft power ``p_mech`` (W, + driving)
+        over this solver step (MOD-10): out of its books (into them when the
+        shaft drives it), into the running totals its gears are booked from
+        (LINEAR_KEYS), and for an engine its duty and, while it burns fuel,
+        the work the fuel gave (for a charge-corrected fuel figure, CON-05).
+        The mechanical step books it at the step's mean shaft speed: the
+        torque acted over the whole step while the speed moved from its
+        start to its end value, so that is the work the solver's step did
+        on the driveline (½ J (ω₁² − ω₀²) = T (ω₀ + ω₁)/2 · dt)."""
+        f, dt = cache.flow, self.dt
+        acc = cache.mech  # (LINEAR_KEYS)
         if p_mech >= 0.0:
             f.out_j += p_mech * dt
             acc[0] += p_mech * dt
@@ -1701,12 +1709,14 @@ class RunContext:
             acc[3] += p_mech * p_mech * dt
             if -p_mech > acc[5]:
                 acc[5] = -p_mech
-        if p_mech:
-            if p_mech > f.peak_w or -p_mech > f.peak_w:
-                f.peak_w = abs(p_mech)
-            f.p_int += p_mech * dt
-            f.p2_int += p_mech * p_mech * dt
-        return t_net
+        if isinstance(cache, EngineCache):
+            if cache.fuel_kgh > 0:
+                cache.work_wh += max(0.0, p_mech) * dt / 3600.0
+            if p_mech:
+                if p_mech > f.peak_w or -p_mech > f.peak_w:
+                    f.peak_w = abs(p_mech)
+                f.p_int += p_mech * dt
+                f.p2_int += p_mech * p_mech * dt
 
     def wheel_force(self, w, omega_ref: float,
                     damping: bool = True) -> tuple[float, float, float]:
@@ -1953,12 +1963,13 @@ class RunContext:
             p_b = t_c * j.child_b_m * omega[j.child_b]
             if p_a or p_b:
                 f.port2(n, dt, p_a, p_b)
+        raw = st.clutch_raw  # (what the solve passed through the gears: see book_gears)
         for _, srcs, clutches, acc in cache[10]:
             p = 0.0
             for src_cache in srcs:
                 p += src_cache.p_mech_w
             for j, side in clutches:
-                t_c = torque.get(j.el_id, 0.0)
+                t_c = raw.get(j.el_id, 0.0)
                 p += (t_c * j.child_b_m * omega[j.child_b] if side > 0
                       else -t_c * j.child_a_m * omega[j.child_a])
             if p >= 0.0:
@@ -1986,15 +1997,17 @@ class RunContext:
                                 self.book.n - 1)
 
     def book_wheels(self, wheels: list, dt: float) -> None:
-        """Book every wheel for this solver step: it takes in its tyre force ×
-        its rim speed (from the axle) and gives the vehicle its force × the
-        vehicle's mean speed; the difference is its slip loss. (Its channel
-        is worked out when a point is recorded: no powers kept here.)"""
-        v_mid, end_force = self.v_mid, self.wheel_end_force
+        """Book every wheel for this solver step: it takes in the tyre force
+        its axle felt × the axle's mean speed and gives the vehicle the force
+        the vehicle felt × the vehicle's mean speed, each as the step
+        integrated it; the difference is its slip loss. (Its channel is
+        worked out when a point is recorded: no powers kept here.)"""
+        v_mid, end_force, axle_force = self.v_mid, self.wheel_end_force, self.wheel_axle_force
         for el_id, rm, st, s_idx, f in wheels:
             force = end_force[el_id]
-            if force:
-                p_a = force * rm * st.omega_end[s_idx]
+            f_axle = axle_force.get(el_id, 0.0)
+            if force or f_axle:
+                p_a = f_axle * rm * 0.5 * (st.omega_start[s_idx] + st.omega_end[s_idx])
                 p_b = force * v_mid
                 if p_a >= 0.0:
                     f.in_j += p_a * dt
@@ -2010,25 +2023,31 @@ class RunContext:
                    dt: float, cache: tuple, n: int | None = None) -> None:
         """Book a driveline's gears, splits and clutches for solver step
         ``n`` (the one being booked when None): the power through each gear
-        is the sources' and clutches' power reaching it (at the step's start
-        speeds ``omega``, as the solve read them), passed on less its loss in
-        the direction it flows; a split passes its input power to its outputs
-        in its torque split (a locked one in the split it carried). With
-        ``dt`` 0 it only sets the parts' last-step powers (their channels)."""
+        is the sources' and clutches' power reaching it (each torque the
+        step applied at the step's mean speed, from its start speeds
+        ``omega`` and st.omega_end), passed on less its loss in the direction
+        it flows; a split passes its input power to its outputs in its torque
+        split (a locked one in the split it carried). With ``dt`` 0 it only
+        sets the parts' last-step powers (their channels)."""
         sources, stages, splits, order, clutch_flows = cache[:5]
         if n is None:
             n = self.book.n
+        omega = [0.5 * (w0 + w1) for w0, w1 in zip(omega, st.omega_end)]
         segs = st.dl.segments
         p_at = [[0.0] * len(seg.stages) for seg in segs]
         for s_idx in order:
             for src_cache, region in sources[s_idx]:
                 p_at[s_idx][region] += src_cache.p_mech_w
         for (j, _, _, _), f in zip(lay.clutches, clutch_flows):
+            # its gears' losses act on the torque the solve passed through them,
+            # the clutch's torque at the step's start; the part the solver
+            # adds as it locks reaches the shafts without them
+            t_raw = st.clutch_raw.get(j.el_id, 0.0)
+            p_at[j.child_a][j.child_a_region] -= t_raw * j.child_a_m * omega[j.child_a]
+            p_at[j.child_b][j.child_b_region] += t_raw * j.child_b_m * omega[j.child_b]
             t_c = st.clutch_torque.get(j.el_id, 0.0)
             p_a = t_c * j.child_a_m * omega[j.child_a]
             p_b = t_c * j.child_b_m * omega[j.child_b]
-            p_at[j.child_a][j.child_a_region] -= p_a
-            p_at[j.child_b][j.child_b_region] += p_b
             if p_a or p_b:
                 f.port2(n, dt, p_a, p_b)
         for s_idx in order:
@@ -2087,6 +2106,38 @@ class RunContext:
         for (_, f), cap in zip(seg_brakes, caps):
             share = cap / total if total > 0 else 1.0 / len(seg_brakes)
             f.step(n, dt, share * p_brake, 0.0)
+
+    def book_brake_stop(self, st: DrivelineState, lay: DrivelineLayout, seg_brakes: list,
+                        clamped: list[tuple[int, float]], x_start: list[float]) -> None:
+        """A braked coordinate that would have turned through zero in the
+        step stopped at zero instead (a driveline does not turn back through
+        its brakes). Its torques were booked at the step's mean speed as the
+        solve applied them, but the stop also took the kinetic energy the
+        overshoot past zero would have held: (x_c − x_u)·M·x̄ for the
+        stopped speeds x_c, the unstopped ones x_u and the step's mean x̄.
+        The stopped coordinate's brakes book it, so the books hold what the
+        speeds hold."""
+        plan, n = st.plan, st.plan.n
+        m_in = [[0.0] * n for _ in range(n)]
+        for terms in lay.inertia:
+            for i, k, val in terms:
+                m_in[i][k] += val
+                if k != i:
+                    m_in[k][i] += val
+        x_mid = [0.5 * (a + b) for a, b in zip(x_start, plan.x)]
+        for i, x_u in clamped:
+            mismatch = (0.0 - x_u) * sum(m_in[i][k] * x_mid[k] for k in range(n))
+            root = plan.coord_root[i]
+            items = [(br, f) for s_idx, seg in enumerate(st.dl.segments)
+                     if seg.brakes and plan.root_of_seg[s_idx] == root
+                     for br, f in seg_brakes[s_idx]]
+            if not items:
+                continue
+            caps = [br.max_torque * abs(br.m) * max(0.0, min(1.0, self.rt.read_signal(
+                br.el_id, "sig_demand_in") or 0.0)) for br, _ in items]
+            total = sum(caps)
+            for (_, f), cap in zip(items, caps):
+                f.in_j -= mismatch * (cap / total if total > 0 else 1.0 / len(items))
 
     def book_props(self, props: list, omega0: list[float], omega1: list[float],
                    dt: float) -> None:
@@ -2618,19 +2669,37 @@ class MechanicalSlave(_CtxSlave):
             m_mat = [[0.0] * n for _ in range(n)]
             q_vec = [0.0] * n
             x = plan.x
-            # clutch torques at the step's start (their implicit part is
-            # added below), for the gear losses of the segments they drive
+            shafts = []  # (motor or engine, its speed factor, segment): booked after the solve
+            axles = []  # (wheel, segment, its tyre force, its implicit part per rad/s)
+            # the clutches: dry friction. A clutch that slips passes its whole
+            # torque (engagement × capacity) against its slip; one that does
+            # not (stuck) passes whatever keeps its two sides together, up to
+            # that capacity. Their modes are settled with the solve below;
+            # here their torques at the step's start, for the gear losses of
+            # the segments they drive (a stuck clutch's from the last step)
             clutch_t: list[float] = []
             clutch_cap: list[float] = []
+            clutch_slip: list[float] = []  # each one's slip at the step's start, rad/s
+            clutch_mode: list[float | None] = []  # None: stuck, else its torque's sign
             for j, ga, gb, rel_pairs in lay.clutches:
                 engage = rt.read_signal(j.el_id, "sig_engage_in")
                 engage = max(0.0, min(1.0, engage if engage is not None else 1.0))
                 cap_c = engage * max(0.0, float(ctx.params(j.el_id).get("max_torque_Nm", 0)))
-                d_omega = (j.child_a_m * omega_seg[j.child_a]
-                           - j.child_b_m * omega_seg[j.child_b])
-                t_c = max(-cap_c, min(cap_c, cap_c / CLUTCH_BAND * d_omega)) if cap_c > 0 else 0.0
+                w_a = j.child_a_m * omega_seg[j.child_a]
+                w_b = j.child_b_m * omega_seg[j.child_b]
+                d_omega = w_a - w_b
+                if cap_c <= 0:
+                    mode, t_c = 0.0, 0.0  # open
+                elif abs(d_omega) <= 1e-9 * (abs(w_a) + abs(w_b) + 1.0):
+                    mode = None  # its sides turn together: it holds them, if it can
+                    t_c = max(-cap_c, min(cap_c, st.clutch_torque.get(j.el_id, 0.0)))
+                else:
+                    mode = 1.0 if d_omega > 0 else -1.0
+                    t_c = mode * cap_c
                 clutch_t.append(t_c)
                 clutch_cap.append(cap_c)
+                clutch_slip.append(d_omega)
+                clutch_mode.append(mode)
             # torque-source bookkeeping for joint channels
             torque_above: dict[int, float] = defaultdict(float)  # root seg → torque at axis
             brake_t = [0.0] * len(st.dl.segments)  # each segment's brake torque
@@ -2650,11 +2719,14 @@ class MechanicalSlave(_CtxSlave):
                         omega_src = src.m * omega
                         if src.kind == "motor" and src.el_id in ctx.motors:
                             demand = rt.read_signal(src.el_id, "sig_demand_in") or 0.0
-                            t_net = ctx.motor_torque(ctx.motors[src.el_id], demand, omega_src)
+                            cache = ctx.motors[src.el_id]
+                            t_net = ctx.motor_torque(cache, demand, omega_src, book_shaft=False)
                         elif src.kind == "engine" and src.el_id in ctx.engines:
-                            t_net = ctx.engine_torque(ctx.engines[src.el_id], omega_src)
+                            cache = ctx.engines[src.el_id]
+                            t_net = ctx.engine_torque(cache, omega_src, book_shaft=False)
                         else:
                             continue
+                        shafts.append((cache, src.m, s_idx))
                         t_at[src.region] += t_net * src.m
                     t_clutch = 0.0
                     for c_idx, arm, region in arms:
@@ -2683,6 +2755,9 @@ class MechanicalSlave(_CtxSlave):
                             c = dt * dmp
                             for i, k, gi, gk in lay.pairs[s_idx]:
                                 m_mat[i][k] += c * gi * gk
+                        axles.append((w, s_idx, f, n_load * w.c_slip * w.radius * w.m / v_den0))
+                    else:
+                        axles.append((w, s_idx, f, 0.0))
                 tau += ctx.prop_torque(seg, omega) if seg.props else 0.0
                 cap = 0.0
                 for br in seg.brakes:  # brake_capacity(seg), inline
@@ -2705,23 +2780,71 @@ class MechanicalSlave(_CtxSlave):
                 for i in range(n):
                     q_vec[i] += g[i] * tau
 
-            # clutches: smooth Coulomb coupling, implicit in Δω
-            for (j, ga, gb, rel_pairs), t_c, cap_c in zip(lay.clutches, clutch_t, clutch_cap):
-                if cap_c <= 0:
-                    continue
-                k_c = cap_c / CLUTCH_BAND
-                for i in range(n):
-                    q_vec[i] += -t_c * ga[i] + t_c * gb[i]
-                if abs(t_c) < cap_c:  # unclamped → implicit
-                    c = dt * k_c
-                    for i, k, ri, rk in rel_pairs:
-                        m_mat[i][k] += c * ri * rk
-
             for i in range(n):  # symmetrize
                 for k in range(i + 1, n):
                     m_mat[k][i] = m_mat[i][k]
+            # the clutches, settled with the solve: a slipping one adds its
+            # torque; a stuck one holds its slip at zero over the step with
+            # the torque λ that takes (a constraint, M α + Σ λ r = Q, r·α =
+            # −slip/dt, r its sides' speed difference per coordinate). One
+            # that would need more than its capacity slips at it instead; one
+            # whose slip would pass through zero in the step sticks in it.
+            # Before, a slipping clutch could overshoot its lock-up and ring.
+            stuck = [c for c, mode in enumerate(clutch_mode) if mode is None]
+            freed: set[int] = set()  # came unstuck this step: they slip on
+
+            def solve_clutches() -> tuple[list[float], dict[int, float]]:
+                q_c = q_vec[:]
+                for c, ((j, ga, gb, _), mode) in enumerate(zip(lay.clutches, clutch_mode)):
+                    if mode:  # slipping: its whole torque, against its slip
+                        t_c = mode * clutch_cap[c]
+                        for i in range(n):
+                            q_c[i] += -t_c * ga[i] + t_c * gb[i]
+                if not stuck:
+                    return solve_linear(m_mat, q_c), {}
+                size = n + len(stuck)
+                a_mat = [row[:] + [0.0] * len(stuck) for row in m_mat] + [
+                    [0.0] * size for _ in stuck]
+                for r, c in enumerate(stuck):
+                    _, ga, gb, _ = lay.clutches[c]
+                    for i in range(n):
+                        a_mat[i][n + r] = a_mat[n + r][i] = ga[i] - gb[i]
+                    q_c.append(-clutch_slip[c] / dt)
+                sol = solve_linear(a_mat, q_c)
+                return sol[:n], dict(zip(stuck, sol[n:]))
+
             try:
-                alpha = solve_linear(m_mat, q_vec)
+                for _ in range(2 * len(lay.clutches) + 1):
+                    try:
+                        alpha, held = solve_clutches()
+                    except SingularMatrixError:
+                        if not stuck:
+                            raise
+                        # (clutches that cannot all be held at once: they slip)
+                        for c in stuck:
+                            clutch_mode[c] = 1.0 if clutch_slip[c] >= 0 else -1.0
+                            freed.add(c)
+                        stuck = []
+                        alpha, held = solve_clutches()
+                    changed = False
+                    for c in list(stuck):  # more than it can pass: it slips
+                        if abs(held[c]) > clutch_cap[c] * (1.0 + 1e-9):
+                            clutch_mode[c] = 1.0 if held[c] > 0 else -1.0
+                            stuck.remove(c)
+                            freed.add(c)
+                            changed = True
+                    for c, ((j, ga, gb, _), mode) in enumerate(zip(lay.clutches, clutch_mode)):
+                        if mode and c not in freed:  # its slip through zero: it sticks
+                            s_end = clutch_slip[c] + dt * sum((ga[i] - gb[i]) * alpha[i]
+                                                              for i in range(n))
+                            if s_end * mode <= 0.0:
+                                clutch_mode[c] = None
+                                stuck.append(c)
+                                changed = True
+                    if not changed:
+                        break
+                else:  # (every clutch changed what it could: the modes it ended in)
+                    alpha, held = solve_clutches()
             except SingularMatrixError:
                 detail = (
                     f"Driveline equations became numerically singular at t = {t:g} s "
@@ -2730,15 +2853,34 @@ class MechanicalSlave(_CtxSlave):
                 )
                 rt.message("error", detail)
                 return StepResult(status="error", detail=detail)
+            for c, (j, _, _, _) in enumerate(lay.clutches):
+                st.clutch_raw[j.el_id] = clutch_t[c]  # (the torque its gear losses were worked out on)
+                st.clutch_torque[j.el_id] = (held[c] if clutch_mode[c] is None
+                                             else (clutch_mode[c] or 0.0) * clutch_cap[c])
+            clamped = []  # (coordinate, its speed unclamped)
+            x_start = x[:]
             for i in range(n):
                 x_new = x[i] + alpha[i] * dt
                 # brake zero-crossing clamp on braked coordinates
                 if lay.braked[i] and x[i] * x_new < 0:
+                    clamped.append((i, x_new))
                     x_new = 0.0
                 x[i] = x_new
 
             # the sources' speeds and the joints' channels
             omega_seg = st.omega_end = [ctx.seg_speed(st, s) for s in range(len(st.dl.segments))]
+            # the motors' and engines' shaft power and the tyres' force on the
+            # axles, as the step applied them: each torque over the step's
+            # mean speed (its books close on the kinetic energy it gave)
+            for cache, m, s_idx in shafts:
+                p_mech = cache.torque * m * 0.5 * (omega_seg_start[s_idx] + omega_seg[s_idx])
+                cache.p_mech_w = p_mech
+                if isinstance(cache, MotorCache):
+                    cache.p_loss_w = cache.p_elec_w - p_mech
+                ctx.book_shaft_power(cache, p_mech)
+            for w, s_idx, f, k_lin in axles:  # (its implicit part as solved, before a brake's stop)
+                ctx.wheel_axle_force[w.el_id] = f + k_lin * dt * sum(
+                    g * a for g, a in zip(plan.gvec[s_idx], alpha)) if k_lin else f
             st.chain_power_w = 0.0
             for s_idx, seg in enumerate(st.dl.segments):
                 for src in seg.sources:
@@ -2746,14 +2888,11 @@ class MechanicalSlave(_CtxSlave):
                     if cache is not None:
                         cache.rpm = abs(src.m * omega_seg[s_idx]) * RPM
                         st.chain_power_w += getattr(cache, "p_mech_w", 0.0)
-            # the clutches' channels: the slip the step left, and the torque
-            # that acted over it (with its implicit part)
-            for (j, ga, gb, _), t_c, cap_c in zip(lay.clutches, clutch_t, clutch_cap):
-                if abs(t_c) < cap_c:
-                    t_c += dt * (cap_c / CLUTCH_BAND) * sum((ga[i] - gb[i]) * alpha[i]
-                                                            for i in range(n))
-                st.clutch_torque[j.el_id] = t_c
-                st.clutch_slip[j.el_id] = (j.child_a_m * omega_seg[j.child_a]
+            # the clutches' channels: the slip the step left (0 when stuck)
+            # and the torque that acted over it (set with the solve)
+            for c, (j, _, _, _) in enumerate(lay.clutches):
+                st.clutch_slip[j.el_id] = (0.0 if clutch_mode[c] is None else
+                                           j.child_a_m * omega_seg[j.child_a]
                                            - j.child_b_m * omega_seg[j.child_b])
             for j in st.dl.joints:
                 if j.kind != "split":
@@ -2794,6 +2933,8 @@ class MechanicalSlave(_CtxSlave):
                 st.omega_start = omega_seg_start
                 for s_idx, tb, w0 in braking:  # braking power at the step's mean speed
                     ctx.book_brakes(gb[5][s_idx], tb, 0.5 * (w0 + omega_seg[s_idx]), dt)
+                if clamped:
+                    ctx.book_brake_stop(st, lay, gb[5], clamped, x_start)
                 if gb[11]:
                     ctx.book_props(gb[11], omega_seg_start, omega_seg, dt)
             braking.clear()
@@ -2827,22 +2968,37 @@ class MechanicalSlave(_CtxSlave):
                 ctx.grip_limited_s += dt
             f_aero, f_roll = ctx.road_load(ctx.v, f_roll, ctx.slope_cos)
             f_grade = ctx.veh_mass * GRAVITY * ctx.slope_sin
-            roll_taper = max(0.0, min(1.0, ctx.v / 0.3))
-            accel = (f_tire - f_aero - f_roll * roll_taper - f_grade) / ctx.veh_mass
             v_start = ctx.v
-            ctx.v = max(0.0, ctx.v + accel * dt)
-            ctx.accel = (ctx.v - v_start) / dt  # as moved: 0 while held at rest
-            ctx.distance += ctx.v * dt
+            # Rolling resistance acts in full while the car rolls, to the stop.
+            # A car that would roll through zero within the step stops in it,
+            # at t* = v₀ / |a|, and stays stopped: at rest the rolling
+            # resistance holds it (static friction) until what pushes it, the
+            # tyres less the slope, beats it. It never rolls backwards.
+            push = f_tire - f_grade
+            if v_start > 0.0 or push > f_roll + f_aero:
+                accel = (push - f_aero - f_roll) / ctx.veh_mass
+                v_end = v_start + accel * dt
+                if v_end > 0.0:
+                    v_mid = 0.5 * (v_start + v_end)
+                else:  # it stops at t* in the step: its mean speed over the step
+                    v_end = 0.0
+                    v_mid = 0.5 * v_start * v_start / (-accel * dt)
+            else:  # held at rest
+                v_end = v_mid = 0.0
+            ctx.v = v_end
+            ctx.accel = (v_end - v_start) / dt  # as moved: 0 while held at rest
+            ctx.distance += v_mid * dt  # (the speed is linear over the step, to the stop)
             rt.publish(ctx.veh_id, "sig_speed", ctx.v * 3.6)
             rt.publish(ctx.veh_id, "sig_distance", ctx.distance)
             # its energy book (MOD-10), inline: the tyres' power in, air drag and
             # rolling resistance lost, kinetic and potential energy stored, at
             # the step's mean speed (so its books close as its speed was
-            # integrated); close_book makes its Flow of the running totals
-            v_mid = ctx.v_mid = 0.5 * (v_start + ctx.v)
+            # integrated, a stop within the step included); close_book makes
+            # its Flow of the running totals
+            ctx.v_mid = v_mid
             ke_w = 0.5 * ctx.veh_mass * (ctx.v * ctx.v - v_start * v_start) / dt
             road = ctx.road_w  # [air drag, rolling resistance, climbing, acceleration], W
-            p_aero, p_roll, p_grade = f_aero * v_mid, f_roll * roll_taper * v_mid, f_grade * v_mid
+            p_aero, p_roll, p_grade = f_aero * v_mid, f_roll * v_mid, f_grade * v_mid
             road[0], road[1], road[2], road[3] = p_aero, p_roll, p_grade, ke_w
             acc = ctx.road_j
             acc[0] += p_aero * dt
