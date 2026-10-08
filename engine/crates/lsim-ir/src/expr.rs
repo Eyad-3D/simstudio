@@ -166,12 +166,18 @@ pub enum Expr {
     If(Box<Expr>, Box<Expr>, Box<Expr>),
     /// noEvent(a): relations inside do not create events
     NoEvent(Box<Expr>),
-    /// interpolation in table parameter `table` at the given abscissae
-    /// (1 or 2), with the table's own method (monotone cubic by default)
+    /// interpolation in a table parameter at the given abscissae (1 or
+    /// 2), by the table's own rules (monotone cubic by default; see
+    /// [`crate::TableData`]).
+    ///
+    /// Component scope: `args[0]` is the table parameter's name
+    /// ([`Expr::Name`]) and the rest are the abscissae; `table` is unused
+    /// (0); build it with [`table`]. Flat scope: `table` is the index in
+    /// [`crate::FlatSystem::tables`] and `args` are the abscissae.
     Table {
-        /// the table's index in the flat system's tables
+        /// the table's index in the flat system's tables (flat scope)
         table: u32,
-        /// the abscissae
+        /// the abscissae (component scope: the table's name first)
         args: Vec<Expr>,
     },
 }
@@ -189,6 +195,14 @@ pub fn c(v: f64) -> Expr {
 /// der(name)
 pub fn der(s: &str) -> Expr {
     Expr::Call(Builtin::Der, vec![name(s)])
+}
+
+/// Interpolation in the table parameter `table_param` at the abscissae
+/// `at` (component scope): `ocv(soc)` in the text format.
+pub fn table(table_param: &str, at: Vec<Expr>) -> Expr {
+    let mut args = vec![name(table_param)];
+    args.extend(at);
+    Expr::Table { table: 0, args }
 }
 
 /// A call of a built-in function.
@@ -389,7 +403,17 @@ impl fmt::Display for Expr {
             Expr::If(c, a, b) => write!(f, "if {c} then {a} else {b}"),
             Expr::NoEvent(a) => write!(f, "noEvent({a})"),
             Expr::Table { table, args } => {
-                write!(f, "table{table}(")?;
+                let args = match args.split_first() {
+                    // component scope: the table's name, then the abscissae
+                    Some((Expr::Name(n), rest)) => {
+                        write!(f, "{n}(")?;
+                        rest
+                    }
+                    _ => {
+                        write!(f, "table{table}(")?;
+                        &args[..]
+                    }
+                };
                 for (i, a) in args.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
@@ -414,6 +438,13 @@ mod tests {
         assert_eq!(d.to_string(), "der(w) * J");
         let n = -(name("a") + name("b"));
         assert_eq!(n.to_string(), "-(a + b)");
+    }
+
+    #[test]
+    fn prints_tables_in_both_scopes() {
+        assert_eq!(table("ocv", vec![name("soc")]).to_string(), "ocv(soc)");
+        let flat = Expr::Table { table: 2, args: vec![c(1.0), c(2.0)] };
+        assert_eq!(flat.to_string(), "table2(1, 2)");
     }
 
     #[test]

@@ -462,7 +462,10 @@ impl<'a> Flattener<'a> {
                 (value, bound.then_some(r), structural)
             }
             ParamValue::Bool(b) => (if *b { 1.0 } else { 0.0 }, None, true),
-            ParamValue::Enum(_) | ParamValue::Table1D { .. } => {
+            ParamValue::Enum(_)
+            | ParamValue::Table1D { .. }
+            | ParamValue::Table2D { .. }
+            | ParamValue::Table(_) => {
                 let who = self.describe(scope);
                 self.diags.push(Diagnostic::error(
                     "NOT-YET",

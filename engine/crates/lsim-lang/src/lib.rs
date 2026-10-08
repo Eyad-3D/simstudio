@@ -80,7 +80,9 @@ fn value(v: &ParamValue) -> String {
         ParamValue::Real(e) => e.to_string(),
         ParamValue::Bool(b) => b.to_string(),
         ParamValue::Enum(s) => s.clone(),
-        ParamValue::Table1D { .. } => "table(…)".into(),
+        ParamValue::Table1D { .. } | ParamValue::Table2D { .. } | ParamValue::Table(_) => {
+            "table(…)".into()
+        }
     }
 }
 
