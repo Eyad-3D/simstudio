@@ -45,7 +45,7 @@ def test_a_new_project_takes_the_forms_values_and_records_its_template(user_dir)
     assert els["el-vehicle"]["parameterOverrides"]["cd"] == 0.27  # not asked: as in the template
     # a value outside the form's limits is refused
     bad = client.post("/api/templates/bev-one-motor/new", json={"values": {"0": 50}})
-    assert bad.status_code == 422 and "Test mass" in bad.json()["detail"]
+    assert bad.status_code == 400 and "Test mass" in bad.json()["detail"]
 
 
 def test_any_model_becomes_a_template_and_makes_new_projects(user_dir):
@@ -64,7 +64,7 @@ def test_any_model_becomes_a_template_and_makes_new_projects(user_dir):
     assert fd["parameterOverrides"]["ratio"] == 4.1 and new["template"]["version"] == 2
     # a slot or a form field that names nothing is refused
     body["slots"] = {"Engine": "el-nothing"}
-    assert client.post("/api/templates", json=body).status_code == 422
+    assert client.post("/api/templates", json=body).status_code == 400
     assert client.delete("/api/templates/user-lecture-3-hybrid").status_code == 200
     assert client.delete("/api/templates/bev-one-motor").status_code == 404  # built-ins stay
 

@@ -93,7 +93,13 @@ def test_without_an_ambient_it_is_20_degrees_and_says_so():
 def _bev_wltc(temp: float, source: str) -> dict[str, float]:
     p = load_example("bev-car")
     root = p.systems[0]
-    root.elements.append(el("el-amb", "boundary.ambient", "Ambient", temperature_C=temp))
+    amb = next((e for e in root.elements if e.componentDefId == "boundary.ambient"), None)
+    if amb is None:
+        root.elements.append(el("el-amb", "boundary.ambient", "Ambient", temperature_C=temp))
+    else:  # the example has one (CON-30): set its temperature for every case
+        amb.parameterOverrides["temperature_C"] = temp
+        for c in p.cases:
+            c.parameterOverrides.get(amb.id, {}).pop("temperature_C", None)
     root.elements.append(el("el-clim", "electric.climate", "Climate Control",
                             heat_source=source))
     root.connections.append(conn(901, "el-hvbus", "t3", "el-clim", "pos"))

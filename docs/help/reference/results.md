@@ -27,6 +27,18 @@ Whether the model matches a real car is a separate question:
 | **CO₂ emissions** | g/km | The fuel burnt times the Fuel Tank's *CO₂ per kg of Fuel* (3.17 kg CO₂ per kg of petrol when there is no tank), per km. Only what comes out of the exhaust; not what making the fuel or the electricity cost |
 | **Electrical energy balance error** | % | Energy that no source supplied or took up, as a share of all the energy that went through the electrical buses. It shows the solver's last-resort limits at work; it is 0 in a sound model. Above about 0.1 %, look at what the run's messages say |
 | **Simulated duration** | s | The time the run covered: the case's *Duration*, or less when a test ended at its line or the run stopped |
+| **Consumption at the socket (AC)** | kWh/100km | An electric car's *Consumption* divided by its batteries' *Charger Efficiency* (86 % by default): the energy drawn from the mains, as labs and ratings count it |
+| **Fuel-economy equivalent (MPGe, AC)** | MPGe | The socket consumption as US miles per gallon equivalent: 33.705 kWh count as one gallon of petrol |
+| **Range at this consumption** | km | The batteries' usable energy (down to their *Minimum SOC*) divided by the run's *Consumption* |
+| **Battery energy change, share of fuel energy** | % | A hybrid's change in stored battery energy (+ when it ends fuller) as a share of the fuel's energy (its *Fuel Heating Value*). Charge-balanced runs keep it within 1 % |
+| **Fuel consumption, charge-corrected** | l/100km | A hybrid's fuel consumption as if its battery had ended where it started: from a straight line through the charge-balanced runs, or (with *Charge balance* off) by counting the battery's energy at the engine's average efficiency |
+| **Charge balance runs** | - | How many times a hybrid's case ran the cycle to end at the charge it started with (at most 5) |
+| **Phase *what* — distance** | km | On a cycle with phases (the WLTC's Low to Extra High, the FTP's bags): the distance driven in that phase |
+| **Phase *what* — consumption** | kWh/100km | An electric car's *Consumption* in that phase |
+| **Phase *what* — fuel consumption** | l/100km | The fuel consumption in that phase |
+| **FTP weighted consumption** | kWh/100km | On the FTP-75: the three bags weighted as EPA does (43 % cold start, 57 % hot start, each with the stabilised bag) |
+| **FTP weighted fuel consumption** | l/100km | The same for fuel |
+| **Energy balance residual** | % | How far all the parts' energy books together are from closing, as a share of the energy the sources gave: near 0 when every part's energy in, out, lost and stored adds up |
 
 ## Batteries
 
@@ -44,6 +56,13 @@ Whether the model matches a real car is a separate question:
 | ***part* — time held at the output power limit** | s | How long the battery held the motors back to keep to its *Output Power Limit* (with *Hold Power to Limit* on) |
 | ***part* — time over the output power limit** | s | How long the battery's power was above its *Output Power Limit*, when *Hold Power to Limit* is off and the limit is only checked |
 | ***part* — mean terminal power** | kW | In an acceleration test: the battery's net energy over the run divided by the run's time |
+| ***part* — charge-balanced start SOC** | % | The state of charge a hybrid's battery started the last run at, after charge balancing |
+| ***part* — layout** | cells | A battery built from cells: the number of cells, in series times in parallel |
+| ***part* — charge capacity** | Ah | The pack's charge capacity, from its cells |
+| ***part* — pack mass (estimate)** | kg | The cells' mass times the *Packaging Factor* |
+| ***part* — lowest cell voltage** | V | The lowest voltage a cell reached during the run |
+| ***part* — highest cell voltage** | V | The highest voltage a cell reached during the run |
+| ***part* — time at *what* limit** | s | How long the battery management system held the battery at that limit (a current, a cell voltage or a power) |
 
 ## Motors, engines and other sources
 
@@ -53,6 +72,9 @@ Whether the model matches a real car is a separate question:
 | ***part* — regeneration not recovered** | kWh | Braking energy the E-Motor's command asked for that its supply could not take back (a full or charge-limited battery, a fuel cell, a one-way DC-DC): the motor braked that much less and the friction brakes more |
 | ***part* — fuel used** | kg | The fuel an engine burnt, from its fuel map |
 | ***part* — energy supplied** | kWh | The energy a fuel cell or a voltage source gave to its bus |
+| ***part* — energy used** | kWh | The electrical energy a Climate Control drew |
+| ***part* — heating delivered** | kWh | The heat a Climate Control gave the cabin |
+| ***part* — cooling delivered** | kWh | The heat a Climate Control took out of the cabin |
 | ***part* — time above maximum speed** | % | The share of the run an E-Motor or engine ran above its *Maximum Speed*. Shown only when that happened; it ends the run as *warning* when it lasts more than 1 % of the run and at least 2 s |
 | ***part* — highest speed** | 1/min | The highest speed of that E-Motor or engine, shown with the row above |
 | ***part* — time outside its *what* (*axis*)** | % | The share of the run a part read one of its tables (*what*, such as its full-load map) outside its data on one axis (*axis*, such as its speed). Shown only when that happened |
@@ -87,7 +109,32 @@ Whether the model matches a real car is a separate question:
 | **Time limited by battery** | s | The time the battery could give no more power (a battery at its minimum SOC, its voltage) |
 | **Time limited by power cap** | s | The time the battery's *Output Power Limit* held the car back |
 | **Time limited by braking** | s | The time the car braked as hard as its tyres allow for the corner ahead |
+| **Time limited by lift-and-coast** | s | The time the driver coasted before a braking point to save energy (a Race Track's *Lift-and-Coast*) |
+| **Lift-and-coast, mean share** | % | The share of each stretch of acceleration the driver coasted, averaged over the laps |
+| **Energy target** | kWh | The Race Track's *Energy Target* for the laps |
+| **Energy used against the target** | % | How far the energy the laps used is from the target: below 0 the car used less |
 | **Lap energy balance error** | % | How far the energy the laps took (speeding up, road load, slopes, brakes, gear and motor losses, other loads) is from the energy the sources gave, as a share of the latter. Above 0.5 % the energy and lap times are marked *not valid* |
+
+## Formula Student events
+
+A case that stands for a Formula Student event (its *FS event*) adds these
+rows, after FS Rules 2026 v1.1 (FSG) D 9. The points are estimates
+([Known issues](../../KNOWN-LIMITS.md)).
+
+| Row | Unit | What it is |
+|---|---|---|
+| ***what* time (FS Rules 2026 v1.1 (FSG))** | s | The event's time as the rules take it |
+| ***what* points (estimate)** | points | The event's points, from the case's *Reference time* (the fastest team's time) |
+| **Endurance energy (regeneration × 0.9)** | kWh | The energy the accumulator gave, less 90 % of what braking put back, as the efficiency rules count it |
+| **Endurance finished on its energy** | - | 1 when the car finished the endurance before its battery reached its *Minimum SOC* |
+| **Efficiency factor (T² · E)** | 10⁶ s²·kWh | The endurance time squared times its energy, which the efficiency points compare with the most efficient team's |
+| **Efficiency points (estimate)** | points | The efficiency points, from the case's *Reference energy* |
+| **Net battery energy (out − back in)** | kWh | The energy the batteries gave less what went back in |
+| **Lowest pack voltage** | V | The lowest voltage at the batteries' terminals |
+| **Rule check: power (EV 2.2.1)** | kW | The highest power from the accumulator, against the 80 kW rule |
+| **Rule check: power, 500 ms average (EV 2.2.1)** | kW | The same, averaged over 500 ms as the rules judge it |
+| **Rule check: current (EV 2.2.2)** | A | The highest current from the accumulator, against the 500 A rule |
+| **Rule check: voltage (EV 4.1.1)** | V | The highest accumulator voltage, against the 600 V rule |
 
 ## Not valid and the run status
 

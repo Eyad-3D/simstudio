@@ -86,4 +86,4 @@ def test_a_project_without_a_cycle_case_is_refused():
     project = load_example("fs-electric")  # acceleration and lap cases only
     r = TestClient(app).post("/api/label-estimate",
                              json={"project": project.model_dump(mode="json")})
-    assert r.status_code == 422 and "case of kind Cycle" in r.json()["detail"]
+    assert r.status_code == 400 and "case of kind Cycle" in r.json()["detail"]

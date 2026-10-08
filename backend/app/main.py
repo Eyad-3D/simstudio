@@ -346,7 +346,8 @@ def get_templates() -> list[dict]:
     return templates.listing()
 
 
-@app.post("/api/templates/{template_id}/new")
+@app.post("/api/templates/{template_id}/new",
+          responses=_errors(e400="The form's values do not fit the template", e404="No such template"))
 def new_from_template(template_id: str, req: TemplateNewRequest) -> dict:
     """A new, unsaved project from a template, the form's values written in."""
     try:
@@ -354,20 +355,21 @@ def new_from_template(template_id: str, req: TemplateNewRequest) -> dict:
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found")
     except ValueError as e:  # TemplateError, or a bad id
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.post("/api/templates")
+@app.post("/api/templates", responses=_errors(e400="The model cannot be saved as a template"))
 def save_template(req: TemplateSaveRequest) -> dict:
     try:
         form = [templates.FormField.model_validate(f) for f in req.form]
         t = templates.save_user_template(req.project, req.name, req.description, form, req.slots)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
     return t.model_dump(mode="json", exclude={"project"})
 
 
-@app.delete("/api/templates/{template_id}")
+@app.delete("/api/templates/{template_id}",
+            responses=_errors(e400="A built-in template cannot be deleted", e404="No such template"))
 def delete_template(template_id: str) -> dict:
     try:
         templates.delete_user_template(template_id)
@@ -960,32 +962,32 @@ def run_simulation(req: SimulateRequest) -> SimResult:
     return simulate(req.project, req.caseId)
 
 
-@app.post("/api/label-estimate")
+@app.post("/api/label-estimate", responses=_errors(e400="Data Checks fail, or the model has no case to base the estimate on"))
 def us_label_estimate(req: LabelEstimateRequest) -> dict:
     """CON-32: the model on EPA's city and highway cycles, adjusted to a US
     window-sticker estimate, every step shown; not a certified value."""
     checks = validate_project(req.project)
     errors = [c.text for c in checks if c.level == "error"]
     if errors:
-        raise HTTPException(status_code=422, detail=f"Data check failed: {errors[0]}")
+        raise HTTPException(status_code=400, detail=f"Data check failed: {errors[0]}")
     try:
         return label.estimate(req.project, req.caseId, req.modelYear)
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
-@app.post("/api/vehicle-tests")
+@app.post("/api/vehicle-tests", responses=_errors(e400="Data Checks fail, or a test cannot be set up on this model"))
 def run_vehicle_tests(req: VehicleTestsRequest) -> dict:
     """CON-06: 0-100 and 80-120 km/h, top speed, constant-speed consumption,
     gradeability and a virtual coast-down on the model as it is."""
     checks = validate_project(req.project)
     errors = [c.text for c in checks if c.level == "error"]
     if errors:
-        raise HTTPException(status_code=422, detail=f"Data check failed: {errors[0]}")
+        raise HTTPException(status_code=400, detail=f"Data check failed: {errors[0]}")
     try:
         return vehicle_tests.run_tests(req.project, req.tests)
     except vehicle_tests.TestSetupError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 # An error answer as FastAPI sends it, for the routes below to declare.

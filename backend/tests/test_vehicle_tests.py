@@ -52,4 +52,4 @@ def test_the_api_runs_chosen_tests_and_refuses_unknown_ones():
     r = c.post("/api/vehicle-tests", json=body).json()
     assert [row["what"] for row in r["rows"]] == ["0-100 km/h"] and "not a certified" in r["note"]
     body["tests"] = ["moon_landing"]
-    assert c.post("/api/vehicle-tests", json=body).status_code == 422
+    assert c.post("/api/vehicle-tests", json=body).status_code == 400

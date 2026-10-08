@@ -187,10 +187,10 @@ def _checks(ctx) -> tuple[list[tuple], list[str]]:
     i_a = max(b.i_peak_a for b in batts)
     rows = [
         (f"Rule check: power{', 500 ms average' if averaged else ''} (EV 2.2.1)",
-         round(p_kw, 2), "kW", POWER_LIMIT_KW, p_kw <= POWER_LIMIT_KW * (1 + 1e-6)),
-        ("Rule check: current (EV 2.2.2)", round(i_a, 1), "A", CURRENT_LIMIT_A,
+         p_kw, "kW", POWER_LIMIT_KW, p_kw <= POWER_LIMIT_KW * (1 + 1e-6)),
+        ("Rule check: current (EV 2.2.2)", i_a, "A", CURRENT_LIMIT_A,
          i_a <= CURRENT_LIMIT_A * (1 + 1e-6)),
-        ("Rule check: voltage (EV 4.1.1)", round(v_max, 1), "V", VOLTAGE_LIMIT_V,
+        ("Rule check: voltage (EV 4.1.1)", v_max, "V", VOLTAGE_LIMIT_V,
          v_max <= VOLTAGE_LIMIT_V * (1 + 1e-6)),
     ]
     what = (f"power over {POWER_LIMIT_KW:g} kW (EV 2.2.1)", f"current over {CURRENT_LIMIT_A:g} A "
@@ -245,9 +245,9 @@ def event_rows(case, ctx, lap, summary: list, finished: bool) -> tuple[list[tupl
 
     unit_t = "s"
     if t is not None:
-        rows.append((f"{name} time ({RULES})", round(t, 3), unit_t, None, None, why))
+        rows.append((f"{name} time ({RULES})", t, unit_t, None, None, why))
     if ev == "endurance":
-        rows.append(("Endurance energy (regeneration × 0.9)", round(energy, 4), "kWh",
+        rows.append(("Endurance energy (regeneration × 0.9)", energy, "kWh",
                      None, None, why))
         rows.append(("Endurance finished on its energy", 1.0 if not depleted else 0.0, "-",
                      None, not depleted, None))
@@ -257,13 +257,13 @@ def event_rows(case, ctx, lap, summary: list, finished: bool) -> tuple[list[tupl
                       energy_kwh=energy)
     sc = score(res, case.referenceTime, case.referenceEnergy, case.referenceEnergyTime)
     if sc["efficiency_factor"] is not None:
-        rows.append(("Efficiency factor (T² · E)", round(sc["efficiency_factor"] / 1e6, 4),
+        rows.append(("Efficiency factor (T² · E)", sc["efficiency_factor"] / 1e6,
                      "10⁶ s²·kWh", None, None, why))
     if sc["points"] is not None:
-        rows.append((f"{name} points (estimate)", round(sc["points"], 2), "points",
+        rows.append((f"{name} points (estimate)", sc["points"], "points",
                      SCORING[ev].p_max, None, why))
     if sc["efficiency_points"] is not None:
-        rows.append(("Efficiency points (estimate)", round(sc["efficiency_points"], 2), "points",
+        rows.append(("Efficiency points (estimate)", sc["efficiency_points"], "points",
                      EFFICIENCY_P_MAX, None, why))
     for b in breaches:
         msgs.append(("warning", f"{name}: {b}. A violation disqualifies the run "
@@ -308,14 +308,14 @@ def _energy_rows(ctx, rms: bool) -> list[tuple]:
     if not batts:
         return []
     net = sum(b.energy_out_wh - b.energy_in_wh for b in batts) / 1000.0
-    rows = [("Net battery energy (out − back in)", round(net, 4), "kWh", None, None, None)]
+    rows = [("Net battery energy (out − back in)", net, "kWh", None, None, None)]
     if rms:
         t_on = max(b.t_on for b in batts)
         p_rms = math.sqrt(sum(b.p_sq_ws for b in batts) / t_on) if t_on > 0 else 0.0
-        rows.append(("RMS battery power", round(p_rms / 1000.0, 3), "kW", None, None, None))
+        rows.append(("RMS battery power", p_rms / 1000.0, "kW", None, None, None))
     v_low = min(b.v_low for b in batts)
     if math.isfinite(v_low):
-        rows.append(("Lowest pack voltage", round(v_low, 2), "V", None, None, None))
+        rows.append(("Lowest pack voltage", v_low, "V", None, None, None))
     return rows
 
 
@@ -326,7 +326,7 @@ def _trace_endurance_rows(ctx, finished: bool) -> tuple[list[tuple], list[tuple]
     depleted = any(b.depleted_flagged for b in ctx.batteries.values())
     check_rows, breaches = _checks(ctx)
     rows = [("Endurance energy (regeneration × 0.9)",
-             round(endurance_energy_kwh(ctx.batteries.values()), 4), "kWh", None, None, None),
+             endurance_energy_kwh(ctx.batteries.values()), "kWh", None, None, None),
             ("Endurance finished on its energy", 0.0 if depleted else 1.0, "-", None,
              not depleted and finished, None),
             *_energy_rows(ctx, rms=True), *[(*r, None) for r in check_rows]]
