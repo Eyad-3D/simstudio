@@ -26,6 +26,16 @@
       "expect": "Permission is hereby granted, free of charge",
       "reason": "Linux builds only (uvicorn uses it there). Dual-licensed: its README says \"uvloop is dual-licensed under MIT and Apache 2.0 licenses\" and it ships LICENSE-MIT and LICENSE-APACHE. Its metadata has only the two classifiers, which do not say that they are a choice."
     },
+    "numpy": {
+      "license": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 AND LGPL-2.1-or-later AND GPL-3.0-or-later WITH GCC-exception-3.1",
+      "expect": "Name: libquadmath",
+      "reason": "Only in an engine built with the FMU pack (LIGHTSIM_FREEZE_FMU_PACK=1, backend/lightsim-backend.spec). Its metadata names only the licences of its own code, but its wheels bundle numpy.libs/libquadmath (LGPL-2.1-or-later) and libgfortran (GPL-3.0-or-later with the GCC Runtime Library Exception), as its LICENSE.txt says. LGPL is not in allowed.txt: such a build fails until the owner decides."
+    },
+    "lxml": {
+      "license": "BSD-3-Clause AND PSF-2.0 AND MIT AND Zlib AND LGPL-2.1-or-later",
+      "expect": "**iconv**: LGPL 2.1",
+      "reason": "Only in an engine built with the FMU pack (LIGHTSIM_FREEZE_FMU_PACK=1, backend/lightsim-backend.spec). Its metadata says BSD-3-Clause, but its binary wheels link in zlib, libxml2, libxslt and GNU libiconv, which its LICENSES.txt lists as LGPL 2.1. LGPL is not in allowed.txt: such a build fails until the owner decides (or lxml is built from source without GNU libiconv)."
+    },
     "setuptools": {
       "license": "MIT",
       "expect": "Permission is hereby granted, free of charge",

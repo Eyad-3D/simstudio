@@ -908,8 +908,10 @@ minimum or an average, for example from the CSV export, or put the
   STD-02.
 - **FMU support is an optional pack.** It needs FMPy (BSD-2-Clause) and its
   NumPy, lxml, attrs and lark. The desktop installers do not include it
-  yet; without it, Data Checks say so and every other model runs. *Roadmap:*
-  STD-01.
+  yet; without it, Data Checks say so and every other model runs. The
+  NumPy and lxml downloads carry LGPL-licensed parts (NumPy's libquadmath,
+  and GNU libiconv inside lxml), so the pack can go into the installers
+  only once the owner has decided how to ship those. *Roadmap:* STD-01.
 - **FMUs run in a separate, locked-down process, but how locked-down
   depends on your system.** An FMU is compiled code from another company or
   tool. LightSim runs it only after you allow it on your computer (once per
