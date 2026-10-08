@@ -17,7 +17,7 @@ jobs:
     name: Contributor licence agreement
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           sparse-checkout: .github/CLA-SIGNATORIES.txt

@@ -368,7 +368,7 @@ jobs:
 
       # Only a signed and notarised Mac build gets the name the release job
       # collects; an unsigned one is kept under another name for testing.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: matrix.name == 'macos'
         with:
           name: ${{ steps.signing.outputs.mac == 'true' && 'lightsim-macos' || 'unsigned-lightsim-macos-do-not-publish' }}
