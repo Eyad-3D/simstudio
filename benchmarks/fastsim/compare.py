@@ -515,8 +515,8 @@ def build_report(ls: dict, fs: dict) -> str:
     add(f"| **Mean absolute gap** | | | | **{statistics.mean(lg):.1f} %** | | "
         f"**{statistics.mean(fg):.1f} %** |")
     add(f"| Largest absolute gap | | | | {max(lg):.1f} % | | {max(fg):.1f} % |")
-    add(f"| Cases within 5 % / 8 % of EPA | | | | {sum(g <= 5 for g in lg)} / "
-        f"{sum(g <= 8 for g in lg)} of {len(lg)} | | {sum(g <= 5 for g in fg)} / "
+    add(f"| Cases within 5 % of EPA / within 8 % | | | | {sum(g <= 5 for g in lg)} of {len(lg)} / "
+        f"{sum(g <= 8 for g in lg)} of {len(lg)} | | {sum(g <= 5 for g in fg)} of {len(fg)} / "
         f"{sum(g <= 8 for g in fg)} of {len(fg)} |")
     add("")
     add("Battery-terminal energy before the internal losses and the charger, Wh/km "
@@ -597,8 +597,10 @@ def build_report(ls: dict, fs: dict) -> str:
     add(f"Spread inside a car and cycle (slowest of the {ls['runs']} runs over the fastest): "
         f"LightSim up to {spread(list(lres.values())):.2f}×, FASTSim up to "
         f"{spread([r for r in fs['results'] if r['variant'] == 'own']):.2f}×. "
-        f"Using CPU time instead of wall-clock gives a geometric-mean ratio of "
-        f"{geomean(cpu_ratios):,.0f}×.")
+        f"The same ratio taken other ways, as a geometric mean over the cases: CPU time "
+        f"instead of wall-clock {geomean(cpu_ratios):,.0f}×; the fastest run of the "
+        f"{ls['runs']} instead of the median "
+        f"{geomean([min(lres[k]['wall_s']) / min(fres[k[0], k[1], 'own']['wall_s']) for k in keys]):,.0f}×.")
     add("")
     add("Machine and load while measuring (the 1-minute load average includes the benchmark "
         "itself, which is one busy process):")

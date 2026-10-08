@@ -169,7 +169,12 @@ a user waits for, not what is "better engineering".
 - Run times depend on the load. The machine is shared (4 CPUs), `results.md`
   records the load average before and after every group of runs, and the times
   are not corrected for it. The ratio between the tools is hundreds of times, far
-  larger than any load effect.
+  larger than any load effect. FASTSim's runs are only 20-40 ms, so a busy
+  neighbour moves them visibly: in the committed 5-run measurement four HWFET
+  medians read about 31 ms, while a 50-run measurement a few minutes later
+  (`--runs 50`, not committed) gave medians of 19-22 ms on the HWFET and 37-44 ms
+  on the UDDS, with fastest runs of about 18 and 32 ms. Use more runs for a
+  tighter FASTSim figure; the LightSim runs (13-26 s) moved by up to about 25 % between repeats.
 - FASTSim 3.1.0's Python package does not give a charger-inclusive "kWh/mile"
   figure of the kind FASTSim 2 printed; the post-processing above replaces it.
 - Both tools are run at their defaults otherwise: FASTSim with

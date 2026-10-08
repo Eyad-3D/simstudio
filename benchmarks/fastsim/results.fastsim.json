@@ -1,0 +1,834 @@
+{
+ "tool": "fastsim",
+ "runs": 5,
+ "machine": {
+  "date": "2026-10-08",
+  "time_utc": "2026-10-08 15:55:42",
+  "cpus": 4,
+  "loadavg": [
+   1.86,
+   1.55,
+   1.35
+  ],
+  "platform": "Linux-6.18.44-fc-v80-x86_64-with-glibc2.39",
+  "python": "3.11.15"
+ },
+ "machine_end": {
+  "date": "2026-10-08",
+  "time_utc": "2026-10-08 15:55:49",
+  "cpus": 4,
+  "loadavg": [
+   1.88,
+   1.57,
+   1.36
+  ],
+  "platform": "Linux-6.18.44-fc-v80-x86_64-with-glibc2.39",
+  "python": "3.11.15"
+ },
+ "fastsim_version": "3.1.0",
+ "vehicles_dir": "/tmp/claude-0/-home-user-simstudio/755440da-cf00-5071-8c0d-19bf8b36a1f5/scratchpad/sota2/physics-src/fastsim/cal_and_val/f2-vehicles",
+ "vehicles_commit": "330af9368b3e",
+ "vehicle_files_sha256": {
+  "2022 Tesla Model 3 RWD.yaml": "9e12a72925adada239cd65ec49c5ffdbe1b04b82dcba0173b31e7c18a62a8c55",
+  "2017 CHEVROLET Bolt.yaml": "67716d373e60b1c15f068849d01f0e4c3f06d55579d215d517cd97a40642cc98",
+  "2016 Nissan Leaf 30 kWh.yaml": "a2d505aefe259d50cc8e4b2798c54f76b5d94cf0fdba610ebec620b1bae322ed",
+  "2022 MINI Cooper SE Hardtop 2 door.yaml": "b85616e679fe3f8f2952c13d8c5b7bbfab7fed6e18a5bc699bc9ca6c85ec9167"
+ },
+ "timed": "SimDrive(vehicle, cycle) and .run(); the vehicle's own history saving (every step) stays on",
+ "inputs": {
+  "epa-2022-tesla-model3-rwd": {
+   "own": {
+    "mass_kg": 1752.0,
+    "drag_coef": 0.23,
+    "frontal_area_m2": 2.22,
+    "rolling_coef": 0.007,
+    "air_density": 1.2,
+    "wheel_radius_m": 0.33435,
+    "rotating_inertia_equiv_kg": 29.16184148888734,
+    "driveline_eff": 0.98,
+    "motor_kw": 239.0,
+    "battery_kwh": 54.0,
+    "battery_max_kw": 201.2274239,
+    "aux_kw": 0.25,
+    "battery_eff": 0.9848857801796105
+   },
+   "file": "2022 Tesla Model 3 RWD.yaml",
+   "source_check": {
+    "wheel radius": true,
+    "auxiliaries": true,
+    "motor efficiency curve": true,
+    "motor power": null,
+    "battery size": true,
+    "battery power limit": true
+   },
+   "aligned_udds": {
+    "mass_kg": 1927.7675725000001,
+    "drag_coef": 0.2514992191407041,
+    "frontal_area_m2": 2.22,
+    "rolling_coef": 0.008913270948548511,
+    "air_density": 1.2,
+    "wheel_radius_m": 0.33435,
+    "rotating_inertia_equiv_kg": 28.916513587500003,
+    "driveline_eff": 1.0,
+    "motor_kw": 191.64486710399999,
+    "battery_kwh": 54.0,
+    "battery_max_kw": 201.2,
+    "aux_kw": 0.25,
+    "battery_eff": "C-rate table",
+    "fit_road_load_energy_ratio": 0.9999999999999982
+   },
+   "aligned_hwfet": {
+    "mass_kg": 1927.7675725000001,
+    "drag_coef": 0.24907631483840875,
+    "frontal_area_m2": 2.22,
+    "rolling_coef": 0.008992074291048367,
+    "air_density": 1.2,
+    "wheel_radius_m": 0.33435,
+    "rotating_inertia_equiv_kg": 28.916513587500003,
+    "driveline_eff": 1.0,
+    "motor_kw": 191.64486710399999,
+    "battery_kwh": 54.0,
+    "battery_max_kw": 201.2,
+    "aux_kw": 0.25,
+    "battery_eff": "C-rate table",
+    "fit_road_load_energy_ratio": 1.0000000000000027
+   }
+  },
+  "epa-2022-chevrolet-bolt-euv": {
+   "own": {
+    "mass_kg": 1757.77,
+    "drag_coef": 0.29,
+    "frontal_area_m2": 2.845,
+    "rolling_coef": 0.0073,
+    "air_density": 1.2,
+    "wheel_radius_m": 0.336,
+    "rotating_inertia_equiv_kg": 28.87613378684807,
+    "driveline_eff": 0.98,
+    "motor_kw": 150.0,
+    "battery_kwh": 60.0,
+    "battery_max_kw": 160.0,
+    "aux_kw": 0.25,
+    "battery_eff": 0.9848857801796105
+   },
+   "file": "2017 CHEVROLET Bolt.yaml",
+   "source_check": {
+    "wheel radius": true,
+    "auxiliaries": true,
+    "motor efficiency curve": true,
+    "motor power": true,
+    "battery size": true,
+    "battery power limit": true
+   },
+   "aligned_udds": {
+    "mass_kg": 1814.36948,
+    "drag_coef": 0.2966762491450559,
+    "frontal_area_m2": 2.845,
+    "rolling_coef": 0.007844746022309142,
+    "air_density": 1.2,
+    "wheel_radius_m": 0.336,
+    "rotating_inertia_equiv_kg": 27.2155422,
+    "driveline_eff": 1.0,
+    "motor_kw": 150.0,
+    "battery_kwh": 60.0,
+    "battery_max_kw": 160.0,
+    "aux_kw": 0.25,
+    "battery_eff": "C-rate table",
+    "fit_road_load_energy_ratio": 1.0000000000000036
+   },
+   "aligned_hwfet": {
+    "mass_kg": 1814.36948,
+    "drag_coef": 0.29597229048564483,
+    "frontal_area_m2": 2.845,
+    "rolling_coef": 0.007875921546768697,
+    "air_density": 1.2,
+    "wheel_radius_m": 0.336,
+    "rotating_inertia_equiv_kg": 27.2155422,
+    "driveline_eff": 1.0,
+    "motor_kw": 150.0,
+    "battery_kwh": 60.0,
+    "battery_max_kw": 160.0,
+    "aux_kw": 0.25,
+    "battery_eff": "C-rate table",
+    "fit_road_load_energy_ratio": 1.0000000000000018
+   }
+  },
+  "epa-2022-nissan-leaf-40": {
+   "own": {
+    "mass_kg": 1636.03,
+    "drag_coef": 0.315,
+    "frontal_area_m2": 2.755,
+    "rolling_coef": 0.008,
+    "air_density": 1.2,
+    "wheel_radius_m": 0.336,
+    "rotating_inertia_equiv_kg": 28.87613378684807,
+    "driveline_eff": 0.98,
+    "motor_kw": 80.0,
+    "battery_kwh": 30.0,
+    "battery_max_kw": 86.0,
+    "aux_kw": 0.25,
+    "battery_eff": 0.9848857801796105
+   },
+   "file": "2016 Nissan Leaf 30 kWh.yaml",
+   "source_check": {
+    "wheel radius": true,
+    "auxiliaries": true,
+    "motor efficiency curve": true,
+    "motor power": false,
+    "battery size": false,
+    "battery power limit": false
+   },
+   "aligned_udds": {
+    "mass_kg": 1757.67043375,
+    "drag_coef": 0.32616831151208764,
+    "frontal_area_m2": 2.755,
+    "rolling_coef": 0.008050260582388785,
+    "air_density": 1.2,
+    "wheel_radius_m": 0.336,
+    "rotating_inertia_equiv_kg": 26.36505650625,
+    "driveline_eff": 1.0,
+    "motor_kw": 110.0,
+    "battery_kwh": 40.0,
+    "battery_max_kw": 110.0,
+    "aux_kw": 0.25,
+    "battery_eff": "C-rate table",
+    "fit_road_load_energy_ratio": 1.0000000000000007
+   },
+   "aligned_hwfet": {
+    "mass_kg": 1757.67043375,
+    "drag_coef": 0.31184105723271377,
+    "frontal_area_m2": 2.755,
+    "rolling_coef": 0.008684505795946526,
+    "air_density": 1.2,
+    "wheel_radius_m": 0.336,
+    "rotating_inertia_equiv_kg": 26.36505650625,
+    "driveline_eff": 1.0,
+    "motor_kw": 110.0,
+    "battery_kwh": 40.0,
+    "battery_max_kw": 110.0,
+    "aux_kw": 0.25,
+    "battery_eff": "C-rate table",
+    "fit_road_load_energy_ratio": 0.9999999999999999
+   }
+  },
+  "epa-2022-mini-cooper-se": {
+   "own": {
+    "mass_kg": 1587.573,
+    "drag_coef": 0.3261816574680473,
+    "frontal_area_m2": 2.4,
+    "rolling_coef": 0.009,
+    "air_density": 1.2,
+    "wheel_radius_m": 0.30815,
+    "rotating_inertia_equiv_kg": 34.33153771141705,
+    "driveline_eff": 0.98,
+    "motor_kw": 135.0,
+    "battery_kwh": 32.6,
+    "battery_max_kw": 1000.0,
+    "aux_kw": 0.2,
+    "battery_eff": 0.9848857801796105
+   },
+   "file": "2022 MINI Cooper SE Hardtop 2 door.yaml",
+   "source_check": {
+    "wheel radius": true,
+    "auxiliaries": true,
+    "motor efficiency curve": true,
+    "motor power": true,
+    "battery size": true,
+    "battery power limit": false
+   },
+   "aligned_udds": {
+    "mass_kg": 1587.5732950000001,
+    "drag_coef": 0.3232726575776191,
+    "frontal_area_m2": 2.4,
+    "rolling_coef": 0.009723062322099246,
+    "air_density": 1.2,
+    "wheel_radius_m": 0.30815,
+    "rotating_inertia_equiv_kg": 23.813599425,
+    "driveline_eff": 1.0,
+    "motor_kw": 135.0,
+    "battery_kwh": 32.6,
+    "battery_max_kw": 135.0,
+    "aux_kw": 0.2,
+    "battery_eff": "C-rate table",
+    "fit_road_load_energy_ratio": 0.9999999999999997
+   },
+   "aligned_hwfet": {
+    "mass_kg": 1587.5732950000001,
+    "drag_coef": 0.3027205007113517,
+    "frontal_area_m2": 2.4,
+    "rolling_coef": 0.010600557900357193,
+    "air_density": 1.2,
+    "wheel_radius_m": 0.30815,
+    "rotating_inertia_equiv_kg": 23.813599425,
+    "driveline_eff": 1.0,
+    "motor_kw": 135.0,
+    "battery_kwh": 32.6,
+    "battery_max_kw": 135.0,
+    "aux_kw": 0.2,
+    "battery_eff": "C-rate table",
+    "fit_road_load_energy_ratio": 1.0000000000000007
+   }
+  }
+ },
+ "results": [
+  {
+   "case": "epa-2022-tesla-model3-rwd",
+   "name": "2022 Tesla Model 3 RWD",
+   "cycle": "udds",
+   "variant": "own",
+   "duration_s": 1369,
+   "distance_km": 11.990245972222212,
+   "status": "success",
+   "chemical_wh_per_km": 92.80521250907769,
+   "terminal_wh_per_km": 89.78457324507093,
+   "wall_wh_per_km": 107.91303780125313,
+   "target_wh_per_km": 113.02383180981835,
+   "gap_pct": -4.521872888865593,
+   "wall_s": [
+    0.04357982100009394,
+    0.03559490999941772,
+    0.036194305001117755,
+    0.036582415999873774,
+    0.050475183999878936
+   ],
+   "cpu_s": [
+    0.04356845799999998,
+    0.03559500800000004,
+    0.03614147600000006,
+    0.036586953999999894,
+    0.05040477799999987
+   ],
+   "median_s": 0.036582415999873774,
+   "median_cpu_s": 0.036586953999999894,
+   "x_real_time": 37422.35067264895,
+   "loadavg_1min": [
+    1.86,
+    1.87
+   ]
+  },
+  {
+   "case": "epa-2022-tesla-model3-rwd",
+   "name": "2022 Tesla Model 3 RWD",
+   "cycle": "udds",
+   "variant": "aligned",
+   "duration_s": 1369,
+   "distance_km": 11.990245972222212,
+   "status": "success",
+   "chemical_wh_per_km": 102.97319825578849,
+   "terminal_wh_per_km": 102.11698147744431,
+   "wall_wh_per_km": 119.73627704161453,
+   "target_wh_per_km": 113.02383180981835,
+   "gap_pct": 5.9389644859068325,
+   "wall_s": [
+    0.0346158150005067,
+    0.03550327099947026,
+    0.04110378900077194,
+    0.03953067799920973,
+    0.034518416001446894
+   ],
+   "cpu_s": [
+    0.03461701500000003,
+    0.035500625999999924,
+    0.036452901999999954,
+    0.03711784200000001,
+    0.03387264900000009
+   ],
+   "median_s": 0.03550327099947026,
+   "median_cpu_s": 0.035500625999999924,
+   "x_real_time": 38559.827347188,
+   "loadavg_1min": [
+    1.87,
+    1.87
+   ]
+  },
+  {
+   "case": "epa-2022-tesla-model3-rwd",
+   "name": "2022 Tesla Model 3 RWD",
+   "cycle": "hwfet",
+   "variant": "own",
+   "duration_s": 765,
+   "distance_km": 16.50655458333334,
+   "status": "success",
+   "chemical_wh_per_km": 98.67917427518444,
+   "terminal_wh_per_km": 96.78877850885195,
+   "wall_wh_per_km": 114.74322590137726,
+   "target_wh_per_km": 123.12355105443469,
+   "gap_pct": -6.806435552977485,
+   "wall_s": [
+    0.0189260449988069,
+    0.02162840200071514,
+    0.031152352001299732,
+    0.031417246000273735,
+    0.03128304600068077
+   ],
+   "cpu_s": [
+    0.018850374000000114,
+    0.019110776000000218,
+    0.02930414999999975,
+    0.03139611399999964,
+    0.03128605000000029
+   ],
+   "median_s": 0.031152352001299732,
+   "median_cpu_s": 0.02930414999999975,
+   "x_real_time": 24556.733307587267,
+   "loadavg_1min": [
+    1.87,
+    1.87
+   ]
+  },
+  {
+   "case": "epa-2022-tesla-model3-rwd",
+   "name": "2022 Tesla Model 3 RWD",
+   "cycle": "hwfet",
+   "variant": "aligned",
+   "duration_s": 765,
+   "distance_km": 16.50655458333334,
+   "status": "success",
+   "chemical_wh_per_km": 112.8782201391539,
+   "terminal_wh_per_km": 112.30606730806129,
+   "wall_wh_per_km": 131.25374434785337,
+   "target_wh_per_km": 123.12355105443469,
+   "gap_pct": 6.603280382827986,
+   "wall_s": [
+    0.03157218200067291,
+    0.03161985199949413,
+    0.017881939000290004,
+    0.017985745000260067,
+    0.03343434599992179
+   ],
+   "cpu_s": [
+    0.03157236799999996,
+    0.03162180999999986,
+    0.01788282299999988,
+    0.017985179000000073,
+    0.03288452799999986
+   ],
+   "median_s": 0.03157218200067291,
+   "median_cpu_s": 0.03157236799999996,
+   "x_real_time": 24230.190994835113,
+   "loadavg_1min": [
+    1.87,
+    1.87
+   ]
+  },
+  {
+   "case": "epa-2022-chevrolet-bolt-euv",
+   "name": "2022 Chevrolet Bolt EUV",
+   "cycle": "udds",
+   "variant": "own",
+   "duration_s": 1369,
+   "distance_km": 11.990245972222212,
+   "status": "success",
+   "chemical_wh_per_km": 103.82085188649923,
+   "terminal_wh_per_km": 100.6988073052281,
+   "wall_wh_per_km": 120.72192079825491,
+   "target_wh_per_km": 117.52702600650584,
+   "gap_pct": 2.71843413409629,
+   "wall_s": [
+    0.03134639299969422,
+    0.03299273899938271,
+    0.033784061000915244,
+    0.034233960999699775,
+    0.03296054299971729
+   ],
+   "cpu_s": [
+    0.03134756800000016,
+    0.03291694499999975,
+    0.0333142500000001,
+    0.03373878900000005,
+    0.032928878999999966
+   ],
+   "median_s": 0.03299273899938271,
+   "median_cpu_s": 0.032928878999999966,
+   "x_real_time": 41493.978418269966,
+   "loadavg_1min": [
+    1.87,
+    1.87
+   ]
+  },
+  {
+   "case": "epa-2022-chevrolet-bolt-euv",
+   "name": "2022 Chevrolet Bolt EUV",
+   "cycle": "udds",
+   "variant": "aligned",
+   "duration_s": 1369,
+   "distance_km": 11.990245972222212,
+   "status": "success",
+   "chemical_wh_per_km": 102.61078540178251,
+   "terminal_wh_per_km": 101.9048306003626,
+   "wall_wh_per_km": 119.31486674625873,
+   "target_wh_per_km": 117.52702600650584,
+   "gap_pct": 1.5212166941533318,
+   "wall_s": [
+    0.032987755999783985,
+    0.03347442899939779,
+    0.03491617299914651,
+    0.04741858399938792,
+    0.03494345000035537
+   ],
+   "cpu_s": [
+    0.03289474099999978,
+    0.033222455000000206,
+    0.034140092000000344,
+    0.04610869399999995,
+    0.03494915200000026
+   ],
+   "median_s": 0.03491617299914651,
+   "median_cpu_s": 0.034140092000000344,
+   "x_real_time": 39208.191574530916,
+   "loadavg_1min": [
+    1.87,
+    1.87
+   ]
+  },
+  {
+   "case": "epa-2022-chevrolet-bolt-euv",
+   "name": "2022 Chevrolet Bolt EUV",
+   "cycle": "hwfet",
+   "variant": "own",
+   "duration_s": 765,
+   "distance_km": 16.50655458333334,
+   "status": "success",
+   "chemical_wh_per_km": 126.99716978848717,
+   "terminal_wh_per_km": 124.73327127635663,
+   "wall_wh_per_km": 147.6711276610316,
+   "target_wh_per_km": 140.5591680158345,
+   "gap_pct": 5.059762195231478,
+   "wall_s": [
+    0.032392020999395754,
+    0.033348470000419184,
+    0.03484152500095661,
+    0.031607201000952045,
+    0.031671020999056054
+   ],
+   "cpu_s": [
+    0.03210840899999967,
+    0.03302910499999978,
+    0.034840567999999905,
+    0.03161486900000021,
+    0.03165212500000081
+   ],
+   "median_s": 0.032392020999395754,
+   "median_cpu_s": 0.03210840899999967,
+   "x_real_time": 23616.927144319598,
+   "loadavg_1min": [
+    1.87,
+    1.87
+   ]
+  },
+  {
+   "case": "epa-2022-chevrolet-bolt-euv",
+   "name": "2022 Chevrolet Bolt EUV",
+   "cycle": "hwfet",
+   "variant": "aligned",
+   "duration_s": 765,
+   "distance_km": 16.50655458333334,
+   "status": "success",
+   "chemical_wh_per_km": 128.27036513940288,
+   "terminal_wh_per_km": 127.70212743159516,
+   "wall_wh_per_km": 149.1515873713987,
+   "target_wh_per_km": 140.5591680158345,
+   "gap_pct": 6.113026618510033,
+   "wall_s": [
+    0.031824355999560794,
+    0.031545527001071605,
+    0.031586249999236315,
+    0.03176161299961677,
+    0.02947489300095185
+   ],
+   "cpu_s": [
+    0.03182715500000022,
+    0.031545662000000085,
+    0.031586405999999734,
+    0.03176281599999964,
+    0.027985268999999313
+   ],
+   "median_s": 0.031586249999236315,
+   "median_cpu_s": 0.031586405999999734,
+   "x_real_time": 24219.399264505788,
+   "loadavg_1min": [
+    1.87,
+    1.87
+   ]
+  },
+  {
+   "case": "epa-2022-nissan-leaf-40",
+   "name": "2022 Nissan Leaf (40 kWh)",
+   "cycle": "udds",
+   "variant": "own",
+   "duration_s": 1369,
+   "distance_km": 11.990245972222212,
+   "status": "success",
+   "chemical_wh_per_km": 101.47472005459782,
+   "terminal_wh_per_km": 98.53496798491585,
+   "wall_wh_per_km": 117.99386052860213,
+   "target_wh_per_km": 119.26717559430149,
+   "gap_pct": -1.0676156782907857,
+   "wall_s": [
+    0.05428067399952852,
+    0.03195657499964,
+    0.031624277000446455,
+    0.05086378300075012,
+    0.034333648000028916
+   ],
+   "cpu_s": [
+    0.05426090500000047,
+    0.03191690199999986,
+    0.031621357999999766,
+    0.05081005100000002,
+    0.03424165300000048
+   ],
+   "median_s": 0.034333648000028916,
+   "median_cpu_s": 0.03424165300000048,
+   "x_real_time": 39873.42096589466,
+   "loadavg_1min": [
+    1.87,
+    1.87
+   ]
+  },
+  {
+   "case": "epa-2022-nissan-leaf-40",
+   "name": "2022 Nissan Leaf (40 kWh)",
+   "cycle": "udds",
+   "variant": "aligned",
+   "duration_s": 1369,
+   "distance_km": 11.990245972222212,
+   "status": "success",
+   "chemical_wh_per_km": 102.47775915673003,
+   "terminal_wh_per_km": 101.47401804152027,
+   "wall_wh_per_km": 119.16018506596515,
+   "target_wh_per_km": 119.26717559430149,
+   "gap_pct": -0.0897066001632151,
+   "wall_s": [
+    0.03231080300065514,
+    0.0317557090002083,
+    0.032477460999871255,
+    0.03188095199948293,
+    0.03358946099979221
+   ],
+   "cpu_s": [
+    0.03206368599999987,
+    0.03175371099999946,
+    0.031811842000000645,
+    0.031502852000000026,
+    0.03307408000000045
+   ],
+   "median_s": 0.03231080300065514,
+   "median_cpu_s": 0.031811842000000645,
+   "x_real_time": 42369.73002411119,
+   "loadavg_1min": [
+    1.87,
+    1.87
+   ]
+  },
+  {
+   "case": "epa-2022-nissan-leaf-40",
+   "name": "2022 Nissan Leaf (40 kWh)",
+   "cycle": "hwfet",
+   "variant": "own",
+   "duration_s": 765,
+   "distance_km": 16.50655458333334,
+   "status": "success",
+   "chemical_wh_per_km": 128.3130798530124,
+   "terminal_wh_per_km": 126.07327962154206,
+   "wall_wh_per_km": 149.20125564303768,
+   "target_wh_per_km": 148.32376794872056,
+   "gap_pct": 0.5916028876912672,
+   "wall_s": [
+    0.02736352200008696,
+    0.032731074999901466,
+    0.018169494998801383,
+    0.018070598000122118,
+    0.01865094200002204
+   ],
+   "cpu_s": [
+    0.027367416999999783,
+    0.03272745599999993,
+    0.018170122999999982,
+    0.01807252000000048,
+    0.01857227799999972
+   ],
+   "median_s": 0.01865094200002204,
+   "median_cpu_s": 0.01857227799999972,
+   "x_real_time": 41016.69502800963,
+   "loadavg_1min": [
+    1.87,
+    1.87
+   ]
+  },
+  {
+   "case": "epa-2022-nissan-leaf-40",
+   "name": "2022 Nissan Leaf (40 kWh)",
+   "cycle": "hwfet",
+   "variant": "aligned",
+   "duration_s": 765,
+   "distance_km": 16.50655458333334,
+   "status": "success",
+   "chemical_wh_per_km": 131.0994127028362,
+   "terminal_wh_per_km": 130.2479009062816,
+   "wall_wh_per_km": 152.44117756143743,
+   "target_wh_per_km": 148.32376794872056,
+   "gap_pct": 2.7759607712638252,
+   "wall_s": [
+    0.03210010699876875,
+    0.03200748499875772,
+    0.017446681998990243,
+    0.01771145500060811,
+    0.018183186000896967
+   ],
+   "cpu_s": [
+    0.032102854999999764,
+    0.03201036500000054,
+    0.01744696700000059,
+    0.017709470999999866,
+    0.018182212999999336
+   ],
+   "median_s": 0.018183186000896967,
+   "median_cpu_s": 0.018182212999999336,
+   "x_real_time": 42071.8349337824,
+   "loadavg_1min": [
+    1.87,
+    1.88
+   ]
+  },
+  {
+   "case": "epa-2022-mini-cooper-se",
+   "name": "2022 MINI Cooper SE Hardtop 2 door",
+   "cycle": "udds",
+   "variant": "own",
+   "duration_s": 1369,
+   "distance_km": 11.990245972222212,
+   "status": "success",
+   "chemical_wh_per_km": 102.11474893687932,
+   "terminal_wh_per_km": 99.20769491992696,
+   "wall_wh_per_km": 118.73808015916201,
+   "target_wh_per_km": 123.48653322145839,
+   "gap_pct": -3.8453205693130865,
+   "wall_s": [
+    0.03167271400161553,
+    0.03213492199938628,
+    0.03197292200093216,
+    0.036656218999269186,
+    0.034067237000272144
+   ],
+   "cpu_s": [
+    0.031671498000000575,
+    0.032133330000000626,
+    0.03175672099999982,
+    0.03515003399999994,
+    0.034067501
+   ],
+   "median_s": 0.03213492199938628,
+   "median_cpu_s": 0.032133330000000626,
+   "x_real_time": 42601.62822321914,
+   "loadavg_1min": [
+    1.88,
+    1.88
+   ]
+  },
+  {
+   "case": "epa-2022-mini-cooper-se",
+   "name": "2022 MINI Cooper SE Hardtop 2 door",
+   "cycle": "udds",
+   "variant": "aligned",
+   "duration_s": 1369,
+   "distance_km": 11.990245972222212,
+   "status": "success",
+   "chemical_wh_per_km": 99.43702905022033,
+   "terminal_wh_per_km": 98.3915725256722,
+   "wall_wh_per_km": 115.62445238397713,
+   "target_wh_per_km": 123.48653322145839,
+   "gap_pct": -6.366751606332289,
+   "wall_s": [
+    0.03223564000109036,
+    0.03411751000021468,
+    0.034031305000098655,
+    0.03281694500037702,
+    0.03326858200125571
+   ],
+   "cpu_s": [
+    0.03211109900000064,
+    0.033607731999999224,
+    0.033752921999999685,
+    0.03244645200000029,
+    0.03273690400000007
+   ],
+   "median_s": 0.03326858200125571,
+   "median_cpu_s": 0.03273690400000007,
+   "x_real_time": 41149.93539394999,
+   "loadavg_1min": [
+    1.88,
+    1.88
+   ]
+  },
+  {
+   "case": "epa-2022-mini-cooper-se",
+   "name": "2022 MINI Cooper SE Hardtop 2 door",
+   "cycle": "hwfet",
+   "variant": "own",
+   "duration_s": 765,
+   "distance_km": 16.50655458333334,
+   "status": "success",
+   "chemical_wh_per_km": 125.71675743096357,
+   "terminal_wh_per_km": 123.5228627820989,
+   "wall_wh_per_km": 146.18227608251578,
+   "target_wh_per_km": 145.9464532011104,
+   "gap_pct": 0.16158178306699894,
+   "wall_s": [
+    0.019704620999618783,
+    0.025656236999566318,
+    0.031483491000471986,
+    0.0312544180014811,
+    0.0318758829998842
+   ],
+   "cpu_s": [
+    0.01947562199999986,
+    0.0250902230000003,
+    0.03147741999999987,
+    0.03125510000000009,
+    0.031879502999999865
+   ],
+   "median_s": 0.0312544180014811,
+   "median_cpu_s": 0.03125510000000009,
+   "x_real_time": 24476.539603576934,
+   "loadavg_1min": [
+    1.88,
+    1.88
+   ]
+  },
+  {
+   "case": "epa-2022-mini-cooper-se",
+   "name": "2022 MINI Cooper SE Hardtop 2 door",
+   "cycle": "hwfet",
+   "variant": "aligned",
+   "duration_s": 765,
+   "distance_km": 16.50655458333334,
+   "status": "success",
+   "chemical_wh_per_km": 123.92825486747209,
+   "terminal_wh_per_km": 123.02383444582782,
+   "wall_wh_per_km": 144.10262193892103,
+   "target_wh_per_km": 145.9464532011104,
+   "gap_pct": -1.2633614738472632,
+   "wall_s": [
+    0.02676176599925384,
+    0.02093973100090807,
+    0.03251734700097586,
+    0.031526790000498295,
+    0.03269371399983356
+   ],
+   "cpu_s": [
+    0.02667309799999984,
+    0.02081881499999927,
+    0.0324853359999997,
+    0.031527026000000014,
+    0.032691973000000374
+   ],
+   "median_s": 0.031526790000498295,
+   "median_cpu_s": 0.031527026000000014,
+   "x_real_time": 24265.077414729152,
+   "loadavg_1min": [
+    1.88,
+    1.88
+   ]
+  }
+ ]
+}
