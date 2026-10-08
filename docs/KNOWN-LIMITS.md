@@ -708,11 +708,10 @@ minimum or an average, for example from the CSV export, or put the
   tyres' grip limit). The *Traction Control* block (MOD-45) holds the
   slip near a target, but cannot gain time until the tyres lose grip past
   their peak (MOD-16).
-  So its 80 kW is reached at 0.2 s, while the rear wheels still spin: a
-  car with traction control reaches it later. At its 10 ms step the front
-  wheels' slip and force channels ring at the launch and read high for
-  about 2 s (the example's *Slip Stiffness* is 20, not 10): plot them at a
-  1-2 ms step (the 75 m time moves 0.3 %).
+  So its 80 kW is reached at 0.37 s, while the rear wheels still spin: a
+  car with traction control reaches it later. Its tyres' *Slip Stiffness*
+  of 20 (not 10) makes LightSim run it at a 5 ms step instead of 10 ms
+  (ENG-14).
   The *Endurance energy* case is lap mode at the tyres' limit in every
   corner and under every braking, with no lift-and-coast and no driver
   change (FS Rules 2026 v1.1 (FSG) D 7.5.4's 3 min); its energy follows the

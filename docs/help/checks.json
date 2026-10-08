@@ -303,6 +303,45 @@
   },
   "first-car-wltc": {
    "model": "first-car@values"
+  },
+  "aero-udds": {
+   "example": "aero-bev",
+   "case": "case-udds"
+  },
+  "aero-hwfet": {
+   "example": "aero-bev",
+   "case": "case-hwfet"
+  },
+  "aero-wltc": {
+   "example": "aero-bev",
+   "case": "case-wltc"
+  },
+  "aero-hwfet-c": {
+   "example": "aero-bev",
+   "case": "case-hwfet",
+   "set": {
+    "Vehicle": {
+     "road_load_c_N_per_kmh2": 0.02967
+    }
+   }
+  },
+  "aero-udds-2128": {
+   "example": "aero-bev",
+   "case": "case-udds",
+   "set": {
+    "Vehicle": {
+     "mass_kg": 2128
+    }
+   }
+  },
+  "aero-udds-heat": {
+   "example": "aero-bev",
+   "case": "case-udds",
+   "set": {
+    "Power Consumer": {
+     "power_kW": 2.5
+    }
+   }
   }
  },
  "facts": [
@@ -391,18 +430,18 @@
   },
   {
    "page": "tutorials/first-electric-car.md",
-   "text": "*Consumption* should be between 11 and 12.5 kWh/100 km",
-   "expr": "11 <= v('first-car-wltc', 'Consumption') <= 12.5"
+   "text": "*Consumption* should be between 9.5 and 11.5 kWh/100 km",
+   "expr": "9.5 <= v('first-car-wltc', 'Consumption') <= 11.5"
   },
   {
    "page": "tutorials/first-electric-car.md",
-   "text": "LightSim gives 11.68 kWh/100 km with the values above",
+   "text": "LightSim gives 10.48 kWh/100 km with the values above",
    "expr": "v('first-car-wltc', 'Consumption')",
    "format": "{:.2f} kWh/100 km"
   },
   {
    "page": "tutorials/first-electric-car.md",
-   "text": "Your car uses 11.68 kWh/100 km on the WLTC, the example 14.05: 17 % less",
+   "text": "Your car uses 10.48 kWh/100 km on the WLTC, the example 14.05: 25 % less",
    "expr": "(v('first-car-wltc', 'Consumption'), v('bev-wltc', 'Consumption'), 100 * (1 - v('first-car-wltc', 'Consumption') / v('bev-wltc', 'Consumption')))",
    "format": "{0[0]:.2f} kWh/100 km on the WLTC, the example {0[1]:.2f}: {0[2]:.0f} % less"
   },
@@ -488,7 +527,7 @@
    "page": "examples/hybrid-car.md",
    "text": "*Mixed Cycle* | 2.88 l/100 km | 68.0 g/km | 9.556 km |",
    "expr": "(v('hy-mixed', 'Fuel consumption'), v('hy-mixed', 'CO₂ emissions'), v('hy-mixed', 'Distance driven'))",
-   "format": "*Mixed Cycle* | {0[0]:.2f} l/100 km | {0[1]:.1f} g/km | {0[2]:.5g} km |"
+   "format": "*Mixed Cycle* | {0[0]:.2f} l/100 km | {0[1]:.1f} g/km | {0[2]:.3f} km |"
   },
   {
    "page": "examples/hybrid-car.md",
@@ -516,18 +555,18 @@
   },
   {
    "page": "examples/fs-electric.md",
-   "text": "From 0.2 s.** The Accumulator reaches 80 kW",
-   "expr": "message('fs-accel', 'held at its Output Power Limit (80 kW at the terminals) from t = 0.20 s')"
+   "text": "From 0.37 s.** The Accumulator reaches 80 kW",
+   "expr": "message('fs-accel', 'held at its Output Power Limit (80 kW at the terminals) from t = 0.37 s')"
   },
   {
    "page": "examples/fs-electric.md",
-   "text": "**3.74 s.** The car crosses the 75 m line at 119 km/h",
+   "text": "**3.75 s.** The car crosses the 75 m line at 119 km/h",
    "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel', 'Speed at 75 m'))",
    "format": "**{0[0]:.2f} s.** The car crosses the 75 m line at {0[1]:.0f} km/h"
   },
   {
    "page": "examples/fs-electric.md",
-   "text": "3.744 s from the start line, 118.88 km/h at the line, 0-100 km/h in 2.93 s",
+   "text": "3.751 s from the start line, 118.86 km/h at the line, 0-100 km/h in 2.95 s",
    "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel', 'Speed at 75 m'), v('fs-accel', 'Time to 100 km/h'))",
    "format": "{0[0]:.3f} s from the start line, {0[1]:.2f} km/h at the line, 0-100 km/h in {0[2]:.2f} s"
   },
@@ -545,13 +584,13 @@
   },
   {
    "page": "examples/fs-electric.md",
-   "text": "3.744 to 4.223 s, 0.479 s slower, and 95.95 km/h at the line instead of 118.88 km/h",
+   "text": "3.751 to 4.232 s, 0.480 s slower, and 95.92 km/h at the line instead of 118.86 km/h",
    "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel-40', 'Time to 75 m'), v('fs-accel-40', 'Time to 75 m') - v('fs-accel', 'Time to 75 m'), v('fs-accel-40', 'Speed at 75 m'), v('fs-accel', 'Speed at 75 m'))",
    "format": "{0[0]:.3f} to {0[1]:.3f} s, {0[2]:.3f} s slower, and {0[3]:.2f} km/h at the line instead of {0[4]:.2f} km/h"
   },
   {
    "page": "examples/fs-electric.md",
-   "text": "3.744 to 4.015 s. The car spends 63.8 % of the run at the tyres' grip limit instead of 48.4 %",
+   "text": "3.751 to 4.026 s. The car spends 64.1 % of the run at the tyres' grip limit instead of 48.6 %",
    "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel-mu13', 'Time to 75 m'), v('fs-accel-mu13', \"Time at the tyres' grip limit\"), v('fs-accel', \"Time at the tyres' grip limit\"))",
    "format": "{0[0]:.3f} to {0[1]:.3f} s. The car spends {0[2]:.1f} % of the run at the tyres' grip limit instead of {0[3]:.1f} %"
   },
@@ -563,36 +602,36 @@
   },
   {
    "page": "lessons/fs-1-acceleration.md",
-   "text": "*Time to 75 m* 3.744 s and *Speed at 75 m* 118.88 km/h",
+   "text": "*Time to 75 m* 3.751 s and *Speed at 75 m* 118.86 km/h",
    "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel', 'Speed at 75 m'))",
    "format": "*Time to 75 m* {0[0]:.3f} s and *Speed at 75 m* {0[1]:.2f} km/h"
   },
   {
    "page": "lessons/fs-1-acceleration.md",
-   "text": "*Gap to reference time* is -0.166 s",
+   "text": "*Gap to reference time* is -0.159 s",
    "expr": "v('fs-accel', 'Gap to reference time')",
    "format": "*Gap to reference time* is {:.3f} s"
   },
   {
    "page": "lessons/fs-1-acceleration.md",
-   "text": "*Time at the tyres' grip limit* reads 48.4 %",
+   "text": "*Time at the tyres' grip limit* reads 48.6 %",
    "expr": "v('fs-accel', \"Time at the tyres' grip limit\")",
    "format": "reads {:.1f} %"
   },
   {
    "page": "lessons/fs-1-acceleration.md",
-   "text": "*held at the output power limit* for 3.77 s",
+   "text": "*held at the output power limit* for 3.61 s",
    "expr": "v('fs-accel', 'Accumulator — time held at the output power limit')",
    "format": "for {:.2f} s"
   },
   {
    "page": "lessons/fs-1-acceleration.md",
-   "text": "held at 80 kW from t = 0.20 s",
-   "expr": "message('fs-accel', 'held at its Output Power Limit (80 kW at the terminals) from t = 0.20 s')"
+   "text": "held at 80 kW from t = 0.37 s",
+   "expr": "message('fs-accel', 'held at its Output Power Limit (80 kW at the terminals) from t = 0.37 s')"
   },
   {
    "page": "lessons/fs-1-acceleration.md",
-   "text": "4.223 s at 40 kW, 4.032 s at 50 kW, 3.902 s at 60 kW, 3.81 s at 70 kW and 3.744 s at 80 kW",
+   "text": "4.232 s at 40 kW, 4.040 s at 50 kW, 3.910 s at 60 kW, 3.82 s at 70 kW and 3.751 s at 80 kW",
    "expr": "tuple(v(r, 'Time to 75 m') for r in ('fs-accel-40', 'fs-accel-50', 'fs-accel-60', 'fs-accel-70', 'fs-accel'))",
    "format": "{0[0]:.3f} s at 40 kW, {0[1]:.3f} s at 50 kW, {0[2]:.3f} s at 60 kW, {0[3]:.3g} s at 70 kW and {0[4]:.3f} s at 80 kW"
   },
@@ -603,20 +642,20 @@
   },
   {
    "page": "lessons/fs-1-acceleration.md",
-   "text": "the time rises from 3.744 s to 4.015 s, and *Time at the tyres' grip limit* from 48.4 % to 63.8 %",
+   "text": "the time rises from 3.751 s to 4.026 s, and *Time at the tyres' grip limit* from 48.6 % to 64.1 %",
    "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel-mu13', 'Time to 75 m'), v('fs-accel', \"Time at the tyres' grip limit\"), v('fs-accel-mu13', \"Time at the tyres' grip limit\"))",
    "format": "from {0[0]:.3f} s to {0[1]:.3f} s, and *Time at the tyres' grip limit* from {0[2]:.1f} % to {0[3]:.1f} %"
   },
   {
    "page": "lessons/fs-2-endurance.md",
    "text": "the run ends as *success* after 1,428.53 s (*Total time*), 22.515 km driven, with *Accumulator — final SOC* 25.02 %",
-   "expr": "status('fs-endurance') == 'success' and (v('fs-endurance', 'Total time'), v('fs-endurance', 'Distance driven'), v('fs-endurance', 'Accumulator — final SOC')) == (1428.53, 22.515, 25.02)"
+   "expr": "status('fs-endurance') == 'success' and (round(v('fs-endurance', 'Total time'), 2), round(v('fs-endurance', 'Distance driven'), 3), round(v('fs-endurance', 'Accumulator — final SOC'), 2)) == (1428.53, 22.515, 25.02)"
   },
   {
    "page": "lessons/fs-2-endurance.md",
    "text": "6.5 kWh delivered and 1.167 kWh recuperated: 5.33 kWh net, and *Energy per lap* 0.2319 kWh. Braking gives back 18 % of the energy drawn",
    "expr": "(v('fs-endurance', 'Accumulator — energy delivered'), v('fs-endurance', 'Accumulator — energy recuperated'), v('fs-endurance', 'Accumulator — energy delivered') - v('fs-endurance', 'Accumulator — energy recuperated'), v('fs-endurance', 'Energy per lap'), 100 * v('fs-endurance', 'Accumulator — energy recuperated') / v('fs-endurance', 'Accumulator — energy delivered'))",
-   "format": "{0[0]:g} kWh delivered and {0[1]:.3f} kWh recuperated: {0[2]:.2f} kWh net, and *Energy per lap* {0[3]:.4f} kWh. Braking gives back {0[4]:.0f} % of the energy drawn"
+   "format": "{0[0]:.1f} kWh delivered and {0[1]:.3f} kWh recuperated: {0[2]:.2f} kWh net, and *Energy per lap* {0[3]:.4f} kWh. Braking gives back {0[4]:.0f} % of the energy drawn"
   },
   {
    "page": "lessons/fs-2-endurance.md",
@@ -657,13 +696,13 @@
    "page": "lessons/fs-3-accumulator.md",
    "text": "With 4 the car finishes with 25.02 % SOC and 1.34 kWh usable energy left; with 5, 41.04 % and 3.075 kWh",
    "expr": "(v('fs-endurance', 'Accumulator — final SOC'), v('fs-endurance', 'Accumulator — usable energy left'), v('fs-endurance-5p', 'Accumulator — final SOC'), v('fs-endurance-5p', 'Accumulator — usable energy left'))",
-   "format": "With 4 the car finishes with {0[0]:.2f} % SOC and {0[1]:g} kWh usable energy left; with 5, {0[2]:.2f} % and {0[3]:.3f} kWh"
+   "format": "With 4 the car finishes with {0[0]:.2f} % SOC and {0[1]:.2f} kWh usable energy left; with 5, {0[2]:.2f} % and {0[3]:.3f} kWh"
   },
   {
    "page": "lessons/fs-3-accumulator.md",
    "text": "4p finishes with a margin of 1.34 kWh",
    "expr": "v('fs-endurance', 'Accumulator — usable energy left')",
-   "format": "margin of {:g} kWh"
+   "format": "margin of {:.2f} kWh"
   },
   {
    "page": "lessons/fs-3-accumulator.md",
@@ -693,6 +732,48 @@
    "text": "uses 2.84 l/100 km on the EPA city cycle",
    "expr": "v('hy-udds', 'Fuel consumption')",
    "format": "uses {:.2f} l/100 km"
+  },
+  {
+   "page": "examples/aero-bev.md",
+   "text": "| *EPA city (UDDS)* | 9.50 kWh/100 km | 11.05 kWh/100 km | 189.6 |",
+   "expr": "(v('aero-udds', 'Consumption'), v('aero-udds', 'Consumption at the socket (AC)'), v('aero-udds', 'Fuel-economy equivalent (MPGe, AC)'))",
+   "format": "| *EPA city (UDDS)* | {0[0]:.2f} kWh/100 km | {0[1]:.2f} kWh/100 km | {0[2]:.1f} |"
+  },
+  {
+   "page": "examples/aero-bev.md",
+   "text": "| *EPA highway (HWFET)* | 11.06 kWh/100 km | 12.86 kWh/100 km | 162.8 |",
+   "expr": "(v('aero-hwfet', 'Consumption'), v('aero-hwfet', 'Consumption at the socket (AC)'), v('aero-hwfet', 'Fuel-economy equivalent (MPGe, AC)'))",
+   "format": "| *EPA highway (HWFET)* | {0[0]:.2f} kWh/100 km | {0[1]:.2f} kWh/100 km | {0[2]:.1f} |"
+  },
+  {
+   "page": "examples/aero-bev.md",
+   "text": "| *WLTC Class 3b* | 11.78 kWh/100 km | 13.69 kWh/100 km | 152.9 |",
+   "expr": "(v('aero-wltc', 'Consumption'), v('aero-wltc', 'Consumption at the socket (AC)'), v('aero-wltc', 'Fuel-economy equivalent (MPGe, AC)'))",
+   "format": "| *WLTC Class 3b* | {0[0]:.2f} kWh/100 km | {0[1]:.2f} kWh/100 km | {0[2]:.1f} |"
+  },
+  {
+   "page": "examples/aero-bev.md",
+   "text": "11.78 against 14.05 kWh/100 km at the battery: 16 % less",
+   "expr": "(v('aero-wltc', 'Consumption'), v('bev-wltc', 'Consumption'), 100 * (1 - v('aero-wltc', 'Consumption') / v('bev-wltc', 'Consumption')))",
+   "format": "{0[0]:.2f} against {0[1]:.2f} kWh/100 km at the battery: {0[2]:.0f} % less"
+  },
+  {
+   "page": "examples/aero-bev.md",
+   "text": "11.06 to 12.02 kWh/100 km, 8.7 % more",
+   "expr": "(v('aero-hwfet', 'Consumption'), v('aero-hwfet-c', 'Consumption'), 100 * (v('aero-hwfet-c', 'Consumption') / v('aero-hwfet', 'Consumption') - 1))",
+   "format": "{0[0]:.2f} to {0[1]:.2f} kWh/100 km, {0[2]:.1f} % more"
+  },
+  {
+   "page": "examples/aero-bev.md",
+   "text": "9.50 to 9.64 kWh/100 km, only 1.5 % more",
+   "expr": "(v('aero-udds', 'Consumption'), v('aero-udds-2128', 'Consumption'), 100 * (v('aero-udds-2128', 'Consumption') / v('aero-udds', 'Consumption') - 1))",
+   "format": "{0[0]:.2f} to {0[1]:.2f} kWh/100 km, only {0[2]:.1f} % more"
+  },
+  {
+   "page": "examples/aero-bev.md",
+   "text": "From 543.4 to 310.3 km",
+   "expr": "(v('aero-udds', 'Range at this consumption'), v('aero-udds-heat', 'Range at this consumption'))",
+   "format": "From {0[0]:.1f} to {0[1]:.1f} km"
   }
  ],
  "recipes": {

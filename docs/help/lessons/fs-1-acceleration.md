@@ -27,8 +27,8 @@ standstill, and the run is timed from the start line, 0.3 m in front of
 the car (FS Rules 2026 D 5.2.3), to the 75 m line. Press **Run**. The run
 takes under a second.
 
-**Check:** the headline numbers read *Time to 75 m* 3.744 s and *Speed at
-75 m* 118.88 km/h. *Gap to reference time* is -0.166 s: the case's
+**Check:** the headline numbers read *Time to 75 m* 3.751 s and *Speed at
+75 m* 118.86 km/h. *Gap to reference time* is -0.159 s: the case's
 reference time is 3.91 s, the median of the 35 electric teams at FS Czech
 Republic 2025, so this car is 0.166 s quicker than the median.
 
@@ -44,14 +44,16 @@ could push harder, but the tyres would only spin) and the power limit
 3. On the left, tick *Accumulator · Discharge Power* and *Wheel RL ·
    Longitudinal Slip* to plot them.
 
-**Check:** *Time at the tyres' grip limit* reads 48.4 %, and the
-accumulator was *held at the output power limit* for 3.77 s.
-*Messages* says the accumulator was held at 80 kW from t = 0.20 s.
+**Check:** *Time at the tyres' grip limit* reads 48.6 %, and the
+accumulator was *held at the output power limit* for 3.61 s.
+*Messages* says the accumulator was held at 80 kW from t = 0.37 s.
 
-So the car is grip-limited only at the launch: in the first 0.2 s the
+So the tyres set the pace only at the launch: in the first 0.37 s the
 rear tyres spin (the slip line jumps), because the model has no traction
 control. After that the 80 kW limit sets the pace to the line: the
-*Discharge Power* line stays flat at 80 kW.
+*Discharge Power* line stays flat at 80 kW, while the rear tyres keep
+slipping at their grip limit for about half the run (LightSim's tyres lose
+no grip when they slip, so that costs no time).
 
 ## 4. See what the power limit costs
 
@@ -64,8 +66,8 @@ the limit: run the test once for each value.
 4. Click **Run sweep**, then **Sweep** above the chart on the *Results*
    page.
 
-**Check:** the sweep plots *Time to 75 m* against the power limit: 4.223 s
-at 40 kW, 4.032 s at 50 kW, 3.902 s at 60 kW, 3.81 s at 70 kW and 3.744 s
+**Check:** the sweep plots *Time to 75 m* against the power limit: 4.232 s
+at 40 kW, 4.040 s at 50 kW, 3.910 s at 60 kW, 3.82 s at 70 kW and 3.751 s
 at 80 kW.
 
 Each 10 kW less costs more time than the one before, and below about
@@ -87,8 +89,8 @@ Rest the pointer on a value in *Properties* to see what it means and
 where to find the real number. Then run the test again.
 
 **Check:** with worn tyres, μ 1.3 on both rear wheels, the time rises
-from 3.744 s to 4.015 s, and *Time at the tyres' grip limit* from 48.4 %
-to 63.8 %.
+from 3.751 s to 4.026 s, and *Time at the tyres' grip limit* from 48.6 %
+to 64.1 %.
 
 ## What you learnt
 
