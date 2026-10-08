@@ -189,6 +189,21 @@ pub struct InverseSpec {
     pub freed: Vec<String>,
 }
 
+/// A `limit(value, lo, hi)` of an inverse model (DESIGN.md, *Fast mode*):
+/// the inverse model passes `value` through instead of clamping it, and the
+/// fast-mode stepper flags each stretch of time it is outside `[lo, hi]`.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct LimitSite {
+    /// the limited quantity (flat scope)
+    pub value: Expr,
+    /// its lower bound
+    pub lo: Expr,
+    /// its upper bound
+    pub hi: Expr,
+    /// the equation (and so the part) that holds the limit
+    pub origin: Origin,
+}
+
 /// Counts that describe the preparation, for the run report.
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct PrepStats {
@@ -249,4 +264,8 @@ pub struct PreparedModel {
     /// the initialisation system
     #[serde(default)]
     pub init: InitSystem,
+    /// inverse models only: every `limit` of the equations, passed through
+    /// and to be flagged (a forward model clamps and lists none)
+    #[serde(default)]
+    pub limits: Vec<LimitSite>,
 }
