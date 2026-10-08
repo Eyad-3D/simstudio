@@ -63,6 +63,10 @@ LIMITS = ("cornering grip", "traction grip", "motor", "battery", "power cap", "b
 CORNER, TRACTION, MOTOR, BATTERY, CAP, BRAKING, COAST = range(1, 8)
 KAPPA_MAX = 0.5  # 1/m: a 2 m radius; a tighter one is a noisy or wrong table
 BALANCE_PCT = 0.5  # lap energy balance error above which the energy per lap is not valid
+# braking short of the trace, as a share of the brakes' and regeneration's
+# force, that is the lap solver's discretisation (0.04 % at most on the FS
+# car), not a limit of the car
+BRAKE_TOL = 0.005
 MAX_POINTS = 50_000  # recorded points above which a lap case asks for Store every N
 ENVELOPE_DV = 0.25  # m/s: the powertrain force's speed grid
 # a speed this close below a point's cornering speed counts as limited by it
@@ -202,6 +206,14 @@ def problems(model: Model, output_every: int = 1) -> list[tuple[str, str, tuple[
         out.append(("error", "A lap case needs a Driver: its Recuperation Weight sets the "
                              "regeneration when braking.", ()))
     wheeled = [dl for dl in model.drivelines if any(seg.wheels for seg in dl.segments)]
+    for dl in model.drivelines:  # (a series hybrid's engine and generator)
+        if any(dl is w for w in wheeled):
+            continue
+        for el_id in dl.element_group:
+            if cdef_of[el_id].id in ("engine.combustion", "mech.clutch", "motor.emotor"):
+                out.append(("error", f"{name(el_id)} drives no wheels: a lap case does not run "
+                                     f"drivelines without wheels (run it as a drive cycle "
+                                     f"instead).", (el_id,)))
     motors = []
     for dl in wheeled:
         for el_id in dl.element_group:
@@ -324,6 +336,10 @@ class LapBook:
     motors: float = 0.0
     consumers: float = 0.0
     shortfall: float = 0.0
+    # the braking the trace asked for that the friction brakes (at their
+    # Max Torque) and the regeneration could not give, J, and for how long, s
+    brake_short: float = 0.0
+    brake_short_s: float = 0.0
 
 
 class LapRun:
@@ -539,12 +555,25 @@ class LapRun:
         leaves (two passes of the battery's internal-resistance drop), all
         cut back by one factor when the source trees cannot deliver it (the
         handshake's room for the motors: the battery's maximum-power point
-        and Output Power Limit less the other loads)."""
+        and Output Power Limit less the other loads); the generator force
+        likewise cut back to what the source trees can take (the battery's
+        max charge power and charge room, plus the other loads)."""
         ctx = self.ctx
         if ctx.dt <= 0:
             ctx.dt = MAX_SUBSTEP  # (the handshake's charge floor needs a step)
         ctx.update_source_limits(ctx.t)
         room = {root: ctx.motor_room.get(root, (0.0, 0.0))[1] for root in ctx.bus_tree}
+        regen_room = {}  # what the motors may feed back, W
+        for root, nodes in ctx.bus_tree.items():
+            regen_room[root] = -ctx.motor_room.get(root, (0.0, 0.0))[0]
+            battery = nodes[0][0].battery
+            if battery:  # its charge power limit: one full at the lap's start takes charge
+                b = ctx.batteries[battery]  # again once the lap's first metres draw on it
+                served = regen_room[root] - ctx.source_window.get(root, (0.0, 0.0))[1]
+                take = b.max_charge_w
+                if b.i_ch_lim < math.inf:  # (its cells' charge current, as its BMS sets it)
+                    take = min(take, b.i_ch_lim * (b.ocv() - b.v_rc + b.i_ch_lim * b.r0))
+                regen_room[root] = max(regen_room[root], served + take)
         capped = {root: bool(nodes[0][0].battery and ctx.batteries[nodes[0][0].battery].capped)
                   for root, nodes in ctx.bus_tree.items()}
         # up to the fastest motor's top speed: _full drops each motor above its own
@@ -584,7 +613,18 @@ class LapRun:
                 code = CAP if any(capped.get(r) for r in over) else BATTERY
             self.env_f.append(max(0.0, self.force(torques)))
             self.env_code.append(code)
-            self.env_gen.append(max(0.0, -self.force(self._full(v, volts, 1.0, False)[0])))
+            gen, fed = self._full(v, volts, 1.0, False)
+            if any(-p > regen_room.get(r, 0.0) for r, p in fed.items()):
+                lo, hi = 0.0, 1.0  # (the share of full regeneration the batteries take)
+                for _ in range(40):
+                    mid = 0.5 * (lo + hi)
+                    _, p_mid = self._full(v, volts, mid, False)
+                    if all(-p <= regen_room.get(r, 0.0) for r, p in p_mid.items()):
+                        lo = mid
+                    else:
+                        hi = mid
+                gen, _ = self._full(v, volts, lo, False)
+            self.env_gen.append(max(0.0, -self.force(gen)))
 
     def powertrain(self, v: float) -> tuple[float, int, float]:
         """(the most force at the road, what limits it, the generator force)
@@ -653,15 +693,19 @@ class LapRun:
     def _decel(self, kappa: float, sin_t: float, v: float, d: float) -> float:
         """The most deceleration at speed v on curvature ``kappa``, m/s²:
         all tyres' grip the corner leaves (ideal brake balance), or the
-        brakes and the motors' regeneration (at the Driver's Recuperation
-        Weight) with the driveline's inertia."""
+        brakes and the motors' regeneration with the driveline's inertia.
+        The regeneration is held as the energy pass holds it: to the
+        Driver's Recuperation Weight (fading out below 3 m/s), the driven
+        tyres' grip the corner leaves and what the batteries can take (the
+        envelope's generator force)."""
         cos_t = math.sqrt(1.0 - sin_t * sin_t)
         ay = v * v * kappa
-        regen = self.regen_w() * self.powertrain(v)[2]
+        regen_cap = self.regen_w() * self.powertrain(v)[2] * max(0.0, min(1.0, v / 3.0))
         for _ in range(4 if self.h else 1):
-            _, total, lateral, roll = self.grip(self.loads(v, -d, ay, sin_t, cos_t))
+            drive, total, lateral, roll = self.grip(self.loads(v, -d, ay, sin_t, cos_t))
             resist = self.resist(v, roll, sin_t, cos_t)
             left = ellipse_left(self.m * abs(ay) / lateral, self.n_ell) if lateral > 0 else 0.0
+            regen = min(regen_cap, drive * left)
             d = min((total * left + resist) / self.m, (self.fr_cap + regen + resist) / self.m_eff)
         return d
 
@@ -1021,8 +1065,15 @@ class LapSlave(_CtxSlave):
         torques = {mc.el_id: ctx.motor_torque(mc, demand, w) for mc, w, _ in motors}
         seg_out: dict = {}
         f_pt = lap.force(torques, seg_out)
-        fric = max(0.0, f_pt - f_req) if f_req < 0 else 0.0
-        short = f_req - f_pt + fric  # the force the trace asked for and did not get
+        # the friction brakes the rest, up to their Max Torque; braking they
+        # cannot give is booked (the lap is then faster than the car can drive)
+        want_fric = max(0.0, f_pt - f_req) if f_req < 0 else 0.0
+        fric = min(want_fric, lap.fr_cap)
+        missing = want_fric - fric
+        if missing > BRAKE_TOL * max(1.0, lap.fr_cap - min(0.0, f_pt)):
+            book.brake_short += missing * vm * h
+            book.brake_short_s += h
+        short = f_req - f_pt + want_fric  # the force the motors did not give
 
         # the channels over the step
         drv = model.driver

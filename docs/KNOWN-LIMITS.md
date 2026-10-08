@@ -205,7 +205,9 @@ gears, brakes and battery. It is not a driving simulation:
   crossover, the speed rises by up to 3 % at that point: a real car cannot
   turn from one circle into the other that quickly.
 - E-Motor cars only: a lap case refuses Combustion Engines and Clutches on
-  the wheels, holds Gearboxes in their gear and commands every E-Motor
+  the wheels, and any engine, clutch or E-Motor on a shaft without wheels
+  (a series hybrid's generator set, which it would not run), holds
+  Gearboxes in their gear and commands every E-Motor
   itself, with one demand for all, so Scripts or controllers between the
   Driver and the motors (torque vectoring, traction control) do nothing.
   With E-Motors on both axles, the driven wheels' grip is used together,
@@ -220,6 +222,11 @@ gears, brakes and battery. It is not a driving simulation:
   energy balance error* shows it, and above 0.5 % the *Energy per lap* is
   marked not valid, and so are the lap times when the motors gave less
   than the speed asked for (or the battery reached its minimum SOC).
+  The braking is solved likewise: the friction brakes' Max Torque plus the
+  regeneration the battery could take at the lap's start; when the
+  brakes then cannot follow the speed (the battery filled, or a live edit
+  took regeneration away), the run warns and the lap times are marked not
+  valid.
   The Output Power Limit is held at every point; the check window's
   average is not used to let short peaks through.
 - Sideways load transfer is shared between the axles as the static weight

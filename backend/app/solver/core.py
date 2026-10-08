@@ -598,6 +598,17 @@ def run_case(
             if any(b.depleted_flagged for b in ctx.batteries.values()):
                 for label in lap_rows:  # the laps were solved with power it no longer had
                     not_valid.setdefault(label, "the battery reached its minimum SOC")
+            if lap.book.brake_short_s > 0:  # the laps were solved with braking it did not have
+                for label in lap_rows:
+                    not_valid.setdefault(label, "the brakes could not follow the lap's speed")
+                rt.message("warning", f"The friction brakes and the regeneration could not slow "
+                                      f"the car as fast as the lap's speed asks, for "
+                                      f"{lap.book.brake_short_s:.2f} s of the laps "
+                                      f"({lap.book.brake_short / 3600.0:.2f} Wh of braking "
+                                      f"missing): the brakes' Max Torque, or the regeneration "
+                                      f"the battery could take, held them back. The lap times "
+                                      f"are optimistic and not valid; raise the brakes' Max "
+                                      f"Torque if the car's brakes are stronger.")
             if abs(error) > lapsim.BALANCE_PCT:
                 not_valid.setdefault("Energy per lap", "the lap energy balance does not close")
                 # the motors gave less than the speed trace asked for, for at

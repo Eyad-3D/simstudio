@@ -452,6 +452,8 @@ MODEL_FIXES = {
     "A lap case needs an E-Motor": "Connect an E-Motor to the wheels' driveline.",
     "drives E-Motors only": "Set the case's Kind to Cycle, or drive the wheels with E-Motors "
                             "only.",
+    "does not run drivelines without wheels": "Set the case's Kind to Cycle, or remove the "
+                                              "parts that drive no wheels.",
     "does not shift gears": "Set its Default Gear to the gear the lap should be driven in.",
     "has no layout": "Choose a Layout from the list in Properties.",
     "form a loop": "If a step's delay matters, break the loop: feed one of the blocks from a "

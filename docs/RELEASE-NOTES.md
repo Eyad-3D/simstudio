@@ -186,7 +186,9 @@ sections.
   fastest speed about every metre from the tyres' grip (downforce, load
   transfer along and across the car, load sensitivity, friction ellipse)
   and the powertrain (the E-Motors' full-load curves through the gears,
-  cut to the battery's deliverable power and Output Power Limit); the
+  cut to the battery's deliverable power and Output Power Limit; when
+  braking, the friction brakes' Max Torque and the regeneration the
+  driven tyres and the battery can take); the
   motors, gears, brakes and battery then drive that speed with the drive
   cycles' own models, so the energy, the power limit checks and the
   channels are theirs. The summary leads with the lap, lap 1, total and
@@ -196,7 +198,9 @@ sections.
   give the lap distance, curvature, longitudinal and lateral acceleration
   (in g, a new unit), what limited the car and a map, for the X-Y view.
   Data Checks refuse a lap case without a Race Track, Driver or E-Motor,
-  with an engine or clutch on the wheels or with all wheels on one axle,
+  with an engine or clutch on the wheels, an engine, clutch or E-Motor
+  on a shaft without wheels (a series hybrid's generator set, which lap
+  mode does not run) or with all wheels on one axle,
   and a Custom curvature above 0.5 1/m. Such an error stops only that
   case, as does any Data Check about a case's own values (its text names
   the case, and the other cases still run). The results are estimates, and say so.
