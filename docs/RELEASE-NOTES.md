@@ -387,7 +387,8 @@ sections.
 - Weather presets on the Ambient: *Cold day (−7 °C)* (EPA's cold FTP and
   the EU's low-temperature test), *Standard day (23 °C)* (WLTP),
   *Hot and sunny day (35 °C)* (EPA's air-conditioning test SC03) and *High
-  altitude (1,500 m)* (the standard atmosphere: 84.56 kPa, 5.25 °C), each
+  altitude (1,500 m)* (the standard atmosphere: 84.56 kPa, 5.25 °C, air
+  about 14 % thinner than at sea level), each
   with its source. The Battery Electric Car has an Ambient (at its
   defaults, the air it had before) and two new cases, *WLTC, winter day
   (−7 °C, heating on)* at 19.5 kWh/100 km and *WLTC, hot day (35 °C,
