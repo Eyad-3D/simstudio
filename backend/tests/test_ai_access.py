@@ -164,6 +164,24 @@ def test_changing_a_script_revokes_its_trust(setup):
         AgentSession().run(str(path), confirmed=True)
 
 
+@pytest.mark.parametrize("value", [{"code": "def step(t, dt, inputs, state, params):\n"
+                                             "    import os\n    return {}\n"},
+                                    {"sample_time_s": 0.5}])
+def test_a_value_set_for_one_case_revokes_the_trust_too(setup, value):
+    path = setup["allowed"] / "hybrid-car.json"
+    project = ls.load(path)
+    policy = Policy.load()
+    policy.trusted[str(path.resolve())] = script_fingerprint(project)
+    policy.save()
+    assert Policy.load().trusted_scripts(ls.load(path))
+    script = next(e for e in project.elements if e.componentDefId == "signal.script")
+    project.case("EPA city (UDDS)").parameterOverrides.setdefault(script.id, {}).update(value)
+    project.save()
+    assert not Policy.load().trusted_scripts(ls.load(path))
+    with pytest.raises(AccessDenied, match="not trusted"):
+        AgentSession().run(str(path), "EPA city (UDDS)", confirmed=True)
+
+
 def test_runs_are_capped(setup):
     policy = Policy.load()
     policy.max_run_s = 1e-6

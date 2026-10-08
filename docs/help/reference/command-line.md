@@ -88,7 +88,7 @@ under rules you set. They start **off**.
 | `lightsim ai on`, `lightsim ai off` | Turns AI access on or off |
 | `lightsim ai allow FOLDER`, `… disallow FOLDER` | Lets AI tools see the projects in a folder, or stops it. They see nothing else (the examples excepted) |
 | `lightsim ai block PROJECT`, `… unblock PROJECT` | Hides one project from AI tools, whatever folder it is in (sets `"noAi": true` in the file) |
-| `lightsim ai trust PROJECT`, `… untrust PROJECT` | Lets AI tools run this project's Script blocks. Changing a script takes the trust away |
+| `lightsim ai trust PROJECT`, `… untrust PROJECT` | Lets AI tools run this project's Script blocks. Changing a script, or a value of a Script block, takes the trust away, also when only one case sets it |
 | `lightsim ai log [-n N]` | The last calls AI tools made |
 
 What an AI tool can do once access is on:

@@ -16,8 +16,9 @@ destructive hints an AI app shows are only hints.
 - **Script blocks.** A project with Script blocks (user Python code) is
   never run by an agent until the user marks it trusted (``lightsim ai trust
   <file>``), and then each run still asks for confirmation. Trust is tied
-  to the scripts' text: change a script and the project must be trusted
-  again. The Script sandbox is much weaker on Windows (docs/KNOWN-LIMITS.md).
+  to the scripts' text and values, a case's own included: change a script
+  and the project must be trusted again. The Script sandbox is much weaker
+  on Windows (docs/KNOWN-LIMITS.md).
 - **Runs are capped** at ``maxRunSeconds`` of wall-clock time (default
   300 s).
 - **Text from project files is data.** :func:`as_data` wraps labels,
@@ -89,12 +90,19 @@ def settings_path() -> Path:
 
 
 def script_fingerprint(project: Project) -> str:
-    """SHA-256 of every Script block's code (by part id): what trust is tied to."""
+    """SHA-256 of everything a Script block runs and receives (by part id):
+    the part's own values, its code among them, and each case's own values
+    for it (by case id), since a case can set its own code. What trust is
+    tied to: new code anywhere, for one case too, needs trust again."""
     h = hashlib.sha256()
+    cases = sorted(project.cases, key=lambda c: c.id)
     for el in sorted(project.elements, key=lambda e: e.id):
-        if el.componentDefId == "signal.script":
-            code = el.parameterOverrides.get("code", "")
-            h.update(json.dumps([el.id, code if isinstance(code, str) else ""]).encode())
+        if el.componentDefId != "signal.script":
+            continue
+        per_case = {c.id: c.parameterOverrides[el.id] for c in cases
+                    if c.parameterOverrides.get(el.id)}
+        h.update(json.dumps([el.id, el.parameterOverrides, per_case], sort_keys=True,
+                            ensure_ascii=False, default=str).encode("utf-8"))
     return h.hexdigest()
 
 
