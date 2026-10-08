@@ -7,11 +7,11 @@ use crate::{
     Integrator, Method, OutputGrid, RunInfo, SolveError, SolverOptions, SolverStats, Step,
 };
 use lsim_ir::runtime::{EvalInput, Layout, ModelFunctions};
+use lsim_sundials_sys::*;
 use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::os::raw::{c_int, c_long};
 use std::ptr;
-use sundials_sys::*;
 
 /// What the C callbacks reach through their user-data pointer.
 struct Problem {

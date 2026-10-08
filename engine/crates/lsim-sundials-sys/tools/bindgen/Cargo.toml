@@ -1,0 +1,13 @@
+[package]
+name = "lsim-sundials-bindgen"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Regenerates lsim-sundials-sys/src/bindings.rs from the vendored SUNDIALS headers (needs libclang; run only when SUNDIALS is upgraded)"
+
+# Not part of the engine workspace: the engine's build must never need
+# libclang. Run with `cargo run --manifest-path engine/crates/lsim-sundials-sys/tools/bindgen/Cargo.toml`.
+[workspace]
+
+[dependencies]
+bindgen = { version = "=0.68.1", default-features = false, features = ["runtime"] }

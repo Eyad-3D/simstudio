@@ -1,0 +1,19 @@
+[package]
+name = "lsim-sundials-sys"
+description = "SUNDIALS 7.1.1 (CVODES, IDAS, KINSOL, serial vectors, dense/band/sparse matrices, dense/band linear solvers) compiled from vendored C sources with the cc crate, and committed Rust bindings: the build needs only a C compiler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license-file.workspace = true
+repository.workspace = true
+links = "lsim_sundials"
+# the vendored sources, the hand-written config header and the bindings are
+# all that the build reads; the generator tool is not part of the build
+include = ["/build.rs", "/src", "/sundials", "/wrapper.h", "/Cargo.toml"]
+
+[build-dependencies]
+cc.workspace = true
+
+[lints]
+workspace = true

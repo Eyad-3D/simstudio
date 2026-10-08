@@ -11,12 +11,12 @@ repository.workspace = true
 [features]
 default = ["sundials"]
 # SUNDIALS CVODE and IDA (BSD-3-Clause), the production integrators
-sundials = ["dep:sundials-sys"]
+sundials = ["dep:lsim-sundials-sys"]
 
 [dependencies]
 lsim-ir.workspace = true
 thiserror.workspace = true
-sundials-sys = { workspace = true, optional = true }
+lsim-sundials-sys = { workspace = true, optional = true }
 
 [lints]
 workspace = true
