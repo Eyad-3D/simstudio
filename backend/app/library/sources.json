@@ -902,6 +902,17 @@
       "licence": "Derived from DR-02 and the data it uses; LightSim's own output (LICENSE)",
       "credit": "Same as DR-02",
       "cleared": "pending"
+    },
+    {
+      "id": "DR-103",
+      "file": "backend/projects/reference/aero-bev.json",
+      "dataset": "*",
+      "kind": "test-fixture",
+      "description": "Stored reference results of the aero-bev example (CON-15): each case's status, summary values, expected-value grades and comparison signals every second, and how they were made; the app shows them when the example opens",
+      "source": "LightSim's own solver output for the example",
+      "licence": "Derived from DR-97 and the data it uses; LightSim's own output (LICENSE)",
+      "credit": "Same as DR-97",
+      "cleared": "pending"
     }
   ]
 }

@@ -96,7 +96,7 @@ def main() -> int:
         print(f"wrote {path.name}")
 
     # the examples' stored reference results (CON-15), with the same note
-    for example_id in ("bev-car", "fs-electric", "hybrid-car"):
+    for example_id in ("aero-bev", "bev-car", "fs-electric", "hybrid-car"):
         project = load_example(example_id)
         stored = {c.id: simulate(project, c.id) for c in project.cases if not c.realtimeFactor}
         print(f"wrote {reference_results.write(example_id, project, stored, args.reason).name}")

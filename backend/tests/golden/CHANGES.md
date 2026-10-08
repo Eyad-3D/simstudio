@@ -866,3 +866,82 @@ the app shows when an example opens; this entry is the note they carry. The
 fixtures were rewritten only to name it.
 
 No headline number or channel moved.
+
+## The 0.3 lanes combined: part energy books, full precision, charge balancing, sourced defaults, lab figures, keys and reports
+
+The fixtures regenerated once over the 0.3 stack's, after the fifteen 0.3
+lanes were combined. Each change is one the lanes' own entries above
+explain; together they give:
+
+- Full precision (ENG-16): the summary and stored values are no longer
+  rounded, so every "Old → New" headline number below is the old rounding,
+  well inside its band.
+- Part energy books (MOD-10): 21 new channels on the hybrid and 16 on the
+  BEV (losses, braking power, the Vehicle's road-load powers) and the
+  *Energy balance residual* row. The hybrid's Final Drive *Transmitted
+  Power* is now the power through the Final Drive itself, after the
+  clutch's and gearbox's losses (18.53 → 17.67 kW at t = 20 s); no other
+  channel moved outside its tube.
+- Charge balancing (ENG-33): the hybrid's Mixed Cycle settles in one run,
+  with three new rows and one message.
+- The lab-style rows (CON-05) appear only where they apply: the BEV's City
+  Cycle gets *Consumption at the socket (AC)*, *MPGe* and *Range*; the
+  hybrid's cases are charge-balanced, so their correction comes from the
+  balancing, not from those rows.
+- A typed profile now says it is not a standard cycle (CON-26).
+- The library's sourced defaults (CON-14) do not reach these fixtures: the
+  examples set their own values.
+
+The stored reference results of the four examples (projects/reference/,
+CON-15) were written with the same note; aero-bev's are new.
+
+| Fixture | Number | Old | New | Change |
+|---|---|---|---|---|
+| bev-car City Cycle (shipped step) | HV Battery Pack — final SOC | 88.76 % | 88.764 % | +0.004001 (+0.00 %) |
+| bev-car City Cycle (shipped step) | HV Battery Pack — energy delivered | 0.881 kWh | 0.880865 kWh | -0.000135 (-0.02 %) |
+| bev-car City Cycle (shipped step) | HV Battery Pack — energy recuperated | 0.07 kWh | 0.069976 kWh | -2.4e-05 (-0.03 %) |
+| bev-car City Cycle (shipped step) | HV Battery Pack — internal losses | 0.0057 kWh | 0.005695 kWh | -5e-06 (-0.09 %) |
+| bev-car City Cycle (shipped step) | Distance driven | 7.292 km | 7.29169 km | -0.000306 (-0.00 %) |
+| bev-car City Cycle (shipped step) | Consumption | 11.12 kWh/100km | 11.1207 kWh/100km | +0.000713 (+0.01 %) |
+| bev-car City Cycle (shipped step) | Consumption at the socket (AC) | — | 12.9311 kWh/100km | new row |
+| bev-car City Cycle (shipped step) | Fuel-economy equivalent (MPGe, AC) | — | 161.961 MPGe | new row |
+| bev-car City Cycle (shipped step) | Range at this consumption | — | 537.894 km | new row |
+| bev-car City Cycle (shipped step) | Energy balance residual | — | 0.011097 % | new row |
+| bev-car City Cycle (shipped step) | channels that moved | | 36 | 0 outside their tube |
+| bev-car City Cycle (fine step) | HV Battery Pack — final SOC | 88.76 % | 88.7639 % | +0.003897 (+0.00 %) |
+| bev-car City Cycle (fine step) | HV Battery Pack — energy delivered | 0.881 kWh | 0.880911 kWh | -8.9e-05 (-0.01 %) |
+| bev-car City Cycle (fine step) | HV Battery Pack — energy recuperated | 0.07 kWh | 0.069954 kWh | -4.6e-05 (-0.07 %) |
+| bev-car City Cycle (fine step) | HV Battery Pack — internal losses | 0.0057 kWh | 0.005696 kWh | -4e-06 (-0.07 %) |
+| bev-car City Cycle (fine step) | Distance driven | 7.292 km | 7.29169 km | -0.000308 (-0.00 %) |
+| bev-car City Cycle (fine step) | Consumption | 11.12 kWh/100km | 11.1217 kWh/100km | +0.001654 (+0.01 %) |
+| bev-car City Cycle (fine step) | Consumption at the socket (AC) | — | 12.9322 kWh/100km | new row |
+| bev-car City Cycle (fine step) | Fuel-economy equivalent (MPGe, AC) | — | 161.948 MPGe | new row |
+| bev-car City Cycle (fine step) | Range at this consumption | — | 537.848 km | new row |
+| bev-car City Cycle (fine step) | Energy balance residual | — | 0.005551 % | new row |
+| bev-car City Cycle (fine step) | channels that moved | | 34 | 0 outside their tube |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — final SOC | 51.95 % | 51.9546 % | +0.00456 (+0.01 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — energy delivered | 0.207 kWh | 0.206872 kWh | -0.000128 (-0.06 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — energy recuperated | 0.21 kWh | 0.210003 kWh | +3e-06 (+0.00 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — internal losses | 0.0032 kWh | 0.003217 kWh | +1.7e-05 (+0.53 %) |
+| hybrid-car Mixed Cycle (shipped step) | Engine — fuel used | 0.205 kg | 0.204862 kg | -0.000138 (-0.07 %) |
+| hybrid-car Mixed Cycle (shipped step) | Distance driven | 9.556 km | 9.55561 km | -0.00039 (-0.00 %) |
+| hybrid-car Mixed Cycle (shipped step) | Fuel consumption | 2.88 l/100km | 2.87771 l/100km | -0.002291 (-0.08 %) |
+| hybrid-car Mixed Cycle (shipped step) | CO₂ emissions | 68 g/km | 67.9614 g/km | -0.03859 (-0.06 %) |
+| hybrid-car Mixed Cycle (shipped step) | Energy balance residual | — | 0.018651 % | new row |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — charge-balanced start SOC | — | 51.96 % | new row |
+| hybrid-car Mixed Cycle (shipped step) | Battery energy change, share of fuel energy | — | -0.003507 % | new row |
+| hybrid-car Mixed Cycle (shipped step) | Charge balance runs | — | 1 - | new row |
+| hybrid-car Mixed Cycle (shipped step) | channels that moved | | 38 | 1 outside their tube |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — final SOC | 51.95 % | 51.9533 % | +0.003313 (+0.01 %) |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — energy delivered | 0.207 kWh | 0.206864 kWh | -0.000136 (-0.07 %) |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — energy recuperated | 0.21 kWh | 0.209975 kWh | -2.5e-05 (-0.01 %) |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — internal losses | 0.0032 kWh | 0.003216 kWh | +1.6e-05 (+0.50 %) |
+| hybrid-car Mixed Cycle (fine step) | Engine — fuel used | 0.205 kg | 0.204675 kg | -0.000325 (-0.16 %) |
+| hybrid-car Mixed Cycle (fine step) | Distance driven | 9.556 km | 9.55561 km | -0.00039 (-0.00 %) |
+| hybrid-car Mixed Cycle (fine step) | Fuel consumption | 2.88 l/100km | 2.87509 l/100km | -0.004914 (-0.17 %) |
+| hybrid-car Mixed Cycle (fine step) | CO₂ emissions | 67.9 g/km | 67.8995 g/km | -0.00053 (-0.00 %) |
+| hybrid-car Mixed Cycle (fine step) | Energy balance residual | — | 0.004763 % | new row |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — charge-balanced start SOC | — | 51.96 % | new row |
+| hybrid-car Mixed Cycle (fine step) | Battery energy change, share of fuel energy | — | -0.004314 % | new row |
+| hybrid-car Mixed Cycle (fine step) | Charge balance runs | — | 1 - | new row |
+| hybrid-car Mixed Cycle (fine step) | channels that moved | | 38 | 1 outside their tube |
