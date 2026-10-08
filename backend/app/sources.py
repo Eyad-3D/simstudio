@@ -52,9 +52,27 @@ REFERENCES: dict[str, dict] = {
     "fs-rules-2026": {
         "type": "document", "title": "FS Rules 2026, version 1.1",
         "author": "Formula Student Germany", "url": "https://www.formulastudent.de/fsg/rules/",
-        "match": "Formula Student Rules 2026",  # as the register's rows name them
+        # as the register's rows and the battery preset's note name them
+        "match": ("Formula Student Rules 2026", "FS Rules 2026"),
     },
 }
+# A dataset's citation author: the organisation its register source names
+# first (the full source text goes in the note). A row LightSim made, or
+# whose source is unknown, says so instead.
+PUBLISHERS: tuple[tuple[str, str], ...] = (
+    ("provenance unknown", "Source unknown"),
+    ("created for LightSim", "LightSim authors"),
+    ("LightSim's own", "LightSim authors"),
+    ("Copy of", "LightSim authors"),
+    ("FASTSim", REFERENCES["fastsim"]["author"]),
+    ("EPA", "U.S. Environmental Protection Agency"),
+    ("40 CFR", "U.S. Environmental Protection Agency"),
+    ("Regulation (EU)", "European Union"),
+    ("UN/ECE", "United Nations Economic Commission for Europe"),
+    ("UN GTR", "United Nations Economic Commission for Europe"),
+    ("Project Chrono", "Project Chrono Development Team"),
+    ("Formula Student Rules", "Formula Student Germany"),
+)
 # the regulations behind the bundled drive cycles, by cycle id
 CYCLE_REFERENCES: dict[str, dict] = {
     "wltc-3b": {"type": "legislation", "title": "Global technical regulation No. 15: Worldwide "
@@ -115,6 +133,23 @@ def short_title(description: str) -> str:
     return head if len(head) <= 120 else head[:117].rstrip() + "..."
 
 
+def publisher(source: str, licence: str) -> str:
+    """The organisation to cite as a register row's author (PUBLISHERS):
+    LightSim's authors for data LightSim made, else the one its source
+    names first."""
+    if licence.startswith("LightSim's own"):
+        return "LightSim authors"
+    text = source.lower()
+    found = [(text.find(marker.lower()), who) for marker, who in PUBLISHERS
+             if marker.lower() in text]
+    return min(found)[1] if found else "LightSim authors"
+
+
+def _matches(ref: dict) -> tuple[str, ...]:
+    m = ref["match"]
+    return (m,) if isinstance(m, str) else tuple(m)
+
+
 def confidence(row: dict) -> int:
     if row["licence"].startswith("Unknown") or row["source"].startswith("Provenance unknown"):
         return 0
@@ -151,10 +186,14 @@ def sources_of(project: Project, case_id: Optional[str] = None) -> RunSources:
     used: dict[str, RunSource] = {}
     own: list[str] = []
 
-    cited_text: list[str] = []  # what the cited rows say, to find the works they name
+    # what the cited rows (and the presets in use) say, to find the works
+    # they name; not the catalogue-wide row, which names every preset's
+    # source whether it is used or not
+    cited_text: list[str] = []
+    lib_file = "backend/app/library/components.json"
 
     def cite(row: dict, what: str) -> None:
-        if row["id"] not in used:
+        if row["id"] not in used and (row["file"], row["dataset"]) != (lib_file, "*"):
             cited_text.append(f"{row['description']} {row['source']}")
         s = used.setdefault(row["id"], RunSource(
             id=row["id"], title=short_title(row["description"]), source=row["source"], licence=row["licence"],
@@ -162,13 +201,17 @@ def sources_of(project: Project, case_id: Optional[str] = None) -> RunSources:
         if what not in s.usedBy:
             s.usedBy.append(what)
 
-    lib_file = "backend/app/library/components.json"
     for system in project.systems:
         for el in system.elements:
             cdef = defs.get(el.componentDefId)
             if cdef is None:
                 continue
             values = {**el.parameterOverrides, **overrides.get(el.id, {})}
+            for preset in cdef.presets:  # a preset in use: its note names its source
+                if preset.values and set(preset.values) & set(values) and all(
+                        values.get(k, next((p.default for p in cdef.parameters if p.key == k), None))
+                        == v for k, v in preset.values.items()):
+                    cited_text.append(preset.note or "")
             # the same part in the examples, the project's own example first
             twins = [(eid, e) for eid, p in sorted(examples.items(),
                                                    key=lambda kv: kv[0] != project.id)
@@ -214,7 +257,7 @@ def sources_of(project: Project, case_id: Optional[str] = None) -> RunSources:
     methods: list[RunSource] = []
     texts = " ".join(cited_text)
     for key, ref in REFERENCES.items():
-        if ref["match"] in texts:
+        if any(m in texts for m in _matches(ref)):
             methods.append(RunSource(id=key, title=ref["title"], source=ref["author"],
                                      licence=ref.get("note", ""), kind="method"))
     for cycle_id, ref in CYCLE_REFERENCES.items():
@@ -232,8 +275,13 @@ def sources_of(project: Project, case_id: Optional[str] = None) -> RunSources:
 
 # ---- citations ------------------------------------------------------------------------
 
+_BIB_SPECIAL = {"\\": r"\textbackslash{}", "~": r"\textasciitilde{}", "^": r"\textasciicircum{}",
+                **{c: "\\" + c for c in "{}%&$#_"}}
+
+
 def _bib_escape(text: str) -> str:
-    return re.sub(r"([{}%&$#_])", r"\\\1", text)
+    """Text LaTeX typesets as written: its special characters escaped."""
+    return re.sub(r"[\\~^{}%&$#_]", lambda m: _BIB_SPECIAL[m.group()], text)
 
 
 def lightsim_entry() -> dict:
@@ -252,8 +300,9 @@ def _entries(rs: RunSources) -> list[dict]:
             out.append({"id": s.id, "type": ref.get("type", "document"), "title": s.title,
                         "author": s.source, "url": ref.get("url"), "note": ref.get("note")})
         else:
-            out.append({"id": s.id, "type": "dataset", "title": s.title, "author": s.source,
-                        "note": "; ".join(x for x in (f"Licence: {s.licence}",
+            out.append({"id": s.id, "type": "dataset", "title": s.title, "author": publisher(s.source, s.licence),
+                        "note": "; ".join(x for x in (f"Source: {s.source}",
+                                                       f"Licence: {s.licence}",
                                                        f"Credit: {s.credit}",
                                                        CONFIDENCE_TEXT[s.confidence]) if x)})
     return out
@@ -263,18 +312,20 @@ BIB_TYPE = {"software": "software", "dataset": "misc", "legislation": "misc", "d
 
 
 def bibtex(rs: RunSources) -> str:
+    """BibTeX entries; every field is escaped for LaTeX but the URL, which
+    BibTeX styles print verbatim. An author in double braces is an
+    organisation, not a list of names."""
     blocks = []
     for e in _entries(rs):
-        fields = [("title", e["title"]), ("author", "{" + e["author"] + "}")]
+        fields = [("title", _bib_escape(e["title"])), ("author", "{" + _bib_escape(e["author"]) + "}")]
         if e.get("version"):
-            fields.append(("version", e["version"]))
+            fields.append(("version", _bib_escape(e["version"])))
         if e.get("url"):
             fields.append(("url", e["url"]))
         if e.get("note"):
-            fields.append(("note", e["note"]))
+            fields.append(("note", _bib_escape(e["note"])))
         key = re.sub(r"[^A-Za-z0-9:-]", "-", e["id"])
-        body = ",\n".join(f"  {k} = {{{v if k == 'author' else _bib_escape(v)}}}"
-                          for k, v in fields)
+        body = ",\n".join(f"  {k} = {{{v}}}" for k, v in fields)
         blocks.append(f"@{BIB_TYPE[e['type']]}{{{key},\n{body}\n}}")
     return "\n\n".join(blocks) + "\n"
 

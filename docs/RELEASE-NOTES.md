@@ -845,7 +845,10 @@ sections.
   licence, required credit and a trust level (source unknown, known source,
   validated), and warns when the run uses values whose source is unknown.
   **BibTeX** and **CSL-JSON** save the citations, starting with LightSim
-  and its version. [How to](help/how-to/cite-your-sources.md).
+  and its version; each source's author is its organisation and the BibTeX
+  is escaped for LaTeX. The Formula Student rules are cited only for a run
+  that uses a track layout, the FS example or the battery's FS preset.
+  [How to](help/how-to/cite-your-sources.md).
 - Example cards and stored results (CON-15): each example carries a card
   (Project → **Card…**): the question it answers, its difficulty and run
   time, what you learn, what happens when, the features it uses, its

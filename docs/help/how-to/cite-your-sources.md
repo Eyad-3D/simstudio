@@ -33,7 +33,10 @@ require you to repeat when you publish results made with it.
 
 Click **BibTeX** to save a `.bib` file for LaTeX, or **CSL-JSON** for
 Zotero or Pandoc. The first entry cites LightSim with its version; the
-others cite each source and method, with its licence in the note.
+others cite each source and method. A source's author is the organisation
+behind it (EPA, the European Union, NREL for FASTSim's values, or the
+LightSim authors for values made for LightSim); its full source text,
+licence and credit are in the note.
 
 ## What it cannot tell
 
