@@ -898,7 +898,7 @@ sections.
   them. Older files are upgraded step by step as they open; the first save
   keeps the old file as `pre-migration-v1.json` in the project's backups. A
   file from a newer LightSim opens read-only, says which version to
-  install, and is never saved over. (PLT-07)
+  install, and is never saved over or saved as a copy. (PLT-07)
 - Running a sweep no longer changes the project: studies (what was swept
   and the results table) are kept with the project's runs, as
   `studies/<id>.json`, so git shows only model edits and two people's

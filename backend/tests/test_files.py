@@ -190,6 +190,41 @@ def test_save_as_moves_a_new_projects_runs_and_copies_a_saved_one(repo, projects
                                                   "projectId": "a"}).status_code == 400
 
 
+def test_a_save_as_whose_save_fails_leaves_everything_as_it_was(repo, projects):
+    # a never-saved project with a run; Save As to a file, then the save fails
+    assert client.put("/api/projects/fresh/runs/run-1", json=_run("run-1")).status_code == 200
+    target = repo / "fresh.lightsim"
+    res = client.post("/api/files/save-as", json={"path": str(target), "projectId": "fresh"})
+    assert res.status_code == 200 and res.json()["runsMoved"] is True
+    assert client.get("/api/files").json() == [], "not on Recent files before it is written"
+    newer = {**_example(), "id": "fresh", "schemaVersion": 99}
+    assert client.put("/api/projects/fresh", json=newer).status_code == 409
+    assert not target.exists() and client.get("/api/files").json() == []
+    assert files.lookup("fresh") is None, "the project is where it was"
+    assert (projects / "runs" / "fresh").is_dir() and not (repo / "fresh.lightsim-runs").exists()
+    assert [r["id"] for r in client.get("/api/projects/fresh/runs").json()] == ["run-1"]
+    # a Save As over a file open under another id keeps that file's id if it fails
+    other = _write(repo / "other.lightsim", {**_example(), "id": "other"})
+    _open(other)
+    res = client.post("/api/files/save-as", json={"path": str(other), "projectId": "fresh"})
+    assert client.put("/api/projects/fresh", json=newer).status_code == 409
+    assert files.lookup("other") == other
+    assert [f["id"] for f in client.get("/api/files").json()] == ["other"]
+
+
+def test_a_file_from_a_newer_lightsim_cannot_be_saved_as(repo):
+    path = _write(repo / "newer.lightsim", {**_example(), "id": "newer", "schemaVersion": 99,
+                                            "savedWith": "9.0.0"})
+    _open(path)
+    body = client.get("/api/projects/newer").json()
+    assert "LightSim 9.0.0" in body["readOnly"]
+    copy = repo / "copy.lightsim"
+    res = client.post("/api/files/save-as", json={"path": str(copy), "projectId": "newer"})
+    assert res.status_code == 409 and "LightSim 9.0.0" in res.json()["detail"]
+    assert not copy.exists()
+    assert [f["path"] for f in client.get("/api/files").json()] == [str(path)]
+
+
 def test_a_change_on_disk_shows_in_the_revision_and_blocks_a_stale_save(repo):
     path = _write(repo / "car.lightsim", {**_example(), "id": "team-car"})
     _open(path)

@@ -1982,6 +1982,12 @@ describe("project files (PLT-07, PLT-33, STD-02)", () => {
       expect(store().project!.id).toBe("fixture-a1b2c3");
       saveFileAs.mockResolvedValueOnce(null); // cancelled
       expect(await store().saveAs()).toBe(false);
+      // a file from a newer LightSim is read-only: no Save As either
+      saveFileAs.mockClear();
+      useProjectStore.setState({ readOnly: "This project was saved by LightSim 9.0.0." });
+      expect(await store().saveAs()).toBe(false);
+      expect(saveFileAs).not.toHaveBeenCalled();
+      expect(messages()).toContain("error: Not saved: This project was saved by LightSim 9.0.0.");
     } finally {
       delete window.lightsimDesktop;
     }

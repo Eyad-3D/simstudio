@@ -66,7 +66,8 @@ you attached it, and Data Checks report it too.
 ## Good to know
 
 - A project file from a newer LightSim opens read-only: install that
-  version, or a newer one, to edit it. A file from an older LightSim is
+  version, or a newer one, to edit it or save a copy (**Save As…** is off
+  for it, so nothing the newer version wrote is lost). A file from an older LightSim is
   upgraded when it opens, and the first save keeps the old file in
   **Project → Restore…**'s folder as `pre-migration-v1.json`.
 - A project that carries code (Script blocks, attached FMUs or AI models)

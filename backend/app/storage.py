@@ -380,6 +380,16 @@ def _format_of(data: bytes) -> tuple[int, str | None]:
         return 1, None
 
 
+def newer_file(project_id: str) -> NewerFileError | None:
+    """Why the project's file on disk is read-only here (it is from a newer
+    LightSim), or None."""
+    try:
+        version, saved_with = _format_of(location(project_id).file.read_bytes())
+    except OSError:
+        return None
+    return NewerFileError(version, saved_with) if version > CURRENT_VERSION else None
+
+
 def save_project(
     project: Project, expected_revision: str | None = None, create_only: bool = False
 ) -> str:

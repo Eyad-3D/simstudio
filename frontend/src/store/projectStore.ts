@@ -1794,6 +1794,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const { project, log, readOnly } = get();
       const shell = desktop();
       if (!project || !shell) return false;
+      if (readOnly) {
+        // a copy in this LightSim's format could lose what the newer one wrote
+        log("error", `Not saved: ${readOnly}`);
+        return false;
+      }
       let picked;
       try {
         picked = await shell.saveFileAs(project.id, project.name);
@@ -1822,7 +1827,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         log(
           "info",
           `Project '${project.name}' saved as ${picked.path}.` +
-            (readOnly ? " It is in this LightSim's file format now." : "") +
             (sameProject ? "" : " It is a copy: the runs stay with the project it came from."),
         );
         void loadRunHistory(picked.id);
