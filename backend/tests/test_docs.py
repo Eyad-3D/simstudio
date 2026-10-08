@@ -271,7 +271,18 @@ def test_the_readme_api_table_matches_the_routes():
     def norm(path: str) -> str:  # /api/projects/{id} and /api/projects/{project_id}
         return re.sub(r"\{[^}]*\}", "{}", path)
 
-    routes = {norm(r.path) for r in app.routes if getattr(r, "path", "").startswith("/api")}
+    def paths(routes, prefix=""):
+        # FastAPI 0.141 keeps an included router as one entry in app.routes
+        # (holding the router and the prefix it was included with) instead of
+        # copying its routes in, so look inside those too.
+        for r in routes:
+            router = getattr(r, "original_router", None)
+            if router is not None:
+                yield from paths(router.routes, prefix + getattr(r.include_context, "prefix", ""))
+            elif hasattr(r, "path"):
+                yield prefix + r.path
+
+    routes = {norm(p) for p in paths(app.routes) if p.startswith("/api")}
     listed = set()
     for row in README.split("### API", 1)[1].split("\n## ", 1)[0].splitlines():
         for path in re.findall(r"`(?:[A-Z/]+ )+(/api/[^`]*)`", row):
