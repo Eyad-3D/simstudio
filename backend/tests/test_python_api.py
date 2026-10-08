@@ -169,8 +169,12 @@ def test_build_a_model_from_parts_and_run_it(tmp_path):
         el = p.element(part)
         return f"{part}.{next(x for x in ports if (el.id, x) not in used)}"
 
+    # the bus has a free terminal; the example's Ground (3 terminals) has none,
+    # since the battery, the Climate Control and the motor use them, so the heater
+    # gets a ground of its own
     p.connect(free("HV Bus", ["t1", "t2", "t3", "t4", "t5"]), f"{aux}.pos")
-    p.connect(f"{aux}.neg", free("Ground", ["t1", "t2"]))
+    ground = p.add("boundary.ground", label="Heater Ground")
+    p.connect(f"{aux}.neg", f"{ground}.t1")
     case = p.add_case("Short city", duration=60, values={"Vehicle.mass_kg": "1800 kg"})
     assert p.get("Vehicle.mass_kg", case=case) == 1800
     path = p.save(tmp_path / "variant.json")
