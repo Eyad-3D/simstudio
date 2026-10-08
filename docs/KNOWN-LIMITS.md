@@ -629,7 +629,8 @@ minimum or an average, for example from the CSV export, or put the
   these values yet; runs stored by earlier versions do not have them.
   Keeping them makes a run about 15 % slower (none are kept, at no cost,
   when each point is one solver step: a *Step* of 0.01 s or less and
-  *Store every* 1). *Roadmap:* RES-17.
+  *Store every* 1) and its file about 5 times larger, so the runs of a
+  parameter sweep keep their recorded points only. *Roadmap:* RES-17.
 - **The Results page shows at most 3 decimals.** Since 0.3, stored values
   and summary numbers keep full precision (ENG-16): one more kilogram on
   the Battery Electric Car changes its City Cycle's consumption and final

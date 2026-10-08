@@ -64,6 +64,9 @@ def test_points_match_one_run_each_and_are_stored(client):
     run = client.get(f"/api/projects/study-test/runs/{body['points'][0]['runId']}").json()
     assert run["result"]["channels"]
     assert run["snapshot"]["case"]["parameterOverrides"]["el-vehicle"]["mass_kg"] == 1500
+    # the model as it was: the swept value is the run's own, not a change (UX-41)
+    then = next(c for c in run["snapshot"]["project"]["cases"] if c["id"] == "case-city")
+    assert "mass_kg" not in then["parameterOverrides"].get("el-vehicle", {})
     assert run["snapshot"]["liveEdits"] == []  # the app reads it
 
 
@@ -91,6 +94,7 @@ def test_the_live_channel_streams_points_and_stops(client):
         # the server answers at once while the workers solve
         assert client.get("/api/health").status_code == 200
         assert time.monotonic() - t0 < 1.0
+        time.sleep(8.0)  # the two workers start and solve their first points
         ws.send_json({"type": "cancel"})
         events = []
         while True:
@@ -102,7 +106,8 @@ def test_the_live_channel_streams_points_and_stops(client):
     assert {e["status"] for e in events} <= {"cancelled", "not run"}
     assert any(e["status"] == "not run" for e in events)  # two never started
     done = [e for e in events if e["status"] == "cancelled"]
-    assert all(e["incomplete"].startswith("stopped") for e in done)
+    assert done, "the points that were running end as stopped runs, not as not run"
+    assert all(e["incomplete"].startswith("stopped") and e["runId"] for e in done)
 
 
 def test_a_study_that_cannot_start_says_why(client):

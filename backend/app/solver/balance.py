@@ -57,7 +57,9 @@ def applies(project: Project, case) -> bool:
     if case.kind != "cycle" or (case.realtimeFactor or 0) > 0:
         return False
     types = {el.componentDefId for s in project.systems for el in s.elements}
-    return "engine.combustion" in types and "battery.generic" in types
+    # a hybrid: an engine, and a battery an E-Motor can charge (a car with
+    # only a 12 V battery on a load has nothing to balance)
+    return "engine.combustion" in types and "battery.generic" in types and "motor.emotor" in types
 
 
 def _fit_zero(points: list[tuple[float, float]]) -> Optional[float]:
@@ -100,16 +102,28 @@ def simulate_balanced(project: Project, case_id: str, emit, control, run: RunFn)
 
     history: list[tuple[dict, float, float, Optional[float]]] = []
     result: SimResult | None = None
+    last_good: SimResult | None = None
     for k in range(MAX_RUNS):
         totals: dict = {}
         result = run(proj, case_id, emit if k == 0 else quiet, watched, totals)
         if result.status in ("failed", "cancelled") or not totals:
-            return _annotate(result, model, history, done=False, why=None) if history else result
+            if not history:
+                return result
+            # a later run was stopped or failed: report the last finished one
+            why = f"run {k + 1} was {'stopped' if result.status == 'cancelled' else 'cut short'}"
+            out = _annotate(last_good, model, history, done=False, why=why)
+            return out.model_copy(update={"messages": [
+                *out.messages, *(m for m in result.messages if m.level == "error")]})
         d_e = sum(e for _, _, e in totals["batteries"].values())
         fuel = next((s.value for s in result.summary if s.label == "Fuel consumption"), None)
         history.append((totals["batteries"], d_e, totals["fuel_j"], fuel))
+        last_good = result
         if totals["fuel_j"] <= 0:
-            return _annotate(result, model, history, done=False, why="it burnt no fuel")
+            # the engine never ran: nothing to balance, the run stands as it is
+            return result.model_copy(update={"messages": [
+                *result.messages, SimMessage(level="info", text=(
+                    "Charge balancing: the engine burnt no fuel on this run, so there is no "
+                    "fuel figure to balance; the run is reported as it is."))]})
         if abs(d_e) <= BALANCE_SHARE * totals["fuel_j"]:
             return _annotate(result, model, history, done=True, why=None)
         if edited:

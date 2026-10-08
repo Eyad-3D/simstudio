@@ -71,3 +71,33 @@ def test_unsettled_runs_give_a_charge_corrected_figure(monkeypatch):
 def test_the_line_through_the_runs():
     assert balance._fit_zero([(-1.0, 3.0), (1.0, 5.0)]) == pytest.approx(4.0)
     assert balance._fit_zero([(1.0, 5.0)]) is None
+
+
+def test_a_run_whose_engine_never_starts_stays_a_success():
+    # a slow town drive from a full battery: the engine never runs
+    p = hybrid(70)
+    case = next(c for c in p.cases if c.id == CASE)
+    case.parameterOverrides.setdefault("el-task", {})["profile"] = "0:0; 10:20; 50:20; 60:0; 70:0"
+    case.duration = 70.0
+    r = simulate(p, CASE)
+    assert r.status == "success"
+    assert any("burnt no fuel" in m.text for m in r.messages)
+    assert not any(s.label.endswith("charge-balanced start SOC") for s in r.summary)
+
+
+def test_a_later_run_that_is_stopped_keeps_the_finished_one(monkeypatch):
+    from app.solver import core
+
+    calls = {"n": 0}
+
+    def run(project, case_id, emit=None, control=None, totals=None):
+        calls["n"] += 1
+        result = core.run_case(project, case_id, emit, control, totals)
+        if calls["n"] == 2:
+            return result.model_copy(update={"status": "cancelled"})
+        return result
+
+    r = balance.simulate_balanced(hybrid(30), CASE, None, None, run)
+    assert r.status in ("warning", "success") and r.status != "cancelled"
+    assert any("run 2 was stopped" in m.text for m in r.messages)
+    assert "(None)" not in " ".join(m.text for m in r.messages)

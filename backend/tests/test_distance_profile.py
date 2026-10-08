@@ -99,3 +99,10 @@ def test_distance_trace_band_is_one_second_of_travel():
     # 30 m late is not
     very_late = [50.0 if x < 130 else 20.0 for x in xs]
     assert distance_trace_metrics(ts, xs, tgt, very_late).outside_wltp_s > 1.0
+
+
+def test_laps_without_repeat_profile_warn():
+    checks = [c.text for c in validate_project(lap_project(laps=3, repeat=False))]
+    assert any("does not repeat its profile" in t for t in checks)
+    assert not any("does not repeat its profile" in t for t in
+                   (c.text for c in validate_project(lap_project(laps=3))))

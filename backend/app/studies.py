@@ -166,8 +166,10 @@ async def run_study(project: Project, case_id: str, points: list[StudyPointSpec]
         futures = {}
         for i, pt in enumerate(points):
             pj = _point_project(project, case_id, pt.overrides)
-            fut = loop.run_in_executor(pool, run_point, pj.model_dump_json(), case_id)
-            futures[fut] = (i, pt, pj)
+            # (the pool's own future: cancelling it fails once its point runs,
+            # where cancelling an asyncio wrapper would drop a running point)
+            cf = pool.submit(run_point, pj.model_dump_json(), case_id)
+            futures[asyncio.wrap_future(cf, loop=loop)] = (i, pt, pj, cf)
         stopper = asyncio.ensure_future(stop.wait())
         pending = set(futures)
         while pending:
@@ -175,10 +177,10 @@ async def run_study(project: Project, case_id: str, points: list[StudyPointSpec]
             if stopper in done and not cancel_event.is_set():
                 cancel_event.set()  # running points stop at their next step
                 for f in pending:
-                    f.cancel()  # points not started yet are not run
+                    futures[f][3].cancel()  # points not started yet are not run
             for fut in done - {stopper}:
                 pending.discard(fut)
-                i, pt, pj = futures[fut]
+                i, pt, pj, _ = futures[fut]
                 if fut.cancelled():
                     await send({"type": "point", "index": i, "values": pt.values,
                                 "status": "not run"})
@@ -193,6 +195,11 @@ async def run_study(project: Project, case_id: str, points: list[StudyPointSpec]
                         caseId=case_id, status="failed", channels=[],
                         messages=[{"level": "error", "text": f"The run's worker stopped: {e}"}]), 0.0
                 walls.append(wall)
+                # a sweep point keeps its recorded points, not the peaks between
+                # them (ENG-16): those make a run about 5 times larger, and a
+                # 200-point sweep would push older runs out of the disk budget
+                for ch in result.channels:
+                    ch.min = ch.max = ch.mean = None
                 run_id = None
                 pruned: list[str] = []
                 incomplete = _incomplete(result)
@@ -207,7 +214,10 @@ async def run_study(project: Project, case_id: str, points: list[StudyPointSpec]
                         sweepUnit=options.sweep_unit, incomplete=incomplete,
                         # (set, so the run store, which leaves out unset
                         # fields, keeps the empty list the app reads)
-                        snapshot=RunSnapshot(project=pj, case=pcase, appVersion=VERSION,
+                        # the model as it was and the case with the point's
+                        # value, as a run from the app keeps them (the swept
+                        # value is the run's own, not a change to the model)
+                        snapshot=RunSnapshot(project=project, case=pcase, appVersion=VERSION,
                                              liveEdits=[]))
                     try:
                         _, pruned = await asyncio.to_thread(run_store.save_run, project.id, run)

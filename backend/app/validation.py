@@ -816,6 +816,12 @@ def _distance_checks(project: Project, model: Model, add: Add) -> None:
                            f"does not follow a Driving Task whose Profile Axis is Distance, so "
                            f"the run lasts its duration.",
                 fix="Set the Driving Task's Profile Axis to Distance, or clear the case's Laps.")
+        elif case.endLaps > 1 and not p.get("repeat"):
+            add("warning", f"Case '{case.name}' ends after {case.endLaps:g} laps, but the Driving "
+                           f"Task '{model.elements[src[0]].label}' does not repeat its profile: "
+                           f"after the first lap the car holds the profile's last speed.",
+                el=model.elements[src[0]],
+                fix="Tick the Driving Task's Repeat Profile, or set the case's Laps to 1.")
 
 
 def _plausibility_checks(model: Model, add: Add) -> None:
