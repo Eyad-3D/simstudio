@@ -39,7 +39,7 @@ pub use flat::{
     Origin, OriginKind, ParamId, PortPower, VarId, VarRole,
 };
 pub use prepared::{
-    AliasEntry, AliasTarget, Assignment, Direction, ExternalBlock, InverseSpec, PrepStats,
+    AliasEntry, AliasTarget, Assignment, Direction, ExternalBlock, InverseSpec, Mode, PrepStats,
     PreparedModel, PreparedWhen, Residual, Slot, ZeroCrossing,
 };
 pub use runtime::{DiscreteBlock, EvalInput, Layout, ModelFunctions, SparsityPattern};

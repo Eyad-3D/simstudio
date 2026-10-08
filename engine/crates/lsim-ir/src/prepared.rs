@@ -106,6 +106,32 @@ pub struct PreparedWhen {
     pub origin: Origin,
 }
 
+/// A mode (DESIGN.md, *Events and modes*): the held truth value of one
+/// relation of the equations (an `if` condition, or the sign test inside
+/// `abs` or `sign`) outside `noEvent`. Between events the equations read
+/// the discrete variable `var` (1 true, 0 false) instead of the relation,
+/// so the integrator never sees a discontinuity; the relation's
+/// zero-crossing function `lhs - rhs` locates where it changes.
+///
+/// Every mode is also kept up to date by two `when` clauses of the model
+/// (on two copies of its zero crossing: rising sets the value the relation
+/// takes above zero, falling the value below), so a run loop that knows
+/// only `when` clauses holds it right between events; `relation` serves
+/// the initial value and event iteration.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct Mode {
+    /// the discrete variable holding the relation's value
+    pub var: VarId,
+    /// the relation as written (flat scope, a comparison), evaluated as it
+    /// stands
+    pub relation: Expr,
+    /// the index of its zero-crossing function in
+    /// [`PreparedModel::zero_crossings`]
+    pub crossing: usize,
+    /// where it came from
+    pub origin: Origin,
+}
+
 /// Where an external sampled block (a [`crate::runtime::DiscreteBlock`])
 /// sits in the model.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -187,4 +213,8 @@ pub struct PreparedModel {
     /// (rows and columns in `y = [x; z]` order), for colouring and sparse LU
     #[serde(default)]
     pub jac_pattern: SparsityPattern,
+    /// the modes of `if` relations (each one's variable is among
+    /// `discretes`)
+    #[serde(default)]
+    pub modes: Vec<Mode>,
 }
