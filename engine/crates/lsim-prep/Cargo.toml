@@ -1,0 +1,20 @@
+[package]
+name = "lsim-prep"
+description = "Model preparation: flattening, unit checking, alias elimination, structural analysis (matching, sorting, tearing, index reduction) and plain-language structural diagnostics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license-file.workspace = true
+repository.workspace = true
+
+[dependencies]
+lsim-ir.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+lsim-lib.workspace = true
+
+[lints]
+workspace = true

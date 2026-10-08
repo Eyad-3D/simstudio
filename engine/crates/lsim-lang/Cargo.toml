@@ -1,0 +1,19 @@
+[package]
+name = "lsim-lang"
+description = "The text format for equation components (a unit-checked subset that maps one-to-one onto Base Modelica): printer now, parser in work package 1"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license-file.workspace = true
+repository.workspace = true
+
+[dependencies]
+lsim-ir.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+lsim-lib.workspace = true
+
+[lints]
+workspace = true

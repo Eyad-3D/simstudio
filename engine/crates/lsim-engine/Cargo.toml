@@ -1,0 +1,21 @@
+[package]
+name = "lsim-engine"
+description = "The engine's front door: build (prepare + compile, with a cache) and run models; holds the Stage 1 end-to-end spike"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license-file.workspace = true
+repository.workspace = true
+
+[dependencies]
+lsim-ir.workspace = true
+lsim-lib.workspace = true
+lsim-prep.workspace = true
+lsim-codegen.workspace = true
+lsim-solve.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true
