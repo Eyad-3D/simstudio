@@ -21,6 +21,9 @@ the battery's usable energy ÷ the combined energy at the battery.
 
 A hybrid's lab figures use the charge-corrected fuel consumption of each
 run (CON-05), so a run that ends with a different charge still compares.
+A model with a fuel cell or a voltage source gets no label: their energy
+is in neither the battery's Consumption nor the fuel consumption, and
+EPA's hydrogen rules (1 kg of hydrogen as a gallon) are not built in.
 The five-cycle method with US06, SC03 and a cold FTP needs heat and climate
 models LightSim does not have yet (CON-21).
 """
@@ -44,6 +47,9 @@ COEFFICIENTS = {
            "Highway Intercept": 0.003191, "Highway Slope": 1.2945},
 }
 NOT_CERTIFIED = "Simulated estimate, not a certified value."
+# energy sources the label cannot count: neither the battery's Consumption
+# nor the fuel consumption holds their energy
+UNCOUNTED_SOURCES = {"fuelcell.stack": "Fuel Cell Stack", "electric.voltage_source": "Voltage Source"}
 
 
 def coefficients(model_year: int) -> tuple[int, dict[str, float]]:
@@ -96,42 +102,81 @@ def adjust(lab: LabFigures, electric: bool, model_year: int = 2017,
 
 # ---- running the model on the two cycles ------------------------------------
 
-def _drives(project: Project, case: SimCase, cycle_id: str) -> bool:
-    if case.kind != "cycle":
-        return False
-    tasks = [e for s in project.systems for e in s.elements
-             if e.componentDefId == "signal.driving_task"]
-    if len(tasks) != 1:
-        return False
-    own = (case.parameterOverrides.get(tasks[0].id) or {})
-    if "cycle" in own:
-        return own["cycle"] == cycle_id
-    if "profile" in own:
-        return False
-    return tasks[0].parameterOverrides.get("cycle") == cycle_id
+def uncounted_sources(project: Project) -> list[str]:
+    """The parts that supply energy the battery's Consumption and the fuel
+    consumption leave out (a fuel cell, a voltage source), by label."""
+    return [f"{UNCOUNTED_SOURCES[e.componentDefId]} '{e.label}'"
+            for s in project.systems for e in s.elements if e.componentDefId in UNCOUNTED_SOURCES]
 
 
-def label_cases(project: Project, base_case_id: str | None = None) -> dict[str, SimCase]:
+def _task_params(case: SimCase, task) -> dict:
+    """The Driving Task's values as the case runs them: the library's
+    defaults, the part's own values, then the case's (whose own profile
+    wins over a cycle, as build_model has it)."""
+    from .library import library_by_id
+    from .solver.network import resolve_params
+    params = resolve_params(task, library_by_id()[task.componentDefId])
+    own = case.parameterOverrides.get(task.id) or {}
+    params.update(own)
+    if "profile" in own and "cycle" not in own:
+        params["cycle"] = ""
+    return params
+
+
+def _drives(case: SimCase, task, cycle_id: str) -> bool:
+    return case.kind == "cycle" and str(_task_params(case, task).get("cycle") or "") == cycle_id
+
+
+def _not_whole(case: SimCase, task, cycle_id: str) -> str:
+    """Why a case on the cycle does not drive it as published, start to
+    end ('' when it does)."""
+    why = cycles.not_as_published(_task_params(case, task), case.duration)
+    if not why and case.duration < cycles.info(cycle_id)["duration_s"] - 1e-6:
+        why = f"for {case.duration:g} s only"
+    if not why and ((case.endDistance or 0) > 0 or (case.endLaps or 0) > 0):
+        why = "up to a set distance or lap count"
+    return why
+
+
+def label_cases(project: Project, base_case_id: str | None = None,
+                notes: list[str] | None = None) -> dict[str, SimCase]:
     """The case to run for each cycle: one of the project's own that drives
-    it (the hybrid example has one for each, each with its balanced start
-    charge), or else a copy of the base case (the first Cycle case) set to
-    the cycle and its length."""
+    it as published (the hybrid example has one for each, each with its
+    balanced start charge), or else a copy of the base case (the first
+    Cycle case) set to the cycle as published and its length. A live case
+    runs as a copy that is not paced. ``notes`` gets a line for each own
+    case passed over because it changes the cycle (scaled, repeated, cut
+    short)."""
     cases = [c for c in project.cases if c.kind == "cycle"]
     base = next((c for c in cases if c.id == base_case_id), cases[0] if cases else None)
     tasks = [e for s in project.systems for e in s.elements
              if e.componentDefId == "signal.driving_task"]
     if base is None or len(tasks) != 1:
         raise ValueError("The US label estimate needs a case of kind Cycle and one Driving Task.")
+    task = tasks[0]
     out: dict[str, SimCase] = {}
     for cycle_id in ("udds", "hwfet"):
-        own = next((c for c in cases if _drives(project, c, cycle_id)), None)
+        name = cycles.CYCLES[cycle_id]["name"]
+        on_it = [c for c in cases if _drives(c, task, cycle_id)]
+        whole = [c for c in on_it if not _not_whole(c, task, cycle_id)]
+        for c in on_it if not whole else ():
+            if notes is not None:
+                notes.append(f"Case '{c.name}' drives {name} {_not_whole(c, task, cycle_id)}; "
+                             f"the label runs the cycle as published instead.")
+        own = whole[0] if whole else None
         if own is None:
             own = base.model_copy(deep=True)
             own.id = f"label-{cycle_id}"
-            own.name = f"US label: {cycles.CYCLES[cycle_id]['name']}"
-            own.parameterOverrides.setdefault(tasks[0].id, {})["cycle"] = cycle_id
-            own.parameterOverrides[tasks[0].id].pop("profile", None)
+            own.name = f"US label: {name}"
+            ov = own.parameterOverrides.setdefault(task.id, {})
+            ov.update({"cycle": cycle_id, "scale_pct": 100, "repeat": False, "mode": "time"})
+            ov.pop("profile", None)
             own.duration = cycles.info(cycle_id)["duration_s"]
+            own.endDistance = None
+            own.endLaps = None
+            own.realtimeFactor = 0
+        elif own.realtimeFactor:  # a live case: the same run, not paced to the clock
+            own = own.model_copy(deep=True)
             own.realtimeFactor = 0
         out[cycle_id] = own
     return out
@@ -142,14 +187,18 @@ def estimate(project: Project, base_case_id: str | None = None, model_year: int 
     step. Raises ValueError when the model cannot be run on them."""
     from .solver import simulate
 
+    others = uncounted_sources(project)
+    if others:
+        raise ValueError(f"The US label estimate covers battery electric cars, hybrids and cars "
+                         f"with an engine only. This model also takes energy from "
+                         f"{', '.join(others)}, which the label would leave out.")
     year, coef = coefficients(model_year)
-    chosen = label_cases(project, base_case_id)
-    runs: dict[str, dict[str, float]] = {}
     problems: list[str] = []
+    chosen = label_cases(project, base_case_id, problems)
+    runs: dict[str, dict[str, float]] = {}
     for cycle_id, case in chosen.items():
         trial = project.model_copy(deep=True)
-        if not any(c.id == case.id for c in trial.cases):
-            trial.cases.append(case)
+        trial.cases = [c for c in trial.cases if c.id != case.id] + [case]
         result = simulate(trial, case.id)
         rows = {s.label: s for s in result.summary}
         for label in ("Consumption", "Fuel consumption", "Fuel consumption, charge-corrected"):

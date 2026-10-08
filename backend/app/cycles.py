@@ -63,6 +63,28 @@ def phases(cycle_id: str) -> list[tuple[str, float, float]]:
     return [(str(n), float(a), float(b)) for n, a, b in CYCLES[cycle_id].get("phases", [])]
 
 
+def not_as_published(params: dict, duration_s: float) -> str:
+    """Why a Driving Task set to a bundled cycle drives it differently from
+    the published trace, or '' when it drives it as published: a Scale other
+    than 100 %, Repeat Profile on a run longer than one pass, or a Profile
+    Axis of Distance. Only the published trace has the cycle's phases and
+    compares with published results (CON-26). ``params``: the Driving
+    Task's values with the case's own applied."""
+    cycle_id = str(params.get("cycle") or "")
+    try:
+        scale = float(params.get("scale_pct", 100))
+    except (TypeError, ValueError):
+        scale = 100.0
+    if abs(scale - 100.0) > 1e-9:
+        return f"scaled to {scale:g} %"
+    if (bool(params.get("repeat", False)) and cycle_id in CYCLES
+            and duration_s > info(cycle_id)["duration_s"] + 1e-6):
+        return "repeated (Repeat Profile on a run longer than the cycle)"
+    if str(params.get("mode", "time")) == "distance":
+        return "read against distance (Profile Axis: Distance)"
+    return ""
+
+
 def profile_text(cycle_id: str) -> str:
     """The trace as a Driving Task profile ('t:speed; ...'). repr keeps every
     digit, so the solver parses exactly the numbers in the file."""

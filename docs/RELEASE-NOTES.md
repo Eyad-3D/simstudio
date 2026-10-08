@@ -351,7 +351,9 @@ sections.
   ev-database.org and EUPL files; the tests fail on a row that names one.
   (CON-31)
 - A run on a typed profile instead of a standard cycle says so in its
-  messages: its figures cannot be compared with published ones. The
+  messages: its figures cannot be compared with published ones. So does a
+  run on a cycle scaled away from 100 %, repeated past its end or read
+  against distance, which then has no per-phase figures. The
   examples' *City Cycle* and *Mixed Cycle* are such hand-made demo profiles,
   and their descriptions now say so; the Properties sketch of a typed
   profile reads *Custom profile (not a standard cycle)*. The examples'
@@ -369,7 +371,8 @@ sections.
   the fuel's and a *charge-corrected* fuel consumption from that one run
   (with it on, the default for a hybrid's cycle, charge balancing gives
   them: see ENG-33); for a case on a cycle with phases each phase's
-  distance and consumption (the WLTC's four phases add up to the whole);
+  distance and consumption (the WLTC's four phases add up to the whole;
+  class 1's second Low phase is *Low (repeat)*, so each row has its name);
   and for the FTP-75 the bags weighted as EPA does. Help: *Consumption
   figures* gives every formula. The Battery Electric Car on WLTC class 3b:
   14.05 kWh/100 km at the battery, 16.34 at the socket, 128.2 MPGe, 426 km;
@@ -384,11 +387,16 @@ sections.
   kWh/100 mi and the range for an electric car, mpg and l/100 km for a car
   with an engine. The Battery Electric Car gets 104 MPGe combined and 213
   miles; the P2 Hybrid Car 56 city, 48 highway and 52 combined mpg (the
-  real car's label: 58, 60 and 59). (CON-32)
+  real car's label: 58, 60 and 59). A model with a fuel cell or a voltage
+  source gets no label: their energy is in neither figure. A case of the
+  project's own that scales, repeats or cuts short UDDS or HWFET is passed
+  over with a note, and a live case runs without waiting for the clock.
+  (CON-32)
 - Weather presets on the Ambient: *Cold day (−7 °C)* (EPA's cold FTP and
   the EU's low-temperature test), *Standard day (23 °C)* (WLTP),
   *Hot and sunny day (35 °C)* (EPA's air-conditioning test SC03) and *High
-  altitude (1,500 m)* (the standard atmosphere: 84.56 kPa, 5.25 °C), each
+  altitude (1,500 m)* (the standard atmosphere: 84.56 kPa, 5.25 °C, air
+  about 14 % thinner than at sea level), each
   with its source. The Battery Electric Car has an Ambient (at its
   defaults, the air it had before) and two new cases, *WLTC, winter day
   (−7 °C, heating on)* at 19.5 kWh/100 km and *WLTC, hot day (35 °C,
@@ -397,13 +405,18 @@ sections.
   (MOD-41) arrives; the presets' notes say so. No existing case changes.
   (CON-30)
 - **Simulations → Vehicle tests**: one-click 0-100 and 80-120 km/h, top
-  speed with what limits it, consumption and range at 50, 90 and 120 km/h,
+  speed (the speed held over the last 10 s of 120 s at full throttle) with
+  what limits it, or *not settled* and the highest speed reached when the
+  speed still changes at the end (the hybrid's fading battery boost: 204
+  km/h at 68 s, falling), consumption and range at 50, 90 and 120 km/h,
   the steepest grade held at 30 km/h and a virtual coast-down that returns
   the road-load coefficients A, B and C, each from runs of the model as it
   is. The Battery Electric Car: 0-100 km/h in 7.12 s, 80-120 in 4.98 s,
   160 km/h limited by its motor's maximum speed, 9.4 / 14.1 / 19.6 kWh/100
   km at 50 / 90 / 120 km/h. The hybrid's coast-down gives back its EPA
-  coefficients within 2 %. (CON-06)
+  coefficients within 2 %. With a fuel cell or a voltage source the
+  consumption is the battery's share only and no range is given. A test
+  whose run fails shows no figure and the run's error. (CON-06)
 - Value sources: every number and table of a part can carry its source, a
   kind (measured, datasheet, estimated, generated or library default) and
   a confidence (0 not checked, 1 agrees with its source, 2 source and
@@ -832,10 +845,12 @@ sections.
   [How to](help/how-to/check-against-expected-values.md).
 - A reference suite of real cars (VAL-05): four 2022 electric cars
   (Tesla Model 3 RWD, Chevrolet Bolt EUV, Nissan Leaf 40 kWh, MINI Cooper
-  SE) built from EPA's Test Car List and FASTSim's vehicle files, with no
+  SE) built from EPA's Test Car List and FASTSim's vehicle files (the
+  Model 3's motor power is EPA's rated 257 hp: FASTSim's 239 kW comes from
+  a website LightSim may not use), with no
   input tuned to the results, drive EPA's city and highway cycles on every
-  change. Their energy at the wall is within 9 % of EPA's unadjusted
-  figures on all eight (4.5 % on average); a virtual coast-down gives back
+  change. Their energy at the wall is within 8 % of EPA's unadjusted
+  figures on all eight (4.1 % on average); a virtual coast-down gives back
   EPA's road load within 0.02 %, and an exact-answer tier of three
   coast-downs is within 0.005 %. [What is validated](VALIDATION-STATUS.md)
   has the table and what it does not show. The files are in
@@ -847,7 +862,10 @@ sections.
   licence, required credit and a trust level (source unknown, known source,
   validated), and warns when the run uses values whose source is unknown.
   **BibTeX** and **CSL-JSON** save the citations, starting with LightSim
-  and its version. [How to](help/how-to/cite-your-sources.md).
+  and its version; each source's author is its organisation and the BibTeX
+  is escaped for LaTeX. The Formula Student rules are cited only for a run
+  that uses a track layout, the FS example or the battery's FS preset.
+  [How to](help/how-to/cite-your-sources.md).
 - Example cards and stored results (CON-15): each example carries a card
   (Project → **Card…**): the question it answers, its difficulty and run
   time, what you learn, what happens when, the features it uses, its

@@ -28,6 +28,7 @@ import time
 from itertools import chain
 from typing import Callable, Iterator, Optional
 
+from .. import cycles
 from ..library import unit_groups
 from ..schemas import Channel, Project, SimMessage, SimResult, SummaryValue
 from . import balance, fs_events, lapsim
@@ -152,12 +153,21 @@ def run_case(
             b.rule_avg = MovingAverage(fs_events.RULE_WINDOW_S)
     if case.kind == "cycle":  # say when the figures cannot be compared (CON-26)
         for el_id, cdef in model.cdef_of.items():
-            if cdef.id == "signal.driving_task" and not model.params_of[el_id].get("cycle"):
+            if cdef.id != "signal.driving_task":
+                continue
+            task_p = model.params_of[el_id]
+            if not task_p.get("cycle"):
                 rt.message("info", f"Driving Task '{model.elements[el_id].label}' follows a typed "
                                    f"profile (a demo or your own points), not a standard "
                                    f"drive cycle: compare its "
                                    f"figures only with runs on the same profile, not with "
                                    f"published ones.")
+            elif why := cycles.not_as_published(task_p, t_end):
+                name = cycles.CYCLES.get(str(task_p["cycle"]), {}).get("name", task_p["cycle"])
+                rt.message("info", f"Driving Task '{model.elements[el_id].label}' drives {name} "
+                                   f"{why}, not the standard drive cycle: compare its figures "
+                                   f"only with runs on the same settings, not with published "
+                                   f"ones. The run has no per-phase figures.")
     # the run ends when the vehicle has driven this far, m (None: at the duration)
     end_d = (max(0.0, case.startLine) + case.endDistance
              if case.endDistance and case.endDistance > 0 else None)
@@ -234,7 +244,7 @@ def run_case(
             publish_routed_states()
             recorder.step()
 
-        lablog = LabLog.for_run(model, case.kind)  # per-phase totals (CON-05)
+        lablog = LabLog.for_run(model, case.kind, t_end)  # per-phase totals (CON-05)
         lablog.sample(0.0, ctx)
         trace = CycleTrace(ctx)  # target vs vehicle speed, for the run verdict
         if lap is None:  # a lap case follows no target

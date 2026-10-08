@@ -5,8 +5,8 @@
 
 **In one line:** the energy four production electric cars use on EPA's
 city and highway test cycles has been compared with EPA's official results,
-blind (no input tuned to them): LightSim is within 9 % on all eight
-figures (4.5 % on average). Nothing else is validated: the engine is
+blind (no input tuned to them): LightSim is within 8 % on all eight
+figures (4.1 % on average). Nothing else is validated: the engine is
 tested against exact answers, and the example cars are checked for
 believable numbers, but that is not the same as validation.
 
@@ -87,7 +87,10 @@ every change (`test_reference_suite.py`).
   EPA's 2022 Test Car List and fueleconomy.gov; the motor, battery,
   auxiliary and charger values from FASTSim's Apache-2.0 vehicle files
   (sources in `backend/validation/suite.json` and the
-  [data register](DATA-REGISTER.md), DR-61 to DR-66).
+  [data register](DATA-REGISTER.md), DR-61 to DR-66). The Model 3's motor
+  power is EPA's rated 257 hp (192 kW), since FASTSim's 239 kW comes from
+  a website LightSim may not use (case version 2, suite 1.1, 8 October
+  2026: its gaps were +7.0 and +8.6 %).
 - **Blind**: no input was tuned to these results. The motor's efficiency is
   FASTSim's one generic curve, the same for all four cars; the rules that
   turn the data into a model are fixed in `suite.json` and the suite's
@@ -95,12 +98,12 @@ every change (`test_reference_suite.py`).
 - **Metric**: Wh per km at the wall, LightSim's battery energy plus the
   battery's own losses divided by a charger efficiency of 0.86.
 
-Measured on 7 October 2026:
+Measured on 7 October 2026 (the Model 3 on 8 October):
 
 | Car | Cycle | EPA, Wh/km | LightSim, Wh/km | Gap | EPA's repeat tests |
 |---|---|---|---|---|---|
-| 2022 Tesla Model 3 RWD | UDDS | 113.0 | 120.9 | +7.0 % | one test |
-| | HWFET | 123.1 | 133.7 | +8.6 % | one test |
+| 2022 Tesla Model 3 RWD | UDDS | 113.0 | 118.6 | +5.0 % | one test |
+| | HWFET | 123.1 | 132.2 | +7.4 % | one test |
 | 2022 Chevrolet Bolt EUV | UDDS | 117.5 | 118.2 | +0.6 % | 114.1-121.1 (6 % apart) |
 | | HWFET | 140.6 | 151.1 | +7.5 % | 139.8-141.3 |
 | 2022 Nissan Leaf (40 kWh) | UDDS | 119.3 | 117.6 | −1.4 % | 118.3-120.4 |
@@ -108,13 +111,13 @@ Measured on 7 October 2026:
 | 2022 MINI Cooper SE | UDDS | 123.5 | 115.1 | −6.8 % | one test |
 | | HWFET | 145.9 | 145.9 | 0.0 % | one test |
 
-Mean of the gaps' sizes 4.5 %, largest 8.6 %, against a tolerance of 15 %
+Mean of the gaps' sizes 4.1 %, largest 7.5 %, against a tolerance of 15 %
 (blind). The suite also checks, for each car:
 
 | Check | Tolerance | Measured |
 |---|---|---|
 | A virtual coast-down from 130 km/h gives back EPA's road load, 20-120 km/h | 2 % | 0.01-0.02 % |
-| Halving the solver step (10 to 5 ms) moves the city energy | 0.5 % | 0.16-0.17 % |
+| Halving the solver step (10 to 5 ms) moves the city energy | 0.5 % | 0.16-0.18 % |
 | Exact-answer tier: three coast-downs with closed-form answers | 0.5 % | 0.000-0.005 % |
 
 What this does and does not show:

@@ -87,3 +87,67 @@ def test_a_project_without_a_cycle_case_is_refused():
     r = TestClient(app).post("/api/label-estimate",
                              json={"project": project.model_dump(mode="json")})
     assert r.status_code == 400 and "case of kind Cycle" in r.json()["detail"]
+
+
+def test_a_fuel_cell_car_gets_no_label():
+    """Its fuel cell's energy is in neither the battery's Consumption nor
+    the fuel consumption, so a label would show MPGe from the battery's
+    share alone; the same for a model with a Voltage Source."""
+    from helpers import el, fuel_cell_car
+
+    project = fuel_cell_car(setpoint_kW=1.5, cycle="udds")
+    with pytest.raises(ValueError, match="Fuel Cell Stack 'Fuel Cell'"):
+        label.estimate(project)
+    r = TestClient(app).post("/api/label-estimate",
+                             json={"project": project.model_dump(mode="json")})
+    assert r.status_code == 400 and "battery electric cars, hybrids" in r.json()["detail"]
+    bev = load_example("bev-car")
+    bev.systems[0].elements.append(el("vs", "electric.voltage_source", "Bench Supply"))
+    with pytest.raises(ValueError, match="Voltage Source 'Bench Supply'"):
+        label.estimate(bev)
+
+
+def test_an_own_case_runs_only_when_it_drives_the_cycle_as_published():
+    """A scaled, repeated or shortened UDDS case is not UDDS: a copy on the
+    cycle as published runs instead, with a note; copies drop the base
+    case's scale and repeat."""
+    project = load_example("hybrid-car")
+    udds = next(c for c in project.cases if c.id == "case-udds")
+    udds.parameterOverrides["el-task"]["scale_pct"] = 50
+    notes: list[str] = []
+    chosen = label.label_cases(project, "case-udds", notes)
+    assert chosen["udds"].id == "label-udds"
+    assert chosen["udds"].parameterOverrides["el-task"] == {
+        "cycle": "udds", "scale_pct": 100, "repeat": False, "mode": "time"}
+    assert chosen["hwfet"].id == "case-hwfet"  # the HWFET case is as published
+    assert notes == ["Case 'EPA city (UDDS)' drives EPA city (UDDS) scaled to 50 %; the label "
+                     "runs the cycle as published instead."]
+    udds.parameterOverrides["el-task"]["scale_pct"] = 100
+    udds.duration = 600
+    notes.clear()
+    assert label.label_cases(project, None, notes)["udds"].id == "label-udds"
+    assert "for 600 s only" in notes[0]
+
+
+def test_a_live_case_is_run_without_pacing(monkeypatch):
+    """A live UDDS case (realtimeFactor > 0) would hold the request for the
+    cycle's length: the label runs it unpaced."""
+    import app.solver
+    from app.schemas import SimResult, SummaryValue
+
+    project = load_example("hybrid-car")
+    for c in project.cases:
+        c.realtimeFactor = 1.0
+    paced = []
+
+    def fake(trial, case_id):
+        paced.append(next(c for c in trial.cases if c.id == case_id).realtimeFactor)
+        return SimResult(caseId=case_id, status="success", messages=[], channels=[], summary=[
+            SummaryValue(label="Distance driven", value=10.0, unit="km"),
+            SummaryValue(label="Fuel consumption", value=4.0, unit="l/100km")])
+
+    monkeypatch.setattr(app.solver, "simulate", fake)
+    out = label.estimate(project)
+    assert paced == [0, 0] and out["cases"] == {"udds": "EPA city (UDDS)",
+                                                "hwfet": "EPA highway (HWFET)"}
+    assert all(c.realtimeFactor == 1.0 for c in project.cases)  # the project is not changed

@@ -75,3 +75,23 @@ def test_a_project_from_a_template_runs(user_dir):
     case = next(c for c in project.cases if c.id == "case-city")
     case.duration = 60
     assert simulate(project, "case-city").status == "success"
+
+
+def test_a_field_limited_on_one_side_refuses_a_value_with_a_message(user_dir):
+    """Most library limits are one-sided (a minimum only, or a maximum
+    only): a value past one is a 400 that names it, not a server error."""
+    project = load_example("bev-car")
+    body = {"project": project.model_dump(mode="json"), "name": "Mine", "description": "",
+            "form": [{"elementId": "el-wheel-fl", "key": "rolling_resistance", "label": "Rolling",
+                      "default": 0.011, "minimum": 0},
+                     {"elementId": "el-battery", "key": "charger_efficiency_pct",
+                      "label": "Charger", "unit": "%", "default": 86, "maximum": 100}],
+            "slots": {}}
+    assert client.post("/api/templates", json=body).status_code == 200
+    low = client.post("/api/templates/user-mine/new", json={"values": {"0": -0.01}})
+    assert low.status_code == 400 and low.json()["detail"] == (
+        "Rolling: -0.01 is not allowed; the value must be at least 0.")
+    high = client.post("/api/templates/user-mine/new", json={"values": {"1": 120}})
+    assert high.status_code == 400 and high.json()["detail"] == (
+        "Charger: 120 % is not allowed; the value must be at most 100 %.")
+    assert client.post("/api/templates/user-mine/new", json={"values": {"0": 0.012}}).status_code == 200

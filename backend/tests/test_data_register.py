@@ -251,6 +251,38 @@ def test_every_row_names_why_lightsim_may_ship_it(rows):
         assert not hits, f"{row['id']}: its source names {hits}, which LightSim must not use"
 
 
+def _source_texts(node, inside: bool = False):
+    """Every text under a source-like key (source, file, url, title, terms,
+    author, sources) of a JSON tree; notes may name what is not used."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from _source_texts(value, inside or key in (
+                "source", "file", "url", "title", "terms", "author", "sources"))
+    elif isinstance(node, list):
+        for value in node:
+            yield from _source_texts(value, inside)
+    elif isinstance(node, str) and inside:
+        yield node
+
+
+def test_the_reference_suite_takes_nothing_from_a_banned_source():
+    """Rule 3 holds for the reference suite (backend/validation/) too,
+    though it does not ship: no case or suite source names a banned site.
+    A value a permissive file copies from one is caught by hand: the Model
+    3's motor power is EPA's rated power, not FASTSim's 239 kW, which
+    FASTSim's vehicle database cites from a banned site."""
+    folder = ROOT / "backend" / "validation"
+    files = sorted(folder.rglob("*.json"))
+    assert len(files) >= 6
+    for path in files:
+        tree = json.loads(path.read_text(encoding="utf-8"))
+        text = " ".join(_source_texts(tree)).lower()
+        hits = [b for b in BANNED_SOURCES if b in text]
+        assert not hits, f"{path.name}: its sources name {hits}, which LightSim must not use"
+    model3 = json.loads((folder / "cases" / "epa-2022-tesla-model3-rwd.json").read_text(encoding="utf-8"))
+    assert "motor_kW" not in model3["fastsim"] and model3["epa"]["rated_hp"] == 257
+
+
 def test_eu_credit_is_shown_with_the_cycle(rows):
     """Data reused under Decision 2011/833/EU must acknowledge EUR-Lex; for
     the bundled cycles the acknowledgement is in the source the cycle list

@@ -84,7 +84,9 @@ cycle. Only cycles marked *with grade* are offered.
 - Otherwise the part's cycle wins over its typed profile.
 
 The *Scale* and *Repeat Profile* settings of the Driving Task apply to a
-cycle too.
+cycle too. A cycle scaled away from 100 %, repeated past its end, or read
+against distance is no longer the standard cycle: the run says so, and
+gives no per-phase figures.
 
 ## Good to know
 

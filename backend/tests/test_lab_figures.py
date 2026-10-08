@@ -114,3 +114,19 @@ def test_lab_rows_share_their_base_rows_validity():
     for label in ("Consumption at the socket (AC)", "Fuel-economy equivalent (MPGe, AC)",
                   "Range at this consumption"):
         assert rows[label].notValid == why
+
+
+@pytest.mark.parametrize("cycle_id", cycles.CYCLES)
+def test_every_cycles_phases_have_their_own_names(cycle_id):
+    """The phase rows are found by their label (run comparisons, expected
+    values, study KPIs), so a phase driven twice, as WLTC class 1's Low,
+    needs a name of its own."""
+    names = [n for n, _, _ in cycles.phases(cycle_id)]
+    assert len(names) == len(set(names)), names
+
+
+def test_wltc_class_1_gives_one_row_per_phase():
+    rows = [s.label for s in _on("bev-car", "case-wltc", "wltc-1").summary]
+    phase_rows = [r for r in rows if r.startswith("Phase ")]
+    assert len(phase_rows) == len(set(phase_rows)) == 6  # distance and consumption, 3 phases
+    assert "Phase Low (repeat) — distance" in phase_rows

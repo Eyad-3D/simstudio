@@ -156,3 +156,31 @@ def test_a_road_profile_takes_its_cycles_grade_and_refuses_one_without():
     errors = [c.text for c in validate_project(p) if c.level == "error"]
     assert errors == ["Road Profile 'Route' takes its grade from the drive cycle 'WLTC class 3b', "
                       "which has no grade; pick a cycle with a grade, or Custom profile."]
+
+
+def test_only_the_cycle_as_published_counts_as_the_standard_cycle():
+    """CON-26: a scaled cycle, one repeated past its end or one read against
+    distance is not the standard cycle; Repeat on a run no longer than the
+    cycle changes nothing."""
+    whole = cycles.info("wltc-3b")["duration_s"]
+    base = {"cycle": "wltc-3b", "scale_pct": 100, "repeat": False, "mode": "time"}
+    assert cycles.not_as_published(base, whole) == ""
+    assert cycles.not_as_published({**base, "scale_pct": 50}, whole) == "scaled to 50 %"
+    assert cycles.not_as_published({**base, "repeat": True}, whole) == ""
+    assert "repeated" in cycles.not_as_published({**base, "repeat": True}, whole + 600)
+    assert "distance" in cycles.not_as_published({**base, "mode": "distance"}, whole)
+
+
+def test_a_scaled_cycle_says_so_and_has_no_phase_figures():
+    project = load_example("bev-car")
+    case = next(c for c in project.cases if c.id == "case-wltc")
+    case.parameterOverrides["el-task"]["scale_pct"] = 50
+    case.duration = 700  # past the end of the Low phase
+    result = simulate(project, "case-wltc")
+    infos = [m.text for m in result.messages if m.level == "info"]
+    assert any("drives WLTC class 3b scaled to 50 %, not the standard drive cycle" in t
+               for t in infos), infos
+    assert not [s for s in result.summary if s.label.startswith("Phase ")]
+    case.parameterOverrides["el-task"]["scale_pct"] = 100  # as published: the Low phase's rows
+    rows = [s.label for s in simulate(project, "case-wltc").summary]
+    assert "Phase Low — distance" in rows

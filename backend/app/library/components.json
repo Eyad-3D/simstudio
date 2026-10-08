@@ -2919,7 +2919,7 @@
         {
           "name": "High altitude (1,500 m)",
           "values": { "temperature_C": 5.25, "pressure_kPa": 84.56 },
-          "note": "The standard atmosphere (ISO 2533) at 1,500 m: 84.56 kPa and 5.25 °C (15 °C at sea level, 6.5 K colder per km), about 16 % thinner air than at sea level. Engine power does not fall with the thinner air in LightSim."
+          "note": "The standard atmosphere (ISO 2533) at 1,500 m: 84.56 kPa and 5.25 °C (15 °C at sea level, 6.5 K colder per km), about 14 % thinner air than at sea level (16.5 % lower pressure, partly made up by the colder air), so about 14 % less drag; 12 % less than with the default air (20 °C). Engine power does not fall with the thinner air in LightSim."
         }
       ]
     },
