@@ -862,8 +862,9 @@ minimum or an average, for example from the CSV export, or put the
   process and the run fails, even for loops the first check cannot
   interrupt; a script that asks for too much memory hits a 512 MB cap.
   - *Linux 5.13 or newer:* the system also stops that process from opening
-    any file, starting programs and making or accepting TCP connections.
-    Not blocked: other network traffic (UDP) and local sockets. On older
+    any file and starting programs; from Linux 6.7 on, also from making or
+    accepting TCP connections. Not blocked: other network traffic (UDP),
+    local sockets, and TCP before Linux 6.7. On older
     Linux, only the memory cap and a limit that stops it writing data into
     files apply; it could still delete files.
   - *Windows:* the process has the memory cap, ends when LightSim ends,
@@ -916,11 +917,16 @@ minimum or an average, for example from the CSV export, or put the
   its own that the engine stops if a step takes longer than 30 s, with a
   2 GB memory cap. A crash ends that process and the run, not LightSim.
   - *Linux 5.13 or newer:* the process can read only the FMU's own files
-    and the system libraries, writes no files and makes no TCP connections.
-    Not blocked: UDP and local sockets.
-  - *Windows:* the process has the memory cap and ends when LightSim ends,
-    but nothing stops it reading or writing your files or using the
-    network.
+    and the system libraries and writes no files; from Linux 6.7 on it also
+    makes no TCP connections. Not blocked: UDP, local sockets, and TCP
+    before Linux 6.7.
+  - *Windows:* the process has the memory cap, ends when LightSim ends,
+    cannot start programs and runs at Windows' low integrity level, as the
+    script process does, so it cannot change your files. It can still read
+    files and use the network.
+  - *macOS:* Apple's sandbox stops the process writing files, starting
+    programs and using the network, as for scripts; it can still read
+    files. FMUs are not tested on a Mac yet.
   - *Older Linux:* only the memory cap and a limit that stops it writing
     data into files apply.
 
