@@ -645,7 +645,9 @@ minimum or an average, for example from the CSV export, or put the
   page shows a number with at most 3 decimals, so a change smaller than
   that reads +0.000 against the baseline; the run's file, its CSV and
   .mat export and the study tables' CSV have every digit. *~ 0* now marks only runs stored by
-  earlier versions, which kept 5 decimals (2 to 4 in the summary).
+  earlier versions, which kept 5 decimals (2 to 4 in the summary), and
+  only a change under 0.5 %: the step is read from the values' digits,
+  and a value whose last digits were 0 reads up to 1000 steps coarser.
 - **Cursor integrals come from the recorded points.** The *Results*
   chart's cursors integrate the stored points with the trapezoid rule, so
   they differ a little from the summary's energies, which add up every

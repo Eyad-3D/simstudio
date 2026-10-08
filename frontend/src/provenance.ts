@@ -164,20 +164,29 @@ function decimals(v: number): number {
   return Math.max(0, (m.split(".")[1]?.length ?? 0) - Number(e ?? 0));
 }
 
+/** Below this % change, a change within one step of a stored rounding is
+ *  taken for the rounding; from it up it is always a change. */
+const NOISE_PCT = 0.5;
+
 /** A summary value's change from the baseline's value: the difference (to
  *  `digits` decimals, the finer of the two values), the % change (null when
  *  the baseline is 0), and `noise` when it is within one step of the stored
- *  rounding, which KNOWN-LIMITS says to treat as no change. */
-export function summaryChange(value: number, base: number) {
-  // ponytail: the rounding step is read from the two values' digits, so two
-  // values that both end in 0 read one digit coarser; the engine could send
-  // each SummaryValue's step if that ever misleads
+ *  rounding, which KNOWN-LIMITS says to treat as no change. Only runs stored
+ *  before 0.3 rounded their summary (`rounded`: either row comes from one);
+ *  since ENG-16 the values keep every digit and a change is never noise. */
+export function summaryChange(value: number, base: number, rounded: boolean) {
+  // the rounding step is read from the two values' digits: JavaScript drops
+  // trailing zeros (12.00 arrives as 12), so a value that ends in 0 reads
+  // one digit coarser, by up to 1000 steps; a change of NOISE_PCT or more is
+  // therefore never taken for the rounding
   const digits = Math.max(decimals(value), decimals(base));
   const diff = value - base;
+  const pct = base !== 0 ? (100 * diff) / Math.abs(base) : null;
   return {
     diff,
     digits,
-    pct: base !== 0 ? (100 * diff) / Math.abs(base) : null,
-    noise: Math.abs(diff) <= 10 ** -digits * (1 + 1e-9),
+    pct,
+    noise:
+      rounded && Math.abs(diff) <= 10 ** -digits * (1 + 1e-9) && (pct === null || Math.abs(pct) < NOISE_PCT),
   };
 }

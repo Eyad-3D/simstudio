@@ -82,7 +82,8 @@ const NOISE = "Within the stored rounding: treat it as no change (see Known issu
  *  CHANGE_PCT up; null when either run lacks the row. */
 function changeOf(sv?: SummaryValue, base?: SummaryValue) {
   if (!sv || !base) return null;
-  const c = summaryChange(sv.value, base.value);
+  // (rows without a key come from a run stored before 0.3, which rounded them)
+  const c = summaryChange(sv.value, base.value, !sv.key || !base.key);
   if (c.noise) return { diff: "~ 0", pct: "~ 0", noise: true, big: false };
   const signed = (v: number, digits: number) =>
     `${v > 0 ? "+" : ""}${v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;

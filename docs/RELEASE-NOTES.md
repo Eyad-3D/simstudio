@@ -593,7 +593,8 @@ sections.
   the chart** turns that off), each headline number gets a line such as
   *+1.22 (+11.0 %) vs baseline*, and the full summary gets *Baseline*,
   *Change* and *% change* columns, with changes of 1 % or more in bold
-  and *~ 0* where a change is within the stored rounding. *What changed*
+  and *~ 0* where a change of a run stored by 0.2 is within its rounding
+  and under 0.5 %. *What changed*
   lists what differs between the two runs' models: parameters old → new
   with their units, maps and scripts edited, parts added or removed,
   wires and Data Bus links, the case's settings and both runs' live edits;
