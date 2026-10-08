@@ -29,7 +29,7 @@ hiddenimports = [
     "uvicorn.logging",
     "uvicorn.loops.asyncio",
     "uvicorn.protocols.http.h11_impl",
-    "uvicorn.protocols.websockets.websockets_impl",
+    "uvicorn.protocols.websockets.websockets_sansio_impl",
     "uvicorn.lifespan.on",
     "uvicorn.lifespan.off",
 ]
