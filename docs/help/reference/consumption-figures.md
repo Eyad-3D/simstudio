@@ -29,7 +29,8 @@ for example when the car did not follow its cycle or the battery ran empty.
 ## Per phase
 
 When a case of kind *Cycle* drives a standard cycle that has phases (the
-WLTC's Low, Medium, High and Extra High, or the FTP's bags), the summary
+WLTC's Low, Medium, High and Extra High, or the FTP's bags) as published
+(not scaled, nor repeated past its end), the summary
 gives each phase's **distance**, and its **consumption** (electric cars) or
 **fuel consumption** (cars with an engine), over that phase alone. The
 phase distances add up to the distance driven. A phase that the run did not
@@ -48,7 +49,8 @@ show, worked out from two runs: EPA's city cycle (UDDS) and its highway
 cycle (HWFET). Click **Run UDDS and HWFET**. A case that already drives
 one of them is run as it is (the hybrid example has both, each starting
 at its balanced charge); otherwise the active case is copied onto the
-cycle. The dialog lists every step:
+cycle. A case that changes the cycle (scaled, repeated, cut short) is
+not used. The dialog lists every step:
 
 1. The lab figures of the two runs, per mile: the energy at the battery
    for an electric car, the miles per US gallon for a car with an engine

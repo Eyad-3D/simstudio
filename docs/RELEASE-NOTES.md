@@ -348,7 +348,9 @@ sections.
   ev-database.org and EUPL files; the tests fail on a row that names one.
   (CON-31)
 - A run on a typed profile instead of a standard cycle says so in its
-  messages: its figures cannot be compared with published ones. The
+  messages: its figures cannot be compared with published ones. So does a
+  run on a cycle scaled away from 100 %, repeated past its end or read
+  against distance, which then has no per-phase figures. The
   examples' *City Cycle* and *Mixed Cycle* are such hand-made demo profiles,
   and their descriptions now say so; the Properties sketch of a typed
   profile reads *Custom profile (not a standard cycle)*. The examples'
@@ -383,7 +385,9 @@ sections.
   with an engine. The Battery Electric Car gets 104 MPGe combined and 213
   miles; the P2 Hybrid Car 56 city, 48 highway and 52 combined mpg (the
   real car's label: 58, 60 and 59). A model with a fuel cell or a voltage
-  source gets no label: their energy is in neither figure. (CON-32)
+  source gets no label: their energy is in neither figure. A case of the
+  project's own that scales, repeats or cuts short UDDS or HWFET is passed
+  over with a note. (CON-32)
 - Weather presets on the Ambient: *Cold day (−7 °C)* (EPA's cold FTP and
   the EU's low-temperature test), *Standard day (23 °C)* (WLTP),
   *Hot and sunny day (35 °C)* (EPA's air-conditioning test SC03) and *High

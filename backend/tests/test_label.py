@@ -105,3 +105,26 @@ def test_a_fuel_cell_car_gets_no_label():
     bev.systems[0].elements.append(el("vs", "electric.voltage_source", "Bench Supply"))
     with pytest.raises(ValueError, match="Voltage Source 'Bench Supply'"):
         label.estimate(bev)
+
+
+def test_an_own_case_runs_only_when_it_drives_the_cycle_as_published():
+    """A scaled, repeated or shortened UDDS case is not UDDS: a copy on the
+    cycle as published runs instead, with a note; copies drop the base
+    case's scale and repeat."""
+    project = load_example("hybrid-car")
+    udds = next(c for c in project.cases if c.id == "case-udds")
+    udds.parameterOverrides["el-task"]["scale_pct"] = 50
+    notes: list[str] = []
+    chosen = label.label_cases(project, "case-udds", notes)
+    assert chosen["udds"].id == "label-udds"
+    assert chosen["udds"].parameterOverrides["el-task"] == {
+        "cycle": "udds", "scale_pct": 100, "repeat": False, "mode": "time"}
+    assert chosen["hwfet"].id == "case-hwfet"  # the HWFET case is as published
+    assert notes == ["Case 'EPA city (UDDS)' drives EPA city (UDDS) scaled to 50 %; the label "
+                     "runs the cycle as published instead."]
+    udds.parameterOverrides["el-task"]["scale_pct"] = 100
+    udds.duration = 600
+    notes.clear()
+    assert label.label_cases(project, None, notes)["udds"].id == "label-udds"
+    assert "for 600 s only" in notes[0]
+

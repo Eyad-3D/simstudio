@@ -15,7 +15,8 @@ distance) the run summary gives, where they apply:
   and the change is given as a share of the fuel's energy (SAE J1711 calls
   a run charge-balanced when that share is under 1 %);
 - per phase of the drive cycle the case drives (WLTC Low to Extra High,
-  FTP bags): distance, consumption and fuel consumption over that phase;
+  FTP bags), when it drives it as published: distance, consumption and
+  fuel consumption over that phase;
 - for the FTP-75, the bags weighted as EPA does: 0.43 × (bag 1 + bag 2) +
   0.57 × (bag 3 + bag 2), each a consumption over its two bags' distance.
 
@@ -53,14 +54,16 @@ class LabLog:
     marks: list[Snapshot] = field(default_factory=list)
 
     @classmethod
-    def for_run(cls, model, case_kind: str) -> LabLog:
+    def for_run(cls, model, case_kind: str, duration_s: float = 0.0) -> LabLog:
         """Phases only for a Cycle case whose one Driving Task drives a
-        bundled cycle that has them."""
+        bundled cycle that has them, as published: not scaled, repeated or
+        read against distance (cycles.not_as_published)."""
         tasks = [el_id for el_id, c in model.cdef_of.items() if c.id == "signal.driving_task"]
         if case_kind != "cycle" or len(tasks) != 1:
             return cls()
-        cycle_id = str(model.params_of[tasks[0]].get("cycle") or "")
-        if cycle_id not in cycles.CYCLES:
+        params = model.params_of[tasks[0]]
+        cycle_id = str(params.get("cycle") or "")
+        if cycle_id not in cycles.CYCLES or cycles.not_as_published(params, duration_s):
             return cls()
         return cls(phases=cycles.phases(cycle_id))
 
