@@ -11,11 +11,15 @@ Category: Vehicle. Domain: mechanical.
 Longitudinal vehicle body: mass, road load and road grade. Road load comes from the drag coefficient × frontal area and the Wheels' rolling resistance, or, with Road Load From set to coefficients, from A + B·v + C·v² with v in km/h, as coast-down tests publish it (WLTP f0, f1, f2; EPA's lbf, lbf/mph and lbf/mph² values × 4.448, × 2.764 and × 1.717); then Cd, frontal area and the Wheels' rolling resistance are not used. Drag follows the air density the Ambient block sets (1.204 kg/m³ at 20 °C and 101.325 kPa without one), and so does C, which is taken at 1.204 kg/m³. Coast-down (target) coefficients already hold the drag of the gears the wheels turn in neutral: with Coefficients Include Driveline Losses ticked, the final drives, differentials and transfer cases run lossless (gearboxes and motors keep their losses; a coast-down holds only the axle's spin losses, so this leaves out a little); untick it for dyno-set coefficients. The road grade (rise over run, in %) sets the slope angle θ = atan(grade / 100): the weight pulls the car back with m·g·sin θ, and the normal load (rolling resistance, tyre grip) is m·g·cos θ. Load transfer: with a Centre of Gravity Height h, a load of m·(a + g·sin θ)·h/L moves from the front axle to the rear, with L the Wheelbase and a the acceleration over the previous solver step (so the loads are one 10 ms step behind; drag is taken to act at ground height). Each Wheel's Axle setting says which axle it is on, and the Wheels' load shares give the static split, so the centre of gravity's position follows from them. The Downforce Area (CzA) adds ½·ρ·CzA·v², at the air density the Ambient block sets, split between the axles by the Front Aero Balance; a negative CzA is lift. Downforce adds to the Wheels' rolling resistance, but not to coefficient A. An axle that would carry less than nothing lifts: it carries nothing, the other axle carries the rest, and the run warns. With a height and an area of 0 (the defaults) every wheel keeps its share of the weight. In a lap case the car also corners: a lateral acceleration a_y moves m·a_y·h from the inner to the outer wheels, split between the axles as the weight is (the front axle's static share of the weight takes that share of it), over each axle's Front or Rear Track Width. Front Axle Load and Rear Axle Load are the normal loads on the Front and on the Rear Wheels. Binds to all Wheel elements automatically — no canvas wiring needed for the body itself. Pair it with a Driver element to follow a speed profile.
 
 Ports:
-- `sig_grade_in`: Road Grade (signal input, -)
+- `sig_grade_in`: Road Grade (signal input, %)
 - `sig_speed`: Vehicle Speed (signal output, km/h)
 - `sig_distance`: Distance (signal output, m)
 - `sig_load_front`: Front Axle Load (signal output, N)
 - `sig_load_rear`: Rear Axle Load (signal output, N)
+- `sig_p_aero`: Air Drag Power (signal output, kW)
+- `sig_p_roll`: Rolling Resistance Power (signal output, kW)
+- `sig_p_grade`: Climbing Power (signal output, kW)
+- `sig_p_accel`: Acceleration Power (signal output, kW)
 
 Parameters:
 - `mass_kg`: Vehicle Mass [kg], default 1800 kg; > 0
@@ -57,7 +61,7 @@ Parameters:
 
 Category: Battery. Domain: electrical.
 
-Equivalent-circuit battery pack: OCV(SOC) lookup table with series resistance R0 and an optional RC pair for voltage transients (RC disabled when either RC parameter is 0). SOC counts the charge that flows (amp-hours) and the OCV table is read at that SOC. Charge Capacity sets the amp-hours; left at 0 they come from the Usable Capacity at the OCV table's mean voltage, so a full-to-empty discharge gives out the Usable Capacity. Coulombic Efficiency is the share of the charging current that is stored (Li-ion cells store about 99.9 %, so it defaults to 100 %). Charging power is limited by the maximum charge power. The Output Power Limit caps the power the terminals give (volts × amps), less the Power Limit Margin: the motors get what is left after the other loads, and recuperation is not limited. With a limit or a Voltage Class set, the run summary checks the terminal power, averaged over the Power Check Window, against the limit, and the highest pack voltage (open-circuit at 100 % SOC, or at the terminals while recuperating) against the Voltage Class; 0 turns either off. With Hold Power to Limit off, the power is only checked, not held.
+Equivalent-circuit battery pack: OCV(SOC) lookup table with series resistance R0 and an optional RC pair for voltage transients (RC disabled when either RC parameter is 0). SOC counts the charge that flows (amp-hours) and the OCV table is read at that SOC. Charge Capacity sets the amp-hours; left at 0 they come from the Usable Capacity at the OCV table's mean voltage, so a full-to-empty discharge gives out the Usable Capacity. Coulombic Efficiency is the share of the charging current that is stored (Li-ion cells store about 99.9 %, so it defaults to 100 %). Charging power is limited by the maximum charge power. The Output Power Limit caps the power the terminals give (volts × amps), less the Power Limit Margin: the motors get what is left after the other loads, and recuperation is not limited. With a limit or a Voltage Class set, the run summary checks the terminal power, averaged over the Power Check Window, against the limit, and the highest pack voltage (open-circuit at 100 % SOC, or at the terminals while recuperating) against the Voltage Class; 0 turns either off. With Hold Power to Limit off, the power is only checked, not held. Defined By: Cells builds the pack from a cell datasheet and a layout (cells in series × in parallel) instead: its resistance then rises in long pulses, at low charge and in the cold (the Ambient's temperature), and the cells' current and voltage limits hold, as a battery management system keeps them; with Pack values, a pack current and voltage limit can be set (0 = none).
 
 Ports:
 - `pos`: Positive Terminal (+) (electrical bidirectional, kW)
@@ -66,11 +70,24 @@ Ports:
 - `sig_voltage`: Terminal Voltage (signal output, V)
 - `sig_current`: Current (signal output, A)
 - `sig_power`: Discharge Power (signal output, kW)
+- `sig_losses`: Losses (signal output, kW)
+- `sig_p_dis_2s`: Discharge Power Limit 2 s (signal output, kW)
+- `sig_p_dis_10s`: Discharge Power Limit 10 s (signal output, kW)
+- `sig_p_dis_30s`: Discharge Power Limit 30 s (signal output, kW)
+- `sig_p_ch_2s`: Charge Power Limit 2 s (signal output, kW)
+- `sig_p_ch_10s`: Charge Power Limit 10 s (signal output, kW)
+- `sig_p_ch_30s`: Charge Power Limit 30 s (signal output, kW)
+- `sig_i_dis_limit`: Discharge Current Limit (signal output, A)
+- `sig_i_ch_limit`: Charge Current Limit (signal output, A)
+- `sig_v_cell_min`: Lowest Cell Voltage (signal output, V)
+- `sig_v_cell_max`: Highest Cell Voltage (signal output, V)
 
 Parameters:
+- `pack_model`: Defined By, default `Pack values`; one of Pack values, Cells
 - `capacity_kWh`: Usable Capacity [kWh], default 60 kWh; > 0
 - `capacity_Ah`: Charge Capacity (0 = from Usable Capacity) [Ah], default 0 Ah; ≥ 0 and ≤ 100000
 - `coulombic_efficiency_pct`: Coulombic Efficiency (charging) [%], default 100 %; > 0 and ≤ 100
+- `charger_efficiency_pct`: Charger Efficiency [%], default 86 %; > 0 and ≤ 100
 - `ocv_table`: Open-Circuit Voltage [V], default table
 - `internal_resistance_ohm`: Series Resistance R0 [Ω], default 0.08 Ω; ≥ 0
 - `rc_resistance_ohm`: RC Pair Resistance R1 [Ω], default 0 Ω; ≥ 0
@@ -83,6 +100,31 @@ Parameters:
 - `power_limit_window_s`: Power Check Window (0 = instant) [s], default 0 s; ≥ 0 and ≤ 60
 - `power_limit_enforced`: Hold Power to Limit (off = check), default on
 - `voltage_class_V`: Voltage Class (0 = none) [V], default 0 V; ≥ 0
+- `max_discharge_current_A`: Max Discharge Current (0 = none) [A], default 0 A; ≥ 0
+- `max_charge_current_A`: Max Charge Current (0 = none) [A], default 0 A; ≥ 0
+- `min_voltage_V`: Minimum Pack Voltage (0 = none) [V], default 0 V; ≥ 0
+- `max_voltage_V`: Maximum Pack Voltage (0 = none) [V], default 0 V; ≥ 0
+- `series_cells`: Cells in Series (s), default 96; ≥ 1 and ≤ 1000
+- `parallel_cells`: Cells in Parallel (p), default 30; ≥ 1 and ≤ 1000
+- `cell_capacity_Ah`: Cell Capacity [Ah], default 5 Ah; > 0 and ≤ 2000
+- `cell_ocv_table`: Cell Open-Circuit Voltage [V], default table
+- `cell_min_voltage_V`: Cell Minimum Voltage [V], default 2.5 V; ≥ 0 and ≤ 10
+- `cell_max_voltage_V`: Cell Maximum Voltage [V], default 4.2 V; ≥ 0 and ≤ 10
+- `cell_resistance_ohm`: Cell DC Resistance [Ω], default 0.02 Ω; > 0 and ≤ 10
+- `cell_resistance_factor`: Cell Resistance Factor, default table
+- `cell_temperature_factor`: Cell Temperature Factor, default table
+- `cell_max_discharge_A`: Cell Continuous Discharge Current [A], default 15 A; ≥ 0
+- `cell_peak_discharge_A`: Cell Peak Discharge Current [A], default 30 A; ≥ 0
+- `cell_max_charge_A`: Cell Continuous Charge Current [A], default 5 A; ≥ 0
+- `cell_peak_charge_A`: Cell Peak Charge Current [A], default 10 A; ≥ 0
+- `cell_peak_duration_s`: Peak Duration [s], default 10 s; ≥ 0 and ≤ 600
+- `interconnect_resistance_ohm`: Interconnect Resistance (per series group) [Ω], default 0.0002 Ω; ≥ 0 and ≤ 1
+- `contactor_resistance_ohm`: Contactor and Cable Resistance [Ω], default 0.0005 Ω; ≥ 0 and ≤ 1
+- `cell_mass_kg`: Cell Mass [kg], default 0.07 kg; ≥ 0 and ≤ 50
+- `packaging_factor`: Packaging Factor, default 1.4; ≥ 1 and ≤ 5
+- `weak_cell_capacity_pct`: Weakest Group Capacity [%], default 100 %; > 0 and ≤ 100
+- `weak_cell_resistance_pct`: Weakest Group Resistance [%], default 100 %; ≥ 50 and ≤ 1000
+- `soc_derate_band_pct`: SOC Derating Band [%], default 0 %; ≥ 0 and ≤ 50
 
 Presets: Formula Student Electric
 
@@ -110,6 +152,9 @@ Parameters:
 - `max_speed_rpm`: Maximum Speed (0 = full-load curve's last point) [1/min], default 0 1/min; ≥ 0
 - `inertia_kgm2`: Rotor Inertia [kg·m²], default 0.045 kg·m²; ≥ 0
 - `q4_torque_scale_pct`: Generator Torque Limit Scale [%], default 100 %; ≥ 0 and ≤ 200
+- `torque_scale_pct`: Torque Scale [%], default 100 %; > 0 and ≤ 1000
+- `speed_scale_pct`: Speed Scale [%], default 100 %; > 0 and ≤ 1000
+- `voltage_scale_pct`: Voltage Scale [%], default 100 %; > 0 and ≤ 1000
 
 ## DC-DC Converter (`controller.dcdc`)
 
@@ -174,7 +219,29 @@ Ports:
 - `sig_power`: Drawn Power (signal output, kW)
 
 Parameters:
-- `power_kW`: Constant Power Draw [kW], default 2.5 kW
+- `power_kW`: Constant Power Draw [kW], default 0.25 kW
+
+## Climate Control (`electric.climate`)
+
+Category: Base Electric. Domain: electrical.
+
+Heating and air-conditioning as an electrical load, from the outside temperature (an estimate until LightSim has a cabin model). The Heating/Cooling Demand table gives the heat the cabin needs at each outside temperature (the first Ambient's Temperature, 20 °C without one). A PTC heater turns every watt into heat; a heat pump moves about 2 W of heat per watt at −7 °C (its COP, a share of the ideal Carnot value), and below its Minimum Outside Temperature the PTC heater takes over. Cooling always runs the air-conditioning compressor. While it heats or cools, the blower adds its own power. The Enable input switches it off below 0.5 (unwired: always on).
+
+Ports:
+- `pos`: Positive Terminal (+) (electrical bidirectional, kW)
+- `neg`: Negative Terminal (−) (electrical bidirectional, kW)
+- `sig_on_in`: Enable (signal input, -)
+- `sig_power`: Drawn Power (signal output, kW)
+- `sig_heat`: Heat to Cabin (signal output, kW)
+- `sig_cop`: COP (signal output, -)
+
+Parameters:
+- `demand_table`: Heating/Cooling Demand [kW], default table
+- `heat_source`: Heat Source, default `PTC heater`; one of PTC heater, Heat pump
+- `cop_carnot_share`: Heat Pump Quality (share of Carnot), default 0.35; > 0 and ≤ 1
+- `heat_pump_min_C`: Heat Pump Minimum Outside Temperature [°C], default -10 °C; ≥ -60 and ≤ 40
+- `cabin_setpoint_C`: Cabin Set Point [°C], default 21 °C; ≥ 10 and ≤ 35
+- `fan_power_kW`: Blower and Controls [kW], default 0.2 kW; ≥ 0 and ≤ 5
 
 ## Ground (`boundary.ground`)
 
@@ -197,6 +264,7 @@ Ports:
 - `flange_a`: Flange A (mechanical bidirectional, kW)
 - `flange_b`: Flange B (mechanical bidirectional, kW)
 - `sig_power`: Transmitted Power (signal output, kW)
+- `sig_losses`: Losses (signal output, kW)
 
 Parameters:
 - `efficiency_pct`: Mechanical Efficiency [%], default 100 %; > 0 and ≤ 100
@@ -213,6 +281,7 @@ Ports:
 - `flange_out`: Flange Out (mechanical bidirectional, kW)
 - `sig_power`: Transmitted Power (signal output, kW)
 - `sig_speed_out`: Output Speed (signal output, 1/min)
+- `sig_losses`: Losses (signal output, kW)
 
 Parameters:
 - `ratio`: Transmission Ratio, default 9.7; > 0
@@ -233,6 +302,8 @@ Ports:
 - `sig_torque_a`: Torque Out A (signal output, N·m)
 - `sig_torque_b`: Torque Out B (signal output, N·m)
 - `sig_speed_in`: Input Speed (signal output, 1/min)
+- `sig_power`: Input Power (signal output, kW)
+- `sig_losses`: Losses (signal output, kW)
 
 Parameters:
 - `locked`: Locked, default off
@@ -266,6 +337,7 @@ Ports:
 - `sig_force`: Traction Force (signal output, N)
 - `sig_torque`: Drive Torque (signal output, N·m)
 - `sig_normal_load`: Normal Load (signal output, N)
+- `sig_slip_losses`: Slip Losses (signal output, kW)
 
 Parameters:
 - `radius_m`: Wheel Radius [m], default 0.33 m; > 0
@@ -274,11 +346,14 @@ Parameters:
 - `axle`: Axle, default `Front`; one of Front, Rear
 - `mu`: Friction Coefficient μ, default 1; ≥ 0
 - `slip_stiffness`: Slip Stiffness, default 10; > 0
-- `rolling_resistance`: Rolling Resistance Coeff., default 0.012; ≥ 0
+- `rolling_resistance`: Rolling Resistance Coeff., default 0.0085; ≥ 0
 - `mu_lateral`: Lateral Friction μ_y, default 0; ≥ 0
 - `mu_load_sensitivity_per_kN`: Load Sensitivity dμ/dFz [1/kN], default 0 1/kN
 - `mu_nominal_load_N`: Nominal Load Fz0 [N], default 0 N; ≥ 0
 - `friction_ellipse_exponent`: Friction Ellipse Exponent, default 2; ≥ 1 and ≤ 10
+- `tyre_code`: Tyre Code, default ``
+- `rolling_radius_factor`: Rolling Radius Factor, default 0.97; ≥ 0.85 and ≤ 1
+- `tyre_label_class`: Rolling Resistance Label Class, default `—`; one of —, A, B, C, D, E
 
 ## Brake (`mech.brake`)
 
@@ -290,6 +365,7 @@ Ports:
 - `flange`: Flange (mechanical bidirectional, kW)
 - `sig_demand_in`: Brake Command (signal input, -)
 - `sig_torque`: Brake Torque (signal output, N·m)
+- `sig_power`: Braking Power (signal output, kW)
 
 Parameters:
 - `max_torque_Nm`: Maximum Brake Torque [N·m], default 1400 N·m; ≥ 0
@@ -315,14 +391,15 @@ Parameters:
 
 Category: Driver & Signals. Domain: signal.
 
-Time-based target-speed profile (piecewise-linear). Pick a standard cycle in Drive Cycle, or type 't:speed' pairs separated by ';' in Profile. Wire the output to the Driver's Target Speed input.
+Target-speed profile (piecewise-linear) over time or over distance. Pick a standard cycle in Drive Cycle, or type 'x:speed' pairs separated by ';' in Profile, with x the time in s or, with Profile Axis set to Distance, the distance the Vehicle has driven in m. Wire the output to the Driver's Target Speed input.
 
 Ports:
 - `sig_demand`: Target Speed (signal output, km/h)
 
 Parameters:
 - `cycle`: Drive Cycle, default ``
-- `profile`: Profile (t:speed; …), default `0:0; 30:50; 120:50; 150:80; 300:80; 330:30; 480:30; 540:0; 600:0`
+- `profile`: Profile (x:speed; …), default `0:0; 30:50; 120:50; 150:80; 300:80; 330:30; 480:30; 540:0; 600:0`
+- `mode`: Profile Axis, default `time`; one of time, distance
 - `scale_pct`: Scale [%], default 100 %; ≥ 0
 - `repeat`: Repeat Profile, default off
 
@@ -350,6 +427,20 @@ Parameters:
 - `code`: Python Code, default code
 - `sample_time_s`: Sample Time (0 = solver step) [s], default 0 s; ≥ 0
 
+## FMU (Model from Another Tool) (`signal.fmu`)
+
+Category: Driver & Signals. Domain: signal.
+
+Runs a model exported from another tool (Simulink, Dymola, GT-SUITE, a supplier) as an FMU file: a Co-Simulation FMU in the FMI 2.0 or 3.0 standard. Choose the file, then tick the FMU variables to use as signal pins and wire them on the Data Bus. The FMU runs in a separate locked-down process and only after you allow it on this computer.
+
+Ports: none until you add signal ports to the part.
+
+Parameters:
+- `fmu_path`: FMU File, default ``
+- `fmu_sha256`: FMU Fingerprint, default ``
+- `fmu_name`: FMU Name, default ``
+- `sample_time_s`: Communication Step (0 = solver step) [s], default 0 s; ≥ 0
+
 ## Monitor (`signal.monitor`)
 
 Category: Driver & Signals. Domain: signal.
@@ -371,6 +462,8 @@ Parameters:
 - `temperature_C`: Temperature [°C], default 20 °C; > -273.15 and ≤ 1000
 - `pressure_kPa`: Pressure [kPa], default 101.325 kPa; > 0
 
+Presets: Cold day (−7 °C), Standard day (23 °C), Hot and sunny day (35 °C), High altitude (1,500 m)
+
 ## Combustion Engine (`engine.combustion`)
 
 Category: ICE Powertrain. Domain: mechanical.
@@ -385,6 +478,8 @@ Ports:
 - `sig_torque`: Engine Torque (signal output, N·m)
 - `sig_fuel_rate`: Fuel Rate (signal output, kg/h)
 - `sig_power`: Mechanical Power (signal output, kW)
+- `sig_fuel_power`: Fuel Power (signal output, kW)
+- `sig_losses`: Losses (signal output, kW)
 
 Parameters:
 - `full_load_torque`: Full-Load Torque [N·m], default table
@@ -393,6 +488,7 @@ Parameters:
 - `idle_speed_rpm`: Idle Speed [1/min], default 800 1/min; > 0
 - `fuel_cut_reentry_rpm`: Fuel Cut-Off Re-Entry Speed [1/min], default 1100 1/min; ≥ 0
 - `inertia_kgm2`: Inertia [kg·m²], default 0.18 kg·m²; ≥ 0
+- `engine_scale_pct`: Engine Scale [%], default 100 %; > 0 and ≤ 1000
 
 ## Fuel Tank (`fuel.tank`)
 
@@ -409,6 +505,7 @@ Parameters:
 - `initial_fill_pct`: Initial Fill [%], default 90 %; ≥ 0 and ≤ 100
 - `density_kg_per_l`: Fuel Density [kg/l], default 0.745 kg/l; > 0
 - `co2_kg_per_kg`: CO₂ per kg of Fuel [kg/kg], default 3.17 kg/kg; ≥ 0
+- `lhv_MJ_per_kg`: Fuel Heating Value [MJ/kg], default 42.9 MJ/kg; > 0 and ≤ 150
 
 ## Gearbox (`mech.gearbox`)
 
@@ -422,6 +519,8 @@ Ports:
 - `sig_gear_in`: Gear Select (signal input, -)
 - `sig_gear`: Active Gear (signal output, -)
 - `sig_speed_out`: Output Speed (signal output, 1/min)
+- `sig_power`: Transmitted Power (signal output, kW)
+- `sig_losses`: Losses (signal output, kW)
 
 Parameters:
 - `ratios`: Gear Ratios, default table
@@ -442,6 +541,7 @@ Ports:
 - `sig_engage_in`: Engagement (signal input, -)
 - `sig_torque`: Transmitted Torque (signal output, N·m)
 - `sig_slip_speed`: Slip Speed (signal output, 1/min)
+- `sig_losses`: Slip Losses (signal output, kW)
 
 Parameters:
 - `max_torque_Nm`: Maximum Torque [N·m], default 300 N·m; ≥ 0
@@ -459,6 +559,8 @@ Ports:
 - `sig_torque_a`: Torque Out A (signal output, N·m)
 - `sig_torque_b`: Torque Out B (signal output, N·m)
 - `sig_speed_in`: Input Speed (signal output, 1/min)
+- `sig_power`: Input Power (signal output, kW)
+- `sig_losses`: Losses (signal output, kW)
 
 Parameters:
 - `locked`: Locked, default off
@@ -480,6 +582,7 @@ Ports:
 - `sig_current`: Stack Current (signal output, A)
 - `sig_power`: Electrical Power (signal output, kW)
 - `sig_h2_rate`: H₂ Consumption (signal output, kg/h)
+- `sig_losses`: Losses (signal output, kW)
 
 Parameters:
 - `polarization`: Polarization Curve [V], default table
@@ -500,6 +603,28 @@ Parameters:
 - `capacity_kg`: Capacity [kg], default 5 kg; > 0
 - `initial_fill_pct`: Initial Fill [%], default 95 %; ≥ 0 and ≤ 100
 
+## Traction Control (`control.traction`)
+
+Category: Driver & Signals. Domain: signal.
+
+Launch and traction control: passes the Driver's Traction Command to the E-Motors, held to a limit that keeps the driven wheels' slip at a target. From rest it ramps the limit up over the Launch Ramp Time, then a PI loop on the measured slip (the larger of two wheels) lowers it whenever a wheel spins. Braking and regeneration pass through. Wire Demand from the Driver's Traction Command, Slip (and Slip 2) from the driven wheels, Speed from the Vehicle, and Output to the E-Motors' Demand.
+
+Ports:
+- `sig_demand_in`: Demand (signal input, -)
+- `sig_slip_in`: Slip (signal input, -)
+- `sig_slip2_in`: Slip 2 (signal input, -)
+- `sig_speed_in`: Speed (signal input, Speed)
+- `sig_out`: Output (signal output, -)
+
+Parameters:
+- `target_slip`: Target Slip, default 0.1; ≥ 0 and ≤ 1
+- `kp`: Proportional Gain, default 0.5; ≥ 0
+- `ki`: Integral Gain [1/s], default 10 1/s; ≥ 0
+- `launch_ramp_s`: Launch Ramp Time [s], default 0.3 s; ≥ 0
+- `launch_torque_pct`: Launch Torque [%], default 60 %; ≥ 0 and ≤ 100
+- `min_speed_kmh`: Minimum Speed [km/h], default 5 km/h; ≥ 0
+- `sample_time_s`: Sample Time [s], default 0 s; ≥ 0
+
 ## PID Controller (`control.pid`)
 
 Category: Driver & Signals. Domain: signal.
@@ -517,6 +642,7 @@ Parameters:
 - `kd`: Derivative Gain [s], default 0 s
 - `out_min`: Output Minimum, default -1
 - `out_max`: Output Maximum, default 1
+- `signal_unit`: Setpoint & Feedback Unit, default `Not set`; one of Not set, Power, Voltage, Current, Velocity, Temperature, Torque, Rotational Speed, Force, Distance, Mass, Mass Flow, Percent, Acceleration, Curvature, Fraction
 - `sample_time_s`: Sample Time (0 = solver step) [s], default 0 s; ≥ 0
 
 ## Lookup Table (`signal.lookup`)
@@ -534,19 +660,22 @@ Parameters:
 - `mode`: Mode, default `1D`; one of 1D, 2D
 - `table_1d`: 1D Table, default table
 - `table_2d`: 2D Table, default table
+- `x_unit`: Input X Unit, default `Not set`; one of Not set, Power, Voltage, Current, Velocity, Temperature, Torque, Rotational Speed, Force, Distance, Mass, Mass Flow, Percent, Acceleration, Curvature, Fraction
+- `y_unit`: Input Y Unit, default `Not set`; one of Not set, Power, Voltage, Current, Velocity, Temperature, Torque, Rotational Speed, Force, Distance, Mass, Mass Flow, Percent, Acceleration, Curvature, Fraction
 - `sample_time_s`: Sample Time (0 = solver step) [s], default 0 s; ≥ 0
 
 ## Road Profile (`signal.road_profile`)
 
 Category: Driver & Signals. Domain: signal.
 
-Road grade profile over distance (or time), piecewise-linear 'x:grade%' pairs. Wire the grade output to the Vehicle's Road Grade input; in distance mode it follows the Vehicle's distance automatically when unwired.
+Road grade profile over distance (or time), piecewise-linear 'x:grade%' pairs, or the grade a bundled drive cycle carries. Wire the grade output to the Vehicle's Road Grade input; in distance mode it follows the Vehicle's distance automatically when unwired.
 
 Ports:
 - `sig_distance_in`: Distance (signal input, m)
-- `sig_grade`: Road Grade (signal output, -)
+- `sig_grade`: Road Grade (signal output, %)
 
 Parameters:
+- `cycle`: Grade From Cycle, default ``
 - `profile`: Profile (x:grade%; …), default `0:0; 500:3; 1500:3; 2000:0; 3000:-3; 4000:0`
 - `mode`: Profile Axis, default `distance`; one of distance, time
 - `repeat`: Repeat Profile, default off
@@ -555,7 +684,7 @@ Parameters:
 
 Category: Driver & Signals. Domain: signal.
 
-The line a lap case (case Kind: Lap) drives: its curvature against distance (1/radius; + turns left, − right) and its elevation. A lap case finds the fastest speed along it about every metre, as a quasi-steady-state lap simulation does: in each corner the speed the tyres' lateral grip allows (with the Vehicle's downforce and load transfer, and each Wheel's load sensitivity), then full acceleration out of it and the latest braking into the next, within the tyres' friction ellipse, the E-Motors' full-load curves through the gears and the battery's deliverable power and Output Power Limit. The motors, gears, brakes and battery then drive that speed trace through the same models as a drive cycle, for the energy and the channels. The results are estimates for an ideal driver on the given line: no transients, suspension, yaw or tyre slip, and ideal brake balance. Only E-Motor drivelines: a lap case refuses Combustion Engines and Clutches, holds Gearboxes in their gear and commands the motors itself. Layouts drawn for LightSim, not official layouts: Autocross, a 979 m closed lap (straights up to 78 m, a slalom on 10 m cones, corners of 6 m radius or more, 3 sectors); Skidpad, a right then a left circle on the lane centre, 9.125 m radius (with 2 laps, lap 2's Sector 1 and Sector 2 are the timed right and left circles); Acceleration 75 m, an open straight. They follow Formula Student Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1; FSUK and FSAE may differ, check the current season's rules. Custom uses the Curvature and Elevation tables (paste them from a spreadsheet; from a logged lap, curvature = lateral acceleration / speed², smoothed), Closed Circuit and the Sector Ends. Lap 1 starts at the Vehicle's Initial Speed (no faster than its first corner allows), each later lap at the speed the one before ended with. The Limit channel says what held the car back: 1 cornering grip, 2 traction grip, 3 motor, 4 battery, 5 Output Power Limit, 6 braking. The case's Duration, Step and Pacing do not apply to lap cases; its Store every does.
+The line a lap case (case Kind: Lap) drives: its curvature against distance (1/radius; + turns left, − right) and its elevation. A lap case finds the fastest speed along it about every metre, as a quasi-steady-state lap simulation does: in each corner the speed the tyres' lateral grip allows (with the Vehicle's downforce and load transfer, and each Wheel's load sensitivity), then full acceleration out of it and the latest braking into the next, within the tyres' friction ellipse, the E-Motors' full-load curves through the gears and the battery's deliverable power and Output Power Limit. The motors, gears, brakes and battery then drive that speed trace through the same models as a drive cycle, for the energy and the channels. The results are estimates for an ideal driver on the given line: no transients, suspension, yaw or tyre slip, and ideal brake balance. Only E-Motor drivelines: a lap case refuses Combustion Engines and Clutches, holds Gearboxes in their gear and commands the motors itself. Layouts drawn for LightSim, not official layouts: Autocross, a 979 m closed lap (straights up to 78 m, a slalom on 10 m cones, corners of 6 m radius or more, 3 sectors); Skidpad, a right then a left circle on the lane centre, 9.125 m radius (with 2 laps, lap 2's Sector 1 and Sector 2 are the timed right and left circles); Acceleration 75 m, an open straight. They follow Formula Student Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1; FSUK and FSAE may differ, check the current season's rules. Custom uses the Curvature and Elevation tables (paste them from a spreadsheet; from a logged lap, curvature = lateral acceleration / speed², smoothed), Closed Circuit and the Sector Ends. Lap 1 starts at the Vehicle's Initial Speed (no faster than its first corner allows), each later lap at the speed the one before ended with. The Limit channel says what held the car back: 1 cornering grip, 2 traction grip, 3 motor, 4 battery, 5 Output Power Limit, 6 braking, 7 lift-and-coast. Lift-and-Coast and Energy Target save energy by coasting before the braking points (an energy strategy for an endurance). The case's Duration, Step and Pacing do not apply to lap cases; its Store every does.
 
 Ports:
 - `sig_lap_distance`: Lap Distance (signal output, m)
@@ -571,6 +700,8 @@ Ports:
 Parameters:
 - `layout`: Layout, default `Autocross`; one of Autocross, Skidpad, Acceleration 75 m, Custom
 - `laps`: Laps, default 1; ≥ 1 and ≤ 500
+- `coast_pct`: Lift-and-Coast [%], default 0 %; ≥ 0 and ≤ 100
+- `energy_target_kWh`: Energy Target [kWh], default 0 kWh; ≥ 0
 - `curvature_table`: Curvature (Custom) [1/m], default table
 - `elevation_table`: Elevation (Custom) [m], default table
 - `closed`: Closed Circuit (Custom), default on

@@ -38,6 +38,72 @@
           },
           "title": "Timeseries",
           "type": "array"
+        },
+        "min": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        },
+        "mean": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mean"
         }
       },
       "required": [
@@ -48,6 +114,500 @@
         "timeSeries"
       ],
       "title": "Channel",
+      "type": "object"
+    },
+    "DutyPart": {
+      "properties": {
+        "elementId": {
+          "title": "Elementid",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/DutyRow"
+          },
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "elementId",
+        "label",
+        "kind",
+        "rows"
+      ],
+      "title": "DutyPart",
+      "type": "object"
+    },
+    "DutyRow": {
+      "description": "A part's duty for one quantity (RES-39), over the run's solver\nsteps: the highest and lowest value, the time mean and the RMS (the\nroot-mean-square, the mean that sets heating).",
+      "properties": {
+        "quantity": {
+          "title": "Quantity",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "max": {
+          "title": "Max",
+          "type": "number"
+        },
+        "min": {
+          "title": "Min",
+          "type": "number"
+        },
+        "mean": {
+          "title": "Mean",
+          "type": "number"
+        },
+        "rms": {
+          "title": "Rms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "quantity",
+        "unit",
+        "max",
+        "min",
+        "mean",
+        "rms"
+      ],
+      "title": "DutyRow",
+      "type": "object"
+    },
+    "EnergyFlow": {
+      "description": "A band of the energy Sankey chart: a source of the car's energy or\na place it went.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "kWh": {
+          "title": "Kwh",
+          "type": "number"
+        },
+        "group": {
+          "title": "Group",
+          "type": "string"
+        },
+        "elementId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Elementid"
+        }
+      },
+      "required": [
+        "label",
+        "kWh",
+        "group"
+      ],
+      "title": "EnergyFlow",
+      "type": "object"
+    },
+    "EnergyPart": {
+      "description": "One row of the energy table (RES-22), kWh: in − out − lost − stored\nis 0 for a part that keeps its books.",
+      "properties": {
+        "elementId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Elementid"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "inKWh": {
+          "title": "Inkwh",
+          "type": "number"
+        },
+        "outKWh": {
+          "title": "Outkwh",
+          "type": "number"
+        },
+        "lostKWh": {
+          "title": "Lostkwh",
+          "type": "number"
+        },
+        "storedKWh": {
+          "default": 0.0,
+          "title": "Storedkwh",
+          "type": "number"
+        },
+        "lostPct": {
+          "default": 0.0,
+          "title": "Lostpct",
+          "type": "number"
+        }
+      },
+      "required": [
+        "label",
+        "kind",
+        "inKWh",
+        "outKWh",
+        "lostKWh"
+      ],
+      "title": "EnergyPart",
+      "type": "object"
+    },
+    "EnergyReport": {
+      "properties": {
+        "parts": {
+          "items": {
+            "$ref": "#/$defs/EnergyPart"
+          },
+          "title": "Parts",
+          "type": "array"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/EnergyFlow"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "sinks": {
+          "items": {
+            "$ref": "#/$defs/EnergyFlow"
+          },
+          "title": "Sinks",
+          "type": "array"
+        },
+        "sourceKWh": {
+          "default": 0.0,
+          "title": "Sourcekwh",
+          "type": "number"
+        },
+        "remainderKWh": {
+          "default": 0.0,
+          "title": "Remainderkwh",
+          "type": "number"
+        },
+        "remainderPct": {
+          "default": 0.0,
+          "title": "Remainderpct",
+          "type": "number"
+        },
+        "balanceErrorPct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Balanceerrorpct"
+        }
+      },
+      "title": "EnergyReport",
+      "type": "object"
+    },
+    "LimitLane": {
+      "description": "What held one driveline back (RES-38): the state from each change\non, [t in s, index into LimitReport.states], and the seconds in each.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "elementIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Elementids",
+          "type": "array"
+        },
+        "changes": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "title": "Changes",
+          "type": "array"
+        },
+        "seconds": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Seconds",
+          "type": "object"
+        }
+      },
+      "required": [
+        "label",
+        "elementIds",
+        "changes",
+        "seconds"
+      ],
+      "title": "LimitLane",
+      "type": "object"
+    },
+    "LimitReport": {
+      "properties": {
+        "states": {
+          "items": {
+            "type": "string"
+          },
+          "title": "States",
+          "type": "array"
+        },
+        "lanes": {
+          "items": {
+            "$ref": "#/$defs/LimitLane"
+          },
+          "title": "Lanes",
+          "type": "array"
+        },
+        "tEnd": {
+          "title": "Tend",
+          "type": "number"
+        }
+      },
+      "required": [
+        "states",
+        "lanes",
+        "tEnd"
+      ],
+      "title": "LimitReport",
+      "type": "object"
+    },
+    "PartEnergyFlow": {
+      "description": "One part's energy over a run (MOD-10), in kWh, with the duty values\nof its throughput power in kW. For every part energyIn − energyOut −\nlosses − stored = 0; energyIn and energyOut are both ≥ 0 (what entered\nand what left it at any port), and energyInReverse is the part of\nenergyIn that came back from the road side (regeneration, a dragged\nengine).",
+      "properties": {
+        "elementId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Elementid"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "part": {
+          "title": "Part",
+          "type": "string"
+        },
+        "energyIn": {
+          "title": "Energyin",
+          "type": "number"
+        },
+        "energyOut": {
+          "title": "Energyout",
+          "type": "number"
+        },
+        "losses": {
+          "title": "Losses",
+          "type": "number"
+        },
+        "stored": {
+          "title": "Stored",
+          "type": "number"
+        },
+        "energyInReverse": {
+          "default": 0.0,
+          "title": "Energyinreverse",
+          "type": "number"
+        },
+        "peakPower": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Peakpower"
+        },
+        "meanPower": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Meanpower"
+        },
+        "rmsPower": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rmspower"
+        },
+        "terms": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Terms",
+          "type": "object"
+        }
+      },
+      "required": [
+        "label",
+        "part",
+        "energyIn",
+        "energyOut",
+        "losses",
+        "stored"
+      ],
+      "title": "PartEnergyFlow",
+      "type": "object"
+    },
+    "ReferenceCheck": {
+      "description": "How far a run's value is from a reference, or from a hand calculation.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "reference": {
+          "title": "Reference",
+          "type": "number"
+        },
+        "unit": {
+          "default": "",
+          "title": "Unit",
+          "type": "string"
+        },
+        "difference": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Difference"
+        },
+        "differencePct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Differencepct"
+        },
+        "tolerance": {
+          "default": 0.0,
+          "title": "Tolerance",
+          "type": "number"
+        },
+        "grade": {
+          "enum": [
+            "within",
+            "near",
+            "outside",
+            "missing",
+            "not valid"
+          ],
+          "title": "Grade",
+          "type": "string"
+        },
+        "source": {
+          "default": "",
+          "title": "Source",
+          "type": "string"
+        },
+        "automatic": {
+          "default": false,
+          "title": "Automatic",
+          "type": "boolean"
+        },
+        "bound": {
+          "default": "two-sided",
+          "enum": [
+            "two-sided",
+            "at most",
+            "at least"
+          ],
+          "title": "Bound",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "required": [
+        "label",
+        "reference",
+        "grade"
+      ],
+      "title": "ReferenceCheck",
       "type": "object"
     },
     "SimMessage": {
@@ -172,6 +732,49 @@
         "$ref": "#/$defs/SummaryValue"
       },
       "title": "Summary",
+      "type": "array"
+    },
+    "partEnergy": {
+      "items": {
+        "$ref": "#/$defs/PartEnergyFlow"
+      },
+      "title": "Partenergy",
+      "type": "array"
+    },
+    "energy": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EnergyReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "duty": {
+      "items": {
+        "$ref": "#/$defs/DutyPart"
+      },
+      "title": "Duty",
+      "type": "array"
+    },
+    "limits": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LimitReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "references": {
+      "items": {
+        "$ref": "#/$defs/ReferenceCheck"
+      },
+      "title": "References",
       "type": "array"
     }
   },

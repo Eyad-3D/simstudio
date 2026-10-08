@@ -125,6 +125,18 @@
           },
           "title": "Notvalid",
           "type": "object"
+        },
+        "wallS": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Walls"
         }
       },
       "required": [
@@ -174,6 +186,30 @@
       },
       "title": "Points",
       "type": "array"
+    },
+    "workers": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Workers"
+    },
+    "wallS": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Walls"
     }
   },
   "required": [

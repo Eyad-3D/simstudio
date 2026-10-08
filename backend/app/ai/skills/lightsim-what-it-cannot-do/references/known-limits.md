@@ -14,17 +14,41 @@ Since 0.3 an E-Motor has a *Maximum Speed* (left at 0, the last speed point of i
 
 A run is a *success* when the vehicle stayed within ±2 km/h and ±1 s of its target speed for all but 1 % of the run (at least 2 s), covered the cycle's distance, no motor, engine, battery or fuel cell spent longer than that outside its data or above its maximum speed (see above), and nothing raised a warning.
 
-### A battery has a power limit but no current limit
+### Battery limits are a battery management system's tables, not cell physics
 
-A battery delivers power up to its maximum-power point (the most its internal resistance lets through: about 420 kW for the default pack at 90 % charge), or up to its *Output Power Limit* when one is set, and takes back up to its *Max Charge Power*.
+A battery delivers power up to its maximum-power point (the most its resistance lets through: about 420 kW for the default pack at 90 % charge), or up to its *Output Power Limit* when one is set, and takes back up to its *Max Charge Power*.
 
 ### Lap mode is a quasi-steady-state estimate
 
 A case of kind *Lap* finds the fastest speed along the Race Track's line about every metre, then drives that speed through the model's motors, gears, brakes and battery.
 
-### Signal units are not checked
+### Formula Student points are estimates
 
-Data Checks now report two signals wired into the same input (UX-37), but units are not checked: a battery's *SOC* output is in % (0-100), and a Script, Lookup or PID block that expects 0-1 gets 0-100 without a warning.
+The *FS event* rows and the *Formula Student points* table score a run with the formulas of FS Rules 2026 v1.1 (FSG) D 9.
+
+### Lift-and-coast is a simple driver strategy
+
+A Race Track's *Lift-and-Coast* and *Energy Target* (MOD-44) save energy only by coasting before the braking points:
+
+### Imported laps are drive cycles against time
+
+**Import lap** (STD-35) makes a lap from a logger or lap simulator into a drive cycle:
+
+### The Traction Control block is a simple slip loop
+
+The *Traction Control* block (MOD-45) limits one demand for all the motors it feeds, from the larger of two wheels' slip:
+
+### Lap mode calibration fits two numbers on one lap
+
+**Calibrate lap** (VAL-38) fits only a grip factor and the CzA:
+
+### Signal units are checked, not converted
+
+Data Checks warn when a signal wire joins two different units (VAL-17), such as a battery's *SOC* in % (0-100) into an input that expects 0-1, or a vehicle speed into a rotational speed.
+
+### An example's stored result holds a few signals
+
+An example opened from **Open** or the *Start* page shows its stored results (CON-15), named *Stored result*: the summary, the expected values and seven comparison signals (vehicle speed and target, battery SOC and power, motor speed and torque, engine fuel rate) every second.
 
 ### Computed values read 0 in the first result point
 
@@ -34,55 +58,103 @@ Point 0 of every run is the initial state at t = 0.
 
 - **A declutched engine with any throttle runs to its rev limiter.** The engine has no speed governor above idle: with the clutch open, any throttle above 0 revs it up to the last speed of its full-load curve, where it runs on the rev limiter at high fuel flow.
 - **Gear losses leave out inertia.** Each gear's loss now acts on the net power through it, in both directions, but the torque that accelerates the driveline's own inertia is not part of that net, and a locked clutch's torque is taken from the previous 10 ms step.
-- **Shaft and Final Drive power is the total of all motors and engines.** Their *Transmitted Power* channel shows the summed mechanical power of every motor and engine on the driveline, not the power through that part: gear and clutch losses are left out, and every Shaft and Final Drive on the driveline shows the same value.
+- **The energy breakdown leaves out inertia in the gears and reads the
+  flows at the step's start.** Each run lists every part's energy in, out, lost and stored (*energy* in the run result; the parts' *Losses*, *Input Power*, *Braking Power* and *Slip Losses* channels).
+- **Resized machines follow simple scaling rules.** An E-Motor's *Speed Scale* treats the machine as rewound, with each point's loss that of the matching point of the original, as if through an ideal gear: a real faster-running rewind loses more in its iron at the higher frequency.
+- **A tyre code gives estimates, not the tyre's data.** The tyre estimates a Tyre Code fills in are the same for every size: Rill's guess for a passenger-car tyre on a dry road, scaled by its load index, with no speed rating, pressure, compound or wear.
 - **The air is dry, still and the same along the road.** Air drag uses the density the Ambient block's temperature and pressure give (1.204 kg/m³, 20 °C and 101.325 kPa, without an Ambient), but not the road's altitude (a 30 m climb makes it 0.35 % thinner), humidity (damp air is up to about 1.6 % thinner at 30 °C)…
 - **Road-load coefficients: the driveline's share is all or nothing.** With *Coefficients Include Driveline Losses* ticked, the final drives, differentials and transfer cases run lossless, as if the coefficients held their whole loss; a coast-down holds only their spin losses, so this leaves out a little.
 - **Wheel loads shift one step late, and only between the axles.** With a Vehicle *Centre of Gravity Height* and each Wheel's *Axle* set, load moves between the axles by m·(a + g·sin θ)·h/L when the car accelerates, brakes or stands on a slope, and a *Downforce Area* adds ½·ρ·CzA·v² split by the *Front Aero Balance*.
 - **An engine behind a script-controlled clutch starts at rest.** A run that starts at speed starts every wheel, gear and motor at that speed, and an engine behind a closed clutch too; a clutch a Script controls counts as open at t = 0, so the engine behind it starts at rest.
-- **Stiff settings can cause short wheel-spin spikes at launch.** This is a numerical effect of how the solver steps the tyres: a high tyre *Slip Stiffness*, a very light inertia or a strong clutch can push the solver past its stability limit, and nothing warns when that happens.
+- **Stiff settings make runs slower, and some effects remain.** Before a run, LightSim checks whether the tyres' *Slip Stiffness* or a propeller-type load is too stiff for its 10 ms solver step and, if so, uses a smaller step (down to 0.5 ms) and says so in Data Checks and *Messages* (ENG-14): a *Slip Stiffness* of 20 or …
 - **A closing clutch can ring at the 10 ms step.** While a clutch slips by more than 0.5 rad/s the solver passes its full torque for the whole step, and at 10 ms that overshoots the lock-up: the shaft on either side can swing by several hundred 1/min from one step to the next (up to 770 1/min in the P2 Hybrid…
 - **Fuel-cell hydrogen use is a fixed figure per kWh** (*Specific H₂ Consumption*, 55 g/kWh by default), which overstates it at part load by up to about a third and understates it at full load.
 
+### Energy, duty and limit reports
+
+- **The gears, clutches and spinning parts are one row, worked out from
+  what is left.** The *Energy* view measures each motor, engine, battery, DC-DC converter, consumer, friction brake, propeller and tyre, and the car's road load and speed, but no part of the driveline between them reports its own losses yet.
+- **The books sample every fourth solver step.** The energy, the duty and the limit band add up every fourth solver step (40 ms at the usual 10 ms), weighted by the time since the last, so a run is about 5 % slower (measured: 5.5 % on the Battery Electric Car, 1.8 % on the P2 Hybrid Car).
+- **Fuel energy uses one heating value.** The Sankey's fuel energy is the fuel burnt × 43 MJ/kg, a petrol value (background knowledge, not checked against a source); hydrogen uses 33.3 kWh/kg.
+- **A wheel's In and Out are net.** The table gives each wheel the energy its shaft gave it less what braking took, and the same for the car, so a wheel that drove and braked shows the difference; its *Lost* (the tyre's slip) is complete.
+- **A motor's current is its DC current.** The *Duty* view's *DC current* is the motor's electrical power over its bus voltage; the current in the motor's windings (phase current), which sets the inverter's sizing, is not modelled.
+- **The limit band is a rule of thumb.** Each step is named by the first state that applies, in a fixed order: braking, tyre grip, set power limit, battery or supply, motor or engine, coasting, demand met.
+- **Change marks compare with the run's stored model.** The dots and the *These results are from before …* note compare the model on screen with the copy the run kept: a run stored before 0.2.0 kept none and gets no marks, edits made while a run was going are not counted, and a part or wire you removed is counted …
+
 ### Live edits, charts, sweeps and export
 
-- **Values between recorded points are not stored.** Charts draw every stored point (the highest and lowest of each pixel column), and zooming in shows each one, but with *Store every* above 1 the values in between recorded points are never stored, so a short spike or dip between them does not show.
-- **Stored values are rounded.** Every stored value is rounded to 5 decimal places, so small values keep few digits (a tyre slip of 0.0018 keeps two).
+- **Sweeps run side by side, but single runs do not.** A sweep's runs go in worker processes, one per processor core less one (ENG-05; LightSim counts logical processors, so on a computer with hyper-threading it may start more than its physical cores less one), and fewer when half the computer's memory would not …
+- **Peaks between recorded points are stored but not drawn.** Since 0.3 every stored point also keeps each channel's lowest, highest and time-averaged value since the point before it, taken at every solver step (ENG-16), so a regeneration burst between two points is in the run: with *Store every* 10 on the Battery Elect…
+- **The Results page shows at most 3 decimals.** Since 0.3, stored values and summary numbers keep full precision (ENG-16): one more kilogram on the Battery Electric Car changes its City Cycle's consumption and final SOC, and the energies equal the solver steps' sum to 1e-6.
 - **Cursor integrals come from the recorded points.** The *Results* chart's cursors integrate the stored points with the trapezoid rule, so they differ a little from the summary's energies, which add up every solver step: on the Battery Electric Car's City Cycle (a point every 1 s), the battery's power integrate…
 - **Long runs with many lines zoom less smoothly.** On a 1-hour run (36,001 points) with 7 channels ticked and the baseline drawn faint as well (14 lines), the mouse wheel zooms at 60 frames a second most of the time, but about one step in 20 takes two frames (30-40 ms).
 
 ## The examples
 
+- **Efficient Electric Sedan:** a Tesla Model 3 RWD class car with EPA's test mass, road load, rated power and gearing, but the Battery Electric Car's motor maps scaled to 192 kW, not the car's own (more efficient) motor, and a 54 kWh battery from FASTSim's file, which gives no source.
 - **P2 Hybrid Car:** sized after the Hyundai Ioniq Hybrid, with its test mass and road load from EPA data (EPA's own coefficients A/B/C, with the axle's losses counted once), but its engine, motor and battery maps are generic, not the car's.
-- **Battery Electric Car:** modelled on the 2021 Cupra Born with FASTSim's values; about 14 kWh/100 km on WLTC at the battery (a car of this class is rated about 15-16 kWh/100 km at the charging socket, charging losses included), 18.9 with heating or air-conditioning on (the 2.5 kW case…
+- **Battery Electric Car:** modelled on the 2021 Cupra Born with FASTSim's values; about 14 kWh/100 km on WLTC at the battery and 16.3 at the charging socket with the default 86 % charger efficiency (a car of this class is rated about 15-16 kWh/100 km at the socket), 18.9 at the battery…
 - **FS Electric (generic):** a typical Formula Student electric car, not a real one: replace its values with your car's.
 - **Runs made on an example stay with the copy you ran.** An example opens as an unsaved copy, and its runs are stored with that copy: they are listed while it stays open, also after a restart, but opening the example again from the Open menu starts a new copy with no runs listed.
 
 ## Not modelled yet
 
-- **No heat or cooling.** There is no thermal solver: temperatures do not change and do not affect batteries, motors or engines.
+- **No heat or cooling.** There is no thermal solver: temperatures do not change and do not affect motors or engines.
+- **Heating and air-conditioning are a steady-state estimate.** The Climate Control draws the power its demand table gives at the outside temperature from the first second: there is no cabin that warms up or cools down, so a cold start's first minutes (when a heater runs at 5-7 kW) are missing and short trips use too litt…
 - **Forward driving only.** No reverse, and no rolling back: a car on a steep hill stays put even with no brakes.
 - **Drive cycles are longitudinal only.** A drive cycle, performance or acceleration case does not corner: weight shifts between the axles but not from side to side.
+- **Charge balancing repeats the whole run.** A hybrid's cycle case is run again from the charge its battery ended with until the battery's stored energy changes by less than 1 % of the fuel's energy (ENG-33): started at 30, 50 or 70 %, the P2 Hybrid Car's Mixed Cycle gives 2.878 l/100 km in 2 runs, agai…
 - **A simple driver.** The Driver is a PI speed follower: it does not look ahead along the cycle or shift gears; gear and clutch logic comes from Script blocks.
+- **A speed against distance has no stops.** A Driving Task whose *Profile Axis* is *Distance* gives the Driver the target speed at the distance the car has driven.
 - **Structural limits.** One battery or voltage source per electrical bus; DC-DC converters work in one direction only; one differential and one E-Motor per driveline (several independent drivelines, such as dual-motor all-wheel drive as two axles, work).
 - **Unfinished parts of the app.** The Optimization tab is hidden until it is implemented, and the canvas bookmark tool is disabled.
+
+### Files in and out
+
+- **The .mat export is checked with SciPy and GNU Octave, not with MATLAB
+  itself yet.** The tests read every exported channel back through SciPy's `loadmat` with the same values and units, and the files load in Octave 8.4.
+- **No Parquet or HDF5 export yet.** Results go out as .mat, CSV and the run card (JSON); Parquet comes with the Python package (AI-02).
+- **`lightsim_run.m` is not installed with the app.** Copy it from the `matlab` folder of LightSim's source.
+- **The table import reads values, not formulas or formats.** From an `.xlsx` file it takes the value Excel saved with each formula; a workbook saved by a program that does not store those values (some scripts that write Excel files) gives empty cells.
+- **A unit LightSim does not know is refused.** The import converts the common units of speed, rotational speed, torque, power, energy, voltage, current, charge, mass, mass flow, distance, time, temperature, force, pressure, curvature and resistance.
+- **The parameter sheet does not hold scripts, case values or when a value
+  changed.** Script blocks stay in the project; a case's own values (*Cases & Parameters*) are not in the sheet; the *Source* and *Notes* columns are for your team and are not read back.
 
 ## Using and installing the app
 
 - **Stored runs have a disk budget.** Finished runs are kept on disk with their project, up to 500 MB per project and 2 GB in all; past that the oldest are deleted (runs of projects that were never saved go first), and the app shows at most the 20 newest.
 - **Scripts run in a separate, locked-down process, but how locked-down
   depends on your system.** Script blocks hold Python code that comes with the project.
+- **FMU blocks are a first version.** An FMU block (a model from another tool, see Use a model from another tool) runs Co-Simulation FMUs of FMI 2.0 and 3.0 only.
+- **FMU support is an optional pack.** It needs FMPy (BSD-2-Clause) and its NumPy, lxml, attrs and lark.
+- **FMUs run in a separate, locked-down process, but how locked-down
+  depends on your system.** An FMU is compiled code from another company or tool.
 - **Runs with Script blocks take longer than in 0.1.0.** Controllers and scripts now run every 10 ms, and every script step is a round trip to the script process.
 - **Part names can overlap when the diagram is zoomed out.** Names keep their 11 px on screen however far you zoom out, so neighbours' names run into each other: on the Battery Electric Car, with Windows' font, one pair at 53 %, seven at 39 % and all of them at the 15 % minimum; a wider font, as on Linux, overlaps soon…
 - **A few small marks are still faint.** The warning badge on a part, and the pin outlines and polarity marks in the dark theme, fall short of the WCAG contrast minimum.
 - **Run warnings find their part by its name.** The Problems list shows the latest run's warnings and errors, and a row selects the part whose name the message quotes.
 - **Signals are linked one at a time.** Data Bus Connections has no "connect to all Brakes" or "connect by matching names" yet, and signals are not drawn on the diagram: pick each input's source in its row (two clicks).
-- **Three standard drive cycles.** The Driving Task's *Drive Cycle* list has WLTC class 3b, EPA city (UDDS) and EPA highway (HWFET).
+- **Weather presets set only the air.** The Ambient's presets (cold, standard, hot and sunny, high altitude) set its temperature and pressure, so only the air density follows them: no heating or air-conditioning load, no sun, no cold battery or engine, and engine power does not fall with altitude.
+- **Templates: slots are names only.** A template's slots say which part plays which role, but swapping a slot's part for another while keeping its wiring, a shared signal naming convention across templates (so one control script runs on several), two-motor, series-hybrid, fuel-cell, petrol and tw…
+- **Value sources stop at the project file.** The sources and confidence levels recorded for a part's values (CON-13) are saved with the project but are not yet listed in result exports or run reports, carry no uncertainty (±) a study could sample, and the Formula Student example's values have none recor…
+- **Vehicle tests leave out a few.** *Vehicle tests* has no hill start, no range test that drives a battery down to empty over repeated cycles (the summary's *Range at this consumption* estimates it from one cycle), and no elasticity test held in one gear.
+- **US label estimate from two cycles only.** *Simulations → US label* uses EPA's derived two-cycle method.
+- **27 standard drive cycles, no files of your own.** The Driving Task's *Drive Cycle* list has the WLTC (classes 1 to 3b, their city cycles and phases), NEDC, the EPA cycles, two motorcycle cycles and a long-haul truck route.
 - **Few starting points.** The *Start* page offers the examples that come with LightSim and a blank project.
-- **Unsigned installers.** Windows SmartScreen warns on first launch (choose *More info → Run anyway*).
-- **No macOS version.** Builds exist for Windows 10/11 (x64) and Linux (x64) only.
-- **No automatic updates yet.** Download a newer version from the GitHub Releases page and install it over the old one; your projects are kept.
-- **The help is a first draft.** F1, or **?** at the top right, opens LightSim's help in your web browser, served from your computer: two tutorials, how-to guides, a page for every part in the library, and the documents that come with each release.
+- **Project files outside the projects folder: what is missing.** `.lightsim` files open from anywhere, but: - The AppImage does not register the file type, so a double-click does not open LightSim there; use **File → Open…**, or the .deb package.
+- **Attached files are kept, not used yet.** A project can carry files (Project → Attached): they are copied into its resources folder, travel with Save As, **Export** (a `.lightsim.zip`) and **Import**, and Data Checks report one that is missing or changed.
+- **The trust question for attached files protects runs in the app only.** Before the first run of a project with attached FMUs, AI models or programs, LightSim asks whether you trust it, and remembers the answer by a fingerprint of those files (a changed file asks again).
+- **Study tables are keyed by the figure's name.** A study's results table names each column by the summary figure's label; a figure renamed in a later version starts a new column.
+- **Scripting LightSim from Python or a terminal: early version.** The `lightsim` Python package and command-line tool (see *Python API* and *Command-line tool* in the help) run from the `backend/` folder of the repository, as the desktop engine's `lightsim-backend run …`, or as a wheel you build with `scripts/build-wheel.py…
+- **AI access is set from the command line only.** AI assistants are off until you turn them on with `lightsim ai on` and allow folders with `lightsim ai allow`; there is no *Settings → AI access* page in the app yet, and no switch in the app to hide one project from AI tools (use `lightsim ai block <file>`).
+- **Unsigned installers, until the owner buys a certificate.** The build can sign every Windows file, but only once the owner has a code-signing certificate.
+- **No macOS version yet.** The build makes and tests a Mac version for Apple silicon, but it is published only once it can be signed and notarised by Apple, which needs the owner's paid Apple Developer account.
+- **Updates need a yes, and some installs only point to the download.** LightSim checks for updates only after you agree (it asks the first time it opens).
+- **The policy file has no Group Policy template.** IT fixes settings with a `policy.json` file (how), not through Group Policy's administrative templates (ADMX) or the registry.
+- **The help is a first draft.** F1, or the **?** menu at the top right, opens LightSim's help in a panel inside the app, served from your computer.
+- **The first-steps tour is short.** It points at the screen's main parts only; it does not walk you through a run, and its steps are not checked against a band.
 - **The parameter texts are first drafts.** Rest the pointer on a parameter, or move to it with Tab, to see what it is, its usual values and where to find the real number; each part's help page lists the same texts.
 - **Limits are checked one parameter at a time.** Data Checks and the form check each number against its own limits only: a PID's Output Minimum above its Output Maximum, or a Default Gear past the last gear, is not flagged.
 - **The AI connection is new and partly provisional.** The MCP server follows the 28 July 2026 revision as the official MCP SDK (version 2.3) implements it; its Tasks support (long runs) uses the task shapes of the 2025-11-25 revision, because the Tasks extension's own messages were not available to check against…
 - **Licence.** LightSim is proprietary (`LICENSE`).
+- **Some licence questions have no clear answer yet.** The licence agreement does not define "non-commercial", so it does not say clearly whether a sponsored Formula Student team, a thesis written at a company or an industry-funded university project is free.

@@ -229,7 +229,8 @@
             "string",
             "code",
             "table1d",
-            "table2d"
+            "table2d",
+            "file"
           ],
           "title": "Type",
           "type": "string"
@@ -248,6 +249,21 @@
           ],
           "default": null,
           "title": "Options"
+        },
+        "accept": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Accept"
         },
         "axes": {
           "anyOf": [
@@ -344,6 +360,17 @@
           ],
           "default": null,
           "title": "Maximum"
+        },
+        "showIf": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ShowIf"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -439,6 +466,40 @@
         "kind"
       ],
       "title": "PortDef",
+      "type": "object"
+    },
+    "ShowIf": {
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "key",
+        "values"
+      ],
+      "title": "ShowIf",
       "type": "object"
     }
   },

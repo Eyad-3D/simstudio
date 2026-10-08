@@ -4,6 +4,34 @@
   "title": "LightSim project file",
   "description": "Format version 1. Generated from LightSim's data models; the specification is docs/spec/README.md (CC BY 4.0).",
   "$defs": {
+    "Attachment": {
+      "additionalProperties": true,
+      "description": "A file kept with the project (STD-02), in its resources folder. The\nhash is the file's when it was attached, so a changed file is noticed.",
+      "properties": {
+        "path": {
+          "pattern": "^resources/[^/\\\\.][^/\\\\]*$",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "bytes": {
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "bytes"
+      ],
+      "title": "Attachment",
+      "type": "object"
+    },
     "Connection": {
       "additionalProperties": true,
       "properties": {
@@ -213,6 +241,94 @@
       "title": "ElementInstance",
       "type": "object"
     },
+    "ExampleCard": {
+      "additionalProperties": true,
+      "description": "What an example answers and what to expect from it (CON-15): shown in\nthe Project tab and the Open menu; its expected results are the cases'\nreference values (SimCase.references).",
+      "properties": {
+        "question": {
+          "default": "",
+          "title": "Question",
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "difficulty": {
+          "default": "beginner",
+          "enum": [
+            "beginner",
+            "intermediate",
+            "advanced"
+          ],
+          "title": "Difficulty",
+          "type": "string"
+        },
+        "runTimeS": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtimes"
+        },
+        "learn": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Learn",
+          "type": "array"
+        },
+        "status": {
+          "default": "demo",
+          "enum": [
+            "demo",
+            "plausibility-checked",
+            "validated"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "features": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Features",
+          "type": "array"
+        },
+        "author": {
+          "default": "",
+          "title": "Author",
+          "type": "string"
+        },
+        "version": {
+          "default": "",
+          "title": "Version",
+          "type": "string"
+        },
+        "licence": {
+          "default": "",
+          "title": "Licence",
+          "type": "string"
+        },
+        "narrative": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Narrative",
+          "type": "array"
+        }
+      },
+      "title": "ExampleCard",
+      "type": "object"
+    },
     "PortDef": {
       "properties": {
         "id": {
@@ -298,6 +414,41 @@
       "title": "PortDef",
       "type": "object"
     },
+    "ReferenceValue": {
+      "additionalProperties": true,
+      "description": "An expected value of a case: a summary value's label, the number,\na tolerance (in the value's unit, or % of the reference) and a source.",
+      "properties": {
+        "kpi": {
+          "title": "Kpi",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "tolerance": {
+          "default": 5.0,
+          "title": "Tolerance",
+          "type": "number"
+        },
+        "tolerancePct": {
+          "default": true,
+          "title": "Tolerancepct",
+          "type": "boolean"
+        },
+        "source": {
+          "default": "",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kpi",
+        "value"
+      ],
+      "title": "ReferenceValue",
+      "type": "object"
+    },
     "SimCase": {
       "additionalProperties": true,
       "properties": {
@@ -352,6 +503,30 @@
           "default": null,
           "title": "Enddistance"
         },
+        "endLaps": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Endlaps"
+        },
+        "chargeBalance": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chargebalance"
+        },
         "startLine": {
           "default": 0.0,
           "title": "Startline",
@@ -368,6 +543,53 @@
           ],
           "default": null,
           "title": "Referencetime"
+        },
+        "energyReport": {
+          "default": true,
+          "title": "Energyreport",
+          "type": "boolean"
+        },
+        "fsEvent": {
+          "anyOf": [
+            {
+              "enum": [
+                "acceleration",
+                "skidpad",
+                "autocross",
+                "endurance"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fsevent"
+        },
+        "referenceEnergy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Referenceenergy"
+        },
+        "referenceEnergyTime": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Referenceenergytime"
         },
         "parameterOverrides": {
           "additionalProperties": {
@@ -406,6 +628,13 @@
           },
           "title": "Parameteroverrides",
           "type": "object"
+        },
+        "references": {
+          "items": {
+            "$ref": "#/$defs/ReferenceValue"
+          },
+          "title": "References",
+          "type": "array"
         }
       },
       "required": [
@@ -413,188 +642,6 @@
         "name"
       ],
       "title": "SimCase",
-      "type": "object"
-    },
-    "Study": {
-      "additionalProperties": true,
-      "description": "A parameter study saved with its project (STU-03): what was swept on\nwhich case, and its compact results table.",
-      "properties": {
-        "id": {
-          "title": "Id",
-          "type": "string"
-        },
-        "startedAt": {
-          "title": "Startedat",
-          "type": "integer"
-        },
-        "caseId": {
-          "title": "Caseid",
-          "type": "string"
-        },
-        "caseName": {
-          "default": "",
-          "title": "Casename",
-          "type": "string"
-        },
-        "factors": {
-          "items": {
-            "$ref": "#/$defs/StudyFactor"
-          },
-          "title": "Factors",
-          "type": "array"
-        },
-        "kpis": {
-          "items": {
-            "$ref": "#/$defs/StudyKpi"
-          },
-          "title": "Kpis",
-          "type": "array"
-        },
-        "points": {
-          "items": {
-            "$ref": "#/$defs/StudyPoint"
-          },
-          "title": "Points",
-          "type": "array"
-        }
-      },
-      "required": [
-        "id",
-        "startedAt",
-        "caseId",
-        "factors"
-      ],
-      "title": "Study",
-      "type": "object"
-    },
-    "StudyFactor": {
-      "additionalProperties": true,
-      "description": "One swept parameter of a study, with its labels as they were when it\nran (the element may be renamed or removed since).",
-      "properties": {
-        "elementId": {
-          "title": "Elementid",
-          "type": "string"
-        },
-        "paramKey": {
-          "title": "Paramkey",
-          "type": "string"
-        },
-        "elementLabel": {
-          "default": "",
-          "title": "Elementlabel",
-          "type": "string"
-        },
-        "paramLabel": {
-          "default": "",
-          "title": "Paramlabel",
-          "type": "string"
-        },
-        "unit": {
-          "default": "",
-          "title": "Unit",
-          "type": "string"
-        },
-        "values": {
-          "items": {
-            "type": "number"
-          },
-          "title": "Values",
-          "type": "array"
-        }
-      },
-      "required": [
-        "elementId",
-        "paramKey"
-      ],
-      "title": "StudyFactor",
-      "type": "object"
-    },
-    "StudyKpi": {
-      "additionalProperties": true,
-      "description": "A column of a study's results table: a run summary value.",
-      "properties": {
-        "label": {
-          "title": "Label",
-          "type": "string"
-        },
-        "unit": {
-          "default": "",
-          "title": "Unit",
-          "type": "string"
-        }
-      },
-      "required": [
-        "label"
-      ],
-      "title": "StudyKpi",
-      "type": "object"
-    },
-    "StudyPoint": {
-      "additionalProperties": true,
-      "description": "A row of a study's results table: one point and its answers.",
-      "properties": {
-        "values": {
-          "items": {
-            "type": "number"
-          },
-          "title": "Values",
-          "type": "array"
-        },
-        "runId": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Runid"
-        },
-        "status": {
-          "enum": [
-            "success",
-            "failed",
-            "warning",
-            "cancelled",
-            "not run"
-          ],
-          "title": "Status",
-          "type": "string"
-        },
-        "incomplete": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Incomplete"
-        },
-        "kpis": {
-          "additionalProperties": {
-            "type": "number"
-          },
-          "title": "Kpis",
-          "type": "object"
-        },
-        "notValid": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "title": "Notvalid",
-          "type": "object"
-        }
-      },
-      "required": [
-        "values",
-        "status"
-      ],
-      "title": "StudyPoint",
       "type": "object"
     },
     "SystemNode": {
@@ -654,9 +701,21 @@
       "type": "string"
     },
     "schemaVersion": {
-      "default": 1,
+      "default": 2,
       "title": "Schemaversion",
       "type": "integer"
+    },
+    "savedWith": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Savedwith"
     },
     "description": {
       "anyOf": [
@@ -691,11 +750,22 @@
       "title": "Cases",
       "type": "array"
     },
-    "studies": {
+    "card": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ExampleCard"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "attachments": {
       "items": {
-        "$ref": "#/$defs/Study"
+        "$ref": "#/$defs/Attachment"
       },
-      "title": "Studies",
+      "title": "Attachments",
       "type": "array"
     },
     "noAi": {
