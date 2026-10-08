@@ -383,6 +383,7 @@ pub fn causalize(
         stats,
         jac_pattern: Default::default(),
         modes: vec![],
+        init: Default::default(),
     };
     model.structure_key = crate::key::structure_key(&model);
     Ok(model)

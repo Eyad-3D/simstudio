@@ -132,6 +132,35 @@ pub struct Mode {
     pub origin: Origin,
 }
 
+/// The initialisation system (DESIGN.md, *Initialisation*): it computes a
+/// consistent start of a run from the parameters (and the inputs at the
+/// start time) with its own sorted equations — the model's equations,
+/// including those index reduction differentiated, its initial equations
+/// and the start values that must hold — solved by Newton on `unknowns`
+/// with the assignments explicit in between, as the model itself is.
+///
+/// After a solve every slot of the model's `y` (each state `Var(x)` and
+/// each iteration variable) has a value, being either one of `unknowns` or
+/// the target of one of `assignments`; so does every state's derivative.
+/// Relations are evaluated as they stand (no mode is held yet).
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+pub struct InitSystem {
+    /// the Newton unknowns (the tearing variables of the start problem)
+    pub unknowns: Vec<Slot>,
+    /// a first guess for each unknown: an expression of the parameters
+    pub guesses: Vec<Expr>,
+    /// explicit assignments in evaluation order; they read the unknowns,
+    /// parameters, inputs, discrete start values and earlier targets
+    pub assignments: Vec<Assignment>,
+    /// one residual per unknown
+    pub residuals: Vec<Residual>,
+    /// the start value of each discrete variable, in
+    /// [`PreparedModel::discretes`] order: an expression of the parameters,
+    /// except for a mode's variable, whose start is its relation evaluated
+    /// at the solution
+    pub discrete_starts: Vec<Expr>,
+}
+
 /// Where an external sampled block (a [`crate::runtime::DiscreteBlock`])
 /// sits in the model.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -217,4 +246,7 @@ pub struct PreparedModel {
     /// `discretes`)
     #[serde(default)]
     pub modes: Vec<Mode>,
+    /// the initialisation system
+    #[serde(default)]
+    pub init: InitSystem,
 }
