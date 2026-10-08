@@ -34,6 +34,7 @@ import hashlib
 import json
 import logging
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -73,8 +74,11 @@ def policy() -> dict:
 
 def mode() -> str:
     """"prompt" (remember approvals), "always-prompt" (only until LightSim
-    closes) or "off" (no check: the test suite and LIGHTSIM_SCRIPT_TRUST=off)."""
-    if os.environ.get("LIGHTSIM_SCRIPT_TRUST", "").lower() == "off":
+    closes) or "off" (no check: the test suite's LIGHTSIM_SCRIPT_TRUST=off,
+    which a packaged engine ignores, so a user's own environment variable
+    cannot turn the check, or the organisation's policy, off)."""
+    if (not getattr(sys, "frozen", False)
+            and os.environ.get("LIGHTSIM_SCRIPT_TRUST", "").lower() == "off"):
         return "off"
     return "always-prompt" if policy().get("scriptTrust") == "always-prompt" else "prompt"
 

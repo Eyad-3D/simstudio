@@ -163,6 +163,21 @@ def test_approvals_are_the_users_own_not_the_projects_folders(tmp_path, monkeypa
         script_trust._reset_for_tests()
 
 
+def test_a_packaged_engine_ignores_the_test_switch(trust, monkeypatch):
+    """LIGHTSIM_SCRIPT_TRUST=off is for the test suite: in the packaged app a
+    user's own environment variable must not turn the check (or the
+    organisation's always-prompt policy) off."""
+    monkeypatch.setenv("LIGHTSIM_SCRIPT_TRUST", "off")
+    assert script_trust.mode() == "off"
+    monkeypatch.setenv("LIGHTSIM_DATA_DIR", str(trust))  # as the desktop shell sets it
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert script_trust.mode() == "prompt"
+    monkeypatch.setenv("LIGHTSIM_POLICY", json.dumps({"scriptTrust": "always-prompt"}))
+    assert script_trust.mode() == "always-prompt"
+    project, _ = foreign(hybrid())
+    assert client.post("/api/scripts/check", json={"project": project}).json()["unapproved"] == 1
+
+
 def test_always_prompt_forgets_approvals_when_lightsim_closes(trust, monkeypatch):
     monkeypatch.setenv("LIGHTSIM_POLICY", json.dumps({"scriptTrust": "always-prompt"}))
     project, _ = foreign(hybrid())

@@ -17,7 +17,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 const { copyOldProjects } = require("./old-projects");
 const { EngineFiles, isProjectFile, projectFilesIn, suggestedName, withSuffix } = require("./project-files");
-const { readPolicy, expandPath } = require("./policy");
+const { readPolicy, expandPath, engineEnv } = require("./policy");
 const { initUpdates } = require("./updates");
 
 const HEALTH_TIMEOUT_MS = 40_000;
@@ -191,7 +191,7 @@ function startBackend(port) {
     cwd,
     windowsHide: true,
     env: {
-      ...process.env,
+      ...engineEnv(process.env, app.isPackaged),
       LIGHTSIM_PROJECTS_DIR: projects,
       // this user's own folder: script approvals and other answers that must
       // never sit in a projects folder others can write (backend/app/paths.py)

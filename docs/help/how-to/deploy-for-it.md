@@ -110,12 +110,16 @@ Put a file named `policy.json` in:
 
 | System | Path |
 |---|---|
-| Windows | `%ProgramData%\LightSim\policy.json` (usually `C:\ProgramData\LightSim\policy.json`) |
+| Windows | `C:\ProgramData\LightSim\policy.json` (on the drive Windows is installed on) |
 | macOS | `/Library/Application Support/LightSim/policy.json` |
 | Linux | `/etc/lightsim/policy.json` |
 
 Only administrators can write these folders, so users cannot change the
-file. LightSim reads it at each start. A setting it fixes shows as
+file. LightSim finds the Windows folder from where Windows is installed,
+not from the `ProgramData` variable, and the installed app does not pass
+users' own `LIGHTSIM_*` environment variables to its engine, so users
+cannot point it at another file or switch the script check off that way.
+LightSim reads it at each start. A setting it fixes shows as
 *managed by your organisation* and cannot be changed in the app. A key
 that is missing leaves the setting to each user. A key LightSim does not
 know, or a value it does not accept, is ignored and noted in `main.log`.
