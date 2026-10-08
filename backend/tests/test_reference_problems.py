@@ -138,3 +138,19 @@ def test_todays_engine_stays_within_its_baseline(prob, expr):
                 f"{row.name}: {row.error_rel} > {ceiling}")
     if out.closure_rel is not None:
         assert out.closure_rel <= ceilings["closure"], (out.closure_rel, ceilings["closure"])
+
+
+def test_the_reference_models_are_checked_like_a_user_s():
+    """The adapter runs no project past the Data Checks: a model they refuse
+    stops it, and the coast-down and gear-schedule models of the reference
+    problems pass them (they were refused once, which is why the adapter
+    used to run past the errors)."""
+    at_rest = engine.Build("at-rest").part("veh", "vehicle.body", initial_speed_kmh=0.0)
+    with pytest.raises(engine.DataChecksRefused, match="will not move"):
+        engine.run_project(at_rest.project(1.0, 0.1))
+    coasting = engine.Build("coasting").part("veh", "vehicle.body", initial_speed_kmh=36.0)
+    assert engine.run_project(coasting.project(1.0, 0.1)).result.status != "failed"
+    for prob in (BY_ID["veh_coastdown"], BY_ID["mech_gear_change"]):
+        for expr in engine.EXPRESSIONS[prob.id]:
+            trace = engine.run(prob, expr)
+            assert not [m for m in trace.messages if "Data Check" in m], (prob.id, expr.label)
