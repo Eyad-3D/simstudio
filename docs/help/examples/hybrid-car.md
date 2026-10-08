@@ -93,9 +93,11 @@ with the one before. Set the value back afterwards.
    Vehicle's *Vehicle Mass* from 1,474 to 1674. How much more fuel?
 
    **Answer:** 3.24 to 3.28 l/100 km, about 1 % more. On the highway the
-   car hardly speeds up or brakes, so mass counts only through rolling
-   resistance; air drag, which mass does not change, takes most of the
-   energy.
+   car hardly speeds up or brakes, and this example's road load comes
+   from fixed coefficients A, B and C (a coast-down test's), which do not
+   change with mass: so the 200 kg cost fuel only when the car speeds up.
+   At a steady 80 km/h they cost no fuel at all. Air drag takes most of
+   the energy.
 
 3. **Compare city and highway.** Run *EPA city (UDDS)* and *EPA highway
    (HWFET)*. Where does the hybrid use less fuel per 100 km, and why?
