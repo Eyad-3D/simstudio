@@ -100,6 +100,23 @@ impl Env for ParamEnv<'_> {
     }
 }
 
+/// The sum of `terms` as a balanced tree, so a connection set of thousands
+/// of ports does not make an expression thousands of levels deep.
+fn balanced_sum(mut terms: Vec<Expr>) -> Expr {
+    while terms.len() > 1 {
+        let mut next = Vec::with_capacity(terms.len().div_ceil(2));
+        let mut it = terms.into_iter();
+        while let Some(a) = it.next() {
+            next.push(match it.next() {
+                Some(b) => a + b,
+                None => a,
+            });
+        }
+        terms = next;
+    }
+    terms.pop().expect("a set has members")
+}
+
 fn join(path: &str, name: &str) -> String {
     if path.is_empty() { name.to_string() } else { format!("{path}.{name}") }
 }
@@ -724,7 +741,7 @@ impl<'a> Flattener<'a> {
             }
             match vars[0] {
                 PortVars::Physical { .. } => {
-                    let mut sum: Option<Expr> = None;
+                    let mut terms: Vec<Expr> = Vec::with_capacity(members.len());
                     let first_across = match vars[0] {
                         PortVars::Physical { across, .. } => across,
                         _ => unreachable!(),
@@ -732,25 +749,31 @@ impl<'a> Flattener<'a> {
                     for (k, (n, pv)) in members.iter().zip(&vars).enumerate() {
                         let PortVars::Physical { across, through } = *pv else { continue };
                         if k > 0 {
+                            // a large set names the two ports each equation joins
+                            let ports = if names.len() <= 8 {
+                                names.clone()
+                            } else {
+                                vec![names[0].clone(), names[k].clone()]
+                            };
                             self.flat.equations.push(FlatEquation {
                                 lhs: Expr::Var(first_across),
                                 rhs: Expr::Var(across),
                                 origin: Origin {
                                     instance: scope,
-                                    kind: OriginKind::ConnectionAcross { ports: names.clone() },
+                                    kind: OriginKind::ConnectionAcross { ports },
                                     label: None,
                                 },
                             });
                         }
-                        let term = if n.outside { -Expr::Var(through) } else { Expr::Var(through) };
-                        sum = Some(match sum {
-                            None => term,
-                            Some(s) => s + term,
+                        terms.push(if n.outside {
+                            -Expr::Var(through)
+                        } else {
+                            Expr::Var(through)
                         });
                     }
                     self.flat.equations.push(FlatEquation {
                         lhs: Expr::Const(0.0),
-                        rhs: sum.expect("a set has members"),
+                        rhs: balanced_sum(terms),
                         origin: Origin {
                             instance: scope,
                             kind: OriginKind::ConnectionThrough { ports: names.clone() },

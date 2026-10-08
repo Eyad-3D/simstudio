@@ -25,7 +25,9 @@
 #![allow(clippy::needless_range_loop)] // parallel arrays indexed in step
 
 use crate::graph::{Bipartite, Matching, NONE, hopcroft_karp, scc};
-use crate::symbolic::{SignEnv, Signs, affine_coefficient, contains, signs, simplify, solve_for};
+use crate::symbolic::{
+    SignEnv, Signs, affine_coefficient, contains, signs, simplify, solve_affine,
+};
 use crate::system::{NodeKind, node, nodes_of};
 use lsim_ir::expr::Expr;
 use lsim_ir::prepared::Slot;
@@ -238,14 +240,13 @@ fn solve_one(
     out: &mut Sorted,
 ) -> bool {
     let s = Slot::Var(VarId(n as u32));
-    let Some(a) = affine_coefficient(res, s) else { return false };
+    let Some((a, sol)) = solve_affine(res, s) else { return false };
     let p = pivot(&a, ctx);
     match p {
         Pivot::Unsafe => return false,
         Pivot::Variable if !variable_ok => return false,
         _ => {}
     }
-    let Some(sol) = solve_for(res, s) else { return false };
     match p {
         Pivot::Guarded => out.guards.push((a, e)),
         Pivot::Variable => out.variable_pivots.push((a, e)),
@@ -482,10 +483,8 @@ fn tear_block(
     for &(ln, le) in &c.order {
         let (n, e) = (nodes[ln], block[le]);
         let s = Slot::Var(VarId(n as u32));
-        let sol = solve_for(eqs[e], s).expect("safely solvable");
-        if let Some(a) = affine_coefficient(eqs[e], s)
-            && pivot(&a, ctx) == Pivot::Guarded
-        {
+        let (a, sol) = solve_affine(eqs[e], s).expect("safely solvable");
+        if pivot(&a, ctx) == Pivot::Guarded {
             guards.push((a, e));
         }
         inner.push((n, sol, e));

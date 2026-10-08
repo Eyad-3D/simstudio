@@ -183,23 +183,7 @@ pub fn diff(e: &Expr, s: Slot) -> Expr {
 /// Solves `residual = 0` for `s` when the residual is affine in `s`
 /// (`a·s + b` with `a` free of `s`): returns `-b / a`, simplified.
 pub fn solve_for(residual: &Expr, s: Slot) -> Option<Expr> {
-    if !contains(residual, s) {
-        return None;
-    }
-    let a = simplify(diff(residual, s));
-    if contains(&a, s) || a.any(&mut |x| matches!(x, Expr::Const(v) if v.is_nan())) {
-        return None;
-    }
-    if is_const(&a, 0.0) {
-        return None;
-    }
-    let b = simplify(substitute(residual.clone(), s, &Expr::Const(0.0)));
-    let sol = match (&a, &b) {
-        (Expr::Const(x), _) if *x == 1.0 => -b,
-        (Expr::Const(x), _) if *x == -1.0 => b,
-        _ => -b / a,
-    };
-    Some(simplify(sol))
+    solve_affine(residual, s).map(|(_, sol)| sol)
 }
 
 /// The time derivative of `e` by the chain rule: `dvar(v)` gives the
@@ -294,18 +278,100 @@ pub fn time_derivative(e: &Expr, dvar: &mut dyn FnMut(VarId) -> Expr) -> Result<
     })
 }
 
+/// `e` as `a·s + b` (coefficient `None`: zero), when it is affine in `s`
+/// with `a` and `b` free of `s`; built directly, without differentiating.
+fn split(e: &Expr, s: Slot) -> Option<(Option<Expr>, Expr)> {
+    use Expr::*;
+    let hit = |x: &Expr| match (x, s) {
+        (Var(v), Slot::Var(w)) | (Der(v), Slot::Der(w)) => *v == w,
+        _ => false,
+    };
+    if hit(e) {
+        return Some((Some(Const(1.0)), Const(0.0)));
+    }
+    let b = |x: Expr| Box::new(x);
+    match e {
+        Neg(x) => {
+            let (a, r) = split(x, s)?;
+            Some((a.map(|a| Neg(b(a))), Neg(b(r))))
+        }
+        NoEvent(x) => split(x, s),
+        Binary(op @ (BinaryOp::Add | BinaryOp::Sub), x, y) => {
+            let (a1, b1) = split(x, s)?;
+            let (a2, b2) = split(y, s)?;
+            let a = match (a1, a2) {
+                (None, None) => None,
+                (Some(a), None) => Some(a),
+                (None, Some(a)) => Some(if *op == BinaryOp::Sub { Neg(b(a)) } else { a }),
+                (Some(a1), Some(a2)) => Some(Binary(*op, b(a1), b(a2))),
+            };
+            Some((a, Binary(*op, b(b1), b(b2))))
+        }
+        Binary(BinaryOp::Mul, x, y) => {
+            let (a1, b1) = split(x, s)?;
+            let (a2, b2) = split(y, s)?;
+            match (a1, a2) {
+                (None, None) => Some((None, e.clone())),
+                (Some(a1), None) => Some((Some(a1 * b2.clone()), b1 * b2)),
+                (None, Some(a2)) => Some((Some(b1.clone() * a2), b1 * b2)),
+                (Some(_), Some(_)) => None,
+            }
+        }
+        Binary(BinaryOp::Div, x, y) => {
+            if contains(y, s) {
+                return None;
+            }
+            let (a1, b1) = split(x, s)?;
+            Some((a1.map(|a| a / (**y).clone()), b1 / (**y).clone()))
+        }
+        If(c, x, y) => {
+            if contains(c, s) {
+                return None;
+            }
+            let (a1, b1) = split(x, s)?;
+            let (a2, b2) = split(y, s)?;
+            let a = match (a1, a2) {
+                (None, None) => None,
+                (a1, a2) => {
+                    Some(If(c.clone(), b(a1.unwrap_or(Const(0.0))), b(a2.unwrap_or(Const(0.0)))))
+                }
+            };
+            Some((a, If(c.clone(), b(b1), b(b2))))
+        }
+        other => {
+            if contains(other, s) {
+                None
+            } else {
+                Some((None, other.clone()))
+            }
+        }
+    }
+}
+
+/// When `residual = 0` is affine in `s` with a coefficient that is not
+/// zero: the coefficient `a` and the solution `-b / a`, simplified.
+pub fn solve_affine(residual: &Expr, s: Slot) -> Option<(Expr, Expr)> {
+    let (a, b) = split(residual, s)?;
+    let a = simplify(a?);
+    if is_const(&a, 0.0) || a.any(&mut |x| matches!(x, Expr::Const(v) if v.is_nan())) {
+        return None;
+    }
+    let b = simplify(b);
+    let sol = match &a {
+        Expr::Const(x) if *x == 1.0 => -b,
+        Expr::Const(x) if *x == -1.0 => b,
+        _ => -b / a.clone(),
+    };
+    Some((a, simplify(sol)))
+}
+
 /// The coefficient `a` when `residual` is affine in `s` (`a·s + b` with
 /// `a` and `b` free of `s`), simplified; `None` when it is not, or when
 /// `s` does not appear.
 pub fn affine_coefficient(residual: &Expr, s: Slot) -> Option<Expr> {
-    if !contains(residual, s) {
-        return None;
-    }
-    let a = simplify(diff(residual, s));
-    if contains(&a, s) || a.any(&mut |x| matches!(x, Expr::Const(v) if v.is_nan())) {
-        return None;
-    }
-    if is_const(&a, 0.0) {
+    let (a, _) = split(residual, s)?;
+    let a = simplify(a?);
+    if is_const(&a, 0.0) || a.any(&mut |x| matches!(x, Expr::Const(v) if v.is_nan())) {
         return None;
     }
     Some(a)
