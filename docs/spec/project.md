@@ -37,6 +37,7 @@ own (and future versions add more), and keeps them when it saves.
 | `savedWith` | text or null | The LightSim version that last saved the file |
 | `card` | [Example card](#example-card) or null | What an example answers and what to expect from it; your own projects may have one too |
 | `attachments` | list of [Attached file](#attached-file) | Files kept with the project, such as FMUs or measured data |
+| `cycles` | list of [Drive cycle of the project's own](#drive-cycle-of-the-projects-own) | Drive cycles imported into this project from the user's files; left out of the file when there are none |
 | `noAi` | true or false, default false | true hides the project from AI tools, whatever folders they may see (see AI access in the [command-line reference](../help/reference/command-line.md#ai-access)) |
 
 Parameter studies are not in the project file: they are kept with the
@@ -64,6 +65,35 @@ carry a `studies` list; LightSim moves it to the runs when it opens the file.
 | `path` | text | Where it is, relative to the project: `resources/<name>` |
 | `sha256` | text, 64 hex digits | Its SHA-256 hash when it was attached, so a changed file is noticed |
 | `bytes` | whole number | Its size |
+
+### Drive cycle of the project's own
+
+A drive cycle imported from the user's own file (CSV or Excel), kept in the
+project file so the project carries it wherever it goes. A Driving Task or
+Road Profile names it in its `cycle` parameter by `id`, as it names a
+bundled cycle. Its points are given column by column: `x`, and `speed`
+and/or `grade` with one value per point.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | text, required | `own:` followed by 1 to 64 letters, digits, `.`, `_` or `-` (`own:my-commute`). The prefix keeps it apart from the bundled cycles' ids, now and in later versions |
+| `name` | text, required | The name shown in the Drive Cycle lists |
+| `axis` | `time` or `distance`, default `time` | What `x` is: the time since the run started, in s, or the distance the vehicle has driven, in m |
+| `x` | list of numbers, required | The points' time (s) or distance (m), never decreasing; a repeated value is a step. At most 100,000 points |
+| `speed` | list of numbers, or null | The target speed at each point, km/h, 0 or more. Required when `axis` is `time` |
+| `grade` | list of numbers, or null | The road's grade at each point, % (uphill positive). A Road Profile can take it |
+| `source` | text | Where the data came from, such as the file it was imported from |
+| `note` | text | A note of the user's |
+
+A cycle against time is driven like a bundled one; its grade, if it has
+one, is placed along the distance its speed covers. A Driving Task on a
+cycle against distance reads its speed against the distance the car has
+driven, whatever its Profile Axis (`mode`) says; a Road Profile takes a
+grade against distance as it is. A cycle with a grade but no speed can
+only serve a Road Profile. A reader that does not know `cycles` keeps
+the list when it saves the file, like any field it does not know; since
+no bundled id starts with `own:`, it then reports a part that names one
+as using a cycle it does not include, rather than driving another.
 
 ## System
 
@@ -118,9 +148,10 @@ from the library's defaults, in `parameterOverrides`.
   value → value, e.g. a motor's full-load torque by voltage, then speed.
 
 A Driving Task's `cycle` names a bundled drive cycle by id (`wltc-3b`,
-`udds`, `hwfet`; `GET /api/cycles`), which it drives instead of its typed
-`profile`. A `profile` is text: `time:speed` pairs in s and km/h,
-separated by `;`.
+`udds`, `hwfet`; `GET /api/cycles`) or one of the project's own
+([`cycles`](#drive-cycle-of-the-projects-own), `own:…`), which it drives
+instead of its typed `profile`. A `profile` is text: `time:speed` pairs in
+s and km/h, separated by `;`.
 
 ## Port
 

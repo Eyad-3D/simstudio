@@ -15,6 +15,7 @@ import math
 from collections import defaultdict
 from typing import Callable, Iterable
 
+from . import cycles
 from .fmu.block import COMPONENT_ID as FMU_COMPONENT
 from .fmu.block import problems as fmu_problems
 from .library import library_by_id
@@ -43,6 +44,7 @@ from .solver.network import (
     ROAD_LOAD_ABC,
     SIGNAL_BLOCK_TYPES,
     ports_of,
+    resolve_params,
 )
 from .solver.profiles import distance_axis, parse_profile
 from .solver.runtime import AMBIENT_C, AMBIENT_KPA, GRAVITY, MAX_SUBSTEP, RPM, air_density, ocv_mean
@@ -447,6 +449,12 @@ MODEL_FIXES = {
                                     "Converter.",
     "which this version of LightSim does not include": "In Properties, choose a Drive Cycle "
                                                        "from the list, or Custom profile.",
+    "which is not among this project's own cycles": "In Properties, choose a Drive Cycle from "
+                                                    "the list, or import the cycle again.",
+    "which cannot be driven": "Import the cycle again from its file (Drive Cycle → Import a "
+                              "cycle from a file…), or choose another.",
+    "which has a grade but no speed": "Choose a cycle with a speed for the Driving Task, and "
+                                      "this one for a Road Profile's Grade From Cycle.",
     "A lap case needs a Vehicle": "Add a Vehicle from the library (Vehicle).",
     "A lap case needs a Driver": "Add a Driver from the library (Vehicle).",
     "A lap case needs an E-Motor": "Connect an E-Motor to the wheels' driveline.",
@@ -736,6 +744,9 @@ CASE_MODEL_FIXES = {
     "which this version of LightSim does not include": "In Cases & Parameters, choose a Drive "
                                                        "Cycle from the list for this case, or "
                                                        "remove its own cycle.",
+    "which is not among this project's own cycles": "In Cases & Parameters, choose a Drive "
+                                                    "Cycle from the list for this case, or "
+                                                    "remove its own cycle.",
 }
 
 
@@ -823,6 +834,23 @@ def _distance_checks(project: Project, model: Model, add: Add) -> None:
     for good, and a case that ends after a number of laps needs one."""
     tasks = [e for e, c in model.cdef_of.items() if c.id == "signal.driving_task"]
     seen: set[str] = set()
+    catalogue = cycles.Catalogue.of(project)
+
+    def task_params(t: str, ov: dict | None) -> dict:
+        """A task's values as a run with the case's own values ``ov`` takes
+        them: from the part's own (not the model's, where its cycle has
+        replaced the profile), the case's profile beating the part's cycle,
+        and a cycle of the project's own against distance read against
+        distance, whatever the Profile Axis says (CON-11)."""
+        p = {**resolve_params(model.elements[t], model.cdef_of[t]), **(ov or {})}
+        if ov and "profile" in ov and "cycle" not in ov:  # a case's own profile wins
+            p["cycle"] = ""
+        cid = str(p.get("cycle") or "")
+        if cid and catalogue.is_own(cid) and catalogue.axis(cid) == "distance" \
+                and catalogue.has_speed(cid) and not catalogue.problems(cid):
+            return {**p, "cycle": "", "mode": "distance",
+                    "profile": catalogue.profile_text(cid)}
+        return p
 
     def once(level: str, text: str, el_id: str, fix: str, case: SimCase | None) -> None:
         if text not in seen:
@@ -836,15 +864,15 @@ def _distance_checks(project: Project, model: Model, add: Add) -> None:
             ov = overrides.get(t)
             if case is not None and not ov:
                 continue
-            p = {**model.params_of[t], **(ov or {})}
-            if ov and "profile" in ov and "cycle" not in ov:  # a case's own profile wins
-                p["cycle"] = ""
+            p = task_params(t, ov)
             if not distance_axis(p):
                 continue
             where = f" in case '{case.name}'" if case is not None else ""
             if p.get("cycle"):
+                name = catalogue.name(str(p["cycle"])) if catalogue.is_own(str(p["cycle"])) \
+                    else p["cycle"]
                 once("error", f"Driving Task '{label}'{where} drives the drive cycle "
-                              f"'{p['cycle']}', a speed against time, but its Profile Axis is "
+                              f"'{name}', a speed against time, but its Profile Axis is "
                               f"Distance.", t,
                      "Set its Profile Axis to Time, or pick Custom profile and type a speed "
                      "against distance.", case)
@@ -864,8 +892,8 @@ def _distance_checks(project: Project, model: Model, add: Add) -> None:
         if not case.endLaps or case.endLaps <= 0 or case.endDistance \
                 or case.kind not in ("cycle", "performance"):
             continue
-        p = ({**model.params_of[src[0]], **case.parameterOverrides.get(src[0], {})}
-             if src and src[0] in tasks else {})
+        p = task_params(src[0], case.parameterOverrides.get(src[0])) \
+            if src and src[0] in tasks else {}
         if not distance_axis(p):
             add("warning", f"Case '{case.name}' ends after {case.endLaps:g} laps, but the Driver "
                            f"does not follow a Driving Task whose Profile Axis is Distance, so "

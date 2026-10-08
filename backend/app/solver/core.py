@@ -162,6 +162,12 @@ def run_case(
                                    f"drive cycle: compare its "
                                    f"figures only with runs on the same profile, not with "
                                    f"published ones.")
+            elif cycles.Catalogue.of(project).is_own(str(task_p["cycle"])):
+                name = cycles.Catalogue.of(project).name(str(task_p["cycle"]))
+                rt.message("info", f"Driving Task '{model.elements[el_id].label}' drives "
+                                   f"'{name}', a drive cycle of this project's own, not a "
+                                   f"standard one: compare its figures only with runs on the "
+                                   f"same cycle, not with published ones.")
             elif why := cycles.not_as_published(task_p, t_end):
                 name = cycles.CYCLES.get(str(task_p["cycle"]), {}).get("name", task_p["cycle"])
                 rt.message("info", f"Driving Task '{model.elements[el_id].label}' drives {name} "
