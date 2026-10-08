@@ -29,7 +29,7 @@ use lsim_ir::{CmpOp, ComponentDef, EnergyDecl, Equation, EquationDecl, WhenActio
 /// `s` is the relative speed, `a` its rate, `f` the force (torque) through
 /// the element, `fc` the friction force's magnitude, `unit` a parameter of
 /// value 1 that gives the acceleration the force's units.
-fn friction_modes(s: &str, a: &str, f: &str, fc: &str, unit: &str) -> Vec<EquationDecl> {
+pub fn friction_mode_eqs(s: &str, a: &str, f: &str, fc: &str, unit: &str) -> Vec<EquationDecl> {
     let stuck = || n("stuck");
     vec![
         eq(
@@ -81,7 +81,7 @@ fn friction_modes(s: &str, a: &str, f: &str, fc: &str, unit: &str) -> Vec<Equati
 
 /// The discrete mode variables of a friction element, starting stuck when
 /// its relative speed starts at zero.
-fn friction_vars(s0: &str) -> Vec<lsim_ir::VarDecl> {
+pub fn friction_mode_vars(s0: &str) -> Vec<lsim_ir::VarDecl> {
     let mut stuck = discrete("stuck", "1", 0.0, "1 while it holds, 0 while it slides");
     stuck.start = Some(ite(and(ge(n(s0), c(0.0)), le(n(s0), c(0.0))), c(1.0), c(0.0)));
     let mut dir = discrete("dir", "1", 1.0, "the direction it slides in: +1 or -1");
@@ -89,21 +89,18 @@ fn friction_vars(s0: &str) -> Vec<lsim_ir::VarDecl> {
     vec![stuck, dir]
 }
 
-/// A Coulomb friction with stiction, to the fixed frame or between two
-/// flanges, of the connector `conn` (`Flange` or `TFlange`).
-pub fn friction(
-    name: &str,
-    doc: &str,
-    conn: &str,
-    two_sided: bool,
-    with_input: bool,
-) -> ComponentDef {
+/// The core of a Coulomb friction with stiction, to the fixed frame or
+/// between two flanges (`a`, `b`) of the connector `conn` (`Flange` or
+/// `TFlange`), with the friction force's magnitude `fc` (an expression of
+/// the definition's names; negative counts as 0). Its parameters are `s0`
+/// (the starting relative speed), `eps` and a unit carrier.
+pub fn friction_core(name: &str, doc: &str, conn: &str, two_sided: bool, fc: Expr) -> ComponentDef {
     let (across, through, au, fu, accu, unit_u) = match conn {
         "Flange" => ("w", "tau", "rad/s", "N.m", "rad/s2", "kg.m2"),
         _ => ("v", "f", "m/s", "N", "m/s2", "kg"),
     };
     let side = |p: &str, q: &str| format!("{p}.{q}");
-    let mut ports = if two_sided {
+    let ports = if two_sided {
         vec![
             port("a", conn, "side a (the friction force acts against its motion relative to b)"),
             port("b", conn, "side b"),
@@ -111,7 +108,7 @@ pub fn friction(
     } else {
         vec![port("flange", conn, "the part it acts on (against the fixed frame)")]
     };
-    let mut params = vec![
+    let params = vec![
         p("s0", au, 0.0, "the relative speed at the start (it starts stuck at 0)"),
         p(
             "eps",
@@ -126,19 +123,13 @@ pub fn friction(
             "unit carrier (value 1) giving the acceleration the force's units",
         ),
     ];
-    if with_input {
-        ports.push(input("fc", fu, "the friction force's magnitude (negative counts as 0)"));
-    } else {
-        params.push(p("f_max", fu, 0.0, "the friction force's magnitude"));
-    }
-    let fc_src = if with_input { n("fc") } else { n("f_max") };
     let mut vars = vec![
         state("s", au, 0.0, "relative speed (a - b, or of the part)"),
         var("acc", accu, "relative acceleration"),
         var("f_c", fu, "friction force magnitude, at least 0"),
     ];
     vars[0].start = Some(n("s0"));
-    vars.extend(friction_vars("s0"));
+    vars.extend(friction_mode_vars("s0"));
     let (f_into, speed_eq) = if two_sided {
         (
             side("a", through),
@@ -150,7 +141,7 @@ pub fn friction(
     let mut equations = vec![
         speed_eq,
         eq(n("acc"), der("s"), "the slip speed's rate"),
-        eq(n("f_c"), max(fc_src, c(0.0)), "the friction force's magnitude"),
+        eq(n("f_c"), max(fc, c(0.0)), "the friction force's magnitude"),
     ];
     if two_sided {
         equations.push(eq(
@@ -159,7 +150,7 @@ pub fn friction(
             "what it takes from a it gives to b",
         ));
     }
-    equations.extend(friction_modes("s", "acc", &f_into, "f_c", "unit_m"));
+    equations.extend(friction_mode_eqs("s", "acc", &f_into, "f_c", "unit_m"));
     let loss = n(&f_into) * n("s");
     ComponentDef {
         name: name.into(),
@@ -171,6 +162,26 @@ pub fn friction(
         energy: EnergyDecl { stored: None, loss: Some(loss) },
         ..Default::default()
     }
+}
+
+/// A Coulomb friction with stiction whose friction force is an input `fc`
+/// (`with_input`) or a parameter `f_max`.
+pub fn friction(
+    name: &str,
+    doc: &str,
+    conn: &str,
+    two_sided: bool,
+    with_input: bool,
+) -> ComponentDef {
+    let fu = if conn == "Flange" { "N.m" } else { "N" };
+    let fc = if with_input { n("fc") } else { n("f_max") };
+    let mut d = friction_core(name, doc, conn, two_sided, fc);
+    if with_input {
+        d.ports.push(input("fc", fu, "the friction force's magnitude (negative counts as 0)"));
+    } else {
+        d.params.push(p("f_max", fu, 0.0, "the friction force's magnitude"));
+    }
+    d
 }
 
 /// Rotational primitives.
