@@ -184,7 +184,10 @@ sections.
   season's rules): Autocross, a 979 m closed lap with a slalom, a hairpin
   and a chicane; Skidpad, the right and left circles on the lane centre
   (9.125 m); Acceleration 75 m; or Custom, from curvature and elevation
-  tables pasted into the track. A quasi-steady-state lap solver finds the
+  tables pasted into the track (its starter table is a closed 40 m radius
+  circle; Data Checks warn when a Closed Circuit does not end where it
+  starts, heading the same way, as a circuit or a figure eight does). A
+  quasi-steady-state lap solver finds the
   fastest speed about every metre from the tyres' grip (downforce, load
   transfer along and across the car, load sensitivity, friction ellipse)
   and the powertrain (the E-Motors' full-load curves through the gears,

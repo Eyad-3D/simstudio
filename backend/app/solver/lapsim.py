@@ -293,12 +293,14 @@ def problems(model: Model, output_every: int = 1) -> list[tuple[str, str, tuple[
             tr = load_track(tp)
             turn = math.degrees(tr.heading)
             gap = math.hypot(tr.x[-1] - tr.x[0], tr.y[-1] - tr.y[0])
-            if abs(abs(turn) - 360.0) > 5.0 or gap > 0.02 * tr.length:
+            # a closed lap ends where it starts, heading the same way: a circuit
+            # turns ±360°, a figure eight (the skidpad) 0°
+            if abs(turn - 360.0 * round(turn / 360.0)) > 5.0 or gap > 0.02 * tr.length:
                 out.append(("warning", f"Race Track '{label}' is a Closed Circuit, but its "
                                        f"curvature turns the car {turn:.0f}° and ends {gap:.0f} m "
-                                       f"from its start (a closed lap turns ±360° and ends where "
-                                       f"it starts): check the table, or untick Closed Circuit.",
-                            ()))
+                                       f"from its start (a closed lap ends where it starts, "
+                                       f"heading the same way): check the table, or untick "
+                                       f"Closed Circuit.", ()))
         length = pts[-1][0]
     else:
         length = sum(float(seg_len) for seg_len, _ in layouts()[layout]["segments"])

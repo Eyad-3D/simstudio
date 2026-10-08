@@ -4234,8 +4234,8 @@
           "type": "table1d",
           "axes": [{ "name": "Distance", "unit": "m", "outside": "error" }],
           "default": {
-            "0": 0,
-            "100": 0
+            "0": 0.025,
+            "251.327": 0.025
           },
           "description": "The Custom track's curvature (1 ÷ radius) at each distance along the line: positive turns left, negative right, 0 is straight. It must start at 0 m, be at least 10 m long and bend no tighter than 0.5 1/m (a 2 m radius).",
           "typical": "0 on straights · 0.1 1/m in a corner of 10 m radius, 0.03 1/m in one of about 33 m.",
@@ -4262,7 +4262,7 @@
           "unit": "-",
           "default": true,
           "type": "boolean",
-          "description": "Ticked: the Custom track is a circuit whose end joins its start, so each lap brakes for the next lap's first corner; Data Checks warn when its curvature does not turn it back to its start. Unticked: an open stretch, such as a sprint.",
+          "description": "Ticked: the Custom track is a circuit whose end joins its start, so each lap brakes for the next lap's first corner; Data Checks warn when its curvature does not bring it back to its start, heading the same way (a circuit turns once around, a figure eight not at all). Unticked: an open stretch, such as a sprint.",
           "typical": "Ticked for a circuit; unticked for a straight or a hill climb.",
           "whereToFind": "Your track."
         },

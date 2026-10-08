@@ -542,6 +542,27 @@ def test_a_custom_track_runs_and_its_closure_is_checked():
             if c.level == "warning" and "Closed Circuit" in c.text and "turns the car 180°" in c.text]
 
 
+def test_a_figure_eight_and_the_custom_default_close():
+    """A closed lap ends where it starts, heading the same way: the Skidpad
+    entered as a Custom table (a figure eight, a net turn of 0°) runs as the
+    built-in layout does, with no closure warning; so does the Custom
+    layout's default table with Closed Circuit ticked."""
+    skidpad = lapsim.layouts()["Skidpad"]
+    pts = lapsim._from_segments(skidpad["segments"], bool(skidpad["closed"]))
+    built_in = fs_car("Skidpad", 2)
+    custom = fs_car("Custom", 2)
+    trk = next(e for e in custom.systems[0].elements if e.id == "trk")
+    trk.parameterOverrides.update(curvature_table={f"{x:.6f}": k for x, k in pts}, closed=True)
+    result = simulate(custom, "case")
+    assert result.status == "success", [m.text for m in result.messages if m.level != "info"]
+    assert _rows(result)["Lap time"] == pytest.approx(_rows(simulate(built_in, "case"))["Lap time"],
+                                                      rel=1e-3)
+    assert not [c for c in validate_project(custom) if "Closed Circuit" in c.text]
+    default = fs_car("Custom")
+    assert not [c for c in validate_project(default) if "Closed Circuit" in c.text]
+    assert simulate(default, "case").status == "success"
+
+
 def test_old_projects_unchanged():
     """The refactors leave drive cycles exactly as they were: tyre_mu gives
     a wheel's own μ bit for bit without load sensitivity (the golden tests,
