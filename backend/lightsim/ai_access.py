@@ -313,14 +313,26 @@ class AgentSession:
         return self._call("run", {"source": str(source), "case": case, "confirmed": confirmed}, go)
 
     def edit(self, source: str, changes: dict[str, Any], confirmed: bool = False,
-             save_as: Optional[str] = None) -> Project:
+             save_as: Optional[str] = None, case: Optional[str] = None) -> Project:
         """Set parameters (``{"Vehicle.mass_kg": "1900 kg"}``) and save the
         project (or a copy, ``save_as``, which must also be in an allowed
         folder). Needs the user's confirmation; an example can only be saved
-        as a copy."""
+        as a copy. A case's own value of a parameter wins over the part's:
+        with ``case``, the values become that case's own; without, the
+        question names the cases that keep their own value."""
         def go():
             project = self._open(source)
             listing = ", ".join(f"{k} = {v}" for k, v in changes.items())
+            if case is not None:
+                listing += f" in case '{project.case(case).name}'"
+            else:
+                for ref in changes:
+                    el, pdef = project._param(ref)
+                    own = [c.name for c in project.cases
+                           if pdef.key in c.parameterOverrides.get(el.id, {})]
+                    if own:
+                        listing += (f" (cases {', '.join(repr(n) for n in own)} keep their "
+                                    f"own {ref})")
             target = Path(save_as) if save_as else project.path
             if target is None:
                 raise AccessDenied("An example cannot be changed: give save_as, a file in an "
@@ -329,11 +341,11 @@ class AgentSession:
                 raise AccessDenied(f"'{target}' is not in a folder AI tools may write to.")
             self.policy.require_edit(project, f"{listing}, saved to {target}", confirmed)
             for ref, value in changes.items():
-                project.set(ref, value)
+                project.set(ref, value, case=case)
             project.save(target)
             return project
         return self._call("edit", {"source": str(source), "changes": list(changes),
-                                   "saveAs": save_as, "confirmed": confirmed}, go)
+                                   "saveAs": save_as, "case": case, "confirmed": confirmed}, go)
 
 
 # -- the 'lightsim ai' command ------------------------------------------------------

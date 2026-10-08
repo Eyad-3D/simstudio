@@ -144,6 +144,11 @@ except ls.LightSimError as e:
     print(e)
 ```
 
+A case can set a value itself (the hybrid's cases set the battery's start
+charge), and a case's own value wins over the part's. `p.get(ref,
+case=...)` shows the value a case uses; to change it for that case, give
+the case: `p.set("HV Battery.initial_soc_pct", 70, case="EPA city (UDDS)")`.
+
 ### 8. Sweep a value in a loop
 
 ```python

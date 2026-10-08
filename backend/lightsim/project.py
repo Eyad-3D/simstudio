@@ -215,7 +215,11 @@ class Project:
         parameter's unit; text with a unit (``"150 kW"``, ``"0.15 MW"``) is
         converted and refused if the unit measures something else. Limits
         from the library are checked. With ``case``, the value is that
-        case's own (the part keeps its value for other cases)."""
+        case's own (the part keeps its value for other cases).
+
+        A case's own value wins over the part's: a run of a case that sets
+        this parameter itself (``get(ref, case=...)`` shows it) keeps using
+        its own value until you set it with ``case``."""
         el, pdef = self._param(ref)
         value = self._value(pdef, value)
         if case is None:

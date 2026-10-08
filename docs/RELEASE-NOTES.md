@@ -924,7 +924,8 @@ sections.
   `check`, `export`, `show`, `params`, `parts`, `examples`, `schema`,
   `notebook` and `version`, each with `--json`, and fixed exit codes for
   CI pipelines: 0 done, 1 Data Checks failed, 2 run not valid, 3 usage or
-  file error. Help → *Python API* and *Command-line tool*. (AI-02)
+  file error. `run --set` changes a value for that run, also where the
+  case sets its own. Help → *Python API* and *Command-line tool*. (AI-02)
 - Every run summary figure has a stable key next to its label, such as
   `distance_km` or `el-battery.final_soc_pct` (a part's figures are named
   after the part's id, so renaming the part keeps them); runs keep it,

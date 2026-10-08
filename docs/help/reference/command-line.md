@@ -45,7 +45,7 @@ text, and `-h` for its options.
 | `--case NAME`, `-c` | The case, by name or id |
 | `--all-cases` | Runs every case; put `{case}` in each `--out` name |
 | `--out FILE`, `-o` | Writes the results: `.csv`, `.mat` (MATLAB, Octave) or `.json`; repeat for several |
-| `--set PART.KEY=VALUE` | Changes a value for this run only, with its unit: `--set "Vehicle.mass_kg=1.9 t"` |
+| `--set PART.KEY=VALUE` | Changes a value for this run only, with its unit: `--set "Vehicle.mass_kg=1.9 t"`. It also replaces the case's own value, if the case sets one |
 | `--no-check` | Skips the Data Checks |
 | `--time-limit S` | Stops the run after S seconds of wall-clock time |
 

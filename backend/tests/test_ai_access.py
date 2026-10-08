@@ -117,6 +117,17 @@ def test_an_edit_needs_confirmation_and_changes_nothing_before(setup):
     assert ls.load(path).get("Vehicle.mass_kg") == pytest.approx(1900)
 
 
+def test_an_edit_names_the_cases_that_keep_their_own_value(setup):
+    session = AgentSession()
+    path = setup["allowed"] / "bev-car.json"
+    with pytest.raises(ConfirmationRequired, match="'WLTC, heating/air-con on'.* keep their own"):
+        session.edit(str(path), {"Power Consumer.power_kW": 5})
+    session.edit(str(path), {"Power Consumer.power_kW": 5}, case="case-wltc-hvac", confirmed=True)
+    p = ls.load(path)
+    assert p.get("Power Consumer.power_kW", case="case-wltc-hvac") == 5
+    assert p.get("Power Consumer.power_kW") != 5
+
+
 def test_an_edit_cannot_write_outside_the_allowed_folders(setup):
     session = AgentSession()
     with pytest.raises(AccessDenied, match="not in a folder"):
