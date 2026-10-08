@@ -57,8 +57,8 @@ _ALIASES: dict[str, str] = {
     "nm": "N·m", "n.m": "N·m", "n*m": "N·m", "n-m": "N·m", "n·m": "N·m", "n⋅m": "N·m",
     "knm": "kN·m", "kn.m": "kN·m", "kn·m": "kN·m", "lbft": "lbf·ft", "lbf.ft": "lbf·ft",
     "lb-ft": "lbf·ft", "ftlb": "lbf·ft", "ft-lb": "lbf·ft", "lbf·ft": "lbf·ft",
-    "kw": "kW", "w": "W", "mw": "MW", "hp": "hp", "bhp": "hp", "ps": "PS",
-    "kwh": "kWh", "wh": "Wh", "mwh": "MWh", "j": "J", "kj": "kJ", "mj": "MJ",
+    "kw": "kW", "w": "W", "hp": "hp", "bhp": "hp", "ps": "PS",
+    "kwh": "kWh", "wh": "Wh", "j": "J", "kj": "kJ",
     "v": "V", "kv": "kV", "volt": "V", "volts": "V",
     "a": "A", "ka": "kA", "amp": "A", "amps": "A", "ampere": "A",
     "ah": "Ah", "mah": "mAh",
@@ -75,7 +75,7 @@ _ALIASES: dict[str, str] = {
     "n": "N", "kn": "kN", "lbf": "lbf",
     "kpa": "kPa", "pa": "Pa", "bar": "bar", "mpa": "MPa", "psi": "psi",
     "1/m": "1/m", "m-1": "1/m", "1/km": "1/km",
-    "ohm": "Ω", "ω": "Ω", "mohm": "mΩ", "mω": "mΩ",
+    "ohm": "Ω", "ω": "Ω",
     "%": "%", "percent": "%", "pct": "%",
     "-": "-", "": "-", "1": "-",
 }
@@ -91,6 +91,15 @@ _SUFFIXES: dict[str, str] = {
     "s": "s", "m": "m", "km": "km", "min": "min", "h": "h",
 }
 
+# units where only the case of the first letter tells milli (mW) from mega
+# (MW), a factor of 10^9: never folded, read by that letter
+_MILLI_OR_MEGA: dict[str, str] = {"w": "W", "wh": "Wh", "j": "J", "ω": "Ω", "ohm": "Ω"}
+
+# headers that are units by themselves ("rpm", "kW") but not these: a
+# letter alone names a quantity as often as a unit (t, v, s, m, n), and
+# "min" is as often a minimum
+_NOT_A_BARE_UNIT = {"min"}
+
 _BRACKETS = re.compile(r"^(.*?)\s*[\[(]\s*([^\])]*?)\s*[\])]\s*$")
 _IN_UNIT = re.compile(r"^(.*?)\s+in\s+(\S+)\s*$", re.IGNORECASE)
 
@@ -103,6 +112,9 @@ def canonical(unit: str) -> str | None:
         return u
     key = u.lower().replace(" ", "").replace("²", "^2")
     key = key.replace("⋅", "·")
+    if key[:1] == "m" and key[1:] in _MILLI_OR_MEGA:
+        c = u[0] + _MILLI_OR_MEGA[key[1:]]
+        return c if c in GROUP_OF else None
     if key in _ALIASES:
         return _ALIASES[key]
     return None
@@ -112,7 +124,8 @@ def split_header(text: str) -> tuple[str, str | None, str | None]:
     """(name, unit, unit as written) of a column header.
 
     "speed [km/h]" -> ("speed", "km/h", "km/h"); "n (rpm)" -> ("n", "1/min",
-    "rpm"); "speed_meters_per_second" -> ("speed", "m/s", ...); "Torque" ->
+    "rpm"); "speed_meters_per_second" -> ("speed", "m/s", ...); a header that
+    is only a unit, "rad/s" -> ("rad/s", "rad/s", "rad/s"); "Torque" ->
     ("Torque", None, None). A bracketed unit this module does not know comes
     back as (name, None, written) so the caller can name it in a message.
     """
@@ -128,6 +141,10 @@ def split_header(text: str) -> tuple[str, str | None, str | None]:
     for suffix, unit in _SUFFIXES.items():
         if low.endswith("_" + suffix) and len(low) > len(suffix) + 1:
             return t[: -len(suffix) - 1], unit, t[-len(suffix):]
+    if (len(t) > 1 or not t.isalpha()) and low not in _NOT_A_BARE_UNIT:
+        unit = canonical(t)
+        if unit and unit != "-":
+            return t, unit, t
     return t, None, None
 
 

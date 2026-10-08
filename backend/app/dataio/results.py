@@ -57,9 +57,15 @@ class RunTable:
 
 
 def _iso(epoch_ms: int | float | None) -> Optional[str]:
+    """The time as ISO 8601 UTC, or None when there is none or it is out of
+    the range the platform's clock can show (a run file's startedAt is not
+    bounded)."""
     if not epoch_ms:
         return None
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch_ms / 1000))
+    try:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch_ms / 1000))
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _elements(project: Optional[Project]) -> dict[str, Any]:
@@ -246,8 +252,11 @@ def to_mat(rt: RunTable) -> bytes:
     for c in rt.columns:
         s = variables.setdefault(c.mat_struct, {"t": [_clean(x) for x in c.t]})
         if len(c.t) != len(s["t"]):
-            # a channel on its own time base keeps it next to it
-            s[matfile.identifier(c.mat_field + "_t")] = [_clean(x) for x in c.t]
+            # a channel on its own time base keeps it next to it (cut so
+            # that a long name keeps its "_t" and does not replace the channel)
+            t_name = matfile.identifier(c.mat_field[: matfile.MAX_NAME - 2] + "_t",
+                                        {k.lower() for k in s} | {c.mat_field.lower()})
+            s[t_name] = [_clean(x) for x in c.t]
         s[c.mat_field] = [_clean(v) for v in c.values]
         units.setdefault(c.mat_struct, {"t": "s"})[c.mat_field] = c.unit
         labels.setdefault(c.mat_struct, {"t": "Time"})[c.mat_field] = c.label

@@ -72,6 +72,7 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gzip
 import os
 import shutil
@@ -111,6 +112,7 @@ from . import (
     vehicle_tests,
 )
 from .dataio.api import router as dataio_router
+from .fileio import SAFE_ID
 from .fmu import info as fmu_info
 from .fmu import store as fmu_store
 from .library import load_library, unit_groups
@@ -394,7 +396,7 @@ def _revisions(header: str) -> list[str]:
 
 #: What GET /api/projects/{id} adds to a project, which is bookkeeping and
 #: never part of the file: a save drops it.
-BOOKKEEPING = ("revision", "readOnly", "upgradedFrom", "filePath")
+BOOKKEEPING = ("revision", "readOnly", "upgradedFrom", "filePath", "unstoredStudies")
 
 
 @app.get("/api/projects/{project_id}")
@@ -403,8 +405,11 @@ def get_project(project_id: str, response: Response) -> dict:
     Send it back on save (If-Match) so a save never overwrites newer work.
     Also `filePath` for a .lightsim file outside the projects folder,
     `upgradedFrom` when the file was in an older format (it is upgraded; the
-    next save writes the new format), and `readOnly` with the reason when the
-    file is from a newer LightSim and must not be saved over."""
+    next save writes the new format), `unstoredStudies` when such a file's
+    parameter studies could not be stored with its runs (a folder LightSim
+    cannot write to; the UI keeps them for the session), and `readOnly` with
+    the reason when the file is from a newer LightSim and must not be saved
+    over."""
     try:
         loaded = storage.load_project_file(project_id)
     except FileNotFoundError:
@@ -413,10 +418,12 @@ def get_project(project_id: str, response: Response) -> dict:
         raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    if loaded.studies:
-        run_store.adopt_studies(loaded.project.id, loaded.studies)
+    unstored = run_store.adopt_studies(loaded.project.id, loaded.studies) \
+        if loaded.studies else []
     response.headers["ETag"] = _etag(loaded.revision)
     extra: dict = {"revision": loaded.revision}
+    if unstored:
+        extra["unstoredStudies"] = unstored
     if loaded.location is not None and loaded.location.external:
         extra["filePath"] = str(loaded.location.file)
     if loaded.upgraded_from is not None:
@@ -462,6 +469,43 @@ def put_project(
     response: Response,
     if_match: str | None = Header(None),
     if_none_match: str | None = Header(None),
+) -> dict:
+    try:
+        saved = _put_project(project_id, body, response, if_match, if_none_match)
+    except BaseException:
+        # the first save after a Save As failed: the new file is not used
+        with contextlib.suppress(OSError):
+            files.cancel(project_id)
+        raise
+    _finish_save_as(project_id)
+    return saved
+
+
+def _finish_save_as(project_id: str) -> None:
+    """After the first save to a file chosen with Save As: list it in Recent
+    files, and move the runs of a project that was never saved beside it."""
+    try:
+        entry = files.confirm(project_id)
+    except OSError:
+        return  # the file is saved; Recent files could not be written
+    if entry is None or entry.runs_from is None:
+        return
+    new = storage.location(project_id)
+    src = entry.runs_from
+    if src != new.runs and src.is_dir() and not new.runs.exists():
+        try:
+            shutil.move(str(src), str(new.runs))
+            new.make_dir(new.runs)
+        except OSError:
+            pass  # the file is saved; its runs stay where they were
+
+
+def _put_project(
+    project_id: str,
+    body: dict,
+    response: Response,
+    if_match: str | None,
+    if_none_match: str | None,
 ) -> dict:
     # the revision GET returned is bookkeeping, never part of the file; a
     # client that sends it back in the body gets it checked like If-Match
@@ -715,30 +759,33 @@ def open_file(req: FileOpenRequest, request: Request) -> dict:
     return _file_info(entry, read.project.name)
 
 
-@app.post("/api/files/save-as", responses=_errors(e400="Not a .lightsim path, or an invalid project id", e403="Only the desktop shell names paths", e404="No such folder"))
+@app.post("/api/files/save-as", responses=_errors(e400="Not a .lightsim path, or an invalid project id", e403="Only the desktop shell names paths", e404="No such folder", e409="The project is a file from a newer LightSim (read-only)"))
 def save_file_as(req: FileSaveAsRequest, request: Request) -> dict:
-    """Remember the .lightsim file the user chose in the shell's Save dialog
-    for project `projectId`. Returns the id to save the project under (its
-    own, or a new one when the project is already saved elsewhere: then the
-    new file is a copy). Attached files are copied along; the runs of a
-    project that was never saved move with it. The page then saves (PUT)."""
+    """Note the .lightsim file the user chose in the shell's Save dialog for
+    project `projectId`. Returns the id to save the project under (its own,
+    or a new one when the project is already saved elsewhere: then the new
+    file is a copy). Attached files are copied along. The page then saves
+    (PUT): only when that save succeeds is the file on Recent files and do
+    the runs of a project that was never saved (`runsMoved`) move beside it;
+    a failed save leaves everything as it was. A project open read-only (a
+    file from a newer LightSim) is refused: a copy in this LightSim's format
+    could lose what the newer one wrote."""
     _shell_only(request)
     try:
         old = storage.location(req.projectId)
+        newer = storage.newer_file(req.projectId)
+        if newer is not None:
+            raise HTTPException(status_code=409, detail=str(newer))
         was_saved = old.file.exists()
-        entry = files.save_as(req.path, req.projectId)
+        runs_from = old.runs if not was_saved and old.runs.is_dir() else None
+        entry = files.save_as(req.path, req.projectId, runs_from)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Folder not found: {req.path}")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     new = storage.location(entry.id)
     attachments.copy_all(old, new)
-    runs_moved = False
-    if (not was_saved and old.runs != new.runs and old.runs.is_dir()
-            and not new.runs.exists()):
-        shutil.move(str(old.runs), str(new.runs))
-        new.make_dir(new.runs)
-        runs_moved = True
+    runs_moved = runs_from is not None and runs_from != new.runs and not new.runs.exists()
     return {**_file_info(entry), "runsMoved": runs_moved}
 
 
@@ -844,7 +891,9 @@ async def import_bundle(request: Request) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     project = read.project
-    if storage.location(project.id).file.exists() or files.lookup(project.id) is not None:
+    # an id no file name can carry (a hand-edited "my project") gets a new one
+    if (not SAFE_ID.fullmatch(project.id) or storage.location(project.id).file.exists()
+            or files.lookup(project.id) is not None):
         project.id = files.fresh_id(project.id)
     renamed: dict[str, str] = {}
     for name, content in resources.items():

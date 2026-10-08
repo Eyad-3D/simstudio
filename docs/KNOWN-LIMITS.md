@@ -848,7 +848,9 @@ minimum or an average, for example from the CSV export, or put the
   common units of speed, rotational speed, torque, power, energy,
   voltage, current, charge, mass, mass flow, distance, time, temperature,
   force, pressure, curvature and resistance. Other units (for example
-  kg·m² written as g·cm²) must be converted in the file first. A speed or
+  kg·m² written as g·cm²) must be converted in the file first. Milliwatts,
+  milliwatt-hours and millijoules (mW, mWh, mJ) are among them, and a
+  lower-case `mw` is refused rather than read as MW. A speed or
   grade without a unit is guessed from its values, and the preview asks
   you to confirm. *Roadmap:* STD-16.
 - **The parameter sheet does not hold scripts, case values or when a value
@@ -1026,7 +1028,10 @@ minimum or an average, for example from the CSV export, or put the
   - **Save As** a project that was already saved makes a copy with an id of
     its own; its runs and studies stay with the original.
   - Runs and backups always go next to the file; keeping them in the app's
-    own folder instead is not a setting yet.
+    own folder instead is not a setting yet. In a folder LightSim cannot
+    write to (a read-only course folder or share), an older file's
+    parameter studies are shown for the session only, and runs are not
+    stored on disk.
   *Roadmap:* PLT-33.
 - **Attached files are kept, not used yet.** A project can carry files
   (Project → Attached): they are copied into its resources folder, travel

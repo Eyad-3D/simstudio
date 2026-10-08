@@ -133,8 +133,13 @@ class ImportResult:
     errors: list[Problem] = field(default_factory=list)
     warnings: list[Problem] = field(default_factory=list)
     #: the imported points in the parameter's units, for the preview chart:
-    #: [[x, y], ...] or, for a map, {"cols": [...], "rows": [...], "values": [[...]]}
+    #: [[x, y], ...] or, for a map, {"cols": [outer], "rows": [inner],
+    #: "values": [[...]]} with values[row][col]
     preview: Any = None
+    #: a CSV file's decimal mark as read ("comma" or "point"), and the
+    #: question when its cells do not show it (sheets.Sheet)
+    decimal: Optional[str] = None
+    decimal_question: Optional[str] = None
 
     def as_dict(self) -> dict:
         ok = not self.errors
@@ -148,6 +153,7 @@ class ImportResult:
             "valueName": self.target.value.name, "valueUnit": self.target.value.unit,
             "notes": self.notes, "errors": [p.as_dict() for p in self.errors],
             "warnings": [p.as_dict() for p in self.warnings], "preview": self.preview,
+            "decimal": self.decimal, "decimalQuestion": self.decimal_question,
         }
 
 
@@ -521,7 +527,10 @@ def _read_2d(sheet: Sheet, target: Target, opts: dict) -> ImportResult:
             row_hint, col_hint = _hint(parts[0]), _hint(parts[1])
         else:
             h = _hint(str(corner))
-            val_hint = h
+            # a unit of an axis alone ("rpm") labels that axis, not the values
+            if not (h[1] and not U.same_group(h[1], target.value.unit)
+                    and _axis_for(h[0], h[1], target.axes) is not None):
+                val_hint = h
     above = [str(g.get(rr, c)) for rr in range(max(g.r0, hr - 3), hr)
              for c in range(hc, col_axis[-1] + 1) if _text(g.get(rr, c))]
     left = [str(g.get(rr, c)) for rr in row_axis for c in range(max(g.c0, hc - 2), hc)
@@ -546,19 +555,27 @@ def _read_2d(sheet: Sheet, target: Target, opts: dict) -> ImportResult:
     transpose = opts.get("transpose")
     if transpose is None:
         transpose = False
-        votes = []
-        if col_hint:
-            votes.append(_axis_for(col_hint[0], col_hint[1], target.axes) == 1)
-        if row_hint:
-            votes.append(_axis_for(row_hint[0], row_hint[1], target.axes) == 0)
+        # each label votes "swap" (True) or "as it is" (False); a label
+        # LightSim does not recognise abstains (None)
+        votes: list[Optional[bool]] = []
+        for hint, swapped_axis in ((col_hint, 1), (row_hint, 0)):
+            if hint:
+                idx = _axis_for(hint[0], hint[1], target.axes)
+                votes.append(None if idx is None else idx == swapped_axis)
         sure = [v for v in votes if v is not None]
+        as_read = (f"columns read as {outer.name.lower()}, rows as {inner.name.lower()}. "
+                   "Swap them if that is wrong.")
         if sure and all(sure):
             transpose = True
             res.notes.append(f"The file's columns hold {inner.name.lower()}, so rows and "
                              "columns were swapped to match LightSim's map.")
+        elif any(sure):
+            res.notes.append("The axis labels disagree (they name the same quantity): "
+                             + as_read)
         elif not votes:
-            res.notes.append(f"No axis labels found: columns read as {outer.name.lower()}, "
-                             f"rows as {inner.name.lower()}. Swap them if that is wrong.")
+            res.notes.append("No axis labels found: " + as_read)
+        elif not sure:
+            res.notes.append("The axis labels do not say which axis is which: " + as_read)
     res.transpose = bool(transpose)
     file_cols_q, file_rows_q = (inner, outer) if transpose else (outer, inner)
 
@@ -674,4 +691,5 @@ def import_table(sheet: Sheet, target: Target, opts: Optional[dict] = None) -> I
     res = _read_2d(sheet, target, opts) if target.kind == "table2d" else \
         _read_1d(sheet, target, opts)
     res.notes = sheet.notes + res.notes
+    res.decimal, res.decimal_question = sheet.decimal, sheet.question
     return res

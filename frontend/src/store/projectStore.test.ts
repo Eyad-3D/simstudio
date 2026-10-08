@@ -1969,6 +1969,16 @@ describe("project files (PLT-07, PLT-33, STD-02)", () => {
     expect(messages()).toContain("info: Project 'Fixture' saved to /repo/car.lightsim.");
   });
 
+  it("keeps an old file's studies for the session when they cannot be stored with its runs", async () => {
+    await store().init();
+    const study = { id: "sweep-1", startedAt: 1, caseId: "c", factors: [], kpis: [], points: [] } as unknown as Study;
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1", upgradedFrom: 1, unstoredStudies: [study] });
+    await store().openProject("fixture");
+    expect(store().studies.map((s) => s.id)).toEqual(["sweep-1"]);
+    expect(store().project).not.toHaveProperty("unstoredStudies");
+    expect(messages().some((m) => m.startsWith("warning: 1 parameter study of 'Fixture' could not be stored"))).toBe(true);
+  });
+
   it("Save As saves under the id the shell gives and points at the new file", async () => {
     await start();
     const saveFileAs = vi.fn().mockResolvedValue({ id: "fixture-a1b2c3", path: "/repo/copy.lightsim", name: "copy" });
@@ -1982,6 +1992,12 @@ describe("project files (PLT-07, PLT-33, STD-02)", () => {
       expect(store().project!.id).toBe("fixture-a1b2c3");
       saveFileAs.mockResolvedValueOnce(null); // cancelled
       expect(await store().saveAs()).toBe(false);
+      // a file from a newer LightSim is read-only: no Save As either
+      saveFileAs.mockClear();
+      useProjectStore.setState({ readOnly: "This project was saved by LightSim 9.0.0." });
+      expect(await store().saveAs()).toBe(false);
+      expect(saveFileAs).not.toHaveBeenCalled();
+      expect(messages()).toContain("error: Not saved: This project was saved by LightSim 9.0.0.");
     } finally {
       delete window.lightsimDesktop;
     }

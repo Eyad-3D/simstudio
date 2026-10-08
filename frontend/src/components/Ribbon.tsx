@@ -336,7 +336,12 @@ function HomeTab() {
           <BigButton
             icon={SaveAll}
             label="Save As…"
-            title="Save the project as a .lightsim file in a folder you choose (Ctrl+Shift+S)"
+            title={
+              store.readOnly
+                ? "This file is from a newer LightSim and opens read-only: install that version to save it"
+                : "Save the project as a .lightsim file in a folder you choose (Ctrl+Shift+S)"
+            }
+            disabled={Boolean(store.readOnly)}
             onClick={() => void store.saveAs()}
           />
         )}

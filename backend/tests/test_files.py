@@ -100,7 +100,30 @@ def test_a_reopened_file_finds_its_runs_and_is_on_recent_files(repo):
     # taken off Recent files, the file itself stays
     assert client.delete("/api/files/team-car").status_code == 200
     assert client.get("/api/files").json() == [] and path.is_file()
-    assert client.get("/api/projects/team-car").status_code == 404
+    assert client.delete("/api/files/team-car").status_code == 404
+    # opened again, it is back on the list under the same id, with its runs
+    assert _open(path)["id"] == "team-car"
+    assert [f["id"] for f in client.get("/api/files").json()] == ["team-car"]
+    assert [r["id"] for r in client.get("/api/projects/team-car/runs").json()] == ["run-1"]
+
+
+def test_taking_the_open_file_off_recent_files_keeps_saving_to_it(repo, projects):
+    path = _write(repo / "car.lightsim", {**_example(), "id": "team-car"})
+    _open(path)
+    body = client.get("/api/projects/team-car").json()
+    rev = body.pop("revision")
+    for key in ("filePath", "upgradedFrom"):
+        body.pop(key, None)
+    assert client.delete("/api/files/team-car").status_code == 200
+    # the window that has it open: no "deleted on disk", and Save writes the file
+    assert client.get("/api/projects/team-car/revision").json() == {"revision": rev}
+    body["name"] = "Team car"
+    _save(body, rev)
+    assert json.loads(path.read_text(encoding="utf-8"))["name"] == "Team car"
+    assert not (projects / "team-car.json").exists()
+    assert client.get("/api/files").json() == []
+    # an app restart reads the hidden entry from disk too
+    assert files.lookup("team-car") == path and files.recent() == []
 
 
 def test_a_copy_whose_id_is_taken_gets_its_own(repo, projects):
@@ -165,6 +188,77 @@ def test_save_as_moves_a_new_projects_runs_and_copies_a_saved_one(repo, projects
                                                   "projectId": "a"}).status_code == 404
     assert client.post("/api/files/save-as", json={"path": str(repo / "x.json"),
                                                   "projectId": "a"}).status_code == 400
+
+
+def test_a_save_as_whose_save_fails_leaves_everything_as_it_was(repo, projects):
+    # a never-saved project with a run; Save As to a file, then the save fails
+    assert client.put("/api/projects/fresh/runs/run-1", json=_run("run-1")).status_code == 200
+    target = repo / "fresh.lightsim"
+    res = client.post("/api/files/save-as", json={"path": str(target), "projectId": "fresh"})
+    assert res.status_code == 200 and res.json()["runsMoved"] is True
+    assert client.get("/api/files").json() == [], "not on Recent files before it is written"
+    newer = {**_example(), "id": "fresh", "schemaVersion": 99}
+    assert client.put("/api/projects/fresh", json=newer).status_code == 409
+    assert not target.exists() and client.get("/api/files").json() == []
+    assert files.lookup("fresh") is None, "the project is where it was"
+    assert (projects / "runs" / "fresh").is_dir() and not (repo / "fresh.lightsim-runs").exists()
+    assert [r["id"] for r in client.get("/api/projects/fresh/runs").json()] == ["run-1"]
+    # a Save As over a file open under another id keeps that file's id if it fails
+    other = _write(repo / "other.lightsim", {**_example(), "id": "other"})
+    _open(other)
+    res = client.post("/api/files/save-as", json={"path": str(other), "projectId": "fresh"})
+    assert client.put("/api/projects/fresh", json=newer).status_code == 409
+    assert files.lookup("other") == other
+    assert [f["id"] for f in client.get("/api/files").json()] == ["other"]
+
+
+def test_a_file_from_a_newer_lightsim_cannot_be_saved_as(repo):
+    path = _write(repo / "newer.lightsim", {**_example(), "id": "newer", "schemaVersion": 99,
+                                            "savedWith": "9.0.0"})
+    _open(path)
+    body = client.get("/api/projects/newer").json()
+    assert "LightSim 9.0.0" in body["readOnly"]
+    copy = repo / "copy.lightsim"
+    res = client.post("/api/files/save-as", json={"path": str(copy), "projectId": "newer"})
+    assert res.status_code == 409 and "LightSim 9.0.0" in res.json()["detail"]
+    assert not copy.exists()
+    assert [f["path"] for f in client.get("/api/files").json()] == [str(path)]
+
+
+V1_WITH_STUDIES = Path(__file__).parent / "fixtures" / "migrations" / "v1-with-studies.json"
+
+
+@pytest.mark.parametrize("blocked", ["file", "permission"])
+def test_an_old_file_opens_from_a_folder_lightsim_cannot_write_to(tmp_path, monkeypatch, blocked):
+    share = tmp_path / "share"
+    share.mkdir()
+    path = share / "car.lightsim"
+    path.write_bytes(V1_WITH_STUDIES.read_bytes())
+    pid = _open(path)["id"]
+    if blocked == "file":  # something else has the runs folder's name
+        (share / "car.lightsim-runs").write_text("not a folder")
+    else:  # a read-only share
+        real_mkdir = Path.mkdir
+
+        def mkdir(self, *a, **k):
+            if share in self.parents:
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_mkdir(self, *a, **k)
+        monkeypatch.setattr(Path, "mkdir", mkdir)
+    res = client.get(f"/api/projects/{pid}")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["upgradedFrom"] == 1 and "studies" not in body
+    want = [s["id"] for s in json.loads(V1_WITH_STUDIES.read_text(encoding="utf-8"))["studies"]]
+    assert [s["id"] for s in body["unstoredStudies"]] == want
+    assert client.get(f"/api/projects/{pid}/studies").json() == []
+    assert path.read_bytes() == V1_WITH_STUDIES.read_bytes(), "opening never writes the file"
+    if blocked == "file":
+        # the list rides along as bookkeeping: a save leaves it out of the file
+        rev = body.pop("revision")
+        res = client.put(f"/api/projects/{pid}", json=body, headers={"If-Match": f'"{rev}"'})
+        assert res.status_code == 200, res.text
+        assert "unstoredStudies" not in json.loads(path.read_text(encoding="utf-8"))
 
 
 def test_a_change_on_disk_shows_in_the_revision_and_blocks_a_stale_save(repo):

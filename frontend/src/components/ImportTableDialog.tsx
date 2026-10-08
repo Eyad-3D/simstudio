@@ -218,6 +218,19 @@ function ImportTableDialog({
                     </label>
                   </>
                 )}
+                {result.decimal && (result.decimalQuestion || options.decimal) && (
+                  <label className="flex flex-col gap-0.5">
+                    <span className="text-[11px] text-[color:var(--ss-text-dim)]">Decimal mark</span>
+                    <select
+                      className="ss-input"
+                      value={result.decimal}
+                      onChange={(e) => set({ decimal: e.target.value as "comma" | "point" })}
+                    >
+                      <option value="comma">comma (1,5 = 1.5; 1.000 = 1000)</option>
+                      <option value="point">point (1.5; 1,000 = 1000)</option>
+                    </select>
+                  </label>
+                )}
                 {result.kind === "table2d" && (
                   <label className="flex items-center gap-1 pb-1">
                     <input
@@ -252,6 +265,11 @@ function ImportTableDialog({
                     </label>
                   ))}
                 </div>
+              )}
+              {result.decimalQuestion && (
+                <p className="rounded border border-[color:var(--ss-warning,#b58900)] px-2 py-1">
+                  {result.decimalQuestion} Change the decimal mark above if that is wrong.
+                </p>
               )}
               {Object.values(result.units)
                 .filter((u) => u.question)
@@ -313,7 +331,7 @@ const fmt = (v: number) => (Math.abs(v) >= 1000 ? v.toLocaleString("en", { maxim
 
 /** What will be stored: a 1-D table or profile as a small line chart, a map
  *  as its first rows and columns. */
-function Preview({ result }: { result: api.TableImport }) {
+export function Preview({ result }: { result: api.TableImport }) {
   const p = result.preview;
   if (!p) return null;
   if (Array.isArray(p)) {
@@ -384,7 +402,7 @@ function Preview({ result }: { result: api.TableImport }) {
               <th className="border border-[color:var(--ss-border)] px-1">{fmt(r)}</th>
               {cols.map((_, j) => (
                 <td key={j} className="border border-[color:var(--ss-border)] px-1 text-right">
-                  {fmt(p.values[j][i])}
+                  {fmt(p.values[i][j])}
                 </td>
               ))}
             </tr>

@@ -43,6 +43,9 @@ export type StoredProject = Project & {
   filePath?: string;
   upgradedFrom?: number;
   readOnly?: string;
+  /** an older file's studies that could not be stored with its runs (a
+   *  folder LightSim cannot write to): kept for the session */
+  unstoredStudies?: Study[];
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -923,9 +926,14 @@ export interface TableImport {
   notes: string[];
   errors: ImportProblem[];
   warnings: ImportProblem[];
-  /** [[x, y], …] or a map's {cols, rows, values} in the parameter's units */
+  /** [[x, y], …] or a map's {cols, rows, values} in the parameter's units:
+   *  cols are the outer axis, rows the inner one, values[row][col] */
   preview: [number, number][] | { cols: number[]; rows: number[]; values: number[][] } | null;
   target: string;
+  /** a CSV file's decimal mark as read (null for a workbook) */
+  decimal: "comma" | "point" | null;
+  /** set when the file's cells do not show its decimal mark (1,000 is 1 or 1000) */
+  decimalQuestion: string | null;
 }
 
 export interface TableImportOptions {
@@ -935,6 +943,8 @@ export interface TableImportOptions {
   yColumn?: number;
   transpose?: boolean;
   units?: Record<string, string>;
+  /** a CSV file's decimal mark (default: as its cells show) */
+  decimal?: "comma" | "point";
 }
 
 export function importTableFile(

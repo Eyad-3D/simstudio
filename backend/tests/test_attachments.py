@@ -159,6 +159,23 @@ def test_an_imported_bundle_never_mixes_with_a_project_of_the_same_id(projects):
     assert client.post("/api/bundle/import", content=b"not a zip").status_code == 400
 
 
+@pytest.mark.parametrize("bad_id", ["my project", "team/car", "../car", "x" * 200, ""])
+def test_a_bundle_whose_project_id_no_file_name_can_carry_gets_a_new_one(projects, bad_id):
+    project = {**_example(bad_id), "attachments": [
+        {"path": "resources/data.csv", "sha256": hashlib.sha256(CSV).hexdigest(), "bytes": len(CSV)}]}
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("project.json", json.dumps(project))
+        z.writestr("resources/data.csv", CSV)
+    res = client.post("/api/bundle/import", content=buf.getvalue())
+    assert res.status_code == 200, res.text
+    got = res.json()["project"]["id"]
+    assert storage.SAFE_ID.fullmatch(got) and got != bad_id
+    if bad_id == "my project":
+        assert got.startswith("my-project-")
+    assert attachments.read(got, "resources/data.csv") == CSV
+
+
 def test_save_as_takes_the_attached_files_along(tmp_path):
     project = {**_example("car"), "attachments": [_ref(_attach("car", "motor.fmu", FMU))]}
     assert client.put("/api/projects/car", json=project).status_code == 200

@@ -97,6 +97,36 @@ def test_matlab_names_are_valid_and_unique():
     assert len(matfile.identifier("a" * 100)) == 63
     with pytest.raises(ValueError):
         matfile.mat_bytes({"not valid": 1})
+    # a long name cut where a space was does not end in "_"
+    long = "Front Axle Electric Drive Unit with Motor, Inverter and Gearbox 2"
+    name = matfile.identifier(long)
+    assert name == "Front_Axle_Electric_Drive_Unit_with_Motor_Inverter_and_Gearbox"
+    assert matfile.identifier(name) == name
+    again = matfile.identifier(long, {name.lower()})
+    assert again.endswith("_2") and len(again) <= 63 and "__" not in again
+    assert _load(matfile.mat_bytes({name: {name: 1.0}}))[name] == {name: 1.0}
+
+
+def test_a_part_with_a_70_character_name_exports_as_mat():
+    run = _run("bev-car", "case-city", seconds=3)
+    label = "Front Axle Electric Drive Unit with Motor, Inverter and Gearbox 2 (rear)"
+    assert len(label) >= 70
+    motor = next(e for e in run.snapshot.project.systems[0].elements if e.id == "el-motor")
+    motor.label = label
+    long_field = "Shaft Torque measured at the gearbox input, filtered " + "x" * 20
+    torque = [c for c in run.result.channels if c.elementId == "el-motor"][1]
+    torque.label = f"{label} · {long_field}"
+    torque.timeSeries = torque.timeSeries[::2]  # a time base of its own
+    r = client.post("/api/export/run?format=mat", content=run.model_dump_json(),
+                    headers={"Content-Type": "application/json"})
+    assert r.status_code == 200
+    m = _load(r.content)
+    part = m["Front_Axle_Electric_Drive_Unit_with_Motor_Inverter_and_Gearbox"]
+    fields = [f for f in part if f.startswith("Shaft_Torque_measured")]
+    assert len(fields) == 2 and any(f.endswith("_t") for f in fields)
+    values, times = sorted(fields, key=lambda f: f.endswith("_t"))
+    assert list(part[times]) == [p["t"] for p in torque.timeSeries]
+    assert list(part[values]) == [p["value"] for p in torque.timeSeries]
 
 
 def test_matrices_cells_and_struct_arrays_read_back():
@@ -147,6 +177,17 @@ def test_a_run_without_a_snapshot_still_exports():
     m = _load(results.to_mat(results.table(bare)))
     assert len(m["meta"]["project"]) == 0  # an empty text
     assert "Vehicle" in m
+
+
+@pytest.mark.parametrize("started", [4501005553985130082304, -10**20, 10**15])
+def test_a_start_time_out_of_range_still_exports(started):
+    run = _run("bev-car", "case-city", seconds=2).model_copy(update={"startedAt": started})
+    for fmt in ("mat", "csv", "json"):
+        r = client.post(f"/api/export/run?format={fmt}", content=run.model_dump_json(),
+                        headers={"Content-Type": "application/json"})
+        assert r.status_code == 200, fmt
+    card = json.loads(results.run_card_json(results.table(run)))
+    assert card["run"]["startedAt"] in (None, "33658-09-27T01:46:40Z")
 
 
 def test_stored_runs_export_over_the_api(tmp_path, monkeypatch):
