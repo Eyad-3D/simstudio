@@ -67,8 +67,15 @@ const child = spawn(
     cwd: backend,
     stdio: "inherit",
     // LIGHTSIM_DEV_FILE_PATHS: the tests act as the desktop shell, which
-    // alone names .lightsim file paths (backend/app/security.py)
-    env: { ...process.env, LIGHTSIM_PROJECTS_DIR: projects, LIGHTSIM_STATIC_DIR: dist, LIGHTSIM_DEV_FILE_PATHS: "1" },
+    // alone names .lightsim file paths (backend/app/security.py); Connect an
+    // AI assistant writes AI apps' settings: into the temp folder
+    env: {
+      ...process.env,
+      LIGHTSIM_PROJECTS_DIR: projects,
+      LIGHTSIM_STATIC_DIR: dist,
+      LIGHTSIM_DEV_FILE_PATHS: "1",
+      LIGHTSIM_AI_CONFIG_HOME: join(projects, ".ai-apps"),
+    },
   },
 );
 console.log(`engine pid ${child.pid} on http://127.0.0.1:${port} (projects in ${projects})`);

@@ -17,6 +17,8 @@ datas = [
     ("projects/*.json", "projects"),  # not projects/runs/: a dev's stored runs
     ("projects/reference/*.json", "projects/reference"),  # examples' stored results (CON-15)
     ("../VERSION", "."),  # single source of truth, read by app/version.py
+    # the skill pack for AI assistants, served by `lightsim-backend mcp` (AI-08)
+    ("app/ai/skills", "app/ai/skills"),
 ]
 binaries = []
 
@@ -40,6 +42,9 @@ hiddenimports += collect_submodules("websockets")
 # which reaches the engine through importlib (lightsim/_engine.py): name its
 # modules so the scanner keeps them all.
 hiddenimports += collect_submodules("lightsim")
+# `lightsim-backend mcp` (app/ai) is imported only when that command runs;
+# list it so the frozen build carries it and the MCP wire types it uses.
+hiddenimports += collect_submodules("app.ai") + collect_submodules("mcp_types")
 
 # GNU Readline is GPL-3.0: on Linux the stdlib readline module would pull
 # libreadline into the bundle, which a proprietary app cannot ship. Nothing

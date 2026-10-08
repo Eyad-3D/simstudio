@@ -2,7 +2,9 @@ import { useRef, useState } from "react";
 import {
   AArrowDown,
   AArrowUp,
+  Bot,
   CheckCircle2,
+  ClipboardCopy,
   CircleHelp,
   Copy,
   Download,
@@ -773,6 +775,70 @@ function RestoreVersionButton() {
   );
 }
 
+/** Copy for AI (AI-30): a short Markdown summary of the model and its last
+ *  run on the clipboard, to paste into any chatbot. Nothing is sent. */
+function CopyForAi() {
+  const [hide, setHide] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const copy = async () => {
+    const s = useProjectStore.getState();
+    if (!s.project) return;
+    const finished = s.runs.filter((r) => r.status !== "running");
+    const run = finished.find((r) => r.id === s.activeRunId) ?? finished.find((r) => !r.sweepId);
+    try {
+      const { text, bytes } = await api.aiOverview(s.project, run, hide);
+      await copyText(text);
+      const kb = (bytes / 1024).toFixed(1);
+      setDone(`Copied (${kb} KB)`);
+      s.log("info", `Copy for AI: a ${kb} KB summary of the model${run ? ` and its run of '${run.caseName}'` : ""} is on the clipboard${hide ? ", numbers hidden" : ""}. Paste it into any chatbot; LightSim sent nothing.`);
+      window.setTimeout(() => setDone(null), 4000);
+    } catch (e) {
+      s.log("error", `Copy for AI failed: ${(e as Error).message ?? e}`);
+    }
+  };
+  return (
+    <div className="flex items-center gap-1">
+      <BigButton
+        icon={ClipboardCopy}
+        label={done ? "Copied" : "Copy for AI"}
+        title="Copy a short summary of the model and its last run, to paste into an AI chatbot (nothing is sent)"
+        onClick={() => void copy()}
+      />
+      <label className="flex flex-col items-start gap-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
+        <span className="flex items-center gap-1">
+          <input type="checkbox" checked={hide} onChange={(e) => setHide(e.target.checked)} />
+          Hide values
+        </span>
+        <span role="status" className="min-h-[14px]">{done ?? ""}</span>
+      </label>
+      <BigButton
+        icon={Bot}
+        label="Connect AI"
+        title="Connect an AI assistant (Claude, Copilot, Codex, Gemini, Cursor) to LightSim"
+        onClick={() => useUIStore.getState().setAiConnectOpen(true)}
+      />
+    </div>
+  );
+}
+
+/** The clipboard API, with the old copy command where it is not allowed. */
+async function copyText(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    if (!ok) throw new Error("the clipboard is not available");
+  }
+}
+
 function ProjectTab() {
   const project = useProjectStore((s) => s.project);
   const renameSystem = useProjectStore((s) => s.renameSystem);
@@ -811,6 +877,9 @@ function ProjectTab() {
         <AttachmentsButton />
       </RibbonGroup>
       <ProjectFileNote />
+      <RibbonGroup label="AI assistants">
+        <CopyForAi />
+      </RibbonGroup>
     </>
   );
 }

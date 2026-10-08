@@ -18,6 +18,10 @@ import uvicorn
 
 def main(argv: list[str] | None = None) -> int:
     args_in = sys.argv[1:] if argv is None else argv
+    if args_in[:1] == ["mcp"]:  # the AI assistants' connection over stdio (app/ai/cli.py)
+        from .ai.cli import main as mcp_main
+
+        return mcp_main(args_in[1:])
     if args_in and not args_in[0].startswith("-"):
         from lightsim.cli import main as cli_main  # the command-line tool
 

@@ -59,6 +59,12 @@ Endpoints:
   WS   /api/studies/run        the same, streaming each point as it ends,
                                accepts cancel
   Results export, table and parameter-sheet import: app/dataio/api.py
+  POST /api/ai/overview        the Markdown summary Copy for AI puts on the
+                               clipboard (the MCP lightsim_overview text)
+  GET  /api/ai/connect         the AI apps LightSim is set up in, and when an
+                               assistant last used it
+  PUT  /api/ai/connect/{client}    add LightSim to that AI app's MCP settings
+  DELETE /api/ai/connect/{client}  remove it again
 """
 from __future__ import annotations
 
@@ -107,6 +113,7 @@ from .library import load_library, unit_groups
 from .migrations import NewerFileError
 from .paths import static_dir
 from .schemas import (
+    AiConnection,
     CalibrateRequest,
     DataCheck,
     ErrorDetail,
@@ -114,6 +121,8 @@ from .schemas import (
     FmuRef,
     LabelEstimateRequest,
     LapLogRequest,
+    OverviewRequest,
+    OverviewText,
     Project,
     SimResult,
     SimulateRequest,
@@ -908,6 +917,83 @@ def run_vehicle_tests(req: VehicleTestsRequest) -> dict:
         return vehicle_tests.run_tests(req.project, req.tests)
     except vehicle_tests.TestSetupError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
+
+
+# An error answer as FastAPI sends it, for the routes below to declare.
+_ERROR = {"content": {"application/json": {"schema": {
+    "type": "object", "properties": {"detail": {"type": "string"}}, "required": ["detail"]}}}}
+
+
+@app.post("/api/ai/overview", responses={400: {"description": "Unreadable request body", **_ERROR}})
+def ai_overview(req: OverviewRequest) -> OverviewText:
+    """Copy for AI (AI-30): nothing is sent anywhere; the UI copies the text."""
+    from .ai.overview import model_overview
+
+    run = None
+    if req.run is not None:
+        run = {"caseName": req.run.caseName, "status": req.run.status,
+               "incomplete": req.run.incomplete,
+               "result": {"summary": [s.model_dump() for s in req.run.summary],
+                          "messages": [m.model_dump() for m in req.run.messages]}}
+    text = model_overview(req.project, run=run, checks=validate_project(req.project),
+                          hide_values=req.hideValues)
+    return OverviewText(text=text, bytes=len(text.encode("utf-8")))
+
+
+def _ai_connection() -> AiConnection:
+    from .ai import install
+    from .ai.access import last_audit_entry
+    from .paths import projects_dir
+
+    return AiConnection(
+        command=install.server_command(),
+        warning=install.command_warning(),
+        clients=[{"id": k, "title": c.title, "installed": install.is_installed(k),
+                  "configPath": str(c.config_path())} for k, c in install.CLIENTS.items()],
+        lastUsed=last_audit_entry(projects_dir()),
+    )
+
+
+@app.get("/api/ai/connect")
+def ai_connection() -> AiConnection:
+    return _ai_connection()
+
+
+@app.put("/api/ai/connect/{client}", responses={
+    404: {"description": "No such AI app", **_ERROR},
+    409: {"description": "Its settings file could not be changed safely", **_ERROR}})
+def ai_connect(client: str) -> AiConnection:
+    """Add LightSim to the AI app's MCP settings (AI-29). The entry points
+    at this engine and at the folder this app saves projects to."""
+    from .ai import install
+    from .paths import projects_dir
+
+    if client not in install.CLIENTS:
+        raise HTTPException(status_code=404, detail=f"No AI app '{client}'")
+    try:
+        install.install(client, extra_args=["--projects-dir", str(projects_dir())])
+    except install.InstallError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    # connecting is the user's yes to AI access for their projects (AI-01)
+    from .ai.engine import grant_folder
+
+    grant_folder(projects_dir())
+    return _ai_connection()
+
+
+@app.delete("/api/ai/connect/{client}", responses={
+    404: {"description": "No such AI app", **_ERROR},
+    409: {"description": "Its settings file could not be changed safely", **_ERROR}})
+def ai_disconnect(client: str) -> AiConnection:
+    from .ai import install
+
+    if client not in install.CLIENTS:
+        raise HTTPException(status_code=404, detail=f"No AI app '{client}'")
+    try:
+        install.uninstall(client)
+    except install.InstallError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return _ai_connection()
 
 
 @app.websocket("/api/simulate/run")

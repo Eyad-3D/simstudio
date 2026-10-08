@@ -1,3 +1,6 @@
 fastapi>=0.141.1
 uvicorn[standard]>=0.54.0
 pydantic>=2.13.5
+# The MCP wire types (MIT) for the AI assistants' connection (app/ai/mcp_server.py);
+# the full SDK is a test tool only, see requirements-dev.txt.
+mcp-types>=2.2,<3

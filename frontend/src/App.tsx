@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { DockLayout } from "./components/DockLayout";
+import { AiConnectDialog } from "./components/AiConnectDialog";
 import { DialogHost } from "./components/DialogHost";
 import { ParameterDialog } from "./components/ParameterDialog";
 import { Ribbon } from "./components/Ribbon";
@@ -267,6 +268,7 @@ export default function App() {
       <StatusBar />
       <ParameterDialog />
       <DialogHost />
+      <AiConnectDialog />
     </div>
   );
 }
