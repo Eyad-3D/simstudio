@@ -60,6 +60,7 @@ let persist: typeof import("../persist");
 let useProjectStore: typeof import("./projectStore").useProjectStore;
 let confirmReplaceProject: typeof import("./projectStore").confirmReplaceProject;
 let previousRunOf: typeof import("./projectStore").previousRunOf;
+let stopRechecks: typeof import("./projectStore").stopRechecks | undefined;
 let useUIStore: typeof import("./uiStore").useUIStore;
 const store = () => useProjectStore.getState();
 
@@ -202,6 +203,14 @@ function engineRunsStudies() {
   });
 }
 
+// the store schedules a real-time re-check of the model after every change:
+// stop this test's store before the next one makes a fresh instance, so its
+// timer cannot fire later and call the shared api.validateProject mock
+afterEach(() => {
+  stopRechecks?.();
+  stopRechecks = undefined;
+});
+
 beforeEach(async () => {
   // fresh module instances per test: the store keeps module-level state
   // (undo coalescing, the active run) that must not leak between tests
@@ -209,7 +218,7 @@ beforeEach(async () => {
   localStorage.clear();
   api = vi.mocked(await import("../api"));
   persist = await import("../persist");
-  ({ useProjectStore, confirmReplaceProject, previousRunOf } = await import("./projectStore"));
+  ({ useProjectStore, confirmReplaceProject, previousRunOf, stopRechecks } = await import("./projectStore"));
   useUIStore = (await import("./uiStore")).useUIStore;
 
   api.fetchLibrary.mockResolvedValue({
@@ -1016,6 +1025,21 @@ describe("data checks gate", () => {
     expect(store().running).toBe(false);
     expect(messages()).toContain("error: Run blocked — fix 1 data-check error first.");
   });
+
+  it("an error about another case's own values does not block this case", async () => {
+    await start();
+    engineFinishesRuns();
+    const other: DataCheck = { level: "error", text: "Case 'Lap': A lap case needs a Race Track.", caseId: "case-lap" };
+    api.validateProject.mockResolvedValue([other]);
+    await store().run();
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
+    expect(messages()).not.toContain("error: Run blocked — fix 1 data-check error first.");
+    // the same error about the case being run blocks it
+    api.validateProject.mockResolvedValue([{ ...other, caseId: store().activeCaseId }]);
+    await store().run();
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
+    expect(messages()).toContain("error: Run blocked — fix 1 data-check error first.");
+  });
 });
 
 describe("data checks follow the model", () => {
@@ -1234,6 +1258,19 @@ describe("run history", () => {
     store().toggleOverlayRun(first);
     await store().run();
     expect(store().overlayRunIds).toEqual([first]);
+  });
+
+  it("a run that drops out of the 20 kept is no longer overlaid, so the colours stay in step", async () => {
+    await start();
+    engineFinishesRuns();
+    const [oldest, middle] = await runTimes(3);
+    store().toggleOverlayRun(oldest);
+    store().toggleOverlayRun(middle);
+    await runTimes(20 - 2); // the store keeps 20 runs
+    const ids = store().runs.map((r) => r.id);
+    expect(ids).toHaveLength(20);
+    expect(ids).not.toContain(oldest);
+    expect(store().overlayRunIds).toEqual([middle]);
   });
 
   it("the previous run of a case is its newest finished run before, sweep points included (RES-10, RES-19)", () => {

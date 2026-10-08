@@ -29,10 +29,15 @@ class Check:
     text: str
     fix: Optional[str] = None
     element_ids: tuple[str, ...] = ()
+    #: the case it is about (it stops only that case's runs); None: the model
+    case_id: Optional[str] = None
 
     def to_dict(self) -> dict:
-        return {"level": self.level, "text": self.text, "fix": self.fix,
-                "elementIds": list(self.element_ids)}
+        out = {"level": self.level, "text": self.text, "fix": self.fix,
+               "elementIds": list(self.element_ids)}
+        if self.case_id is not None:
+            out["caseId"] = self.case_id
+        return out
 
 
 @dataclass(frozen=True)
@@ -250,8 +255,8 @@ def _from_export(raw: dict) -> Result:
         time=list(raw.get("time", [])),
         channels={key: Channel(key, c["label"], c["unit"], tuple(c["values"]))
                   for key, c in raw.get("channels", {}).items()},
-        checks=[Check(c["level"], c["text"], c.get("fix"), tuple(c.get("elementIds", [])))
-                for c in raw.get("checks", [])],
+        checks=[Check(c["level"], c["text"], c.get("fix"), tuple(c.get("elementIds", [])),
+                      c.get("caseId")) for c in raw.get("checks", [])],
     )
 
 

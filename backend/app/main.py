@@ -130,6 +130,7 @@ from .schemas import (
     OverviewRequest,
     OverviewText,
     Project,
+    SimCase,
     SimResult,
     SimulateRequest,
     StoredRun,
@@ -147,7 +148,7 @@ from .solver.lapsim import LapError
 from .solver.maps import OutsideDataError
 from .solver.network import ModelError
 from .sources import RunSources, sources_of
-from .validation import validate_project
+from .validation import run_blockers, validate_project
 from .version import VERSION
 
 # FastAPI's own /docs and /redoc load their scripts from a CDN; ours is
@@ -1005,7 +1006,7 @@ def run_sources(req: SimulateRequest) -> RunSources:
 @app.post("/api/simulate")
 def run_simulation(req: SimulateRequest) -> SimResult:
     checks = _checks(req.project)
-    errors = [c for c in checks if c.level == "error"]
+    errors = run_blockers(checks, req.caseId)  # (not another case's own errors)
     if errors:
         return SimResult(
             caseId=req.caseId,
@@ -1020,8 +1021,15 @@ def run_simulation(req: SimulateRequest) -> SimResult:
 def us_label_estimate(req: LabelEstimateRequest) -> dict:
     """CON-32: the model on EPA's city and highway cycles, adjusted to a US
     window-sticker estimate, every step shown; not a certified value."""
-    checks = validate_project(req.project)
-    errors = [c.text for c in checks if c.level == "error"]
+    # the model's errors, and those of the cases the estimate runs (or copies)
+    try:
+        runs = {c.id for c in label.label_cases(req.project, req.caseId).values()}
+    except ValueError:
+        runs = set()  # (the estimate says why it cannot run)
+    base = label.base_case(req.project, req.caseId)
+    runs |= {base.id} if base else set()
+    errors = [c.text for c in validate_project(req.project) if c.level == "error"
+              and (c.caseId is None or c.caseId in runs)]
     if errors:
         raise HTTPException(status_code=400, detail=f"Data check failed: {errors[0]}")
     try:
@@ -1034,8 +1042,13 @@ def us_label_estimate(req: LabelEstimateRequest) -> dict:
 def run_vehicle_tests(req: VehicleTestsRequest) -> dict:
     """CON-06: 0-100 and 80-120 km/h, top speed, constant-speed consumption,
     gradeability and a virtual coast-down on the model as it is."""
-    checks = validate_project(req.project)
-    errors = [c.text for c in checks if c.level == "error"]
+    # the tests set up cases of their own (Performance cases on the Driving
+    # Task): the project's cases' own errors do not stop them, a Performance
+    # case's do
+    trial = req.project.model_copy(update={"cases": [SimCase(
+        id="vehicle-tests", name="Vehicle tests", kind="performance", duration=60.0,
+        timeStep=0.1)]})
+    errors = [c.text for c in run_blockers(validate_project(trial), "vehicle-tests")]
     if errors:
         raise HTTPException(status_code=400, detail=f"Data check failed: {errors[0]}")
     try:
@@ -1148,7 +1161,7 @@ async def run_simulation_live(ws: WebSocket) -> None:
     case_id = str(first.get("caseId", ""))
 
     checks = _checks(project)
-    errors = [c for c in checks if c.level == "error"]
+    errors = run_blockers(checks, case_id)
     if errors:
         failed = SimResult(
             caseId=case_id,
@@ -1228,7 +1241,7 @@ def _study_blocked(req: StudyRequest) -> str | None:
     """Why the study cannot start (no such case, Data Check errors), or None."""
     if not any(c.id == req.caseId for c in req.project.cases):
         return f"Simulation case '{req.caseId}' not found."
-    errors = [c for c in validate_project(req.project) if c.level == "error"]
+    errors = run_blockers(validate_project(req.project), req.caseId)
     if errors:
         return "Data check failed: " + "; ".join(c.text for c in errors[:5])
     return None

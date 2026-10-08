@@ -10,7 +10,13 @@ privately, so they can be fixed before anyone else learns of them.
 - **Use GitHub's private vulnerability reporting:** the *Security* tab of
   <https://github.com/Eyad-3D/simstudio>, then **Report a vulnerability**
   (<https://github.com/Eyad-3D/simstudio/security/advisories/new>). Only
-  the owner sees the report.
+  the owner sees the report. (DRAFT, owner step before release: turn on
+  *Private vulnerability reporting* in the repository's *Settings → Code
+  security*; until then the button does not appear and the link does not
+  work for anyone else. Owner decision D11 in
+  [EULA-proposal.md](docs/licensing/EULA-proposal.md#owner-decisions).)
+- If there is no **Report a vulnerability** button, write to [private
+  address] (DRAFT: the owner's private contact, decision D1) instead.
 - **Do not open a public issue** for a security problem.
 - Say what an attacker could do, which version you tested (*Help →
   About*), your system, and the steps or a project file that shows it.

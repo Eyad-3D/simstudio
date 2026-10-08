@@ -226,8 +226,10 @@ fails when:
   Non-commercial, no-derivatives, share-alike and copyleft terms, no licence
   and permission-on-request fail even if someone adds them to that list, and
   so does a `licence` column that names one in words. `LicenseRef-Unknown`
-  (provenance not recorded) passes only while the row is `pending`; the
-  owner's sign-off replaces it with the real term.
+  (provenance not recorded) passes only for the rows recorded before this
+  check existed (`GRANDFATHERED_UNKNOWN` in the test, a list that may only
+  shrink) and only while they are `pending`; the owner's sign-off replaces
+  it with the real term. A new row cannot ship with an unknown licence.
 - a shipped row whose licence asks for credit (CC BY, OGL, Apache-2.0, MIT,
   BSD, EU reuse) has no credit text.
 - a model source in `scripts/licenses/model-sources.json` has no class, a

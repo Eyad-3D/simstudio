@@ -191,6 +191,40 @@
     }
    }
   },
+  "hy-steady-80": {
+   "example": "hybrid-car",
+   "case": "case-hwfet",
+   "caseSet": {
+    "duration": 600.0
+   },
+   "set": {
+    "Vehicle": {
+     "mass_kg": 1474,
+     "initial_speed_kmh": 80
+    },
+    "Vehicle Task": {
+     "cycle": "",
+     "profile": "0:80; 600:80"
+    }
+   }
+  },
+  "hy-steady-80-200": {
+   "example": "hybrid-car",
+   "case": "case-hwfet",
+   "caseSet": {
+    "duration": 600.0
+   },
+   "set": {
+    "Vehicle": {
+     "mass_kg": 1674,
+     "initial_speed_kmh": 80
+    },
+    "Vehicle Task": {
+     "cycle": "",
+     "profile": "0:80; 600:80"
+    }
+   }
+  },
   "fs-accel": {
    "example": "fs-electric",
    "case": "case-accel-75m"
@@ -549,6 +583,11 @@
   },
   {
    "page": "examples/hybrid-car.md",
+   "text": "At a steady 80 km/h they cost no fuel at all",
+   "expr": "abs(v('hy-steady-80-200', 'Fuel consumption') - v('hy-steady-80', 'Fuel consumption')) < 0.01"
+  },
+  {
+   "page": "examples/hybrid-car.md",
    "text": "In the city: 2.84 against 3.24 l/100 km",
    "expr": "(v('hy-udds', 'Fuel consumption'), v('hy-hwfet', 'Fuel consumption'))",
    "format": "In the city: {0[0]:.2f} against {0[1]:.2f} l/100 km"
@@ -557,6 +596,12 @@
    "page": "examples/fs-electric.md",
    "text": "From 0.37 s.** The Accumulator reaches 80 kW",
    "expr": "message('fs-accel', 'held at its Output Power Limit (80 kW at the terminals) from t = 0.37 s')"
+  },
+  {
+   "page": "examples/fs-electric.md",
+   "text": "**From about 1.9 s.** The rear tyres grip again",
+   "expr": "0.01 * v('fs-accel', \"Time at the tyres' grip limit\") * v('fs-accel', 'Simulated duration')",
+   "format": "**From about {:.1f} s.** The rear tyres grip again"
   },
   {
    "page": "examples/fs-electric.md",
@@ -628,6 +673,18 @@
    "page": "lessons/fs-1-acceleration.md",
    "text": "held at 80 kW from t = 0.37 s",
    "expr": "message('fs-accel', 'held at its Output Power Limit (80 kW at the terminals) from t = 0.37 s')"
+  },
+  {
+   "page": "lessons/fs-1-acceleration.md",
+   "text": "from the launch until about 1.9 s the rear tyres spin at their grip limit",
+   "expr": "0.01 * v('fs-accel', \"Time at the tyres' grip limit\") * v('fs-accel', 'Simulated duration')",
+   "format": "until about {:.1f} s the rear tyres spin"
+  },
+  {
+   "page": "lessons/fs-1-acceleration.md",
+   "text": "From about 1.9 s to the line the 80 kW limit sets the pace",
+   "expr": "0.01 * v('fs-accel', \"Time at the tyres' grip limit\") * v('fs-accel', 'Simulated duration')",
+   "format": "From about {:.1f} s to the line"
   },
   {
    "page": "lessons/fs-1-acceleration.md",

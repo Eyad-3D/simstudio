@@ -43,7 +43,9 @@ def main(argv: list[str] | None = None) -> int:
     # Pinned to the pure-Python event loop and HTTP parser: the frozen build
     # ships exactly these, so it behaves the same as a source checkout. The
     # optional C accelerators buy nothing for a single local user. WebSockets
-    # stay on — live simulation streams its steps over /api/simulate/run.
+    # stay on — live simulation streams its steps over /api/simulate/run —
+    # on the websockets package's sans-I/O protocol, which uvicorn 0.54
+    # names as the future of "websockets" (that name now warns at start).
     config = uvicorn.Config(
         app,
         host=args.host,
@@ -51,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         log_level="info",
         loop="asyncio",
         http="h11",
-        ws="websockets",
+        ws="websockets-sansio",
     )
     _AnnouncingServer(config).run()
     return 0

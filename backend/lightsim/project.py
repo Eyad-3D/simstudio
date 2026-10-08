@@ -382,7 +382,7 @@ class Project:
         They never run Script code: scripts are only compiled."""
         found = engine("validation").validate_project(self.model)
         return [Check(c.level, c.text, c.fix, tuple(c.elementIds or ([c.elementId] if c.elementId
-                                                                     else [])))
+                                                                     else [])), c.caseId)
                 for c in found]
 
     def run(self, case: Optional[str] = None, *, check: bool = True,
@@ -392,8 +392,9 @@ class Project:
         and return its Result. No server, window or network is involved.
 
         With ``check`` (the default) the Data Checks run first, as in the app:
-        any error stops the run and the Result is ``failed`` with the checks
-        in ``Result.checks``. ``on_step`` gets each recorded step
+        an error about the model or about this case (not another case's own
+        values or kind) stops the run and the Result is ``failed`` with the
+        checks in ``Result.checks``. ``on_step`` gets each recorded step
         (``{"t", "pct", "values"}``). ``time_limit_s`` stops the run after
         that many seconds of wall-clock time (it ends ``cancelled``).
 
@@ -406,7 +407,8 @@ class Project:
         schemas = engine("schemas")
         if check:
             checks = self.check()
-            errors = [k for k in checks if k.level == "error"]
+            # (an error about another case's own values or kind does not stop this one)
+            errors = [k for k in checks if k.level == "error" and k.case_id in (None, c.id)]
             if errors:
                 sim = schemas.SimResult(caseId=c.id, status="failed", channels=[], messages=[
                     {"level": "error", "text": f"Data check failed: {k.text}"} for k in errors])

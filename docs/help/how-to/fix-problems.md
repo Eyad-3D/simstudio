@@ -13,7 +13,8 @@ counts the errors and warnings, and the status bar at the bottom of the
 window counts the errors (click it to open *Problems*). Each row gives:
 
 - the level: an **error** stops the run, a **warning** lets it run but
-  says a result may be off, an **info** is a note;
+  says a result may be off, an **info** is a note (an error that starts
+  with *Case '…'* or names a case stops only that case's runs);
 - the parts it is about;
 - what is wrong, and under it a line starting **How to fix:**;
 - where it comes from: *Data Checks*, or the run (case and time) that

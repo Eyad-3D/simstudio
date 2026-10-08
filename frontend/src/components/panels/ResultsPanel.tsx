@@ -82,7 +82,8 @@ const NOISE = "Within the stored rounding: treat it as no change (see Known issu
  *  CHANGE_PCT up; null when either run lacks the row. */
 function changeOf(sv?: SummaryValue, base?: SummaryValue) {
   if (!sv || !base) return null;
-  const c = summaryChange(sv.value, base.value);
+  // (rows without a key come from a run stored before 0.3, which rounded them)
+  const c = summaryChange(sv.value, base.value, !sv.key || !base.key);
   if (c.noise) return { diff: "~ 0", pct: "~ 0", noise: true, big: false };
   const signed = (v: number, digits: number) =>
     `${v > 0 ? "+" : ""}${v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
@@ -371,9 +372,10 @@ export function ResultsPanel() {
   const define = useSummaryDefinition(); // each row's hover text (LRN-10)
   const runColor = (i: number) => PALETTE[i % PALETTE.length];
   const channelColor = (key: string) => PALETTE[Math.max(0, selectedList.indexOf(key)) % PALETTE.length];
+  // the colour of the run's line: its place among the runs drawn
   const overlayColorOf = (id: string) => {
-    const idx = overlayRunIds.indexOf(id);
-    return idx >= 0 ? runColor(idx + 1) : "#c0c6d0";
+    const idx = plotRuns.findIndex((r) => r.id === id);
+    return idx >= 0 ? runColor(idx) : "#c0c6d0";
   };
 
   // one plotted series per (run × selected channel), the baseline's last

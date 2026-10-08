@@ -26,7 +26,7 @@ wants most:
 | A student writing a thesis at a company | Is a thesis at a company "paid work" (§2)? It does not say. |
 | A PhD student on an industry-funded project | "Research" is free, but contract research for a company is a grey zone. |
 | Company IT | §3 bans all redistribution, so IT cannot put the installer on an internal software portal. |
-| An engineer who wants to try it | There is no trial. Any use at work is commercial use from the first minute. |
+| An engineer who wants to try it | §1 lists "evaluation" as free, but §2 makes use in the course of a business commercial, so whether a company may try it is unclear, and there is no time limit. |
 | Anyone who automates | Scripts, CI jobs and AI agents are not mentioned. |
 | An engineer sent a LightSim model | Opening it at work is commercial use, so they cannot even look. |
 | A purchasing department | §2 says "open an issue" on GitHub: a public page that shows who is buying. |
@@ -249,6 +249,7 @@ In plain words (the full terms below decide):
 | D8 | Prices: Professional, Team, Site, Server (BIZ-24) | Publish them before 1.0 | Price page; FAQ |
 | D9 | Whether EULA 1.1 ships with 0.3.0 or a later release | With the first public release, so the public never sees 1.0's gaps | Release notes, installer |
 | D10 | The "facts" basis for shipped data (`LicenseRef-Facts` in `scripts/licenses/data-allowed.txt`) | Keep: rule values and published figures are quoted as single facts with their source | Data licence gate (BIZ-34) |
+| D11 | Turn on GitHub's private vulnerability reporting for the repository (*Settings → Code security*). It is off today, so SECURITY.md's only private route does not work for outside reporters | Turn it on before the first public release, and name the D1 address in SECURITY.md as the fallback | `SECURITY.md`, `.github/ISSUE_TEMPLATE/config.yml` |
 
 ## When the owner approves
 

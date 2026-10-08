@@ -18,7 +18,7 @@ from typing import Callable, Iterable
 from .fmu.block import COMPONENT_ID as FMU_COMPONENT
 from .fmu.block import problems as fmu_problems
 from .library import library_by_id
-from .schemas import DataCheck, ElementInstance, ParameterDef, Project
+from .schemas import DataCheck, ElementInstance, ParameterDef, Project, SimCase
 from .solver import (
     Model,
     ModelError,
@@ -98,13 +98,28 @@ def _number_problem(pdef: ParameterDef, value) -> str | None:
     return f"{problem} — got {v:g}" if problem else None
 
 
+def run_blockers(checks: Iterable, case_id: str | None) -> list:
+    """The errors among ``checks`` that stop a run of case ``case_id``:
+    those about the model, and those about that case only (an error about
+    another case's own values or kind does not stop it). ``case_id`` None:
+    the model's errors only."""
+    return [c for c in checks if c.level == "error"
+            and (getattr(c, "caseId", None) is None or c.caseId == case_id)]
+
+
+CASE_KINDS = {"cycle": "Cycle", "performance": "Performance", "acceleration": "Acceleration",
+              "lap": "Lap"}
+
+
 def validate_project(project: Project) -> list[DataCheck]:
     checks: list[DataCheck] = []
     defs = library_by_id()
 
     def add(level: str, text: str, el: ElementInstance | None = None, *,
-            ids: Iterable[str | None] = (), fix: str | None = None) -> None:
-        # every part it is about, `el` first
+            ids: Iterable[str | None] = (), fix: str | None = None,
+            case: SimCase | None = None) -> None:
+        # every part it is about, `el` first; `case`: the case it is about
+        # (it stops only that case's runs)
         about = list(dict.fromkeys(i for i in (el.id if el else None, *ids) if i in all_elements))
         first = el or (all_elements[about[0]] if about else None)
         checks.append(DataCheck(
@@ -114,6 +129,7 @@ def validate_project(project: Project) -> list[DataCheck]:
             elementLabel=first.label if first else None,
             elementIds=about,
             fix=fix,
+            caseId=case.id if case is not None else None,
         ))
 
     all_elements = {el.id: el for s in project.systems for el in s.elements}
@@ -293,7 +309,8 @@ def validate_project(project: Project) -> list[DataCheck]:
                 if pdef.type == "number" and pdef.key in values \
                         and (problem := _number_problem(pdef, values[pdef.key])):
                     add("error", f"{_name(pdef)} of '{el.label}' in case '{case.name}' {problem}.",
-                        el, fix="Change or remove the override in Cases & Parameters.")
+                        el, fix="Change or remove the override in Cases & Parameters.",
+                        case=case)
 
     # -- structural solvability (delegated to model extraction) ------------------
     model = None
@@ -316,11 +333,12 @@ def validate_project(project: Project) -> list[DataCheck]:
                     f"implicit ground return. Wire it to Ground for an explicit return path.",
                     el)
 
+        case_models = _case_models(project, model, add)
         _plausibility_checks(model, add)
         _map_checks(model, add)
-        _lap_checks(project, add)
+        _lap_checks(project, case_models, add)
         _distance_checks(project, model, add)
-        _step_checks(project, add)
+        _step_checks(project, model, case_models, add)
 
         if not model.drivelines and not any(b.consumers for b in model.buses):
             add("info", "Model has no driveline and no electrical loads — nothing will happen.")
@@ -434,6 +452,8 @@ MODEL_FIXES = {
     "A lap case needs an E-Motor": "Connect an E-Motor to the wheels' driveline.",
     "drives E-Motors only": "Set the case's Kind to Cycle, or drive the wheels with E-Motors "
                             "only.",
+    "does not run drivelines without wheels": "Set the case's Kind to Cycle, or remove the "
+                                              "parts that drive no wheels.",
     "does not shift gears": "Set its Default Gear to the gear the lap should be driven in.",
     "has no layout": "Choose a Layout from the list in Properties.",
     "form a loop": "If a step's delay matters, break the loop: feed one of the blocks from a "
@@ -650,13 +670,20 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
     if drv is not None:
         label = elements[drv].label
         # an acceleration test holds full throttle and a lap case follows its
-        # Race Track: neither reads a target
-        if ((drv, "sig_target_in") not in route
-                and any(c.kind not in ("acceleration", "lap") for c in project.cases)):
-            err(drv, f"Driver '{label}' has no Target Speed signal — it will hold 0 km/h, "
-                     f"so the vehicle will not move.",
-                fix=f"In Data Bus Connections, pick a Driving Task's Target Speed as the source "
-                    f"of {label} · Target Speed.")
+        # Race Track: neither reads a target, so the error stops only the
+        # cases that do (one for the model when every case reads it)
+        readers = [c for c in project.cases if c.kind not in ("acceleration", "lap")]
+        if (drv, "sig_target_in") not in route and readers:
+            fix = (f"In Data Bus Connections, pick a Driving Task's Target Speed as the source "
+                   f"of {label} · Target Speed.")
+            if len(readers) == len(project.cases):
+                err(drv, f"Driver '{label}' has no Target Speed signal — it will hold 0 km/h, "
+                         f"so the vehicle will not move.", fix=fix)
+            for c in readers if len(readers) < len(project.cases) else ():
+                add("error", f"Driver '{label}' has no Target Speed signal, which case "
+                             f"'{c.name}' ({CASE_KINDS.get(c.kind, c.kind)}) reads — it will "
+                             f"hold 0 km/h, so the vehicle will not move.",
+                    elements[drv], fix=fix, case=c)
         if demands & route.keys() and not commanded(drv) & demands:
             err(drv, f"Driver '{label}' does not command any E-Motor or Engine — wire its "
                      f"Traction Command to them, directly or through a controller.")
@@ -704,23 +731,52 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
     return replaced
 
 
-def _lap_checks(project: Project, add: Add) -> None:
-    """What a lap case refuses or does differently (lapsim.problems), for
-    the Race Track, layout and laps that case sets."""
+# what to do about a case's own values that the model cannot be built with
+CASE_MODEL_FIXES = {
+    "which this version of LightSim does not include": "In Cases & Parameters, choose a Drive "
+                                                       "Cycle from the list for this case, or "
+                                                       "remove its own cycle.",
+}
+
+
+def _case_models(project: Project, model: Model, add: Add) -> dict[str, Model | None]:
+    """Each case's model, with its own values (Cases & Parameters) on top of
+    the parts' (``model`` when it has none); None for a case whose values
+    the model cannot be built with, reported as an error of that case (a
+    drive cycle this version does not have, a value the model refuses)."""
+    found: dict[str, Model | None] = {}
     for case in project.cases:
-        if case.kind != "lap":
+        if not case.parameterOverrides:
+            found[case.id] = model
             continue
         try:
-            model = build_model(project, {}, case.parameterOverrides)
-        except ModelError:
-            continue  # reported above
+            found[case.id] = build_model(project, {}, case.parameterOverrides)
+        except ModelError as e:
+            found[case.id] = None
+            for text in e.errors:
+                fix = next((f for words, f in CASE_MODEL_FIXES.items() if words in text),
+                           None) or _model_fix(text)
+                add("error", f"Case '{case.name}': {text}", ids=e.involved.get(text, ()),
+                    fix=fix, case=case)
+    return found
+
+
+def _lap_checks(project: Project, case_models: dict[str, Model | None], add: Add) -> None:
+    """What a lap case refuses or does differently (lapsim.problems), for
+    the Race Track, layout and laps that case sets; each stops only that
+    case."""
+    for case in project.cases:
+        model = case_models.get(case.id)
+        if case.kind != "lap" or model is None:
+            continue  # (a model that does not build is reported already)
         track = model.elements.get(model.track) if model.track else None
         for level, text, parts in lapsim.problems(model, case.outputEvery):
             add(level, f"Case '{case.name}': {text}", None if parts else track, ids=parts,
-                fix=_model_fix(text))
+                fix=_model_fix(text), case=case)
 
 
-def _step_checks(project: Project, add: Add) -> None:
+def _step_checks(project: Project, base_model: Model, case_models: dict[str, Model | None],
+                 add: Add) -> None:
     """The solver step each case will use (stability.solver_step, ENG-14):
     a note when a part too stiff for the 10 ms step makes it smaller (the run
     takes longer, but its results hold), a warning when one is too stiff even
@@ -730,10 +786,9 @@ def _step_checks(project: Project, add: Add) -> None:
     for case in [None, *project.cases]:
         if case is not None and (case.kind == "lap" or not case.parameterOverrides):
             continue  # the lap solver steps along the track; no values of its own: as the model
-        try:
-            model = build_model(project, {}, case.parameterOverrides if case else {})
-        except ModelError:
-            return  # reported above
+        model = base_model if case is None else case_models.get(case.id)
+        if model is None:
+            continue  # its values do not build: reported already
         choice = solver_step(model)
         if case is None:
             base = choice
@@ -746,7 +801,7 @@ def _step_checks(project: Project, add: Add) -> None:
                     f"{MAX_SUBSTEP / choice.step:.3g} times as long.")
             if text not in seen:
                 seen.add(text)
-                add("info", text, ids=choice.el_ids,
+                add("info", text, ids=choice.el_ids, case=case,
                     fix="Nothing to do if the value is right; otherwise lower it (a tyre's Slip "
                         "Stiffness is about 10 to 30).")
         for text, ids in choice.warnings:
@@ -754,7 +809,7 @@ def _step_checks(project: Project, add: Add) -> None:
                 continue
             seen.add(text)
             too_stiff = "too stiff" in text
-            add("warning" if too_stiff else "info", f"{where}{text}", ids=ids,
+            add("warning" if too_stiff else "info", f"{where}{text}", ids=ids, case=case,
                 fix=("Lower the value: the solver cannot step it reliably." if too_stiff else
                      "Shown for information: the clutch's energy is conserved. For exact "
                      "shaft speeds while it closes, set the case's Step to 0.0025 s and "
@@ -769,10 +824,10 @@ def _distance_checks(project: Project, model: Model, add: Add) -> None:
     tasks = [e for e, c in model.cdef_of.items() if c.id == "signal.driving_task"]
     seen: set[str] = set()
 
-    def once(level: str, text: str, el_id: str, fix: str) -> None:
+    def once(level: str, text: str, el_id: str, fix: str, case: SimCase | None) -> None:
         if text not in seen:
             seen.add(text)
-            add(level, text, model.elements[el_id], fix=fix)
+            add(level, text, model.elements[el_id], fix=fix, case=case)
 
     variants = [(None, {})] + [(c, c.parameterOverrides) for c in project.cases]
     for t in tasks:
@@ -792,7 +847,7 @@ def _distance_checks(project: Project, model: Model, add: Add) -> None:
                               f"'{p['cycle']}', a speed against time, but its Profile Axis is "
                               f"Distance.", t,
                      "Set its Profile Axis to Time, or pick Custom profile and type a speed "
-                     "against distance.")
+                     "against distance.", case)
                 continue
             pts = parse_profile(str(p.get("profile", "")))
             stops = [x for x, v in (pts if p.get("repeat") else pts[:-1]) if v <= 0]
@@ -802,7 +857,7 @@ def _distance_checks(project: Project, model: Model, add: Add) -> None:
                                 f"not drive on (a stop with a waiting time is not modelled "
                                 f"yet).", t,
                      "Give that point a small speed (for example 5 km/h); at a profile's "
-                     "start, the speed the car sets off towards.")
+                     "start, the speed the car sets off towards.", case)
     route = model.signal_route
     src = route.get((model.driver, "sig_target_in")) if model.driver else None
     for case in project.cases:
@@ -814,13 +869,13 @@ def _distance_checks(project: Project, model: Model, add: Add) -> None:
         if not distance_axis(p):
             add("warning", f"Case '{case.name}' ends after {case.endLaps:g} laps, but the Driver "
                            f"does not follow a Driving Task whose Profile Axis is Distance, so "
-                           f"the run lasts its duration.",
+                           f"the run lasts its duration.", case=case,
                 fix="Set the Driving Task's Profile Axis to Distance, or clear the case's Laps.")
         elif case.endLaps > 1 and not p.get("repeat"):
             add("warning", f"Case '{case.name}' ends after {case.endLaps:g} laps, but the Driving "
                            f"Task '{model.elements[src[0]].label}' does not repeat its profile: "
                            f"after the first lap the car holds the profile's last speed.",
-                el=model.elements[src[0]],
+                el=model.elements[src[0]], case=case,
                 fix="Tick the Driving Task's Repeat Profile, or set the case's Laps to 1.")
 
 

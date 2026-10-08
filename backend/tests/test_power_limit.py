@@ -134,6 +134,11 @@ def test_fs_limit_on_the_bev_example_succeeds():
     assert s["Time to 100 km/h"].value == pytest.approx(13.08, abs=0.05)
     avg = s[f"{label} — peak terminal power, averaged"]
     assert (avg.limit, avg.passed) == (80.0, True)
+    # the message and the time row name the margin, not the reduced cap as the limit
+    assert s[f"{label} — time held at the power cap (limit less margin)"].value > 0
+    assert f"{label} — time held at the output power limit" not in s
+    assert any(m.level == "info" and "held at its Output Power Limit less its 2.5 % margin (78 of "
+               "80 kW at the terminals)" in m.text for m in result.messages)
 
 
 def _tracked(steps, window):
@@ -269,3 +274,24 @@ def test_no_limit_changes_nothing():
     plain = simulate(_car("0:0; 0.01:100; 30:100", 5.0, 0.1, performance=True), "case")
     assert not [s for s in plain.summary if s.limit is not None or s.passed is not None]
     assert not [s for s in plain.summary if "terminal" in s.label or "pack voltage" in s.label]
+
+
+@pytest.mark.parametrize("margin", [120.0, -20.0])
+def test_a_margin_outside_0_to_100_percent_is_refused_not_a_crash(margin):
+    """A case's Power Limit Margin of 120 % once gave a negative power cap
+    and a ZeroDivisionError in the source-limit handshake. Data Checks
+    refuse it for that case; run without them (the solver called directly),
+    the margin is held to 0-100 % and the run ends normally."""
+    from app.validation import run_blockers, validate_project
+
+    proj = _car("0:0; 0.01:100; 30:100", 2.0, 0.1, performance=True, output_power_limit_kW=40)
+    case = proj.cases[0]
+    case.parameterOverrides = {"batt": {"power_limit_margin_pct": margin}}
+    blockers = run_blockers(validate_project(proj), case.id)
+    assert [c.text for c in blockers] == [
+        f"Power Limit Margin of '{BAT}' in case '{case.name}' must be at least 0 and at most "
+        f"100 % — got {margin:g}."]
+    result = simulate(proj, case.id)
+    assert result.status in ("success", "warning"), [m.text for m in result.messages]
+    peak = _rows(result)[f"{BAT} — peak terminal power"].value
+    assert peak == (pytest.approx(0.0, abs=1e-6) if margin > 100 else pytest.approx(40.0, rel=1e-3))

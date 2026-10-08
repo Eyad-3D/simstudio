@@ -214,7 +214,9 @@ gears, brakes and battery. It is not a driving simulation:
   crossover, the speed rises by up to 3 % at that point: a real car cannot
   turn from one circle into the other that quickly.
 - E-Motor cars only: a lap case refuses Combustion Engines and Clutches on
-  the wheels, holds Gearboxes in their gear and commands every E-Motor
+  the wheels, and any engine, clutch or E-Motor on a shaft without wheels
+  (a series hybrid's generator set, which it would not run), holds
+  Gearboxes in their gear and commands every E-Motor
   itself, with one demand for all, so Scripts or controllers between the
   Driver and the motors (torque vectoring, traction control) do nothing.
   With E-Motors on both axles, the driven wheels' grip is used together,
@@ -229,6 +231,11 @@ gears, brakes and battery. It is not a driving simulation:
   energy balance error* shows it, and above 0.5 % the *Energy per lap* is
   marked not valid, and so are the lap times when the motors gave less
   than the speed asked for (or the battery reached its minimum SOC).
+  The braking is solved likewise: the friction brakes' Max Torque plus the
+  regeneration the battery could take at the lap's start; when the
+  brakes then cannot follow the speed (the battery filled, or a live edit
+  took regeneration away), the run warns and the lap times are marked not
+  valid.
   The Output Power Limit is held at every point; the check window's
   average is not used to let short peaks through.
 - Sideways load transfer is shared between the axles as the static weight
@@ -650,7 +657,9 @@ minimum or an average, for example from the CSV export, or put the
   page shows a number with at most 3 decimals, so a change smaller than
   that reads +0.000 against the baseline; the run's file, its CSV and
   .mat export and the study tables' CSV have every digit. *~ 0* now marks only runs stored by
-  earlier versions, which kept 5 decimals (2 to 4 in the summary).
+  earlier versions, which kept 5 decimals (2 to 4 in the summary), and
+  only a change under 0.5 %: the step is read from the values' digits,
+  and a value whose last digits were 0 reads up to 1000 steps coarser.
 - **Cursor integrals come from the recorded points.** The *Results*
   chart's cursors integrate the stored points with the trapezoid rule, so
   they differ a little from the summary's energies, which add up every
@@ -1116,7 +1125,9 @@ minimum or an average, for example from the CSV export, or put the
 - **The first-steps tour is short.** It points at the screen's main parts
   only; it does not walk you through a run, and its steps are not checked
   against a band. The step bar's *Set values* ticks on any change of a
-  part's value. Automated browsers get neither the tour nor the bar.
+  value of a part already in the model (adding or deleting a part does
+  not count; a case's own value does not either). Automated browsers get
+  neither the tour nor the bar.
   *Roadmap:* UX-26, LRN-07.
 - **The parameter texts are first drafts.** Rest the pointer on a
   parameter, or move to it with Tab, to see what it is, its usual values
@@ -1129,9 +1140,8 @@ minimum or an average, for example from the CSV export, or put the
   check each number against its own limits only: a PID's Output Minimum
   above its Output Maximum, or a Default Gear past the last gear, is not
   flagged. A sweep's From and To are not checked as you type; a point
-  outside the limits fails when it runs, with the Data Check's reason. A
-  case's own value out of range stops the runs of every case, not only
-  its own. An acceleration case's Distance, Start line and Reference time
+  outside the limits fails when it runs, with the Data Check's reason. An
+  acceleration case's Distance, Start line and Reference time
   turn red as you type but are not Data Checks: a run ignores a value
   outside them (no finish line, a 0 m start line, no reference gap).
   Properties does not mark a value that differs from the library's default

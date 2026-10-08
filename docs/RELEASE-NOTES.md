@@ -115,7 +115,9 @@ sections.
   road-load coefficient that is not a number or a negative Maximum Speed
   (errors).
 - Battery: *Output Power Limit* (kW at the terminals, volts × amps, as a
-  Formula Student energy meter measures it), with a *Power Limit Margin*,
+  Formula Student energy meter measures it), with a *Power Limit Margin*
+  (0 to 100 %: the motors are held to the limit less it, and Messages and
+  the summary name the margin),
   a *Power Check Window*, *Hold Power to Limit* (untick it to only check
   the limit) and a *Voltage Class* (V); 0 turns the limit and the class
   off, as in every existing model. The limit caps discharge only: the
@@ -157,7 +159,8 @@ sections.
   a *Start line* and a *Reference time*. The Driver holds full throttle
   the whole run with no target, and the run ends at the end of the solver
   step that reaches the line; Data Checks ask for a Target Speed only
-  when a case reads one. The summary
+  when a case reads one, and a missing one stops only the cases that read
+  it. The summary
   leads with *Time to 75 m* (from the start line, with *pass* and the case
   duration as its limit), *Speed at 75 m*, *Gap to reference time*,
   *Time to 100 km/h* (from t = 0), each battery's peak and mean terminal
@@ -181,11 +184,16 @@ sections.
   season's rules): Autocross, a 979 m closed lap with a slalom, a hairpin
   and a chicane; Skidpad, the right and left circles on the lane centre
   (9.125 m); Acceleration 75 m; or Custom, from curvature and elevation
-  tables pasted into the track. A quasi-steady-state lap solver finds the
+  tables pasted into the track (its starter table is a closed 40 m radius
+  circle; Data Checks warn when a Closed Circuit does not end where it
+  starts, heading the same way, as a circuit or a figure eight does). A
+  quasi-steady-state lap solver finds the
   fastest speed about every metre from the tyres' grip (downforce, load
   transfer along and across the car, load sensitivity, friction ellipse)
   and the powertrain (the E-Motors' full-load curves through the gears,
-  cut to the battery's deliverable power and Output Power Limit); the
+  cut to the battery's deliverable power and Output Power Limit; when
+  braking, the friction brakes' Max Torque and the regeneration the
+  driven tyres and the battery can take); the
   motors, gears, brakes and battery then drive that speed with the drive
   cycles' own models, so the energy, the power limit checks and the
   channels are theirs. The summary leads with the lap, lap 1, total and
@@ -195,8 +203,12 @@ sections.
   give the lap distance, curvature, longitudinal and lateral acceleration
   (in g, a new unit), what limited the car and a map, for the X-Y view.
   Data Checks refuse a lap case without a Race Track, Driver or E-Motor,
-  with an engine or clutch on the wheels or with all wheels on one axle,
-  and a Custom curvature above 0.5 1/m. The results are estimates, and say so.
+  with an engine or clutch on the wheels, an engine, clutch or E-Motor
+  on a shaft without wheels (a series hybrid's generator set, which lap
+  mode does not run) or with all wheels on one axle,
+  and a Custom curvature above 0.5 1/m. Such an error stops only that
+  case, as does any Data Check about a case's own values (its text names
+  the case, and the other cases still run). The results are estimates, and say so.
   A Formula Student-sized car (280 kg, 96 kW, μ 1.5) laps the Autocross
   in 61.2 s (62.9 s from a standing start), solved in about 0.15 s.
 - Formula Student events and points (MOD-43): **FS events** (Simulations
@@ -597,7 +609,8 @@ sections.
   the chart** turns that off), each headline number gets a line such as
   *+1.22 (+11.0 %) vs baseline*, and the full summary gets *Baseline*,
   *Change* and *% change* columns, with changes of 1 % or more in bold
-  and *~ 0* where a change is within the stored rounding. *What changed*
+  and *~ 0* where a change of a run stored by 0.2 is within its rounding
+  and under 0.5 %. *What changed*
   lists what differs between the two runs' models: parameters old → new
   with their units, maps and scripts edited, parts added or removed,
   wires and Data Bus links, the case's settings and both runs' live edits;
@@ -1044,11 +1057,13 @@ sections.
   page says otherwise. Every Windows build is scanned with Microsoft
   Defender and test-installed. (PLT-32, PLT-13)
 - **Help → What Stopped You?…** in the desktop app opens LightSim's Idea
-  form on GitHub in your browser, with your version filled in, so you can
-  say what kept you from finishing a task. Nothing is sent unless you
-  submit the form. (BIZ-35)
+  form on GitHub in your browser, with your version in the link, so you
+  can say what kept you from finishing a task. GitHub sees that visit,
+  and nothing you write is sent until you submit the form. (BIZ-35)
 - How to help, and how to report a security problem privately:
-  `CONTRIBUTING.md` and `SECURITY.md` in the repository, with bug and idea
+  `CONTRIBUTING.md` and `SECURITY.md` in the repository (DRAFT: its
+  private route, GitHub's private vulnerability reporting, works once the
+  owner turns it on), with bug and idea
   forms for GitHub issues. Code contributions need a signed contributor
   licence agreement, which is not ready yet. (BIZ-13)
 - A draft licence FAQ, *Can I use LightSim for …?*

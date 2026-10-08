@@ -97,8 +97,17 @@ export function hintFor(key: string) {
 
 export const dismissHint = () => useTourStore.setState({ hint: null });
 
-const overrides = (p: Project | null) =>
-  JSON.stringify(p?.systems.flatMap((s) => s.elements.map((e) => [e.id, e.parameterOverrides])) ?? []);
+/** Whether a value of a part that is in both models changed: adding,
+ *  deleting or moving a part is not setting a value. */
+export function valueChanged(prev: Project, next: Project): boolean {
+  const before = new Map(prev.systems.flatMap((s) => s.elements.map((e) => [e.id, e.parameterOverrides] as const)));
+  return next.systems.some((s) =>
+    s.elements.some((e) => {
+      const old = before.get(e.id);
+      return old !== undefined && old !== e.parameterOverrides && JSON.stringify(old) !== JSON.stringify(e.parameterOverrides);
+    }),
+  );
+}
 
 /** Does the active case drive something to judge: a cycle or profile, a test or a lap? */
 function hasTest(): boolean {
@@ -123,7 +132,7 @@ export function watchSteps(): () => void {
   const unProject = useProjectStore.subscribe((s, prev) => {
     // a value changed on the same project (not a project opened)
     if (s.project && prev.project && s.project.id === prev.project.id && s.project !== prev.project
-      && overrides(s.project) !== overrides(prev.project)) tick("values");
+      && valueChanged(prev.project, s.project)) tick("values");
     check();
   });
   const unUI = useUIStore.subscribe((s, prev) => {

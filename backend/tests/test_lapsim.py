@@ -382,6 +382,71 @@ def test_lap_times_not_valid_when_the_car_had_less_than_they_assume():
     assert marked["Sector 2 time"] == marked["Energy per lap"] == marked["Lap time"]
 
 
+def _brakes(proj, torque):
+    for e in proj.systems[0].elements:
+        if e.componentDefId == "mech.brake":
+            e.parameterOverrides["max_torque_Nm"] = torque
+
+
+def _lap_time(proj):
+    return _rows(simulate(proj, "case"))["Lap time"]
+
+
+def test_lap_braking_keeps_to_the_brakes_and_the_regeneration(monkeypatch):
+    """Weak friction brakes (100 N·m on each wheel): the lap solver brakes
+    no harder than they and the regeneration allow (the Recuperation
+    Weight, the driven tyres' grip, what the battery takes), so the energy
+    pass never asks the brakes for more than their Max Torque and the lap
+    is valid; it is slower than with the stock 900 N·m brakes and faster
+    than with the friction brakes alone."""
+    proj = fs_car()
+    _brakes(proj, 100)
+    used = []
+    do_step = lapsim.LapSlave.do_step
+
+    def step(self, t, h):
+        lap, before = self.lap, self.lap.book.friction
+        out = do_step(self, t, h)
+        vm = 0.5 * (lap.prof.v[lap.i] + lap.prof.v[lap.i + 1])
+        used.append((lap.book.friction - before) / (vm * h) / lap.fr_cap)
+        return out
+
+    monkeypatch.setattr(lapsim.LapSlave, "do_step", step)
+    result = simulate(proj, "case")
+    monkeypatch.undo()
+    assert result.status == "success", [m.text for m in result.messages]
+    assert 0.9 < max(used) <= 1.0 + 1e-9
+    assert not [s.label for s in result.summary if s.notValid]
+    friction_only = fs_car()
+    _brakes(friction_only, 100)
+    next(e for e in friction_only.systems[0].elements
+         if e.id == "drv").parameterOverrides["regen_weight_pct"] = 0
+    assert _lap_time(fs_car()) < _rows(result)["Lap time"] < _lap_time(friction_only)
+
+
+def test_braking_the_car_did_not_have_marks_the_lap_not_valid():
+    """The Recuperation Weight set to 0 while the lap is driven: the lap was
+    solved with regeneration that is gone, and the weak friction brakes
+    cannot follow its speed. The run says so and the lap times are not
+    valid."""
+    proj = fs_car()
+    _brakes(proj, 100)
+    calls = []
+
+    def control():
+        calls.append(1)
+        return ([{"type": "set_param", "elementId": "drv", "key": "regen_weight_pct", "value": 0}]
+                if len(calls) == 50 else [])
+
+    result = simulate(proj, "case", None, control)
+    assert result.status == "warning"
+    assert any(m.text.startswith("The friction brakes and the regeneration could not slow the car")
+               for m in result.messages)
+    marked = {s.label: s.notValid for s in result.summary}
+    assert marked["Lap time"] == marked["Average speed"] == (
+        "the brakes could not follow the lap's speed")
+
+
 def test_lap_case_refuses_unsupported_drivelines():
     """The P2 hybrid with a Race Track: a lap case is refused, naming its
     Combustion Engine and its Clutch, in the run and in Data Checks."""
@@ -396,6 +461,32 @@ def test_lap_case_refuses_unsupported_drivelines():
     assert any("Clutch" in t for t in texts)
     checks = [c.text for c in validate_project(proj) if c.level == "error"]
     assert f"Case '{case.name}': {engine}" in checks
+
+
+def test_lap_case_refuses_an_engine_and_generator_that_drive_no_wheels():
+    """A series hybrid: an engine turns a generator on the HV bus, on a shaft
+    with no wheels. Lap mode does not run such a driveline (its engine would
+    burn nothing and the whole lap would come from the battery), so the run
+    and Data Checks refuse it, naming the engine and the generator."""
+    proj = fs_car()
+    proj.systems[0].elements += [
+        el("eng", "engine.combustion", "Engine"), el("tank", "fuel.tank", "Tank"),
+        el("gen", "motor.emotor", "Generator"),
+        el("gcmd", "signal.constant", "Generator Cmd", value=-0.3),
+        el("thr", "signal.constant", "Throttle", value=0.4)]
+    proj.systems[0].connections += [conn(40, "eng", "shaft", "gen", "shaft"),
+                                    conn(41, "hvbus", "t2", "gen", "pos")]
+    proj.dataBusConnections += [dbc(40, "gcmd", "sig_out", "gen", "sig_demand_in"),
+                                dbc(41, "thr", "sig_out", "eng", "sig_throttle_in")]
+    result = simulate(proj, "case")
+    assert result.status == "failed"
+    texts = [m.text for m in result.messages]
+    assert ("Combustion Engine 'Engine' drives no wheels: a lap case does not run drivelines "
+            "without wheels (run it as a drive cycle instead).") in texts
+    assert any(t.startswith("E-Motor 'Generator' drives no wheels") for t in texts)
+    checks = [c for c in validate_project(proj) if c.level == "error"]
+    assert {c.elementIds[0] for c in checks if "drives no wheels" in c.text} == {"eng", "gen"}
+    assert all(c.fix and "Kind to Cycle" in c.fix for c in checks if "drives no wheels" in c.text)
 
 
 @pytest.mark.parametrize("change,expected", [
@@ -449,6 +540,27 @@ def test_a_custom_track_runs_and_its_closure_is_checked():
     trk.parameterOverrides["sector_ends"] = ""
     assert [c for c in validate_project(proj)
             if c.level == "warning" and "Closed Circuit" in c.text and "turns the car 180°" in c.text]
+
+
+def test_a_figure_eight_and_the_custom_default_close():
+    """A closed lap ends where it starts, heading the same way: the Skidpad
+    entered as a Custom table (a figure eight, a net turn of 0°) runs as the
+    built-in layout does, with no closure warning; so does the Custom
+    layout's default table with Closed Circuit ticked."""
+    skidpad = lapsim.layouts()["Skidpad"]
+    pts = lapsim._from_segments(skidpad["segments"], bool(skidpad["closed"]))
+    built_in = fs_car("Skidpad", 2)
+    custom = fs_car("Custom", 2)
+    trk = next(e for e in custom.systems[0].elements if e.id == "trk")
+    trk.parameterOverrides.update(curvature_table={f"{x:.6f}": k for x, k in pts}, closed=True)
+    result = simulate(custom, "case")
+    assert result.status == "success", [m.text for m in result.messages if m.level != "info"]
+    assert _rows(result)["Lap time"] == pytest.approx(_rows(simulate(built_in, "case"))["Lap time"],
+                                                      rel=1e-3)
+    assert not [c for c in validate_project(custom) if "Closed Circuit" in c.text]
+    default = fs_car("Custom")
+    assert not [c for c in validate_project(default) if "Closed Circuit" in c.text]
+    assert simulate(default, "case").status == "success"
 
 
 def test_old_projects_unchanged():

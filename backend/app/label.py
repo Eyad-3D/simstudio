@@ -138,6 +138,13 @@ def _not_whole(case: SimCase, task, cycle_id: str) -> str:
     return why
 
 
+def base_case(project: Project, base_case_id: str | None = None) -> SimCase | None:
+    """The case the estimate copies when the project has none of its own for
+    a cycle: ``base_case_id`` if it is a Cycle case, else the first one."""
+    cases = [c for c in project.cases if c.kind == "cycle"]
+    return next((c for c in cases if c.id == base_case_id), cases[0] if cases else None)
+
+
 def label_cases(project: Project, base_case_id: str | None = None,
                 notes: list[str] | None = None) -> dict[str, SimCase]:
     """The case to run for each cycle: one of the project's own that drives
@@ -148,7 +155,7 @@ def label_cases(project: Project, base_case_id: str | None = None,
     case passed over because it changes the cycle (scaled, repeated, cut
     short)."""
     cases = [c for c in project.cases if c.kind == "cycle"]
-    base = next((c for c in cases if c.id == base_case_id), cases[0] if cases else None)
+    base = base_case(project, base_case_id)
     tasks = [e for s in project.systems for e in s.elements
              if e.componentDefId == "signal.driving_task"]
     if base is None or len(tasks) != 1:

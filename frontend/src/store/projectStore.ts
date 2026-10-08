@@ -518,10 +518,11 @@ export interface ProjectState {
    *  the cycle's length, in the same undo step. */
   setDrivingCycle: (elementId: string, cycleId: string, caseId?: string) => void;
   runDataChecks: () => Promise<DataCheck[]>;
-  /** Error-level data-check gate, and the one-time question whether the
-   *  user trusts the code the project carries; resolves true when a
-   *  run/sweep may proceed. */
-  passesRunGate: () => Promise<boolean>;
+  /** Error-level data-check gate for a run of `caseId` (errors about the
+   *  model, and about that case: not another case's own values or kind),
+   *  and the one-time question whether the user trusts the code the project
+   *  carries; resolves true when a run/sweep may proceed. */
+  passesRunGate: (caseId: string) => Promise<boolean>;
   /** Show the project's scripts that this user has not approved and ask
    *  before they run (PLT-35); resolves true when nothing is left to ask.
    *  `when` "open" offers Open without running scripts, "run" Don't run. */
@@ -901,13 +902,19 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       ...(name ? { name } : {}),
       ...extra,
     };
-    set((s) => ({
-      runs: [newRun, ...s.runs].slice(0, MAX_RUNS),
-      activeRunId: runId,
-      liveValues: {},
-      liveT: 0,
-      livePct: 0,
-    }));
+    set((s) => {
+      const runs = [newRun, ...s.runs].slice(0, MAX_RUNS);
+      const ids = new Set(runs.map((r) => r.id));
+      return {
+        runs,
+        activeRunId: runId,
+        // a run that dropped out of the list is no longer overlaid
+        overlayRunIds: s.overlayRunIds.filter((id) => ids.has(id)),
+        liveValues: {},
+        liveT: 0,
+        livePct: 0,
+      };
+    });
 
     // incremental result assembly: step events stream in, the store is
     // flushed at most every LIVE_FLUSH_MS so charts/monitors update live
@@ -2203,7 +2210,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       // broken models fail fast (and visibly) instead of deep inside the solver.
       // The runs the user overlaid stay overlaid (RES-19).
       set({ running: true });
-      if (!(await get().passesRunGate())) {
+      if (!(await get().passesRunGate(activeCaseId))) {
         set({ running: false });
         return;
       }
@@ -2420,7 +2427,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const points: StudyPoint[] = [];
       const kpiUnits = new Map<string, string>();
       set({ running: true });
-      if (!(await get().passesRunGate())) {
+      if (!(await get().passesRunGate(caseId))) {
         set({ running: false });
         return;
       }
@@ -2548,7 +2555,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const kpiUnits = new Map<string, string>();
 
       set({ running: true });
-      if (!(await get().passesRunGate())) {
+      if (!(await get().passesRunGate(caseId))) {
         set({ running: false });
         return;
       }
@@ -2687,7 +2694,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     },
 
     /** Error-level data-check gate shared by run + runSweep. */
-    passesRunGate: async () => {
+    passesRunGate: async (caseId) => {
       const { project, log } = get();
       if (!project) return false;
       if (!(await trustsCode(project))) {
@@ -2698,7 +2705,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         const checks = await api.validateProject(project);
         set({ dataChecks: checks });
         if (get().project !== project) scheduleRecheck(); // edited while it checked
-        const errors = checks.filter((c) => c.level === "error");
+        const errors = runBlockers(checks, caseId);
         if (errors.length > 0) {
           log("error", `Run blocked — fix ${countOf(errors.length, "data-check error")} first.`);
           const ui = useUIStore.getState();
@@ -2868,18 +2875,29 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 // waits for the run to end.
 const RECHECK_MS = 600;
 let recheckTimer: ReturnType<typeof setTimeout> | undefined;
-useProjectStore.subscribe((s, prev) => {
+let rechecksStopped = false;
+const unsubscribeRechecks = useProjectStore.subscribe((s, prev) => {
   if (s.project !== prev.project && s.project) scheduleRecheck();
 });
 
 function scheduleRecheck(): void {
   clearTimeout(recheckTimer);
-  recheckTimer = setTimeout(recheck, RECHECK_MS);
+  if (!rechecksStopped) recheckTimer = setTimeout(recheck, RECHECK_MS);
+}
+
+/** Stop this store's quiet re-checks for good: for tests, so that a store
+ *  instance left behind by `vi.resetModules()` cannot check its model (and
+ *  call the shared api mock) during a later test. The app never calls it. */
+export function stopRechecks(): void {
+  rechecksStopped = true;
+  clearTimeout(recheckTimer);
+  recheckTimer = undefined;
+  unsubscribeRechecks();
 }
 
 async function recheck(): Promise<void> {
   const { project, running } = useProjectStore.getState();
-  if (!project) return;
+  if (!project || rechecksStopped) return;
   if (running) {
     recheckTimer = setTimeout(recheck, RECHECK_MS);
     return;
@@ -2914,6 +2932,13 @@ export async function confirmReplaceProject(action: string): Promise<boolean> {
 /** "1 error", "2 errors". */
 export function countOf(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
+/** The Data Checks' errors that stop a run of `caseId`: those about the
+ *  model, and those about that case (an error about another case's own
+ *  values or kind does not stop it). */
+export function runBlockers(checks: DataCheck[], caseId: string): DataCheck[] {
+  return checks.filter((c) => c.level === "error" && (c.caseId == null || c.caseId === caseId));
 }
 
 /** A row of the Problems list. */

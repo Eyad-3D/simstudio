@@ -184,15 +184,31 @@ describe("comparing two runs", () => {
   });
 
   it("a summary change within the stored rounding is noise; % change is against the baseline", () => {
-    expect(summaryChange(7.292, 7.292).noise).toBe(true);
-    expect(summaryChange(88.77, 88.76).noise).toBe(true); // one step of 0.01
-    expect(summaryChange(88.78, 88.76).noise).toBe(false);
-    const c = summaryChange(0.086, 0.07);
+    expect(summaryChange(7.292, 7.292, true).noise).toBe(true);
+    expect(summaryChange(88.77, 88.76, true).noise).toBe(true); // one step of 0.01
+    expect(summaryChange(88.78, 88.76, true).noise).toBe(false);
+    const c = summaryChange(0.086, 0.07, true);
     expect([c.noise, c.digits]).toEqual([false, 3]);
-    expect(summaryChange(0.5, 0).pct).toBeNull();
-    const up = summaryChange(12.34, 11.12);
+    expect(summaryChange(0.5, 0, true).pct).toBeNull();
+    const up = summaryChange(12.34, 11.12, true);
     expect(up.pct).toBeCloseTo(10.97, 2);
     expect(up.diff).toBeCloseTo(1.22, 9);
-    expect(summaryChange(2e-7, 1e-7).noise).toBe(true); // 7 decimals, from the exponent
+    expect(summaryChange(2e-7, 1e-7, true).noise).toBe(false); // 7 decimals, but a 100 % change
+    expect(summaryChange(12.3456, 12.3455, true).noise).toBe(true); // one step of 0.0001
+  });
+
+  it("a value that lost its trailing zeros is not taken for a coarser rounding", () => {
+    // 13.00 against 12.00 kWh/100km arrives as 13 against 12: an 8.3 % change
+    const c = summaryChange(13, 12, true);
+    expect([c.noise, c.pct]).toEqual([false, expect.closeTo(8.33, 2)]);
+    expect(summaryChange(8, 7, true).noise).toBe(false);
+    expect(summaryChange(151, 150, true).noise).toBe(false); // 0.67 %
+    expect(summaryChange(1001, 1000, true).noise).toBe(true); // 0.1 %, within the step read
+  });
+
+  it("values kept to every digit (since 0.3) never read as noise", () => {
+    expect(summaryChange(13, 12, false).noise).toBe(false);
+    expect(summaryChange(88.77, 88.76, false).noise).toBe(false);
+    expect(summaryChange(7.292, 7.292, false)).toMatchObject({ noise: false, diff: 0, pct: 0 });
   });
 });

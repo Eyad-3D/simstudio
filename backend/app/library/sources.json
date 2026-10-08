@@ -369,7 +369,7 @@
       "file": "backend/app/library/components.json",
       "dataset": "track.lap.curvature_table",
       "kind": "table",
-      "description": "Race Track Custom curvature starter table: 0 1/m from 0 to 100 m (a 100 m straight), meant to be replaced by the user.",
+      "description": "Race Track Custom curvature starter table: 0.025 1/m from 0 to 251.327 m (a closed circle of 40 m radius, so the Custom default with Closed Circuit ticked closes), meant to be replaced by the user.",
       "source": "Synthetic / created for LightSim in the MOD-42 change",
       "licence": "LightSim's own (LICENSE)",
       "credit": "None required (created for LightSim)",

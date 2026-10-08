@@ -53,7 +53,7 @@ Whether the model matches a real car is a separate question:
 | ***part* — maximum pack voltage** | V | The highest voltage of the battery: at its terminals while charging, or its open-circuit voltage at 100 % SOC, whichever is higher. Checked against the *Voltage Class* (Formula Student: 600 V) |
 | ***part* — peak terminal power** | kW | The highest power at the battery's terminals at any solver step. Shown with an *Output Power Limit*, and in an acceleration test |
 | ***part* — peak terminal power, averaged** | kW | The highest power at the battery's terminals averaged over the *Power Check Window* (Formula Student: 500 ms). Checked against the *Output Power Limit* |
-| ***part* — time held at the output power limit** | s | How long the battery held the motors back to keep to its *Output Power Limit* (with *Hold Power to Limit* on) |
+| ***part* — time held at the output power limit** | s | How long the battery held the motors back to keep to its *Output Power Limit* (with *Hold Power to Limit* on). With a *Power Limit Margin* it is *time held at the power cap (limit less margin)* |
 | ***part* — time over the output power limit** | s | How long the battery's power was above its *Output Power Limit*, when *Hold Power to Limit* is off and the limit is only checked |
 | ***part* — mean terminal power** | kW | In an acceleration test: the battery's net energy over the run divided by the run's time |
 | ***part* — charge-balanced start SOC** | % | The state of charge a hybrid's battery started the last run at, after charge balancing |

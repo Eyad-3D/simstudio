@@ -48,8 +48,9 @@ Target: at least five sessions per release.
 ## Between releases
 
 - **Help → What Stopped You?…** in the desktop app opens the public Idea
-  form with the version filled in. Nothing is sent unless the person
-  submits it. Panellists and anyone else can use it at any time.
+  form in the browser, with the version in the link. GitHub sees that
+  visit, and nothing the person writes is sent until they submit the
+  form. Panellists and anyone else can use it at any time.
 - When GitHub Discussions is turned on (BIZ-09), point the menu item at a
   feedback category there instead.
 

@@ -39,8 +39,12 @@ On *Acceleration 75 m*:
    motor gives more torque than they can put down, and the model has no
    traction control.
 2. **From 0.37 s.** The Accumulator reaches 80 kW and the battery holds it
-   there; from now on the power limit, not the tyres, sets the pace.
-3. **3.75 s.** The car crosses the 75 m line at 119 km/h.
+   there. The rear tyres still spin at their grip limit, so part of that
+   power only spins the wheels: the tyres, not the power limit, set the
+   pace.
+3. **From about 1.9 s.** The rear tyres grip again (about half the run
+   was at their grip limit); from now on the power limit sets the pace.
+4. **3.75 s.** The car crosses the 75 m line at 119 km/h.
 
 The *Autocross (flying lap)* and *Endurance energy* cases drive
 LightSim's own 979 m layout in lap mode (a lap simulation: the car goes as

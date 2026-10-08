@@ -622,6 +622,9 @@ class DataCheck(BaseModel):
     text: str
     # what to do about it, when the text does not say
     fix: Optional[str] = None
+    # the case it is about (its own values or kind): it stops only that
+    # case's runs. None: it is about the model, and stops every run
+    caseId: Optional[str] = None
 
 
 class SimulateRequest(BaseModel):
