@@ -100,9 +100,12 @@ puts projects on a shared drive.
 - LightSim contacts nothing outside the computer unless a user agrees to
   update checks (or your policy file turns them on). It looks up no proxy
   until then.
-- Update checks go to `github.com` and, for a download,
-  `objects.githubusercontent.com`, once a day. They send only the app's
-  version and platform. They use the computer's proxy settings.
+- Update checks go to `github.com` and `release-assets.githubusercontent.com`,
+  once a day, and every check uses both: it reads the list of releases from
+  github.com, which sends it on to release-assets.githubusercontent.com
+  for the release's `latest.yml` file (a download comes from there too).
+  Allow both. They send only the app's version and platform. They use the
+  computer's proxy settings.
 
 ## Fix settings for everyone: the policy file
 
