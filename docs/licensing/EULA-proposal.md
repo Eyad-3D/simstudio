@@ -249,6 +249,7 @@ In plain words (the full terms below decide):
 | D8 | Prices: Professional, Team, Site, Server (BIZ-24) | Publish them before 1.0 | Price page; FAQ |
 | D9 | Whether EULA 1.1 ships with 0.3.0 or a later release | With the first public release, so the public never sees 1.0's gaps | Release notes, installer |
 | D10 | The "facts" basis for shipped data (`LicenseRef-Facts` in `scripts/licenses/data-allowed.txt`) | Keep: rule values and published figures are quoted as single facts with their source | Data licence gate (BIZ-34) |
+| D11 | Turn on GitHub's private vulnerability reporting for the repository (*Settings → Code security*). It is off today, so SECURITY.md's only private route does not work for outside reporters | Turn it on before the first public release, and name the D1 address in SECURITY.md as the fallback | `SECURITY.md`, `.github/ISSUE_TEMPLATE/config.yml` |
 
 ## When the owner approves
 

@@ -3,6 +3,8 @@
 # address (docs/licensing/EULA-proposal.md, D1), set this to false.
 blank_issues_enabled: true
 contact_links:
+  # OWNER STEP (decision D11): this link works only once private
+  # vulnerability reporting is on (Settings > Code security).
   - name: Report a security problem (private)
     url: https://github.com/Eyad-3D/simstudio/security/advisories/new
     about: Never in a public issue. See SECURITY.md.

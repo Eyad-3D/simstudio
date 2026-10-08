@@ -1029,7 +1029,9 @@ sections.
   say what kept you from finishing a task. Nothing is sent unless you
   submit the form. (BIZ-35)
 - How to help, and how to report a security problem privately:
-  `CONTRIBUTING.md` and `SECURITY.md` in the repository, with bug and idea
+  `CONTRIBUTING.md` and `SECURITY.md` in the repository (DRAFT: its
+  private route, GitHub's private vulnerability reporting, works once the
+  owner turns it on), with bug and idea
   forms for GitHub issues. Code contributions need a signed contributor
   licence agreement, which is not ready yet. (BIZ-13)
 - A draft licence FAQ, *Can I use LightSim for …?*
