@@ -234,7 +234,8 @@ figure the same without the part (`rule_check_current_ev_2_2_2_a` for
 
 The app's *Results* tab exports a run as CSV. The command-line tool and
 the Python package (`Result.to_csv`, `to_mat`, `to_json`) write three
-formats.
+formats, and the Python package a fourth, Parquet, when pyarrow is
+installed (`Result.to_parquet`, `lightsim run -o result.parquet`).
 
 ### CSV
 
@@ -257,6 +258,21 @@ Octave and `scipy.io.loadmat` read:
 | `kpis` | a struct: summary key (with `.` and other signs as `_`) → value |
 | `kpi_units` | a struct: the same names → unit |
 | `info` | a struct: `project`, `case`, `case_id`, `status` |
+
+### Parquet
+
+An Apache Parquet file, which pandas, Polars, DuckDB, Spark and MATLAB's
+`parquetread` read. Written only by the Python package, and only when the
+`pyarrow` package (Apache-2.0) is installed; LightSim does not include it.
+
+| Column | Holds |
+|---|---|
+| `time` | the times, s |
+| one per channel | its values (empty for a gap), named after the channel's label (a repeated label gets ` (2)`); its field metadata holds `unit` and `key` (`elementId:portId`) |
+
+The file's metadata key `lightsim` holds, as JSON, the `format`,
+`formatVersion`, `project`, `caseId`, `caseName`, `status`, `valid`,
+`kpis`, `units` and `notValid` of the [JSON export](#json-lightsim-result).
 
 ### JSON (`lightsim-result`)
 

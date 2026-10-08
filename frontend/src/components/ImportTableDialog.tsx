@@ -331,7 +331,11 @@ const fmt = (v: number) => (Math.abs(v) >= 1000 ? v.toLocaleString("en", { maxim
 
 /** What will be stored: a 1-D table or profile as a small line chart, a map
  *  as its first rows and columns. */
-export function Preview({ result }: { result: api.TableImport }) {
+export function Preview({
+  result,
+}: {
+  result: Pick<api.TableImport, "axes" | "valueName" | "valueUnit"> & { preview: api.TableImport["preview"] };
+}) {
   const p = result.preview;
   if (!p) return null;
   if (Array.isArray(p)) {
@@ -448,6 +452,381 @@ function Cells({ cells }: { cells: api.TableImport["cells"] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+const CYCLE_UNIT_LABELS: Record<string, string> = {
+  x: "the time or distance",
+  speed: "the speed",
+  grade: "the grade",
+};
+
+/** "1,800 s · 23.27 km · top 131.3 km/h", or for a cycle against distance
+ *  "800 m · top 70 km/h"; " · with grade" when it has one. */
+export function cycleFigures(info: api.CycleInfo): string {
+  const parts =
+    info.axis === "distance"
+      ? [`${Math.round(info.distance_km * 1000).toLocaleString("en")} m`]
+      : [`${info.duration_s.toLocaleString("en")} s`, `${info.distance_km.toFixed(2)} km`];
+  if (info.speed !== false) parts.push(`top ${info.vmax_kmh.toFixed(1)} km/h`);
+  if (info.grade) parts.push(info.speed === false ? "grade only" : "with grade");
+  return parts.join(" · ");
+}
+
+/** Import a drive cycle of one's own from a CSV or Excel file (CON-11):
+ *  pick the file, check the columns, units and preview, name it, and keep
+ *  it in the project. `onAdd` keeps it (and says under which id), or
+ *  returns null when it cannot. */
+export function ImportCycleDialog({
+  onClose,
+  onAdd,
+}: {
+  onClose: () => void;
+  onAdd: (cycle: {
+    name: string;
+    axis: "time" | "distance";
+    x: number[];
+    speed: number[] | null;
+    grade: number[] | null;
+    source: string;
+  }) => string | null;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const chooseRef = useRef<HTMLButtonElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<{ name: string; data: string } | null>(null);
+  const [options, setOptions] = useState<api.CycleImportOptions>({});
+  const [result, setResult] = useState<api.CycleImport | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [rangeText, setRangeText] = useState("");
+  const titleId = useId();
+  const nameId = useId();
+
+  useEffect(() => chooseRef.current?.focus(), []);
+  useEffect(() => {
+    if (!file) return;
+    let stale = false;
+    api
+      .importCycleFile(file, options)
+      .then((r) => {
+        if (stale) return;
+        setResult(r);
+        setFailure(null);
+      })
+      .catch((e: Error) => !stale && setFailure(e.message.replace(/^\d+ /, "")));
+    return () => {
+      stale = true;
+    };
+  }, [file, options]);
+  useEffect(() => {
+    if (result?.ok) nameRef.current?.focus();
+  }, [result?.ok]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const read = async (f: File) => {
+    try {
+      setFailure(null);
+      setResult(null);
+      setOptions({});
+      setRangeText("");
+      setName(f.name.replace(/\.[^.]+$/, "").slice(0, 200));
+      setFile({ name: f.name, data: await api.fileToBase64(f) });
+    } catch (err) {
+      setFailure(`The file could not be read: ${(err as Error).message}`);
+    }
+  };
+  const set = (patch: api.CycleImportOptions) => setOptions((o) => ({ ...o, ...patch }));
+  const colName = (c: api.TableImport["columns"][number]) => `${c.letter}: ${c.header || "(no header)"}`;
+  const xName = result?.axis === "distance" ? "Distance" : "Time";
+  const canAdd = Boolean(result?.ok && result.cycle && name.trim());
+
+  return (
+    <div
+      className="ss-import-dialog fixed inset-0 z-[110] flex items-center justify-center bg-black/35"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="flex max-h-[86vh] w-[min(620px,calc(100vw-32px))] flex-col overflow-hidden rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] shadow-2xl"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          const f = e.dataTransfer.files?.[0];
+          if (f) void read(f);
+        }}
+      >
+        <div className="flex items-center gap-2 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-3 py-2">
+          <FileUp size={15} className="text-[color:var(--ss-accent)]" />
+          <span id={titleId} className="min-w-0 truncate text-[13px] font-semibold">
+            Import a drive cycle{file ? ` from ${file.name}` : ""}
+          </span>
+          <button className="ss-toolbtn ml-auto" title="Close (Esc)" aria-label="Close the dialog" onClick={onClose}>
+            <X size={14} />
+          </button>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 text-[12px]">
+          <p className="text-[color:var(--ss-text-dim)]">
+            A CSV or Excel (.xlsx) file with a time column (s) or a distance column (m), and a speed column (km/h, m/s
+            or mph), a road grade column (%), or both. The cycle is kept in this project, and its Drive Cycle lists
+            offer it beside the standard ones.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              ref={chooseRef}
+              className="ss-toolbtn border border-[color:var(--ss-border)] px-2"
+              onClick={() => input.current?.click()}
+            >
+              <FileUp size={12} /> {file ? "Choose another file…" : "Choose a file…"}
+            </button>
+            <span className="text-[11px] text-[color:var(--ss-text-dim)]">or drop it here</span>
+            <input
+              ref={input}
+              type="file"
+              accept=".csv,.tsv,.txt,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              className="hidden"
+              aria-label="Drive cycle file to import"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void read(f);
+              }}
+            />
+          </div>
+          {failure && (
+            <p role="alert" className="ss-param-problem">
+              {failure}
+            </p>
+          )}
+          {file && !result && !failure && <p className="text-[color:var(--ss-text-dim)]">Reading the file…</p>}
+          {result && (
+            <>
+              <div className="flex flex-wrap items-end gap-2">
+                {result.sheets.length > 1 && (
+                  <label className="flex flex-col gap-0.5">
+                    <span className="text-[11px] text-[color:var(--ss-text-dim)]">Sheet</span>
+                    <select
+                      className="ss-input"
+                      value={result.sheet}
+                      onChange={(e) => setOptions({ sheet: e.target.value })}
+                    >
+                      {result.sheets.map((s) => (
+                        <option key={s.name} value={s.name}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                <label className="flex flex-col gap-0.5">
+                  <span className="text-[11px] text-[color:var(--ss-text-dim)]">Cells (e.g. B3:F20)</span>
+                  <input
+                    className="ss-input w-[110px]"
+                    value={rangeText}
+                    placeholder={result.range || "whole sheet"}
+                    onChange={(e) => setRangeText(e.target.value)}
+                    onBlur={() => set({ range: rangeText.trim() || undefined })}
+                    onKeyDown={(e) => e.key === "Enter" && set({ range: rangeText.trim() || undefined })}
+                  />
+                </label>
+                <label className="flex flex-col gap-0.5">
+                  <span className="text-[11px] text-[color:var(--ss-text-dim)]">Points against</span>
+                  <select
+                    className="ss-input"
+                    value={result.axis}
+                    onChange={(e) =>
+                      set({
+                        axis: e.target.value as "time" | "distance",
+                        xColumn: undefined,
+                        speedColumn: undefined,
+                        gradeColumn: undefined,
+                        units: undefined,
+                      })
+                    }
+                  >
+                    <option value="time">Time (a drive cycle)</option>
+                    <option value="distance">Distance (a lap, a route)</option>
+                  </select>
+                </label>
+                {result.decimal && (result.decimalQuestion || options.decimal) && (
+                  <label className="flex flex-col gap-0.5">
+                    <span className="text-[11px] text-[color:var(--ss-text-dim)]">Decimal mark</span>
+                    <select
+                      className="ss-input"
+                      value={result.decimal}
+                      onChange={(e) => set({ decimal: e.target.value as "comma" | "point" })}
+                    >
+                      <option value="comma">comma (1,5 = 1.5; 1.000 = 1000)</option>
+                      <option value="point">point (1.5; 1,000 = 1000)</option>
+                    </select>
+                  </label>
+                )}
+              </div>
+              {result.columns.length > 0 && (
+                <div className="flex flex-wrap items-end gap-2">
+                  {(
+                    [
+                      ["xColumn", `${xName} from`, false],
+                      ["speedColumn", "Speed from", result.axis === "distance"],
+                      ["gradeColumn", "Grade from", true],
+                    ] as const
+                  ).map(([key, text, optional]) => {
+                    const current =
+                      key === "xColumn"
+                        ? result.xColumn
+                        : key === "speedColumn"
+                          ? result.speedColumn
+                          : result.gradeColumn;
+                    return (
+                      <label key={key} className="flex flex-col gap-0.5">
+                        <span className="text-[11px] text-[color:var(--ss-text-dim)]">{text}</span>
+                        <select
+                          className="ss-input"
+                          value={current ?? -1}
+                          onChange={(e) =>
+                            set({
+                              [key]: Number(e.target.value),
+                              units: undefined,
+                            })
+                          }
+                        >
+                          {optional && <option value={-1}>(none)</option>}
+                          {result.columns.map((c) => (
+                            <option key={c.index} value={c.index}>
+                              {colName(c)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              {Object.keys(result.units).length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(result.units).map(([k, u]) => (
+                    <label key={k} className="flex flex-col gap-0.5">
+                      <span className="text-[11px] text-[color:var(--ss-text-dim)]">
+                        Unit of {CYCLE_UNIT_LABELS[k] ?? k}
+                        {u.how === "header" ? " (from the file)" : u.how === "guessed" ? " (guessed)" : ""}
+                      </span>
+                      <select
+                        className="ss-input"
+                        value={u.used}
+                        onChange={(e) =>
+                          set({
+                            units: {
+                              ...(options.units ?? {}),
+                              [k]: e.target.value,
+                            },
+                          })
+                        }
+                      >
+                        {u.options.map((o) => (
+                          <option key={o} value={o}>
+                            {o === u.target ? `${o} (as stored)` : o === "fraction" ? "fraction (0.05 = 5 %)" : o}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {result.decimalQuestion && (
+                <p className="rounded border border-[color:var(--ss-warning,#b58900)] px-2 py-1">
+                  {result.decimalQuestion} Change the decimal mark above if that is wrong.
+                </p>
+              )}
+              {Object.values(result.units)
+                .filter((u) => u.question)
+                .map((u) => (
+                  <p key={u.question} className="rounded border border-[color:var(--ss-warning,#b58900)] px-2 py-1">
+                    {u.question} Change the unit above if not.
+                  </p>
+                ))}
+              {result.errors.length > 0 && (
+                <div role="alert">
+                  <p className="font-semibold">The file cannot be imported as a cycle as it is:</p>
+                  <ul className="ml-4 list-disc">
+                    {result.errors.map((e, i) => (
+                      <li key={i} className="ss-param-problem">
+                        {e.text}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {result.warnings.length > 0 && (
+                <ul className="ml-4 list-disc text-[color:var(--ss-text-dim)]">
+                  {result.warnings.slice(0, 5).map((w, i) => (
+                    <li key={i}>{w.text}</li>
+                  ))}
+                </ul>
+              )}
+              {result.ok && result.preview && <Preview result={result} />}
+              {result.ok && result.info && (
+                <p data-testid="cycle-import-figures">
+                  {result.axis === "distance" ? "Against distance" : "Against time"}: {cycleFigures(result.info)}
+                </p>
+              )}
+              {result.notes.length > 0 && (
+                <p className="text-[11px] text-[color:var(--ss-text-dim)]">{result.notes.join(" · ")}</p>
+              )}
+              {!result.ok && result.cells.length > 0 && <Cells cells={result.cells} />}
+              {result.ok && (
+                <label className="flex flex-col gap-0.5" htmlFor={nameId}>
+                  <span className="text-[11px] text-[color:var(--ss-text-dim)]">Name in the Drive Cycle lists</span>
+                  <input
+                    id={nameId}
+                    ref={nameRef}
+                    className="ss-input"
+                    maxLength={200}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </label>
+              )}
+            </>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-[color:var(--ss-border)] px-3 py-2">
+          <span className="mr-auto text-[11px] text-[color:var(--ss-text-dim)]">
+            {result?.ok ? "Kept in the project file; Undo (Ctrl+Z) takes it out again." : ""}
+          </span>
+          <button className="ss-toolbtn border border-[color:var(--ss-border)] px-2" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="ss-toolbtn border border-[color:var(--ss-accent)] bg-[color:var(--ss-accent)] px-2 text-white disabled:opacity-40"
+            disabled={!canAdd}
+            onClick={() => {
+              if (!result?.cycle || !file || !name.trim()) return;
+              const { axis, x, speed, grade } = result.cycle;
+              if (
+                onAdd({
+                  name: name.trim(),
+                  axis,
+                  x,
+                  speed,
+                  grade,
+                  source: file.name,
+                }) !== null
+              )
+                onClose();
+            }}
+          >
+            Add to project
+            {result?.ok ? ` (${result.points.toLocaleString("en")} points)` : ""}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

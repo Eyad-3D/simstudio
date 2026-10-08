@@ -318,27 +318,44 @@ def build_model(
             params_of[el_id].update(ov)
             if "profile" in ov and "cycle" not in ov:  # a case's own profile wins
                 params_of[el_id]["cycle"] = ""
-    # a Driving Task on a bundled drive cycle drives its trace (CON-16); a
-    # Road Profile on one takes the cycle's grade along its distance (CON-11)
+    # a Driving Task on a drive cycle drives its trace (CON-16); a Road
+    # Profile on one takes the cycle's grade along its distance (CON-11). A
+    # cycle is a bundled one or one of the project's own, whose speed may be
+    # against distance: the task then reads it against distance.
+    catalogue = cycles.Catalogue.of(project)
     for el_id, cdef in cdef_of.items():
         if cdef.id not in ("signal.driving_task", "signal.road_profile"):
             continue
-        cycle_id = params_of[el_id].get("cycle")
+        cycle_id = str(params_of[el_id].get("cycle") or "")
         if not cycle_id:
             continue
         what = "Driving Task" if cdef.id == "signal.driving_task" else "Road Profile"
-        if str(cycle_id) not in cycles.CYCLES:
-            errors.append(about(f"{what} '{elements[el_id].label}' uses the drive cycle "
-                                f"'{cycle_id}', which this version of LightSim does not include.",
-                                el_id))
+        label = elements[el_id].label
+        if not catalogue.knows(cycle_id):
+            errors.append(about(
+                f"{what} '{label}' uses the drive cycle '{cycle_id}', which is not among "
+                f"this project's own cycles." if cycle_id.startswith(cycles.OWN_PREFIX) else
+                f"{what} '{label}' uses the drive cycle '{cycle_id}', which this version of "
+                f"LightSim does not include.", el_id))
+        elif problems := catalogue.problems(cycle_id):
+            errors.append(about(f"{what} '{label}' uses the drive cycle "
+                                f"'{catalogue.name(cycle_id)}', which cannot be driven: "
+                                f"{'; '.join(problems)}.", el_id))
         elif cdef.id == "signal.driving_task":
-            params_of[el_id]["profile"] = cycles.profile_text(str(cycle_id))
-        elif not cycles.has_grade(str(cycle_id)):
-            errors.append(about(f"Road Profile '{elements[el_id].label}' takes its grade from the "
-                                f"drive cycle '{cycles.CYCLES[str(cycle_id)]['name']}', which has "
+            if not catalogue.has_speed(cycle_id):
+                errors.append(about(f"Driving Task '{label}' uses the drive cycle "
+                                    f"'{catalogue.name(cycle_id)}', which has a grade but no "
+                                    f"speed; a Road Profile can take its grade.", el_id))
+                continue
+            params_of[el_id]["profile"] = catalogue.profile_text(cycle_id)
+            if catalogue.axis(cycle_id) == "distance":
+                params_of[el_id]["mode"] = "distance"
+        elif not catalogue.has_grade(cycle_id):
+            errors.append(about(f"Road Profile '{label}' takes its grade from the "
+                                f"drive cycle '{catalogue.name(cycle_id)}', which has "
                                 f"no grade; pick a cycle with a grade, or Custom profile.", el_id))
         else:
-            params_of[el_id]["profile"] = cycles.grade_profile_text(str(cycle_id))
+            params_of[el_id]["profile"] = catalogue.grade_profile_text(cycle_id)
             params_of[el_id]["mode"] = "distance"
     # road load from coefficients that hold the axle's drag: the axle gears
     # run lossless (both settings are fixed, so this holds for the whole run)

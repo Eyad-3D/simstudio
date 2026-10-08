@@ -378,6 +378,29 @@ class Attachment(BaseModel):
     bytes: int = Field(ge=0)
 
 
+class ProjectCycle(BaseModel):
+    """A drive cycle of the user's own, kept in the project file (CON-11):
+    a speed (km/h), and optionally a road grade (%), at each point of
+    ``x``: the time in s, or with ``axis`` "distance" the distance driven
+    in m (a speed or a grade, or both, against distance). A Driving Task or
+    Road Profile names it by ``id`` in its ``cycle`` parameter, as it names
+    a bundled one (app/cycles.py checks the fields together)."""
+
+    model_config = PERSISTED
+
+    # "own:" keeps it apart from the bundled ids, so a LightSim that does not
+    # know the project's cycles says so instead of driving a bundled one
+    id: str = Field(pattern=r"^own:[A-Za-z0-9._-]{1,64}$")
+    name: str = Field(min_length=1, max_length=200)
+    axis: Literal["time", "distance"] = "time"
+    x: list[float] = Field(max_length=100_000)
+    speed: Optional[list[float]] = Field(None, max_length=100_000)
+    grade: Optional[list[float]] = Field(None, max_length=100_000)
+    # where the data came from (the file it was imported from), and a note
+    source: str = Field("", max_length=1000)
+    note: str = Field("", max_length=2000)
+
+
 def _project_schema_extra(schema: dict) -> None:
     # read from the file's extra fields, not a model field, so files that
     # leave it out stay byte-for-byte as they were (lightsim/ai_access.py)
@@ -407,6 +430,9 @@ class Project(BaseModel):
     card: Optional[ExampleCard] = None
     # files kept with the project (FMUs, AI models, measured data), STD-02
     attachments: list[Attachment] = Field(default_factory=list)
+    # drive cycles of the user's own (CON-11); left out of the file when
+    # there are none, so a project without stays as it was
+    cycles: list[ProjectCycle] = Field(default_factory=list, exclude_if=lambda v: not v)
 
 
 class SimMessage(BaseModel):

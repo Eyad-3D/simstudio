@@ -55,8 +55,19 @@ print(R["meta"]["units"]["HV_Battery_Pack"]["SOC"])  # %
 ## Run LightSim from a MATLAB script
 
 `lightsim_run.m` runs a case of a saved project with LightSim's engine and
-returns a MATLAB table. It is in the `matlab` folder of LightSim's source
-(`matlab/lightsim_run.m`); copy it to a folder on your MATLAB path.
+returns a MATLAB table. LightSim installs it in the `resources/matlab`
+folder of the app, next to the engine:
+
+| Installed with | `lightsim_run.m` is in |
+|---|---|
+| Windows, for you only | `%LOCALAPPDATA%\Programs\LightSim\resources\matlab` |
+| Windows, for all users (or the MSI) | `C:\Program Files\LightSim\resources\matlab` |
+| Linux `.deb` | `/opt/LightSim/resources/matlab` |
+| Linux AppImage | inside the AppImage: run it with `--appimage-extract` and use `squashfs-root/resources/matlab` |
+
+Add that folder to your MATLAB path (`addpath`, or **Set Path** in MATLAB),
+or copy the file to a folder on it. It is also in the `matlab` folder of
+LightSim's source.
 
 1. Save the project in LightSim and note its file (**File → Open Projects
    Folder** shows where it is).
@@ -72,16 +83,30 @@ returns a MATLAB table. It is in the `matlab` folder of LightSim's source
 also returns the run's details as above. The run happens on your computer,
 with no window and no network.
 
-`lightsim_run` finds the engine of an installed LightSim (Windows:
-`%LOCALAPPDATA%\Programs\LightSim\resources\backend\lightsim-backend.exe`;
-Linux `.deb`: `/opt/LightSim/resources/backend/lightsim-backend`). With the
-AppImage, or a LightSim installed elsewhere, give the engine's path:
+`lightsim_run` runs the engine next to it first
+(`..\backend\lightsim-backend.exe` from its own folder), so the copy
+installed with LightSim always runs that LightSim's engine. A copy
+elsewhere looks for an installed LightSim (Windows:
+`%LOCALAPPDATA%\Programs\LightSim\resources\backend\lightsim-backend.exe`
+or the same under `C:\Program Files`; Linux `.deb`:
+`/opt/LightSim/resources/backend/lightsim-backend`). For a LightSim
+installed elsewhere, give the engine's path:
 `lightsim_run(project, case, 'Engine', 'C:\...\lightsim-backend.exe')`, or
 set the environment variable `LIGHTSIM_ENGINE` to it.
 
 If Data Checks find errors, `lightsim_run` stops with them as its error
 message. If the run ends with figures that are not valid, it warns and
 still returns the table.
+
+## Parquet from Python
+
+The `lightsim` Python package also writes a run as an Apache Parquet file,
+which pandas, Polars, DuckDB and MATLAB's `parquetread` read:
+`r.to_parquet("city.parquet")`, or `lightsim run … --out city.parquet`. It
+needs the `pyarrow` package (`pip install pyarrow`), which LightSim does
+not include, so the app and its engine write `.mat` and `.csv` only. The
+file has a `time` column and one per channel; each column's unit is in its
+metadata ([Runs and results](../../spec/results.md#parquet)).
 
 ## The same from the command line
 

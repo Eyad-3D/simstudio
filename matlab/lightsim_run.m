@@ -20,6 +20,8 @@ function [T, meta, R] = lightsim_run(project, caseName, varargin)
 %     'Engine'  the engine to run: the path of lightsim-backend (.exe), or
 %               a command such as 'python /path/to/backend/run_backend.py'.
 %               Default: the LIGHTSIM_ENGINE environment variable, else
+%               the engine next to this file (LightSim installs it in its
+%               resources\matlab folder, beside resources\backend), else
 %               the engine of an installed LightSim.
 %     'Out'     where to keep the .mat file (default: a temporary file,
 %               deleted afterwards).
@@ -160,14 +162,21 @@ function engine = find_engine(given)
         engine = find_engine(env);
         return
     end
+    % the copy installed with LightSim sits in resources/matlab, next to
+    % resources/backend: that engine first, so the script and the engine
+    % come from the same LightSim
+    here = fileparts(mfilename('fullpath'));
     if ispc
         candidates = {
+            fullfile(here, '..', 'backend', 'lightsim-backend.exe')
             fullfile(getenv('LOCALAPPDATA'), 'Programs', 'LightSim', 'resources', 'backend', 'lightsim-backend.exe')
             fullfile(getenv('ProgramFiles'), 'LightSim', 'resources', 'backend', 'lightsim-backend.exe')
         };
     else
         candidates = {
+            fullfile(here, '..', 'backend', 'lightsim-backend')
             '/opt/LightSim/resources/backend/lightsim-backend'
+            '/Applications/LightSim.app/Contents/Resources/backend/lightsim-backend'
             fullfile(getenv('HOME'), 'LightSim', 'resources', 'backend', 'lightsim-backend')
         };
     end

@@ -226,6 +226,8 @@ def sources_of(project: Project, case_id: Optional[str] = None) -> RunSources:
                         row = by_key.get((f"backend/app/cycles/{value}.csv", "*"))
                         if row:
                             cite(row, what)
+                        elif str(value).startswith(cycles.OWN_PREFIX):
+                            own.append(what)  # a cycle the user imported (CON-11)
                     continue
                 if cdef.id == "track.lap" and key == "layout" and value != "Custom":
                     cite(by_key[("backend/app/library/tracks.json", "*")], what)

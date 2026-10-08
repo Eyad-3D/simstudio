@@ -24,7 +24,7 @@ The examples below write `lightsim`; use whichever of these you have.
 |---|---|
 | `lightsim run PROJECT [--case NAME]` | Runs a case (the first if none is named) and prints its summary |
 | `lightsim check PROJECT` | Runs the Data Checks (the *Problems* list). `--strict` fails on warnings too |
-| `lightsim export RUN -o FILE` | Writes a stored run (`.json.gz` from the app's runs folder, or `.json`) as CSV, MAT or JSON |
+| `lightsim export RUN -o FILE` | Writes a stored run (`.json.gz` from the app's runs folder, or `.json`) as CSV, MAT, JSON or Parquet |
 | `lightsim show PROJECT` | Lists the project's cases and parts, with their ids |
 | `lightsim params PROJECT [--part LABEL]` | Lists the parameter values, as `Part.key = value unit` |
 | `lightsim parts [TYPE]` | Lists the part types of the library, or one type's parameters and ports |
@@ -44,7 +44,7 @@ text, and `-h` for its options.
 |---|---|
 | `--case NAME`, `-c` | The case, by name or id |
 | `--all-cases` | Runs every case; put `{case}` in each `--out` name |
-| `--out FILE`, `-o` | Writes the results: `.csv`, `.mat` (MATLAB, Octave) or `.json`; repeat for several |
+| `--out FILE`, `-o` | Writes the results: `.csv`, `.mat` (MATLAB, Octave), `.json` or `.parquet` (Parquet needs `pip install pyarrow`, so the Python package's `lightsim` writes it and the app's own engine does not); repeat for several |
 | `--set PART.KEY=VALUE` | Changes a value for this run only, with its unit: `--set "Vehicle.mass_kg=1.9 t"`. It also replaces the case's own value, if the case sets one |
 | `--no-check` | Skips the Data Checks |
 | `--time-limit S` | Stops the run after S seconds of wall-clock time |

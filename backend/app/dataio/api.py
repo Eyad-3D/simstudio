@@ -7,6 +7,8 @@ sheets (STD-09, STD-10, STD-36). Mounted by app.main.
                                the same for a run sent in the body
   POST /api/import/table       read a table, map or profile from a CSV or .xlsx
                                file: the values, ready to apply, or why not
+  POST /api/import/cycle       read a drive cycle of one's own (speed and grade
+                               against time or distance) from a CSV or .xlsx file
   POST /api/params/export      every parameter of a project as .xlsx or CSV
   POST /api/params/import      the changes a parameter sheet would make
   GET  /api/params/template    the Formula Student example's parameter sheet
@@ -25,7 +27,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from .. import run_store, storage
 from ..schemas import Project, StoredRun
-from . import params, results, tables
+from . import cycle_import, params, results, tables
 from .sheets import MAX_BYTES, SheetError, read_file
 
 router = APIRouter()
@@ -153,6 +155,50 @@ def import_table(req: TableImportRequest) -> dict:
     return {**res.as_dict(), "sheets": [{"name": s.name, "rows": len(s.rows), "cols": s.width}
                                         for s in sheets],
             "cells": cells, "target": target.label}
+
+
+class CycleImportRequest(BaseModel):
+    filename: str = Field(max_length=500)
+    #: the file's bytes, base64
+    data: str
+    #: what the cycle's points are against; found from the headers when absent
+    axis: Optional[Literal["time", "distance"]] = None
+    sheet: Optional[str] = Field(None, max_length=200)
+    range: Optional[str] = Field(None, max_length=50)
+    #: 0-based column indexes; -1 for none (speed against distance, grade)
+    xColumn: Optional[int] = Field(None, ge=0, le=100000)
+    speedColumn: Optional[int] = Field(None, ge=-1, le=100000)
+    gradeColumn: Optional[int] = Field(None, ge=-1, le=100000)
+    #: the unit to read each column in ("x", "speed", "grade")
+    units: Optional[dict[str, str]] = None
+    decimal: Optional[Literal["comma", "point"]] = None
+
+
+@router.post("/api/import/cycle",
+             responses={400: {"description": "Unreadable file", "content": _ERROR}})
+def import_cycle(req: CycleImportRequest) -> dict:
+    """Read a drive cycle of the user's own from a CSV or .xlsx file (CON-11):
+    a speed, and optionally a road grade, against time, or a speed and/or a
+    grade against distance, in km/h and %. Answers with the columns found,
+    the units each was read in and the cycle (``ok``), or the problems that
+    stop the import, each with its row. Nothing is stored: the app keeps the
+    cycle in the project."""
+    raw = _decode(req.data)
+    try:
+        sheets = read_file(raw, req.filename, req.decimal)
+    except SheetError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    sheet = next((s for s in sheets if s.name == req.sheet), None)
+    if sheet is None:
+        sheet = next((s for s in sheets if any(isinstance(c, float) for r in s.rows[:200]
+                                                for c in r)), sheets[0])
+    opts = req.model_dump(include={"range", "axis", "xColumn", "speedColumn", "gradeColumn",
+                                   "units"}, exclude_none=True)
+    res = cycle_import.import_cycle(sheet, opts)
+    cells = [[c for c in r[:_PREVIEW_COLS]] for r in sheet.rows[:_PREVIEW_ROWS]]
+    return {**res.as_dict(), "sheets": [{"name": s.name, "rows": len(s.rows), "cols": s.width}
+                                        for s in sheets],
+            "cells": cells, "target": "drive cycle"}
 
 
 class ParamsExportRequest(BaseModel):

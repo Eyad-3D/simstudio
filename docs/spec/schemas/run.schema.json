@@ -1033,6 +1033,13 @@
           "title": "Attachments",
           "type": "array"
         },
+        "cycles": {
+          "items": {
+            "$ref": "#/$defs/ProjectCycle"
+          },
+          "title": "Cycles",
+          "type": "array"
+        },
         "noAi": {
           "default": false,
           "description": "true hides the project from AI tools (the MCP server, an in-app assistant), whatever folders they may see.",
@@ -1045,6 +1052,91 @@
         "systems"
       ],
       "title": "Project",
+      "type": "object"
+    },
+    "ProjectCycle": {
+      "additionalProperties": true,
+      "description": "A drive cycle of the user's own, kept in the project file (CON-11):\na speed (km/h), and optionally a road grade (%), at each point of\n``x``: the time in s, or with ``axis`` \"distance\" the distance driven\nin m (a speed or a grade, or both, against distance). A Driving Task or\nRoad Profile names it by ``id`` in its ``cycle`` parameter, as it names\na bundled one (app/cycles.py checks the fields together).",
+      "properties": {
+        "id": {
+          "pattern": "^own:[A-Za-z0-9._-]{1,64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "axis": {
+          "default": "time",
+          "enum": [
+            "time",
+            "distance"
+          ],
+          "title": "Axis",
+          "type": "string"
+        },
+        "x": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 100000,
+          "title": "X",
+          "type": "array"
+        },
+        "speed": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 100000,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Speed"
+        },
+        "grade": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 100000,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Grade"
+        },
+        "source": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Source",
+          "type": "string"
+        },
+        "note": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "x"
+      ],
+      "title": "ProjectCycle",
       "type": "object"
     },
     "ReferenceCheck": {

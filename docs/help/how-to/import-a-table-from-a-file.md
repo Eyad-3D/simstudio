@@ -4,6 +4,12 @@ A motor map, a battery table or a speed trace often comes as a spreadsheet.
 Every table, map and profile grid in LightSim reads one from a CSV file or
 an Excel workbook (`.xlsx`). Pasting cells from Excel with Ctrl+V works too.
 
+A whole drive cycle (a speed, and a road grade, against time or distance)
+can instead join the **Drive Cycle** lists as a cycle of the project's
+own, kept in the project: see
+[Use a cycle of your own](pick-a-drive-cycle.md#use-a-cycle-of-your-own).
+It reads the file the way this page describes.
+
 1. Select the part and open its table: double-click the part on the
    diagram, or click the table's **Edit…** in *Properties*.
 2. Click **Import from file…** under the table and choose the file.

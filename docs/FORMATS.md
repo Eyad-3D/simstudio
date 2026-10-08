@@ -24,6 +24,7 @@ Last updated for version 0.3.0.
 | Results as JSON (`lightsim-result`, [spec](spec/results.md#json-lightsim-result)) | yes | yes | `lightsim run -o x.json`, `lightsim.read_run` | `backend/tests/test_python_api.py::test_json_export_matches_its_schema_and_reads_back` |
 | JSON Schemas of every file ([spec](spec/README.md)) | — | yes | `docs/spec/schemas/`, `lightsim schema` | `backend/tests/test_spec.py::test_committed_schemas_are_up_to_date` |
 | Project import from a file (*Import*) | yes | — | the app | `frontend/src/store/projectStore.test.ts::Import loads a project file as unsaved work` |
+| Drive cycle of your own from CSV or Excel (`.xlsx`): speed and grade against time or distance, units in the header | yes | — | the app (*Drive Cycle → Import a cycle from a file…*), kept in the project file ([spec](spec/project.md#drive-cycle-of-the-projects-own)) | `backend/tests/test_own_cycles.py::test_import_reads_time_speed_and_grade` |
 
 ## Partly there
 
@@ -31,13 +32,14 @@ Last updated for version 0.3.0.
 |---|---|---|
 | Results CSV from the *Results* tab | The app exports the plotted channels along the chart's x axis | A test that reads the file back |
 | Paste a table from a spreadsheet | The table editor takes a pasted block of cells | A test of the paste |
-| Standard drive cycles (WLTC class 3b, EPA UDDS, HWFET) | Bundled; a Driving Task drives them | Importing your own cycle from a CSV file (planned, below) |
+| Standard drive cycles (WLTC class 3b, EPA UDDS, HWFET) | Bundled; a Driving Task drives them | — (your own cycles: above) |
+| Results as Apache Parquet | `Result.to_parquet` and `lightsim run -o x.parquet` in the Python package, when pyarrow is installed (`backend/tests/test_python_api.py::test_parquet_round_trips_through_pyarrow`) | pyarrow is not in LightSim's installer or its CI, so the app cannot write it and the test runs only where pyarrow is installed |
 
 ## Planned
 
 For students and small teams:
 
-- CSV import of measured signals and drive cycles, with units in the header
+- CSV import of measured signals, with units in the header
 - `.mat` export from the *Results* tab (the command line and Python already write it)
 - Charts as PNG and SVG
 - GPX tracks (GPS recordings) as drive cycles and road profiles
@@ -49,7 +51,7 @@ For carmaker and supplier engineers:
 - FMI 2.0 and 3.0 Co-Simulation FMU import (functional mock-up units, a
   standard way to swap simulation models)
 - MDF4 import and export (ASAM measurement data files)
-- Apache Parquet results (a compact table format)
+- Apache Parquet results from the app itself (the Python package writes them, above)
 - FMU export (FMI 2.0 Co-Simulation first)
 - SSP 2.0 (system structure and parameters) and requirements, from a
   spreadsheet first, then ReqIF

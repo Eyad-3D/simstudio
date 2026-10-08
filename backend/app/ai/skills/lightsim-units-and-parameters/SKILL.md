@@ -1,6 +1,6 @@
 ---
 name: lightsim-units-and-parameters
-description: How LightSim parameters work - their units, tables, per-case values and limits - with the full reference of every library part. Use before setting any value, when converting a data-sheet number, or to find a part's parameter keys and port ids.
+description: How LightSim parameters work - their units, tables, per-case values and limits - with the full reference of every library part and the data sources never to take values from. Use before setting any value, when converting a data-sheet number, when suggesting where a value, map or drive cycle could come from, or to find a part's parameter keys and port ids.
 license: See README.md of the LightSim skill pack
 metadata:
   version: "0.3.0"
@@ -47,6 +47,18 @@ case can set a value for that case only (`model_edit` `set` with
 
 *Fixed* parameters are built into the model when a run starts; *tunable*
 ones can also change during a live run in the app.
+
+## Where values may come from
+
+Suggest values from the user's own data sheets and measurements first, and
+say where any other value you suggest comes from. Never suggest, fetch or
+copy data from a source LightSim bans because its terms do not allow
+reuse (the UNECE website, ev-database.org, share-alike or GPL datasets,
+standards sold by their publisher such as China's CLTC, and others):
+`references/data-sources.md` lists every one, with why and what to use
+instead. It is generated from the same list LightSim's data register is
+checked against. A user may import such data into their own project
+themselves; do not fetch it for them.
 
 ## The full reference
 

@@ -24,7 +24,8 @@ machine-readable description is at `/openapi.json`.
 |---|---|
 | `GET /api/health` | The engine's version; answered without the token |
 | `GET /api/library` | The part library: `components` ([schema](schemas/library.schema.json)) and `unitGroups` (quantity → unit) |
-| `GET /api/cycles`, `GET /api/cycles/{id}` | The bundled drive cycles / one of them with its trace (`t` in s, `v` in km/h) |
+| `GET /api/cycles`, `GET /api/cycles/{id}` | The bundled drive cycles / one of them with its trace (`t` in s, `v` in km/h). A project's own cycles are in the [project file](project.md#drive-cycle-of-the-projects-own), not here |
+| `POST /api/import/cycle` | Body `{filename, data}` (the file's bytes, base64) and optionally `axis`, `xColumn`, `speedColumn`, `gradeColumn` (-1: none), `units`, `sheet`, `range`: a drive cycle of the user's own read from a CSV or .xlsx file, as `cycle` (`axis`, `x`, `speed`, `grade`, ready to keep in the project's `cycles`), or the `errors` that stop it, each with its row. Nothing is stored |
 | `GET /api/projects` | Your saved projects: id, name, description, when saved, number of parts |
 | `GET /api/projects/{id}` | A [project](project.md), plus `revision` (also the `ETag`) |
 | `PUT /api/projects/{id}` | Save a project. `If-Match: "<revision>"` refuses (409) if the file changed since; `If-None-Match: *` refuses to replace one |

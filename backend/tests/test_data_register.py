@@ -38,13 +38,13 @@ REUSE_BASES = {
 # reuse, or a permissive copy of one (CON-31).
 CYCLE_BASES = {"EU-2011/833", "US-17USC105", "JP-Art13", "Apache-2.0", "MIT"}
 # Sources whose terms do not allow reuse in a paid app, or that LightSim must
-# not bundle (DATA-REGISTER.md, "Never take data from"). A row may name them
-# only to say it does not use them ("not ..."), so the check reads the
-# source column, where only real sources go.
-BANNED_SOURCES = [
-    "ev-database.org", "evspecifications.com", "unece.org", "gaia-charge", "fastsim-vehicles",
-    "vecto", "jrc wltp", "openlap", "racetrack-database", "gb/t 38146",
-]
+# not bundle (DATA-REGISTER.md rule 3, "Never take data from"), from the one
+# list the AI skill pack's reference is also generated from (CON-31). A row
+# may name them only to say it does not use them ("not ..."), so the check
+# reads the source column, where only real sources go.
+BANNED_FILE = ROOT / "scripts" / "licenses" / "banned-data-sources.json"
+BANNED = json.loads(BANNED_FILE.read_text(encoding="utf-8"))["sources"]
+BANNED_SOURCES = [m for b in BANNED for m in b["match"]]
 # Third-party data credited in THIRD-PARTY-NOTICES.txt (Help > Third-Party
 # Notices), with the register rows that use it.
 BUNDLED_DATA = ROOT / "scripts" / "licenses" / "bundled-data.json"
@@ -249,6 +249,30 @@ def test_every_row_names_why_lightsim_may_ship_it(rows):
         source = row["source"].lower()
         hits = [b for b in BANNED_SOURCES if b in source]
         assert not hits, f"{row['id']}: its source names {hits}, which LightSim must not use"
+
+
+def test_the_banned_list_is_the_one_the_rules_and_the_ai_skills_give():
+    """CON-31: the banned sources come from one file. Rule 3 of
+    DATA-REGISTER.md names each of them, and the AI skill pack's reference
+    (generated from the file) lists each with why, so an assistant never
+    suggests data from one."""
+    assert len(BANNED) >= 10
+    for b in BANNED:
+        assert b["name"] and b["why"], b
+        assert b["match"] and all(m == m.lower() for m in b["match"]), b["name"]
+    text = (ROOT / "docs" / "DATA-REGISTER.md").read_text(encoding="utf-8")
+    rule3 = " ".join(text.split("3. Never take data from these", 1)[1]
+                     .split("\n4. ", 1)[0].split()).lower()
+    missing = [b["name"] for b in BANNED if " ".join(b["name"].split()).lower() not in rule3]
+    assert not missing, f"DATA-REGISTER.md rule 3 does not name {missing}"
+    from app.ai import skillpack
+
+    ref = skillpack.DATA_SOURCES_REF.read_text(encoding="utf-8")
+    assert ref == skillpack.data_sources_markdown(), (
+        "the skill pack's data-sources reference is out of date: run "
+        "'python -m app.ai.skillpack --write' in backend/")
+    for b in BANNED:
+        assert f"**{b['name']}**" in ref and b["why"] in ref, b["name"]
 
 
 def _source_texts(node, inside: bool = False):
