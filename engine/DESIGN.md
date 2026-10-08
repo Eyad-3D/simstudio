@@ -349,9 +349,9 @@ model Rotational.ThresholdBrake "A brake that clamps on, for good, …"
   discrete Real engaged(unit = "1", start = 0, fixed = true) "1 once engaged";
 equation
   flange.tau = tau_max * engaged "it takes its torque once engaged";
-  when flange.w >= w_on then "it engages when the speed reaches w_on"
+  when flange.w >= w_on then
     engaged = 1;
-  end when;
+  end when "it engages when the speed reaches w_on";
   annotation(__LightSim_energy(loss = tau_max * engaged * flange.w));
 end Rotational.ThresholdBrake;
 ```
@@ -361,7 +361,9 @@ the IR's scoping but not in Modelica; WP1's parser rejects it and WP5
 renames such parameters, as Stage 1 already did for the source.)
 
 Energy books use the vendor annotation `__LightSim_energy`, which Base
-Modelica tools ignore. Labels are the strings after equations.
+Modelica tools ignore. Labels are the strings after equations. The
+format's user documentation, with every declaration and error message,
+is [`docs/text-format.md`](docs/text-format.md).
 
 ### 5.5 The flat system (`flat.rs`)
 
