@@ -639,6 +639,18 @@ minimum or an average, for example from the CSV export, or put the
   list of points. *Roadmap:* PLT-09 (single runs in a worker), STU-06
   (studies of several parameters), AI-12 and PLT-25 (the command line and
   clusters).
+- **A sweep's time left is an estimate.** It is worked out from the pace
+  of the points that have ended so far, which run side by side; it shows
+  only once a point has ended, and it grows when later points take longer
+  (a heavier car or a slower lap runs longer). *Roadmap:* STU-17.
+- **The Study view charts results against one swept value.** Each chart
+  has the first swept parameter on its x axis; the endurance energy
+  study's power limit is a line each, and a study of more parameters
+  cannot be made from the app yet. Its charts cannot be saved as a PNG
+  (download the study's table as CSV), and they draw the study's stored
+  summary numbers, not the runs' time traces. A sweep has at most 200
+  values from the app; the engine takes up to 2,000 points in one request
+  from a script. *Roadmap:* STU-06, STU-16.
 - **Peaks between recorded points are stored but not drawn.** Since 0.3
   every stored point also keeps each channel's lowest, highest and
   time-averaged value since the point before it, taken at every solver
@@ -980,21 +992,19 @@ minimum or an average, for example from the CSV export, or put the
   panel keeps the taller height an earlier build saved, because automatic
   fits stop at 50 %: close the panel, zoom out or choose *Reset UI*.
   *Roadmap:* GUI-10.
-- **A few small marks are still faint.** The warning badge on a part, and
-  the pin outlines and polarity marks in the dark theme, fall short of the
-  WCAG contrast minimum. *Roadmap:* GUI-14.
 - **Run warnings find their part by its name.** The Problems list shows the
   latest run's warnings and errors, and a row selects the part whose name
   the message quotes. A part renamed after the run is missed, parts that
   share a name are all selected, and some messages name no part (*Cycle
   not followed*). A run's rows stay until the next run, even once the
   model is fixed. *Roadmap:* VAL-10.
-- **Signals are linked one at a time.** Data Bus Connections has no
-  "connect to all Brakes" or "connect by matching names" yet, and signals
-  are not drawn on the diagram: pick each input's source in its row (two
-  clicks). In a 1366 × 768 window the bottom panel shows two rows at a
-  time; drag its top edge up to see more. *Roadmap:* UX-15 (follow-up),
-  UX-11.
+- **Signals: bulk links by type and name only.** *Connect several…* in
+  Data Bus Connections links one output to every part of a type, or inputs
+  to outputs of the same name, but takes no rules of your own (a prefix, a
+  mapping table), and signals are not drawn on the diagram: pick any other
+  input's source in its row (two clicks). In a 1366 × 768 window the
+  bottom panel shows two rows at a time; drag its top edge up to see more.
+  *Roadmap:* UX-15 (follow-up), UX-11.
 - **Weather presets set the air and the cabin's heating, not the
   machines.** The Ambient's presets (cold, standard, hot and sunny, high
   altitude) set its temperature and pressure: the air density follows
@@ -1087,11 +1097,13 @@ minimum or an average, for example from the CSV export, or put the
   repository, as the desktop engine's `lightsim-backend run …`, or as a
   wheel you build with `scripts/build-wheel.py`; it is not on PyPI yet.
   *Roadmap:* AI-02, AI-07.
-- **AI access is set from the command line only.** AI assistants are off
-  until you turn them on with `lightsim ai on` and allow folders with
-  `lightsim ai allow`; there is no *Settings → AI access* page in the app
-  yet, and no switch in the app to hide one project from AI tools (use
-  `lightsim ai block <file>`). On Windows, a run of a trusted project with
+- **A few AI access settings are on the command line only.** *Connect AI
+  → AI access* turns AI access on and off, removes allowed folders (and
+  adds one with the desktop app's folder dialog), shows or hides the
+  examples, untrusts projects, sets the run time cap and lists the latest
+  calls. Trusting a project's Script blocks (`lightsim ai trust <file>`)
+  and hiding one project from AI tools (`lightsim ai block <file>`) are
+  done on the command line. On Windows, a run of a trusted project with
   Script blocks opens a private connection on 127.0.0.1 between the engine
   and its script process for a moment; on Linux it uses no network at all.
   *Roadmap:* AI-01.
@@ -1147,8 +1159,9 @@ minimum or an average, for example from the CSV export, or put the
 - **Limits are checked one parameter at a time.** Data Checks and the form
   check each number against its own limits only: a PID's Output Minimum
   above its Output Maximum, or a Default Gear past the last gear, is not
-  flagged. A sweep's From and To are not checked as you type; a point
-  outside the limits fails when it runs, with the Data Check's reason. An
+  flagged. The sweep form names its values outside the parameter's limits
+  but does not stop them; such a point fails when it runs, with the Data
+  Check's reason. An
   acceleration case's Distance, Start line and Reference time
   turn red as you type but are not Data Checks: a run ignores a value
   outside them (no finish line, a 0 m start line, no reference gap).

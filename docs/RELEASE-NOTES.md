@@ -1070,6 +1070,53 @@ sections.
   Formula Student teams, theses, lab PCs and company trials. It is a draft
   and the end-user licence agreement still decides. (BIZ-29)
 
+- A run or a sweep no longer takes you to the *Results* page when it
+  ends: the page stays as it is, and a notice at the bottom right says how
+  it ended (*finished: success*, *finished with warnings*, *stopped at
+  t = …*, *failed*) with **Show results**, or **Show messages** after a
+  failure. A sweep's notice says how many points are complete and offers
+  **Study charts**. Tick **Always open Results** in the notice to have the
+  page open by itself after each run and sweep, as before; the choice is
+  kept. A run started on the *Results* page stays there, drawn as it goes,
+  and a failed run no longer leaves that page. (UX-21)
+- Results → **Study**: a chart for each chosen result of a saved study
+  against the swept value. It reads the study kept with the project's
+  runs, so it still draws after the project is opened again and after the
+  study's runs leave the history (an empty *Results* page shows it too).
+  It opens on the study of the run shown, else the newest, and on its
+  headline numbers; **Figures** picks up to 12. A value the run's checks
+  rule *not valid* is drawn hollow, points that stopped, failed or did not
+  run are left out and counted, log-spaced values get a log axis, and the
+  endurance energy study draws a line per power limit. Each saved study in
+  *Cases & Parameters* has a button that opens its charts. (STU-16)
+- The sweep form takes **Log steps** (the same factor between values: 10,
+  100, 1000) and a typed **List of values** (`1200, 1350, 1500`, run in
+  the order typed; a repeated value runs once) besides even steps, up to
+  200 values, and names values outside the parameter's limits. While a
+  sweep or an endurance energy study runs, the status bar and the sweep
+  form say how many points are done and about how long is left. (STU-17)
+- The diagram's keys work while the diagram has the keyboard: once you
+  click it (a part, a wire or the empty diagram), and while the pointer is
+  over it, but not while you type in a field. Before, copy, paste and
+  duplicate worked only with the pointer over the diagram. New keys:
+  Ctrl+A selects every part, Ctrl+X cuts the selection (copies it, then
+  deletes it), F2 renames the selected part and Enter puts the keyboard in
+  its name in *Properties*. The part menu has *Cut*, and in the *Elements*
+  list Delete and F2 work on the part picked there. (UX-19)
+- Data Bus Connections → *Connect several…*: link one output to the same
+  input on every part of a type (the Driver's Brake Command to every
+  Brake), or each input with no source to the output of the same name (a
+  Script's *vehicle_speed* takes *Vehicle · Vehicle Speed*). A list shows
+  the links before they are made and the inputs left alone, with the
+  reason; one Undo takes them all back. (UX-15)
+- *Connect AI* has an *AI access* tab: turn AI access on or off, see and
+  remove the folders AI tools may see (add one with the folder dialog in
+  the desktop app), show or hide the examples, untrust a project's Script
+  blocks, set the run time cap, and see the latest calls AI tools made.
+  When your organisation's policy turns AI access off, the tab says so and
+  access cannot be turned on. The run time cap now also stops runs of AI
+  apps connected to LightSim. (AI-01)
+
 ### Fixed
 
 - A battery's SOC can be compared with measured SOC: a constant 1C
@@ -1193,6 +1240,19 @@ sections.
   though LightSim promises to contact nothing outside your computer. Both
   are off; a test of every packaged build now fails on any request beyond
   the computer. (PLT-18)
+
+- The ribbon's **Delete** deletes everything selected on the diagram,
+  parts and wires, in one undo step, as the Delete key does; before, it
+  deleted only the part shown in *Properties*. Delete and Backspace no
+  longer delete the parts selected on the diagram after you click another
+  panel. (UX-19)
+- The warning badge on a part, and in the dark theme the outlines of
+  mechanical and thermal pins and the + and − marks on battery pins, meet
+  the WCAG AA contrast minimum; before, the badge was white on amber
+  (2.2:1), and in the dark theme the pin outlines were 2.2:1 and 2.6:1 and
+  the marks 3.4:1 and 3.2:1. Badges, message rows, pins and the diagram's
+  grid and overview map take their colours from the theme, with a shade
+  for each theme. (GUI-14)
 
 ### Upgrading from a 0.2.0 build
 
