@@ -14,6 +14,7 @@
 //! | [`runtime`] | the compiled model's functions, as the solver sees them | lsim-codegen | lsim-solve, lsim-fast |
 //! | [`diag`] | plain-language diagnostics | everyone | the app |
 //! | [`eval`] | a reference interpreter for expressions | – | tests, constant folding |
+//! | [`table`] | 1-D and 2-D table data (runtime parameters) | lsim-lang, lsim-project | lsim-codegen |
 //!
 //! Changes to these types after Stage 1 are additive, or agreed between the
 //! owners of the crates that use them.
@@ -25,6 +26,7 @@ pub mod expr;
 pub mod flat;
 pub mod prepared;
 pub mod runtime;
+pub mod table;
 pub mod units;
 
 pub use component::{
@@ -39,8 +41,11 @@ pub use flat::{
     Origin, OriginKind, ParamId, PortPower, VarId, VarRole,
 };
 pub use prepared::{
-    AliasEntry, AliasTarget, Assignment, Direction, ExternalBlock, InverseSpec, PrepStats,
-    PreparedModel, PreparedWhen, Residual, Slot, ZeroCrossing,
+    AliasEntry, AliasTarget, Assignment, Direction, ExternalBlock, InitSystem, InverseSpec, Mode,
+    PrepStats, PreparedModel, PreparedWhen, Residual, Slot, ZeroCrossing,
 };
-pub use runtime::{DiscreteBlock, EvalInput, Layout, ModelFunctions, SparsityPattern};
+pub use runtime::{
+    DiscreteBlock, EvalInput, InitFunctions, Layout, ModelFunctions, SparsityPattern, TableGuard,
+};
+pub use table::{FlatTable, Interpolation, Outside, TableData};
 pub use units::{Dim, Unit, UnitError};

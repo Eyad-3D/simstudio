@@ -105,6 +105,51 @@ pub struct PreparedWhen {
     pub origin: Origin,
 }
 
+/// A relation of an `if` expression held as a discrete Boolean between
+/// events (DESIGN.md, *Events and modes*): the equations read the held
+/// value (`if m then … else …`, `m` a discrete variable), so the
+/// integrator never sees the discontinuity; the run loop stops where the
+/// relation's zero crossing changes sign and re-evaluates the relation.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct Mode {
+    /// the discrete variable holding the relation's truth value (1 or 0);
+    /// one of [`PreparedModel::discretes`]
+    pub var: VarId,
+    /// the relation (flat scope), e.g. `w > 0`, evaluated at events to set
+    /// `var`
+    pub relation: Expr,
+    /// its zero-crossing function's index in [`PreparedModel::zero_crossings`]
+    pub crossing: usize,
+    /// where it came from
+    pub origin: Origin,
+}
+
+/// The initialisation problem (DESIGN.md, *Initialisation*): the
+/// equations at the start time with the `fixed` start values and the
+/// initial equations, sorted like the model itself. Newton iterates on
+/// `unknowns` (the initialisation's own iteration variables `w`) until the
+/// residuals vanish; everything else is computed by the assignments, in
+/// order. A variable the system leaves alone holds its start value.
+/// Empty: the start values are consistent as they stand.
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+pub struct InitSystem {
+    /// w: what Newton iterates on, in order
+    pub unknowns: Vec<Slot>,
+    /// explicit assignments, in evaluation order (flat scope; they refer
+    /// to `unknowns`, parameters, discrete variables, inputs, earlier
+    /// targets and start values)
+    pub assignments: Vec<Assignment>,
+    /// the residuals, one per unknown
+    pub residuals: Vec<Residual>,
+}
+
+impl InitSystem {
+    /// Whether there is nothing to solve or compute.
+    pub fn is_empty(&self) -> bool {
+        self.unknowns.is_empty() && self.assignments.is_empty() && self.residuals.is_empty()
+    }
+}
+
 /// Where an external sampled block (a [`crate::runtime::DiscreteBlock`])
 /// sits in the model.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -182,4 +227,16 @@ pub struct PreparedModel {
     pub structure_key: String,
     /// counts for the report
     pub stats: PrepStats,
+    /// the structure of `∂[x'; g]/∂y` through the assignments (empty, with
+    /// `n` = 0, when not computed: the code generator then derives it from
+    /// the equations itself)
+    #[serde(default)]
+    pub jac_pattern: crate::runtime::SparsityPattern,
+    /// the initialisation problem (empty: the start values hold as they
+    /// are)
+    #[serde(default)]
+    pub init: InitSystem,
+    /// the `if` relations held as discrete Booleans between events
+    #[serde(default)]
+    pub modes: Vec<Mode>,
 }

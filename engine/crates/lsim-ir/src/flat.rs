@@ -207,6 +207,10 @@ pub struct FlatSystem {
     pub port_powers: Vec<PortPower>,
     /// stored energy and losses of the instances that declare them
     pub energy: Vec<InstanceEnergy>,
+    /// tables (what [`Expr::Table`] indexes): runtime data, like
+    /// parameter values
+    #[serde(default)]
+    pub tables: Vec<crate::table::FlatTable>,
 }
 
 impl FlatSystem {
