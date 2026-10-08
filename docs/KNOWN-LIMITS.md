@@ -1089,7 +1089,9 @@ minimum or an average, for example from the CSV export, or put the
 - **The first-steps tour is short.** It points at the screen's main parts
   only; it does not walk you through a run, and its steps are not checked
   against a band. The step bar's *Set values* ticks on any change of a
-  part's value. Automated browsers get neither the tour nor the bar.
+  value of a part already in the model (adding or deleting a part does
+  not count; a case's own value does not either). Automated browsers get
+  neither the tour nor the bar.
   *Roadmap:* UX-26, LRN-07.
 - **The parameter texts are first drafts.** Rest the pointer on a
   parameter, or move to it with Tab, to see what it is, its usual values
