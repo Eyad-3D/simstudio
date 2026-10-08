@@ -1035,7 +1035,8 @@ minimum or an average, for example from the CSV export, or put the
 - **The trust question for attached files protects runs in the app only.**
   Before the first run of a project with attached FMUs, AI models or
   programs, LightSim asks whether you trust it, and remembers the answer by
-  a fingerprint of those files (a changed file asks again). The question is
+  a fingerprint of those files as they are on disk (a file changed since
+  it was attached, by a teammate or a git pull, asks again). The question is
   asked by the app's window; the engine itself does not refuse to run them
   (an FMU block runs only an FMU you allowed on this computer). Script
   blocks are not part of this question: their code is shown for you to

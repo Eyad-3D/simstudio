@@ -690,21 +690,35 @@ export const useProjectStore = create<ProjectState>((set, get) => {
    *  their own edits to a trusted project, or a yes to the one-time question
    *  now. Script blocks are reviewed by reviewScripts (PLT-35). */
   async function trustsCode(project: Project): Promise<boolean> {
-    const code = codeOf(project, get().libraryById);
+    if (!codeOf(project, get().libraryById)) return true;
+    // the attached files as they are on disk now, not as the project
+    // recorded them: a file a teammate or a git pull replaced asks again
+    let onDisk: Record<string, string> | undefined;
+    try {
+      const files = await api.listAttachments(project.id);
+      if (Array.isArray(files)) onDisk = Object.fromEntries(files.map((f) => [f.path, f.sha256]));
+    } catch {
+      /* not listed (engine unreachable): the recorded hashes */
+    }
+    const code = codeOf(project, get().libraryById, { onDisk });
     if (!code) return true;
-    let fingerprint: string;
+    let fingerprint: string | null = null;
     try {
       fingerprint = await fingerprintOf(code);
     } catch {
-      return true; // no Web Crypto (a plain-http page): nothing to remember it by
+      // no Web Crypto (a plain-http page): nothing to remember it by, so ask
     }
-    const remember = () => api.trustFingerprint(fingerprint)?.catch?.(() => undefined);
-    if (trustedProject === project.id) {
+    const remember = async () => {
+      if (fingerprint) await api.trustFingerprint(fingerprint)?.catch?.(() => undefined);
+    };
+    // the user's own edits to a trusted project need no question; a file
+    // that changed on disk is not one
+    if (trustedProject === project.id && code.changed.length === 0) {
       void remember();
       return true;
     }
     try {
-      if (await api.isTrusted(fingerprint)) {
+      if (fingerprint && (await api.isTrusted(fingerprint))) {
         trustedProject = project.id;
         return true;
       }
