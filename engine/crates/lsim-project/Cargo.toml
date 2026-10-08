@@ -1,6 +1,6 @@
 [package]
 name = "lsim-project"
-description = "Import of today's project JSON and component library into the engine's IR, with the channel map that keeps results comparable"
+description = "Import of today's project JSON into the engine's IR (block mappings, implicit links, sub-systems, channel map), stand-in preparation and run loop, exact-answer and energy-book tests, and the golden comparison with today's engine"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,10 @@ repository.workspace = true
 
 [dependencies]
 lsim-ir.workspace = true
+lsim-lib.workspace = true
+lsim-prep.workspace = true
+lsim-codegen.workspace = true
+lsim-solve.workspace = true
 serde_json.workspace = true
 
 [lints]

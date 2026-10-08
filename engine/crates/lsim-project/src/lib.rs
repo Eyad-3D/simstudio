@@ -22,6 +22,9 @@
 //! unit mapping and the mapping registry; work package 5 writes the 36
 //! block mappings (DESIGN.md, *Component library mapping*).
 
+pub mod reference;
+pub mod standin;
+
 use lsim_ir::Diagnostic;
 use lsim_ir::component::{ComponentDef, Connect, Modifier, ParamValue, SubDecl};
 use lsim_ir::expr::Expr;
