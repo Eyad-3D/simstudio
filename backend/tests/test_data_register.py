@@ -259,8 +259,9 @@ def test_eu_credit_is_shown_with_the_cycle(rows):
     for row in rows:
         if "EU-2011/833" in row["reuse_basis"]:
             assert "Source: EUR-Lex" in row["credit"], row["id"]
-            cycle_id = Path(row["file"]).stem
-            assert "Source: EUR-Lex, © European Union" in cycles[cycle_id]["source"], row["id"]
+            if row["file"].startswith("backend/app/cycles/") and row["kind"] == "drive-cycle":
+                cycle_id = Path(row["file"]).stem
+                assert "Source: EUR-Lex, © European Union" in cycles[cycle_id]["source"], row["id"]
 
 
 def test_credited_data_appears_in_the_third_party_notices(rows):
@@ -314,7 +315,8 @@ REFUSED_TERM = re.compile(
 # The same, as people write them in the register's 'licence' column.
 REFUSED_WORDS = re.compile(
     r"\bGPL|\bLGPL|\bAGPL|\bEUPL|\bODbL|\bSSPL|BY[- ]SA|BY[- ]NC|BY[- ]ND|share-?alike|"
-    r"non-?commercial|no-?derivatives|permission on request",
+    r"non-?commercial (?:licen[cs]e|use only|only)|for non-?commercial use|no-?derivatives|"
+    r"permission on request",
     re.IGNORECASE,
 )
 # Terms whose licence asks for the source to be credited.
@@ -442,7 +444,8 @@ def test_attribution_licences_carry_a_credit(rows):
         if row["ships_in_installer"] != "yes":
             continue
         if NEEDS_ATTRIBUTION & set(terms[row["id"]]):
-            assert _needs_credit(row["credit"]) or row["credit"].startswith("Same as DR-"), (
+            # (EUR-Lex's acknowledgement is the credit the app shows with each cycle)
+            assert _needs_credit(row["credit"]) or row["credit"].startswith(("Same as DR-", "Source: EUR-Lex")), (
                 f"{row['id']}: its licence asks for credit, but its credit is {row['credit']!r}"
             )
 

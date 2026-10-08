@@ -25,7 +25,7 @@ cleared it for shipping.
 
 ## Status (2026-10-07)
 
-- The register has 92 rows.
+- The register has 93 rows.
 - **The drive-cycle library has 27 cycles** (CON-04), built by
   `scripts/cycles/build_cycles.py` from official texts where their terms
   allow reuse (CON-31): the WLTC classes 1, 2, 3a and 3b, their city cycles

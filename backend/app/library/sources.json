@@ -480,7 +480,7 @@
       "dataset": "battery.generic.cell_resistance_factor",
       "kind": "map",
       "description": "Battery 'Cells' mode default resistance factor vs pulse length (2, 10, 30, 120 s) and SOC (0-100 %, 6 points): a pulse shape 0.85 / 1.0 / 1.2 / 1.5 times an SOC shape 1.8 at 0 %, 1.3 at 10 %, 1.1 at 20 %, 1.0 from 50 to 80 %, 1.05 at 100 %.",
-      "source": "Synthetic / created for LightSim in the MOD-08 change (an estimate of typical lithium-ion behaviour; the pulse-length columns follow VECTO's documented table layout, no VECTO data used)",
+      "source": "Synthetic / created for LightSim in the MOD-08 change (an estimate of typical lithium-ion behaviour; pulse lengths of 2 to 120 s, the layout vehicle-energy tools use for pulse resistance; no outside data used)",
       "licence": "LightSim's own (LICENSE)",
       "credit": "None required (created for LightSim)",
       "cleared": "pending"
@@ -504,7 +504,7 @@
       "description": "Tyre data for the Wheel's Tyre Code: the load-index table (0-279 to the most one tyre may carry, 45 to 136,000 kg); four coefficients of Rill's 'engineer's guess' for a passenger-car tyre (GuessPassCar70Par: initial slip stiffness 18.3741 x the nominal load, peak longitudinal friction 1.1292 and lateral 1.0009 at the nominal load, longitudinal 1.0896 at twice it); and the rolling resistance LightSim takes for each EU tyre-label class (A 6.0, B 7.2, C 8.4, D 9.8, E 11.0 N/kN).",
       "source": "Project Chrono (BSD-3-Clause, https://github.com/projectchrono/chrono), src/chrono_vehicle/wheeled_vehicle/tire/ChTMeasyTire.cpp: GetTireMaxLoad (the standard ISO 4000-1 / ETRTO load-index table) and GuessPassCar70Par (after Rill, 'An Engineer's Guess On Tyre Model Parameter'), read 2026-10-07; the label classes from Regulation (EU) 2020/740 Annex I Part A, C1 tyres (read 2026-10-07: A at most 6.5, B 6.6-7.7, C 7.8-9.0, D 9.1-10.5, E 10.6 N/kN or more), the value within each class LightSim's choice",
       "licence": "BSD-3-Clause (Project Chrono); the load-index values are a public standard and the label classes EU law (facts)",
-      "credit": "Project Chrono, Copyright (c) 2016 Project Chrono Development Team, BSD-3-Clause; credit in THIRD-PARTY-NOTICES.txt (Help > Third-Party Notices)",
+      "credit": "Project Chrono, Copyright (c) 2016 Project Chrono Development Team, BSD-3-Clause; credit in THIRD-PARTY-NOTICES.txt (Help > Third-Party Notices); tyre label classes: Source: EUR-Lex, © European Union (Regulation (EU) 2020/740)",
       "cleared": "pending"
     },
     {
