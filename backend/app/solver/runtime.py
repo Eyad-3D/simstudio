@@ -66,7 +66,8 @@ def tyre_mu(w, fz: float, lateral: bool = False) -> float:
     (its lateral μ_y when ``lateral`` and one is set), changed by its load
     sensitivity dμ/dFz per N away from its nominal load (its static load when
     none is set), never below 0. The one tyre-friction entry point: the drive
-    cycles' tyre force and lap mode read grip through it."""
+    cycles' tyre force and lap mode read grip through it (lap mode's
+    LapRun.grip has it inline, both ways: change the two together)."""
     mu = w.mu_y if lateral and w.mu_y > 0 else w.mu
     return max(0.0, mu + w.dmu_per_n * (fz - (w.fz0 or w.fz_static)))
 
