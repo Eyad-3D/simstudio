@@ -921,7 +921,7 @@ def describe_fmu(ref: FmuRef) -> FmuImport:
     except fmu_store.FmuFileError as e:
         return FmuImport(found=False, problem=str(e), name=ref.fmuName,
                          sha256=ref.fmuSha256, path=ref.fmuPath)
-    sha = fmu_store.sha256_of_cached(path)
+    sha = ref.fmuSha256.strip().lower()  # locate() found the kept copy by it
     return FmuImport(sha256=sha, path=str(path), name=ref.fmuName or path.name,
                      allowed=fmu_store.is_allowed(sha), info=fmu_info.describe(path))
 

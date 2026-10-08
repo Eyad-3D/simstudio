@@ -898,7 +898,8 @@ minimum or an average, for example from the CSV export, or put the
 
   The FMU file is not saved inside the project yet: LightSim keeps a copy in
   your LightSim folder (`fmus`, beside your projects) and the project
-  points at it. On another computer, import the FMU again. *Roadmap:*
+  names it by its fingerprint. A path written in a project is never
+  opened. On another computer, import the FMU again. *Roadmap:*
   STD-02.
 - **FMU support is an optional pack.** It needs FMPy (BSD-2-Clause) and its
   NumPy, lxml, attrs and lark. The desktop installers do not include it

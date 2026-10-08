@@ -335,6 +335,10 @@ class RunContext:
             except (FmuError, FmuFileError) as e:
                 self.close_sandboxes()
                 raise ModelInitError([str(e)])
+            except Exception as e:  # noqa: BLE001 — a plain message, never a 500
+                self.close_sandboxes()
+                raise ModelInitError([f"FMU '{model.elements[el_id].label}' could not be set "
+                                      f"up: {e}"]) from e
 
         # ---- driveline & vehicle states --------------------------------------
         self.veh_id = model.vehicle
