@@ -89,6 +89,14 @@ class AuditLog:
         return last_audit_entry(self.path.parent.parent)
 
 
+def recent_audit_entries(folder: Path, n: int = 20) -> list[dict]:
+    """The last ``n`` entries of the audit log of the projects in ``folder``,
+    oldest first (AI-01: the app's AI access page lists them)."""
+    from lightsim.ai_access import read_audit
+
+    return read_audit(Path(folder) / ".ai" / "audit.jsonl", n)
+
+
 def last_audit_entry(folder: Path) -> Optional[dict]:
     path = Path(folder) / ".ai" / "audit.jsonl"
     try:

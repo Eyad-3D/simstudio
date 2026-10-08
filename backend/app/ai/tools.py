@@ -418,12 +418,13 @@ class Tools:
         handle, project, _ = self._load(args)
         case = self.find_case(project, str(args.get("case") or ""))
         self.check_run_allowed(handle, project, case, ctx)
-        result = self.engine.simulate(project, case.id, max_seconds=self.policy.max_run_seconds,
+        cap = self.engine.run_cap(self.policy.max_run_seconds)
+        result = self.engine.simulate(project, case.id, max_seconds=cap,
                                       cancel=ctx.cancel, progress=ctx.progress)
         incomplete = None
         if result.status == "cancelled":
             incomplete = ("stopped: the run took longer than "
-                          f"{self.policy.max_run_seconds:g} s" if not ctx.cancel.is_set()
+                          f"{cap:g} s" if not ctx.cancel.is_set()
                           else "stopped at the AI app's request")
         run = StoredRun(
             id=f"ai-{time.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}",

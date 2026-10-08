@@ -1,6 +1,7 @@
 // What the desktop app's shell offers the page (desktop/src/preload.js).
 // In a plain browser (development, the browser tests) there is no shell:
 // `desktop()` is null and the file commands that need one are hidden.
+import type { AiAccess } from "./api";
 
 /** A .lightsim file the shell opened or chose to save to, by the project id
  *  the engine gave it (the page never names paths itself, PLT-33). */
@@ -21,6 +22,10 @@ export interface DesktopBridge {
   openDroppedFile: (file: File) => Promise<DesktopFile | null>;
   /** Show a .lightsim file in the system's file manager. */
   showFile: (projectId: string) => Promise<void>;
+  /** Show the system's folder dialog and let AI tools see the projects in
+   *  the folder picked (AI-01); the AI access settings as they now are, or
+   *  null when the user cancels. */
+  allowAiFolder?: () => Promise<AiAccess | null>;
 }
 
 declare global {

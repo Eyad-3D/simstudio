@@ -7,7 +7,8 @@
  * and Save dialogs, receives files the user double-clicks or drops on the
  * window, and passes the chosen path to the engine with a secret the window
  * never sees (LIGHTSIM_SHELL_TOKEN, see backend/app/security.py). The engine
- * answers with a project id, which is all the window gets.
+ * answers with a project id, which is all the window gets. A folder AI tools
+ * may see (AI-01) is picked the same way, in the system's folder dialog.
  */
 
 const path = require("node:path");
@@ -93,6 +94,12 @@ class EngineFiles {
   /** Recent files: [{id, path, name, exists, …}], most recent first. */
   recent() {
     return this.call("GET", "/api/files");
+  }
+
+  /** Let AI tools see the projects in a folder the user picked (AI-01);
+   *  resolves the AI access settings as they now are. */
+  allowAiFolder(folder) {
+    return this.call("POST", "/api/ai/access/folders", { path: folder });
   }
 }
 

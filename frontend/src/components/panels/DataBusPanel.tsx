@@ -1,5 +1,14 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Trash2 } from "lucide-react";
+import {
+  applyBulkLinks,
+  busIndex,
+  inputGroups,
+  keyOf,
+  planConnectToAll,
+  planMatchingNames,
+  type BulkPlan,
+} from "../../dataBusBulk";
 import { countOf, portsOf, useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import type { PortDef } from "../../types";
@@ -41,11 +50,14 @@ function SourcePicker({
   from,
   outputs,
   onPick,
+  label = `Source of ${to.name}`,
 }: {
   to: End;
   from: End | null;
   outputs: End[];
   onPick: (from: End) => void;
+  /** the box's name (default: "Source of <input>") */
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -116,7 +128,7 @@ function SourcePicker({
         aria-controls={open ? listId : undefined}
         aria-autocomplete="list"
         aria-activedescendant={open && matches[active] ? `${listId}-${active}` : undefined}
-        aria-label={`Source of ${to.name}`}
+        aria-label={label}
         className="ss-input w-full"
         placeholder="Pick a source…"
         value={open ? query : from ? `${from.name} [${from.unit}]` : ""}
@@ -180,6 +192,163 @@ function SourcePicker({
   );
 }
 
+/** Connect several (UX-15): one output to the same input on every part of a
+ *  type, or each unconnected input to the output of the same name. Lists
+ *  the links it will make, and the inputs it leaves alone with the reason,
+ *  then makes them all as one undo step. */
+function BulkWiring({
+  outputs,
+  scope,
+  onClose,
+}: {
+  outputs: End[];
+  /** match names only to and from this part (the Selected part filter) */
+  scope: { id: string; label: string } | null;
+  onClose: () => void;
+}) {
+  const project = useProjectStore((s) => s.project);
+  const libraryById = useProjectStore((s) => s.libraryById);
+  const unitGroups = useProjectStore((s) => s.unitGroups);
+  const [mode, setMode] = useState<"all" | "names">("all");
+  const [groupKey, setGroupKey] = useState("");
+  const [sourceKey, setSourceKey] = useState<string | null>(null);
+  const [replace, setReplace] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const index = useMemo(() => (project ? busIndex(project, libraryById) : null), [project, libraryById]);
+  const groups = useMemo(() => (index ? inputGroups(index, libraryById) : []), [index, libraryById]);
+  const group = groups.find((g) => g.key === groupKey) ?? groups[0];
+  const source = outputs.find((o) => keyOf(o) === sourceKey) ?? null;
+  const unitOf = (port: PortDef) => unitGroups[port.unitGroup ?? "No Unit"] ?? "-";
+  const target: End | null = group
+    ? { ...group.inputs[0], name: `every ${group.typeName} · ${group.portName}`, unit: unitOf(group.inputs[0].port) }
+    : null;
+  const busSource = source && index?.outputs.find((o) => keyOf(o) === keyOf(source));
+  const plan: BulkPlan = !index
+    ? { links: [], skipped: [] }
+    : mode === "names"
+      ? planMatchingNames(index, { elementId: scope?.id })
+      : group && busSource
+        ? planConnectToAll(index, busSource, group, { replace })
+        : { links: [], skipped: [] };
+  const what =
+    mode === "names"
+      ? `matching names${scope ? `, to and from ${scope.label}` : ""}`
+      : `${source?.name} to every ${group?.typeName} · ${group?.portName}`;
+  const differ =
+    mode === "all" && source && target && source.unit !== target.unit && source.unit !== "-" && target.unit !== "-";
+  const change = (fn: () => void) => {
+    fn();
+    setDone(null);
+  };
+  const radio = (value: "all" | "names", text: string) => (
+    <label className="flex items-center gap-1">
+      <input type="radio" name="bulk-mode" checked={mode === value} onChange={() => change(() => setMode(value))} />
+      {text}
+    </label>
+  );
+
+  const status =
+    done ??
+    (mode === "all" && !source && group
+      ? "Pick the output to connect."
+      : plan.links.length === 0 && (mode === "names" || source)
+        ? "Nothing to connect."
+        : "");
+
+  // In a short panel this part takes the room before the rows below, and
+  // scrolls (its buttons first).
+  return (
+    <section
+      aria-label="Connect several"
+      className="min-h-0 flex-initial space-y-1 overflow-y-auto border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-2 py-1.5 text-[11px]"
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div role="radiogroup" aria-label="How to connect" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {radio("all", "One output to every part of a type")}
+          {radio("names", "Matching names")}
+        </div>
+        <button
+          className="ss-toolbtn border border-[color:var(--ss-accent)] px-3 text-[color:var(--ss-accent)] disabled:opacity-40"
+          disabled={plan.links.length === 0}
+          onClick={() => {
+            const n = applyBulkLinks(plan.links, what);
+            setDone(`${countOf(n, "link")} connected. One Undo takes them all back.`);
+          }}
+        >
+          Connect {countOf(plan.links.length, "input")}
+        </button>
+        <button className="ss-toolbtn border border-[color:var(--ss-border)] px-3" onClick={onClose}>
+          Close
+        </button>
+        <span role="status" className="text-[color:var(--ss-text-dim)]">
+          {status}
+        </span>
+      </div>
+      {mode === "all" &&
+        (group && target ? (
+          <div className="flex flex-wrap items-center gap-1">
+            <select
+              className="ss-input"
+              aria-label="Inputs to connect"
+              value={group.key}
+              onChange={(e) => change(() => setGroupKey(e.target.value))}
+            >
+              {groups.map((g) => (
+                <option key={g.key} value={g.key}>
+                  every {g.typeName} · {g.portName} ({g.inputs.length})
+                </option>
+              ))}
+            </select>
+            <span className="text-[color:var(--ss-text-dim)]">from</span>
+            <div className="w-[260px] max-w-full">
+              <SourcePicker
+                to={target}
+                from={source}
+                outputs={outputs}
+                label={`Output to connect to ${target.name}`}
+                onPick={(o) => change(() => setSourceKey(keyOf(o)))}
+              />
+            </div>
+            <label className="flex items-center gap-1">
+              <input type="checkbox" checked={replace} onChange={(e) => change(() => setReplace(e.target.checked))} />
+              Replace the sources they have
+            </label>
+          </div>
+        ) : (
+          <p className="text-[color:var(--ss-text-dim)]">No two parts of one type have a signal input yet.</p>
+        ))}
+      {mode === "names" && (
+        <p className="text-[color:var(--ss-text-dim)]">
+          Each input with no source gets the one output of the same name (a Script's <i>vehicle_speed</i> ← Vehicle ·
+          Vehicle Speed){scope ? `, to and from ${scope.label} only (Selected part)` : ""}; not one of another unit or
+          on the input's own part.
+        </p>
+      )}
+      {differ && (
+        <p className="text-[color:var(--ss-warn)]">
+          {source!.name} is in {source!.unit}, {target!.name} in {target!.unit}: check that this is the signal you
+          mean.
+        </p>
+      )}
+      {(plan.links.length > 0 || plan.skipped.length > 0) && (
+        <ul aria-label="Links to make" className="max-h-[160px] overflow-y-auto">
+          {plan.links.map((l) => (
+            <li key={keyOf(l.to)}>
+              {l.from.name} → <b>{l.to.name}</b>
+              {l.replaces.length > 0 && <span className="text-[color:var(--ss-text-dim)]"> (replaces its source)</span>}
+            </li>
+          ))}
+          {plan.skipped.map((x) => (
+            <li key={keyOf(x.to)} className="text-[color:var(--ss-text-dim)]">
+              Not {x.to.name}: {x.why}.
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /** Data Bus Connections: one row per signal input, with the output that
  *  feeds it picked from a type-ahead list. */
 export function DataBusPanel() {
@@ -193,6 +362,7 @@ export function DataBusPanel() {
   const setSelectedOnly = useUIStore((s) => s.setBusSelectedOnly);
   const [query, setQuery] = useState("");
   const [freeOnly, setFreeOnly] = useState(false);
+  const [bulk, setBulk] = useState(false);
 
   const { elements, rows, broken, outputs, portless } = useMemo(() => {
     const elements = project?.systems.flatMap((s) => s.elements) ?? [];
@@ -291,10 +461,25 @@ export function DataBusPanel() {
           <input type="checkbox" checked={selectedOnly} onChange={(e) => setSelectedOnly(e.target.checked)} />
           Selected part
         </label>
+        <button
+          className="ss-toolbtn border border-[color:var(--ss-border)] px-2"
+          aria-expanded={bulk}
+          title="Connect one output to every part of a type, or inputs to outputs of the same name"
+          onClick={() => setBulk(!bulk)}
+        >
+          Connect several…
+        </button>
         <span className="ml-auto text-[11px] text-[color:var(--ss-text-dim)]">
           {countOf(project?.dataBusConnections.length ?? 0, "link")} · {countOf(free, "unconnected input")}
         </span>
       </div>
+      {bulk && (
+        <BulkWiring
+          outputs={outputs}
+          scope={selectedOnly && sel ? { id: sel.id, label: sel.label } : null}
+          onClose={() => setBulk(false)}
+        />
+      )}
       <ul className="min-h-0 flex-1 overflow-y-auto">
         {shownBroken.map((b) => (
           <li

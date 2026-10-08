@@ -552,6 +552,15 @@ function handleFileRequests() {
     buildMenu();
     return info;
   });
+  ipcMain.handle("lightsim:ai-allow-folder", async (event) => {
+    if (!fromApp(event) || !engineFiles) return null;
+    const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+      title: "Let AI tools see the projects in a folder",
+      properties: ["openDirectory"],
+    });
+    if (canceled || !filePaths[0]) return null;
+    return engineFiles.allowAiFolder(filePaths[0]);
+  });
   ipcMain.handle("lightsim:show-file", async (event, projectId) => {
     if (!fromApp(event) || !engineFiles) return;
     const file = (await engineFiles.recent()).find((f) => f.id === projectId);

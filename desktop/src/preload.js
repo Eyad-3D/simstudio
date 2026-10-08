@@ -15,4 +15,6 @@ contextBridge.exposeInMainWorld("lightsimDesktop", {
   // a dropped file's place on disk; "" for anything but a real dropped file
   openDroppedFile: (file) => ipcRenderer.invoke("lightsim:open-dropped", webUtils.getPathForFile(file)),
   showFile: (projectId) => ipcRenderer.invoke("lightsim:show-file", String(projectId)),
+  // AI-01: the system's folder dialog; the engine is told the folder, the page gets the settings
+  allowAiFolder: () => ipcRenderer.invoke("lightsim:ai-allow-folder"),
 });

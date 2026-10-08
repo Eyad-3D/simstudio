@@ -30,8 +30,8 @@ destructive hints an AI app shows are only hints.
 The settings are ``ai-access.json`` in LightSim's folder
 (``%APPDATA%\\LightSim`` on Windows, ``~/.config/LightSim`` on Linux), or
 the file ``LIGHTSIM_AI_SETTINGS`` names. Agents get no call that changes
-them: the user changes them with ``lightsim ai …`` (or, later, in
-*Settings → AI access*).
+them: the user changes them with ``lightsim ai …`` or in the app (*Connect
+AI → AI access*, through the engine's ``/api/ai/access`` routes).
 
 Nothing here opens a network port: the MCP server talks over stdio as a
 child process of the AI app.
@@ -174,6 +174,10 @@ class Policy:
         os.replace(tmp, path)
         return path
 
+    def audit_path(self) -> Path:
+        """The audit log of calls through :class:`AgentSession`, beside the settings."""
+        return (self.path or settings_path()).with_name(AUDIT_NAME)
+
     # -- what an agent may see ----------------------------------------------------
     def _in_folders(self, path: Path) -> bool:
         real = path.resolve()
@@ -258,6 +262,31 @@ def audit(tool: str, arguments: dict, outcome: str, path: Optional[Path] = None)
         print(f"lightsim: could not write the AI audit log {log}: {e}", file=sys.stderr)
 
 
+def read_audit(path: Path, n: int = 20, tail_bytes: int = 65536) -> list[dict]:
+    """The last ``n`` entries of an audit log (JSON lines), oldest first;
+    lines that are not JSON objects are skipped. Reads only the end of the
+    file."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - tail_bytes))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return []
+    if size > tail_bytes:
+        lines = lines[1:]  # the first line read is likely cut
+    out = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict):
+            out.append(entry)
+    return out[-n:] if n > 0 else []
+
+
 class AgentSession:
     """The one door for AI tools: every method checks the user's
     :class:`Policy`, then writes the call to the audit log."""
@@ -268,7 +297,7 @@ class AgentSession:
 
     def _log(self, tool: str, arguments: dict, outcome: str) -> None:
         audit(tool, {**arguments, **({"client": self.client} if self.client else {})}, outcome,
-              (self.policy.path or settings_path()).with_name(AUDIT_NAME))
+              self.policy.audit_path())
 
     def _call(self, tool: str, arguments: dict, fn):
         try:
@@ -432,7 +461,7 @@ def cli_ai(args, out) -> int:
             extra.pop("noAi", None)
         project.save()
     elif cmd == "log":
-        log = (policy.path or settings_path()).with_name(AUDIT_NAME)
+        log = policy.audit_path()
         lines = log.read_text(encoding="utf-8").splitlines()[-args.n:] if log.is_file() else []
         out(args, [json.loads(x) for x in lines], "\n".join(lines) or "No AI calls yet.")
         return 0

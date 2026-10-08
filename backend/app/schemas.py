@@ -780,3 +780,68 @@ class AiConnection(BaseModel):
     lastUsed: Optional[dict] = None
     # why AI access cannot be turned on here: the organisation's policy
     managed: Optional[str] = None
+
+
+# ---- AI access settings (AI-01): the app's page over lightsim/ai_access.py ----
+
+
+class AiAccessFolder(BaseModel):
+    path: str
+    exists: bool
+    # the folder this app saves projects to
+    projects: bool = False
+
+
+class AiTrustedProject(BaseModel):
+    """A project file whose Script blocks AI tools may run (after the user
+    confirms each run)."""
+
+    path: str
+    exists: bool
+    name: Optional[str] = None
+    # False: its scripts changed since it was trusted, so the trust no
+    # longer holds until it is trusted again
+    current: bool = False
+
+
+class AiAuditEntry(BaseModel):
+    """One call an AI tool made, from the local audit logs."""
+
+    time: float  # seconds since 1970
+    tool: str
+    outcome: str
+    project: Optional[str] = None
+    client: Optional[str] = None
+    # "mcp": an AI app connected to LightSim; "python": the lightsim package
+    via: str
+
+
+class AiAccess(BaseModel):
+    """What Connect AI → AI access shows (the settings `lightsim ai` changes)."""
+
+    enabled: bool  # the user's switch
+    on: bool  # enabled, and the organisation's policy does not turn it off
+    managed: Optional[str] = None  # the organisation's policy turns it off
+    folders: list[AiAccessFolder]
+    projectsFolder: str
+    examples: bool
+    trusted: list[AiTrustedProject]
+    maxRunSeconds: float
+    settingsPath: str
+    audit: list[AiAuditEntry]  # newest first
+
+
+class AiAccessChange(BaseModel):
+    """Change the AI access settings. Folders and trusted projects can only
+    be taken off here: a folder is added by the desktop app's folder picker
+    (POST /api/ai/access/folders), a project trusted with `lightsim ai trust`."""
+
+    enabled: Optional[bool] = None
+    examples: Optional[bool] = None
+    maxRunSeconds: Optional[float] = Field(default=None, ge=1, le=86400)
+    removeFolders: list[str] = Field(default_factory=list)
+    untrust: list[str] = Field(default_factory=list)
+
+
+class AiFolderRequest(BaseModel):
+    path: str

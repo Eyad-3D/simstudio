@@ -1037,3 +1037,50 @@ export function aiConnection(): Promise<AiConnection> {
 export function aiConnect(client: string, add: boolean): Promise<AiConnection> {
   return request(`/ai/connect/${encodeURIComponent(client)}`, { method: add ? "PUT" : "DELETE" });
 }
+
+// ---- AI access settings (AI-01) ---------------------------------------------
+
+/** The AI access settings `lightsim ai …` changes, and the latest calls AI
+ *  tools made, for Connect AI → AI access. */
+export interface AiAccess {
+  /** the user's switch */
+  enabled: boolean;
+  /** enabled, and the organisation's policy does not turn AI access off */
+  on: boolean;
+  /** the organisation's policy turns AI access off (PLT-36): its message */
+  managed?: string | null;
+  folders: { path: string; exists: boolean; projects: boolean }[];
+  /** the folder this app saves projects to */
+  projectsFolder: string;
+  examples: boolean;
+  /** projects whose Script blocks AI tools may run; `current` false: the
+   *  scripts changed since, so the trust no longer holds */
+  trusted: { path: string; exists: boolean; name?: string | null; current: boolean }[];
+  maxRunSeconds: number;
+  settingsPath: string;
+  /** newest first; `via` "mcp" (an AI app) or "python" (the lightsim package) */
+  audit: { time: number; tool: string; outcome: string; project?: string | null; client?: string | null; via: string }[];
+}
+
+/** A change to the settings: folders and trust can only be taken away here. */
+export interface AiAccessChange {
+  enabled?: boolean;
+  examples?: boolean;
+  maxRunSeconds?: number;
+  removeFolders?: string[];
+  untrust?: string[];
+}
+
+export function aiAccess(): Promise<AiAccess> {
+  return request("/ai/access");
+}
+
+export function changeAiAccess(change: AiAccessChange): Promise<AiAccess> {
+  return request("/ai/access", { method: "PUT", body: JSON.stringify(change) });
+}
+
+/** Allow a folder by its path: the engine takes it from the desktop app's
+ *  folder dialog only, or from a development engine (PLT-33). */
+export function allowAiFolder(path: string): Promise<AiAccess> {
+  return request("/ai/access/folders", { method: "POST", body: JSON.stringify({ path }) });
+}

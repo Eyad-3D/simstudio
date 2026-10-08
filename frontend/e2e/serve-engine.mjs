@@ -68,13 +68,15 @@ const child = spawn(
     stdio: "inherit",
     // LIGHTSIM_DEV_FILE_PATHS: the tests act as the desktop shell, which
     // alone names .lightsim file paths (backend/app/security.py); Connect an
-    // AI assistant writes AI apps' settings: into the temp folder
+    // AI assistant writes AI apps' settings, and the AI access settings
+    // (lightsim/ai_access.py), into the temp folder, not the user's own
     env: {
       ...process.env,
       LIGHTSIM_PROJECTS_DIR: projects,
       LIGHTSIM_STATIC_DIR: dist,
       LIGHTSIM_DEV_FILE_PATHS: "1",
       LIGHTSIM_AI_CONFIG_HOME: join(projects, ".ai-apps"),
+      LIGHTSIM_AI_SETTINGS: join(projects, ".ai-apps", "ai-access.json"),
     },
   },
 );

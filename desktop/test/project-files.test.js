@@ -57,6 +57,11 @@ test("the engine is called with both secrets, and its refusals become errors", a
     await files.saveAs("/a/new.lightsim", "p1");
     assert.equal((await files.recent()).length, 1);
     await assert.rejects(files.open("/a/bad.lightsim"), /Not a LightSim project/);
+    await files.allowAiFolder("/a/team");
+    assert.deepEqual(seen.at(-1), {
+      method: "POST", url: "/api/ai/access/folders", auth: "Bearer launch", shell: "shell",
+      body: JSON.stringify({ path: "/a/team" }),
+    });
     assert.deepEqual(seen[1], {
       method: "POST", url: "/api/files/save-as", auth: "Bearer launch", shell: "shell",
       body: JSON.stringify({ path: "/a/new.lightsim", projectId: "p1" }),

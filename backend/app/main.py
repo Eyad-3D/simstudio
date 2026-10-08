@@ -68,6 +68,12 @@ Endpoints:
                                assistant last used it
   PUT  /api/ai/connect/{client}    add LightSim to that AI app's MCP settings
   DELETE /api/ai/connect/{client}  remove it again
+  GET  /api/ai/access          the AI access settings (lightsim ai) and the
+                               latest calls AI tools made (AI-01)
+  PUT  /api/ai/access          turn AI access on or off, show or hide the
+                               examples, set the run time cap, take a
+                               folder or a trusted project off its list
+  POST /api/ai/access/folders  allow a folder the user picked (shell only)
 """
 from __future__ import annotations
 
@@ -119,7 +125,10 @@ from .library import load_library, unit_groups
 from .migrations import NewerFileError
 from .paths import static_dir
 from .schemas import (
+    AiAccess,
+    AiAccessChange,
     AiConnection,
+    AiFolderRequest,
     CalibrateRequest,
     DataCheck,
     ErrorDetail,
@@ -1138,6 +1147,160 @@ def ai_disconnect(client: str) -> AiConnection:
     except install.InstallError as e:
         raise HTTPException(status_code=409, detail=str(e))
     return _ai_connection()
+
+
+# ---- AI access settings (AI-01) ---------------------------------------------
+# The page in Connect AI → AI access reads and writes the same settings file
+# as `lightsim ai …` (lightsim/ai_access.py). Here a folder or a trusted
+# project can only be taken off its list: a folder is added by the desktop
+# app's folder picker (the page never names paths, PLT-33), and a project's
+# Script blocks are trusted with `lightsim ai trust`. The organisation's
+# policy file (PLT-36) can keep access off; then it cannot be turned on.
+
+_AUDIT_SHOWN = 30
+
+
+def _audit_entries() -> list[dict]:
+    """The latest calls from both audit logs, newest first: the AI apps'
+    connection (beside the projects) and the lightsim package's."""
+    import datetime as dt
+    import math
+
+    from lightsim.ai_access import Policy, read_audit
+
+    from .ai.access import recent_audit_entries
+    from .paths import projects_dir
+
+    out = []  # each log newest first, so calls in the same instant keep their order
+    for e in reversed(recent_audit_entries(projects_dir(), _AUDIT_SHOWN)):
+        t, tool = e.get("t"), e.get("tool")
+        if isinstance(t, (int, float)) and math.isfinite(t) and isinstance(tool, str):
+            project, client = e.get("project"), e.get("client")
+            out.append({"time": float(t), "tool": tool, "outcome": "ok" if e.get("ok") else "refused or failed",
+                        "project": project if isinstance(project, str) else None,
+                        "client": client if isinstance(client, str) and client else None, "via": "mcp"})
+    for e in reversed(read_audit(Policy.load().audit_path(), _AUDIT_SHOWN)):
+        try:
+            t = dt.datetime.strptime(str(e.get("time")), "%Y-%m-%dT%H:%M:%S%z").timestamp()
+        except ValueError:
+            continue
+        args = e.get("arguments") if isinstance(e.get("arguments"), dict) else {}
+        tool, outcome = e.get("tool"), e.get("outcome")
+        if isinstance(tool, str):
+            source, client = args.get("source"), args.get("client")
+            out.append({"time": t, "tool": tool, "outcome": str(outcome or ""),
+                        "project": source if isinstance(source, str) else None,
+                        "client": client if isinstance(client, str) and client else None,
+                        "via": "python"})
+    return sorted(out, key=lambda e: -e["time"])[:_AUDIT_SHOWN]
+
+
+def _trusted_project(key: str, fingerprint: str) -> dict:
+    from lightsim.ai_access import script_fingerprint
+    from lightsim.project import Project as LsProject
+
+    path = Path(key)
+    try:
+        exists = path.is_file()
+    except (OSError, ValueError):  # a settings file edited by hand
+        exists = False
+    entry = {"path": key, "exists": exists, "name": None, "current": False}
+    if exists:
+        try:
+            project = LsProject.load(path)
+            entry["name"] = project.name
+            entry["current"] = script_fingerprint(project) == fingerprint
+        except Exception:  # unreadable now: listed, so it can be untrusted
+            pass
+    return entry
+
+
+def _ai_access() -> AiAccess:
+    from lightsim.ai_access import Policy
+
+    from .machine_policy import AI_OFF
+    from .paths import projects_dir
+
+    policy = Policy.load()
+    try:
+        mine = str(projects_dir().expanduser().resolve())
+    except OSError:
+        mine = str(projects_dir())
+    folders = []
+    for f in policy.folders:
+        try:
+            exists = Path(f).expanduser().is_dir()
+        except (OSError, ValueError):
+            exists = False
+        folders.append({"path": f, "exists": exists, "projects": f == mine})
+    return AiAccess(
+        enabled=policy.enabled, on=policy.on(), managed=AI_OFF if policy.managed_off else None,
+        folders=folders, projectsFolder=mine, examples=policy.examples,
+        trusted=[_trusted_project(k, v) for k, v in sorted(policy.trusted.items())],
+        maxRunSeconds=policy.max_run_s, settingsPath=str(policy.path), audit=_audit_entries())
+
+
+@app.get("/api/ai/access")
+def ai_access() -> AiAccess:
+    """The AI access settings (`lightsim ai status`) and the latest calls
+    AI tools made (AI-01)."""
+    return _ai_access()
+
+
+@app.put("/api/ai/access", responses=_errors(
+    e400="Unreadable request body", e403="The organisation's policy turns AI access off"))
+def ai_access_change(req: AiAccessChange) -> AiAccess:
+    """Change the AI access settings, as `lightsim ai on|off|disallow|untrust`
+    do. Turning access on is refused while the organisation's policy turns
+    it off; turning it off, hiding the examples and taking folders or trust
+    away always work."""
+    from lightsim.ai_access import Policy
+
+    from .machine_policy import AI_OFF
+
+    policy = Policy.load()
+    if req.enabled and policy.managed_off:
+        raise HTTPException(status_code=403, detail=AI_OFF)
+    if req.enabled is not None:
+        policy.enabled = req.enabled
+    if req.examples is not None:
+        policy.examples = req.examples
+    if req.maxRunSeconds is not None:
+        policy.max_run_s = float(req.maxRunSeconds)
+    gone = set(req.removeFolders)
+    policy.folders = [f for f in policy.folders if f not in gone]
+    for key in req.untrust:
+        policy.trusted.pop(key, None)
+    policy.save()
+    return _ai_access()
+
+
+@app.post("/api/ai/access/folders", responses=_errors(
+    e400="Not a folder path, or an unreadable request body", e403="Only the desktop shell names paths",
+    e404="No such folder"))
+def ai_access_allow_folder(req: AiFolderRequest, request: Request) -> AiAccess:
+    """Let AI tools see the projects in a folder the user picked in the
+    desktop app's folder dialog (`lightsim ai allow`)."""
+    from lightsim.ai_access import Policy
+
+    if not security.may_name_paths(request.headers):
+        raise HTTPException(status_code=403, detail=(
+            "Only the LightSim desktop app can add a folder (it shows the system's folder "
+            "dialog). Or run: lightsim ai allow <folder>"))
+    try:
+        if "\0" in req.path or not Path(req.path).expanduser().is_absolute():
+            raise ValueError("not an absolute path")
+        folder = Path(req.path).expanduser().resolve()
+        found = folder.is_dir()
+    except (OSError, ValueError, RuntimeError) as e:
+        raise HTTPException(status_code=400, detail=f"Not a folder path: {req.path!r} ({e})")
+    if not found:
+        raise HTTPException(status_code=404, detail=f"No folder '{req.path}'")
+    policy = Policy.load()
+    if str(folder) not in policy.folders:
+        policy.folders.append(str(folder))
+        policy.save()
+    return _ai_access()
 
 
 @app.websocket("/api/simulate/run")
