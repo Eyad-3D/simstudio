@@ -357,6 +357,30 @@ def test_a_saved_project_named_by_its_path_is_the_saved_project(folder):
     assert by_path["structuredContent"]["project"] == "mine"
 
 
+def test_a_link_to_a_file_outside_the_allowed_folders_is_not_listed(folder, tmp_path):
+    secret = tmp_path / "secret" / "private.json"
+    _project_file(secret, "CONFIDENTIAL program X")
+    shared = tmp_path / "shared"
+    _project_file(shared / "car.json", "Team car")
+    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        (shared / "link.json").symlink_to(secret)
+        (shared / "same-car.json").symlink_to(shared / "car.json")
+        (folder / "linked.json").symlink_to(secret)
+    except OSError:
+        pytest.skip("this system cannot make links")
+    by_connection = McpServer(Engine(user_folder=folder, allowed_folders=(shared,)), Policy(),
+                              AuditLog(folder))
+    for server, allowed in ((by_connection, (folder,)), (make_server(folder), (folder, shared))):
+        allow_ai(*allowed)  # --allow-folder, then the user's settings
+        answer = tool(server, "lightsim_list_projects", {})
+        assert "CONFIDENTIAL" not in json.dumps(answer)
+        listed = [p["project"] for p in answer["structuredContent"]["projects"]]
+        assert listed.count(str((shared / "car.json").resolve())) == 1
+        for ref in (str(shared / "link.json"), "linked", str(folder / "linked.json")):
+            assert tool(server, "lightsim_overview", {"project": ref})["isError"], ref
+
+
 def test_edits_off_with_read_only(folder):
     server = make_server(folder, allow_edits=False)
     ops = [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 1500}]

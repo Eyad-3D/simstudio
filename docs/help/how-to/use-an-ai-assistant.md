@@ -58,7 +58,8 @@ refuse every change.
 - It starts LightSim's engine itself and talks to it directly. Nothing
   opens a network port.
 - It sees your saved projects and the examples, and the folders you
-  allowed. A project file that contains `"noAI": true` stays hidden.
+  allowed. A project file that contains `"noAi": true` stays hidden, and
+  so does a link in an allowed folder to a file outside them.
 - It can read, check and run models. It can propose changes as a dry run;
   saving one needs your **Allow this** in the AI app. An example is never
   changed: the edit is saved as a new project. LightSim keeps the previous

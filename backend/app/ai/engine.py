@@ -15,7 +15,8 @@ Which projects an assistant may see follows the user's AI access settings
 - the user's saved projects, when that folder is allowed,
 - the examples shipped with the app, read-only, unless the user hid them,
 - project files in the allowed folders and in folders listed when the
-  assistant was connected (``--allow-folder``), and nothing outside them,
+  assistant was connected (``--allow-folder``), and nothing outside them
+  (a link is followed first: one to a file elsewhere is not shown),
 - never a project whose file sets ``"noAi": true`` (or the older
   ``"noAI"``): it is left out of every list and reads as not found.
 """
@@ -116,6 +117,18 @@ def _hidden_from_ai(path: Path) -> bool:
     return isinstance(raw, dict) and any(raw.get(f) is True for f in NO_AI_FLAGS)
 
 
+def _listable(path: Path) -> Optional[dict]:
+    """A project file's contents for the list, or None when it cannot be
+    read or is hidden from AI."""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(raw, dict) or any(raw.get(f) is True for f in NO_AI_FLAGS):
+        return None
+    return raw
+
+
 def access_policy():
     """The user's AI access settings (AI-01), read afresh for every call, so
     'lightsim ai off' stops a connected assistant at once."""
@@ -177,28 +190,51 @@ class Engine:
     def _user_projects_visible(self, policy) -> bool:
         return policy.enabled and policy._in_folders(self.user_folder)
 
+    def _may_open(self, path: Path, policy) -> bool:
+        """True when the project file at ``path``, after following links, is
+        in a folder the assistant may see. A link in an allowed folder to a
+        file elsewhere is neither listed nor opened."""
+        try:
+            real = path.resolve()
+        except (OSError, RuntimeError):
+            return False
+        return (real.suffix in (".json", ".lightsim")
+                and (any(real.parent == f for f in self.allowed_folders) or policy._in_folders(real)))
+
     def list_projects(self) -> list[dict]:
         policy = access_policy()
         if not policy.enabled:
             raise NotFound(ACCESS_OFF)
         out = []
         if self._user_projects_visible(policy):
+            ids: set[str] = set()
             for entry in storage.list_projects():
-                if not _hidden_from_ai(storage.project_path(entry["id"])):
-                    out.append(self._entry(entry["id"], "user", entry))
+                # what opening the id reads (not what a file naming that id
+                # holds), so a link or a stray copy shows nothing else
+                pid = entry["id"]
+                path = storage.project_path(pid)
+                if pid in ids or not self._may_open(path, policy):
+                    continue
+                ids.add(pid)
+                raw = _listable(path)
+                if raw is not None:
+                    out.append(self._entry(pid, "user", raw))
         if self.include_examples and policy.examples:
             for entry in storage.list_examples():
                 if not _hidden_from_ai(storage.example_path(entry["id"])):
                     out.append(self._entry(EXAMPLE_PREFIX + entry["id"], "example", entry))
+        seen: set[Path] = set()
         for folder in self._folders(policy):
             for f in sorted([*folder.glob("*.json"), *folder.glob("*.lightsim")]):
-                if _hidden_from_ai(f):
+                if not self._may_open(f, policy):
                     continue
-                try:
-                    raw = json.loads(f.read_text(encoding="utf-8"))
-                    out.append(self._entry(str(f), "folder", raw))
-                except (OSError, ValueError, AttributeError):
+                real = f.resolve()
+                if real in seen:
                     continue
+                seen.add(real)
+                raw = _listable(real)
+                if raw is not None:
+                    out.append(self._entry(str(real), "folder", raw))
         return out
 
     @staticmethod
@@ -228,14 +264,13 @@ class Engine:
                 handle = ProjectHandle(ref, "example", storage.example_path(ex_id), None,
                                        "example/" + storage.safe_id(ex_id, "example"))
             elif storage.SAFE_ID.fullmatch(ref):
-                if not self._user_projects_visible(policy):
+                path = storage.project_path(ref)
+                if not (self._user_projects_visible(policy) and self._may_open(path, policy)):
                     raise NotFound(ref)
-                handle = ProjectHandle(ref, "user", storage.project_path(ref), ref, "project/" + ref)
+                handle = ProjectHandle(ref, "user", path, ref, "project/" + ref)
             else:
                 path = Path(ref).expanduser().resolve()
-                allowed = (any(path.parent == f for f in self.allowed_folders)
-                           or policy._in_folders(path))
-                if path.suffix not in (".json", ".lightsim") or not allowed:
+                if not self._may_open(path, policy):
                     raise NotFound(ref)
                 user = self._user_project_at(path)
                 if user is not None and self._user_projects_visible(policy):
