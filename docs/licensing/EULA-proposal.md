@@ -26,7 +26,7 @@ wants most:
 | A student writing a thesis at a company | Is a thesis at a company "paid work" (§2)? It does not say. |
 | A PhD student on an industry-funded project | "Research" is free, but contract research for a company is a grey zone. |
 | Company IT | §3 bans all redistribution, so IT cannot put the installer on an internal software portal. |
-| An engineer who wants to try it | There is no trial. Any use at work is commercial use from the first minute. |
+| An engineer who wants to try it | §1 lists "evaluation" as free, but §2 makes use in the course of a business commercial, so whether a company may try it is unclear, and there is no time limit. |
 | Anyone who automates | Scripts, CI jobs and AI agents are not mentioned. |
 | An engineer sent a LightSim model | Opening it at work is commercial use, so they cannot even look. |
 | A purchasing department | §2 says "open an issue" on GitHub: a public page that shows who is buying. |

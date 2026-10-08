@@ -28,7 +28,7 @@ needs a commercial licence.
 | 4 | … for my thesis written at a company? | Ask | Yes, for the thesis work itself (owner to confirm) | 1.0 does not say whether it is "paid work". 1.1 proposes that the thesis counts as study; the company using the results in its products needs a licence. |
 | 5 | … during an internship at a company, for the company's work? | No | No | Work for a business is commercial use. A free evaluation (row 11) may fit. |
 | 6 | … for a PhD or research project at a university that a company funds? | Ask | Yes | 1.0 leaves contract research unclear. 1.1 covers universities and public research "regardless of the source of funding" (§1(a)(ii)). |
-| 7 | … to teach my university course? | Yes | Yes | Teaching at an educational institution is non-commercial. |
+| 7 | … to teach my university course? | Ask | Yes | 1.0 §2 needs a licence for "paid work", and a lecturer is paid to teach, so 1.0 does not clearly allow it. 1.1 names an educational institution's teaching as non-commercial (§1(a)(ii)). |
 | 8 | … on the PCs in my university's computer lab? | Ask | Yes | 1.0 allows "your own computers" only. 1.1 lets institutions install on computers they manage (§2). |
 | 9 | … and hand out the installer to my class? | No | Yes | 1.0 bans redistribution (§3). 1.1 allows copies of the unchanged installer, with its checksum, for students' non-commercial use (§2). |
 | 10 | … to teach a training course that people pay for? | No | No | Paid teaching is commercial use. |
