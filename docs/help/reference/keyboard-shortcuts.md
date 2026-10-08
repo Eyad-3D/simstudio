@@ -15,13 +15,23 @@ On a Mac, use Cmd where this page says Ctrl.
 
 ## On the diagram
 
+These keys work while the diagram has the keyboard: once you click it (a
+part, a wire or the empty diagram), and while the pointer is over it. They
+do nothing while you type in a field, and a click on another panel gives
+the keyboard to that panel. **Delete** on the *Home* tab deletes the same
+selection as the Delete key.
+
 | Keys | What they do |
 |---|---|
-| Delete or Backspace | Delete the selected parts and wires |
+| Delete or Backspace | Delete the selected parts and wires; one Ctrl+Z brings them all back |
+| Ctrl+A | Select every part on the diagram |
+| Ctrl+C | Copy the selected parts |
+| Ctrl+X | Cut the selected parts: copy them, then delete them |
+| Ctrl+V | Paste them: where the pointer is, when it is over the diagram |
+| Ctrl+D | Duplicate the selected parts |
+| F2 | Rename the selected part |
+| Enter | Go to the selected part's *Properties*, with the keyboard in its *Name* |
 | . (full stop) | Zoom to the selected parts, or to the whole model when none is selected |
-| Ctrl+C | Copy the selected parts (pointer over the diagram) |
-| Ctrl+V | Paste them where the pointer is |
-| Ctrl+D | Duplicate the selected parts (pointer over the diagram) |
 | Ctrl+click or Shift+click a part | Add it to the selection, or take it out |
 | Shift+drag on empty diagram | Draw a box to select the parts in it |
 | Shift+click a pin | Move the pin to the next side of its part |
@@ -30,8 +40,9 @@ On a Mac, use Cmd where this page says Ctrl.
 | Esc | Cancel click-to-place; close a menu or the parameter dialog |
 
 A right-click on a part opens its menu: *Parameters*, *Rename…*,
-*Signals…*, *Duplicate*, *Copy* and *Delete*. On the empty diagram it offers
-*Paste*, *Select all* and *Fit view*. The **Zoom** list in the diagram's
+*Signals…*, *Duplicate*, *Copy*, *Cut* and *Delete*. On the empty diagram it
+offers *Paste*, *Select all* and *Fit view*. In the *Elements* list, Delete
+and F2 work on the part you picked there. The **Zoom** list in the diagram's
 toolbar sets the zoom (Fit, 50 %, 100 %, 200 %); with it focused, the up
 and down arrows open its list.
 

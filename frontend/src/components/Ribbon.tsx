@@ -55,6 +55,7 @@ import { confirmDialog } from "../dialog";
 import { desktop } from "../desktop";
 import { HelpMenu } from "./HelpMenu";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
+import { deleteSelection, useCanvasSelection } from "../store/canvasSelection";
 import {
   FONT_SCALE_MAX,
   FONT_SCALE_MIN,
@@ -307,6 +308,7 @@ function OpenProjectButton() {
 
 function HomeTab() {
   const store = useProjectStore();
+  const selected = useCanvasSelection((s) => s.nodes.size + s.edges.size);
   const fileRef = useRef<HTMLInputElement>(null);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   return (
@@ -374,11 +376,14 @@ function HomeTab() {
       <RibbonGroup label="Edit">
         <BigButton icon={Undo2} label="Undo" onClick={store.undo} disabled={store.past.length === 0} />
         <BigButton icon={Redo2} label="Redo" onClick={store.redo} disabled={store.future.length === 0} />
+        {/* the whole selection on the diagram, parts and wires, in one undo
+            step, as the Delete key (UX-19) */}
         <BigButton
           icon={Trash2}
           label="Delete"
-          onClick={() => store.selectedElementId && store.removeElements([store.selectedElementId])}
-          disabled={!store.selectedElementId}
+          title="Delete the selected parts and wires (Del)"
+          onClick={() => deleteSelection()}
+          disabled={selected === 0 && !store.selectedElementId}
         />
       </RibbonGroup>
       <RibbonGroup label="Workspace">

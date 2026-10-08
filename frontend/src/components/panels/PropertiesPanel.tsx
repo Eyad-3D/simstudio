@@ -1287,7 +1287,8 @@ export function PropertiesPanel() {
   const selectedDef = selected ? libraryById[selected.componentDefId] : undefined;
 
   return (
-    <div className="flex h-full flex-col">
+    // data-properties-panel: Enter on the diagram puts the focus in here (UX-19)
+    <div className="flex h-full flex-col" data-properties-panel>
       <div className="ss-panel-toolbar text-[11px] font-semibold">
         {selected ? `Parameters — ${selected.label}` : "Parameters"}
       </div>
