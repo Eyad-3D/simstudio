@@ -79,6 +79,20 @@ def test_the_limit_lane_covers_the_run():
     assert all(lim.states[int(c)] for _, c in lane.changes)
 
 
+def test_a_hybrid_charging_its_battery_is_not_braking():
+    # the P2 hybrid's script charges the battery with the motor while the
+    # engine pulls: the band says braking only while the driver brakes
+    proj = load_example("hybrid-car")
+    r = simulate(proj, "case-mixed")
+    braking_s = r.limits.lanes[0].seconds["braking"]
+    ch = {(c.elementId, c.portId): c.timeSeries for c in r.channels}
+    brake, traction = ch[("el-driver", "sig_brake_cmd")], ch[("el-driver", "sig_traction_cmd")]
+    driver_s = sum(b["t"] - a["t"] for a, b, t in zip(brake, brake[1:], traction[1:])
+                   if (b["value"] or 0) > 1e-6 or (t["value"] or 0) < -1e-6)
+    assert braking_s == pytest.approx(driver_s, abs=10.0)
+    assert braking_s < 0.4 * r.limits.tEnd
+
+
 def test_formula_student_acceleration_shows_grip_then_the_power_limit():
     proj = load_example("fs-electric")
     r = simulate(proj, "case-accel-75m")

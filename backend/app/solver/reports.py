@@ -174,6 +174,7 @@ class RunRecorder:
                                         motors=motors, engines=engines, wheels=wheels))
         self.limited_prev = {mc.el_id: mc.limited_s for mc in ctx.motors.values()}
         self.brake_key = (model.driver, "sig_brake_cmd") if model.driver else None
+        self.traction_key = (model.driver, "sig_traction_cmd") if model.driver else None
 
     # ---- every solver step ----------------------------------------------------------
 
@@ -327,7 +328,10 @@ class RunRecorder:
     def book_limits(self, dt: float) -> None:
         ctx = self.ctx
         values = ctx.rt.signal_values
-        braking = bool(self.brake_key and (values.get(self.brake_key) or 0.0) > 1e-6)
+        # the driver brakes: the brake pedal, or a negative traction demand
+        driver_braking = bool(
+            (self.brake_key and (values.get(self.brake_key) or 0.0) > 1e-6)
+            or (self.traction_key and (values.get(self.traction_key) or 0.0) < -1e-6))
         forces = ctx.last_forces
         limited_prev = self.limited_prev
         for lane in self.lanes:
@@ -335,10 +339,16 @@ class RunRecorder:
             asked = False
             full = False
             held = 0
+            braking = driver_braking
+            # a motor asked for negative torque while an engine on this
+            # driveline pulls is charging the battery (a hybrid's strategy),
+            # not braking; with no engine pulling it is regenerative braking
+            engine_pulls = any(ec.torque > 0 for ec in lane.engines)
             for mc, key, bat in lane.motors:
                 d = (values.get(key) or 0.0) if key is not None else 0.0
                 if d < 0:
-                    braking = True
+                    if not engine_pulls:
+                        braking = True
                 elif d > 0:
                     asked = True
                     if d >= 0.999 or mc.rpm > mc.max_rpm * (1.0 - SPEED_LIMIT_BAND):
