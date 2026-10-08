@@ -26,10 +26,13 @@ Pack version 0.3.0, for LightSim 0.3.0.
 - Inside LightSim: the MCP server serves every file as a resource,
   `lightsim://skills/<skill>/SKILL.md`.
 - In the installer, next to the engine (`backend/app/ai/skills/`).
-- Two reference files are generated from the app so they never drift:
+- Three reference files are generated from the app so they never drift:
   `lightsim-units-and-parameters/references/components.md` (from the
-  component library) and `lightsim-what-it-cannot-do/references/known-limits.md`
-  (from `docs/KNOWN-LIMITS.md`). Regenerate them with
+  component library), `lightsim-what-it-cannot-do/references/known-limits.md`
+  (from `docs/KNOWN-LIMITS.md`) and
+  `lightsim-units-and-parameters/references/data-sources.md` (the sources
+  LightSim never takes data from, from `scripts/licenses/banned-data-sources.json`,
+  the list its data register is checked against). Regenerate them with
   `python -m app.ai.skillpack --write` in `backend/`; a test fails when
   they are out of date.
 

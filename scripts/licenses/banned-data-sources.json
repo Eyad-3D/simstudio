@@ -1,0 +1,85 @@
+{
+  "_about": [
+    "Sources LightSim never takes data from, not even to check a value by hand",
+    "(docs/DATA-REGISTER.md, rule 3; CON-31). This file is the one list:",
+    "  - backend/tests/test_data_register.py fails when a row of",
+    "    docs/data-register.csv, or a source in the reference suite",
+    "    (backend/validation/), names one ('match': lower-case text looked for in",
+    "    the source), and when rule 3 of DATA-REGISTER.md leaves one out ('name');",
+    "  - the AI skill pack's reference",
+    "    backend/app/ai/skills/lightsim-units-and-parameters/references/data-sources.md",
+    "    is generated from it (python -m app.ai.skillpack --write in backend/), so an",
+    "    assistant never suggests data from these; a test fails when it is stale.",
+    "Users may still import such data themselves into their own projects (CON-34);",
+    "LightSim does not ship it. Adding or removing a source is a licensing",
+    "decision for the owner."
+  ],
+  "sources": [
+    {
+      "name": "the UNECE website",
+      "match": ["unece.org"],
+      "why": "its terms forbid reuse without written permission",
+      "instead": "the EU's copy of the same regulation on EUR-Lex (Decision 2011/833/EU)"
+    },
+    {
+      "name": "ev-database.org",
+      "match": ["ev-database.org"],
+      "why": "prior permission and manual copying only",
+      "instead": "OpenEV Data (CDLA-Permissive-2.0), the EEA's CO2 monitoring data (CC-BY-4.0) or fueleconomy.gov, with credit"
+    },
+    {
+      "name": "evspecifications.com",
+      "match": ["evspecifications.com"],
+      "why": "its terms forbid scraping",
+      "instead": "OpenEV Data (CDLA-Permissive-2.0), with credit"
+    },
+    {
+      "name": "the gaia-charge/evdb database",
+      "match": ["gaia-charge"],
+      "why": "CC BY-SA 4.0, whose share-alike terms would reach the data built on it",
+      "instead": "OpenEV Data (CDLA-Permissive-2.0)"
+    },
+    {
+      "name": "the fastsim-vehicles database",
+      "match": ["fastsim-vehicles"],
+      "why": "it has no licence",
+      "instead": ""
+    },
+    {
+      "name": "VECTO's missions",
+      "match": ["vecto"],
+      "why": "EUPL",
+      "instead": ""
+    },
+    {
+      "name": "JRC `wltp`",
+      "match": ["jrc wltp"],
+      "why": "EUPL",
+      "instead": "the WLTC as Commission Regulation (EU) 2017/1151 gives it on EUR-Lex (LightSim ships it)"
+    },
+    {
+      "name": "the TUM racetrack database",
+      "match": ["racetrack-database"],
+      "why": "LGPL",
+      "instead": "a track the user measures or draws, or the layouts LightSim ships"
+    },
+    {
+      "name": "OpenLAP",
+      "match": ["openlap"],
+      "why": "GPL",
+      "instead": ""
+    },
+    {
+      "name": "China's CLTC (GB/T 38146.1-2019)",
+      "match": ["gb/t 38146"],
+      "why": "a standard sold by its publisher",
+      "instead": "the user's own copy, imported into their project as a cycle of their own"
+    },
+    {
+      "name": "Artemis",
+      "match": ["artemis"],
+      "why": "its traces have no clear terms",
+      "instead": "the user's own copy, imported into their project as a cycle of their own"
+    }
+  ]
+}

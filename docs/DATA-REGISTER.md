@@ -146,7 +146,13 @@ cleared it for shipping.
      38146.1-2019), and traces without clear terms, such as Artemis. Users
      may import these themselves (CON-34); LightSim does not ship them.
 
-   `test_data_register.py` fails when a row's source names one of these.
+   The list is kept in
+   [`scripts/licenses/banned-data-sources.json`](../scripts/licenses/banned-data-sources.json):
+   `test_data_register.py` fails when a row's source names one of these,
+   or when this rule leaves one out, and the AI skill pack's
+   `lightsim-units-and-parameters/references/data-sources.md` is generated
+   from it (`python -m app.ai.skillpack --write`), so an assistant never
+   suggests data from one (CON-31).
    FASTSim: read its licence from its LICENSE file, not the PyPI classifier
    (fastsim 3.1.0 says "Other/Proprietary" while its LICENSE is
    Apache-2.0), keep the 2.1.5 NOTICE holder (Alliance for Sustainable
