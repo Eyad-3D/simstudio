@@ -149,6 +149,17 @@ def test_a_run_without_a_snapshot_still_exports():
     assert "Vehicle" in m
 
 
+@pytest.mark.parametrize("started", [4501005553985130082304, -10**20, 10**15])
+def test_a_start_time_out_of_range_still_exports(started):
+    run = _run("bev-car", "case-city", seconds=2).model_copy(update={"startedAt": started})
+    for fmt in ("mat", "csv", "json"):
+        r = client.post(f"/api/export/run?format={fmt}", content=run.model_dump_json(),
+                        headers={"Content-Type": "application/json"})
+        assert r.status_code == 200, fmt
+    card = json.loads(results.run_card_json(results.table(run)))
+    assert card["run"]["startedAt"] in (None, "33658-09-27T01:46:40Z")
+
+
 def test_stored_runs_export_over_the_api(tmp_path, monkeypatch):
     monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(tmp_path))
     run = _run("bev-car", "case-city", seconds=5)

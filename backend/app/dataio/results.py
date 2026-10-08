@@ -57,9 +57,15 @@ class RunTable:
 
 
 def _iso(epoch_ms: int | float | None) -> Optional[str]:
+    """The time as ISO 8601 UTC, or None when there is none or it is out of
+    the range the platform's clock can show (a run file's startedAt is not
+    bounded)."""
     if not epoch_ms:
         return None
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch_ms / 1000))
+    try:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch_ms / 1000))
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _elements(project: Optional[Project]) -> dict[str, Any]:
