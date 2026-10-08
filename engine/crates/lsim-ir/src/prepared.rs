@@ -204,6 +204,19 @@ pub struct LimitSite {
     pub origin: Origin,
 }
 
+/// A condition on the parameters that preparation relied on: an equation
+/// was solved explicitly by dividing by `expr`, an expression of the
+/// parameters only, which therefore must not be zero. A parameter change
+/// that makes it zero needs a new preparation (the equation then becomes
+/// implicit); the run checks the guards whenever parameters change.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct ParamGuard {
+    /// must not be zero (flat scope, parameters only)
+    pub expr: Expr,
+    /// the equation that was solved by dividing by it
+    pub origin: Origin,
+}
+
 /// Counts that describe the preparation, for the run report.
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct PrepStats {
@@ -268,4 +281,7 @@ pub struct PreparedModel {
     /// and to be flagged (a forward model clamps and lists none)
     #[serde(default)]
     pub limits: Vec<LimitSite>,
+    /// the parameter expressions explicit solutions divide by
+    #[serde(default)]
+    pub guards: Vec<ParamGuard>,
 }

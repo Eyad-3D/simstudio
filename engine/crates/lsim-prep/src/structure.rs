@@ -385,6 +385,7 @@ pub fn causalize(
         modes: vec![],
         init: Default::default(),
         limits: vec![],
+        guards: vec![],
     };
     model.structure_key = crate::key::structure_key(&model);
     Ok(model)
