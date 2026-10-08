@@ -740,9 +740,13 @@ class _Envelope:
     def __init__(self, ctx: RunContext, gear_of: dict[str, float]):
         self.ctx, self.gear_of = ctx, gear_of
         self.bus_keys = [(el, port) for el, port, _ in _bus_channels(ctx)]
+        # the bus channels in one call, once every one has a value (until
+        # then a channel with none reads 0.0)
+        self.bus_read: Optional[Callable[[dict], tuple]] = None
         self.layout = -1
         self.keys: list[tuple[str, str]] = []  # the buffered rows' channels
         self.fns: list[Callable[[], Optional[float]]] = []
+        self.speeds: list[SpeedCell] = []  # the segment speeds self.fns read
         self.rows: list[list[Optional[float]]] = []
         self.hs: list[float] = []
         self.out: dict[tuple[str, str], tuple[list, list, list]] = {}
@@ -750,17 +754,26 @@ class _Envelope:
 
     def add(self, h: float) -> None:
         """Buffer the channels' values at the end of a solver step of ``h`` s."""
-        if self.layout != self.ctx.layout_version:
+        ctx = self.ctx
+        if self.layout != ctx.layout_version:
             self._fold()
-            self.layout = self.ctx.layout_version
+            self.layout = ctx.layout_version
             # a channel worked out once per recorded point keeps its recorded
             # value as its envelope (record): too costly for every step
-            state = [s for s in _state_channel_fns(self.ctx, self.gear_of)
+            self.speeds = []
+            state = [s for s in _state_channel_fns(ctx, self.gear_of, speeds=self.speeds)
                      if not getattr(s[2], "per_point", False)]
             self.keys = self.bus_keys + [(el, port) for el, port, _ in state]
             self.fns = [fn for _, _, fn in state]
-        get = self.ctx.rt.signal_values.get
-        row = [get(k, 0.0) for k in self.bus_keys]
+        seg_speed = ctx.seg_speed
+        for st, s_idx, cell in self.speeds:
+            cell[0] = seg_speed(st, s_idx)
+        bus = ctx.rt.signal_values
+        if self.bus_read is not None:
+            row = list(self.bus_read(bus))
+        else:
+            get = bus.get
+            row = [get(k, 0.0) for k in self.bus_keys]
         row += [fn() for fn in self.fns]
         self.rows.append(row)
         self.hs.append(h)
@@ -818,6 +831,11 @@ class _Envelope:
     def reset(self) -> None:
         """Start the next output interval."""
         self.acc = {}
+        keys = self.bus_keys
+        if self.bus_read is None and len(keys) > 1:  # (the bus never drops a value)
+            bus = self.ctx.rt.signal_values
+            if all(k in bus for k in keys):
+                self.bus_read = operator.itemgetter(*keys)
 
     def series(self, el_id: str, port_id: str, n: int) -> tuple[list, list, list]:
         lists = self.out.get((el_id, port_id), ([], [], []))
@@ -873,13 +891,17 @@ def _state_channels(ctx: RunContext, gear_of: dict[str, float],
 
 
 ChannelFn = tuple[str, str, Callable[[], Optional[float]]]  # value getter, None = no data yet
+SpeedCell = tuple[DrivelineState, int, list[float]]  # (driveline, segment, [its speed])
 
 
 def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
-                       only: Optional[set[str]] = None) -> Iterator[ChannelFn]:
+                       only: Optional[set[str]] = None,
+                       speeds: Optional[list[SpeedCell]] = None) -> Iterator[ChannelFn]:
     """The state channels as getters, so a caller can keep the ones it needs
     and read them again: valid until the drivelines change
-    (``ctx.layout_version``)."""
+    (``ctx.layout_version``). With ``speeds``, the driveline channels read
+    their segment's speed from a cell appended to it, which the caller sets
+    (ctx.seg_speed) before each read."""
     model = ctx.model
     for el_id in (model.cdef_of if only is None else only):
         cdef = model.cdef_of.get(el_id)
@@ -931,8 +953,9 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
             yield el_id, "sig_level", lambda tk=tk: 100.0 * tk.mass_kg / tk.capacity_kg
             yield el_id, "sig_mass", lambda tk=tk: tk.mass_kg
         elif tdef == "vehicle.body" and el_id == ctx.veh_id:
-            yield el_id, "sig_load_front", lambda: sum(w.n_load for w in ctx.axle_wheels[0])
-            yield el_id, "sig_load_rear", lambda: sum(w.n_load for w in ctx.axle_wheels[1])
+            # (a list, not a generator: the same sum, sooner)
+            yield el_id, "sig_load_front", lambda: sum([w.n_load for w in ctx.axle_wheels[0]])
+            yield el_id, "sig_load_rear", lambda: sum([w.n_load for w in ctx.axle_wheels[1]])
         if tdef in FLOW_PORTS:  # from the energy book: no data until the part is first booked
             # a driveline's gears and clutches have their powers worked out
             # per recorded point (gear_powers); brakes and stacks every step
@@ -974,9 +997,16 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
         for s_idx, seg in enumerate(st.dl.segments):
             if only is not None and only.isdisjoint(seg.element_ms):
                 continue
+            # the segment's speed: worked out at each read, or, with
+            # ``speeds``, read from a cell the caller refreshes before each
+            # read, so its several channels share one working-out
+            cell: Optional[list[float]] = None
+            if speeds is not None:
+                cell = [0.0]
+                speeds.append((st, s_idx, cell))
 
-            def omega_ref(st=st, s_idx=s_idx) -> float:
-                return ctx.seg_speed(st, s_idx)
+            def omega_ref(st=st, s_idx=s_idx, cell=cell) -> float:
+                return ctx.seg_speed(st, s_idx) if cell is None else cell[0]
 
             for w in seg.wheels:
                 if only is not None and w.el_id not in only:
@@ -1009,8 +1039,12 @@ def _state_channel_fns(ctx: RunContext, gear_of: dict[str, float],
                     yield el_id2, "sig_speed_out", speed
                 elif tdef2 == "mech.gearbox":
                     yield el_id2, "sig_speed_out", speed
-                    yield el_id2, "sig_gear", lambda el_id2=el_id2: gear_of.get(
-                        el_id2, float(ctx.params(el_id2).get("default_gear", 1) or 1))
+
+                    def gear(el_id2=el_id2) -> float:
+                        g = gear_of.get(el_id2)  # (its default worked out only when unset)
+                        return (g if g is not None
+                                else float(ctx.params(el_id2).get("default_gear", 1) or 1))
+                    yield el_id2, "sig_gear", gear
             for pr in seg.props:
                 if only is not None and pr.el_id not in only:
                     continue
