@@ -381,7 +381,8 @@ sections.
   kWh/100 mi and the range for an electric car, mpg and l/100 km for a car
   with an engine. The Battery Electric Car gets 104 MPGe combined and 213
   miles; the P2 Hybrid Car 56 city, 48 highway and 52 combined mpg (the
-  real car's label: 58, 60 and 59). (CON-32)
+  real car's label: 58, 60 and 59). A model with a fuel cell or a voltage
+  source gets no label: their energy is in neither figure. (CON-32)
 - Weather presets on the Ambient: *Cold day (−7 °C)* (EPA's cold FTP and
   the EU's low-temperature test), *Standard day (23 °C)* (WLTP),
   *Hot and sunny day (35 °C)* (EPA's air-conditioning test SC03) and *High
@@ -400,7 +401,8 @@ sections.
   is. The Battery Electric Car: 0-100 km/h in 7.12 s, 80-120 in 4.98 s,
   160 km/h limited by its motor's maximum speed, 9.4 / 14.1 / 19.6 kWh/100
   km at 50 / 90 / 120 km/h. The hybrid's coast-down gives back its EPA
-  coefficients within 2 %. (CON-06)
+  coefficients within 2 %. With a fuel cell or a voltage source the
+  consumption is the battery's share only and no range is given. (CON-06)
 - Value sources: every number and table of a part can carry its source, a
   kind (measured, datasheet, estimated, generated or library default) and
   a confidence (0 not checked, 1 agrees with its source, 2 source and

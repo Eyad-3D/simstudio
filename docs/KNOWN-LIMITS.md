@@ -975,13 +975,16 @@ minimum or an average, for example from the CSV export, or put the
 - **Vehicle tests leave out a few.** *Vehicle tests* has no hill start, no
   range test that drives a battery down to empty over repeated cycles (the
   summary's *Range at this consumption* estimates it from one cycle), and
-  no elasticity test held in one gear. *Roadmap:* CON-06 (follow-up),
-  STU-39.
+  no elasticity test held in one gear. A fuel-cell car's consumption is
+  its battery's share only, and it gets no range. *Roadmap:* CON-06
+  (follow-up), STU-39.
 - **US label estimate from two cycles only.** *Simulations → US label*
   uses EPA's derived two-cycle method. The five-cycle tests (US06, SC03 at
   35 °C, a cold FTP at −7 °C) need heat and climate models LightSim does
   not have, and plug-in hybrids (charge-depleting runs and utility
-  factors) are not covered. *Roadmap:* CON-21.
+  factors) are not covered. Nor are fuel-cell cars: a model with a fuel
+  cell or a voltage source is refused, since EPA's hydrogen rule (a
+  kilogram counted as a gallon) is not built in. *Roadmap:* CON-21.
 - **27 standard drive cycles, no files of your own.** The Driving Task's
   *Drive Cycle* list has the WLTC (classes 1 to 3b, their city cycles and
   phases), NEDC, the EPA cycles, two motorcycle cycles and a long-haul truck

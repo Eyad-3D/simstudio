@@ -87,3 +87,21 @@ def test_a_project_without_a_cycle_case_is_refused():
     r = TestClient(app).post("/api/label-estimate",
                              json={"project": project.model_dump(mode="json")})
     assert r.status_code == 400 and "case of kind Cycle" in r.json()["detail"]
+
+
+def test_a_fuel_cell_car_gets_no_label():
+    """Its fuel cell's energy is in neither the battery's Consumption nor
+    the fuel consumption, so a label would show MPGe from the battery's
+    share alone; the same for a model with a Voltage Source."""
+    from helpers import el, fuel_cell_car
+
+    project = fuel_cell_car(setpoint_kW=1.5, cycle="udds")
+    with pytest.raises(ValueError, match="Fuel Cell Stack 'Fuel Cell'"):
+        label.estimate(project)
+    r = TestClient(app).post("/api/label-estimate",
+                             json={"project": project.model_dump(mode="json")})
+    assert r.status_code == 400 and "battery electric cars, hybrids" in r.json()["detail"]
+    bev = load_example("bev-car")
+    bev.systems[0].elements.append(el("vs", "electric.voltage_source", "Bench Supply"))
+    with pytest.raises(ValueError, match="Voltage Source 'Bench Supply'"):
+        label.estimate(bev)

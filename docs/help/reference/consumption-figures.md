@@ -67,7 +67,9 @@ cycle. The dialog lists every step:
 
 Every result says *Simulated estimate, not a certified value*. The full
 five-cycle test (with US06, the air-conditioning cycle SC03 and a cold
-start) needs heat and climate models LightSim does not have yet.
+start) needs heat and climate models LightSim does not have yet. A model
+with a Fuel Cell Stack or a Voltage Source gets no label: their energy is
+in neither the battery's Consumption nor the fuel consumption.
 
 ## Good to know
 

@@ -21,6 +21,9 @@ the battery's usable energy ÷ the combined energy at the battery.
 
 A hybrid's lab figures use the charge-corrected fuel consumption of each
 run (CON-05), so a run that ends with a different charge still compares.
+A model with a fuel cell or a voltage source gets no label: their energy
+is in neither the battery's Consumption nor the fuel consumption, and
+EPA's hydrogen rules (1 kg of hydrogen as a gallon) are not built in.
 The five-cycle method with US06, SC03 and a cold FTP needs heat and climate
 models LightSim does not have yet (CON-21).
 """
@@ -44,6 +47,9 @@ COEFFICIENTS = {
            "Highway Intercept": 0.003191, "Highway Slope": 1.2945},
 }
 NOT_CERTIFIED = "Simulated estimate, not a certified value."
+# energy sources the label cannot count: neither the battery's Consumption
+# nor the fuel consumption holds their energy
+UNCOUNTED_SOURCES = {"fuelcell.stack": "Fuel Cell Stack", "electric.voltage_source": "Voltage Source"}
 
 
 def coefficients(model_year: int) -> tuple[int, dict[str, float]]:
@@ -96,6 +102,13 @@ def adjust(lab: LabFigures, electric: bool, model_year: int = 2017,
 
 # ---- running the model on the two cycles ------------------------------------
 
+def uncounted_sources(project: Project) -> list[str]:
+    """The parts that supply energy the battery's Consumption and the fuel
+    consumption leave out (a fuel cell, a voltage source), by label."""
+    return [f"{UNCOUNTED_SOURCES[e.componentDefId]} '{e.label}'"
+            for s in project.systems for e in s.elements if e.componentDefId in UNCOUNTED_SOURCES]
+
+
 def _drives(project: Project, case: SimCase, cycle_id: str) -> bool:
     if case.kind != "cycle":
         return False
@@ -142,6 +155,11 @@ def estimate(project: Project, base_case_id: str | None = None, model_year: int 
     step. Raises ValueError when the model cannot be run on them."""
     from .solver import simulate
 
+    others = uncounted_sources(project)
+    if others:
+        raise ValueError(f"The US label estimate covers battery electric cars, hybrids and cars "
+                         f"with an engine only. This model also takes energy from "
+                         f"{', '.join(others)}, which the label would leave out.")
     year, coef = coefficients(model_year)
     chosen = label_cases(project, base_case_id)
     runs: dict[str, dict[str, float]] = {}

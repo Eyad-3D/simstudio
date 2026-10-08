@@ -56,6 +56,41 @@ def driver_wiring(next_dbc_id: int = 90) -> list[DataBusConnection]:
     ]
 
 
+def fuel_cell_car(setpoint_kW: float = 25.0, profile: str = "0:0; 5:70; 120:70",
+                  **task) -> Project:
+    """A fuel cell behind a DC-DC charging the buffer battery's bus, the
+    battery and the DC-DC feeding one E-Motor (test_expansion.py's layout)."""
+    elements = [
+        el("veh", "vehicle.body", "Vehicle"),
+        el("drv", "driver.driver", "Driver"),
+        el("task", "signal.driving_task", "Task", profile=profile, **task),
+        el("fc", "fuelcell.stack", "Fuel Cell"),
+        el("h2", "fuel.h2_tank", "H2 Tank"),
+        el("dc", "controller.dcdc", "DC-DC", power_setpoint_kW=setpoint_kW),
+        el("fcbus", "electric.node", "FC Bus"),
+        el("batt", "battery.generic", "Battery", initial_soc_pct=60),
+        el("hvbus", "electric.node", "HV Bus"),
+        el("mot", "motor.emotor", "E-Motor"),
+        el("fd", "mech.final_drive", "Final Drive"),
+        el("diff", "mech.differential", "Differential"),
+        el("whl", "propulsion.wheel", "Wheel L"),
+        el("whr", "propulsion.wheel", "Wheel R"),
+    ]
+    connections = [
+        conn(1, "fc", "pos", "fcbus", "t1"),
+        conn(2, "fcbus", "t2", "dc", "a_pos"),
+        conn(3, "dc", "b_pos", "hvbus", "t1"),
+        conn(4, "batt", "pos", "hvbus", "t2"),
+        conn(5, "hvbus", "t3", "mot", "pos"),
+        conn(6, "mot", "shaft", "fd", "flange_in"),
+        conn(7, "fd", "flange_out", "diff", "flange_in"),
+        conn(8, "diff", "flange_out_a", "whl", "shaft"),
+        conn(9, "diff", "flange_out_b", "whr", "shaft"),
+    ]
+    databus = [*driver_wiring(), dbc(2, "drv", "sig_traction_cmd", "mot", "sig_demand_in")]
+    return project(elements, connections, databus, duration=120, time_step=1.0)
+
+
 def bev_axle(locked: bool = False, mu_left: float = 1.0,
              profile: str = "0:0; 5:100; 30:100"):
     """Minimal driven axle: battery → motor → final drive → diff → two wheels."""

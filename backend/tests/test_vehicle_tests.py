@@ -53,3 +53,12 @@ def test_the_api_runs_chosen_tests_and_refuses_unknown_ones():
     assert [row["what"] for row in r["rows"]] == ["0-100 km/h"] and "not a certified" in r["note"]
     body["tests"] = ["moon_landing"]
     assert c.post("/api/vehicle-tests", json=body).status_code == 400
+
+
+def test_a_fuel_cell_car_gets_no_range_from_its_battery_alone(monkeypatch):
+    from helpers import fuel_cell_car
+
+    monkeypatch.setattr(vehicle_tests, "STEADY_SPEEDS", (50,))
+    rows = {r["what"]: r for r in vehicle_tests.run_tests(fuel_cell_car(setpoint_kW=1.5), ["constant_speed"])["rows"]}
+    assert "Range at 50 km/h" not in rows
+    assert "without the energy of Fuel Cell Stack 'Fuel Cell'" in rows["Consumption at 50 km/h"]["note"]

@@ -8,7 +8,8 @@ for, each from runs of the model as it is, with no hand-made cycle.
   is named: a motor's maximum speed, an engine's rev limit, or the power
   (the road load takes all the drive gives).
 - Constant-speed consumption at 50, 90 and 120 km/h: 600 s at the speed,
-  starting at it; with the battery's usable energy, the range at that speed.
+  starting at it; with the battery's usable energy, the range at that speed
+  (none when a fuel cell or a voltage source also supplies the car).
 - Gradeability: the steepest constant grade the car climbs at 30 km/h,
   found by halving the interval between a grade it holds and one it does
   not (it holds when it stays within 1 km/h of the target over the last
@@ -24,6 +25,7 @@ STU-37's Acceleration case.
 """
 from __future__ import annotations
 
+from .label import uncounted_sources
 from .library import library_by_id
 from .schemas import DataBusConnection, ElementInstance, Project, SimCase
 from .solver.network import resolve_params
@@ -157,6 +159,9 @@ def _top_speed(project, veh, task) -> list[dict]:
 def _constant_speed(project, veh, task) -> list[dict]:
     rows = []
     engines = any(e.componentDefId == "engine.combustion" for e in _elements(project))
+    # a fuel cell's or a voltage source's energy is not in the Consumption,
+    # so no range follows from it
+    others = uncounted_sources(project)
     usable_kwh = 0.0
     for el in _elements(project):
         if el.componentDefId == "battery.generic":
@@ -170,9 +175,12 @@ def _constant_speed(project, veh, task) -> list[dict]:
         for label, unit in (("Consumption", "kWh/100km"), ("Fuel consumption", "l/100km")):
             if label in s and not (engines and label == "Consumption"):  # a hybrid's is its charge
                 note = s[label].notValid or ""
+                if label == "Consumption" and others:
+                    note = "; ".join(x for x in (note, f"at the battery only, without the energy "
+                                                       f"of {', '.join(others)}") if x)
                 rows.append(_row(f"{label} at {v} km/h", s[label].value, unit,
                                  f"600 s at a constant {v} km/h, from that speed", note))
-                if label == "Consumption" and usable_kwh > 0 and s[label].value > 0:
+                if label == "Consumption" and usable_kwh > 0 and s[label].value > 0 and not others:
                     rows.append(_row(f"Range at {v} km/h", usable_kwh / s[label].value * 100, "km",
                                      "the batteries' Usable Capacity above their Minimum SOC ÷ "
                                      "the consumption", note))
