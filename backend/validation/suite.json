@@ -1,6 +1,6 @@
 {
   "name": "LightSim reference suite",
-  "version": "1.0",
+  "version": "1.1",
   "about": "Real vehicles with official test results, run through LightSim and compared automatically (VAL-05). README.md explains the rules; backend/tests/test_reference_suite.py runs it in CI.",
   "exact": "exact.json",
   "cases": [
@@ -16,6 +16,7 @@
     "road_load": "EPA target coefficients A, B, C (lbf, lbf/mph, lbf/mph^2) x 4.448222, x 2.763930, x 1.717157 to N, N/(km/h), N/(km/h)^2, with Coefficients Include Driveline Losses ticked so the final drive and differential run lossless",
     "overall_ratio": "EPA's N/V ratio (motor 1/min per mph) turned into the gear ratio for the wheel radius: ratio = N/V x 2 pi r / (60 x 0.44704)",
     "motor_loss": "FASTSim's efficiency against output power (as % of the motor's power): loss = P / eff - P, the same for driving and recuperating; no loss at zero power and no drag torque, so the spin losses the road load holds are not counted twice",
+    "motor_power": "EPA's Rated Horsepower (Test Car List) x 0.7457 kW where the case gives it (rated_hp), else FASTSim's motor power (motor_kW)",
     "motor_full_load": "constant torque up to a third of the maximum speed, then the motor's power; maximum speed = N/V x 110 mph",
     "battery": "a flat 350 V open-circuit voltage; internal resistance giving 1.5 % loss at a 1C discharge (FASTSim's 97 % round trip split each way): R = 0.015 x 350^2 / (kWh x 1000)",
     "wall_energy": "(net energy at the battery terminals + the battery's internal losses) / charger efficiency, per km of the cycle driven; the charger efficiency is FASTSim's 0.86, uncertain by +/- 0.04",

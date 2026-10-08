@@ -3,7 +3,7 @@
 LightSim is still an early version. You can build, run and inspect models,
 but the component physics are simplified, **only the energy use of four
 electric cars on EPA's city and highway cycles has been compared with
-official test results** (within 9 %, see [What is validated](VALIDATION-STATUS.md)),
+official test results** (within 8 %, see [What is validated](VALIDATION-STATUS.md)),
 and some results are known to be wrong.
 This page lists what we know, what you can do about it today, and which
 roadmap item tracks the fix.

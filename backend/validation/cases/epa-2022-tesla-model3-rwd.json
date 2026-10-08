@@ -1,6 +1,6 @@
 {
   "id": "epa-2022-tesla-model3-rwd",
-  "version": 1,
+  "version": 2,
   "name": "2022 Tesla Model 3 RWD",
   "mode": "blind",
   "mode_note": "No input was tuned to the EPA results: the road load, test weight and gearing are EPA's own test data, the powertrain values are FASTSim's published vehicle file, and the conversions are the suite's fixed rules (README.md).",
@@ -44,11 +44,11 @@
       0.0131
     ],
     "n_per_v_rpm_per_mph": 115.0,
+    "rated_hp": 257,
     "drive": "2-Wheel Drive, Rear",
     "source": "epa-test-car-list-2022"
   },
   "fastsim": {
-    "motor_kW": 239.0,
     "battery_kWh": 54.0,
     "battery_max_kW": 201.2,
     "wheel_radius_m": 0.33435,
@@ -87,6 +87,7 @@
     "file": "2022 Tesla Model 3 RWD.yaml"
   },
   "notes": [
-    "The model drives the front axle; without a centre of gravity height nothing in the model depends on which axle is driven."
+    "The model drives the front axle; without a centre of gravity height nothing in the model depends on which axle is driven.",
+    "Version 2: the motor's power is EPA's Rated Horsepower for these two tests, 257 hp (191.6 kW). Version 1 took FASTSim's 239 kW, which FASTSim's own vehicle database cites from a website the data register bans (DATA-REGISTER.md rule 3); the city gap went from +7.0 % to +5.0 % and the highway gap from +8.6 % to +7.4 %."
   ]
 }

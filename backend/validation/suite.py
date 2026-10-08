@@ -29,6 +29,7 @@ EXACT = json.loads((DIR / SUITE["exact"]).read_text(encoding="utf-8"))
 RULES = SUITE["rules"]
 
 LB_KG = 0.45359237
+HP_KW = 0.745699872  # a mechanical (SAE) horsepower, as EPA rates engines and motors
 LBF_N = 4.448222
 MPH_KMH = 1.609344
 WH_PER_GALLON_EQ = 33705.0
@@ -76,6 +77,13 @@ class Inputs:
     efficiency: dict = field(default_factory=dict)
 
 
+def motor_kw(case: dict) -> float:
+    """The motor's power (rules: motor_power): EPA's rated horsepower where
+    the case has it, else FASTSim's figure."""
+    epa, fs = case["epa"], case["fastsim"]
+    return epa["rated_hp"] * HP_KW if "rated_hp" in epa else fs["motor_kW"]
+
+
 def inputs_of(case: dict) -> Inputs:
     epa, fs = case["epa"], case["fastsim"]
     mass = epa["test_weight_lb"] * LB_KG
@@ -85,7 +93,7 @@ def inputs_of(case: dict) -> Inputs:
         mass_kg=mass, abc=abc_si(epa["target_abc_lbf"]), radius_m=r,
         # four wheels carry the 1.5 %: 4 J / r² = 0.015 m
         wheel_inertia=INERTIA_SHARE * mass * r * r / 4, ratio=ratio,
-        max_rpm=epa["n_per_v_rpm_per_mph"] * TOP_MPH, motor_kw=fs["motor_kW"],
+        max_rpm=epa["n_per_v_rpm_per_mph"] * TOP_MPH, motor_kw=motor_kw(case),
         battery_kwh=fs["battery_kWh"], r0_ohm=0.015 * OCV_V ** 2 / (fs["battery_kWh"] * 1000),
         max_kw=fs["battery_max_kW"], aux_kw=fs["aux_kW"], regen_pct=fs["regen_pct"],
         charger=fs["charger_efficiency"], efficiency=fs["motor_efficiency"])

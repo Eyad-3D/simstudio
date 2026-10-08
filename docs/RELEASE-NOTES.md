@@ -835,10 +835,12 @@ sections.
   [How to](help/how-to/check-against-expected-values.md).
 - A reference suite of real cars (VAL-05): four 2022 electric cars
   (Tesla Model 3 RWD, Chevrolet Bolt EUV, Nissan Leaf 40 kWh, MINI Cooper
-  SE) built from EPA's Test Car List and FASTSim's vehicle files, with no
+  SE) built from EPA's Test Car List and FASTSim's vehicle files (the
+  Model 3's motor power is EPA's rated 257 hp: FASTSim's 239 kW comes from
+  a website LightSim may not use), with no
   input tuned to the results, drive EPA's city and highway cycles on every
-  change. Their energy at the wall is within 9 % of EPA's unadjusted
-  figures on all eight (4.5 % on average); a virtual coast-down gives back
+  change. Their energy at the wall is within 8 % of EPA's unadjusted
+  figures on all eight (4.1 % on average); a virtual coast-down gives back
   EPA's road load within 0.02 %, and an exact-answer tier of three
   coast-downs is within 0.005 %. [What is validated](VALIDATION-STATUS.md)
   has the table and what it does not show. The files are in

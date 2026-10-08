@@ -54,7 +54,9 @@ with. All four cases today are blind:
   for a later, calibrated tier and not used yet.
 - **Gearing**: EPA's N/V ratio (motor speed per mph) and FASTSim's wheel
   radius.
-- **Motor**: FASTSim's efficiency against output power, the same curve in
+- **Motor**: its power is EPA's Rated Horsepower where the case gives it
+  (the Model 3), else FASTSim's figure. FASTSim's efficiency against
+  output power, the same curve in
   all four files (84 % at no load, 95 % at 40-60 % power); no loss at zero
   power and no drag torque, so the spin losses the coast-down holds are
   not counted twice. Constant torque up to a third of the maximum speed,
@@ -72,7 +74,9 @@ example the motor losses on the HWFET, compared on the UDDS).
    vehicle data; copy the facts into a new file in `cases/`, with every
    repeat test.
 2. Take the powertrain values from an Apache-2.0 FASTSim vehicle file, or
-   another source whose licence allows it, and name the file.
+   another source whose licence allows it, and name the file. Read the
+   file's comments first: a value it cites from a source the data register
+   bans (DATA-REGISTER.md rule 3) is not taken; take EPA's figure instead.
 3. Add it to `suite.json`, add a row to `docs/data-register.csv`, run
    `python -m validation.suite` and update `docs/VALIDATION-STATUS.md`.
 
