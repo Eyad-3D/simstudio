@@ -222,6 +222,10 @@ r = ls.run("bev-car", case="WLTC Class 3b", time_limit_s=60)
 print(r.status)  # "cancelled" if it took longer than 60 s
 ```
 
+A case paced for watching in the app, such as *City Cycle (live, 10×)*,
+runs as fast as your computer allows, with the same figures as in the
+app. Give `paced=True` to keep its pace.
+
 ## Scripts and AI tools
 
 Scripts you write yourself can do anything your own account can. AI tools

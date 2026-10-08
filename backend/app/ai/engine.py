@@ -369,8 +369,10 @@ class Engine:
         """Run a case as fast as the machine allows (a case's real-time
         pacing is for watching a live run, not for an assistant), stopping
         it after ``max_seconds`` of wall-clock time or when ``cancel`` is set.
-        Data Checks run first, as the app's Run does."""
+        Data Checks run first, as the app's Run does. A paced case stays
+        balanced or not as in the app, so its figures are the app's."""
         from ..solver import simulate
+        from ..solver.balance import unpaced
 
         errors = [c for c in validate_project(project) if c.level == "error"]
         if errors:
@@ -378,9 +380,7 @@ class Engine:
                 caseId=case_id, status="failed", channels=[],
                 messages=[{"level": "error", "text": f"Data check failed: {c.text}"} for c in errors],
             )
-        unpaced = project.model_copy(update={
-            "cases": [c.model_copy(update={"realtimeFactor": 0.0}) for c in project.cases],
-        })
+        fast = project.model_copy(update={"cases": [unpaced(c) for c in project.cases]})
         deadline = time.monotonic() + max_seconds
 
         def control() -> list[dict]:
@@ -392,7 +392,7 @@ class Engine:
             if progress and event.get("type") == "step" and isinstance(event.get("pct"), (int, float)):
                 progress(float(event["pct"]))
 
-        return simulate(unpaced, case_id, emit, control)
+        return simulate(fast, case_id, emit, control)
 
     @staticmethod
     def stored_runs(handle: ProjectHandle) -> list[dict]:

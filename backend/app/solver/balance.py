@@ -63,6 +63,19 @@ def applies(project: Project, case) -> bool:
     return "engine.combustion" in types and "battery.generic" in types and "motor.emotor" in types
 
 
+def unpaced(case):
+    """The case to run as fast as the machine allows: its pace is for
+    watching a live run in the app, not for a script, the command line or
+    an AI assistant. It stays balanced or not as the paced case is, so the
+    figures are the app's, only sooner."""
+    if not (case.realtimeFactor or 0) > 0:
+        return case
+    update: dict = {"realtimeFactor": 0.0}
+    if case.chargeBalance is None:
+        update["chargeBalance"] = False
+    return case.model_copy(update=update)
+
+
 def _fit_zero(points: list[tuple[float, float]]) -> Optional[float]:
     """The fuel at no battery energy change: a least-squares line through
     (energy change, fuel) read at 0; None for fewer than two distinct changes."""

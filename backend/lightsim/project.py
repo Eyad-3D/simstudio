@@ -387,7 +387,7 @@ class Project:
 
     def run(self, case: Optional[str] = None, *, check: bool = True,
             on_step: Optional[Callable[[dict], None]] = None,
-            time_limit_s: Optional[float] = None) -> Result:
+            time_limit_s: Optional[float] = None, paced: bool = False) -> Result:
         """Run a case (by id or name; the first one if None) in this process
         and return its Result. No server, window or network is involved.
 
@@ -395,7 +395,11 @@ class Project:
         any error stops the run and the Result is ``failed`` with the checks
         in ``Result.checks``. ``on_step`` gets each recorded step
         (``{"t", "pct", "values"}``). ``time_limit_s`` stops the run after
-        that many seconds of wall-clock time (it ends ``cancelled``)."""
+        that many seconds of wall-clock time (it ends ``cancelled``).
+
+        A case paced for watching in the app (``realtimeFactor``, a "live"
+        case) runs as fast as the machine allows, with the same figures;
+        ``paced=True`` keeps its pace."""
         import time as _time
 
         c = self.case(case)
@@ -421,7 +425,13 @@ class Project:
 
         emit = (lambda event: on_step(event) if event.get("type") == "step" else None) \
             if on_step else None
-        sim = engine("solver").simulate(self.model, c.id, emit, control)
+        model = self.model
+        if not paced:
+            fast = engine("solver.balance").unpaced(c)
+            if fast is not c:
+                model = model.model_copy(update={
+                    "cases": [fast if x is c else x for x in model.cases]})
+        sim = engine("solver").simulate(model, c.id, emit, control)
         return from_sim_result(sim, c.name, self.name)
 
     def has_scripts(self) -> bool:
