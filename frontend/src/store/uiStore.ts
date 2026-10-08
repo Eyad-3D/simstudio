@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { DockviewApi } from "dockview-react";
 import type { XAxisMode, YAxisCfg } from "../components/panels/chartUtils";
-import { FONT_SCALE_KEY, OPEN_LAST_KEY, RESULTS_VIEW_KEY, THEME_KEY } from "../storageKeys";
+import { FONT_SCALE_KEY, OPEN_LAST_KEY, RESULTS_AFTER_RUN_KEY, RESULTS_VIEW_KEY, THEME_KEY } from "../storageKeys";
 
 export type RibbonTab =
   | "start"
@@ -23,7 +23,7 @@ export type Theme = "light" | "dark";
 export interface PlotView {
   /** ticked channel keys, in the order ticked (their colours follow it) */
   channels?: string[];
-  view?: "chart" | "table" | "xy" | "sweep" | "energy" | "duty";
+  view?: "chart" | "table" | "xy" | "sweep" | "study" | "energy" | "duty";
   /** the X-Y view's X channel */
   xKey?: string;
   /** the summary value the Sweep view plots */
@@ -44,6 +44,10 @@ export interface PlotView {
 export interface ResultsView {
   comparePrevious?: boolean;
   cases?: Record<string, PlotView>;
+  /** the saved study the Study view shows (unset: the one of the run shown,
+   *  else the newest), and the figures it charts (STU-16) */
+  study?: string;
+  studyFigures?: string[];
 }
 
 // ponytail: the 50 projects changed last keep their choices (about 120 B a
@@ -144,12 +148,24 @@ function loadOpenLast(): boolean {
   }
 }
 
+function loadResultsAfterRun(): boolean {
+  try {
+    return window.localStorage.getItem(RESULTS_AFTER_RUN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 interface UIState {
   ribbonTab: RibbonTab;
   setRibbonTab: (tab: RibbonTab) => void;
   /** Skip the Start page: open on Home with the last project (UX-16). */
   openLastAtStart: boolean;
   setOpenLastAtStart: (on: boolean) => void;
+  /** Open the Results page when a run or sweep ends; off, the page stays
+   *  where the user is and a notice offers the results (UX-21). */
+  resultsAfterRun: boolean;
+  setResultsAfterRun: (on: boolean) => void;
 
   dockApi: DockviewApi | null;
   setDockApi: (api: DockviewApi) => void;
@@ -215,6 +231,8 @@ interface UIState {
   resultsViews: Record<string, ResultsView>;
   setPlotView: (projectId: string, caseId: string, patch: Partial<PlotView>) => void;
   setComparePrevious: (projectId: string, on: boolean) => void;
+  /** The study the Study view shows and the figures it charts (STU-16). */
+  setStudyView: (projectId: string, patch: Pick<ResultsView, "study" | "studyFigures">) => void;
 }
 
 const initialTheme = loadTheme();
@@ -222,6 +240,7 @@ applyTheme(initialTheme);
 const initialFontScale = loadFontScale();
 applyFontScale(initialFontScale);
 const initialOpenLast = loadOpenLast();
+const initialResultsAfterRun = loadResultsAfterRun();
 
 export const useUIStore = create<UIState>((set, get) => ({
   // every launch starts on the Start page unless the user chose to skip it
@@ -235,6 +254,15 @@ export const useUIStore = create<UIState>((set, get) => ({
       /* storage unavailable: this session only */
     }
     set({ openLastAtStart: on });
+  },
+  resultsAfterRun: initialResultsAfterRun,
+  setResultsAfterRun: (on) => {
+    try {
+      window.localStorage.setItem(RESULTS_AFTER_RUN_KEY, on ? "1" : "0");
+    } catch {
+      /* storage unavailable: this session only */
+    }
+    set({ resultsAfterRun: on });
   },
 
   dockApi: null,
@@ -332,5 +360,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   setComparePrevious: (projectId, on) =>
     set((s) => ({
       resultsViews: changeResultsView(s.resultsViews, projectId, (v) => ({ ...v, comparePrevious: on })),
+    })),
+  setStudyView: (projectId, patch) =>
+    set((s) => ({
+      resultsViews: changeResultsView(s.resultsViews, projectId, (v) => ({ ...v, ...patch })),
     })),
 }));

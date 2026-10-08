@@ -15,6 +15,7 @@ import {
   trayAndDock,
   zoomOf,
 } from "./ui-helpers";
+import { finishNotice } from "./app";
 
 // the desktop window's minimum size, a common laptop, the window's default
 // size and a full-HD screen; the targets come from the GUI-01 metric
@@ -87,10 +88,8 @@ test.describe("1366x768", () => {
     const pane = page.locator(".react-flow__pane").first();
     await pane.click({ position: { x: 5, y: (await pane.boundingBox())!.height - 5 } });
     await page.keyboard.press("Control+Enter");
-    await expect(page.locator(".ss-zoom.absolute").getByRole("img", { name: /^Results chart: \S/ })).toBeAttached({
-      timeout: 60_000,
-    });
-    await ribbonButton(page, "Home");
+    // the page stays on the model as the run ends (UX-21)
+    await expect(finishNotice(page)).toBeVisible({ timeout: 60_000 });
     // the tray opened on the Signal Plot by itself; the diagram re-fitted
     expect((await trayAndDock(page)).tray).toBeGreaterThanOrEqual(120);
     await expect.poll(async () => (await nodeLayout(page)).offscreen, { message: "parts cut off" }).toBe(0);

@@ -7,6 +7,7 @@ import {
   Image as ImageIcon,
   Info,
   Layers,
+  LayoutGrid,
   LineChart as LineChartIcon,
   Play,
   Ruler,
@@ -54,6 +55,7 @@ import { LimitLegend, limitsPlugin } from "./LimitBand";
 import { StaleBanner } from "./StaleBanner";
 import { useReportsStore } from "../../store/reportsStore";
 import { ReferenceList } from "./ExpectedValues";
+import { StudyView } from "./StudyView";
 
 // dash patterns to distinguish channels when several runs are overlaid at once
 const DASHES = [[], [5, 3], [2, 2], [7, 3, 2, 3], [9, 4]];
@@ -284,6 +286,8 @@ export function ResultsPanel() {
   const run = useProjectStore((s) => s.run);
   const caseName = useProjectStore((s) => s.project?.cases.find((c) => c.id === s.activeCaseId)?.name);
   const projectId = useProjectStore((s) => s.project?.id ?? "");
+  // the project's saved studies, for the Study view (STU-16)
+  const studyCount = useProjectStore((s) => s.studies?.length ?? 0);
   const theme = useUIStore((s) => s.theme);
   const resultsView = useUIStore((s) => s.resultsViews[projectId]);
 
@@ -333,11 +337,17 @@ export function ResultsPanel() {
   const [showIncomplete, setShowIncomplete] = useState(false);
   const completeFamily = useMemo(() => family.filter((r) => !r.incomplete), [family]);
   const incompleteCount = family.length - completeFamily.length;
-  // (a Sweep view kept for the case shows the chart for a run that is not a sweep point)
-  const view = plot?.view === "sweep" && family.length < 2 ? "chart" : (plot?.view ?? "chart");
+  // (a Sweep view kept for the case shows the chart for a run that is not a
+  // sweep point, a Study view the chart once the project has no study)
+  const view =
+    (plot?.view === "sweep" && family.length < 2) || (plot?.view === "study" && studyCount === 0)
+      ? "chart"
+      : (plot?.view ?? "chart");
   const setView = (v: typeof view) => savePlot({ view: v });
   const report = view === "energy" || view === "duty"; // the run's reports (RES-22, RES-39)
-  const canMeasure = view !== "sweep" && !report && Boolean(activeRun && timesOf(activeRun).length > 0);
+  // the Sweep and Study views plot summary figures against the swept value
+  const figures = view === "sweep" || view === "study";
+  const canMeasure = !figures && !report && Boolean(activeRun && timesOf(activeRun).length > 0);
   const showLimits = useReportsStore((s) => s.showLimits);
 
   const byElement = useMemo(() => {
@@ -774,8 +784,8 @@ export function ResultsPanel() {
   }
 
   if (runs.length === 0) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-[color:var(--ss-text-dim)]">
+    const empty = (
+      <div className="flex flex-col items-center justify-center gap-3 py-6 text-[color:var(--ss-text-dim)]">
         <LineChartIcon size={36} strokeWidth={1} />
         <div className="text-[13px]">No results yet — run a simulation case first.</div>
         <button
@@ -787,6 +797,17 @@ export function ResultsPanel() {
           {running ? "Running…" : `Run '${caseName ?? "active case"}'`}
         </button>
       </div>
+    );
+    // the saved studies outlive the runs in the history (STU-16)
+    return studyCount > 0 ? (
+      <div className="flex h-full flex-col overflow-y-auto">
+        {empty}
+        <div className="border-t border-[color:var(--ss-border)] p-1.5">
+          <StudyView />
+        </div>
+      </div>
+    ) : (
+      <div className="flex h-full flex-col justify-center">{empty}</div>
     );
   }
 
@@ -1016,7 +1037,9 @@ export function ResultsPanel() {
             last three buttons show only their icons, so the row stays one line) */}
         <div className="ss-panel-toolbar @container">
           <span className="text-[11px] text-[color:var(--ss-text-dim)]">
-            {view === "sweep" ? (
+            {view === "study" ? (
+              <>Study charts</>
+            ) : view === "sweep" ? (
               <>
                 Sweep · {completeFamily.length} complete run(s)
                 {incompleteCount > 0 && (
@@ -1034,7 +1057,7 @@ export function ResultsPanel() {
                 {multiRun && <span> · {plotRuns.length} runs overlaid</span>}
               </>
             )}
-            {result && view !== "sweep" && (
+            {result && !figures && (
               <>
                 {" · "}
                 <b
@@ -1182,6 +1205,19 @@ export function ResultsPanel() {
               >
                 <TrendingUp size={12} /> Sweep
               </button>
+              {/* (once the project has a saved study: a sweep's, kept with its runs) */}
+              {studyCount > 0 && (
+                <button
+                  className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] ${
+                    view === "study" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
+                  }`}
+                  aria-pressed={view === "study"}
+                  onClick={() => setView("study")}
+                  title="Study: a saved study's results against the swept value, a chart each"
+                >
+                  <LayoutGrid size={12} /> <span className="@max-[880px]:sr-only">Study</span>
+                </button>
+              )}
               <button
                 className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] ${
                   view === "energy" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
@@ -1215,7 +1251,7 @@ export function ResultsPanel() {
             </button>
             <button
               className="ss-toolbtn border border-[color:var(--ss-border)]"
-              disabled={view === "table" || report}
+              disabled={view === "table" || view === "study" || report}
               title="Export the chart as a PNG image"
               onClick={() =>
                 plotRef.current?.png(
@@ -1258,7 +1294,7 @@ export function ResultsPanel() {
         {activeRun && <StaleBanner run={activeRun} />}
 
         {/* the run's headline numbers, each with its marks, in view at once */}
-        {headline.length > 0 && view !== "sweep" && (
+        {headline.length > 0 && !figures && (
           <div className="flex shrink-0 items-center gap-1 border-b border-[color:var(--ss-border)] p-1">
             <dl aria-label="Headline results" className="m-0 flex min-w-0 flex-1 flex-wrap gap-1">
               {headline.map((s, i) => {
@@ -1300,7 +1336,7 @@ export function ResultsPanel() {
         )}
 
         {/* expected values and hand calculations (VAL-35) */}
-        {result?.references && result.references.length > 0 && view !== "sweep" && view !== "energy" && view !== "duty" && (
+        {result?.references && result.references.length > 0 && !figures && view !== "energy" && view !== "duty" && (
           <div className="max-h-[96px] shrink-0 overflow-y-auto border-b border-[color:var(--ss-border)] px-2 py-0.5">
             <ReferenceList checks={result.references} compact />
           </div>
@@ -1359,6 +1395,10 @@ export function ResultsPanel() {
               </div>
             )}
           </div>
+        ) : view === "study" ? (
+          <div className="min-h-[260px] flex-[3] p-1.5">
+            <StudyView runSweepId={activeRun?.sweepId} caseId={activeRun?.caseId} />
+          </div>
         ) : view === "sweep" ? (
           <div className="min-h-[260px] flex-[3] p-1" ref={chartHost}>
             {sweepData.length > 0 && hasSize ? (
@@ -1416,7 +1456,7 @@ export function ResultsPanel() {
             the sweep view, so it comes back as the user left it) */}
         {result && result.summary.length > 0 && (
           <details
-            hidden={view === "sweep"}
+            hidden={figures}
             open={multiRun}
             className="shrink-0 border-t border-[color:var(--ss-border)]"
           >

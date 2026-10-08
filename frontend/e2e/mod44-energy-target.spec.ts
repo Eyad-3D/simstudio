@@ -1,7 +1,7 @@
 // MOD-44: an energy target on the FS example's endurance case: lap mode
 // lifts and coasts before the braking points to end within 2 % of it.
 import { expect, test } from "@playwright/test";
-import { openApp, openFromMenu, openSummary, showPanel } from "./app";
+import { openApp, openFromMenu, openSummary, showPanel, showResults } from "./app";
 
 test("MOD-44: an endurance ends within 2 % of its energy target", async ({ page }) => {
   test.setTimeout(120_000);
@@ -14,6 +14,7 @@ test("MOD-44: an endurance ends within 2 % of its energy target", async ({ page 
     .locator("input")
     .fill("5");
   await page.getByRole("button", { name: "Run case" }).click();
+  await showResults(page);
   await openSummary(page);
   const row = page.getByRole("row", {
     name: /^Energy used against the target/,

@@ -74,10 +74,27 @@ export function runButton(page: Page): Locator {
   return page.getByTitle(/^Run the active case/);
 }
 
-/** Run the active case and wait for the Results page to list its channels. */
+/** The notice a run, sweep or study ends with (UX-21). */
+export function finishNotice(page: Page): Locator {
+  return page.getByLabel("Run finished");
+}
+
+/** Wait for a run or sweep to end and show its results. The page stays
+ *  where it was when the run ended, with a notice that offers the results
+ *  (UX-21): its Show results opens the Results page. A run started on the
+ *  Results page is drawn there as it goes. */
+export async function showResults(page: Page, timeout = 60_000): Promise<void> {
+  const search = page.getByPlaceholder("Search channels…");
+  const show = finishNotice(page).getByRole("button", { name: "Show results" });
+  await expect(show.or(search)).toBeVisible({ timeout });
+  if (await show.isVisible()) await show.click();
+  await expect(search).toBeVisible();
+}
+
+/** Run the active case and show the Results page listing its channels. */
 export async function runActiveCase(page: Page): Promise<void> {
   await runButton(page).click();
-  await expect(page.getByPlaceholder("Search channels…")).toBeVisible({ timeout: 60_000 });
+  await showResults(page);
 }
 
 /** The project name in the ribbon header gains a " •" while there are

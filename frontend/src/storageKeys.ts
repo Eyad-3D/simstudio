@@ -18,6 +18,8 @@ export const OPEN_LAST_KEY = "lightsim-open-last";
 export const DRAFT_KEY = "lightsim-draft-v1";
 /** the Results page's plot choices, per project and case (store/uiStore.ts) */
 export const RESULTS_VIEW_KEY = "lightsim-results-view-v1";
+/** "1": open the Results page when a run or sweep ends (store/uiStore.ts) */
+export const RESULTS_AFTER_RUN_KEY = "lightsim-results-after-run";
 
 /** the app version that last ran, for What's new (help.ts) */
 export const LAST_VERSION_KEY = "lightsim-last-version";

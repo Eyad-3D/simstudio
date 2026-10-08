@@ -2,7 +2,7 @@
 // steps. These tests start as a new user (openApp starts as a returning one,
 // who skips the Start page).
 import { expect, test, type Page } from "@playwright/test";
-import { expectProject, ribbonTab, runButton, showPanel } from "./app";
+import { expectProject, ribbonTab, runButton, showPanel, showResults } from "./app";
 
 const startHeading = (page: Page) => page.getByRole("heading", { name: "Start", exact: true });
 const nodes = (page: Page) => page.locator(".react-flow__node");
@@ -23,7 +23,8 @@ test("UX-16: a first launch shows Start, and an example runs in two clicks", asy
   await expect(startHeading(page)).toHaveCount(0);
   await expect(nodes(page).first()).toBeVisible();
   await runButton(page).click(); // 2
-  await expect(page.getByPlaceholder("Search channels…")).toBeVisible({ timeout: 60_000 });
+  // the run ends with a notice that offers its results (UX-21)
+  await showResults(page);
 });
 
 test("UX-16: New opens Start; an example is ready to run in two clicks; Blank offers the next steps", async ({

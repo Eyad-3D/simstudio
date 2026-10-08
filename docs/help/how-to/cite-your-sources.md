@@ -8,7 +8,7 @@ them, and LightSim itself, in one step.
 
 ## See a run's sources
 
-1. Run a case. The *Results* page opens.
+1. Run a case, and click **Show results** in the notice it ends with.
 2. Click the **i** button (*Run info*) next to the run list.
 3. Click **Sources & credits** near the bottom of *Run info*.
 

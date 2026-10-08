@@ -9,7 +9,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { openApp, ribbonTab, runActiveCase, showPanel } from "./app";
+import { openApp, ribbonTab, runActiveCase, showPanel, showResults } from "./app";
 import { openExample } from "./ui-helpers";
 
 test.skip(!process.env.DOCS_SHOTS, "writes the README pictures; set DOCS_SHOTS=1 to take them");
@@ -46,7 +46,7 @@ test("README pictures", async ({ page }) => {
   await sweepElement.selectOption({ label: "Vehicle" });
   await page.locator("input[type=number][max='200']").fill("3");
   await page.getByRole("button", { name: "Run sweep (3)" }).click();
-  await expect(page.getByPlaceholder("Search channels…")).toBeVisible({ timeout: 120_000 });
+  await showResults(page, 120_000);
   await page.getByRole("button", { name: "Sweep", exact: true }).click();
   // it opens on energy use against mass (RES-18)
   await expect(page.getByLabel("Sweep metric")).toHaveValue("Consumption");

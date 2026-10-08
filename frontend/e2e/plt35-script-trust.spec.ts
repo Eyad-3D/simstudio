@@ -1,7 +1,7 @@
 // PLT-35: a project whose scripts came from another computer shows them and
 // asks before they run; nothing of theirs runs until the user says yes.
 import { expect, test } from "@playwright/test";
-import { logLines, openApp, ribbonTab, runActiveCase, runButton } from "./app";
+import { logLines, openApp, ribbonTab, runActiveCase, runButton, showResults } from "./app";
 import { importProject } from "./ui-helpers";
 
 test("PLT-35: scripts from elsewhere never run before the user approves them", async ({ page }) => {
@@ -43,7 +43,7 @@ test("PLT-35: scripts from elsewhere never run before the user approves them", a
   // Run scripts: approved for this exact code, and the run goes ahead
   await runButton(page).click();
   await ask.getByRole("button", { name: "Run scripts" }).click();
-  await expect(page.getByPlaceholder("Search channels…")).toBeVisible({ timeout: 60_000 });
+  await showResults(page);
 
   // the approval is remembered: opening the project again asks nothing
   await ribbonTab(page, "Home").click();

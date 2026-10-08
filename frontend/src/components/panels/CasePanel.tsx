@@ -7,6 +7,8 @@ import { StudiesList } from "./StudiesList";
 import { CycleSelect } from "./CyclePicker";
 import { NumberInput } from "./PropertiesPanel";
 import { paramName, rangeProblem } from "../../paramRules";
+import { MAX_SWEEP_POINTS, progressText, sweepValues, type SweepSpacing } from "../../sweep";
+import { useNow } from "../useNow";
 import { FS_EVENT_NAMES, FS_EVENTS } from "../../fsEvents";
 import type { FsEvent } from "../../types";
 import { FsPoints } from "./FsPoints";
@@ -36,20 +38,12 @@ function effectiveValue(
   return caseOv?.[el.id]?.[key] ?? el.parameterOverrides[key] ?? def.default;
 }
 
-// a sweep's points run side by side on the engine's cores (ENG-05)
-const MAX_SWEEP_STEPS = 200;
-
-function linspace(start: number, stop: number, steps: number): number[] {
-  const n = Math.max(1, Math.min(MAX_SWEEP_STEPS, Math.round(steps)));
-  if (n === 1) return [round(start)];
-  const out: number[] = [];
-  for (let i = 0; i < n; i++) out.push(round(start + ((stop - start) * i) / (n - 1)));
-  return out;
-}
-
 function round(v: number): number {
-  return Math.round(v * 1e6) / 1e6;
+  return +v.toPrecision(12);
 }
+
+// the values a sweep form shows as chips; a longer list ends "… and N more"
+const SWEEP_CHIPS = 40;
 
 // An acceleration case's own numbers, with the limits the form checks as they
 // are typed (UX-10); the engine ignores a value outside them.
@@ -223,22 +217,36 @@ export function CasePanel() {
   const [swStart, setSwStart] = useState(0);
   const [swStop, setSwStop] = useState(0);
   const [swSteps, setSwSteps] = useState(5);
+  // even or log steps from one value to another, or a typed list (STU-17)
+  const [swSpacing, setSwSpacing] = useState<SweepSpacing>("linear");
+  const [swList, setSwList] = useState("");
   const swElDef = elemById.get(swEl);
   const swParams = swElDef ? swElDef.def.parameters.filter((p) => p.type === "number") : [];
   const swParam = swParams.find((p) => p.key === swKey) ?? swParams[0];
-  const sweepValues = useMemo(
-    () => linspace(swStart, swStop, swSteps),
-    [swStart, swStop, swSteps],
+  const sweep = useMemo(
+    () => sweepValues(swSpacing, { from: swStart, to: swStop, steps: swSteps }, swList),
+    [swSpacing, swStart, swStop, swSteps, swList],
   );
+  const swUnit = swParam && swParam.unit !== "-" ? ` ${swParam.unit}` : "";
+  // values outside the parameter's limits: said, not refused
+  const outside = swParam ? sweep.values.filter((v) => rangeProblem(swParam, v)) : [];
+  // the running sweep's points done and time left (STU-17)
+  const progress = useProjectStore((s) => s.sweepProgress);
+  const now = useNow(1000, Boolean(progress));
 
   const startSweep = () => {
-    if (!activeCase || !swElDef || !swParam) return;
+    if (!activeCase || !swElDef || !swParam || sweep.problem) return;
     void runSweep({
       caseId: activeCase.id,
       elementId: swElDef.el.id,
       paramKey: swParam.key,
-      values: sweepValues,
+      values: sweep.values,
     });
+  };
+  const pickSpacing = (next: SweepSpacing) => {
+    // a list starts from the values the range gave
+    if (next === "list" && !swList.trim() && sweep.values.length) setSwList(sweep.values.join(", "));
+    setSwSpacing(next);
   };
 
   // seed a sweep range from the parameter's current value when it changes
@@ -797,55 +805,111 @@ export function CasePanel() {
             </select>
           </div>
           <div className="mb-1.5 flex flex-wrap items-center gap-1 text-[11px] text-[color:var(--ss-text-dim)]">
-            <span>From</span>
-            <input
-              type="number"
+            <select
               className="ss-input"
-              value={swStart}
-              step="any"
-              onChange={(e) => setSwStart(Number(e.target.value))}
-            />
-            <span>to</span>
-            <input
-              type="number"
-              className="ss-input"
-              value={swStop}
-              step="any"
-              onChange={(e) => setSwStop(Number(e.target.value))}
-            />
-            <span>in</span>
-            <input
-              type="number"
-              className="ss-input"
-              value={swSteps}
-              min={1}
-              max={MAX_SWEEP_STEPS}
-              step={1}
-              onChange={(e) => setSwSteps(Math.max(1, Math.min(MAX_SWEEP_STEPS, Math.round(Number(e.target.value) || 1))))}
-            />
-            <span>steps</span>
+              aria-label="Sweep values"
+              title="Even steps: the same difference between values. Log steps: the same factor (for values over decades). List: the values you type."
+              value={swSpacing}
+              onChange={(e) => pickSpacing(e.target.value as SweepSpacing)}
+            >
+              <option value="linear">Even steps</option>
+              <option value="log">Log steps</option>
+              <option value="list">List of values</option>
+            </select>
+            {swSpacing === "list" ? (
+              <textarea
+                className="ss-input min-h-[38px] w-full resize-y font-mono"
+                rows={2}
+                aria-label="Values to run"
+                aria-describedby={sweep.problem ? "sweep-values-problem" : undefined}
+                placeholder="1200, 1350, 1500"
+                title={`Separate the values with commas or spaces, with a point for decimals; at most ${MAX_SWEEP_POINTS}. They run in this order.`}
+                value={swList}
+                onChange={(e) => setSwList(e.target.value)}
+              />
+            ) : (
+              <>
+                <span>From</span>
+                <input
+                  type="number"
+                  className="ss-input"
+                  aria-label="From"
+                  value={swStart}
+                  step="any"
+                  onChange={(e) => setSwStart(Number(e.target.value))}
+                />
+                <span>to</span>
+                <input
+                  type="number"
+                  className="ss-input"
+                  aria-label="To"
+                  value={swStop}
+                  step="any"
+                  onChange={(e) => setSwStop(Number(e.target.value))}
+                />
+                <span>in</span>
+                <input
+                  type="number"
+                  className="ss-input"
+                  aria-label="Steps"
+                  value={swSteps}
+                  min={1}
+                  max={MAX_SWEEP_POINTS}
+                  step={1}
+                  onChange={(e) =>
+                    setSwSteps(Math.max(1, Math.min(MAX_SWEEP_POINTS, Math.round(Number(e.target.value) || 1))))
+                  }
+                />
+                <span>steps</span>
+              </>
+            )}
           </div>
-          {swParam && (
-            <div className="mb-1.5 flex flex-wrap gap-1">
-              {sweepValues.map((v, i) => (
+          {sweep.problem && (
+            <div id="sweep-values-problem" className="ss-param-problem mb-1.5">
+              <span role="alert">{sweep.problem}</span>
+            </div>
+          )}
+          {sweep.note && <div className="mb-1 text-[10px] text-[color:var(--ss-text-dim)]">{sweep.note}</div>}
+          {swParam && outside.length > 0 && (
+            <div className="ss-param-problem mb-1.5">
+              {paramName(swParam)} {rangeProblem(swParam, outside[0])}:{" "}
+              {outside.slice(0, 3).join(", ")}
+              {outside.length > 3 ? ` and ${outside.length - 3} more` : ""} {outside.length > 1 ? "are" : "is"} not.
+            </div>
+          )}
+          {swParam && sweep.values.length > 0 && (
+            <div className="mb-1.5 flex flex-wrap gap-1" aria-label="Values the sweep runs">
+              {sweep.values.slice(0, SWEEP_CHIPS).map((v, i) => (
                 <span
                   key={i}
                   className="rounded bg-[color:var(--ss-accent-soft)] px-1.5 py-0.5 text-[10px] text-[color:var(--ss-text)]"
                 >
                   {v}
-                  {swParam.unit !== "-" ? ` ${swParam.unit}` : ""}
+                  {swUnit}
                 </span>
               ))}
+              {sweep.values.length > SWEEP_CHIPS && (
+                <span className="px-1 py-0.5 text-[10px] text-[color:var(--ss-text-dim)]">
+                  … and {sweep.values.length - SWEEP_CHIPS} more
+                </span>
+              )}
             </div>
           )}
-          <button
-            className="ss-toolbtn border border-[color:var(--ss-border)] disabled:opacity-40"
-            disabled={running || !swElDef || !swParam || sweepValues.length === 0}
-            onClick={startSweep}
-            title="Run the sweep"
-          >
-            <Play size={13} /> Run sweep ({sweepValues.length})
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="ss-toolbtn border border-[color:var(--ss-border)] disabled:opacity-40"
+              disabled={running || !swElDef || !swParam || sweep.values.length === 0 || Boolean(sweep.problem)}
+              onClick={startSweep}
+              title="Run the sweep"
+            >
+              <Play size={13} /> Run sweep ({sweep.values.length})
+            </button>
+            {progress && (
+              <span className="text-[11px] text-[color:var(--ss-accent)]" title="The points run side by side; the time left follows the pace of those that ended">
+                {progressText(progress, Math.max(now, progress.lastAt ?? 0))}
+              </span>
+            )}
+          </div>
         </div>
 
         <StudiesList />

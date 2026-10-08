@@ -28,6 +28,7 @@ import {
   ribbonTab,
   runActiveCase,
   runButton,
+  showResults,
   selectElement,
   showPanel,
 } from "./app";
@@ -161,6 +162,7 @@ for (const theme of ["light", "dark"] as const) {
       await mass.fill("2300");
       await mass.press("Tab");
       await runButton(page).click();
+      await showResults(page);
       await expect(page.getByText("2 stored runs", { exact: true })).toBeVisible({ timeout: 60_000 });
       await expect(page.getByRole("region", { name: "What changed" }).getByRole("button")).toHaveCount(1);
       await openSummary(page);

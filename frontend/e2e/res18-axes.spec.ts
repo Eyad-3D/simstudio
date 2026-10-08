@@ -5,7 +5,7 @@
 // read-outs keep 4 significant digits; a sweep opens on its consumption.
 import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
-import { openApp, ribbonTab, runActiveCase, showPanel, xRange, yRange } from "./app";
+import { openApp, ribbonTab, runActiveCase, showPanel, showResults, xRange, yRange } from "./app";
 import { importProject } from "./ui-helpers";
 
 /** Export the CSV and read it: its header and its rows as numbers. */
@@ -114,7 +114,7 @@ test("RES-18: the sweep opens on consumption, on an axis that fits", async ({ pa
   await sweepElement.selectOption({ label: "Vehicle" });
   await page.locator("input[type=number][max='200']").fill("3");
   await page.getByRole("button", { name: "Run sweep (3)" }).click();
-  await expect(page.getByPlaceholder("Search channels…")).toBeVisible({ timeout: 60_000 });
+  await showResults(page);
   await page.getByRole("button", { name: "Sweep", exact: true }).click();
 
   await expect(page.getByLabel("Sweep metric")).toHaveValue("Consumption");

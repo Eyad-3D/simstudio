@@ -2,7 +2,7 @@
 // runnable cycle case in a few clicks: Import lap, the layout, the file,
 // Add as case; the case then runs on the FS example.
 import { expect, test } from "@playwright/test";
-import { openApp, openFromMenu, openSummary, ribbonTab, runButton } from "./app";
+import { openApp, openFromMenu, openSummary, ribbonTab, runButton, showResults } from "./app";
 
 function motecCsv(): string {
   const lines = ['"Format","MoTeC CSV File"', "", '"Time","Lap Number","Ground Speed"', '"s","","km/h"'];
@@ -43,6 +43,7 @@ test("STD-35: a logged lap imports into a runnable cycle case in under a minute"
   expect(Date.now() - t0).toBeLessThan(60_000);
 
   await runButton(page).click();
+  await showResults(page);
   await openSummary(page);
   await expect(page.getByRole("row", { name: /^Accumulator — energy delivered/ })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/Cycle not followed/)).toHaveCount(0);

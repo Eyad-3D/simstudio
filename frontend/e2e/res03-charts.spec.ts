@@ -1,6 +1,7 @@
 // RES-03: the Signal Plot and the Results chart draw on the first run of a
 // session, including a first run started from the empty Results page.
 import { expect, test, type Page } from "@playwright/test";
+import { finishNotice } from "./app";
 import { openApp, ribbonButton } from "./ui-helpers";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
@@ -14,9 +15,9 @@ test("RES-03: after the first run both the Results chart and the Signal Plot dra
   const pane = page.locator(".react-flow__pane").first();
   await pane.click({ position: { x: 10, y: (await pane.boundingBox())!.height - 10 } });
   await page.keyboard.press("Control+Enter");
-  await expect(results(page).getByRole("img", { name: /^Results chart: \S/ })).toBeAttached({ timeout: 60_000 });
+  // the page stays on the model, and the run ends with a notice (UX-21)
+  await expect(finishNotice(page)).toBeVisible({ timeout: 60_000 });
 
-  await ribbonButton(page, "Home");
   // the first run opens the tray on the Signal Plot; show it if it is not in front
   const channel = page.locator("select[title='Channel to plot']");
   if (!(await channel.isVisible())) await page.locator(".dv-tab", { hasText: "Signal Plot" }).first().click();
@@ -24,6 +25,9 @@ test("RES-03: after the first run both the Results chart and the Signal Plot dra
   expect(await channel.inputValue()).not.toBe("");
   const plot = page.locator(".dv-groupview", { has: channel });
   await expect(plot.getByRole("img", { name: /^Signal Plot: \S/ })).toBeAttached();
+
+  await finishNotice(page).getByRole("button", { name: "Show results" }).click();
+  await expect(results(page).getByRole("img", { name: /^Results chart: \S/ })).toBeAttached();
 });
 
 test("RES-03: a first run started from the empty Results page is drawn", async ({ page }) => {
