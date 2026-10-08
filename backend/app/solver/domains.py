@@ -2764,6 +2764,8 @@ class ElectricalSlave(_CtxSlave):
                     held = ((b.capped and p_w >= b.p_cap_w * (1.0 - 1e-6)) if b.check.enforced
                             else p_w > b.check.limit_w > 0)
                     b.check.add(t, t + dt, p_w, b.v_term, held)
+                if b.rule_avg is not None:
+                    b.rule_avg.add(t, t + dt, p_w)
             elif bus.vsource:
                 vs_p = ctx.params(bus.vsource)
                 ctx.bus_voltage[bus.id] = float(vs_p.get("voltage_V", 400))

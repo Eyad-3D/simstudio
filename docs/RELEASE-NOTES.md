@@ -204,8 +204,9 @@ sections.
   Endurance case, runs the four (about 9 s for the FS example) and shows
   *Formula Student points* in the *Cases* tab. A case's new *FS event*
   setting (Acceleration or Lap cases) adds the event's time as the rules
-  take it, the rule checks (80 kW EV 2.2.1, 500 A EV 2.2.2, 600 V EV 4.1.1,
-  and whether the endurance finished on its energy) and an estimate of its
+  take it, the rule checks (80 kW EV 2.2.1 on a 500 ms average as D 10.4.1
+  judges it, whatever the battery's *Power Check Window*, 500 A EV 2.2.2,
+  600 V EV 4.1.1, and whether the endurance finished on its energy) and an estimate of its
   points from the case's *Reference time* (the fastest team's time) and,
   for the endurance, *Reference energy* (the most efficient team's), with
   the scoring of FS Rules 2026 v1.1 (FSG) table 3, D 9.1.1, table 11 and

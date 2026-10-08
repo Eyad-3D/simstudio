@@ -271,9 +271,10 @@ results:
   LightSim.
 - Each event is one run, with no penalties (cones, off-course, flags) and
   no second driver or second run.
-- The rule checks are simplified: the current and, without the battery's
-  Formula Student preset, the power are checked at their highest over a
-  solver step, not as a 500 ms average (stricter than D 10.4.1); the
+- The rule checks are simplified: the power is the highest 500 ms moving
+  average of the solver steps' power, as D 10.4.1 judges it, whatever the
+  battery's *Power Check Window*; the current is checked at its highest
+  over a solver step, not as a 500 ms average (stricter than D 10.4.1); the
   voltage check takes the open-circuit voltage at full charge or the
   highest terminal voltage. Any breach scores the event 0, where the rules
   take away only the fastest run.

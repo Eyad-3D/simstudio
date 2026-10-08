@@ -138,18 +138,39 @@ def test_a_rule_breach_scores_nothing():
     """Recuperating into the nearly full test pack lifts its terminals over
     600 V, which breaks EV 4.1.1: the run is disqualified (D 10.4.2) and
     scores 0 points, with a warning. Its power check, with no Output Power
-    Limit, takes the peak over a solver step."""
+    Limit, takes the 500 ms average all the same, as the rules do."""
     proj = fs_car("Autocross", 1)
     case = proj.cases[0]
     case.fsEvent, case.referenceTime = "autocross", 50.0
     r = simulate(proj, "case")
     rows = _rows(r)
-    assert rows["Rule check: power (EV 2.2.1)"].passed is True
+    assert rows["Rule check: power, 500 ms average (EV 2.2.1)"].passed is True
     volts = rows["Rule check: voltage (EV 4.1.1)"]
     assert volts.value > 600 and volts.passed is False
     assert rows["Autocross points (estimate)"].value == 0.0
     assert r.status == "warning"
     assert any("disqualifies" in m.text for m in r.messages if m.level == "warning")
+
+
+def test_the_power_rule_is_judged_on_500_ms_whatever_the_check_window():
+    """D 10.4.1 judges the power on a 500 ms moving average. A longer Power
+    Check Window is more lenient (at 10 s this run read 35 kW and passed)
+    and a shorter one stricter, so the rule check keeps to 500 ms."""
+    seen = []
+    for window in (0.0, 0.5, 2.0, 10.0):
+        proj = load_example("fs-electric")
+        for e in proj.systems[0].elements:
+            if e.id == "el-battery":
+                e.parameterOverrides.update({"power_limit_enforced": False,
+                                             "power_limit_window_s": window})
+        case = next(c for c in proj.cases if c.id == "case-accel-75m")
+        case.fsEvent, case.referenceTime = "acceleration", 3.6
+        rows = _rows(simulate(proj, case.id))
+        power = rows["Rule check: power, 500 ms average (EV 2.2.1)"]
+        assert power.value > 80 and power.passed is False
+        assert rows["Acceleration points (estimate)"].value == 0.0
+        seen.append(power.value)
+    assert max(seen) == pytest.approx(min(seen), rel=1e-12)
 
 
 def test_running_out_of_energy_does_not_finish():

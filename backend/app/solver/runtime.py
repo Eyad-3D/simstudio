@@ -184,6 +184,9 @@ class BatteryState:
     p_cap_w: float = math.inf
     capped: bool = False
     check: Optional[TerminalCheck] = None
+    # a Formula Student event's power rule check: the 500 ms moving average
+    # of the terminal power, whatever the Power Check Window (fs_events)
+    rule_avg: Optional[MovingAverage] = None
 
     def ocv(self) -> float:
         """The open-circuit voltage at the present SOC (read once per SOC:
@@ -199,6 +202,35 @@ class BatteryState:
     def soc_pct(self) -> float:
         """The SOC the OCV table is read at, %."""
         return max(0.0, min(1.0, self.soc)) * 100.0
+
+
+@dataclass
+class MovingAverage:
+    """The highest moving average over ``window_s`` of a power fed once per
+    solver step (constant over the step), with no power before t = 0, as an
+    energy meter's log starts; 0 s: the step's own power."""
+
+    window_s: float
+    peak_w: float = 0.0
+    t_peak: float = 0.0
+    _q: deque = field(default_factory=deque)  # (t0, t1, W) in the window
+    _e: float = 0.0  # their energy, J
+
+    def add(self, t0: float, t1: float, p_w: float) -> float:
+        """Feed a step; the average over the window that ends with it."""
+        avg = p_w
+        if self.window_s > 0:
+            self._q.append((t0, t1, p_w))
+            self._e += p_w * (t1 - t0)
+            lo = t1 - self.window_s
+            while self._q[0][1] <= lo:
+                a, b, p = self._q.popleft()
+                self._e -= p * (b - a)
+            a, _, p = self._q[0]  # the oldest step counts from the window's start
+            avg = (self._e - max(0.0, lo - a) * p) / self.window_s
+        if avg > self.peak_w:
+            self.peak_w, self.t_peak = avg, t1
+        return avg
 
 
 @dataclass
@@ -224,8 +256,10 @@ class TerminalCheck:
     v_min: float = math.inf
     t_v_min: float = 0.0
     limit_s: float = 0.0  # time held at (enforced) or over (checked) the limit
-    _q: deque = field(default_factory=deque)  # (t0, t1, W) in the window
-    _e: float = 0.0  # their energy, J
+    _avg: MovingAverage = field(init=False)
+
+    def __post_init__(self) -> None:
+        self._avg = MovingAverage(self.window_s)
 
     def add(self, t0: float, t1: float, p_w: float, v: float, held: bool) -> None:
         self.peak_w = max(self.peak_w, p_w)
@@ -235,18 +269,8 @@ class TerminalCheck:
             self.v_min, self.t_v_min = v, t1
         if held:
             self.limit_s += t1 - t0
-        avg = p_w
-        if self.window_s > 0:
-            self._q.append((t0, t1, p_w))
-            self._e += p_w * (t1 - t0)
-            lo = t1 - self.window_s
-            while self._q[0][1] <= lo:
-                a, b, p = self._q.popleft()
-                self._e -= p * (b - a)
-            a, _, p = self._q[0]  # the oldest step counts from the window's start
-            avg = (self._e - max(0.0, lo - a) * p) / self.window_s
-        if avg > self.avg_peak_w:
-            self.avg_peak_w, self.t_avg_peak = avg, t1
+        self._avg.add(t0, t1, p_w)
+        self.avg_peak_w, self.t_avg_peak = self._avg.peak_w, self._avg.t_peak
 
 
 def output_power_cap_w(p: dict) -> float:

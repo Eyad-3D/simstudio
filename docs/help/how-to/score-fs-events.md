@@ -49,10 +49,9 @@ the rules' Tmax (1.35 to 1.7 times the reference) gets the minimum.
 
 Each event's run also checks the electric car's rules:
 
-- **Rule check: power (EV 2.2.1)**: at most 80 kW out of the accumulator.
-  With the battery's *Formula Student Electric* preset this is the 500 ms
-  average the rules use; without it, the highest power over a solver step,
-  which is stricter.
+- **Rule check: power, 500 ms average (EV 2.2.1)**: at most 80 kW out of
+  the accumulator, averaged over 500 ms as the rules judge it (D 10.4.1),
+  whatever the battery's own *Power Check Window*.
 - **Rule check: current (EV 2.2.2)**: at most 500 A, the highest current
   over a solver step.
 - **Rule check: voltage (EV 4.1.1)**: at most 600 V, at full charge or at

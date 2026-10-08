@@ -61,6 +61,7 @@ DRIVER_CHANGE_S = 180.0  # D 7.5.4: 3 min
 POWER_LIMIT_KW = 80.0  # EV 2.2.1
 CURRENT_LIMIT_A = 500.0  # EV 2.2.2
 VOLTAGE_LIMIT_V = 600.0  # EV 4.1.1
+RULE_WINDOW_S = 0.5  # D 10.4.1: the power is judged on a 500 ms moving average
 
 
 def points(event: str, t_team: float, t_min: float) -> float:
@@ -164,9 +165,10 @@ def score(res: EventResult, t_min: Optional[float], e_min: Optional[float] = Non
 
 def _checks(ctx) -> tuple[list[tuple], list[str]]:
     """The electric car's rule checks over the run: (rows, breaches). Power:
-    the battery's 500 ms average when its power check averages over 0.5 s or
-    more (as D 10.4.1 does), else its peak over a solver step, which is
-    stricter; current: the peak over a solver step (stricter than a 500 ms
+    the highest 500 ms moving average of the accumulator's terminal power,
+    as D 10.4.1 judges it, whatever the battery's own Power Check Window
+    (a longer window is more lenient, a shorter one stricter than the
+    rules); current: the peak over a solver step (stricter than a 500 ms
     average); voltage: the open-circuit voltage at 100 % SOC or the highest
     terminal voltage the run reached."""
     batts = list(ctx.batteries.values())
@@ -176,9 +178,8 @@ def _checks(ctx) -> tuple[list[tuple], list[str]]:
     averaged = True
     v_max = 0.0
     for b in batts:
-        chk = b.check
-        if chk is not None and chk.window_s >= 0.5:
-            p_kw += chk.avg_peak_w / 1000.0
+        if b.rule_avg is not None:  # (set for every case with an fsEvent)
+            p_kw += b.rule_avg.peak_w / 1000.0
         else:
             p_kw += b.p_peak_w / 1000.0
             averaged = False

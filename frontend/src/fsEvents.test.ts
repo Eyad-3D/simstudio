@@ -75,7 +75,7 @@ describe("Formula Student points table", () => {
           unit: "s",
         },
         {
-          label: "Rule check: power (EV 2.2.1)",
+          label: "Rule check: power, 500 ms average (EV 2.2.1)",
           value: 92,
           unit: "kW",
           limit: 80,
@@ -92,7 +92,7 @@ describe("Formula Student points table", () => {
       ]),
     ];
     const { rows } = fsPointsTable(project, runs);
-    expect(rows[0].breach).toBe("power (EV 2.2.1): 92 kW over 80 kW");
+    expect(rows[0].breach).toBe("power, 500 ms average (EV 2.2.1): 92 kW over 80 kW");
     expect(rows[3].note).toMatch(/Reference time/);
     expect(rows[4].note).toMatch(/Reference energy/);
   });
