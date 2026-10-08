@@ -1117,6 +1117,25 @@ sections.
   access cannot be turned on. The run time cap now also stops runs of AI
   apps connected to LightSim. (AI-01)
 
+- Drive cycles of your own: *Drive Cycle → Import a cycle from a file…*
+  reads a CSV or Excel file with a time or distance column and a speed
+  column, a road-grade column or both. Units in the headers are converted.
+  It shows what it read and keeps the cycle in the project file, listed
+  under *This project* in every Drive Cycle list. A cycle against distance
+  (a logged lap, a route) is driven against the distance the car has
+  driven, and one with a grade can feed a Road Profile. *This project's
+  cycles…* renames them and removes unused ones. A LightSim without this
+  feature keeps such a cycle in the file but will not run a part that
+  names it. (CON-11)
+- The AI skill pack lists the sources LightSim never takes data from,
+  with why and what to use instead. It is generated from the same list the
+  data register's test checks, so an assistant does not suggest data from
+  them. (CON-31)
+- `lightsim_run.m` is installed with the app, in `resources/matlab` next
+  to the engine, and runs that engine first. The Python package writes
+  results as Parquet (`Result.to_parquet`, `lightsim run -o x.parquet`)
+  when pyarrow is installed; LightSim does not include pyarrow. (STD-09)
+
 ### Fixed
 
 - A battery's SOC can be compared with measured SOC: a constant 1C

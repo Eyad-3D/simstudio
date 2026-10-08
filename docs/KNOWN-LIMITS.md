@@ -838,7 +838,7 @@ minimum or an average, for example from the CSV export, or put the
   judged against distance: each point's band spans the target's lowest and
   highest value within the distance the car covers in ±1 s at the target
   speed (at least ±2 m), widened by ±2 km/h. *Roadmap:* MOD-14 (stops and
-  look-ahead), CON-11 (cycle files with a distance column).
+  look-ahead).
 - **Structural limits.** One battery or voltage source per electrical bus;
   DC-DC converters work in one direction only; one differential and one
   E-Motor per driveline (several independent drivelines, such as dual-motor
@@ -857,13 +857,14 @@ minimum or an average, for example from the CSV export, or put the
   check before each release; text with characters beyond ASCII (N·m, °C)
   is stored as UTF-16, which MATLAB documents but which that check must
   confirm. *Roadmap:* STD-09.
-- **No Parquet or HDF5 export yet.** Results go out as .mat, CSV and the
-  run card (JSON); Parquet comes with the Python package (AI-02).
-  *Roadmap:* STD-09.
-- **`lightsim_run.m` is not installed with the app.** Copy it from the
-  `matlab` folder of LightSim's source. With the AppImage, give it the
-  engine's path (the engine lives inside the AppImage; extract it with
-  `--appimage-extract`). *Roadmap:* STD-09, AI-02.
+- **No Parquet from the app, no HDF5.** The Python package writes
+  Parquet when pyarrow is installed (`Result.to_parquet`, `lightsim run -o
+  x.parquet`); the app and its engine write .mat, CSV and the run card
+  (JSON), because pyarrow is not bundled. *Roadmap:* STD-09.
+- **`lightsim_run.m` inside the AppImage.** The installers put it in
+  `resources/matlab`, next to the engine it runs. In the AppImage it sits
+  inside the image: extract it with `--appimage-extract`. *Roadmap:*
+  STD-09, AI-02.
 - **The table import reads values, not formulas or formats.** From an
   `.xlsx` file it takes the value Excel saved with each formula; a
   workbook saved by a program that does not store those values (some
@@ -1038,12 +1039,14 @@ minimum or an average, for example from the CSV export, or put the
   factors) are not covered. Nor are fuel-cell cars: a model with a fuel
   cell or a voltage source is refused, since EPA's hydrogen rule (a
   kilogram counted as a gallon) is not built in. *Roadmap:* CON-21.
-- **27 standard drive cycles, no files of your own.** The Driving Task's
-  *Drive Cycle* list has the WLTC (classes 1 to 3b, their city cycles and
-  phases), NEDC, the EPA cycles, two motorcycle cycles and a long-haul truck
-  route. Cycle files of your own (CSV, Excel, a logged lap against
-  distance) cannot be added to the list yet: type or paste their points
-  into the Profile. Japan's JC08 and WLTC, China's CLTC and the Artemis
+- **27 standard drive cycles; cycles of your own have no phases.** The
+  Driving Task's *Drive Cycle* list has the WLTC (classes 1 to 3b, their
+  city cycles and phases), NEDC, the EPA cycles, two motorcycle cycles and
+  a long-haul truck route. A file of your own (CSV or Excel, against time
+  or distance) joins the list through *Import a cycle from a file…* and is
+  kept in the project, but without phases, so it gets no per-phase rows.
+  A project that uses a cycle of your own cannot run in a 0.3 build from
+  before CON-11 (it says the cycle is not included). Japan's JC08 and WLTC, China's CLTC and the Artemis
   cycles are not included (CLTC and Artemis may never be, because their
   terms do not allow LightSim to ship them). Only the long-haul route
   carries a road grade. The FTP-75 and the motorcycle FTP leave out the

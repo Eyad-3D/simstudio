@@ -517,6 +517,7 @@ is no token check. To reach a development engine through another host name
 | `POST /api/studies` | Run a study: a case at a list of points (`overrides` per point), side by side in worker processes; each point is stored as a run of the project, and the answer lists each point's status, run id and summary, the pool size, wall time and speed-up |
 | `WS /api/studies/run` | The same, streaming a `point` event as each point ends; `cancel` stops it |
 | `GET/PUT /api/ai/access` | The AI access settings `lightsim ai …` keeps (on/off, allowed folders, examples, trusted Script projects, run time cap) and the latest calls from AI tools / change them: `enabled`, `examples`, `maxRunSeconds`, `removeFolders`, `untrust` (turning access on is refused with 403 while the organisation's policy turns it off; nothing here trusts a project) |
+| `POST /api/import/cycle` | Read a drive cycle of one's own (speed and grade against time or distance) from a CSV or .xlsx file |
 | `POST /api/ai/access/folders` | Let AI tools see the projects in a folder (`path`) picked in the desktop app's folder dialog (desktop shell only) |
 
 A result (`SimResult`) has a `status` of `success`, `warning`, `cancelled` or

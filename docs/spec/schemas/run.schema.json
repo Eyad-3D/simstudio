@@ -460,7 +460,7 @@
       "type": "object"
     },
     "EnergyPart": {
-      "description": "One row of the energy table (RES-22), kWh: in − out − lost − stored\nis 0 for a part that keeps its books.",
+      "description": "One row of the energy table (RES-22), kWh: a part's own books\n(MOD-10, as in SimResult.partEnergy), so in − out − lost − stored is 0.",
       "properties": {
         "elementId": {
           "anyOf": [

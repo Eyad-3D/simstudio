@@ -114,8 +114,8 @@ Point 0 of every run is the initial state at t = 0.
 
 - **The .mat export is checked with SciPy and GNU Octave, not with MATLAB
   itself yet.** The tests read every exported channel back through SciPy's `loadmat` with the same values and units, and the files load in Octave 8.4.
-- **No Parquet or HDF5 export yet.** Results go out as .mat, CSV and the run card (JSON); Parquet comes with the Python package (AI-02).
-- **`lightsim_run.m` is not installed with the app.** Copy it from the `matlab` folder of LightSim's source.
+- **No Parquet from the app, no HDF5.** The Python package writes Parquet when pyarrow is installed (`Result.to_parquet`, `lightsim run -o x.parquet`); the app and its engine write .mat, CSV and the run card (JSON), because pyarrow is not bundled.
+- **`lightsim_run.m` inside the AppImage.** The installers put it in `resources/matlab`, next to the engine it runs.
 - **The table import reads values, not formulas or formats.** From an `.xlsx` file it takes the value Excel saved with each formula; a workbook saved by a program that does not store those values (some scripts that write Excel files) gives empty cells.
 - **A unit LightSim does not know is refused.** The import converts the common units of speed, rotational speed, torque, power, energy, voltage, current, charge, mass, mass flow, distance, time, temperature, force, pressure, curvature and resistance.
 - **The parameter sheet does not hold scripts, case values or when a value
@@ -140,7 +140,7 @@ Point 0 of every run is the initial state at t = 0.
 - **Value sources stop at the project file.** The sources and confidence levels recorded for a part's values (CON-13) are saved with the project but are not yet listed in result exports or run reports, carry no uncertainty (±) a study could sample, and the Formula Student example's values have none recor…
 - **Vehicle tests leave out a few.** *Vehicle tests* has no hill start, no range test that drives a battery down to empty over repeated cycles (the summary's *Range at this consumption* estimates it from one cycle), and no elasticity test held in one gear.
 - **US label estimate from two cycles only.** *Simulations → US label* uses EPA's derived two-cycle method.
-- **27 standard drive cycles, no files of your own.** The Driving Task's *Drive Cycle* list has the WLTC (classes 1 to 3b, their city cycles and phases), NEDC, the EPA cycles, two motorcycle cycles and a long-haul truck route.
+- **27 standard drive cycles; cycles of your own have no phases.** The Driving Task's *Drive Cycle* list has the WLTC (classes 1 to 3b, their city cycles and phases), NEDC, the EPA cycles, two motorcycle cycles and a long-haul truck route.
 - **Few starting points.** The *Start* page offers the examples that come with LightSim and a blank project.
 - **Project files outside the projects folder: what is missing.** `.lightsim` files open from anywhere, but: - The AppImage does not register the file type, so a double-click does not open LightSim there; use **File → Open…**, or the .deb package.
 - **Attached files are kept, not used yet.** A project can carry files (Project → Attached): they are copied into its resources folder, travel with Save As, **Export** (a `.lightsim.zip`) and **Import**, and Data Checks report one that is missing or changed.
