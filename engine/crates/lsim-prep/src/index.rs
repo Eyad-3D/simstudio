@@ -259,9 +259,17 @@ pub fn dummy_derivatives(
                     }
                 }
             }
-            // prefer as dummies: free start values, then later variables
-            let pref: Vec<(bool, u32)> =
-                col_nodes.iter().map(|&nd| (!fixed[nd], sys.nodes[nd].var.0)).collect();
+            // choosing a dummy demotes the node it is the derivative of:
+            // prefer to demote nodes without a fixed start, then derivative
+            // nodes (keeping declared variables as states), then later
+            // variables
+            let pref: Vec<(bool, u32, u32)> = col_nodes
+                .iter()
+                .map(|&nd| {
+                    let i = sys.nodes[nd].integral.unwrap_or(nd);
+                    (!fixed[i], sys.nodes[i].order, sys.nodes[nd].var.0)
+                })
+                .collect();
             match select_columns(&m, &pref) {
                 Some(sel) => chosen_all.extend(sel.into_iter().map(|c| col_nodes[c])),
                 None => {
@@ -302,7 +310,7 @@ pub fn dummy_derivatives(
 /// they form a regular matrix: Gaussian elimination row by row, picking in
 /// each row, among the columns within a factor 10 of the row's largest
 /// entry, the most preferred. `None` when the rows are dependent.
-pub fn select_columns(m: &[Vec<f64>], pref: &[(bool, u32)]) -> Option<Vec<usize>> {
+pub fn select_columns<P: Ord>(m: &[Vec<f64>], pref: &[P]) -> Option<Vec<usize>> {
     let rows = m.len();
     let cols = pref.len();
     let mut w: Vec<Vec<f64>> = m.to_vec();
