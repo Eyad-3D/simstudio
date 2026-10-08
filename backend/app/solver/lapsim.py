@@ -479,13 +479,17 @@ class LapRun:
             axle[a] += fz[i]
         d = axle_load_shift(self.m, self.h, self.wheelbase, ax, sin_t, self.cza, self.aero_front,
                             self.ctx.rho, v, axle[0], axle[1])
+        # (max(0.0, f) and min(m, fz[q]) written out: the same values, sooner
+        # in the lap solver's innermost loop)
         for i, a, part in self.axle_of:
-            fz[i] = max(0.0, fz[i] + part * d[a])
+            f = fz[i] + part * d[a]
+            fz[i] = f if f > 0.0 else 0.0
         if self.h and ay:
             lat = lateral_load_shift(self.m, self.h, ay, self.track_f, self.track_r,
                                      self.front_share)
             for a, p, q, k in self.pairs:
-                moved = min(lat[a] / k, fz[q])
+                m, f = lat[a] / k, fz[q]
+                moved = f if f < m else m
                 fz[p] += moved
                 fz[q] -= moved
         return fz
@@ -495,14 +499,16 @@ class LapRun:
         grip, their lateral grip, their rolling resistance), N."""
         drive = total = lateral = roll = 0.0
         for w, f, driven in zip(self.wheels, fz, self.driven):
-            # tyre_mu(w, f) and tyre_mu(w, f, lateral=True), inline: the lap
-            # solver's innermost loop
+            # tyre_mu(w, f) and tyre_mu(w, f, lateral=True), inline (their
+            # max(0.0, μ) written out): the lap solver's innermost loop
             d_mu = w.dmu_per_n * (f - (w.fz0 or w.fz_static))
-            gx = max(0.0, w.mu + d_mu) * f
+            mu = w.mu + d_mu
+            gx = (mu if mu > 0.0 else 0.0) * f
             total += gx
             if driven:
                 drive += gx
-            lateral += max(0.0, (w.mu_y if w.mu_y > 0 else w.mu) + d_mu) * f
+            mu = (w.mu_y if w.mu_y > 0 else w.mu) + d_mu
+            lateral += (mu if mu > 0.0 else 0.0) * f
             roll += w.c_rr * f
         return drive, total, lateral, roll
 
