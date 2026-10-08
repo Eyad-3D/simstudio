@@ -4,9 +4,12 @@ for, each from runs of the model as it is, with no hand-made cycle.
 - 0-100 km/h and 80-120 km/h: full throttle from 0 (or from 80 km/h) until
   the target, a *Performance* case (VAL-39); the time is where the speed
   crosses the target.
-- Top speed: full throttle towards 300 km/h for 120 s; what holds it back
-  is named: a motor's maximum speed, an engine's rev limit, or the power
-  (the road load takes all the drive gives).
+- Top speed: full throttle towards 300 km/h for 120 s; the speed held
+  over the last 10 s, when it changes by less than 0.2 km/h there, and
+  what holds it back: a motor's maximum speed, an engine's rev limit, or
+  the power (the road load takes all the drive gives). A speed still
+  rising or falling at the end is "not settled", with the highest speed
+  reached given on its own (a hybrid's battery boost fades, for one).
 - Constant-speed consumption at 50, 90 and 120 km/h: 600 s at the speed,
   starting at it; with the battery's usable energy, the range at that speed
   (none when a fuel cell or a voltage source also supplies the car).
@@ -19,6 +22,9 @@ for, each from runs of the model as it is, with no hand-made cycle.
   F = A + B·v + C·v² (v in km/h) with F = m·a, m the Vehicle's mass plus
   the wheels' rotating inertia (Σ J / r²); the motor's and gears' drag are
   in it, as they are on a real coast-down.
+
+A run that fails gives no figure: its row has no value and the run's
+error as its note.
 
 Writing tests as plain sentences is STU-39; distance-based tests are
 STU-37's Acceleration case.
@@ -34,6 +40,7 @@ TESTS = ("accel_0_100", "accel_80_120", "top_speed", "constant_speed", "gradeabi
 STEADY_SPEEDS = (50, 90, 120)
 GRADE_SPEED = 30.0
 COAST_FROM, COAST_FIT = 130.0, (125.0, 15.0)
+TOP_RUN_S, TOP_HOLD_S, TOP_SETTLED_KMH = 120.0, 10.0, 0.2  # top speed: run, window, change
 
 
 class TestSetupError(ValueError):
@@ -90,6 +97,13 @@ def _crossing(trace: list[tuple[float, float]], level: float) -> float | None:
     return None
 
 
+def _failure(result) -> str:
+    """The run's errors when it failed, else ''."""
+    if result.status != "failed":
+        return ""
+    return "; ".join(m.text for m in result.messages if m.level == "error")[:300] or "the run failed"
+
+
 def _row(what: str, value: float | None, unit: str, how: str, note: str = "") -> dict:
     return {"what": what, "value": None if value is None else round(value, 3), "unit": unit,
             "how": how, "note": note}
@@ -118,7 +132,7 @@ def _accel(project, veh, task, v0: float, v1: float, label: str) -> list[dict]:
     rows = {s.label: s for s in r.summary}
     note = "" if t_hit is not None else f"the car did not reach {v1:g} km/h in 60 s"
     if r.status == "failed":
-        note = "; ".join(m.text for m in r.messages if m.level == "error")[:300]
+        note = _failure(r)
     why = rows.get(f"Time to {v1:g} km/h")
     if why is not None and why.notValid:
         note = why.notValid
@@ -134,26 +148,52 @@ def _accel_80_120(project, veh, task):
     return _accel(project, veh, task, 80.0, 120.0, "80-120 km/h")
 
 
+def _slope(points: list[tuple[float, float]]) -> float:
+    """Least-squares slope of (t, v) points, per second."""
+    n = len(points)
+    tm = sum(t for t, _ in points) / n
+    vm = sum(v for _, v in points) / n
+    den = sum((t - tm) ** 2 for t, _ in points)
+    return sum((t - tm) * (v - vm) for t, v in points) / den if den > 0 else 0.0
+
+
 def _top_speed(project, veh, task) -> list[dict]:
-    r = _run(project, _case("test-top", "Top speed", "performance", 120.0, task, "0:300"))
+    r = _run(project, _case("test-top", "Top speed", "performance", TOP_RUN_S, task, "0:300"))
+    how = (f"full throttle towards 300 km/h for {TOP_RUN_S:g} s, the mean speed over the last "
+           f"{TOP_HOLD_S:g} s")
     trace = _series(r, veh.id, "sig_speed")
-    vmax = max((v for _, v in trace), default=None)
+    if r.status == "failed" or not trace:
+        return [_row("Top speed", None, "km/h", how, _failure(r) or "the run gave no speed")]
+    t_end = trace[-1][0]
+    held = [(t, v) for t, v in trace if t >= t_end - TOP_HOLD_S]
+    v_held = sum(v for _, v in held) / len(held)
+    change = _slope(held) * TOP_HOLD_S if len(held) > 1 else 0.0  # km/h over the window
+    t_peak, v_peak = max(trace, key=lambda p: p[1])
+    if abs(change) >= TOP_SETTLED_KMH:
+        trend = "rising" if change > 0 else "falling"
+        return [
+            _row("Top speed", None, "km/h", how,
+                 f"not settled in {TOP_RUN_S:g} s: still {trend} at the end ({change:+.1f} km/h "
+                 f"over the last {TOP_HOLD_S:g} s, {trace[-1][1]:.1f} km/h at {t_end:g} s)"),
+            _row("Highest speed reached", v_peak, "km/h",
+                 f"full throttle towards 300 km/h for {TOP_RUN_S:g} s, the highest speed",
+                 f"at {t_peak:g} s; not a speed the car holds"),
+        ]
     limit = "the power: the road load takes all the drive gives"
     for el in _elements(project):
         p = _params(el)
         if el.componentDefId == "motor.emotor":
-            speeds = [v for _, v in _series(r, el.id, "sig_speed")]
+            speeds = [v for t, v in _series(r, el.id, "sig_speed") if t >= t_end - TOP_HOLD_S]
             n_max = float(p.get("max_speed_rpm") or 0) or max(
                 float(k) for sheet in p["full_load_torque"].values() for k in sheet)
             if speeds and max(abs(s) for s in speeds) >= 0.97 * n_max:
                 limit = f"{el.label}'s maximum speed ({n_max:,.0f} 1/min)"
         elif el.componentDefId == "engine.combustion":
-            speeds = [v for _, v in _series(r, el.id, "sig_speed")]
+            speeds = [v for t, v in _series(r, el.id, "sig_speed") if t >= t_end - TOP_HOLD_S]
             n_max = max(float(k) for k in p["full_load_torque"])
             if speeds and max(abs(s) for s in speeds) >= 0.97 * n_max:
                 limit = f"{el.label}'s rev limit ({n_max:,.0f} 1/min)"
-    return [_row("Top speed", vmax, "km/h", "full throttle towards 300 km/h for 120 s, highest speed",
-                 f"limited by {limit}")]
+    return [_row("Top speed", v_held, "km/h", how, f"limited by {limit}")]
 
 
 def _constant_speed(project, veh, task) -> list[dict]:
@@ -171,6 +211,11 @@ def _constant_speed(project, veh, task) -> list[dict]:
         case = _case(f"test-steady-{v}", f"Constant {v} km/h", "cycle", 600.0, task,
                      f"0:{v}; 600:{v}", {veh.id: {"initial_speed_kmh": v}})
         r = _run(project, case)
+        if r.status == "failed":
+            label, unit = ("Fuel consumption", "l/100km") if engines else ("Consumption", "kWh/100km")
+            rows.append(_row(f"{label} at {v} km/h", None, unit,
+                             f"600 s at a constant {v} km/h, from that speed", _failure(r)))
+            continue
         s = {x.label: x for x in r.summary}
         for label, unit in (("Consumption", "kWh/100km"), ("Fuel consumption", "l/100km")):
             if label in s and not (engines and label == "Consumption"):  # a hybrid's is its charge
@@ -203,7 +248,10 @@ def _grade_link(project: Project, veh: ElementInstance, grade_pct: float):
     return el, link
 
 
-def _holds(project, veh, task, grade: float) -> bool:
+def _holds(project, veh, task, grade: float) -> tuple[bool, str]:
+    """Whether the car holds the speed on the grade, and the run's errors
+    when it failed (a car that rolls back on a steep grade fails its run
+    for not driving the cycle: that is a grade it does not hold)."""
     extra = _grade_link(project, veh, grade)
     overrides = {veh.id: {"initial_speed_kmh": GRADE_SPEED}}
     if isinstance(extra, str):  # the model's own Road Profile: give it the grade
@@ -213,22 +261,24 @@ def _holds(project, veh, task, grade: float) -> bool:
                  f"0:{GRADE_SPEED:g}; 40:{GRADE_SPEED:g}", overrides)
     r = _run(project, case, [extra] if extra else None)
     if r.status == "failed":
-        return False
+        return False, _failure(r)
     late = [v for t, v in _series(r, veh.id, "sig_speed") if t >= 20.0]
-    return bool(late) and min(late) >= GRADE_SPEED - 1.0
+    return bool(late) and min(late) >= GRADE_SPEED - 1.0, ""
 
 
 def _gradeability(project, veh, task) -> list[dict]:
     lo, hi = 0.0, 60.0
-    if not _holds(project, veh, task, lo):
+    flat, failed = _holds(project, veh, task, lo)
+    if not flat:
         return [_row(f"Steepest grade at {GRADE_SPEED:g} km/h", None, "%", "",
-                     "the car does not hold the speed on the flat")]
-    if _holds(project, veh, task, hi):
+                     f"the run on the flat failed: {failed}" if failed
+                     else "the car does not hold the speed on the flat")]
+    if _holds(project, veh, task, hi)[0]:
         return [_row(f"Steepest grade at {GRADE_SPEED:g} km/h", hi, "%",
                      "the car held the speed on the steepest grade tried", "60 % or more")]
     while hi - lo > 0.5:
         mid = (lo + hi) / 2
-        lo, hi = (mid, hi) if _holds(project, veh, task, mid) else (lo, mid)
+        lo, hi = (mid, hi) if _holds(project, veh, task, mid)[0] else (lo, mid)
     return [_row(f"Steepest grade at {GRADE_SPEED:g} km/h", lo, "%",
                  f"the steepest constant grade the car climbs within 1 km/h of {GRADE_SPEED:g} km/h "
                  "(found to 0.5 %)")]
@@ -241,6 +291,8 @@ def _coast_down(project, veh, task) -> list[dict]:
         overrides[d.id] = {"driver_kp": 0.0, "driver_ki": 0.0}
     case = _case("test-coast", "Coast-down", "cycle", 400.0, task, "0:0; 400:0", overrides)
     r = _run(project, case)
+    if r.status == "failed":
+        return [_row("Coast-down A (f0)", None, "N", "", _failure(r))]
     trace = [(t, v) for t, v in _series(r, veh.id, "sig_speed")]
     vp = _params(veh)
     mass = float(vp["mass_kg"])

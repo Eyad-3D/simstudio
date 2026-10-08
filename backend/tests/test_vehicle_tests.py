@@ -62,3 +62,42 @@ def test_a_fuel_cell_car_gets_no_range_from_its_battery_alone(monkeypatch):
     rows = {r["what"]: r for r in vehicle_tests.run_tests(fuel_cell_car(setpoint_kW=1.5), ["constant_speed"])["rows"]}
     assert "Range at 50 km/h" not in rows
     assert "without the energy of Fuel Cell Stack 'Fuel Cell'" in rows["Consumption at 50 km/h"]["note"]
+
+
+def _fake_runs(monkeypatch, speed=None, status="success", error=""):
+    """Every test run gives this Vehicle speed trace (t → km/h), or fails."""
+    from app.schemas import Channel, SimMessage, SimResult
+
+    def run(project, case, extra=None):
+        veh = next(e.id for s in project.systems for e in s.elements
+                   if e.componentDefId == "vehicle.body")
+        channels = [Channel(elementId=veh, portId="sig_speed", label="Speed", unit="km/h",
+                            timeSeries=[{"t": t / 10, "value": speed(t / 10)}
+                                        for t in range(int(case.duration * 10) + 1)])
+                    ] if speed else []
+        messages = [SimMessage(level="error", text=error)] if error else []
+        return SimResult(caseId=case.id, status=status, messages=messages, channels=channels)
+
+    monkeypatch.setattr(vehicle_tests, "_run", run)
+
+
+def test_a_top_speed_still_falling_is_not_settled_and_the_peak_stands_apart(monkeypatch):
+    """A hybrid's battery boost fades: its highest speed is not one it holds,
+    and 'limited by the power' would not be the reason."""
+    _fake_runs(monkeypatch, lambda t: min(2 * t, 204 - 0.12 * max(0.0, t - 102)))
+    rows = _rows("bev-car", "top_speed")
+    assert rows["Top speed"]["value"] is None
+    assert rows["Top speed"]["note"].startswith("not settled in 120 s: still falling")
+    assert rows["Highest speed reached"]["value"] == pytest.approx(204, abs=0.5)
+    _fake_runs(monkeypatch, lambda t: min(3 * t, 150.0))  # held: the mean of the last 10 s
+    rows = _rows("bev-car", "top_speed")
+    assert rows["Top speed"]["value"] == 150.0 and "Highest speed reached" not in rows
+
+
+def test_a_failed_run_gives_no_figure_and_says_why(monkeypatch):
+    _fake_runs(monkeypatch, status="failed", error="Script sandbox stopped during start-up")
+    rows = _rows("bev-car", "top_speed", "constant_speed", "coast_down", "gradeability")
+    for what in ("Top speed", "Consumption at 50 km/h", "Coast-down A (f0)"):
+        assert rows[what]["value"] is None and "Script sandbox stopped" in rows[what]["note"], what
+    assert "limited by" not in rows["Top speed"]["note"]
+    assert rows["Steepest grade at 30 km/h"]["note"].startswith("the run on the flat failed")
