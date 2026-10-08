@@ -1108,9 +1108,10 @@ minimum or an average, for example from the CSV export, or put the
   app. *Roadmap:* PLT-18, PLT-31.
 - **The policy file has no Group Policy template.** IT fixes settings with a
   `policy.json` file ([how](help/how-to/deploy-for-it.md)), not through
-  Group Policy's administrative templates (ADMX) or the registry. Its `ai`,
-  `aiProviders` and `licenceFile` keys change nothing yet. *Roadmap:*
-  PLT-36.
+  Group Policy's administrative templates (ADMX) or the registry. Its
+  `aiProviders` and `licenceFile` keys change nothing yet, and `"ai":
+  "off"` leaves *Copy for AI* on (it only copies text to the clipboard).
+  *Roadmap:* PLT-36.
 - **The help is a first draft.** F1, or the **?** menu at the top right,
   opens LightSim's help in a panel inside the app, served from your
   computer. If a page does not match what the app shows, the app is right.

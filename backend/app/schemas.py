@@ -778,3 +778,5 @@ class AiConnection(BaseModel):
     warning: Optional[str] = None
     clients: list[AiClientState]
     lastUsed: Optional[dict] = None
+    # why AI access cannot be turned on here: the organisation's policy
+    managed: Optional[str] = None

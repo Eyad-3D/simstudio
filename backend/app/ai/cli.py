@@ -50,6 +50,11 @@ def _serve(args: argparse.Namespace) -> int:
 
 
 def _install(args: argparse.Namespace) -> int:
+    from ..machine_policy import AI_OFF, ai_off
+
+    if ai_off():
+        print(f"Not installed: {AI_OFF}", file=sys.stderr)
+        return 3
     extra = []
     for f in args.allow_folder:
         extra += ["--allow-folder", str(Path(f).expanduser().resolve())]

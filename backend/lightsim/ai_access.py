@@ -48,6 +48,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from ._engine import engine
 from .project import LightSimError, Project, examples, read_project_file
 
 SETTINGS_ENV = "LIGHTSIM_AI_SETTINGS"
@@ -121,20 +122,24 @@ class Policy:
     trusted: dict[str, str] = field(default_factory=dict)
     max_run_s: float = DEFAULT_MAX_RUN_S
     path: Optional[Path] = None
+    # the organisation's policy file turns AI access off (PLT-36): read
+    # afresh with the settings, never saved in them
+    managed_off: bool = False
 
     @classmethod
     def load(cls, path: Optional[Path] = None) -> "Policy":
         path = path or settings_path()
+        off = engine("machine_policy").ai_off()
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            return cls(path=path)
+            return cls(path=path, managed_off=off)
         except (OSError, ValueError) as e:
             # a damaged file never opens access: it reads as "off"
             print(f"lightsim: ignoring unreadable AI settings {path}: {e}", file=sys.stderr)
-            return cls(path=path)
+            return cls(path=path, managed_off=off)
         if not isinstance(raw, dict):
-            return cls(path=path)
+            return cls(path=path, managed_off=off)
         trusted = raw.get("trustedScripts")
         return cls(
             enabled=raw.get("enabled") is True,
@@ -144,7 +149,19 @@ class Policy:
             if isinstance(trusted, dict) else {},
             max_run_s=_positive(raw.get("maxRunSeconds"), DEFAULT_MAX_RUN_S),
             path=path,
+            managed_off=off,
         )
+
+    def on(self) -> bool:
+        """True when an agent may do anything: the user turned AI access on
+        and the organisation's policy does not turn it off."""
+        return self.enabled and not self.managed_off
+
+    def off_message(self) -> str:
+        if self.managed_off:
+            return engine("machine_policy").AI_OFF
+        return ("AI access to LightSim is off. The user can turn it on with "
+                "'lightsim ai on' and allow folders with 'lightsim ai allow'.")
 
     def save(self) -> Path:
         path = self.path or settings_path()
@@ -170,7 +187,7 @@ class Policy:
 
     def visible(self, source: str | Path) -> bool:
         """True when an agent may open ``source`` (a file or an example id)."""
-        if not self.enabled:
+        if not self.on():
             return False
         path = Path(source)
         if not path.is_file():
@@ -183,9 +200,8 @@ class Policy:
             return False
 
     def require_visible(self, source: str | Path) -> None:
-        if not self.enabled:
-            raise AccessDenied("AI access to LightSim is off. The user can turn it on with "
-                               "'lightsim ai on' and allow folders with 'lightsim ai allow'.")
+        if not self.on():
+            raise AccessDenied(self.off_message())
         if not self.visible(source):
             # the same answer whether the file is missing, outside or "noAi":
             # an agent learns nothing about files it may not see
@@ -277,7 +293,7 @@ class AgentSession:
         """The projects an agent may open: path (or example id), name, id,
         whether it has Script blocks and whether they are trusted."""
         def go():
-            if not self.policy.enabled:
+            if not self.policy.on():
                 self.policy.require_visible("")
             out = []
             if self.policy.examples:
@@ -383,6 +399,8 @@ def cli_ai(args, out) -> int:
     policy = Policy.load()
     cmd = args.ai_command or "status"
     if cmd == "on":
+        if policy.managed_off:
+            raise LightSimError(policy.off_message())
         policy.enabled = True
     elif cmd == "off":
         policy.enabled = False
@@ -420,11 +438,13 @@ def cli_ai(args, out) -> int:
         return 0
     if cmd not in ("status", "block", "unblock"):
         policy.save()
-    data = {"enabled": policy.enabled, "folders": policy.folders, "examples": policy.examples,
+    data = {"enabled": policy.on(), "managedOff": policy.managed_off,
+            "folders": policy.folders, "examples": policy.examples,
             "trustedProjects": sorted(policy.trusted), "maxRunSeconds": policy.max_run_s,
             "settings": str(policy.path or settings_path())}
     text = "\n".join([
-        f"AI access: {'on' if policy.enabled else 'off'}",
+        f"AI access: {'on' if policy.on() else 'off'}"
+        + (" (turned off by your organisation's policy)" if policy.managed_off else ""),
         "Allowed folders:" + ("" if policy.folders else " none"),
         *(f"  {f}" for f in policy.folders),
         f"Examples visible: {'yes' if policy.examples else 'no'}",

@@ -22,6 +22,16 @@ def _ai_settings(tmp_path_factory, monkeypatch):
     monkeypatch.setenv("LIGHTSIM_AI_SETTINGS", str(tmp_path_factory.mktemp("ai") / "ai-access.json"))
 
 
+@pytest.fixture(autouse=True)
+def _no_machine_policy(tmp_path_factory, monkeypatch):
+    """No test reads the machine-wide policy file of the computer it runs on
+    (app/machine_policy.py); a test that needs one writes its own."""
+    from app import machine_policy
+
+    missing = tmp_path_factory.mktemp("policy") / "policy.json"
+    monkeypatch.setattr(machine_policy, "policy_path", lambda platform=None: missing)
+
+
 def allow_ai(*folders, examples: bool = True) -> None:
     """Turn AI access on for ``folders`` in this test's settings file."""
     import json

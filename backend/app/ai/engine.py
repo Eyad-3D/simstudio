@@ -141,6 +141,14 @@ ACCESS_OFF = ("AI access to LightSim is off. The user can turn it on by connecti
               "in LightSim (Help > Connect an AI assistant) or with 'lightsim ai on'.")
 
 
+def off_message(policy) -> str:
+    """Why an assistant may do nothing: the user's choice, or the
+    organisation's policy file (PLT-36), which the user cannot change."""
+    from ..machine_policy import AI_OFF
+
+    return AI_OFF if policy.managed_off else ACCESS_OFF
+
+
 def grant_folder(folder: Path) -> None:
     """Turn AI access on and allow ``folder``: what connecting an AI app from
     LightSim means (AI-29)."""
@@ -173,7 +181,8 @@ class Engine:
 
     def access_refusal(self) -> Optional[str]:
         """Why an assistant may do nothing now, or None."""
-        return None if access_policy().enabled else ACCESS_OFF
+        policy = access_policy()
+        return None if policy.on() else off_message(policy)
 
     def _folders(self, policy) -> list[Path]:
         """Folders whose project files the assistant may list: those given
@@ -188,7 +197,7 @@ class Engine:
         return out
 
     def _user_projects_visible(self, policy) -> bool:
-        return policy.enabled and policy._in_folders(self.user_folder)
+        return policy.on() and policy._in_folders(self.user_folder)
 
     def _may_open(self, path: Path, policy) -> bool:
         """True when the project file at ``path``, after following links, is
@@ -203,8 +212,8 @@ class Engine:
 
     def list_projects(self) -> list[dict]:
         policy = access_policy()
-        if not policy.enabled:
-            raise NotFound(ACCESS_OFF)
+        if not policy.on():
+            raise NotFound(off_message(policy))
         out = []
         if self._user_projects_visible(policy):
             ids: set[str] = set()
@@ -252,8 +261,8 @@ class Engine:
         if not ref:
             raise NotFound("Name a project: lightsim_list_projects lists them.")
         policy = access_policy()
-        if not policy.enabled:
-            raise NotFound(ACCESS_OFF)
+        if not policy.on():
+            raise NotFound(off_message(policy))
         try:
             if ref.startswith(EXAMPLE_PREFIX):
                 if not (self.include_examples and policy.examples):

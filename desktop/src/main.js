@@ -200,7 +200,8 @@ function startBackend(port) {
       LIGHTSIM_TOKEN: launchToken,
       LIGHTSIM_SHELL_TOKEN: shellToken,
       // the settings the policy file fixes that the engine applies
-      // (scriptTrust, examples); the UI reads them from /api/policy
+      // (scriptTrust, examples, ai); a packaged engine reads the file
+      // itself (backend/app/machine_policy.py), a development one this
       LIGHTSIM_POLICY: JSON.stringify(policy.settings),
       PYTHONUNBUFFERED: "1",
     },

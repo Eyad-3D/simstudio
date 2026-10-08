@@ -1048,8 +1048,9 @@ sections.
 - For labs and company IT: the setup program installs silently for all
   users (`/S /allusers`), a new MSI package installs and upgrades with
   `msiexec /quiet`, and a machine-wide `policy.json` fixes update checks,
-  the script prompt, the examples and the projects folder for every user
-  ([how](help/how-to/deploy-for-it.md)). (PLT-36)
+  the script prompt, the examples, the projects folder and whether AI apps
+  may use LightSim, for every user and also for the engine an AI app
+  starts ([how](help/how-to/deploy-for-it.md)). (PLT-36)
 - The build can sign every Windows file (the app, the engine, their
   libraries, the installers and the MSI) and builds a signed, notarised
   macOS version for Apple silicon, once the owner's certificates are set

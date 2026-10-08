@@ -38,6 +38,7 @@ import sys
 import threading
 from pathlib import Path
 
+from . import machine_policy
 from .paths import EXAMPLES_DIR, data_dir, projects_dir
 
 log = logging.getLogger(__name__)
@@ -63,13 +64,9 @@ class ScriptsNotApproved(Exception):
 
 
 def policy() -> dict:
-    """The settings the machine-wide policy file fixes (set by the desktop
-    shell as LIGHTSIM_POLICY); {} without one."""
-    try:
-        raw = json.loads(os.environ.get("LIGHTSIM_POLICY") or "{}")
-    except ValueError:
-        return {}
-    return raw if isinstance(raw, dict) else {}
+    """The settings the machine-wide policy file fixes (machine_policy.py:
+    the desktop shell's LIGHTSIM_POLICY, or the file itself); {} without one."""
+    return machine_policy.settings()
 
 
 def mode() -> str:
