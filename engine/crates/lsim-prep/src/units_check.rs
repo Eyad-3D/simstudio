@@ -163,6 +163,20 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
     })
 }
 
+/// `0 = if c then a else b` holds as `0 = a` while `c` and `0 = b`
+/// otherwise (an `if` equation whose branches state different
+/// quantities): each branch must balance on its own.
+fn residual_branches(e: &Expr, flat: &FlatSystem) -> Result<(), Mismatch> {
+    match e {
+        Expr::If(c, a, b) => {
+            dim(c, flat)?;
+            residual_branches(a, flat)?;
+            residual_branches(b, flat)
+        }
+        other => dim(other, flat).map(|_| ()),
+    }
+}
+
 /// Checks every equation and `when` action; returns one diagnostic per
 /// unbalanced equation.
 pub fn check(flat: &FlatSystem, lib: &Library, top: &lsim_ir::ComponentDef) -> Vec<Diagnostic> {
@@ -182,6 +196,30 @@ pub fn check(flat: &FlatSystem, lib: &Library, top: &lsim_ir::ComponentDef) -> V
         }
     };
     for e in &flat.equations {
+        let residual_if = match (&e.lhs, &e.rhs) {
+            (Expr::Const(z), x @ Expr::If(..)) | (x @ Expr::If(..), Expr::Const(z))
+                if *z == 0.0 =>
+            {
+                Some(x)
+            }
+            _ => None,
+        };
+        if let Some(x) = residual_if {
+            if let Err(Mismatch(why)) = residual_branches(x, flat) {
+                let who = flat.instance_name(e.origin.instance);
+                let def = &flat.instance(e.origin.instance).def;
+                let mut d = Diagnostic::error(
+                    "UNIT-MISMATCH",
+                    format!(
+                        "In {who} ({def}), the equation {} does not balance its units: {why}.",
+                        text_of(&e.origin)
+                    ),
+                );
+                d.parts.push(flat.instance(e.origin.instance).path.clone());
+                out.push(d);
+            }
+            continue;
+        }
         let r = dim(&e.lhs, flat).and_then(|l| {
             let r = dim(&e.rhs, flat)?;
             unify(l, r, "the equation").map_err(|_| {
