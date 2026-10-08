@@ -69,7 +69,7 @@ Contents
 | Fast mode speed | ≈ 10⁶× real time on WLTC (≈ 2 ms) | same |
 | Accuracy | every block within its tolerance of an exact answer; global error tracks rtol | the exact-answer suite in `benchmarks/` (built by another agent), tolerance-convergence tests |
 | Energy | the energy balance from port powers closes to ≤ 1e-6 of the energy throughput | per-run check, reported |
-| Events | located to the integrator's root-finding precision (≈ 1e-10 s at rtol 1e-10 in the spike) | event-time tests against closed forms |
+| Events | located to the integrator's root-finding precision (7e-10 s at rtol 1e-10 in the spike) | event-time tests against closed forms |
 | Units | every equation dimensionally consistent at build time | `lsim-prep` unit check |
 | Licences | only permissive licences (MIT, Apache-2.0, BSD, ISC, Zlib …) | `scripts/licences.py`, cargo-deny |
 | Platforms | Windows, macOS, Linux (x86-64, arm64) | CI matrix (WP6) |
@@ -419,7 +419,8 @@ buffers, so one compiled model serves any number of simultaneous runs.
 ## 6. Preparation pipeline
 
 `lsim_prep::prepare(lib, top, opts) -> Result<PreparedModel, Vec<Diagnostic>>`.
-Stage 1 implements steps 1–4, 6, 7 (simplified), 9 and 11; WP2 the rest.
+Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
+`when` clauses; WP2 the rest.
 
 1. **Flatten.** Instantiate the tree; give each parameter, port variable
    and variable a flat record; resolve names; evaluate parameter values in
@@ -678,11 +679,14 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   into Rust only where speed requires (WP6).
 * **Energy books**: for every primitive, `energyIn − energyOut − losses −
   stored = 0` from its port powers (across × through), its loss expression
-  and its stored-energy expression — today's `partEnergy`, now exact by
-  construction because connection equations conserve power at every node
-  (equal across, through summing to zero). The run checks the global
-  closure Σ(sources) − Σ(losses) − ΔΣ(stored) − Σ(boundaries) against the
-  energy throughput and reports it (target ≤ 1e-6).
+  and its stored-energy expression — today's `partEnergy`. A part's books
+  close when its declared loss and stored energy agree with its equations,
+  which WP5 tests for every library component; between parts, connection
+  equations conserve power exactly at every node (equal across, through
+  summing to zero). With all of them integrated as quadratures under error
+  control, the run checks the global closure Σ(sources) − Σ(losses) −
+  ΔΣ(stored) − Σ(boundaries) against the energy throughput and reports it
+  (target ≤ 1e-6).
 * **Solver report** on every run: backend, method, tolerances, steps,
   evaluations, Jacobians, error-test and Newton failures, events (with
   times and parts), restarts, initialisation path, energy closure.
