@@ -1020,6 +1020,20 @@ minimum or an average, for example from the CSV export, or put the
 - **Study tables are keyed by the figure's name.** A study's results table
   names each column by the summary figure's label; a figure renamed in a
   later version starts a new column. *Roadmap:* PLT-34.
+- **Scripting LightSim from Python or a terminal: early version.** The
+  `lightsim` Python package and command-line tool (see *Python API* and
+  *Command-line tool* in the help) run from the `backend/` folder of the
+  repository, as the desktop engine's `lightsim-backend run …`, or as a
+  wheel you build with `scripts/build-wheel.py`; it is not on PyPI yet.
+  *Roadmap:* AI-02, AI-07.
+- **AI access is set from the command line only.** AI assistants are off
+  until you turn them on with `lightsim ai on` and allow folders with
+  `lightsim ai allow`; there is no *Settings → AI access* page in the app
+  yet, and no switch in the app to hide one project from AI tools (use
+  `lightsim ai block <file>`). On Windows, a run of a trusted project with
+  Script blocks opens a private connection on 127.0.0.1 between the engine
+  and its script process for a moment; on Linux it uses no network at all.
+  *Roadmap:* AI-01.
 - **Unsigned installers.** Windows SmartScreen warns on first launch (choose
   *More info → Run anyway*). *Roadmap:* PLT-13.
 - **No macOS version.** Builds exist for Windows 10/11 (x64) and Linux (x64)

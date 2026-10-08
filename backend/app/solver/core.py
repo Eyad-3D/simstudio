@@ -34,8 +34,9 @@ from . import balance, fs_events, lapsim
 from .battery import SOP_PULSES, sop
 from .domains import ModelInitError, RunContext, build_slaves
 from .energy import add_lap, energy_flows
+from .keys import fill_keys
 from .labfig import LabLog, lab_rows
-from .maps import OutsideDataError
+from .maps import OutsideDataError, slug
 from .master import Master, SlaveStepError
 from .network import ModelError, build_model
 from .profiles import distance_axis, lap_length
@@ -77,8 +78,11 @@ def simulate(
     control: Optional[ControlFn] = None,
 ) -> SimResult:
     """Run a case: once, or, for a hybrid's charge-balanced case, until its
-    battery ends where it started (balance.py, ENG-33)."""
-    return balance.simulate_balanced(project, case_id, emit, control, run_case)
+    battery ends where it started (balance.py, ENG-33). Every summary row
+    has a stable key (keys.py, AI-07)."""
+    result = balance.simulate_balanced(project, case_id, emit, control, run_case)
+    fill_keys(result.summary, project)
+    return result
 
 
 def run_case(
@@ -402,39 +406,42 @@ def run_case(
         lab_base: dict[str, str] = {}  # a lab-style row → the row whose validity it shares
         for b in ctx.batteries.values():
             label = model.elements[b.el_id].label
-            summary.append(SummaryValue(label=f"{label} — final SOC", value=b.soc * 100.0, unit="%"))
-            summary.append(SummaryValue(label=f"{label} — energy delivered", value=b.energy_out_wh / 1000.0, unit="kWh"))
-            summary.append(SummaryValue(label=f"{label} — energy recuperated", value=b.energy_in_wh / 1000.0, unit="kWh"))
-            summary.append(SummaryValue(label=f"{label} — internal losses", value=b.loss_wh / 1000.0, unit="kWh"))
+            summary.append(SummaryValue(key=f"{b.el_id}.final_soc_pct", label=f"{label} — final SOC", value=b.soc * 100.0, unit="%"))
+            summary.append(SummaryValue(key=f"{b.el_id}.energy_delivered_kwh", label=f"{label} — energy delivered", value=b.energy_out_wh / 1000.0, unit="kWh"))
+            summary.append(SummaryValue(key=f"{b.el_id}.energy_recuperated_kwh", label=f"{label} — energy recuperated", value=b.energy_in_wh / 1000.0, unit="kWh"))
+            summary.append(SummaryValue(key=f"{b.el_id}.internal_losses_kwh", label=f"{label} — internal losses", value=b.loss_wh / 1000.0, unit="kWh"))
             cp = b.cells
             if cp is not None and cp.cells:  # built from cells (MOD-08)
-                summary.append(SummaryValue(label=f"{label} — layout",
+                summary.append(SummaryValue(key=f"{b.el_id}.layout_cells", label=f"{label} — layout",
                                             value=float(cp.ns * cp.np), unit="cells"))
-                summary.append(SummaryValue(label=f"{label} — charge capacity",
+                summary.append(SummaryValue(key=f"{b.el_id}.charge_capacity_ah", label=f"{label} — charge capacity",
                                             value=b.q_ah, unit="Ah"))
-                summary.append(SummaryValue(label=f"{label} — pack mass (estimate)",
+                summary.append(SummaryValue(key=f"{b.el_id}.pack_mass_kg", label=f"{label} — pack mass (estimate)",
                                             value=cp.mass_kg, unit="kg"))
                 if cp.v_cell_low < math.inf:
-                    summary.append(SummaryValue(label=f"{label} — lowest cell voltage",
+                    summary.append(SummaryValue(key=f"{b.el_id}.lowest_cell_voltage_v", label=f"{label} — lowest cell voltage",
                                                 value=cp.v_cell_low, unit="V",
                                                 limit=cp.v_min or None))
-                    summary.append(SummaryValue(label=f"{label} — highest cell voltage",
+                    summary.append(SummaryValue(key=f"{b.el_id}.highest_cell_voltage_v", label=f"{label} — highest cell voltage",
                                                 value=cp.v_cell_high, unit="V",
                                                 limit=cp.v_max or None))
             if cp is not None:
                 for what, secs in sorted(cp.limit_s.items()):
-                    summary.append(SummaryValue(label=f"{label} — time at {what} limit",
+                    summary.append(SummaryValue(key=f"{b.el_id}.time_at_{slug(what)}_limit_s",
+                                            label=f"{label} — time at {what} limit",
                                                 value=secs, unit="s"))
             if b.check is not None:  # an Output Power Limit or a Voltage Class
-                rows, problems = terminal_checks(label, b.check, usable_energy_left_wh(b) / 1000.0,
+                rows, problems = terminal_checks(b.el_id, label, b.check, usable_energy_left_wh(b) / 1000.0,
                                                  b.depleted_flagged)
-                summary += [SummaryValue(label=row_label, value=v, unit=u, limit=lim, passed=ok)
-                            for row_label, v, u, lim, ok in rows]
+                summary += [SummaryValue(key=k, label=row_label, value=v, unit=u, limit=lim,
+                                         passed=ok)
+                            for row_label, v, u, lim, ok, k in rows]
                 for text in problems:
                     rt.message("warning", text)
         for mc in ctx.motors.values():
             if mc.limited_s > 0:
                 summary.append(SummaryValue(
+                    key=f"{mc.el_id}.time_limited_by_supply_s",
                     label=f"{model.elements[mc.el_id].label} — time limited by supply",
                     value=mc.limited_s, unit="s"))
             if mc.regen_lost_wh > 0:
@@ -442,14 +449,17 @@ def run_case(
                 # take (a full or charge-limited battery, a fuel cell, a one-way
                 # DC-DC): the motor braked that much less
                 summary.append(SummaryValue(
+                    key=f"{mc.el_id}.regen_not_recovered_kwh",
                     label=f"{model.elements[mc.el_id].label} — regeneration not recovered",
                     value=mc.regen_lost_wh / 1000.0, unit="kWh"))
         for ec in ctx.engines.values():
             summary.append(SummaryValue(
+                key=f"{ec.el_id}.fuel_used_kg",
                 label=f"{model.elements[ec.el_id].label} — fuel used",
                 value=ec.fuel_used_kg, unit="kg"))
         for fc in ctx.fuelcells.values():
             summary.append(SummaryValue(
+                key=f"{fc.el_id}.energy_supplied_kwh",
                 label=f"{model.elements[fc.el_id].label} — energy supplied",
                 value=fc.energy_wh / 1000.0, unit="kWh"))
         for c_id, (_, cl) in ctx.climate.items():
@@ -464,14 +474,15 @@ def run_case(
                                             value=cl.cool_j / 3.6e6, unit="kWh"))
         for vs_id, e_wh in ctx.vsource_energy_wh.items():
             summary.append(SummaryValue(
+                key=f"{vs_id}.energy_supplied_kwh",
                 label=f"{model.elements[vs_id].label} — energy supplied",
                 value=e_wh / 1000.0, unit="kWh"))
         if ctx.veh_id:
-            summary.append(SummaryValue(label="Distance driven", value=ctx.distance / 1000.0, unit="km"))
+            summary.append(SummaryValue(key="distance_km", label="Distance driven", value=ctx.distance / 1000.0, unit="km"))
             net_wh = sum(b.energy_out_wh - b.energy_in_wh for b in ctx.batteries.values())
             if ctx.distance > 100 and net_wh > 0:
                 summary.append(SummaryValue(
-                    label="Consumption", value=net_wh / 10.0 / (ctx.distance / 1000.0),
+                    key="consumption_kwh_per_100km", label="Consumption", value=net_wh / 10.0 / (ctx.distance / 1000.0),
                     unit="kWh/100km"))
             fuel_kg = sum(ec.fuel_used_kg for ec in ctx.engines.values())
             density = 0.745  # gasoline default when no tank declares one
@@ -489,10 +500,10 @@ def run_case(
                         pass
                 liters = fuel_kg / density
                 summary.append(SummaryValue(
-                    label="Fuel consumption",
+                    key="fuel_consumption_l_per_100km", label="Fuel consumption",
                     value=liters * 100.0 / (ctx.distance / 1000.0), unit="l/100km"))
                 summary.append(SummaryValue(
-                    label="CO₂ emissions",
+                    key="co2_g_per_km", label="CO₂ emissions",
                     value=fuel_kg * co2_per_kg * 1000.0 / (ctx.distance / 1000.0),
                     unit="g/km"))
             # at the socket, range, MPGe, charge-corrected fuel, per phase
@@ -515,7 +526,7 @@ def run_case(
             # energy no source supplied or absorbed (last-resort clamps), as a
             # share of all the energy that went through the buses
             summary.append(SummaryValue(
-                label="Electrical energy balance error",
+                key="energy_balance_error_pct", label="Electrical energy balance error",
                 value=100.0 * ctx.residual_wh / ctx.throughput_wh, unit="%"))
         # tables the run went past (listed only then, like the rows above):
         # for how long, as a share of the time solved, and how far; per
@@ -527,29 +538,35 @@ def run_case(
                 continue
             label = model.elements[use.el_id].label
             if use.what == "maximum speed":
+                share_key = f"{use.el_id}.time_above_max_speed_pct"
                 share_label = f"{label} — time above maximum speed"
-                far = SummaryValue(label=f"{label} — highest speed",
+                far = SummaryValue(key=f"{use.el_id}.highest_speed_rpm",
+                                   label=f"{label} — highest speed",
                                    value=use.value, unit="1/min")
             else:
+                stem = f"{use.el_id}.outside_{use.table}_{slug(use.axis)}"
+                share_key = f"{stem}_time_pct"
                 share_label = f"{label} — time outside its {use.what} ({use.axis})"
-                far = SummaryValue(label=f"{label} — furthest {use.axis} outside its {use.what}",
+                far = SummaryValue(key=f"{stem}_furthest",
+                                   label=f"{label} — furthest {use.axis} outside its {use.what}",
                                    value=use.value, unit=use.unit)
             edge_rows |= {share_label, far.label}
             summary.append(SummaryValue(
-                label=share_label, value=100.0 * use.outside_s / max(solved, 1e-9),
+                key=share_key, label=share_label, value=100.0 * use.outside_s / max(solved, 1e-9),
                 unit="%"))
             summary.append(far)
-        rows = [SummaryValue(label=label, value=v, unit=u, limit=lim, passed=ok)
-                for label, v, u, lim, ok in verdict.rows]
+        rows = [SummaryValue(key=k, label=label, value=v, unit=u, limit=lim, passed=ok)
+                for label, v, u, lim, ok, k in verdict.rows]
         edge_rows |= {r.label for r in rows if r.unit == "%"}  # a test's time shares
         if ctx.full_throttle:  # an acceleration test's own figures come first
             summary[:0] = rows
         else:
             summary += rows
         if lap is not None:  # and so do a lap case's
-            summary[:0] = [SummaryValue(label=label, value=v, unit=u) for label, v, u in lap.rows()]
+            summary[:0] = [SummaryValue(key=k, label=label, value=v, unit=u)
+                           for label, v, u, k in lap.rows()]
             edge_rows.add("Lap energy balance error")
-        summary.append(SummaryValue(label="Simulated duration", value=times[-1] if times else 0.0, unit="s"))
+        summary.append(SummaryValue(key="simulated_duration_s", label="Simulated duration", value=times[-1] if times else 0.0, unit="s"))
 
         # headline numbers that a failed check makes meaningless say why
         not_valid: dict[str, str] = {}
@@ -571,10 +588,10 @@ def run_case(
                 if s.passed:
                     not_valid.setdefault(s.label, why)
             if lap is not None:  # the laps it finished, and energy from the one it did not
-                for label, _, _ in lap.rows():
+                for label, *_ in lap.rows():
                     not_valid.setdefault(label, why)
         # a lap case's rows, but its balance error (a check of the solver)
-        lap_rows = ([label for label, _, _ in lap.rows() if label != "Lap energy balance error"]
+        lap_rows = ([label for label, *_ in lap.rows() if label != "Lap energy balance error"]
                     if lap is not None else [])
         if lap is not None and lap.lap_times:
             error = lap.balance_pct()

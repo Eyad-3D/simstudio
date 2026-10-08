@@ -25,6 +25,8 @@ backend/projects/runs/
 # Desktop app build output
 desktop/release/
 backend/build/
+# the lightsim wheel (scripts/build-wheel.py)
+backend/dist-wheel/
 .smoke-projects/
 
 # The help pages, built from docs/ by frontend/scripts/build-docs.mjs

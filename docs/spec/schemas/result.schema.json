@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lightsim:schema:result:1",
+  "title": "LightSim simulation result (SimResult)",
+  "description": "Format version 1. Generated from LightSim's data models; the specification is docs/spec/README.md (CC BY 4.0).",
+  "$defs": {
+    "Channel": {
+      "properties": {
+        "elementId": {
+          "title": "Elementid",
+          "type": "string"
+        },
+        "portId": {
+          "title": "Portid",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "timeSeries": {
+          "items": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object"
+          },
+          "title": "Timeseries",
+          "type": "array"
+        }
+      },
+      "required": [
+        "elementId",
+        "portId",
+        "label",
+        "unit",
+        "timeSeries"
+      ],
+      "title": "Channel",
+      "type": "object"
+    },
+    "SimMessage": {
+      "properties": {
+        "level": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "text"
+      ],
+      "title": "SimMessage",
+      "type": "object"
+    },
+    "SummaryValue": {
+      "properties": {
+        "key": {
+          "default": "",
+          "title": "Key",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "notValid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notvalid"
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limit"
+        },
+        "passed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Passed"
+        }
+      },
+      "required": [
+        "label",
+        "value",
+        "unit"
+      ],
+      "title": "SummaryValue",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "caseId": {
+      "title": "Caseid",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "success",
+        "failed",
+        "warning",
+        "cancelled"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "messages": {
+      "items": {
+        "$ref": "#/$defs/SimMessage"
+      },
+      "title": "Messages",
+      "type": "array"
+    },
+    "channels": {
+      "items": {
+        "$ref": "#/$defs/Channel"
+      },
+      "title": "Channels",
+      "type": "array"
+    },
+    "summary": {
+      "items": {
+        "$ref": "#/$defs/SummaryValue"
+      },
+      "title": "Summary",
+      "type": "array"
+    }
+  },
+  "required": [
+    "caseId",
+    "status",
+    "messages",
+    "channels"
+  ],
+  "type": "object"
+}

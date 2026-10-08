@@ -1,6 +1,7 @@
 """LightSim backend — FastAPI app.
 
 Endpoints:
+  GET  /docs                   this API's reference page (offline; /openapi.json)
   GET  /api/library            component library definitions
   GET  /api/cycles             the bundled standard drive cycles
   GET  /api/cycles/{id}        one drive cycle with its trace (t, v)
@@ -79,11 +80,12 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from . import (
+    api_docs,
     attachments,
     cycles,
     files,
@@ -132,7 +134,9 @@ from .sources import RunSources, sources_of
 from .validation import validate_project
 from .version import VERSION
 
-app = FastAPI(title="LightSim API", version=VERSION)
+# FastAPI's own /docs and /redoc load their scripts from a CDN; ours is
+# served from here so it works offline (AI-07)
+app = FastAPI(title="LightSim API", version=VERSION, docs_url=None, redoc_url=None)
 
 class ErrorBody(BaseModel):
     detail: str
@@ -174,6 +178,11 @@ app.add_middleware(
 
 
 app.include_router(dataio_router)
+
+
+@app.get("/docs", include_in_schema=False)
+def api_reference() -> HTMLResponse:
+    return HTMLResponse(api_docs.render(app.openapi()))
 
 
 @app.get("/api/health")

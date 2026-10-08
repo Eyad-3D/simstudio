@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lightsim:schema:data-checks:1",
+  "title": "LightSim Data Check findings (POST /api/validate)",
+  "description": "Format version 1. Generated from LightSim's data models; the specification is docs/spec/README.md (CC BY 4.0).",
+  "$defs": {
+    "DataCheck": {
+      "properties": {
+        "level": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "elementId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Elementid"
+        },
+        "elementLabel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Elementlabel"
+        },
+        "elementIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Elementids",
+          "type": "array"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "fix": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fix"
+        }
+      },
+      "required": [
+        "level",
+        "text"
+      ],
+      "title": "DataCheck",
+      "type": "object"
+    }
+  },
+  "items": {
+    "$ref": "#/$defs/DataCheck"
+  },
+  "type": "array"
+}

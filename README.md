@@ -403,7 +403,10 @@ backend/   Python + FastAPI
   ├─ app/storage.py                one JSON file per project
   ├─ app/paths.py                  bundled vs. user-writable location resolution
   ├─ app/security.py               Host / Origin / launch-token checks on every request
-  ├─ app/server.py                 entrypoint the desktop shell launches
+  ├─ app/server.py                 entrypoint the desktop shell launches (or the CLI, given a command)
+  ├─ app/api_docs.py               the offline API reference page at /docs
+  ├─ lightsim/                     Python package + `lightsim` CLI: run, check, read results, edit;
+  │                                AI access rules (ai_access.py); JSON Schemas (spec.py)
   ├─ lightsim-backend.spec         PyInstaller recipe for the frozen backend
   └─ projects/                     example projects (bev-car.json, hybrid-car.json, fs-electric.json)
 
@@ -468,12 +471,35 @@ is no token check. To reach a development engine through another host name
 A result (`SimResult`) has a `status` of `success`, `warning`, `cancelled` or
 `failed`, its
 `messages`, the recorded `channels` and a `summary` of `SummaryValue`s
-(`label`, `value`, `unit`). A summary value that the run's checks rule out
+(`key`, `label`, `value`, `unit`). The `key` is the figure's stable name
+(`distance_km`, `el-battery.final_soc_pct`); read figures by it, never by
+the label. A summary value that the run's checks rule out
 also carries `notValid`, the reason as text (for example
 `"cycle not followed"`); it is absent or `null` otherwise. Numbers are not
 rounded. A channel recorded less often than every solver step also has
 `min`, `max` and `mean`: its lowest, highest and time-averaged value over
 the interval ending at each point.
+
+The engine serves a reference of every route at `/docs` (offline; the
+machine-readable description is `/openapi.json`). The file formats, the
+live-run messages and the summary keys are specified in
+[docs/spec](docs/spec/README.md), with JSON Schemas.
+
+### Python package and command line
+
+`backend/lightsim/` runs models without the app, in the caller's own
+process (no server, no window, no network):
+
+```bash
+cd backend
+python -m lightsim run bev-car --case "City Cycle" -o city.csv   # exit 0, 1, 2 or 3
+python -c 'import lightsim as ls; print(ls.run("bev-car").kpis)'
+```
+
+The desktop engine takes the same commands (`lightsim-backend run …`).
+See [Python API](docs/help/reference/python-api.md) and
+[Command-line tool](docs/help/reference/command-line.md);
+`lightsim.ai_access` holds the rules AI tools go through.
 
 ## Data model
 
@@ -488,6 +514,9 @@ voltage → speed → torque). Elements of components with `allowDynamicPorts`
 A Driving Task's `cycle` names a bundled drive cycle by id (`"wltc-3b"`),
 which it drives instead of its typed `profile`; a case that sets its own
 `profile` for the task drives that instead.
+
+Every field, its unit and meaning: [Project file](docs/spec/project.md)
+and [Runs and results](docs/spec/results.md).
 
 ## Solver
 

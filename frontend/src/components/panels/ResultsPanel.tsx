@@ -22,7 +22,7 @@ import { confirmDialog } from "../../dialog";
 import { summaryChange } from "../../provenance";
 import { previousRunOf, useActiveRun, useOverlayRuns, useProjectStore } from "../../store/projectStore";
 import { useUIStore, type PlotView } from "../../store/uiStore";
-import type { Channel, SimRun, SummaryValue } from "../../types";
+import { sameFigure, type Channel, type SimRun, type SummaryValue } from "../../types";
 import { useDismiss } from "../useDismiss";
 import {
   PALETTE,
@@ -1258,7 +1258,7 @@ export function ResultsPanel() {
           <div className="flex shrink-0 items-center gap-1 border-b border-[color:var(--ss-border)] p-1">
             <dl aria-label="Headline results" className="m-0 flex min-w-0 flex-1 flex-wrap gap-1">
               {headline.map((s, i) => {
-                const ch = baseline && changeOf(s, baseline.result.summary.find((b) => b.label === s.label));
+                const ch = baseline && changeOf(s, baseline.result.summary.find((b) => sameFigure(b, s)));
                 return (
                   <div
                     key={i}
@@ -1469,7 +1469,7 @@ export function ResultsPanel() {
                         )}
                       </td>
                       {columns.map(({ run: r }, ci) => {
-                        const sv = r.result.summary.find((x) => x.label === s.label);
+                        const sv = r.result.summary.find((x) => sameFigure(x, s));
                         const ch = r === baseline ? changeOf(s, sv) : null;
                         return (
                           <Fragment key={r.id}>

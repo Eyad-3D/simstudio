@@ -2,5 +2,6 @@
 pytest>=9.1.1
 httpx2  # required by starlette TestClient
 schemathesis>=4.28,<5  # API checks against the OpenAPI schema (tests/test_api_schema.py)
-scipy>=1.14  # reads exported .mat files back (tests/test_results_export.py); BSD-3-Clause, tests only
+scipy>=1.14  # reads exported .mat files back (tests/test_results_export.py, tests/test_python_api.py); BSD-3-Clause, tests only
 openpyxl>=3.1  # writes Excel files the import tests read; MIT, tests only
+jsonschema>=4.20  # checks files against the published schemas (tests/test_spec.py); MIT, tests only

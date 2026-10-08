@@ -1,4 +1,6 @@
 """API tests: REST round-trip and the live WebSocket run channel."""
+import re
+
 from fastapi.testclient import TestClient
 from helpers import bev_axle
 
@@ -80,3 +82,15 @@ def test_ws_rejects_bad_start():
         ws.send_json({"type": "start", "project": {"nonsense": True}, "caseId": "x"})
         msg = ws.receive_json()
         assert msg["type"] == "error"
+
+
+def test_api_reference_page_works_offline():
+    """/docs is served from the engine with nothing loaded from elsewhere
+    (FastAPI's default loads Swagger UI from a CDN), AI-07."""
+    r = client.get("/docs")
+    assert r.status_code == 200
+    html = r.text
+    assert "/api/simulate" in html and "SummaryValue" in html
+    assert "<script" not in html
+    assert not re.search(r"""(src|href)=["']?https?://""", html)
+    assert client.get("/redoc").status_code == 404

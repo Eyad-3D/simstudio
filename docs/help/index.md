@@ -22,8 +22,11 @@ the parts fit together.
 - **Reference** lists every [part in the library](reference/components/index.md)
   with its ports and parameters, the [drive cycles](reference/drive-cycles.md),
   the [keyboard shortcuts](reference/keyboard-shortcuts.md), the
-  [Script API](reference/script-api.md), the project file format and the
-  engine's API.
+  [Script API](reference/script-api.md), the
+  [Python API](reference/python-api.md) and
+  [command-line tool](reference/command-line.md) for running models without
+  the app, the [file formats LightSim reads and writes](../FORMATS.md) and
+  their [specification](../spec/README.md), and the engine's API.
 - **Theory** explains how the solver works through a run, step by step.
 - **Validation**, **Known issues**, **Release notes** and **Data sources**
   are the documents that come with every release.

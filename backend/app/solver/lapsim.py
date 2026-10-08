@@ -807,38 +807,43 @@ class LapRun:
         for i, c in enumerate(prof.code):
             self.limit_s[c - 1] += prof.t[i + 1] - prof.t[i]
 
-    def rows(self) -> list[tuple[str, float, str]]:
-        """The lap case's summary rows: (label, value, unit)."""
+    def rows(self) -> list[tuple[str, float, str, str]]:
+        """The lap case's summary rows: (label, value, unit, key)."""
         ctx, tr = self.ctx, self.track
         done = len(self.lap_times)
         if not done:
             return []
         best = min(range(done), key=lambda k: self.lap_times[k])
         total = sum(self.lap_times)
-        rows = [("Lap time", self.lap_times[best], "s")]
+        rows = [("Lap time", self.lap_times[best], "s", "lap_time_s")]
         if self.laps > 1:
-            rows += [("Lap 1 time", self.lap_times[0], "s"),
-                     ("Total time", total, "s")]
+            rows += [("Lap 1 time", self.lap_times[0], "s", "lap1_time_s"),
+                     ("Total time", total, "s", "total_time_s")]
         if len(tr.sector_ends) > 1:
-            rows += [(f"Sector {k + 1} time", st, "s")
+            rows += [(f"Sector {k + 1} time", st, "s", f"sector{k + 1}_time_s")
                      for k, st in enumerate(self.sector_times[best])]
-        rows.append(("Average speed", done * tr.length / total * 3.6, "km/h"))
+        rows.append(("Average speed", done * tr.length / total * 3.6, "km/h",
+                     "average_speed_kmh"))
         if not tr.closed:
-            rows.append(("Speed at the finish", ctx.v * 3.6, "km/h"))
+            rows.append(("Speed at the finish", ctx.v * 3.6, "km/h", "finish_speed_kmh"))
         net = self.source_net_j()
-        rows.append(("Energy per lap", net / 3.6e6 / done, "kWh"))
+        rows.append(("Energy per lap", net / 3.6e6 / done, "kWh", "energy_per_lap_kwh"))
         if ctx.batteries and total > 0:
-            rows.append(("RMS battery power", math.sqrt(self.p_sq / total) / 1000.0, "kW"))
-        rows += [(f"Time limited by {name}", s, "s") for name, s in zip(LIMITS, self.limit_s)
+            rows.append(("RMS battery power", math.sqrt(self.p_sq / total) / 1000.0, "kW",
+                         "rms_battery_power_kw"))
+        rows += [(f"Time limited by {name}", s, "s",
+                  f"time_limited_by_{name.replace(' ', '_').replace('-', '_')}_s")
+                 for name, s in zip(LIMITS, self.limit_s)
                  if name != "lift-and-coast" or self.coast_used]
         if self.coast_used and self.coast_laps:
             rows.append(("Lift-and-coast, mean share", 100.0 * sum(self.coast_laps)
-                         / len(self.coast_laps), "%"))
+                         / len(self.coast_laps), "%", "lift_and_coast_share_pct"))
         if self.energy_target_j > 0:
-            rows += [("Energy target", self.energy_target_j / 3.6e6, "kWh"),
+            rows += [("Energy target", self.energy_target_j / 3.6e6, "kWh", "energy_target_kwh"),
                      ("Energy used against the target", 100.0 * (net - self.energy_target_j)
-                      / self.energy_target_j, "%")]
-        rows.append(("Lap energy balance error", self.balance_pct(), "%"))
+                      / self.energy_target_j, "%", "energy_against_target_pct")]
+        rows.append(("Lap energy balance error", self.balance_pct(), "%",
+                     "lap_energy_balance_error_pct"))
         return rows
 
     def source_net_j(self) -> float:

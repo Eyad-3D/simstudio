@@ -377,8 +377,17 @@ class Attachment(BaseModel):
     bytes: int = Field(ge=0)
 
 
+def _project_schema_extra(schema: dict) -> None:
+    # read from the file's extra fields, not a model field, so files that
+    # leave it out stay byte-for-byte as they were (lightsim/ai_access.py)
+    schema["properties"]["noAi"] = {
+        "type": "boolean", "default": False,
+        "description": "true hides the project from AI tools (the MCP server, an in-app "
+                       "assistant), whatever folders they may see."}
+
+
 class Project(BaseModel):
-    model_config = PERSISTED
+    model_config = ConfigDict(extra="allow", json_schema_extra=_project_schema_extra)
 
     id: str
     name: str
@@ -421,6 +430,11 @@ class Channel(BaseModel):
 
 
 class SummaryValue(BaseModel):
+    # stable name of the figure, for scripts, the CLI and studies (AI-07):
+    # "<elementId>.<metric>" for a part's figure, "<metric>" for the run's
+    # (docs/spec/results.md lists them). Never changes with a label or a
+    # language; "" on runs stored before keys existed
+    key: str = ""
     label: str
     value: float
     unit: str
