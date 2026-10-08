@@ -2304,6 +2304,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         if (!quiet && get().project?.id === project.id) announce(notice);
       };
       log("info", `Running case '${name}' …`);
+      // a new run of the case is drawn as a chart, not on the Study view
+      // that the case was left on (STU-16)
+      const ui = useUIStore.getState();
+      if (ui.resultsViews[project.id]?.cases?.[caseId]?.view === "study") ui.setPlotView(project.id, caseId, { view: "chart" });
       try {
         const result = await executeRun(project, caseId, name);
         set({ running: false });

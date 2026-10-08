@@ -2293,6 +2293,9 @@ describe("the end of a run or sweep (UX-21, STU-16, STU-17)", () => {
     expect(tab()).toBe("results");
     const caseId = store().runs.find((r) => r.id === store().activeRunId)!.caseId;
     expect(useUIStore.getState().resultsViews.fixture.cases?.[caseId]?.view).toBe("study");
+    // a new run of the case is shown as a chart
+    await store().run();
+    expect(useUIStore.getState().resultsViews.fixture.cases?.[caseId]?.view).toBe("chart");
   });
 
   it("a stopped sweep says how many points are complete", async () => {
