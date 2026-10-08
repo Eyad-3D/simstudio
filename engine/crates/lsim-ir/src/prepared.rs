@@ -133,6 +133,17 @@ pub struct InverseSpec {
     pub freed: Vec<String>,
 }
 
+impl InverseSpec {
+    /// The names of an inverse model's inputs, in the order of
+    /// [`PreparedModel::inputs`]: for each prescribed variable, its value
+    /// and then its time derivative (`body.v`, `der(body.v)`, …). The
+    /// fast-mode stepper (lsim-fast) fills them in this order from one
+    /// piecewise-linear trace per prescribed variable.
+    pub fn input_names(&self) -> Vec<String> {
+        self.prescribed.iter().flat_map(|p| [p.clone(), format!("der({p})")]).collect()
+    }
+}
+
 /// Counts that describe the preparation, for the run report.
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct PrepStats {
@@ -182,4 +193,18 @@ pub struct PreparedModel {
     pub structure_key: String,
     /// counts for the report
     pub stats: PrepStats,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_inverse_models_inputs_are_each_value_then_its_derivative() {
+        let spec = InverseSpec {
+            prescribed: vec!["body.v".into(), "road.h".into()],
+            freed: vec!["motor.tau_dem".into()],
+        };
+        assert_eq!(spec.input_names(), ["body.v", "der(body.v)", "road.h", "der(road.h)"]);
+    }
 }
