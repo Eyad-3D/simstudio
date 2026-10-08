@@ -94,7 +94,8 @@ def _fmt(x: float | None, digits: int = 2) -> str:
 def markdown(meta: dict, ref: list[dict], spd: speed.SpeedReport | None) -> str:
     acc, sp = targets()["accuracy"], targets()["speed"]
     L = [f"# LightSim yardstick: {meta['engine']['engine']} ({meta['date']})", "",
-         f"Engine **{meta['engine']['engine']}** {meta['engine']['version']} (commit "
+         f"Engine **{meta['engine']['engine']}** {meta['engine']['version']} (its code as of "
+         f"commit `{meta['engine'].get('engine_commit', '?')}`; benchmarks run from "
          f"`{meta['engine']['commit']}`), default solver step "
          f"{meta['engine']['default_step_s'] * 1000:g} ms. Machine: {meta['machine']['cpu']}, "
          f"{meta['machine']['cpus']} CPUs, load average at the start "

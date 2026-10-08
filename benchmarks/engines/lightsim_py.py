@@ -65,15 +65,24 @@ CANNOT = {
 }
 
 
-def version() -> dict:
-    """The engine's version and the commit it was run from."""
+def _git(*args: str) -> str:
     try:
-        commit = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
-                                capture_output=True, text=True, timeout=10).stdout.strip()
+        return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True,
+                              timeout=10).stdout.strip()
     except (OSError, subprocess.SubprocessError):
-        commit = ""
-    return {"engine": NAME, "version": lightsim.__version__, "commit": commit,
-            "default_step_s": MAX_STEP}
+        return ""
+
+
+def version() -> dict:
+    """The engine's version, the last commit that changed its code
+    (backend/app, backend/lightsim), and the commit the benchmarks ran
+    from ("+" when the working tree had changes)."""
+    head = _git("rev-parse", "--short", "HEAD")
+    if head and _git("status", "--porcelain", "--", "backend", "benchmarks"):
+        head += "+"
+    code = _git("log", "-1", "--format=%h", "--", "backend/app", "backend/lightsim")
+    return {"engine": NAME, "version": lightsim.__version__, "engine_commit": code,
+            "commit": head, "default_step_s": MAX_STEP}
 
 
 # ---- building project files ------------------------------------------------------------
