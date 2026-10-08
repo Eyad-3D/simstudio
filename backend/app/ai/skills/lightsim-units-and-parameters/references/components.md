@@ -511,7 +511,7 @@ Parameters:
 
 Category: Driveline. Domain: mechanical.
 
-Multi-speed gearbox. The ratio table maps gear number → ratio; the Gear Select signal picks the active gear (nearest defined gear wins, unwired = default gear). A shift takes effect at the solver step (≤ 10 ms) in which Gear Select changes.
+Multi-speed gearbox. The ratio table maps gear number → ratio; the Gear Select signal picks the active gear (nearest defined gear wins, unwired = default gear). A shift takes effect at the solver step (≤ 10 ms) in which Gear Select changes, as a rigid, instantaneous engagement: the speeds jump to the new ratio keeping the driveline's angular momentum (and, through tyres that grip, the vehicle's), and the kinetic energy that loses is the gearbox's loss (its gear shifts term). A clutch passes no more than its torque, so an engine behind one keeps its speed and the clutch slips.
 
 Ports:
 - `flange_in`: Flange In (mechanical bidirectional, kW)

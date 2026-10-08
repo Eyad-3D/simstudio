@@ -446,6 +446,18 @@ minimum or an average, for example from the CSV export, or put the
   is open, as the P2 Hybrid Car example's script does.
   Turbo lag, restart cost and warm-up are not modelled either.
   *Roadmap:* MOD-13.
+- **A gear shift takes no time.** A Gearbox changes its ratio within one
+  solver step, as a rigid engagement with no slip: the speeds jump to the
+  new ratio keeping the driveline's angular momentum and, through tyres
+  that grip, the car's, and the kinetic energy that loses is booked as the
+  gearbox's *gear shifts* loss (the P2 Hybrid Car's 104 shifts on EPA city
+  lose 12.7 kJ). Real shifts take 0.2-0.5 s, with the torque interrupted
+  or a synchroniser slipping; here the car takes the gearbox input's
+  momentum at once (about 0.3 km/h at the P2 Hybrid Car's first upshift)
+  and loses no drive while shifting. A clutch in the driveline is not
+  rigid: it slips as its torque allows, so an engine behind a closed
+  clutch keeps its speed at the shift and the clutch takes up the
+  difference. *Roadmap:* ENG-04.
 - **Gear losses leave out inertia.** Each gear's loss now acts on the net
   power through it, in both directions, but the torque that accelerates the
   driveline's own inertia is not part of that net, and a locked clutch's
@@ -460,7 +472,7 @@ minimum or an average, for example from the CSV export, or put the
   side carried. The flows between parts are worked out separately, so their
   books together close only to within the *Energy balance residual* (0.01 %
   on the Battery Electric Car's City Cycle, 0.02 % on the hybrid's Mixed
-  Cycle, 0.24 % on its UDDS, 0.39 % on the Formula Student car's 75 m acceleration, with its
+  Cycle, 0.23 % on its UDDS, 0.39 % on the Formula Student car's 75 m acceleration, with its
   wheels spinning). Lap cases book the electrical parts per part, and the
   mechanics (road load, brakes, gears) as one Vehicle entry from the lap's
   own energy pass; they have no residual row (see *Lap energy balance

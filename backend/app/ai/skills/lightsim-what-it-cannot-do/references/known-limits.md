@@ -57,6 +57,7 @@ Point 0 of every run is the initial state at t = 0.
 ### Component models with known errors
 
 - **A declutched engine with any throttle runs to its rev limiter.** The engine has no speed governor above idle: with the clutch open, any throttle above 0 revs it up to the last speed of its full-load curve, where it runs on the rev limiter at high fuel flow.
+- **A gear shift takes no time.** A Gearbox changes its ratio within one solver step, as a rigid engagement with no slip: the speeds jump to the new ratio keeping the driveline's angular momentum and, through tyres that grip, the car's, and the kinetic energy that loses is booked as the gearb…
 - **Gear losses leave out inertia.** Each gear's loss now acts on the net power through it, in both directions, but the torque that accelerates the driveline's own inertia is not part of that net, and a locked clutch's torque is taken from the previous 10 ms step.
 - **The energy breakdown leaves out inertia in the gears and reads the
   flows at the step's start.** Each run lists every part's energy in, out, lost and stored (*energy* in the run result; the parts' *Losses*, *Input Power*, *Braking Power* and *Slip Losses* channels).
@@ -86,7 +87,7 @@ Point 0 of every run is the initial state at t = 0.
 - **A sweep's time left is an estimate.** It is worked out from the pace of the points that have ended so far, which run side by side; it shows only once a point has ended, and it grows when later points take longer (a heavier car or a slower lap runs longer).
 - **The Study view charts results against one swept value.** Each chart has the first swept parameter on its x axis; the endurance energy study's power limit is a line each, and a study of more parameters cannot be made from the app yet.
 - **Peaks between recorded points are stored but not drawn.** Since 0.3 every stored point also keeps each channel's lowest, highest and time-averaged value since the point before it, taken at every solver step (ENG-16), so a regeneration burst between two points is in the run: with *Store every* 10 on the Battery Elect…
-- **The Results page shows at most 3 decimals.** Since 0.3, stored values and summary numbers keep full precision (ENG-16): one more kilogram on the Battery Electric Car changes its City Cycle's consumption and final SOC, and the energies equal the solver steps' sum to 1e-6.
+- **The Results page shows at most 3 decimals.** Since 0.3, stored values and summary numbers keep full precision (ENG-16): one more kilogram on the Battery Electric Car changes its City Cycle's consumption and final SOC, and the energies equal the solver steps' sum to 1e-6; each part's energy books, the *E…
 - **Cursor integrals come from the recorded points.** The *Results* chart's cursors integrate the stored points with the trapezoid rule, so they differ a little from the summary's energies, which add up every solver step: on the Battery Electric Car's City Cycle (a point every 1 s), the battery's power integrate…
 - **Long runs with many lines zoom less smoothly.** On a 1-hour run (36,001 points) with 7 channels ticked and the baseline drawn faint as well (14 lines), the mouse wheel zooms at 60 frames a second most of the time, but about one step in 20 takes two frames (30-40 ms).
 

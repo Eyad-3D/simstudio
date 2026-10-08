@@ -984,3 +984,61 @@ fixtures, and no example has a propeller.
 |---|---|---|---|---|
 | bev-car City Cycle (shipped step) | Climate Control — energy used | — | 0 kWh | new row |
 | bev-car City Cycle (fine step) | Climate Control — energy used | — | 0 kWh | new row |
+
+## Gear shifts keep the driveline's momentum and book what they lose
+
+A gear shift changed the ratio and then set the new speeds from one part's
+speed: a wheel's when the driveline had one (else a motor's or a load's),
+the others following from the new ratio. That made or destroyed kinetic
+energy at every shift, and the books did not see it: an upshift dropped
+the gearbox input side (the P2 Hybrid Car's E-Motor, 0.045 kg·m², and the
+gearbox's input, 0.015) from i1·ω to i2·ω with its energy gone, a
+downshift spun it up from nothing. Over the Mixed Cycle (5 up- and 5
+downshifts) the rotating parts' books ended at +1,176 J for a car that
+ends at rest; over EPA city (52 and 52) at +18,871 J.
+
+A shift is now a rigid, instantaneous engagement (RunContext.carry_over):
+the speeds jump to the new ratio while the angular momentum of everything
+the gears tie together is kept, and through every tyre that grips (its
+slip velocity is kept) the Vehicle's and the other drivelines' momentum
+too. Like a perfectly inelastic collision it only loses kinetic energy,
+½ Σ J (u⁻ − u⁺)², booked as the gearbox's loss (its new *gear shifts*
+term); the rotating parts' and the Vehicle's books now hold what their
+speeds hold (0 J at the end of both cycles). An upshift hands the input
+side's momentum to the car (it gains about 0.3 km/h at the first upshift,
+the input side drops to the new ratio at once), so the energy the old
+rule threw away now drives the car. A clutch passes no impulse (its
+torque is limited): the engine behind the closed clutch keeps its speed
+at the shift and the clutch slips, as before. The Mixed Cycle's 10 shifts
+lose 943 J, EPA city's 104 lose 12.7 kJ.
+
+The hybrid uses about 0.1 % less fuel in the Mixed Cycle (2.8777 →
+2.8748 l/100 km) and 0.3 % less in EPA city (2.8382 → 2.8292; highway
+3.2357 → 3.2347): the momentum the old rule destroyed at each upshift
+now drives the car. The battery ends a little lower (Mixed 51.95 →
+51.91 %, still within 1 % of the fuel's energy, so no charge correction). The energy balance residual of EPA city falls from 0.237 to
+0.227 % (the rest is the solver step's own interface error and the
+closing clutch's ringing). The Battery Electric Car has no gearbox: its
+results do not change. The 5 channels outside their tube are the friction
+brakes' power at t = 560 s (5 mW) and the battery's SOC.
+
+| Fixture | Number | Old | New | Change |
+|---|---|---|---|---|
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — final SOC | 51.9546 % | 51.9125 % | -0.04209 (-0.08 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — energy delivered | 0.206872 kWh | 0.207201 kWh | +0.000329 (+0.16 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — energy recuperated | 0.210003 kWh | 0.209671 kWh | -0.000332 (-0.16 %) |
+| hybrid-car Mixed Cycle (shipped step) | Engine — fuel used | 0.204862 kg | 0.204651 kg | -0.000211 (-0.10 %) |
+| hybrid-car Mixed Cycle (shipped step) | Fuel consumption | 2.87771 l/100km | 2.87475 l/100km | -0.002962 (-0.10 %) |
+| hybrid-car Mixed Cycle (shipped step) | CO₂ emissions | 67.9614 g/km | 67.8915 g/km | -0.06995 (-0.10 %) |
+| hybrid-car Mixed Cycle (shipped step) | Energy balance residual | 0.018651 % | 0.018447 % | -0.000204 (-1.09 %) |
+| hybrid-car Mixed Cycle (shipped step) | Battery energy change, share of fuel energy | -0.003507 % | -0.030668 % | -0.02716 (+774.48 %) |
+| hybrid-car Mixed Cycle (shipped step) | channels that moved | | 71 | 5 outside their tube |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — final SOC | 51.9533 % | 51.9114 % | -0.04193 (-0.08 %) |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — energy delivered | 0.206864 kWh | 0.207162 kWh | +0.000298 (+0.14 %) |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — energy recuperated | 0.209975 kWh | 0.209613 kWh | -0.000362 (-0.17 %) |
+| hybrid-car Mixed Cycle (fine step) | Engine — fuel used | 0.204675 kg | 0.204461 kg | -0.000214 (-0.10 %) |
+| hybrid-car Mixed Cycle (fine step) | Fuel consumption | 2.87509 l/100km | 2.87208 l/100km | -0.003008 (-0.10 %) |
+| hybrid-car Mixed Cycle (fine step) | CO₂ emissions | 67.8995 g/km | 67.8284 g/km | -0.07105 (-0.10 %) |
+| hybrid-car Mixed Cycle (fine step) | Energy balance residual | 0.004763 % | 0.004824 % | +6.1e-05 (+1.28 %) |
+| hybrid-car Mixed Cycle (fine step) | Battery energy change, share of fuel energy | -0.004314 % | -0.031397 % | -0.02708 (+627.79 %) |
+| hybrid-car Mixed Cycle (fine step) | channels that moved | | 71 | 5 outside their tube |

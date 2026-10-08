@@ -378,7 +378,6 @@ class RunContext:
                         self.params(gb.el_id).get("default_gear", 1) or 1))
         self.gears_checked = False  # the first gear check is initialisation
         self.normalize_wheel_loads()
-        self.el_axis_speed: dict[str, float] = {}  # anchor speeds for plan rebuilds
         # bumped whenever a driveline or its plan changes (gear shift, lock
         # toggle), so cached views of them (routed state getters) refresh
         self.layout_version = 0
@@ -456,6 +455,8 @@ class RunContext:
         # each driveline's rotating parts: kinetic energy gained, J, their
         # inertias per segment, and the speeds its plan opened with
         self.rot_ke_j = [0.0] * len(self.dls)
+        # ... and lost at engagements no part took (RunContext.carry_over), J
+        self.rot_loss_j = [0.0] * len(self.dls)
         self.rot_inertia: list[list[float]] = [[] for _ in self.dls]
         self.rot_first: list[list[float] | None] = [None] * len(self.dls)
         self.mech_key: int | None = None  # see mech_book
@@ -685,20 +686,11 @@ class RunContext:
             self.profile_cache[el_id] = pts
         return pts
 
-    def anchor_of_group(self, dl: Driveline, plan: DrivePlan, coord: int) -> tuple[str, float] | None:
-        root = plan.coord_root[coord]
-        for s, seg in enumerate(dl.segments):
-            if plan.root_of_seg[s] != root:
-                continue
-            for w in seg.wheels:
-                return w.el_id, w.m * plan.scale_of_seg[s]
-            for src in seg.sources:
-                return src.el_id, src.m * plan.scale_of_seg[s]
-            for pr in seg.props:
-                return pr.el_id, pr.m * plan.scale_of_seg[s]
-        return None
-
     def rebuild_plan(self, st: DrivelineState, initial: bool = False) -> None:
+        """Work out a driveline's plan again, at the start of the run (its
+        speeds then follow the vehicle's) or after a gear shift or a lock
+        toggle (closing its books under the old plan first: the caller then
+        sets its speeds with carry_over)."""
         if not initial and st.book_key is not None:  # the old plan's books are done
             self.derive_gears(st)
             self.close_rotating(self.dls.index(st))
@@ -709,17 +701,224 @@ class RunContext:
             self.rt.warn_once("overconstrained",
                               "Driveline became kinematically over-constrained — "
                               "its motion is frozen.")
-            return
-        if initial:
+        elif initial:
             self.start_at_vehicle_speed(st)
-            return
-        for k in range(st.plan.n):
-            anchor = self.anchor_of_group(st.dl, st.plan, k)
-            if anchor is None:
-                st.plan.x[k] = 0.0
+
+    def gripping_tyres(self, st: DrivelineState, plan: DrivePlan,
+                       omega: list[float]) -> list[tuple[int, object, float]]:
+        """A driveline's wheels whose tyres grip at the segment speeds
+        ``omega`` (under ``plan``) and the vehicle's speed: (segment, wheel,
+        its slip velocity, m/s). A tyre at its grip limit slides instead."""
+        if not self.veh_id or plan.over_constrained or not plan.n:
+            return []
+        v = self.v
+        v_den = max(abs(v), V_EPS)
+        out = []
+        for s_idx, seg in enumerate(st.dl.segments):
+            for w in seg.wheels:
+                if w.n_load <= 0:
+                    continue
+                mu = tyre_mu(w, w.n_load) if w.dmu_per_n else w.mu
+                slip_v = w.m * omega[s_idx] * w.radius - v
+                if not abs(w.c_slip * slip_v / v_den) >= mu:  # (as the solver tells it)
+                    out.append((s_idx, w, slip_v))
+        return out
+
+    def carry_over(self, changes: list[tuple[DrivelineState, Driveline, DrivePlan,
+                                             tuple[str, ...]]], term: str) -> None:
+        """Set the speeds of drivelines whose plan just changed (``changes``:
+        each one's state with its new plan, the driveline and plan it was
+        in, and the parts that changed: the gearboxes that shifted, the
+        split that locked or opened) as a rigid, instantaneous engagement
+        does. An impulse makes every speed meet the new constraints (gear
+        ratios, locks) while the angular and linear momentum of everything
+        it reaches is kept: the gears and shafts, and through every tyre
+        that grips (its slip velocity is kept) the Vehicle and the other
+        drivelines on the road. Each segment's momentum is that of its
+        rotating masses (Segment.lumps), each at its own speed before the
+        change, reflected through its speed factor after it, so the new
+        speeds are those of least kinetic energy lost: like a perfectly
+        inelastic collision the engagement can only lose kinetic energy, and
+        it is booked as the changed parts' loss under ``term``, while the
+        rotating parts and the Vehicle hold what their speeds hold. A clutch
+        passes no impulse (its torque is limited): an engine behind one
+        keeps its speed and the clutch slips, nor does a tyre at its grip
+        limit, which slides. A constraint that is only taken away (a lock
+        released) keeps every speed."""
+        def speeds(st: DrivelineState, plan: DrivePlan) -> list[float]:
+            if plan.over_constrained or not plan.n:
+                return [0.0] * len(st.dl.segments)  # (its motion is frozen)
+            return [sum(g * x for g, x in zip(plan.gvec[s], plan.x))
+                    for s in range(len(st.dl.segments))]
+
+        changed = {id(st): (old_dl, old_plan) for st, old_dl, old_plan, _ in changes}
+        # the drivelines the impulse reaches: the changed ones, and, when one
+        # of them grips the road, the Vehicle and every driveline that does
+        rows = []  # (driveline, its old segment speeds, its old segments, gripping tyres)
+        for st in self.dls:
+            if id(st) in changed:
+                old_dl, old_plan = changed[id(st)]
+                old_st = DrivelineState(dl=old_dl, plan=old_plan)
+                w_old = speeds(old_st, old_plan)
+                rows.append((st, w_old, old_dl.segments,
+                             self.gripping_tyres(old_st, old_plan, w_old)))
+        on_road = any(grip for *_, grip in rows)
+        if on_road:
+            for st in self.dls:
+                if id(st) not in changed:
+                    w_old = speeds(st, st.plan)
+                    grip = self.gripping_tyres(st, st.plan, w_old)
+                    if grip:
+                        rows.append((st, w_old, st.dl.segments, grip))
+        v_old = self.v
+
+        # the momentum each coordinate carries into its new plan, and its mass matrix
+        ke_old = 0.5 * self.veh_mass * v_old * v_old if on_road else 0.0
+        blocks = []  # (row, first unknown, n, mass matrix, momentum)
+        size = 0
+        for row in rows:
+            st, w_old, old_segs, _ = row
+            u: dict[str, float] = {}  # each rotating mass's speed before, rad/s
+            for s, seg in enumerate(old_segs):
+                for key, _, m in seg.lumps:
+                    u[key] = m * w_old[s]
+                ke_old += 0.5 * max(1e-4, seg.inertia) * w_old[s] * w_old[s]
+            plan = st.plan
+            n = 0 if plan.over_constrained else plan.n
+            m_mat = [[0.0] * n for _ in range(n)]
+            p_vec = [0.0] * n
+            for s, seg in enumerate(st.dl.segments if n else ()):
+                g = plan.gvec[s]
+                j_seg = max(1e-4, seg.inertia)
+                # its masses' angular momentum, reflected to its reference
+                # axis; what of its inertia no mass accounts for (the
+                # solver's least inertia, a coupling) turns with that axis
+                p_seg = (j_seg - sum(j * m * m for _, j, m in seg.lumps)) * (
+                    w_old[s] if s < len(w_old) else 0.0)
+                for key, j, m in seg.lumps:
+                    p_seg += j * m * u.get(key, 0.0)
+                for i in range(n):
+                    if g[i]:
+                        p_vec[i] += g[i] * p_seg
+                        for k in range(n):
+                            m_mat[i][k] += j_seg * g[i] * g[k]
+            blocks.append((row, size, n, m_mat, p_vec))
+            size += n
+        # each gripping tyre's wheel as the new plan has it (a shift between
+        # a segment's reference axis and a wheel changes its speed factor),
+        # its slip velocity and its rim speed before
+        grips = []
+        for blk in blocks if on_road else ():
+            if not blk[2]:
                 continue
-            el_id, factor = anchor
-            st.plan.x[k] = self.el_axis_speed.get(el_id, 0.0) / factor if factor else 0.0
+            new_wheels = {w.el_id: (s_idx, w) for s_idx, seg in enumerate(blk[0][0].dl.segments)
+                          for w in seg.wheels}
+            for s_idx, w, slip_v in blk[0][3]:
+                if w.el_id in new_wheels:
+                    grips.append((blk, *new_wheels[w.el_id], slip_v,
+                                  w.radius * w.m * blk[0][1][s_idx]))
+        i_v = size  # the Vehicle's speed
+        n_all = size + (1 + len(grips) if grips else 0)
+
+        # the impulse: M x + Σ a_w λ_w = p, m v − Σ λ_w = m v⁻, a_w·x − v = slip_w
+        a_mat = [[0.0] * n_all for _ in range(n_all)]
+        rhs = [0.0] * n_all
+        for _, first, n, m_mat, p_vec in blocks:
+            for i in range(n):
+                rhs[first + i] = p_vec[i]
+                for k in range(n):
+                    a_mat[first + i][first + k] = m_mat[i][k]
+        if grips:
+            a_mat[i_v][i_v] = self.veh_mass
+            rhs[i_v] = self.veh_mass * v_old
+            for c, ((row, first, n, _, _), s_idx, w, slip_v, _) in enumerate(grips):
+                i_l = i_v + 1 + c
+                g = row[0].plan.gvec[s_idx]
+                for i in range(n):
+                    a_w = w.radius * w.m * g[i]
+                    a_mat[first + i][i_l] = a_w
+                    a_mat[i_l][first + i] = a_w
+                a_mat[i_v][i_l] = a_mat[i_l][i_v] = -1.0
+                rhs[i_l] = slip_v
+        try:
+            sol = solve_linear(a_mat, rhs) if n_all else []
+        except SingularMatrixError:  # (positive definite with full-rank grips: not in practice)
+            sol = [0.0] * n_all
+            for (row, first, n, m_mat, p_vec) in blocks:
+                try:
+                    sol[first:first + n] = solve_linear(m_mat, p_vec) if n else []
+                except SingularMatrixError:
+                    pass
+            grips = []
+        if grips:
+            self.v = max(0.0, sol[i_v])  # (it was moving forwards: a tyre's slip is kept)
+
+        # the new speeds, and the books
+        ke_new = 0.5 * self.veh_mass * self.v * self.v if on_road else 0.0
+        for (st, w_old, _, _), first, n, _, _ in blocks:
+            if n:
+                st.plan.x[:] = sol[first:first + n]
+            w_new = speeds(st, st.plan)
+            ke_d = sum(0.5 * max(1e-4, seg.inertia) * w * w
+                       for seg, w in zip(st.dl.segments, w_new))
+            ke_new += ke_d
+            k = self.dls.index(st)
+            if id(st) in changed:  # (a driveline that keeps its plan books its speeds itself)
+                self.rot_ke_j[k] += ke_d - sum(
+                    0.5 * max(1e-4, seg.inertia) * w * w
+                    for seg, w in zip(changed[id(st)][0].segments, w_old))
+            st.omega_end = w_new
+            for s, seg in enumerate(st.dl.segments):
+                for src in seg.sources:
+                    cache = self.motors.get(src.el_id) or self.engines.get(src.el_id)
+                    if cache is not None:
+                        cache.rpm = abs(src.m * w_new[s]) * RPM
+            for j in st.dl.joints:
+                if j.kind == "clutch":
+                    st.clutch_slip[j.el_id] = (j.child_a_m * w_new[j.child_a]
+                                               - j.child_b_m * w_new[j.child_b])
+        lost = ke_old - ke_new
+        if grips:
+            # each gripping tyre passed its impulse from the axle to the Vehicle
+            v_bar = 0.5 * (v_old + self.v)
+            e_veh = 0.0
+            for c, ((row, _, _, _, _), s_idx, w, _, rim_old) in enumerate(grips):
+                lam = sol[i_v + 1 + c]  # N·s, forwards on the Vehicle
+                rim_bar = 0.5 * (rim_old + w.radius * w.m * row[0].omega_end[s_idx])
+                e_a, e_b = lam * rim_bar, lam * v_bar  # J from the axle, to the Vehicle
+                f = self.flow(w.el_id)
+                if e_a >= 0.0:
+                    f.in_j += e_a
+                else:
+                    f.out_j -= e_a
+                if e_b >= 0.0:
+                    f.out_j += e_b
+                else:
+                    f.in_j -= e_b
+                    f.in_rev_j -= e_b
+                lost -= e_a - e_b  # (its slip's share: the tyre's own loss)
+                e_veh += e_b
+            dke = 0.5 * self.veh_mass * (self.v * self.v - v_old * v_old)
+            tot = self.veh_j  # (as the mechanical step books the Vehicle)
+            if e_veh >= 0.0:
+                tot[0] += e_veh
+            else:
+                tot[1] -= e_veh
+                tot[3] -= e_veh
+            tot[2] += dke
+            tot[5] += e_veh
+            self.road_j[3] += dke
+            self.rt.publish(self.veh_id, "sig_speed", self.v * 3.6)
+        parts = [el_id for *_, loss_to in changes for el_id in loss_to]
+        if lost and parts:
+            share = lost / len(parts)
+            for el_id in parts:
+                f = self.flow(el_id)
+                f.in_j += share
+                if term:
+                    f.term(term, share)
+        elif lost:  # (no part named: kept as the rotating parts' own loss)
+            self.rot_loss_j[self.dls.index(changes[0][0])] += lost
 
     def clutch_closed_at_start(self, j: Joint) -> bool:
         """A clutch closes at t = 0 when unwired, or when a Constant or
@@ -768,15 +967,10 @@ class RunContext:
         # speeds, a script's first reading)
         for s, seg in enumerate(st.dl.segments):
             omega = self.seg_speed(st, s)
-            for w in seg.wheels:
-                self.el_axis_speed[w.el_id] = w.m * omega
             for src in seg.sources:
-                self.el_axis_speed[src.el_id] = src.m * omega
                 cache = self.motors.get(src.el_id) or self.engines.get(src.el_id)
                 if cache is not None:
                     cache.rpm = abs(src.m * omega) * RPM
-            for pr in seg.props:
-                self.el_axis_speed[pr.el_id] = pr.m * omega
         for j in st.dl.joints:  # (an open clutch can start with slip)
             if j.kind == "clutch":
                 st.clutch_slip[j.el_id] = (j.child_a_m * self.seg_speed(st, j.child_a)
@@ -885,7 +1079,9 @@ class RunContext:
         if key == "locked":
             for st in self.dls:
                 if any(j.el_id == el_id for j in st.dl.joints):
+                    old_plan = st.plan
                     self.rebuild_plan(st)
+                    self.carry_over([(st, st.dl, old_plan, (el_id,))], "locking")
             return "applied"
         try:
             if el_id in self.motors:
@@ -1945,9 +2141,10 @@ class RunContext:
             self.derive_gears(self.dls[k])
             self.close_rotating(k)
             ke = self.rot_ke_j[k]
+            given = ke + self.rot_loss_j[k]  # (net in: its kinetic energy and its loss)
             rot = self.book.flow(f"rotating:{k}", None, "Rotating parts" if len(self.dls) < 2
                                  else f"Rotating parts (driveline {k + 1})", "driveline.inertia")
-            rot.in_j, rot.out_j, rot.stored_j = max(ke, 0.0), max(-ke, 0.0), ke
+            rot.in_j, rot.out_j, rot.stored_j = max(given, 0.0), max(-given, 0.0), ke
 
     # ---- gear selection ---------------------------------------------------------
 
@@ -1960,23 +2157,25 @@ class RunContext:
         efficiency reflected through it, so the driveline is walked again
         from the run's live parameter set: edits made during the run (grip,
         brake torque, locks …) stay in force; edits deferred to the next
-        run stay deferred. The rotating speeds carry over through the
-        per-element anchors. The first check, at t = 0, only takes the gear
+        run stay deferred. The speeds jump to the new ratio as a rigid,
+        instantaneous engagement makes them (carry_over: the driveline's
+        angular momentum is kept and the kinetic energy that loses is the
+        gearbox's loss). The first check, at t = 0, only takes the gear
         the controller asks for as the starting gear: when that is the gear
         the model was built in nothing is rebuilt, otherwise the driveline
         is set up in it from the vehicle speed, as at the start of the run."""
         rt = self.rt
         first, self.gears_checked = not self.gears_checked, True
-        shifted = False
+        shifts = []
         for st in self.dls:
-            changed = False
+            changed: list[str] = []
             for seg in st.dl.segments:
                 for gb in seg.gearboxes:
                     sig = rt.read_signal(gb.el_id, "sig_gear_in")
                     gear = round(sig) if sig is not None else float(
                         self.params(gb.el_id).get("default_gear", 1) or 1)
                     if self.gear_of.get(gb.el_id) != gear:
-                        changed = True
+                        changed.append(gb.el_id)
                     self.gear_of[gb.el_id] = gear
             if not changed:
                 continue
@@ -1985,11 +2184,15 @@ class RunContext:
                 rt.warn_once("regear", "A driveline could not be rebuilt for a gear change "
                                        "— it keeps its previous gear.")
                 continue
+            old_dl, old_plan = st.dl, st.plan
             st.dl = new_dl
             self.normalize_wheel_loads()  # the new wheels hold their raw shares
             self.rebuild_plan(st, initial=first)
-            shifted = shifted or not first
-        return shifted
+            if not first:
+                shifts.append((st, old_dl, old_plan, tuple(changed)))
+        if shifts:  # every driveline that shifted in this step, together
+            self.carry_over(shifts, "gear shifts")
+        return bool(shifts)
 
 
 class _CtxSlave(Slave):
@@ -2534,20 +2737,15 @@ class MechanicalSlave(_CtxSlave):
                     x_new = 0.0
                 x[i] = x_new
 
-            # update anchors + joint channels
+            # the sources' speeds and the joints' channels
             omega_seg = st.omega_end = [ctx.seg_speed(st, s) for s in range(len(st.dl.segments))]
             st.chain_power_w = 0.0
             for s_idx, seg in enumerate(st.dl.segments):
-                for w in seg.wheels:
-                    ctx.el_axis_speed[w.el_id] = w.m * omega_seg[s_idx]
                 for src in seg.sources:
-                    ctx.el_axis_speed[src.el_id] = src.m * omega_seg[s_idx]
                     cache = ctx.motors.get(src.el_id) or ctx.engines.get(src.el_id)
                     if cache is not None:
                         cache.rpm = abs(src.m * omega_seg[s_idx]) * RPM
                         st.chain_power_w += getattr(cache, "p_mech_w", 0.0)
-                for pr in seg.props:
-                    ctx.el_axis_speed[pr.el_id] = pr.m * omega_seg[s_idx]
             # the clutches' channels: the slip the step left, and the torque
             # that acted over it (with its implicit part)
             for (j, ga, gb, _), t_c, cap_c in zip(lay.clutches, clutch_t, clutch_cap):

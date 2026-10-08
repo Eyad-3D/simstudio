@@ -13,8 +13,9 @@ Domain physics lives in domains.py (RunContext + slaves); shared numerics
 in runtime.py.
 
 Gear shifts rebuild the driveline plan at the solver step they happen in,
-live lock/unlock toggles at recording boundaries, carrying rotational
-states over via per-element anchor speeds.
+live lock/unlock toggles at recording boundaries; the speeds jump to the
+new constraints keeping the driveline's angular momentum, and the kinetic
+energy that loses is booked (domains.RunContext.carry_over).
 
 A lap case (SimCase.kind "lap") runs lapsim's slave set instead, one master
 step per stretch of the Race Track (lapsim.run_laps), and is recorded and

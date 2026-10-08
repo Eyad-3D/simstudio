@@ -5,7 +5,7 @@
  "variant": "shipped",
  "case_step_s": 1.0,
  "store_every": 1,
- "change": "The Battery Electric Car's winter and hot-day cases heat and cool with a Climate Control (MOD-41 merge)",
+ "change": "Gear shifts keep the driveline's momentum and book what they lose",
  "status": "success",
  "messages": [
   "info: Case 'City Cycle' solved: 600 steps × 1 s (100 sub-steps each), 601 points recorded, 70 result channels.",

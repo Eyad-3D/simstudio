@@ -10,7 +10,7 @@ V = 1.5e-06  # measured 7.07e-07
 SOC = 3.1e-07  # measured 1.54e-07
 I = 1e-09  # measured 2.37e-15
 v1 = 0.00012  # measured 5.83e-05
-E_chem = 1.6e-06  # measured 7.81e-07
+E_chem = 1.6e-06  # measured 8.4e-07
 E_terminal = 2.1e-06  # measured 1.02e-06
 E_internal = 3.7e-07  # measured 1.82e-07
 closure = 1e-09  # measured 4.18e-15
@@ -19,7 +19,7 @@ closure = 1e-09  # measured 4.18e-15
 I = 6.2e-05  # measured 3.08e-05
 V = 1.5e-05  # measured 7.35e-06
 SOC = 1.4e-06  # measured 6.95e-07
-E_chem = 1.4e-05  # measured 6.65e-06
+E_chem = 1.4e-05  # measured 6.57e-06
 E_terminal = 1e-09  # measured 1.62e-13
 E_internal = 1.4e-05  # measured 6.57e-06
 closure = 1e-09  # measured 1.61e-13
@@ -30,7 +30,7 @@ V = 1.9e-06  # measured 9.23e-07
 I = 8.2e-05  # measured 4.08e-05
 SOC = 4.3e-06  # measured 2.13e-06
 E_terminal = 1.3e-05  # measured 6.22e-06
-E_chem = 1.3e-05  # measured 6.22e-06
+E_chem = 1.3e-05  # measured 6.33e-06
 E_internal = 2.2e-07  # measured 1.07e-07
 closure = 1e-09  # measured 2.15e-15
 
@@ -39,32 +39,33 @@ omega1 = 0.025  # measured 0.0123
 omega2 = 0.021  # measured 0.0103
 T_clutch = 2.4  # measured 1.16
 t_lock = 1e-09  # measured 1.49e-15
-E_drive = 0.0045  # measured 0.00225
-E_clutch = 0.0002  # measured 9.73e-05
+E_drive = 0.0045  # measured 0.00256
+E_clutch = 0.0002  # measured 0.000191
 E_kin = 1.8e-07  # measured 8.6e-08
-closure = 0.0044  # measured 0.00215
+closure = 0.0044  # measured 0.00236
 
 [mech_gear_change."rotational load"]
-omega2 = 0.87  # measured 0.434
-omega1 = 0.83  # measured 0.41
-E_drive = 0.65  # measured 0.322
-E_kin = 2.2  # measured 1.05
+omega2 = 1e-09  # measured 6.64e-15
+omega1 = 1e-09  # measured 6.05e-15
+E_drive = 0.0027  # measured 0.00133
+E_kin = 1e-09  # measured 1.33e-14
+E_shift = 1e-09  # measured 7.15e-17
 closure = 0.0027  # measured 0.00133
 
 [mech_gear_change."vehicle load"]
-omega2 = 0.017  # measured 0.00803
-omega1 = 0.012  # measured 0.00587
-E_drive = 0.0055  # measured 0.00273
-E_kin = 0.032  # measured 0.0158
+omega2 = 0.0003  # measured 0.00015
+omega1 = 0.0092  # measured 0.00456
+E_drive = 0.0055  # measured 0.00318
+E_kin = 0.00025  # measured 0.000122
 closure = 0.00075  # measured 0.000374
 
 [mech_inertia_coastdown."as stated"]
 omega = 0.00013  # measured 6.12e-05
 t_stop = 0.0002  # measured 9.9e-05
-E_viscous = 0.00027  # measured 0.000133
-E_coulomb = 5.5e-05  # measured 2.73e-05
+E_viscous = 0.00027  # measured 0.000152
+E_coulomb = 5.5e-05  # measured 5.19e-05
 E_kin = 1e-09  # measured 0
-closure = 0.00032  # measured 0.00016
+closure = 0.00021  # measured 0.0001
 
 [motor_dc_spinup_l0."as stated"]
 omega = 0.019  # measured 0.00941
@@ -79,15 +80,15 @@ v = 0.0073  # measured 0.00365
 x = 0.00023  # measured 0.000111
 t_event = 0.00012  # measured 5.75e-05
 t_stop = "never"
-E_aero = 4.8e-05  # measured 2.38e-05
-E_roll = 4.8e-05  # measured 2.38e-05
+E_aero = 4.8e-05  # measured 2.37e-05
+E_roll = 4.8e-05  # measured 2.37e-05
 E_kin = 1e-09  # measured 2.24e-13
-closure = 1e-09  # measured 2.24e-13
+closure = 1e-09  # measured 1.72e-15
 
 [veh_constant_power."as stated"]
 v = 0.0018  # measured 0.000855
 x = 0.002  # measured 0.000985
 t_event = 0.0042  # measured 0.00207
-E_supplied = 2.4e-05  # measured 1.2e-05
+E_supplied = 2.1e-05  # measured 1.04e-05
 E_kin = 0.0035  # measured 0.00174
 closure = 0.0036  # measured 0.00176
