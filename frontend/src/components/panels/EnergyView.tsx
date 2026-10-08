@@ -14,6 +14,8 @@ const COL_X = [210, 310, 510, 700];
 const LABEL_GAP = 13; // px between label baselines
 const kwh = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: v >= 10 ? 2 : 3, minimumFractionDigits: 0 });
 const pct = (v: number, total: number) => (total > 0 ? `${((100 * v) / total).toFixed(1)} %` : "");
+// a small energy (the residual) with two significant digits, not as "-0"
+const kwhSmall = (v: number) => (Math.abs(v) >= 0.001 || v === 0 ? kwh(v) : v.toLocaleString(undefined, { maximumSignificantDigits: 2 }));
 // what "not accounted for" is, in the header and the table's last row
 const REMAINDER_HINT =
   "The sources' energy less every place it went. Every part's own books close, so this is only where the energy out of one part is not quite the energy into the next: the solver's step, which grows with hard wheel spin and with a coarse step. It is the summary's Energy balance residual, there as a share of the energy the sources gave up and with the sign the other way round (energy the step made is + there, − here). A large one means the model does not add up.";
@@ -92,7 +94,7 @@ export function EnergyView({ run }: { run: SimRun }) {
         <span className={remainderBig ? "text-[color:var(--ss-warn)]" : ""} title={REMAINDER_HINT}>
           Not accounted for (energy balance residual){" "}
           <b className="font-mono">
-            {kwh(e.remainderKWh)} kWh ({e.remainderPct.toFixed(2)} %)
+            {kwhSmall(e.remainderKWh)} kWh ({e.remainderPct.toFixed(2)} %)
           </b>
         </span>
         {e.balanceErrorPct != null && (
@@ -232,7 +234,7 @@ export function EnergyView({ run }: { run: SimRun }) {
               </td>
               <td className="ss-td" />
               <td className="ss-td" />
-              <td className="ss-td text-right font-mono">{kwh(e.remainderKWh)}</td>
+              <td className="ss-td text-right font-mono">{kwhSmall(e.remainderKWh)}</td>
               <td className="ss-td" />
               <td className="ss-td text-right font-mono">{e.remainderPct.toFixed(1)}</td>
             </tr>
