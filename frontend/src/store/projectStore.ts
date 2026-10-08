@@ -35,8 +35,9 @@ import type {
   SystemNode,
 } from "../types";
 import { rangeProblem } from "../paramRules";
-import { FS_EVENTS, packOverrides, type FsEvent } from "../fsEvents";
+import { FS_EVENT_NAMES, FS_EVENTS, packOverrides, type FsEvent } from "../fsEvents";
 import { codeOf, fingerprintOf } from "../trust";
+import { pointComplete, type SweepProgress } from "../sweep";
 import { useUIStore } from "./uiStore";
 
 export function uid(prefix: string): string {
@@ -213,6 +214,40 @@ export interface SweepConfig {
   values: number[];
 }
 
+/** How the latest run, sweep or study ended, for the notice over the status
+ *  bar (UX-21). `show` is what its button opens: the Results page, Messages,
+ *  or Cases & Parameters (where a study's own view is). */
+export interface FinishNotice {
+  /** counts up, so that a notice like the one before is still announced */
+  seq: number;
+  level: "info" | "warning" | "error";
+  text: string;
+  show: "results" | "messages" | "cases";
+  /** a sweep's study, whose charts the notice offers too (STU-16) */
+  studyId?: string;
+}
+let noticeSeq = 0;
+
+/** The notice a sweep or study ends with (UX-21): finished, stopped (a
+ *  point stopped or not run) or failed, and how many points are complete. */
+function studyNotice(
+  what: string,
+  points: StudyPoint[],
+  failure: string | null,
+  show: FinishNotice["show"],
+  studyId?: string,
+): Omit<FinishNotice, "seq"> {
+  const complete = points.filter(pointComplete).length;
+  const stopped = points.some((p) => p.status === "not run" || p.status === "cancelled");
+  const ended = failure ? "failed" : stopped ? "stopped" : "finished";
+  return {
+    level: failure ? "error" : complete < points.length ? "warning" : "info",
+    text: `${what} ${ended}: ${complete} of ${points.length} point${points.length === 1 ? "" : "s"} complete.`,
+    show,
+    ...(studyId ? { studyId } : {}),
+  };
+}
+
 /** Resolve "elementId:portId" stream keys to channel metadata client-side.
  *  Units come from the library's unitGroups map (single-sourced backend data). */
 function channelMetaResolver(
@@ -386,6 +421,13 @@ export interface ProjectState {
   liveValues: Record<string, number>;
   liveT: number;
   livePct: number;
+  /** The running sweep's or study's progress, for its time left (STU-17);
+   *  null when none runs. */
+  sweepProgress: SweepProgress | null;
+  /** How the latest run, sweep or study ended (UX-21); null once dismissed
+   *  or when the next one starts. */
+  finishNotice: FinishNotice | null;
+  dismissFinishNotice: () => void;
 
   // lifecycle
   init: () => Promise<void>;
@@ -527,7 +569,11 @@ export interface ProjectState {
    *  before they run (PLT-35); resolves true when nothing is left to ask.
    *  `when` "open" offers Open without running scripts, "run" Don't run. */
   reviewScripts: (when: "open" | "run") => Promise<boolean>;
-  run: () => Promise<void>;
+  /** Run the active case. The page stays where the user is (the Results
+   *  page only when they asked for it: uiStore's resultsAfterRun) and a
+   *  notice says how it ended (UX-21); `quiet` leaves both to the caller,
+   *  for a series of runs that says how it ended itself. */
+  run: (opts?: { quiet?: boolean }) => Promise<void>;
   /** The one-click Formula Student acceleration test: select the first
    *  acceleration case (adding a 75 m one if there is none) and run it. */
   runAccelerationTest: () => Promise<void>;
@@ -1000,6 +1046,37 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     }
   }
 
+  /** Say how a run, sweep or study ended (UX-21). The page stays where the
+   *  user is: one with results opens the Results page only when the user
+   *  asked for that (uiStore's resultsAfterRun), and says so there, with
+   *  the setting to turn off. On the Results page already, the results are
+   *  in view: nothing to say. */
+  function announce(notice: Omit<FinishNotice, "seq">): void {
+    const ui = useUIStore.getState();
+    if (notice.show === "results" && ui.ribbonTab === "results") return;
+    // (the page first: arriving on Results puts a notice of results away)
+    if (notice.show === "results" && ui.resultsAfterRun) ui.setRibbonTab("results");
+    set({ finishNotice: { ...notice, seq: ++noticeSeq } });
+  }
+
+  /** Bring Messages forward after a failure, on the model's page where that
+   *  panel is; the Results and Start pages are left as they are (UX-21). */
+  function revealMessages(): void {
+    const ui = useUIStore.getState();
+    if (ui.ribbonTab !== "results" && ui.ribbonTab !== "start") ui.focusPanel("messages");
+  }
+
+  /** A sweep's or study's progress as its points end (STU-17). */
+  function startProgress(total: number): void {
+    set({ livePct: 0, sweepProgress: { total, done: 0, startedAt: Date.now(), lastAt: null } });
+  }
+  function pointEnded(done: number): void {
+    set((s) => ({
+      livePct: s.sweepProgress ? (100 * done) / s.sweepProgress.total : s.livePct,
+      sweepProgress: s.sweepProgress && { ...s.sweepProgress, done, lastAt: Date.now() },
+    }));
+  }
+
   return {
     library: [],
     libraryById: {},
@@ -1033,6 +1110,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     liveValues: {},
     liveT: 0,
     livePct: 0,
+    sweepProgress: null,
+    finishNotice: null,
+    dismissFinishNotice: () => set({ finishNotice: null }),
 
     init: async () => {
       const [lib, appVersion, cycles] = await Promise.all([
@@ -2198,7 +2278,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
     },
 
-    run: async () => {
+    run: async (opts) => {
+      const quiet = opts?.quiet === true;
       const { project, activeCaseId, log, running } = get();
       if (!project || running) return;
       if (!activeCaseId) {
@@ -2209,7 +2290,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       // pre-flight validation gate: block the run on error-level data checks so
       // broken models fail fast (and visibly) instead of deep inside the solver.
       // The runs the user overlaid stay overlaid (RES-19).
-      set({ running: true });
+      set({ running: true, ...(quiet ? {} : { finishNotice: null }) });
       if (!(await get().passesRunGate(activeCaseId))) {
         set({ running: false });
         return;
@@ -2217,29 +2298,38 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
       const caseId = activeCaseId;
       const simCase = project.cases.find((c) => c.id === caseId);
-      log("info", `Running case '${simCase?.name ?? caseId}' …`);
+      const name = simCase?.name ?? caseId;
+      // (no notice about a project that is no longer open)
+      const tell = (notice: Omit<FinishNotice, "seq">) => {
+        if (!quiet && get().project?.id === project.id) announce(notice);
+      };
+      log("info", `Running case '${name}' …`);
       try {
-        const result = await executeRun(project, caseId, simCase?.name ?? caseId);
+        const result = await executeRun(project, caseId, name);
         set({ running: false });
         if (result.status === "failed") {
           log("error", "Simulation failed — see messages above.");
-          const ui = useUIStore.getState();
-          if (ui.ribbonTab === "results") ui.setRibbonTab("home");
-          ui.focusPanel("messages");
+          revealMessages();
+          tell({ level: "error", text: `'${name}' failed: see Messages.`, show: "messages" });
         } else {
           log(
             result.status === "warning" ? "warning" : "info",
             `Simulation finished with status '${result.status}'. ${result.channels.length} channels available in Results.`,
           );
-          // switch to the full-page Results workspace
-          useUIStore.getState().setRibbonTab("results");
+          const stopped = incompleteReason(result);
+          tell(
+            stopped
+              ? { level: "warning", text: `'${name}' ${stopped}.`, show: "results" }
+              : result.status === "warning"
+                ? { level: "warning", text: `'${name}' finished with warnings.`, show: "results" }
+                : { level: "info", text: `'${name}' finished: ${result.status}.`, show: "results" },
+          );
         }
       } catch (e) {
         set({ running: false });
         log("error", `Simulation failed: ${(e as Error).message}`);
-        const ui = useUIStore.getState();
-        if (ui.ribbonTab === "results") ui.setRibbonTab("home");
-        ui.focusPanel("messages");
+        revealMessages();
+        tell({ level: "error", text: `'${name}' failed: see Messages.`, show: "messages" });
       }
     },
 
@@ -2327,17 +2417,30 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           );
         }
       });
+      set({ finishNotice: null });
+      let failed: string | null = null;
       for (const ev of FS_EVENTS) {
         set({ activeCaseId: ids[ev] });
-        await get().run();
+        // (one notice for the four, below)
+        await get().run({ quiet: true });
         if (get().running) return;
         const last = get().runs.find((r) => r.caseId === ids[ev]);
-        if (!last || last.status === "failed") break; // (its messages say why)
+        if (!last || last.status === "failed") {
+          failed = FS_EVENT_NAMES[ev];
+          break; // (its messages say why)
+        }
       }
+      if (get().project?.id !== project.id) return;
+      // the points are in Cases & Parameters, on the model's page: shown
+      // there when the user is on it (UX-21)
       const ui = useUIStore.getState();
-      ui.setRibbonTab("home");
-      ui.focusPanel("cases");
+      if (ui.ribbonTab !== "results" && ui.ribbonTab !== "start") ui.focusPanel(failed ? "messages" : "cases");
       log("info", "Formula Student events run: their points are in Cases & Parameters → Formula Student points.");
+      announce(
+        failed
+          ? { level: "error", text: `Formula Student events: ${failed} failed, see Messages.`, show: "messages" }
+          : { level: "info", text: "Formula Student events run: their points are in Cases & Parameters.", show: "cases" },
+      );
     },
 
     addImportedLap: (lap, name, sha256) => {
@@ -2426,7 +2529,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const startedAt = Date.now();
       const points: StudyPoint[] = [];
       const kpiUnits = new Map<string, string>();
-      set({ running: true });
+      set({ running: true, finishNotice: null });
       if (!(await get().passesRunGate(caseId))) {
         set({ running: false });
         return;
@@ -2437,7 +2540,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const grid = packs.flatMap((pack) => caps.map((cap) => [pack, cap]));
       const byIndex = new Map<number, StudyPoint>();
       let totals: api.StudyTotals | undefined;
-      set({ livePct: 0 });
+      let failure: string | null = null;
+      startProgress(grid.length);
       try {
         const handle = api.runStudyLive(
           {
@@ -2455,6 +2559,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             sweepUnit: "kWh",
           },
           {
+            onStarted: () => startProgress(grid.length),
             onPoint: (e) => {
               const notValid = (e.summary ?? []).filter((v) => v.notValid);
               byIndex.set(e.index, {
@@ -2470,21 +2575,27 @@ export const useProjectStore = create<ProjectState>((set, get) => {
               });
               for (const v of e.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
               if (e.status === "failed") log("error", `Study point ${e.values[0]} kWh, ${e.values[1]} kW failed.`);
-              set({ livePct: (100 * byIndex.size) / grid.length });
+              pointEnded(byIndex.size);
             },
           },
         );
         activeStudy = handle;
         totals = await handle.done;
       } catch (e) {
-        log("error", `Endurance energy study failed: ${(e as Error).message}`);
+        failure = (e as Error).message;
+        log("error", `Endurance energy study failed: ${failure}`);
       } finally {
         activeStudy = null;
-        set({ running: false });
+        set({ running: false, sweepProgress: null });
       }
       if (get().project?.id === project.id) await loadRunHistory(project.id);
       points.push(...[...byIndex.entries()].sort((a, b) => a[0] - b[0]).map(([, pt]) => pt));
-      if (get().project?.id !== project.id || !points.length) return;
+      if (get().project?.id !== project.id) return;
+      if (!points.length) {
+        revealMessages();
+        announce({ level: "error", text: "Endurance energy study failed: see Messages.", show: "messages" });
+        return;
+      }
       const ran = new Set(points.map((p) => p.values.join(",")));
       const notRun = packs.flatMap((pack) =>
         caps.filter((cap) => !ran.has(`${pack},${cap}`)).map((cap): StudyPoint => ({ values: [pack, cap], status: "not run", kpis: {} })),
@@ -2501,6 +2612,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       };
       // kept with the project's runs, not in the model file (PLT-34)
       set((s) => ({ studies: [...s.studies, study] }));
+      useUIStore.getState().setStudyView(project.id, { study: sweepId });
+      announce(studyNotice("Endurance energy study", study.points, failure, "cases", sweepId));
       try {
         await api.storeStudy(project.id, study);
         log("info", `Endurance energy study saved with the runs (Cases & Parameters → Endurance energy study and Saved studies).`);
@@ -2554,7 +2667,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const points: StudyPoint[] = [];
       const kpiUnits = new Map<string, string>();
 
-      set({ running: true });
+      set({ running: true, finishNotice: null });
       if (!(await get().passesRunGate(caseId))) {
         set({ running: false });
         return;
@@ -2569,7 +2682,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       );
       const byIndex = new Map<number, StudyPoint>();
       let totals: api.StudyTotals | undefined;
-      set({ livePct: 0 });
+      let failure: string | null = null;
+      startProgress(values.length);
       try {
         const handle = api.runStudyLive(
           {
@@ -2585,8 +2699,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             sweepUnit: paramUnit,
           },
           {
-            onStarted: (workers) =>
-              log("info", `Sweep running ${countOf(workers, "point")} at a time, one per processor core.`),
+            onStarted: (workers) => {
+              // the time left counts from here: the points start now
+              startProgress(values.length);
+              log("info", `Sweep running ${countOf(workers, "point")} at a time, one per processor core.`);
+            },
             onPoint: (e) => {
               const notValid = (e.summary ?? []).filter((v) => v.notValid);
               byIndex.set(e.index, {
@@ -2610,17 +2727,18 @@ export const useProjectStore = create<ProjectState>((set, get) => {
               if (e.pruned?.length) {
                 log("warning", `Stored runs reached the disk budget: deleted the ${e.pruned.length} oldest run(s).`);
               }
-              set({ livePct: (100 * byIndex.size) / values.length });
+              pointEnded(byIndex.size);
             },
           },
         );
         activeStudy = handle;
         totals = await handle.done;
       } catch (e) {
-        log("error", `Sweep failed: ${(e as Error).message}`);
+        failure = (e as Error).message;
+        log("error", `Sweep failed: ${failure}`);
       } finally {
         activeStudy = null;
-        set({ running: false });
+        set({ running: false, sweepProgress: null });
       }
       // the points' runs, from the run store
       if (get().project?.id === project.id) await loadRunHistory(project.id);
@@ -2660,6 +2778,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             ...(totals ? { workers: totals.workers, wallS: totals.wallS } : {}),
           };
           set((s) => ({ studies: [...s.studies, study] }));
+          // the Study view shows the newest sweep (STU-16)
+          useUIStore.getState().setStudyView(project.id, { study: sweepId });
           try {
             await api.storeStudy(project.id, study);
             log(
@@ -2678,9 +2798,20 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           activeRunId: shown[0].id,
           overlayRunIds: shown.slice(1).map((r) => r.id),
         });
-        useUIStore.getState().setRibbonTab("results");
+        // the page stays where the user is; the notice offers the results
+        // and the study's charts (UX-21, STU-16)
+        if (get().project?.id === project.id)
+          announce(studyNotice("Sweep", points, failure, "results", get().studies.some((st) => st.id === sweepId) ? sweepId : undefined));
       } else {
         log("warning", "Sweep produced no runs.");
+        if (get().project?.id === project.id) {
+          revealMessages();
+          announce({
+            level: failure ? "error" : "warning",
+            text: failure ? "Sweep failed: see Messages." : "Sweep produced no runs: see Messages.",
+            show: "messages",
+          });
+        }
       }
     },
 
@@ -3017,6 +3148,45 @@ export function problemCounts(s: Pick<ProjectState, "dataChecks" | "runs">): { e
   }
   return { errors, warnings };
 }
+
+/** Show a saved study's charts on the Results page (STU-16): the Study view
+ *  of the case Results shows, on that study. */
+export function openStudyCharts(studyId: string): void {
+  const { project, runs, activeRunId } = useProjectStore.getState();
+  if (!project) return;
+  const ui = useUIStore.getState();
+  ui.setStudyView(project.id, { study: studyId });
+  const caseId = (runs.find((r) => r.id === activeRunId) ?? mainRunOf(runs))?.caseId;
+  if (caseId) {
+    if (!activeRunId) useProjectStore.getState().setActiveRun(mainRunOf(runs)!.id);
+    ui.setPlotView(project.id, caseId, { view: "study" });
+  }
+  ui.setRibbonTab("results");
+}
+
+/** Do what a finish notice's button offers (UX-21), and put the notice away. */
+export function followNotice(target: "show" | "study"): void {
+  const { finishNotice: n, dismissFinishNotice } = useProjectStore.getState();
+  if (!n) return;
+  dismissFinishNotice();
+  const ui = useUIStore.getState();
+  if (target === "study" && n.studyId) openStudyCharts(n.studyId);
+  else if (n.show === "results") ui.setRibbonTab("results");
+  else {
+    if (ui.ribbonTab === "results" || ui.ribbonTab === "start") ui.setRibbonTab("home");
+    ui.focusPanel(n.show === "cases" ? "cases" : "messages");
+  }
+}
+
+// a notice about a run of the project open before has nothing to show here
+useProjectStore.subscribe((s, prev) => {
+  if (s.finishNotice && prev.finishNotice && s.project?.id !== prev.project?.id) useProjectStore.setState({ finishNotice: null });
+});
+// going to the Results page shows what a notice of results offered
+useUIStore.subscribe((s, prev) => {
+  if (s.ribbonTab === "results" && prev.ribbonTab !== "results" && useProjectStore.getState().finishNotice?.show === "results")
+    useProjectStore.setState({ finishNotice: null });
+});
 
 export function useActiveRun(): SimRun | null {
   return useProjectStore((s) => s.runs.find((r) => r.id === s.activeRunId) ?? null);

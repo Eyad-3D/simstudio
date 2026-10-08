@@ -2153,3 +2153,182 @@ describe("project files (PLT-07, PLT-33, STD-02)", () => {
     expect(api.deleteAttachment).toHaveBeenCalledWith("fixture", "motor.fmu");
   });
 });
+
+describe("the end of a run or sweep (UX-21, STU-16, STU-17)", () => {
+  const tab = () => useUIStore.getState().ribbonTab;
+  const sweep = (values: number[]) =>
+    store().runSweep({ caseId: "case-1", elementId: "el-shaft", paramKey: "efficiency_pct", values });
+  /** The engine ends every run with `status` (and the message a stop gives). */
+  function engineEnds(status: SimResult["status"]) {
+    api.validateProject.mockResolvedValue([]);
+    api.runSimulationLive.mockImplementation((_project, caseId) => ({
+      setParam: vi.fn(),
+      cancel: vi.fn(),
+      done: Promise.resolve({
+        caseId,
+        status,
+        messages: status === "cancelled" ? [{ level: "info" as const, text: "Simulation cancelled by user at t = 7 s." }] : [],
+        channels: [],
+        summary: [{ label: "Energy", value: 1, unit: "kWh" }],
+      }),
+    }));
+  }
+
+  it("a run leaves the page as it is and says how it ended; its button opens Results", async () => {
+    const { followNotice } = await import("./projectStore");
+    await start();
+    engineFinishesRuns();
+    useUIStore.getState().setRibbonTab("home");
+    await store().run();
+    expect(tab()).toBe("home");
+    expect(store().finishNotice).toMatchObject({ level: "info", text: "'Case 1' finished: success.", show: "results" });
+    followNotice("show");
+    expect(tab()).toBe("results");
+    expect(store().finishNotice).toBeNull();
+  });
+
+  it("opens Results by itself when the user asked for that, and keeps a run started there on it", async () => {
+    await start();
+    engineFinishesRuns();
+    useUIStore.getState().setRibbonTab("simulations");
+    useUIStore.getState().setResultsAfterRun(true);
+    expect(localStorage.getItem("lightsim-results-after-run")).toBe("1");
+    await store().run();
+    expect(tab()).toBe("results");
+    expect(store().finishNotice?.text).toBe("'Case 1' finished: success."); // said, with the setting to turn off
+    useUIStore.getState().setResultsAfterRun(false);
+    await store().run(); // started on Results: stays there, the run in view
+    expect(tab()).toBe("results");
+    expect(store().finishNotice).toBeNull();
+  });
+
+  it("a stopped, a warning and a failed run say so; a failure does not leave the Results page", async () => {
+    await start();
+    useUIStore.getState().setRibbonTab("simulations");
+    engineEnds("cancelled");
+    await store().run();
+    expect(store().finishNotice).toMatchObject({ level: "warning", text: "'Case 1' stopped at t = 7 s.", show: "results" });
+    engineEnds("warning");
+    await store().run();
+    expect(store().finishNotice).toMatchObject({ level: "warning", text: "'Case 1' finished with warnings." });
+    engineEnds("failed");
+    useUIStore.getState().setRibbonTab("results");
+    await store().run();
+    expect(store().finishNotice).toMatchObject({ level: "error", text: "'Case 1' failed: see Messages.", show: "messages" });
+    expect(tab()).toBe("results");
+    // its button goes to Messages, on the model's page
+    const { followNotice } = await import("./projectStore");
+    followNotice("show");
+    expect(tab()).toBe("home");
+  });
+
+  it("the next run, going to Results and another project put a notice away", async () => {
+    await start();
+    engineFinishesRuns();
+    useUIStore.getState().setRibbonTab("home");
+    await store().run();
+    const first = store().finishNotice!;
+    const { finish } = (() => {
+      let done!: () => void;
+      api.runSimulationLive.mockImplementation((_project, caseId) => ({
+        setParam: vi.fn(),
+        cancel: vi.fn(),
+        done: new Promise<SimResult>((resolve) => {
+          done = () => resolve({ caseId, status: "success", messages: [], channels: [], summary: [] });
+        }),
+      }));
+      return { finish: () => done() };
+    })();
+    const running = store().run();
+    expect(store().finishNotice).toBeNull(); // as the next run starts
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalledTimes(2));
+    finish();
+    await running;
+    expect(store().finishNotice!.seq).toBeGreaterThan(first.seq); // a new notice, said again
+    useUIStore.getState().setRibbonTab("results");
+    expect(store().finishNotice).toBeNull();
+
+    useUIStore.getState().setRibbonTab("home");
+    engineFinishesRuns();
+    await store().run();
+    expect(store().finishNotice).not.toBeNull();
+    api.fetchProject.mockResolvedValueOnce(fixture({ id: "other", name: "Other" }));
+    await store().openProject("other");
+    expect(store().finishNotice).toBeNull();
+  });
+
+  it("a sweep shows its progress, stays on the page and offers its results and its study's charts", async () => {
+    const { followNotice } = await import("./projectStore");
+    await start();
+    engineFinishesRuns();
+    useUIStore.getState().setRibbonTab("home");
+    const seen: [number, number][] = [];
+    const unsub = useProjectStore.subscribe((s) => {
+      const p = s.sweepProgress;
+      if (p && seen.at(-1)?.[0] !== p.done) seen.push([p.done, p.total]);
+    });
+    await sweep([80, 90, 95]);
+    unsub();
+    expect(seen).toEqual([
+      [0, 3],
+      [1, 3],
+      [2, 3],
+      [3, 3],
+    ]);
+    expect(store().sweepProgress).toBeNull();
+    expect(tab()).toBe("home");
+    const studyId = store().studies[0].id;
+    expect(store().finishNotice).toMatchObject({
+      level: "info",
+      text: "Sweep finished: 3 of 3 points complete.",
+      show: "results",
+      studyId,
+    });
+    // the family is overlaid, ready on the Results page
+    expect(store().overlayRunIds).toHaveLength(2);
+    // the newest study is the one the Study view shows
+    expect(useUIStore.getState().resultsViews.fixture.study).toBe(studyId);
+
+    followNotice("study");
+    expect(tab()).toBe("results");
+    const caseId = store().runs.find((r) => r.id === store().activeRunId)!.caseId;
+    expect(useUIStore.getState().resultsViews.fixture.cases?.[caseId]?.view).toBe("study");
+  });
+
+  it("a stopped sweep says how many points are complete", async () => {
+    await start();
+    api.validateProject.mockResolvedValue([]);
+    api.runSimulationLive.mockImplementation((_project, caseId) => {
+      let stop!: () => void;
+      const done = new Promise<SimResult>((resolve) => {
+        stop = () =>
+          resolve({
+            caseId,
+            status: "cancelled",
+            messages: [{ level: "info", text: "Simulation cancelled by user at t = 3 s." }],
+            channels: [],
+            summary: [],
+          });
+      });
+      return { setParam: vi.fn(), cancel: vi.fn(() => stop()), done };
+    });
+    const running = sweep([80, 90, 95]);
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalled());
+    store().stopRun();
+    await running;
+    expect(store().finishNotice).toMatchObject({ level: "warning", text: "Sweep stopped: 0 of 3 points complete." });
+  });
+
+  it("a sweep that cannot start says so and leads to Messages", async () => {
+    await start();
+    engineFinishesRuns();
+    api.runStudyLive.mockImplementationOnce(() => ({
+      cancel: vi.fn(),
+      done: Promise.reject(new Error("Study connection failed — is the backend running?")),
+    }));
+    await sweep([80, 90]);
+    expect(store().finishNotice).toMatchObject({ level: "error", text: "Sweep failed: see Messages.", show: "messages" });
+    expect(store().sweepProgress).toBeNull();
+    expect(store().running).toBe(false);
+  });
+});
