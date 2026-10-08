@@ -3,10 +3,11 @@
 // a reload and a save. PLT-34: studies are kept with the runs, so a sweep
 // leaves the saved model file as it is.
 import { expect, test, type Page } from "@playwright/test";
-import { expectProject, openApp, ribbonTab, showPanel } from "./app";
+import { expectProject, openApp, ribbonTab, showPanel, showResults } from "./app";
 import { importProject } from "./ui-helpers";
 
-/** Sweep the Vehicle's mass over `steps` values and wait for the Results page. */
+/** Sweep the Vehicle's mass over `steps` values and open the Results page
+ *  from the notice it ends with. */
 async function sweepVehicleMass(page: Page, steps: number): Promise<void> {
   await ribbonTab(page, "Home").click();
   await showPanel(page, "Cases & Parameters");
@@ -14,7 +15,7 @@ async function sweepVehicleMass(page: Page, steps: number): Promise<void> {
   await sweepElement.selectOption({ label: "Vehicle" });
   await page.locator("input[type=number][max='200']").fill(String(steps));
   await page.getByRole("button", { name: `Run sweep (${steps})` }).click();
-  await expect(page.getByPlaceholder("Search channels…")).toBeVisible({ timeout: 60_000 });
+  await showResults(page);
 }
 
 /** The saved studies, newest first, as the Cases panel lists them. */

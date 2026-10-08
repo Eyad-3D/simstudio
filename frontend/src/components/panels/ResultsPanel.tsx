@@ -1038,7 +1038,7 @@ export function ResultsPanel() {
         <div className="ss-panel-toolbar @container">
           <span className="text-[11px] text-[color:var(--ss-text-dim)]">
             {view === "study" ? (
-              <>Study · each result against the swept value</>
+              <>Study charts</>
             ) : view === "sweep" ? (
               <>
                 Sweep · {completeFamily.length} complete run(s)

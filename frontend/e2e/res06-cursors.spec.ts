@@ -8,7 +8,7 @@
 // into the PNG; the cursors are kept per run.
 import { readFile } from "node:fs/promises";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { headlineTile, openApp, ribbonTab, runActiveCase, runButton, xRange } from "./app";
+import { headlineTile, openApp, ribbonTab, runActiveCase, runButton, showResults, xRange } from "./app";
 
 /** Export the CSV and read it: its header and its rows as numbers. */
 async function csv(page: Page): Promise<{ header: string[]; rows: number[][] }> {
@@ -310,6 +310,7 @@ test("RES-06: on the distance axis an overlaid run is read where the lines cross
   // a 75 m acceleration run covers in 4 s what the City Cycle drives in more
   await ribbonTab(page, "Simulations").click();
   await page.getByRole("button", { name: "Acceleration test" }).click();
+  await showResults(page);
   await expect(headlineTile(page, "Time to 75 m")).toBeVisible();
   await page.getByRole("checkbox", { name: /^Vehicle Speed/ }).check();
   await page.getByRole("checkbox", { name: /^City Cycle ·/ }).check();
