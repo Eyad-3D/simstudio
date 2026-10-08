@@ -2904,7 +2904,7 @@
         {
           "name": "Cold day (−7 °C)",
           "values": { "temperature_C": -7, "pressure_kPa": 101.325 },
-          "note": "The cold test temperature of EPA's cold FTP (20 °F, 40 CFR Part 86 Subpart C) and the EU's Type 6 low-temperature test (−7 °C), at sea-level pressure. Only the air density follows it: LightSim has no heating load from the outside temperature yet (MOD-41), so add the heater's power yourself, as the Battery Electric Car's winter case does."
+          "note": "The cold test temperature of EPA's cold FTP (20 °F, 40 CFR Part 86 Subpart C) and the EU's Type 6 low-temperature test (−7 °C), at sea-level pressure. The air density follows it, and so does a Climate Control's heating (MOD-41), as in the Battery Electric Car's winter case."
         },
         {
           "name": "Standard day (23 °C)",
@@ -2914,7 +2914,7 @@
         {
           "name": "Hot and sunny day (35 °C)",
           "values": { "temperature_C": 35, "pressure_kPa": 101.325 },
-          "note": "The temperature of EPA's air-conditioning test SC03 (95 °F, 40 CFR Part 86), at sea-level pressure. The test also shines 850 W/m² of simulated sun on the car; LightSim has no sun or air-conditioning load from the weather yet (MOD-41), so add the air-conditioning power yourself, as the Battery Electric Car's summer case does."
+          "note": "The temperature of EPA's air-conditioning test SC03 (95 °F, 40 CFR Part 86), at sea-level pressure. The test also shines 850 W/m² of simulated sun on the car; LightSim has no sun, but a Climate Control's air-conditioning follows the temperature (MOD-41; its default demand allows about 1 kW for the sun), as in the Battery Electric Car's hot-day case."
         },
         {
           "name": "High altitude (1,500 m)",

@@ -2,7 +2,7 @@
   "id": "bev-car",
   "schemaVersion": 1,
   "name": "Battery Electric Car",
-  "description": "Compact electric car modelled on the 2021 Cupra Born 58 kWh (VW ID.3 class), with the values of FASTSim's vehicle file (Apache-2.0): 1,927 kg, Cd 0.27, 2.31 m², 150 kW e-motor, 62 kWh battery with 58 kWh usable, 0.25 kW auxiliaries. HV battery → e-motor (its loss map holds the inverter's losses; there is no inverter part) → single-speed reduction gear → wheels, driven over a speed profile.\nWhat to expect (energy at the battery terminals):\n• WLTC Class 3b: 14.1 kWh/100 km, 16.3 at the charging socket (a car of this class is rated about 15–16 kWh/100 km at the socket)\n• WLTC with heating/air-con on (2.5 kW): 18.9 kWh/100 km\n• WLTC on a winter day (−7 °C, heating 2.5 kW): 19.5 kWh/100 km; on a hot day (35 °C, air-con 2.5 kW): 18.6 (only the air's density follows the weather; the heating and air-con power is a fixed assumption)\n• City Cycle (a hand-made demo profile, not a standard cycle): 11.1 kWh/100 km\n• Full power: 0–100 km/h in 7.1 s, top speed 160 km/h (Cupra: 7.3 s, 160 km/h)",
+  "description": "Compact electric car modelled on the 2021 Cupra Born 58 kWh (VW ID.3 class), with the values of FASTSim's vehicle file (Apache-2.0): 1,927 kg, Cd 0.27, 2.31 m², 150 kW e-motor, 62 kWh battery with 58 kWh usable, 0.25 kW auxiliaries, and a Climate Control (a PTC heater and air-conditioning) that heats or cools the cabin from the Ambient's temperature (off at its 20 °C). HV battery → e-motor (its loss map holds the inverter's losses; there is no inverter part) → single-speed reduction gear → wheels, driven over a speed profile.\nWhat to expect (energy at the battery terminals):\n• WLTC Class 3b: 14.1 kWh/100 km, 16.3 at the charging socket (a car of this class is rated about 15–16 kWh/100 km at the socket)\n• WLTC with heating/air-con on (2.5 kW): 18.9 kWh/100 km\n• WLTC on a winter day (−7 °C, the Climate Control heating with 4.25 kW): 23.7 kWh/100 km; on a hot day (35 °C, air-con 1.39 kW): 16.8 (the Climate Control's demand is the library's estimate for a compact car, not measured on this one)\n• City Cycle (a hand-made demo profile, not a standard cycle): 11.1 kWh/100 km\n• Full power: 0–100 km/h in 7.1 s, top speed 160 km/h (Cupra: 7.3 s, 160 km/h)",
   "card": {
     "question": "How much energy does a compact electric car use in the city, on the WLTC, and with the heating on?",
     "tags": [
@@ -16,6 +16,7 @@
     "learn": [
       "Read the energy per 100 km and the battery's state of charge after a cycle",
       "See what an auxiliary load such as heating costs on a cycle",
+      "See what heating on a winter day and air-conditioning on a hot day cost",
       "Compare two runs of one car"
     ],
     "status": "plausibility-checked",
@@ -23,6 +24,7 @@
       "Driving Task with a bundled drive cycle",
       "Battery, E-Motor, single-speed reduction gear",
       "Auxiliary load (Power Consumer)",
+      "Climate Control (PTC heater and air-conditioning) following the Ambient's temperature",
       "Live run at 10× real time"
     ],
     "author": "LightSim",
@@ -32,7 +34,8 @@
       "0 s: the car starts at 90 % charge, standing.",
       "On the City Cycle it accelerates to 50 km/h, cruises and stops twice; braking recuperates energy into the battery.",
       "On the WLTC it drives four phases, Low, Medium, High and Extra High, up to 131 km/h; the air drag of the Extra High phase uses the most energy.",
-      "With the heating/air-con on, the 2.5 kW load runs the whole 1,800 s and adds about 4.8 kWh/100 km."
+      "With the heating/air-con on, the 2.5 kW load runs the whole 1,800 s and adds about 4.8 kWh/100 km.",
+      "On the winter day (−7 °C) the Climate Control's PTC heater draws 4.25 kW the whole cycle and takes the WLTC to about 23.7 kWh/100 km; on the hot day (35 °C) its air-conditioning draws 1.39 kW, about 16.8 kWh/100 km. At the Ambient's usual 20 °C it is off."
     ]
   },
   "systems": [
@@ -744,6 +747,59 @@
               "unitGroup": "Current"
             }
           ]
+        },
+        {
+          "id": "el-climate",
+          "componentDefId": "electric.climate",
+          "label": "Climate Control",
+          "position": {
+            "x": 330,
+            "y": 250
+          },
+          "parameterOverrides": {
+            "heat_source": "PTC heater",
+            "demand_table": {
+              "-20": 6.0,
+              "-10": 4.5,
+              "0": 3.0,
+              "10": 1.5,
+              "20": 0,
+              "24": 0,
+              "27": -1.0,
+              "30": -1.9,
+              "35": -2.65,
+              "40": -3.4
+            },
+            "cop_carnot_share": 0.35,
+            "cabin_setpoint_C": 21,
+            "fan_power_kW": 0.2
+          },
+          "parameterSources": {
+            "demand_table": {
+              "source": "LightSim's library default for the Climate Control's demand (MOD-41), an estimate not measured on this car; docs/data-register.csv DR-104 (a copy of DR-47)",
+              "kind": "library default",
+              "confidence": 0,
+              "note": "an estimate for a compact car kept at 21 °C: about 0.15 kW of heat per degree below 20 °C, cooling from 24 °C with about 1 kW of sun; 4.05 kW of heat at −7 °C, 2.65 kW of cooling at 35 °C"
+            },
+            "cop_carnot_share": {
+              "source": "LightSim's library default for the Climate Control (MOD-41), an estimate not measured on this car; docs/data-register.csv DR-04",
+              "kind": "library default",
+              "confidence": 0,
+              "note": "the air-conditioning compressor's COP as 0.35 of the Carnot value, in FASTSim's 0.3–0.5 range (an estimate); not used for heating with a PTC heater"
+            },
+            "cabin_setpoint_C": {
+              "source": "LightSim's library default for the Climate Control (MOD-41), an estimate not measured on this car; docs/data-register.csv DR-04",
+              "kind": "library default",
+              "confidence": 0,
+              "note": "the cabin kept at 21 °C (the demand table is for this set point)"
+            },
+            "fan_power_kW": {
+              "source": "LightSim's library default for the Climate Control (MOD-41), an estimate not measured on this car; docs/data-register.csv DR-04",
+              "kind": "library default",
+              "confidence": 0,
+              "note": "blower, pumps and controls while it heats or cools (an estimate)"
+            }
+          }
         }
       ],
       "connections": [
@@ -858,6 +914,20 @@
           "sourcePortId": "flange",
           "targetElementId": "el-wheel-rr",
           "targetPortId": "shaft"
+        },
+        {
+          "id": "c-20",
+          "sourceElementId": "el-hvbus",
+          "sourcePortId": "t4",
+          "targetElementId": "el-climate",
+          "targetPortId": "pos"
+        },
+        {
+          "id": "c-21",
+          "sourceElementId": "el-climate",
+          "sourcePortId": "neg",
+          "targetElementId": "el-ground",
+          "targetPortId": "t2"
         }
       ]
     }
@@ -1030,18 +1100,15 @@
         "el-ambient": {
           "temperature_C": -7,
           "pressure_kPa": 101.325
-        },
-        "el-consumer": {
-          "power_kW": 2.5
         }
       },
       "references": [
         {
           "kpi": "Consumption",
-          "value": 19.43,
+          "value": 23.73,
           "tolerance": 3,
           "tolerancePct": true,
-          "source": "Hand calculation: the heating case's 18.89 kWh/100 km plus air drag (about 38 % of the WLTC's 14.05 kWh/100 km: 1.25 kWh of the 3.27 kWh drawn) raised by the 10.1 % denser air at −7 °C than at 20 °C"
+          "source": "Hand calculation: the WLTC case's 14.05 kWh/100 km (its own run, 20 °C, Climate Control off) plus the heating and the denser air. Heating: the Climate Control's demand table gives 4.5 − 0.3 × 1.5 = 4.05 kW of heat at −7 °C; the PTC heater turns 1 kW of electricity into 1 kW of heat, plus the 0.2 kW blower: 4.25 kW for 1,800 s = 2.125 kWh, 9.13 kWh/100 km over 23.27 km. Air: rho = p / (R·T) = 101,325 / (287.05 × 266.15) = 1.326 kg/m³, 10.1 % more than 1.204 at 20 °C. Air drag over the WLTC trace, ½ × 1.204 kg/m³ (20 °C) × 0.27 × 2.31 m² × Σv³·Δt (11.98 × 10⁶ m³/s²), is 1.249 kWh at the wheels, 5.37 kWh/100 km over the cycle's 23.27 km; taken as the same at the battery (driving, drag costs about 1/0.9 of it; braking, it takes about 0.9 of it from recuperation): +10.1 % of 5.37 = +0.54. 14.05 + 9.13 + 0.54 = 23.73 kWh/100 km (energy at the battery terminals, so the battery's own losses do not count)"
         }
       ]
     },
@@ -1058,18 +1125,15 @@
         "el-ambient": {
           "temperature_C": 35,
           "pressure_kPa": 101.325
-        },
-        "el-consumer": {
-          "power_kW": 2.5
         }
       },
       "references": [
         {
           "kpi": "Consumption",
-          "value": 18.63,
+          "value": 16.78,
           "tolerance": 3,
           "tolerancePct": true,
-          "source": "Hand calculation: the air-con case's 18.89 kWh/100 km less air drag (about 38 % of the WLTC's 14.05 kWh/100 km: 1.25 kWh of the 3.27 kWh drawn) lowered by the 4.9 % thinner air at 35 °C than at 20 °C"
+          "source": "Hand calculation: the WLTC case's 14.05 kWh/100 km (its own run, 20 °C, Climate Control off) plus the air-conditioning, less the thinner air. Cooling: the demand table gives 2.65 kW of cooling at 35 °C; the compressor's COP is 0.35 × the Carnot value between the evaporator at 21 − 15 = 6 °C (279.15 K) and the condenser at 35 + 15 = 50 °C: 0.35 × 279.15 / 44 = 2.22, so 2.65 / 2.22 = 1.19 kW, plus the 0.2 kW blower: 1.39 kW for 1,800 s = 0.697 kWh, 2.99 kWh/100 km over 23.27 km. Air: rho = 101,325 / (287.05 × 308.15) = 1.146 kg/m³, 4.9 % less than at 20 °C. Air drag over the WLTC trace, ½ × 1.204 kg/m³ (20 °C) × 0.27 × 2.31 m² × Σv³·Δt (11.98 × 10⁶ m³/s²), is 1.249 kWh at the wheels, 5.37 kWh/100 km over the cycle's 23.27 km; taken as the same at the battery (driving, drag costs about 1/0.9 of it; braking, it takes about 0.9 of it from recuperation): −4.9 % of 5.37 = −0.26. 14.05 + 2.99 − 0.26 = 16.78 kWh/100 km"
         }
       ]
     },

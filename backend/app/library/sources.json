@@ -6,7 +6,7 @@
       "file": "backend/projects/bev-car.json",
       "dataset": "*",
       "kind": "example-project",
-      "description": "Battery Electric Car example, rebuilt on the 2021 Cupra Born 58 kWh (CON-03): topology, six cases (City Cycle on the default profile DR-06; WLTC class 3b, the same with the heating/air-con load at 2.5 kW, and the same at -7 degC and at 35 degC (CON-30, the Ambient presets' temperatures), all on the bundled cycle DR-25; and a live 10x City Cycle), an Ambient at its defaults (20 degC, 101.325 kPa, the air the model had without one) and its values. From FASTSim's 2021_Cupra_Born.csv: mass 1,927 kg, Cd 0.27, frontal area 2.31 m2, wheel radius 0.3488 m, wheel inertia 0.815 kg m2, rolling resistance 0.011, 61 % of the weight on the driven axle (30.5 % per driven wheel, 19.5 % per other wheel; the wheels tagged Front (FL, FR) and Rear (RL, RR) by their labels, CG height 0 so the loads do not shift), battery 62 kWh with a 4 % floor (58 kWh usable), auxiliary load 0.25 kW, transmission efficiency 98 % (final drive 98 %, differential 100 %), recuperation weight 98 % (maxRegen), motor 150 kW. Not from FASTSim: motor maps (DR-22 to DR-24) and final drive 12.8. Every other value is a component default (DR-04 to DR-17).",
+      "description": "Battery Electric Car example, rebuilt on the 2021 Cupra Born 58 kWh (CON-03): topology, six cases (City Cycle on the default profile DR-06; WLTC class 3b, the same with the heating/air-con load at 2.5 kW, and the same at -7 degC and at 35 degC with its Climate Control heating or cooling (CON-30, the Ambient presets' temperatures; MOD-41), all on the bundled cycle DR-25; and a live 10x City Cycle), an Ambient at its defaults (20 degC, 101.325 kPa, the air the model had without one), a Climate Control with the library's values (a PTC heater; demand table DR-104, a copy of DR-47) and its values. From FASTSim's 2021_Cupra_Born.csv: mass 1,927 kg, Cd 0.27, frontal area 2.31 m2, wheel radius 0.3488 m, wheel inertia 0.815 kg m2, rolling resistance 0.011, 61 % of the weight on the driven axle (30.5 % per driven wheel, 19.5 % per other wheel; the wheels tagged Front (FL, FR) and Rear (RL, RR) by their labels, CG height 0 so the loads do not shift), battery 62 kWh with a 4 % floor (58 kWh usable), auxiliary load 0.25 kW, transmission efficiency 98 % (final drive 98 %, differential 100 %), recuperation weight 98 % (maxRegen), motor 150 kW. Not from FASTSim: motor maps (DR-22 to DR-24) and final drive 12.8. Every other value is a component default (DR-04 to DR-17).",
       "source": "FASTSim 2.1.5 (NREL, now National Laboratory of the Rockies; https://github.com/NatLabRockies/fastsim), fastsim/resources/vehdb/2021_Cupra_Born.csv, which cites automobile-catalog.com and carexpert.com.au for its values; final drive chosen for LightSim (see notes); topology and City Cycle cases from the earlier example (provenance unknown)",
       "licence": "Apache-2.0 for the FASTSim values; the topology's licence is unknown (not recorded)",
       "credit": "FASTSim, Copyright 2020 Alliance for Sustainable Energy, LLC, Apache-2.0; credit and NOTICE in THIRD-PARTY-NOTICES.txt (Help > Third-Party Notices)",
@@ -912,6 +912,17 @@
       "source": "LightSim's own solver output for the example",
       "licence": "Derived from DR-97 and the data it uses; LightSim's own output (LICENSE)",
       "credit": "Same as DR-97",
+      "cleared": "pending"
+    },
+    {
+      "id": "DR-104",
+      "file": "backend/projects/bev-car.json",
+      "dataset": "el-climate.demand_table",
+      "kind": "curve",
+      "description": "Battery Electric Car's Climate Control heating/cooling demand vs outside temperature (-20 to 40 °C, 10 points), kW: the library default of DR-47, copied into the example so that its value source can be recorded (4.05 kW of heat at -7 °C, 2.65 kW of cooling at 35 °C).",
+      "source": "Copy of DR-47: Synthetic / created for LightSim in the MOD-41 change (an estimate from a cabin heat-loss rule of thumb, not measured data)",
+      "licence": "LightSim's own (LICENSE)",
+      "credit": "None required (created for LightSim)",
       "cleared": "pending"
     }
   ]

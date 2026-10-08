@@ -152,6 +152,23 @@
    "example": "bev-car",
    "case": "case-wltc-hvac"
   },
+  "bev-wltc-winter": {
+   "example": "bev-car",
+   "case": "case-wltc-winter"
+  },
+  "bev-wltc-winter-hp": {
+   "example": "bev-car",
+   "case": "case-wltc-winter",
+   "set": {
+    "Climate Control": {
+     "heat_source": "Heat pump"
+    }
+   }
+  },
+  "bev-wltc-summer": {
+   "example": "bev-car",
+   "case": "case-wltc-summer"
+  },
   "bev-wltc-cd": {
    "example": "bev-car",
    "case": "case-wltc",
@@ -496,6 +513,36 @@
    "text": "*WLTC, heating/air-con on* | 18.89 kWh/100 km | 23.267 km | 83.19 % |",
    "expr": "(v('bev-wltc-hvac', 'Consumption'), v('bev-wltc-hvac', 'Distance driven'), v('bev-wltc-hvac', 'HV Battery Pack — final SOC'))",
    "format": "*WLTC, heating/air-con on* | {0[0]:.2f} kWh/100 km | {0[1]:.3f} km | {0[2]:.2f} % |"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "*WLTC, winter day (−7 °C, heating on)* | 23.76 kWh/100 km | 23.267 km | 81.43 % |",
+   "expr": "(v('bev-wltc-winter', 'Consumption'), v('bev-wltc-winter', 'Distance driven'), v('bev-wltc-winter', 'HV Battery Pack — final SOC'))",
+   "format": "*WLTC, winter day (−7 °C, heating on)* | {0[0]:.2f} kWh/100 km | {0[1]:.3f} km | {0[2]:.2f} % |"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "*WLTC, hot day (35 °C, air-con on)* | 16.77 kWh/100 km | 23.267 km | 83.95 % |",
+   "expr": "(v('bev-wltc-summer', 'Consumption'), v('bev-wltc-summer', 'Distance driven'), v('bev-wltc-summer', 'HV Battery Pack — final SOC'))",
+   "format": "*WLTC, hot day (35 °C, air-con on)* | {0[0]:.2f} kWh/100 km | {0[1]:.3f} km | {0[2]:.2f} % |"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "PTC heater draws 4.25 kW the whole cycle",
+   "expr": "v('bev-wltc-winter', 'Climate Control — energy used') / 0.5",
+   "format": "PTC heater draws {0:.2f} kW the whole cycle"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "its air-conditioning draws 1.39 kW",
+   "expr": "v('bev-wltc-summer', 'Climate Control — energy used') / 0.5",
+   "format": "its air-conditioning draws {0:.2f} kW"
+  },
+  {
+   "page": "examples/bev-car.md",
+   "text": "23.76 to 19.72 kWh/100 km, 17 % less",
+   "expr": "(v('bev-wltc-winter', 'Consumption'), v('bev-wltc-winter-hp', 'Consumption'), 100 * (1 - v('bev-wltc-winter-hp', 'Consumption') / v('bev-wltc-winter', 'Consumption')))",
+   "format": "{0[0]:.2f} to {0[1]:.2f} kWh/100 km, {0[2]:.0f} % less"
   },
   {
    "page": "examples/bev-car.md",

@@ -1,8 +1,8 @@
 # Battery Electric Car
 
 **The question it answers:** how much energy does a compact electric car
-use on the standard test cycle, and how much do its mass, its shape and
-its heating change that?
+use on the standard test cycle, and how much do its mass, its shape, its
+heating and the weather change that?
 
 **Level:** first steps. **Each run takes:** 5 to 30 s on a laptop.
 
@@ -12,11 +12,17 @@ A compact electric car modelled on the 2021 Cupra Born 58 kWh (the VW
 ID.3 class), with the values of FASTSim's vehicle file (Apache-2.0):
 1,927 kg, a drag coefficient (Cd) of 0.27, 2.31 m² frontal area, a 150 kW
 E-Motor and a 62 kWh battery with 58 kWh usable. A 0.25 kW *Power
-Consumer* stands for the lights and other small loads.
+Consumer* stands for the lights and other small loads. A *Climate Control*
+heats or cools the cabin from the *Ambient*'s temperature: it is off at the
+Ambient's usual 20 °C, heats with a PTC heater (an electric heater, 1 kW of
+heat per kW) on a cold day and runs the air-conditioning on a hot one. How
+much heat the cabin needs at each temperature is the library's estimate
+for a compact car, not measured on this one.
 
 The power path is: **HV Battery Pack** → **HV Bus** → **E-Motor** →
 **Final Drive** (one fixed gear) → **Differential** → the two front
-wheels. The **Vehicle Task** gives the speed to follow and the **Driver**
+wheels; the HV Bus also feeds the Power Consumer and the Climate Control.
+The **Vehicle Task** gives the speed to follow and the **Driver**
 works the accelerator and brakes to follow it. Each part's page in the
 [component reference](../reference/components/index.md) says what its
 values mean.
@@ -48,6 +54,15 @@ example and fail if one of them changes.
 | *City Cycle* | 11.12 kWh/100 km | 7.292 km | 88.76 % |
 | *WLTC Class 3b* | 14.05 kWh/100 km | 23.267 km | 84.92 % |
 | *WLTC, heating/air-con on* | 18.89 kWh/100 km | 23.267 km | 83.19 % |
+| *WLTC, winter day (−7 °C, heating on)* | 23.76 kWh/100 km | 23.267 km | 81.43 % |
+| *WLTC, hot day (35 °C, air-con on)* | 16.77 kWh/100 km | 23.267 km | 83.95 % |
+
+On the winter day the Climate Control's PTC heater draws 4.25 kW the
+whole cycle (4.05 kW of heat and its 0.2 kW blower), and the cold air
+adds a little drag; on the hot day its air-conditioning draws 1.39 kW and
+the thinner air takes a little drag away. Each case's expected value is a
+hand calculation from the WLTC case's 14.05 kWh/100 km; the case's
+*Expected values* show the arithmetic.
 
 *Consumption* is the energy that left the battery, minus the energy that
 went back in, per 100 km: energy at the battery's terminals
@@ -61,7 +76,9 @@ socket, which also counts the charger's losses
 - A standard drive cycle picked in the Driving Task's *Drive Cycle*
   ([how](../how-to/pick-a-drive-cycle.md)).
 - A case that changes one part's value only for itself (an override): the
-  heating case sets the Power Consumer to 2.5 kW.
+  heating case sets the Power Consumer to 2.5 kW, and the winter and
+  hot-day cases set the Ambient's temperature, which the air's density and
+  the Climate Control follow.
 - A live case, *City Cycle (live, 10×)*, that runs ten times faster than
   real time so you can change values while it runs.
 - Monitors that show the car's speed and the battery's state while it runs.
@@ -104,3 +121,12 @@ back afterwards, or close the copy without saving.
    SOC falls from 84.92 % to 82.11 %: the same energy is a larger share
    of a smaller battery. LightSim does not make the car lighter when the
    battery shrinks; change the *Vehicle Mass* too for that.
+
+5. **Fit a heat pump.** On *WLTC, winter day (−7 °C, heating on)*, set the
+   Climate Control's *Heat Source* from *PTC heater* to *Heat pump*. How
+   much energy does it save?
+
+   **Answer:** 23.76 to 19.72 kWh/100 km, 17 % less. At −7 °C the heat
+   pump moves about 1.9 kW of heat for each kW of electricity it uses, so
+   the cabin's 4.05 kW of heat takes about 2.2 kW instead of 4.05 (plus
+   the blower's 0.2 kW either way).

@@ -100,10 +100,14 @@ def _bev_wltc(temp: float, source: str) -> dict[str, float]:
         amb.parameterOverrides["temperature_C"] = temp
         for c in p.cases:
             c.parameterOverrides.get(amb.id, {}).pop("temperature_C", None)
-    root.elements.append(el("el-clim", "electric.climate", "Climate Control",
-                            heat_source=source))
-    root.connections.append(conn(901, "el-hvbus", "t3", "el-clim", "pos"))
-    root.connections.append(conn(902, "el-clim", "neg", "el-ground", "t3"))
+    clim = next((e for e in root.elements if e.componentDefId == "electric.climate"), None)
+    if clim is None:
+        root.elements.append(el("el-clim", "electric.climate", "Climate Control",
+                                heat_source=source))
+        root.connections.append(conn(901, "el-hvbus", "t3", "el-clim", "pos"))
+        root.connections.append(conn(902, "el-clim", "neg", "el-ground", "t3"))
+    else:  # the example has its own (its winter and hot-day cases use it)
+        clim.parameterOverrides["heat_source"] = source
     r = simulate(p, "case-wltc")
     assert r.status == "success", [m.text for m in r.messages if m.level != "info"]
     return {s.label: s.value for s in r.summary}
