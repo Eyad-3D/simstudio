@@ -621,9 +621,12 @@ equal solver steps. Every solver step runs, in this order:
    added up (`app/solver/energy.py`): machines, batteries, consumers and
    the Vehicle where they work out their power, gears from their sources'
    running totals (or every step where a clutch's power joins a motor's),
-   so the run result's *energy* list closes part by part and the summary's
+   brakes, propellers and wheels where the driveline is solved, so the run
+   result's *partEnergy* list closes part by part and the summary's
    *Energy balance residual* shows how far the whole model's books are
-   from closing.
+   from closing. The *Energy* view (`app/solver/reports.py`) is drawn from
+   these books: one row per part, and *Not accounted for* is that
+   residual.
 
 Results are recorded at the end of each case time step: point 0 is the
 initial state at t = 0, every later point holds the state at its own time,
