@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Download, FlaskConical, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, FlaskConical, LayoutGrid, X } from "lucide-react";
 import { confirmDialog } from "../../dialog";
-import { useProjectStore } from "../../store/projectStore";
+import { openStudyCharts, useProjectStore } from "../../store/projectStore";
 import type { Study, StudyPoint } from "../../types";
 import { checkReference, gapText } from "../../references";
 import { csvBlob } from "./csv";
@@ -25,7 +25,7 @@ function defaultKpi(study: Study): string {
 
 /** Download a study's whole table: a row per point with its value, status,
  *  run id and every summary value. */
-function exportStudyCsv(study: Study) {
+export function exportStudyCsv(study: Study) {
   const header = [
     ...study.factors.map((f) => `${f.elementLabel} ${f.paramLabel}${f.unit ? ` [${f.unit}]` : ""}`),
     "status",
@@ -77,6 +77,14 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
               {complete.length} of {study.points.length} complete · {when}
             </span>
           </span>
+        </button>
+        <button
+          className="ss-toolbtn"
+          title="Show this study's charts on the Results page: each result against the swept value"
+          aria-label="Study charts"
+          onClick={() => openStudyCharts(study.id)}
+        >
+          <LayoutGrid size={12} />
         </button>
         <button
           className="ss-toolbtn"
