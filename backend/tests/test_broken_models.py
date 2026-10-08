@@ -1,7 +1,7 @@
 """Break the shipped examples on purpose, one fault at a time (VAL-01).
 
 Every element, every wire and every signal link of the examples is deleted
-in turn (157 faults) and Data Checks run on the result. A fault must never
+in turn (160 faults) and Data Checks run on the result. A fault must never
 get an all-clear unless it is on the reviewed list of harmless ones, and a
 fault that stops the car must block the run with an error.
 
@@ -9,7 +9,9 @@ Which faults stop the car was measured once by running every broken model
 to the end of its first case (a full run each, too slow for the suite);
 redo that measurement when the examples change. Last measured for the
 example rebuild (CON-02/CON-03, 2026-09): City Cycle and EPA city cycle;
-for the FS example (CON-33, 2026-09): its 75 m acceleration run.
+for the FS example (CON-33, 2026-09): its 75 m acceleration run. The
+Climate Control's three faults (MOD-41, CON-30: its deletion, its + wire,
+its - wire) leave the car driving: checked on the WLTC winter day.
 """
 import copy
 
@@ -22,10 +24,11 @@ from app.validation import validate_project
 EXAMPLES = ("bev-car", "fs-electric", "hybrid-car")
 
 # Faults that do not change the model's behaviour: monitors only watch,
-# negative terminals fall back to an implicit ground, and the Driver reads
+# negative terminals fall back to an implicit ground (the Climate Control's
+# too: c-21 gives the same energy on the winter day), and the Driver reads
 # the vehicle's own speed when its Actual Speed input is not wired.
 HARMLESS = {
-    "bev-car": {"el-veh-monitor", "el-bms-monitor", "el-ground", "c-2", "c-18", "c-19",
+    "bev-car": {"el-veh-monitor", "el-bms-monitor", "el-ground", "c-2", "c-18", "c-19", "c-21",
                 "db-7", "db-8", "db-9", "db-10", "db-11", "db-12", "db-13"},
     "fs-electric": {"el-ground", "c-13", "c-14"},
     "hybrid-car": {"el-monitor", "el-ground", "c-14", "c-20", "c-22",
@@ -35,9 +38,13 @@ HARMLESS = {
 # model: deleting the auxiliary load is a legitimate simplification, an
 # unwired engine Enable means "always on", as in any conventional car, and
 # without its Ambient the electric car runs at the standard air its Ambient
-# gives by default, so only its winter and hot-day cases (CON-30) change.
+# gives by default, so only its winter and hot-day cases (CON-30) change. The
+# same goes for the Climate Control: without it the car is the model as it was
+# before MOD-41, and only those two cases change (the winter day then takes
+# 28 % less from the battery), so Data Checks cannot tell it from a deliberate
+# model that leaves out the cabin (as the FS example does).
 KNOWN_GAPS = {
-    "bev-car": {"el-consumer", "el-ambient"},
+    "bev-car": {"el-consumer", "el-ambient", "el-climate"},
     "fs-electric": set(),
     "hybrid-car": {"db-7", "el-aux"},
 }
@@ -101,7 +108,7 @@ def outcome():
 
 
 def test_corpus_is_complete(outcome):
-    assert sum(len(v) for v in outcome.values()) == 157
+    assert sum(len(v) for v in outcome.values()) == 160
     for name in EXAMPLES:
         listed = HARMLESS[name] | KNOWN_GAPS[name] | STOPS_THE_CAR[name]
         assert listed <= outcome[name].keys(), "a reviewed fault id no longer exists"
@@ -130,8 +137,8 @@ def test_harmless_faults_raise_no_alarm(name, outcome):
 def test_check_coverage_is_at_least_90_percent(outcome):
     consequential = [(n, fid) for n in EXAMPLES for fid in outcome[n] if fid not in HARMLESS[n]]
     flagged = [(n, fid) for n, fid in consequential if outcome[n][fid] != "info"]
-    assert len(consequential) == 131
-    assert len(flagged) / len(consequential) >= 0.9  # 127 of 131 today
+    assert len(consequential) == 133
+    assert len(flagged) / len(consequential) >= 0.9  # 128 of 133 today
 
 
 @pytest.mark.parametrize("name", EXAMPLES)
