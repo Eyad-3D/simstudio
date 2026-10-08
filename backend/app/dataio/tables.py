@@ -527,7 +527,10 @@ def _read_2d(sheet: Sheet, target: Target, opts: dict) -> ImportResult:
             row_hint, col_hint = _hint(parts[0]), _hint(parts[1])
         else:
             h = _hint(str(corner))
-            val_hint = h
+            # a unit of an axis alone ("rpm") labels that axis, not the values
+            if not (h[1] and not U.same_group(h[1], target.value.unit)
+                    and _axis_for(h[0], h[1], target.axes) is not None):
+                val_hint = h
     above = [str(g.get(rr, c)) for rr in range(max(g.r0, hr - 3), hr)
              for c in range(hc, col_axis[-1] + 1) if _text(g.get(rr, c))]
     left = [str(g.get(rr, c)) for rr in row_axis for c in range(max(g.c0, hc - 2), hc)

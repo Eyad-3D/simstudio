@@ -88,6 +88,14 @@ def test_a_header_that_is_only_a_unit_is_read():
     # a unit of the wrong kind is refused
     r = read(b"speed,kW\n1000,10\n2000,20\n", "wot.csv", engine)
     assert r.value is None and "is in kW, which is not a unit of" in r.errors[0].text
+    # in a map's corner, an axis's unit alone is not the values' unit
+    rows = [["rpm", 0, 1000], [0, 0.1, 0.2], [100, 0.3, 0.4]]
+    r = read(xlsx(rows), "m.xlsx", LOSS)
+    assert not r.errors and r.units["value"].how == "assumed"
+    rows[0][0] = "MW"
+    r = read(xlsx(rows), "m.xlsx", LOSS)
+    assert r.units["value"].used == "MW" and r.units["value"].how == "header"
+    assert r.value["0"]["0"] == pytest.approx(100.0)
 
 
 def test_unit_conversions():
