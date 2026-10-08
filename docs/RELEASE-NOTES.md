@@ -366,7 +366,8 @@ sections.
   the fuel's and a *charge-corrected* fuel consumption from that one run
   (with it on, the default for a hybrid's cycle, charge balancing gives
   them: see ENG-33); for a case on a cycle with phases each phase's
-  distance and consumption (the WLTC's four phases add up to the whole);
+  distance and consumption (the WLTC's four phases add up to the whole;
+  class 1's second Low phase is *Low (repeat)*, so each row has its name);
   and for the FTP-75 the bags weighted as EPA does. Help: *Consumption
   figures* gives every formula. The Battery Electric Car on WLTC class 3b:
   14.05 kWh/100 km at the battery, 16.34 at the socket, 128.2 MPGe, 426 km;
