@@ -182,7 +182,7 @@ import lightsim as ls
 p = ls.load("bev-car")
 heater = p.add("electric.constant_drive", label="Heater", power_kW="2 kW")
 ground = p.add("boundary.ground", label="Heater Ground")
-p.connect("HV Bus.t4", f"{heater}.pos")
+p.connect("HV Bus.t5", f"{heater}.pos")  # t1 to t4 are in use; t5 is free
 p.connect(f"{heater}.neg", f"{ground}.t1")
 print([c.text for c in p.check() if c.level == "error"] or "no errors")
 p.save("bev-with-heater.json")
