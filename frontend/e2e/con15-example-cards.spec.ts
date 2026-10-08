@@ -9,7 +9,7 @@ test("CON-15: an example opens with its stored results and its card", async ({ p
 
   // the stored result is there before anything runs
   await ribbonTab(page, "Results").click();
-  await expect(headlineTile(page, "Fuel consumption")).toContainText("2.84");
+  await expect(headlineTile(page, "Fuel consumption")).toContainText("2.838");
   await expect(page.locator("select").filter({ hasText: "EPA city (UDDS) · Stored result" }).first()).toBeVisible();
   const expected = page.getByRole("region", { name: "Expected values" }).filter({ visible: true }).first();
   await expect(expected).toContainText("Fuel consumption");
@@ -18,7 +18,7 @@ test("CON-15: an example opens with its stored results and its card", async ({ p
   // Run recomputes it, compared with the stored one
   await runActiveCase(page);
   await expect(runButton(page)).toBeEnabled({ timeout: 60_000 }); // the run has finished
-  await expect(headlineTile(page, "Fuel consumption")).toContainText("2.84");
+  await expect(headlineTile(page, "Fuel consumption")).toContainText("2.838");
   await expect(page.getByText(/vs baseline/).first()).toBeVisible();
 
   // the card, in the Project tab

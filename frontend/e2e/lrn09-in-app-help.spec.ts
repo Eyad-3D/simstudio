@@ -62,6 +62,10 @@ test("LRN-09: the Help menu lists the help's main pages, and links out of the he
   const frame = page.frameLocator("iframe[title='Help page']");
   const out = frame.locator("main a[href^='https://github.com']").first();
   if (await out.count()) {
+    // answered here, so the test needs no network
+    await context.route("https://github.com/**", (r) =>
+      r.fulfill({ status: 200, contentType: "text/html", body: "<title>GitHub</title>" }),
+    );
     const [popup] = await Promise.all([context.waitForEvent("page"), out.click()]);
     expect(popup.url()).toMatch(/^https:\/\/github\.com\//);
     await popup.close();

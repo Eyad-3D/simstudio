@@ -145,10 +145,12 @@ wires and signals with steps 4 and 5.
 ### 8. Compare it with the example
 
 Your car uses 10.48 kWh/100 km on the WLTC, the example 14.05: 25 % less.
-It is 727 kg lighter, and its air drag is about the same (the drag
-coefficient times the frontal area is 0.63 m² against the example's
-0.62 m²). So most of the gain comes from the mass: less energy to speed
-the car up and less rolling resistance.
+It is 727 kg lighter, its tyres roll more easily (the library's Wheel
+has a *Rolling Resistance Coeff.* of 0.0085, the example's wheels
+0.011), and its air drag is about the same (the drag coefficient times
+the frontal area is 0.63 m² against the example's 0.62 m²). So the gain
+comes from the mass and the tyres: less energy to speed the car up and
+less rolling resistance.
 
 To see which value matters most, change one at a time and run again, or
 [run a parameter sweep](../how-to/parameter-sweep.md) of the mass.
