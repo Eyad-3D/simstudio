@@ -198,7 +198,8 @@ ORDER = ("battery.generic", "electric.voltage_source", "fuel.tank", "fuel.h2_tan
          "fuelcell.stack", "engine.combustion", "controller.dcdc", "motor.emotor",
          "electric.constant_drive", "electric.climate", "mech.clutch", "mech.shaft",
          "mech.gearbox", "mech.final_drive", "mech.transfer_case", "mech.differential",
-         "driveline.inertia", "mech.brake", "propulsion.wheel", "vehicle.body")
+         "driveline.inertia", "mech.brake", "propulsion.propeller", "propulsion.wheel",
+         "vehicle.body")
 
 
 def add_lap(book: EnergyBook, lap_book, veh_id: str, label: str) -> None:

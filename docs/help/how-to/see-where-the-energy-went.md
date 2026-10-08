@@ -17,37 +17,52 @@ that went into, came out of and was lost in each part.
    Click a box on the right that names a part to show the part on the
    diagram.
 5. Scroll down to the table: each part's **In**, **Out**, **Lost** and
-   **Stored change**, in kWh, and its loss as a share of the sources.
+   **Stored change**, in kWh, and its loss as a share of the sources. Every
+   part keeps its own books, so each gear, differential, clutch, brake and
+   wheel has a row of its own, and In − Out − Lost − Stored change is 0 on
+   every row. *Rotating parts* is a driveline's spinning parts together
+   (motor rotors, gears, shafts and wheels): the energy in their speed.
 
 On the Battery Electric Car's *City Cycle*, the battery gives 0.887 kWh:
 air drag takes 0.242 kWh (27.3 %), rolling resistance 0.421 kWh (47.5 %),
-the E-Motor loses 0.086 kWh (9.7 %), the Power Consumer uses 0.042 kWh
-(4.7 %) and 0.07 kWh (7.9 %) is charged back into the battery by braking.
+the E-Motor loses 0.086 kWh (9.7 %), the Final Drive 0.017 kWh (1.9 %),
+each front tyre's slip 0.002 kWh, the Power Consumer uses 0.042 kWh (4.7 %)
+and 0.07 kWh (7.9 %) is charged back into the battery by braking.
 
 ## What the groups mean
 
 | Group | What is in it |
 |---|---|
 | Driving: air and rolling | The work done against air drag and the tyres' rolling resistance |
-| Kept as speed or height | The car's speed at the end of the run (kinetic energy) and the height it gained |
+| Kept as speed or height | The car's speed at the end of the run (kinetic energy), the height it gained, and the spinning parts' speed |
 | Friction brakes | Energy the brakes turned into heat |
-| Losses in parts | The E-Motors, the battery's internal resistance, the engine, the DC-DC converters, the tyres' slip, and the gears, clutches and spinning parts |
-| Used by loads | The Power Consumers, such as heating or 12 V loads |
+| Losses in parts | Each E-Motor, engine, fuel cell and DC-DC converter, the battery's internal resistance, each gear and differential, each clutch's slip and each tyre's slip |
+| Used by loads | The Power Consumers (12 V loads) and the Climate Control (heating and air-conditioning) |
 | Charged back | Energy braking put back into the battery |
-| Not accounted for | The sources less everything above |
+| Not accounted for | The sources less everything above: where the parts' books together do not close |
 
 A part that gave energy back over the run, such as a car that ends slower
 than it started or lower than it began, is drawn on the left as a source.
 
 ## Check that the numbers add up
 
-Above the chart, **Not accounted for** says how much of the sources' energy
-the books cannot place. It is under 0.2 % on the examples' cycles. It
-grows with hard wheel spin and with a coarse step: the Formula Student
-car's 75 m acceleration leaves 0.48 %. Beside it is the run's
+Above the chart, **Not accounted for (energy balance residual)** says how
+much of the sources' energy the books cannot place, and the table's last
+row repeats it. Each part's own books close, so it is only where the
+energy out of one part is not quite the energy into the next: the solver's
+step. It is the summary's *Energy balance residual*, there as a share of
+the energy the sources gave up and with the sign the other way round
+(energy the step made is + there, − here). It is −0.01 % on the Battery
+Electric Car's *City Cycle* and stays under 0.3 % on the examples' cycles;
+it grows with hard wheel spin and with a coarse step (the Formula Student
+car's 75 m acceleration leaves −0.10 %). Beside it is the run's
 **Electrical energy balance error**, the same figure as in the summary.
 Above 1 % the number turns orange: check the run's messages, and see
 [Known issues](../../KNOWN-LIMITS.md).
+
+In a lap case the lap's own energy pass books the gears and the friction
+brakes, so they are in the Vehicle's row and named in the chart, not given
+part by part.
 
 ## Show the energy on the diagram
 

@@ -1636,6 +1636,8 @@ class RunContext:
         order = [s for s in order if s in fed]
         clutches = [self.flow(j.el_id) for j in dl.joints if j.kind == "clutch"]
         brakes = [[(br, self.flow(br.el_id)) for br in seg.brakes] for seg in segs]
+        props = [(s_idx, pr, self.flow(pr.el_id)) for s_idx, seg in enumerate(segs)
+                 for pr in seg.props]
         wheels = [(w.el_id, w.radius * w.m, s_idx, self.flow(w.el_id))
                   for s_idx, seg in enumerate(segs) for w in seg.wheels]
         braked = [s_idx for s_idx, seg in enumerate(segs) if seg.brakes]
@@ -1678,7 +1680,7 @@ class RunContext:
         self.rot_inertia[k] = [max(1e-4, seg.inertia) for seg in segs]
         st.book_key = key
         st.book_cache = (sources, stages, splits, order, clutches, brakes, wheels, braked, k,
-                         linear, [] if walk else mixed)
+                         linear, [] if walk else mixed, props)
         return st.book_cache
 
     def close_rotating(self, k: int) -> None:
@@ -1889,6 +1891,20 @@ class RunContext:
         for (_, f), cap in zip(seg_brakes, caps):
             share = cap / total if total > 0 else 1.0 / len(seg_brakes)
             f.step(n, dt, share * p_brake, 0.0)
+
+    def book_props(self, props: list, omega0: list[float], omega1: list[float],
+                   dt: float) -> None:
+        """Book a driveline's propeller-type loads for this solver step: the
+        torque each took at the step's start speed (as the solve applied
+        it), over the step's mean speed."""
+        n = self.book.n
+        for s_idx, pr, f in props:
+            w_p = pr.m * omega0[s_idx]
+            if not w_p:
+                continue
+            t_p = pr.t_ref * (abs(w_p) * RPM / pr.n_ref) ** 2  # its drag, against its speed
+            p = t_p * pr.m * 0.5 * (omega0[s_idx] + omega1[s_idx]) * (1.0 if w_p > 0 else -1.0)
+            f.step(n, dt, max(0.0, p), 0.0)
 
     def close_book(self) -> None:
         """Book what is kept as running totals: the batteries (their energy
@@ -2580,6 +2596,8 @@ class MechanicalSlave(_CtxSlave):
                 st.omega_start = omega_seg_start
                 for s_idx, tb, w0 in braking:  # braking power at the step's mean speed
                     ctx.book_brakes(gb[5][s_idx], tb, 0.5 * (w0 + omega_seg[s_idx]), dt)
+                if gb[11]:
+                    ctx.book_props(gb[11], omega_seg_start, omega_seg, dt)
             braking.clear()
 
         # vehicle --------------------------------------------------------------
