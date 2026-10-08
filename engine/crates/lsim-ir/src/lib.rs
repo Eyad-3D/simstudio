@@ -28,9 +28,9 @@ pub mod runtime;
 pub mod units;
 
 pub use component::{
-    ComponentDef, Connect, ConnectorDef, EnergyDecl, Equation, EquationDecl, Library, Modifier,
-    ParamDecl, ParamValue, PortDecl, PortKind, PowerRule, QuantityDecl, SubDecl, VarDecl, VarKind,
-    WhenAction,
+    ComponentDef, Connect, ConnectorDef, EnergyDecl, EnumLiteral, EnumType, Equation, EquationDecl,
+    Library, Modifier, ParamDecl, ParamValue, PortDecl, PortKind, PowerRule, QuantityDecl, SubDecl,
+    VarDecl, VarKind, WhenAction,
 };
 pub use diag::{Diagnostic, Severity};
 pub use expr::{BinaryOp, Builtin, CmpOp, Expr};
