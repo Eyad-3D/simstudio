@@ -22,27 +22,6 @@ pub(crate) enum BinOp {
     Or,
 }
 
-#[allow(dead_code)] // for the Base Modelica import's messages
-impl BinOp {
-    pub fn text(self) -> &'static str {
-        match self {
-            BinOp::Add => "+",
-            BinOp::Sub => "-",
-            BinOp::Mul => "*",
-            BinOp::Div => "/",
-            BinOp::Pow => "^",
-            BinOp::Lt => "<",
-            BinOp::Le => "<=",
-            BinOp::Gt => ">",
-            BinOp::Ge => ">=",
-            BinOp::Eq => "==",
-            BinOp::Ne => "<>",
-            BinOp::And => "and",
-            BinOp::Or => "or",
-        }
-    }
-}
-
 /// A function-call argument list: positional, then named.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Args {
@@ -146,7 +125,6 @@ pub(crate) struct Equation {
     pub doc: Option<String>,
 }
 
-#[allow(dead_code)] // read by the Base Modelica import
 #[derive(Clone, Debug)]
 pub(crate) enum StmtKind {
     Assign(Expr, Expr),
@@ -155,7 +133,6 @@ pub(crate) enum StmtKind {
     Call(Expr),
 }
 
-#[allow(dead_code)] // read by the Base Modelica import
 #[derive(Clone, Debug)]
 pub(crate) struct Stmt {
     pub kind: StmtKind,
@@ -190,7 +167,6 @@ impl ClassKind {
 }
 
 /// `type X = …`
-#[allow(dead_code)] // aliases are read by the Base Modelica import
 #[derive(Clone, Debug)]
 pub(crate) enum Short {
     /// `enumeration(A "doc", B)`

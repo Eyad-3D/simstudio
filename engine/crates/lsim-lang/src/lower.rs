@@ -1441,6 +1441,26 @@ fn energy(def: &mut ComponentDef, cls: &ClassDef, errs: &mut Vec<LangError>) -> 
     span
 }
 
+/// The first name in `e` that is neither a parameter of `def` nor an
+/// enumeration option: what a parameter's value or a start value may not
+/// use.
+fn non_parameter(e: &Expr, def: &ComponentDef, known: &Known) -> Option<String> {
+    let mut bad = None;
+    e.walk(&mut |x| {
+        if let Expr::Name(n) = x
+            && !def.params.iter().any(|q| &q.name == n)
+        {
+            let option = split_enum_value(n).is_some_and(|(t, l)| {
+                known.enum_type(def, t).map_or(!known.strict(), |t| t.ordinal(l).is_some())
+            });
+            if !option {
+                bad.get_or_insert(n.clone());
+            }
+        }
+    });
+    bad
+}
+
 /// Every check of a lowered component: names, units, values, connections.
 /// Where a component's equations are in the text.
 struct Placed<'a> {
@@ -1503,15 +1523,7 @@ fn check_component(
         }
         match &p.default {
             ParamValue::Real(e) => {
-                let mut bad = None;
-                e.walk(&mut |x| {
-                    if let Expr::Name(n) = x
-                        && !def.params.iter().any(|q| &q.name == n)
-                    {
-                        bad.get_or_insert(n.clone());
-                    }
-                });
-                if let Some(n) = bad {
+                if let Some(n) = non_parameter(e, def, known) {
                     errs.push(LangError::new(
                         "PARAM-VALUE",
                         decl,
@@ -1564,15 +1576,7 @@ fn check_component(
             check_display_unit(&v.unit, du, decl, &format!("the variable '{}'", v.name), errs);
         }
         if let Some(st) = &v.start {
-            let mut bad = None;
-            st.walk(&mut |x| {
-                if let Expr::Name(n) = x
-                    && !def.params.iter().any(|q| &q.name == n)
-                {
-                    bad.get_or_insert(n.clone());
-                }
-            });
-            if let Some(n) = bad {
+            if let Some(n) = non_parameter(st, def, known) {
                 errs.push(LangError::new(
                     "START-VALUE",
                     decl,
@@ -1630,15 +1634,7 @@ fn check_component(
             let what = format!("the value given to {}.{}", s.name, m.param);
             match (&p.default, &m.value) {
                 (ParamValue::Real(_), ParamValue::Real(e)) => {
-                    let mut bad = None;
-                    e.walk(&mut |x| {
-                        if let Expr::Name(n) = x
-                            && !def.params.iter().any(|q| &q.name == n)
-                        {
-                            bad.get_or_insert(n.clone());
-                        }
-                    });
-                    if let Some(n) = bad {
+                    if let Some(n) = non_parameter(e, def, known) {
                         errs.push(LangError::new(
                             "PARAM-VALUE",
                             at,

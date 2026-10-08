@@ -218,9 +218,29 @@ pub(crate) fn dim(e: &Expr, r: &dyn Resolve) -> Result<D, Mismatch> {
     })
 }
 
+/// `0 = if c then a else b` holds as `0 = a` while `c` and `0 = b`
+/// otherwise (an `if` equation whose branches state different
+/// quantities): each branch must balance on its own.
+fn residual_branches(e: &Expr, r: &dyn Resolve) -> Result<(), String> {
+    match e {
+        Expr::If(c, a, b) => {
+            dim(c, r).map_err(|m| m.0)?;
+            residual_branches(a, r)?;
+            residual_branches(b, r)
+        }
+        other => dim(other, r).map(|_| ()).map_err(|m| m.0),
+    }
+}
+
 /// Checks that `lhs` and `rhs` have the same dimension; the reason in
 /// words when not.
 pub(crate) fn balance(lhs: &Expr, rhs: &Expr, r: &dyn Resolve) -> Result<(), String> {
+    match (lhs, rhs) {
+        (Expr::Const(z), e @ Expr::If(..)) | (e @ Expr::If(..), Expr::Const(z)) if *z == 0.0 => {
+            return residual_branches(e, r);
+        }
+        _ => {}
+    }
     let l = dim(lhs, r).map_err(|m| m.0)?;
     let rr = dim(rhs, r).map_err(|m| m.0)?;
     unify(l, rr, "the equation")
