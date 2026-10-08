@@ -1153,9 +1153,10 @@ minimum or an average, for example from the CSV export, or put the
   available to check against, so an AI app may run cases without a task
   and wait for them. Whether a project with Script blocks may run on
   Windows is set for the whole connection (`--trust-scripts`), not per
-  project; the folders an assistant may see are set when it connects, not
-  in LightSim's settings; and the only way to hide one project is
-  `"noAI": true` in its file. A change an assistant saves to a project
+  project; the folders an assistant may see are set by Connect AI (the
+  projects folder) or on the command line (`lightsim ai allow`), not in
+  LightSim's settings; and one project is hidden by `"noAi": true` in its
+  file (`lightsim ai block`). A change an assistant saves to a project
   that is open in LightSim does not show there until you open it again,
   and a save from the app over it is refused as a conflict (the earlier
   version stays in *Restore…*). Connect AI writes the AI apps' settings

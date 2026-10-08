@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:lightsim:schema:lightsim-result:1",
   "title": "LightSim result export (lightsim run --out result.json)",
-  "description": "Format version 1. Generated from LightSim's data models; the specification is docs/spec/README.md (CC BY 4.0).",
+  "description": "Format version 1. Generated from LightSim's data models; the specification is docs/spec/README.md. Licence: a draft waiting for the owner's decision, see docs/spec/README.md.",
   "type": "object",
   "required": [
     "format",
