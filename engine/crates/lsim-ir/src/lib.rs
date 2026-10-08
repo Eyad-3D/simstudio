@@ -35,8 +35,8 @@ pub use component::{
 pub use diag::{Diagnostic, Severity};
 pub use expr::{BinaryOp, Builtin, CmpOp, Expr};
 pub use flat::{
-    FlatEquation, FlatParam, FlatSystem, FlatTable, FlatVar, FlatWhen, Instance, InstanceEnergy,
-    InstanceId, Origin, OriginKind, ParamId, PortPower, VarId, VarRole,
+    FlatAssert, FlatEquation, FlatParam, FlatSystem, FlatTable, FlatVar, FlatWhen, Instance,
+    InstanceEnergy, InstanceId, Origin, OriginKind, ParamId, PortPower, VarId, VarRole,
 };
 pub use prepared::{
     AliasEntry, AliasTarget, Assignment, Direction, ExternalBlock, InverseSpec, PrepStats,

@@ -179,6 +179,19 @@ pub struct FlatTable {
     pub data: crate::component::TableData,
 }
 
+/// A flat `assert`: the condition must hold while the model runs.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct FlatAssert {
+    /// what must hold (flat scope, a truth value)
+    pub condition: Expr,
+    /// what to tell the user when it does not
+    pub message: String,
+    /// true: stop the run; false: warn and go on
+    pub error: bool,
+    /// where it came from
+    pub origin: Origin,
+}
+
 /// The power flowing into an instance through one of its ports.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct PortPower {
@@ -224,6 +237,9 @@ pub struct FlatSystem {
     /// table data, by the index [`Expr::Table`] holds
     #[serde(default)]
     pub tables: Vec<FlatTable>,
+    /// conditions checked while the model runs
+    #[serde(default)]
+    pub asserts: Vec<FlatAssert>,
 }
 
 impl FlatSystem {
