@@ -39,7 +39,9 @@ function Badge({ file }: { file: FmuFile }) {
     <span
       data-testid="fmu-badge"
       className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-        good ? "bg-[#e5f5eb] text-emerald-700" : "bg-[#fde8e8] text-[color:var(--ss-err)]"
+        good
+          ? "bg-[color:var(--ss-ok-soft)] text-[color:var(--ss-ok)]"
+          : "bg-[color:var(--ss-err-soft)] text-[color:var(--ss-err)]"
       }`}
       title={
         plat.operatingSystems.length
@@ -215,7 +217,7 @@ export function FmuPanel({ element, compact }: { element: ElementInstance; compa
             </p>
           ))}
           {(info.warnings ?? []).map((w) => (
-            <p key={w} className="flex gap-1 text-[#b45309]">
+            <p key={w} className="flex gap-1 text-[color:var(--ss-warn)]">
               <TriangleAlert size={12} className="mt-0.5 shrink-0" /> {w}
             </p>
           ))}

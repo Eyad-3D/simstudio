@@ -19,6 +19,16 @@
   --ss-ok: #05704f;
   --ss-warn: #a14a07;
   --ss-err: #c81e1e;
+  /* a status's own tint behind its text (badges, message rows), and cyan for
+     a script's inputs; each status text is at least 4.5:1 on its tint */
+  --ss-ok-soft: #e5f5eb;
+  --ss-warn-soft: #fdf1e2;
+  --ss-err-soft: #fde8e8;
+  --ss-info: #0e7490;
+  --ss-info-soft: #e0f2f7;
+  /* a filled status badge under white text, in both themes */
+  --ss-warn-fill: #b45309;
+  --ss-err-fill: #c81e1e;
   /* the border of a text field or select: at least 3:1 on chrome, panel, alt */
   --ss-field-border: #7a8494;
   --ss-node-border: #8b94a3;
@@ -26,6 +36,29 @@
   --ss-td-border: #eef0f3;
   --ss-scrollbar: #c2c8d2;
   --ss-scrollbar-hover: #9aa2af;
+  /* one colour per domain for wires, part borders and icons, layer swatches
+     and pins: each at least 3:1 on the diagram (the panel colour) */
+  --ss-kind-electrical: #c26400;
+  --ss-kind-mechanical: #7a8494;
+  --ss-kind-signal: #0e7490;
+  --ss-kind-thermal: #c2410c;
+  --ss-kind-fluid: #2563eb;
+  /* pins: an outline at least 3:1 on the diagram around a light fill */
+  --ss-pin-electrical: #d97706;
+  --ss-pin-electrical-fill: #fde68a;
+  --ss-pin-mechanical: #4b5563;
+  --ss-pin-mechanical-fill: #d1d5db;
+  --ss-pin-thermal: #b91c1c;
+  --ss-pin-thermal-fill: #fecaca;
+  /* a battery pin's + and − marks: text, at least 4.5:1 on a part */
+  --ss-pole-positive: #dc2626;
+  --ss-pole-negative: #2563eb;
+  /* the diagram's grid lines and its overview map */
+  --ss-grid-line: #eceff3;
+  --ss-minimap-bg: #f2f4f8;
+  --ss-minimap-node: #7e8ca0;
+  --ss-minimap-node-border: #5b6472;
+  --ss-minimap-mask: rgba(47, 111, 179, 0.09);
   font-size: 13px;
 }
 
@@ -43,12 +76,27 @@
   --ss-ok: #34d399;
   --ss-warn: #fbbf24;
   --ss-err: #f87171;
+  --ss-ok-soft: #12352a;
+  --ss-warn-soft: #3a2a10;
+  --ss-err-soft: #3d1f22;
+  --ss-info: #5ec8de;
+  --ss-info-soft: #11313a;
   --ss-field-border: #6b7584;
-  --ss-node-border: #5a6472;
+  --ss-node-border: #7a8494;
   --ss-node-icon: #aeb6c2;
   --ss-td-border: #2a2f37;
   --ss-scrollbar: #3a414c;
   --ss-scrollbar-hover: #4d5663;
+  /* (the domain colours are the light theme's) */
+  --ss-pin-mechanical: #a3abb8;
+  --ss-pin-thermal: #f87171;
+  --ss-pole-positive: #f87171;
+  --ss-pole-negative: #60a5fa;
+  --ss-grid-line: #262b33;
+  --ss-minimap-bg: #1b1f26;
+  --ss-minimap-node: #55606f;
+  --ss-minimap-node-border: #8a95a5;
+  --ss-minimap-mask: rgba(90, 150, 210, 0.12);
 }
 
 html,
@@ -196,7 +244,7 @@ body,
   margin-right: 2px;
   padding: 0 4px;
   border-radius: 8px;
-  background: #b45309;
+  background: var(--ss-warn-fill);
   color: #fff;
   font-size: 10px;
   font-weight: 600;
@@ -204,7 +252,7 @@ body,
   text-align: center;
 }
 .dockview-theme-ss .dv-default-tab[data-badge-level="error"]::after {
-  background: #c81e1e;
+  background: var(--ss-err-fill);
 }
 /* The Home dock under the Results page (App.tsx). dockview forces its views
    back to `visibility: visible` (.dv-view.visible), so hiding the wrapper
@@ -232,17 +280,17 @@ body,
   border-radius: 2px;
 }
 .react-flow__handle.ss-handle-electrical {
-  border-color: #d97706;
-  background: #fde68a;
+  border-color: var(--ss-pin-electrical);
+  background: var(--ss-pin-electrical-fill);
   border-radius: 50%;
 }
 .react-flow__handle.ss-handle-mechanical {
-  border-color: #4b5563;
-  background: #d1d5db;
+  border-color: var(--ss-pin-mechanical);
+  background: var(--ss-pin-mechanical-fill);
 }
 .react-flow__handle.ss-handle-thermal {
-  border-color: #b91c1c;
-  background: #fecaca;
+  border-color: var(--ss-pin-thermal);
+  background: var(--ss-pin-thermal-fill);
 }
 .react-flow__edge-path {
   stroke-width: 1.6;
@@ -460,14 +508,14 @@ body,
 }
 /* text being typed that will be rejected (red) or needs a second look (amber) */
 .ss-grid td.ss-cell-error {
-  outline: 2px solid #dc2626;
+  outline: 2px solid var(--ss-err);
   outline-offset: -2px;
 }
 .ss-grid td.ss-cell-error .ss-cell-input {
-  background: color-mix(in srgb, #dc2626 10%, var(--ss-panel));
+  background: color-mix(in srgb, var(--ss-err) 10%, var(--ss-panel));
 }
 .ss-grid td.ss-cell-warning {
-  outline: 2px solid #d97706;
+  outline: 2px solid var(--ss-warn);
   outline-offset: -2px;
 }
 .ss-grid-frame {

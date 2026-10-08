@@ -39,9 +39,9 @@ export function MessagesPanel() {
             key={i}
             className={`flex items-start gap-2 border-b border-[color:var(--ss-td-border)] px-2 py-[3px] ${
               m.level === "error"
-                ? "bg-red-50 dark:bg-red-950/40"
+                ? "bg-[color:var(--ss-err-soft)]"
                 : m.level === "warning"
-                  ? "bg-amber-50 dark:bg-amber-950/40"
+                  ? "bg-[color:var(--ss-warn-soft)]"
                   : ""
             }`}
           >

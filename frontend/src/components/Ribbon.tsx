@@ -1070,7 +1070,7 @@ function GlobalRunControl() {
       </select>
       {running ? (
         <button
-          className="flex items-center gap-1 rounded bg-red-600 px-2 py-[3px] text-[11px] font-semibold text-white hover:bg-red-700"
+          className="flex items-center gap-1 rounded bg-[color:var(--ss-err-fill)] px-2 py-[3px] text-[11px] font-semibold text-white hover:brightness-110"
           onClick={stopRun}
           title="Stop the running simulation"
         >

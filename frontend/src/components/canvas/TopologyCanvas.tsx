@@ -978,7 +978,7 @@ function TopologyCanvasInner() {
             <Background
               variant={BackgroundVariant.Lines}
               gap={GRID}
-              color={theme === "dark" ? "#262b33" : "#eceff3"}
+              color="var(--ss-grid-line)"
             />
           )}
           {signalEdges.length > 0 && (
@@ -994,7 +994,7 @@ function TopologyCanvasInner() {
                     y1={e.y1}
                     x2={e.x2}
                     y2={e.y2}
-                    stroke={KIND_COLOR.signal}
+                    style={{ stroke: KIND_COLOR.signal }}
                     strokeWidth={1.6}
                     strokeDasharray="5 4"
                     strokeLinecap="round"
@@ -1044,10 +1044,10 @@ function TopologyCanvasInner() {
               // the drawing is sized from style (a class would clip it)
               style={{ width: 150, height: 96 }}
               className="rounded border border-[color:var(--ss-border)] shadow-sm"
-              bgColor={theme === "dark" ? "#1b1f26" : "#f2f4f8"}
-              maskColor={theme === "dark" ? "rgba(90, 150, 210, 0.12)" : "rgba(47, 111, 179, 0.09)"}
-              nodeColor={theme === "dark" ? "#55606f" : "#7e8ca0"}
-              nodeStrokeColor={theme === "dark" ? "#8a95a5" : "#5b6472"}
+              bgColor="var(--ss-minimap-bg)"
+              maskColor="var(--ss-minimap-mask)"
+              nodeColor="var(--ss-minimap-node)"
+              nodeStrokeColor="var(--ss-minimap-node-border)"
             />
           )}
         </ReactFlow>

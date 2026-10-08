@@ -24,6 +24,8 @@ export function limitsPlugin(kind: "t" | "distance"): PngPlugin {
     const lim = kind === "t" ? activeLimits() : null;
     if (!lim) return;
     const dark = useUIStore.getState().theme === "dark";
+    // the hatching is the chart's background colour
+    const panel = getComputedStyle(document.documentElement).getPropertyValue("--ss-panel").trim();
     const { ctx, bbox } = u;
     const px = devicePixelRatio * k;
     const h = STRIP * px;
@@ -46,7 +48,7 @@ export function limitsPlugin(kind: "t" | "distance"): PngPlugin {
           ctx.beginPath();
           ctx.rect(x0, y, x1 - x0, h);
           ctx.clip();
-          ctx.strokeStyle = dark ? "#1b1f26" : "#ffffff";
+          ctx.strokeStyle = panel;
           ctx.lineWidth = px;
           ctx.beginPath();
           for (let x = x0 - h; x < x1; x += 4 * px) {
@@ -88,7 +90,7 @@ export function LimitLegend({ run, onTime }: { run: SimRun; onTime: boolean }) {
       >
         <span
           aria-hidden="true"
-          className={`inline-block h-3 w-3 rounded-sm border border-[color:var(--ss-border)] text-center text-[9px] leading-[10px] ${show ? "bg-[color:var(--ss-accent)] text-white" : ""}`}
+          className={`inline-block h-3 w-3 rounded-sm border border-[color:var(--ss-border)] text-center text-[9px] leading-[10px] ${show ? "bg-[color:var(--ss-accent-fill)] text-white" : ""}`}
         >
           {show ? "✓" : ""}
         </span>
