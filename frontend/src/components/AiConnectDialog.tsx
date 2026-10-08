@@ -71,6 +71,11 @@ export function AiConnectDialog() {
             you before it saves a change or runs a project that contains Script blocks.
           </p>
           {state?.warning && <p className="text-amber-600">{state.warning}</p>}
+          {state?.managed && (
+            <p className="text-amber-600" data-testid="ai-managed">
+              {state.managed}
+            </p>
+          )}
           <table className="w-full">
             <tbody>
               {(state?.clients ?? []).map((c) => (
@@ -80,7 +85,7 @@ export function AiConnectDialog() {
                   <td className="py-1.5 text-right">
                     <button
                       className="ss-toolbtn border border-[color:var(--ss-border)] px-3"
-                      disabled={busy !== null}
+                      disabled={busy !== null || (!c.installed && !!state?.managed)}
                       title={c.configPath}
                       onClick={() => void toggle(c.id, !c.installed)}
                     >

@@ -6,7 +6,7 @@ import sys
 import pytest
 from fastapi.testclient import TestClient
 
-from app import script_trust
+from app import machine_policy, script_trust
 from app.main import app
 
 client = TestClient(app)
@@ -172,7 +172,10 @@ def test_a_packaged_engine_ignores_the_test_switch(trust, monkeypatch):
     monkeypatch.setenv("LIGHTSIM_DATA_DIR", str(trust))  # as the desktop shell sets it
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     assert script_trust.mode() == "prompt"
-    monkeypatch.setenv("LIGHTSIM_POLICY", json.dumps({"scriptTrust": "always-prompt"}))
+    # a packaged engine reads the policy file itself (app/machine_policy.py)
+    policy = trust / "policy.json"
+    policy.write_text(json.dumps({"scriptTrust": "always-prompt"}), encoding="utf-8")
+    monkeypatch.setattr(machine_policy, "policy_path", lambda platform=None: policy)
     assert script_trust.mode() == "always-prompt"
     project, _ = foreign(hybrid())
     assert client.post("/api/scripts/check", json={"project": project}).json()["unapproved"] == 1

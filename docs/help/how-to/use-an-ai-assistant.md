@@ -73,6 +73,10 @@ refuse every change.
   apart from yours (the newest 20 per project).
 - Every request is written to a log on this computer,
   `.ai/audit.jsonl` in your projects folder. It is never uploaded.
+- On a computer your organisation manages, its policy file can turn AI
+  access off (`"ai": "off"`, see [Install LightSim for a lab or
+  a company](deploy-for-it.md)). The window then says so and cannot add
+  LightSim to an AI app, and an assistant already connected gets nothing.
 
 An assistant can still misread a result. Check the numbers it reports
 against the run in LightSim, and read [Known issues](../../KNOWN-LIMITS.md).

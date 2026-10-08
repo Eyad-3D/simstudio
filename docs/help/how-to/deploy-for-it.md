@@ -122,6 +122,8 @@ file. LightSim finds the Windows folder from where Windows is installed,
 not from the `ProgramData` variable, and the installed app does not pass
 users' own `LIGHTSIM_*` environment variables to its engine, so users
 cannot point it at another file or switch the script check off that way.
+The engine an AI app starts on its own (see
+[Use an AI assistant](use-an-ai-assistant.md)) reads the same file itself.
 LightSim reads it at each start. A setting it fixes shows as
 *managed by your organisation* and cannot be changed in the app. A key
 that is missing leaves the setting to each user. A key LightSim does not
@@ -133,7 +135,8 @@ know, or a value it does not accept, is ignored and noted in `main.log`.
 | `scriptTrust` | `"prompt"`, `"always-prompt"` | `prompt` (the default): ask once before running scripts from elsewhere and remember the answer. `always-prompt`: approvals last only until LightSim closes. See [Open a project that has scripts from someone else](open-a-project-with-scripts.md). |
 | `examples` | `true`, `false` | `false`: the *Start* page and the Open menu offer no examples. |
 | `projectsRoots` | a list of folders | The first folder is where projects are saved instead of the user's own folder, for example a network drive. `%USERNAME%`, `$USER` and `~` are filled in for each user. |
-| `ai`, `aiProviders`, `licenceFile` | | Accepted and kept for later versions: LightSim has no AI features and no licence files yet, so they change nothing today. |
+| `ai` | `"off"`, `"mcp-only"`, `"allowed"` | `off`: AI apps get nothing from LightSim. Every request from a connected assistant is refused, *Connect an AI assistant* cannot add LightSim to an AI app, and `lightsim ai on` is refused. `mcp-only` and `allowed` leave it to each user (AI access stays off until they connect an AI app); LightSim has no AI of its own yet, so the two do the same. *Copy for AI* still copies a summary to the clipboard. |
+| `aiProviders`, `licenceFile` | | Accepted and kept for later versions: LightSim has no AI of its own and no licence files yet, so they change nothing today. |
 
 An example for a teaching lab:
 

@@ -1081,11 +1081,13 @@ def ai_overview(req: OverviewRequest) -> OverviewText:
 def _ai_connection() -> AiConnection:
     from .ai import install
     from .ai.access import last_audit_entry
+    from .machine_policy import AI_OFF, ai_off
     from .paths import projects_dir
 
     return AiConnection(
         command=install.server_command(),
         warning=install.command_warning(),
+        managed=AI_OFF if ai_off() else None,
         clients=[{"id": k, "title": c.title, "installed": install.is_installed(k),
                   "configPath": str(c.config_path())} for k, c in install.CLIENTS.items()],
         lastUsed=last_audit_entry(projects_dir()),
@@ -1098,16 +1100,20 @@ def ai_connection() -> AiConnection:
 
 
 @app.put("/api/ai/connect/{client}", responses={
+    403: {"description": "The organisation's policy turns AI access off", **_ERROR},
     404: {"description": "No such AI app", **_ERROR},
     409: {"description": "Its settings file could not be changed safely", **_ERROR}})
 def ai_connect(client: str) -> AiConnection:
     """Add LightSim to the AI app's MCP settings (AI-29). The entry points
     at this engine and at the folder this app saves projects to."""
     from .ai import install
+    from .machine_policy import AI_OFF, ai_off
     from .paths import projects_dir
 
     if client not in install.CLIENTS:
         raise HTTPException(status_code=404, detail=f"No AI app '{client}'")
+    if ai_off():
+        raise HTTPException(status_code=403, detail=AI_OFF)
     try:
         install.install(client, extra_args=["--projects-dir", str(projects_dir())])
     except install.InstallError as e:

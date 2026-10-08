@@ -1026,6 +1026,8 @@ export interface AiConnection {
   clients: { id: string; title: string; installed: boolean; configPath: string }[];
   /** the newest entry of the local audit log: when an assistant last used LightSim */
   lastUsed?: { t: number; tool?: string; client?: string } | null;
+  /** why AI access cannot be turned on: the organisation's policy file (PLT-36) */
+  managed?: string | null;
 }
 
 export function aiConnection(): Promise<AiConnection> {
