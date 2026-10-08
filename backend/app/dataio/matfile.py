@@ -58,13 +58,15 @@ def identifier(text: str, taken: set[str] | None = None, prefix: str = "x") -> s
     name = _IDENT.sub("_", text.strip()).strip("_")
     if not name or not name[0].isalpha():
         name = f"{prefix}_{name}" if name else prefix
-    name = name[:MAX_NAME]
+    # cut where a space or dash was, the name would end in "_": not a
+    # name identifier() gives back, which mat_bytes() refuses
+    name = name[:MAX_NAME].rstrip("_")
     if taken is None:
         return name
     base, n = name, 2
     while name.lower() in taken:
         suffix = f"_{n}"
-        name = base[: MAX_NAME - len(suffix)] + suffix
+        name = base[: MAX_NAME - len(suffix)].rstrip("_") + suffix
         n += 1
     taken.add(name.lower())
     return name

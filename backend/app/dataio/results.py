@@ -252,8 +252,11 @@ def to_mat(rt: RunTable) -> bytes:
     for c in rt.columns:
         s = variables.setdefault(c.mat_struct, {"t": [_clean(x) for x in c.t]})
         if len(c.t) != len(s["t"]):
-            # a channel on its own time base keeps it next to it
-            s[matfile.identifier(c.mat_field + "_t")] = [_clean(x) for x in c.t]
+            # a channel on its own time base keeps it next to it (cut so
+            # that a long name keeps its "_t" and does not replace the channel)
+            t_name = matfile.identifier(c.mat_field[: matfile.MAX_NAME - 2] + "_t",
+                                        {k.lower() for k in s} | {c.mat_field.lower()})
+            s[t_name] = [_clean(x) for x in c.t]
         s[c.mat_field] = [_clean(v) for v in c.values]
         units.setdefault(c.mat_struct, {"t": "s"})[c.mat_field] = c.unit
         labels.setdefault(c.mat_struct, {"t": "Time"})[c.mat_field] = c.label
