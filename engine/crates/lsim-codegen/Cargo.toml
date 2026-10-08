@@ -1,0 +1,25 @@
+[package]
+name = "lsim-codegen"
+description = "JIT compilation of prepared models to machine code with Cranelift: residuals, exact forward-mode Jacobian-vector products, zero crossings, outputs and event actions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license-file.workspace = true
+repository.workspace = true
+
+[dependencies]
+lsim-ir.workspace = true
+cranelift-codegen.workspace = true
+cranelift-frontend.workspace = true
+cranelift-jit.workspace = true
+cranelift-module.workspace = true
+cranelift-native.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+lsim-lib.workspace = true
+lsim-prep.workspace = true
+
+[lints]
+workspace = true
