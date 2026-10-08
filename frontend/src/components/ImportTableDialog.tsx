@@ -313,7 +313,7 @@ const fmt = (v: number) => (Math.abs(v) >= 1000 ? v.toLocaleString("en", { maxim
 
 /** What will be stored: a 1-D table or profile as a small line chart, a map
  *  as its first rows and columns. */
-function Preview({ result }: { result: api.TableImport }) {
+export function Preview({ result }: { result: api.TableImport }) {
   const p = result.preview;
   if (!p) return null;
   if (Array.isArray(p)) {
@@ -384,7 +384,7 @@ function Preview({ result }: { result: api.TableImport }) {
               <th className="border border-[color:var(--ss-border)] px-1">{fmt(r)}</th>
               {cols.map((_, j) => (
                 <td key={j} className="border border-[color:var(--ss-border)] px-1 text-right">
-                  {fmt(p.values[j][i])}
+                  {fmt(p.values[i][j])}
                 </td>
               ))}
             </tr>

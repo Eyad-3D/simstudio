@@ -923,7 +923,8 @@ export interface TableImport {
   notes: string[];
   errors: ImportProblem[];
   warnings: ImportProblem[];
-  /** [[x, y], …] or a map's {cols, rows, values} in the parameter's units */
+  /** [[x, y], …] or a map's {cols, rows, values} in the parameter's units:
+   *  cols are the outer axis, rows the inner one, values[row][col] */
   preview: [number, number][] | { cols: number[]; rows: number[]; values: number[][] } | null;
   target: string;
 }
