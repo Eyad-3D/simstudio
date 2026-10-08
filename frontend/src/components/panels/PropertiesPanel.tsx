@@ -777,7 +777,9 @@ function DynamicPortsEditor({ element }: { element: ElementInstance }) {
         <div key={p.id} className="flex items-center gap-1 py-0.5">
           <span
             className={`rounded px-1 text-[9px] font-semibold uppercase ${
-              p.direction === "input" ? "bg-[#e0f2f7] text-[#0e7490]" : "bg-[#fdf1e2] text-[#b45309]"
+              p.direction === "input"
+                ? "bg-[color:var(--ss-info-soft)] text-[color:var(--ss-info)]"
+                : "bg-[color:var(--ss-warn-soft)] text-[color:var(--ss-warn)]"
             }`}
           >
             {p.direction === "input" ? "in" : "out"}
@@ -1006,7 +1008,7 @@ export function ElementForm({
         </span>
         {running && (
           <span
-            className="flex items-center gap-1 rounded bg-[#e5f5eb] px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"
+            className="flex items-center gap-1 rounded bg-[color:var(--ss-ok-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[color:var(--ss-ok)]"
             title="Simulation running — number/switch edits apply immediately; tables and code apply on the next run"
           >
             <Radio size={10} /> LIVE
@@ -1287,7 +1289,8 @@ export function PropertiesPanel() {
   const selectedDef = selected ? libraryById[selected.componentDefId] : undefined;
 
   return (
-    <div className="flex h-full flex-col">
+    // data-properties-panel: Enter on the diagram puts the focus in here (UX-19)
+    <div className="flex h-full flex-col" data-properties-panel>
       <div className="ss-panel-toolbar text-[11px] font-semibold">
         {selected ? `Parameters — ${selected.label}` : "Parameters"}
       </div>

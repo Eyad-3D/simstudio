@@ -32,6 +32,7 @@ import {
   PackagePlus,
   Pencil,
   Redo2,
+  Scissors,
   Settings2,
   Trash2,
   Undo2,
@@ -49,13 +50,23 @@ import {
 } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import { useDismiss } from "../useDismiss";
-import { promptDialog } from "../../dialog";
 import { dropFmuFile } from "../../fmu";
 import type { PortKind } from "../../types";
 import { ElementNode, KIND_COLOR, type ElementFlowNode } from "./ElementNode";
 import { EnergyBars } from "./EnergyOverlay";
 import { useReportsStore } from "../../store/reportsStore";
 import { useStaleness } from "../panels/StaleBanner";
+import {
+  copySelection,
+  cutSelection,
+  deleteSelection,
+  focusProperties,
+  renamePart,
+  renameSelection,
+  selectAll,
+  useCanvasSelection,
+} from "../../store/canvasSelection";
+import { canvasAction, diagramHasKeys, keyBelongsToTarget } from "./canvasKeys";
 
 const nodeTypes = { element: ElementNode };
 
@@ -141,7 +152,6 @@ function TopologyCanvasInner() {
   const project = useProjectStore((s) => s.project);
   const libraryById = useProjectStore((s) => s.libraryById);
   const activeSystemId = useProjectStore((s) => s.activeSystemId);
-  const selectedElementId = useProjectStore((s) => s.selectedElementId);
   const system = useActiveSystem();
   const store = useProjectStore;
   // the run shown in Results: wires added since it (UX-41), and its energy (RES-22)
@@ -162,8 +172,10 @@ function TopologyCanvasInner() {
   } = useReactFlow();
   const rfStore = useStoreApi();
 
-  const [selectedNodes, setSelectedNodes] = useState<Set<string>>(new Set());
-  const [selectedEdges, setSelectedEdges] = useState<Set<string>>(new Set());
+  // the selection lives in its own store, shared with the ribbon (UX-19)
+  const selectedNodes = useCanvasSelection((s) => s.nodes);
+  const selectedEdges = useCanvasSelection((s) => s.edges);
+  const { setNodes: setSelectedNodes, setEdges: setSelectedEdges } = useCanvasSelection.getState();
   const [showMiniMap, setShowMiniMap] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
   const [snap, setSnap] = useState(false);
@@ -186,30 +198,23 @@ function TopologyCanvasInner() {
 
   const placingId = useUIStore((s) => s.placingComponentId);
   const placingDef = placingId ? libraryById[placingId] : undefined;
-  const offPage = useUIStore((s) => s.ribbonTab === "start" || s.ribbonTab === "results");
   const clipboard = useProjectStore((s) => s.clipboard);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const hovered = useRef(false);
   const pointer = useRef<{ x: number; y: number } | null>(null);
+  // whether the last click was on the diagram (its toolbar and menu count)
+  const clickedHere = useRef(false);
 
-  // sync external selection (properties tree, elements list) into the canvas,
-  // while rendering, whenever the selected element changes (and on mount).
-  // Must not collapse a canvas-originated multi-selection: when the selected
-  // element is already part of the current canvas selection, leave it alone;
-  // only a genuinely new (external) selection replaces it with a single node.
-  const [syncedElementId, setSyncedElementId] = useState<string | null>(null);
-  if (selectedElementId !== syncedElementId) {
-    setSyncedElementId(selectedElementId);
-    setSelectedNodes((prev) => {
-      if (!selectedElementId) return prev.size ? new Set() : prev;
-      if (prev.has(selectedElementId)) return prev;
-      return new Set([selectedElementId]);
-    });
-  }
+  // (a part selected elsewhere, in Properties, Elements or Problems, becomes
+  // the selection in canvasSelection.ts)
   // freshly pasted/duplicated elements become the canvas selection
-  const selectNew = useCallback((ids: string[]) => {
-    if (ids.length) setSelectedNodes(new Set(ids));
-  }, []);
+  const selectNew = useCallback(
+    (ids: string[]) => {
+      if (ids.length) setSelectedNodes(new Set(ids));
+    },
+    [setSelectedNodes],
+  );
   // pan and zoom to parts (the "." key and the Problems list)
   const frame = useCallback(
     (ids: string[]) => void fitView({ nodes: ids.map((id) => ({ id })), padding: 0.3, maxZoom: 1, duration: 200 }),
@@ -234,7 +239,7 @@ function TopologyCanvasInner() {
       st.select(here[here.length - 1]);
       setSelectedNodes(new Set(here));
     },
-    [frame, store],
+    [frame, store, setSelectedNodes],
   );
   useEffect(() => {
     const ui = useUIStore.getState();
@@ -522,7 +527,7 @@ function TopologyCanvasInner() {
 
   const onNodesChange = useCallback(
     (changes: NodeChange<ElementFlowNode>[]) => {
-      const sel = new Set(selectedNodes);
+      const sel = new Set(useCanvasSelection.getState().nodes);
       let selChanged = false;
       const sizes: Record<string, { width: number; height: number }> = {};
       for (const ch of changes) {
@@ -555,21 +560,25 @@ function TopologyCanvasInner() {
         });
       }
     },
-    [selectedNodes, store],
+    [store, setSelectedNodes],
   );
 
-  const onEdgesChange = useCallback((changes: EdgeChange<Edge>[]) => {
-    setSelectedEdges((prev) => {
-      const sel = new Set(prev);
-      for (const ch of changes) {
-        if (ch.type === "select") {
-          if (ch.selected) sel.add(ch.id);
-          else sel.delete(ch.id);
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange<Edge>[]) => {
+      if (!changes.some((ch) => ch.type === "select")) return;
+      setSelectedEdges((prev) => {
+        const sel = new Set(prev);
+        for (const ch of changes) {
+          if (ch.type === "select") {
+            if (ch.selected) sel.add(ch.id);
+            else sel.delete(ch.id);
+          }
         }
-      }
-      return sel;
-    });
-  }, []);
+        return sel;
+      });
+    },
+    [setSelectedEdges],
+  );
 
   const portOf = useCallback(
     (elId: string | null, portId: string | null | undefined) => {
@@ -603,12 +612,6 @@ function TopologyCanvasInner() {
     },
     [store],
   );
-
-  const deleteSelection = useCallback(() => {
-    store.getState().removeElements([...selectedNodes], [...selectedEdges]);
-    setSelectedEdges(new Set());
-    setSelectedNodes(new Set());
-  }, [selectedEdges, selectedNodes, store]);
 
   // reconnect an existing edge to a different port (same kind only)
   const onReconnect = useCallback(
@@ -662,25 +665,65 @@ function TopologyCanvasInner() {
   };
   const closeMenu = () => setMenu(null);
 
-  // copy / duplicate / paste keyboard shortcuts (only while over the canvas)
+  // the diagram has the keyboard while the focus is in it, or nowhere after
+  // a click on it (or with the pointer over it): see canvasKeys.ts (UX-19)
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      clickedHere.current = !!rootRef.current?.contains(e.target as Node);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, []);
+
+  // select all, copy, cut, paste, duplicate, delete, rename and Properties
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!hovered.current) return;
-      const meta = e.ctrlKey || e.metaKey;
-      if (!meta) return;
-      const t = e.target as HTMLElement;
-      if (["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || t.isContentEditable) return;
+      const action = canvasAction(e);
+      if (!action) return;
+      const ui = useUIStore.getState();
+      if (ui.ribbonTab === "results" || ui.ribbonTab === "start" || ui.paramDialogId || ui.dialog) return;
+      if (keyBelongsToTarget(e.target instanceof Element ? e.target : null, action)) return;
+      const focused = document.activeElement;
+      if (!diagramHasKeys(rootRef.current, focused, document.body, clickedHere.current, hovered.current)) return;
       const st = store.getState();
-      const k = e.key.toLowerCase();
-      if (k === "c" && selectedNodes.size > 0) {
-        st.copyElements([...selectedNodes]);
-      } else if (k === "d" && selectedNodes.size > 0) {
-        e.preventDefault();
-        selectNew(st.duplicateElements([...selectedNodes]));
-      } else if (k === "v" && st.clipboard) {
-        e.preventDefault();
-        selectNew(st.pasteClipboard(pointer.current ?? undefined));
+      let done = false;
+      switch (action) {
+        case "selectAll":
+          done = selectAll();
+          // the page's own select-all would highlight every text on it
+          e.preventDefault();
+          break;
+        case "copy":
+          done = copySelection();
+          break;
+        case "cut":
+          done = cutSelection();
+          break;
+        case "paste":
+          if (st.clipboard) {
+            selectNew(st.pasteClipboard(hovered.current ? (pointer.current ?? undefined) : undefined));
+            done = true;
+          }
+          break;
+        case "duplicate":
+          if (selectedNodes.size > 0) {
+            selectNew(st.duplicateElements([...selectedNodes]));
+            done = true;
+          }
+          // the browser's own Ctrl+D adds a bookmark
+          e.preventDefault();
+          break;
+        case "delete":
+          done = deleteSelection();
+          break;
+        case "rename":
+          done = renameSelection();
+          break;
+        case "properties":
+          done = focusProperties();
+          break;
       }
+      if (done) e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -713,7 +756,7 @@ function TopologyCanvasInner() {
   const future = useProjectStore((s) => s.future.length);
 
   return (
-    <div className="relative flex h-full flex-col">
+    <div ref={rootRef} className="relative flex h-full flex-col">
       {/* the toolbar floats over the diagram's top edge as two pills, so the
           diagram gets the panel's full height; in a narrow panel the tools
           wrap onto a second row */}
@@ -772,7 +815,7 @@ function TopologyCanvasInner() {
             className="ss-toolbtn"
             title="Delete selection (Del)"
             disabled={selectedNodes.size === 0 && selectedEdges.size === 0}
-            onClick={deleteSelection}
+            onClick={() => deleteSelection()}
           >
             <Trash2 size={14} />
           </button>
@@ -902,14 +945,6 @@ function TopologyCanvasInner() {
               useUIStore.getState().openParamDialog(el.id);
             }
           }}
-          // one store call for the parts and wires React Flow deletes (Del,
-          // Backspace), so a single undo brings them all back
-          onDelete={({ nodes: parts, edges: wires }) =>
-            store.getState().removeElements(
-              parts.map((n) => n.id),
-              wires.map((e) => e.id),
-            )
-          }
           onPaneClick={(e) => {
             if (placingId) {
               // click-to-place: drop the armed library part where clicked, after
@@ -926,8 +961,9 @@ function TopologyCanvasInner() {
             store.getState().select(null);
             closeMenu();
           }}
-          // not while the Start or Results page hides the diagram
-          deleteKeyCode={offPage ? null : ["Delete", "Backspace"]}
+          // Delete and Backspace are the diagram's own keys (above): one undo
+          // step for the whole selection, and only while it has the keyboard
+          deleteKeyCode={null}
           nodeDragThreshold={4}
           multiSelectionKeyCode={["Control", "Meta", "Shift"]}
           selectionKeyCode={["Shift"]}
@@ -942,7 +978,7 @@ function TopologyCanvasInner() {
             <Background
               variant={BackgroundVariant.Lines}
               gap={GRID}
-              color={theme === "dark" ? "#262b33" : "#eceff3"}
+              color="var(--ss-grid-line)"
             />
           )}
           {signalEdges.length > 0 && (
@@ -958,7 +994,7 @@ function TopologyCanvasInner() {
                     y1={e.y1}
                     x2={e.x2}
                     y2={e.y2}
-                    stroke={KIND_COLOR.signal}
+                    style={{ stroke: KIND_COLOR.signal }}
                     strokeWidth={1.6}
                     strokeDasharray="5 4"
                     strokeLinecap="round"
@@ -1008,10 +1044,10 @@ function TopologyCanvasInner() {
               // the drawing is sized from style (a class would clip it)
               style={{ width: 150, height: 96 }}
               className="rounded border border-[color:var(--ss-border)] shadow-sm"
-              bgColor={theme === "dark" ? "#1b1f26" : "#f2f4f8"}
-              maskColor={theme === "dark" ? "rgba(90, 150, 210, 0.12)" : "rgba(47, 111, 179, 0.09)"}
-              nodeColor={theme === "dark" ? "#55606f" : "#7e8ca0"}
-              nodeStrokeColor={theme === "dark" ? "#8a95a5" : "#5b6472"}
+              bgColor="var(--ss-minimap-bg)"
+              maskColor="var(--ss-minimap-mask)"
+              nodeColor="var(--ss-minimap-node)"
+              nodeStrokeColor="var(--ss-minimap-node-border)"
             />
           )}
         </ReactFlow>
@@ -1094,17 +1130,11 @@ function TopologyCanvasInner() {
                 <MenuBtn
                   icon={Pencil}
                   label="Rename…"
+                  kbd="F2"
                   onClick={() => {
-                    const el = system?.elements.find((e) => e.id === menu.nodeId);
                     const id = menu.nodeId!;
                     closeMenu();
-                    void promptDialog({
-                      title: "Rename element",
-                      defaultValue: el?.label ?? "",
-                      confirmLabel: "Rename",
-                    }).then((name) => {
-                      if (name != null && name.trim()) store.getState().renameElement(id, name.trim());
-                    });
+                    void renamePart(id);
                   }}
                 />
                 {menuSignals && (
@@ -1136,7 +1166,16 @@ function TopologyCanvasInner() {
                   label={`Copy${selectedNodes.size > 1 ? ` (${selectedNodes.size})` : ""}`}
                   kbd="Ctrl+C"
                   onClick={() => {
-                    store.getState().copyElements([...selectedNodes]);
+                    copySelection();
+                    closeMenu();
+                  }}
+                />
+                <MenuBtn
+                  icon={Scissors}
+                  label={`Cut${selectedNodes.size > 1 ? ` (${selectedNodes.size})` : ""}`}
+                  kbd="Ctrl+X"
+                  onClick={() => {
+                    cutSelection();
                     closeMenu();
                   }}
                 />
@@ -1167,8 +1206,9 @@ function TopologyCanvasInner() {
                 <MenuBtn
                   icon={BoxSelect}
                   label="Select all"
+                  kbd="Ctrl+A"
                   onClick={() => {
-                    if (system) setSelectedNodes(new Set(system.elements.map((e) => e.id)));
+                    selectAll();
                     closeMenu();
                   }}
                 />

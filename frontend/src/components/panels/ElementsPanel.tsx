@@ -1,5 +1,6 @@
 import { useActiveSystem, useProjectStore } from "../../store/projectStore";
 import { componentIcon } from "../../icons";
+import { deleteSelection, renameSelection } from "../../store/canvasSelection";
 
 export function ElementsPanel() {
   const system = useActiveSystem();
@@ -24,6 +25,17 @@ export function ElementsPanel() {
               key={el.id}
               className={`ss-tree-row ${selectedElementId === el.id ? "selected" : ""}`}
               onClick={() => select(el.id)}
+              // the diagram's keys work on the part picked here too (UX-19)
+              onKeyDown={(e) => {
+                if (e.ctrlKey || e.metaKey || e.altKey) return;
+                if (e.key === "Delete" || e.key === "Backspace") {
+                  if (selectedElementId !== el.id) select(el.id);
+                  if (deleteSelection()) e.preventDefault();
+                } else if (e.key === "F2") {
+                  if (selectedElementId !== el.id) select(el.id);
+                  if (renameSelection()) e.preventDefault();
+                }
+              }}
               onDoubleClick={() => {
                 if (el.isSubSystem && el.subSystemId) setActiveSystem(el.subSystemId);
               }}

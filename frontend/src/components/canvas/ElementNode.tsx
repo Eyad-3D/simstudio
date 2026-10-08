@@ -24,15 +24,15 @@ export type ElementFlowNode = Node<ElementNodeData, "element">;
 export const DEFAULT_NODE_WIDTH = 92;
 
 // One colour per domain for wires, node borders and icons, layer swatches and
-// port dots, in both themes: each is at least 3:1 on the light (#ffffff) and
-// the dark (#1b1f26) diagram (contrast.test.ts).
+// port dots: the theme's --ss-kind-* tokens (index.css), each at least 3:1 on
+// the diagram in both themes (contrast.test.ts). CSS values, for styles only.
 export const KIND_COLOR: Record<PortKind, string> = {
-  electrical: "#c26400",
-  mechanical: "#7a8494",
-  signal: "#0e7490",
-  thermal: "#c2410c",
-  fluid: "#2563eb",
-  power: "#c26400",
+  electrical: "var(--ss-kind-electrical)",
+  mechanical: "var(--ss-kind-mechanical)",
+  signal: "var(--ss-kind-signal)",
+  thermal: "var(--ss-kind-thermal)",
+  fluid: "var(--ss-kind-fluid)",
+  power: "var(--ss-kind-electrical)",
 };
 
 // The one "headline" signal shown as a live chip on a node during/after a run.
@@ -187,7 +187,7 @@ function PhysicalPort({
           className="pointer-events-none absolute z-10 text-[10px] font-bold leading-none"
           style={{
             ...polarityGlyphStyle(side, offset),
-            color: port.polarity === "positive" ? "#dc2626" : "#2563eb",
+            color: port.polarity === "positive" ? "var(--ss-pole-positive)" : "var(--ss-pole-negative)",
           }}
         >
           {port.polarity === "positive" ? "+" : "−"}
@@ -279,7 +279,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
         ref={boxRef}
         className={`group relative flex items-center justify-center rounded-md border-[1.5px] bg-[color:var(--ss-panel)] shadow-sm transition-shadow
           ${isSub ? "border-dashed border-[color:var(--ss-accent)] bg-[color:var(--ss-accent-soft)]" : ""}
-          ${selected ? "outline outline-2 outline-[color:var(--ss-accent)] shadow-md" : issue?.level === "error" ? "outline outline-2 outline-red-500" : issue?.level === "warning" ? "outline outline-1 outline-amber-500" : ""}`}
+          ${selected ? "outline outline-2 outline-[color:var(--ss-accent)] shadow-md" : issue?.level === "error" ? "outline outline-2 outline-[color:var(--ss-err)]" : issue?.level === "warning" ? "outline outline-1 outline-[color:var(--ss-warn)]" : ""}`}
         style={{ width, height, ...(isSub ? {} : { borderColor: domainColor }) }}
         title={isSub ? "Double-click to open sub-system" : `${def.name} — double-click for parameters`}
       >
@@ -298,10 +298,12 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
           </div>
         )}
         <NodeMarks elementId={element.id} />
+        {/* the status colour with the diagram's colour inside: at least 3:1
+            both ways in both themes (contrast.test.ts) */}
         {issue && (
           <span
-            className={`absolute -right-1.5 -top-1.5 z-20 flex h-3.5 w-3.5 items-center justify-center rounded-full text-white shadow ${
-              issue.level === "error" ? "bg-red-500" : "bg-amber-500"
+            className={`absolute -right-1.5 -top-1.5 z-20 flex h-3.5 w-3.5 items-center justify-center rounded-full text-[color:var(--ss-panel)] shadow ${
+              issue.level === "error" ? "bg-[color:var(--ss-err)]" : "bg-[color:var(--ss-warn)]"
             }`}
             title={issue.text}
           >
