@@ -284,4 +284,9 @@ pub struct PreparedModel {
     /// the parameter expressions explicit solutions divide by
     #[serde(default)]
     pub guards: Vec<ParamGuard>,
+    /// what preparation noticed that does not stop the model from running
+    /// (a start value that cannot hold, a loop through controllers …),
+    /// told like every other diagnostic
+    #[serde(default)]
+    pub warnings: Vec<crate::diag::Diagnostic>,
 }
