@@ -523,6 +523,7 @@ name = "lsim-fast"
 version = "0.1.0"
 dependencies = [
  "lsim-ir",
+ "thiserror",
 ]
 
 [[package]]
