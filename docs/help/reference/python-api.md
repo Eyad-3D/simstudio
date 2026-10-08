@@ -34,7 +34,7 @@ you the results as a table (`Result.df`).
 | Call | Gives |
 |---|---|
 | `ls.run(project, case=None)` | Runs one case and returns a `Result`. `project` is a file path, an example id (`"bev-car"`) or a `Project`; `case` is a case's name or id (the first case if left out) |
-| `ls.check(project)` | The Data Checks (the *Problems* list): a list of `Check` with `level`, `text`, `fix`, `element_ids` |
+| `ls.check(project)` | The Data Checks (the *Problems* list): a list of `Check` with `level`, `text`, `fix`, `element_ids` and `case_id` (the case an error stops alone; None: every run) |
 | `ls.load(project)` | A `Project` to read, change, check, run and save |
 | `ls.read_run(path)` | A `Result` from a run the app stored (`.json.gz`) or one you saved as JSON |
 | `ls.examples()` | The example ids |
