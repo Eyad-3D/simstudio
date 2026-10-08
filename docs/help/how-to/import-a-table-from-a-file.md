@@ -38,9 +38,10 @@ an Excel workbook (`.xlsx`). Pasting cells from Excel with Ctrl+V works too.
 ## Units
 
 LightSim reads the unit from each header: `speed [km/h]`, `n (rpm)`,
-`Torque in Nm`, a row of units under the headers (as data loggers write
-them) or a name such as `speed_meters_per_second` (the FASTSim drive-cycle
-layout). It converts the numbers to the unit the table is stored in, for
+`Torque in Nm`, a header that is only a unit (`rad/s`, `kW`), a row of
+units under the headers (as data loggers write them) or a name such as
+`speed_meters_per_second` (the FASTSim drive-cycle layout). A single
+letter (`t`, `v`, `s`) and `min` are read as names, not units. It converts the numbers to the unit the table is stored in, for
 example W to kW or rpm (1/min) to 1/min. A unit of the wrong kind, such as
 kg for a speed, is refused.
 

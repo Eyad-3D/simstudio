@@ -55,10 +55,39 @@ def read(data: bytes, name: str, target: tables.Target, sheet: int = 0, **opts):
     ("Power loss in W", "Power loss", "W"),
     ("Temp [degC]", "Temp", "°C"),
     ("Torque", "Torque", None),
+    # a header that is only a unit
+    ("rad/s", "rad/s", "rad/s"),
+    ("kW", "kW", "kW"),
+    ("mph", "mph", "mph"),
+    ("%", "%", "%"),
+    # a letter alone, or "min", names a quantity as often as a unit
+    ("t", "t", None),
+    ("v", "v", None),
+    ("min", "min", None),
 ])
 def test_units_are_read_from_headers(header, name, unit):
     got = units.split_header(header)
     assert got[0] == name and got[1] == unit
+
+
+def test_milli_and_mega_are_told_apart_by_their_case():
+    assert units.canonical("MW") == "MW" and units.canonical("MWh") == "MWh"
+    assert units.canonical("MJ") == "MJ" and units.canonical("mΩ") == "mΩ"
+    # milliwatts and the like are not units LightSim knows: refused, never
+    # read as MW (10^9 times too large)
+    for u in ("mW", "mw", "mWh", "mJ", "MΩ"):
+        assert units.canonical(u) is None, u
+    assert units.canonical("mohm") == "mΩ" and units.canonical("kw") == "kW"
+
+
+def test_a_header_that_is_only_a_unit_is_read():
+    engine = tables.target_for("engine.combustion", "full_load_torque")  # 1/min -> N·m
+    r = read(b"rad/s,Nm\n100,10\n200,20\n", "wot.csv", engine)
+    assert r.units["x"].used == "rad/s" and r.units["x"].how == "header"
+    assert r.value == {"954.929658551": 10.0, "1909.8593171": 20.0}
+    # a unit of the wrong kind is refused
+    r = read(b"speed,kW\n1000,10\n2000,20\n", "wot.csv", engine)
+    assert r.value is None and "is in kW, which is not a unit of" in r.errors[0].text
 
 
 def test_unit_conversions():

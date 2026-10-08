@@ -836,7 +836,9 @@ minimum or an average, for example from the CSV export, or put the
   common units of speed, rotational speed, torque, power, energy,
   voltage, current, charge, mass, mass flow, distance, time, temperature,
   force, pressure, curvature and resistance. Other units (for example
-  kg·m² written as g·cm²) must be converted in the file first. A speed or
+  kg·m² written as g·cm²) must be converted in the file first. Milliwatts,
+  milliwatt-hours and millijoules (mW, mWh, mJ) are among them, and a
+  lower-case `mw` is refused rather than read as MW. A speed or
   grade without a unit is guessed from its values, and the preview asks
   you to confirm. *Roadmap:* STD-16.
 - **The parameter sheet does not hold scripts, case values or when a value
