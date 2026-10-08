@@ -72,6 +72,7 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gzip
 import os
 import shutil
@@ -472,7 +473,8 @@ def put_project(
         saved = _put_project(project_id, body, response, if_match, if_none_match)
     except BaseException:
         # the first save after a Save As failed: the new file is not used
-        files.cancel(project_id)
+        with contextlib.suppress(OSError):
+            files.cancel(project_id)
         raise
     _finish_save_as(project_id)
     return saved
@@ -481,7 +483,10 @@ def put_project(
 def _finish_save_as(project_id: str) -> None:
     """After the first save to a file chosen with Save As: list it in Recent
     files, and move the runs of a project that was never saved beside it."""
-    entry = files.confirm(project_id)
+    try:
+        entry = files.confirm(project_id)
+    except OSError:
+        return  # the file is saved; Recent files could not be written
     if entry is None or entry.runs_from is None:
         return
     new = storage.location(project_id)
