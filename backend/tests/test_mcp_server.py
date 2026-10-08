@@ -277,6 +277,60 @@ def test_an_edit_with_a_bad_operation_changes_nothing(folder):
     assert "Operation 2" in text and "kg" in text and "Nothing was changed" in text
 
 
+CONFIRM = {"confirm": {"action": "accept", "content": {"confirm": True}}}
+
+
+def _confirmed_edit(server, project: str, ops: list) -> tuple[dict, str]:
+    """model_edit with dry_run false, answered yes: (its answer, the question asked)."""
+    ask = tool(server, "model_edit", {"project": project, "operations": ops, "dry_run": False})
+    assert ask["resultType"] == "input_required", ask
+    question = ask["inputRequests"]["confirm"]["params"]["message"]
+    done = tool(server, "model_edit", {"project": project, "operations": ops, "dry_run": False},
+                inputResponses=CONFIRM, requestState=ask["requestState"])
+    return done, question
+
+
+def _project_file(path: Path, name: str) -> Path:
+    bev = json.loads((BACKEND / "projects" / "bev-car.json").read_text(encoding="utf-8"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({**bev, "id": path.stem, "name": name}, indent=2), encoding="utf-8")
+    return path
+
+
+def test_same_named_files_in_two_folders_keep_their_own_runs(folder, tmp_path):
+    a = _project_file(tmp_path / "A" / "car.json", "Car A")
+    b = _project_file(tmp_path / "B" / "car.json", "Car B")
+    allow_ai(folder, a.parent, b.parent)
+    server = make_server(folder)
+    ref_a, ref_b = str(a.resolve()), str(b.resolve())
+    run = tool(server, "run_case", {"project": ref_a, "case": "case-city"})["structuredContent"]
+    assert tool(server, "results_query", {"project": ref_a})["structuredContent"]["run"]["run"] \
+        == run["run"]
+    other = tool(server, "results_query", {"project": ref_b})
+    assert other["isError"] and "no runs yet" in other["content"][0]["text"]
+    assert tool(server, "lightsim_overview", {"project": ref_b})["structuredContent"]["recentRuns"] == []
+    assert tool(server, "lightsim_overview", {"project": ref_a})["structuredContent"]["recentRuns"]
+
+
+def test_an_examples_runs_are_not_a_saved_projects_of_the_same_id(folder):
+    # a saved project with the id of an example, and one called "new"
+    _project_file(folder / "bev-car.json", "My own car")
+    _project_file(folder / "new.json", "Another car")
+    server = make_server(folder)
+    tool(server, "run_case", {"project": "example:bev-car", "case": "case-city"})
+    for ref in ("bev-car", "new"):
+        mine = tool(server, "results_query", {"project": ref})
+        assert mine["isError"] and "no runs yet" in mine["content"][0]["text"], ref
+    assert not tool(server, "results_query", {"project": "example:bev-car"})["isError"]
+
+
+def test_a_saved_project_named_by_its_path_is_the_saved_project(folder):
+    _project_file(folder / "mine.json", "Mine")
+    server = make_server(folder)
+    by_path = tool(server, "lightsim_overview", {"project": str((folder / "mine.json").resolve())})
+    assert by_path["structuredContent"]["project"] == "mine"
+
+
 def test_edits_off_with_read_only(folder):
     server = make_server(folder, allow_edits=False)
     ops = [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 1500}]

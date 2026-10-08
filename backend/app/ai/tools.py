@@ -276,7 +276,8 @@ class Tools:
         self.engine = engine
         self.policy = policy
         self.audit = audit
-        self._memory_runs: dict[str, StoredRun] = {}  # when the disk refuses them
+        # when the disk refuses them: by (the project's runs_key, run id)
+        self._memory_runs: dict[tuple[str, str], StoredRun] = {}
 
     # -- dispatch ---------------------------------------------------------
 
@@ -580,7 +581,7 @@ class Tools:
     # -- runs ---------------------------------------------------------------
 
     def _ai_runs_dir(self, handle: ProjectHandle) -> Path:
-        return self.engine.user_folder / ".ai" / "runs" / handle.project_id
+        return self.engine.user_folder / ".ai" / "runs" / handle.runs_key
 
     def _store_ai_run(self, handle: ProjectHandle, run: StoredRun) -> None:
         folder = self._ai_runs_dir(handle)
@@ -591,7 +592,7 @@ class Tools:
             for old in sorted(folder.glob("ai-*.json.gz"))[:-KEEP_AI_RUNS]:
                 old.unlink(missing_ok=True)
         except OSError:
-            self._memory_runs[run.id] = run
+            self._memory_runs[(handle.runs_key, run.id)] = run
 
     def _run_list(self, handle: ProjectHandle) -> list[dict]:
         """The project's runs, newest first: the app's and the assistant's."""
@@ -603,6 +604,10 @@ class Tools:
                 continue
             runs.append({"id": run.id, "caseName": run.caseName, "status": run.status,
                          "startedAt": run.startedAt, "by": "assistant"})
+        for (key, _), run in self._memory_runs.items():
+            if key == handle.runs_key:
+                runs.append({"id": run.id, "caseName": run.caseName, "status": run.status,
+                             "startedAt": run.startedAt, "by": "assistant"})
         return sorted(runs, key=lambda r: r.get("startedAt", 0), reverse=True)
 
     def _get_run(self, handle: ProjectHandle, run_id: str) -> StoredRun:
@@ -611,8 +616,8 @@ class Tools:
             if not runs:
                 raise ToolError("This project has no runs yet: start one with run_case.")
             run_id = runs[0]["id"]
-        if run_id in self._memory_runs:
-            return self._memory_runs[run_id]
+        if (handle.runs_key, run_id) in self._memory_runs:
+            return self._memory_runs[(handle.runs_key, run_id)]
         if run_id.startswith("ai-") and re.fullmatch(r"ai-[0-9a-f-]+", run_id):
             path = self._ai_runs_dir(handle) / f"{run_id}.json.gz"
             if path.is_file():
