@@ -894,6 +894,10 @@ minimum or an average, for example from the CSV export, or put the
   - Iteration: values pass once per communication step, so a signal loop
     through an FMU and back arrives one step late, as between Script
     blocks.
+  - With a *Communication Step*, the FMU runs on only when it exchanges
+    values: it catches up to LightSim's time with the inputs of that
+    moment, and its outputs then hold, so they can be up to one
+    Communication Step old (never ahead of LightSim's time).
   - Lap cases do not run signal blocks, FMUs included.
 
   The FMU file is not saved inside the project yet: LightSim keeps a copy in

@@ -63,6 +63,8 @@ Select the block. *Properties* shows:
 3. *Communication Step* in *Properties* sets how often LightSim and the FMU
    exchange values. At 0 they do so every solver step (at most 10 ms). If
    the FMU is slow, use the step the FMU suggests (shown under its details).
+   In between, the FMU's outputs hold: they can be up to one Communication
+   Step old.
 4. Click **Run**. The block's outputs are recorded: on the *Results* page,
    search for the block's name.
 

@@ -2011,7 +2011,12 @@ class ControlSlave(_CtxSlave):
                 in_ids, out_ids = ctx.fmu_ports[el_id]
                 values = [rt.read_signal(el_id, k) or 0.0 for k in in_ids]
                 try:
-                    outs = ctx.fmus[el_id].step(t, dt, values)
+                    # to the end of this solver step (t + h), never further,
+                    # even with a Communication Step: the worker steps the FMU
+                    # from its own clock, so at a sample instant it catches up
+                    # on the time since the last one, and its outputs are
+                    # never ahead of the engine's time
+                    outs = ctx.fmus[el_id].step(t, h, values)
                 except FmuError as e:
                     rt.message("error", str(e))
                     return StepResult(status="error", detail=str(e))
