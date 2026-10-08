@@ -213,6 +213,7 @@ pub fn gearbox(cfg: &GearboxConfig) -> ComponentDef {
     for q in ["sig_gear", "sig_speed_out", "sig_power", "sig_losses"] {
         ports.push(out(id, q));
     }
+    ports.push(output("ratio_now", "1", "the selected gear's ratio (for the driver's blending)"));
     let sel = if cfg.select_wired { n("sig_gear_in") } else { n("default_gear") };
     let ratios: Vec<f64> = cfg.ratios.y.iter().map(|r| if *r != 0.0 { *r } else { 1.0 }).collect();
     let mut w_out = state("w_out", "rad/s", 0.0, "output speed");
@@ -264,6 +265,7 @@ pub fn gearbox(cfg: &GearboxConfig) -> ComponentDef {
                 "the output side: the gear's torque × ratio, less its loss",
             ),
             eq(n("sig_gear"), n("gear"), "active gear"),
+            eq(n("ratio_now"), n("ratio"), "the selected ratio"),
             eq(n("sig_speed_out"), abs(n("w_out")), "output speed"),
             eq(n("sig_power"), n("tau_x") * n("w_in"), "transmitted power"),
             eq(n("sig_losses"), n("tau_x") * n("w_in") * (c(1.0) - n("eta_d")), "its loss"),

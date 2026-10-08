@@ -128,10 +128,16 @@ pub fn power_consumer(cfg: LoadConfig) -> ComponentDef {
         ports.push(input("served", "1", "the share of its demand its source serves (0-1)"));
     }
     ports.push(out(id, "sig_power"));
+    if cfg.served_input {
+        ports.push(output("p_dem", "W", "the power it asks for (for the bus manager)"));
+    }
     let demand = if cfg.demand_wired { n("sig_demand_in") } else { n("power_kW") };
     let share = if cfg.served_input { n("served") } else { c(1.0) };
     let mut eqs = two_pin_eqs();
     eqs.push(eq(n("p_demand"), max(demand, c(0.0)), "it asks for its demand, never less than 0"));
+    if cfg.served_input {
+        eqs.push(eq(n("p_dem"), n("p_demand"), "what it asks of its bus"));
+    }
     eqs.push(eq(n("sig_power"), n("p_demand") * share, "it draws what its source serves"));
     eqs.push(eq(n("v") * n("i"), n("sig_power"), "it takes that power from the circuit"));
     let mut vars = two_pin_vars();
@@ -206,6 +212,9 @@ pub fn climate(cfg: &ClimateConfig) -> ComponentDef {
         ports.push(input("served", "1", "the share of its demand its source serves (0-1)"));
     }
     ports.extend([out(id, "sig_power"), out(id, "sig_heat"), out(id, "sig_cop")]);
+    if cfg.served_input {
+        ports.push(output("p_dem", "W", "the power it asks for (for the bus manager)"));
+    }
     let on = cfg.enable_wired.then(|| ge(n("sig_on_in"), c(0.5)));
     let approach = 15.0;
     let t_set = n("cabin_setpoint_C");
@@ -246,6 +255,9 @@ pub fn climate(cfg: &ClimateConfig) -> ComponentDef {
         "the electrical power that heat asks for, with the blower",
     ));
     eqs.push(eq(n("sig_power"), n("p_asked") * share.clone(), "it draws what its source serves"));
+    if cfg.served_input {
+        eqs.push(eq(n("p_dem"), n("p_asked"), "what it asks of its bus"));
+    }
     eqs.push(eq(n("sig_heat"), n("q") * share, "cut back, it heats or cools that much less"));
     eqs.push(eq(n("v") * n("i"), n("sig_power"), "it takes that power from the circuit"));
     let params =
@@ -279,6 +291,121 @@ pub fn climate(cfg: &ClimateConfig) -> ComponentDef {
         ..Default::default()
     }
 }
+
+/// A bus's source-limit handshake (today's `update_source_limits` and
+/// `allocate_motor_power`) for a bus with a battery or fuel cell of its
+/// own: the consumers are served first, all cut back by one share when
+/// the source cannot carry them; the motors share what is left, in
+/// proportion to what they ask for, and feed back at most what the source
+/// takes plus what the consumers use. Its inputs: the source's window
+/// (`p_deliver`, `p_absorb`), each consumer's demand `p_dem<k>`, each
+/// motor's request `p_req<m>`; its outputs: the consumers' share `served`
+/// and each motor's window `p_hi<m>`, `p_lo<m>` (±1e30 W when open).
+pub fn bus_manager(motors: usize, consumers: usize) -> ComponentDef {
+    let big = || c(BIG_W) * n("unit_W");
+    let zero = || c(0.0) * n("unit_W");
+    let mut ports = vec![
+        input("p_deliver", "W", "the most its source gives now"),
+        input("p_absorb", "W", "the most its source takes now"),
+    ];
+    for k in 1..=consumers {
+        ports.push(input(&format!("p_dem{k}"), "W", "a consumer's demand"));
+    }
+    for m in 1..=motors {
+        ports.push(input(&format!("p_req{m}"), "W", "a motor's request"));
+    }
+    ports.push(output("served", "1", "the share of their demand the consumers get"));
+    for m in 1..=motors {
+        ports.push(output(&format!("p_hi{m}"), "W", "the most this motor may draw now"));
+        ports.push(output(
+            &format!("p_lo{m}"),
+            "W",
+            "the most (negative) this motor may feed back now",
+        ));
+    }
+    let fixed = sum((1..=consumers).map(|k| n(&format!("p_dem{k}"))).chain([zero()]));
+    let req = |m: usize| n(&format!("p_req{m}"));
+    let pos = sum((1..=motors).map(|m| max(req(m), zero())).chain([zero()]));
+    let neg = sum((1..=motors).map(|m| min(req(m), zero())).chain([zero()]));
+    let tol = |x: Expr| c(1e-9) * max(n("unit_W"), abs(x));
+    let mut eqs = vec![
+        eq(n("fixed"), fixed, "the consumers' demand"),
+        eq(n("deliver"), max(n("p_deliver"), zero()), "what the source gives"),
+        eq(
+            n("served"),
+            ite(gt(n("fixed"), n("deliver")), n("deliver") / n("fixed"), c(1.0)),
+            "the consumers are served first, cut back when the source cannot carry them",
+        ),
+        eq(n("hi"), n("p_deliver") - n("fixed") * n("served"), "room left for the motors"),
+        eq(n("lo"), -(n("p_absorb") + n("fixed") * n("served")), "what the motors may feed back"),
+        eq(n("pos"), pos, "what the motors drawing ask for"),
+        eq(n("neg"), neg, "what the motors recuperating ask to feed back"),
+        eq(
+            n("cut_hi"),
+            ite(gt(n("pos") + n("neg"), n("hi") + tol(n("hi"))), c(1.0), c(0.0)),
+            "the motors ask for more than the room",
+        ),
+        eq(
+            n("cut_lo"),
+            ite(
+                and(
+                    lt(n("cut_hi"), c(0.5)),
+                    and(lt(n("pos") + n("neg"), n("lo") - tol(n("lo"))), lt(n("neg"), zero())),
+                ),
+                c(1.0),
+                c(0.0),
+            ),
+            "they feed back more than the source takes",
+        ),
+        eq(
+            n("k_hi"),
+            max(c(0.0), (n("hi") - n("neg")) / max(n("pos"), c(1e-9) * n("unit_W"))),
+            "the share of their requests the drawing motors get",
+        ),
+        eq(
+            n("k_lo"),
+            min(c(1.0), max(c(0.0), (n("lo") - n("pos")) / min(n("neg"), c(-1e-9) * n("unit_W")))),
+            "the share of their feedback the recuperating motors get",
+        ),
+    ];
+    for m in 1..=motors {
+        eqs.push(eq(
+            n(&format!("p_hi{m}")),
+            ite(and(gt(n("cut_hi"), c(0.5)), gt(req(m), zero())), n("k_hi") * req(m), big()),
+            "its share of the room",
+        ));
+        eqs.push(eq(
+            n(&format!("p_lo{m}")),
+            ite(and(gt(n("cut_lo"), c(0.5)), lt(req(m), zero())), n("k_lo") * req(m), -big()),
+            "its share of what the source takes",
+        ));
+    }
+    ComponentDef {
+        name: format!("Blocks.BusManager_{motors}_{consumers}"),
+        doc: "A bus's source-limit handshake: consumers first, then the motors share the \
+              source's window (today's update_source_limits and allocate_motor_power)."
+            .into(),
+        ports,
+        params: vec![p("unit_W", "W", 1.0, "unit carrier")],
+        vars: vec![
+            var("fixed", "W", "the consumers' demand"),
+            var("deliver", "W", "what the source gives"),
+            var("hi", "W", "room for the motors"),
+            var("lo", "W", "what the motors may feed back (negative)"),
+            var("pos", "W", "requests of the motors drawing"),
+            var("neg", "W", "requests of the motors recuperating"),
+            var("cut_hi", "1", "1 while the drawing motors are cut"),
+            var("cut_lo", "1", "1 while the recuperating motors are cut"),
+            var("k_hi", "1", "the drawing motors' share"),
+            var("k_lo", "1", "the recuperating motors' share"),
+        ],
+        equations: eqs,
+        ..Default::default()
+    }
+}
+
+/// An open window, W.
+pub const BIG_W: f64 = 1e30;
 
 /// How a DC-DC converter runs.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
