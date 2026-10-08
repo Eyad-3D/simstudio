@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import threading
 import time
@@ -166,8 +167,12 @@ def _id_taken(project_id: str, path: Path, entries: list[OpenFile]) -> bool:
 
 
 def fresh_id(base: str) -> str:
-    """A new project id based on `base`."""
-    stem = base[:100].rstrip("._-") if SAFE_ID.fullmatch(base or "") else "project"
+    """A new project id based on `base` ("my project" -> "my-project-1a2b3c")."""
+    if SAFE_ID.fullmatch(base or ""):
+        stem = base[:100].rstrip("._-")
+    else:  # keep what a file name can carry
+        stem = re.sub(r"[^A-Za-z0-9_-]+", "-", base if isinstance(base, str) else "")
+        stem = stem[:100].strip("_-")
     return f"{stem or 'project'}-{secrets.token_hex(3)}"
 
 

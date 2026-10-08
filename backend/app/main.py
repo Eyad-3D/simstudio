@@ -111,6 +111,7 @@ from . import (
     vehicle_tests,
 )
 from .dataio.api import router as dataio_router
+from .fileio import SAFE_ID
 from .fmu import info as fmu_info
 from .fmu import store as fmu_store
 from .library import load_library, unit_groups
@@ -880,7 +881,9 @@ async def import_bundle(request: Request) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     project = read.project
-    if storage.location(project.id).file.exists() or files.lookup(project.id) is not None:
+    # an id no file name can carry (a hand-edited "my project") gets a new one
+    if (not SAFE_ID.fullmatch(project.id) or storage.location(project.id).file.exists()
+            or files.lookup(project.id) is not None):
         project.id = files.fresh_id(project.id)
     renamed: dict[str, str] = {}
     for name, content in resources.items():
