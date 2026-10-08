@@ -54,9 +54,10 @@ jobs:
         working-directory: backend
         run: ruff check .
 
-      # scripts/ has no ruff settings of its own: hold it to the backend's.
+      # scripts/ and benchmarks/ have no ruff settings of their own: hold
+      # them to the backend's.
       - name: Lint scripts
-        run: ruff check --config backend/pyproject.toml scripts/
+        run: ruff check --config backend/pyproject.toml scripts/ benchmarks/
 
       - name: Tests
         working-directory: backend

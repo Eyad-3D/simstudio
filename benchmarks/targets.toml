@@ -1,0 +1,68 @@
+# What "correct" and "fast" mean for LightSim's new engine (Stage 0).
+#
+# Every later stage is measured against these numbers. The accuracy
+# tolerances are the defaults of each reference problem's comparisons
+# (reference/problems/*.toml may tighten or loosen one, and says why); the
+# speed targets are checked on the example cars by speed.py.
+
+[accuracy]
+# A signal's largest error over the output times, as a share of the
+# largest |exact value| in the window (a 0.01 % band).
+signal_rtol = 1e-4
+# An event time (a stop, a lock-up, a threshold crossing): within
+# event_atol_s + event_rtol × the exact time.
+event_atol_s = 1e-4
+event_rtol = 1e-5
+# An energy term at the end of the run, as a share of the problem's energy
+# scale (the largest |term| at t_end).
+energy_rtol = 1e-4
+# The engine's own energy balance (sources − sinks) at t_end, as a share
+# of the energy scale: energy is conserved, not approximately conserved.
+closure_rtol = 1e-6
+
+[speed]
+# Full dynamic simulation (every state integrated, events located), wall
+# clock, median of 5 warm runs on one core: at least this many times
+# faster than real time on every example case below.
+dynamic_min_x_realtime = 1000.0
+# A fast mode (quasi-static, for sweeps and optimisation) on the WLTC:
+# about a million times real time.
+fast_wltc_x_realtime = 1.0e6
+repeats = 5
+
+# The example cars' main cases (backend/projects/*.json).
+[[speed.cases]]
+label = "BEV City"
+project = "bev-car"
+case = "case-city"
+
+[[speed.cases]]
+label = "BEV WLTC"
+project = "bev-car"
+case = "case-wltc"
+fast_target = true
+
+[[speed.cases]]
+label = "Hybrid EPA city (UDDS)"
+project = "hybrid-car"
+case = "case-udds"
+
+[[speed.cases]]
+label = "Hybrid Mixed"
+project = "hybrid-car"
+case = "case-mixed"
+
+[[speed.cases]]
+label = "FS acceleration 75 m"
+project = "fs-electric"
+case = "case-accel-75m"
+
+[[speed.cases]]
+label = "FS autocross"
+project = "fs-electric"
+case = "case-autocross"
+
+[[speed.cases]]
+label = "FS endurance"
+project = "fs-electric"
+case = "case-endurance"
