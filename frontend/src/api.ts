@@ -927,6 +927,10 @@ export interface TableImport {
    *  cols are the outer axis, rows the inner one, values[row][col] */
   preview: [number, number][] | { cols: number[]; rows: number[]; values: number[][] } | null;
   target: string;
+  /** a CSV file's decimal mark as read (null for a workbook) */
+  decimal: "comma" | "point" | null;
+  /** set when the file's cells do not show its decimal mark (1,000 is 1 or 1000) */
+  decimalQuestion: string | null;
 }
 
 export interface TableImportOptions {
@@ -936,6 +940,8 @@ export interface TableImportOptions {
   yColumn?: number;
   transpose?: boolean;
   units?: Record<string, string>;
+  /** a CSV file's decimal mark (default: as its cells show) */
+  decimal?: "comma" | "point";
 }
 
 export function importTableFile(

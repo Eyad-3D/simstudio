@@ -869,7 +869,9 @@ sections.
   studies start with a byte-order mark, so Excel shows N·m and °C as
   written. (STD-09)
 - **Import from file…** under every table, map and drive profile reads it
-  from a CSV file (any separator, decimal comma) or an Excel workbook: it
+  from a CSV file (any separator; a decimal comma or point and thousands
+  written 1.000 or 1,000 as the other numbers show, and a question when
+  they do not) or an Excel workbook: it
   finds the headers and axes, reads the units written in them and
   converts them (rpm, W, m/s, mph, the FASTSim cycle layout and loggers'
   unit rows), shows the curve or map before anything changes, and names

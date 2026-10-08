@@ -218,6 +218,19 @@ function ImportTableDialog({
                     </label>
                   </>
                 )}
+                {result.decimal && (result.decimalQuestion || options.decimal) && (
+                  <label className="flex flex-col gap-0.5">
+                    <span className="text-[11px] text-[color:var(--ss-text-dim)]">Decimal mark</span>
+                    <select
+                      className="ss-input"
+                      value={result.decimal}
+                      onChange={(e) => set({ decimal: e.target.value as "comma" | "point" })}
+                    >
+                      <option value="comma">comma (1,5 = 1.5; 1.000 = 1000)</option>
+                      <option value="point">point (1.5; 1,000 = 1000)</option>
+                    </select>
+                  </label>
+                )}
                 {result.kind === "table2d" && (
                   <label className="flex items-center gap-1 pb-1">
                     <input
@@ -252,6 +265,11 @@ function ImportTableDialog({
                     </label>
                   ))}
                 </div>
+              )}
+              {result.decimalQuestion && (
+                <p className="rounded border border-[color:var(--ss-warning,#b58900)] px-2 py-1">
+                  {result.decimalQuestion} Change the decimal mark above if that is wrong.
+                </p>
               )}
               {Object.values(result.units)
                 .filter((u) => u.question)

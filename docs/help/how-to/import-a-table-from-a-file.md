@@ -14,8 +14,13 @@ an Excel workbook (`.xlsx`). Pasting cells from Excel with Ctrl+V works too.
 
 ## How LightSim finds the data
 
-- **CSV files** may separate columns with commas, semicolons, tabs or `|`;
-  with semicolons or tabs, a decimal comma (`3,7`) is read as 3.7.
+- **CSV files** may separate columns with commas, semicolons, tabs or `|`.
+  LightSim reads the decimal mark from the numbers: in a file with `3,7`
+  it is a comma (3.7), and `1.000` is one thousand; in a file with `3.7`
+  it is a point, and `1,000` is one thousand. When the file has only
+  numbers such as `1,000` or `1.000`, which can be 1 or 1000, the preview
+  says how they were read (a comma in a semicolon-separated file, else a
+  point); change it under **Decimal mark**.
 - **Workbooks**: LightSim reads the first sheet with numbers in it. Pick
   another under **Sheet**. Old `.xls` files must be saved as `.xlsx` first.
 - **A table or profile** takes two columns of numbers: LightSim picks them
@@ -60,3 +65,4 @@ until you click **Apply**.
 
 `lightsim-backend import-table FILE --part motor.emotor --param power_loss`
 prints what it read, or the problems, and `--json` prints it as JSON.
+`--decimal comma` or `--decimal point` sets a CSV file's decimal mark.

@@ -288,6 +288,9 @@ def import_sheet(project: Project, data: bytes, filename: str) -> SheetImport:
         out.errors.append({"text": "No parameter list found: a sheet needs the columns "
                                    "Part ID, Key and Value (as LightSim exports them)."})
         return out
+    if main.question:
+        out.warnings.append({"sheet": main.name, "text": main.question + " If that is wrong, "
+                             "save the sheet as .xlsx and import that."})
     lib = library_by_id()
     elements = {e.id: e for e in _elements(project)}
     labels: dict[str, list] = {}

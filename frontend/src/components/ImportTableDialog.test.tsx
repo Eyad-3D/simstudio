@@ -41,6 +41,8 @@ it("previews a map that is wider than it is tall the right way round", async () 
       ],
     },
     target: "motor.emotor/power_loss",
+    decimal: null,
+    decimalQuestion: null,
   };
   const host = document.body.appendChild(document.createElement("div"));
   await act(async () => createRoot(host).render(<Preview result={map} />));

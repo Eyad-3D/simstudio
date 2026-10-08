@@ -114,6 +114,8 @@ class TableImportRequest(BaseModel):
     yColumn: Optional[int] = Field(None, ge=0, le=100000)
     transpose: Optional[bool] = None
     units: Optional[dict[str, str]] = None
+    #: a CSV file's decimal mark, when the user has chosen it
+    decimal: Optional[Literal["comma", "point"]] = None
 
 
 _PREVIEW_ROWS, _PREVIEW_COLS = 40, 16
@@ -136,7 +138,7 @@ def import_table(req: TableImportRequest) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     try:
-        sheets = read_file(raw, req.filename)
+        sheets = read_file(raw, req.filename, req.decimal)
     except SheetError as e:
         raise HTTPException(status_code=400, detail=str(e))
     sheet = next((s for s in sheets if s.name == req.sheet), None)

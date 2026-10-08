@@ -133,8 +133,13 @@ class ImportResult:
     errors: list[Problem] = field(default_factory=list)
     warnings: list[Problem] = field(default_factory=list)
     #: the imported points in the parameter's units, for the preview chart:
-    #: [[x, y], ...] or, for a map, {"cols": [...], "rows": [...], "values": [[...]]}
+    #: [[x, y], ...] or, for a map, {"cols": [outer], "rows": [inner],
+    #: "values": [[...]]} with values[row][col]
     preview: Any = None
+    #: a CSV file's decimal mark as read ("comma" or "point"), and the
+    #: question when its cells do not show it (sheets.Sheet)
+    decimal: Optional[str] = None
+    decimal_question: Optional[str] = None
 
     def as_dict(self) -> dict:
         ok = not self.errors
@@ -148,6 +153,7 @@ class ImportResult:
             "valueName": self.target.value.name, "valueUnit": self.target.value.unit,
             "notes": self.notes, "errors": [p.as_dict() for p in self.errors],
             "warnings": [p.as_dict() for p in self.warnings], "preview": self.preview,
+            "decimal": self.decimal, "decimalQuestion": self.decimal_question,
         }
 
 
@@ -674,4 +680,5 @@ def import_table(sheet: Sheet, target: Target, opts: Optional[dict] = None) -> I
     res = _read_2d(sheet, target, opts) if target.kind == "table2d" else \
         _read_1d(sheet, target, opts)
     res.notes = sheet.notes + res.notes
+    res.decimal, res.decimal_question = sheet.decimal, sheet.question
     return res

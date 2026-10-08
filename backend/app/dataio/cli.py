@@ -5,7 +5,8 @@ The desktop app's engine runs these when its first argument names one:
   lightsim-backend run PROJECT.json [--case NAME] [--out FILE.mat|.csv] [--json]
   lightsim-backend export RUN.json[.gz] [--format mat|csv|json] [--out FILE]
   lightsim-backend import-table FILE --part TYPE --param KEY [--mode M]
-                                [--sheet NAME] [--range A1:D20] [--json]
+                                [--sheet NAME] [--range A1:D20]
+                                [--decimal comma|point] [--json]
   lightsim-backend params export PROJECT.json --out FILE.xlsx|.csv
   lightsim-backend params import PROJECT.json SHEET.xlsx|.csv [--out NEW.json] [--json]
 
@@ -186,7 +187,7 @@ def cmd_import_table(args: argparse.Namespace) -> int:
     except ValueError as e:
         raise _Usage(str(e))
     try:
-        sheets = read_file(data, args.file)
+        sheets = read_file(data, args.file, args.decimal)
     except SheetError as e:
         raise _Usage(str(e))
     sheet = next((s for s in sheets if s.name == args.sheet), None) if args.sheet else sheets[0]
@@ -195,7 +196,10 @@ def cmd_import_table(args: argparse.Namespace) -> int:
                      + ", ".join(f"'{s.name}'" for s in sheets))
     opts = {"range": args.range} if args.range else {}
     res = tables.import_table(sheet, target, opts).as_dict()
-    text = "\n".join(res["notes"] + [e["text"] for e in res["errors"]]
+    other = "point" if res["decimal"] == "comma" else "comma"
+    question = [f"{res['decimalQuestion']} Give --decimal {other} if that is wrong."] \
+        if res["decimalQuestion"] else []
+    text = "\n".join(res["notes"] + question + [e["text"] for e in res["errors"]]
                      + ([json.dumps(res["value"])] if res["ok"] else []))
     _print(res, args.json, text)
     return OK if res["ok"] else CHECKS_FAILED
@@ -279,6 +283,8 @@ def parser() -> argparse.ArgumentParser:
     t.add_argument("--mode", help="Road Profile: distance or time")
     t.add_argument("--sheet")
     t.add_argument("--range", help="the cells to read, e.g. B3:F20")
+    t.add_argument("--decimal", choices=["comma", "point"],
+                   help="a CSV file's decimal mark (default: as its cells show)")
     t.add_argument("--json", action="store_true")
     t.set_defaults(func=cmd_import_table)
     pa = sub.add_parser("params", help="a project's parameters as a spreadsheet, and back")

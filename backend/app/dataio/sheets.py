@@ -45,6 +45,11 @@ class Sheet:
     rows: list[list[Cell]] = field(default_factory=list)
     #: how the file was read, for the preview ("semicolon-separated, decimal comma")
     notes: list[str] = field(default_factory=list)
+    #: a CSV file's decimal mark as read: "comma" or "point" (None for .xlsx)
+    decimal: Optional[str] = None
+    #: set when the cells do not show the decimal mark (1,000 can be 1 or
+    #: 1000): what was assumed, to ask the user
+    question: Optional[str] = None
 
     @property
     def width(self) -> int:
@@ -68,9 +73,11 @@ def cell_name(row: int, col: int) -> str:
 
 # ---- reading -----------------------------------------------------------------
 
-def read_file(data: bytes, filename: str) -> list[Sheet]:
+def read_file(data: bytes, filename: str, decimal: Optional[str] = None) -> list[Sheet]:
     """The sheets of a CSV, TSV or .xlsx file (by its name, or its content
-    when the name says neither)."""
+    when the name says neither). ``decimal`` ("comma" or "point") is a CSV
+    file's decimal mark when the user has chosen it; by default it is read
+    from the cells."""
     if len(data) > MAX_BYTES:
         raise SheetError(f"The file is {len(data) / 1e6:.0f} MB; LightSim reads files up to "
                          f"{MAX_BYTES / 1e6:.0f} MB.")
@@ -83,7 +90,7 @@ def read_file(data: bytes, filename: str) -> list[Sheet]:
     if name.endswith(".ods"):
         raise SheetError("OpenDocument spreadsheets (.ods) cannot be read yet. Save the sheet "
                          "as .xlsx or CSV, then import that.")
-    return [read_csv(data, sheet_name=filename.rsplit("/", 1)[-1] or "CSV")]
+    return [read_csv(data, sheet_name=filename.rsplit("/", 1)[-1] or "CSV", decimal=decimal)]
 
 
 def decode_text(data: bytes) -> tuple[str, str]:
@@ -103,6 +110,14 @@ def decode_text(data: bytes) -> tuple[str, str]:
 
 _DELIMITERS = {",": "comma", ";": "semicolon", "\t": "tab", "|": "vertical bar"}
 _DECIMAL_COMMA = re.compile(r"^[-+]?\d+,\d+(?:[eE][-+]?\d+)?$")
+_DECIMAL_POINT = re.compile(r"^[-+]?\d*\.\d+(?:[eE][-+]?\d+)?$")
+# digits in groups of three with a dot between (and a decimal comma after):
+# 1.000 or 1.234.567,5, as German or French Excel formats a large number
+_DOT_THOUSANDS = re.compile(r"^[-+]?[1-9]\d{0,2}(?:\.\d{3})+(?:,\d+)?$")
+# the same with commas (and a decimal point after): 1,000 or 1,234,567.5
+_COMMA_THOUSANDS = re.compile(r"^[-+]?[1-9]\d{0,2}(?:,\d{3})+(?:\.\d+)?$")
+# 1,000 or 1.000 alone cannot say its decimal mark: 1 or 1000
+_AMBIGUOUS = re.compile(r"^[-+]?[1-9]\d{0,2}[.,]\d{3}$")
 
 
 def _sniff_delimiter(lines: list[str]) -> str:
@@ -124,12 +139,18 @@ def _sniff_delimiter(lines: list[str]) -> str:
 
 def parse_number(text: str, decimal_comma: bool = False) -> Optional[float]:
     """The number in a cell's text, or None when it is not a finite number
-    ("1.5", "-2e3", "1,5" with a decimal comma, " 42 ")."""
+    ("1.5", "-2e3", " 42 "; "1,5" and "1.000" (= 1000) with a decimal comma;
+    "1,000" (= 1000) with a decimal point)."""
     t = text.strip()
     if not t:
         return None
-    if decimal_comma and _DECIMAL_COMMA.match(t):
-        t = t.replace(",", ".")
+    if decimal_comma:
+        if _DOT_THOUSANDS.match(t):
+            t = t.replace(".", "").replace(",", ".")
+        elif _DECIMAL_COMMA.match(t):
+            t = t.replace(",", ".")
+    elif _COMMA_THOUSANDS.match(t):
+        t = t.replace(",", "")
     try:
         v = float(t)
     except ValueError:
@@ -137,10 +158,56 @@ def parse_number(text: str, decimal_comma: bool = False) -> Optional[float]:
     return v if math.isfinite(v) else None
 
 
-def read_csv(data: bytes, sheet_name: str = "CSV") -> Sheet:
+def _decimal_mark(raw: list[list[str]], delim: str) -> tuple[bool, Optional[str]]:
+    """(decimal comma?, question) for a CSV file's cells. A cell such as 12,5
+    or 1.234,5 shows a decimal comma, and 12.5 or 1,234.5 a decimal point.
+    1,000 and 1.000 show neither (1 or 1000): when only such cells are found,
+    a semicolon-separated file is read with a decimal comma and any other
+    with a decimal point, and the question says so."""
+    comma = point = unsure = None
+    for i, r in enumerate(raw[:200]):
+        for j, c in enumerate(r):
+            t = c.strip()
+            if not t or not (t[0].isdigit() or t[0] in "+-."):
+                continue
+            if _AMBIGUOUS.match(t):
+                # in a comma-separated file 1.000 has a decimal point: a
+                # decimal comma there needs every number in quotes
+                if delim == "," and "." in t:
+                    point = point or (i, j, t)
+                else:
+                    unsure = unsure or (i, j, t)
+            elif _DECIMAL_COMMA.match(t) or _DOT_THOUSANDS.match(t):
+                comma = comma or (i, j, t)
+            elif _DECIMAL_POINT.match(t) or _COMMA_THOUSANDS.match(t):
+                point = point or (i, j, t)
+    if comma and not point:
+        return True, None
+    if point and not comma:
+        return False, None
+    if comma and point:  # a mixed file: as before, by the delimiter
+        decimal_comma = delim != ","
+    elif unsure:  # as the delimiter suggests
+        decimal_comma = delim == ";"
+    else:  # whole numbers only
+        return False, None
+    if unsure is None:
+        return decimal_comma, None
+    i, j, t = unsure
+    as_comma, as_point = parse_number(t, True), parse_number(t, False)
+    used = "a decimal comma" if decimal_comma else "a decimal point"
+    read_as = as_comma if decimal_comma else as_point
+    return decimal_comma, (
+        f"Cell {cell_name(i, j)} holds {t}, which is {as_comma:g} with a decimal comma and "
+        f"{as_point:g} with a decimal point; the file does not show which it uses. It was "
+        f"read with {used} ({t} = {read_as:g}).")
+
+
+def read_csv(data: bytes, sheet_name: str = "CSV", decimal: Optional[str] = None) -> Sheet:
     """A CSV or TSV file as one sheet: any of the delimiters , ; tab |, a
-    decimal comma when the delimiter is not a comma (1,5 = 1.5), and the
-    encodings of :func:`decode_text`."""
+    decimal comma (1,5 = 1.5, with 1.000 = 1000) or point (with 1,000 =
+    1000) as the cells show (:func:`_decimal_mark`) or ``decimal`` says
+    ("comma" or "point"), and the encodings of :func:`decode_text`."""
     text, encoding = decode_text(data)
     lines = text.splitlines()
     sample = [ln for ln in lines[:50] if ln.strip()]
@@ -148,28 +215,40 @@ def read_csv(data: bytes, sheet_name: str = "CSV") -> Sheet:
         raise SheetError("The file is empty.")
     delim = _sniff_delimiter(sample)
     raw = list(csv.reader(io.StringIO(text), delimiter=delim))
-    # a decimal comma: the delimiter is not a comma and number-like cells use one
-    decimal_comma = delim != "," and any(
-        _DECIMAL_COMMA.match(c.strip()) for r in raw[:200] for c in r)
     sheet = Sheet(sheet_name)
+    if decimal in ("comma", "point"):
+        decimal_comma = decimal == "comma"
+    else:
+        decimal_comma, sheet.question = _decimal_mark(raw, delim)
+    sheet.decimal = "comma" if decimal_comma else "point"
+    grouped = _DOT_THOUSANDS if decimal_comma else _COMMA_THOUSANDS
+    thousands = False
     cells = 0
     for r in raw:
         cells += len(r)
         if cells > MAX_CELLS:
             raise SheetError(f"The file has more than {MAX_CELLS:,} cells.")
-        sheet.rows.append([_csv_cell(c, decimal_comma) for c in r])
+        row: list[Cell] = []
+        for c in r:
+            t = c.strip()
+            if t == "":
+                row.append(None)
+                continue
+            n = parse_number(t, decimal_comma)
+            if n is None:
+                row.append(t)
+                continue
+            row.append(n)
+            if not thousands and grouped.match(t):
+                thousands = True
+        sheet.rows.append(row)
     _trim(sheet)
-    sheet.notes.append(f"{_DELIMITERS[delim]}-separated, {encoding}"
-                       + (", decimal comma" if decimal_comma else ""))
+    sheet.notes.append(
+        f"{_DELIMITERS[delim]}-separated, {encoding}"
+        + (", decimal comma" if decimal_comma else "")
+        + ((", dots between thousands (1.000 = 1000)" if decimal_comma else
+            ", commas between thousands (1,000 = 1000)") if thousands else ""))
     return sheet
-
-
-def _csv_cell(text: str, decimal_comma: bool) -> Cell:
-    t = text.strip()
-    if t == "":
-        return None
-    n = parse_number(t, decimal_comma)
-    return n if n is not None else t
 
 
 def _trim(sheet: Sheet) -> None:

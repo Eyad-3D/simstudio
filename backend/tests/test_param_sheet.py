@@ -123,6 +123,20 @@ def test_a_value_outside_its_limits_is_a_warning():
     assert "Data Checks will report it" in res.warnings[0]["text"]
 
 
+def test_a_sheet_from_german_excel_reads_dots_between_thousands():
+    project = load_example("bev-car")
+    vehicle = next(e for e in project.systems[0].elements if e.componentDefId == "vehicle.body")
+    data = (f"Part ID;Key;Value\n{vehicle.id};mass_kg;1.650\n"
+            "el-wheel-rl;radius_m;0,35\n").encode("cp1252")
+    res = params.import_sheet(project, data, "p.csv")
+    assert res.errors == [] and res.warnings == []
+    assert {(c.key, c.new) for c in res.changes} == {("mass_kg", 1650), ("radius_m", 0.35)}
+    # 1.650 alone could be 1.65: the sheet says how it was read
+    res = params.import_sheet(project, f"Part ID;Key;Value\n{vehicle.id};mass_kg;1.650\n"
+                              .encode(), "p.csv")
+    assert res.changes[0].new == 1650 and "save the sheet as .xlsx" in res.warnings[0]["text"]
+
+
 def test_a_sheet_without_the_columns_is_refused():
     res = params.import_sheet(load_example("bev-car"), b"a,b\n1,2\n", "x.csv")
     assert "Part ID, Key and Value" in res.errors[0]["text"]

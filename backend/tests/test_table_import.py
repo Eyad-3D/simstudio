@@ -85,6 +85,53 @@ def test_csv_dialects_are_recognised():
     assert read(bom, "cell.csv", OCV).value == {"0": 3.0, "100": 4.2}
 
 
+ENGINE_FULL_LOAD = tables.target_for("engine.combustion", "full_load_torque")  # 1/min -> N·m
+
+
+def test_thousands_separators_are_not_decimal_marks():
+    # German Excel: semicolons, a decimal comma, dots between thousands
+    de = "Drehzahl [U/min];Moment [Nm]\n1.000;12,5\n2.000;13,5\n3.000;14,5\n".encode("cp1252")
+    r = read(de, "vl.csv", ENGINE_FULL_LOAD)
+    assert r.value == {"1000": 12.5, "2000": 13.5, "3000": 14.5}
+    assert "decimal comma" in r.notes[0] and "1.000 = 1000" in r.notes[0]
+    assert r.decimal == "comma" and r.decimal_question is None
+    # US Excel, tab-separated: commas between thousands, a decimal point
+    us = b"Speed [rpm]\tTorque [Nm]\n1,000\t120.5\n2,000\t130\n3,000\t140\n"
+    r = read(us, "wot.tsv", ENGINE_FULL_LOAD)
+    assert r.value == {"1000": 120.5, "2000": 130.0, "3000": 140.0}
+    assert "decimal comma" not in r.notes[0] and "1,000 = 1000" in r.notes[0]
+    assert r.decimal == "point" and r.decimal_question is None
+    assert sheets.parse_number("1.234.567,5", True) == 1234567.5
+    assert sheets.parse_number("1,234,567.5") == 1234567.5
+    assert sheets.parse_number("0,125", True) == 0.125
+    assert sheets.parse_number("0,125") is None  # not a thousands separator
+
+
+def test_a_file_that_does_not_show_its_decimal_mark_asks():
+    # 1,000 alone is 1 (decimal comma) or 1000 (commas between thousands)
+    us = b"Speed [rpm]\tTorque [Nm]\n1,000\t120\n2,000\t130\n3,000\t140\n"
+    r = read(us, "wot.tsv", ENGINE_FULL_LOAD)
+    assert r.value == {"1000": 120.0, "2000": 130.0, "3000": 140.0}
+    assert r.decimal == "point" and "Cell A2 holds 1,000" in r.decimal_question
+    r = tables.import_table(sheets.read_file(us, "wot.tsv", "comma")[0], ENGINE_FULL_LOAD)
+    assert r.value == {"1": 120.0, "2": 130.0, "3": 140.0}
+    assert r.decimal == "comma" and r.decimal_question is None
+    # semicolons go with a decimal comma: 1.000 is one thousand
+    de = b"Drehzahl [U/min];Moment [Nm]\n1.000;120\n2.000;130\n"
+    r = read(de, "vl.csv", ENGINE_FULL_LOAD)
+    assert r.value == {"1000": 120.0, "2000": 130.0} and "1.000" in r.decimal_question
+    # in a comma-separated file 1.250 has a decimal point
+    assert sheets.read_file(b"x,y\n1.250,2\n", "a.csv")[0].question is None
+    # the dialog's choice reaches the reader
+    body = {"filename": "wot.tsv", "data": base64.b64encode(us).decode(),
+            "componentDefId": "engine.combustion", "paramKey": "full_load_torque"}
+    got = client.post("/api/import/table", json=body).json()
+    assert got["decimal"] == "point" and got["decimalQuestion"]
+    got = client.post("/api/import/table", json={**body, "decimal": "comma"}).json()
+    assert got["value"] == {"1": 120.0, "2": 130.0, "3": 140.0}
+    assert got["decimal"] == "comma" and got["decimalQuestion"] is None
+
+
 def test_fastsim_cycle_layout_with_grade():
     data = b"time_seconds,speed_meters_per_second,grade\n0,0,0\n1,0.5,0.01\n2,1.25,0.02\n"
     r = read(data, "cycle.csv", DRIVE)
@@ -271,3 +318,12 @@ def test_import_table_on_the_command_line(tmp_path, capsys):
     f.write_bytes(b"SOC [%],OCV [V]\n0,300\n100,x\n")
     assert cli_main(["import-table", str(f), "--part", "battery.generic",
                      "--param", "ocv_table"]) == 1
+    capsys.readouterr()
+    f.write_bytes(b"Speed [rpm]\tTorque [Nm]\n1,000\t120\n2,000\t130\n")
+    assert cli_main(["import-table", str(f), "--part", "engine.combustion",
+                     "--param", "full_load_torque"]) == 0
+    out = capsys.readouterr().out
+    assert "Give --decimal comma if that is wrong." in out and '"1000": 120.0' in out
+    assert cli_main(["import-table", str(f), "--part", "engine.combustion",
+                     "--param", "full_load_torque", "--decimal", "comma"]) == 0
+    assert '"1": 120.0' in capsys.readouterr().out
