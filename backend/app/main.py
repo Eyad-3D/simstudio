@@ -393,7 +393,7 @@ def _revisions(header: str) -> list[str]:
 
 #: What GET /api/projects/{id} adds to a project, which is bookkeeping and
 #: never part of the file: a save drops it.
-BOOKKEEPING = ("revision", "readOnly", "upgradedFrom", "filePath")
+BOOKKEEPING = ("revision", "readOnly", "upgradedFrom", "filePath", "unstoredStudies")
 
 
 @app.get("/api/projects/{project_id}")
@@ -402,8 +402,11 @@ def get_project(project_id: str, response: Response) -> dict:
     Send it back on save (If-Match) so a save never overwrites newer work.
     Also `filePath` for a .lightsim file outside the projects folder,
     `upgradedFrom` when the file was in an older format (it is upgraded; the
-    next save writes the new format), and `readOnly` with the reason when the
-    file is from a newer LightSim and must not be saved over."""
+    next save writes the new format), `unstoredStudies` when such a file's
+    parameter studies could not be stored with its runs (a folder LightSim
+    cannot write to; the UI keeps them for the session), and `readOnly` with
+    the reason when the file is from a newer LightSim and must not be saved
+    over."""
     try:
         loaded = storage.load_project_file(project_id)
     except FileNotFoundError:
@@ -412,10 +415,12 @@ def get_project(project_id: str, response: Response) -> dict:
         raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    if loaded.studies:
-        run_store.adopt_studies(loaded.project.id, loaded.studies)
+    unstored = run_store.adopt_studies(loaded.project.id, loaded.studies) \
+        if loaded.studies else []
     response.headers["ETag"] = _etag(loaded.revision)
     extra: dict = {"revision": loaded.revision}
+    if unstored:
+        extra["unstoredStudies"] = unstored
     if loaded.location is not None and loaded.location.external:
         extra["filePath"] = str(loaded.location.file)
     if loaded.upgraded_from is not None:

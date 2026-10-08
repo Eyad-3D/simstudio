@@ -265,18 +265,22 @@ def delete_study(project_id: str, study_id: str) -> bool:
     return True
 
 
-def adopt_studies(project_id: str, studies: list[dict]) -> int:
+def adopt_studies(project_id: str, studies: list[dict]) -> list[dict]:
     """Keep studies an upgrade took out of a version 1 file (PLT-07) with the
     project's runs. A study already stored is left as it is, so reading the
-    old file again changes nothing. Returns how many were stored."""
-    stored = 0
+    old file again changes nothing. Returns the studies that could not be
+    stored because the runs folder cannot be written (a file in a read-only
+    course folder or share): the caller hands them to the UI instead."""
+    unstored: list[dict] = []
     for raw in studies:
         try:
             study = Study.model_validate(raw)
             if _study_path(project_id, study.id).exists():
                 continue
-            save_study(project_id, study)
-            stored += 1
         except ValueError:
             continue  # a malformed study: the old file still has it
-    return stored
+        try:
+            save_study(project_id, study)
+        except OSError:
+            unstored.append(study.model_dump(mode="json"))
+    return unstored

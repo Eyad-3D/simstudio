@@ -225,6 +225,42 @@ def test_a_file_from_a_newer_lightsim_cannot_be_saved_as(repo):
     assert [f["path"] for f in client.get("/api/files").json()] == [str(path)]
 
 
+V1_WITH_STUDIES = Path(__file__).parent / "fixtures" / "migrations" / "v1-with-studies.json"
+
+
+@pytest.mark.parametrize("blocked", ["file", "permission"])
+def test_an_old_file_opens_from_a_folder_lightsim_cannot_write_to(tmp_path, monkeypatch, blocked):
+    share = tmp_path / "share"
+    share.mkdir()
+    path = share / "car.lightsim"
+    path.write_bytes(V1_WITH_STUDIES.read_bytes())
+    pid = _open(path)["id"]
+    if blocked == "file":  # something else has the runs folder's name
+        (share / "car.lightsim-runs").write_text("not a folder")
+    else:  # a read-only share
+        real_mkdir = Path.mkdir
+
+        def mkdir(self, *a, **k):
+            if share in self.parents:
+                raise PermissionError(13, "Permission denied", str(self))
+            return real_mkdir(self, *a, **k)
+        monkeypatch.setattr(Path, "mkdir", mkdir)
+    res = client.get(f"/api/projects/{pid}")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["upgradedFrom"] == 1 and "studies" not in body
+    want = [s["id"] for s in json.loads(V1_WITH_STUDIES.read_text(encoding="utf-8"))["studies"]]
+    assert [s["id"] for s in body["unstoredStudies"]] == want
+    assert client.get(f"/api/projects/{pid}/studies").json() == []
+    assert path.read_bytes() == V1_WITH_STUDIES.read_bytes(), "opening never writes the file"
+    if blocked == "file":
+        # the list rides along as bookkeeping: a save leaves it out of the file
+        rev = body.pop("revision")
+        res = client.put(f"/api/projects/{pid}", json=body, headers={"If-Match": f'"{rev}"'})
+        assert res.status_code == 200, res.text
+        assert "unstoredStudies" not in json.loads(path.read_text(encoding="utf-8"))
+
+
 def test_a_change_on_disk_shows_in_the_revision_and_blocks_a_stale_save(repo):
     path = _write(repo / "car.lightsim", {**_example(), "id": "team-car"})
     _open(path)

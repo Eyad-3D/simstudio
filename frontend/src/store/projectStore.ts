@@ -65,14 +65,16 @@ function fromDisk(stored: api.StoredProject): {
   filePath: string | null;
   readOnly: string | null;
   upgradedFrom: number | null;
+  unstoredStudies: Study[];
 } {
-  const { revision, filePath, readOnly, upgradedFrom, ...project } = stored;
+  const { revision, filePath, readOnly, upgradedFrom, unstoredStudies, ...project } = stored;
   return {
     project,
     revision: revision ?? null,
     filePath: filePath ?? null,
     readOnly: readOnly ?? null,
     upgradedFrom: upgradedFrom ?? null,
+    unstoredStudies: unstoredStudies ?? [],
   };
 }
 
@@ -1584,7 +1586,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
     openProject: async (id) => {
       try {
-        const { project, revision, filePath, readOnly, upgradedFrom } = fromDisk(await api.fetchProject(id));
+        const { project, revision, filePath, readOnly, upgradedFrom, unstoredStudies } = fromDisk(
+          await api.fetchProject(id),
+        );
         runHistorySeq++; // runs still loading for the project it replaces are dropped
         trustedProject = null;
         offeredRevision = null;
@@ -1606,9 +1610,16 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           dataChecks: null,
           dirty: false,
         });
-        set({ filePath, readOnly });
+        set({ filePath, readOnly, studies: unstoredStudies });
         get().log("info", filePath ? `Project '${project.name}' opened from ${filePath}.` : `Project '${project.name}' opened.`);
         noteFormat(project.name, upgradedFrom, readOnly);
+        if (unstoredStudies.length > 0)
+          get().log(
+            "warning",
+            `${unstoredStudies.length} parameter stud${unstoredStudies.length === 1 ? "y" : "ies"} of '${project.name}' ` +
+              "could not be stored with its runs (LightSim cannot write to that folder); " +
+              "they are kept for this session only.",
+          );
         void loadRunHistory(project.id);
         void get().reviewScripts("open");
       } catch (e) {

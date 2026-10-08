@@ -43,6 +43,9 @@ export type StoredProject = Project & {
   filePath?: string;
   upgradedFrom?: number;
   readOnly?: string;
+  /** an older file's studies that could not be stored with its runs (a
+   *  folder LightSim cannot write to): kept for the session */
+  unstoredStudies?: Study[];
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
