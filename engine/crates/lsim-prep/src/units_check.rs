@@ -46,7 +46,27 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
     Ok(match e {
         Expr::Const(_) => D::Any,
         Expr::Time => D::Known(Dim::TIME),
-        Expr::Name(_) | Expr::Table { .. } => D::Any,
+        Expr::Name(_) => D::Any,
+        Expr::Table { table, args } => match flat.tables.get(*table as usize) {
+            Some(t) => {
+                for (k, (a, axis)) in args.iter().zip(&t.data.axes).enumerate() {
+                    if let (D::Known(x), Ok(u)) =
+                        (dim(a, flat)?, lsim_ir::units::parse_unit(&axis.unit))
+                        && x != u.dim
+                    {
+                        return Err(Mismatch(format!(
+                            "the table '{}' is read at {} on its axis {}, which is in {}",
+                            t.name,
+                            describe(x),
+                            k + 1,
+                            describe(u.dim)
+                        )));
+                    }
+                }
+                D::Known(t.unit.dim)
+            }
+            None => D::Any,
+        },
         Expr::Var(v) | Expr::Pre(v) => var(v),
         Expr::Param(p) => D::Known(flat.params[p.0 as usize].unit.dim),
         Expr::Der(v) => match var(v) {

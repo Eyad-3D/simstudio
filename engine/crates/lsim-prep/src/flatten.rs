@@ -11,7 +11,9 @@
 //! are evaluated here, in SI, and a parameter bound to others keeps that
 //! binding so the run can re-evaluate it.
 
-use lsim_ir::component::{ComponentDef, Equation, Library, ParamValue, PortKind, WhenAction};
+use lsim_ir::component::{
+    ComponentDef, Equation, Library, ParamValue, PortKind, TableData, WhenAction, split_enum_value,
+};
 use lsim_ir::eval::{Env, eval};
 use lsim_ir::expr::{Builtin, Expr};
 use lsim_ir::flat::*;
@@ -57,6 +59,8 @@ struct Flattener<'a> {
     parent: Vec<usize>,
     node_scope: Vec<InstanceId>,
     diags: Vec<Diagnostic>,
+    /// table parameters: their index in `flat.tables`
+    table_of: HashMap<ParamId, u32>,
 }
 
 struct ParamEnv<'a>(&'a FlatSystem);
@@ -93,18 +97,30 @@ pub fn flatten(lib: &Library, top: &ComponentDef) -> Result<FlatSystem, Vec<Diag
         parent: vec![],
         node_scope: vec![],
         diags: vec![],
+        table_of: HashMap::new(),
     };
     f.instantiate(top, String::new(), None, None, None, &HashMap::new());
     f.connection_equations();
     if f.diags.is_empty() { Ok(f.flat) } else { Err(f.diags) }
 }
 
-/// A parameter value handed down by a modifier: SI value and binding.
+/// A parameter value handed down by a modifier: SI value and binding,
+/// or a table.
 #[derive(Clone)]
 struct Given {
     value: f64,
     binding: Option<Expr>,
     structural: bool,
+    table: Option<TableSource>,
+}
+
+/// Where a table parameter's data come from.
+#[derive(Clone)]
+enum TableSource {
+    /// data given here
+    Data(TableData),
+    /// the same table as an enclosing parameter (`ocv = ocv_cell`)
+    Shared(u32),
 }
 
 impl<'a> Flattener<'a> {
@@ -150,18 +166,39 @@ impl<'a> Flattener<'a> {
         self.lookup(*sub, rest)
     }
 
+    /// The number an enumeration option stands for in `inst`'s scope.
+    fn enum_option(&self, inst: InstanceId, qualified: &str) -> Option<f64> {
+        let def = self.defs[inst.0 as usize];
+        self.lib.enum_ordinal(def, qualified).map(|k| k as f64)
+    }
+
     /// Resolves names in `e` (component scope of `inst`) to flat references.
     fn resolve(&mut self, inst: InstanceId, e: &Expr, what: &str) -> Expr {
         let mut missing: Vec<String> = vec![];
+        let mut not_tables: Vec<String> = vec![];
         let out = e.clone().rewrite(&mut |x| match x {
             Expr::Name(n) => match self.lookup(inst, &n) {
                 Some(Sym::Var(v)) => Expr::Var(v),
                 Some(Sym::Param(p)) => Expr::Param(p),
-                None => {
-                    missing.push(n);
-                    Expr::Const(f64::NAN)
-                }
+                None => match self.enum_option(inst, &n) {
+                    Some(k) => Expr::Const(k),
+                    None => {
+                        missing.push(n);
+                        Expr::Const(f64::NAN)
+                    }
+                },
             },
+            // component scope names the table first; flat scope indexes it
+            Expr::Table { args, .. } if matches!(args.first(), Some(Expr::Param(_))) => {
+                let Some(Expr::Param(p)) = args.first() else { unreachable!() };
+                match self.table_of.get(p) {
+                    Some(&k) => Expr::Table { table: k, args: args[1..].to_vec() },
+                    None => {
+                        not_tables.push(self.flat.params[p.0 as usize].name.clone());
+                        Expr::Const(f64::NAN)
+                    }
+                }
+            }
             Expr::Call(Builtin::Der, args) if matches!(args.first(), Some(Expr::Var(_))) => {
                 let Some(Expr::Var(v)) = args.first() else { unreachable!() };
                 Expr::Der(*v)
@@ -181,6 +218,32 @@ impl<'a> Flattener<'a> {
                      parameters."
                 ),
             ));
+        }
+        for n in not_tables {
+            let who = self.describe(inst);
+            self.diags.push(Diagnostic::error(
+                "NOT-A-TABLE",
+                format!("In {who}, {what} reads '{n}' as a table, but it is a number."),
+            ));
+        }
+        let mut as_number = None;
+        out.walk(&mut |x| {
+            if let Expr::Param(p) = x
+                && self.table_of.contains_key(p)
+            {
+                as_number.get_or_insert(*p);
+            }
+        });
+        if let Some(p) = as_number {
+            let who = self.describe(inst);
+            let name = &self.flat.params[p.0 as usize].name;
+            self.diags.push(
+                Diagnostic::error(
+                    "TABLE-AS-NUMBER",
+                    format!("In {who}, {what} uses the table '{name}' as a number."),
+                )
+                .with_hint("Read a table at a point, as ocv(soc)."),
+            );
         }
         out
     }
@@ -213,25 +276,63 @@ impl<'a> Flattener<'a> {
         // parameters
         for p in &def.params {
             let unit = self.si_unit(id, &format!("parameter '{}'", p.name), &p.unit);
-            let (value, binding, structural) = if let Some(g) = given.get(&p.name) {
-                (g.value, g.binding.clone(), g.structural || p.structural)
-            } else {
-                self.param_value(
+            let is_table = p.default.table().is_some();
+            let g = match given.get(&p.name) {
+                Some(g) => {
+                    let mut g = g.clone();
+                    g.structural |= p.structural;
+                    if is_table != g.table.is_some() {
+                        let who = self.describe(id);
+                        let want = if is_table { "a table" } else { "a number" };
+                        self.diags.push(Diagnostic::error(
+                            "PARAM-KIND",
+                            format!("{who} is given a value for '{}' that is not {want}.", p.name),
+                        ));
+                    }
+                    g
+                }
+                None => self.param_value(
                     id,
+                    def,
                     &p.default,
                     &format!("the default of '{}'", p.name),
                     p.structural,
-                )
+                ),
             };
+            let name = join(&path, &p.name);
+            let pid = ParamId(self.flat.params.len() as u32);
+            let mut value = g.value;
+            if let Some(src) = g.table {
+                let k = match src {
+                    TableSource::Shared(k) => k,
+                    TableSource::Data(data) => {
+                        if let Err(why) = data.check() {
+                            let who = self.describe(id);
+                            self.diags.push(Diagnostic::error(
+                                "TABLE-DATA",
+                                format!("In {who}, the table '{}' is not valid: {why}.", p.name),
+                            ));
+                        }
+                        self.flat.tables.push(FlatTable {
+                            name: name.clone(),
+                            param: pid,
+                            unit,
+                            data,
+                        });
+                        self.flat.tables.len() as u32 - 1
+                    }
+                };
+                self.table_of.insert(pid, k);
+                value = k as f64;
+            }
             self.flat.params.push(FlatParam {
-                name: join(&path, &p.name),
+                name,
                 unit,
                 value,
-                binding,
-                structural,
+                binding: g.binding,
+                structural: g.structural,
                 instance: id,
             });
-            let pid = ParamId(self.flat.params.len() as u32 - 1);
             self.scopes[id.0 as usize].syms.insert(p.name.clone(), Sym::Param(pid));
         }
         for m in given.keys() {
@@ -349,13 +450,14 @@ impl<'a> Flattener<'a> {
             };
             let mut sub_given = HashMap::new();
             for m in &s.modifiers {
-                let (value, binding, structural) = self.param_value(
+                let g = self.param_value(
                     id,
+                    sdef,
                     &m.value,
                     &format!("the value given to {}.{}", s.name, m.param),
                     false,
                 );
-                sub_given.insert(m.param.clone(), Given { value, binding, structural });
+                sub_given.insert(m.param.clone(), g);
             }
             let child = self.instantiate(
                 sdef,
@@ -405,8 +507,14 @@ impl<'a> Flattener<'a> {
                     }
                     self.flat.whens.push(FlatWhen { condition, assign, reinit, origin });
                 }
-                Equation::Assert { .. } => {
-                    // checked at run time by WP4; not part of the Stage 1 spike
+                Equation::Assert { condition, message, error } => {
+                    let condition = self.resolve(id, condition, &what);
+                    self.flat.asserts.push(FlatAssert {
+                        condition,
+                        message: message.clone(),
+                        error: *error,
+                        origin,
+                    });
                 }
             }
         }
@@ -447,31 +555,63 @@ impl<'a> Flattener<'a> {
         id
     }
 
+    /// A parameter value: `scope` is where its expression's names live,
+    /// `owner` the definition that declares the parameter (its
+    /// enumeration types give an option its number).
     fn param_value(
         &mut self,
         scope: InstanceId,
+        owner: &ComponentDef,
         v: &ParamValue,
         what: &str,
         structural: bool,
-    ) -> (f64, Option<Expr>, bool) {
+    ) -> Given {
+        let num = |value: f64, binding: Option<Expr>, structural: bool| Given {
+            value,
+            binding,
+            structural,
+            table: None,
+        };
         match v {
             ParamValue::Real(e) => {
+                // a table parameter of the enclosing scope, handed down
+                if let Expr::Name(n) = e
+                    && let Some(Sym::Param(p)) = self.lookup(scope, n)
+                    && let Some(&k) = self.table_of.get(&p)
+                {
+                    return Given {
+                        table: Some(TableSource::Shared(k)),
+                        ..num(k as f64, None, false)
+                    };
+                }
                 let r = self.resolve(scope, e, what);
                 let value = eval(&r, &ParamEnv(&self.flat));
                 let bound = r.any(&mut |x| matches!(x, Expr::Param(_)));
-                (value, bound.then_some(r), structural)
+                num(value, bound.then_some(r), structural)
             }
-            ParamValue::Bool(b) => (if *b { 1.0 } else { 0.0 }, None, true),
-            ParamValue::Enum(_)
-            | ParamValue::Table1D { .. }
-            | ParamValue::Table2D { .. }
-            | ParamValue::Table(_) => {
-                let who = self.describe(scope);
-                self.diags.push(Diagnostic::error(
-                    "NOT-YET",
-                    format!("In {who}, {what}: enumerations and tables come with work package 1."),
-                ));
-                (f64::NAN, None, true)
+            ParamValue::Bool(b) => num(if *b { 1.0 } else { 0.0 }, None, true),
+            ParamValue::Enum(q) => match self.lib.enum_ordinal(owner, q) {
+                Some(k) => num(k as f64, None, true),
+                None => {
+                    let who = self.describe(scope);
+                    let options = split_enum_value(q)
+                        .and_then(|(t, _)| self.lib.enum_type(owner, t))
+                        .map(|t| {
+                            let names: Vec<&str> =
+                                t.literals.iter().map(|l| l.name.as_str()).collect();
+                            format!(" (its options: {})", names.join(", "))
+                        })
+                        .unwrap_or_else(|| " (its type is not known)".into());
+                    self.diags.push(Diagnostic::error(
+                        "ENUM-OPTION",
+                        format!("In {who}, {what} is '{q}', which is not an option of its type{options}."),
+                    ));
+                    num(f64::NAN, None, true)
+                }
+            },
+            other => {
+                let data = other.table().expect("the remaining values are tables");
+                Given { table: Some(TableSource::Data(data)), ..num(f64::NAN, None, false) }
             }
         }
     }
@@ -698,6 +838,7 @@ impl<'a> Flattener<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lsim_ir::component::SubDecl;
     use lsim_ir::component::build::{connect, sub};
     use lsim_ir::expr::c;
 
@@ -728,6 +869,121 @@ mod tests {
         assert_eq!(flat.equations.len(), 13 + 4 + 3);
         assert_eq!(flat.vars.len(), flat.equations.len());
         assert_eq!(flat.params.iter().find(|p| p.name == "r2.R").unwrap().value, 3.0);
+    }
+
+    #[test]
+    fn flattens_tables_enumerations_and_asserts() {
+        use lsim_ir::component::build::{eq, param, var};
+        use lsim_ir::component::{EnumLiteral, EnumType, EquationDecl, Modifier, ParamDecl};
+        use lsim_ir::expr::{CmpOp, cmp, name as n, table};
+        let mut lib = Library::default();
+        let mode = EnumType {
+            name: "Mode".into(),
+            literals: ["Off", "Eco", "Sport"]
+                .iter()
+                .map(|l| EnumLiteral { name: (*l).into(), doc: String::new() })
+                .collect(),
+            doc: String::new(),
+        };
+        let ocv = ParamDecl {
+            default: ParamValue::Table1D {
+                x: vec![0.0, 1.0],
+                y: vec![3.0, 4.0],
+                axis_unit: "1".into(),
+            },
+            ..param("ocv", "V", 0.0, "")
+        };
+        let m = ParamDecl {
+            default: ParamValue::Enum("Mode.Eco".into()),
+            unit: String::new(),
+            ..param("mode", "", 0.0, "")
+        };
+        let cell = ComponentDef {
+            name: "Cell".into(),
+            types: vec![mode],
+            params: vec![ocv, m],
+            vars: vec![var("v", "V", ""), var("soc", "1", ""), var("k", "1", "")],
+            equations: vec![
+                eq(n("v"), table("ocv", vec![n("soc")]), "the OCV"),
+                eq(n("soc"), c(0.5), ""),
+                eq(n("k"), n("Mode.Sport") * n("mode"), ""),
+                EquationDecl {
+                    eq: Equation::Assert {
+                        condition: cmp(CmpOp::Le, n("soc"), c(1.0)),
+                        message: "full".into(),
+                        error: false,
+                    },
+                    label: None,
+                },
+            ],
+            ..Default::default()
+        };
+        lib.add(cell);
+        let pack_table = ParamDecl {
+            default: ParamValue::Table2D {
+                x1: vec![0.0, 1.0],
+                x2: vec![0.0, 1.0],
+                values: vec![3.0, 3.1, 4.0, 4.1],
+                axis_units: ["1".into(), "1".into()],
+            },
+            ..param("ocv_pack", "V", 0.0, "")
+        };
+        let top = ComponentDef {
+            name: "Pack".into(),
+            params: vec![pack_table],
+            components: vec![
+                SubDecl {
+                    modifiers: vec![Modifier {
+                        param: "mode".into(),
+                        value: ParamValue::Enum("Mode.Off".into()),
+                    }],
+                    ..sub("a", "Cell", &[])
+                },
+                SubDecl {
+                    modifiers: vec![Modifier {
+                        param: "ocv".into(),
+                        value: ParamValue::Table1D {
+                            x: vec![0.0, 0.5, 1.0],
+                            y: vec![3.0, 3.5, 4.2],
+                            axis_unit: "1".into(),
+                        },
+                    }],
+                    ..sub("b", "Cell", &[])
+                },
+            ],
+            ..Default::default()
+        };
+        let flat = flatten(&lib, &top).unwrap_or_else(|d| panic!("{d:#?}"));
+        // the pack's own table, then each cell's
+        let names: Vec<&str> = flat.tables.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, ["ocv_pack", "a.ocv", "b.ocv"]);
+        assert_eq!(flat.tables[2].data.axes[0].points, vec![0.0, 0.5, 1.0]);
+        let a_v = flat.find_var("a.v").unwrap();
+        let read = flat.equations.iter().find(|e| e.lhs == Expr::Var(a_v)).unwrap();
+        assert!(
+            matches!(&read.rhs, Expr::Table { table: 1, args } if args.len() == 1),
+            "{:?}",
+            read.rhs
+        );
+        // enumeration options are numbers: Off = 1, Eco = 2, Sport = 3
+        assert_eq!(flat.params[flat.find_param("a.mode").unwrap().0 as usize].value, 1.0);
+        assert_eq!(flat.params[flat.find_param("b.mode").unwrap().0 as usize].value, 2.0);
+        assert!(flat.params[flat.find_param("b.mode").unwrap().0 as usize].structural);
+        let a_k = flat.find_var("a.k").unwrap();
+        let k = flat.equations.iter().find(|e| e.lhs == Expr::Var(a_k)).unwrap();
+        assert!(matches!(&k.rhs, Expr::Binary(_, x, _) if **x == Expr::Const(3.0)), "{:?}", k.rhs);
+        assert_eq!(flat.asserts.len(), 2);
+        assert_eq!(flat.asserts[0].message, "full");
+        assert!(!flat.asserts[0].error);
+
+        // a wrong option and a table used as a number are named
+        let mut bad = top.clone();
+        bad.components[0].modifiers[0].value = ParamValue::Enum("Mode.Turbo".into());
+        bad.equations.push(eq(n("ocv_pack"), c(1.0), ""));
+        let err = flatten(&lib, &bad).unwrap_err();
+        let codes: Vec<&str> = err.iter().map(|d| d.code.as_str()).collect();
+        assert_eq!(codes, ["ENUM-OPTION", "TABLE-AS-NUMBER"], "{err:#?}");
+        assert!(err[0].message.contains("its options: Off, Eco, Sport"), "{}", err[0].message);
     }
 
     #[test]
