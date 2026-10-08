@@ -910,9 +910,25 @@ class RunContext:
                 b = self.batteries[el_id]
                 p = self.params(el_id)
                 b.min_soc = float(p.get("min_soc_pct", 10)) / 100.0
-                b.r0 = max(1e-6, float(p.get("internal_resistance_ohm", b.r0)))
                 b.max_charge_w = max(0.0, float(p.get("max_charge_power_kW", 120))) * 1000.0
-                b.ocv_map.set(parse_table1d(p.get("ocv_table", {})))
+                cp = b.cells
+                if cp is not None and cp.cells:  # built from cells (MOD-08)
+                    if key in ("ocv_table", "internal_resistance_ohm"):
+                        rt.warn_once(
+                            f"live-cells:{el_id}:{key}",
+                            f"'{label}.{key}' is not used by a battery built from cells — "
+                            f"the change has no effect (its cells set the voltage and "
+                            f"resistance).", level="info")
+                    # its voltage curve: the cell's × the cells in series, as
+                    # at the start; its resistance follows the cells each step
+                    pts = parse_table1d(p.get("cell_ocv_table", {}))
+                    cp.cell_ocv.set(pts)
+                    b.ocv_map.set([(x, v * cp.ns) for x, v in pts])
+                else:
+                    b.r0 = max(1e-6, float(p.get("internal_resistance_ohm", b.r0)))
+                    b.ocv_map.set(parse_table1d(p.get("ocv_table", {})))
+            if el_id in self.climate:  # its demand table (the rest is read every step)
+                self.climate[el_id][0].set(parse_table1d(self.params(el_id).get("demand_table", {})))
         except TableError:
             rt.warn_once(f"live-table:{el_id}", f"Live table edit on '{label}' is invalid — ignored.")
         p = self.params(el_id)

@@ -256,3 +256,48 @@ def test_the_derating_band_without_a_current_limit_lowers_the_maximum_power_curr
     texts = [c.text for c in validate_project(proj) if c.level == "info"]
     assert any("SOC Derating Band but no Max Discharge Current" in t for t in texts)
 
+
+def _live_edit(proj, case_id: str, edits: list[dict], at_call: int = 50):
+    calls = {"n": 0}
+
+    def control():
+        calls["n"] += 1
+        return edits if calls["n"] == at_call else []
+
+    return simulate(proj, case_id, control=control)
+
+
+def _fs_from_cells():
+    p = load_example("fs-electric")
+    for e in p.systems[0].elements:
+        if e.id == "el-battery":
+            e.parameterOverrides.update({
+                "pack_model": CELLS, "series_cells": 110, "parallel_cells": 4,
+                "cell_capacity_Ah": 3.5, "cell_resistance_ohm": 0.015})
+    return p
+
+
+def test_a_live_edit_keeps_a_cell_packs_voltage():
+    """A live edit of a battery built from cells kept its cells' voltage curve
+    (it swapped in the hidden pack table: 524 V at the end instead of 406 V)."""
+    plain = simulate(_fs_from_cells(), "case-accel-75m")
+    edited = _live_edit(_fs_from_cells(), "case-accel-75m", [
+        {"type": "set_param", "elementId": "el-battery", "key": "min_soc_pct", "value": 6}])
+    v0 = series(plain, "el-battery", "sig_voltage")[-1]["value"]
+    v1 = series(edited, "el-battery", "sig_voltage")[-1]["value"]
+    assert v1 == pytest.approx(v0, rel=1e-9)
+    assert _summary(edited)["Time to 75 m"] == pytest.approx(_summary(plain)["Time to 75 m"])
+
+
+def test_a_live_edit_of_the_cell_voltage_curve_applies():
+    flat = {"0": 3.5, "100": 3.5}
+    r = _live_edit(bench(5.0, duration=10.0, series_cells=96, parallel_cells=2,
+                         initial_soc_pct=80), "case",
+                   [{"type": "set_param", "elementId": "batt", "key": "cell_ocv_table",
+                     "value": flat},
+                    {"type": "set_param", "elementId": "batt", "key": "ocv_table",
+                     "value": {"0": 100, "100": 100}}])
+    v = series(r, "batt", "sig_voltage")
+    assert v[0]["value"] > 96 * 3.9  # the default curve at 80 %
+    assert 96 * 3.5 - 20 < v[-1]["value"] < 96 * 3.5  # the cells' new one, less the drop
+    assert any("not used by a battery built from cells" in m.text for m in r.messages)
