@@ -184,6 +184,12 @@ class Engine:
         policy = access_policy()
         return None if policy.on() else off_message(policy)
 
+    def run_cap(self, seconds: float) -> float:
+        """How long an assistant's run may take: the connection's limit
+        (``--max-run-seconds``) or the user's AI access setting (AI-01,
+        *Connect AI → AI access*), whichever is shorter."""
+        return min(seconds, access_policy().max_run_s)
+
     def _folders(self, policy) -> list[Path]:
         """Folders whose project files the assistant may list: those given
         when it was connected and those the user allows (not the projects
