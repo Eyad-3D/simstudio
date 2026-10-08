@@ -1038,10 +1038,10 @@
       "references": [
         {
           "kpi": "Consumption",
-          "value": 19.36,
+          "value": 19.43,
           "tolerance": 3,
           "tolerancePct": true,
-          "source": "Hand calculation: the heating case's 18.89 kWh/100 km plus air drag (about a third of the WLTC's 14.05 kWh/100 km) raised by the 10.1 % denser air at −7 °C than at 20 °C"
+          "source": "Hand calculation: the heating case's 18.89 kWh/100 km plus air drag (about 38 % of the WLTC's 14.05 kWh/100 km: 1.25 kWh of the 3.27 kWh drawn) raised by the 10.1 % denser air at −7 °C than at 20 °C"
         }
       ]
     },
@@ -1066,10 +1066,10 @@
       "references": [
         {
           "kpi": "Consumption",
-          "value": 18.66,
+          "value": 18.63,
           "tolerance": 3,
           "tolerancePct": true,
-          "source": "Hand calculation: the air-con case's 18.89 kWh/100 km less air drag (about a third of the WLTC's 14.05 kWh/100 km) lowered by the 4.9 % thinner air at 35 °C than at 20 °C"
+          "source": "Hand calculation: the air-con case's 18.89 kWh/100 km less air drag (about 38 % of the WLTC's 14.05 kWh/100 km: 1.25 kWh of the 3.27 kWh drawn) lowered by the 4.9 % thinner air at 35 °C than at 20 °C"
         }
       ]
     },
