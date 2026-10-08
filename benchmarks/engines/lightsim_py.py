@@ -180,7 +180,8 @@ def run_project(data: dict) -> Run:
     """Check and run a project file's one case; time only the run."""
     schemas = engine("schemas")
     proj = lightsim.Project(schemas.Project.model_validate(data))
-    checks = [f"{c.level}: {c.text}" for c in proj.check() if c.level == "error"]
+    checks = [f"Data Check error, run anyway: {c.text}" for c in proj.check()
+              if c.level == "error"]
     t0 = time.perf_counter()
     result = proj.run("case", check=False)
     wall = time.perf_counter() - t0
@@ -193,13 +194,27 @@ def run_project(data: dict) -> Run:
 
 
 def _trace(run: Run, signals: dict[str, list[float | None]], energy: dict[str, float],
-           shift: float = 0.0, closure: float | None = None) -> Trace:
-    """A Trace on the problem's clock (engine time − shift), keeping t ≥ 0."""
+           shift: float = 0.0, closure: float | None = None,
+           kinetic: tuple[list[tuple[str, float]], float] | None = None) -> Trace:
+    """A Trace on the problem's clock (engine time − shift), keeping t ≥ 0.
+
+    ``kinetic`` is ([(speed signal, its inertia or mass)], the kinetic
+    energy the engine's books say was stored): E_kin is taken from the
+    engine's own speeds (what it actually holds at the end), and a
+    message says so when its books disagree."""
     t_all = run.t
     keep = [k for k, t in enumerate(t_all) if t >= shift - 1e-9]
     times = [round(t_all[k] - shift, 9) for k in keep]
     sig = {name: [vals[k] for k in keep] for name, vals in signals.items()}
     msgs = [f"{m.level}: {m.text}" for m in run.result.messages if m.level != "info"]
+    if kinetic is not None:
+        pairs, booked = kinetic
+        held = sum(0.5 * m * (sig[n][-1] ** 2 - sig[n][0] ** 2) for n, m in pairs)
+        energy = {**energy, "E_kin": held}
+        if abs(booked - held) > 1e-3 * max(abs(held), 1.0):
+            msgs.append(f"Energy books: the stored kinetic energy changed by {booked:.6g} J; "
+                        f"the engine's own speeds say {held:.6g} J (E_kin is taken from the "
+                        f"speeds)")
     return Trace(times=times, signals=sig, energy=energy,
                  closure_j=run.closure_j() if closure is None else closure,
                  wall_s=run.wall_s, sim_s=t_all[-1] if t_all else 0.0, steps=run.steps,
@@ -282,6 +297,8 @@ def dc_motor_l0(problem: Problem, step: float) -> Trace:
     """The motor's straight torque-speed line at full demand, and its loss
     R i² + b ω² as a function of speed alone (it never leaves the line)."""
     p, x0 = problem.parameters, problem.initial
+    if x0["omega"] != 0:
+        raise ValueError("this expression starts at rest")
     V, R, k, J, b_v = p["V"], p["R"], p["k"], p["J"], p["b"]
     w0 = k * V / (k * k + R * b_v)  # where the net torque is 0
     line = {"0": k * V / R - p["T_load"], f"{w0 * RPM:.9g}": -p["T_load"]}
@@ -301,9 +318,9 @@ def dc_motor_l0(problem: Problem, step: float) -> Trace:
     run = run_project(b.project(problem.t_end, step))
     w = _scaled(run.ch("mot", "sig_speed"), 1.0 / RPM)
     i = _scaled(run.ch("mot", "sig_elec_power"), 1000.0 / V)
-    energy = {"E_in": run.kpi("src.energy_supplied_kwh") * KWH,
-              "E_kin": run.part("Rotating parts")["stored"] - 0.5 * J * x0["omega"] ** 2}
-    return _trace(run, {"omega": w, "i": i}, energy)
+    energy = {"E_in": run.kpi("src.energy_supplied_kwh") * KWH}
+    return _trace(run, {"omega": w, "i": i}, energy,
+                  kinetic=([("omega", J)], run.part("Rotating parts")["stored"]))
 
 
 def _preamble(problem: Problem, step: float, build: Callable[[float], Build],
@@ -344,10 +361,9 @@ def inertia_coastdown(problem: Problem, step: float) -> Trace:
     full, pre = _preamble(problem, step, build, t_pre)
     w = _scaled(full.ch("mot", "sig_speed"), 1.0 / RPM)
     energy = {"E_viscous": _window(full, pre, "mot", "losses"),
-              "E_coulomb": _window(full, pre, "brk", "losses"),
-              "E_kin": _window(full, pre, "Rotating parts", "stored")}
-    return _trace(full, {"omega": w}, energy, shift=t_pre,
-                  closure=_closure_window(full, pre))
+              "E_coulomb": _window(full, pre, "brk", "losses")}
+    return _trace(full, {"omega": w}, energy, shift=t_pre, closure=_closure_window(full, pre),
+                  kinetic=([("omega", J)], _window(full, pre, "Rotating parts", "stored")))
 
 
 def _closure_window(full: Run, pre: Run) -> float | None:
@@ -388,10 +404,10 @@ def clutch_lockup(problem: Problem, step: float) -> Trace:
            "slip": _scaled(full.ch("clu", "sig_slip_speed"), 1.0 / RPM),
            "T_clutch": full.ch("clu", "sig_torque")}
     energy = {"E_drive": _window(full, pre, "mot", "energyOut"),
-              "E_clutch": _window(full, pre, "clu", "losses"),
-              "E_kin": _window(full, pre, "Rotating parts", "stored"),
-              "E_load": 0.0}
-    return _trace(full, sig, energy, shift=t_pre, closure=_closure_window(full, pre))
+              "E_clutch": _window(full, pre, "clu", "losses"), "E_load": 0.0}
+    return _trace(full, sig, energy, shift=t_pre, closure=_closure_window(full, pre),
+                  kinetic=([("omega1", J1), ("omega2", J2)],
+                           _window(full, pre, "Rotating parts", "stored")))
 
 
 def _gear_parts(b: Build, p: dict, n_max: float) -> None:
@@ -420,9 +436,9 @@ def gear_change_rotational(problem: Problem, step: float) -> Trace:
     run = run_project(b.project(problem.t_end, step))
     sig = {"omega1": _scaled(run.ch("mot", "sig_speed"), 1.0 / RPM),
            "omega2": _scaled(run.ch("load", "sig_speed"), 1.0 / RPM)}
-    energy = {"E_drive": run.part("mot")["energyOut"],
-              "E_kin": run.part("Rotating parts")["stored"]}
-    return _trace(run, sig, energy)
+    energy = {"E_drive": run.part("mot")["energyOut"]}
+    return _trace(run, sig, energy, kinetic=([("omega1", p["J1"]), ("omega2", p["J2"])],
+                                             run.part("Rotating parts")["stored"]))
 
 
 def gear_change_vehicle(problem: Problem, step: float) -> Trace:
@@ -441,9 +457,10 @@ def gear_change_vehicle(problem: Problem, step: float) -> Trace:
     run = run_project(b.project(problem.t_end, step))
     sig = {"omega1": _scaled(run.ch("mot", "sig_speed"), 1.0 / RPM),
            "omega2": _scaled(run.ch("veh", "sig_speed"), 1.0 / 3.6 / r)}
-    energy = {"E_drive": run.part("mot")["energyOut"],
-              "E_kin": run.part("Rotating parts")["stored"] + run.part("veh")["stored"]}
-    return _trace(run, sig, energy)
+    energy = {"E_drive": run.part("mot")["energyOut"]}
+    booked = run.part("Rotating parts")["stored"] + run.part("veh")["stored"]
+    return _trace(run, sig, energy,
+                  kinetic=([("omega1", p["J1"]), ("omega2", p["J2"])], booked))
 
 
 def vehicle_coastdown(problem: Problem, step: float) -> Trace:
@@ -457,12 +474,12 @@ def vehicle_coastdown(problem: Problem, step: float) -> Trace:
     sig = {"v": _scaled(run.ch("veh", "sig_speed"), 1.0 / 3.6), "x": run.ch("veh", "sig_distance")}
     veh = next(f for f in run.result.raw.partEnergy if f.elementId == "veh")
     terms = {k: v * KWH for k, v in veh.terms.items()}
-    energy = {"E_kin": veh.stored * KWH}
+    energy = {}
     for key, name in (("air drag", "E_aero"), ("rolling", "E_roll")):
         found = [v for k, v in terms.items() if key in k.lower()]
         if found:
             energy[name] = found[0]
-    return _trace(run, sig, energy)
+    return _trace(run, sig, energy, kinetic=([("v", p["m"])], veh.stored * KWH))
 
 
 def vehicle_constant_power(problem: Problem, step: float) -> Trace:
@@ -494,8 +511,8 @@ def vehicle_constant_power(problem: Problem, step: float) -> Trace:
     b.route("dem", "sig_out", "mot", "sig_demand_in")
     run = run_project(b.project(problem.t_end, step))
     sig = {"v": _scaled(run.ch("veh", "sig_speed"), 1.0 / 3.6), "x": run.ch("veh", "sig_distance")}
-    energy = {"E_supplied": run.part("mot")["energyOut"], "E_kin": run.part("veh")["stored"]}
-    return _trace(run, sig, energy)
+    energy = {"E_supplied": run.part("mot")["energyOut"]}
+    return _trace(run, sig, energy, kinetic=([("v", m)], run.part("veh")["stored"]))
 
 
 EXPRESSIONS: dict[str, list[Expression]] = {

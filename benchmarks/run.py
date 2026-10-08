@@ -4,6 +4,8 @@
     python -m benchmarks.run --skip-speed         reference problems only (about a minute)
     python -m benchmarks.run --skip-reference --repeats 3
     python -m benchmarks.run --write-baseline     also refresh benchmarks/baselines/
+    python -m benchmarks.run --speed-from results/X.json   re-run the problems, keep X's timings
+    python -m benchmarks.run --render results/X.json       re-write X.md from X.json
 
 Writes benchmarks/results/<engine>-<date>.md and .json: every reference
 problem against its exact answer (or why the engine cannot express it),
@@ -107,13 +109,14 @@ def markdown(meta: dict, ref: list[dict], spd: speed.SpeedReport | None) -> str:
         L += ["## Reference problems", "",
               "Errors are shares of each quantity's scale (see benchmarks/README.md). "
               "*Order* is the observed order of convergence of the worst signal error between "
-              "the default step and half of it.", "",
+              "the default step and half of it: about 1 for a first-order integrator, near 0 "
+              "when the error comes from how the model is built rather than from the step.", "",
               "| Problem | Expressed as | Worst signal | Worst event | Worst energy | Energy "
-              "balance | Target | Wall, s | Steps | Order |",
-              "|---|---|---|---|---|---|---|---|---|---|"]
+              "balance | Target | Wall, s | x real time | Steps | Order |",
+              "|---|---|---|---|---|---|---|---|---|---|---|"]
         for r in ref:
             if not r["expressible"]:
-                L.append(f"| {r['problem']} | cannot be expressed | | | | | | | | |")
+                L.append(f"| {r['problem']} | cannot be expressed | | | | | | | | | |")
                 continue
             o = r["outcome"]
 
@@ -128,7 +131,8 @@ def markdown(meta: dict, ref: list[dict], spd: speed.SpeedReport | None) -> str:
             L.append(f"| {r['problem']} | {r['expression']} | {worst('signal')} | "
                      f"{worst('event')} | {worst('energy')} | {_fmt(o['closure_rel'])} | "
                      f"{'pass' if o['passed'] else 'miss'} | {r['wall_s']:.2f} | "
-                     f"{r['steps'] or '-'} | {'-' if order is None else f'{order:.2f}'} |")
+                     f"{r['simulated_s'] / r['wall_s']:.0f} | {r['steps'] or '-'} | "
+                     f"{'-' if order is None else f'{order:.2f}'.replace('-0.00', '0.00')} |")
         cannot = [r for r in ref if not r["expressible"]]
         if cannot:
             L += ["", "Today's engine cannot express:", ""]
@@ -164,8 +168,10 @@ def markdown(meta: dict, ref: list[dict], spd: speed.SpeedReport | None) -> str:
         L += ["", "## Speed", "",
               f"Median of {spd.targets['repeats']} warm runs (one warm-up run first, untimed), "
               "wall clock, one process. *CPU share* is the lowest CPU time / wall time of the "
-              "runs (well under 1: the run waited for a CPU). Steps are the solver's (master) "
-              "steps of one run.", "",
+              "runs (well under 1: the run waited for a CPU; above 1: a worker process, such "
+              "as a Script block's sandbox, ran alongside and its CPU time is counted). Steps "
+              "are the solver's (master) steps of one run; *Load* is the machine's one-minute "
+              "load average around the case (other jobs included).", "",
               "| Case | Kind | Simulated, s | Median wall, s | x real time | Steps | Steps/s | "
               f"CPU share | Load before -> after | >= {spd.targets['dynamic_min_x_realtime']:g}x |",
               "|---|---|---|---|---|---|---|---|---|---|"]
@@ -220,6 +226,26 @@ def write_baseline(ref: list[dict], path: Path = BASELINE) -> None:
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _speed_of(data: dict) -> speed.SpeedReport | None:
+    """The speed part of a JSON report, as a SpeedReport."""
+    sp = data.get("speed")
+    if not sp:
+        return None
+    fields = speed.CaseSpeed.__dataclass_fields__
+    return speed.SpeedReport(machine=sp["machine"], targets=sp["targets"], cases=[
+        speed.CaseSpeed(**{k: v for k, v in c.items() if k in fields}) for c in sp["cases"]])
+
+
+def render(path: Path) -> int:
+    """Write the Markdown report next to a JSON one (after a change of the
+    report's layout, without running anything again)."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    path.with_suffix(".md").write_text(markdown(data, data["reference"], _speed_of(data)),
+                                       encoding="utf-8")
+    print(f"wrote {path.with_suffix('.md')}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="LightSim Stage 0 yardstick")
     ap.add_argument("--skip-reference", action="store_true")
@@ -231,7 +257,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--write-baseline", action="store_true")
     ap.add_argument("--out", type=Path, default=RESULTS)
     ap.add_argument("--tag", default="", help="added to the report's file name")
+    ap.add_argument("--render", type=Path, help="only write the Markdown of this JSON report")
+    ap.add_argument("--speed-from", type=Path,
+                    help="take the speed part from this JSON report instead of timing again")
     args = ap.parse_args(argv)
+    if args.render:
+        return render(args.render)
 
     date = dt.date.today().isoformat()
     meta = {"date": date, "engine": engine.version(), "machine": speed.machine(),
@@ -246,7 +277,9 @@ def main(argv: list[str] | None = None) -> int:
             write_baseline(ref)
             print(f"wrote {BASELINE}")
     spd = None
-    if not args.skip_speed:
+    if args.speed_from:
+        spd = _speed_of(json.loads(args.speed_from.read_text(encoding="utf-8")))
+    elif not args.skip_speed:
         print(f"Speed on {engine.NAME}:")
         spd = speed.run(args.repeats, args.cases.split(",") if args.cases else None)
     args.out.mkdir(parents=True, exist_ok=True)
