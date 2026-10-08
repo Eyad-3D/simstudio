@@ -297,6 +297,32 @@ def _project_file(path: Path, name: str) -> Path:
     return path
 
 
+def test_an_edit_of_a_file_in_an_allowed_folder_keeps_the_old_version_beside_it(folder, tmp_path):
+    car = _project_file(tmp_path / "shared" / "car.json", "Team car")
+    original = car.read_bytes()
+    server = McpServer(Engine(user_folder=folder, allowed_folders=(car.parent,)), Policy(),
+                       AuditLog(folder))
+    ref = str(car.resolve())
+    done, question = _confirmed_edit(
+        server, ref, [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 2100}])
+    assert done["structuredContent"]["applied"] is True
+    assert '"car.json-backups" beside the file' in question
+    backups = car.parent / "car.json-backups"
+    kept = sorted(backups.glob("*.json"))
+    assert [k.read_bytes() for k in kept] == [original], "the replaced version is kept"
+    assert (backups / ".gitignore").is_file(), "and kept out of git"
+    assert car.read_bytes() != original
+
+    edited = car.read_bytes()
+    _confirmed_edit(server, ref, [{"op": "set", "element": "Vehicle", "param": "mass_kg",
+                                   "value": 2200}])
+    kept = sorted(backups.glob("*.json"))
+    assert [k.read_bytes() for k in kept] == [original, edited], "each edit adds one"
+    listed = [p["project"] for p in tool(server, "lightsim_list_projects", {})
+              ["structuredContent"]["projects"]]
+    assert listed.count(ref) == 1 and not any("backups" in p for p in listed)
+
+
 def test_same_named_files_in_two_folders_keep_their_own_runs(folder, tmp_path):
     a = _project_file(tmp_path / "A" / "car.json", "Car A")
     b = _project_file(tmp_path / "B" / "car.json", "Car B")

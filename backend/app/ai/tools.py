@@ -563,11 +563,18 @@ class Tools:
                       else f"the project \"{project.name}\"")
             listed = "\n".join(f"- {c}" for c in changes[:15])
             more = f"\n- … and {len(changes) - 15} more" if len(changes) > 15 else ""
+            if handle.kind == "folder":
+                kept = (" LightSim keeps the previous version as a backup, in the folder "
+                        f"\"{handle.backups.name}\" beside the file.")
+            elif handle.kind == "user":
+                kept = " LightSim keeps the previous version as a backup."
+            else:
+                kept = ""
             raise ConfirmationNeeded(
                 f"Your AI assistant wants to save these changes to {target} in LightSim:\n"
                 f"{listed}{more}\nData Checks after the change: "
                 f"{answer['checksAfter']['error']} errors, {answer['checksAfter']['warning']} "
-                "warnings. LightSim keeps the previous version as a backup.", seal)
+                f"warnings.{kept}", seal)
         try:
             ref, new_revision = self.engine.save(handle, edited, revision)
         except storage.ConflictError:

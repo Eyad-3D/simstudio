@@ -963,7 +963,9 @@ sections.
   the MCP revision of 28 July 2026 (stateless, long runs as Tasks,
   confirmations as `input_required`) and still answers apps that use the
   older handshake. It is read-only unless you confirm in the AI app:
-  saving an edit and running a project with Script blocks ask first (on
+  saving an edit (the version it replaces is kept as a backup, beside a
+  file in an allowed folder in `<file>-backups`) and running a project
+  with Script blocks ask first (on
   Windows, Script projects do not run unless you allowed it when
   connecting); a project file with `"noAI": true` stays hidden; an
   assistant's run stops after 5 minutes; every request goes into a local
