@@ -5,7 +5,8 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const {
-  DAY_MS, QUESTION, installKind, canInstall, decideMode, checkDue, resultsThatChange, offerText,
+  DAY_MS, QUESTION, NO_INSTALL_ID, installKind, canInstall, decideMode, checkDue, resultsThatChange, offerText,
+  requestHeaders, configureUpdater,
 } = require("../src/updates");
 
 test("the install kind decides whether LightSim can update itself", () => {
@@ -117,4 +118,32 @@ test("the offer never installs silently", () => {
   const notify = offerText({ version: "0.4.0", mode: "notify", releaseNotes: "" });
   assert.deepEqual(notify.buttons, ["Download page", "Release notes", "Skip this version", "Later"]);
   assert.match(notify.detail, /no changes to results/);
+});
+
+test("a check sends the version and platform, and no ID of the install", async () => {
+  const headers = requestHeaders("0.3.0", "win32", "x64");
+  assert.deepEqual(headers, {
+    "User-Agent": "LightSim/0.3.0 (win32-x64)",
+    "x-user-staging-id": "00000000-0000-0000-0000-000000000000",
+  });
+  // electron-updater merges requestHeaders over its own headers
+  // (AppUpdater.computeFinalHeaders), so the random ID it keeps per install
+  // is replaced, for the check and for the download
+  const own = { "x-user-staging-id": "8f2b6c1e-0d4a-5e9f-a1b2-c3d4e5f6a7b8", accept: "*/*" };
+  assert.equal(Object.assign(own, headers)["x-user-staging-id"], NO_INSTALL_ID);
+});
+
+test("update requests use the computer's proxy, in electron-updater's own session", async () => {
+  const calls = [];
+  const fake = { netSession: { setProxy: async (config) => { calls.push(config); } } };
+  const logged = [];
+  const updater = await configureUpdater(fake, { version: "0.3.0", platform: "linux", arch: "x64", logEvent: (m) => logged.push(m) });
+  assert.deepEqual(calls, [{ mode: "system" }]);
+  assert.equal(updater.autoDownload, false);
+  assert.equal(updater.requestHeaders["x-user-staging-id"], NO_INSTALL_ID);
+  assert.deepEqual(logged, []);
+  // a session that refuses: logged, and the check goes direct
+  const refusing = { netSession: { setProxy: async () => { throw new Error("no"); } } };
+  await configureUpdater(refusing, { version: "0.3.0", platform: "linux", arch: "x64", logEvent: (m) => logged.push(m) });
+  assert.match(logged[0], /could not use the system proxy/);
 });
