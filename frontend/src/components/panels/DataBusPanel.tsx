@@ -247,14 +247,42 @@ function BulkWiring({
     </label>
   );
 
+  const status =
+    done ??
+    (mode === "all" && !source && group
+      ? "Pick the output to connect."
+      : plan.links.length === 0 && (mode === "names" || source)
+        ? "Nothing to connect."
+        : "");
+
+  // In a short panel this part takes the room before the rows below, and
+  // scrolls (its buttons first).
   return (
     <section
       aria-label="Connect several"
-      className="space-y-1 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-2 py-1.5 text-[11px]"
+      className="min-h-0 flex-initial space-y-1 overflow-y-auto border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-2 py-1.5 text-[11px]"
     >
-      <div role="radiogroup" aria-label="How to connect" className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {radio("all", "One output to every part of a type")}
-        {radio("names", "Matching names")}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div role="radiogroup" aria-label="How to connect" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {radio("all", "One output to every part of a type")}
+          {radio("names", "Matching names")}
+        </div>
+        <button
+          className="ss-toolbtn border border-[color:var(--ss-accent)] px-3 text-[color:var(--ss-accent)] disabled:opacity-40"
+          disabled={plan.links.length === 0}
+          onClick={() => {
+            const n = applyBulkLinks(plan.links, what);
+            setDone(`${countOf(n, "link")} connected. One Undo takes them all back.`);
+          }}
+        >
+          Connect {countOf(plan.links.length, "input")}
+        </button>
+        <button className="ss-toolbtn border border-[color:var(--ss-border)] px-3" onClick={onClose}>
+          Close
+        </button>
+        <span role="status" className="text-[color:var(--ss-text-dim)]">
+          {status}
+        </span>
       </div>
       {mode === "all" &&
         (group && target ? (
@@ -291,10 +319,9 @@ function BulkWiring({
         ))}
       {mode === "names" && (
         <p className="text-[color:var(--ss-text-dim)]">
-          Each input with no source gets the one output of the same name (Brake Command ← Driver · Brake Command; a
-          Script's <i>vehicle_speed</i> ← Vehicle · Vehicle Speed)
-          {scope ? `, to and from ${scope.label} only (Selected part)` : ""}. Outputs of another unit, or on the
-          input's own part, are left out.
+          Each input with no source gets the one output of the same name (a Script's <i>vehicle_speed</i> ← Vehicle ·
+          Vehicle Speed){scope ? `, to and from ${scope.label} only (Selected part)` : ""}; not one of another unit or
+          on the input's own part.
         </p>
       )}
       {differ && (
@@ -304,7 +331,7 @@ function BulkWiring({
         </p>
       )}
       {(plan.links.length > 0 || plan.skipped.length > 0) && (
-        <ul aria-label="Links to make" className="max-h-[96px] overflow-y-auto">
+        <ul aria-label="Links to make" className="max-h-[160px] overflow-y-auto">
           {plan.links.map((l) => (
             <li key={keyOf(l.to)}>
               {l.from.name} → <b>{l.to.name}</b>
@@ -318,29 +345,6 @@ function BulkWiring({
           ))}
         </ul>
       )}
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          className="ss-toolbtn border border-[color:var(--ss-accent)] px-3 text-[color:var(--ss-accent)] disabled:opacity-40"
-          disabled={plan.links.length === 0}
-          onClick={() => {
-            const n = applyBulkLinks(plan.links, what);
-            setDone(`${countOf(n, "link")} connected. One Undo takes them all back.`);
-          }}
-        >
-          Connect {countOf(plan.links.length, "input")}
-        </button>
-        <button className="ss-toolbtn border border-[color:var(--ss-border)] px-3" onClick={onClose}>
-          Close
-        </button>
-        <span role="status" className="text-[color:var(--ss-text-dim)]">
-          {done ??
-            (mode === "all" && !source && group
-              ? "Pick the output to connect."
-              : plan.links.length === 0 && (mode === "names" || source)
-                ? "Nothing to connect."
-                : "")}
-        </span>
-      </div>
     </section>
   );
 }
