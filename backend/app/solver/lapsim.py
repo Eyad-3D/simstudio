@@ -52,7 +52,7 @@ from .domains import (
 from .maps import TableError, interp1, parse_table1d
 from .master import Master
 from .network import Model
-from .runtime import GRAVITY, MAX_SUBSTEP, RPM, axle_load_shift, lateral_load_shift, tyre_mu
+from .runtime import GRAVITY, MAX_SUBSTEP, RPM, axle_load_shift, lateral_load_shift
 from .slave import StepResult
 
 TRACKS_PATH = Path(__file__).resolve().parent.parent / "library" / "tracks.json"
@@ -495,11 +495,14 @@ class LapRun:
         grip, their lateral grip, their rolling resistance), N."""
         drive = total = lateral = roll = 0.0
         for w, f, driven in zip(self.wheels, fz, self.driven):
-            gx = tyre_mu(w, f) * f
+            # tyre_mu(w, f) and tyre_mu(w, f, lateral=True), inline: the lap
+            # solver's innermost loop
+            d_mu = w.dmu_per_n * (f - (w.fz0 or w.fz_static))
+            gx = max(0.0, w.mu + d_mu) * f
             total += gx
             if driven:
                 drive += gx
-            lateral += tyre_mu(w, f, lateral=True) * f
+            lateral += max(0.0, (w.mu_y if w.mu_y > 0 else w.mu) + d_mu) * f
             roll += w.c_rr * f
         return drive, total, lateral, roll
 
@@ -527,12 +530,15 @@ class LapRun:
             f += (t_out * eff if t_out * unit >= 0 else t_out / eff) * unit
         return f
 
-    def _full(self, v: float, volts: dict[int, float], k: float, drive: bool) -> tuple[dict, dict]:
+    def _full(self, v: float, volts: dict[int, float], k: float, drive: bool,
+              fulls: Optional[dict[int, float]] = None) -> tuple[dict, dict]:
         """({motor: shaft torque}, {source tree: electrical W}) with every
-        motor at ``k`` of its full-load (``drive``) or generator torque."""
+        motor at ``k`` of its full-load (``drive``) or generator torque.
+        ``fulls``, shared by calls at the same speed, voltages and ``drive``,
+        keeps each motor's full-load torque, which ``k`` does not change."""
         ctx = self.ctx
         torques, power = {}, {}
-        for st, s, src, mc in self.motors:
+        for n, (st, s, src, mc) in enumerate(self.motors):
             omega = src.m * self.unit[id(st)][s] * v
             rpm = abs(omega) * RPM
             bus = ctx.motor_bus.get(mc.el_id)
@@ -544,7 +550,12 @@ class LapRun:
                     torques[mc.el_id] = -math.copysign(
                         interp1(mc.drag.pts, rpm, mc.drag.linear[0]), omega)
                 continue
-            t = k * full_torque(mc, v_bus, rpm, drive) * (1.0 if drive else -mc.q4_scale)
+            t_full = fulls.get(n) if fulls is not None else None
+            if t_full is None:
+                t_full = full_torque(mc, v_bus, rpm, drive)
+                if fulls is not None:
+                    fulls[n] = t_full
+            t = k * t_full * (1.0 if drive else -mc.q4_scale)
             torques[mc.el_id] = t
             root = self.root_of_motor.get(mc.el_id)
             power[root] = power.get(root, 0.0) + ctx.motor_power(mc, t, omega)
@@ -599,33 +610,35 @@ class LapRun:
                         p = min(power.get(root, 0.0), room[root]) + ctx.fixed_served_w.get(bus.id, 0.0)
                         disc = max(0.0, a_volt * a_volt - 4.0 * b.r0 * p)
                         volts[bus.id] = a_volt - (a_volt - math.sqrt(disc)) / 2.0
-            torques, power = self._full(v, volts, 1.0, True)
+            fulls: dict[int, float] = {}  # (at these volts, for the cut-backs below)
+            torques, power = self._full(v, volts, 1.0, True, fulls)
             code = MOTOR
             over = [r for r, p in power.items() if p > room.get(r, 0.0)]
             if over:
                 lo, hi = 0.0, 1.0
                 for _ in range(40):
                     mid = 0.5 * (lo + hi)
-                    _, p_mid = self._full(v, volts, mid, True)
+                    _, p_mid = self._full(v, volts, mid, True, fulls)
                     if all(p <= room.get(r, 0.0) for r, p in p_mid.items()):
                         lo = mid
                     else:
                         hi = mid
-                torques, _ = self._full(v, volts, lo, True)
+                torques, _ = self._full(v, volts, lo, True, fulls)
                 code = CAP if any(capped.get(r) for r in over) else BATTERY
             self.env_f.append(max(0.0, self.force(torques)))
             self.env_code.append(code)
-            gen, fed = self._full(v, volts, 1.0, False)
+            fulls = {}
+            gen, fed = self._full(v, volts, 1.0, False, fulls)
             if any(-p > regen_room.get(r, 0.0) for r, p in fed.items()):
                 lo, hi = 0.0, 1.0  # (the share of full regeneration the batteries take)
                 for _ in range(40):
                     mid = 0.5 * (lo + hi)
-                    _, p_mid = self._full(v, volts, mid, False)
+                    _, p_mid = self._full(v, volts, mid, False, fulls)
                     if all(-p <= regen_room.get(r, 0.0) for r, p in p_mid.items()):
                         lo = mid
                     else:
                         hi = mid
-                gen, _ = self._full(v, volts, lo, False)
+                gen, _ = self._full(v, volts, lo, False, fulls)
             self.env_gen.append(max(0.0, -self.force(gen)))
 
     def powertrain(self, v: float) -> tuple[float, int, float]:
