@@ -552,19 +552,27 @@ def _read_2d(sheet: Sheet, target: Target, opts: dict) -> ImportResult:
     transpose = opts.get("transpose")
     if transpose is None:
         transpose = False
-        votes = []
-        if col_hint:
-            votes.append(_axis_for(col_hint[0], col_hint[1], target.axes) == 1)
-        if row_hint:
-            votes.append(_axis_for(row_hint[0], row_hint[1], target.axes) == 0)
+        # each label votes "swap" (True) or "as it is" (False); a label
+        # LightSim does not recognise abstains (None)
+        votes: list[Optional[bool]] = []
+        for hint, swapped_axis in ((col_hint, 1), (row_hint, 0)):
+            if hint:
+                idx = _axis_for(hint[0], hint[1], target.axes)
+                votes.append(None if idx is None else idx == swapped_axis)
         sure = [v for v in votes if v is not None]
+        as_read = (f"columns read as {outer.name.lower()}, rows as {inner.name.lower()}. "
+                   "Swap them if that is wrong.")
         if sure and all(sure):
             transpose = True
             res.notes.append(f"The file's columns hold {inner.name.lower()}, so rows and "
                              "columns were swapped to match LightSim's map.")
+        elif any(sure):
+            res.notes.append("The axis labels disagree (they name the same quantity): "
+                             + as_read)
         elif not votes:
-            res.notes.append(f"No axis labels found: columns read as {outer.name.lower()}, "
-                             f"rows as {inner.name.lower()}. Swap them if that is wrong.")
+            res.notes.append("No axis labels found: " + as_read)
+        elif not sure:
+            res.notes.append("The axis labels do not say which axis is which: " + as_read)
     res.transpose = bool(transpose)
     file_cols_q, file_rows_q = (inner, outer) if transpose else (outer, inner)
 

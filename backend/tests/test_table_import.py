@@ -192,6 +192,30 @@ def test_a_map_laid_out_as_lightsim_shows_it_is_not_swapped():
     assert swapped.value["100"] == {"0": 0.4, "1000": 0.5, "2000": 0.6}
 
 
+def test_an_axis_label_lightsim_does_not_know_does_not_stop_the_swap():
+    # torques along the top, labelled; speeds down the side under a label
+    # LightSim does not recognise ("Shaft")
+    rows = [[None, None, "Torque"], [None, None, 0, 100, 200],
+            ["Shaft", 1000, 0.5, 0.6, 0.7], [None, 3000, 0.8, 0.9, 1.0],
+            [None, 6000, 1.1, 1.2, 1.3]]
+    r = read(xlsx(rows), "m.xlsx", LOSS)
+    assert not r.errors, r.errors
+    assert r.transpose is True and any("swapped" in n for n in r.notes)
+    assert r.value["1000"] == {"0": 0.5, "100": 0.6, "200": 0.7}
+    assert sorted(map(float, r.value)) == [1000, 3000, 6000]
+    # without the label, the same
+    rows[2][0] = None
+    assert read(xlsx(rows), "m.xlsx", LOSS).transpose is True
+    # two labels that name the same quantity: not swapped, and the note says why
+    rows[2][0] = "Torque"
+    r = read(xlsx(rows), "m.xlsx", LOSS)
+    assert r.transpose is False and any("disagree" in n for n in r.notes)
+    # labels LightSim does not know only: as read, and the note says so
+    rows[0][2], rows[2][0] = "Shaft", "Load"
+    r = read(xlsx(rows), "m.xlsx", LOSS)
+    assert r.transpose is False and any("do not say which axis" in n for n in r.notes)
+
+
 def test_a_range_picks_one_table_of_several():
     rows = [["SOC [%]", "OCV [V]", None, "SOC [%]", "OCV [V]"],
             [0, 3.0, None, 0, 300], [100, 4.2, None, 100, 400]]
