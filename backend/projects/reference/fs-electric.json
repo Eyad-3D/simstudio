@@ -2,11 +2,11 @@
  "_about": "Stored reference results of this example (CON-15): written by backend/tests/update_golden.py, explained in tests/golden/CHANGES.md.",
  "creation": {
   "appVersion": "0.2.0",
-  "gitCommit": "51a06f8",
+  "gitCommit": "1c48c60",
   "solver": "fixed step, at most 10 ms; recorded every 1 s",
   "date": "2026-10-08",
   "machine": "Linux x86_64, Python 3.11.15",
-  "note": "The 0.3 lanes combined: part energy books, full precision, charge balancing, sourced defaults, lab figures, keys and reports"
+  "note": "The Battery Electric Car's winter and hot-day cases heat and cool with a Climate Control (MOD-41 merge)"
  },
  "cases": {
   "case-accel-75m": {

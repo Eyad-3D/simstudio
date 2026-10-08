@@ -38,7 +38,7 @@ Whether the model matches a real car is a separate question:
 | **Phase *what* — fuel consumption** | l/100km | The fuel consumption in that phase |
 | **FTP weighted consumption** | kWh/100km | On the FTP-75: the three bags weighted as EPA does (43 % cold start, 57 % hot start, each with the stabilised bag) |
 | **FTP weighted fuel consumption** | l/100km | The same for fuel |
-| **Energy balance residual** | % | How far all the parts' energy books together are from closing, as a share of the energy the sources gave: near 0 when every part's energy in, out, lost and stored adds up |
+| **Energy balance residual** | % | How far all the parts' energy books together are from closing, as a share of the energy the sources gave: near 0 when every part's energy in, out, lost and stored adds up. The *Energy* view shows the same energy as *Not accounted for*, as a share of the sources and with the sign the other way round ([see where the energy went](../how-to/see-where-the-energy-went.md)) |
 
 ## Batteries
 

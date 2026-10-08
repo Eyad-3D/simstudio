@@ -1,20 +1,22 @@
-"""Run reports gathered while a run goes: where the energy went (RES-22),
-each part's duty (RES-39) and what held the car back at every moment
-(RES-38).
+"""Run reports: where the energy went (RES-22), each part's duty (RES-39)
+and what held the car back at every moment (RES-38).
 
-A :class:`RunRecorder` looks at the run's state after every solver step
-(the same steps the physics integrates, not the stored points) and adds up
-what the parts already report: each E-Motor's electrical, shaft and lost
-power, each battery's terminal energy and losses, each engine's fuel and
-shaft power, the DC-DC converters' flows, the consumers, the friction
-brakes, the tyres and the Vehicle's road load. It changes nothing in the
-run.
+The energy report is made from the run's energy book (MOD-10, energy.py),
+in which every part keeps its own books every solver step: what went in,
+what came out, what it lost and the change of what it stores. Its table is
+those books, one row per part (each battery, tank, engine, fuel cell,
+E-Motor, DC-DC converter, consumer, clutch, gear, differential, brake,
+propeller, wheel, each driveline's spinning parts and the Vehicle); its
+Sankey chart takes the sources from the batteries, tanks and voltage
+sources and the sinks from the parts' losses and the Vehicle's road load,
+height and speed. What is left, *not accounted for*, is only where the
+books together do not close (the flow out of one part that is not quite
+the flow into the next: the solver's step), the summary's *Energy balance
+residual*. A lap case's gears and friction brakes are booked by the lap's
+own energy pass, as the Vehicle's terms.
 
-The energy report is built by one function, :func:`energy_report`, from a
-list of :class:`PartEnergy` rows and the Vehicle's terms. Today the rows
-come from the recorder; once every part reports its own power in, out and
-lost (MOD-10) the same function takes those, and the driveline row that is
-now worked out as a remainder becomes one row per gear.
+A :class:`RunRecorder` looks at the run's state after every fourth solver
+step for the duty and the limit band; it changes nothing in the run.
 """
 from __future__ import annotations
 
@@ -31,23 +33,19 @@ from ..schemas import (
     LimitLane,
     LimitReport,
 )
-from .energy import FUEL_LHV_MJ, H2_LHV_J_PER_KG
+from .energy import ORDER
 from .maps import interp1
-from .runtime import GRAVITY, RPM, SPEED_LIMIT_BAND, tyre_mu
+from .runtime import SPEED_LIMIT_BAND, tyre_mu
 
-WH = 1.0 / 3600.0  # W·s → Wh
-# Lower heating values, kWh/kg, as the part books use them (energy.py):
-# petrol 42.9 MJ/kg and hydrogen 119.96 MJ/kg (33.3 kWh/kg). A Fuel Tank's
-# 'lhv_MJ_per_kg' value is used instead when it has one.
-LHV_FUEL_KWH_PER_KG = FUEL_LHV_MJ / 3.6
-LHV_H2_KWH_PER_KG = H2_LHV_J_PER_KG / 3.6e6
+J_TO_WH = 1.0 / 3600.0
 
 # What held a driveline back in a solver step, in the order they are
 # checked: the first that applies names the step.
 LIMIT_STATES = ["braking", "grip", "set_limit", "supply", "machine", "coasting", "demand"]
-# The books sample every fourth solver step (40 ms at the usual 10 ms),
-# which keeps them near 5 % of a run's time (the CI's budget is 10 %); their totals still cover the
-# whole run, and the energy remainder shows what sampling misses.
+# The duty and the limit band sample every fourth solver step (40 ms at the
+# usual 10 ms), which keeps them near 2 % of a run's time (the CI's budget is
+# 10 %); their totals still cover the whole run. (The energy book is kept
+# every solver step by the parts themselves, MOD-10.)
 SAMPLE_EVERY = 4
 MAX_CHANGES = 4000  # per lane; a busier lane is drawn from bins (the times stay exact)
 
@@ -64,19 +62,6 @@ class PartEnergy:
     out_wh: float = 0.0
     lost_wh: float = 0.0
     stored_wh: float = 0.0
-
-
-@dataclass
-class VehicleEnergy:
-    """The Vehicle's side of the books, Wh (signed: a negative grade term is
-    height lost, a negative kinetic term speed lost over the run)."""
-    aero_wh: float = 0.0
-    rolling_wh: float = 0.0
-    road_wh: float = 0.0  # air drag and rolling together (lap mode books them so)
-    grade_wh: float = 0.0
-    kinetic_wh: float = 0.0
-    traction_in_wh: float = 0.0  # from the tyres, driving
-    traction_out_wh: float = 0.0  # to the tyres, braking or coasting
 
 
 def _acc(s: list, x: float, dt: float) -> None:
@@ -107,38 +92,20 @@ class _Lane:
 
 class RunRecorder:
     """Watches a run's solver steps; :meth:`step` after each, :meth:`finish`
-    at the end. The books are kept in plain lists of W·s, so a step costs
-    little next to the physics."""
+    at the end. The books are kept in plain lists, so a step costs little
+    next to the physics. The energy report is made at the end, from the
+    run's energy book (``energy`` False: none)."""
 
     def __init__(self, ctx, energy: bool = True):
         self.ctx = ctx
         self.energy_on = energy
         model = ctx.model
         self.lap = False
-        self.v_prev = ctx.v
         self.t = 0.0  # time booked
         self.pending = 0.0  # time solved since
-        self.v_step = ctx.v  # the car's speed at the start of the last solver step
         self.n_steps = 0
         self.label = {el_id: el.label for el_id, el in model.elements.items()}
         self.kind = {el_id: cdef.id for el_id, cdef in model.cdef_of.items()}
-        # energy, W·s: motors [electrical in, electrical out, shaft in, shaft
-        # out]; engines [shaft in, shaft out]; DC-DC [in, out]; consumers,
-        # brakes, propellers [in]; wheels, net [from the shaft, to the car]
-        self.e_motors = [(mc, [0.0] * 4) for mc in ctx.motors.values()]
-        self.e_engines = [(ec, [0.0] * 2) for ec in ctx.engines.values()]
-        self.e_dcdc: dict[str, list[float]] = {}
-        self.e_consumers: dict[str, list[float]] = {}
-        self.e_brakes = []  # (driveline state, segment index, BrakeRef, its torque key, [in])
-        self.e_props = []  # (driveline state, segment index, PropRef, [in])
-        for st in ctx.dls:
-            for s_idx, seg in enumerate(st.dl.segments):
-                self.e_brakes += [(st, s_idx, br, (br.el_id, "sig_torque"), [0.0]) for br in seg.brakes]
-                self.e_props += [(st, s_idx, pr, [0.0]) for pr in seg.props]
-        self.e_wheels: dict[str, list[float]] = {}
-        self.wheel_books: Optional[list] = None
-        self.vehicle = VehicleEnergy()  # (W·s while the run goes)
-        self.parts: dict[str, PartEnergy] = {}
         # duty: per part its quantities' statistics, and the time
         self.d_motors = [(mc, [_stat() for _ in range(5)],
                           getattr(ctx.motor_bus.get(mc.el_id), "id", None)) for mc in ctx.motors.values()]
@@ -188,103 +155,15 @@ class RunRecorder:
         self.pending += dt
         self.n_steps += 1
         if self.n_steps % SAMPLE_EVERY and not self.lap:
-            self.v_step = self.ctx.v  # (the next step's start speed)
             return
         self.book()
-        self.v_step = self.ctx.v
 
     def book(self) -> None:
         dt, self.pending = self.pending, 0.0
         self.t += dt
-        if self.energy_on:
-            self.book_energy(dt)
         self.book_duty(dt)
         if self.lanes:
             self.book_limits(dt)
-
-    def book_energy(self, dt: float) -> None:
-        ctx = self.ctx
-        for mc, a in self.e_motors:
-            pe, pm = mc.p_elec_w, mc.p_mech_w
-            if pe > 0:
-                a[0] += pe * dt
-            else:
-                a[1] -= pe * dt
-            if pm > 0:
-                a[3] += pm * dt
-            else:
-                a[2] -= pm * dt
-        for ec, a in self.e_engines:
-            pm = ec.p_mech_w
-            if pm > 0:
-                a[1] += pm * dt
-            else:
-                a[0] -= pm * dt  # dragged round, unfired
-        if ctx.dcdc_flows:
-            for d_id, (p_in, p_out) in ctx.dcdc_flows.items():
-                a = self.e_dcdc.get(d_id) or self.e_dcdc.setdefault(d_id, [0.0, 0.0])
-                a[0] += p_in * dt
-                a[1] += p_out * dt
-        if ctx.consumer_w:
-            for c_id, p_w in ctx.consumer_w.items():
-                a = self.e_consumers.get(c_id) or self.e_consumers.setdefault(c_id, [0.0])
-                a[0] += p_w * dt
-        if self.lap:
-            return  # the lap solver books the driveline and the Vehicle (finish)
-        bus = ctx.rt.signal_values
-        for st, s_idx, br, key, a in self.e_brakes:  # at the speed the step ended on
-            torque = bus.get(key)
-            if torque:
-                a[0] += abs(torque * br.m * ctx.seg_speed(st, s_idx)) * dt
-        for st, s_idx, pr, a in self.e_props:
-            omega_p = pr.m * ctx.seg_speed(st, s_idx)
-            a[0] += abs(pr.t_ref * (abs(omega_p) * RPM / pr.n_ref) ** 2 * omega_p) * dt
-        if not ctx.veh_id:
-            return
-        v0 = self.v_prev
-        v1 = self.v_prev = ctx.v
-        v_avg = 0.5 * (v0 + v1)
-        # each tyre's force as the Vehicle took it: at the speeds the step
-        # ended on and the car's speed at its start (the driveline's slip is
-        # implicit, so its force at the step's start is not what acted)
-        if self.wheel_books is None:  # (the wheels are known once the run has started)
-            self.wheel_books = [(st, s_idx, w, self.e_wheels.setdefault(w.el_id, [0.0, 0.0]))
-                                for st in ctx.dls for s_idx, seg in enumerate(st.dl.segments)
-                                for w in seg.wheels]
-        f_roll = 0.0
-        ctx.v = self.v_step
-        try:
-            for st, s_idx, w, a in self.wheel_books:
-                f_roll += w.c_rr * w.n_load
-                if st.plan.over_constrained or not st.plan.n:
-                    continue
-                omega = st.omega_end[s_idx]
-                f = ctx.wheel_force(w, omega, damping=False)[0]
-                if f:  # net energy from its shaft, and on to the car
-                    a[0] += f * w.radius * w.m * omega * dt
-                    a[1] += f * v_avg * dt
-        finally:
-            ctx.v = v1
-        if v0 == 0.0 and v1 == 0.0:
-            return
-        # the Vehicle's own equation (MechanicalSlave): road load at the
-        # step's start speed, the forces over the mean speed, so their work
-        # adds up to the change in kinetic energy exactly
-        f_aero, f_roll = ctx.road_load(v0, f_roll, ctx.slope_cos)
-        if v0 < 0.3:
-            f_roll *= max(0.0, v0 / 0.3)
-        f_grade = ctx.veh_mass * GRAVITY * ctx.slope_sin
-        ve = self.vehicle
-        ve.aero_wh += f_aero * v_avg * dt
-        ve.rolling_wh += f_roll * v_avg * dt
-        ve.grade_wh += f_grade * v_avg * dt
-        d_ke = 0.5 * ctx.veh_mass * (v1 * v1 - v0 * v0)
-        ve.kinetic_wh += d_ke
-        p_car = d_ke + (f_aero + f_roll + f_grade) * v_avg * dt  # what the tyres gave the car
-        if p_car > 0:
-            ve.traction_in_wh += p_car
-        else:
-            ve.traction_out_wh -= p_car
 
     def book_duty(self, dt: float) -> None:
         ctx = self.ctx
@@ -383,150 +262,19 @@ class RunRecorder:
     # ---- at the end -------------------------------------------------------------------
 
     def finish(self, lap=None) -> tuple[Optional[EnergyReport], list[DutyPart], Optional[LimitReport]]:
+        """The three reports. Run once the energy book is closed (and a lap
+        case's mechanics added to it), so the energy report has the whole
+        run."""
         if self.pending > 0:
             self.book()
-        return (self.energy(lap) if self.energy_on else None, self.duty_parts(), self.limit_report())
-
-    def part(self, el_id: str) -> PartEnergy:
-        p = self.parts.get(el_id)
-        if p is None:
-            p = self.parts[el_id] = PartEnergy(label=self.label.get(el_id, el_id),
-                                               kind=self.kind.get(el_id, ""), element_id=el_id)
-        return p
-
-    def collect(self) -> None:
-        """The step books as parts, Wh."""
-        for mc, (e_in, e_out, m_in, m_out) in self.e_motors:
-            p = self.part(mc.el_id)
-            p.in_wh, p.out_wh = (e_in + m_in) * WH, (e_out + m_out) * WH
-            p.lost_wh = p.in_wh - p.out_wh  # electrical less shaft power, as the motor books it
-        for ec, (m_in, m_out) in self.e_engines:
-            p = self.part(ec.el_id)
-            p.in_wh, p.out_wh = m_in * WH, m_out * WH  # (its fuel is added in energy())
-        for d_id, (e_in, e_out) in self.e_dcdc.items():
-            p = self.part(d_id)
-            p.in_wh, p.out_wh, p.lost_wh = e_in * WH, e_out * WH, (e_in - e_out) * WH
-        for el_id, (e_in,) in self.e_consumers.items():
-            p = self.part(el_id)
-            p.in_wh = p.lost_wh = e_in * WH
-        for *_, br, _, (e_in,) in self.e_brakes:
-            p = self.part(br.el_id)
-            p.in_wh = p.lost_wh = e_in * WH
-        for *_, pr, (e_in,) in self.e_props:
-            p = self.part(pr.el_id)
-            p.in_wh = p.lost_wh = e_in * WH
-        for el_id, (e_in, e_out) in self.e_wheels.items():  # (net: driving less braking)
-            p = self.part(el_id)
-            p.in_wh, p.out_wh, p.lost_wh = e_in * WH, e_out * WH, (e_in - e_out) * WH
-        ve = self.vehicle
-        for k in ("aero_wh", "rolling_wh", "grade_wh", "kinetic_wh", "traction_in_wh", "traction_out_wh"):
-            setattr(ve, k, getattr(ve, k) * WH)
-        self.mech_sources_wh = sum(a[3] - a[2] for _, a in self.e_motors) * WH + sum(
-            a[1] - a[0] for _, a in self.e_engines) * WH
-        self.wheel_shaft_wh = sum(a[0] for a in self.e_wheels.values()) * WH
-        self.brakes_wh = sum(a[0] for *_, a in self.e_brakes) * WH
-        self.props_wh = sum(a[0] for *_, a in self.e_props) * WH
-
-    def energy(self, lap=None) -> EnergyReport:
         ctx = self.ctx
-        model = ctx.model
-        self.collect()
-        parts: list[PartEnergy] = []
-        sources: list[tuple[str, float, Optional[str]]] = []  # (label, Wh, element)
-        for b in ctx.batteries.values():
-            p = PartEnergy(label=self.label[b.el_id], kind="battery.generic", element_id=b.el_id,
-                           in_wh=b.energy_in_wh, out_wh=b.energy_out_wh, lost_wh=b.loss_wh)
-            p.stored_wh = p.in_wh - p.out_wh - p.lost_wh
-            parts.insert(0, p)
-        lhv = LHV_FUEL_KWH_PER_KG
-        if model.fuel_tank:
-            try:
-                lhv = float(ctx.params(model.fuel_tank).get("lhv_MJ_per_kg", FUEL_LHV_MJ)) / 3.6
-            except (TypeError, ValueError):
-                pass
-        fuel_wh: dict[str, float] = {}  # per engine
-        for ec in ctx.engines.values():
-            p = self.part(ec.el_id)
-            fuel_wh[ec.el_id] = ec.fuel_used_kg * lhv * 1000.0
-            p.in_wh += fuel_wh[ec.el_id]
-            p.lost_wh = p.in_wh - p.out_wh  # (with what dragging it round took)
-        for fc in ctx.fuelcells.values():
-            p = self.part(fc.el_id)
-            h2_kg = fc.energy_wh / 1000.0 * fc.h2_g_per_kwh / 1000.0
-            p.in_wh = max(fc.energy_wh, h2_kg * LHV_H2_KWH_PER_KG * 1000.0)
-            p.out_wh = fc.energy_wh
-            p.lost_wh = p.in_wh - p.out_wh
-        for vs_id, e_wh in ctx.vsource_energy_wh.items():
-            p = self.part(vs_id)
-            p.out_wh, p.in_wh = max(0.0, e_wh), max(0.0, -e_wh)
-            p.stored_wh = -e_wh
-        parts += [p for p in self.parts.values() if p not in parts]
-
-        ve = self.vehicle
-        rest = PartEnergy(label="Gears, clutches and spinning parts", kind="driveline")
-        if lap is not None:  # the lap solver's own books, J
-            bk = lap.book
-            ve.road_wh, ve.grade_wh, ve.kinetic_wh = bk.road * WH, bk.grade * WH, bk.kinetic * WH
-            self.brakes_wh = bk.friction * WH
-            rest.in_wh = rest.lost_wh = bk.gears * WH
-            brakes = [b for st in ctx.dls for seg in st.dl.segments for b in seg.brakes]
-            cap = sum(b.max_torque * b.m for b in brakes) or 1.0
-            for b in brakes:  # shared as their torques are
-                p = self.part(b.el_id)
-                p.in_wh = p.lost_wh = self.brakes_wh * b.max_torque * b.m / cap
-                if p not in parts:
-                    parts.append(p)
-        else:
-            # what the shafts gave and the wheels, brakes and propellers did
-            # not take: the gears' losses, clutch slip and the spinning parts'
-            # change in speed, not yet measured part by part (MOD-10)
-            gap = self.mech_sources_wh - self.wheel_shaft_wh - self.brakes_wh - self.props_wh
-            rest.in_wh = rest.lost_wh = gap
-        if ctx.veh_id:
-            veh = PartEnergy(label=self.label[ctx.veh_id], kind="vehicle.body", element_id=ctx.veh_id,
-                             in_wh=ve.traction_in_wh, out_wh=ve.traction_out_wh,
-                             lost_wh=ve.aero_wh + ve.rolling_wh + ve.road_wh,
-                             stored_wh=ve.kinetic_wh + ve.grade_wh)
-            if lap is not None:
-                veh.in_wh = max(0.0, veh.lost_wh + veh.stored_wh)
-                veh.out_wh = max(0.0, -(veh.lost_wh + veh.stored_wh))
-            parts.append(veh)
-        if abs(rest.lost_wh) > 0 or ctx.dls:
-            parts.append(rest)
-
-        # sources and sinks of the whole car
-        sinks: list[tuple[str, float, str, Optional[str]]] = []  # (label, Wh, group, element)
-        for p in parts:
-            k = p.kind
-            if k == "battery.generic":
-                sources.append((p.label, p.out_wh + p.lost_wh, p.element_id))
-                sinks.append((f"{p.label} — internal losses", p.lost_wh, "losses", p.element_id))
-                sinks.append((f"{p.label} — charged back", p.in_wh, "recovered", p.element_id))
-            elif k == "engine.combustion":
-                sources.append((f"Fuel ({p.label})", fuel_wh.get(p.element_id or "", 0.0), p.element_id))
-                sinks.append((f"{p.label} — losses", p.lost_wh, "losses", p.element_id))
-            elif k == "fuelcell.stack":
-                sources.append((f"Hydrogen ({p.label})", p.in_wh, p.element_id))
-                sinks.append((f"{p.label} — losses", p.lost_wh, "losses", p.element_id))
-            elif k == "electric.voltage_source":
-                sources.append((p.label, p.out_wh - p.in_wh, p.element_id))
-            elif k == "electric.constant_drive":
-                sinks.append((p.label, p.lost_wh, "loads", p.element_id))
-            elif k == "vehicle.body":
-                if ve.road_wh:
-                    sinks.append(("Air drag and rolling resistance", ve.road_wh, "road", p.element_id))
-                else:
-                    sinks.append(("Air drag", ve.aero_wh, "road", p.element_id))
-                    sinks.append(("Rolling resistance", ve.rolling_wh, "road", p.element_id))
-                sinks.append(("Climbing (height gained)", ve.grade_wh, "stored", p.element_id))
-                sinks.append(("Speed at the end (kinetic energy)", ve.kinetic_wh, "stored", p.element_id))
-            elif k == "mech.brake":
-                sinks.append((p.label, p.lost_wh, "brakes", p.element_id))
-            else:
-                group = "losses"
-                sinks.append((p.label if k != "motor.emotor" else f"{p.label} — losses",
-                               p.lost_wh, group, p.element_id))
-        return energy_report(parts, sources, sinks, ctx.residual_wh, ctx.throughput_wh)
+        energy = None
+        if self.energy_on:
+            energy = book_report(ctx.book.flows.values(),
+                                 fuel_tank=bool(ctx.model.fuel_tank),
+                                 h2_tank=bool(ctx.model.h2_tank),
+                                 residual_wh=ctx.residual_wh, throughput_wh=ctx.throughput_wh)
+        return energy, self.duty_parts(), self.limit_report()
 
     def duty_parts(self) -> list[DutyPart]:
         t = self.t
@@ -599,6 +347,84 @@ def _binned(changes: list[tuple[float, int]], t_end: float, n: int) -> list[tupl
     return out
 
 
+# what a part's loss is called in the Sankey chart, and its group
+_LOSS_NAME = {
+    "motor.emotor": "{} — losses", "engine.combustion": "{} — losses",
+    "fuelcell.stack": "{} — losses", "controller.dcdc": "{} — losses",
+    "mech.clutch": "{} — slip", "propulsion.wheel": "{} — tyre slip",
+}
+_LOAD_PARTS = ("electric.constant_drive", "electric.climate")
+_SOURCE_TANKS = {"fuel.tank": "Fuel", "fuel.h2_tank": "Hydrogen"}
+# the Vehicle's terms (energy.ROAD_TERMS, and a lap case's, energy.add_lap):
+# (its name in the chart, its group)
+_VEHICLE_TERMS = {
+    "air drag": ("Air drag", "road"),
+    "rolling resistance": ("Rolling resistance", "road"),
+    "road load": ("Air drag and rolling resistance", "road"),
+    "friction brakes": ("Friction brakes", "brakes"),
+    "gears": ("Gears and spinning parts", "losses"),
+    "climbing": ("Climbing (height gained)", "stored"),
+    "acceleration": ("Speed at the end (kinetic energy)", "stored"),
+}
+
+
+def _rank(f) -> int:
+    return ORDER.index(f.part) if f.part in ORDER else len(ORDER)
+
+
+def book_report(flows, fuel_tank: bool = True, h2_tank: bool = True,
+                residual_wh: float = 0.0, throughput_wh: float = 0.0) -> EnergyReport:
+    """The energy report of a run's energy book (energy.Flow, J): one table
+    row per part as it booked itself, and the Sankey chart's sources and
+    sinks.
+
+    The sources are the batteries (what their cells gave: what came out at
+    the terminals and what they lost; what was charged back is a sink of its
+    own), the fuel and hydrogen tanks (an engine's fuel or a fuel cell's
+    hydrogen when the model has no tank) and the voltage sources. The sinks
+    are every part's loss (a consumer's use, a brake's heat, a tyre's slip,
+    a gear's or a motor's loss), the Vehicle's air drag, rolling resistance,
+    height and speed, and the spinning parts' speed. With every part's
+    books closed, the sources less the sinks is where the parts' books
+    together do not close: the flows the solver's step lost or made where
+    one part meets the next, the summary's Energy balance residual."""
+    flows = sorted(flows, key=_rank)
+    parts: list[PartEnergy] = []
+    sources: list[tuple[str, float, Optional[str]]] = []  # (label, Wh, element)
+    sinks: list[tuple[str, float, str, Optional[str]]] = []  # (label, Wh, group, element)
+    for f in flows:
+        k, el = f.part, f.el_id
+        p = PartEnergy(label=f.label, kind=k, element_id=el, in_wh=f.in_j * J_TO_WH,
+                       out_wh=f.out_j * J_TO_WH, lost_wh=f.loss_j * J_TO_WH,
+                       stored_wh=f.stored_j * J_TO_WH)
+        parts.append(p)
+        if k == "battery.generic":
+            sources.append((p.label, p.out_wh + p.lost_wh, el))
+            sinks.append((f"{p.label} — internal losses", p.lost_wh, "losses", el))
+            sinks.append((f"{p.label} — charged back", p.in_wh, "recovered", el))
+        elif k in _SOURCE_TANKS:
+            sources.append((f"{_SOURCE_TANKS[k]} ({p.label})", p.out_wh - p.in_wh, el))
+        elif k == "electric.voltage_source":
+            sources.append((p.label, p.out_wh - p.in_wh, el))
+        elif k == "vehicle.body" and f.terms:
+            for term, joules in f.terms.items():
+                name, group = _VEHICLE_TERMS.get(term, (f"{p.label} — {term}", "losses"))
+                sinks.append((name, joules * J_TO_WH, group, el))
+        elif k == "driveline.inertia":  # its spinning parts' speed, no one part's
+            sinks.append((f"{p.label}: speed at the end", p.stored_wh, "stored", el))
+        else:
+            if k == "engine.combustion" and not fuel_tank:
+                sources.append((f"Fuel ({p.label})", f.fuel_j * J_TO_WH, el))
+            elif k == "fuelcell.stack" and not h2_tank:
+                sources.append((f"Hydrogen ({p.label})", p.in_wh, el))
+            group = ("loads" if k in _LOAD_PARTS else "brakes" if k == "mech.brake"
+                     else "losses")
+            sinks.append((_LOSS_NAME.get(k, "{}").format(p.label), p.lost_wh, group, el))
+            if p.stored_wh:
+                sinks.append((f"{p.label} — stored", p.stored_wh, "stored", el))
+    return energy_report(parts, sources, sinks, residual_wh, throughput_wh)
+
+
 def energy_report(parts: list[PartEnergy],
                   sources: list[tuple[str, float, Optional[str]]],
                   sinks: list[tuple[str, float, str, Optional[str]]],
@@ -642,6 +468,8 @@ def energy_report(parts: list[PartEnergy],
 
 
 def _given(label: str) -> str:
+    if label.endswith(": speed at the end"):
+        return label.replace(": speed at the end", ": speed at the start")
     return {"Climbing (height gained)": "Downhill (height lost)",
             "Speed at the end (kinetic energy)": "Speed at the start (kinetic energy)"}.get(
                 label, f"{label} (gave energy)")

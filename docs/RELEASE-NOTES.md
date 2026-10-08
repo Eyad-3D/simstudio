@@ -409,13 +409,15 @@ sections.
   *Hot and sunny day (35 °C)* (EPA's air-conditioning test SC03) and *High
   altitude (1,500 m)* (the standard atmosphere: 84.56 kPa, 5.25 °C, air
   about 14 % thinner than at sea level), each
-  with its source. The Battery Electric Car has an Ambient (at its
-  defaults, the air it had before) and two new cases, *WLTC, winter day
-  (−7 °C, heating on)* at 19.5 kWh/100 km and *WLTC, hot day (35 °C,
-  air-con on)* at 18.6, against 18.9 at 20 °C with the same 2.5 kW load.
-  Only the air density follows the weather until the climate-control load
-  (MOD-41) arrives; the presets' notes say so. No existing case changes.
-  (CON-30)
+  with its source. The air density follows the weather, and so does a
+  Climate Control's heating or air-conditioning (MOD-41, below). The
+  Battery Electric Car has an Ambient (at its defaults, the air it had
+  before), a Climate Control (off at 20 °C) and two new cases: *WLTC,
+  winter day (−7 °C, heating on)* at 23.76 kWh/100 km, its PTC heater
+  drawing 4.25 kW, and *WLTC, hot day (35 °C, air-con on)* at 16.77, its
+  air-conditioning drawing 1.39 kW, against 14.05 at 20 °C; their expected
+  values are hand calculations that show the arithmetic. No existing case
+  changes. (CON-30)
 - **Simulations → Vehicle tests**: one-click 0-100 and 80-120 km/h, top
   speed (the speed held over the last 10 s of 120 s at full throttle) with
   what limits it, or *not settled* and the highest speed reached when the
@@ -454,15 +456,6 @@ sections.
   170.1 in EPA's own tests of the car; the tests hold it within 5 %. The
   FASTSim vehicle file's mass and motor power, which it cites from
   evspecifications.com, were not used. (CON-07)
-- Help: press F1, or click **?** at the top right, to open LightSim's help
-  in your web browser. It comes with the app and needs no internet
-  connection: two tutorials, how-to guides, a page for every part with its
-  ports and parameters, the drive cycles, the keyboard shortcuts, the Script
-  API and the documents that come with each release (known issues, release
-  notes, what is validated, data sources), with a search box. With a part
-  selected on the diagram, F1 opens that part's page. In the desktop app,
-  *Help → Documentation* opens the front page, and *Help → Known Limits*
-  now opens the known issues there. (LRN-04)
 - Help: press F1, or open the **?** menu at the top right, to read
   LightSim's help in a panel beside your work. It comes with the app and
   needs no internet connection: tutorials, how-to guides, a page for every
@@ -475,8 +468,11 @@ sections.
   goes back, home and to your web browser (for tabs and bookmarks), and
   can be made wider; links out of the help open in the browser. The **?**
   menu, and the desktop app's *Help* menu, list the main pages, *Report a
-  problem…* and the first-steps tour. After an update, the release notes
-  open once by themselves. (LRN-04, LRN-09)
+  problem…* and the first-steps tour; in the desktop app *Help →
+  Documentation* opens the front page and *Help → Known Limits* the known
+  issues, in the panel (in the system browser if the window cannot show
+  them). After an update, the release notes open once by themselves.
+  (LRN-04, LRN-09)
 - New help pages: *Your first electric car*, a 15-minute tutorial that
   runs the example on the WLTC and builds a small car of your own, with a
   check after each step; three Formula Student lessons (the 75 m time,
@@ -631,18 +627,18 @@ sections.
   are *Drawn Power*, *Heat to Cabin* and *COP*, and the summary gives the
   energy it used and the heating or cooling it delivered. The default
   demand is an estimate for a compact car kept at 21 °C, steady state with
-  no warm-up. Added to the Battery Electric Car with an Ambient, it takes
-  the WLTC from 14.00 kWh/100 km at 23 °C to 23.76 at −7 °C with the PTC
-  heater (1.70 times, close to the 41 % range loss AAA measured at −6.7 °C
-  with the heating on, a figure we have not checked at its source), 19.72
-  with the heat pump and 16.77 at 35 °C. Data Checks say when a model has
-  no Ambient, where it sits at 20 °C and does nothing. Existing models do
-  not change. (MOD-41)
+  no warm-up. The Battery Electric Car has one, with a PTC heater, for its
+  winter and hot-day cases (CON-30): it takes the WLTC from 14.00
+  kWh/100 km at 23 °C to 23.76 at −7 °C (1.70 times, close to the 41 %
+  range loss AAA measured at −6.7 °C with the heating on, a figure we have
+  not checked at its source), 19.72 with a heat pump instead, and 16.77 at
+  35 °C. Data Checks say when a model has no Ambient, where it sits at
+  20 °C and does nothing. Other models do not change. (MOD-41)
 - Every run books where the energy goes, part by part: for each battery,
   voltage source, fuel tank, engine, fuel cell, E-Motor, DC-DC converter,
-  consumer, clutch, gear, differential, brake, wheel and the Vehicle, the
-  energy that went in, came out and was lost and the change in what it
-  stores, so that in − out − lost − stored is 0 for each. It is in the run
+  consumer, clutch, gear, differential, brake, propeller, wheel and the
+  Vehicle, the energy that went in, came out and was lost and the change
+  in what it stores, so that in − out − lost − stored is 0 for each. It is in the run
   result as *partEnergy* (kWh), with each part's peak, mean and RMS power (kW;
   RMS power is what sizes an inverter's or motor's cooling) and the
   Vehicle's air drag, rolling resistance, climbing and acceleration. New
@@ -802,16 +798,18 @@ sections.
   with what the books cannot place as its own band, *Not accounted for*,
   beside the run's electrical energy balance error; and a table of each
   part's energy in, out, lost and stored change, in kWh and as a share of
-  the sources. **CSV** and **SVG** save them. On the Battery Electric
-  Car's City Cycle the battery gives 0.887 kWh, air drag takes 27.3 % and
-  rolling resistance 47.5 %, and 0.07 % is not accounted for. A case's
-  **Energy report** (Cases tab, on by default) turns it off. The
-  diagram's lightning button labels each part with its energy and opens a
-  bar chart of the losses with a **Hide below** slider; a click on a bar
-  selects the part. The energy is added up while the run goes, from the
-  power each part already reports; the gears, clutches and spinning parts
-  are one row worked out from what is left (MOD-10 will measure them part
-  by part). (RES-22)
+  the sources. **CSV** and **SVG** save them. The table is every part's
+  own energy books (MOD-10, above): each gear, differential, clutch, brake
+  and wheel has a row of its own, a driveline's spinning parts one
+  *Rotating parts* row, and *Not accounted for* is only where the parts'
+  books together do not close, the run's *Energy balance residual*. On the
+  Battery Electric Car's City Cycle the battery gives 0.887 kWh, air drag
+  takes 27.3 %, rolling resistance 47.5 %, the E-Motor 9.7 % and the Final
+  Drive 1.9 %, and −0.01 % is not accounted for. A case's **Energy
+  report** (Cases tab, on by default) turns it off. The diagram's
+  lightning button labels each part with its energy and opens a bar chart
+  of the losses with a **Hide below** slider; a click on a bar selects the
+  part. (RES-22)
 - A band along the bottom of the Results chart says what held the car
   back at every moment: braking, tyre grip, a set power limit, the battery
   or supply, the motor or engine, coasting, or nothing (the driver's

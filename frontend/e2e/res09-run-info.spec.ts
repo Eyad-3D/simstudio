@@ -39,5 +39,5 @@ test("RES-09: Run info shows what made a run and opens its model as an unsaved c
   await info.getByRole("button", { name: "Open as model" }).click();
   await page.getByRole("button", { name: "Don't save", exact: true }).click(); // the imported copy
   await expect(page.getByText(new RegExp(`^${name} \\(run of .+\\) •$`))).toBeVisible();
-  await expect(page.locator(".react-flow__node")).toHaveCount(23);
+  await expect(page.locator(".react-flow__node")).toHaveCount(24);
 });

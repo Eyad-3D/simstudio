@@ -945,3 +945,42 @@ CON-15) were written with the same note; aero-bev's are new.
 | hybrid-car Mixed Cycle (fine step) | Battery energy change, share of fuel energy | — | -0.004314 % | new row |
 | hybrid-car Mixed Cycle (fine step) | Charge balance runs | — | 1 - | new row |
 | hybrid-car Mixed Cycle (fine step) | channels that moved | | 38 | 1 outside their tube |
+
+## The Battery Electric Car's winter and hot-day cases heat and cool with a Climate Control (MOD-41 merge)
+
+The Battery Electric Car gets a Climate Control part (MOD-41) on its HV
+Bus: a PTC heater with the library's demand table, cabin set point,
+compressor quality and blower power, each recorded in the example as a
+library-default estimate (the table is DR-104, a copy of DR-47). Its WLTC
+winter (−7 °C) and hot-day (35 °C) cases no longer set the Power Consumer
+to a fixed 2.5 kW: the consumer keeps its 0.25 kW and the Climate Control
+heats or cools from the Ambient's temperature. Their expected values are
+new hand calculations from the WLTC case's 14.05 kWh/100 km (the cases'
+*source* texts give the arithmetic):
+
+- Winter: + 9.13 kWh/100 km of heating (4.05 kW of heat from the demand
+  table at −7 °C, a PTC heater's 1 kW per kW, plus the 0.2 kW blower:
+  4.25 kW for 1,800 s over 23.27 km) + 0.54 for the 10.1 % denser air
+  (on 5.37 kWh/100 km of air drag, ½·ρ·Cd·A·Σv³·Δt over the WLTC trace)
+  = 23.73. The run gives 23.7631 (was 19.4651 with the fixed load).
+- Hot day: + 2.99 kWh/100 km of air-conditioning (2.65 kW of cooling at a
+  COP of 0.35 × 279.15 / 44 = 2.22, plus the blower: 1.39 kW) − 0.26 for
+  the 4.9 % thinner air = 16.78. The run gives 16.7710 (was 18.6118).
+
+At the Ambient's usual 20 °C the Climate Control asks for nothing, so no
+other case moves: the City Cycle fixtures only gain its three channels
+(*Drawn Power*, *Heat to Cabin*, *COP*, all 0), its *energy used* row
+(0 kWh) and three more result channels in the solve message (67 → 70).
+The hybrid's fixtures and the other examples' stored results are
+unchanged except for this note and their commit. The *WLTC,
+heating/air-con on* case keeps its fixed 2.5 kW load (at 20 °C a
+demand-driven climate control would draw nothing).
+
+The Energy view is now drawn from every part's own books (RES-22, MOD-10
+merge), and propeller-type loads book themselves; neither is in these
+fixtures, and no example has a propeller.
+
+| Fixture | Number | Old | New | Change |
+|---|---|---|---|---|
+| bev-car City Cycle (shipped step) | Climate Control — energy used | — | 0 kWh | new row |
+| bev-car City Cycle (fine step) | Climate Control — energy used | — | 0 kWh | new row |

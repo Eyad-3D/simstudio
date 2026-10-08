@@ -1,17 +1,28 @@
-"""The run reports (RES-22 energy, RES-38 limits, RES-39 duty): each part's
-books close, the car's sources and sinks add up, the duty matches a
-calculation on the stored points, and the limit lane covers the run."""
+"""The run reports (RES-22 energy, RES-38 limits, RES-39 duty): the energy
+table is every part's own books (MOD-10), the car's sources and sinks add
+up to within the books' closing residual, the duty matches a calculation on
+the stored points, and the limit lane covers the run."""
 import math
 
 import pytest
-from helpers import bev_axle, series
+from helpers import bev_axle, conn, dbc, el, example_result, project, series
 
 from app.solver import simulate
+from app.solver.energy import SOURCE_PARTS, Flow
+from app.solver.reports import book_report
 from app.storage import load_example
 
 
 def _close(part) -> float:
     return part.inKWh - part.outKWh - part.lostKWh - part.storedKWh
+
+
+def _residual_kwh(r) -> float:
+    """The summary's Energy balance residual in kWh: Σ (in − out) over the
+    parts, + when they took in more than they were given."""
+    released = sum(-f.stored for f in r.partEnergy if f.part in SOURCE_PARTS and f.stored < 0)
+    pct = next(s.value for s in r.summary if s.label == "Energy balance residual")
+    return pct / 100.0 * released
 
 
 def _bev(duration=60.0, step=0.01):
@@ -41,6 +52,76 @@ def test_every_part_keeps_its_books_and_the_car_adds_up():
     assert bat.outKWh == pytest.approx(delivered.value, abs=1e-3)
     assert e.balanceErrorPct == next(
         s.value for s in r.summary if s.label == "Electrical energy balance error")
+    # the table is each part's own books: a row per gear and wheel, none
+    # worked out from what is left
+    books = {f.label: f for f in r.partEnergy}
+    for p in e.parts:
+        f = books[p.label]
+        assert (p.inKWh, p.outKWh, p.lostKWh, p.storedKWh) == pytest.approx(
+            (f.energyIn, f.energyOut, f.losses, f.stored), abs=2e-6), p.label
+    assert {"Final Drive", "Differential", "Wheel L", "Wheel R"} <= {p.label for p in e.parts}
+    assert not any(p.kind == "driveline" for p in e.parts)
+    groups = {f.label: f.group for f in e.sinks}
+    assert groups["Final Drive"] == "losses" and groups["Wheel L — tyre slip"] == "losses"
+    # what is not accounted for is only where the books together do not
+    # close: the summary's Energy balance residual, counted the other way
+    assert e.remainderKWh == pytest.approx(-_residual_kwh(r), abs=2e-6)
+    assert abs(e.remainderPct) < 0.5  # (0.19 %: a hard launch at a 10 ms step)
+
+
+def _book(leak_kwh: float) -> list:
+    kwh = 3.6e6
+    bat = Flow("b", "Battery", "battery.generic")
+    bat.out_j, bat.stored_j = 1.0 * kwh, -1.0 * kwh
+    mot = Flow("m", "E-Motor", "motor.emotor")
+    mot.in_j, mot.out_j = (1.0 - leak_kwh) * kwh, 0.9 * kwh
+    fd = Flow("fd", "Final Drive", "mech.final_drive")
+    fd.in_j, fd.out_j = 0.9 * kwh, 0.88 * kwh
+    veh = Flow("v", "Vehicle", "vehicle.body")
+    veh.in_j = 0.88 * kwh
+    veh.terms = {"air drag": 0.5 * kwh, "rolling resistance": 0.38 * kwh, "climbing": 0.0,
+                 "acceleration": 0.0}
+    return [veh, fd, mot, bat]
+
+
+def test_what_the_books_do_not_close_is_not_accounted_for():
+    e = book_report(_book(0.0))
+    assert [p.label for p in e.parts] == ["Battery", "E-Motor", "Final Drive", "Vehicle"]
+    assert e.sourceKWh == pytest.approx(1.0)
+    assert {f.label: f.kWh for f in e.sinks} == pytest.approx(
+        {"E-Motor — losses": 0.1, "Final Drive": 0.02, "Air drag": 0.5, "Rolling resistance": 0.38})
+    assert e.remainderKWh == pytest.approx(0.0, abs=1e-9)
+    # 10 Wh that left the battery but never reached the motor
+    e = book_report(_book(0.01))
+    assert e.remainderKWh == pytest.approx(0.01, abs=1e-9)
+    assert e.remainderPct == pytest.approx(1.0)
+
+
+def test_a_lap_case_names_its_brakes_and_gears():
+    # the lap's own energy pass books them, as the Vehicle's terms
+    e = example_result("fs-electric", "case-autocross").energy
+    groups = {f.label: f.group for f in e.sinks}
+    assert groups["Friction brakes"] == "brakes"
+    assert groups["Gears and spinning parts"] == "losses"
+    assert groups["Air drag and rolling resistance"] == "road"
+    assert abs(e.remainderPct) < 0.05
+
+
+def test_a_propeller_keeps_its_books():
+    els = [el("src", "electric.voltage_source", "Supply", voltage_V=350),
+           el("bus", "electric.node", "Bus"),
+           el("mot", "motor.emotor", "Motor"),
+           el("prop", "propulsion.propeller", "Propeller", torque_ref_Nm=50, ref_speed_rpm=3000),
+           el("dem", "signal.constant", "Demand", value=0.3)]
+    cons = [conn(1, "src", "pos", "bus", "t1"), conn(2, "bus", "t2", "mot", "pos"),
+            conn(3, "mot", "shaft", "prop", "shaft")]
+    r = simulate(project(els, cons, [dbc(1, "dem", "sig_out", "mot", "sig_demand_in")],
+                         duration=20.0, time_step=0.1), "case")
+    assert r.status in ("success", "warning"), [m.text for m in r.messages]
+    prop = next(f for f in r.partEnergy if f.label == "Propeller")
+    assert prop.energyIn > 0.01 and prop.losses == pytest.approx(prop.energyIn)
+    assert abs(_residual_kwh(r)) < 0.005 * prop.energyIn
+    assert abs(r.energy.remainderPct) < 0.5
 
 
 def test_the_energy_report_can_be_turned_off():
@@ -102,8 +183,8 @@ def test_formula_student_acceleration_shows_grip_then_the_power_limit():
     assert lane.seconds.get("set_limit", 0) > 1.0
     order = [r.limits.states[int(c)] for _, c in lane.changes]
     assert order.index("grip") < order.index("set_limit")
-    # a short, violent run still adds up within 1 %
-    assert abs(r.energy.remainderPct) < 1.0
+    # a short, violent run still adds up within 0.5 %
+    assert abs(r.energy.remainderPct) < 0.5
 
 
 @pytest.mark.parametrize("project_id,case_id", [("bev-car", "case-city"), ("hybrid-car", "case-mixed")])
@@ -113,7 +194,8 @@ def test_the_examples_energy_adds_up(project_id, case_id):
     case.duration = 200.0
     r = simulate(proj, case_id)
     e = r.energy
-    assert abs(e.remainderPct) < 1.0
+    assert abs(e.remainderPct) < 0.1
+    assert e.remainderKWh == pytest.approx(-_residual_kwh(r), abs=1e-5)
     for p in e.parts:
         assert abs(_close(p)) < 1e-5, p
     if project_id == "hybrid-car":

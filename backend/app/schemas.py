@@ -471,12 +471,12 @@ class PartEnergyFlow(BaseModel):
     # drag, rolling resistance, climbing and acceleration)
     terms: dict[str, float] = Field(default_factory=dict)
 class EnergyPart(BaseModel):
-    """One row of the energy table (RES-22), kWh: in − out − lost − stored
-    is 0 for a part that keeps its books."""
+    """One row of the energy table (RES-22), kWh: a part's own books
+    (MOD-10, as in SimResult.partEnergy), so in − out − lost − stored is 0."""
 
     elementId: Optional[str] = None  # None for a row that is not one part
     label: str
-    kind: str  # its component type, or "driveline"
+    kind: str  # its component type ("driveline.inertia": a driveline's spinning parts)
     inKWh: float
     outKWh: float
     lostKWh: float  # lost, or used by a consumer
@@ -501,7 +501,9 @@ class EnergyReport(BaseModel):
     sources: list[EnergyFlow] = Field(default_factory=list)
     sinks: list[EnergyFlow] = Field(default_factory=list)
     sourceKWh: float = 0.0  # the sources together
-    # what the books do not explain: the sources less the sinks
+    # what the books do not explain: the sources less the sinks, where the
+    # parts' books together do not close (the summary's Energy balance
+    # residual, counted the other way round)
     remainderKWh: float = 0.0
     remainderPct: float = 0.0  # of the sources' energy
     # the run's electrical energy balance error, %, as its summary row

@@ -576,31 +576,33 @@ minimum or an average, for example from the CSV export, or put the
 
 ### Energy, duty and limit reports
 
-- **The gears, clutches and spinning parts are one row, worked out from
-  what is left.** The *Energy* view measures each motor, engine, battery,
-  DC-DC converter, consumer, friction brake, propeller and tyre, and the
-  car's road load and speed, but no part of the driveline between them
-  reports its own losses yet. Their row is the motors' and engines' shaft
-  energy less what the wheels, brakes and propellers took, so it also holds
-  the clutches' slip and the change in the spinning parts' speed, and it
-  cannot show a mistake in the driveline. *Roadmap:* MOD-10.
-- **The books sample every fourth solver step.** The energy, the duty and
-  the limit band add up every fourth solver step (40 ms at the usual
-  10 ms), weighted by the time since the last, so a run is about 5 %
-  slower (measured: 5.5 % on the Battery Electric Car, 1.8 % on the P2
-  Hybrid Car). What sampling misses shows in *Not accounted for*: at most
-  0.14 % on the examples' cycles (the hybrid's EPA city cycle), 0.48 % on
-  the Formula Student car's 75 m acceleration, where the tyres spin hard;
-  a state shorter than 40 ms can be missed by the limit band. *Roadmap:* ENG-16.
-- **Fuel energy uses one heating value.** The Sankey's fuel energy is the
-  fuel burnt × 43 MJ/kg, a petrol value (background knowledge, not checked
-  against a source); hydrogen uses 33.3 kWh/kg. A diesel or other fuel's
-  engine losses are off by the difference in heating value. *Roadmap:*
-  RES-22.
-- **A wheel's In and Out are net.** The table gives each wheel the energy
-  its shaft gave it less what braking took, and the same for the car, so a
-  wheel that drove and braked shows the difference; its *Lost* (the tyre's
-  slip) is complete.
+- **A lap case books its gears and friction brakes as the Vehicle's.** In
+  a cycle case every part keeps its own energy books and the *Energy* view
+  shows them part by part, each gear, clutch, brake and wheel included; its
+  *Not accounted for* is only where the books together do not close, the
+  summary's *Energy balance residual* (−0.01 % of the sources on the
+  Battery Electric Car's City Cycle, −0.10 % on the Formula Student car's
+  75 m acceleration). A lap case's mechanics come from the lap's own energy pass,
+  which gives one figure for all the gears and one for all the friction
+  brakes: they are in the Vehicle's row and named in the chart, not shared
+  out part by part. A driveline's spinning parts (motor rotors, gears,
+  shafts, wheels) are one *Rotating parts* row. *Roadmap:* MOD-10.
+- **The duty and the limit band sample every fourth solver step.** They
+  add up every fourth solver step (40 ms at the usual 10 ms), weighted by
+  the time since the last, so their totals cover the whole run, but a
+  duty's highest and lowest value is that of the steps sampled and a state
+  shorter than 40 ms can be missed by the limit band. (The energy is booked
+  every step.) *Roadmap:* ENG-16.
+- **Fuel energy is a heating value you set.** The fuel's energy is the
+  fuel burnt × the Fuel Tank's *Fuel Heating Value* (42.9 MJ/kg, petrol, by
+  default; background knowledge, not checked against a source; a model
+  without a Fuel Tank uses that default), and hydrogen's is 119.96 MJ/kg
+  (33.3 kWh/kg). A diesel or other fuel's engine losses are off by the
+  difference until you enter its value. *Roadmap:* RES-22.
+- **A wheel's In and Out count both ways.** A wheel's *In* is what its axle
+  gave it while driving and what the car gave it while braking, its *Out*
+  the same the other way, so a wheel that drove and braked shows more than
+  either; its *Lost* (the tyre's slip) is what it lost in both.
 - **A motor's current is its DC current.** The *Duty* view's *DC current*
   is the motor's electrical power over its bus voltage; the current in the
   motor's windings (phase current), which sets the inverter's sizing, is
@@ -709,7 +711,10 @@ minimum or an average, for example from the CSV export, or put the
   values; about 14 kWh/100 km on WLTC at the battery and 16.3 at the
   charging socket with the default 86 % charger efficiency (a car of this
   class is rated about 15-16 kWh/100 km at the socket), 18.9 at the battery
-  with heating or air-conditioning on (the 2.5 kW case). The socket figure
+  with a fixed 2.5 kW heating or air-conditioning load, and 23.8 on a
+  winter day (−7 °C) and 16.8 on a hot day (35 °C) with its Climate
+  Control, whose demand is the library's estimate for a compact car, not
+  this car's measured heating and air-conditioning power. The socket figure
   rests on one charger efficiency for every charge; a real charger's
   efficiency changes with its power and the battery's temperature.
   Its motor loss map is generic, not the car's measured map. The real car is
@@ -990,13 +995,15 @@ minimum or an average, for example from the CSV export, or put the
   clicks). In a 1366 × 768 window the bottom panel shows two rows at a
   time; drag its top edge up to see more. *Roadmap:* UX-15 (follow-up),
   UX-11.
-- **Weather presets set only the air.** The Ambient's presets (cold,
-  standard, hot and sunny, high altitude) set its temperature and pressure,
-  so only the air density follows them: no heating or air-conditioning
-  load, no sun, no cold battery or engine, and engine power does not fall
-  with altitude. The electric car's winter and hot-day cases add a fixed
-  2.5 kW load instead. Hourly weather files cannot be loaded.
-  *Roadmap:* MOD-41, MOD-09, CON-30 (second step).
+- **Weather presets set the air and the cabin's heating, not the
+  machines.** The Ambient's presets (cold, standard, hot and sunny, high
+  altitude) set its temperature and pressure: the air density follows
+  them, and so does a Climate Control's heating or air-conditioning
+  (MOD-41), as in the electric car's winter and hot-day cases. There is no
+  sun (a Climate Control's default demand allows about 1 kW for it above
+  24 °C), a pack-values battery and the engine do not get colder, and
+  engine power does not fall with altitude. Hourly weather files cannot be
+  loaded. *Roadmap:* MOD-09, CON-30 (second step).
 - **Templates: slots are names only.** A template's slots say which part
   plays which role, but swapping a slot's part for another while keeping
   its wiring, a shared signal naming convention across templates (so one

@@ -5,7 +5,7 @@
  "variant": "fine",
  "case_step_s": 0.005,
  "store_every": 200,
- "change": "The 0.3 lanes combined: part energy books, full precision, charge balancing, sourced defaults, lab figures, keys and reports",
+ "change": "The Battery Electric Car's winter and hot-day cases heat and cool with a Climate Control (MOD-41 merge)",
  "status": "success",
  "messages": [
   "info: Case 'Mixed Cycle' solved: 120000 steps × 0.005 s (1 sub-steps each), 601 points recorded, stored every 200, 88 result channels.",

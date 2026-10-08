@@ -14,6 +14,11 @@ const COL_X = [210, 310, 510, 700];
 const LABEL_GAP = 13; // px between label baselines
 const kwh = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: v >= 10 ? 2 : 3, minimumFractionDigits: 0 });
 const pct = (v: number, total: number) => (total > 0 ? `${((100 * v) / total).toFixed(1)} %` : "");
+// a small energy (the residual) with two significant digits, not as "-0"
+const kwhSmall = (v: number) => (Math.abs(v) >= 0.001 || v === 0 ? kwh(v) : v.toLocaleString(undefined, { maximumSignificantDigits: 2 }));
+// what "not accounted for" is, in the header and the table's last row
+const REMAINDER_HINT =
+  "The sources' energy less every place it went. Every part's own books close, so this is only where the energy out of one part is not quite the energy into the next: the solver's step, which grows with hard wheel spin and with a coarse step. It is the summary's Energy balance residual, there as a share of the energy the sources gave up and with the sign the other way round (energy the step made is + there, − here). A large one means the model does not add up.";
 
 /** Label positions for one column, pushed apart so they never overlap. */
 function spread(nodes: SankeyNode[]): Map<string, number> {
@@ -86,11 +91,11 @@ export function EnergyView({ run }: { run: SimRun }) {
         <span>
           Sources <b className="font-mono text-[color:var(--ss-text)]">{kwh(total)} kWh</b>
         </span>
-        <span
-          className={remainderBig ? "text-[color:var(--ss-warn)]" : ""}
-          title="The sources' energy less every place it went: what the books cannot explain. Part of it is the solver's step (it grows with hard wheel spin and with a coarse step); a large one means the model does not add up."
-        >
-          Not accounted for <b className="font-mono">{kwh(e.remainderKWh)} kWh ({e.remainderPct.toFixed(2)} %)</b>
+        <span className={remainderBig ? "text-[color:var(--ss-warn)]" : ""} title={REMAINDER_HINT}>
+          Not accounted for (energy balance residual){" "}
+          <b className="font-mono">
+            {kwhSmall(e.remainderKWh)} kWh ({e.remainderPct.toFixed(2)} %)
+          </b>
         </span>
         {e.balanceErrorPct != null && (
           <span title="The summary's Electrical energy balance error: energy no electrical source supplied or took. Above 0.1 % the run's energy figures are marked not valid.">
@@ -213,9 +218,7 @@ export function EnergyView({ run }: { run: SimRun }) {
                       {p.label}
                     </button>
                   ) : (
-                    <span title="Worked out from the motors' and engines' shaft energy less what the wheels, brakes and propellers took: not yet measured part by part">
-                      {p.label} *
-                    </span>
+                    <span title="A driveline's spinning parts (motor rotors, gears, shafts and wheels) together: the energy in their speed">{p.label}</span>
                   )}
                 </td>
                 <td className="ss-td text-right font-mono">{kwh(p.inKWh)}</td>
@@ -225,11 +228,22 @@ export function EnergyView({ run }: { run: SimRun }) {
                 <td className="ss-td text-right font-mono">{p.lostPct.toFixed(1)}</td>
               </tr>
             ))}
+            <tr className="text-[color:var(--ss-text-dim)]">
+              <td className="ss-td" title={REMAINDER_HINT}>
+                Not accounted for (energy balance residual)
+              </td>
+              <td className="ss-td" />
+              <td className="ss-td" />
+              <td className="ss-td text-right font-mono">{kwhSmall(e.remainderKWh)}</td>
+              <td className="ss-td" />
+              <td className="ss-td text-right font-mono">{e.remainderPct.toFixed(1)}</td>
+            </tr>
           </tbody>
         </table>
         <p className="mt-1 text-[10px] text-[color:var(--ss-text-dim)]">
-          Booked every fourth solver step from each part's power. A wheel's In and Out are net (driving less braking).
-          * The gears, clutches and spinning parts are worked out as what is left of the shaft energy; see Known issues.
+          Each part books itself every solver step, and its In − Out − Lost − Stored change is 0. In and Out count both ways: a
+          wheel's In is what its axle gave it when driving and what the car gave it when braking, and its Lost is the tyre's slip.
+          In a lap case the gears and friction brakes are in the Vehicle's row, from the lap's own books.
         </p>
       </div>
     </div>
