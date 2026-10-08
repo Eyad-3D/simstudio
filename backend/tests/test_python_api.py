@@ -1,5 +1,6 @@
 """The Python package (AI-02): load, check, run, read and edit projects
-in-process; units are checked; results export to CSV, MAT and JSON."""
+in-process; units are checked; results export to CSV, MAT and JSON, and
+Parquet when pyarrow is installed."""
 from __future__ import annotations
 
 import csv
@@ -67,6 +68,38 @@ def test_json_export_matches_its_schema_and_reads_back(city, tmp_path):
     back = read_run(path)
     assert back.kpis == city.kpis and back.status == city.status
     assert back.channel("el-battery:sig_soc").values == city.channel("el-battery:sig_soc").values
+
+
+def test_parquet_round_trips_through_pyarrow(city, tmp_path):
+    """STD-09: Parquet, when pyarrow is installed (LightSim does not ship it)."""
+    pq = pytest.importorskip("pyarrow.parquet")
+    path = tmp_path / "city.parquet"
+    city.to_parquet(path)
+    table = pq.read_table(path)
+    assert table.column("time").to_pylist() == city.time
+    soc = table.schema.field("HV Battery Pack · SOC")
+    assert soc.metadata == {b"unit": b"%", b"key": b"el-battery:sig_soc"}
+    assert table.column("HV Battery Pack · SOC").to_pylist() == list(
+        city.channel("el-battery:sig_soc").values)
+    about = json.loads(table.schema.metadata[b"lightsim"])
+    assert about["kpis"] == city.kpis and about["units"] == city.units
+    assert about["caseName"] == "City Cycle" and about["status"] == "success"
+    assert table.num_columns == 1 + len(city.channels)
+
+
+def test_parquet_without_pyarrow_says_what_it_needs(city, tmp_path, monkeypatch):
+    """No pyarrow: the export says how to get it, and the command line
+    refuses the file as a usage error (exit 3) without writing it."""
+    from lightsim import cli
+
+    monkeypatch.setitem(__import__("sys").modules, "pyarrow", None)
+    with pytest.raises(ImportError, match=r"pip install pyarrow"):
+        city.to_parquet(tmp_path / "city.parquet")
+    run = tmp_path / "city.json"
+    city.to_json(run)
+    out = tmp_path / "out.parquet"
+    assert cli.main(["export", str(run), "-o", str(out)]) == cli.EXIT_USAGE
+    assert not out.exists()
 
 
 def test_dataframe_carries_units(city):

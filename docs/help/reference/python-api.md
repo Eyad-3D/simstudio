@@ -53,6 +53,7 @@ A `Result` has:
 | `time`, `channels` | The times (s) and the recorded signals by `"elementId:portId"`; `channel(ref)` finds one by key or label |
 | `messages`, `checks` | What the run reported, and the Data Checks when they stopped it |
 | `to_csv(path)`, `to_mat(path)`, `to_json(path)` | Write the results as CSV, a MATLAB MAT-file or JSON |
+| `to_parquet(path)` | Write the results as an Apache Parquet file: a `time` column and one per channel, units in each column's metadata. Needs `pip install pyarrow`, which LightSim does not include |
 | `df` | The channels as a pandas table, with the units in `df.attrs["units"]` |
 
 A `Project` has `get`, `set`, `unit`, `add`, `remove`, `connect`,

@@ -1,5 +1,6 @@
 """A run's results: status, summary numbers (by stable key), channels and
-messages, with CSV, MAT and JSON export."""
+messages, with CSV, MAT and JSON export, and Parquet when pyarrow is
+installed."""
 from __future__ import annotations
 
 import csv
@@ -189,6 +190,40 @@ class Result:
                          info={"project": self.project_name, "case": self.case_name,
                                "case_id": self.case_id, "status": self.status})
         matfile.write(path, variables, f"LightSim run of '{self.case_name or self.case_id}'")
+
+    def to_parquet(self, path: str | Path) -> None:
+        """An Apache Parquet file: a column ``time`` (s) and one column per
+        channel, named after its label (a repeated label gets " (2)"); an
+        empty cell is a gap. Each column's field metadata holds its ``unit``
+        and channel ``key``; the file's key ``lightsim`` holds the project,
+        case, status and the summary numbers with their units, as JSON.
+
+        Needs pyarrow (``pip install pyarrow``; Apache-2.0), which LightSim
+        itself does not include: without it this raises ImportError, and
+        .csv, .mat and .json need nothing more."""
+        try:
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+        except ImportError as e:  # optional: only this export needs it
+            raise ImportError("Parquet export needs the pyarrow package (pip install pyarrow), "
+                              "which LightSim does not include; .csv, .mat and .json need "
+                              "nothing more.") from e
+        fields = [pa.field("time", pa.float64(), nullable=False, metadata={"unit": "s"})]
+        columns = [pa.array(self.time, type=pa.float64())]
+        taken = {"time"}
+        for c in self.channels.values():
+            name, n = c.label, 2
+            while name in taken:
+                name, n = f"{c.label} ({n})", n + 1
+            taken.add(name)
+            fields.append(pa.field(name, pa.float64(), metadata={"unit": c.unit, "key": c.key}))
+            columns.append(pa.array(list(c.values), type=pa.float64()))
+        about = {"format": "lightsim-result", "formatVersion": 1, "project": self.project_name,
+                 "caseId": self.case_id, "caseName": self.case_name, "status": self.status,
+                 "valid": self.valid, "kpis": self.kpis, "units": self.units,
+                 "notValid": self.not_valid}
+        schema = pa.schema(fields, metadata={"lightsim": json.dumps(about, ensure_ascii=False)})
+        pq.write_table(pa.Table.from_arrays(columns, schema=schema), str(path))
 
     @property
     def df(self):

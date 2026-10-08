@@ -118,6 +118,9 @@ def cmd_run(args: argparse.Namespace) -> int:
                              modelHash=model_hash(project)))
     rt = results.table(run)
     fmt = args.format or (Path(args.out).suffix.lstrip(".").lower() if args.out else "mat")
+    if fmt == "parquet":
+        raise _Usage("the app's engine writes .mat and .csv; Parquet comes with the lightsim "
+                     "Python package when pyarrow is installed (lightsim run --out x.parquet)")
     if fmt not in ("mat", "csv"):
         raise _Usage(f"--format must be mat or csv, not '{fmt}'")
     out_path = Path(args.out) if args.out else Path(

@@ -67,8 +67,13 @@ def _write_outputs(result, outs: Sequence[str]) -> list[str]:
             result.to_mat(path)
         elif suffix == ".json":
             result.to_json(path)
+        elif suffix == ".parquet":
+            try:
+                result.to_parquet(path)
+            except ImportError as e:
+                raise UsageError(f"--out '{out}': {e}")
         else:
-            raise UsageError(f"--out '{out}': give a .csv, .mat or .json file.")
+            raise UsageError(f"--out '{out}': give a .csv, .mat, .json or .parquet file.")
         written.append(str(path))
     return written
 
@@ -319,8 +324,8 @@ def parser() -> argparse.ArgumentParser:
     r.add_argument("--case", "-c", help="case id or name (default: the first case)")
     r.add_argument("--all-cases", action="store_true", help="run every case")
     r.add_argument("--out", "-o", action="append",
-                   help="write the results: .csv, .mat or .json (repeatable; "
-                        "{case} in the name is replaced by the case name)")
+                   help="write the results: .csv, .mat, .json or .parquet (Parquet needs "
+                        "pyarrow; repeatable; {case} in the name is replaced by the case name)")
     r.add_argument("--set", action="append", metavar="PART.KEY=VALUE",
                    help="change a parameter for this run only, e.g. 'Vehicle.mass_kg=1900 kg'")
     r.add_argument("--no-check", action="store_true", help="skip the Data Checks")
@@ -334,9 +339,11 @@ def parser() -> argparse.ArgumentParser:
     c.add_argument("--verbose", "-v", action="store_true", help="list info findings too")
     c.set_defaults(func=cmd_check)
 
-    e = add("export", "Write a stored run (.json.gz from the app, or .json) as CSV, MAT or JSON.")
+    e = add("export", "Write a stored run (.json.gz from the app, or .json) as CSV, MAT, JSON "
+                      "or Parquet.")
     e.add_argument("run", help="the run file")
-    e.add_argument("--out", "-o", action="append", required=True, help=".csv, .mat or .json")
+    e.add_argument("--out", "-o", action="append", required=True,
+                   help=".csv, .mat, .json or .parquet (Parquet needs pyarrow)")
     e.set_defaults(func=cmd_export)
 
     s = add("show", "List a project's cases and parts.")
