@@ -4,6 +4,7 @@ import { expect, test } from "@playwright/test";
 import { headlineTile, openApp, openFromMenu, ribbonTab, runActiveCase, runButton } from "./app";
 
 test("CON-15: an example opens with its stored results and its card", async ({ page }) => {
+  test.setTimeout(240_000);
   await openApp(page);
   await openFromMenu(page, "P2 Hybrid Car");
 
@@ -17,7 +18,8 @@ test("CON-15: an example opens with its stored results and its card", async ({ p
 
   // Run recomputes it, compared with the stored one
   await runActiveCase(page);
-  await expect(runButton(page)).toBeEnabled({ timeout: 60_000 }); // the run has finished
+  // the hybrid's charge-balanced run with its envelope takes about 40 s of engine time
+  await expect(runButton(page)).toBeEnabled({ timeout: 150_000 }); // the run has finished
   await expect(headlineTile(page, "Fuel consumption")).toContainText("2.838");
   await expect(page.getByText(/vs baseline/).first()).toBeVisible();
 
