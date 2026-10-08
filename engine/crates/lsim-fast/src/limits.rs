@@ -190,8 +190,9 @@ fn limit_unit(lib: &Library, def: &ComponentDef, args: &[Expr], fallback: Option
     dim.map(unit_text).unwrap_or_else(|| "1".into())
 }
 
-/// A readable unit text for a dimension.
-fn unit_text(d: Dim) -> String {
+/// A readable unit text for a dimension (a named SI unit where there is
+/// one, else its base units).
+pub fn unit_text(d: Dim) -> String {
     const NAMED: [&str; 16] =
         ["1", "m", "kg", "s", "A", "K", "N", "N.m", "W", "V", "Ohm", "F", "H", "J", "m/s", "m/s2"];
     for n in NAMED {

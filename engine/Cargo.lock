@@ -510,12 +510,14 @@ name = "lsim-engine"
 version = "0.1.0"
 dependencies = [
  "lsim-codegen",
+ "lsim-fast",
  "lsim-ir",
  "lsim-lib",
  "lsim-prep",
  "lsim-solve",
  "serde_json",
  "sha2",
+ "thiserror",
 ]
 
 [[package]]

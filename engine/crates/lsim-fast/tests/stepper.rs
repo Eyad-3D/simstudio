@@ -245,12 +245,19 @@ fn iteration_variables_are_solved_at_every_point() {
         let o = FastOptions { step: h, ..Default::default() };
         let r = RosenbrockW.run(&model, &[], std::slice::from_ref(&trace), &o).unwrap();
         errs.push((last(&r, 0) - reference).abs());
-        // every recorded point satisfies the algebraic equation
+        // every recorded point satisfies the algebraic equation, to the
+        // Newton tolerance (relative to z, which is about 1 here)
         let g = r.channel("v[2]").unwrap();
         for (k, gk) in g.iter().enumerate() {
-            assert!(gk.abs() < 1e-9, "g = {gk} at t = {}", r.times[k]);
+            assert!(gk.abs() < 10.0 * o.newton_tol, "g = {gk} at t = {}", r.times[k]);
         }
         assert_eq!(r.report.n_z, 1);
+    }
+    // a tighter Newton tolerance gives a tighter consistency
+    let o = FastOptions { step: 0.25, newton_tol: 1e-12, ..Default::default() };
+    let r = RosenbrockW.run(&model, &[], std::slice::from_ref(&trace), &o).unwrap();
+    for gk in r.channel("v[2]").unwrap() {
+        assert!(gk.abs() < 1e-11, "g = {gk}");
     }
     let orders: Vec<f64> = errs.windows(2).map(|w| (w[0] / w[1]).log2()).collect();
     println!("DAE: errors {errs:?}, orders {orders:?}");
