@@ -26,7 +26,8 @@ test("MOD-43: one click runs the four FS events and shows their points", async (
 
   // the skidpad case: the reference time gives its points on the next run
   await showPanel(page, "Cases & Parameters");
-  await page.getByLabel("Case", { exact: true }).selectOption({ label: "Skidpad" });
+  // (the page stays on the Simulations tab, whose ribbon has a Case list too: UX-21)
+  await page.getByRole("region", { name: "Cases" }).getByLabel("Case", { exact: true }).selectOption({ label: "Skidpad" });
   await expect(page.locator("label", { hasText: /^FS event/ }).locator("select")).toHaveValue("skidpad");
   await page
     .locator("label", { hasText: /^Reference time/ })
