@@ -667,7 +667,9 @@ minimum or an average, for example from the CSV export, or put the
 - **The Results page shows at most 3 decimals.** Since 0.3, stored values
   and summary numbers keep full precision (ENG-16): one more kilogram on
   the Battery Electric Car changes its City Cycle's consumption and final
-  SOC, and the energies equal the solver steps' sum to 1e-6. The *Results*
+  SOC, and the energies equal the solver steps' sum to 1e-6; each part's
+  energy books, the *Energy* tab's numbers and the duty values keep every
+  digit too, so a gear shift's few joules show. The *Results*
   page shows a number with at most 3 decimals, so a change smaller than
   that reads +0.000 against the baseline; the run's file, its CSV and
   .mat export and the study tables' CSV have every digit. *~ 0* now marks only runs stored by

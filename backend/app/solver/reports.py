@@ -292,8 +292,8 @@ class RunRecorder:
             return out
         for items, names in quantities:
             for obj, stats in items:
-                rows = [DutyRow(quantity=q, unit=u, max=round(s[2], 4), min=round(s[3], 4),
-                                mean=round(s[0] / t, 4), rms=round(math.sqrt(max(0.0, s[1] / t)), 4))
+                rows = [DutyRow(quantity=q, unit=u, max=s[2], min=s[3],
+                                mean=s[0] / t, rms=math.sqrt(max(0.0, s[1] / t)))
                         for (q, u), s in zip(names, stats) if s[2] > -math.inf]
                 if rows:
                     el_id = obj.el_id
@@ -449,22 +449,22 @@ def energy_report(parts: list[PartEnergy],
     total_in = sum(f.kWh for f in src)
     total_out = sum(f.kWh for f in snk)
     remainder = total_in - total_out  # what the books do not explain, kWh
+    # the chart leaves out flows under 1.8 J and the table parts that moved
+    # less; every number shown keeps full precision (ENG-16)
     src = [f for f in src if f.kWh > 5e-7]
     snk = [f for f in snk if f.kWh > 5e-7]
-    for f in src + snk:
-        f.kWh = round(f.kWh, 6)
     share = 100.0 / total_in if total_in > 0 else 0.0
     rows = [EnergyPart(
         elementId=p.element_id, label=p.label, kind=p.kind,
-        inKWh=round(p.in_wh / 1000.0, 6), outKWh=round(p.out_wh / 1000.0, 6),
-        lostKWh=round(p.lost_wh / 1000.0, 6), storedKWh=round(p.stored_wh / 1000.0, 6),
-        lostPct=round(p.lost_wh / 1000.0 * share, 3))
+        inKWh=p.in_wh / 1000.0, outKWh=p.out_wh / 1000.0,
+        lostKWh=p.lost_wh / 1000.0, storedKWh=p.stored_wh / 1000.0,
+        lostPct=p.lost_wh / 1000.0 * share)
         for p in parts if max(abs(p.in_wh), abs(p.out_wh), abs(p.lost_wh), abs(p.stored_wh)) > 5e-4]
     return EnergyReport(
-        parts=rows, sources=src, sinks=snk, sourceKWh=round(total_in, 6),
-        remainderKWh=round(remainder, 6),
-        remainderPct=round(100.0 * remainder / total_in, 4) if total_in > 0 else 0.0,
-        balanceErrorPct=(round(100.0 * residual_wh / throughput_wh, 4) if throughput_wh > 0 else None))
+        parts=rows, sources=src, sinks=snk, sourceKWh=total_in,
+        remainderKWh=remainder,
+        remainderPct=100.0 * remainder / total_in if total_in > 0 else 0.0,
+        balanceErrorPct=(100.0 * residual_wh / throughput_wh if throughput_wh > 0 else None))
 
 
 def _given(label: str) -> str:

@@ -81,3 +81,20 @@ def test_no_envelope_when_every_point_is_one_solver_step():
     case.timeStep, case.duration = 0.01, 5.0
     r = simulate(p, case.id)
     assert all(c.min is None and c.max is None and c.mean is None for c in r.channels)
+
+
+def test_energy_books_are_not_rounded():
+    """Each part's energy books, the Energy tab's numbers and the duty values
+    keep full precision too: they were rounded to 1e-6 kWh (3.6 J) and
+    0.1 W, so a small part's energy (a gear shift's loss, a rotor's speed)
+    could not be told to better than 3.6 J."""
+    r = example_result("bev-car", "case-city")
+    books = [v for f in r.partEnergy for v in (f.energyIn, f.energyOut, f.losses, f.stored,
+                                               f.peakPower, f.meanPower) if v]
+    report = [v for p in r.energy.parts for v in (p.inKWh, p.outKWh, p.lostKWh, p.lostPct)
+              if v] + [f.kWh for f in r.energy.sources + r.energy.sinks]
+    duty = [v for d in r.duty for row in d.rows for v in (row.max, row.mean, row.rms) if v]
+    for values, digits in ((books, 6), (report, 6), (duty, 4)):
+        scale = 10.0 ** digits
+        unrounded = [v for v in values if abs(v * scale - round(v * scale)) > 1e-3]
+        assert len(unrounded) > 0.9 * len(values), (digits, values)

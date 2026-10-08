@@ -224,15 +224,17 @@ def energy_flows(book: EnergyBook) -> list:
     def rank(f: Flow) -> int:
         return ORDER.index(f.part) if f.part in ORDER else len(ORDER)
 
+    # full precision (ENG-16): a part's energies are not rounded, so they
+    # close to the joule however small they are
     kwh = 1.0 / 3.6e6
     return [PartEnergyFlow(
         elementId=f.el_id, label=f.label, part=f.part,
-        energyIn=round(f.in_j * kwh, 6), energyOut=round(f.out_j * kwh, 6),
-        losses=round(f.loss_j * kwh, 6), stored=round(f.stored_j * kwh, 6),
-        energyInReverse=round(f.in_rev_j * kwh, 6),
-        **({"peakPower": round(f.peak_w / 1000.0, 4),
-            "meanPower": round(f.mean_w(book.time_s) / 1000.0, 4),
-            "rmsPower": round(f.rms_w(book.time_s) / 1000.0, 4)}
+        energyIn=f.in_j * kwh, energyOut=f.out_j * kwh,
+        losses=f.loss_j * kwh, stored=f.stored_j * kwh,
+        energyInReverse=f.in_rev_j * kwh,
+        **({"peakPower": f.peak_w / 1000.0,
+            "meanPower": f.mean_w(book.time_s) / 1000.0,
+            "rmsPower": f.rms_w(book.time_s) / 1000.0}
            if f.part not in NO_DUTY else {}),
-        terms={k: round(v * kwh, 6) for k, v in f.terms.items()},
+        terms={k: v * kwh for k, v in f.terms.items()},
     ) for f in sorted(book.flows.values(), key=rank)]
