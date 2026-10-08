@@ -59,6 +59,7 @@ let persist: typeof import("../persist");
 let useProjectStore: typeof import("./projectStore").useProjectStore;
 let confirmReplaceProject: typeof import("./projectStore").confirmReplaceProject;
 let previousRunOf: typeof import("./projectStore").previousRunOf;
+let stopRechecks: typeof import("./projectStore").stopRechecks | undefined;
 let useUIStore: typeof import("./uiStore").useUIStore;
 const store = () => useProjectStore.getState();
 
@@ -201,6 +202,14 @@ function engineRunsStudies() {
   });
 }
 
+// the store schedules a real-time re-check of the model after every change:
+// stop this test's store before the next one makes a fresh instance, so its
+// timer cannot fire later and call the shared api.validateProject mock
+afterEach(() => {
+  stopRechecks?.();
+  stopRechecks = undefined;
+});
+
 beforeEach(async () => {
   // fresh module instances per test: the store keeps module-level state
   // (undo coalescing, the active run) that must not leak between tests
@@ -208,7 +217,7 @@ beforeEach(async () => {
   localStorage.clear();
   api = vi.mocked(await import("../api"));
   persist = await import("../persist");
-  ({ useProjectStore, confirmReplaceProject, previousRunOf } = await import("./projectStore"));
+  ({ useProjectStore, confirmReplaceProject, previousRunOf, stopRechecks } = await import("./projectStore"));
   useUIStore = (await import("./uiStore")).useUIStore;
 
   api.fetchLibrary.mockResolvedValue({

@@ -2832,18 +2832,29 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 // waits for the run to end.
 const RECHECK_MS = 600;
 let recheckTimer: ReturnType<typeof setTimeout> | undefined;
-useProjectStore.subscribe((s, prev) => {
+let rechecksStopped = false;
+const unsubscribeRechecks = useProjectStore.subscribe((s, prev) => {
   if (s.project !== prev.project && s.project) scheduleRecheck();
 });
 
 function scheduleRecheck(): void {
   clearTimeout(recheckTimer);
-  recheckTimer = setTimeout(recheck, RECHECK_MS);
+  if (!rechecksStopped) recheckTimer = setTimeout(recheck, RECHECK_MS);
+}
+
+/** Stop this store's quiet re-checks for good: for tests, so that a store
+ *  instance left behind by `vi.resetModules()` cannot check its model (and
+ *  call the shared api mock) during a later test. The app never calls it. */
+export function stopRechecks(): void {
+  rechecksStopped = true;
+  clearTimeout(recheckTimer);
+  recheckTimer = undefined;
+  unsubscribeRechecks();
 }
 
 async function recheck(): Promise<void> {
   const { project, running } = useProjectStore.getState();
-  if (!project) return;
+  if (!project || rechecksStopped) return;
   if (running) {
     recheckTimer = setTimeout(recheck, RECHECK_MS);
     return;
