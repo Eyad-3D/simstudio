@@ -886,13 +886,19 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       ...(name ? { name } : {}),
       ...extra,
     };
-    set((s) => ({
-      runs: [newRun, ...s.runs].slice(0, MAX_RUNS),
-      activeRunId: runId,
-      liveValues: {},
-      liveT: 0,
-      livePct: 0,
-    }));
+    set((s) => {
+      const runs = [newRun, ...s.runs].slice(0, MAX_RUNS);
+      const ids = new Set(runs.map((r) => r.id));
+      return {
+        runs,
+        activeRunId: runId,
+        // a run that dropped out of the list is no longer overlaid
+        overlayRunIds: s.overlayRunIds.filter((id) => ids.has(id)),
+        liveValues: {},
+        liveT: 0,
+        livePct: 0,
+      };
+    });
 
     // incremental result assembly: step events stream in, the store is
     // flushed at most every LIVE_FLUSH_MS so charts/monitors update live

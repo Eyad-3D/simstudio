@@ -1258,6 +1258,19 @@ describe("run history", () => {
     expect(store().overlayRunIds).toEqual([first]);
   });
 
+  it("a run that drops out of the 20 kept is no longer overlaid, so the colours stay in step", async () => {
+    await start();
+    engineFinishesRuns();
+    const [oldest, middle] = await runTimes(3);
+    store().toggleOverlayRun(oldest);
+    store().toggleOverlayRun(middle);
+    await runTimes(20 - 2); // the store keeps 20 runs
+    const ids = store().runs.map((r) => r.id);
+    expect(ids).toHaveLength(20);
+    expect(ids).not.toContain(oldest);
+    expect(store().overlayRunIds).toEqual([middle]);
+  });
+
   it("the previous run of a case is its newest finished run before, sweep points included (RES-10, RES-19)", () => {
     const run = (id: string, startedAt: number, extra: Partial<SimRun> = {}) =>
       ({ id, caseId: "c", startedAt, status: "success", ...extra }) as SimRun;

@@ -372,9 +372,10 @@ export function ResultsPanel() {
   const define = useSummaryDefinition(); // each row's hover text (LRN-10)
   const runColor = (i: number) => PALETTE[i % PALETTE.length];
   const channelColor = (key: string) => PALETTE[Math.max(0, selectedList.indexOf(key)) % PALETTE.length];
+  // the colour of the run's line: its place among the runs drawn
   const overlayColorOf = (id: string) => {
-    const idx = overlayRunIds.indexOf(id);
-    return idx >= 0 ? runColor(idx + 1) : "#c0c6d0";
+    const idx = plotRuns.findIndex((r) => r.id === id);
+    return idx >= 0 ? runColor(idx) : "#c0c6d0";
   };
 
   // one plotted series per (run × selected channel), the baseline's last
