@@ -29,9 +29,12 @@ browser and needs no internet connection. Its pages are the Markdown in
    [latest release](https://github.com/Eyad-3D/simstudio/releases/latest):
    `LightSim-Setup-<version>.exe` for Windows 10/11, or the `.AppImage` or
    `.deb` for Linux. Nothing else is needed: the simulation engine is inside.
-2. **Install and open it.** The installers are not signed yet, so Windows
-   warns the first time: choose *More info → Run anyway*. On Linux, make the
-   AppImage runnable once (`chmod +x LightSim-*.AppImage`).
+2. **Install and open it.** Until the installers are signed (see the release
+   notes of your version), Windows warns the first time: choose *More info →
+   Run anyway*. On Linux, make the AppImage runnable once
+   (`chmod +x LightSim-*.AppImage`). The first time it opens, LightSim asks
+   whether to check for updates; until you say yes it contacts nothing
+   outside your computer.
 3. **Run the example.** LightSim opens on its *Start* page: click the
    *Battery Electric Car*, an electric car modelled on the 2021 Cupra Born.
    Click any part on the diagram to see and change its values on the right,
@@ -98,18 +101,27 @@ Python and Node are **not** required: the simulation engine is bundled inside.
 
 | Platform | Download |
 |---|---|
-| Windows 10/11 (x64) | `LightSim-Setup-<version>.exe` |
+| Windows 10/11 (x64) | `LightSim-Setup-<version>.exe`, or `LightSim-<version>-x64.msi` for company IT |
 | Linux (x64) | `LightSim-<version>-x86_64.AppImage` or `LightSim-<version>-amd64.deb` |
+| macOS (Apple silicon) | `LightSim-<version>-arm64.dmg`, only once the Mac build can be signed and notarised by Apple: until then there is none |
 
 Download the installers from the
 [Releases page](https://github.com/Eyad-3D/simstudio/releases), with a
 `.sha256` checksum for each file. On Linux, mark the AppImage executable once
 (`chmod +x LightSim-*.AppImage`) and run it. To install a newer version,
-download it and install it over the old one: there are no automatic updates
-yet, and your projects stay where they are.
+let LightSim check for updates (it asks the first time it opens, and
+**Help → Updates** changes the answer; see
+[Turn update checks on or off](docs/help/how-to/check-for-updates.md)), or
+download it and install it over the old one. Your projects stay where they
+are.
 
-> These builds are unsigned, so Windows SmartScreen warns on first launch —
-> choose *More info → Run anyway*.
+To install LightSim on many PCs at once, for all users and without
+questions, and to fix settings for everyone with a policy file, see
+[Install LightSim for a lab or a company](docs/help/how-to/deploy-for-it.md).
+
+> Builds made without the owner's signing certificate are unsigned, so
+> Windows SmartScreen warns on first launch: choose *More info → Run
+> anyway*. A signed release says so in its release notes.
 
 Builds of changes not released yet come from the **Build desktop app**
 workflow: on the repository's **Actions** tab, open the latest successful
@@ -196,7 +208,7 @@ One command builds the UI, freezes the backend, and produces an installer for
 whichever OS you run it on. Requires Python ≥ 3.11 and Node ≥ 20.
 
 ```bash
-./scripts/build-desktop.sh          # Linux (macOS is not supported)
+./scripts/build-desktop.sh          # Linux, or macOS (unsigned: your own Mac only)
 .\scripts\build-desktop.ps1         # Windows
 ```
 
@@ -208,10 +220,43 @@ anything it would ship is under a licence LightSim does not allow (see
 
 Neither half cross-compiles — the frozen Python backend and the Electron
 package are both platform-specific — so `.github/workflows/desktop-build.yml`
-builds Windows and Linux on GitHub's runners. To draft a release with the
-installers attached, run it on `main` from the **Actions** tab with
-*release* ticked (the `v<VERSION>` tag is made when the draft is published),
-or push a `v*` tag that matches `VERSION`.
+builds Windows, Linux and macOS (Apple silicon) on GitHub's runners. To draft
+a release with the installers attached, run it on `main` from the **Actions**
+tab with *release* ticked (the `v<VERSION>` tag is made when the draft is
+published), or push a `v*` tag that matches `VERSION`. The release starts
+its update rollout at 10 % of the installs that agreed to update checks
+(the *rollout* box); the **Update rollout** workflow raises it to 50 % and
+100 %, or to 0 % to stop offering a bad release.
+
+### Signing the installers
+
+Signing needs certificates that cost money, so the workflow signs only when
+the repository has these secrets (**Settings → Secrets and variables →
+Actions**), and builds unsigned without them:
+
+- **Windows** (signs every program file, the engine's libraries, the
+  installers and the MSI; `desktop/build/sign-windows.cjs`). Either Azure
+  Artifact Signing (about US$10 a month; individuals must be in the US or
+  Canada): secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`,
+  `AZURE_CLIENT_SECRET` and variables `LIGHTSIM_AZURE_ENDPOINT`,
+  `LIGHTSIM_AZURE_ACCOUNT`, `LIGHTSIM_AZURE_PROFILE`; or any other signing
+  tool, such as an OV certificate in a cloud key store: the secret
+  `LIGHTSIM_SIGN_COMMAND`, a command with `{file}` where the file goes. Set
+  the variable `LIGHTSIM_WIN_PUBLISHER` to the certificate's name, so updates
+  are checked against it. Keep the same certificate across releases:
+  SmartScreen trusts a publisher as its downloads build a history.
+- **macOS** (Apple Developer Program, US$99 a year): secrets `MAC_CSC_LINK`
+  (the Developer ID Application certificate as base64 .p12),
+  `MAC_CSC_KEY_PASSWORD`, `APPLE_API_KEY` (the App Store Connect API key's
+  .p8 text), `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`. Without them the Mac
+  build is made and tested but never published.
+
+On Windows the workflow checks every signature with `signtool`, scans the
+build with Microsoft Defender, installs it silently for all users and
+starts it, and installs, upgrades and removes the MSI. Before each release,
+also submit the installer and `lightsim-backend.exe` to Microsoft's
+[malware submission portal](https://www.microsoft.com/wdsi/filesubmission)
+as a software developer, so Defender learns them before users download them.
 
 ## Developing
 
@@ -364,7 +409,8 @@ goes in `scripts/licenses/bundled-runtime.json`. Adding a licence to
 | Workflow | Runs on | Does |
 |---|---|---|
 | `ci.yml` | every push and PR (~3 min; the browser tests ~6 min, in parallel) | backend lint + tests, frontend lint + unit tests + typecheck + build, browser + accessibility tests, version-sync check, third-party licence check |
-| `desktop-build.yml` | `main`, `v*` tags, manual, and PRs touching packaging (~12 min) | builds Windows and Linux installers (with their third-party notices), smoke-tests both the frozen backend and the packaged app, uploads artefacts with SHA-256 checksums |
+| `desktop-build.yml` | `main`, `v*` tags, manual, and PRs touching packaging (~12 min) | builds Windows (setup program and MSI), Linux and macOS installers (with their third-party notices), signs them when the secrets exist, smoke-tests the frozen backend and the packaged app (which must contact nothing outside the computer), tests the Windows silent and MSI installs and a Defender scan, uploads artefacts with SHA-256 checksums |
+| `update-rollout.yml` | manual | raises or pulls a release's staged update rollout |
 
 Push a `v*` tag to draft a release with the installers attached. Dependabot
 opens grouped dependency PRs monthly.

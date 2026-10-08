@@ -53,3 +53,30 @@ export function unsavedChangesDialog(opts: {
     });
   });
 }
+
+/**
+ * Show a project's scripts before they run (PLT-35): their code, and two
+ * choices. Resolves true for the confirm button ("Run scripts"); Esc, a click
+ * outside and the other button all mean "do not run them".
+ */
+export function scriptTrustDialog(opts: {
+  title: string;
+  message: string;
+  scripts: { label: string; code: string }[];
+  confirmLabel: string;
+  cancelLabel: string;
+  note?: string;
+}): Promise<boolean> {
+  return new Promise((resolve) => {
+    useUIStore.getState().openDialog({
+      kind: "confirm",
+      title: opts.title,
+      message: opts.message,
+      code: opts.scripts,
+      note: opts.note,
+      confirmLabel: opts.confirmLabel,
+      cancelLabel: opts.cancelLabel,
+      resolve: (v) => resolve(v === true),
+    });
+  });
+}

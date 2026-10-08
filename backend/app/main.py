@@ -45,6 +45,9 @@ Endpoints:
   POST /api/fmus               import an FMU file (raw bytes; ?name=, ?allow=)
   POST /api/fmus/describe      what an FMU block's file is (variables, platforms)
   POST /api/fmus/{sha}/allow   allow an FMU to run on this computer
+  GET  /api/policy             the settings the machine-wide policy file fixes
+  POST /api/scripts/check      a project's Script code, each marked approved or not
+  POST /api/scripts/approve    approve Script code to run (the user said yes)
   POST /api/validate           run Data Checks on a project
   POST /api/simulate           run a simulation case, returns SimResult
   POST /api/label-estimate     US window-sticker estimate from UDDS and HWFET (CON-32)
@@ -99,6 +102,7 @@ from . import (
     laplog,
     reference_results,
     run_store,
+    script_trust,
     security,
     storage,
     studies,
@@ -199,6 +203,68 @@ def health() -> dict:
     return {"status": "ok", "service": "lightsim-backend", "version": VERSION}
 
 
+# At start, before anything is imported and saved: on the first start with
+# the script check, the projects already saved here count as approved.
+try:
+    script_trust.trusted_hashes()
+except OSError:
+    pass
+
+
+@app.get("/api/policy")
+def get_policy() -> dict:
+    """What the machine-wide policy file fixes (PLT-36), for the UI to show
+    as managed by the organisation."""
+    return {"settings": script_trust.policy(), "scriptTrust": script_trust.mode()}
+
+
+class ScriptCheckRequest(BaseModel):
+    project: dict
+
+
+class ScriptReview(BaseModel):
+    elementId: str
+    label: str
+    code: str
+    hash: str
+    approved: bool
+
+
+class ScriptCheckReply(BaseModel):
+    mode: str
+    scripts: list[ScriptReview]
+    unapproved: int
+
+
+class ScriptApproveRequest(BaseModel):
+    codes: list[str]
+
+
+class ScriptApproveReply(BaseModel):
+    approved: list[str]
+
+
+@app.post("/api/scripts/check")
+def check_scripts(req: ScriptCheckRequest) -> ScriptCheckReply:
+    """Every Script code the project would run, each with `approved`. The UI
+    asks before running a project whose scripts are not all approved."""
+    trusted = script_trust.trusted_hashes()
+    off = script_trust.mode() == "off"
+    scripts = []
+    for s in script_trust.project_scripts(req.project):
+        h = script_trust.code_hash(s["code"])
+        scripts.append(ScriptReview(**s, hash=h, approved=off or h in trusted))
+    return ScriptCheckReply(mode=script_trust.mode(), scripts=scripts,
+                            unapproved=sum(not s.approved for s in scripts))
+
+
+@app.post("/api/scripts/approve")
+def approve_scripts(req: ScriptApproveRequest) -> ScriptApproveReply:
+    """Approve code to run: what the user typed in a Script block, or what
+    they reviewed and chose Run scripts for."""
+    return ScriptApproveReply(approved=script_trust.approve(req.codes))
+
+
 @app.get("/api/library")
 def get_library() -> dict:
     return {
@@ -228,6 +294,9 @@ def get_projects() -> list[dict]:
 
 @app.get("/api/examples")
 def get_examples() -> list[dict]:
+    # The policy file can leave the examples out of a lab's PCs (PLT-36).
+    if script_trust.policy().get("examples") is False:
+        return []
     return storage.list_examples()
 
 

@@ -427,6 +427,34 @@ export function fetchRunSources(project: Project, caseId: string): Promise<RunSo
   });
 }
 
+/** One Script code a project would run, and whether this user approved it. */
+export interface ScriptReview {
+  elementId: string;
+  label: string;
+  code: string;
+  hash: string;
+  approved: boolean;
+}
+
+/** The project's Script code, each marked approved or not (PLT-35). `mode`
+ *  "always-prompt": the organisation's policy file asks every time. */
+export function checkScripts(
+  project: Project,
+): Promise<{ mode: "prompt" | "always-prompt" | "off"; scripts: ScriptReview[]; unapproved: number }> {
+  return request("/scripts/check", {
+    method: "POST",
+    body: JSON.stringify({ project }),
+  });
+}
+
+/** Approve Script code to run (typed here, or reviewed and accepted). */
+export function approveScripts(codes: string[]): Promise<{ approved: string[] }> {
+  return request("/scripts/approve", {
+    method: "POST",
+    body: JSON.stringify({ codes }),
+  });
+}
+
 export function runSimulation(project: Project, caseId: string): Promise<SimResult> {
   return request("/simulate", {
     method: "POST",

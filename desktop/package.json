@@ -27,5 +27,11 @@
     "type": "git",
     "url": "https://github.com/Eyad-3D/simstudio.git"
   },
-  "desktopName": "lightsim.desktop"
+  "desktopName": "lightsim.desktop",
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  },
+  "overrides": {
+    "sax": "1.4.1"
+  }
 }

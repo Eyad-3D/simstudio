@@ -1,4 +1,5 @@
-"""Generate build/icon.png — the app icon, matching the browser favicon.
+"""Generate build/icon.png — the app icon, matching the browser favicon —
+and build/icon-mac.png, the same at 1,024 px (macOS needs at least 512 px).
 
 Written by hand rather than exported from a design tool so the icon can be
 regenerated anywhere without an image toolchain installed.
@@ -84,16 +85,23 @@ def chunk(tag: bytes, data: bytes) -> bytes:
             + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
 
 
-def main() -> None:
+def write(size: int, name: str) -> None:
+    global SIZE
+    SIZE = size
     png = (
         b"\x89PNG\r\n\x1a\n"
         + chunk(b"IHDR", struct.pack(">IIBBBBB", SIZE, SIZE, 8, 6, 0, 0, 0))
         + chunk(b"IDAT", zlib.compress(render(), 9))
         + chunk(b"IEND", b"")
     )
-    out = Path(__file__).with_name("icon.png")
+    out = Path(__file__).with_name(name)
     out.write_bytes(png)
     print(f"wrote {out} ({len(png)} bytes)")
+
+
+def main() -> None:
+    write(256, "icon.png")
+    write(1024, "icon-mac.png")
 
 
 if __name__ == "__main__":

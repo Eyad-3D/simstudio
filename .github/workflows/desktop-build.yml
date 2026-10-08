@@ -1,9 +1,22 @@
-# Packages the desktop app for Windows and Linux.
+# Packages the desktop app for Windows, Linux and macOS (Apple silicon).
 #
 # Both halves are platform-specific — the frozen Python backend and the
 # Electron package — so each target builds on its own runner. Slower than CI
 # (~12 min), so on pull requests it only runs when the packaging itself
 # changes; everything else is covered by the CI gate.
+#
+# Signing costs money and is the owner's decision, so every signing step runs
+# only when its secrets exist (README → "Signing the installers" lists them):
+#   Windows (PLT-32)  AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET plus
+#                     variables LIGHTSIM_AZURE_ENDPOINT, LIGHTSIM_AZURE_ACCOUNT,
+#                     LIGHTSIM_AZURE_PROFILE (Azure Artifact Signing), or the
+#                     secret LIGHTSIM_SIGN_COMMAND (any other signing tool);
+#                     variable LIGHTSIM_WIN_PUBLISHER, the certificate's name
+#   macOS (PLT-13)    MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD (Developer ID
+#                     certificate), APPLE_API_KEY, APPLE_API_KEY_ID,
+#                     APPLE_API_ISSUER (App Store Connect API key, notarisation)
+# Without them Windows and Linux build unsigned as before, and the Mac build
+# is made and tested but never published.
 name: Build desktop app
 
 on:
@@ -30,6 +43,10 @@ on:
         description: "Draft a release of the version in VERSION from this commit (tagged when you publish it)"
         type: boolean
         default: false
+      rollout:
+        description: "Share of opted-in installs offered this update at first, in % (raise it later with the Update rollout workflow)"
+        type: string
+        default: "10"
 
 concurrency:
   group: desktop-${{ github.ref }}
@@ -48,6 +65,10 @@ jobs:
           - os: windows-latest
             name: windows
             builder: --win
+          # Apple silicon (arm64) runner
+          - os: macos-14
+            name: macos
+            builder: --mac
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -100,35 +121,258 @@ jobs:
       - name: Third-party notices
         run: python scripts/third-party-notices.py
 
-      - name: Package the desktop app
+      # Which platforms this run can sign. Secrets cannot be tested in an
+      # `if:`, so this step reads them and says yes or no.
+      - name: Signing available?
+        id: signing
+        shell: bash
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          LIGHTSIM_AZURE_PROFILE: ${{ vars.LIGHTSIM_AZURE_PROFILE }}
+          LIGHTSIM_SIGN_COMMAND: ${{ secrets.LIGHTSIM_SIGN_COMMAND }}
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          win=false; mac=false
+          if [ -n "$AZURE_CLIENT_ID" ] && [ -n "$LIGHTSIM_AZURE_PROFILE" ]; then win=true; fi
+          if [ -n "$LIGHTSIM_SIGN_COMMAND" ]; then win=true; fi
+          if [ -n "$MAC_CSC_LINK" ] && [ -n "$APPLE_API_KEY" ]; then mac=true; fi
+          echo "windows=$win" >> "$GITHUB_OUTPUT"
+          echo "mac=$mac" >> "$GITHUB_OUTPUT"
+          echo "Windows signing: $win; macOS signing and notarisation: $mac"
+
+      - name: Package the desktop app (Linux)
+        if: matrix.name == 'linux'
         working-directory: desktop
-        run: npx electron-builder ${{ matrix.builder }} --publish never
+        run: npx electron-builder --linux --publish never
+
+      # build/sign-windows.cjs signs every file when the secrets exist and
+      # leaves the build unsigned otherwise.
+      - name: Package the desktop app (Windows)
+        if: matrix.name == 'windows'
+        working-directory: desktop
+        shell: bash
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          LIGHTSIM_AZURE_ENDPOINT: ${{ vars.LIGHTSIM_AZURE_ENDPOINT }}
+          LIGHTSIM_AZURE_ACCOUNT: ${{ vars.LIGHTSIM_AZURE_ACCOUNT }}
+          LIGHTSIM_AZURE_PROFILE: ${{ vars.LIGHTSIM_AZURE_PROFILE }}
+          LIGHTSIM_SIGN_COMMAND: ${{ secrets.LIGHTSIM_SIGN_COMMAND }}
+          LIGHTSIM_WIN_PUBLISHER: ${{ vars.LIGHTSIM_WIN_PUBLISHER }}
+          SIGNED: ${{ steps.signing.outputs.windows }}
+        run: |
+          extra=()
+          # the name updates are checked against (signed builds only)
+          if [ "$SIGNED" = true ] && [ -n "$LIGHTSIM_WIN_PUBLISHER" ]; then
+            extra+=("-c.win.signtoolOptions.publisherName=$LIGHTSIM_WIN_PUBLISHER")
+          fi
+          npx electron-builder --win --publish never "${extra[@]}"
+
+      # Unsigned: an ad-hoc signature, enough to launch on this runner for
+      # the smoke test; that build is never published (see the upload below).
+      - name: Package the desktop app (macOS)
+        if: matrix.name == 'macos'
+        working-directory: desktop
+        shell: bash
+        env:
+          SIGNED: ${{ steps.signing.outputs.mac }}
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          if [ "$SIGNED" = true ]; then
+            # electron-builder notarises when APPLE_API_KEY names the .p8 file
+            key="$RUNNER_TEMP/apple-api-key.p8"
+            printf '%s' "$APPLE_API_KEY_CONTENT" > "$key"
+            export APPLE_API_KEY="$key"
+            npx electron-builder --mac --publish never -c.mac.notarize=true
+            rm -f "$key"
+          else
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY_ID APPLE_API_ISSUER
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            npx electron-builder --mac --publish never -c.mac.identity=- -c.mac.hardenedRuntime=false -c.mac.notarize=false
+          fi
 
       - name: Check the app launches
         if: matrix.name == 'linux'
         working-directory: desktop
         # xvfb gives the headless runner a display. Confirms the packaged
-        # shell starts its engine and reaches a rendered window.
+        # shell starts its engine and reaches a rendered window, and that it
+        # contacts nothing outside the computer.
         run: xvfb-run -a node ../scripts/smoke-app.mjs release/linux-unpacked/lightsim
+
+      - name: Check the app launches (macOS)
+        if: matrix.name == 'macos'
+        working-directory: desktop
+        run: node ../scripts/smoke-app.mjs release/mac-arm64/LightSim.app/Contents/MacOS/LightSim
+
+      # Every file Windows runs must carry a valid signature when the build
+      # was signed (PLT-32). Unsigned builds list what is unsigned instead.
+      - name: Check the signatures (Windows)
+        if: matrix.name == 'windows'
+        shell: pwsh
+        working-directory: desktop/release
+        env:
+          SIGNED: ${{ steps.signing.outputs.windows }}
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName | Select-Object -Last 1
+          $files = @(Get-ChildItem -Path . -Recurse -Include *.exe, *.msi, *.dll, *.pyd, *.node -File)
+          $unsigned = @()
+          foreach ($f in $files) {
+            & $signtool.FullName verify /pa /q $f.FullName *> $null
+            if ($LASTEXITCODE -ne 0) { $unsigned += $f }
+          }
+          $exes = @($unsigned | Where-Object { $_.Extension -in '.exe', '.msi' })
+          Write-Host "$($files.Count) files checked; $($unsigned.Count) without a valid signature ($($exes.Count) of them .exe or .msi)"
+          if ($env:SIGNED -eq 'true') {
+            if ($unsigned.Count -gt 0) {
+              $unsigned | ForEach-Object { Write-Host "::error::not signed: $($_.FullName)" }
+              exit 1
+            }
+            Write-Host "every file is signed"
+          } else {
+            Write-Host "::notice::Unsigned build: no signing secrets are set (README → Signing the installers)"
+          }
+          exit 0
+
+      # Company antivirus quarantining the frozen engine is the failure this
+      # looks for (PLT-32): Microsoft Defender scans the build with fresh
+      # signatures and must find nothing.
+      - name: Scan with Microsoft Defender
+        if: matrix.name == 'windows'
+        shell: pwsh
+        run: |
+          $mp = "$env:ProgramFiles\Windows Defender\MpCmdRun.exe"
+          if (-not (Test-Path $mp)) { Write-Host "::warning::Microsoft Defender is not on this runner: scan skipped"; exit 0 }
+          try { Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction Stop } catch { Write-Host "::warning::could not turn on real-time protection: $_" }
+          & $mp -SignatureUpdate | Out-Host
+          & $mp -Scan -ScanType 3 -File "$PWD\desktop\release" -DisableRemediation | Out-Host
+          $code = $LASTEXITCODE
+          if ($code -eq 2) {
+            Write-Host "::error::Microsoft Defender flagged a file in the build"
+            Get-MpThreatDetection | Format-List | Out-Host
+            exit 1
+          }
+          if ($code -ne 0) { Write-Host "::warning::the Defender scan did not run (exit code $code)" }
+          exit 0
+
+      # What a lab admin runs (PLT-36): a silent install for all users, the
+      # installed app's launch (with Defender on, and no outside requests),
+      # then a silent uninstall.
+      - name: Silent install for all users (Windows)
+        if: matrix.name == 'windows'
+        shell: pwsh
+        working-directory: desktop/release
+        run: |
+          $setup = Get-ChildItem LightSim-Setup-*.exe | Select-Object -First 1
+          Start-Process -Wait -FilePath $setup.FullName -ArgumentList '/S', '/allusers'
+          $exe = "$env:ProgramFiles\LightSim\LightSim.exe"
+          if (-not (Test-Path $exe)) { Write-Host "::error::the silent install left no $exe"; exit 1 }
+          Write-Host "installed: $exe"
+          node ../../scripts/smoke-app.mjs "$exe"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $threats = @(Get-MpThreatDetection -ErrorAction SilentlyContinue)
+          if ($threats.Count -gt 0) { Write-Host "::error::Defender raised an alert while LightSim ran"; $threats | Format-List | Out-Host; exit 1 }
+          Start-Process -Wait -FilePath "$env:ProgramFiles\LightSim\Uninstall LightSim.exe" -ArgumentList '/S', '/allusers'
+          Start-Sleep -Seconds 5
+          if (Test-Path $exe) { Write-Host "::error::the silent uninstall left $exe"; exit 1 }
+          Write-Host "silent install, launch and uninstall: ok"
+
+      # The MSI for Intune, SCCM and Group Policy: installs quietly, and a
+      # newer MSI upgrades it in place (the same upgradeCode) rather than
+      # installing a second copy.
+      - name: MSI install and upgrade (Windows)
+        if: matrix.name == 'windows'
+        shell: pwsh
+        working-directory: desktop
+        run: |
+          $msi = Get-ChildItem release\LightSim-*-x64.msi | Select-Object -First 1
+          $p = Start-Process -Wait -PassThru msiexec -ArgumentList '/i', "`"$($msi.FullName)`"", '/quiet', '/norestart', '/l*v', "$env:RUNNER_TEMP\msi-install.log"
+          if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\msi-install.log" -Tail 60; Write-Host "::error::msiexec /i failed ($($p.ExitCode))"; exit 1 }
+          $entries = { @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like 'LightSim*' }) }
+          $first = & $entries
+          Write-Host "installed: $($first.DisplayName) $($first.DisplayVersion) in $($first.InstallLocation)"
+          if ($first.Count -ne 1) { Write-Host "::error::expected one LightSim install, found $($first.Count)"; exit 1 }
+
+          # the same app as a newer version, packaged again as an MSI
+          $version = (Get-Content ..\VERSION -Raw).Trim()
+          $parts = $version.Split('.')
+          $next = "$($parts[0]).$($parts[1]).$([int]$parts[2] + 1)"
+          npx electron-builder --win msi --prepackaged release\win-unpacked --publish never "-c.extraMetadata.version=$next" "-c.directories.output=release-upgrade"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $msi2 = Get-ChildItem release-upgrade\LightSim-*-x64.msi | Select-Object -First 1
+          $p = Start-Process -Wait -PassThru msiexec -ArgumentList '/i', "`"$($msi2.FullName)`"", '/quiet', '/norestart', '/l*v', "$env:RUNNER_TEMP\msi-upgrade.log"
+          if ($p.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\msi-upgrade.log" -Tail 60; Write-Host "::error::the upgrade failed ($($p.ExitCode))"; exit 1 }
+          $after = & $entries
+          if ($after.Count -ne 1 -or $after[0].DisplayVersion -notlike "$next*") {
+            $after | Format-List DisplayName, DisplayVersion | Out-Host
+            Write-Host "::error::the upgrade did not replace the first install"; exit 1
+          }
+          Write-Host "upgraded to $($after[0].DisplayVersion) in place"
+          $p = Start-Process -Wait -PassThru msiexec -ArgumentList '/x', "`"$($msi2.FullName)`"", '/quiet', '/norestart'
+          if ($p.ExitCode -ne 0) { Write-Host "::error::msiexec /x failed ($($p.ExitCode))"; exit 1 }
+          if ((& $entries).Count -ne 0) { Write-Host "::error::the uninstall left LightSim registered"; exit 1 }
+          Write-Host "MSI install, upgrade and uninstall: ok"
+
+      # A published Mac build must be signed with a Developer ID, notarised
+      # and stapled; Gatekeeper's own check (spctl) must accept it.
+      - name: Check the signature and notarisation (macOS)
+        if: matrix.name == 'macos' && steps.signing.outputs.mac == 'true'
+        working-directory: desktop/release
+        run: |
+          app=mac-arm64/LightSim.app
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=4 "$app"
+          xcrun stapler validate "$app"
+          # every Mach-O file inside, the engine's included, is signed
+          find "$app" -type f -print0 | while IFS= read -r -d '' f; do
+            if file -b "$f" | grep -q 'Mach-O'; then
+              codesign --verify --strict "$f" || { echo "::error::not signed: $f"; exit 1; }
+            fi
+          done
+          echo "signed, notarised and accepted by Gatekeeper" > ../signed-and-notarised.txt
 
       - name: Checksums
         shell: bash
         working-directory: desktop/release
         run: |
           shopt -s nullglob
-          for f in *.exe *.AppImage *.deb; do
-            sha256sum "$f" > "$f.sha256"
+          for f in *.exe *.msi *.AppImage *.deb *.dmg *.zip; do
+            sha256sum "$f" > "$f.sha256" 2>/dev/null || shasum -a 256 "$f" > "$f.sha256"
           done
           cat *.sha256 || true
 
       - uses: actions/upload-artifact@v7
+        if: matrix.name != 'macos'
         with:
           name: lightsim-${{ matrix.name }}
           path: |
             desktop/release/*.exe
+            desktop/release/*.msi
             desktop/release/*.AppImage
             desktop/release/*.deb
+            desktop/release/*.blockmap
+            desktop/release/latest*.yml
             desktop/release/*.sha256
+          if-no-files-found: error
+
+      # Only a signed and notarised Mac build gets the name the release job
+      # collects; an unsigned one is kept under another name for testing.
+      - uses: actions/upload-artifact@v4
+        if: matrix.name == 'macos'
+        with:
+          name: ${{ steps.signing.outputs.mac == 'true' && 'lightsim-macos' || 'unsigned-lightsim-macos-do-not-publish' }}
+          path: |
+            desktop/release/*.dmg
+            desktop/release/*.zip
+            desktop/release/*.blockmap
+            desktop/release/latest*.yml
+            desktop/release/*.sha256
+            desktop/signed-and-notarised.txt
           if-no-files-found: error
 
   release:
@@ -186,9 +430,43 @@ jobs:
           fi
           cat release-body.md
 
+      # Only artifacts named lightsim-*: an unsigned Mac build is uploaded
+      # under another name and never reaches a release.
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
+          pattern: lightsim-*
+
+      # Never publish an unsigned Mac build (PLT-13): any Mac file here must
+      # come with the mark the signature and notarisation checks leave.
+      - name: No unsigned Mac build
+        run: |
+          shopt -s nullglob globstar
+          mac=(artifacts/**/*.dmg artifacts/**/*-mac.zip)
+          if [ ${#mac[@]} -gt 0 ] && [ ! -f artifacts/lightsim-macos/signed-and-notarised.txt ]; then
+            echo "::error::a Mac build without signature and notarisation checks reached the release"
+            exit 1
+          fi
+          rm -f artifacts/lightsim-macos/signed-and-notarised.txt
+          if [ ${#mac[@]} -eq 0 ]; then
+            echo "::notice::no Mac build in this release: it needs the Apple signing secrets"
+          fi
+
+      # Staged rollout (PLT-18): only this share of the installs that agreed
+      # to update checks is offered the update at first. The "Update rollout"
+      # workflow raises it (50, then 100) or pulls the release.
+      - name: Start the rollout at ${{ inputs.rollout || '10' }} %
+        env:
+          ROLLOUT: ${{ inputs.rollout || '10' }}
+        run: |
+          case "$ROLLOUT" in ''|*[!0-9]*) echo "::error::rollout must be a whole number"; exit 1;; esac
+          for f in artifacts/*/latest*.yml; do
+            [ -f "$f" ] || continue
+            sed -i '/^stagingPercentage:/d' "$f"
+            if [ "$ROLLOUT" -lt 100 ]; then echo "stagingPercentage: $ROLLOUT" >> "$f"; fi
+            echo "$f:"; cat "$f"
+          done
+
       - uses: softprops/action-gh-release@v3
         with:
           draft: true

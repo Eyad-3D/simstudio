@@ -26,6 +26,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Optional
 
+from .. import script_trust
 from ..fmu import FmuError, FmuFileError
 from .battery import CELLS, PACK, CellPack
 from .climate import ClimateState, climate_power
@@ -300,6 +301,11 @@ class RunContext:
                 params=dict(self.params(el_id)),
             ))
         if script_specs:
+            # Only code this user has approved runs (app/script_trust.py).
+            try:
+                script_trust.check([(sp.label, sp.code) for sp in script_specs])
+            except script_trust.ScriptsNotApproved as e:
+                raise ModelInitError([str(e)])
             try:
                 self.sandbox = ScriptSandbox(script_specs)
             except ScriptError as e:

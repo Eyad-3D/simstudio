@@ -58,14 +58,13 @@ landlock = pytest.mark.skipif(
     reason="filesystem/network confinement needs Landlock (Linux >= 5.13)")
 
 
-posix = pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="Windows has no file-size limit to block writes; see KNOWN-LIMITS")
+posix = pytest.mark.skipif(sys.platform == "win32", reason="POSIX resource limits")
 
 
 # ---- the worker cannot touch the filesystem or network ------------------------
 
-@posix
+# Linux by its file-size limit, Windows by the low integrity level, macOS by
+# its sandbox (PLT-35)
 def test_worker_cannot_write_a_file(tmp_path):
     marker = tmp_path / "marker.txt"
     with pytest.raises(ScriptError):
@@ -96,6 +95,34 @@ def test_worker_cannot_open_a_tcp_socket():
     with pytest.raises(ScriptError) as exc:
         _trusted_run(body)
     assert "denied" in str(exc.value).lower() or "permitted" in str(exc.value).lower()
+
+
+mac = pytest.mark.skipif(sys.platform != "darwin", reason="macOS sandbox")
+can_block_programs = pytest.mark.skipif(
+    not (_landlock_available() or sys.platform in ("win32", "darwin")),
+    reason="needs Landlock on Linux")
+
+
+@can_block_programs
+def test_worker_cannot_start_a_program():
+    # Landlock denies running any file, the Windows job allows one process,
+    # the macOS sandbox denies fork and exec (PLT-35).
+    try:
+        out = _trusted_run("    import os\n    return {'y': float(os.system('echo started'))}\n")
+    except ScriptError:
+        return
+    assert out["y"] != 0.0
+
+
+@mac
+def test_mac_worker_cannot_open_a_tcp_socket():
+    body = ("    import socket\n"
+            "    s = socket.socket(); s.settimeout(2)\n"
+            "    s.connect(('127.0.0.1', 9))\n"
+            "    return {'y': 1.0}\n")
+    with pytest.raises(ScriptError) as exc:
+        _trusted_run(body)
+    assert "not permitted" in str(exc.value).lower() or "denied" in str(exc.value).lower()
 
 
 def test_worker_cannot_read_the_environment(monkeypatch):

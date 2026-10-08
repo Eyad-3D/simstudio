@@ -8,14 +8,21 @@
  * a window stuck on "Starting the simulation engine…", a blank page — that no
  * backend-only test can see.
  *
+ * It also records every network request the app makes (Chromium's net log)
+ * and fails if any goes beyond this computer: a clean install that has not
+ * been allowed to check for updates must contact nothing outside (PLT-18).
+ *
  * Needs a display; run under xvfb on a headless machine:
  *   xvfb-run -a node scripts/smoke-app.mjs desktop/release/linux-unpacked/lightsim
  */
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const exe = process.argv[2];
 const DEBUG_PORT = 9333;
+const netLog = join(mkdtempSync(join(tmpdir(), "lightsim-smoke-")), "netlog.json");
 
 if (!exe || !existsSync(exe)) {
   console.error(`✗ no packaged app at ${exe ?? "(no path given)"}`);
@@ -27,6 +34,8 @@ const child = spawn(exe, [
   "--no-sandbox",
   `--remote-debugging-port=${DEBUG_PORT}`,
   "--remote-allow-origins=*",
+  `--log-net-log=${netLog}`,
+  "--net-log-capture-mode=Everything",
 ]);
 child.stdout.on("data", (d) => (log += d));
 child.stderr.on("data", (d) => (log += d));
@@ -53,6 +62,24 @@ async function waitForPage(timeoutMs = 120_000) {
   }
   fail(`app never loaded its UI within ${timeoutMs / 1000}s (still on the splash?)`);
 }
+
+/**
+ * The hosts the app contacted, from the net log. The file may be cut short
+ * when the app is stopped, so read it as text rather than as JSON.
+ */
+function contactedHosts(file) {
+  let text = "";
+  try { text = readFileSync(file, "utf8"); } catch { return null; }
+  const hosts = new Set();
+  for (const m of text.matchAll(/\b(?:https?|wss?):\/\/(\[[^\]]+\]|[^/:;"\\\s]+)/gi)) hosts.add(m[1].toLowerCase());
+  for (const m of text.matchAll(/"host":"([^"]+)"/g)) {
+    const h = m[1].replace(/^[a-z]+:\/\//i, "").replace(/[;/].*$/, "").replace(/:\d+$/, "");
+    if (h) hosts.add(h.toLowerCase());
+  }
+  return [...hosts];
+}
+
+const LOCAL = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
 /** Evaluate an expression in the page over the devtools protocol. */
 function evaluate(page, expression) {
@@ -110,8 +137,23 @@ try {
   if (!help.ok) fail(`the help pages are missing: /help/index.html answered ${help.status}`);
   console.log("✓ help pages served");
 
-  console.log("\npackaged app smoke test passed");
+  // Nothing beyond this computer, though the app has been open for a while
+  // and (on a fresh install) is showing its update question.
   stop();
+  await sleep(2000);
+  const hosts = contactedHosts(netLog);
+  if (hosts === null) {
+    console.error(`✗ no net log was written to ${netLog}`);
+    process.exit(1);
+  }
+  const outside = hosts.filter((h) => !LOCAL.has(h));
+  if (outside.length) {
+    console.error(`✗ the app contacted hosts outside this computer: ${outside.join(", ")}`);
+    process.exit(1);
+  }
+  console.log(`✓ no outside network requests (hosts contacted: ${hosts.join(", ") || "none"})`);
+
+  console.log("\npackaged app smoke test passed");
   process.exit(0);
 } catch (err) {
   fail(err.message ?? String(err));

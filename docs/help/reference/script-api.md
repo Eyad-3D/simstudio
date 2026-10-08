@@ -72,7 +72,10 @@ underscores, attributes that start with one. Data Checks compile the code
   names the script and the time.
 - An error in the script fails the run; *Messages* names the script, the
   time and the error.
-- Scripts run in a separate process with a 512 MB memory cap. How much
-  else is blocked depends on your system: see
-  [Known issues](../../KNOWN-LIMITS.md). Open projects with scripts only
-  from people you trust.
+- Scripts run in a separate process with a 512 MB memory cap, which
+  cannot start programs or write to your files (on Linux 5.13 or newer,
+  Windows and macOS). How much else is blocked depends on your system: see
+  [Known issues](../../KNOWN-LIMITS.md).
+- Scripts that came with a project from another computer run only after
+  you approve them: see
+  [Open a project that has scripts from someone else](../how-to/open-a-project-with-scripts.md).

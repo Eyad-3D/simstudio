@@ -862,16 +862,25 @@ minimum or an average, for example from the CSV export, or put the
   process and the run fails, even for loops the first check cannot
   interrupt; a script that asks for too much memory hits a 512 MB cap.
   - *Linux 5.13 or newer:* the system also stops that process from opening
-    any file and from making or accepting TCP connections. Not blocked:
-    other network traffic (UDP) and local sockets. On older Linux, only the
-    memory cap and a limit that stops it writing data into files apply; it
-    could still delete files.
-  - *Windows:* the process has the memory cap and ends when LightSim ends,
-    but Windows has no simple way to block its files or network, so there
-    the first check is the main protection.
+    any file, starting programs and making or accepting TCP connections.
+    Not blocked: other network traffic (UDP) and local sockets. On older
+    Linux, only the memory cap and a limit that stops it writing data into
+    files apply; it could still delete files.
+  - *Windows:* the process has the memory cap, ends when LightSim ends,
+    cannot start programs and runs at Windows' low integrity level, so it
+    cannot change your files. It can still read files and use the network:
+    blocking that needs a more locked-down kind of process (an
+    AppContainer), not built yet.
+  - *macOS:* Apple's sandbox stops the process writing files, starting
+    programs and using the network; it can still read files. This is
+    tested on GitHub's Mac runners only, as there is no Mac release yet.
 
-  This makes a harmful script much harder to write, not impossible. Open
-  projects only from people you trust. *Roadmap:* PLT-02.
+  Scripts that came with a project from another computer run only after
+  you have seen their code and chosen **Run scripts**
+  ([how](help/how-to/open-a-project-with-scripts.md)). All this makes a
+  harmful script much harder to write, not impossible: approve scripts only
+  from people you trust. *Roadmap:* PLT-35 (Windows network and file
+  reading).
 - **FMU blocks are a first version.** An FMU block (a model from another
   tool, see [Use a model from another tool](help/how-to/use-an-fmu.md))
   runs Co-Simulation FMUs of FMI 2.0 and 3.0 only. Not yet:
@@ -1010,13 +1019,15 @@ minimum or an average, for example from the CSV export, or put the
   Checks report one that is missing or changed. No part reads an attached
   FMU, AI model or data file yet. A file is one level deep (no folders
   inside resources) and at most 1 GB. *Roadmap:* STD-02, STD-08.
-- **The trust question protects runs in the app only.** Before the first
-  run of a project with Script blocks or attached FMUs or AI models,
-  LightSim asks whether you trust it, and remembers the answer by a
-  fingerprint of that code (a changed script or file asks again; your own
-  edits in the app do not). The question is asked by the app's window; the
-  engine itself does not refuse to run untrusted code. Projects you saved
-  before 0.3.0 ask once too. *Roadmap:* STD-02, PLT-02.
+- **The trust question for attached files protects runs in the app only.**
+  Before the first run of a project with attached FMUs, AI models or
+  programs, LightSim asks whether you trust it, and remembers the answer by
+  a fingerprint of those files (a changed file asks again). The question is
+  asked by the app's window; the engine itself does not refuse to run them
+  (an FMU block runs only an FMU you allowed on this computer). Script
+  blocks are not part of this question: their code is shown for you to
+  approve, and the engine refuses Script code you have not approved (see
+  the scripts entry above). *Roadmap:* STD-02, PLT-02.
 - **Study tables are keyed by the figure's name.** A study's results table
   names each column by the summary figure's label; a figure renamed in a
   later version starts a new column. *Roadmap:* PLT-34.
@@ -1034,13 +1045,29 @@ minimum or an average, for example from the CSV export, or put the
   Script blocks opens a private connection on 127.0.0.1 between the engine
   and its script process for a moment; on Linux it uses no network at all.
   *Roadmap:* AI-01.
-- **Unsigned installers.** Windows SmartScreen warns on first launch (choose
-  *More info → Run anyway*). *Roadmap:* PLT-13.
-- **No macOS version.** Builds exist for Windows 10/11 (x64) and Linux (x64)
-  only. *Roadmap:* PLT-13.
-- **No automatic updates yet.** Download a newer version from the GitHub
-  Releases page and install it over the old one; your projects are kept.
-  *Roadmap:* PLT-18.
+- **Unsigned installers, until the owner buys a certificate.** The build
+  can sign every Windows file, but only once the owner has a code-signing
+  certificate. Until then Windows SmartScreen warns on first launch (choose
+  *More info → Run anyway*), company antivirus may treat the unsigned
+  engine (`lightsim-backend.exe`) with suspicion, and IT cannot allow
+  LightSim by its publisher. Each build is scanned with Microsoft Defender,
+  which finds nothing. *Roadmap:* PLT-32.
+- **No macOS version yet.** The build makes and tests a Mac version for
+  Apple silicon, but it is published only once it can be signed and
+  notarised by Apple, which needs the owner's paid Apple Developer account.
+  Until then there are builds for Windows 10/11 (x64) and Linux (x64) only.
+  There is no build for Intel Macs. *Roadmap:* PLT-13.
+- **Updates need a yes, and some installs only point to the download.**
+  LightSim checks for updates only after you agree (it asks the first time
+  it opens). The .deb package, MSI installs and unsigned Windows builds do
+  not install updates themselves: they open the download page. There is
+  one update channel (no beta) and no way back to an older version from the
+  app. *Roadmap:* PLT-18, PLT-31.
+- **The policy file has no Group Policy template.** IT fixes settings with a
+  `policy.json` file ([how](help/how-to/deploy-for-it.md)), not through
+  Group Policy's administrative templates (ADMX) or the registry. Its `ai`,
+  `aiProviders` and `licenceFile` keys change nothing yet. *Roadmap:*
+  PLT-36.
 - **The help is a first draft.** F1, or **?** at the top right, opens
   LightSim's help in your web browser, served from your computer: two
   tutorials, how-to guides, a page for every part in the library, and the

@@ -8,6 +8,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # 127.0.0.1 and localhost unless told otherwise (app/security.py).
 os.environ.setdefault("LIGHTSIM_ALLOWED_HOSTS", "testserver")
 
+# Most tests run models with their own Script code; the check that a user
+# approved it (app/script_trust.py) has its own tests, which turn it on.
+os.environ.setdefault("LIGHTSIM_SCRIPT_TRUST", "off")
 
 import pytest  # noqa: E402
 

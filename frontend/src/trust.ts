@@ -1,9 +1,11 @@
 // Code a project carries that runs on the user's computer when the model
-// runs (STD-02): Script blocks, and attached FMUs, AI models or programs.
-// Before such a project's first run the app asks once whether the user
-// trusts it; the engine remembers the answer by the fingerprint below (see
+// runs (STD-02): attached FMUs, AI models or programs. Before such a
+// project's first run the app asks once whether the user trusts it; the
+// engine remembers the answer by the fingerprint below (see
 // backend/app/trust.py), so the same code is not asked about again and
-// changed code is.
+// changed code is. Script blocks have a review of their own, which shows
+// their code and which the engine enforces (PLT-35, backend/app/script_trust.py):
+// codeOf leaves them out unless asked.
 import type { ComponentDef, Project } from "./types";
 
 /** File extensions of attachments that hold code (backend/app/attachments.py). */
@@ -18,13 +20,18 @@ export interface ProjectCode {
 }
 
 /** The code in `project`, or null when it carries none. */
-export function codeOf(project: Project, libraryById: Record<string, ComponentDef>): ProjectCode | null {
+export function codeOf(
+  project: Project,
+  libraryById: Record<string, ComponentDef>,
+  { scripts: withScripts = false }: { scripts?: boolean } = {},
+): ProjectCode | null {
   const def = libraryById[SCRIPT];
   const fallback = String(def?.parameters.find((p) => p.key === "code")?.default ?? "");
   const scripts = project.systems
     .flatMap((s) => s.elements)
     .filter((e) => e.componentDefId === SCRIPT)
     .map((e) => String(e.parameterOverrides.code ?? fallback))
+    .filter(() => withScripts)
     .sort();
   const files = (project.attachments ?? [])
     .filter((a) => EXECUTABLE.test(a.path))

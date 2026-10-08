@@ -4,9 +4,10 @@
 #   ./scripts/build-desktop.sh            # installers for the current OS
 #   ./scripts/build-desktop.sh --dir      # unpacked app only (fast, for testing)
 #
-# Runs on Linux. Windows users: see scripts/build-desktop.ps1. macOS is not
-# supported: the licence check stops the build there, because
-# scripts/licenses/bundled-runtime.json lists no macOS libraries.
+# Runs on Linux and macOS (Apple silicon). Windows users: see
+# scripts/build-desktop.ps1. A Mac build made here is unsigned: run it on your
+# own Mac only. Published Mac builds are signed and notarised by the release
+# workflow (.github/workflows/desktop-build.yml).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
