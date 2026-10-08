@@ -18,18 +18,25 @@ pub fn structure_key(m: &PreparedModel) -> String {
         .filter(|p| p.structural)
         .map(|p| (&p.name, p.value.to_bits()))
         .collect();
+    let modes: Vec<_> = m.modes.iter().map(|x| (x.var, &x.relation, x.crossing)).collect();
+    let init = (
+        &m.init.unknowns,
+        &m.init.guesses,
+        m.init.assignments.iter().map(|a| (&a.target, &a.expr)).collect::<Vec<_>>(),
+        m.init.residuals.iter().map(|r| &r.expr).collect::<Vec<_>>(),
+        &m.init.discrete_starts,
+    );
+    let limits: Vec<_> = m.limits.iter().map(|l| (&l.value, &l.lo, &l.hi)).collect();
     let sizes = (m.flat.vars.len(), m.flat.params.len(), &m.aliases);
     let text = serde_json::to_string(&(
-        &m.states,
-        &m.algebraics,
-        &m.discretes,
-        &m.inputs,
+        (&m.states, &m.algebraics, &m.discretes, &m.inputs),
         assignments,
         residuals,
         crossings,
         whens,
         structural,
         sizes,
+        (modes, init, limits),
     ))
     .expect("the IR serialises");
     let digest = Sha256::digest(text.as_bytes());
