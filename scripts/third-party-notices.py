@@ -58,9 +58,11 @@ LICENSE_CHECKER = ROOT / "desktop" / "node_modules" / "license-checker-rseidelso
 # Dev dependencies whose own code still ends up in the UI bundle: Tailwind's
 # base styles, Vite's module-preload polyfill and Rolldown's runtime helpers.
 UI_BUILD_OUTPUT = ["tailwindcss", "vite", "rolldown"]
-# LightSim's own files inside the frozen engine.
-OWN_FILES = [ROOT / "backend" / "app", ROOT / "backend" / "projects",
-             ROOT / "backend" / "run_backend.py", ROOT / "VERSION"]
+# LightSim's own files inside the frozen engine (backend/lightsim is the
+# command-line tool and Python API, which the engine bundles too).
+OWN_FILES = [ROOT / "backend" / "app", ROOT / "backend" / "lightsim",
+             ROOT / "backend" / "projects", ROOT / "backend" / "run_backend.py",
+             ROOT / "VERSION"]
 # PyInstaller table-of-contents entries that are files in the bundle.
 FILE_KINDS = {"PYMODULE", "PYSOURCE", "EXTENSION", "BINARY", "DATA", "EXECUTABLE"}
 
