@@ -1014,6 +1014,21 @@ describe("data checks gate", () => {
     expect(store().running).toBe(false);
     expect(messages()).toContain("error: Run blocked — fix 1 data-check error first.");
   });
+
+  it("an error about another case's own values does not block this case", async () => {
+    await start();
+    engineFinishesRuns();
+    const other: DataCheck = { level: "error", text: "Case 'Lap': A lap case needs a Race Track.", caseId: "case-lap" };
+    api.validateProject.mockResolvedValue([other]);
+    await store().run();
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
+    expect(messages()).not.toContain("error: Run blocked — fix 1 data-check error first.");
+    // the same error about the case being run blocks it
+    api.validateProject.mockResolvedValue([{ ...other, caseId: store().activeCaseId }]);
+    await store().run();
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
+    expect(messages()).toContain("error: Run blocked — fix 1 data-check error first.");
+  });
 });
 
 describe("data checks follow the model", () => {

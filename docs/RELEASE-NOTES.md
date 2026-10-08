@@ -157,7 +157,8 @@ sections.
   a *Start line* and a *Reference time*. The Driver holds full throttle
   the whole run with no target, and the run ends at the end of the solver
   step that reaches the line; Data Checks ask for a Target Speed only
-  when a case reads one. The summary
+  when a case reads one, and a missing one stops only the cases that read
+  it. The summary
   leads with *Time to 75 m* (from the start line, with *pass* and the case
   duration as its limit), *Speed at 75 m*, *Gap to reference time*,
   *Time to 100 km/h* (from t = 0), each battery's peak and mean terminal
@@ -196,7 +197,9 @@ sections.
   (in g, a new unit), what limited the car and a map, for the X-Y view.
   Data Checks refuse a lap case without a Race Track, Driver or E-Motor,
   with an engine or clutch on the wheels or with all wheels on one axle,
-  and a Custom curvature above 0.5 1/m. The results are estimates, and say so.
+  and a Custom curvature above 0.5 1/m. Such an error stops only that
+  case, as does any Data Check about a case's own values (its text names
+  the case, and the other cases still run). The results are estimates, and say so.
   A Formula Student-sized car (280 kg, 96 kW, μ 1.5) laps the Autocross
   in 61.2 s (62.9 s from a standing start), solved in about 0.15 s.
 - Formula Student events and points (MOD-43): **FS events** (Simulations

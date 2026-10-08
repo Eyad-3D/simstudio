@@ -213,15 +213,18 @@ def test_full_throttle_needs_no_target():
 def test_the_app_runs_an_acceleration_test_without_a_target():
     """Data Checks ask for a Target Speed only when a case reads one: the
     target-less car runs through the app while its only case is an
-    acceleration test, and is refused once it has a cycle case too."""
+    acceleration test, and still does once it has a cycle case too, whose
+    runs alone the missing target stops."""
     proj = _fs_car()
     client = TestClient(app)
     ran = client.post("/api/simulate", json={"project": proj.model_dump(), "caseId": "case"}).json()
     assert ran["status"] == "success", ran["messages"]
     proj.cases.append(proj.cases[0].model_copy(update={"id": "cycle", "kind": "cycle",
                                                        "endDistance": None}))
+    ran = client.post("/api/simulate", json={"project": proj.model_dump(), "caseId": "case"}).json()
+    assert ran["status"] == "success", ran["messages"]
     refused = client.post("/api/simulate",
-                          json={"project": proj.model_dump(), "caseId": "case"}).json()
+                          json={"project": proj.model_dump(), "caseId": "cycle"}).json()
     assert refused["status"] == "failed"
     assert any("has no Target Speed signal" in m["text"] for m in refused["messages"])
 

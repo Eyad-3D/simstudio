@@ -111,13 +111,20 @@ def _drives(project: Project, case: SimCase, cycle_id: str) -> bool:
     return tasks[0].parameterOverrides.get("cycle") == cycle_id
 
 
+def base_case(project: Project, base_case_id: str | None = None) -> SimCase | None:
+    """The case the estimate copies when the project has none of its own for
+    a cycle: ``base_case_id`` if it is a Cycle case, else the first one."""
+    cases = [c for c in project.cases if c.kind == "cycle"]
+    return next((c for c in cases if c.id == base_case_id), cases[0] if cases else None)
+
+
 def label_cases(project: Project, base_case_id: str | None = None) -> dict[str, SimCase]:
     """The case to run for each cycle: one of the project's own that drives
     it (the hybrid example has one for each, each with its balanced start
     charge), or else a copy of the base case (the first Cycle case) set to
     the cycle and its length."""
     cases = [c for c in project.cases if c.kind == "cycle"]
-    base = next((c for c in cases if c.id == base_case_id), cases[0] if cases else None)
+    base = base_case(project, base_case_id)
     tasks = [e for s in project.systems for e in s.elements
              if e.componentDefId == "signal.driving_task"]
     if base is None or len(tasks) != 1:

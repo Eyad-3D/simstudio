@@ -35,8 +35,8 @@ machine-readable description is at `/openapi.json`.
 | `DELETE /api/projects/{id}/runs` | Delete all of a project's runs |
 | `GET /api/examples`, `GET /api/examples/{id}` | The examples (with `hidden`) / one example, read-only |
 | `POST /api/examples/{id}/hide`, `POST /api/examples/restore` | Hide an example from the Open menu / show all again |
-| `POST /api/validate` | Body `{project}`: the Data Checks' findings ([schema](schemas/data-checks.schema.json)) |
-| `POST /api/simulate` | Body `{project, caseId}`: check, then run the case and return its [result](results.md#result) |
+| `POST /api/validate` | Body `{project}`: the Data Checks' findings ([schema](schemas/data-checks.schema.json)). A finding with a `caseId` is about that case's own values or kind: as an error it stops only that case's runs |
+| `POST /api/simulate` | Body `{project, caseId}`: check (errors about the model or this case stop it), then run the case and return its [result](results.md#result) |
 | `WS /api/simulate/run` | A live run, below |
 
 ## The live run (WebSocket)
@@ -61,7 +61,7 @@ Closing the connection also stops the run.
 |---|---|---|
 | `step` | `t` (s), `pct` (0 to 100, how far the run is), `values` (`"elementId:portId"` → value, for the channels that have data at this point) | Each stored point |
 | `message` | `level` (`info`, `warning`, `error`), `text` | When the run reports something |
-| `done` | `result` (a [result](results.md#result)) | Last; the engine then closes the connection. If the Data Checks find an error, `done` comes at once with a *failed* result whose messages name the errors |
+| `done` | `result` (a [result](results.md#result)) | Last; the engine then closes the connection. If the Data Checks find an error about the model or about this case, `done` comes at once with a *failed* result whose messages name the errors |
 | `error` | `detail` | The first message was not a valid `start`; the engine closes the connection |
 
 Example:

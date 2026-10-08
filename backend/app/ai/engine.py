@@ -36,7 +36,7 @@ from .. import run_store, storage
 from ..library import library_by_id
 from ..paths import projects_dir
 from ..schemas import ComponentDef, DataCheck, Project, SimResult, StoredRun
-from ..validation import validate_project
+from ..validation import run_blockers, validate_project
 
 #: The project-file flag that hides a project from every AI connection
 #: (docs/spec/project.md); "noAI" was its spelling before 0.3.0 was released.
@@ -292,7 +292,7 @@ class Engine:
         Data Checks run first, as the app's Run does."""
         from ..solver import simulate
 
-        errors = [c for c in validate_project(project) if c.level == "error"]
+        errors = run_blockers(validate_project(project), case_id)
         if errors:
             return SimResult(
                 caseId=case_id, status="failed", channels=[],

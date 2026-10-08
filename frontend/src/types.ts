@@ -579,6 +579,9 @@ export interface DataCheck {
   text: string;
   /** What to do about it, when the text does not say. */
   fix?: string | null;
+  /** The case it is about (its own values or kind): it stops only that
+   *  case's runs. Absent or null: it is about the model and stops every run. */
+  caseId?: string | null;
 }
 
 export interface LogMessage {

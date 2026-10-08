@@ -9,9 +9,9 @@ from test_broken_models import EXAMPLES, faults
 
 from app.library import load_library
 from app.main import app
-from app.schemas import Connection, Project
+from app.schemas import Connection, Project, SimCase
 from app.storage import load_example
-from app.validation import validate_project
+from app.validation import run_blockers, validate_project
 
 client = TestClient(app)
 
@@ -418,6 +418,86 @@ def test_a_case_override_keeps_to_the_limits_too():
     result = client.post("/api/simulate",
                          json={"project": proj.model_dump(), "caseId": case.id}).json()
     assert result["status"] == "failed" and "150" in result["messages"][0]["text"]
+
+
+# ---- a case's own errors stop only that case ------------------------------------------
+
+def _blockers(proj, case_id):
+    return [c.text for c in run_blockers(validate_project(proj), case_id)]
+
+
+def test_an_error_about_one_case_stops_only_that_case():
+    """The FS example with a Cycle case added: the Driver's unwired Target
+    Speed stops the Cycle case only, not the acceleration test or the lap
+    cases, which do not read it; the error names the case."""
+    proj = load_example("fs-electric")
+    proj.cases.append(SimCase(id="case-new", name="Case 4", duration=10, timeStep=0.1))
+    checks = validate_project(proj)
+    target = [c for c in checks if "Target Speed" in c.text and c.level == "error"]
+    assert [(c.text, c.caseId) for c in target] == [(
+        "Driver 'Driver' has no Target Speed signal, which case 'Case 4' (Cycle) reads — it "
+        "will hold 0 km/h, so the vehicle will not move.", "case-new")]
+    for other in ("case-accel-75m", "case-autocross", "case-endurance"):
+        assert run_blockers(checks, other) == []
+    refused = client.post("/api/simulate",
+                          json={"project": proj.model_dump(), "caseId": "case-new"}).json()
+    assert refused["status"] == "failed"
+    assert refused["messages"][0]["text"] == "Data check failed: " + target[0].text
+
+
+def test_one_error_for_the_model_when_every_case_reads_the_target():
+    proj = load_example("bev-car")
+    proj.dataBusConnections = [d for d in proj.dataBusConnections
+                               if (d.element2Id, d.port2Id) != ("el-driver", "sig_target_in")]
+    target = [c for c in validate_project(proj) if "Target Speed signal" in c.text]
+    assert [(c.text, c.caseId) for c in target] == [(
+        "Driver 'Driver' has no Target Speed signal — it will hold 0 km/h, so the vehicle "
+        "will not move.", None)]
+
+
+def test_a_lap_case_s_problems_stop_only_the_lap_case():
+    """A Lap case in the hybrid example (which a lap case refuses: it has an
+    engine and a clutch) or in the BEV example before it has a Race Track:
+    the errors stop that case, the drive cycles still run."""
+    proj = load_example("hybrid-car")
+    proj.systems[0].elements.append(el("trk", "track.lap", "Race Track"))
+    proj.cases.append(SimCase(id="case-lap", name="Lap", duration=600, timeStep=1, kind="lap"))
+    assert any("Combustion Engine" in t for t in _blockers(proj, "case-lap"))
+    assert _blockers(proj, "case-udds") == []
+
+    proj = load_example("bev-car")
+    proj.cases.append(SimCase(id="case-lap", name="Lap", duration=600, timeStep=1, kind="lap"))
+    assert _blockers(proj, "case-lap") == [
+        "Case 'Lap': A lap case needs a Race Track: add one from Driver & Signals and choose "
+        "its layout."]
+    assert _blockers(proj, "case-city") == []
+
+
+def test_a_case_s_out_of_range_value_stops_only_that_case():
+    proj = load_example("bev-car")
+    proj.cases[1].parameterOverrides["el-battery"] = {"initial_soc_pct": 150}
+    assert len(_blockers(proj, proj.cases[1].id)) == 1
+    assert _blockers(proj, proj.cases[0].id) == []
+
+
+def test_a_case_s_drive_cycle_this_version_does_not_have_is_an_error():
+    """A case's own Drive Cycle that this version does not include (from a
+    project saved by a newer build) is a Data Checks error of that case, as
+    one set on the part is, instead of a run that fails."""
+    proj = load_example("bev-car")
+    case = next(c for c in proj.cases if c.name == "WLTC Class 3b")
+    case.parameterOverrides["el-task"]["cycle"] = "jc08"
+    found = [c for c in validate_project(proj) if c.level == "error"]
+    assert [(c.caseId, c.elementIds) for c in found] == [(case.id, ["el-task"])]
+    assert found[0].text == (
+        "Case 'WLTC Class 3b': Driving Task 'Vehicle Task' uses the drive cycle 'jc08', which "
+        "this version of LightSim does not include.")
+    assert "Cases & Parameters" in found[0].fix
+    refused = client.post("/api/simulate",
+                          json={"project": proj.model_dump(), "caseId": case.id}).json()
+    assert refused["status"] == "failed"
+    assert refused["messages"][0]["text"].startswith("Data check failed: Case 'WLTC Class 3b'")
+    assert _blockers(proj, "case-city") == []
 
 
 # ---- UX-09: every problem names its parts and says what to do ---------------------

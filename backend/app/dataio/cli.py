@@ -95,13 +95,12 @@ def _print(obj: Any, as_json: bool, text: str) -> None:
 
 def cmd_run(args: argparse.Namespace) -> int:
     from ..solver import simulate
-    from ..validation import validate_project
+    from ..validation import run_blockers, validate_project
     from . import results
 
     project = _load_project(args.project)
     case = _pick_case(project, args.case)
-    checks = validate_project(project)
-    errors = [c for c in checks if c.level == "error"]
+    errors = run_blockers(validate_project(project), case.id)
     if errors:
         out = {"status": "checks failed", "case": case.name,
                "errors": [c.text for c in errors]}

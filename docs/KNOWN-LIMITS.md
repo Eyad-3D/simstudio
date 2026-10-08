@@ -1095,9 +1095,8 @@ minimum or an average, for example from the CSV export, or put the
   check each number against its own limits only: a PID's Output Minimum
   above its Output Maximum, or a Default Gear past the last gear, is not
   flagged. A sweep's From and To are not checked as you type; a point
-  outside the limits fails when it runs, with the Data Check's reason. A
-  case's own value out of range stops the runs of every case, not only
-  its own. An acceleration case's Distance, Start line and Reference time
+  outside the limits fails when it runs, with the Data Check's reason. An
+  acceleration case's Distance, Start line and Reference time
   turn red as you type but are not Data Checks: a run ignores a value
   outside them (no finish line, a 0 m start line, no reference gap).
   Properties does not mark a value that differs from the library's default
