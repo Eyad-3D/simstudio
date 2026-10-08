@@ -97,3 +97,68 @@ export function fsPointsTable(project: Project, runs: SimRun[]): { rows: FsPoint
     total: scored.length ? scored.reduce((a, r) => a + (r.points ?? 0), 0) : undefined,
   };
 }
+
+// ---- the endurance energy study's pack axis (STU-38) ----------------------
+
+type Params = Record<string, unknown>;
+
+const num = (v: unknown, fallback = 0): number => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+/** A 1D table's mean over 0 to 100 (its ends held), by trapezoids, as the
+ *  engine's ocv_mean reads an open-circuit voltage table; NaN when it is
+ *  not a table. */
+export function tableMean(raw: unknown): number {
+  if (!raw || typeof raw !== "object") return NaN;
+  const pts = Object.entries(raw as Record<string, unknown>)
+    .map(([x, y]) => [Number(x), Number(y)] as const)
+    .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y))
+    .sort((a, b) => a[0] - b[0]);
+  if (!pts.length) return NaN;
+  const at = (x: number) => {
+    if (x <= pts[0][0]) return pts[0][1];
+    for (let i = 1; i < pts.length; i++) {
+      const [x1, y1] = pts[i];
+      if (x <= x1) {
+        const [x0, y0] = pts[i - 1];
+        return y0 + ((y1 - y0) * (x - x0)) / (x1 - x0);
+      }
+    }
+    return pts[pts.length - 1][1];
+  };
+  const xs = [0, ...pts.map(([x]) => x).filter((x) => x > 0 && x < 100), 100];
+  let area = 0;
+  for (let i = 1; i < xs.length; i++) area += ((xs[i] - xs[i - 1]) * (at(xs[i - 1]) + at(xs[i]))) / 2;
+  return area / 100;
+}
+
+/** A battery's energy, kWh, as the study's pack axis reads it, from its
+ *  parameters (library defaults, the part's and the case's values): its
+ *  Usable Capacity, or built from cells (MOD-08), cells in series × in
+ *  parallel × the cell's charge × its mean open-circuit voltage. */
+export function packKwh(p: Params): number {
+  if (p.pack_model === "Cells") {
+    const kwh =
+      (num(p.series_cells, 96) * num(p.parallel_cells, 30) * num(p.cell_capacity_Ah, 5) * tableMean(p.cell_ocv_table)) /
+      1000;
+    return Number.isFinite(kwh) ? kwh : NaN;
+  }
+  return num(p.capacity_kWh, NaN);
+}
+
+/** The battery values that make a pack of ``kwh``. Pack values: the Usable
+ *  Capacity, and the Charge Capacity scaled with it, since the engine reads
+ *  the charge from the amp-hours when they are set (a study that changed
+ *  only the kWh ran one pack size); with no base to scale from, the
+ *  amp-hours follow the kWh (0). Cells: the cell's charge, scaled. */
+export function packOverrides(p: Params, kwh: number): Record<string, number> {
+  const base = packKwh(p);
+  const scale = Number.isFinite(base) && base > 0 ? kwh / base : NaN;
+  if (p.pack_model === "Cells")
+    return Number.isFinite(scale) ? { cell_capacity_Ah: num(p.cell_capacity_Ah, 5) * scale } : {};
+  const ah = num(p.capacity_Ah);
+  if (ah <= 0) return { capacity_kWh: kwh };
+  return { capacity_kWh: kwh, capacity_Ah: Number.isFinite(scale) ? ah * scale : 0 };
+}

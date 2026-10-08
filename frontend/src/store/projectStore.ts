@@ -35,7 +35,7 @@ import type {
   SystemNode,
 } from "../types";
 import { rangeProblem } from "../paramRules";
-import { FS_EVENTS, type FsEvent } from "../fsEvents";
+import { FS_EVENTS, packOverrides, type FsEvent } from "../fsEvents";
 import { codeOf, fingerprintOf } from "../trust";
 import { useUIStore } from "./uiStore";
 
@@ -2369,6 +2369,12 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const battery = project.systems.flatMap((sy) => sy.elements).find((e) => e.id === batteryId);
       if (!simCase || !battery || !packs.length || !caps.length) return;
       const pdefs = libraryById[battery.componentDefId]?.parameters ?? [];
+      // the battery as the case runs it: the library's values, its own, the case's
+      const params = {
+        ...Object.fromEntries(pdefs.map((d) => [d.key, d.default])),
+        ...battery.parameterOverrides,
+        ...(simCase.parameterOverrides?.[batteryId] ?? {}),
+      };
       const factor = (key: string, values: number[]) => {
         const d = pdefs.find((p) => p.key === key);
         return {
@@ -2402,7 +2408,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             project: structuredClone(project),
             caseId,
             points: grid.map(([pack, cap]) => ({
-              overrides: { [batteryId]: { capacity_kWh: pack, output_power_limit_kW: cap } },
+              // the pack's size: its kWh and the charge with them (a battery
+              // with a Charge Capacity, or built from cells, ran one size before)
+              overrides: { [batteryId]: { ...packOverrides(params, pack), output_power_limit_kW: cap } },
               values: [pack, cap],
               label: `${simCase.name} · ${pack} kWh, ${cap} kW`,
             })),

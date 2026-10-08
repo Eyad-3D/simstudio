@@ -286,10 +286,12 @@ results:
   Skidpad layout; the rules time a second lap on each circle.
 
 - The endurance energy study varies only the capacity and the Output
-  Power Limit of the first battery; it runs one endurance for each pair, a
-  4 × 4 grid in about 3 min, and a larger pack keeps the car's mass (add
-  the cells' mass to the Vehicle yourself). Grid studies of other
-  parameters are STU-06's work.
+  Power Limit of the first battery (with the capacity, its *Charge
+  Capacity* in the same proportion, or for a pack built from cells, the
+  cell's capacity); it runs one endurance for each pair, a
+  4 × 4 grid in about 3 min, and a larger pack keeps the car's mass and
+  resistance (add the cells' mass to the Vehicle yourself). Grid studies of
+  other parameters are STU-06's work.
 
 *Workaround:* compare points between versions of your car, with the same
 references, rather than with a competition's results.

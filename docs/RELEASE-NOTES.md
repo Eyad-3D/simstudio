@@ -247,7 +247,8 @@ sections.
   battery energy, the lowest pack voltage and, from a trace, the RMS
   battery power, with the endurance energy and rule checks (a Cycle case
   gets no points). Its *Cases* tab offers a grid of the accumulator's
-  capacity and Output Power Limit (up to 6 × 6) that runs as one saved
+  capacity (its *Charge Capacity*, or a cell pack's cell capacity, scaled
+  with it) and Output Power Limit (up to 6 × 6) that runs as one saved
   study and shows a map, marking the pairs that run out of energy *DNF*.
   Saved studies with two factors name both.
 - A *Traction Control* block (Driver & Signals, MOD-45): wired between the
