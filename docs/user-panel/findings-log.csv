@@ -1,0 +1,2 @@
+date,release,seat,source,task,finding,severity,roadmap_id,status,notes
+2026-10-07,0.3.0,EXAMPLE,session,F1,"Example row: delete when the first real finding is logged",low,BIZ-35,example,"seat codes FS-n, IND-n, IT-1; source session, menu or other; severity blocker, high, medium or low; status new, planned, done or wontfix"

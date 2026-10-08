@@ -1012,6 +1012,18 @@ sections.
   up; this release is unsigned and has no Mac version unless its download
   page says otherwise. Every Windows build is scanned with Microsoft
   Defender and test-installed. (PLT-32, PLT-13)
+- **Help → What Stopped You?…** in the desktop app opens LightSim's Idea
+  form on GitHub in your browser, with your version filled in, so you can
+  say what kept you from finishing a task. Nothing is sent unless you
+  submit the form. (BIZ-35)
+- How to help, and how to report a security problem privately:
+  `CONTRIBUTING.md` and `SECURITY.md` in the repository, with bug and idea
+  forms for GitHub issues. Code contributions need a signed contributor
+  licence agreement, which is not ready yet. (BIZ-13)
+- A draft licence FAQ, *Can I use LightSim for …?*
+  (`docs/licensing/licence-faq.md`), answers 20 everyday cases, such as
+  Formula Student teams, theses, lab PCs and company trials. It is a draft
+  and the end-user licence agreement still decides. (BIZ-29)
 
 ### Fixed
 

@@ -1,0 +1,11 @@
+# Blank issues stay open until a private licence address exists (EULA 1.0
+# sends licence enquiries to a public issue). Once the owner decides the
+# address (docs/licensing/EULA-proposal.md, D1), set this to false.
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem (private)
+    url: https://github.com/Eyad-3D/simstudio/security/advisories/new
+    about: Never in a public issue. See SECURITY.md.
+  - name: Licence and purchase questions
+    url: https://github.com/Eyad-3D/simstudio/blob/main/docs/licensing/licence-faq.md#how-to-ask-about-a-licence
+    about: Can I use LightSim for …? The FAQ answers common cases and says how to ask privately.
