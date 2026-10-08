@@ -105,6 +105,34 @@ pub struct PreparedWhen {
     pub origin: Origin,
 }
 
+/// Where an external sampled block (a [`crate::runtime::DiscreteBlock`])
+/// sits in the model.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct ExternalBlock {
+    /// the instance it is (its path names the host's implementation)
+    pub instance: crate::flat::InstanceId,
+    /// the variables it reads at each tick
+    pub inputs: Vec<VarId>,
+    /// the discrete variables it sets
+    pub outputs: Vec<VarId>,
+    /// its period, s (a parameter's value at preparation)
+    pub period: f64,
+}
+
+/// What fast mode prescribes and frees (DESIGN.md, *Fast mode*): the
+/// contract between the inverse-model preparation (lsim-prep) and the
+/// fast-mode stepper (lsim-fast).
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+pub struct InverseSpec {
+    /// variables (full flat names) whose values follow a given trajectory,
+    /// usually the vehicle body's speed; they and their derivatives become
+    /// known inputs
+    pub prescribed: Vec<String>,
+    /// signal inputs (full flat names) that become unknowns, usually the
+    /// driver's commands
+    pub freed: Vec<String>,
+}
+
 /// Counts that describe the preparation, for the run report.
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct PrepStats {
@@ -133,8 +161,11 @@ pub struct PreparedModel {
     pub algebraics: Vec<Slot>,
     /// d: the discrete variables
     pub discretes: Vec<VarId>,
-    /// u: inputs set from outside (sampled blocks, prescribed trajectories)
+    /// u: inputs set from outside (prescribed trajectories, and their
+    /// derivatives in an inverse model)
     pub inputs: Vec<VarId>,
+    /// sampled blocks run outside the equations
+    pub external: Vec<ExternalBlock>,
     /// the explicit assignments, in evaluation order
     pub assignments: Vec<Assignment>,
     /// the residuals g, one per iteration variable

@@ -86,6 +86,9 @@ mod tests {
     fn two_sources_in_parallel_are_named() {
         let err = prepare(&lsim_lib::library(), &parallel_sources(), &PrepOptions::default())
             .unwrap_err();
+        for d in &err {
+            println!("{d}");
+        }
         let over = err.iter().find(|d| d.code == "STRUCT-OVER").expect("over-determined");
         assert!(over.message.contains("'Bench supply' and 'Charger'"), "{}", over.message);
         assert!(over.hint.as_ref().unwrap().contains("parallel"));
@@ -123,6 +126,7 @@ mod tests {
             ..Default::default()
         };
         let err = prepare(&lib, &top, &PrepOptions::default()).unwrap_err();
+        println!("{}", err[0]);
         assert_eq!(err[0].code, "UNIT-MISMATCH");
         assert!(err[0].message.contains("'Heater' (Electrical.BadResistor)"), "{}", err[0].message);
         assert!(err[0].message.contains("“v = R / i”"), "{}", err[0].message);

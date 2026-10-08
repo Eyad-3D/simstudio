@@ -15,6 +15,44 @@
 //! * `u`: inputs, in [`crate::PreparedModel::inputs`] order;
 //! * residual output `[x'; g]`: the state derivatives, then the residuals.
 
+/// The sparsity of `∂[x'; g]/∂y`, column-compressed: the rows of column
+/// `j` are `row_idx[col_ptr[j]..col_ptr[j + 1]]`, increasing. Produced by
+/// lsim-prep (work package 2), used by lsim-codegen to colour and fill
+/// the Jacobian and by lsim-solve's sparse LU (work packages 3 and 4).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SparsityPattern {
+    /// n_y
+    pub n: usize,
+    /// column starts, n + 1 values
+    pub col_ptr: Vec<usize>,
+    /// row indices
+    pub row_idx: Vec<usize>,
+}
+
+/// A block with its own sample clock, run outside the equations: a Script
+/// block (sandboxed Python), an FMU for co-simulation, a digital
+/// controller. Between its ticks its outputs hold (they are discrete
+/// variables of the model); at a tick the run loop stops the integrator
+/// exactly there, reads the block's inputs, calls [`DiscreteBlock::tick`]
+/// and restarts the integrator only if an output changed. The host (the
+/// Python layer, work package 6) implements it; the run loop (work
+/// package 4) drives it.
+pub trait DiscreteBlock: Send {
+    /// The block's name, for messages.
+    fn name(&self) -> &str;
+    /// Its sample period, s.
+    fn period(&self) -> f64;
+    /// The first tick's time, s.
+    fn offset(&self) -> f64 {
+        0.0
+    }
+    /// Called once at the start with the inputs' initial values; sets the
+    /// outputs' initial values.
+    fn init(&mut self, t0: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String>;
+    /// One tick: reads the inputs at `t`, writes the held outputs.
+    fn tick(&mut self, t: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String>;
+}
+
 /// Sizes of the compiled model's vectors.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Layout {

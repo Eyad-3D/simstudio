@@ -373,6 +373,7 @@ pub fn causalize(
         algebraics,
         discretes,
         inputs: vec![],
+        external: vec![],
         assignments,
         residuals,
         aliases,
@@ -420,11 +421,11 @@ fn structural_diagnostics(
         let mut d = Diagnostic::error(
             "STRUCT-OVER",
             format!(
-                "{} set the same quantities more than once: {} equations ({}) determine only {} unknowns ({}).",
+                "{} set the same quantity more than once: {} ({}) for {} ({}).",
                 join_names(&names),
-                seen.len(),
+                count(seen.len(), "equation"),
                 words.join("; "),
-                vars.len(),
+                count(vars.len(), "unknown"),
                 what.join(", ")
             ),
         );
@@ -486,10 +487,14 @@ fn structural_diagnostics(
         let mut d = Diagnostic::error(
             "STRUCT-UNDER",
             format!(
-                "Nothing determines {} ({} unknowns with only {} equations between them, in {}).",
+                "Nothing determines {}: {} with {} between them, in {}.",
                 what.join(", "),
-                seen.len(),
-                eqs.len(),
+                count(seen.len(), "unknown"),
+                if eqs.is_empty() {
+                    "no equation".to_string()
+                } else {
+                    count(eqs.len(), "equation")
+                },
                 join_names(&names)
             ),
         )
@@ -509,6 +514,10 @@ fn label_of(flat: &FlatSystem, path: &str) -> String {
         .find(|i| i.path == path)
         .and_then(|i| i.label.clone())
         .unwrap_or_else(|| path.to_string())
+}
+
+fn count(n: usize, what: &str) -> String {
+    if n == 1 { format!("1 {what}") } else { format!("{n} {what}s") }
 }
 
 fn join_names(names: &[String]) -> String {

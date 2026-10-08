@@ -14,17 +14,24 @@
 //!   mode never falls back to forward simulation, it reports where the
 //!   vehicle could not have followed.
 //!
-//! The inverse model is prepared by lsim-prep with a different known set
-//! (the prescribed speed and its derivative known, the driver's outputs
-//! unknown; index reduction differentiates what the prescription
-//! constrains), compiled by lsim-codegen like any model, and stepped here.
+//! The inverse model is prepared by lsim-prep from an [`InverseSpec`]
+//! (the prescribed speed and its derivative become known inputs, the
+//! driver's commands unknowns; index reduction differentiates what the
+//! prescription constrains), compiled by lsim-codegen like any model, and
+//! stepped here with a linearly implicit Rosenbrock-W method: one linear
+//! solve per stage, no Newton iteration, a Jacobian that may be reused over
+//! many steps, L-stable for the stiff electrical states. With the speed
+//! trace piecewise linear, each 1 s step sees the constant acceleration the
+//! standard backward-facing (quasi-static) method uses.
 //! Target: about 10⁶ × real time on WLTC (1800 s in about 2 ms).
 //!
 //! Stage 1 fixes the interfaces; work package 6 implements them.
 
+pub use lsim_ir::InverseSpec;
 use lsim_ir::runtime::ModelFunctions;
 
-/// A prescribed trajectory: piecewise-linear samples.
+/// A prescribed trajectory: piecewise-linear samples (one per prescribed
+/// variable of the [`InverseSpec`], in its order).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Trace {
     /// times, s, increasing
@@ -33,23 +40,17 @@ pub struct Trace {
     pub value: Vec<f64>,
 }
 
-/// What the inverse model prescribes and frees.
-#[derive(Clone, Debug, PartialEq)]
-pub struct InverseSpec {
-    /// variable (full flat name) → its prescribed trajectory; usually the
-    /// vehicle body's speed
-    pub prescribed: Vec<(String, Trace)>,
-    /// signal inputs that become unknowns (the driver's commands)
-    pub freed: Vec<String>,
-}
-
 /// The fixed-step method.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum FixedMethod {
-    /// 2-stage Radau IIA: order 3, L-stable (default)
+    /// ROS34PW2: Rosenbrock-W, order 3, L-stable, tolerant of an old
+    /// Jacobian (default)
     #[default]
+    RosenbrockW,
+    /// 2-stage Radau IIA with Newton: order 3, L-stable (the reference the
+    /// default is tested against)
     Radau2,
-    /// implicit Euler: order 1, L-stable (reference)
+    /// implicit Euler: order 1 (for cross-checks with simple tools)
     ImplicitEuler,
 }
 
@@ -64,7 +65,7 @@ pub struct FastOptions {
 
 impl Default for FastOptions {
     fn default() -> Self {
-        FastOptions { step: 1.0, method: FixedMethod::Radau2 }
+        FastOptions { step: 1.0, method: FixedMethod::RosenbrockW }
     }
 }
 
