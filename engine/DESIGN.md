@@ -197,7 +197,13 @@ part builds in about 20 s at `-j 2`; with CMake, clang, LLVM and bindgen
 hidden from `PATH` and `LIBCLANG_PATH` unset, a rebuild and the spike's
 tests pass, and bindgen, clang-sys, cmake and 20 other build-only crates
 left the lockfile. CI must still prove the Windows (MSVC, `/fp:precise`)
-and macOS (Xcode command-line tools, arm64 and x86-64) builds.
+and macOS (Xcode command-line tools, arm64 and x86-64) builds. Beside the
+SUNDIALS sources, `csrc/` holds our two small C helpers (BSD-3, like the
+code they read): the dense output of CVODES and IDAS for selected
+components only, with the same coefficients and summation order as
+`CVodeGetDky`/`IDAGetDky` (a test checks they give the full dense
+output's exact bits inside every step), so a sampled block's tick
+interpolates only what it reads.
 
 ### 3.5 Decision
 
@@ -884,6 +890,30 @@ estimate goes into the report: the largest local error of any step as a
 share of the tolerance, and per variable the local errors summed over the
 run (an upper bound of the global error that ignores damping).
 
+Sweeps run one set per rayon task on a pool of the asked size (each run
+single-threaded inside), sharing the compiled model. Measured
+(`lsim-solve/examples/sweep_scaling.rs`, release build, the WLTC-length
+ladder drive, 4 vCPUs, each measurement started once other processes had
+used under 0.3 cores for 5 s, and their use during it read from
+/proc/stat: 0.02–0.18 cores):
+
+| sweep | 1 thread | 4 threads | speed-up | cores used | CPU per run, 1 → 4 threads |
+|---|---|---|---|---|---|
+| 16 sets, 21 states (100 ms runs), best of 5 in one process | 1542 ms | 448 ms | 3.44× | 3.75 | 96.3 → 105.0 ms |
+| the same, a fresh process per sweep, best of 5 (median) | 1725 (1759) ms | 485 (525) ms | 3.56× (3.35×) | 3.36–3.69 | 106–111 → 112–120 ms |
+| 64 sets, 21 states, best of 2 | 6644 ms | 1625 ms | 4.09× | 3.90 | 102.8 → 99.1 ms |
+| 16 sets, 101 states (600 ms runs), best of 2 | 9446 ms | 2554 ms | 3.70× | 3.72 | 583.8 → 593.8 ms |
+
+So ≥ 3.5× holds once a sweep has many runs or long ones; 16 runs of
+100 ms lose about 6 % to the last runs' tail (3.75 of 4 cores used) and a
+few per cent to the kernel: a run's results (271 channels × 1801 points
+× value, min, max and mean: 15.6 MB) are new memory, about 4 900 page
+faults and 10 ms of system time a run in a fresh process, and the
+allocator's per-thread arenas reuse freed memory less than the main
+thread's. Writing the results into one buffer backed by huge pages would
+save most of those 10 ms in every run, sequential or not (a change to
+`SimResult`'s layout, left for WP6 with the Python API).
+
 ## 9. Causal blocks, Script blocks and FMUs in an acausal network
 
 * **Continuous causal blocks** (driver PI, PID, gains, sums, limiters,
@@ -909,7 +939,22 @@ run (an upper bound of the global error that ignores damping).
   restarted there, and the block's next tick then becomes a stop time
   until a tick changes nothing again. So a block that changes nothing
   leaves the steps and the solution exactly as without it (tested: equal
-  results and step counts).
+  results and step counts). Measured (`lsim-solve/examples/r1_blocks.rs`,
+  release build, the run thread's CPU time, the period shortened to
+  0.1 ms so 18 million ticks stand well above a shared machine's noise):
+  a tick that changes nothing costs 19 ns when the block reads a discrete
+  value, 47 ns when it reads a state (one selected-component
+  interpolation) and 108 ns when it reads a computed channel (its chain
+  of assignments interpreted, here through a sine source). A 10 ms block
+  over a WLTC (180 001 ticks) so costs 3.4, 8.5 or 19.4 ms: about 3.4 /
+  8.5 / 19.5 % of the 21-state test drive, which runs at 18 000× real
+  time (100 ms); 0.6 / 1.4 / 3.2 % of the 101-state one (about 3 000×
+  real time, 600 ms); and at most 1.1 % of any model that runs at the
+  1000× target.
+  So the < 5 % criterion holds for models as costly as the 101-state
+  drive or more, not for very cheap ones read through a computed channel
+  (where the absolute cost is still under 20 ms a WLTC). The block's own
+  work comes on top: a sandboxed Python tick costs microseconds.
   Today's Script blocks run every solver step (≤ 10 ms); they keep that
   rate by default (a `period` parameter, default 10 ms) so results match.
 * **FMUs for model exchange** (WP4, later): their states join `x`, their
@@ -1244,6 +1289,16 @@ work end to end) or against hand-written test doubles of the interfaces.
   ones; energy closure ≤ 1e-6 on every example; a 10 ms Script block that
   changes nothing costs < 5 % run time; sweeps scale ≥ 3.5× on 4 cores;
   the build needs only a C compiler on Windows, macOS and Linux.
+* **Status (as built)**: the exact-answer suite passes on both backends,
+  ODE and DAE paths (`lsim-solve/tests/reference.rs`); the backends agree
+  within 4.2·rtol; events within 2.6·rtol on SUNDIALS at every tolerance,
+  on diffsol within 7.2·rtol at 1e-6 and 1e-8 but up to 34·rtol at 1e-10
+  (its root finding, not ours: the cross-check is held to 50·rtol);
+  energy closure ≤ 1.1e-7 everywhere tested (no example project imports
+  until WP5); the idle 10 ms block and the sweeps as measured in sections
+  9 and 8.4 (< 5 % for models as costly as the 101-state drive, 19.5 % on
+  a 100 ms model read through a computed channel; 3.44–4.09×); the build
+  proven on Linux only.
 
 ### WP5 — Component library and project import
 
@@ -1300,15 +1355,15 @@ the vehicle body). A short integration checkpoint each week runs
 
 | # | risk | mitigation |
 |---|---|---|
-| R1 | Sampled Script blocks at 10 ms force 180 000 integrator restarts on WLTC | restart only when an output changes; recommend continuous-time controllers; measure (WP4 acceptance) |
-| R2 | SUNDIALS build on Windows/macOS | in-tree `cc` build with committed config header and bindings; CI on all three from the start (WP4/WP6) |
+| R1 | Sampled Script blocks at 10 ms force 180 000 integrator restarts on WLTC | restart only when an output changes; recommend continuous-time controllers; measure (WP4 acceptance). **WP4:** done — no restart and no extra step for a tick that changes nothing; 19–108 ns a tick, < 5 % of the run for models at or slower than ~3 000× real time (section 9) |
+| R2 | SUNDIALS build on Windows/macOS | in-tree `cc` build with committed config header and bindings; CI on all three from the start (WP4/WP6). **WP4:** built and tested on Linux with only a C compiler; the MSVC and macOS builds are written for (config header, `/fp:precise`) but still to be proven in CI |
 | R3 | Index reduction needs dynamic state selection for some models | static dummy derivatives with an initial pivoting check cover vehicle drivelines; report the rare case clearly; dynamic selection only if a real model needs it |
-| R4 | Friction and clutch modes chatter | force-based stick/slip conditions in the components; event-storm detection naming the parts |
+| R4 | Friction and clutch modes chatter | force-based stick/slip conditions in the components; event-storm detection naming the parts. **WP4:** storm detection done (over 100 state events within 1e-3 of the run, the error names the modes' parts; tested on a chattering mode); the force-based conditions are WP5's |
 | R5 | Golden comparisons show differences that are today's numerical error | measured bands from today's own fine-step runs; differences triaged and documented |
 | R6 | Fast-mode target of 10⁶× real time | Rosenbrock-W with Jacobian reuse; explicit backward evaluation of the sorted inverse model; measured early in WP6 |
 | R7 | diffsol API churn | pinned exact version; it is the second backend, not the product's |
 | R8 | Cranelift code quality on very large models | chunking; measure; LLVM is not an option (licence-clean but heavy to ship); our models are straight-line arithmetic where Cranelift does well |
-| R9 | KLU is LGPL and banned | faer sparse LU (MIT) as our SUNDIALS linear solver (WP4) |
+| R9 | KLU is LGPL and banned | faer sparse LU (MIT) as our SUNDIALS linear solver (WP4). **WP4:** done; dense, band and sparse LU give the same runs on every reference model (test) |
 | R10 | Parallel agents change `lsim-ir` incompatibly | additive changes only; owners agree; check.sh in every package's CI |
 | R11 | Base Modelica is a moving specification (MCP-0031) | the text format is a strict subset; import tracks the published version |
 
