@@ -27,7 +27,9 @@ pub fn sweep(
         return sets.iter().map(run).collect();
     }
     match rayon::ThreadPoolBuilder::new().num_threads(threads).build() {
-        Ok(pool) => pool.install(|| sets.par_iter().map(run).collect()),
+        // one run per task: a run is long (milliseconds to seconds), so
+        // stealing single runs keeps every thread busy to the end
+        Ok(pool) => pool.install(|| sets.par_iter().with_max_len(1).map(run).collect()),
         Err(_) => sets.iter().map(run).collect(),
     }
 }

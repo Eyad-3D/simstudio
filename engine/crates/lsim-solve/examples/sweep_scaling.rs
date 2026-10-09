@@ -11,8 +11,11 @@
 //! per run on one thread / CPU per run on these threads).
 //!
 //! `cargo run --release -p lsim-solve --example sweep_scaling`; `STAGES`
-//! (20), `SETS` (16) and `ROUNDS` (5) change the ladder, the sets and the
-//! rounds.
+//! (20), `SETS` (16), `ROUNDS` (5) and `THREADS` (`1,2,4`) change the
+//! ladder, the sets, the rounds and the thread counts. With `ROUNDS=1` each
+//! thread count runs one sweep as a fresh caller would: with more rounds
+//! the sequential sweep reuses the memory the last round freed, which the
+//! worker threads' allocator arenas do less.
 
 #[path = "shared/models.rs"]
 mod models;
@@ -89,7 +92,13 @@ fn main() {
     let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1) as f64;
     let mut base = 0.0;
     let mut base_cpu = 0.0;
-    for threads in [1, 2, 4] {
+    let mut base_threads = 1.0;
+    let counts: Vec<usize> = std::env::var("THREADS")
+        .unwrap_or_else(|_| "1,2,4".into())
+        .split(',')
+        .filter_map(|x| x.trim().parse().ok())
+        .collect();
+    for threads in counts {
         let mut best = f64::MAX;
         let mut cpu_per_run = 0.0;
         let mut others = 0.0;
@@ -114,9 +123,11 @@ fn main() {
                 sys_faults = ((s1 - s0) / sets.len() as f64, (f1 - f0) / sets.len() as f64);
             }
         }
-        if threads == 1 {
+        // speed-ups are against the first thread count (1 by default)
+        if base == 0.0 {
             base = best;
             base_cpu = cpu_per_run;
+            base_threads = threads as f64;
         }
         println!(
             "{threads} thread(s): best {:.1} ms for {} runs, speed-up {:.2}x, CPU per run {:.2} ms \
@@ -129,7 +140,7 @@ fn main() {
             sys_faults.1,
             cpu_per_run * sets.len() as f64 / best,
             others,
-            threads as f64 * base_cpu / cpu_per_run,
+            threads as f64 / base_threads * base_cpu / cpu_per_run,
             load()
         );
     }
