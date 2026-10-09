@@ -37,7 +37,9 @@ pub mod sweep;
 
 pub use accuracy::{AccuracyReport, ChannelChange, accuracy_check, compare_runs};
 pub use energy::{EnergyBooks, PartBooks};
-pub use info::{AssertInfo, BlockInfo, EnergyInfo, EnergyPart, ModeInfo, RunInfo, VarSource};
+pub use info::{
+    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, InputChain, ModeInfo, RunInfo, VarSource,
+};
 pub use recorder::Recorder;
 pub use run::run_loop;
 pub use sweep::sweep;
@@ -280,6 +282,22 @@ pub trait Integrator {
     fn y(&self) -> &[f64];
     /// y at `t`, inside the last step (dense output).
     fn interpolate(&mut self, t: f64, out: &mut [f64]) -> Result<(), SolveError>;
+    /// Selected entries of y at `t`, inside the last step: `out[m] =
+    /// y(t)[idx[m]]` (a sampled block's inputs, without interpolating the
+    /// whole state).
+    fn interpolate_select(
+        &mut self,
+        t: f64,
+        idx: &[usize],
+        out: &mut [f64],
+    ) -> Result<(), SolveError> {
+        let mut y = self.y().to_vec();
+        self.interpolate(t, &mut y)?;
+        for (o, i) in out.iter_mut().zip(idx) {
+            *o = y[*i];
+        }
+        Ok(())
+    }
     /// The discrete variables the model functions read.
     fn discrete_mut(&mut self) -> &mut [f64];
     /// Restarts at `t` from `y` (iteration variables are made consistent),

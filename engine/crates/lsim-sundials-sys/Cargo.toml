@@ -10,7 +10,7 @@ repository.workspace = true
 links = "lsim_sundials"
 # the vendored sources, the hand-written config header and the bindings are
 # all that the build reads; the generator tool is not part of the build
-include = ["/build.rs", "/src", "/sundials", "/wrapper.h", "/Cargo.toml"]
+include = ["/build.rs", "/src", "/sundials", "/csrc", "/wrapper.h", "/Cargo.toml"]
 
 [build-dependencies]
 cc.workspace = true

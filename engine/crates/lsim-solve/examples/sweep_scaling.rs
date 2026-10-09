@@ -33,8 +33,14 @@ fn cpu() -> f64 {
 
 fn main() {
     let lib = models::library();
-    let prepared =
-        lsim_prep::prepare(&lib, &models::ladder_drive(20), &Default::default()).expect("prepares");
+    let prepared = lsim_prep::prepare(
+        &lib,
+        &models::ladder_drive(
+            std::env::var("STAGES").ok().and_then(|s| s.parse().ok()).unwrap_or(20),
+        ),
+        &Default::default(),
+    )
+    .expect("prepares");
     let jit = lsim_codegen::compile(&prepared, &Default::default()).expect("compiles");
     let info = RunInfo::from_prepared(&prepared);
     let grid = OutputGrid { t0: 0.0, t_end: 1800.0, dt: 1.0 };

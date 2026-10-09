@@ -40,6 +40,27 @@ pub struct BlockInfo {
     /// its period, s, as prepared (the host's [`lsim_ir::DiscreteBlock::period`]
     /// is the one used)
     pub period: f64,
+    /// for each input the model computes: the assignments it depends on,
+    /// so a tick evaluates that input alone instead of every channel
+    /// (`None`: read it from the channels)
+    pub chains: Vec<Option<InputChain>>,
+}
+
+/// A computed channel evaluated on its own: the assignments it depends on,
+/// in evaluation order, interpreted.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InputChain {
+    /// the flat variable that is the input (an alias resolved) and its sign
+    pub result: (usize, f64),
+    /// (target flat variable, whether it is the variable's derivative, its
+    /// expression) in evaluation order
+    pub steps: Vec<(usize, bool, Expr)>,
+    /// flat variables read from y: (variable, derivative?, entry of y)
+    pub from_y: Vec<(usize, bool, usize)>,
+    /// flat variables read from the discrete values: (variable, entry of d)
+    pub from_d: Vec<(usize, usize)>,
+    /// flat variables read from the inputs: (variable, entry of u)
+    pub from_u: Vec<(usize, usize)>,
 }
 
 /// How a channel's value can be had without evaluating the whole model:
@@ -195,6 +216,7 @@ impl RunInfo {
         };
         let d_index: HashMap<VarId, usize> =
             m.discretes.iter().enumerate().map(|(k, v)| (*v, k)).collect();
+        let sources = var_sources(m);
         let blocks = m
             .external
             .iter()
@@ -203,6 +225,14 @@ impl RunInfo {
                 inputs: b.inputs.iter().map(|v| v.0 as usize).collect(),
                 outputs: b.outputs.iter().filter_map(|v| d_index.get(v).copied()).collect(),
                 period: b.period,
+                chains: b
+                    .inputs
+                    .iter()
+                    .map(|v| match sources[v.0 as usize] {
+                        VarSource::Computed => input_chain(m, *v),
+                        _ => None,
+                    })
+                    .collect(),
             })
             .collect();
         RunInfo {
@@ -234,7 +264,7 @@ impl RunInfo {
                     structural_pattern(m)
                 },
             ),
-            var_sources: var_sources(m),
+            var_sources: sources,
             energy: Some(Arc::new(energy_info(m))),
             asserts: flat
                 .asserts
@@ -380,6 +410,146 @@ fn var_sources(m: &PreparedModel) -> Vec<VarSource> {
             VarSource::Computed
         })
         .collect()
+}
+
+/// The chain of assignments that computes `v` alone (`None` when it reads
+/// something the interpreter cannot evaluate, such as a table).
+pub fn input_chain(m: &PreparedModel, v: VarId) -> Option<InputChain> {
+    let n_x = m.states.len();
+    let alias: HashMap<VarId, AliasTarget> = m.aliases.iter().map(|a| (a.var, a.target)).collect();
+    let (mut var, mut sign) = (v, 1.0);
+    for _ in 0..64 {
+        match alias.get(&var) {
+            Some(AliasTarget::Var { var: w, negated }) => {
+                var = *w;
+                if *negated {
+                    sign = -sign;
+                }
+            }
+            Some(AliasTarget::Const(_)) => return None,
+            None => break,
+        }
+    }
+    let mut y_index: HashMap<Slot, usize> = HashMap::new();
+    for (i, s) in m.states.iter().enumerate() {
+        y_index.insert(Slot::Var(*s), i);
+    }
+    for (k, s) in m.algebraics.iter().enumerate() {
+        y_index.insert(*s, n_x + k);
+    }
+    let d_index: HashMap<VarId, usize> =
+        m.discretes.iter().enumerate().map(|(k, v)| (*v, k)).collect();
+    let u_index: HashMap<VarId, usize> =
+        m.inputs.iter().enumerate().map(|(k, v)| (*v, k)).collect();
+    let assigned: HashMap<Slot, usize> =
+        m.assignments.iter().enumerate().map(|(k, a)| (a.target, k)).collect();
+    let mut chain = InputChain {
+        result: (var.0 as usize, sign),
+        steps: vec![],
+        from_y: vec![],
+        from_d: vec![],
+        from_u: vec![],
+    };
+    let mut needed: BTreeSet<usize> = BTreeSet::new();
+    let mut seen: BTreeSet<Slot> = BTreeSet::new();
+    let mut todo = vec![Slot::Var(var)];
+    while let Some(slot) = todo.pop() {
+        if !seen.insert(slot) {
+            continue;
+        }
+        let (Slot::Var(w) | Slot::Der(w)) = slot;
+        if let Some(&i) = y_index.get(&slot) {
+            chain.from_y.push((w.0 as usize, matches!(slot, Slot::Der(_)), i));
+        } else if let (Slot::Var(_), Some(&k)) = (slot, d_index.get(&w)) {
+            chain.from_d.push((w.0 as usize, k));
+        } else if let (Slot::Var(_), Some(&k)) = (slot, u_index.get(&w)) {
+            chain.from_u.push((w.0 as usize, k));
+        } else if let Some(&k) = assigned.get(&slot) {
+            needed.insert(k);
+            let mut bad = false;
+            m.assignments[k].expr.walk(&mut |x| match x {
+                Expr::Var(r) | Expr::Pre(r) => todo.push(Slot::Var(*r)),
+                Expr::Der(r) => todo.push(Slot::Der(*r)),
+                Expr::Table { .. } | Expr::Name(_) => bad = true,
+                _ => {}
+            });
+            if bad {
+                return None;
+            }
+        } else {
+            return None;
+        }
+    }
+    for k in needed {
+        let a = &m.assignments[k];
+        let (Slot::Var(w) | Slot::Der(w)) = a.target;
+        chain.steps.push((w.0 as usize, matches!(a.target, Slot::Der(_)), a.expr.clone()));
+    }
+    Some(chain)
+}
+
+impl InputChain {
+    /// The input's value at `t`: `yv[k]` holds the entry of y read by
+    /// `from_y[k]`; `vals` and `ders` are scratch of one value per flat
+    /// variable.
+    #[allow(clippy::too_many_arguments)]
+    pub fn eval(
+        &self,
+        t: f64,
+        yv: &[f64],
+        d: &[f64],
+        u: &[f64],
+        params: &[f64],
+        vals: &mut [f64],
+        ders: &mut [f64],
+    ) -> f64 {
+        for ((var, der, _), y) in self.from_y.iter().zip(yv) {
+            if *der {
+                ders[*var] = *y;
+            } else {
+                vals[*var] = *y;
+            }
+        }
+        for (var, i) in &self.from_d {
+            vals[*var] = d[*i];
+        }
+        for (var, i) in &self.from_u {
+            vals[*var] = u[*i];
+        }
+        for (var, der, e) in &self.steps {
+            let x = lsim_ir::eval::eval(e, &ChainEnv { t, vals, ders, params });
+            if *der {
+                ders[*var] = x;
+            } else {
+                vals[*var] = x;
+            }
+        }
+        self.result.1 * vals[self.result.0]
+    }
+}
+
+/// Evaluates [`InputChain`]s: values of the flat variables (and their
+/// derivatives) a chain reads or computes.
+pub(crate) struct ChainEnv<'a> {
+    pub t: f64,
+    pub vals: &'a [f64],
+    pub ders: &'a [f64],
+    pub params: &'a [f64],
+}
+
+impl Env for ChainEnv<'_> {
+    fn time(&self) -> f64 {
+        self.t
+    }
+    fn var(&self, v: VarId) -> f64 {
+        self.vals[v.0 as usize]
+    }
+    fn der(&self, v: VarId) -> f64 {
+        self.ders[v.0 as usize]
+    }
+    fn param(&self, p: ParamId) -> f64 {
+        self.params[p.0 as usize]
+    }
 }
 
 fn energy_info(m: &PreparedModel) -> EnergyInfo {

@@ -361,6 +361,7 @@ fn held(a: f64) -> (Hand, RunInfo) {
         inputs: vec![0],
         outputs: vec![0],
         period: 0.01,
+        chains: vec![None],
     }];
     (model, info)
 }

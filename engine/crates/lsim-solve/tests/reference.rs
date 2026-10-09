@@ -458,7 +458,11 @@ fn the_battery_drive_books_close_through_its_brake_event() {
             named(sub("inertia", "Rotational.Inertia", &[("J", c(20.0))]), "Rotor and Load"),
             named(sub("loss", "Rotational.Damper", &[("d", c(0.05))]), "Windage"),
             named(
-                sub("brake", "Rotational.ThresholdBrake", &[("tau_max", c(2000.0)), ("w_on", c(300.0))]),
+                sub(
+                    "brake",
+                    "Rotational.ThresholdBrake",
+                    &[("tau_max", c(2000.0)), ("w_on", c(300.0))],
+                ),
                 "Overspeed Brake",
             ),
             sub("ground", "Electrical.Ground", &[]),
@@ -484,7 +488,12 @@ fn the_battery_drive_books_close_through_its_brake_event() {
                 let e = r.energy.as_ref().unwrap();
                 println!(
                     "{:<34} rtol {rtol:.0e}: closure {:.1e}, drift {:.1e}; supplied {:.6e} J, lost {:.6e} J, stored {:+.6e} J",
-                    r.backend, e.relative_closure, e.relative_drift, e.supplied, e.lost, e.stored_change
+                    r.backend,
+                    e.relative_closure,
+                    e.relative_drift,
+                    e.supplied,
+                    e.lost,
+                    e.stored_change
                 );
                 assert_eq!(r.events.len(), 1, "{:?}", r.events);
                 assert!(e.relative_closure <= 1e-6, "closure {}", e.relative_closure);
@@ -494,4 +503,54 @@ fn the_battery_drive_books_close_through_its_brake_event() {
             }
         }
     }
+}
+
+/// A sampled block's computed input is evaluated alone, through the
+/// assignments it depends on: every such channel of the reference models
+/// equals the compiled model's own evaluation of all channels.
+#[test]
+fn a_computed_channel_evaluated_alone_matches_the_compiled_channels() {
+    use lsim_ir::runtime::{EvalInput, ModelFunctions};
+    use lsim_solve::VarSource;
+    let lib = library();
+    let mut checked = 0;
+    for case in cases() {
+        for force_implicit in [false, true] {
+            let b = build(&lib, &case.top, force_implicit);
+            let l = *b.jit.layout();
+            let mut y = vec![0.0; l.n_y()];
+            let mut d = vec![0.0; l.n_d];
+            b.jit.start(&b.info.params, &mut y, &mut d);
+            // a point away from the start
+            for (k, v) in y.iter_mut().enumerate() {
+                *v += 0.37 + 0.11 * k as f64;
+            }
+            let u = vec![0.0; l.n_u];
+            let mut work = vec![0.0; l.n_work];
+            let mut vars = vec![0.0; l.n_vars];
+            let inp = EvalInput { t: 0.3, y: &y, p: &b.info.params, d: &d, u: &u };
+            b.jit.vars(&inp, &mut work, &mut vars);
+            let (mut vals, mut ders) = (vec![0.0; l.n_vars], vec![0.0; l.n_vars]);
+            for (i, src) in b.info.var_sources.iter().enumerate() {
+                if *src != VarSource::Computed {
+                    continue;
+                }
+                let Some(ch) = lsim_solve::info::input_chain(&b.prepared, lsim_ir::VarId(i as u32))
+                else {
+                    continue;
+                };
+                let yv: Vec<f64> = ch.from_y.iter().map(|(_, _, k)| y[*k]).collect();
+                let got = ch.eval(0.3, &yv, &d, &u, &b.info.params, &mut vals, &mut ders);
+                assert!(
+                    (got - vars[i]).abs() <= 1e-12 * vars[i].abs().max(1.0),
+                    "{}: {} alone gives {got}, the channels {}",
+                    case.problem.id,
+                    b.info.var_names[i],
+                    vars[i]
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked > 50, "only {checked} channels checked");
 }

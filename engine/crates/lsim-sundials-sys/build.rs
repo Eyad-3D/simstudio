@@ -99,6 +99,12 @@ fn main() {
         assert!(p.exists(), "missing SUNDIALS source {}", p.display());
         b.file(p);
     }
+    // LightSim's own additions (dense output of selected components)
+    let own = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("csrc");
+    println!("cargo:rerun-if-changed=csrc");
+    for f in ["lsim_cvodes_dky.c", "lsim_idas_dky.c"] {
+        b.file(own.join(f));
+    }
     b.compile("lsim_sundials");
     // where the headers are, for any dependent build script
     println!("cargo:include={}", root.join("include").display());

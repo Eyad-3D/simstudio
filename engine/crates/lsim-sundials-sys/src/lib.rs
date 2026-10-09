@@ -23,6 +23,29 @@
 mod bindings;
 pub use bindings::*;
 
+// LightSim's additions to the C build (`csrc/`): the dense output of
+// selected components, with the same formula and summation order as
+// `CVodeGetDky`/`IDAGetDky` at k = 0, in O(order) per component.
+unsafe extern "C" {
+    /// CVODES: `out[m] = y(t)[idx[m]]` inside the last step; `CV_BAD_T`
+    /// when `t` is outside it.
+    pub fn lsim_cvode_dky_select(
+        cvode_mem: *mut core::ffi::c_void,
+        t: sunrealtype,
+        n_idx: core::ffi::c_int,
+        idx: *const sunindextype,
+        out: *mut sunrealtype,
+    ) -> core::ffi::c_int;
+    /// IDAS: as [`lsim_cvode_dky_select`].
+    pub fn lsim_ida_dky_select(
+        ida_mem: *mut core::ffi::c_void,
+        t: sunrealtype,
+        n_idx: core::ffi::c_int,
+        idx: *const sunindextype,
+        out: *mut sunrealtype,
+    ) -> core::ffi::c_int;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

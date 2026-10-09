@@ -369,6 +369,9 @@ pub struct Sundials<'m> {
     notes: Vec<String>,
     methods: Vec<(f64, Lmm)>,
     fresh: bool,
+    /// the last step's start (the dense output is valid from here to
+    /// `t_last`)
+    t_step_start: f64,
     _model: PhantomData<&'m dyn ModelFunctions>,
 }
 
@@ -545,6 +548,7 @@ impl<'m> Sundials<'m> {
                 notes,
                 methods: vec![],
                 fresh: true,
+                t_step_start: t0,
                 _model: PhantomData,
             };
             match kind {
@@ -902,6 +906,7 @@ impl Integrator for Sundials<'_> {
         }
         self.t_last = t;
         self.fresh = false;
+        self.t_step_start = self.last_step_start();
         if self.kind == Kind::Cvode && self.lmm == Lmm::Adams && self.auto && self.adams_struggles()
         {
             self.notes.push(format!(
@@ -944,7 +949,7 @@ impl Integrator for Sundials<'_> {
             out.copy_from_slice(self.y());
             return Ok(());
         }
-        let t = t.clamp(self.last_step_start(), self.t_last);
+        let t = t.clamp(self.t_step_start, self.t_last);
         // SAFETY: `mem` is live; tmp is a vector of n values.
         unsafe {
             let flag = match self.kind {
@@ -954,6 +959,39 @@ impl Integrator for Sundials<'_> {
             self.check(flag, "the dense output", t)?;
             out.copy_from_slice(slice(self.tmp, self.n));
         }
+        Ok(())
+    }
+
+    fn interpolate_select(
+        &mut self,
+        t: f64,
+        idx: &[usize],
+        out: &mut [f64],
+    ) -> Result<(), SolveError> {
+        if t == self.t_last || self.fresh {
+            let y = self.y();
+            for (o, i) in out.iter_mut().zip(idx) {
+                *o = y[*i];
+            }
+            return Ok(());
+        }
+        let t = t.clamp(self.t_step_start, self.t_last);
+        // usize and sunindextype (i64) have the same layout on the 64-bit
+        // targets the engine builds for, and the indices are small
+        const _: () = assert!(size_of::<usize>() == size_of::<sunindextype>());
+        let sel = idx.as_ptr() as *const sunindextype;
+        // SAFETY: `mem` is live; `idx` and `out` have the same length.
+        let flag = unsafe {
+            match self.kind {
+                Kind::Cvode => {
+                    lsim_cvode_dky_select(self.mem, t, idx.len() as c_int, sel, out.as_mut_ptr())
+                }
+                Kind::Ida => {
+                    lsim_ida_dky_select(self.mem, t, idx.len() as c_int, sel, out.as_mut_ptr())
+                }
+            }
+        };
+        self.check(flag, "the dense output", t)?;
         Ok(())
     }
 

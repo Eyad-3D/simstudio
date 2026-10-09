@@ -181,6 +181,24 @@ with an in-tree `lsim-sundials-sys` that compiles the vendored C sources
 with the `cc` crate and ships pre-generated bindings — no CMake, no
 libclang, only the C compiler every Rust target already needs.
 
+**Done (work package 4).** `crates/lsim-sundials-sys` holds the SUNDIALS
+7.1.1 sources of `sundials-sys` 0.6.2 that are built (CVODES, IDAS,
+KINSOL, the serial vector, dense/band/sparse matrices, dense and band LU,
+the Newton and fixed-point solvers; LICENSE and NOTICE kept), one
+hand-written `sundials_config.h` for every platform (compiler-specific
+settings chosen by the preprocessor), and the committed bindings, made by
+`tools/bindgen` (the only thing that needs libclang, run when SUNDIALS is
+upgraded; the bindings are portable across 64-bit targets: no layout
+tests, C `long` kept as `c_long`, fixed-width integers spelled as Rust's,
+`FILE` opaque). The C code is compiled at -O2 with floating-point
+contraction off in every Cargo profile, so results do not depend on the
+build profile or on fused multiply-add hardware. Measured on Linux: the C
+part builds in about 20 s at `-j 2`; with CMake, clang, LLVM and bindgen
+hidden from `PATH` and `LIBCLANG_PATH` unset, a rebuild and the spike's
+tests pass, and bindgen, clang-sys, cmake and 20 other build-only crates
+left the lockfile. CI must still prove the Windows (MSVC, `/fp:precise`)
+and macOS (Xcode command-line tools, arm64 and x86-64) builds.
+
 ### 3.5 Decision
 
 **SUNDIALS (CVODE for models without iteration variables, IDA for index-1
@@ -736,6 +754,38 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   convergence failures switch back. Automatic, reported in the run report.
 * **diffsol backend** behind a feature, for the cross-check suite.
 
+**As built (work package 4).**
+
+* The integrators are **CVODES and IDAS** (CVODE and IDA with
+  quadratures and sensitivities; the same algorithms), for the energy
+  quadratures. `Integrator` gained, with defaults: `quadrature` (the
+  integrals inside the last step), `local_error` (the error estimate),
+  `set_root_sides` (below, 8.2), `method` and `setup_notes` (the report).
+* **Linear solver** (`LinearSolver::Auto`): dense LU up to 40 unknowns,
+  band LU when the Jacobian's band widths sum to at most 20, faer sparse LU
+  otherwise (`faer_ls`: a direct `SUNLinearSolver` on SUNDIALS' CSC
+  matrix; symbolic analysis once per structure, numeric factorisation per
+  setup, `Par::Seq` so parallel runs do not contend; a non-finite solve is
+  a recoverable failure). The Jacobian's values come from the compiled
+  model's own coloured sparse Jacobian (`jacobian_sparse`) when its
+  structure covers the matrix's, else from coloured Jacobian-vector
+  products; the structure is checked against the model at the start (n ≤
+  3000) and extended where it misses an entry.
+* **Method choice** (`Method::Auto`): at the start, Adams with fixed-point
+  iteration when the power-iteration estimate ρ of the Jacobian's spectral
+  radius times the run's length is at most 100, else BDF; at each restart
+  BDF → Adams when ρ·h < 0.2 for the last step h, Adams → BDF when ρ·h >
+  1.5; during a run Adams → BDF on a convergence failure or when
+  nonlinear failures exceed 10 % of the steps. The report says which and
+  why. (The reference problems' RC and RL circuits and the L = 0 motor run
+  on Adams; the spike and the motor with inductance on BDF.)
+* **diffsol** 0.17.1 (pinned, nalgebra dense LU): the same run loop; root
+  directions from the root functions' signs at the step's start and at
+  the root; the iteration variables made consistent by the same Newton as
+  IDA's path; the energy integrals by three-point Gauss–Legendre on its
+  dense output; its smallest step lowered to 1e-20 (section 3.2); a stop
+  time it reaches a few ulps short counts as reached.
+
 ### 8.2 Events
 
 * Zero crossings are located by SUNDIALS' root finding (Illinois method on
@@ -758,6 +808,26 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   Modelica approach; the run loop reports more than N events in a time
   window with the parts involved.
 
+**As built (work package 4).** Event iteration runs `when` actions, then
+`ModelFunctions::modes`, then re-evaluates every condition until nothing
+changes (at most `max_event_iterations`, 50); the integrator restarts only
+if a discrete value changed. After every event each root function is
+given the side an exact zero counts as (the side it is on, else its mode's
+value, else the direction it crossed in): a function that rests at zero
+after its crossing — the spike's speed is exactly 300.0 for the first
+steps after the brake engages — no longer fires again (IDA reported the
+brake five times without this). After every accepted step the modes are
+checked against their relations, catching a crossing that started exactly
+at zero right after a restart, where root finding cannot see it. Table
+guards (`table_guard_list`) are watched as extra root functions: an
+`Error` axis stops the run naming the table; the others are booked as time
+outside, reported as warnings. The model's asserts are checked at every
+accepted step. An event storm is more than `storm_events` (100) state
+events (crossings and modes; sample ticks and time events do not count)
+within `storm_window` (1e-3) of the run's length, at least 1 µs; the
+error names the conditions with their counts (the relay test: "101
+events within 1.1e-12 s, from 'Relay': on (101×)").
+
 ### 8.3 Initialisation
 
 1. Start values: `fixed` ones are conditions, others guesses.
@@ -773,6 +843,20 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
    parts, and the residuals' worst equations.
 5. IDA then refines with `IDACalcIC` for the integrator's own consistency.
 
+**As built (work package 4)** (`lsim-solve/src/init.rs`): one damped
+Newton serves the initialisation system (`ModelFunctions::init`, then
+`finish`, then every mode from its relation, solved again while a mode
+changes) and the iteration variables at the start and after every event.
+Dense LU up to 100 unknowns, sparse above; backtracking line search on the
+row-equilibrated residual; it stops when the update's weighted norm is
+below 1e-3 of the tolerance, or when the residual is at round-off after
+full Newton steps with the update inside the tolerance (at rtol 1e-10 the
+first test alone asks for less than round-off). The homotopy is the
+Newton homotopy `F(w) - (1 - λ) F(w0)` until the IR has Modelica's
+`homotopy()` operator for simplified models; it cannot pass a fold of the
+solution path. A failure names the three equations with the largest
+residuals and what they solve for.
+
 ### 8.4 Results, quadratures, sweeps
 
 * Output on the case's grid from the dense output (the grid never
@@ -785,6 +869,20 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
 * **Parallel sweeps** (WP4/WP6): `rayon` over parameter sets, one
   integrator and buffer set per worker, one shared compiled model, the
   Python GIL released for the whole sweep.
+
+**As built (work package 4).** The energy integrals are under the
+integrator's error control by default (`energy_error_control`): without
+it they ride on the states' steps, and a fast-decaying loss came out 100×
+less accurate than the tolerance (the RC step's resistor loss at rtol
+1e-10: 1.3e-8 of the energy scale; with it 2.5e-11). The stored energy's
+change is integrated too, its rate taken along the solution by a
+fourth-order central difference of the declared stored energy in the
+direction (1, y') (exact for the quadratic energies of capacitors,
+inductors and masses), so the books close to round-off when every part's
+books agree with its equations (section 11). The integrator's own error
+estimate goes into the report: the largest local error of any step as a
+share of the tolerance, and per variable the local errors summed over the
+run (an upper bound of the global error that ignores damping).
 
 ## 9. Causal blocks, Script blocks and FMUs in an acausal network
 
@@ -800,10 +898,18 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   trait (already in `lsim-ir`): Script blocks (sandboxed Python, as
   today), FMUs for co-simulation (FMPy in its sandbox, as today), digital
   controllers. Each has a period; its outputs are discrete variables held
-  between ticks. The run loop stops the integrator exactly at each tick
-  (stop time), reads the inputs from the solution, calls `tick`, and
-  **restarts the integrator only if an output changed** (a restart costs
-  a few small steps; most ticks of a slow controller change nothing).
+  between ticks. The run loop reads the inputs from the solution at each
+  tick, calls `tick`, and **restarts the integrator only if an output
+  changed** (a restart costs a few small steps; most ticks of a slow
+  controller change nothing). As built (work package 4) the steps are not
+  cut at ticks: a tick inside a step is evaluated on the dense output
+  (an input that is a state or an iteration variable costs one
+  interpolation, any other one evaluation of the channels); only when an
+  output changed is the step cut back to the tick and the integrator
+  restarted there, and the block's next tick then becomes a stop time
+  until a tick changes nothing again. So a block that changes nothing
+  leaves the steps and the solution exactly as without it (tested: equal
+  results and step counts).
   Today's Script blocks run every solver step (≤ 10 ms); they keep that
   rate by default (a `period` parameter, default 10 ms) so results match.
 * **FMUs for model exchange** (WP4, later): their states join `x`, their
@@ -863,6 +969,22 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   control, the run checks the global closure Σ(sources) − Σ(losses) −
   ΔΣ(stored) − Σ(boundaries) against the energy throughput and reports it
   (target ≤ 1e-6).
+
+  As built (work package 4): every primitive with physical ports gets ∫
+  power in, ∫ |power in|, ∫ loss and ∫ d(stored)/dt; parts that declare
+  neither loss nor storage are the boundaries (sources, grounds, lossless
+  converters) whose net intake is the energy supplied. The **closure** is
+  supplied − lost − ∫ d(stored)/dt, relative to the throughput (half the
+  sum of every part's ∫ |power in|): it is round-off when the books are
+  right (≤ 4e-14 on every ODE run of the suite, ≤ 3e-9 on IDA at rtol 1e-8
+  and 1.1e-7 at 1e-6 for the spike's DAE form, where y' of the iteration
+  variables comes from IDA's own formula), and the run warns above 1e-6
+  and can be made to fail (`energy_tolerance`), naming the parts whose
+  books close worst. Jumps of the stored energy at events, from the states
+  before and after, are booked as a separate entry (energy lost at
+  events). The **drift** — stored energy from the states at the end minus
+  the books' — is the integration error of the energies, of the order of
+  rtol; it is reported, with a warning when it exceeds 100·rtol.
 * **Solver report** on every run: backend, method, tolerances, steps,
   evaluations, Jacobians, error-test and Newton failures, events (with
   times and parts), restarts, initialisation path, energy closure.
@@ -1191,6 +1313,15 @@ the vehicle body). A short integration checkpoint each week runs
 | R11 | Base Modelica is a moving specification (MCP-0031) | the text format is a strict subset; import tracks the published version |
 
 ## 18. Licences
+
+Since work package 4 the workspace builds with 231 third-party crates,
+all permissive (licences.py and cargo-deny: "bans ok, licenses ok"):
+sundials-sys, bindgen, clang-sys, libloading and cmake are gone; in came
+`cc` with `jobserver` and `getrandom` (MIT OR Apache-2.0; `r-efi` taken
+under MIT), faer 0.24.4 (MIT), rayon (MIT OR Apache-2.0), diffsol 0.17.1
+(MIT) with nalgebra (Apache-2.0) and their dependencies, and, for tests
+only, toml (MIT OR Apache-2.0). The vendored SUNDIALS is BSD-3-Clause and
+contains no KLU and no GPL code.
 
 `scripts/licences.py` (run by `check.sh`) reads `cargo metadata` and
 requires every third-party crate's SPDX expression to be satisfiable with

@@ -49,6 +49,19 @@ struct Clock {
     outputs: Vec<f64>,
     needs_vars: bool,
     needs_y: bool,
+    /// the entries of y the inputs read (when no input needs the
+    /// channels), and for each input its position among them
+    y_idx: Vec<usize>,
+    y_vals: Vec<f64>,
+    y_pos: Vec<Option<usize>>,
+    /// for each input evaluated alone: the positions in `y_vals` of what
+    /// its chain reads from y
+    chain_pos: Vec<Vec<usize>>,
+    /// scratch for the chains: flat variables' values and derivatives,
+    /// and the entries of y one chain reads
+    vals: Vec<f64>,
+    ders: Vec<f64>,
+    chain_y: Vec<f64>,
 }
 
 impl Clock {
@@ -432,6 +445,38 @@ impl Loop<'_> {
         })
     }
 
+    /// As [`Self::read_inputs`], with the entries of y the inputs read in
+    /// `ysel` (input k's at `pos[k]`).
+    fn read_inputs_selected(&self, b: usize, t: f64, c: &mut Clock, d: &[f64], out: &mut [f64]) {
+        let bi = &self.info.blocks[b];
+        for (k, &v) in bi.inputs.iter().enumerate() {
+            out[k] = match self.info.var_sources.get(v).copied().unwrap_or(VarSource::Computed) {
+                VarSource::Y(_) => c.y_vals[c.y_pos[k].expect("a state input")],
+                VarSource::NegY(_) => -c.y_vals[c.y_pos[k].expect("a state input")],
+                VarSource::D(i) => d[i],
+                VarSource::NegD(i) => -d[i],
+                VarSource::U(i) => self.u[i],
+                VarSource::Const(x) => x,
+                VarSource::Computed => match bi.chains.get(k).and_then(|x| x.as_ref()) {
+                    Some(chain) => {
+                        c.chain_y.clear();
+                        c.chain_y.extend(c.chain_pos[k].iter().map(|p| c.y_vals[*p]));
+                        chain.eval(
+                            t,
+                            &c.chain_y,
+                            d,
+                            self.u,
+                            &self.info.params,
+                            &mut c.vals,
+                            &mut c.ders,
+                        )
+                    }
+                    None => self.vars[v],
+                },
+            };
+        }
+    }
+
     fn read_inputs(&self, b: usize, y: &[f64], d: &[f64], out: &mut [f64]) {
         for (k, &v) in self.info.blocks[b].inputs.iter().enumerate() {
             out[k] = match self.info.var_sources.get(v).copied().unwrap_or(VarSource::Computed) {
@@ -537,15 +582,50 @@ pub fn run_loop(
                 .iter()
                 .map(|&v| info.var_sources.get(v).copied().unwrap_or(VarSource::Computed))
                 .collect();
+            let mut y_idx: Vec<usize> = vec![];
+            let mut at = |i: usize| {
+                y_idx.iter().position(|x| *x == i).unwrap_or_else(|| {
+                    y_idx.push(i);
+                    y_idx.len() - 1
+                })
+            };
+            let chain = |k: usize| bi.chains.get(k).and_then(|c| c.as_ref());
+            let y_pos: Vec<Option<usize>> = srcs
+                .iter()
+                .map(|s| match s {
+                    VarSource::Y(i) | VarSource::NegY(i) => Some(at(*i)),
+                    _ => None,
+                })
+                .collect();
+            let chain_pos: Vec<Vec<usize>> = (0..srcs.len())
+                .map(|k| {
+                    chain(k)
+                        .map(|c| c.from_y.iter().map(|(_, _, i)| at(*i)).collect())
+                        .unwrap_or_default()
+                })
+                .collect();
+            let any_chain = (0..srcs.len()).any(|k| chain(k).is_some());
+            let needs_vars = srcs
+                .iter()
+                .enumerate()
+                .any(|(k, s)| *s == VarSource::Computed && chain(k).is_none());
+            let needs_y = !y_idx.is_empty();
             Clock {
+                y_vals: vec![0.0; y_idx.len()],
+                y_idx,
+                y_pos,
+                chain_pos,
+                vals: if any_chain { vec![0.0; l.n_vars] } else { vec![] },
+                ders: if any_chain { vec![0.0; l.n_vars] } else { vec![] },
+                chain_y: vec![],
                 period,
                 offset,
                 k: k0,
                 stop_next: false,
                 inputs: vec![0.0; bi.inputs.len()],
                 outputs: vec![0.0; bi.outputs.len()],
-                needs_vars: srcs.contains(&VarSource::Computed),
-                needs_y: srcs.iter().any(|s| matches!(s, VarSource::Y(_) | VarSource::NegY(_))),
+                needs_vars,
+                needs_y,
             }
         })
         .collect();
@@ -668,14 +748,21 @@ pub fn run_loop(
                 (_, Some((b, tk))) => {
                     report.block_ticks += 1;
                     let c = &mut clocks[b];
-                    if c.needs_y || c.needs_vars || tk == t_new {
-                        integ.interpolate(tk, &mut yk)?;
-                    }
-                    if c.needs_vars {
-                        lp.sample(tk, &yk, &d);
-                    }
                     let mut inputs = std::mem::take(&mut c.inputs);
-                    lp.read_inputs(b, &yk, &d, &mut inputs);
+                    if c.needs_vars || tk == t_new {
+                        // the whole state (and the channels)
+                        integ.interpolate(tk, &mut yk)?;
+                        if c.needs_vars {
+                            lp.sample(tk, &yk, &d);
+                        }
+                        lp.read_inputs(b, &yk, &d, &mut inputs);
+                    } else {
+                        // only the entries of y the block reads
+                        if c.needs_y {
+                            integ.interpolate_select(tk, &c.y_idx, &mut c.y_vals)?;
+                        }
+                        lp.read_inputs_selected(b, tk, c, &d, &mut inputs);
+                    }
                     let outs = &info.blocks[b].outputs;
                     for (k, &o) in outs.iter().enumerate() {
                         c.outputs[k] = d[o];
@@ -696,7 +783,7 @@ pub fn run_loop(
                     // the outputs changed: an event at the tick; the rest of
                     // the step is dropped
                     report.block_changes += 1;
-                    if !(c.needs_y || c.needs_vars || tk == t_new) {
+                    if !(c.needs_vars || tk == t_new) {
                         integ.interpolate(tk, &mut yk)?;
                     }
                     let new_outputs = c.outputs.clone();
