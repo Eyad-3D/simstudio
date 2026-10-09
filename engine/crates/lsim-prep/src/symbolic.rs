@@ -1,12 +1,13 @@
 //! Symbolic algebra on flat expressions: simplification, differentiation
-//! with respect to an unknown, and solving an equation for an unknown it
-//! is linear in.
+//! with respect to an unknown, differentiation in time (what index
+//! reduction does to an equation), solving an equation for an unknown it
+//! is affine in, and the sign analysis behind the pivot checks (can a
+//! coefficient be zero for an allowed parameter value?).
 //!
-//! Work package 2 extends this with the rules index reduction needs
-//! (differentiating whole equations in time) and a stronger simplifier;
-//! the generated Jacobians do not depend on it (codegen differentiates in
-//! forward mode).
+//! The generated Jacobians do not depend on this (codegen differentiates
+//! in forward mode).
 
+use lsim_ir::VarId;
 use lsim_ir::expr::{BinaryOp, Builtin, Expr};
 use lsim_ir::prepared::Slot;
 
@@ -182,23 +183,336 @@ pub fn diff(e: &Expr, s: Slot) -> Expr {
 /// Solves `residual = 0` for `s` when the residual is affine in `s`
 /// (`a·s + b` with `a` free of `s`): returns `-b / a`, simplified.
 pub fn solve_for(residual: &Expr, s: Slot) -> Option<Expr> {
-    if !contains(residual, s) {
-        return None;
-    }
-    let a = simplify(diff(residual, s));
-    if contains(&a, s) || a.any(&mut |x| matches!(x, Expr::Const(v) if v.is_nan())) {
-        return None;
-    }
-    if is_const(&a, 0.0) {
-        return None;
-    }
-    let b = simplify(substitute(residual.clone(), s, &Expr::Const(0.0)));
-    let sol = match (&a, &b) {
-        (Expr::Const(x), _) if *x == 1.0 => -b,
-        (Expr::Const(x), _) if *x == -1.0 => b,
-        _ => -b / a,
+    solve_affine(residual, s).map(|(_, sol)| sol)
+}
+
+/// The time derivative of `e` by the chain rule: `dvar(v)` gives the
+/// derivative of variable `v` (another variable, or 0 for a piecewise
+/// constant one). Relations are piecewise constant (derivative 0), so an
+/// `if` keeps its condition; `min`, `max` and `limit` differentiate into
+/// `noEvent` choices, since they make no events themselves. Tables cannot
+/// be differentiated yet.
+pub fn time_derivative(e: &Expr, dvar: &mut dyn FnMut(VarId) -> Expr) -> Result<Expr, String> {
+    use Expr::*;
+    let b = |x: Expr| Box::new(x);
+    Ok(match e {
+        Const(_) | Param(_) | Pre(_) | Compare(..) | And(..) | Or(..) | Not(_) => Const(0.0),
+        Time => Const(1.0),
+        Var(v) => dvar(*v),
+        Der(_) | Name(_) => return Err(format!("cannot differentiate {e} in time here")),
+        Table { .. } => {
+            return Err("a table would have to be differentiated in time (index reduction \
+                        through a table is not supported yet)"
+                .into());
+        }
+        Neg(a) => Neg(b(time_derivative(a, dvar)?)),
+        NoEvent(a) => NoEvent(b(time_derivative(a, dvar)?)),
+        If(c, x, y) => If(c.clone(), b(time_derivative(x, dvar)?), b(time_derivative(y, dvar)?)),
+        Binary(op, x, y) => {
+            let dx = time_derivative(x, dvar)?;
+            let dy = time_derivative(y, dvar)?;
+            let (xc, yc) = ((**x).clone(), (**y).clone());
+            match op {
+                BinaryOp::Add => dx + dy,
+                BinaryOp::Sub => dx - dy,
+                BinaryOp::Mul => dx * yc + xc * dy,
+                BinaryOp::Div => (dx - e.clone() * dy) / yc,
+                BinaryOp::Pow => {
+                    if is_const(&dy, 0.0) {
+                        // d(x^n) = n x^(n-1) dx, n constant in time
+                        let n1 = simplify(yc.clone() - Const(1.0));
+                        yc * Binary(BinaryOp::Pow, x.clone(), b(n1)) * dx
+                    } else {
+                        e.clone() * (dy * Call(Builtin::Log, vec![xc.clone()]) + yc * dx / xc)
+                    }
+                }
+            }
+        }
+        Call(f, args) => {
+            let a = args[0].clone();
+            let da = time_derivative(&args[0], dvar)?;
+            let call = |g: Builtin, x: Expr| Call(g, vec![x]);
+            match f {
+                Builtin::Der | Builtin::Pre => {
+                    return Err(format!("cannot differentiate {e} in time here"));
+                }
+                Builtin::Sin => call(Builtin::Cos, a) * da,
+                Builtin::Cos => -(call(Builtin::Sin, a) * da),
+                Builtin::Tan => da / (call(Builtin::Cos, a.clone()) * call(Builtin::Cos, a)),
+                Builtin::Asin => da / call(Builtin::Sqrt, Const(1.0) - a.clone() * a),
+                Builtin::Acos => -(da / call(Builtin::Sqrt, Const(1.0) - a.clone() * a)),
+                Builtin::Atan => da / (Const(1.0) + a.clone() * a),
+                Builtin::Atan2 => {
+                    let x = args[1].clone();
+                    let dx = time_derivative(&args[1], dvar)?;
+                    (x.clone() * da - a.clone() * dx) / (x.clone() * x + a.clone() * a)
+                }
+                Builtin::Sinh => call(Builtin::Cosh, a) * da,
+                Builtin::Cosh => call(Builtin::Sinh, a) * da,
+                Builtin::Tanh => {
+                    (Const(1.0) - call(Builtin::Tanh, a.clone()) * call(Builtin::Tanh, a)) * da
+                }
+                Builtin::Exp => e.clone() * da,
+                Builtin::Log => da / a,
+                Builtin::Sqrt => da / (Const(2.0) * e.clone()),
+                Builtin::Abs => NoEvent(b(call(Builtin::Sign, a))) * da,
+                Builtin::Sign => Const(0.0),
+                Builtin::Min | Builtin::Max => {
+                    let db = time_derivative(&args[1], dvar)?;
+                    let op =
+                        if *f == Builtin::Min { lsim_ir::CmpOp::Lt } else { lsim_ir::CmpOp::Gt };
+                    NoEvent(b(If(b(Compare(op, b(a), b(args[1].clone()))), b(da), b(db))))
+                }
+                Builtin::Limit => {
+                    let (lo, hi) = (&args[1], &args[2]);
+                    let dlo = time_derivative(lo, dvar)?;
+                    let dhi = time_derivative(hi, dvar)?;
+                    NoEvent(b(If(
+                        b(Compare(lsim_ir::CmpOp::Lt, b(a.clone()), b(lo.clone()))),
+                        b(dlo),
+                        b(If(b(Compare(lsim_ir::CmpOp::Gt, b(a), b(hi.clone()))), b(dhi), b(da))),
+                    )))
+                }
+            }
+        }
+    })
+}
+
+/// `e` as `a·s + b` (coefficient `None`: zero), when it is affine in `s`
+/// with `a` and `b` free of `s`; built directly, without differentiating.
+fn split(e: &Expr, s: Slot) -> Option<(Option<Expr>, Expr)> {
+    use Expr::*;
+    let hit = |x: &Expr| match (x, s) {
+        (Var(v), Slot::Var(w)) | (Der(v), Slot::Der(w)) => *v == w,
+        _ => false,
     };
-    Some(simplify(sol))
+    if hit(e) {
+        return Some((Some(Const(1.0)), Const(0.0)));
+    }
+    let b = |x: Expr| Box::new(x);
+    match e {
+        Neg(x) => {
+            let (a, r) = split(x, s)?;
+            Some((a.map(|a| Neg(b(a))), Neg(b(r))))
+        }
+        NoEvent(x) => split(x, s),
+        Binary(op @ (BinaryOp::Add | BinaryOp::Sub), x, y) => {
+            let (a1, b1) = split(x, s)?;
+            let (a2, b2) = split(y, s)?;
+            let a = match (a1, a2) {
+                (None, None) => None,
+                (Some(a), None) => Some(a),
+                (None, Some(a)) => Some(if *op == BinaryOp::Sub { Neg(b(a)) } else { a }),
+                (Some(a1), Some(a2)) => Some(Binary(*op, b(a1), b(a2))),
+            };
+            Some((a, Binary(*op, b(b1), b(b2))))
+        }
+        Binary(BinaryOp::Mul, x, y) => {
+            let (a1, b1) = split(x, s)?;
+            let (a2, b2) = split(y, s)?;
+            match (a1, a2) {
+                (None, None) => Some((None, e.clone())),
+                (Some(a1), None) => Some((Some(a1 * b2.clone()), b1 * b2)),
+                (None, Some(a2)) => Some((Some(b1.clone() * a2), b1 * b2)),
+                (Some(_), Some(_)) => None,
+            }
+        }
+        Binary(BinaryOp::Div, x, y) => {
+            if contains(y, s) {
+                return None;
+            }
+            let (a1, b1) = split(x, s)?;
+            Some((a1.map(|a| a / (**y).clone()), b1 / (**y).clone()))
+        }
+        If(c, x, y) => {
+            if contains(c, s) {
+                return None;
+            }
+            let (a1, b1) = split(x, s)?;
+            let (a2, b2) = split(y, s)?;
+            let a = match (a1, a2) {
+                (None, None) => None,
+                (a1, a2) => {
+                    Some(If(c.clone(), b(a1.unwrap_or(Const(0.0))), b(a2.unwrap_or(Const(0.0)))))
+                }
+            };
+            Some((a, If(c.clone(), b(b1), b(b2))))
+        }
+        other => {
+            if contains(other, s) {
+                None
+            } else {
+                Some((None, other.clone()))
+            }
+        }
+    }
+}
+
+/// When `residual = 0` is affine in `s` with a coefficient that is not
+/// zero: the coefficient `a` and the solution `-b / a`, simplified.
+pub fn solve_affine(residual: &Expr, s: Slot) -> Option<(Expr, Expr)> {
+    let (a, b) = split(residual, s)?;
+    let a = simplify(a?);
+    if is_const(&a, 0.0) || a.any(&mut |x| matches!(x, Expr::Const(v) if v.is_nan())) {
+        return None;
+    }
+    let b = simplify(b);
+    let sol = match &a {
+        Expr::Const(x) if *x == 1.0 => -b,
+        Expr::Const(x) if *x == -1.0 => b,
+        _ => -b / a.clone(),
+    };
+    Some((a, simplify(sol)))
+}
+
+/// The coefficient `a` when `residual` is affine in `s` (`a·s + b` with
+/// `a` and `b` free of `s`), simplified; `None` when it is not, or when
+/// `s` does not appear.
+pub fn affine_coefficient(residual: &Expr, s: Slot) -> Option<Expr> {
+    let (a, _) = split(residual, s)?;
+    let a = simplify(a?);
+    if is_const(&a, 0.0) || a.any(&mut |x| matches!(x, Expr::Const(v) if v.is_nan())) {
+        return None;
+    }
+    Some(a)
+}
+
+/// The signs an expression can take: a subset of {negative, zero,
+/// positive}, and whether that relied on a parameter keeping the sign it
+/// has now (a parameter declared without a range).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Signs {
+    /// it can be negative
+    pub neg: bool,
+    /// it can be zero
+    pub zero: bool,
+    /// it can be positive
+    pub pos: bool,
+    /// the answer assumes some parameter keeps its present sign
+    pub assumed: bool,
+}
+
+impl Signs {
+    /// Any value.
+    pub const ANY: Signs = Signs { neg: true, zero: true, pos: true, assumed: false };
+
+    fn exact(v: f64) -> Signs {
+        if v.is_nan() {
+            return Signs::ANY;
+        }
+        Signs { neg: v < 0.0, zero: v == 0.0, pos: v > 0.0, assumed: false }
+    }
+
+    fn with(self, assumed: bool) -> Signs {
+        Signs { assumed: self.assumed || assumed, ..self }
+    }
+
+    fn union(self, o: Signs) -> Signs {
+        Signs {
+            neg: self.neg || o.neg,
+            zero: self.zero || o.zero,
+            pos: self.pos || o.pos,
+            assumed: self.assumed || o.assumed,
+        }
+    }
+
+    fn neg_(self) -> Signs {
+        Signs { neg: self.pos, pos: self.neg, ..self }
+    }
+
+    fn mul(self, o: Signs) -> Signs {
+        Signs {
+            neg: (self.neg && o.pos) || (self.pos && o.neg),
+            pos: (self.pos && o.pos) || (self.neg && o.neg),
+            zero: self.zero || o.zero,
+            assumed: self.assumed || o.assumed,
+        }
+    }
+
+    fn add(self, o: Signs) -> Signs {
+        Signs {
+            neg: self.neg || o.neg,
+            pos: self.pos || o.pos,
+            zero: (self.zero && o.zero) || (self.pos && o.neg) || (self.neg && o.pos),
+            assumed: self.assumed || o.assumed,
+        }
+    }
+
+    /// Whether it can never be zero.
+    pub fn nonzero(self) -> bool {
+        !self.zero && (self.neg || self.pos)
+    }
+}
+
+/// What the sign analysis knows about the leaves of an expression.
+pub trait SignEnv {
+    /// a parameter's signs
+    fn param(&self, p: lsim_ir::ParamId) -> Signs;
+    /// a variable's signs (usually any)
+    fn var(&self, v: VarId) -> Signs;
+}
+
+/// The signs `e` can take.
+pub fn signs(e: &Expr, env: &dyn SignEnv) -> Signs {
+    use Expr::*;
+    let s = |x: &Expr| signs(x, env);
+    match e {
+        Const(v) => Signs::exact(*v),
+        Param(p) => env.param(*p),
+        Var(v) | Pre(v) => env.var(*v),
+        Time | Name(_) | Der(_) | Table { .. } => Signs::ANY,
+        Neg(a) => s(a).neg_(),
+        NoEvent(a) => s(a),
+        Compare(..) | And(..) | Or(..) | Not(_) => {
+            Signs { neg: false, zero: true, pos: true, assumed: false }
+        }
+        If(_, a, b) => s(a).union(s(b)),
+        Binary(op, a, b) => {
+            let (sa, sb) = (s(a), s(b));
+            match op {
+                BinaryOp::Add => sa.add(sb),
+                BinaryOp::Sub => sa.add(sb.neg_()),
+                BinaryOp::Mul => sa.mul(sb),
+                BinaryOp::Div => {
+                    if sb.zero {
+                        Signs::ANY.with(sa.assumed || sb.assumed)
+                    } else {
+                        sa.mul(sb)
+                    }
+                }
+                BinaryOp::Pow => match &**b {
+                    Const(n) if n.fract() == 0.0 => {
+                        let n = *n as i64;
+                        if n == 0 {
+                            Signs { neg: false, zero: false, pos: true, assumed: false }
+                        } else if n < 0 && sa.zero {
+                            Signs::ANY.with(sa.assumed)
+                        } else if n % 2 == 0 {
+                            Signs { neg: false, zero: sa.zero, pos: sa.neg || sa.pos, ..sa }
+                        } else {
+                            sa
+                        }
+                    }
+                    Const(_) if !sa.neg => Signs { neg: false, ..sa },
+                    _ => Signs::ANY.with(sa.assumed || sb.assumed),
+                },
+            }
+        }
+        Call(f, args) => {
+            let sa = s(&args[0]);
+            match f {
+                Builtin::Exp | Builtin::Cosh => {
+                    Signs { neg: false, zero: false, pos: true, assumed: sa.assumed }
+                }
+                Builtin::Sqrt => Signs { neg: false, zero: sa.zero || sa.neg, ..sa },
+                Builtin::Abs => Signs { neg: false, pos: sa.neg || sa.pos, ..sa },
+                Builtin::Sign | Builtin::Sinh | Builtin::Tanh | Builtin::Atan | Builtin::Asin => sa,
+                Builtin::Min | Builtin::Max => sa.union(s(&args[1])),
+                Builtin::Limit => sa.union(s(&args[1])).union(s(&args[2])),
+                _ => Signs::ANY.with(sa.assumed),
+            }
+        }
+    }
 }
 
 #[cfg(test)]

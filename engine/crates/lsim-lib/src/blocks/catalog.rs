@@ -171,7 +171,7 @@ pub fn axis_outside(id: &str, key: &str, axis: usize) -> crate::table::Outside {
         .and_then(|p| p["axes"].as_array())
         .and_then(|a| a.get(axis))
         .and_then(|a| a["outside"].as_str())
-        .map(crate::table::Outside::parse)
+        .map(crate::table::outside)
         .unwrap_or_default()
 }
 

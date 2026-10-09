@@ -58,7 +58,7 @@ pub fn battery_drive(p: &Params) -> ComponentDef {
     let mut battery = sub(
         "battery",
         "Battery.OcvR0Rc",
-        &[("ocv", c(p.ocv)), ("r0", c(p.r0)), ("r1", c(p.r1)), ("c1", c(p.c1))],
+        &[("ocv", c(p.ocv)), ("R0", c(p.r0)), ("R1", c(p.r1)), ("C1", c(p.c1))],
     );
     battery.label = Some("HV Battery".into());
     let mut motor = sub("motor", "Electrical.Emf", &[("k", c(p.k))]);

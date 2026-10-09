@@ -1,49 +1,43 @@
-//! Lookup tables, read the way today's engine reads them
-//! (`backend/app/solver/maps.py`): piecewise linear between points; past
-//! the data an axis holds its edge value (Clamp), extends its edge
-//! segment's slope (Linear) or stops the run (Error); a 2-D table is
-//! linear along its inner axis on the two outer sheets that bracket the
-//! point, then linear between them. Each sheet may have its own inner
-//! points.
+//! Today's lookup tables (`backend/app/solver/maps.py`), read from the
+//! app's JSON and profile text, and made into the IR's runtime tables
+//! ([`TableData`], read in equations with `lsim_ir::expr::table`).
 //!
-//! **Stand-in.** The IR's runtime tables (`ParamValue::Table1D/2D`,
-//! `Expr::Table`, monotone cubic or linear, values as runtime data) are
-//! work packages 1 and 3. Until they land, a table is expanded here into
-//! an expression of the abscissae — a sum of clamped segments, with no
-//! relations, so it needs no events — and its data are baked into the
-//! block that uses it (a table change re-prepares that block). The
-//! expansion is exact: [`Table1::eval`] and [`Table2::eval`] are today's
-//! `interp1`/`interp2`, and the tests check the expressions against them.
-//! Swapping the expansion for `Expr::Table` later changes only
-//! [`Table1::expr`] and [`Table2::expr`] and the [`UnitCarriers`].
+//! Today's engine interpolates linearly between points; past the data an
+//! axis holds its edge value (Clamp), extends its edge segment's slope
+//! (Linear) or stops the run (Error); a 2-D table is linear along its inner
+//! axis on the two outer sheets that bracket the point, then linear
+//! between them, and each sheet may have its own inner points. So the
+//! tables made here interpolate linearly ([`Interpolation::Linear`]) with
+//! today's outside rule per axis, and a 2-D table's sheets are resampled
+//! onto the union of their inner points ([`Table2::grid_data`]), which is
+//! exact for linear interpolation. [`Table1::eval`] and [`Table2::eval`]
+//! are today's `interp1`/`interp2`, for start guesses and tests.
+//!
+//! A profile (a Driving Task's or Road Profile's points) may repeat an
+//! abscissa: a step. A runtime table's breakpoints increase strictly, so
+//! [`Table1::split_steps`] takes the steps out as jumps that the block adds
+//! as `if` terms (events), leaving a continuous table.
 
-use crate::x::{c, ident, max, min, n};
-use lsim_ir::ParamDecl;
+use crate::x::{ident, n};
 use lsim_ir::component::build::param;
 use lsim_ir::expr::Expr;
+pub use lsim_ir::table::{Interpolation, Outside};
+use lsim_ir::{ParamDecl, ParamValue, TableData};
 use serde_json::Value;
 
-/// What a table does past its data on one axis (today's `tableOutside`).
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Outside {
-    /// hold the edge value (the default)
-    #[default]
-    Clamp,
-    /// extend the edge segment's slope
-    Linear,
-    /// the run stops there (expanded as Clamp plus an assertion)
-    Error,
+/// Today's outside-the-data setting from its text (`clamp`, `linear`,
+/// `error`).
+pub fn outside(text: &str) -> Outside {
+    match text {
+        "linear" => Outside::Linear,
+        "error" => Outside::Error,
+        _ => Outside::Clamp,
+    }
 }
 
-impl Outside {
-    /// From today's setting text (`clamp`, `linear`, `error`).
-    pub fn parse(text: &str) -> Outside {
-        match text {
-            "linear" => Outside::Linear,
-            "error" => Outside::Error,
-            _ => Outside::Clamp,
-        }
-    }
+/// A table parameter holding `data` (values in `unit`).
+pub fn table_param(name: &str, unit: &str, data: TableData, doc: &str) -> ParamDecl {
+    ParamDecl { default: ParamValue::Table(data), ..param(name, unit, 0.0, doc) }
 }
 
 /// A 1-D table: points (x, y) with x increasing; a repeated x is a step
@@ -173,92 +167,44 @@ impl Table1 {
         (self.x.first().copied().unwrap_or(0.0), self.x.last().copied().unwrap_or(0.0))
     }
 
-    /// The table as an expression of `x` (a dimensionless number: wrap it
-    /// with [`UnitCarriers`] for units). `x` is repeated in the result, so
-    /// pass a variable, not a large expression.
-    pub fn expr(&self, x: Expr) -> Expr {
-        let (xs, ys, k) = (&self.x, &self.y, self.x.len());
-        if k == 0 {
-            return c(0.0);
-        }
-        if k == 1 {
-            return c(ys[0]);
-        }
-        let linear = self.outside == Outside::Linear;
-        let mut terms: Vec<Expr> = vec![];
-        // the first and last segments that have a length (the linear
-        // extension uses them)
-        let first = (1..k).find(|&i| xs[i] != xs[i - 1]);
-        let last = (1..k).rev().find(|&i| xs[i] != xs[i - 1]);
-        for i in 1..k {
-            let (xa, xb, dy) = (xs[i - 1], xs[i], ys[i] - ys[i - 1]);
-            if dy == 0.0 {
-                continue;
-            }
-            if xa == xb {
-                // a step: the value jumps just past xa
-                terms.push(c(dy) * crate::x::ite(crate::x::gt(x.clone(), c(xa)), c(1.0), c(0.0)));
-                continue;
-            }
-            let s = dy / (xb - xa);
-            let lo_open = linear && Some(i) == first;
-            let hi_open = linear && Some(i) == last;
-            let seg = match (lo_open, hi_open) {
-                (true, true) => x.clone(),
-                (true, false) => min(x.clone(), c(xb)),
-                (false, true) => max(x.clone(), c(xa)),
-                (false, false) => min(max(x.clone(), c(xa)), c(xb)),
-            };
-            terms.push(c(s) * (seg - c(xa)));
-        }
-        let mut e = c(ys[0]);
-        for t in terms {
-            e = e + t;
-        }
-        e
+    /// The table as runtime data: linear, today's outside rule, the axis
+    /// in `x_unit`. The abscissae must increase strictly (take a profile's
+    /// steps out first with [`Table1::split_steps`]).
+    pub fn data(&self, x_unit: &str) -> Result<TableData, String> {
+        let d = TableData {
+            interpolation: Interpolation::Linear,
+            outside: [self.outside, Outside::Clamp],
+            axis_units: [x_unit.to_string(), String::new()],
+            ..TableData::new_1d(self.x.clone(), self.y.clone())
+        };
+        d.check()?;
+        Ok(d)
     }
 
-    /// ∫ from the first abscissa to `x` of the table (piecewise quadratic):
-    /// a stored energy from a table of potential (∫ OCV dQ).
-    pub fn integral_expr(&self, x: Expr) -> Expr {
-        let (xs, ys, k) = (&self.x, &self.y, self.x.len());
-        if k == 0 {
-            return c(0.0);
-        }
-        let x0 = xs[0];
-        let mut e = c(ys[0]) * (x.clone() - c(x0));
-        if k == 1 {
-            return e;
-        }
-        let linear = self.outside == Outside::Linear;
-        let first = (1..k).find(|&i| xs[i] != xs[i - 1]);
-        let last = (1..k).rev().find(|&i| xs[i] != xs[i - 1]);
-        for i in 1..k {
-            let (xa, xb, dy) = (xs[i - 1], xs[i], ys[i] - ys[i - 1]);
-            if dy == 0.0 {
+    /// The table without its steps, and the steps: `(x, jump)` where the
+    /// value jumps by `jump` just past `x`. The table plus the jumps is
+    /// this table (today's `interp1` of a repeated abscissa).
+    pub fn split_steps(&self) -> (Table1, Vec<(f64, f64)>) {
+        let mut x: Vec<f64> = vec![];
+        let mut y: Vec<f64> = vec![];
+        let mut jumps: Vec<(f64, f64)> = vec![];
+        let mut offset = 0.0;
+        for (&xi, &yi) in self.x.iter().zip(&self.y) {
+            if let Some(&last) = x.last()
+                && xi == last
+            {
+                let before = *y.last().expect("a point") + offset;
+                let j = yi - before;
+                if j != 0.0 {
+                    jumps.push((xi, j));
+                    offset += j;
+                }
                 continue;
             }
-            if xa == xb {
-                // a step of dy at xa: adds dy · max(0, x − xa)
-                e = e + c(dy) * max(x.clone() - c(xa), c(0.0));
-                continue;
-            }
-            let (s, h) = (dy / (xb - xa), xb - xa);
-            let lo_open = linear && Some(i) == first;
-            let hi_open = linear && Some(i) == last;
-            let u = match (lo_open, hi_open) {
-                (true, true) => x.clone() - c(xa),
-                (true, false) => min(x.clone(), c(xb)) - c(xa),
-                (false, true) => max(x.clone(), c(xa)) - c(xa),
-                (false, false) => min(max(x.clone(), c(xa)), c(xb)) - c(xa),
-            };
-            let mut g = c(0.5) * u.clone() * u;
-            if !hi_open {
-                g = g + c(h) * max(x.clone() - c(xb), c(0.0));
-            }
-            e = e + c(s) * g;
+            x.push(xi);
+            y.push(yi - offset);
         }
-        e
+        (Table1 { x, y, outside: self.outside }, jumps)
     }
 
     /// ∫ of the table from `a` to `b` (reference, by the segment rule).
@@ -313,15 +259,6 @@ impl Table2 {
         }
     }
 
-    /// The hat function of sheet k along the outer axis.
-    fn hat(&self, k: usize) -> Table1 {
-        Table1 {
-            x: self.outer.clone(),
-            y: (0..self.outer.len()).map(|j| if j == k { 1.0 } else { 0.0 }).collect(),
-            outside: self.outer_outside,
-        }
-    }
-
     /// Its value: today's `interp2` exactly.
     pub fn eval(&self, xo: f64, xi: f64) -> f64 {
         let k = self.outer.len();
@@ -346,25 +283,29 @@ impl Table2 {
         ya + (yb - ya) * (xo - xa) / (xb - xa)
     }
 
-    /// The table as an expression of (outer, inner): Σ hat_k(outer) ·
-    /// sheet_k(inner). Pass variables.
-    pub fn expr(&self, xo: Expr, xi: Expr) -> Expr {
-        let k = self.outer.len();
-        if k == 0 {
-            return c(0.0);
+    /// The table as runtime data on one rectangular grid: the outer
+    /// points × the union of the sheets' inner points, each sheet read
+    /// there by its own interpolation and outside rule — exact for linear
+    /// interpolation. `units`: the outer and inner axes' units.
+    pub fn grid_data(&self, units: [&str; 2]) -> Result<TableData, String> {
+        let mut inner: Vec<f64> = self.sheets.iter().flat_map(|s| s.x.iter().copied()).collect();
+        inner.sort_by(f64::total_cmp);
+        inner.dedup();
+        let mut values = Vec::with_capacity(self.outer.len() * inner.len());
+        for s in &self.sheets {
+            for &xi in &inner {
+                values.push(s.eval(xi));
+            }
         }
-        if k == 1 {
-            return self.sheets[0].expr(xi);
-        }
-        let mut e: Option<Expr> = None;
-        for j in 0..k {
-            let term = self.hat(j).expr(xo.clone()) * self.sheets[j].expr(xi.clone());
-            e = Some(match e {
-                None => term,
-                Some(acc) => acc + term,
-            });
-        }
-        e.unwrap_or(c(0.0))
+        let inner_outside = self.sheets.first().map(|s| s.outside).unwrap_or_default();
+        let d = TableData {
+            interpolation: Interpolation::Linear,
+            outside: [self.outer_outside, inner_outside],
+            axis_units: [units[0].to_string(), units[1].to_string()],
+            ..TableData::new_2d(self.outer.clone(), inner, values)
+        };
+        d.check()?;
+        Ok(d)
     }
 
     /// The inner axis' range common to every sheet (its narrowest), as
@@ -381,10 +322,8 @@ impl Table2 {
     }
 }
 
-/// Parameters of value 1 that carry a table's units through the unit
-/// check (an expanded table is a plain number expression): the table is
-/// read at `x / [x unit]` and its value is `[y unit] · f(…)`. Stand-in
-/// until runtime tables carry their own units.
+/// Parameters of value 1 that give a bare number a unit (`0 W` is written
+/// `0 * unit_W`), one per unit, named `unit_<unit>`.
 #[derive(Default, Debug, Clone)]
 pub struct UnitCarriers {
     params: Vec<ParamDecl>,
@@ -398,52 +337,9 @@ impl UnitCarriers {
         }
         let name = format!("unit_{}", ident(unit));
         if !self.params.iter().any(|p| p.name == name) {
-            self.params.push(param(
-                &name,
-                unit,
-                1.0,
-                "unit carrier of value 1 for a table expansion (stand-in until runtime tables)",
-            ));
+            self.params.push(param(&name, unit, 1.0, "unit carrier: 1 in this unit"));
         }
         Some(n(&name))
-    }
-
-    /// A 1-D table read at `x` (in `x_unit`), its value in `y_unit`.
-    pub fn t1(&mut self, t: &Table1, x: Expr, x_unit: &str, y_unit: &str) -> Expr {
-        let xi = match self.of(x_unit) {
-            Some(u) => x / u,
-            None => x,
-        };
-        let e = t.expr(xi);
-        match self.of(y_unit) {
-            Some(u) => u * e,
-            None => e,
-        }
-    }
-
-    /// A 2-D table read at (`xo`, `xi`).
-    pub fn t2(
-        &mut self,
-        t: &Table2,
-        xo: Expr,
-        xo_unit: &str,
-        xi: Expr,
-        xi_unit: &str,
-        y_unit: &str,
-    ) -> Expr {
-        let a = match self.of(xo_unit) {
-            Some(u) => xo / u,
-            None => xo,
-        };
-        let b = match self.of(xi_unit) {
-            Some(u) => xi / u,
-            None => xi,
-        };
-        let e = t.expr(a, b);
-        match self.of(y_unit) {
-            Some(u) => u * e,
-            None => e,
-        }
     }
 
     /// The carriers to add to the component's parameters.
@@ -455,59 +351,33 @@ impl UnitCarriers {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lsim_ir::eval::{Env, eval};
-    use lsim_ir::flat::{ParamId, VarId};
 
-    struct X(f64, f64);
-    impl Env for X {
-        fn time(&self) -> f64 {
-            0.0
-        }
-        fn var(&self, v: VarId) -> f64 {
-            if v.0 == 0 { self.0 } else { self.1 }
-        }
-        fn der(&self, _: VarId) -> f64 {
-            0.0
-        }
-        fn param(&self, _: ParamId) -> f64 {
-            1.0
-        }
-    }
-
-    fn at(e: &Expr, x: f64, y: f64) -> f64 {
-        eval(e, &X(x, y))
+    /// Linear interpolation on a grid axis with an outside rule (what the
+    /// runtime table does with `Interpolation::Linear`).
+    fn lin(xs: &[f64], ys: &[f64], x: f64, o: Outside) -> f64 {
+        Table1 { x: xs.to_vec(), y: ys.to_vec(), outside: o }.eval(x)
     }
 
     #[test]
-    fn expansion_matches_todays_interpolation() {
-        for outside in [Outside::Clamp, Outside::Linear] {
-            let t = Table1::from_points(
-                vec![(0.0, 300.0), (10.0, 318.0), (20.0, 330.0), (40.0, 342.0), (100.0, 376.0)],
-                outside,
-            );
-            let e = t.expr(Expr::Var(VarId(0)));
-            for k in -40..=160 {
-                let x = k as f64 * 0.9 - 3.0;
-                assert!((at(&e, x, 0.0) - t.eval(x)).abs() < 1e-9, "{outside:?} at {x}");
-            }
-            // the integral against the trapezoid rule on the pieces
-            let ie = t.integral_expr(Expr::Var(VarId(0)));
-            for x in [-5.0, 0.0, 3.0, 10.0, 33.0, 100.0, 120.0] {
-                let want = t.integral(0.0, x);
-                assert!((at(&ie, x, 0.0) - want).abs() < 1e-7, "{outside:?} ∫ to {x}");
-            }
-        }
-        // a step (a repeated abscissa): value before, jump just after
-        let s = Table1::from_profile("0:0; 10:5; 10:8; 20:8");
-        let e = s.expr(Expr::Var(VarId(0)));
-        for x in [5.0, 10.0, 10.000001, 15.0, 25.0] {
-            assert!((at(&e, x, 0.0) - s.eval(x)).abs() < 1e-9, "step at {x}");
+    fn steps_come_out_as_jumps() {
+        let s = Table1::from_profile("0:0; 10:5; 10:8; 20:8; 30:2; 30:0");
+        let (cont, jumps) = s.split_steps();
+        assert_eq!(jumps, vec![(10.0, 3.0), (30.0, -2.0)]);
+        assert!(cont.x.windows(2).all(|w| w[1] > w[0]));
+        // (at a step that ends the data, today gives the value after it at that
+        // very point: a single instant, left out)
+        for x in [-1.0, 5.0, 10.0, 10.000001, 15.0, 25.0, 29.9, 30.5, 40.0] {
+            let with: f64 =
+                cont.eval(x) + jumps.iter().filter(|j| x > j.0).map(|j| j.1).sum::<f64>();
+            assert!((with - s.eval(x)).abs() < 1e-12, "at {x}: {with} vs {}", s.eval(x));
         }
         assert_eq!(s.eval(10.0), 5.0);
+        assert!(cont.data("s").is_ok());
+        assert!(s.data("s").is_err(), "a step is not a runtime table");
     }
 
     #[test]
-    fn two_dimensional_expansion_matches() {
+    fn sheets_on_one_grid_read_as_today() {
         let json = serde_json::json!({
             "0": {"0": 0.1, "100": 1.6, "200": 3.2, "350": 8.5},
             "3000": {"0": 0.35, "100": 2.0, "200": 4.2, "350": 10.4},
@@ -515,13 +385,20 @@ mod tests {
         });
         for (o, i) in [(Outside::Clamp, Outside::Clamp), (Outside::Linear, Outside::Linear)] {
             let t = Table2::from_json(&json, o, i).unwrap();
-            let e = t.expr(Expr::Var(VarId(0)), Expr::Var(VarId(1)));
+            let d = t.grid_data(["rad/s", "N.m"]).unwrap();
+            assert_eq!(d.y, vec![0.0, 100.0, 120.0, 200.0, 350.0]);
+            assert_eq!(d.interpolation, Interpolation::Linear);
+            let ny = d.y.len();
             for xo in [-500.0, 0.0, 1500.0, 3000.0, 4500.0, 6000.0, 7000.0] {
-                for xi in [-10.0, 0.0, 50.0, 120.0, 300.0, 400.0] {
+                for xi in [-10.0, 0.0, 50.0, 110.0, 120.0, 300.0, 400.0] {
+                    // bilinear on the grid: inner first on every row, then outer
+                    let rows: Vec<f64> = (0..d.x.len())
+                        .map(|r| lin(&d.y, &d.values[r * ny..(r + 1) * ny], xi, d.outside[1]))
+                        .collect();
+                    let v = lin(&d.x, &rows, xo, d.outside[0]);
                     assert!(
-                        (at(&e, xo, xi) - t.eval(xo, xi)).abs() < 1e-9,
-                        "{o:?} at ({xo}, {xi}): {} vs {}",
-                        at(&e, xo, xi),
+                        (v - t.eval(xo, xi)).abs() < 1e-9,
+                        "{o:?} at ({xo}, {xi}): {v} vs {}",
                         t.eval(xo, xi)
                     );
                 }

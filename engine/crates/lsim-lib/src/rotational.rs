@@ -67,12 +67,12 @@ pub fn friction_mode_eqs(s: &str, a: &str, f: &str, fc: &str, unit: &str) -> Vec
             label: Some("it sticks when, sliding backwards, it comes to rest".into()),
         },
         when(
-            gt(stuck() * (n(f) - n(fc) - n("eps")) + (stuck() - c(1.0)), c(0.0)),
+            gt(stuck() * (n(f) - n(fc) - n("eps")) + (stuck() - c(1.0)) * n("eps"), c(0.0)),
             &[("stuck", c(0.0)), ("dir", c(1.0))],
             "it breaks away forwards when the holding force exceeds the friction force",
         ),
         when(
-            gt(stuck() * (-n(f) - n(fc) - n("eps")) + (stuck() - c(1.0)), c(0.0)),
+            gt(stuck() * (-n(f) - n(fc) - n("eps")) + (stuck() - c(1.0)) * n("eps"), c(0.0)),
             &[("stuck", c(0.0)), ("dir", c(-1.0))],
             "it breaks away backwards when the holding force exceeds the friction force",
         ),

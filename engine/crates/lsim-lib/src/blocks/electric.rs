@@ -9,8 +9,9 @@
 //! are today's.
 
 use super::*;
-use crate::table::{Table1, UnitCarriers};
+use crate::table::{Table1, UnitCarriers, table_param};
 use lsim_ir::EnergyDecl;
+use lsim_ir::ParamValue;
 
 const CLIMATE: &str = "electric.climate";
 
@@ -185,6 +186,23 @@ impl Default for ClimateConfig {
     }
 }
 
+impl ClimateConfig {
+    /// The runtime data a part of this configuration takes: its demand
+    /// table (heat by outside temperature).
+    pub fn values(&self) -> Result<Vec<(String, ParamValue)>, String> {
+        Ok(vec![
+            ("demand_table".into(), ParamValue::Table(self.demand.data("K")?)),
+            (
+                "heat_source".into(),
+                ParamValue::Enum(
+                    if self.heat_pump { "HeatSource.HeatPump" } else { "HeatSource.PTCHeater" }
+                        .into(),
+                ),
+            ),
+        ])
+    }
+}
+
 /// A heat pump's COP: `share` × the Carnot COP between the exchangers at
 /// `t_hot` and `t_cold` (K), at least 1 heating and 0.5 cooling (today's
 /// `carnot_share_cop`).
@@ -219,15 +237,13 @@ pub fn climate(cfg: &ClimateConfig) -> ComponentDef {
     let approach = 15.0;
     let t_set = n("cabin_setpoint_C");
     let t_out = n("T_amb");
-    let cop_heat = if cfg.heat_pump {
-        ite(
-            ge(t_out.clone(), n("heat_pump_min_C")),
-            carnot(t_set.clone() + c(approach), t_out.clone() - c(approach), true),
-            c(1.0),
-        )
-    } else {
-        c(1.0)
-    };
+    // the heat pump (above its minimum outside temperature), else the
+    // PTC heater at COP 1
+    let cop_heat = ite(
+        and(gt(n("heat_source"), c(1.5)), ge(t_out.clone(), n("heat_pump_min_C"))),
+        carnot(t_set.clone() + c(approach), t_out.clone() - c(approach), true),
+        c(1.0),
+    );
     let cop_cool = carnot(t_out.clone() + c(approach), t_set - c(approach), false);
     let share = if cfg.served_input { n("served") } else { c(1.0) };
     let mut eqs = two_pin_eqs();
@@ -239,8 +255,12 @@ pub fn climate(cfg: &ClimateConfig) -> ComponentDef {
     eqs.push(eq(
         n("q"),
         match on {
-            Some(on) => ite(on, uc.t1(&cfg.demand, n("t_out_c"), "K", "W"), c(0.0) * n("unit_W")),
-            None => uc.t1(&cfg.demand, n("t_out_c"), "K", "W"),
+            Some(on) => ite(
+                on,
+                lsim_ir::expr::table("demand_table", vec![n("t_out_c")]),
+                c(0.0) * n("unit_W"),
+            ),
+            None => lsim_ir::expr::table("demand_table", vec![n("t_out_c")]),
         },
         "the heat the cabin needs (cooling negative), while enabled",
     ));
@@ -260,8 +280,19 @@ pub fn climate(cfg: &ClimateConfig) -> ComponentDef {
     }
     eqs.push(eq(n("sig_heat"), n("q") * share, "cut back, it heats or cools that much less"));
     eqs.push(eq(n("v") * n("i"), n("sig_power"), "it takes that power from the circuit"));
-    let params =
+    let mut params =
         cps(id, &["cop_carnot_share", "heat_pump_min_C", "cabin_setpoint_C", "fan_power_kW"]);
+    params.push(lsim_ir::ParamDecl {
+        default: ParamValue::Enum("HeatSource.PTCHeater".into()),
+        structural: true,
+        ..p("heat_source", "1", 0.0, "Heat Source: the PTC heater or the heat pump")
+    });
+    params.push(table_param(
+        "demand_table",
+        "W",
+        ClimateConfig::default().demand.data("K").expect("the default table"),
+        "heat the cabin needs (cooling negative) by outside temperature, from 0 °C",
+    ));
     let mut vars = two_pin_vars();
     vars.extend([
         var("t_out_c", "K", "the outside temperature above 0 °C"),
@@ -273,21 +304,25 @@ pub fn climate(cfg: &ClimateConfig) -> ComponentDef {
     let mut all = uc.into_params();
     all.extend(params);
     let params = all;
-    let mut cfg_print = vec![
-        cfg.heat_pump as u8 as f64,
-        cfg.enable_wired as u8 as f64,
-        cfg.served_input as u8 as f64,
-    ];
-    cfg_print.extend(&cfg.demand.x);
-    cfg_print.extend(&cfg.demand.y);
+    let cfg_print = [cfg.enable_wired as u8 as f64, cfg.served_input as u8 as f64];
+    let d = ClimateConfig::default();
+    let is_default = (cfg.enable_wired, cfg.served_input) == (d.enable_wired, d.served_input);
     ComponentDef {
-        name: variant("Blocks.ClimateControl", *cfg == ClimateConfig::default(), cfg_print),
+        name: variant("Blocks.ClimateControl", is_default, cfg_print),
         doc: doc(id),
         ports,
         params,
         vars,
         equations: eqs,
         energy: EnergyDecl { stored: None, loss: Some(n("v") * n("i")) },
+        types: vec![lsim_ir::EnumType {
+            name: "HeatSource".into(),
+            literals: vec![
+                lsim_ir::EnumLiteral { name: "PTCHeater".into(), doc: "PTC heater".into() },
+                lsim_ir::EnumLiteral { name: "HeatPump".into(), doc: "Heat pump".into() },
+            ],
+            doc: "what heats the cabin".into(),
+        }],
         ..Default::default()
     }
 }

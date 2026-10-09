@@ -1,14 +1,15 @@
 //! Shared helpers for the integration tests: building small models from
-//! library parts, running them with the stand-ins, reading channels at
-//! checkpoint times and checking energy books.
+//! library parts, running them with the engine's pipeline (preparation,
+//! code generation, the solver), reading channels at checkpoint times and
+//! checking the energy books.
 
 #![allow(dead_code)]
 
 use lsim_ir::component::build::{connect, discrete, eq, port};
 use lsim_ir::{ComponentDef, Library, Modifier, ParamValue, SubDecl};
 use lsim_lib::x::*;
-use lsim_project::standin::{Built, Options, RunResult, RunSpec};
-use lsim_solve::{OutputGrid, SolverOptions};
+use lsim_project::model::Model;
+use lsim_solve::{OutputGrid, SimResult, SolverOptions};
 
 /// A sub-component with numeric parameters.
 pub fn part(name: &str, def: &str, mods: &[(&str, f64)]) -> SubDecl {
@@ -76,26 +77,40 @@ pub fn lib() -> Library {
     lib
 }
 
-/// Prepares, compiles and runs `top` with energy meters, at `rtol`.
+/// Prepares, compiles and runs `top` at `rtol` (energy books kept).
 pub fn run(
     lib: &Library,
     top: &ComponentDef,
     t_end: f64,
     dt: f64,
     rtol: f64,
-) -> (Built, RunResult) {
-    let built = Built::new(lib, top, &Options { energy_meters: true, ..Default::default() })
-        .unwrap_or_else(|e| {
-            panic!("{}", e.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
-        });
-    let mut spec = RunSpec::new(OutputGrid { t0: 0.0, t_end, dt });
-    spec.solver = SolverOptions { rtol, atol: rtol * 1e-2, ..Default::default() };
-    let res = built.run(&spec, &mut []).unwrap_or_else(|e| panic!("run failed: {e}"));
+) -> (Model, SimResult) {
+    let built = Model::build(lib, top).unwrap_or_else(|e| {
+        panic!("{}", e.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("\n"))
+    });
+    let opts = SolverOptions { rtol, atol: rtol * 1e-2, ..Default::default() };
+    let res = built
+        .run(&opts, OutputGrid { t0: 0.0, t_end, dt }, &mut [])
+        .unwrap_or_else(|e| panic!("run failed: {e}"));
     (built, res)
 }
 
+/// A channel's last value.
+pub fn last(res: &SimResult, name: &str) -> f64 {
+    *res.channel(name).unwrap_or_else(|| panic!("no channel {name}")).last().expect("a point")
+}
+
+/// The time of the first event whose label contains `needle`.
+pub fn ev(res: &SimResult, needle: &str) -> f64 {
+    res.events
+        .iter()
+        .find(|e| e.label.contains(needle))
+        .unwrap_or_else(|| panic!("no event '{needle}' in {:?}", res.events))
+        .t
+}
+
 /// A channel's value at time t (the grid holds t).
-pub fn at(res: &RunResult, name: &str, t: f64) -> f64 {
+pub fn at(res: &SimResult, name: &str, t: f64) -> f64 {
     let ch = res.channel(name).unwrap_or_else(|| panic!("no channel {name}"));
     let k = res
         .times
@@ -107,7 +122,7 @@ pub fn at(res: &RunResult, name: &str, t: f64) -> f64 {
 
 /// Checks `name` against the exact values at the checkpoint times, to
 /// `tol` of `scale`.
-pub fn check(res: &RunResult, name: &str, times: &[f64], exact: &[f64], scale: f64, tol: f64) {
+pub fn check(res: &SimResult, name: &str, times: &[f64], exact: &[f64], scale: f64, tol: f64) {
     for (t, want) in times.iter().zip(exact) {
         let got = at(res, name, *t);
         let err = (got - want).abs() / scale;
@@ -118,58 +133,42 @@ pub fn check(res: &RunResult, name: &str, times: &[f64], exact: &[f64], scale: f
     }
 }
 
-/// The energy meters of instance `path`: (port energy, loss, stored now −
-/// stored at start, throughput) at each output time.
-pub fn books(res: &RunResult, path: &str) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
-    let get = |what: &str| {
-        res.channel(&format!("{path}.__energy_{what}"))
-            .map(|v| v.to_vec())
-            .unwrap_or_else(|| vec![0.0; res.times.len()])
+/// A part's books on the output grid: (energy in through its ports, energy
+/// lost, stored energy now − at the start, its throughput over the run).
+pub fn books(res: &SimResult, path: &str) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
+    let e = res.energy.as_ref().expect("energy books kept");
+    let n = res.times.len();
+    let Some(p) = e.parts.iter().find(|p| p.path == path) else {
+        return (vec![0.0; n], vec![0.0; n], vec![0.0; n], vec![0.0; n]);
     };
-    let stored = get("stored");
-    let s0 = stored.first().copied().unwrap_or(0.0);
-    (get("ports"), get("loss"), stored.iter().map(|s| s - s0).collect(), get("throughput"))
+    let s0 = p.stored_t.first().copied().unwrap_or(0.0);
+    let pad = |v: &[f64]| if v.is_empty() { vec![0.0; n] } else { v.to_vec() };
+    (
+        pad(&p.energy_in_t),
+        pad(&p.lost_t),
+        pad(&p.stored_t).iter().map(|s| s - s0).collect(),
+        vec![p.throughput; n],
+    )
 }
 
-/// Every part that declares books (a loss or a stored energy) closes them:
-/// ports − loss − Δstored ≤ tol × its throughput, at every output time.
-/// Parts without books are sources, boundaries or lossless couplings; all
-/// port energies together sum to zero (connections conserve power).
-pub fn books_close(built: &Built, res: &RunResult, tol: f64) {
-    let n = res.times.len();
-    let mut total = vec![0.0; n];
-    let mut scale = vec![1.0f64; n];
-    for m in &built.prep.meters {
-        let path = &built.prep.model.flat.instance(m.instance).path;
-        let (ports, loss, stored, thru) = books(res, path);
-        for k in 0..n {
-            total[k] += ports[k];
-            scale[k] = scale[k].max(thru[k].abs());
-        }
-        if m.loss_energy.is_none() && m.stored.is_none() {
-            continue;
-        }
-        for k in 0..n {
-            let gap = ports[k] - loss[k] - stored[k];
-            let s = thru[k].abs().max(stored[k].abs()).max(1.0);
-            assert!(
-                gap.abs() <= tol * s,
-                "the books of {path} do not close at t = {}: ports {} − loss {} − Δstored {} = {gap:e} (throughput {})",
-                res.times[k],
-                ports[k],
-                loss[k],
-                stored[k],
-                thru[k]
-            );
-        }
-    }
-    for k in 0..n {
+/// Every part that declares books (a loss or a stored energy) closes them
+/// to `tol` of its throughput (energy in − lost − stored change, with any
+/// change at events counted), and the whole model's books close to `tol`
+/// of the throughput.
+pub fn books_close(res: &SimResult, tol: f64) {
+    let e = res.energy.as_ref().expect("energy books kept");
+    for p in e.parts.iter().filter(|p| p.declared) {
+        let s = p.throughput.max(p.stored_change.abs()).max(1.0);
         assert!(
-            total[k].abs() <= tol * scale[k],
-            "port energies do not sum to zero at t = {}: {:e} (largest throughput {})",
-            res.times[k],
-            total[k],
-            scale[k]
+            p.closure.abs() <= tol * s,
+            "the books of {} do not close: in {} − lost {} − stored {} = {:e} (throughput {})",
+            p.path,
+            p.energy_in,
+            p.lost,
+            p.stored_integral,
+            p.closure,
+            p.throughput
         );
     }
+    assert!(e.relative_closure <= tol, "{}", e.summary());
 }

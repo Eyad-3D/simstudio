@@ -2,29 +2,49 @@
 //!
 //! * [`Integrator`] — what the run loop needs from a time integrator:
 //!   variable-step stepping that never passes a stop time, exact location
-//!   of zero crossings, dense output, restart after an event. One backend
-//!   per implementation: SUNDIALS CVODE (models with no iteration
-//!   variables: ODEs) and IDA (index-1 DAEs) in [`sundials`]; work package
-//!   4 adds diffsol as a pure-Rust second backend for cross-checks.
-//! * [`simulate`] — the run loop: start values and consistent
-//!   initialisation, stepping, `when` clauses at located zero crossings,
-//!   re-initialisation, and the [`Recorder`] that samples every channel on
-//!   the output grid from the dense output, with each interval's min, max
-//!   and time-mean taken over every internal step.
-//!
-//! Stage 1 implements the paths the spike needs; DESIGN.md (work package 4)
-//! lists the rest: sampled clocks for Script blocks and FMUs, homotopy
-//! initialisation, sparse linear algebra, energy quadratures, the solver
-//! error report with a 10× tighter re-run, and parallel sweeps.
+//!   of zero crossings, dense output, restart after an event, quadratures.
+//!   Backends: SUNDIALS CVODES (models with no iteration variables: ODEs;
+//!   BDF or Adams, chosen automatically) and IDAS (index-1 DAEs) in
+//!   [`sundials`], built in-tree by `lsim-sundials-sys` with dense, band or
+//!   sparse (faer, [`faer_ls`]) LU; diffsol (pure Rust, feature `diffsol`)
+//!   as the independent second backend for cross-checks.
+//! * [`simulate`] — the run loop ([`run`]): consistent initialisation
+//!   (Newton, then homotopy: [`init`]), stepping, `when` clauses and modes
+//!   at located zero crossings with event iteration, time events, sampled
+//!   blocks on their clocks (restarting the integrator only when an output
+//!   changed), event-storm detection, re-initialisation, the [`Recorder`]
+//!   that samples every channel on the output grid from the dense output
+//!   with each interval's min, max and time-mean, the energy books
+//!   ([`energy`]) and the run report ([`SolverReport`]).
+//! * [`accuracy_check`] — the one-click check: the same run 10× tighter
+//!   and how far every channel moved.
+//! * [`sweep`] — parameter sets in parallel (rayon), one compiled model.
 
+pub mod accuracy;
+#[cfg(feature = "diffsol")]
+pub mod diffsol_backend;
+pub mod energy;
+#[cfg(feature = "sundials")]
+pub mod faer_ls;
+pub mod info;
+pub mod init;
+pub mod jac;
 mod recorder;
+pub mod run;
 #[cfg(feature = "sundials")]
 pub mod sundials;
+pub mod sweep;
 
+pub use accuracy::{AccuracyReport, ChannelChange, accuracy_check, compare_runs};
+pub use energy::{EnergyBooks, PartBooks};
+pub use info::{
+    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, InputChain, ModeInfo, RunInfo, VarSource,
+};
 pub use recorder::Recorder;
+pub use run::run_loop;
+pub use sweep::sweep;
 
-use lsim_ir::prepared::{Direction, PreparedModel};
-use lsim_ir::runtime::{EvalInput, ModelFunctions};
+use lsim_ir::runtime::{DiscreteBlock, ModelFunctions};
 use std::time::Instant;
 
 /// Why a run failed.
@@ -38,6 +58,56 @@ pub enum SolveError {
         /// what it said
         message: String,
     },
+    /// The start values could not be made consistent.
+    #[error("the model could not be initialised at t = {t} s: {message}")]
+    Initialisation {
+        /// where
+        t: f64,
+        /// what failed, naming the equations with the largest residuals
+        message: String,
+    },
+    /// Events piled up: a mode or `when` condition chattering.
+    #[error("event storm at t = {t} s: {message}")]
+    EventStorm {
+        /// where
+        t: f64,
+        /// which conditions, naming the parts
+        message: String,
+        /// the conditions' labels, most frequent first
+        parts: Vec<String>,
+    },
+    /// The energy books did not close.
+    #[error("the energy books do not close: {message}")]
+    EnergyBooks {
+        /// how far, and which parts
+        message: String,
+    },
+    /// A table was read outside its data on an axis that forbids it.
+    #[error("at t = {t} s, {message}")]
+    TableOutside {
+        /// where
+        t: f64,
+        /// which table and axis, in words
+        message: String,
+    },
+    /// A model's `assert` (an error) failed.
+    #[error("at t = {t} s, {message}")]
+    Assert {
+        /// where
+        t: f64,
+        /// the assert's message, naming the part
+        message: String,
+    },
+    /// A sampled block failed.
+    #[error("sampled block {block} failed at t = {t} s: {message}")]
+    Block {
+        /// the block
+        block: String,
+        /// when
+        t: f64,
+        /// what it said
+        message: String,
+    },
     /// No integrator backend is compiled in.
     #[error("no integrator backend is built into this engine")]
     NoBackend,
@@ -46,11 +116,41 @@ pub enum SolveError {
 /// Integration method.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Method {
-    /// stiff BDF (variable order 1-5), the default
+    /// stiff BDF unless the model is plainly non-stiff, then Adams; checked
+    /// again after events, and switched back on convergence trouble (the
+    /// default)
     #[default]
+    Auto,
+    /// stiff BDF (variable order 1-5) with Newton iteration
     Bdf,
-    /// non-stiff Adams-Moulton (CVODE only)
+    /// non-stiff Adams-Moulton (variable order 1-12) with fixed-point
+    /// iteration (CVODE only; a DAE always uses BDF)
     Adams,
+}
+
+/// The linear solver inside the Newton iteration.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LinearSolver {
+    /// dense LU up to 40 unknowns, band LU when the Jacobian's band is
+    /// narrow, sparse LU otherwise (the default)
+    #[default]
+    Auto,
+    /// dense LU with partial pivoting (SUNDIALS)
+    Dense,
+    /// band LU (SUNDIALS), from the Jacobian's band widths
+    Band,
+    /// sparse LU (faer: fill-reducing ordering, partial pivoting)
+    Sparse,
+}
+
+/// Which integrator library runs the model.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Backend {
+    /// SUNDIALS CVODES/IDAS (the default)
+    #[default]
+    Sundials,
+    /// diffsol BDF (pure Rust; the cross-check)
+    Diffsol,
 }
 
 /// Solver settings.
@@ -66,6 +166,29 @@ pub struct SolverOptions {
     pub method: Method,
     /// give up after this many internal steps
     pub max_steps: u64,
+    /// the linear solver
+    pub linear_solver: LinearSolver,
+    /// the integrator library
+    pub backend: Backend,
+    /// keep the energy books (port powers, losses, stored energy)
+    pub energy_books: bool,
+    /// fail the run when the books close worse than this share of the
+    /// energy throughput (0: report only)
+    pub energy_tolerance: f64,
+    /// put the energy integrals under the integrator's error control, so
+    /// they are as accurate as the states (the default; the step size then
+    /// also serves them); off: they ride on the states' steps, which can
+    /// leave a fast-decaying loss 100× less accurate than the tolerance
+    pub energy_error_control: bool,
+    /// event iterations allowed at one instant before the run stops
+    pub max_event_iterations: usize,
+    /// an event storm: more than this many state events (zero crossings and
+    /// modes; sample ticks and time events do not count) …
+    pub storm_events: usize,
+    /// … within this share of the run's length (at least 1 µs)
+    pub storm_window: f64,
+    /// IDA: leave the iteration variables out of the local error test
+    pub suppress_algebraic_error: bool,
 }
 
 impl Default for SolverOptions {
@@ -74,8 +197,17 @@ impl Default for SolverOptions {
             rtol: 1e-6,
             atol: 1e-8,
             max_step: 0.0,
-            method: Method::Bdf,
+            method: Method::Auto,
             max_steps: 10_000_000,
+            linear_solver: LinearSolver::Auto,
+            backend: Backend::Sundials,
+            energy_books: true,
+            energy_tolerance: 0.0,
+            energy_error_control: true,
+            max_event_iterations: 50,
+            storm_events: 100,
+            storm_window: 1e-3,
+            suppress_algebraic_error: false,
         }
     }
 }
@@ -100,6 +232,15 @@ pub enum Step {
     Root(f64, Vec<i32>),
 }
 
+impl Step {
+    /// When the step ended.
+    pub fn time(&self) -> f64 {
+        match self {
+            Step::Internal(t) | Step::Stopped(t) | Step::Root(t, _) => *t,
+        }
+    }
+}
+
 /// Work counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SolverStats {
@@ -115,6 +256,8 @@ pub struct SolverStats {
     pub nonlin_fails: u64,
     /// restarts after events
     pub restarts: u64,
+    /// Newton-matrix factorisations
+    pub lin_setups: u64,
 }
 
 impl std::ops::AddAssign for SolverStats {
@@ -125,6 +268,7 @@ impl std::ops::AddAssign for SolverStats {
         self.err_test_fails += o.err_test_fails;
         self.nonlin_fails += o.nonlin_fails;
         self.restarts += o.restarts;
+        self.lin_setups += o.lin_setups;
     }
 }
 
@@ -138,69 +282,53 @@ pub trait Integrator {
     fn y(&self) -> &[f64];
     /// y at `t`, inside the last step (dense output).
     fn interpolate(&mut self, t: f64, out: &mut [f64]) -> Result<(), SolveError>;
+    /// Selected entries of y at `t`, inside the last step: `out[m] =
+    /// y(t)[idx[m]]` (a sampled block's inputs, without interpolating the
+    /// whole state).
+    fn interpolate_select(
+        &mut self,
+        t: f64,
+        idx: &[usize],
+        out: &mut [f64],
+    ) -> Result<(), SolveError> {
+        let mut y = self.y().to_vec();
+        self.interpolate(t, &mut y)?;
+        for (o, i) in out.iter_mut().zip(idx) {
+            *o = y[*i];
+        }
+        Ok(())
+    }
     /// The discrete variables the model functions read.
     fn discrete_mut(&mut self) -> &mut [f64];
     /// Restarts at `t` from `y` (iteration variables are made consistent),
-    /// after the discrete variables changed.
+    /// after the discrete variables changed. `t` may lie inside the last
+    /// step (the rest of the step is dropped).
     fn restart(&mut self, t: f64, y: &[f64]) -> Result<(), SolveError>;
     /// Work done so far.
     fn stats(&self) -> SolverStats;
-}
-
-/// What the run loop needs to know about a model besides its functions.
-#[derive(Clone, Debug)]
-pub struct RunInfo {
-    /// each flat variable's name (the channel names)
-    pub var_names: Vec<String>,
-    /// nominal magnitude of each entry of y (absolute tolerance scale)
-    pub y_nominal: Vec<f64>,
-    /// for each `when` clause: its zero crossing and direction
-    pub whens: Vec<(usize, Direction)>,
-    /// the direction each zero crossing is watched in: +1, -1 or 0 (both)
-    pub root_dirs: Vec<i32>,
-    /// for each `when` clause: what it is, in words
-    pub when_labels: Vec<String>,
-    /// parameter values, SI
-    pub params: Vec<f64>,
-}
-
-impl RunInfo {
-    /// Gathers the run information from a prepared model.
-    pub fn from_prepared(m: &PreparedModel) -> RunInfo {
-        let flat = &m.flat;
-        let nominal = |v: lsim_ir::VarId| flat.var(v).nominal.abs().max(1e-30);
-        let mut y_nominal: Vec<f64> = m.states.iter().map(|v| nominal(*v)).collect();
-        for s in &m.algebraics {
-            y_nominal.push(match s {
-                lsim_ir::Slot::Var(v) | lsim_ir::Slot::Der(v) => nominal(*v),
-            });
-        }
-        let mut root_dirs = vec![0; m.zero_crossings.len()];
-        for w in &m.whens {
-            root_dirs[w.crossing] = match w.direction {
-                Direction::Rising => 1,
-                Direction::Falling => -1,
-                Direction::Both => 0,
-            };
-        }
-        RunInfo {
-            var_names: flat.vars.iter().map(|v| v.name.clone()).collect(),
-            y_nominal,
-            whens: m.whens.iter().map(|w| (w.crossing, w.direction)).collect(),
-            root_dirs,
-            when_labels: m
-                .whens
-                .iter()
-                .map(|w| {
-                    let who = flat.instance_name(w.origin.instance);
-                    match &w.origin.label {
-                        Some(l) => format!("{who}: {l}"),
-                        None => who,
-                    }
-                })
-                .collect(),
-            params: flat.params.iter().map(|p| p.value).collect(),
-        }
+    /// The energy integrals at `t` (inside the last step), when the backend
+    /// integrates them (see [`energy::Integrand`]).
+    fn quadrature(&mut self, _t: f64, _out: &mut [f64]) -> Result<(), SolveError> {
+        Ok(())
+    }
+    /// The last step's estimated local error per entry of y, as a share of
+    /// that entry's tolerance (|e| / (rtol |y| + atol)); false when the
+    /// backend does not give it.
+    fn local_error(&mut self, _out: &mut [f64]) -> bool {
+        false
+    }
+    /// For each root function, the side an exact zero counts as (+1 or -1;
+    /// 0: none): the run loop sets it after every event so a function that
+    /// rests at zero after its crossing (a held value) does not fire again.
+    fn set_root_sides(&mut self, _sides: &[f64]) {}
+    /// The method now in use, for the report.
+    fn method(&self) -> String {
+        "BDF".into()
+    }
+    /// How the integrator was set up (method choice, linear solver,
+    /// initialisation), for the report.
+    fn setup_notes(&self) -> Vec<String> {
+        vec![]
     }
 }
 
@@ -226,15 +354,73 @@ impl OutputGrid {
     }
 }
 
+/// What made an event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EventKind {
+    /// a `when` clause fired (index into [`RunInfo::whens`])
+    When(usize),
+    /// a mode flipped (index into [`RunInfo::modes`])
+    Mode(usize),
+    /// a sampled block's output changed (index into the blocks)
+    Block(usize),
+    /// a time event (index into [`RunInfo::time_events`])
+    Time(usize),
+}
+
 /// An event that happened.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EventRecord {
-    /// when, s (located to the integrator's root-finding precision)
+    /// when, s (located to the integrator's root-finding precision, or
+    /// exact for time events and sample ticks)
     pub t: f64,
-    /// which `when` clause fired
+    /// which `when` clause fired (`usize::MAX` for other kinds)
     pub when: usize,
     /// what it is
     pub label: String,
+    /// what made it
+    pub kind: EventKind,
+}
+
+/// The achieved accuracy as the integrator estimated it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ErrorEstimate {
+    /// the largest local error estimate of any step, as a share of the
+    /// tolerance (the error test passes at ≤ 1)
+    pub worst_local: f64,
+    /// the entry of y it was in
+    pub worst_local_var: String,
+    /// for each entry of y: the local error estimates summed over every
+    /// step, relative to the entry's largest magnitude (an upper bound of
+    /// the global error that ignores damping), largest first
+    pub accumulated: Vec<(String, f64)>,
+}
+
+/// What the solver did, for the run report (DESIGN.md, *Solver report*).
+#[derive(Clone, Debug, Default)]
+pub struct SolverReport {
+    /// the integrator
+    pub backend: &'static str,
+    /// the method(s) used
+    pub method: String,
+    /// how the integrator was set up: method choice and why, linear
+    /// solver, initialisation path
+    pub notes: Vec<String>,
+    /// relative tolerance
+    pub rtol: f64,
+    /// absolute tolerance (times each variable's nominal value)
+    pub atol: f64,
+    /// the work done
+    pub stats: SolverStats,
+    /// events
+    pub events: usize,
+    /// sampled-block ticks
+    pub block_ticks: u64,
+    /// ticks that changed an output (and so restarted the integrator)
+    pub block_changes: u64,
+    /// the integrator's own error estimate
+    pub error: ErrorEstimate,
+    /// warnings for the user
+    pub warnings: Vec<String>,
 }
 
 /// A run's results.
@@ -262,6 +448,10 @@ pub struct SimResult {
     pub options: SolverOptions,
     /// wall-clock time of the run (not of compilation), s
     pub wall_seconds: f64,
+    /// the energy books, when kept
+    pub energy: Option<EnergyBooks>,
+    /// what the solver did
+    pub report: SolverReport,
 }
 
 impl SimResult {
@@ -271,14 +461,16 @@ impl SimResult {
     }
 }
 
-/// Runs `model` over `grid` with the default backend: CVODE when the model
-/// has no iteration variables, IDA otherwise.
-#[cfg(feature = "sundials")]
+/// Runs `model` over `grid` with the backend of `opts` — CVODES when the
+/// model has no iteration variables, IDAS otherwise (or diffsol) —
+/// driving the sampled `blocks` (one per [`RunInfo::blocks`] entry, in
+/// order).
 pub fn simulate(
     model: &dyn ModelFunctions,
     info: &RunInfo,
     opts: &SolverOptions,
     grid: OutputGrid,
+    blocks: &mut [Box<dyn DiscreteBlock>],
 ) -> Result<SimResult, SolveError> {
     let started = Instant::now();
     let l = *model.layout();
@@ -286,118 +478,66 @@ pub fn simulate(
     let mut d0 = vec![0.0; l.n_d];
     model.start(&info.params, &mut y0, &mut d0);
     let u = vec![0.0; l.n_u];
-    let mut integ = sundials::Sundials::new(model, info, opts, grid, &y0, d0, u.clone())?;
-    run_loop(model, info, opts, grid, &mut integ, &u, started)
+    let start = init::initialise(
+        model,
+        info,
+        grid.t0,
+        &mut y0,
+        &mut d0,
+        &u,
+        &init::InitSettings { rtol: opts.rtol, atol: opts.atol, max_iterations: 50 },
+    )?;
+    let result = run_backend(model, info, opts, grid, y0, d0, u, blocks, started);
+    result.map(|mut r| {
+        r.report.notes.insert(0, format!("start: {start}"));
+        r
+    })
 }
 
-/// Without a backend, runs fail.
-#[cfg(not(feature = "sundials"))]
-pub fn simulate(
-    _model: &dyn ModelFunctions,
-    _info: &RunInfo,
-    _opts: &SolverOptions,
-    _grid: OutputGrid,
-) -> Result<SimResult, SolveError> {
-    Err(SolveError::NoBackend)
-}
-
-/// The run loop, for any [`Integrator`].
-pub fn run_loop(
+#[allow(clippy::too_many_arguments)]
+fn run_backend(
     model: &dyn ModelFunctions,
     info: &RunInfo,
     opts: &SolverOptions,
     grid: OutputGrid,
-    integ: &mut dyn Integrator,
-    u: &[f64],
+    y0: Vec<f64>,
+    d0: Vec<f64>,
+    u: Vec<f64>,
+    blocks: &mut [Box<dyn DiscreteBlock>],
     started: Instant,
 ) -> Result<SimResult, SolveError> {
     let l = *model.layout();
-    let times = grid.times();
-    let mut rec = Recorder::new(l.n_vars, &times);
-    let mut work = vec![0.0; l.n_work];
-    let mut vars = vec![0.0; l.n_vars];
-    let mut y = vec![0.0; l.n_y()];
-    let p = &info.params;
-    let mut events = vec![];
-
-    let mut d = integ.discrete_mut().to_vec();
-    let sample = |d: &[f64], t: f64, y: &[f64], work: &mut [f64], vars: &mut [f64]| {
-        model.vars(&EvalInput { t, y, p, d, u }, work, vars);
+    let quad = if opts.energy_books {
+        info.energy.as_ref().filter(|e| !e.parts.is_empty()).map(|e| energy::Integrand::new(e, &l))
+    } else {
+        None
     };
-
-    // the consistent start
-    y.copy_from_slice(integ.y());
-    sample(&d, grid.t0, &y, &mut work, &mut vars);
-    rec.start(grid.t0, &vars);
-    let mut t = grid.t0;
-    while t < grid.t_end {
-        let st = integ.step(grid.t_end)?;
-        let t_new = match &st {
-            Step::Internal(t) | Step::Stopped(t) | Step::Root(t, _) => *t,
-        };
-        // grid points inside the step, from the dense output
-        while let Some(tk) = rec.next_grid_time() {
-            if tk > t_new || (tk == t_new && matches!(st, Step::Root(..))) {
-                break;
+    match opts.backend {
+        Backend::Sundials => {
+            #[cfg(feature = "sundials")]
+            {
+                let mut integ =
+                    sundials::Sundials::new(model, info, opts, grid, &y0, d0, u.clone(), quad)?;
+                run_loop(model, info, opts, grid, &mut integ, &u, blocks, started)
             }
-            if tk == t_new {
-                y.copy_from_slice(integ.y());
-            } else {
-                integ.interpolate(tk, &mut y)?;
+            #[cfg(not(feature = "sundials"))]
+            {
+                let _ = (y0, d0, quad, blocks, started);
+                Err(SolveError::NoBackend)
             }
-            sample(&d, tk, &y, &mut work, &mut vars);
-            rec.grid_point(tk, &vars);
         }
-        // the step's end point, for min/max/mean
-        y.copy_from_slice(integ.y());
-        sample(&d, t_new, &y, &mut work, &mut vars);
-        rec.interior(t_new, &vars);
-        t = t_new;
-        if let Step::Root(te, dirs) = st {
-            let mut fired = vec![0.0; l.n_whens];
-            let mut any = false;
-            for (k, (crossing, dir)) in info.whens.iter().enumerate() {
-                let r = dirs[*crossing];
-                let hit = match dir {
-                    Direction::Rising => r > 0,
-                    Direction::Falling => r < 0,
-                    Direction::Both => r != 0,
-                };
-                if hit {
-                    fired[k] = 1.0;
-                    any = true;
-                    events.push(EventRecord { t: te, when: k, label: info.when_labels[k].clone() });
-                }
+        Backend::Diffsol => {
+            #[cfg(feature = "diffsol")]
+            {
+                diffsol_backend::simulate(
+                    model, info, opts, grid, &y0, d0, &u, quad, blocks, started,
+                )
             }
-            if any {
-                let mut d_new = d.clone();
-                model.when(&EvalInput { t: te, y: &y, p, d: &d, u }, &fired, &mut work, &mut d_new);
-                d.copy_from_slice(&d_new);
-                integ.discrete_mut().copy_from_slice(&d);
-                integ.restart(te, &y)?;
-                // the right limit at the event time
-                y.copy_from_slice(integ.y());
-                sample(&d, te, &y, &mut work, &mut vars);
-                rec.interior(te, &vars);
-                // a grid point exactly at the event takes the value after it
-                if rec.next_grid_time() == Some(te) {
-                    rec.grid_point(te, &vars);
-                }
+            #[cfg(not(feature = "diffsol"))]
+            {
+                let _ = (y0, d0, quad, blocks, started);
+                Err(SolveError::NoBackend)
             }
         }
     }
-    let (values, min, max, mean) = rec.finish();
-    Ok(SimResult {
-        times,
-        names: info.var_names.clone(),
-        values,
-        min,
-        max,
-        mean,
-        events,
-        stats: integ.stats(),
-        backend: integ.name(),
-        options: opts.clone(),
-        wall_seconds: started.elapsed().as_secs_f64(),
-    })
 }

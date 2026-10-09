@@ -51,15 +51,15 @@ pub fn composites() -> Vec<ComponentDef> {
         ports: vec![port("p", "Pin", "positive terminal"), port("n", "Pin", "negative terminal")],
         params: vec![
             p("ocv", "V", 400.0, "open-circuit voltage"),
-            p("r0", "Ohm", 0.05, "series resistance"),
-            p("r1", "Ohm", 0.01, "RC pair resistance"),
-            p("c1", "F", 0.01, "RC pair capacitance"),
+            p("R0", "Ohm", 0.05, "series resistance"),
+            p("R1", "Ohm", 0.01, "RC pair resistance"),
+            p("C1", "F", 0.01, "RC pair capacitance"),
         ],
         components: vec![
             sub("source", "Electrical.ConstantVoltage", &[("V", n("ocv"))]),
-            sub("r0", "Electrical.Resistor", &[("R", n("r0"))]),
-            sub("r1", "Electrical.Resistor", &[("R", n("r1"))]),
-            sub("c1", "Electrical.Capacitor", &[("C", n("c1"))]),
+            sub("r0", "Electrical.Resistor", &[("R", n("R0"))]),
+            sub("r1", "Electrical.Resistor", &[("R", n("R1"))]),
+            sub("c1", "Electrical.Capacitor", &[("C", n("C1"))]),
         ],
         connections: vec![
             connect("n", "source.n"),

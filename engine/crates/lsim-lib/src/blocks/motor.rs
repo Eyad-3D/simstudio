@@ -18,12 +18,15 @@
 //!   inverter is off.
 //!
 //! The rotor's inertia is the block's own (scaled with the Torque Scale);
-//! the maps carry today's scale factors (MOD-47). Energy books: stored
-//! ½·J·w², loss = electrical power − shaft power.
+//! the maps carry today's scale factors (MOD-47). The maps are runtime
+//! tables (linear, as today; [`MotorConfig::values`]), so the definition
+//! depends only on whether a supply window limits it. Energy books:
+//! stored ½·J·w², loss = electrical power − shaft power.
 
 use super::*;
-use crate::table::{Outside, Table1, Table2, UnitCarriers};
+use crate::table::{Outside, Table1, Table2, UnitCarriers, table_param};
 use lsim_ir::EnergyDecl;
+use lsim_ir::ParamValue;
 
 const ID: &str = "motor.emotor";
 const RPM: f64 = std::f64::consts::PI / 30.0;
@@ -90,6 +93,25 @@ impl MotorConfig {
     }
 }
 
+impl MotorConfig {
+    /// The runtime data a part of this configuration takes: its maps (SI,
+    /// scaled), the Torque Scale and the full-load map's last speed.
+    pub fn values(&self) -> Result<Vec<(String, ParamValue)>, String> {
+        let last = self.full_load.inner_range().map(|r| r.1).unwrap_or(1e30);
+        Ok(vec![
+            (
+                "full_load_torque".into(),
+                ParamValue::Table(self.full_load.grid_data(["V", "rad/s"])?),
+            ),
+            ("power_loss".into(), ParamValue::Table(self.loss.grid_data(["rad/s", "N.m"])?)),
+            ("drag_torque".into(), ParamValue::Table(self.drag.data("rad/s")?)),
+            ("kt".into(), ParamValue::Real(c(self.scales[0]))),
+            ("kn".into(), ParamValue::Real(c(self.scales[1]))),
+            ("w_fl_last".into(), ParamValue::Real(c(last))),
+        ])
+    }
+}
+
 impl Default for MotorConfig {
     fn default() -> Self {
         let p = catalog::merged(ID, &serde_json::Map::new());
@@ -102,24 +124,34 @@ impl Default for MotorConfig {
 pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
     let id = ID;
     let mut uc = UnitCarriers::default();
-    let fl_last = cfg.full_load.inner_range().map(|r| r.1).unwrap_or(f64::INFINITY);
-    let kt = cfg.scales[0];
+    let defaults = MotorConfig::default();
     let mut params = cps(id, &["max_speed_rpm", "inertia_kgm2", "q4_torque_scale_pct"]);
+    for (name, value) in defaults.values().expect("the default maps") {
+        let (unit, doc) = match name.as_str() {
+            "full_load_torque" => ("N.m", "full-load torque by supply voltage and speed"),
+            "power_loss" => ("W", "motor and inverter loss by speed and torque"),
+            "drag_torque" => ("N.m", "drag torque while unpowered, by speed"),
+            "kt" => ("1", "Torque Scale (its inertia and maps grow with it)"),
+            "kn" => ("1", "Speed Scale (its maximum speed grows with it)"),
+            _ => ("rad/s", "the full-load map's last speed"),
+        };
+        params.push(match value {
+            ParamValue::Table(t) => table_param(&name, unit, t, doc),
+            ParamValue::Real(Expr::Const(v)) => p(&name, unit, v, doc),
+            _ => unreachable!("tables and numbers"),
+        });
+    }
     params.push(p("w0", "rad/s", 0.0, "the rotor's speed at the start"));
     params.push(pe(
         "w_max",
         "rad/s",
-        ite(
-            gt(n("max_speed_rpm"), c(0.0)),
-            n("max_speed_rpm") * c(cfg.scales[1]),
-            c(if fl_last.is_finite() { fl_last } else { 1e30 }) * n("unit_rad_s"),
-        ),
+        ite(gt(n("max_speed_rpm"), c(0.0)), n("max_speed_rpm") * n("kn"), n("w_fl_last")),
         "the maximum speed: Maximum Speed, else the full-load curve's last speed",
     ));
     params.push(pe(
         "J",
         "kg.m2",
-        n("inertia_kgm2") * c(kt),
+        n("inertia_kgm2") * n("kt"),
         "the rotor's inertia, as the Torque Scale makes it",
     ));
     uc.of("rad/s");
@@ -179,11 +211,9 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
     for v in vars.iter_mut().skip(12) {
         v.nominal = Some(1.0);
     }
-    let mut uc2 = uc;
-    let t_fl_expr = uc2.t2(&cfg.full_load, n("v"), "V", n("wa"), "rad/s", "N.m");
-    let loss_at = |uc: &mut UnitCarriers, torque: Expr| {
-        uc.t2(&cfg.loss, n("wa"), "rad/s", torque, "N.m", "W")
-    };
+    let uc2 = uc;
+    let t_fl_expr = lsim_ir::expr::table("full_load_torque", vec![n("v"), n("wa")]);
+    let loss_at = |torque: Expr| lsim_ir::expr::table("power_loss", vec![n("wa"), torque]);
     let wmax = n("w_max");
     let band = c(SPEED_LIMIT_BAND);
     let t_drive = ite(
@@ -211,7 +241,7 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         ),
         eq(
             n("p_req"),
-            n("t_cmd") * n("w") + loss_at(&mut uc2, abs(n("t_cmd"))),
+            n("t_cmd") * n("w") + loss_at(abs(n("t_cmd"))),
             "shaft power plus the loss map",
         ),
         eq(
@@ -227,10 +257,10 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             "the inverter runs for a command other than 0, a live supply, up to the maximum speed",
         ),
     ];
-    let unpowered = -(sign(n("w")) * uc2.t1(&cfg.drag, n("wa"), "rad/s", "N.m"));
+    let unpowered = -(sign(n("w")) * lsim_ir::expr::table("drag_torque", vec![n("wa")]));
     if cfg.windowed {
         vars.push(guess("frac", "1", c(1.0), "the share of the command its supply allows"));
-        let l0 = loss_at(&mut uc2, c(0.0) * n("unit_N_m"));
+        let l0 = loss_at(c(0.0) * n("unit_N_m"));
         eqs.push(eq(
             n("on"),
             ite(
@@ -240,7 +270,7 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             ),
             "with no room even for its spin losses, the inverter is off",
         ));
-        let p_of = n("frac") * n("t_cmd") * n("w") + loss_at(&mut uc2, abs(n("frac") * n("t_cmd")));
+        let p_of = n("frac") * n("t_cmd") * n("w") + loss_at(abs(n("frac") * n("t_cmd")));
         eqs.push(eq(
             c(0.0),
             ite(
@@ -293,11 +323,7 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
     eqs.extend([
         eq(
             n("p_elec"),
-            ite(
-                gt(n("on"), c(0.5)),
-                n("T") * n("w") + loss_at(&mut uc2, abs(n("T"))),
-                c(0.0) * n("unit_W"),
-            ),
+            ite(gt(n("on"), c(0.5)), n("T") * n("w") + loss_at(abs(n("T"))), c(0.0) * n("unit_W")),
             "powered: shaft power plus the loss map; unpowered: nothing",
         ),
         eq(n("v") * n("i"), n("p_elec"), "it takes that power from its supply"),
@@ -319,22 +345,8 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
     ]);
     let mut all = uc2.into_params();
     all.extend(params);
-    let mut fp: Vec<f64> = vec![cfg.windowed as u8 as f64];
-    fp.extend(cfg.scales);
-    for t in [&cfg.full_load, &cfg.loss] {
-        fp.extend(&t.outer);
-        for s in &t.sheets {
-            fp.push(s.x.len() as f64);
-            fp.extend(&s.x);
-            fp.extend(&s.y);
-            fp.push(s.outside as u8 as f64);
-        }
-        fp.push(t.outer_outside as u8 as f64);
-    }
-    fp.extend(&cfg.drag.x);
-    fp.extend(&cfg.drag.y);
     ComponentDef {
-        name: variant("Blocks.EMotor", *cfg == MotorConfig::default(), fp),
+        name: variant("Blocks.EMotor", !cfg.windowed, [cfg.windowed as u8 as f64]),
         doc: doc(id),
         ports,
         params: all,

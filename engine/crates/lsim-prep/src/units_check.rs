@@ -46,7 +46,26 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
     Ok(match e {
         Expr::Const(_) => D::Any,
         Expr::Time => D::Known(Dim::TIME),
-        Expr::Name(_) | Expr::Table { .. } => D::Any,
+        Expr::Name(_) => D::Any,
+        Expr::Table { table, args } => match flat.tables.get(*table as usize) {
+            Some(t) => {
+                for (k, (a, unit)) in args.iter().zip(&t.data.axis_units).enumerate() {
+                    if let (D::Known(x), Ok(u)) = (dim(a, flat)?, lsim_ir::units::parse_unit(unit))
+                        && x != u.dim
+                    {
+                        return Err(Mismatch(format!(
+                            "the table '{}' is read at {} on its axis {}, which is in {}",
+                            t.name,
+                            describe(x),
+                            k + 1,
+                            describe(u.dim)
+                        )));
+                    }
+                }
+                D::Known(t.unit.dim)
+            }
+            None => D::Any,
+        },
         Expr::Var(v) | Expr::Pre(v) => var(v),
         Expr::Param(p) => D::Known(flat.params[p.0 as usize].unit.dim),
         Expr::Der(v) => match var(v) {
@@ -143,6 +162,20 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
     })
 }
 
+/// `0 = if c then a else b` holds as `0 = a` while `c` and `0 = b`
+/// otherwise (an `if` equation whose branches state different
+/// quantities): each branch must balance on its own.
+fn residual_branches(e: &Expr, flat: &FlatSystem) -> Result<(), Mismatch> {
+    match e {
+        Expr::If(c, a, b) => {
+            dim(c, flat)?;
+            residual_branches(a, flat)?;
+            residual_branches(b, flat)
+        }
+        other => dim(other, flat).map(|_| ()),
+    }
+}
+
 /// Checks every equation and `when` action; returns one diagnostic per
 /// unbalanced equation.
 pub fn check(flat: &FlatSystem, lib: &Library, top: &lsim_ir::ComponentDef) -> Vec<Diagnostic> {
@@ -162,6 +195,30 @@ pub fn check(flat: &FlatSystem, lib: &Library, top: &lsim_ir::ComponentDef) -> V
         }
     };
     for e in &flat.equations {
+        let residual_if = match (&e.lhs, &e.rhs) {
+            (Expr::Const(z), x @ Expr::If(..)) | (x @ Expr::If(..), Expr::Const(z))
+                if *z == 0.0 =>
+            {
+                Some(x)
+            }
+            _ => None,
+        };
+        if let Some(x) = residual_if {
+            if let Err(Mismatch(why)) = residual_branches(x, flat) {
+                let who = flat.instance_name(e.origin.instance);
+                let def = &flat.instance(e.origin.instance).def;
+                let mut d = Diagnostic::error(
+                    "UNIT-MISMATCH",
+                    format!(
+                        "In {who} ({def}), the equation {} does not balance its units: {why}.",
+                        text_of(&e.origin)
+                    ),
+                );
+                d.parts.push(flat.instance(e.origin.instance).path.clone());
+                out.push(d);
+            }
+            continue;
+        }
         let r = dim(&e.lhs, flat).and_then(|l| {
             let r = dim(&e.rhs, flat)?;
             unify(l, r, "the equation").map_err(|_| {

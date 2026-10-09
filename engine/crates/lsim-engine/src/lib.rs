@@ -175,6 +175,6 @@ impl Model {
         opts: &SolverOptions,
         grid: OutputGrid,
     ) -> Result<SimResult, SolveError> {
-        lsim_solve::simulate(&self.jit, &self.info, opts, grid)
+        lsim_solve::simulate(&self.jit, &self.info, opts, grid, &mut [])
     }
 }

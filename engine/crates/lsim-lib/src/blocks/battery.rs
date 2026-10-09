@@ -13,12 +13,18 @@
 //! SOC within one 10 ms step) become their limit, a window that closes
 //! at the minimum SOC and at 100 %.
 //!
-//! Energy books: stored = Q·∫OCV dSOC (chemical) + ½·C1·v1²; loss =
-//! R0·i² + v1²/R1 + the charge not stored, (1−η)·OCV·|i| while charging.
+//! The OCV table is runtime data (the parameter `ocv_table`, linear as
+//! today); the definition depends only on the structural choices (an RC
+//! pair, which pack limits are set, whether the power limit holds).
+//!
+//! Energy books: stored = the chemical energy ∫OCV·dQ (a state, so the
+//! OCV table can change without a rebuild) + ½·C1·v1²; loss = R0·i² +
+//! v1²/R1 + the charge not stored, (1−η)·OCV·|i| while charging.
 
 use super::*;
-use crate::table::{Table1, UnitCarriers};
+use crate::table::{Table1, UnitCarriers, table_param};
 use lsim_ir::EnergyDecl;
+use lsim_ir::ParamValue;
 
 const ID: &str = "battery.generic";
 /// "infinite" power or current for a limit that is not set
@@ -43,7 +49,8 @@ pub struct PackLimits {
 /// The battery's configuration.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BatteryConfig {
-    /// open-circuit voltage, V, by SOC as a fraction 0-1
+    /// open-circuit voltage, V, by SOC as a fraction 0-1 (runtime data:
+    /// [`BatteryConfig::values`])
     pub ocv: Table1,
     /// an RC pair (R1 and its time constant both above 0)
     pub rc: bool,
@@ -103,6 +110,23 @@ pub fn ocv_mean(t: &Table1) -> f64 {
     t.integral(0.0, 1.0)
 }
 
+impl BatteryConfig {
+    /// The runtime data a part of this configuration takes: its OCV table
+    /// and the table's mean.
+    pub fn values(&self) -> Result<Vec<(String, ParamValue)>, String> {
+        Ok(vec![
+            ("ocv_table".into(), ParamValue::Table(self.ocv.data("1")?)),
+            ("ocv_mean".into(), ParamValue::Real(c(ocv_mean(&self.ocv)))),
+        ])
+    }
+
+    /// The structural choices, for the definition's name.
+    fn is_default_structure(&self) -> bool {
+        let d = BatteryConfig::default();
+        self.rc == d.rc && self.limits == d.limits && self.limit_enforced == d.limit_enforced
+    }
+}
+
 /// The battery block.
 pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
     let id = ID;
@@ -128,7 +152,14 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
             "soc_derate_band_pct",
         ],
     );
-    let mean = ocv_mean(&cfg.ocv).max(1e-6);
+    let defaults = BatteryConfig::default();
+    params.push(table_param(
+        "ocv_table",
+        "V",
+        defaults.ocv.data("1").expect("the default OCV table"),
+        "open-circuit voltage by SOC (0-1)",
+    ));
+    params.push(p("ocv_mean", "V", ocv_mean(&defaults.ocv), "the OCV table's mean over 0-100 %"));
     params.extend([
         pe(
             "Q",
@@ -136,7 +167,7 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
             ite(
                 gt(n("capacity_Ah"), c(0.0)),
                 n("capacity_Ah"),
-                max(n("capacity_kWh"), c(3600.0)) / (c(mean) * n("unit_V")),
+                max(n("capacity_kWh"), c(3600.0)) / max(n("ocv_mean"), c(1e-6) * n("unit_V")),
             ),
             "charge capacity: Charge Capacity, else Usable Capacity at the OCV table's mean voltage",
         ),
@@ -187,7 +218,7 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
     soc.nominal = Some(1.0);
     let mut vars = vec![
         soc,
-        guess("v", "V", n("unit_V") * c(cfg.ocv.eval(0.5)), "terminal voltage"),
+        guess("v", "V", n("ocv_mean"), "terminal voltage"),
         var("i", "A", "current, discharging positive"),
         var("ocv", "V", "open-circuit voltage"),
         var("soc_c", "1", "the SOC the table is read at (0-1)"),
@@ -198,6 +229,7 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
         state("e_delivered", "J", 0.0, "energy delivered at the terminals"),
         state("e_recuperated", "J", 0.0, "energy taken back at the terminals"),
         state("e_losses", "J", 0.0, "energy lost inside"),
+        state("e_chem", "J", 0.0, "chemical energy stored since the start, ∫OCV·dQ"),
     ];
     for v in vars.iter_mut().skip(9) {
         v.nominal = Some(1.0);
@@ -208,7 +240,11 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
         eq(c(0.0), n("pos.i") + n("neg.i"), "the current into pos leaves at neg"),
         eq(n("i"), -n("pos.i"), "discharging, current leaves at pos"),
         eq(n("soc_c"), clamp(n("soc"), c(0.0), c(1.0)), "the SOC read in the table"),
-        eq(n("ocv"), uc.t1(&cfg.ocv, n("soc_c"), "1", "V"), "the OCV table at that SOC"),
+        eq(
+            n("ocv"),
+            lsim_ir::expr::table("ocv_table", vec![n("soc_c")]),
+            "the OCV table at that SOC",
+        ),
         eq(n("a_volt"), n("ocv") - v1.clone(), "the voltage behind R0"),
         eq(n("v"), n("a_volt") - n("r0") * n("i"), "R0's drop"),
         eq(
@@ -233,13 +269,15 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
         eq(der("e_delivered"), max(n("sig_power"), c(0.0)), "energy delivered"),
         eq(der("e_recuperated"), max(-n("sig_power"), c(0.0)), "energy recuperated"),
         eq(der("e_losses"), n("sig_losses"), "internal losses"),
+        eq(
+            der("e_chem"),
+            -(n("ocv") * ite(ge(n("i"), c(0.0)), n("i"), n("eta_c") * n("i"))),
+            "the chemical energy follows the charge stored",
+        ),
     ];
     let mut loss = n("r0") * n("i") * n("i")
         + ite(lt(n("i"), c(0.0)), (c(1.0) - n("eta_c")) * n("ocv") * -n("i"), c(0.0) * n("unit_W"));
-    let mut stored = {
-        let carrier = uc.of("V").expect("V carrier");
-        n("Q") * carrier * cfg.ocv.integral_expr(n("soc"))
-    };
+    let mut stored = n("e_chem");
     if cfg.rc {
         params.push(pe("r1", "Ohm", max(n("rc_resistance_ohm"), c(1e-9)), "R1"));
         params.push(pe(
@@ -327,10 +365,8 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
             l.band as u8 as f64,
         ]);
     }
-    fp.extend(&cfg.ocv.x);
-    fp.extend(&cfg.ocv.y);
     ComponentDef {
-        name: variant("Blocks.Battery", *cfg == BatteryConfig::default(), fp),
+        name: variant("Blocks.Battery", cfg.is_default_structure(), fp),
         doc: doc(id),
         ports,
         params,

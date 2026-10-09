@@ -1,6 +1,6 @@
 [package]
 name = "lsim-project"
-description = "Import of today's project JSON into the engine's IR (block mappings, implicit links, sub-systems, channel map), stand-in preparation and run loop, exact-answer and energy-book tests, and the golden comparison with today's engine"
+description = "Import of today's project JSON into the engine's IR (block mappings, implicit links, sub-systems, channel map), exact-answer and energy-book tests, and the golden comparison with today's engine"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

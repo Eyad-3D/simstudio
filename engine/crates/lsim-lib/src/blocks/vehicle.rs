@@ -206,13 +206,18 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
             "moving backwards, it comes to rest",
         ),
         when(
-            gt(n("stuck") * (n("f_fric") - n("f_rr_c") - n("eps")) + (n("stuck") - c(1.0)), c(0.0)),
+            gt(
+                n("stuck") * (n("f_fric") - n("f_rr_c") - n("eps"))
+                    + (n("stuck") - c(1.0)) * n("eps"),
+                c(0.0),
+            ),
             &[("stuck", c(0.0)), ("dir", c(1.0))],
             "it starts moving forwards when pushed past its rolling resistance",
         ),
         when(
             gt(
-                n("stuck") * (-n("f_fric") - n("f_rr_c") - n("eps")) + (n("stuck") - c(1.0)),
+                n("stuck") * (-n("f_fric") - n("f_rr_c") - n("eps"))
+                    + (n("stuck") - c(1.0)) * n("eps"),
                 c(0.0),
             ),
             &[("stuck", c(0.0)), ("dir", c(-1.0))],

@@ -8,8 +8,8 @@
 //! infinite fuel").
 
 use super::*;
-use crate::table::{Outside, Table1, Table2, UnitCarriers};
-use lsim_ir::EnergyDecl;
+use crate::table::{Outside, Table1, Table2, UnitCarriers, table_param};
+use lsim_ir::{EnergyDecl, ParamValue};
 
 const ENG: &str = "engine.combustion";
 const RPM: f64 = std::f64::consts::PI / 30.0;
@@ -75,6 +75,31 @@ impl EngineConfig {
     }
 }
 
+impl EngineConfig {
+    /// The runtime data a part of this configuration takes: its maps (SI,
+    /// scaled), the Engine Scale and the full-load curve's first and last
+    /// speeds.
+    pub fn values(&self) -> Result<Vec<(String, ParamValue)>, String> {
+        Ok(vec![
+            ("full_load_torque".into(), ParamValue::Table(self.full_load.data("rad/s")?)),
+            ("drag_torque".into(), ParamValue::Table(self.drag.data("rad/s")?)),
+            ("fuel_map".into(), ParamValue::Table(self.fuel_map.grid_data(["rad/s", "N.m"])?)),
+            ("k_scale".into(), ParamValue::Real(c(self.scale))),
+            (
+                "n_first".into(),
+                ParamValue::Real(c(self.full_load.x.first().copied().unwrap_or(0.0))),
+            ),
+            ("n_last".into(), ParamValue::Real(c(self.full_load.x.last().copied().unwrap_or(0.0)))),
+        ])
+    }
+
+    fn is_default_structure(&self) -> bool {
+        let d = EngineConfig::default();
+        (self.throttle_wired, self.enable_wired, self.tank)
+            == (d.throttle_wired, d.enable_wired, d.tank)
+    }
+}
+
 impl Default for EngineConfig {
     fn default() -> Self {
         let p = catalog::merged(ENG, &serde_json::Map::new());
@@ -100,17 +125,30 @@ impl Default for EngineConfig {
 pub fn engine(cfg: &EngineConfig) -> ComponentDef {
     let id = ENG;
     let mut uc = UnitCarriers::default();
-    let n0 = cfg.full_load.x.first().copied().unwrap_or(0.0);
-    let n_top = cfg.full_load.x.last().copied().unwrap_or(0.0);
     uc.of("rad/s");
     uc.of("N.m");
     uc.of("kg/s");
     let mut params = cps(id, &["idle_speed_rpm", "fuel_cut_reentry_rpm", "inertia_kgm2"]);
+    for (name, value) in EngineConfig::default().values().expect("the default maps") {
+        let (unit, doc) = match name.as_str() {
+            "full_load_torque" => ("N.m", "full-load torque by speed"),
+            "drag_torque" => ("N.m", "drag torque while not fired, by speed"),
+            "fuel_map" => ("kg/s", "fuel flow by speed and torque"),
+            "k_scale" => ("1", "Engine Scale (torque, fuel and inertia grow with it)"),
+            "n_first" => ("rad/s", "the full-load curve's first speed"),
+            _ => ("rad/s", "the full-load curve's last speed (the rev limit)"),
+        };
+        params.push(match value {
+            ParamValue::Table(t) => table_param(&name, unit, t, doc),
+            ParamValue::Real(Expr::Const(v)) => p(&name, unit, v, doc),
+            _ => unreachable!("tables and numbers"),
+        });
+    }
     params.push(p("w0", "rad/s", 0.0, "its speed at the start"));
     params.push(pe(
         "J",
         "kg.m2",
-        n("inertia_kgm2") * c(cfg.scale),
+        n("inertia_kgm2") * n("k_scale"),
         "inertia, as the Engine Scale makes it",
     ));
     params.push(pe(
@@ -165,15 +203,13 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
     if cfg.tank {
         on = and(on, gt(n("fuel_mass"), c(0.0)));
     }
-    let below_top = le(n("wa"), (c(n_top) + c(1e-9 * RPM)) * n("unit_rad_s"));
-    let fm = |uc: &mut UnitCarriers, t: Expr| {
-        uc.t2(&cfg.fuel_map, n("n_map"), "rad/s", t, "N.m", "kg/s")
-    };
-    let fuel_thr = fm(&mut uc, n("t_b1"));
-    let fuel_b2 = fm(&mut uc, n("t_b2"));
-    let fuel_0 = fm(&mut uc, c(0.0) * n("unit_N_m"));
-    let t_full = uc.t1(&cfg.full_load, n("n_map"), "rad/s", "N.m");
-    let t_drag = uc.t1(&cfg.drag, n("wa"), "rad/s", "N.m");
+    let below_top = le(n("wa"), n("n_last") + c(1e-9 * RPM) * n("unit_rad_s"));
+    let fm = |t: Expr| lsim_ir::expr::table("fuel_map", vec![n("n_map"), t]);
+    let fuel_thr = fm(n("t_b1"));
+    let fuel_b2 = fm(n("t_b2"));
+    let fuel_0 = fm(c(0.0) * n("unit_N_m"));
+    let t_full = lsim_ir::expr::table("full_load_torque", vec![n("n_map")]);
+    let t_drag = lsim_ir::expr::table("drag_torque", vec![n("wa")]);
     let eqs = vec![
         eq(n("w"), n("shaft.w"), "it turns with the shaft"),
         eq(n("J") * der("w"), n("T") + n("shaft.tau"), "its inertia"),
@@ -182,7 +218,7 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
         eq(n("on"), ite(on, c(1.0), c(0.0)), "switched on and fuelled"),
         eq(
             n("n_map"),
-            clamp(n("wa"), c(n0) * n("unit_rad_s"), c(n_top) * n("unit_rad_s")),
+            clamp(n("wa"), n("n_first"), n("n_last")),
             "the maps are read between the full-load curve's first and last speed",
         ),
         eq(n("gov"), (n("idle") - n("wa")) / (c(0.25) * n("idle")), "the idle governor's demand"),
@@ -268,24 +304,10 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
     ];
     let mut all = uc.into_params();
     all.extend(params);
-    let mut fp = vec![
-        cfg.scale,
-        cfg.throttle_wired as u8 as f64,
-        cfg.enable_wired as u8 as f64,
-        cfg.tank as u8 as f64,
-    ];
-    for t in [&cfg.full_load, &cfg.drag] {
-        fp.extend(&t.x);
-        fp.extend(&t.y);
-    }
-    fp.extend(&cfg.fuel_map.outer);
-    for s in &cfg.fuel_map.sheets {
-        fp.push(s.x.len() as f64);
-        fp.extend(&s.x);
-        fp.extend(&s.y);
-    }
+    let fp =
+        [cfg.throttle_wired as u8 as f64, cfg.enable_wired as u8 as f64, cfg.tank as u8 as f64];
     ComponentDef {
-        name: variant("Blocks.CombustionEngine", *cfg == EngineConfig::default(), fp),
+        name: variant("Blocks.CombustionEngine", cfg.is_default_structure(), fp),
         doc: doc(id),
         ports,
         params: all,
@@ -380,6 +402,18 @@ impl Default for FuelCellConfig {
     }
 }
 
+impl FuelCellConfig {
+    /// The runtime data a part of this configuration takes: its
+    /// polarization curve and the stack voltage at no current (the start
+    /// guess).
+    pub fn values(&self) -> Result<Vec<(String, ParamValue)>, String> {
+        Ok(vec![
+            ("polarization".into(), ParamValue::Table(self.polarization.data("A")?)),
+            ("v_open".into(), ParamValue::Real(c(self.polarization.eval(0.0)))),
+        ])
+    }
+}
+
 /// fuelcell.stack: a voltage source following its polarization curve at
 /// the current its bus takes (today finds that current by bisection on
 /// V(I)·I = the bus load: the circuit does it here), up to its maximum
@@ -388,9 +422,17 @@ impl Default for FuelCellConfig {
 pub fn fuel_cell(cfg: &FuelCellConfig) -> ComponentDef {
     let id = "fuelcell.stack";
     let mut uc = UnitCarriers::default();
-    let pol = uc.t1(&cfg.polarization, n("I"), "A", "V");
-    let pol_max = uc.t1(&cfg.polarization, n("i_max"), "A", "V");
+    let pol = lsim_ir::expr::table("polarization", vec![n("I")]);
+    let pol_max = lsim_ir::expr::table("polarization", vec![n("i_max")]);
+    let defaults = FuelCellConfig::default();
     let mut params = cps(id, &["max_current_A", "h2_per_kwh_g"]);
+    params.push(table_param(
+        "polarization",
+        "V",
+        defaults.polarization.data("A").expect("the default curve"),
+        "stack voltage by current",
+    ));
+    params.push(p("v_open", "V", defaults.polarization.eval(0.0), "stack voltage at no current"));
     params.push(pe(
         "i_max",
         "A",
@@ -411,24 +453,16 @@ pub fn fuel_cell(cfg: &FuelCellConfig) -> ComponentDef {
     ports.push(output("p_deliver", "W", "the most power it gives now (its window)"));
     let alive = if cfg.tank { gt(n("h2_mass"), c(0.0)) } else { ge(c(1.0), c(0.0)) };
     uc.of("A");
+    uc.of("V");
     let mut all = uc.into_params();
     all.extend(params);
     ComponentDef {
-        name: variant(
-            "Blocks.FuelCell",
-            *cfg == FuelCellConfig::default(),
-            cfg.polarization
-                .x
-                .iter()
-                .chain(&cfg.polarization.y)
-                .copied()
-                .chain([cfg.tank as u8 as f64]),
-        ),
+        name: variant("Blocks.FuelCell", cfg.tank == defaults.tank, [cfg.tank as u8 as f64]),
         doc: doc(id),
         ports,
         params: all,
         vars: vec![
-            guess("v", "V", c(cfg.polarization.eval(0.0)) * n("unit_V"), "stack voltage"),
+            guess("v", "V", n("v_open"), "stack voltage"),
             var("I", "A", "stack current"),
             var("P", "W", "electrical power"),
         ],

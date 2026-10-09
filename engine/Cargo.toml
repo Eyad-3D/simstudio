@@ -26,6 +26,7 @@ lsim-fast = { path = "crates/lsim-fast" }
 lsim-lib = { path = "crates/lsim-lib" }
 lsim-project = { path = "crates/lsim-project" }
 lsim-engine = { path = "crates/lsim-engine" }
+lsim-sundials-sys = { path = "crates/lsim-sundials-sys" }
 
 # third-party, exact versions (every licence is checked by scripts/licences.py)
 serde = { version = "=1.0.229", features = ["derive"] }
@@ -37,10 +38,18 @@ cranelift-frontend = "=0.134.4"
 cranelift-jit = "=0.134.4"
 cranelift-module = "=0.134.4"
 cranelift-native = "=0.134.4"
-# SUNDIALS 7.1.1, built from the C sources vendored in the crate (CMake and a
-# C compiler at build time; bindgen needs libclang). WP4 replaces it with an
-# in-tree -sys crate that needs only a C compiler (see DESIGN.md).
-sundials-sys = { version = "=0.6.2", default-features = false, features = ["cvode", "ida", "build_libraries", "static_libraries"] }
+# the C compiler driver that builds the vendored SUNDIALS (lsim-sundials-sys)
+cc = { version = "=1.6.0", features = ["parallel"] }
+# the sparse LU inside SUNDIALS (KLU is LGPL) and the dense LU of the
+# initialisation; MIT
+faer = { version = "=0.24.4", default-features = false, features = ["std", "linalg", "sparse-linalg"] }
+# parallel sweeps
+rayon = "=1.12.0"
+# the pure-Rust second integrator (cross-checks); pinned: its API changes
+# between minor versions
+diffsol = { version = "=0.17.1", default-features = false, features = ["nalgebra", "faer"] }
+# reading the reference problems' checkpoints in tests (benchmarks/reference)
+toml = { version = "=0.9.12", default-features = false, features = ["std", "parse", "serde"] }
 pyo3 = { version = "=0.29.3", features = ["abi3-py311"] }
 
 [workspace.lints.rust]

@@ -4,13 +4,13 @@
 //! Signal ports carry units, and a link joins ports of one dimension, so
 //! the generic blocks are generated for the units they connect
 //! ([`gain`], [`convert`] …); the library holds their dimensionless
-//! versions. A block that holds table data is generated for that data
-//! (its name carries a fingerprint of it), until the IR's runtime tables
-//! arrive (see [`crate::table`]).
+//! versions. Table blocks hold their data in a table parameter `table`
+//! (runtime data: a part sets its own with a modifier).
 
-use crate::table::{Table1, Table2, UnitCarriers};
+use crate::table::{Interpolation, Table1, Table2, table_param};
 use crate::x::*;
 use lsim_ir::ComponentDef;
+use lsim_ir::TableData;
 
 /// A generated block's name: `base`, or `base_<unit>_<unit>…` when any
 /// unit is not dimensionless.
@@ -185,51 +185,82 @@ pub fn first_order(unit: &str) -> ComponentDef {
     }
 }
 
-/// y = table(u), a 1-D table with today's linear reading.
-pub fn table1d(t: &Table1, u_in: &str, u_out: &str) -> ComponentDef {
-    let mut uc = UnitCarriers::default();
-    let e = uc.t1(t, n("u"), u_in, u_out);
+fn line(x_unit: &str) -> TableData {
+    TableData {
+        interpolation: Interpolation::Linear,
+        axis_units: [x_unit.to_string(), String::new()],
+        ..TableData::new_1d(vec![0.0, 1.0], vec![0.0, 1.0])
+    }
+}
+
+/// y = table(u), a 1-D table (its parameter `table`; linear by default,
+/// as today's app reads tables).
+pub fn table1d(u_in: &str, u_out: &str) -> ComponentDef {
     ComponentDef {
-        name: format!("{}_{}", unit_name("Signal.Table1D", &[u_in, u_out]), t1_fingerprint(t)),
+        name: unit_name("Signal.Table1D", &[u_in, u_out]),
         doc: "y = a 1-D table read at u.".into(),
         ports: vec![input("u", u_in, "abscissa"), output("y", u_out, "the table's value")],
-        params: uc.into_params(),
-        equations: vec![eq(n("y"), e, "it reads its table")],
+        params: vec![table_param("table", u_out, line(u_in), "the table")],
+        equations: vec![eq(
+            n("y"),
+            lsim_ir::expr::table("table", vec![n("u")]),
+            "it reads its table",
+        )],
         ..Default::default()
     }
 }
 
-/// y = table(u1, u2), a 2-D table.
-pub fn table2d(t: &Table2, u1: &str, u2: &str, u_out: &str) -> ComponentDef {
-    let mut uc = UnitCarriers::default();
-    let e = uc.t2(t, n("u1"), u1, n("u2"), u2, u_out);
+/// y = table(u1, u2), a 2-D table (its parameter `table`).
+pub fn table2d(u1: &str, u2: &str, u_out: &str) -> ComponentDef {
+    let data = TableData {
+        interpolation: Interpolation::Linear,
+        axis_units: [u1.to_string(), u2.to_string()],
+        ..TableData::new_2d(vec![0.0, 1.0], vec![0.0, 1.0], vec![0.0, 0.0, 0.0, 1.0])
+    };
     ComponentDef {
-        name: format!("{}_{}", unit_name("Signal.Table2D", &[u1, u2, u_out]), t2_fingerprint(t)),
+        name: unit_name("Signal.Table2D", &[u1, u2, u_out]),
         doc: "y = a 2-D table read at (u1, u2).".into(),
         ports: vec![
-            input("u1", u1, "outer abscissa"),
-            input("u2", u2, "inner abscissa"),
+            input("u1", u1, "first abscissa"),
+            input("u2", u2, "second abscissa"),
             output("y", u_out, "the table's value"),
         ],
-        params: uc.into_params(),
-        equations: vec![eq(n("y"), e, "it reads its table")],
+        params: vec![table_param("table", u_out, data, "the table")],
+        equations: vec![eq(
+            n("y"),
+            lsim_ir::expr::table("table", vec![n("u1"), n("u2")]),
+            "it reads its table",
+        )],
         ..Default::default()
     }
 }
 
 /// y = table(time), a signal that follows a table over time.
-pub fn time_table(t: &Table1, u_out: &str) -> ComponentDef {
-    let mut uc = UnitCarriers::default();
-    let e = uc.t1(t, n("t_now"), "s", u_out);
+pub fn time_table(u_out: &str) -> ComponentDef {
     ComponentDef {
-        name: format!("{}_{}", unit_name("Signal.TimeTable", &[u_out]), t1_fingerprint(t)),
+        name: unit_name("Signal.TimeTable", &[u_out]),
         doc: "y = a table read at the time.".into(),
         ports: vec![output("y", u_out, "the table's value now")],
-        params: uc.into_params(),
+        params: vec![table_param("table", u_out, line("s"), "the table over time")],
         vars: vec![var("t_now", "s", "the time")],
-        equations: vec![eq(n("t_now"), time(), "the time"), eq(n("y"), e, "it reads its table")],
+        equations: vec![
+            eq(n("t_now"), time(), "the time"),
+            eq(n("y"), lsim_ir::expr::table("table", vec![n("t_now")]), "it reads its table"),
+        ],
         ..Default::default()
     }
+}
+
+/// A table parameter's value from today's data: a 1-D table (`Table1`) as
+/// runtime data with its axis unit.
+pub fn t1_value(t: &Table1, x_unit: &str) -> Result<lsim_ir::ParamValue, String> {
+    t.data(x_unit).map(lsim_ir::ParamValue::Table)
+}
+
+/// A 2-D table parameter's value from today's sheets (resampled onto one
+/// grid).
+pub fn t2_value(t: &Table2, units: [&str; 2]) -> Result<lsim_ir::ParamValue, String> {
+    t.grid_data(units).map(lsim_ir::ParamValue::Table)
 }
 
 /// y = y0 before t_step, y1 from then on (an event at t_step).
@@ -266,6 +297,9 @@ pub fn signal() -> Vec<ComponentDef> {
         integrator("1", "1"),
         limiter("1"),
         first_order("1"),
+        table1d("1", "1"),
+        table2d("1", "1", "1"),
+        time_table("1"),
     ];
     v.push(step("1"));
     v

@@ -98,10 +98,19 @@ impl Classes {
     }
 }
 
-#[allow(clippy::needless_range_loop)] // several arrays indexed in step
 /// Removes aliases from `flat.equations` (and substitutes them in `whens`
 /// and the energy expressions); returns the alias table.
 pub fn eliminate(flat: &mut FlatSystem) -> Vec<AliasEntry> {
+    let known = vec![false; flat.vars.len()];
+    eliminate_with(flat, &known)
+}
+
+#[allow(clippy::needless_range_loop)] // several arrays indexed in step
+/// [`eliminate`] with some variables `known` (an inverse model's
+/// prescribed inputs): a known variable is kept in preference to any other
+/// (a state equal to it is eliminated in its favour), two known variables
+/// are never merged and a known variable never becomes a constant.
+pub fn eliminate_with(flat: &mut FlatSystem, known: &[bool]) -> Vec<AliasEntry> {
     let n = flat.vars.len();
     let mut is_state = vec![false; n];
     for e in &flat.equations {
@@ -130,16 +139,22 @@ pub fn eliminate(flat: &mut FlatSystem) -> Vec<AliasEntry> {
                     let (rb, sb) = cls.find(b.0 as usize);
                     // a = s·b, a = sa·ra, b = sb·rb  →  ra = s·sa·sb·rb
                     let rel = s * sa * sb;
+                    let (a_known, b_known) = (known[ra], known[rb]);
                     let (a_state, b_state) = (is_state[ra], is_state[rb]);
                     let (a_val, b_val) = (cls.value[ra].is_some(), cls.value[rb].is_some());
                     let merge = ra != rb
-                        && !(a_state && b_state)
-                        && !(a_val && b_val)
+                        && !(a_known && b_known)
+                        && !(a_known && b_val)
+                        && !(b_known && a_val)
+                        && (a_known || b_known || !(a_state && b_state))
                         && !(a_state && b_val)
                         && !(b_state && a_val);
                     if merge {
-                        // keep the constant, else the state, else the older variable
-                        let keep_a = a_val || (!b_val && (a_state || (!b_state && ra < rb)));
+                        // keep the known input, else the constant, else the
+                        // state, else the older variable
+                        let keep_a = a_known
+                            || (!b_known
+                                && (a_val || (!b_val && (a_state || (!b_state && ra < rb)))));
                         let (keep_root, drop_root) = if keep_a { (ra, rb) } else { (rb, ra) };
                         cls.parent[drop_root] = keep_root;
                         cls.sign[drop_root] = rel; // ±1 is its own inverse
@@ -149,7 +164,7 @@ pub fn eliminate(flat: &mut FlatSystem) -> Vec<AliasEntry> {
                 }
                 Some(Found::Const(a, value)) if !discrete[a.0 as usize] => {
                     let (ra, sa) = cls.find(a.0 as usize);
-                    if !is_state[ra] && cls.value[ra].is_none() {
+                    if !is_state[ra] && !known[ra] && cls.value[ra].is_none() {
                         cls.value[ra] = Some(value * sa);
                         eliminated[ra] = true;
                         used = true;
