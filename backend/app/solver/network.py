@@ -28,6 +28,7 @@ from typing import Callable, Optional
 from .. import cycles
 from ..library import library_by_id
 from ..schemas import ComponentDef, ElementInstance, PortDef, Project
+from .profiles import parse_profile
 from .scaling import inertia_scale
 
 JOINT_TYPES = {"mech.differential", "mech.transfer_case", "mech.clutch"}
@@ -256,6 +257,38 @@ class Model:
     track: str | None = None  # the Race Track lap cases drive
     # re-extracts a driveline for new gears from the current (live) params_of
     rewalk: Optional[Callable[[Driveline, dict[str, float]], Optional[Driveline]]] = None
+
+
+def _number(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def moves_unpowered(model: "Model") -> bool:
+    """Can the Vehicle move with nothing driving it? It does when it starts
+    with speed to coast down from (its Initial Speed, a case's own value
+    included) or when a slope that can run downhill is wired to its Grade
+    input: a Constant below 0, a typed Road Profile with a downhill point,
+    or a block (Script, Lookup Table, FMU …) that might give one. Data
+    Checks decide it the same way (validation._moves_unpowered)."""
+    veh = model.vehicle
+    if veh is None:
+        return False
+    speed = _number(model.params_of[veh].get("initial_speed_kmh", 0))
+    if speed is not None and speed > 0:
+        return True
+    src = model.signal_route.get((veh, "sig_grade_in"))
+    if src is None:
+        return False
+    kind, p = model.cdef_of[src[0]].id, model.params_of[src[0]]
+    if kind == "signal.constant":
+        value = _number(p.get("value"))
+        return value is not None and value < 0
+    if kind == "signal.road_profile":
+        return any(grade < 0 for _, grade in parse_profile(str(p.get("profile", ""))))
+    return True
 
 
 def resolve_params(el: ElementInstance, cdef: ComponentDef) -> dict:
@@ -881,7 +914,10 @@ def build_model(
                                             for seg in dl.segments for w in seg.wheels)))
     if vehicle and not any_wheels:
         warnings.append(about(NO_WHEELS, vehicle))
-    if vehicle and any_wheels and not driver:
+    # (no Driver is needed where every E-Motor's and Engine's command is wired)
+    demands = [(el_id, "sig_demand_in" if cdef.id == "motor.emotor" else "sig_throttle_in")
+               for el_id, cdef in cdef_of.items() if cdef.id in SOURCE_TYPES]
+    if vehicle and any_wheels and not driver and not all(d in signal_route for d in demands):
         warnings.append(about(NO_DRIVER, vehicle))
     has_engine = any(cdef.id == "engine.combustion" for cdef in cdef_of.values())
     if has_engine and not fuel_tank:

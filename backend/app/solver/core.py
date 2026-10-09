@@ -39,7 +39,7 @@ from .keys import fill_keys
 from .labfig import LabLog, lab_rows
 from .maps import OutsideDataError, slug
 from .master import Master, SlaveStepError
-from .network import ModelError, build_model
+from .network import NO_WHEELS, ModelError, build_model, moves_unpowered
 from .profiles import distance_axis, lap_length
 from .references import check_references, hand_checks
 from .reports import RunRecorder
@@ -115,6 +115,8 @@ def run_case(
 
     rt = Runtime(model, emit)
     for w in model.warnings:
+        if w == NO_WHEELS and moves_unpowered(model):
+            continue  # a coast-down: it moves, with nothing driving it
         rt.message("warning", w)
 
     dt_rec = max(1e-4, case.timeStep)

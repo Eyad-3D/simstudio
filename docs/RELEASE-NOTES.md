@@ -1150,7 +1150,10 @@ sections.
   the rolling resistance to the wheels, a warning says only the air drag
   slows it). A Driving Task that feeds a Gearbox, Clutch or Brake needs no
   Driver; one that feeds nothing still does. The "No Driver element"
-  warning is dropped when every E-Motor and Engine has its command wired.
+  warning is dropped when every E-Motor and Engine has its command wired. The
+  run's own warnings agree: a coast-down run no longer warns that its
+  Vehicle "will not move", and none says "No Driver element" where every
+  E-Motor and Engine has its command wired.
 - A battery's SOC can be compared with measured SOC: a constant 1C
   discharge now empties it in one hour whatever the shape of its OCV
   table (before, 3,611 s on the default table and 3,666 s on a steeper
