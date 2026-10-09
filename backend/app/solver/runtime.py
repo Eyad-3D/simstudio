@@ -426,6 +426,9 @@ class DrivelineState:
     joint_torque_b: dict[str, float] = field(default_factory=dict)
     joint_speed_in: dict[str, float] = field(default_factory=dict)
     clutch_torque: dict[str, float] = field(default_factory=dict)
+    # the torque each clutch's gear losses were worked out on (its torque at
+    # the step's start; clutch_torque adds the part the solver adds as it locks)
+    clutch_raw: dict[str, float] = field(default_factory=dict)
     clutch_slip: dict[str, float] = field(default_factory=dict)
     chain_power_w: float = 0.0
     # solver-step view of the plan (domains.DrivelineLayout), built on first

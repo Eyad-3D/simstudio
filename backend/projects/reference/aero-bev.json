@@ -2,11 +2,11 @@
  "_about": "Stored reference results of this example (CON-15): written by backend/tests/update_golden.py, explained in tests/golden/CHANGES.md.",
  "creation": {
   "appVersion": "0.2.0",
-  "gitCommit": "d56549d",
+  "gitCommit": "776205b",
   "solver": "fixed step, at most 10 ms; recorded every 1 s",
-  "date": "2026-10-08",
+  "date": "2026-10-09",
   "machine": "Linux x86_64, Python 3.11.15",
-  "note": "Gear shifts keep the driveline's momentum and book what they lose"
+  "note": "The energy books hold what the solver's step did"
  },
  "cases": {
   "case-udds": {
@@ -94,7 +94,7 @@
     {
      "key": "energy_balance_residual_pct",
      "label": "Energy balance residual",
-     "value": 0.2577270217203918,
+     "value": -3.69909029096305e-12,
      "unit": "%"
     },
     {
@@ -260,7 +260,7 @@
     {
      "key": "energy_balance_residual_pct",
      "label": "Energy balance residual",
-     "value": 0.020501543124647165,
+     "value": 7.967055283915238e-13,
      "unit": "%"
     },
     {
@@ -474,7 +474,7 @@
     {
      "key": "energy_balance_residual_pct",
      "label": "Energy balance residual",
-     "value": 0.09974172913728956,
+     "value": 1.9747210222639843e-12,
      "unit": "%"
     },
     {

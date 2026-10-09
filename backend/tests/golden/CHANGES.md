@@ -1042,3 +1042,48 @@ brakes' power at t = 560 s (5 mW) and the battery's SOC.
 | hybrid-car Mixed Cycle (fine step) | Energy balance residual | 0.004763 % | 0.004824 % | +6.1e-05 (+1.28 %) |
 | hybrid-car Mixed Cycle (fine step) | Battery energy change, share of fuel energy | -0.004314 % | -0.031397 % | -0.02708 (+627.79 %) |
 | hybrid-car Mixed Cycle (fine step) | channels that moved | | 71 | 5 outside their tube |
+
+## The energy books hold what the solver's step did
+
+Each solver step holds every torque (a motor's, an engine's, a tyre's, a
+brake's, a clutch's) for the whole step while the speeds move from their
+start to their end values, so the work it does on the driveline is the
+torque × the step's mean speed: ½ J (ω₁² − ω₀²) = T (ω₀ + ω₁)/2 · dt. The
+books read the motors' and engines' shaft power and the clutches' power at
+the step's start speed, and the tyres' force × the axle's speed at the
+step's end, so what the books said the parts passed on was not what the
+rotating parts and the Vehicle took up: a motor spinning up an inertia gave
+it T²·dt²/2J more per step than its books said (1.3 % of the energy of the
+benchmarks' DC-motor spin-up). That difference was the *Energy balance
+residual*.
+
+Every part now books what the solve applied: the motors' and engines'
+torque at their mean speed (book_shaft_power, after the solve), a tyre's
+force on its axle with the part its implicit damping added, at the axle's
+mean speed (the Vehicle keeps its own force at its mean speed: the
+difference is the tyre's slip loss), a clutch's gear losses on the torque
+the solve passed through the gears, and a brake that stops a shaft within
+a step books the energy the stop took (the rotating parts do when no brake
+is applied). No speed, current, charge or fuel figure moves; only the books
+and the channels that report them do.
+
+- The residual falls to rounding on every example and case (BEV City
+  0.0111 → about 4e-11 %, WLTC 0.084 → 3e-11 %, hybrid Mixed 0.0184 →
+  1e-11 %, EPA city 0.227 → 1e-11 %, the Efficient Electric Sedan's EPA
+  city 0.258 → 4e-12 %, FS 75 m 0.105 → 7e-14 %).
+- The E-Motor's shaft energy and loss move by the step's own error: its
+  loss on the BEV City Cycle 308.36 → 308.19 kJ (−0.05 %), the Final
+  Drive's 61.207 → 61.210 kJ.
+- The channel outside its tube is the hybrid E-Motor's *Losses* at
+  t = 10 s (0.484 → 0.489 kW): the step's mean, no longer its start.
+
+| Fixture | Number | Old | New | Change |
+|---|---|---|---|---|
+| bev-car City Cycle (shipped step) | Energy balance residual | 0.011097 % | -0 % | -0.0111 (-100.00 %) |
+| bev-car City Cycle (shipped step) | channels that moved | | 5 | 0 outside their tube |
+| bev-car City Cycle (fine step) | Energy balance residual | 0.005551 % | 0 % | -0.005551 (-100.00 %) |
+| bev-car City Cycle (fine step) | channels that moved | | 5 | 0 outside their tube |
+| hybrid-car Mixed Cycle (shipped step) | Energy balance residual | 0.018447 % | -0 % | -0.01845 (-100.00 %) |
+| hybrid-car Mixed Cycle (shipped step) | channels that moved | | 9 | 1 outside their tube |
+| hybrid-car Mixed Cycle (fine step) | Energy balance residual | 0.004824 % | 0 % | -0.004824 (-100.00 %) |
+| hybrid-car Mixed Cycle (fine step) | channels that moved | | 9 | 0 outside their tube |

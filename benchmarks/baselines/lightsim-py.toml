@@ -39,33 +39,33 @@ omega1 = 0.025  # measured 0.0123
 omega2 = 0.021  # measured 0.0103
 T_clutch = 2.4  # measured 1.16
 t_lock = 1e-09  # measured 1.49e-15
-E_drive = 0.0045  # measured 0.00256
+E_drive = 0.00039  # measured 0.000191
 E_clutch = 0.0002  # measured 0.000191
 E_kin = 1.8e-07  # measured 8.6e-08
-closure = 0.0044  # measured 0.00236
+closure = 1e-09  # measured 3.67e-16
 
 [mech_gear_change."rotational load"]
 omega2 = 1e-09  # measured 6.64e-15
 omega1 = 1e-09  # measured 6.05e-15
-E_drive = 0.0027  # measured 0.00133
+E_drive = 1e-09  # measured 1.28e-15
 E_kin = 1e-09  # measured 1.33e-14
 E_shift = 1e-09  # measured 7.15e-17
-closure = 0.0027  # measured 0.00133
+closure = 1e-09  # measured 1.19e-14
 
 [mech_gear_change."vehicle load"]
 omega2 = 0.0003  # measured 0.00015
 omega1 = 0.0092  # measured 0.00456
-E_drive = 0.0055  # measured 0.00318
+E_drive = 0.0055  # measured 0.00337
 E_kin = 0.00025  # measured 0.000122
-closure = 0.00075  # measured 0.000374
+closure = 1e-09  # measured 8.64e-16
 
 [mech_inertia_coastdown."as stated"]
 omega = 0.00013  # measured 6.12e-05
 t_stop = 0.0002  # measured 9.9e-05
-E_viscous = 0.00027  # measured 0.000152
+E_viscous = 0.00011  # measured 5.19e-05
 E_coulomb = 5.5e-05  # measured 5.19e-05
 E_kin = 1e-09  # measured 0
-closure = 0.00021  # measured 0.0001
+closure = 1e-09  # measured 3.88e-15
 
 [motor_dc_spinup_l0."as stated"]
 omega = 0.019  # measured 0.00941
@@ -73,7 +73,7 @@ i = 0.11  # measured 0.0513
 t_event = 0.051  # measured 0.0252
 E_in = 0.00022  # measured 0.000107
 E_kin = 0.0002  # measured 9.63e-05
-closure = 0.026  # measured 0.0127
+closure = 1e-09  # measured 2.95e-16
 
 [veh_coastdown."as stated"]
 v = 0.0073  # measured 0.00365
@@ -89,6 +89,6 @@ closure = 1e-09  # measured 1.72e-15
 v = 0.0018  # measured 0.000855
 x = 0.002  # measured 0.000985
 t_event = 0.0042  # measured 0.00207
-E_supplied = 2.1e-05  # measured 1.04e-05
+E_supplied = 0.00021  # measured 0.000103
 E_kin = 0.0035  # measured 0.00174
-closure = 0.0036  # measured 0.00176
+closure = 0.0036  # measured 0.00185

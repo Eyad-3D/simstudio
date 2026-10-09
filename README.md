@@ -624,10 +624,11 @@ equal solver steps. Every solver step runs, in this order:
    added up (`app/solver/energy.py`): machines, batteries, consumers and
    the Vehicle where they work out their power, gears from their sources'
    running totals (or every step where a clutch's power joins a motor's),
-   brakes, propellers and wheels where the driveline is solved, so the run
+   brakes, propellers and wheels where the driveline is solved, each
+   torque at the step's mean speed as the step applied it, so the run
    result's *partEnergy* list closes part by part and the summary's
-   *Energy balance residual* shows how far the whole model's books are
-   from closing. The *Energy* view (`app/solver/reports.py`) is drawn from
+   *Energy balance residual* (how far the whole model's books are from
+   closing) is only rounding. The *Energy* view (`app/solver/reports.py`) is drawn from
    these books: one row per part, and *Not accounted for* is that
    residual.
 

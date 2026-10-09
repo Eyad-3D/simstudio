@@ -462,22 +462,25 @@ minimum or an average, for example from the CSV export, or put the
   power through it, in both directions, but the torque that accelerates the
   driveline's own inertia is not part of that net, and a locked clutch's
   torque is taken from the previous 10 ms step. *Roadmap:* MOD-03.
-- **The energy breakdown leaves out inertia in the gears and reads the
-  flows at the step's start.** Each run lists every part's energy in, out,
-  lost and stored (*energy* in the run result; the parts' *Losses*, *Input
-  Power*, *Braking Power* and *Slip Losses* channels). A gear's power is the
-  motors', engines' and clutches' power reaching it, so the torque that
-  speeds up the driveline's own inertia shows as the *Rotating parts*' store,
-  not as a flow through each gear; a locked differential splits by what each
-  side carried. The flows between parts are worked out separately, so their
-  books together close only to within the *Energy balance residual* (0.01 %
-  on the Battery Electric Car's City Cycle, 0.02 % on the hybrid's Mixed
-  Cycle, 0.23 % on its UDDS, 0.39 % on the Formula Student car's 75 m acceleration, with its
-  wheels spinning). Lap cases book the electrical parts per part, and the
-  mechanics (road load, brakes, gears) as one Vehicle entry from the lap's
-  own energy pass; they have no residual row (see *Lap energy balance
-  error*). *Roadmap:* MOD-03 (gear losses with inertia), VAL-03 (energy
-  audit table).
+- **The energy breakdown leaves out inertia in the gears.** Each run lists
+  every part's energy in, out, lost and stored (*energy* in the run result;
+  the parts' *Losses*, *Input Power*, *Braking Power* and *Slip Losses*
+  channels). A gear's power is the motors', engines' and clutches' power
+  reaching it, so the torque that speeds up the driveline's own inertia
+  shows as the *Rotating parts*' store, not as a flow through each gear; a
+  locked differential splits by what each side carried. Every part books
+  what the solver's step did to it, each torque as the step applied it at
+  the step's mean speed, so the books of all parts together close to
+  rounding (the *Energy balance residual* is about 1e-11 % on the
+  examples). A motor's or engine's loss is therefore the electrical or
+  fuel power it took less the work its torque did over the step, which
+  differs from its loss map by the step's own error, the torque being read
+  at the step's start speed: about 3e-4 of the shaft power while a car
+  accelerates at 1 m/s² at the 10 ms step. Lap cases book the electrical
+  parts per part, and the mechanics (road load, brakes, gears) as one
+  Vehicle entry from the lap's own energy pass; they have no residual row
+  (see *Lap energy balance error*). *Roadmap:* MOD-03 (gear losses with
+  inertia), VAL-03 (energy audit table).
 - **Resized machines follow simple scaling rules.** An E-Motor's *Speed
   Scale* treats the machine as rewound, with each point's loss that of the
   matching point of the original, as if through an ideal gear: a real
@@ -592,9 +595,8 @@ minimum or an average, for example from the CSV export, or put the
   a cycle case every part keeps its own energy books and the *Energy* view
   shows them part by part, each gear, clutch, brake and wheel included; its
   *Not accounted for* is only where the books together do not close, the
-  summary's *Energy balance residual* (−0.01 % of the sources on the
-  Battery Electric Car's City Cycle, −0.10 % on the Formula Student car's
-  75 m acceleration). A lap case's mechanics come from the lap's own energy pass,
+  summary's *Energy balance residual*: rounding, about 1e-11 % of the
+  sources on the examples. A lap case's mechanics come from the lap's own energy pass,
   which gives one figure for all the gears and one for all the friction
   brakes: they are in the Vehicle's row and named in the chart, not shared
   out part by part. A driveline's spinning parts (motor rotors, gears,
