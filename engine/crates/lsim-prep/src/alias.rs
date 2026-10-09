@@ -10,24 +10,40 @@
 //! substituting constants creates new aliases (`v = p.v - n.v` with
 //! `n.v = 0`).
 
-use crate::symbolic::simplify;
 use lsim_ir::VarKind;
 use lsim_ir::expr::{BinaryOp, Expr};
 use lsim_ir::flat::{FlatSystem, VarId};
 use lsim_ir::prepared::{AliasEntry, AliasTarget};
-use std::collections::HashMap;
 
-/// A linear form: Σ coef·var + constant.
-fn linear(e: &Expr, scale: f64, terms: &mut HashMap<VarId, f64>, k: &mut f64) -> bool {
+/// The most terms an alias equation's linear form is read for: an alias
+/// has two, and longer sums (a node's current balance) are no aliases.
+const MAX_TERMS: usize = 8;
+
+/// A few terms, on the stack.
+struct Terms {
+    t: [(VarId, f64); MAX_TERMS],
+    n: usize,
+}
+
+impl Terms {
+    fn push(&mut self, x: (VarId, f64)) -> bool {
+        if self.n == MAX_TERMS {
+            return false;
+        }
+        self.t[self.n] = x;
+        self.n += 1;
+        true
+    }
+}
+
+/// A linear form: Σ coef·var + constant (terms unmerged).
+fn linear(e: &Expr, scale: f64, terms: &mut Terms, k: &mut f64) -> bool {
     match e {
         Expr::Const(v) => {
             *k += scale * v;
             true
         }
-        Expr::Var(v) => {
-            *terms.entry(*v).or_insert(0.0) += scale;
-            true
-        }
+        Expr::Var(v) => terms.push((*v, scale)),
         Expr::Neg(a) => linear(a, -scale, terms, k),
         Expr::Binary(BinaryOp::Add, a, b) => {
             linear(a, scale, terms, k) && linear(b, scale, terms, k)
@@ -51,15 +67,31 @@ enum Found {
 }
 
 fn classify(lhs: &Expr, rhs: &Expr) -> Option<Found> {
-    let mut terms = HashMap::new();
+    let mut terms = Terms { t: [(VarId(0), 0.0); MAX_TERMS], n: 0 };
     let mut k = 0.0;
     if !(linear(lhs, 1.0, &mut terms, &mut k) && linear(rhs, -1.0, &mut terms, &mut k)) {
         return None;
     }
-    terms.retain(|_, c| *c != 0.0);
-    let mut t: Vec<(VarId, f64)> = terms.into_iter().collect();
-    t.sort_by_key(|(v, _)| *v);
-    match t.as_slice() {
+    let ts = &mut terms.t[..terms.n];
+    ts.sort_by_key(|(v, _)| *v);
+    let mut merged = Terms { t: [(VarId(0), 0.0); MAX_TERMS], n: 0 };
+    for &(v, c) in ts.iter() {
+        if merged.n > 0 && merged.t[merged.n - 1].0 == v {
+            merged.t[merged.n - 1].1 += c;
+        } else {
+            merged.push((v, c));
+        }
+    }
+    let mut t = [(VarId(0), 0.0); MAX_TERMS];
+    let mut n = 0;
+    for &(v, c) in &merged.t[..merged.n] {
+        if c != 0.0 {
+            t[n] = (v, c);
+            n += 1;
+        }
+    }
+    let t = &t[..n];
+    match t {
         [(a, ca), (b, cb)] if k == 0.0 && ca.abs() == cb.abs() => {
             Some(Found::Pair(*a, *b, -cb / ca))
         }
@@ -115,7 +147,7 @@ pub fn eliminate_with(flat: &mut FlatSystem, known: &[bool]) -> Vec<AliasEntry> 
     let mut is_state = vec![false; n];
     for e in &flat.equations {
         for side in [&e.lhs, &e.rhs] {
-            side.walk(&mut |x| {
+            crate::walk::visit(side, &mut |x| {
                 if let Expr::Der(v) = x {
                     is_state[v.0 as usize] = true;
                 }
@@ -197,23 +229,43 @@ pub fn eliminate_with(flat: &mut FlatSystem, known: &[bool]) -> Vec<AliasEntry> 
             };
             repl[i] = target;
         }
-        let sub = |e: Expr| {
-            simplify(e.rewrite(&mut |x| match x {
-                Expr::Var(v) => repl[v.0 as usize].clone().unwrap_or(Expr::Var(v)),
-                Expr::Der(v) => match &repl[v.0 as usize] {
-                    Some(Expr::Var(w)) => Expr::Der(*w),
-                    Some(Expr::Neg(w)) => match &**w {
-                        Expr::Var(w) => -Expr::Der(*w),
-                        _ => Expr::Der(v),
-                    },
-                    _ => Expr::Der(v),
-                },
-                other => other,
-            }))
+        // only what reads a replaced variable is rewritten
+        let touched = |e: &Expr| {
+            crate::walk::any(
+                e,
+                &mut |x| matches!(x, Expr::Var(v) | Expr::Der(v) if repl[v.0 as usize].is_some()),
+            )
         };
-        for e in &mut flat.equations {
+        let sub = |mut e: Expr| {
+            if !touched(&e) {
+                return e;
+            }
+            crate::walk::mutate(&mut e, &mut |x| match *x {
+                Expr::Var(v) => {
+                    if let Some(r) = &repl[v.0 as usize] {
+                        *x = r.clone();
+                    }
+                }
+                Expr::Der(v) => match &repl[v.0 as usize] {
+                    Some(Expr::Var(w)) => *x = Expr::Der(*w),
+                    Some(Expr::Neg(w)) => {
+                        if let Expr::Var(w) = &**w {
+                            *x = -Expr::Der(*w);
+                        }
+                    }
+                    _ => {}
+                },
+                _ => {}
+            });
+            crate::symbolic::simplify_mut(&mut e);
+            e
+        };
+        for e in flat.equations.iter_mut().chain(flat.initial_equations.iter_mut()) {
             e.lhs = sub(std::mem::replace(&mut e.lhs, Expr::Const(0.0)));
             e.rhs = sub(std::mem::replace(&mut e.rhs, Expr::Const(0.0)));
+        }
+        for a in &mut flat.asserts {
+            a.condition = sub(std::mem::replace(&mut a.condition, Expr::Const(0.0)));
         }
         for w in &mut flat.whens {
             w.condition = sub(std::mem::replace(&mut w.condition, Expr::Const(0.0)));

@@ -25,10 +25,8 @@
 #![allow(clippy::needless_range_loop)] // parallel arrays indexed in step
 
 use crate::graph::{Bipartite, Matching, NONE, hopcroft_karp, scc};
-use crate::symbolic::{
-    SignEnv, Signs, affine_coefficient, contains, signs, simplify, solve_affine,
-};
-use crate::system::{NodeKind, node, nodes_of};
+use crate::symbolic::{SignEnv, Signs, affine_coefficient, signs, simplify, solve_affine};
+use crate::system::{NodeKind, node};
 use lsim_ir::expr::Expr;
 use lsim_ir::prepared::Slot;
 use lsim_ir::{ParamId, VarId};
@@ -101,7 +99,7 @@ pub enum Pivot {
 /// Classifies coefficient `a`.
 pub fn pivot(a: &Expr, ctx: &Ctx<'_>) -> Pivot {
     let mut variable = false;
-    a.walk(&mut |x| match x {
+    crate::walk::visit(a, &mut |x| match x {
         Expr::Var(v) | Expr::Pre(v) => {
             let n = v.0 as usize;
             if ctx.kinds[n] != NodeKind::Discrete || !ctx.is_mode[n] {
@@ -166,18 +164,24 @@ pub struct Unmatched {
 }
 
 /// Sorts and solves `eqs` (residuals over nodes) for `unknowns` (nodes).
-pub fn sort(eqs: &[&Expr], unknowns: &[usize], ctx: &Ctx<'_>) -> Result<Sorted, Unmatched> {
+/// `inc[k]` lists the nodes equation k refers to.
+pub fn sort(
+    eqs: &[&Expr],
+    inc: &[&[usize]],
+    unknowns: &[usize],
+    ctx: &Ctx<'_>,
+) -> Result<Sorted, Unmatched> {
     let mut col_of = vec![NONE; ctx.kinds.len()];
     for (c, &n) in unknowns.iter().enumerate() {
         col_of[n] = c;
     }
-    let rows: Vec<Vec<usize>> = eqs
-        .iter()
-        .map(|e| {
-            nodes_of(e).into_iter().filter(|&n| col_of[n] != NONE).map(|n| col_of[n]).collect()
-        })
-        .collect();
-    let graph = Bipartite::from_rows(unknowns.len(), &rows);
+    let mut graph = Bipartite { n_cols: unknowns.len(), row_ptr: vec![0], cols: vec![] };
+    let mut row = vec![];
+    for ns in inc {
+        row.clear();
+        row.extend(ns.iter().filter(|&&n| col_of[n] != NONE).map(|&n| col_of[n]));
+        graph.push_row(&row);
+    }
     let matching = hopcroft_karp(&graph);
     if !matching.is_perfect() || eqs.len() != unknowns.len() {
         return Err(Unmatched { graph, matching });
@@ -188,16 +192,16 @@ pub fn sort(eqs: &[&Expr], unknowns: &[usize], ctx: &Ctx<'_>) -> Result<Sorted, 
     let mut out = Sorted::default();
     for block in scc(&adj) {
         let nodes: Vec<usize> = block.iter().map(|&e| unknowns[matching.row[e]]).collect();
-        solve_block(eqs, &block, &nodes, &col_of, ctx, &mut out);
+        solve_block(eqs, inc, &block, &nodes, ctx, &mut out);
     }
     Ok(out)
 }
 
 fn solve_block(
     eqs: &[&Expr],
+    inc: &[&[usize]],
     block: &[usize],
     nodes: &[usize],
-    col_of: &[usize],
     ctx: &Ctx<'_>,
     out: &mut Sorted,
 ) {
@@ -221,7 +225,7 @@ fn solve_block(
             info.torn = 1;
         }
     } else {
-        tear_block(eqs, block, nodes, col_of, ctx, out, &mut info);
+        tear_block(eqs, inc, block, nodes, ctx, out, &mut info);
     }
     info.assign = (a0, out.assignments.len());
     info.iter = (i0, out.iteration.len());
@@ -435,22 +439,21 @@ const SUBSTITUTION_BUDGET: usize = 20_000;
 
 fn tear_block(
     eqs: &[&Expr],
+    inc: &[&[usize]],
     block: &[usize],
     nodes: &[usize],
-    col_of: &[usize],
     ctx: &Ctx<'_>,
     out: &mut Sorted,
     info: &mut BlockInfo,
 ) {
     let m = block.len();
-    let _ = col_of;
-    let local_of: std::collections::HashMap<usize, usize> =
+    let local_of: crate::walk::FxMap<usize, usize> =
         nodes.iter().enumerate().map(|(k, &n)| (n, k)).collect();
     let mut edges: Vec<Vec<(usize, bool)>> = Vec::with_capacity(m);
     let mut var_rows: Vec<Vec<usize>> = vec![vec![]; m];
     for (le, &e) in block.iter().enumerate() {
         let mut row = vec![];
-        for n in nodes_of(eqs[e]) {
+        for &n in inc[e] {
             if let Some(&k) = local_of.get(&n) {
                 row.push((k, safely_solvable(eqs[e], n, ctx)));
                 var_rows[k].push(le);
@@ -491,19 +494,18 @@ fn tear_block(
     }
     let torn_nodes: Vec<usize> = c.torn.iter().map(|&k| nodes[k]).collect();
     let resid_eqs: Vec<usize> = c.residuals.iter().map(|&k| block[k]).collect();
-    // linear in the tearing variables? substitute the inner solutions
-    let substituted = substitute_inner(&inner, &resid_eqs, eqs);
-    info.linear = substituted.as_ref().is_some_and(|rs| {
-        rs.iter().all(|r| {
-            torn_nodes.iter().all(|&t| {
-                let s = Slot::Var(VarId(t as u32));
-                !contains(r, s)
-                    || affine_coefficient(r, s).is_some_and(|a| {
-                        !torn_nodes.iter().any(|&u| contains(&a, Slot::Var(VarId(u as u32))))
-                    })
-            })
-        })
-    });
+    // linear: every equation affine in the block's unknowns
+    let mut sorted_nodes = nodes.to_vec();
+    sorted_nodes.sort_unstable();
+    let in_block = |n: usize| sorted_nodes.binary_search(&n).is_ok();
+    info.linear = block.iter().all(|&e| affine_in(eqs[e], &in_block).is_some());
+    // (a block whose every assignment would be substituted into the
+    // residual cannot stay within the budget beyond a few thousand)
+    let substituted = if info.linear && torn_nodes.len() == 1 && inner.len() <= 4_000 {
+        substitute_inner(&inner, &resid_eqs, eqs)
+    } else {
+        None
+    };
     if info.linear
         && torn_nodes.len() == 1
         && let Some(rs) = &substituted
@@ -524,6 +526,43 @@ fn tear_block(
     for (k, &t) in torn_nodes.iter().enumerate() {
         out.iteration.push(t);
         out.residuals.push((eqs[resid_eqs[k]].clone(), resid_eqs[k]));
+    }
+}
+
+/// Whether `e` is affine in the nodes `in_block` picks: `Some(true)` when it
+/// depends on them affinely (coefficients free of them), `Some(false)`
+/// when it does not depend on them, `None` when it is not affine.
+pub fn affine_in(e: &Expr, in_block: &dyn Fn(usize) -> bool) -> Option<bool> {
+    match e {
+        Expr::Var(v) => Some(in_block(v.0 as usize)),
+        Expr::Const(_) | Expr::Param(_) | Expr::Time | Expr::Pre(_) | Expr::Name(_) => Some(false),
+        Expr::Der(_) => Some(false),
+        Expr::Neg(a) | Expr::NoEvent(a) => affine_in(a, in_block),
+        Expr::Binary(op, a, b) => {
+            let (da, db) = (affine_in(a, in_block)?, affine_in(b, in_block)?);
+            match op {
+                lsim_ir::BinaryOp::Add | lsim_ir::BinaryOp::Sub => Some(da || db),
+                lsim_ir::BinaryOp::Mul => (!(da && db)).then_some(da || db),
+                lsim_ir::BinaryOp::Div => (!db).then_some(da),
+                lsim_ir::BinaryOp::Pow => (!da && !db).then_some(false),
+            }
+        }
+        Expr::If(c, a, b) => {
+            if affine_in(c, in_block)? {
+                return None;
+            }
+            Some(affine_in(a, in_block)? || affine_in(b, in_block)?)
+        }
+        other => {
+            let mut dep = false;
+            for ch in other.children() {
+                match affine_in(ch, in_block) {
+                    Some(false) => {}
+                    _ => dep = true,
+                }
+            }
+            (!dep).then_some(false)
+        }
     }
 }
 
@@ -560,6 +599,7 @@ pub fn var(n: usize) -> Expr {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::system::nodes_of;
     use lsim_ir::expr::c;
 
     fn ctx<'a>(kinds: &'a [NodeKind], modes: &'a [bool]) -> Ctx<'a> {
@@ -584,9 +624,11 @@ mod tests {
             v(0) + v(1) + v(2) + v(3) - c(14.0),
         ];
         let refs: Vec<&Expr> = eqs.iter().collect();
+        let inc: Vec<Vec<usize>> = eqs.iter().map(nodes_of).collect();
+        let incs: Vec<&[usize]> = inc.iter().map(Vec::as_slice).collect();
         let kinds = vec![NodeKind::Unknown; 8];
         let modes = vec![false; 8];
-        let s = sort(&refs, &(0..8).collect::<Vec<_>>(), &ctx(&kinds, &modes)).unwrap();
+        let s = sort(&refs, &incs, &(0..8).collect::<Vec<_>>(), &ctx(&kinds, &modes)).unwrap();
         assert_eq!(s.blocks.len(), 1);
         assert_eq!(s.blocks[0].torn, 1);
         assert!(s.blocks[0].linear);
@@ -610,9 +652,11 @@ mod tests {
             var(1) - var(0),
         ];
         let refs: Vec<&Expr> = eqs.iter().collect();
+        let inc: Vec<Vec<usize>> = eqs.iter().map(nodes_of).collect();
+        let incs: Vec<&[usize]> = inc.iter().map(Vec::as_slice).collect();
         let kinds = vec![NodeKind::Unknown; 2];
         let modes = vec![false; 2];
-        let s = sort(&refs, &[0, 1], &ctx(&kinds, &modes)).unwrap();
+        let s = sort(&refs, &incs, &[0, 1], &ctx(&kinds, &modes)).unwrap();
         assert_eq!(s.iteration.len(), 1);
         assert_eq!(s.residuals.len(), 1);
         assert!(!s.blocks[0].linear);

@@ -48,6 +48,7 @@ pub mod structure;
 pub mod symbolic;
 pub mod system;
 pub mod units_check;
+pub mod walk;
 
 pub use pipeline::{BlockSummary, PrepReport, Settings};
 pub use structure::CausalOptions;

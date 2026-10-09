@@ -25,9 +25,9 @@
 use crate::graph::{Bipartite, NONE, groups, hopcroft_karp};
 use crate::symbolic::diff;
 use crate::system::{NodeEnv, NodeKind, Sys};
+use lsim_ir::VarId;
 use lsim_ir::eval::eval;
 use lsim_ir::prepared::Slot;
-use lsim_ir::{Origin, VarId};
 
 /// Why index reduction stopped.
 #[derive(Clone, Debug)]
@@ -37,19 +37,19 @@ pub enum IndexFault {
     /// earlier checks missed)
     TooHigh {
         /// the equation
-        origin: Origin,
+        eq: usize,
     },
     /// an equation could not be differentiated
     Differentiate {
         /// the equation
-        origin: Origin,
+        eq: usize,
         /// why
         why: String,
     },
     /// no static choice of dummy derivatives is regular at the initial point
     Singular {
         /// the differentiated equations involved
-        origins: Vec<Origin>,
+        eqs: Vec<usize>,
         /// the candidate nodes
         nodes: Vec<usize>,
     },
@@ -103,15 +103,12 @@ pub fn pantelides(sys: &mut Sys) -> Result<usize, IndexFault> {
             }
             for &j in &colored_nodes {
                 if sys.nodes[j].order + 1 > MAX_ORDER {
-                    return Err(IndexFault::TooHigh { origin: sys.eqs[i].origin.clone() });
+                    return Err(IndexFault::TooHigh { eq: i });
                 }
                 sys.deriv_node(j);
             }
             for &l in &colored_eqs {
-                sys.differentiate(l).map_err(|why| IndexFault::Differentiate {
-                    origin: sys.eqs[l].origin.clone(),
-                    why,
-                })?;
+                sys.differentiate(l).map_err(|why| IndexFault::Differentiate { eq: l, why })?;
                 differentiated += 1;
             }
             assign.resize(sys.nodes.len(), NONE);
@@ -122,7 +119,7 @@ pub fn pantelides(sys: &mut Sys) -> Result<usize, IndexFault> {
             }
             i = sys.eqs[i].derived.expect("just differentiated");
             if sys.eq_level(i) > MAX_ORDER {
-                return Err(IndexFault::TooHigh { origin: sys.eqs[i].origin.clone() });
+                return Err(IndexFault::TooHigh { eq: i });
             }
         }
     }
@@ -273,10 +270,7 @@ pub fn dummy_derivatives(
             match select_columns(&m, &pref) {
                 Some(sel) => chosen_all.extend(sel.into_iter().map(|c| col_nodes[c])),
                 None => {
-                    return Err(IndexFault::Singular {
-                        origins: rows.iter().map(|&e| sys.eqs[e].origin.clone()).collect(),
-                        nodes: col_nodes,
-                    });
+                    return Err(IndexFault::Singular { eqs: rows.clone(), nodes: col_nodes });
                 }
             }
         }

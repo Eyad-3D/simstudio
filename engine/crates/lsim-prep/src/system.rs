@@ -10,7 +10,7 @@
 
 use crate::symbolic::{simplify, time_derivative};
 use lsim_ir::expr::Expr;
-use lsim_ir::flat::{FlatSystem, FlatVar, Origin, VarId, VarRole};
+use lsim_ir::flat::{FlatSystem, FlatVar, VarId, VarRole};
 use lsim_ir::prepared::Slot;
 use lsim_ir::units::Unit;
 use lsim_ir::{ParamId, VarKind};
@@ -47,8 +47,9 @@ pub struct Node {
 pub struct SysEq {
     /// the residual, over nodes
     pub res: Expr,
-    /// where it came from (a derivative keeps its equation's origin)
-    pub origin: Origin,
+    /// the flat equation it is, or is a derivative of (its origin is that
+    /// equation's)
+    pub src: usize,
     /// the equation this one is the time derivative of
     pub diff_of: Option<usize>,
     /// this equation's time derivative, once made
@@ -71,7 +72,7 @@ pub struct Sys {
 /// The nodes an expression refers to (increasing, no repeats).
 pub fn nodes_of(e: &Expr) -> Vec<usize> {
     let mut out = vec![];
-    e.walk(&mut |x| {
+    crate::walk::visit(e, &mut |x| {
         if let Expr::Var(v) | Expr::Pre(v) = x {
             out.push(v.0 as usize);
         }
@@ -135,7 +136,7 @@ impl Sys {
     /// A flat-scope expression over nodes: `Var(v)` → node (v, 0),
     /// `Der(v)` → node (v, 1), `Pre(v)` → `Pre` of node (v, 0).
     pub fn from_flat(&mut self, e: &Expr) -> Expr {
-        e.clone().rewrite(&mut |x| match x {
+        crate::walk::map_up(e, &mut |x| match x {
             Expr::Var(v) => match self.base[v.0 as usize] {
                 Some(n) => node(n),
                 None => Expr::Var(v),
@@ -153,11 +154,34 @@ impl Sys {
         })
     }
 
+    /// [`Sys::from_flat`] on an owned expression, changing it in place.
+    pub fn from_flat_owned(&mut self, mut e: Expr) -> Expr {
+        crate::walk::mutate(&mut e, &mut |x| match *x {
+            Expr::Var(v) => {
+                if let Some(n) = self.base[v.0 as usize] {
+                    *x = node(n);
+                }
+            }
+            Expr::Pre(v) => {
+                if let Some(n) = self.base[v.0 as usize] {
+                    *x = Expr::Pre(VarId(n as u32));
+                }
+            }
+            Expr::Der(v) => match self.base[v.0 as usize] {
+                Some(n) if self.nodes[n].kind == NodeKind::Discrete => *x = Expr::Const(0.0),
+                Some(n) => *x = node(self.deriv_node(n)),
+                None => {}
+            },
+            _ => {}
+        });
+        e
+    }
+
     /// [`Sys::from_flat`] without making nodes: `Err(v)` when it reads the
     /// derivative of a variable `v` that has none in the system.
     pub fn from_flat_fixed(&self, e: &Expr) -> Result<Expr, VarId> {
         let mut bad = None;
-        let out = e.clone().rewrite(&mut |x| match x {
+        let out = crate::walk::map_up(e, &mut |x| match x {
             Expr::Var(v) => match self.base[v.0 as usize] {
                 Some(n) => node(n),
                 None => Expr::Var(v),
@@ -189,9 +213,9 @@ impl Sys {
     }
 
     /// Adds `res = 0`.
-    pub fn push(&mut self, res: Expr, origin: Origin, diff_of: Option<usize>) -> usize {
+    pub fn push(&mut self, res: Expr, src: usize, diff_of: Option<usize>) -> usize {
         let inc = nodes_of(&res);
-        self.eqs.push(SysEq { res, origin, diff_of, derived: None, inc });
+        self.eqs.push(SysEq { res, src, diff_of, derived: None, inc });
         self.eqs.len() - 1
     }
 
@@ -217,8 +241,8 @@ impl Sys {
         }
         let res = self.eqs[e].res.clone();
         let d = self.time_derivative(&res)?;
-        let origin = self.eqs[e].origin.clone();
-        let k = self.push(d, origin, Some(e));
+        let src = self.eqs[e].src;
+        let k = self.push(d, src, Some(e));
         self.eqs[e].derived = Some(k);
         Ok(k)
     }
@@ -329,9 +353,28 @@ impl Sys {
 }
 
 impl SlotMap {
+    /// [`SlotMap::to_flat`] on an owned expression, changing it in place.
+    pub fn to_flat_owned(&self, mut e: Expr) -> Expr {
+        crate::walk::mutate(&mut e, &mut |x| match *x {
+            Expr::Var(v) => {
+                *x = match self.slot[v.0 as usize] {
+                    Slot::Var(w) => Expr::Var(w),
+                    Slot::Der(w) => Expr::Der(w),
+                }
+            }
+            Expr::Pre(v) => {
+                *x = match self.slot[v.0 as usize] {
+                    Slot::Var(w) | Slot::Der(w) => Expr::Pre(w),
+                }
+            }
+            _ => {}
+        });
+        e
+    }
+
     /// An expression over nodes in flat scope.
     pub fn to_flat(&self, e: &Expr) -> Expr {
-        e.clone().rewrite(&mut |x| match x {
+        crate::walk::map_up(e, &mut |x| match x {
             Expr::Var(v) => match self.slot[v.0 as usize] {
                 Slot::Var(w) => Expr::Var(w),
                 Slot::Der(w) => Expr::Der(w),

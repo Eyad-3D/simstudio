@@ -16,8 +16,29 @@ fn is_const(e: &Expr, v: f64) -> bool {
 }
 
 /// Folds constants and removes neutral elements.
-pub fn simplify(e: Expr) -> Expr {
-    e.rewrite(&mut |x| match x {
+pub fn simplify(mut e: Expr) -> Expr {
+    simplify_mut(&mut e);
+    e
+}
+
+/// [`simplify`] in place: nodes no rule applies to are left where they
+/// are, so a simplified expression costs no allocation.
+pub fn simplify_mut(e: &mut Expr) {
+    crate::walk::mutate(e, &mut |x| {
+        let applies = match x {
+            Expr::Neg(a) => matches!(**a, Expr::Const(_) | Expr::Neg(_)),
+            Expr::Binary(..) => true,
+            _ => false,
+        };
+        if applies {
+            let old = std::mem::replace(x, Expr::Time);
+            *x = rule(old);
+        }
+    });
+}
+
+fn rule(x: Expr) -> Expr {
+    match x {
         Expr::Neg(a) => match *a {
             Expr::Const(v) => Expr::Const(-v),
             Expr::Neg(b) => *b,
@@ -36,27 +57,23 @@ pub fn simplify(e: Expr) -> Expr {
                     return Expr::Const(v);
                 }
             }
+            let neg_b = matches!(*b, Expr::Neg(_));
             match op {
                 BinaryOp::Add if is_const(&a, 0.0) => *b,
                 BinaryOp::Add | BinaryOp::Sub if is_const(&b, 0.0) => *a,
                 BinaryOp::Sub if is_const(&a, 0.0) => Expr::Neg(b),
-                BinaryOp::Add => match *b {
-                    Expr::Neg(nb) => Expr::Binary(BinaryOp::Sub, a, nb),
-                    other => Expr::Binary(BinaryOp::Add, a, Box::new(other)),
-                },
-                BinaryOp::Sub => match *b {
-                    Expr::Neg(nb) => Expr::Binary(BinaryOp::Add, a, nb),
-                    other => Expr::Binary(BinaryOp::Sub, a, Box::new(other)),
-                },
+                BinaryOp::Add | BinaryOp::Sub if neg_b => {
+                    let Expr::Neg(nb) = *b else { unreachable!("checked") };
+                    let flipped = if op == BinaryOp::Add { BinaryOp::Sub } else { BinaryOp::Add };
+                    Expr::Binary(flipped, a, nb)
+                }
                 BinaryOp::Mul if is_const(&a, 0.0) || is_const(&b, 0.0) => Expr::Const(0.0),
                 BinaryOp::Mul if is_const(&a, 1.0) => *b,
                 BinaryOp::Mul if is_const(&b, 1.0) => *a,
                 BinaryOp::Mul if is_const(&a, -1.0) => Expr::Neg(b),
                 BinaryOp::Mul if is_const(&b, -1.0) => Expr::Neg(a),
                 BinaryOp::Div if is_const(&b, 1.0) => *a,
-                BinaryOp::Mul | BinaryOp::Div
-                    if matches!(*a, Expr::Neg(_)) || matches!(*b, Expr::Neg(_)) =>
-                {
+                BinaryOp::Mul | BinaryOp::Div if matches!(*a, Expr::Neg(_)) || neg_b => {
                     let strip = |x: Box<Expr>| match *x {
                         Expr::Neg(inner) => (inner, true),
                         other => (Box::new(other), false),
@@ -72,12 +89,12 @@ pub fn simplify(e: Expr) -> Expr {
             }
         }
         other => other,
-    })
+    }
 }
 
 /// Whether `e` refers to `s`.
 pub fn contains(e: &Expr, s: Slot) -> bool {
-    e.any(&mut |x| match (x, s) {
+    crate::walk::any(e, &mut |x| match (x, s) {
         (Expr::Var(v), Slot::Var(w)) => *v == w,
         (Expr::Der(v), Slot::Der(w)) => *v == w,
         _ => false,
@@ -351,6 +368,19 @@ fn split(e: &Expr, s: Slot) -> Option<(Option<Expr>, Expr)> {
 /// When `residual = 0` is affine in `s` with a coefficient that is not
 /// zero: the coefficient `a` and the solution `-b / a`, simplified.
 pub fn solve_affine(residual: &Expr, s: Slot) -> Option<(Expr, Expr)> {
+    // the common case, `s - rest` or `rest - s`, without rebuilding
+    let is_s = |x: &Expr| match (x, s) {
+        (Expr::Var(v), Slot::Var(w)) | (Expr::Der(v), Slot::Der(w)) => *v == w,
+        _ => false,
+    };
+    if let Expr::Binary(BinaryOp::Sub, x, y) = residual {
+        if is_s(x) && !contains(y, s) {
+            return Some((Expr::Const(1.0), (**y).clone()));
+        }
+        if is_s(y) && !contains(x, s) {
+            return Some((Expr::Const(-1.0), (**x).clone()));
+        }
+    }
     let (a, b) = split(residual, s)?;
     let a = simplify(a?);
     if is_const(&a, 0.0) || a.any(&mut |x| matches!(x, Expr::Const(v) if v.is_nan())) {

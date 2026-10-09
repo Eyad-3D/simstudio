@@ -38,14 +38,30 @@ pub enum RowKind {
     Assumed(VarId),
 }
 
-/// The initialisation system over nodes.
+/// The initialisation system over nodes. Its rows are the model's
+/// equations (`0..n_model`, the system's own residuals unless modes had to
+/// be replaced by their relations), then the initial equations and the
+/// start values (`extra`).
 pub struct InitBuild {
-    /// residuals
-    pub eqs: Vec<Expr>,
-    /// their origins
-    pub origins: Vec<Origin>,
-    /// what each one is
+    /// how many rows are the model's equations
+    pub n_model: usize,
+    /// the model's residuals with modes replaced by their relations (when
+    /// there are modes)
+    pub model: Option<Vec<Expr>>,
+    /// the rows after the model's: initial equations, then start values
+    pub extra: Vec<Expr>,
+    /// the extra rows' origins
+    pub extra_origins: Vec<Origin>,
+    /// what each row is
     pub kinds: Vec<RowKind>,
+    /// for each start-value row (fixed or assumed): its row, its node and
+    /// the start value
+    pub starts: Vec<(usize, usize, Expr)>,
+    /// the nodes each row refers to, when they differ from the system's
+    /// (modes replaced), for the model's rows
+    pub model_inc: Option<Vec<Vec<usize>>>,
+    /// the nodes each extra row refers to
+    pub extra_inc: Vec<Vec<usize>>,
     /// the unknown nodes
     pub unknowns: Vec<usize>,
     /// fixed start values that could not be used: (variable, its node,
@@ -54,6 +70,51 @@ pub struct InitBuild {
     /// fixed start values of variables replaced by constants: (variable,
     /// start, constant)
     pub constant_conflicts: Vec<(VarId, f64, f64)>,
+}
+
+impl InitBuild {
+    /// Row k's residual.
+    pub fn row<'a>(&'a self, sys: &'a Sys, k: usize) -> &'a Expr {
+        if k < self.n_model {
+            match &self.model {
+                Some(m) => &m[k],
+                None => &sys.eqs[k].res,
+            }
+        } else {
+            &self.extra[k - self.n_model]
+        }
+    }
+
+    /// Row k's origin.
+    pub fn origin<'a>(&'a self, sys: &Sys, flat: &'a FlatSystem, k: usize) -> &'a Origin {
+        if k < self.n_model {
+            &flat.equations[sys.eqs[k].src].origin
+        } else {
+            &self.extra_origins[k - self.n_model]
+        }
+    }
+
+    /// The nodes row k refers to.
+    pub fn inc<'a>(&'a self, sys: &'a Sys, k: usize) -> &'a [usize] {
+        if k < self.n_model {
+            match &self.model_inc {
+                Some(m) => &m[k],
+                None => &sys.eqs[k].inc,
+            }
+        } else {
+            &self.extra_inc[k - self.n_model]
+        }
+    }
+
+    /// Every row's nodes.
+    pub fn incs<'a>(&'a self, sys: &'a Sys) -> Vec<&'a [usize]> {
+        (0..self.kinds.len()).map(|k| self.inc(sys, k)).collect()
+    }
+
+    /// Every row's residual.
+    pub fn rows<'a>(&'a self, sys: &'a Sys) -> Vec<&'a Expr> {
+        (0..self.kinds.len()).map(|k| self.row(sys, k)).collect()
+    }
 }
 
 /// Where the initialisation system fails.
@@ -76,16 +137,16 @@ pub fn start_origin(flat: &FlatSystem, v: VarId) -> Origin {
     }
 }
 
-/// Builds the initialisation system. `model_res[k]` is equation k's
-/// residual with modes replaced by their relations; `initial` the initial
-/// equations over nodes.
+/// Builds the initialisation system. `model` holds the model's residuals
+/// with modes replaced by their relations (`None`: no modes, the system's
+/// own residuals); `initial` the initial equations over nodes.
 #[allow(clippy::too_many_arguments)]
 pub fn build(
     sys: &Sys,
     flat: &FlatSystem,
     extras: &Extras,
     aliases: &[AliasEntry],
-    model_res: Vec<Expr>,
+    model: Option<Vec<Expr>>,
     initial: Vec<(Expr, Origin)>,
 ) -> Result<InitBuild, InitFault> {
     let n_nodes = sys.nodes.len();
@@ -95,43 +156,50 @@ pub fn build(
     for (c, &n) in unknowns.iter().enumerate() {
         col_of[n] = c;
     }
-    let cols_of = |e: &Expr| -> Vec<usize> {
-        crate::system::nodes_of(e)
-            .into_iter()
-            .filter(|&n| col_of[n] != NONE)
-            .map(|n| col_of[n])
-            .collect()
-    };
-    let mut eqs = vec![];
-    let mut origins = vec![];
-    let mut kinds = vec![];
-    for (k, r) in model_res.into_iter().enumerate() {
-        eqs.push(r);
-        origins.push(sys.eqs[k].origin.clone());
-        kinds.push(RowKind::Model(k));
-    }
+    let n_model = sys.eqs.len();
+    let model_inc: Option<Vec<Vec<usize>>> =
+        model.as_ref().map(|m| m.iter().map(crate::system::nodes_of).collect());
+    let mut extra_inc: Vec<Vec<usize>> = vec![];
+    let mut kinds: Vec<RowKind> = (0..n_model).map(RowKind::Model).collect();
+    let mut extra = vec![];
+    let mut extra_origins = vec![];
     for (r, o) in initial {
-        eqs.push(r);
-        origins.push(o);
+        extra_inc.push(crate::system::nodes_of(&r));
+        extra.push(r);
+        extra_origins.push(o);
         kinds.push(RowKind::Initial);
     }
+    let origin_of = |k: usize, extra_origins: &Vec<Origin>| -> Origin {
+        if k < n_model {
+            flat.equations[sys.eqs[k].src].origin.clone()
+        } else {
+            extra_origins[k - n_model].clone()
+        }
+    };
     // the mandatory rows, matching non-state columns first so the states
     // stay free for their start values
     let state_like = |c: usize| sys.nodes[unknowns[c]].deriv.is_some();
-    let rows: Vec<Vec<usize>> = eqs
-        .iter()
-        .map(|e| {
-            let mut r = cols_of(e);
-            r.sort_by_key(|&c| (state_like(c), c));
-            r
-        })
-        .collect();
-    let mut g = Bipartite::from_rows(unknowns.len(), &rows);
+    let mut g = Bipartite { n_cols: unknowns.len(), row_ptr: vec![0], cols: vec![] };
+    let mut row = vec![];
+    for k in 0..kinds.len() {
+        let ns: &[usize] = if k < n_model {
+            match &model_inc {
+                Some(m) => &m[k],
+                None => &sys.eqs[k].inc,
+            }
+        } else {
+            &extra_inc[k - n_model]
+        };
+        row.clear();
+        row.extend(ns.iter().filter(|&&n| col_of[n] != NONE).map(|&n| col_of[n]));
+        row.sort_by_key(|&c| (state_like(c), c));
+        g.push_row(&row);
+    }
     let m0 = hopcroft_karp(&g);
     if m0.row.contains(&NONE) {
         let (rows, _) = over_part(&g, &m0);
         return Err(InitFault {
-            origins: rows.iter().map(|&r| origins[r].clone()).collect(),
+            origins: rows.iter().map(|&r| origin_of(r, &extra_origins)).collect(),
             rows,
         });
     }
@@ -194,10 +262,13 @@ pub fn build(
             false
         }
     };
+    let mut starts = vec![];
     for (v, n, value) in fixed_rows {
         if try_row(col_of[n], &mut g, &mut m) {
-            eqs.push(node(n) - value);
-            origins.push(start_origin(flat, v));
+            starts.push((kinds.len(), n, value.clone()));
+            extra_inc.push(vec![n]);
+            extra.push(node(n) - value);
+            extra_origins.push(start_origin(flat, v));
             kinds.push(RowKind::Fixed(v));
             has_start_row[n] = true;
         } else {
@@ -233,12 +304,26 @@ pub fn build(
                 } else {
                     Expr::Const(0.0)
                 };
-                eqs.push(node(n) - guess);
-                origins.push(start_origin(flat, nd.var));
+                starts.push((kinds.len(), n, guess.clone()));
+                extra_inc.push(vec![n]);
+                extra.push(node(n) - guess);
+                extra_origins.push(start_origin(flat, nd.var));
                 kinds.push(RowKind::Assumed(nd.var));
                 free -= 1;
             }
         }
     }
-    Ok(InitBuild { eqs, origins, kinds, unknowns, dropped, constant_conflicts })
+    Ok(InitBuild {
+        n_model,
+        model,
+        extra,
+        extra_origins,
+        kinds,
+        starts,
+        model_inc,
+        extra_inc,
+        unknowns,
+        dropped,
+        constant_conflicts,
+    })
 }

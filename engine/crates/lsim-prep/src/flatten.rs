@@ -23,6 +23,7 @@
 //! its signal inputs are read at each tick, and its parameter `period` is
 //! the tick spacing in seconds.
 
+use crate::walk::FxMap;
 use lsim_ir::component::{
     ComponentDef, Equation, Library, ParamValue, PortKind, TableData, WhenAction, split_enum_value,
 };
@@ -31,7 +32,6 @@ use lsim_ir::expr::{Builtin, Expr};
 use lsim_ir::flat::*;
 use lsim_ir::units::{Unit, parse_unit};
 use lsim_ir::{Diagnostic, PowerRule, VarKind};
-use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug)]
 enum Sym {
@@ -41,8 +41,8 @@ enum Sym {
 
 #[derive(Default)]
 struct Scope {
-    syms: HashMap<String, Sym>,
-    subs: HashMap<String, InstanceId>,
+    syms: FxMap<String, Sym>,
+    subs: FxMap<String, InstanceId>,
 }
 
 /// A port as an end of connections: `outside` is a composite's own port
@@ -73,18 +73,20 @@ pub struct Extras {
 
 struct Flattener<'a> {
     lib: &'a Library,
+    /// unit texts already parsed (SI ones only)
+    units: FxMap<String, Unit>,
     flat: FlatSystem,
     extras: Extras,
     scopes: Vec<Scope>,
     defs: Vec<&'a ComponentDef>,
-    ports: HashMap<(InstanceId, usize), PortVars>,
-    nodes: HashMap<Node, usize>,
+    ports: FxMap<(InstanceId, usize), PortVars>,
+    nodes: FxMap<Node, usize>,
     node_list: Vec<Node>,
     parent: Vec<usize>,
     node_scope: Vec<InstanceId>,
     diags: Vec<Diagnostic>,
     /// table parameters: their index in `flat.tables`
-    table_of: HashMap<ParamId, u32>,
+    table_of: FxMap<ParamId, u32>,
 }
 
 struct ParamEnv<'a>(&'a FlatSystem);
@@ -122,7 +124,14 @@ fn balanced_sum(mut terms: Vec<Expr>) -> Expr {
 }
 
 fn join(path: &str, name: &str) -> String {
-    if path.is_empty() { name.to_string() } else { format!("{path}.{name}") }
+    if path.is_empty() {
+        return name.to_string();
+    }
+    let mut s = String::with_capacity(path.len() + 1 + name.len());
+    s.push_str(path);
+    s.push('.');
+    s.push_str(name);
+    s
 }
 
 /// Flattens `top` (a model or any component) against `lib`.
@@ -137,19 +146,20 @@ pub fn flatten_full(
 ) -> Result<(FlatSystem, Extras), Vec<Diagnostic>> {
     let mut f = Flattener {
         lib,
+        units: FxMap::default(),
         flat: FlatSystem::default(),
         extras: Extras::default(),
         scopes: vec![],
         defs: vec![],
-        ports: HashMap::new(),
-        nodes: HashMap::new(),
+        ports: FxMap::default(),
+        nodes: FxMap::default(),
         node_list: vec![],
         parent: vec![],
         node_scope: vec![],
         diags: vec![],
-        table_of: HashMap::new(),
+        table_of: FxMap::default(),
     };
-    f.instantiate(top, String::new(), None, None, None, &HashMap::new());
+    f.instantiate(top, String::new(), None, None, None, &FxMap::default());
     f.connection_equations();
     if f.diags.is_empty() { Ok((f.flat, f.extras)) } else { Err(f.diags) }
 }
@@ -179,11 +189,18 @@ impl<'a> Flattener<'a> {
         format!("{} ({def})", self.flat.instance_name(inst))
     }
 
-    fn si_unit(&mut self, inst: InstanceId, what: &str, text: &str) -> Unit {
+    fn si_unit(&mut self, inst: InstanceId, what: &dyn Fn() -> String, text: &str) -> Unit {
+        if let Some(u) = self.units.get(text) {
+            return *u;
+        }
         match parse_unit(text) {
-            Ok(u) if u.scale == 1.0 && u.offset == 0.0 => u,
+            Ok(u) if u.scale == 1.0 && u.offset == 0.0 => {
+                self.units.insert(text.to_string(), u);
+                u
+            }
             Ok(u) => {
                 let who = self.describe(inst);
+                let what = what();
                 self.diags.push(
                     Diagnostic::error(
                         "UNIT-NOT-SI",
@@ -199,6 +216,7 @@ impl<'a> Flattener<'a> {
             }
             Err(e) => {
                 let who = self.describe(inst);
+                let what = what();
                 self.diags
                     .push(Diagnostic::error("UNIT-SYNTAX", format!("In {who}, {what}: {e}.")));
                 Unit::ONE
@@ -223,10 +241,10 @@ impl<'a> Flattener<'a> {
     }
 
     /// Resolves names in `e` (component scope of `inst`) to flat references.
-    fn resolve(&mut self, inst: InstanceId, e: &Expr, what: &str) -> Expr {
+    fn resolve(&mut self, inst: InstanceId, e: &Expr, what: &dyn Fn() -> String) -> Expr {
         let mut missing: Vec<String> = vec![];
         let mut not_tables: Vec<String> = vec![];
-        let out = e.clone().rewrite(&mut |x| match x {
+        let out = crate::walk::map_up(e, &mut |x| match x {
             Expr::Name(n) => match self.lookup(inst, &n) {
                 Some(Sym::Var(v)) => Expr::Var(v),
                 Some(Sym::Param(p)) => Expr::Param(p),
@@ -261,6 +279,7 @@ impl<'a> Flattener<'a> {
         });
         for n in missing {
             let who = self.describe(inst);
+            let what = what();
             self.diags.push(Diagnostic::error(
                 "UNKNOWN-NAME",
                 format!(
@@ -271,13 +290,14 @@ impl<'a> Flattener<'a> {
         }
         for n in not_tables {
             let who = self.describe(inst);
+            let what = what();
             self.diags.push(Diagnostic::error(
                 "NOT-A-TABLE",
                 format!("In {who}, {what} reads '{n}' as a table, but it is a number."),
             ));
         }
         let mut as_number = None;
-        out.walk(&mut |x| {
+        crate::walk::visit(&out, &mut |x| {
             if let Expr::Param(p) = x
                 && self.table_of.contains_key(p)
             {
@@ -286,6 +306,7 @@ impl<'a> Flattener<'a> {
         });
         if let Some(p) = as_number {
             let who = self.describe(inst);
+            let what = what();
             let name = &self.flat.params[p.0 as usize].name;
             self.diags.push(
                 Diagnostic::error(
@@ -310,10 +331,10 @@ impl<'a> Flattener<'a> {
         &mut self,
         id: InstanceId,
         def: &ComponentDef,
-        given: &HashMap<String, Given>,
+        given: &FxMap<String, Given>,
     ) -> Vec<usize> {
         let n = def.params.len();
-        let index: HashMap<&str, usize> =
+        let index: FxMap<&str, usize> =
             def.params.iter().enumerate().map(|(k, p)| (p.name.as_str(), k)).collect();
         let mut deps: Vec<Vec<usize>> = vec![vec![]; n];
         for (k, p) in def.params.iter().enumerate() {
@@ -377,7 +398,7 @@ impl<'a> Flattener<'a> {
         parent: Option<InstanceId>,
         label: Option<String>,
         ui_id: Option<String>,
-        given: &HashMap<String, Given>,
+        given: &FxMap<String, Given>,
     ) -> InstanceId {
         let id = InstanceId(self.flat.instances.len() as u32);
         self.flat.instances.push(Instance {
@@ -393,7 +414,7 @@ impl<'a> Flattener<'a> {
         // parameters, in binding order
         for k in self.param_order(id, def, given) {
             let p = &def.params[k];
-            let unit = self.si_unit(id, &format!("parameter '{}'", p.name), &p.unit);
+            let unit = self.si_unit(id, &|| format!("parameter '{}'", p.name), &p.unit);
             let is_table = p.default.table().is_some();
             let g = match given.get(&p.name) {
                 Some(g) => {
@@ -489,8 +510,8 @@ impl<'a> Flattener<'a> {
                     .into_iter()
                     .enumerate()
                     {
-                        let local = format!("{}.{}", port.name, q.name);
-                        let unit = self.si_unit(id, &format!("port '{}'", port.name), &q.unit);
+                        let local = join(&port.name, &q.name);
+                        let unit = self.si_unit(id, &|| format!("port '{}'", port.name), &q.unit);
                         ids[j] = self.new_var(FlatVar {
                             name: join(&path, &local),
                             unit,
@@ -520,7 +541,7 @@ impl<'a> Flattener<'a> {
                 }
                 PortKind::Input { unit } | PortKind::Output { unit } => {
                     let output = matches!(port.kind, PortKind::Output { .. });
-                    let u = self.si_unit(id, &format!("port '{}'", port.name), unit);
+                    let u = self.si_unit(id, &|| format!("port '{}'", port.name), unit);
                     let held = output && external;
                     let v = self.new_var(FlatVar {
                         name: join(&path, &port.name),
@@ -541,11 +562,11 @@ impl<'a> Flattener<'a> {
 
         // own variables
         for v in &def.vars {
-            let unit = self.si_unit(id, &format!("variable '{}'", v.name), &v.unit);
+            let unit = self.si_unit(id, &|| format!("variable '{}'", v.name), &v.unit);
             let start_expr = v
                 .start
                 .as_ref()
-                .map(|s| self.resolve(id, s, &format!("the start value of '{}'", v.name)));
+                .map(|s| self.resolve(id, s, &|| format!("the start value of '{}'", v.name)));
             let start = start_expr.as_ref().map(|r| eval(r, &ParamEnv(&self.flat)));
             let vid = self.new_var(FlatVar {
                 name: join(&path, &v.name),
@@ -576,7 +597,7 @@ impl<'a> Flattener<'a> {
                 ));
                 continue;
             };
-            let mut sub_given = HashMap::new();
+            let mut sub_given = FxMap::default();
             for m in &s.modifiers {
                 let g = self.param_value(
                     id,
@@ -605,7 +626,7 @@ impl<'a> Flattener<'a> {
                 kind: OriginKind::Component { index },
                 label: e.label.clone(),
             };
-            let what = format!("equation {}", index + 1);
+            let what = || format!("equation {}", index + 1);
             match &e.eq {
                 Equation::Eq { lhs, rhs } => {
                     let lhs = self.resolve(id, lhs, &what);
@@ -628,7 +649,7 @@ impl<'a> Flattener<'a> {
                                 let who = self.describe(id);
                                 self.diags.push(Diagnostic::error(
                                     "UNKNOWN-NAME",
-                                    format!("In {who}, {what} assigns '{var}', which is not one of its variables."),
+                                    format!("In {who}, {} assigns '{var}', which is not one of its variables.", what()),
                                 ));
                             }
                         }
@@ -648,7 +669,7 @@ impl<'a> Flattener<'a> {
         }
         for (index, e) in def.initial_equations.iter().enumerate() {
             if let Equation::Eq { lhs, rhs } = &e.eq {
-                let what = format!("initial equation {}", index + 1);
+                let what = || format!("initial equation {}", index + 1);
                 let lhs = self.resolve(id, lhs, &what);
                 let rhs = self.resolve(id, rhs, &what);
                 let origin = Origin {
@@ -662,9 +683,12 @@ impl<'a> Flattener<'a> {
 
         // energy books
         if def.energy.stored.is_some() || def.energy.loss.is_some() {
-            let stored =
-                def.energy.stored.as_ref().map(|x| self.resolve(id, x, "its stored energy"));
-            let loss = def.energy.loss.as_ref().map(|x| self.resolve(id, x, "its loss"));
+            let stored = def
+                .energy
+                .stored
+                .as_ref()
+                .map(|x| self.resolve(id, x, &|| "its stored energy".into()));
+            let loss = def.energy.loss.as_ref().map(|x| self.resolve(id, x, &|| "its loss".into()));
             self.flat.energy.push(InstanceEnergy { instance: id, stored, loss });
         }
 
@@ -755,7 +779,7 @@ impl<'a> Flattener<'a> {
                         ..num(k as f64, None, false)
                     };
                 }
-                let r = self.resolve(scope, e, what);
+                let r = self.resolve(scope, e, &|| what.to_string());
                 let value = eval(&r, &ParamEnv(&self.flat));
                 let bound = r.any(&mut |x| matches!(x, Expr::Param(_)));
                 num(value, bound.then_some(r), structural)
@@ -867,7 +891,7 @@ impl<'a> Flattener<'a> {
     }
 
     fn connection_equations(&mut self) {
-        let mut sets: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut sets: FxMap<usize, Vec<usize>> = FxMap::default();
         for i in 0..self.node_list.len() {
             let r = self.find(i);
             sets.entry(r).or_default().push(i);
@@ -893,12 +917,8 @@ impl<'a> Flattener<'a> {
                     for (k, (n, pv)) in members.iter().zip(&vars).enumerate() {
                         let PortVars::Physical { across, through } = *pv else { continue };
                         if k > 0 {
-                            // a large set names the two ports each equation joins
-                            let ports = if names.len() <= 8 {
-                                names.clone()
-                            } else {
-                                vec![names[0].clone(), names[k].clone()]
-                            };
+                            // each across equation names the two ports it joins
+                            let ports = vec![names[0].clone(), names[k].clone()];
                             self.flat.equations.push(FlatEquation {
                                 lhs: Expr::Var(first_across),
                                 rhs: Expr::Var(across),
@@ -989,6 +1009,9 @@ impl<'a> Flattener<'a> {
                 has_parent && !self.nodes.contains_key(&Node { inst, port: k, outside: false });
             let outside_free =
                 composite && !self.nodes.contains_key(&Node { inst, port: k, outside: true });
+            if !inside_free && !outside_free {
+                continue;
+            }
             let name = self.node_name(Node { inst, port: k, outside: false });
             match pv {
                 PortVars::Physical { through, .. } => {

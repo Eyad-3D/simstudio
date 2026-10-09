@@ -34,7 +34,7 @@ impl Deps {
                 out.push(c);
             }
         };
-        e.walk(&mut |x| {
+        crate::walk::visit(e, &mut |x| {
             let (y, a) = match x {
                 Expr::Var(v) => (self.y_var[v.0 as usize], self.var[v.0 as usize]),
                 Expr::Der(v) => (self.y_der[v.0 as usize], self.der[v.0 as usize]),

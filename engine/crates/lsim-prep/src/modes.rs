@@ -36,7 +36,7 @@ struct Ctx<'a> {
 
 impl Ctx<'_> {
     fn continuous(&self, e: &Expr) -> bool {
-        e.any(&mut |x| match x {
+        crate::walk::any(e, &mut |x| match x {
             Expr::Var(v) => !self.discrete.get(v.0 as usize).copied().unwrap_or(false),
             Expr::Der(_) | Expr::Time => true,
             _ => false,
@@ -135,7 +135,15 @@ pub fn extract(flat: &mut FlatSystem) -> Vec<FlatMode> {
     let mut eqs = std::mem::take(&mut flat.equations);
     let mut ctx =
         Ctx { flat, discrete, modes: vec![], by_text: HashMap::new(), count: HashMap::new() };
+    let eventful = |e: &Expr| {
+        crate::walk::any(e, &mut |x| {
+            matches!(x, Expr::Compare(..) | Expr::Call(Builtin::Abs | Builtin::Sign, _))
+        })
+    };
     for e in &mut eqs {
+        if !eventful(&e.lhs) && !eventful(&e.rhs) {
+            continue;
+        }
         let origin = e.origin.clone();
         e.lhs = ctx.rewrite(std::mem::replace(&mut e.lhs, Expr::Const(0.0)), &origin);
         e.rhs = ctx.rewrite(std::mem::replace(&mut e.rhs, Expr::Const(0.0)), &origin);

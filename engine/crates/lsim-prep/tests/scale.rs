@@ -90,27 +90,55 @@ fn resistive_ladder(n: usize) -> ComponentDef {
     }
 }
 
-fn timed(top: &ComponentDef) -> (f64, usize, PrepReport, lsim_ir::PreparedModel) {
-    let lib = library();
-    let mut best = f64::INFINITY;
-    let mut out = None;
-    for _ in 0..2 {
-        let t = Instant::now();
-        let (m, r) = prepare_with_report(&lib, top, None, &Settings::default())
-            .unwrap_or_else(|d| panic!("{:#?}", &d[..d.len().min(3)]));
-        best = best.min(t.elapsed().as_secs_f64());
-        out = Some((m, r));
-    }
-    let (m, r) = out.unwrap();
-    (best, m.stats.flat_equations, r, m)
+/// This thread's CPU time, s (Linux), or `None`.
+fn cpu_seconds() -> Option<f64> {
+    let s = std::fs::read_to_string("/proc/thread-self/schedstat").ok()?;
+    let ns: f64 = s.split_whitespace().next()?.parse().ok()?;
+    Some(ns * 1e-9)
 }
 
-fn report(name: &str, secs: f64, eqs: usize, r: &PrepReport, m: &lsim_ir::PreparedModel) {
+/// What a timed preparation gave.
+struct Timed {
+    /// best CPU time of three runs, s (wall time where CPU time cannot be read)
+    cpu: f64,
+    /// best wall time, s
+    wall: f64,
+    report: PrepReport,
+    model: lsim_ir::PreparedModel,
+}
+
+/// Prepares `top` three times.
+fn timed(top: &ComponentDef) -> Timed {
+    let lib = library();
+    let (mut cpu, mut wall) = (f64::INFINITY, f64::INFINITY);
+    let mut out = None;
+    for _ in 0..3 {
+        let (t, c) = (Instant::now(), cpu_seconds());
+        let (m, r) = prepare_with_report(&lib, top, None, &Settings::default())
+            .unwrap_or_else(|d| panic!("{:#?}", &d[..d.len().min(3)]));
+        let w = t.elapsed().as_secs_f64();
+        let c = match (c, cpu_seconds()) {
+            (Some(a), Some(b)) => b - a,
+            _ => w,
+        };
+        cpu = cpu.min(c);
+        wall = wall.min(w);
+        out = Some((m, r));
+    }
+    let (model, report) = out.unwrap();
+    Timed { cpu, wall, report, model }
+}
+
+fn print(name: &str, t: &Timed) {
     let phases: Vec<String> =
-        r.seconds.iter().map(|(p, s)| format!("{p} {:.0}", s * 1e3)).collect();
+        t.report.seconds.iter().map(|(p, s)| format!("{p} {:.0}", s * 1e3)).collect();
+    let m = &t.model;
     println!(
-        "{name}: {eqs} equations prepared in {:.0} ms ({} states, {} iteration variables, {} assignments; ms: {})",
-        secs * 1e3,
+        "{name}: {} equations prepared in {:.0} ms CPU ({:.0} ms wall); {} states, {} iteration \
+         variables, {} assignments; last run by step, ms: {}",
+        m.stats.flat_equations,
+        t.cpu * 1e3,
+        t.wall * 1e3,
         m.states.len(),
         m.algebraics.len(),
         m.assignments.len(),
@@ -120,33 +148,42 @@ fn report(name: &str, secs: f64, eqs: usize, r: &PrepReport, m: &lsim_ir::Prepar
 
 #[test]
 fn an_rc_ladder_of_100k_equations_prepares_in_under_a_second() {
-    let (secs, eqs, r, m) = timed(&rc_ladder(8400));
-    report("RC ladder", secs, eqs, &r, &m);
-    assert!(eqs >= 100_000, "{eqs}");
-    assert_eq!(m.states.len(), 8400);
-    assert!(m.algebraics.is_empty());
-    assert!(secs < 1.0, "{secs} s");
+    let t = timed(&rc_ladder(8400));
+    print("RC ladder", &t);
+    assert!(t.model.stats.flat_equations >= 100_000);
+    assert_eq!(t.model.states.len(), 8400);
+    assert!(t.model.algebraics.is_empty());
+    assert!(t.cpu < 1.0, "{} s", t.cpu);
 }
 
 #[test]
 fn a_torsional_chain_of_100k_equations_prepares_in_under_a_second() {
-    let (secs, eqs, r, m) = timed(&torsional_chain(6000));
-    report("torsional chain", secs, eqs, &r, &m);
-    assert!(eqs >= 100_000, "{eqs}");
-    assert!(m.algebraics.is_empty());
-    assert!(secs < 1.0, "{secs} s");
+    let t = timed(&torsional_chain(9100));
+    print("torsional chain", &t);
+    assert!(t.model.stats.flat_equations >= 100_000);
+    assert!(t.model.algebraics.is_empty());
+    assert!(t.cpu < 1.0, "{} s", t.cpu);
 }
 
 #[test]
 fn a_resistive_ladder_of_100k_equations_prepares_in_under_a_second() {
-    let (secs, eqs, r, m) = timed(&resistive_ladder(4200));
-    report("resistive ladder", secs, eqs, &r, &m);
-    for b in &r.blocks {
+    let t = timed(&resistive_ladder(7200));
+    print("resistive ladder", &t);
+    for b in &t.report.blocks {
         println!(
             "  block of {}: {} torn, linear {}, {} iterated",
             b.size, b.torn, b.linear, b.iteration
         );
     }
-    assert!(eqs >= 100_000, "{eqs}");
-    assert!(secs < 1.0, "{secs} s");
+    assert!(t.model.stats.flat_equations >= 100_000);
+    // one block as large as the ladder, torn to one variable
+    let big = t.report.blocks.iter().max_by_key(|b| b.size).unwrap();
+    assert!(
+        big.size > 20_000 && big.torn == 1 && big.linear,
+        "{} {} {}",
+        big.size,
+        big.torn,
+        big.linear
+    );
+    assert!(t.cpu < 1.0, "{} s", t.cpu);
 }

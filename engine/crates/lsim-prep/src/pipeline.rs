@@ -119,7 +119,7 @@ fn isolated_parts(flat: &FlatSystem, lib: &Library) -> Vec<InstanceId> {
             OriginKind::ConnectionAcross { .. } | OriginKind::ConnectionThrough { .. }
         ) {
             for side in [&e.lhs, &e.rhs] {
-                side.walk(&mut |x| {
+                crate::walk::visit(side, &mut |x| {
                     if let Expr::Var(v) = x {
                         connected[flat.var(*v).instance.0 as usize] = true;
                     }
@@ -135,9 +135,11 @@ fn isolated_parts(flat: &FlatSystem, lib: &Library) -> Vec<InstanceId> {
         .collect()
 }
 
-fn index_diag(flat: &FlatSystem, f: IndexFault) -> Diagnostic {
+fn index_diag(flat: &FlatSystem, sys: &Sys, f: IndexFault) -> Diagnostic {
+    let origin_of = |k: usize| flat.equations[sys.eqs[k].src].origin.clone();
     match f {
-        IndexFault::TooHigh { origin } => {
+        IndexFault::TooHigh { eq } => {
+            let origin = origin_of(eq);
             let mut d = Diagnostic::error(
                 "INDEX-TOO-HIGH",
                 format!(
@@ -150,7 +152,8 @@ fn index_diag(flat: &FlatSystem, f: IndexFault) -> Diagnostic {
             d.parts = parts_of(flat, std::iter::once(origin.instance));
             d
         }
-        IndexFault::Differentiate { origin, why } => {
+        IndexFault::Differentiate { eq, why } => {
+            let origin = origin_of(eq);
             let mut d = Diagnostic::error(
                 "INDEX-DIFFERENTIATE",
                 format!(
@@ -165,7 +168,8 @@ fn index_diag(flat: &FlatSystem, f: IndexFault) -> Diagnostic {
             d.parts = parts_of(flat, std::iter::once(origin.instance));
             d
         }
-        IndexFault::Singular { origins, .. } => {
+        IndexFault::Singular { eqs, .. } => {
+            let origins: Vec<Origin> = eqs.iter().map(|&k| origin_of(k)).collect();
             let parts = parts_of(flat, origins.iter().map(|o| o.instance));
             let names: Vec<String> =
                 parts.iter().map(|p| format!("'{}'", diagnose::label_of(flat, p))).collect();
@@ -227,10 +231,10 @@ pub fn run(
 
     // the system over nodes
     let mut sys = Sys::new(&flat, &eliminated, &input);
-    for e in &flat.equations {
+    for (k, e) in flat.equations.iter().enumerate() {
         let r = crate::symbolic::simplify(e.lhs.clone() - e.rhs.clone());
-        let r = sys.from_flat(&r);
-        sys.push(r, e.origin.clone(), None);
+        let r = sys.from_flat_owned(r);
+        sys.push(r, k, None);
     }
     for v in &prescribed {
         if let Some(n) = sys.base[v.0 as usize] {
@@ -351,7 +355,8 @@ pub fn run(
     clock.lap("matching");
 
     // index reduction
-    let differentiated = index::pantelides(&mut sys).map_err(|f| vec![index_diag(&flat, f)])?;
+    let differentiated =
+        index::pantelides(&mut sys).map_err(|f| vec![index_diag(&flat, &sys, f)])?;
     report.differentiated = differentiated;
     clock.lap("index");
 
@@ -373,17 +378,18 @@ pub fn run(
     let relation_of: HashMap<usize, Expr> =
         node_modes.iter().map(|m| (m.node, m.relation.clone())).collect();
     let subst_modes = |e: &Expr| -> Expr {
-        if relation_of.is_empty() {
-            return e.clone();
-        }
-        e.clone().rewrite(&mut |x| match x {
+        crate::walk::map_up(e, &mut |x| match x {
             Expr::Var(v) | Expr::Pre(v) if relation_of.contains_key(&(v.0 as usize)) => {
                 relation_of[&(v.0 as usize)].clone()
             }
             other => other,
         })
     };
-    let model_res: Vec<Expr> = sys.eqs.iter().map(|e| subst_modes(&e.res)).collect();
+    let model_res: Option<Vec<Expr>> = if relation_of.is_empty() {
+        None
+    } else {
+        Some(sys.eqs.iter().map(|e| subst_modes(&e.res)).collect())
+    };
     let initial: Vec<(Expr, Origin)> =
         initial_eqs.iter().map(|(e, o)| (subst_modes(e), o.clone())).collect();
     let ib = init::build(&sys, &flat, &extras, &aliases, model_res, initial).map_err(|f| {
@@ -402,22 +408,85 @@ pub fn run(
         d.parts = parts;
         vec![d]
     })?;
-    let no_modes = vec![false; nn];
-    let init_ctx =
-        Ctx { params: &params, kinds: &kinds, is_mode: &no_modes, force_implicit: false };
-    let init_refs: Vec<&Expr> = ib.eqs.iter().collect();
-    let init_sorted = causal::sort(&init_refs, &ib.unknowns, &init_ctx).map_err(|_| {
-        vec![Diagnostic::error(
-            "INIT-SINGULAR",
-            "The start of the run is not determined: the initialisation system has no matching \
-             (an engine fault; please report the model).",
-        )]
-    })?;
+    // the start is the model's own sorting after the states' start values
+    // when nothing else differs: no index reduction, no modes, no initial
+    // equations, every start value kept and on a state
+    let reuse = differentiated == 0
+        && node_modes.is_empty()
+        && initial_eqs.is_empty()
+        && ib.dropped.is_empty()
+        && ib.constant_conflicts.is_empty()
+        && ib.starts.iter().all(|&(_, n, _)| sys.nodes[n].deriv.is_some());
+    let ctx = Ctx {
+        params: &params,
+        kinds: &kinds,
+        is_mode: &is_mode,
+        force_implicit: settings.force_implicit,
+    };
+    let refs: Vec<&Expr> = sys.eqs.iter().map(|e| &e.res).collect();
+    let incs: Vec<&[usize]> = sys.eqs.iter().map(|e| e.inc.as_slice()).collect();
+    let sort_model = |is_state: &[bool]| -> Result<(Vec<usize>, Sorted), Vec<Diagnostic>> {
+        let unknowns: Vec<usize> =
+            (0..nn).filter(|&n| kinds[n] == NodeKind::Unknown && !is_state[n]).collect();
+        let sorted = causal::sort(&refs, &incs, &unknowns, &ctx).map_err(|u| {
+            let s = Structure {
+                flat: &flat,
+                lib,
+                graph: &u.graph,
+                matching: &u.matching,
+                origins: sys.eqs.iter().map(|e| &flat.equations[e.src].origin).collect(),
+                texts: sys.eqs.iter().map(|e| e.res.to_string()).collect(),
+                vars: unknowns.iter().map(|&n| sys.nodes[n].var).collect(),
+                isolated: &isolated,
+                prescribed: &prescribed,
+                row_has_input: sys
+                    .eqs
+                    .iter()
+                    .map(|e| e.inc.iter().any(|&n| kinds[n] == NodeKind::Input))
+                    .collect(),
+            };
+            diagnose::singular(&s)
+        })?;
+        Ok((unknowns, sorted))
+    };
+    let trivial_states: Vec<bool> =
+        sys.nodes.iter().map(|n| n.kind == NodeKind::Unknown && n.deriv.is_some()).collect();
+    let mut model_sorted = None;
+    let init_sorted = if reuse {
+        let (_, sorted) = sort_model(&trivial_states)?;
+        clock.lap("sort");
+        let composed = compose_init(&ib, &sorted);
+        model_sorted = Some(sorted);
+        composed
+    } else {
+        let no_modes = vec![false; nn];
+        let init_ctx =
+            Ctx { params: &params, kinds: &kinds, is_mode: &no_modes, force_implicit: false };
+        let init_refs = ib.rows(&sys);
+        let init_inc = ib.incs(&sys);
+        causal::sort(&init_refs, &init_inc, &ib.unknowns, &init_ctx).map_err(|_| {
+            vec![Diagnostic::error(
+                "INIT-SINGULAR",
+                "The start of the run is not determined: the initialisation system has no \
+                 matching (an engine fault; please report the model).",
+            )]
+        })?
+    };
     clock.lap("init");
 
     // the start at preparation
     let mut vals = start_guesses(&sys, &flat);
-    let solved = if settings.numeric_start {
+    // needed for the state choice, the modes' first values, initial
+    // equations and start values the model overrides; for small models
+    // always (their pivots are checked at the start too)
+    let needed = differentiated > 0
+        || !node_modes.is_empty()
+        || !initial_eqs.is_empty()
+        || !ib.dropped.is_empty()
+        || !ib.constant_conflicts.is_empty()
+        || ib.kinds.iter().any(|k| matches!(k, RowKind::Assumed(_)))
+        || sys.eqs.len() <= 20_000;
+    let solved = if settings.numeric_start && needed {
         numeric::solve(&init_sorted, &mut vals, &pvals, 0.0).map_err(Some)
     } else {
         Err(None)
@@ -425,7 +494,7 @@ pub fn run(
     report.start_solved = solved.is_ok();
     if let Err(Some(ns)) = &solved {
         let b = &init_sorted.blocks[ns.block];
-        let parts = parts_of(&flat, b.eqs.iter().map(|&k| ib.origins[k].instance));
+        let parts = parts_of(&flat, b.eqs.iter().map(|&k| ib.origin(&sys, &flat, k).instance));
         let names: Vec<String> =
             parts.iter().map(|p| format!("'{}'", diagnose::label_of(&flat, p))).collect();
         if b.linear && ns.singular {
@@ -439,9 +508,13 @@ pub fn run(
                     b.nodes.iter().map(|&n| sys.name(&flat, n)).collect::<Vec<_>>().join(", ")
                 ),
             )
-            .with_hint("Check the parameters of these parts for zeros: a resistance, an inertia or a ratio of 0.");
+            .with_hint(
+                "Check the parameters of these parts for zeros: a resistance, an inertia or a \
+                 ratio of 0.",
+            );
             d.parts = parts;
-            d.detail = b.eqs.iter().map(|&k| equation_words(&flat, &ib.origins[k])).collect();
+            d.detail =
+                b.eqs.iter().map(|&k| equation_words(&flat, ib.origin(&sys, &flat, k))).collect();
             return Err(vec![d]);
         }
         let mut d = info(
@@ -455,7 +528,7 @@ pub fn run(
         d.parts = parts;
         d.detail.push(format!(
             "{} = {:e}",
-            equation_words(&flat, &ib.origins[ns.worst_eq]),
+            equation_words(&flat, ib.origin(&sys, &flat, ns.worst_eq)),
             ns.worst
         ));
         warnings.push(d);
@@ -483,50 +556,25 @@ pub fn run(
                     )
                 }
             })
-            .map_err(|f| vec![index_diag(&flat, f)])?;
+            .map_err(|f| vec![index_diag(&flat, &sys, f)])?;
         (sel.is_state, sel.dummy)
     } else {
-        (
-            sys.nodes.iter().map(|n| n.kind == NodeKind::Unknown && n.deriv.is_some()).collect(),
-            vec![false; nn],
-        )
+        (trivial_states, vec![false; nn])
     };
     report.dummy_derivatives = (0..nn).filter(|&n| dummy[n]).map(|n| sys.name(&flat, n)).collect();
     clock.lap("states");
 
     // the model: sorted, torn, solved
-    let unknowns: Vec<usize> =
-        (0..nn).filter(|&n| kinds[n] == NodeKind::Unknown && !is_state[n]).collect();
-    let ctx = Ctx {
-        params: &params,
-        kinds: &kinds,
-        is_mode: &is_mode,
-        force_implicit: settings.force_implicit,
+    let sorted = match model_sorted {
+        Some(s) => s,
+        None => {
+            let (_, s) = sort_model(&is_state)?;
+            clock.lap("sort");
+            s
+        }
     };
-    let refs: Vec<&Expr> = sys.eqs.iter().map(|e| &e.res).collect();
-    let sorted = causal::sort(&refs, &unknowns, &ctx).map_err(|u| {
-        let origins: Vec<&Origin> = sys.eqs.iter().map(|e| &e.origin).collect();
-        let s = Structure {
-            flat: &flat,
-            lib,
-            graph: &u.graph,
-            matching: &u.matching,
-            origins,
-            texts: sys.eqs.iter().map(|e| e.res.to_string()).collect(),
-            vars: unknowns.iter().map(|&n| sys.nodes[n].var).collect(),
-            isolated: &isolated,
-            prescribed: &prescribed,
-            row_has_input: sys
-                .eqs
-                .iter()
-                .map(|e| e.inc.iter().any(|&n| kinds[n] == NodeKind::Input))
-                .collect(),
-        };
-        diagnose::singular(&s)
-    })?;
-    clock.lap("sort");
-    report.blocks = summaries(&sorted, &sys, &flat, |k| &sys.eqs[k].origin);
-    report.init_blocks = summaries(&init_sorted, &sys, &flat, |k| &ib.origins[k]);
+    report.blocks = summaries(&sorted, &sys, &flat, |k| &flat.equations[sys.eqs[k].src].origin);
+    report.init_blocks = summaries(&init_sorted, &sys, &flat, |k| ib.origin(&sys, &flat, k));
     warnings.extend(causal_loops(&sorted, &sys, &flat, lib));
 
     // checks at the start
@@ -535,7 +583,7 @@ pub fn run(
         for (a, k) in &sorted.variable_pivots {
             let v = eval(a, &env);
             if v == 0.0 || !v.is_finite() {
-                let o = &sys.eqs[*k].origin;
+                let o = &flat.equations[sys.eqs[*k].src].origin;
                 let mut d = warning(
                     "PIVOT-ZERO-AT-START",
                     format!(
@@ -558,7 +606,16 @@ pub fn run(
     let map = sys.slots(&mut flat, &is_state);
     extras.start.resize(flat.vars.len(), None);
     report.states = map.states.iter().map(|v| flat.var(*v).name.clone()).collect();
-    let origin_of = |k: usize| sys.eqs[k].origin.clone();
+    let origin_of = |k: usize, flat: &FlatSystem| flat.equations[sys.eqs[k].src].origin.clone();
+    let largest = sorted.blocks.iter().map(|b| b.eqs.len()).max().unwrap_or(0);
+    let n_blocks = sorted.blocks.len();
+    let Sorted {
+        assignments: sorted_assignments,
+        iteration: sorted_iteration,
+        residuals: sorted_residuals,
+        guards: sorted_guards,
+        ..
+    } = sorted;
     let mut assignments: Vec<Assignment> = map
         .chained
         .iter()
@@ -568,16 +625,18 @@ pub fn run(
             origin: init::start_origin(&flat, x),
         })
         .collect();
-    assignments.extend(sorted.assignments.iter().map(|(n, e, k)| Assignment {
-        target: map.slot[*n],
-        expr: map.to_flat(e),
-        origin: origin_of(*k),
-    }));
-    let algebraics: Vec<Slot> = sorted.iteration.iter().map(|&n| map.slot[n]).collect();
-    let residuals: Vec<Residual> = sorted
-        .residuals
-        .iter()
-        .map(|(e, k)| Residual { expr: map.to_flat(e), origin: origin_of(*k) })
+    assignments.reserve(sorted_assignments.len());
+    for (n, e, k) in sorted_assignments {
+        assignments.push(Assignment {
+            target: map.slot[n],
+            expr: map.to_flat_owned(e),
+            origin: origin_of(k, &flat),
+        });
+    }
+    let algebraics: Vec<Slot> = sorted_iteration.iter().map(|&n| map.slot[n]).collect();
+    let residuals: Vec<Residual> = sorted_residuals
+        .into_iter()
+        .map(|(e, k)| Residual { expr: map.to_flat_owned(e), origin: origin_of(k, &flat) })
         .collect();
     let discretes: Vec<VarId> = (0..nv)
         .filter(|&i| !eliminated[i] && flat.vars[i].kind == VarKind::Discrete)
@@ -634,9 +693,9 @@ pub fn run(
         .collect();
     let mut guards: Vec<ParamGuard> = vec![];
     let mut seen_guard = BTreeSet::new();
-    for (a, k) in &sorted.guards {
+    for (a, k) in sorted_guards {
         if seen_guard.insert(a.to_string()) {
-            guards.push(ParamGuard { expr: map.to_flat(a), origin: origin_of(*k) });
+            guards.push(ParamGuard { expr: map.to_flat_owned(a), origin: origin_of(k, &flat) });
         }
     }
 
@@ -654,32 +713,37 @@ pub fn run(
     };
     let mode_rel_flat: HashMap<VarId, Expr> =
         prepared_modes.iter().map(|m| (m.var, m.relation.clone())).collect();
+    let discrete_starts: Vec<Expr> = discretes
+        .iter()
+        .map(|v| match mode_rel_flat.get(v) {
+            Some(r) => r.clone(),
+            None => extras.start[v.0 as usize]
+                .clone()
+                .unwrap_or(Expr::Const(flat.var(*v).start.unwrap_or(0.0))),
+        })
+        .collect();
+    let init_iteration = init_sorted.iteration.clone();
     let init_system = InitSystem {
-        unknowns: init_sorted.iteration.iter().map(|&n| map.slot[n]).collect(),
-        guesses: init_sorted.iteration.iter().map(|&n| guess_of(n)).collect(),
+        unknowns: init_iteration.iter().map(|&n| map.slot[n]).collect(),
+        guesses: init_iteration.iter().map(|&n| guess_of(n)).collect(),
         assignments: init_sorted
             .assignments
-            .iter()
+            .into_iter()
             .map(|(n, e, k)| Assignment {
-                target: map.slot[*n],
-                expr: map.to_flat(e),
-                origin: ib.origins[*k].clone(),
+                target: map.slot[n],
+                expr: map.to_flat_owned(e),
+                origin: ib.origin(&sys, &flat, k).clone(),
             })
             .collect(),
         residuals: init_sorted
             .residuals
-            .iter()
-            .map(|(e, k)| Residual { expr: map.to_flat(e), origin: ib.origins[*k].clone() })
-            .collect(),
-        discrete_starts: discretes
-            .iter()
-            .map(|v| match mode_rel_flat.get(v) {
-                Some(r) => r.clone(),
-                None => extras.start[v.0 as usize]
-                    .clone()
-                    .unwrap_or(Expr::Const(flat.var(*v).start.unwrap_or(0.0))),
+            .into_iter()
+            .map(|(e, k)| Residual {
+                expr: map.to_flat_owned(e),
+                origin: ib.origin(&sys, &flat, k).clone(),
             })
             .collect(),
+        discrete_starts,
     };
 
     // the start values the Stage 1 code generator bakes in
@@ -687,7 +751,7 @@ pub fn run(
         for (k, &n) in state_nodes.iter().enumerate() {
             flat.vars[map.states[k].0 as usize].start = Some(vals[n]);
         }
-        for &n in &sorted.iteration {
+        for &n in &sorted_iteration {
             if let Slot::Var(v) = map.slot[n] {
                 flat.vars[v.0 as usize].start = Some(vals[n]);
             }
@@ -698,12 +762,11 @@ pub fn run(
         }
     }
 
-    let largest = sorted.blocks.iter().map(|b| b.eqs.len()).max().unwrap_or(0);
     let stats = PrepStats {
         flat_vars,
         flat_equations,
         aliases: aliases.len(),
-        blocks: sorted.blocks.len(),
+        blocks: n_blocks,
         largest_block: largest,
         explicit: assignments.len(),
     };
@@ -737,6 +800,31 @@ pub fn run(
     clock.lap("assemble");
     report.seconds = clock.1;
     Ok((model, report))
+}
+
+/// The initialisation system as the model's own sorting after the states'
+/// start values (each `node := start`).
+fn compose_init(ib: &InitBuild, sorted: &Sorted) -> Sorted {
+    let mut out = Sorted::default();
+    for (row, n, value) in &ib.starts {
+        let a = out.assignments.len();
+        out.assignments.push((*n, value.clone(), *row));
+        out.blocks.push(causal::BlockInfo {
+            eqs: vec![*row],
+            nodes: vec![*n],
+            assign: (a, a + 1),
+            ..Default::default()
+        });
+    }
+    let shift = out.assignments.len();
+    out.assignments.extend(sorted.assignments.iter().cloned());
+    out.iteration = sorted.iteration.clone();
+    out.residuals = sorted.residuals.clone();
+    out.blocks.extend(sorted.blocks.iter().map(|b| causal::BlockInfo {
+        assign: (b.assign.0 + shift, b.assign.1 + shift),
+        ..b.clone()
+    }));
+    out
 }
 
 /// First values of every node: start values, inputs at their starts,
@@ -817,7 +905,7 @@ fn precheck(
         lib,
         graph: &graph,
         matching: &matching,
-        origins: sys.eqs.iter().map(|e| &e.origin).collect(),
+        origins: sys.eqs.iter().map(|e| &flat.equations[e.src].origin).collect(),
         texts: flat
             .equations
             .iter()
@@ -864,14 +952,15 @@ fn causal_loops(sorted: &Sorted, sys: &Sys, flat: &FlatSystem, lib: &Library) ->
             continue;
         }
         let causal = b.eqs.iter().all(|&k| {
-            let o = &sys.eqs[k].origin;
+            let o = &flat.equations[sys.eqs[k].src].origin;
             matches!(o.kind, OriginKind::SignalLink { .. })
                 || (o.instance.0 != 0 && !diagnose::is_physical(flat, lib, o.instance))
         });
         if !causal {
             continue;
         }
-        let parts = parts_of(flat, b.eqs.iter().map(|&k| sys.eqs[k].origin.instance));
+        let parts =
+            parts_of(flat, b.eqs.iter().map(|&k| flat.equations[sys.eqs[k].src].origin.instance));
         let names: Vec<String> =
             parts.iter().map(|p| format!("'{}'", diagnose::label_of(flat, p))).collect();
         let mut d = warning(
