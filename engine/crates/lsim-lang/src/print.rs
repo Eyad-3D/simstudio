@@ -247,22 +247,21 @@ fn list(v: &[f64]) -> String {
 
 fn table_text(t: &TableData, rules: bool) -> String {
     let mut parts = vec![];
-    if t.axes.len() == 1 {
-        parts.push(format!("x = {}", list(&t.axes[0].points)));
+    if t.dims() == 1 {
+        parts.push(format!("x = {}", list(&t.x)));
         parts.push(format!("y = {}", list(&t.values)));
-        parts.push(format!("xUnit = {}", string(&t.axes[0].unit)));
+        parts.push(format!("xUnit = {}", string(&t.axis_units[0])));
     } else {
-        let n2 = t.axes.get(1).map_or(1, |a| a.points.len().max(1));
-        parts.push(format!("x1 = {}", list(&t.axes[0].points)));
-        parts.push(format!("x2 = {}", list(&t.axes[1].points)));
         let rows: Vec<String> = t
             .values
-            .chunks(n2)
+            .chunks(t.y.len())
             .map(|r| r.iter().map(|x| num(*x)).collect::<Vec<_>>().join(", "))
             .collect();
+        parts.push(format!("x1 = {}", list(&t.x)));
+        parts.push(format!("x2 = {}", list(&t.y)));
         parts.push(format!("values = [{}]", rows.join("; ")));
-        parts.push(format!("x1Unit = {}", string(&t.axes[0].unit)));
-        parts.push(format!("x2Unit = {}", string(&t.axes[1].unit)));
+        parts.push(format!("x1Unit = {}", string(&t.axis_units[0])));
+        parts.push(format!("x2Unit = {}", string(&t.axis_units[1])));
     }
     if rules {
         let i = match t.interpolation {
@@ -270,10 +269,9 @@ fn table_text(t: &TableData, rules: bool) -> String {
             Interpolation::Linear => "linear",
         };
         parts.push(format!("interpolation = {i}"));
-        let o: Vec<&str> = t
-            .axes
+        let o: Vec<&str> = t.outside[..t.dims()]
             .iter()
-            .map(|a| match a.outside {
+            .map(|o| match o {
                 Outside::Clamp => "clamp",
                 Outside::Linear => "linear",
                 Outside::Error => "error",

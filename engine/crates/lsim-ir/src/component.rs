@@ -20,6 +20,7 @@
 //! results).
 
 use crate::expr::Expr;
+pub use crate::table::{Interpolation, Outside, TableData};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -133,119 +134,18 @@ impl ParamValue {
     /// [`ParamValue::Table1D`] and [`ParamValue::Table2D`]); `None` when it
     /// is not a table.
     pub fn table(&self) -> Option<TableData> {
-        let axis = |points: &Vec<f64>, unit: &String| TableAxis {
-            points: points.clone(),
-            unit: unit.clone(),
-            outside: Outside::default(),
-        };
         match self {
             ParamValue::Table1D { x, y, axis_unit } => Some(TableData {
-                axes: vec![axis(x, axis_unit)],
-                values: y.clone(),
-                interpolation: Interpolation::default(),
+                axis_units: [axis_unit.clone(), String::new()],
+                ..TableData::new_1d(x.clone(), y.clone())
             }),
             ParamValue::Table2D { x1, x2, values, axis_units } => Some(TableData {
-                axes: vec![axis(x1, &axis_units[0]), axis(x2, &axis_units[1])],
-                values: values.clone(),
-                interpolation: Interpolation::default(),
+                axis_units: axis_units.clone(),
+                ..TableData::new_2d(x1.clone(), x2.clone(), values.clone())
             }),
             ParamValue::Table(t) => Some(t.clone()),
             _ => None,
         }
-    }
-}
-
-/// How a table interpolates between its points.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
-pub enum Interpolation {
-    /// monotone piecewise cubic (Fritsch–Carlson, along each axis):
-    /// continuous slope, so the solver needs no events at the points, and
-    /// no overshoot where the data are monotone
-    #[default]
-    MonotoneCubic,
-    /// piecewise linear (bilinear in 2-D), as today's app; its slope jumps
-    /// at the points
-    Linear,
-}
-
-/// What a table does beyond the ends of one axis' data (today's
-/// `tableOutside`).
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
-pub enum Outside {
-    /// hold the edge value
-    #[default]
-    Clamp,
-    /// extend the slope at the edge
-    Linear,
-    /// stop the run, naming the table
-    Error,
-}
-
-/// One axis of a table.
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-pub struct TableAxis {
-    /// the points, increasing (strictly)
-    pub points: Vec<f64>,
-    /// their unit text (a coherent SI unit, as every declared unit)
-    pub unit: String,
-    /// what the table does beyond this axis' data
-    pub outside: Outside,
-}
-
-/// A table's data and rules: one or two axes and the values at the grid
-/// points, in the parameter's unit. Tables are runtime data (parameters),
-/// so new data never recompile a model.
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-pub struct TableData {
-    /// its axes: one (`y(x)`) or two (`z(x1, x2)`)
-    pub axes: Vec<TableAxis>,
-    /// the values, row-major (the last axis varies fastest): for two axes
-    /// `values[i * n2 + j]` is at `(x1[i], x2[j])`
-    pub values: Vec<f64>,
-    /// how it interpolates
-    pub interpolation: Interpolation,
-}
-
-impl TableData {
-    /// Checks the shape: one or two axes, each with at least one point,
-    /// strictly increasing and finite; as many finite values as grid
-    /// points. The error is in plain words.
-    pub fn check(&self) -> Result<(), String> {
-        if !(1..=2).contains(&self.axes.len()) {
-            return Err(format!("a table has one or two axes, not {}", self.axes.len()));
-        }
-        let mut n = 1usize;
-        for (k, a) in self.axes.iter().enumerate() {
-            let which = if self.axes.len() == 1 {
-                "its axis".to_string()
-            } else {
-                format!("axis {}", k + 1)
-            };
-            if a.points.is_empty() {
-                return Err(format!("{which} has no points"));
-            }
-            if let Some(bad) = a.points.iter().find(|x| !x.is_finite()) {
-                return Err(format!("{which} has a point that is not a number ({bad})"));
-            }
-            if let Some(w) = a.points.windows(2).find(|w| w[1] <= w[0]) {
-                return Err(format!(
-                    "the points of {which} must increase, but {} is followed by {}",
-                    w[0], w[1]
-                ));
-            }
-            n *= a.points.len();
-        }
-        if self.values.len() != n {
-            return Err(format!(
-                "the table has {} grid points but {} values",
-                n,
-                self.values.len()
-            ));
-        }
-        if let Some(bad) = self.values.iter().find(|v| !v.is_finite()) {
-            return Err(format!("a value is not a number ({bad})"));
-        }
-        Ok(())
     }
 }
 
@@ -631,9 +531,10 @@ mod tests {
         let t1 =
             ParamValue::Table1D { x: vec![0.0, 1.0], y: vec![3.0, 4.0], axis_unit: "1".into() };
         let d = t1.table().unwrap();
-        assert_eq!(d.axes.len(), 1);
+        assert_eq!(d.dims(), 1);
         assert_eq!(d.interpolation, Interpolation::MonotoneCubic);
-        assert_eq!(d.axes[0].outside, Outside::Clamp);
+        assert_eq!(d.outside, [Outside::Clamp; 2]);
+        assert_eq!(d.axis_units[0], "1");
         assert!(d.check().is_ok());
         let t2 = ParamValue::Table2D {
             x1: vec![0.0, 1.0],
@@ -646,8 +547,8 @@ mod tests {
         bad.values.pop();
         assert_eq!(bad.check().unwrap_err(), "the table has 6 grid points but 5 values");
         bad.values.push(1.0);
-        bad.axes[1].points = vec![0.0, 20.0, 10.0];
-        assert!(bad.check().unwrap_err().contains("must increase, but 20 is followed by 10"));
+        bad.y = vec![0.0, 20.0, 10.0];
+        assert!(bad.check().unwrap_err().contains("increase strictly, but 20 is followed by 10"));
         assert_eq!(ParamValue::Bool(true).table(), None);
     }
 }

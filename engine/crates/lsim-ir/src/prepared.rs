@@ -120,7 +120,8 @@ pub struct PreparedWhen {
 /// the initial value and event iteration.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Mode {
-    /// the discrete variable holding the relation's value
+    /// the discrete variable holding the relation's value (1 true, 0
+    /// false); one of [`PreparedModel::discretes`]
     pub var: VarId,
     /// the relation as written (flat scope, a comparison), evaluated as it
     /// stands
@@ -159,6 +160,14 @@ pub struct InitSystem {
     /// except for a mode's variable, whose start is its relation evaluated
     /// at the solution
     pub discrete_starts: Vec<Expr>,
+}
+
+impl InitSystem {
+    /// Whether there is nothing to solve or compute: the start values hold
+    /// as they are.
+    pub fn is_empty(&self) -> bool {
+        self.unknowns.is_empty() && self.assignments.is_empty() && self.residuals.is_empty()
+    }
 }
 
 /// Where an external sampled block (a [`crate::runtime::DiscreteBlock`])
@@ -267,7 +276,9 @@ pub struct PreparedModel {
     /// counts for the report
     pub stats: PrepStats,
     /// the structural sparsity of `∂[x'; g]/∂y` through the assignments
-    /// (rows and columns in `y = [x; z]` order), for colouring and sparse LU
+    /// (rows and columns in `y = [x; z]` order), for colouring and sparse
+    /// LU; empty (`n` = 0) when not computed, and the code generator then
+    /// derives it from the equations itself
     #[serde(default)]
     pub jac_pattern: SparsityPattern,
     /// the modes of `if` relations (each one's variable is among

@@ -31,6 +31,64 @@ pub struct SparsityPattern {
     pub row_idx: Vec<usize>,
 }
 
+impl SparsityPattern {
+    /// The number of structural non-zeros.
+    pub fn nnz(&self) -> usize {
+        self.row_idx.len()
+    }
+
+    /// The rows of column `j`.
+    pub fn col(&self, j: usize) -> &[usize] {
+        &self.row_idx[self.col_ptr[j]..self.col_ptr[j + 1]]
+    }
+
+    /// The pattern of a dense `n × n` matrix.
+    pub fn dense(n: usize) -> Self {
+        SparsityPattern {
+            n,
+            col_ptr: (0..=n).map(|j| j * n).collect(),
+            row_idx: (0..n * n).map(|k| k % n).collect(),
+        }
+    }
+}
+
+/// One axis of one table read in the model, which the run loop watches
+/// against the table's data range (today's "outside the data" handling:
+/// an `Error` axis stops the run where it leaves its data, the others are
+/// booked as time spent outside). Its guard function
+/// ([`ModelFunctions::table_guards`]) is positive inside the data and
+/// negative outside: `min(a - lo, hi - a)` of the axis argument `a`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableGuard {
+    /// the table's index in [`crate::FlatSystem::tables`]
+    pub table: u32,
+    /// 0: the first axis, 1: the second
+    pub axis: u8,
+    /// the axis's setting
+    pub outside: crate::table::Outside,
+}
+
+/// The compiled initialisation problem ([`crate::InitSystem`]): Newton
+/// iterates on `w` (passed as [`EvalInput::y`]) until the residuals
+/// vanish, then [`InitFunctions::finish`] gives the model's start vector.
+pub trait InitFunctions: Send + Sync {
+    /// The number of unknowns w (and residuals).
+    fn n_w(&self) -> usize;
+    /// The unknowns' start guesses.
+    fn guess(&self, p: &[f64], w0: &mut [f64]);
+    /// The residuals at `w`.
+    fn residual(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]);
+    /// The exact Jacobian of the residuals times a vector.
+    fn jvp(&self, inp: &EvalInput<'_>, v: &[f64], work: &mut [f64], out: &mut [f64]);
+    /// The structure [`InitFunctions::jacobian_sparse`] fills.
+    fn sparsity(&self) -> &SparsityPattern;
+    /// The Jacobian's values (column-compressed, in [`InitFunctions::sparsity`]'s order).
+    fn jacobian_sparse(&self, inp: &EvalInput<'_>, work: &mut [f64], values: &mut [f64]);
+    /// The model's `y0 = [x; z]` from the solved `w` (every entry the
+    /// initialisation does not compute keeps its start value).
+    fn finish(&self, inp: &EvalInput<'_>, work: &mut [f64], y0: &mut [f64]);
+}
+
 /// A block with its own sample clock, run outside the equations: a Script
 /// block (sandboxed Python), an FMU for co-simulation, a digital
 /// controller. Between its ticks its outputs hold (they are discrete
@@ -138,5 +196,52 @@ pub trait ModelFunctions: Send + Sync {
             self.jvp(inp, &v, work, &mut out[j * n..(j + 1) * n]);
             v[j] = 0.0;
         }
+    }
+
+    /// The structure of `∂[x'; g]/∂y` that [`Self::jacobian_sparse`]
+    /// fills, if the model knows it.
+    fn sparsity(&self) -> Option<&SparsityPattern> {
+        None
+    }
+
+    /// The Jacobian's values, column-compressed in [`Self::sparsity`]'s
+    /// order. The default gathers them from [`Self::jacobian_dense`]; code
+    /// generators override it with a coloured forward-mode evaluation.
+    fn jacobian_sparse(&self, inp: &EvalInput<'_>, work: &mut [f64], values: &mut [f64]) {
+        let Some(pat) = self.sparsity() else {
+            return;
+        };
+        let n = pat.n;
+        let mut dense = vec![0.0; n * n];
+        self.jacobian_dense(inp, work, &mut dense);
+        for j in 0..n {
+            for k in pat.col_ptr[j]..pat.col_ptr[j + 1] {
+                values[k] = dense[j * n + pat.row_idx[k]];
+            }
+        }
+    }
+
+    /// Sets each mode's Boolean ([`crate::Mode`]) from its relation at the
+    /// input point: on entry `d_out` holds the discrete values, on return
+    /// the modes' entries are 1 or 0. Models without modes leave it alone.
+    fn modes(&self, inp: &EvalInput<'_>, work: &mut [f64], d_out: &mut [f64]) {
+        let _ = (inp, work, d_out);
+    }
+
+    /// The compiled initialisation problem, if the model has one.
+    fn init(&self) -> Option<&dyn InitFunctions> {
+        None
+    }
+
+    /// The table axes the run loop watches, in the order
+    /// [`Self::table_guards`] writes them.
+    fn table_guard_list(&self) -> &[TableGuard] {
+        &[]
+    }
+
+    /// Each watched table axis's guard (positive inside the data, negative
+    /// outside), one per entry of [`Self::table_guard_list`].
+    fn table_guards(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]) {
+        let _ = (inp, work, out);
     }
 }

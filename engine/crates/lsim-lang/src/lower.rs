@@ -64,7 +64,7 @@ impl CompResolve<'_> {
                 other => {
                     let axes = other
                         .table()
-                        .map(|t| t.axes.iter().map(|a| unit_dim(&a.unit)).collect())
+                        .map(|t| t.axis_units[..t.dims()].iter().map(|u| unit_dim(u)).collect())
                         .unwrap_or_default();
                     NameDim::Table(unit_dim(&p.unit), axes)
                 }
@@ -188,8 +188,8 @@ impl LowerCx for TextCx<'_> {
                     format!("the table '{}' takes no named argument '{n}'", p.name),
                 ));
             }
-            if args.positional.len() != table.axes.len() {
-                let (axes, at) = if table.axes.len() == 1 {
+            if args.positional.len() != table.dims() {
+                let (axes, at) = if table.dims() == 1 {
                     ("one axis", "one value")
                 } else {
                     ("two axes", "two values")
@@ -466,14 +466,16 @@ pub(crate) fn table_value(e: &ast::Expr) -> Result<ParamValue, LangError> {
             out
         }
     };
+    let mut axes = axes.into_iter();
+    let (x, x_unit) = axes.next().expect("one axis at least");
+    let (y, y_unit) = axes.next().unwrap_or_default();
     let data = TableData {
-        axes: axes
-            .into_iter()
-            .zip(outside)
-            .map(|((points, unit), outside)| TableAxis { points, unit, outside })
-            .collect(),
+        x,
+        y,
         values,
         interpolation,
+        outside: [outside[0], outside.get(1).copied().unwrap_or_default()],
+        axis_units: [x_unit, y_unit],
     };
     data.check().map_err(|why| {
         LangError::new("TABLE", e.span, format!("this table is not valid: {why}"))
@@ -481,16 +483,16 @@ pub(crate) fn table_value(e: &ast::Expr) -> Result<ParamValue, LangError> {
     if rules {
         return Ok(ParamValue::Table(data));
     }
-    let mut axes = data.axes.into_iter();
-    let a = axes.next().expect("one axis at least");
-    Ok(match axes.next() {
-        None => ParamValue::Table1D { x: a.points, y: data.values, axis_unit: a.unit },
-        Some(b) => ParamValue::Table2D {
-            x1: a.points,
-            x2: b.points,
+    let [x_unit, y_unit] = data.axis_units;
+    Ok(if data.y.is_empty() {
+        ParamValue::Table1D { x: data.x, y: data.values, axis_unit: x_unit }
+    } else {
+        ParamValue::Table2D {
+            x1: data.x,
+            x2: data.y,
             values: data.values,
-            axis_units: [a.unit, b.unit],
-        },
+            axis_units: [x_unit, y_unit],
+        }
     })
 }
 
@@ -1512,13 +1514,8 @@ fn check_component(
             check_display_unit(&p.unit, du, decl, &format!("the parameter '{}'", p.name), errs);
         }
         if let Some(t) = p.default.table() {
-            for (j, a) in t.axes.iter().enumerate() {
-                check_unit(
-                    &a.unit,
-                    decl,
-                    &format!("axis {} of the table '{}'", j + 1, p.name),
-                    errs,
-                );
+            for (j, unit) in t.axis_units[..t.dims()].iter().enumerate() {
+                check_unit(unit, decl, &format!("axis {} of the table '{}'", j + 1, p.name), errs);
             }
         }
         match &p.default {
@@ -1680,16 +1677,16 @@ fn check_component(
                 }
                 (d, v) if d.table().is_some() && v.table().is_some() => {
                     let (dt, vt) = (d.table().expect("table"), v.table().expect("table"));
-                    if dt.axes.len() != vt.axes.len() {
+                    if dt.dims() != vt.dims() {
                         errs.push(LangError::new(
                             "PARAM-VALUE",
                             at,
                             format!(
                                 "{what} is a table of {} axes; {}.{} has {}",
-                                vt.axes.len(),
+                                vt.dims(),
                                 s.def,
                                 m.param,
-                                dt.axes.len()
+                                dt.dims()
                             ),
                         ));
                     }

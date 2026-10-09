@@ -433,7 +433,8 @@ impl<'a> Flattener<'a> {
                         }
                         self.flat.tables.push(FlatTable {
                             name: name.clone(),
-                            param: pid,
+                            instance: id,
+                            param: Some(pid),
                             unit,
                             data,
                         });
@@ -1155,7 +1156,7 @@ mod tests {
         // the pack's own table, then each cell's
         let names: Vec<&str> = flat.tables.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(names, ["ocv_pack", "a.ocv", "b.ocv"]);
-        assert_eq!(flat.tables[2].data.axes[0].points, vec![0.0, 0.5, 1.0]);
+        assert_eq!(flat.tables[2].data.x, vec![0.0, 0.5, 1.0]);
         let a_v = flat.find_var("a.v").unwrap();
         let read = flat.equations.iter().find(|e| e.lhs == Expr::Var(a_v)).unwrap();
         assert!(

@@ -5,6 +5,7 @@
 
 use crate::component::VarKind;
 use crate::expr::Expr;
+pub use crate::table::FlatTable;
 use crate::units::Unit;
 use serde::{Deserialize, Serialize};
 
@@ -165,20 +166,6 @@ pub struct FlatWhen {
     pub origin: Origin,
 }
 
-/// A table of the flat system: a table parameter's data, which
-/// [`Expr::Table`] refers to by its index in [`FlatSystem::tables`].
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-pub struct FlatTable {
-    /// the table parameter's full dotted name (`battery.ocv`)
-    pub name: String,
-    /// the parameter's record (its value there is the table's index)
-    pub param: ParamId,
-    /// the unit of its values
-    pub unit: Unit,
-    /// its data and rules
-    pub data: crate::component::TableData,
-}
-
 /// A flat `assert`: the condition must hold while the model runs.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct FlatAssert {
@@ -234,7 +221,8 @@ pub struct FlatSystem {
     pub port_powers: Vec<PortPower>,
     /// stored energy and losses of the instances that declare them
     pub energy: Vec<InstanceEnergy>,
-    /// table data, by the index [`Expr::Table`] holds
+    /// tables (what a flat [`Expr::Table`] indexes): runtime data, like
+    /// parameter values
     #[serde(default)]
     pub tables: Vec<FlatTable>,
     /// conditions checked while the model runs

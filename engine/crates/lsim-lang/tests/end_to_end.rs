@@ -62,8 +62,9 @@ fn every_kind_of_parameter_reaches_the_flat_system() {
     // table (shared with the pack's ocv_a), cell b's own default
     let names: Vec<&str> = flat.tables.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(names, ["ocv_pack", "ocv_a", "b.ocv"]);
-    assert_eq!(flat.tables[0].data.axes.len(), 2);
-    assert_eq!(flat.tables[0].data.axes[1].outside, lsim_ir::Outside::Linear);
+    assert_eq!(flat.tables[0].data.dims(), 2);
+    assert_eq!(flat.tables[0].data.outside[1], lsim_ir::Outside::Linear);
+    assert_eq!(flat.tables[0].data.axis_units, ["1".to_string(), "K".to_string()]);
     assert_eq!(param("a.ocv").value, 1.0, "a.ocv is the pack's table 1");
     // cell a reads table 1 (the pack's ocv_a), cell b its own table 2
     let reads = |var: &str| {

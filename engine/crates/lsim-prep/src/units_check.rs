@@ -49,9 +49,8 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
         Expr::Name(_) => D::Any,
         Expr::Table { table, args } => match flat.tables.get(*table as usize) {
             Some(t) => {
-                for (k, (a, axis)) in args.iter().zip(&t.data.axes).enumerate() {
-                    if let (D::Known(x), Ok(u)) =
-                        (dim(a, flat)?, lsim_ir::units::parse_unit(&axis.unit))
+                for (k, (a, unit)) in args.iter().zip(&t.data.axis_units).enumerate() {
+                    if let (D::Known(x), Ok(u)) = (dim(a, flat)?, lsim_ir::units::parse_unit(unit))
                         && x != u.dim
                     {
                         return Err(Mismatch(format!(

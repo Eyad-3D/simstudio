@@ -150,13 +150,10 @@ fn everything() -> ComponentDef {
     };
     let loss = ParamDecl {
         default: ParamValue::Table(TableData {
-            axes: vec![TableAxis {
-                points: vec![1.0, 2.0],
-                unit: "A".into(),
-                outside: Outside::Linear,
-            }],
-            values: vec![10.0, 40.0],
+            outside: [Outside::Linear, Outside::Clamp],
             interpolation: Interpolation::Linear,
+            axis_units: ["A".into(), String::new()],
+            ..TableData::new_1d(vec![1.0, 2.0], vec![10.0, 40.0])
         }),
         ..param("loss_map", "W", 0.0, "")
     };
