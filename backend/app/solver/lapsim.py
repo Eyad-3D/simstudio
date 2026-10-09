@@ -515,7 +515,7 @@ class LapRun:
     def resist(self, v: float, roll: float, sin_t: float, cos_t: float) -> float:
         """Road load and the slope's pull, N (the Vehicle's own road load)."""
         aero, f_roll = self.ctx.road_load(v, roll, cos_t)
-        return aero + f_roll * max(0.0, min(1.0, v / 0.3)) + self.m * GRAVITY * sin_t
+        return aero + f_roll + self.m * GRAVITY * sin_t
 
     # ---- the powertrain ------------------------------------------------------
 
@@ -1054,7 +1054,7 @@ class LapSlave(_CtxSlave):
         fz = lap.loads(vm, a, ay, sin_t, cos_t)
         drive, _, lateral, roll = lap.grip(fz)
         aero, f_roll = ctx.road_load(vm, roll, cos_t)
-        f_road = aero + f_roll * max(0.0, min(1.0, vm / 0.3))
+        f_road = aero + f_roll  # (rolling resistance in full while it rolls, as in a cycle)
         f_grade = lap.m * GRAVITY * sin_t
         # the force the trace needs at the road (the midpoint speed makes
         # m_eff·a·vm·h the exact change in kinetic energy)

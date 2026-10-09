@@ -193,6 +193,32 @@ From [`results/lightsim-py-2026-10-08.md`](results/lightsim-py-2026-10-08.md)
   cases (quasi-steady): 18 to 70 times short of the 1000x target, and
   18,000 times short of the WLTC fast-mode target.
 
+### After the physics fixes
+
+From [`results/lightsim-py-2026-10-09-physics-fixes.md`](results/lightsim-py-2026-10-09-physics-fixes.md)
+(reference problems only; the speed is as before):
+
+- **Every energy balance closes to rounding** (1e-16 to 1e-14 of the
+  energy scale, from up to 1.3e-2): each part books the torque the
+  solver's step applied at the step's mean speed. The adapter now also
+  reads E_shift from the gearbox's books (its *gear shifts* term).
+- **A gear shift keeps the driveline's momentum**: the rotational gear
+  change matches the exact answer to 1e-14 at the 10 ms step and passes
+  every target; with a vehicle on a stiff tyre the speeds are 1.5e-4
+  (vehicle) and 4.6e-3 (motor) off, E_kin 1.2e-4.
+- **A coasting car stops**: veh_coastdown's speed error 3.7e-3 -> 2.1e-5,
+  its distance 1.1e-4 -> 4.7e-5, and it stops at 193.18 s (exact
+  193.1831 s: on the 10 ms step it falls in).
+- **A clutch sticks**: mech_clutch_lockup's speeds are exact (2e-15) and
+  its torque is the 16 N·m it must pass from the step after lock-up on;
+  the lock-up itself is read at the end of the step it falls in (4.5 ms
+  late, 7.6e-3), as every fixed-step event is.
+- **What is left is the fixed step**: first-order signals (the DC motor
+  spin-up 5e-2 of its current, the constant-power car 1e-3), events on
+  step boundaries, and veh_constant_power's E_supplied (1.0e-4; the
+  books now say the work the explicit step really did, P·ω̄/ω₀, where they
+  said P), and the tyre's slip loss where the problem has no tyre.
+
 `baselines/lightsim-py.toml` holds twice today's measured errors;
 `tests/test_reference_problems.py` fails when one grows past it. When a
 change makes today's engine more accurate, regenerate it with

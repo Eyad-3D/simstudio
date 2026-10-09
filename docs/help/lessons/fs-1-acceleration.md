@@ -28,7 +28,7 @@ the car (FS Rules 2026 D 5.2.3), to the 75 m line. Press **Run**. The run
 takes under a second; click **Show results** in the notice it ends with.
 
 **Check:** the headline numbers read *Time to 75 m* 3.751 s and *Speed at
-75 m* 118.86 km/h. *Gap to reference time* is -0.159 s: the case's
+75 m* 118.89 km/h. *Gap to reference time* is -0.159 s: the case's
 reference time is 3.91 s, the median of the 35 electric teams at FS Czech
 Republic 2025, so this car is 0.166 s quicker than the median.
 
@@ -70,8 +70,8 @@ the limit: run the test once for each value.
 4. Click **Run sweep**. When it ends, click **Show results** in the
    notice at the bottom right, then **Sweep** above the chart.
 
-**Check:** the sweep plots *Time to 75 m* against the power limit: 4.232 s
-at 40 kW, 4.040 s at 50 kW, 3.910 s at 60 kW, 3.82 s at 70 kW and 3.751 s
+**Check:** the sweep plots *Time to 75 m* against the power limit: 4.231 s
+at 40 kW, 4.039 s at 50 kW, 3.909 s at 60 kW, 3.82 s at 70 kW and 3.751 s
 at 80 kW.
 
 Each 10 kW less costs more time than the one before, and below about

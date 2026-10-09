@@ -881,7 +881,7 @@ def _step_checks(project: Project, base_model: Model, case_models: dict[str, Mod
     """The solver step each case will use (stability.solver_step, ENG-14):
     a note when a part too stiff for the 10 ms step makes it smaller (the run
     takes longer, but its results hold), a warning when one is too stiff even
-    for the smallest step, a note for a clutch that can ring as it closes."""
+    for the smallest step."""
     seen: set[str] = set()
     base = None
     for case in [None, *project.cases]:
@@ -905,16 +905,12 @@ def _step_checks(project: Project, base_model: Model, case_models: dict[str, Mod
                 add("info", text, ids=choice.el_ids, case=case,
                     fix="Nothing to do if the value is right; otherwise lower it (a tyre's Slip "
                         "Stiffness is about 10 to 30).")
-        for text, ids in choice.warnings:
+        for text, ids in choice.warnings:  # (each one a part too stiff for any step)
             if text in seen:
                 continue
             seen.add(text)
-            too_stiff = "too stiff" in text
-            add("warning" if too_stiff else "info", f"{where}{text}", ids=ids, case=case,
-                fix=("Lower the value: the solver cannot step it reliably." if too_stiff else
-                     "Shown for information: the clutch's energy is conserved. For exact "
-                     "shaft speeds while it closes, set the case's Step to 0.0025 s and "
-                     "Store every to 400 (a point a second)."))
+            add("warning", f"{where}{text}", ids=ids, case=case,
+                fix="Lower the value: the solver cannot step it reliably.")
 
 
 def _distance_checks(project: Project, model: Model, add: Add) -> None:

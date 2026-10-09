@@ -48,14 +48,13 @@ than it started or lower than it began, is drawn on the left as a source.
 
 Above the chart, **Not accounted for (energy balance residual)** says how
 much of the sources' energy the books cannot place, and the table's last
-row repeats it. Each part's own books close, so it is only where the
-energy out of one part is not quite the energy into the next: the solver's
-step. It is the summary's *Energy balance residual*, there as a share of
-the energy the sources gave up and with the sign the other way round
-(energy the step made is + there, − here). It is −0.01 % on the Battery
-Electric Car's *City Cycle* and stays under 0.3 % on the examples' cycles;
-it grows with hard wheel spin and with a coarse step (the Formula Student
-car's 75 m acceleration leaves −0.10 %). Beside it is the run's
+row repeats it. Each part's own books close, and each part books what
+the solver's step did to it, so the energy out of one part is the energy
+into the next and what is left is rounding: about 1e-11 % on the
+examples. It is the summary's *Energy balance residual*, there as a share
+of the energy the sources gave up and with the sign the other way round
+(energy the books cannot place is + there, − here). Anything larger means
+the books missed something: report it. Beside it is the run's
 **Electrical energy balance error**, the same figure as in the summary.
 Above 1 % the number turns orange: check the run's messages, and see
 [Known issues](../../KNOWN-LIMITS.md).

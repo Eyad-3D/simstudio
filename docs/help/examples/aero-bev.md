@@ -85,6 +85,6 @@ back afterwards, or close the copy without saving.
 4. **Turn the heating on.** On *EPA city (UDDS)*, set the *Power Consumer*
    to 2.5 kW. How far does the range fall?
 
-   **Answer:** From 543.4 to 310.3 km: at city speeds the heater draws
+   **Answer:** From 543.3 to 310.3 km: at city speeds the heater draws
    almost as much as driving does, so the consumption rises by three
    quarters (9.50 to 16.64 kWh/100 km).

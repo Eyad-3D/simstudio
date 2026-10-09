@@ -66,7 +66,7 @@ The summary also says, for each limit, how long it held the car back over
 the event: *Time limited by cornering grip*, *traction grip*, *motor*,
 *battery*, *power cap* and *braking*.
 
-**Check:** *Time limited by power cap* reads 703.265 s and *Time limited
+**Check:** *Time limited by power cap* reads 703.266 s and *Time limited
 by cornering grip* 434.603 s. At 30 kW the car spends more time held back
 by its power limit than by its tyres in the corners.
 

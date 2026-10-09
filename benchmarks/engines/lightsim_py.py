@@ -169,6 +169,13 @@ class Run:
                         ("energyIn", "energyOut", "losses", "stored")}
         return {"energyIn": 0.0, "energyOut": 0.0, "losses": 0.0, "stored": 0.0}
 
+    def term(self, label: str, name: str) -> float | None:
+        """A named term of a part's energy book, J (None when it has none)."""
+        for f in self.result.raw.partEnergy:
+            if (f.label == label or f.elementId == label) and name in f.terms:
+                return f.terms[name] * KWH
+        return None
+
     def closure_j(self) -> float | None:
         """The engine's own balance residual, J (its percentage of the energy
         its sources gave)."""
@@ -453,9 +460,16 @@ def gear_change_rotational(problem: Problem, step: float) -> Trace:
     run = run_project(b.project(problem.t_end, step))
     sig = {"omega1": _scaled(run.ch("mot", "sig_speed"), 1.0 / RPM),
            "omega2": _scaled(run.ch("load", "sig_speed"), 1.0 / RPM)}
-    energy = {"E_drive": run.part("mot")["energyOut"]}
+    energy = {"E_drive": run.part("mot")["energyOut"], **_shift_loss(run)}
     return _trace(run, sig, energy, kinetic=([("omega1", p["J1"]), ("omega2", p["J2"])],
                                              run.part("Rotating parts")["stored"]))
+
+
+def _shift_loss(run: Run) -> dict:
+    """E_shift: the kinetic energy the gearbox's books say its shifts lost
+    (its 'gear shifts' term)."""
+    lost = run.term("gb", "gear shifts")
+    return {} if lost is None else {"E_shift": lost}
 
 
 def gear_change_vehicle(problem: Problem, step: float) -> Trace:
@@ -474,6 +488,8 @@ def gear_change_vehicle(problem: Problem, step: float) -> Trace:
     run = run_project(b.project(problem.t_end, step))
     sig = {"omega1": _scaled(run.ch("mot", "sig_speed"), 1.0 / RPM),
            "omega2": _scaled(run.ch("veh", "sig_speed"), 1.0 / 3.6 / r)}
+    # (no E_shift: the tyre's slip loss is a sink the problem does not have,
+    # so the balance stays the engine's own residual)
     energy = {"E_drive": run.part("mot")["energyOut"]}
     booked = run.part("Rotating parts")["stored"] + run.part("veh")["stored"]
     return _trace(run, sig, energy,

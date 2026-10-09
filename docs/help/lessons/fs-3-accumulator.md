@@ -21,8 +21,8 @@ uses. Sweep it on the endurance:
 
 The swept value takes the place of the case's own 30 kW for each run.
 
-**Check:** the *Total time* is 1,454.696 s at 25 kW, 1,428.53 s at 30 kW
-and 1,407.635 s at 35 kW; the final SOC 34.16 %, 25.02 % and 16.44 %.
+**Check:** the *Total time* is 1,454.700 s at 25 kW, 1,428.53 s at 30 kW
+and 1,407.638 s at 35 kW; the final SOC 34.16 %, 25.02 % and 16.44 %.
 
 Each 5 kW more saves 21 to 26 s over the event and uses about 9 points
 more charge. Where the time is worth more points than the energy depends

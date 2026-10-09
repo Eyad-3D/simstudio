@@ -28,6 +28,7 @@ from typing import Callable, Optional
 from .. import cycles
 from ..library import library_by_id
 from ..schemas import ComponentDef, ElementInstance, PortDef, Project
+from .profiles import parse_profile
 from .scaling import inertia_scale
 
 JOINT_TYPES = {"mech.differential", "mech.transfer_case", "mech.clutch"}
@@ -126,6 +127,11 @@ class GearboxRef:
 @dataclass
 class Segment:
     inertia: float = 0.0  # ΣJ·m² at the reference axis
+    # the rotating masses it is made of: (key, J, m), each turning at m × the
+    # reference axis's speed (its J·m² is in ``inertia``). A gear shift or a
+    # lock toggle carries their angular momentum over to the new plan
+    # (RunContext.carry_over).
+    lumps: list[tuple[str, float, float]] = field(default_factory=list)
     wheels: list[WheelRef] = field(default_factory=list)
     brakes: list[BrakeRef] = field(default_factory=list)
     props: list[PropRef] = field(default_factory=list)
@@ -143,6 +149,11 @@ class Segment:
     out_region: int = 0
     stages: list[Optional[GearStage]] = field(default_factory=lambda: [None])
     stage_order: list[int] = field(default_factory=list)
+
+    def add_inertia(self, key: str, j: float, m: float) -> None:
+        """A rotating mass ``j`` turning at ``m`` × the reference axis's speed."""
+        self.inertia += j * m * m
+        self.lumps.append((key, j, m))
 
     def path_eff(self, region: int) -> float:
         """Efficiency of the way from ``region`` to the segment's output."""
@@ -246,6 +257,38 @@ class Model:
     track: str | None = None  # the Race Track lap cases drive
     # re-extracts a driveline for new gears from the current (live) params_of
     rewalk: Optional[Callable[[Driveline, dict[str, float]], Optional[Driveline]]] = None
+
+
+def _number(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def moves_unpowered(model: "Model") -> bool:
+    """Can the Vehicle move with nothing driving it? It does when it starts
+    with speed to coast down from (its Initial Speed, a case's own value
+    included) or when a slope that can run downhill is wired to its Grade
+    input: a Constant below 0, a typed Road Profile with a downhill point,
+    or a block (Script, Lookup Table, FMU …) that might give one. Data
+    Checks decide it the same way (validation._moves_unpowered)."""
+    veh = model.vehicle
+    if veh is None:
+        return False
+    speed = _number(model.params_of[veh].get("initial_speed_kmh", 0))
+    if speed is not None and speed > 0:
+        return True
+    src = model.signal_route.get((veh, "sig_grade_in"))
+    if src is None:
+        return False
+    kind, p = model.cdef_of[src[0]].id, model.params_of[src[0]]
+    if kind == "signal.constant":
+        value = _number(p.get("value"))
+        return value is not None and value < 0
+    if kind == "signal.road_profile":
+        return any(grade < 0 for _, grade in parse_profile(str(p.get("profile", ""))))
+    return True
 
 
 def resolve_params(el: ElementInstance, cdef: ComponentDef) -> dict:
@@ -465,7 +508,7 @@ def build_model(
 
             if t == "mech.shaft":
                 if first_visit:
-                    seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
+                    seg.add_inertia(el_id, float(p.get("inertia_kgm2", 0)), m)
                 other = "flange_b" if pid == "flange_a" else "flange_a"
                 eta = max(1e-3, float(p.get("efficiency_pct", 100)) / 100.0)
                 if (el_id, other) not in seen_ports:
@@ -486,8 +529,8 @@ def build_model(
                     m_in, m_out = m, m / ratio
                     other, m_other = "flange_out", m / ratio
                 if first_visit:
-                    seg.inertia += float(p.get("inertia_in_kgm2", 0)) * m_in * m_in
-                    seg.inertia += float(p.get("inertia_out_kgm2", 0)) * m_out * m_out
+                    seg.add_inertia(f"{el_id}:in", float(p.get("inertia_in_kgm2", 0)), m_in)
+                    seg.add_inertia(f"{el_id}:out", float(p.get("inertia_out_kgm2", 0)), m_out)
                     seg.element_ms[el_id] = m_out  # record output-axis speed
                 if (el_id, other) not in seen_ports:
                     queue.append((el_id, other, m_other, region, eta))
@@ -499,13 +542,13 @@ def build_model(
                 enqueue_peers(el_id, pid, m, region)
             elif t in SOURCE_TYPES:
                 if first_visit:  # (a resized machine's rotor: scaling, MOD-47)
-                    seg.inertia += float(p.get("inertia_kgm2", 0)) * inertia_scale(t, p) * m * m
+                    seg.add_inertia(el_id, float(p.get("inertia_kgm2", 0)) * inertia_scale(t, p), m)
                     seg.sources.append(SourceRef(
                         el_id=el_id, kind=SOURCE_TYPES[t], m=m, region=region))
                 enqueue_peers(el_id, pid, m, region)
             elif t == "propulsion.wheel":
                 if first_visit:
-                    seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
+                    seg.add_inertia(el_id, float(p.get("inertia_kgm2", 0)), m)
                     seg.wheels.append(WheelRef(
                         el_id=el_id,
                         m=m,
@@ -523,7 +566,7 @@ def build_model(
                 enqueue_peers(el_id, pid, m, region)
             elif t == "mech.brake":
                 if first_visit:
-                    seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
+                    seg.add_inertia(el_id, float(p.get("inertia_kgm2", 0)), m)
                     seg.brakes.append(BrakeRef(
                         el_id=el_id, m=m,
                         max_torque=max(0.0, float(p.get("max_torque_Nm", 0))),
@@ -531,7 +574,7 @@ def build_model(
                 enqueue_peers(el_id, pid, m, region)
             elif t == "propulsion.propeller":
                 if first_visit:
-                    seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
+                    seg.add_inertia(el_id, float(p.get("inertia_kgm2", 0)), m)
                     seg.props.append(PropRef(
                         el_id=el_id, m=m,
                         t_ref=max(0.0, float(p.get("torque_ref_Nm", 0))),
@@ -636,8 +679,9 @@ def build_model(
                 )
                 # split carrier inertia lives on the input axis of its parent segment
                 if sp >= 0:
-                    dl.segments[sp].inertia += (float(p.get("inertia_kgm2", 0))
-                                                * joint.parent_m ** 2)
+                    j_carrier = float(p.get("inertia_kgm2", 0))
+                    dl.segments[sp].inertia += j_carrier * joint.parent_m ** 2
+                    dl.segments[sp].lumps.append((j_el, j_carrier, joint.parent_m))
                     split_in.setdefault(sp, pin[0])
                 dl.joints.append(joint)
         if not ok:
@@ -870,7 +914,10 @@ def build_model(
                                             for seg in dl.segments for w in seg.wheels)))
     if vehicle and not any_wheels:
         warnings.append(about(NO_WHEELS, vehicle))
-    if vehicle and any_wheels and not driver:
+    # (no Driver is needed where every E-Motor's and Engine's command is wired)
+    demands = [(el_id, "sig_demand_in" if cdef.id == "motor.emotor" else "sig_throttle_in")
+               for el_id, cdef in cdef_of.items() if cdef.id in SOURCE_TYPES]
+    if vehicle and any_wheels and not driver and not all(d in signal_route for d in demands):
         warnings.append(about(NO_DRIVER, vehicle))
     has_engine = any(cdef.id == "engine.combustion" for cdef in cdef_of.values())
     if has_engine and not fuel_tank:

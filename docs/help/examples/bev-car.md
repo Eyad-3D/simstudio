@@ -51,11 +51,11 @@ example and fail if one of them changes.
 
 | Case | Consumption | Distance | Final SOC |
 |---|---|---|---|
-| *City Cycle* | 11.12 kWh/100 km | 7.292 km | 88.76 % |
-| *WLTC Class 3b* | 14.05 kWh/100 km | 23.267 km | 84.92 % |
-| *WLTC, heating/air-con on* | 18.89 kWh/100 km | 23.267 km | 83.19 % |
+| *City Cycle* | 11.11 kWh/100 km | 7.292 km | 88.76 % |
+| *WLTC Class 3b* | 14.05 kWh/100 km | 23.267 km | 84.93 % |
+| *WLTC, heating/air-con on* | 18.88 kWh/100 km | 23.267 km | 83.19 % |
 | *WLTC, winter day (−7 °C, heating on)* | 23.76 kWh/100 km | 23.267 km | 81.43 % |
-| *WLTC, hot day (35 °C, air-con on)* | 16.77 kWh/100 km | 23.267 km | 83.95 % |
+| *WLTC, hot day (35 °C, air-con on)* | 16.76 kWh/100 km | 23.267 km | 83.95 % |
 
 On the winter day the Climate Control's PTC heater draws 4.25 kW the
 whole cycle (4.05 kW of heat and its 0.2 kW blower), and the cold air
@@ -93,7 +93,7 @@ back afterwards, or close the copy without saving.
 1. **Turn the heating on.** Run *WLTC Class 3b*, then *WLTC, heating/air-con
    on*. How much more energy per 100 km does a 2.5 kW heater take?
 
-   **Answer:** 14.05 to 18.89 kWh/100 km, 4.84 kWh/100 km more (34 %).
+   **Answer:** 14.05 to 18.88 kWh/100 km, 4.84 kWh/100 km more (34 %).
    The heater draws the same power the whole 1,800 s, so it counts most
    where the car is slow: in the City Cycle it would add even more per
    kilometre.
@@ -118,7 +118,7 @@ back afterwards, or close the copy without saving.
    energy?
 
    **Answer:** No. *Consumption* stays at 14.05 kWh/100 km and the final
-   SOC falls from 84.92 % to 82.11 %: the same energy is a larger share
+   SOC falls from 84.93 % to 82.12 %: the same energy is a larger share
    of a smaller battery. LightSim does not make the car lighter when the
    battery shrinks; change the *Vehicle Mass* too for that.
 

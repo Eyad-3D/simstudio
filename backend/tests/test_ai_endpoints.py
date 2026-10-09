@@ -35,7 +35,7 @@ def test_copy_for_ai_summarises_each_example_under_8_kb(example):
         assert part in text
     assert project.name in text
     if run:
-        assert "final SOC: 88.76 %" in text and "Consumption: 11.12 kWh/100km" in text
+        assert "final SOC: 88.76 %" in text and "Consumption: 11.11 kWh/100km" in text
     else:
         assert "No run yet." in text
 

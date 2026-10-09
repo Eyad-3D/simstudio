@@ -8,6 +8,7 @@ import pytest
 
 from app.solver import simulate
 from app.solver.network import build_model
+from app.solver.runtime import MAX_SUBSTEP
 from app.solver.stability import MIN_SUBSTEP, solver_step
 from app.storage import load_example
 from app.validation import validate_project
@@ -57,7 +58,13 @@ def test_a_case_value_can_ask_for_a_smaller_step():
     assert any(t.startswith("In case 'Case', the tyres' Slip Stiffness") for t in texts)
 
 
-def test_a_ringing_clutch_is_a_note_not_a_slower_run():
+def test_a_clutch_neither_rings_nor_asks_for_a_smaller_step():
+    """A clutch slips at its capacity and sticks in the step its slip would
+    pass through zero, so a strong clutch on a light shaft cannot overshoot
+    lock-up: the P2 Hybrid Car's (300 N·m on 0.06 kg·m², 65 rad/s of slip a
+    step) runs at 10 ms with no note. Before, Data Checks noted that it
+    could ring at the 10 ms step."""
     p = load_example("hybrid-car")
-    notes = [c for c in validate_project(p) if "can ring as it closes" in c.text]
-    assert notes and all(c.level == "info" for c in notes)
+    assert not any("can ring" in c.text for c in validate_project(p))
+    choice = solver_step(build_model(p))
+    assert choice.step == MAX_SUBSTEP and not choice.warnings

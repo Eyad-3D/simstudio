@@ -41,7 +41,7 @@ figure you compare with).
 Official consumption tests run with heating and air-con off. In everyday
 driving they can draw kilowatts, and at low speed that is a large share
 of the energy per kilometre. The example's *WLTC, heating/air-con on*
-case adds a 2.5 kW load and uses 18.89 kWh/100 km instead of 14.05. Add
+case adds a 2.5 kW load and uses 18.88 kWh/100 km instead of 14.05. Add
 a *Power Consumer* with your car's load to see its effect.
 
 ## 5. Cold start
@@ -49,7 +49,7 @@ a *Power Consumer* with your car's load to see its effect.
 An engine that starts cold uses more fuel until it is warm, and a cold
 battery has a higher resistance. LightSim's parts have no temperature:
 an engine is warm and a battery at its datasheet values from the first
-second. The P2 Hybrid Car example uses 2.84 l/100 km on the EPA city
+second. The P2 Hybrid Car example uses 2.83 l/100 km on the EPA city
 cycle, below EPA's own 2.91 l/100 km for the car it is sized after, whose
 test starts cold.
 
