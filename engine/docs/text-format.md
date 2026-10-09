@@ -307,6 +307,13 @@ end Rotational.LatchBrake;
   value.
 * The engine finds the moment the condition becomes true to the solver's
   precision and stops there; it does not wait for the next output step.
+  A condition on time alone (`time >= t_shift`) is reached exactly: the
+  event is at `t_shift`, and an output at that moment shows the values
+  just after it.
+* As in Modelica, a `when` acts when its condition *becomes* true while
+  the model runs. A condition already true at the start does not act
+  there (it acts once it has been false and becomes true again): what
+  must hold from the start belongs in the start values.
 * `when a then … elsewhen b then … end when;` handles two conditions; if
   both become true at the same moment, the first branch wins.
 
@@ -401,6 +408,57 @@ component, gives the energy it stores (in J) and the power it turns into
 heat (in W). With them the engine checks that each part's energy balance
 closes: the energy in through its ports equals what it stores plus what it
 loses. Other Modelica tools ignore the annotation.
+
+## Rigid engagements
+
+When an event changes a rigid coupling between moving parts (a gear
+whose ratio changes at a shift), the speeds the coupling ties together
+jump, as an instantaneous, rigid engagement makes them: the engine keeps
+the momentum of everything the coupling ties together, with the masses
+and inertias the parts declare in their stored energy, and books the
+kinetic energy the engagement loses as lost at that moment, to the part
+whose coupling changed. A gear-change model needs nothing more than its
+equations; there is no `reinit` to write:
+
+```modelica
+model Rotational.ShiftingGear "A gear whose ratio is a signal: a turns ratio times as fast as b."
+  connector a: Flange "input side";
+  connector b: Flange "output side";
+  input Real ratio(unit = "1") "the engaged ratio a.w / b.w";
+equation
+  a.w = ratio * b.w "a turns ratio times as fast as b";
+  0 = ratio * a.tau + b.tau "the power through it is kept";
+end Rotational.ShiftingGear;
+```
+
+For the two inertias it joins, `J_in` on its input and `J_out` on its
+output, a shift to the ratio `r` gives `w_out = (J_out·w_out + r·J_in·w_in)
+/ (J_out + r²·J_in)`, the speeds before the shift on the right.
+
+A part with only bounded forces (a slipping clutch, a tyre at its grip
+limit) passes no impulse: what is behind it keeps its speed. A part that
+passes one on as if it were rigid for that moment says so with
+`annotation(__LightSim_impulse(keep = …, active = …))`: the relative
+velocity it keeps through an impulse, and while it does. A tyre that
+grips keeps its slip velocity, so a gear shift's impulse reaches the
+vehicle:
+
+```modelica
+model Vehicle.GripTyre "A tyre whose force follows its slip, up to its grip."
+  connector shaft: Flange "the wheel's shaft";
+  connector road: TFlange "the vehicle";
+  parameter Real r(unit = "m") = 0.3 "rolling radius";
+  parameter Real k(unit = "N.s/m") = 5000 "force per slip velocity";
+  parameter Real F_max(unit = "N") = 4000 "grip";
+  Real F(unit = "N") "tyre force, driving positive";
+equation
+  F = min(max(k * (shaft.w * r - road.v), -F_max), F_max);
+  shaft.tau = F * r;
+  road.f = -F;
+  annotation(__LightSim_energy(loss = F * (shaft.w * r - road.v)));
+  annotation(__LightSim_impulse(keep = shaft.w * r - road.v, active = abs(F) < F_max));
+end Vehicle.GripTyre;
+```
 
 ## Connector types and enumeration types
 
@@ -539,6 +597,7 @@ How the format maps to the engine's IR (`lsim-ir`):
 | `when … end when "label"` | `Equation::When`, with the label on its `EquationDecl` |
 | `assert(c, "m", AssertionLevel.warning)` | `Equation::Assert { error: false }` |
 | `annotation(__LightSim_energy(…))` | `ComponentDef::energy` |
+| `annotation(__LightSim_impulse(keep = …, active = …))` | `ComponentDef::impulse` (one `ImpulseDecl` each) |
 | `annotation(__LightSim(id = "…"))` on a part | `SubDecl::ui_id` |
 
 The checks at parse time follow the same rules as the engine's unit check

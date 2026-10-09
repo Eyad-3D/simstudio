@@ -481,6 +481,14 @@ pub fn to_text(def: &ComponentDef) -> String {
     if !energy.is_empty() {
         let _ = writeln!(s, "  annotation(__LightSim_energy({}));", energy.join(", "));
     }
+    for im in &def.impulse {
+        let _ = writeln!(
+            s,
+            "  annotation(__LightSim_impulse(keep = {}, active = {}));",
+            expr_text(&im.keep),
+            expr_text(&im.active)
+        );
+    }
     let _ = writeln!(s, "end {};", ref_name(&def.name));
     s
 }
