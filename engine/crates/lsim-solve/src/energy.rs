@@ -195,6 +195,10 @@ pub struct PartBooks {
     pub event_change: f64,
     /// change of stored energy between events, integrated (∫ dE/dt dt)
     pub stored_integral: f64,
+    /// the kinetic energy rigid engagements took at events, booked to the
+    /// part whose coupling changed (a gearbox's shifts): part of what the
+    /// model lost at events
+    pub impulse_lost: f64,
     /// energy_in - lost - stored_integral: zero when the part's declared
     /// books agree with its equations (declared parts only)
     pub closure: f64,
@@ -221,6 +225,9 @@ pub struct EnergyBooks {
     pub lost: f64,
     /// energy that vanished at events (stored energy before minus after)
     pub event_loss: f64,
+    /// of it, what rigid engagements took (gear shifts: the kinetic energy
+    /// an impulse that keeps the momentum loses)
+    pub impulse_loss: f64,
     /// change of the stored energy between events, integrated
     pub stored_integral: f64,
     /// change of the stored energy over the run, from the states
@@ -251,11 +258,12 @@ impl EnergyBooks {
     /// A sentence for the report.
     pub fn summary(&self) -> String {
         format!(
-            "energy books: supplied {:.6e} J = lost {:.6e} J + lost at events {:.6e} J + stored {:+.6e} J; \
+            "energy books: supplied {:.6e} J = lost {:.6e} J + lost at events {:.6e} J (at gear shifts and other engagements {:.6e} J) + stored {:+.6e} J; \
              closure {:.1e} of the throughput {:.6e} J; integration drift {:.1e}",
             self.supplied,
             self.lost,
             self.event_loss,
+            self.impulse_loss,
             self.stored_integral,
             self.relative_closure,
             self.throughput,
@@ -274,6 +282,8 @@ pub(crate) struct Ledger {
     scratch: Vec<f64>,
     pub q: Vec<f64>,
     books: Vec<PartBooks>,
+    /// what impulses lost with no part to book it to
+    impulse_unbooked: f64,
 }
 
 impl Ledger {
@@ -298,6 +308,7 @@ impl Ledger {
             jumps: vec![0.0; n],
             scratch: vec![0.0; n],
             q: vec![0.0; n_q],
+            impulse_unbooked: 0.0,
         }
     }
 
@@ -323,11 +334,32 @@ impl Ledger {
         self.scratch.clone()
     }
 
-    /// Stored energy just after an event: the jump is booked.
-    pub fn after_event(&mut self, t: f64, vars: &[f64], params: &[f64], before: &[f64]) {
+    /// Stored energy just after an event: the jump is booked. When an
+    /// impulse projection moved the states (`impulse`: the parts whose
+    /// coupling changed), the energy the event took is what the engagement
+    /// lost, booked to those parts.
+    pub fn after_event(
+        &mut self,
+        t: f64,
+        vars: &[f64],
+        params: &[f64],
+        before: &[f64],
+        impulse: Option<&[usize]>,
+    ) {
         self.stored(t, vars, params);
+        let mut change = 0.0;
         for ((j, now), was) in self.jumps.iter_mut().zip(&self.scratch).zip(before) {
             *j += now - was;
+            change += now - was;
+        }
+        if let Some(parts) = impulse {
+            let lost = -change;
+            if parts.is_empty() {
+                self.impulse_unbooked += lost;
+            }
+            for &k in parts {
+                self.books[k].impulse_lost += lost / parts.len() as f64;
+            }
         }
     }
 
@@ -345,7 +377,7 @@ impl Ledger {
     /// The books at the end: `self.q` must hold the integrals at `t`.
     pub fn finish(mut self, t: f64, vars: &[f64], params: &[f64]) -> EnergyBooks {
         self.stored(t, vars, params);
-        let mut e = EnergyBooks::default();
+        let mut e = EnergyBooks { impulse_loss: self.impulse_unbooked, ..Default::default() };
         let mut twice_throughput = 0.0;
         for (k, mut b) in self.books.into_iter().enumerate() {
             let s = self.slots[k];
@@ -357,6 +389,7 @@ impl Ledger {
             b.event_change = self.jumps[k];
             b.drift = b.stored_change - b.event_change - b.stored_integral;
             twice_throughput += b.throughput;
+            e.impulse_loss += b.impulse_lost;
             if b.declared {
                 b.closure = b.energy_in - b.lost - b.stored_integral;
                 e.lost += b.lost;

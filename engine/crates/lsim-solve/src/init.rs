@@ -177,7 +177,7 @@ impl System for InitBlock<'_> {
 
 /// Solves `A x = b` for an `n × n` matrix given as triplets; `None` when
 /// singular.
-fn lin_solve(n: usize, trip: &[(usize, usize, f64)], b: &[f64]) -> Option<Vec<f64>> {
+pub(crate) fn lin_solve(n: usize, trip: &[(usize, usize, f64)], b: &[f64]) -> Option<Vec<f64>> {
     use faer::linalg::solvers::SolveCore;
     let mut x = faer::Mat::<f64>::zeros(n, 1);
     for i in 0..n {

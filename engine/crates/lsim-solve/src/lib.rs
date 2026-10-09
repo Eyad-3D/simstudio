@@ -38,8 +38,8 @@ pub mod sweep;
 pub use accuracy::{AccuracyReport, ChannelChange, accuracy_check, compare_runs};
 pub use energy::{EnergyBooks, PartBooks};
 pub use info::{
-    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, InputChain, ModeInfo, RunInfo, TimeCrossing,
-    VarSource,
+    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, ImpulseInfo, ImpulseLink, ImpulseVar,
+    InputChain, ModeInfo, RunInfo, TimeCrossing, VarSource,
 };
 pub use recorder::Recorder;
 pub use run::run_loop;
@@ -191,6 +191,11 @@ pub struct SolverOptions {
     pub storm_window: f64,
     /// IDA: leave the iteration variables out of the local error test
     pub suppress_algebraic_error: bool,
+    /// at a change of rigid couplings (a gear shift), move the states to
+    /// keep the momentum of everything the couplings tie together (an
+    /// impulse projection, [`RunInfo::impulse`]); off: the states stay and
+    /// the speeds they set jump to the new couplings
+    pub impulses: bool,
 }
 
 impl Default for SolverOptions {
@@ -210,6 +215,7 @@ impl Default for SolverOptions {
             storm_events: 100,
             storm_window: 1e-3,
             suppress_algebraic_error: false,
+            impulses: true,
         }
     }
 }
@@ -451,6 +457,8 @@ pub struct SolverReport {
     /// of those, the ones so slight that the integration went on with its
     /// history (no restart): the next step's error test checked them
     pub light_restarts: u64,
+    /// impulse projections at changes of rigid couplings (gear shifts)
+    pub impulses: u64,
     /// the integrator's own error estimate
     pub error: ErrorEstimate,
     /// warnings for the user

@@ -38,6 +38,15 @@
 //!   step is cut back to the tick: the integrator restarts there with the
 //!   new values, and the block's next tick becomes a stop time until a
 //!   tick changes nothing again.
+//! * **Impulses**: when an event changes how the states map onto the
+//!   velocities the parts' stored energies weigh (a gearbox shifts), the
+//!   states jump to the nearest consistent ones in that metric: the
+//!   momentum of everything the rigid couplings tie together is kept, as
+//!   a perfectly inelastic engagement keeps it, through every coupling
+//!   that declares it passes an impulse on (a tyre that grips, keeping its
+//!   slip velocity) and through none with bounded forces (a slipping
+//!   clutch). The kinetic energy that loses is booked as lost at the
+//!   event, to the part whose coupling changed ([`crate::ImpulseInfo`]).
 //! * **Event storms**: more than [`SolverOptions::storm_events`] state
 //!   events in [`SolverOptions::storm_window`] of the run stop it, naming
 //!   the conditions (and so the parts) that chatter. Sample ticks and time
@@ -593,6 +602,260 @@ impl Loop<'_> {
         Ok(integ.resume(t))
     }
 
+    /// The impulse projection at a change of rigid couplings (DESIGN.md,
+    /// *Events*; [`crate::ImpulseInfo`]): when the discrete values `d`
+    /// (after the event at `t`) map the states onto the variables the
+    /// stored energies read differently than `d_pre` did, the states move
+    /// to the nearest consistent ones in the metric of the stored energies,
+    /// `min ½ ΔUᵀ H ΔU` over the states coupled to what changed (ΔU the
+    /// change of those variables from `before`, the channels before the
+    /// event; H the stored energies' Hessian, the masses and inertias),
+    /// with every active link keeping its relative velocity. For masses
+    /// and inertias that keeps the momentum of everything the rigid
+    /// couplings tie together, as a perfectly inelastic engagement does
+    /// (`w_out⁺ = (J_out w_out⁻ + r J_in w_in⁻) / (J_out + r² J_in)` for a
+    /// gear of ratio r between two inertias). Returns the energy parts to
+    /// book the lost energy to (whose coupling changed), or `None` when
+    /// nothing moved. `y`'s states change; its iteration variables are
+    /// left for the restart to solve.
+    #[allow(clippy::too_many_arguments)]
+    fn impulse(
+        &mut self,
+        integ: &mut dyn Integrator,
+        t: f64,
+        y: &mut [f64],
+        d_pre: &[f64],
+        d: &[f64],
+        before: &[f64],
+    ) -> Result<Option<Vec<usize>>, SolveError> {
+        let Some(imp) = self.info.impulse.clone() else { return Ok(None) };
+        if !self.opts.impulses || !imp.discretes.iter().any(|&k| d[k] != d_pre[k]) {
+            return Ok(None);
+        }
+        let l = *self.model.layout();
+        let n_x = l.n_x;
+        let reads_z = l.n_z > 0 && imp.vars.iter().any(|v| v.reads_z);
+        if reads_z && !self.info.events_read_z {
+            integ.consistent_z(t, y, d)?;
+        }
+        // the variables after the event with the states held
+        self.sample(t, y, d);
+        let u0 = self.vars.clone();
+        let changed: Vec<usize> = (0..imp.vars.len())
+            .filter(|&k| {
+                let v = imp.vars[k].var;
+                let (a, b) = (before[v], u0[v]);
+                (a - b).abs() > 1e-9 * a.abs().max(b.abs()) && a.is_finite() && b.is_finite()
+            })
+            .collect();
+        if changed.is_empty() {
+            return Ok(None);
+        }
+        // what the stored energies weigh: each part's Hessian at `before`
+        let params = self.info.params.clone();
+        fn chan<'a>(t: f64, vars: &'a [f64], params: &'a [f64]) -> crate::info::ChannelEnv<'a> {
+            crate::info::ChannelEnv { t, vars, params }
+        }
+        let energy = self.info.energy.clone().expect("an impulse needs the energy books' parts");
+        let mut work = before.to_vec();
+        let mut hess: Vec<Vec<f64>> = Vec::with_capacity(imp.parts.len());
+        for (p, at) in &imp.parts {
+            let e = energy.parts[*p].stored.as_ref().expect("a stored energy");
+            let m = at.len();
+            let mut h = vec![0.0; m * m];
+            let step = |k: usize| before[imp.vars[at[k]].var].abs().max(1.0);
+            let value = |work: &mut [f64], moves: &[(usize, f64)]| {
+                for &(k, dx) in moves {
+                    work[imp.vars[at[k]].var] += dx;
+                }
+                let v = lsim_ir::eval::eval(e, &chan(t, work, &params));
+                for &(k, dx) in moves {
+                    work[imp.vars[at[k]].var] -= dx;
+                }
+                v
+            };
+            let e0 = value(&mut work, &[]);
+            for a in 0..m {
+                let ha = step(a);
+                h[a * m + a] = (value(&mut work, &[(a, ha)]) - 2.0 * e0
+                    + value(&mut work, &[(a, -ha)]))
+                    / (ha * ha);
+                for b in 0..a {
+                    let hb = step(b);
+                    let x = (value(&mut work, &[(a, ha), (b, hb)])
+                        - value(&mut work, &[(a, ha), (b, -hb)])
+                        - value(&mut work, &[(a, -ha), (b, hb)])
+                        + value(&mut work, &[(a, -ha), (b, -hb)]))
+                        / (4.0 * ha * hb);
+                    h[a * m + b] = x;
+                    h[b * m + a] = x;
+                }
+            }
+            hess.push(h);
+        }
+        // the links active before the event
+        let active: Vec<bool> = imp
+            .links
+            .iter()
+            .map(|lk| lsim_ir::eval::eval(&lk.active, &chan(t, before, &params)) != 0.0)
+            .collect();
+        let pos: std::collections::HashMap<usize, usize> =
+            imp.vars.iter().enumerate().map(|(k, v)| (v.var, k)).collect();
+        // what is coupled to the variables that changed: through the states
+        // they depend on, the stored energies that weigh them together and
+        // the active links
+        let mut var_in = vec![false; imp.vars.len()];
+        let mut state_in = vec![false; n_x];
+        let mut link_in = vec![false; imp.links.len()];
+        let mut todo: Vec<usize> = changed.clone();
+        for &k in &changed {
+            var_in[k] = true;
+        }
+        while let Some(k) = todo.pop() {
+            for &sx in &imp.vars[k].states {
+                if !state_in[sx] {
+                    state_in[sx] = true;
+                    for (j, v) in imp.vars.iter().enumerate() {
+                        if !var_in[j] && v.states.contains(&sx) {
+                            var_in[j] = true;
+                            todo.push(j);
+                        }
+                    }
+                }
+            }
+            for (pi, (_, at)) in imp.parts.iter().enumerate() {
+                let Some(a) = at.iter().position(|&x| x == k) else { continue };
+                let m = at.len();
+                for (b, &j) in at.iter().enumerate() {
+                    if !var_in[j] && hess[pi][a * m + b] != 0.0 {
+                        var_in[j] = true;
+                        todo.push(j);
+                    }
+                }
+            }
+            for (li, lk) in imp.links.iter().enumerate() {
+                if active[li] && lk.vars.iter().any(|v| pos.get(v) == Some(&k)) {
+                    link_in[li] = true;
+                    for v in &lk.vars {
+                        let j = pos[v];
+                        if !var_in[j] {
+                            var_in[j] = true;
+                            todo.push(j);
+                        }
+                    }
+                }
+            }
+        }
+        let vs: Vec<usize> = (0..imp.vars.len()).filter(|&k| var_in[k]).collect();
+        let ss: Vec<usize> = (0..n_x).filter(|&j| state_in[j]).collect();
+        let links: Vec<usize> = (0..imp.links.len()).filter(|&k| link_in[k]).collect();
+        if ss.is_empty() {
+            return Ok(None);
+        }
+        let vat: std::collections::HashMap<usize, usize> =
+            vs.iter().enumerate().map(|(i, &k)| (k, i)).collect();
+        let (nv, ns, nl) = (vs.len(), ss.len(), links.len());
+        // B: the variables' sensitivity to the states (central differences,
+        // exact for the linear kinematics of rigid couplings)
+        let mut b = vec![0.0; nv * ns];
+        let mut yp = y.to_vec();
+        for (c, &sx) in ss.iter().enumerate() {
+            let h = y[sx].abs().max(self.info.y_nominal[sx]);
+            let mut sample = |dx: f64, this: &mut Self| -> Result<Vec<f64>, SolveError> {
+                yp.copy_from_slice(y);
+                yp[sx] += dx;
+                if reads_z {
+                    integ.consistent_z(t, &mut yp, d)?;
+                }
+                this.sample(t, &yp, d);
+                Ok(this.vars.clone())
+            };
+            let up = sample(h, self)?;
+            let dn = sample(-h, self)?;
+            for (r, &k) in vs.iter().enumerate() {
+                if imp.vars[k].states.contains(&sx) || imp.vars[k].reads_z {
+                    let v = imp.vars[k].var;
+                    b[r * ns + c] = (up[v] - dn[v]) / (2.0 * h);
+                }
+            }
+        }
+        // H over the coupled variables
+        let mut hm = vec![0.0; nv * nv];
+        for (pi, (_, at)) in imp.parts.iter().enumerate() {
+            let m = at.len();
+            for (a, ka) in at.iter().enumerate() {
+                let Some(&ra) = vat.get(ka) else { continue };
+                for (bb, kb) in at.iter().enumerate() {
+                    if let Some(&rb) = vat.get(kb) {
+                        hm[ra * nv + rb] += hess[pi][a * m + bb];
+                    }
+                }
+            }
+        }
+        // the links' gradients (linear in the velocities)
+        let mut g = vec![0.0; nl * nv];
+        for (li, &lk) in links.iter().enumerate() {
+            let link = &imp.links[lk];
+            for v in &link.vars {
+                let r = vat[&pos[v]];
+                let h = before[*v].abs().max(1.0);
+                work.copy_from_slice(before);
+                work[*v] += h;
+                let up = lsim_ir::eval::eval(&link.keep, &chan(t, &work, &params));
+                work[*v] -= 2.0 * h;
+                let dn = lsim_ir::eval::eval(&link.keep, &chan(t, &work, &params));
+                g[li * nv + r] = (up - dn) / (2.0 * h);
+            }
+        }
+        // the change the event made with the states held
+        let du: Vec<f64> =
+            vs.iter().map(|&k| u0[imp.vars[k].var] - before[imp.vars[k].var]).collect();
+        // the engagement: [BᵀHB Aᵀ; A 0] [Δx; λ] = −[BᵀH ΔU; G ΔU], A = G B
+        let n = ns + nl;
+        let mut hb = vec![0.0; nv * ns];
+        for r in 0..nv {
+            for c in 0..ns {
+                hb[r * ns + c] = (0..nv).map(|q| hm[r * nv + q] * b[q * ns + c]).sum();
+            }
+        }
+        let mut trip = vec![];
+        let mut rhs = vec![0.0; n];
+        for i in 0..ns {
+            for j in 0..ns {
+                let x: f64 = (0..nv).map(|r| b[r * ns + i] * hb[r * ns + j]).sum();
+                if x != 0.0 {
+                    trip.push((i, j, x));
+                }
+            }
+            rhs[i] = -(0..nv).map(|r| hb[r * ns + i] * du[r]).sum::<f64>();
+        }
+        for li in 0..nl {
+            for j in 0..ns {
+                let a: f64 = (0..nv).map(|r| g[li * nv + r] * b[r * ns + j]).sum();
+                if a != 0.0 {
+                    trip.push((ns + li, j, a));
+                    trip.push((j, ns + li, a));
+                }
+            }
+            rhs[ns + li] = -(0..nv).map(|r| g[li * nv + r] * du[r]).sum::<f64>();
+        }
+        let Some(sol) = crate::init::lin_solve(n, &trip, &rhs) else {
+            self.warnings.push(format!(
+                "at t = {t:.6} s a change of rigid couplings could not keep the momentum (a \
+                 singular engagement): the speeds jumped to the new couplings as they stood"
+            ));
+            return Ok(None);
+        };
+        for (c, &sx) in ss.iter().enumerate() {
+            y[sx] += sol[c];
+        }
+        // the parts whose coupling changed
+        let mut parts: Vec<usize> = changed.iter().filter_map(|&k| imp.vars[k].part).collect();
+        parts.sort_unstable();
+        parts.dedup();
+        Ok(Some(parts))
+    }
+
     /// Solves the iteration variables of `y` again (the states held) when
     /// the discrete values changed since they were solved for `z_for`, and
     /// the events read them.
@@ -1053,6 +1316,7 @@ pub fn run_loop(
                     lp.sample(tk, &yk, &d);
                     rec.interior(tk, &lp.vars);
                     let before = ledger.as_mut().map(|lg| lg.before_event(tk, &lp.vars, p));
+                    let before_vars = lp.vars.clone();
                     let d_pre = d.clone();
                     for (k, &o) in outs.iter().enumerate() {
                         d[o] = new_outputs[k];
@@ -1063,19 +1327,46 @@ pub fn run_loop(
                     lp.scheduled = false;
                     it?;
                     integ.discrete_mut().copy_from_slice(&d);
+                    let imp = lp.impulse(integ, tk, &mut yk, &d_pre, &d, &before_vars)?;
+                    if imp.is_some() {
+                        report.impulses += 1;
+                    }
                     lp.update_sides(tk, &yk, &d, None);
                     integ.set_root_sides(&lp.sides);
-                    if tk == t_new && lp.slight(integ, tk, &mut yk, &d_pre, &d, outs)? {
+                    if imp.is_none()
+                        && tk == t_new
+                        && lp.slight(integ, tk, &mut yk, &d_pre, &d, outs)?
+                    {
                         // the integration goes on: the next step's error
                         // test checks what the change does
                         report.light_restarts += 1;
-                        after_event(&mut lp, &mut rec, integ, &mut ledger, before, tk, &yk, &d)?;
+                        after_event(
+                            &mut lp,
+                            &mut rec,
+                            integ,
+                            &mut ledger,
+                            before,
+                            tk,
+                            &yk,
+                            &d,
+                            None,
+                        )?;
                         resumed = Some(yk.clone());
                         continue;
                     }
                     integ.restart(tk, &yk)?;
                     y.copy_from_slice(integ.y());
-                    after_event(&mut lp, &mut rec, integ, &mut ledger, before, tk, &y, &d)?;
+                    after_event(
+                        &mut lp,
+                        &mut rec,
+                        integ,
+                        &mut ledger,
+                        before,
+                        tk,
+                        &y,
+                        &d,
+                        imp.as_deref(),
+                    )?;
                     t = tk;
                     cut = true;
                     break;
@@ -1112,14 +1403,29 @@ pub fn run_loop(
             });
             if stale {
                 let before = ledger.as_mut().map(|lg| lg.before_event(t, &lp.vars, p));
+                let before_vars = lp.vars.clone();
                 let d_pre = d.clone();
                 if lp.iterate(integ, t, &mut y, &mut d, &d_pre, None)? {
                     integ.discrete_mut().copy_from_slice(&d);
+                    let imp = lp.impulse(integ, t, &mut y, &d_pre, &d, &before_vars)?;
+                    if imp.is_some() {
+                        report.impulses += 1;
+                    }
                     lp.update_sides(t, &y, &d, None);
                     integ.set_root_sides(&lp.sides);
                     integ.restart(t, &y)?;
                     y.copy_from_slice(integ.y());
-                    after_event(&mut lp, &mut rec, integ, &mut ledger, before, t, &y, &d)?;
+                    after_event(
+                        &mut lp,
+                        &mut rec,
+                        integ,
+                        &mut ledger,
+                        before,
+                        t,
+                        &y,
+                        &d,
+                        imp.as_deref(),
+                    )?;
                     continue;
                 }
             }
@@ -1203,14 +1509,31 @@ pub fn run_loop(
                 }
                 changed = true;
             }
+            let mut imp = None;
+            if changed {
+                integ.discrete_mut().copy_from_slice(&d);
+                imp = lp.impulse(integ, t, &mut y, &d_pre, &d, &before_vars)?;
+                if imp.is_some() {
+                    report.impulses += 1;
+                }
+            }
             lp.update_sides(t, &y, &d, dirs);
             lp.crossing_now.fill(false);
             integ.set_root_sides(&lp.sides);
             if changed {
-                integ.discrete_mut().copy_from_slice(&d);
                 integ.restart(t, &y)?;
                 y.copy_from_slice(integ.y());
-                after_event(&mut lp, &mut rec, integ, &mut ledger, before, t, &y, &d)?;
+                after_event(
+                    &mut lp,
+                    &mut rec,
+                    integ,
+                    &mut ledger,
+                    before,
+                    t,
+                    &y,
+                    &d,
+                    imp.as_deref(),
+                )?;
             } else if rec.next_grid_time() == Some(t) {
                 grid_point(&mut lp, &mut rec, integ, &mut ledger, t, &mut yk, &d)?;
             }
@@ -1338,6 +1661,7 @@ fn grid_point(
 /// After a restart at an event: the right limit is recorded (and a grid
 /// point exactly at the event takes it), the stored-energy jump booked.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn after_event(
     lp: &mut Loop<'_>,
     rec: &mut Recorder,
@@ -1347,11 +1671,12 @@ fn after_event(
     t: f64,
     y: &[f64],
     d: &[f64],
+    impulse: Option<&[usize]>,
 ) -> Result<(), SolveError> {
     lp.sample(t, y, d);
     rec.interior(t, &lp.vars);
     if let (Some(lg), Some(b)) = (ledger.as_mut(), before) {
-        lg.after_event(t, &lp.vars, &lp.info.params, &b);
+        lg.after_event(t, &lp.vars, &lp.info.params, &b, impulse);
     }
     if rec.next_grid_time() == Some(t) {
         rec.grid_point(t, &lp.vars);
