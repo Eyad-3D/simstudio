@@ -5,7 +5,7 @@
  "variant": "fine",
  "case_step_s": 0.005,
  "store_every": 200,
- "change": "A coasting car stops, and stays stopped",
+ "change": "A clutch is dry friction: it slips at its torque and sticks when its sides meet",
  "status": "success",
  "messages": [
   "info: Case 'City Cycle' solved: 120000 steps × 0.005 s (1 sub-steps each), 601 points recorded, stored every 200, 70 result channels.",

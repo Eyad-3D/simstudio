@@ -35,14 +35,14 @@ E_internal = 2.2e-07  # measured 1.07e-07
 closure = 1e-09  # measured 2.15e-15
 
 [mech_clutch_lockup."as stated"]
-omega1 = 0.025  # measured 0.0123
-omega2 = 0.021  # measured 0.0103
-T_clutch = 2.4  # measured 1.16
-t_lock = 1e-09  # measured 1.49e-15
-E_drive = 0.00039  # measured 0.000191
-E_clutch = 0.0002  # measured 0.000191
-E_kin = 1.8e-07  # measured 8.6e-08
-closure = 1e-09  # measured 3.67e-16
+omega1 = 1e-09  # measured 1.78e-15
+omega2 = 1e-09  # measured 3.07e-15
+T_clutch = 0.88  # measured 0.44
+t_lock = 0.016  # measured 0.00764
+E_drive = 2.3e-05  # measured 1.13e-05
+E_clutch = 2.3e-05  # measured 1.13e-05
+E_kin = 1e-09  # measured 2.93e-15
+closure = 1e-09  # measured 1.1e-15
 
 [mech_gear_change."rotational load"]
 omega2 = 1e-09  # measured 6.64e-15

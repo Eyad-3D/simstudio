@@ -1,13 +1,14 @@
 """Pre-run stability check of the solver step (ENG-14).
 
 Parts of the solver step their forces explicitly: the vehicle takes the
-tyres' force from the start of the step, a slipping clutch at its limit and
-a propeller-type load pass their whole torque for the step. Each has a rate
-r (1/s) at which that force pulls its speed back; a step h is stable only
-while the step's gain h·r stays small (forward Euler on such a decay fails
-past h·r = 2, and the coupled driveline earlier). Too stiff a tyre, too
-light an inertia or too strong a clutch for the step, and the result is
-numerical garbage without any message.
+tyres' force from the start of the step, and a propeller-type load passes
+its whole torque for the step. Each has a rate r (1/s) at which that force
+pulls its speed back; a step h is stable only while the step's gain h·r
+stays small (forward Euler on such a decay fails past h·r = 2, and the
+coupled driveline earlier). Too stiff a tyre or too light an inertia for
+the step, and the result is numerical garbage without any message. (A
+clutch needs no smaller step: it slips at its capacity and sticks in the
+step its slip would pass through zero, so it cannot overshoot and ring.)
 
 Before a run, solver_step() picks the largest step, at most MAX_SUBSTEP,
 that keeps every gain within its limit, and says which part asked for it.
@@ -27,14 +28,9 @@ import math
 from dataclasses import dataclass
 
 from .network import Model
-from .runtime import CLUTCH_BAND, GRAVITY, MAX_SUBSTEP, RPM, V_EPS
+from .runtime import GRAVITY, MAX_SUBSTEP, RPM, V_EPS
 
 TYRE_GAIN_MAX = 3.0
-# a clutch that passes its whole torque for a step changes its slip by
-# gain × CLUTCH_BAND: above 1 it overshoots lock-up (the ring KNOWN-LIMITS
-# describes); that is warned about, not fixed by a smaller step, as the
-# clutch locks within a few steps and its energy is conserved
-CLUTCH_GAIN_WARN = 20.0
 PROP_GAIN_MAX = 0.5  # an explicit quadratic load: well inside the limit of 2
 MIN_SUBSTEP = 0.0005  # s: below this the run would take too long; warn instead
 
@@ -52,7 +48,10 @@ def gains(model: Model) -> list[Gain]:
     """The explicit gains of a built model (its params_of hold any case
     values), per unit of step."""
     out: list[Gain] = []
-    p_of, label = model.params_of, (lambda el: model.elements[el].label)
+
+    def label(el_id: str) -> str:
+        return model.elements[el_id].label
+
     wheels = [w for dl in model.drivelines for seg in dl.segments for w in seg.wheels]
     total_share = sum(w.load_share for w in wheels)
     if model.vehicle and wheels and total_share > 0:
@@ -62,18 +61,6 @@ def gains(model: Model) -> list[Gain]:
                         f"the tyres' Slip Stiffness (Wheel '{label(stiff.el_id)}': "
                         f"{stiff.c_slip:g})"))
     for dl in model.drivelines:
-        for j in dl.joints:
-            if j.kind != "clutch" or j.child_a < 0 or j.child_b < 0:
-                continue
-            cap = max(0.0, float(p_of[j.el_id].get("max_torque_Nm", 0) or 0))
-            j_a = dl.segments[j.child_a].inertia / max(1e-12, j.child_a_m ** 2)
-            j_b = dl.segments[j.child_b].inertia / max(1e-12, j.child_b_m ** 2)
-            if cap <= 0 or min(j_a, j_b) <= 0:
-                continue
-            rate = cap * (1.0 / j_a + 1.0 / j_b) / CLUTCH_BAND
-            out.append(Gain(rate, CLUTCH_GAIN_WARN, (j.el_id,),
-                            f"Clutch '{label(j.el_id)}' ({cap:g} N·m on "
-                            f"{min(j_a, j_b):.3g} kg·m²)", fix=False))
         for seg in dl.segments:
             for pr in seg.props:
                 omega_ref = pr.n_ref / RPM
@@ -118,11 +105,4 @@ def solver_step(model: Model, cap: float = MAX_SUBSTEP) -> StepChoice:
         # a whole fraction of the cap, so the times stay readable (5, 3.33,
         # 2.5 … ms of 10 ms)
         step = cap / math.ceil(cap / step - 1e-9)
-    for g in found:
-        if not g.fix and g.rate * step > g.limit:
-            warnings.append((f"{g.what} can ring as it closes at the {step * 1000:.3g} ms solver "
-                             f"step: in one step it changes its slip by "
-                             f"{g.rate * step * CLUTCH_BAND:.3g} rad/s, more than its "
-                             f"{CLUTCH_BAND:g} rad/s band, so the shafts on either side can "
-                             f"swing for a few steps before it locks.", g.el_ids))
     return StepChoice(step, reason, ids, tuple(warnings))

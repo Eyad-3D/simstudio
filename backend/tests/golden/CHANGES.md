@@ -1150,3 +1150,59 @@ lap solver drops the same 0.3 m/s fade.
 | hybrid-car Mixed Cycle (fine step) | CO₂ emissions | 67.8284 g/km | 67.8285 g/km | +8.4e-05 (+0.00 %) |
 | hybrid-car Mixed Cycle (fine step) | Battery energy change, share of fuel energy | -0.031397 % | -0.031412 % | -1.5e-05 (+0.05 %) |
 | hybrid-car Mixed Cycle (fine step) | channels that moved | | 68 | 24 outside their tube |
+
+## A clutch is dry friction: it slips at its torque and sticks when its sides meet
+
+A clutch was a smooth Coulomb coupling: its torque rose with its slip over
+a 0.5 rad/s band and passed its whole torque beyond it, explicitly for the
+step. At the 10 ms step a slipping clutch could carry its slip through zero
+and beyond the band in one step and ring from one side to the other (the
+benchmarks' lock-up: its torque −100 N·m one step after locking instead of
++16, speeds 1.2 % off; in a geared car with an engine behind the clutch it
+rang for good), and a locked clutch still slipped by its load / (capacity /
+0.5 rad/s) and lost that slip × its torque (the P2 Hybrid Car's: about
+28 W while driving on the engine).
+
+Now it is dry friction. While its sides turn at different speeds it slips
+and passes engagement × Max Torque against the slip; when its slip would
+pass through zero within the step, it sticks in that step (its torque is
+then the average that ends the slip); once stuck it holds its sides
+together, solved as a constraint with the rest of the driveline, passing
+whatever torque that takes, until that is more than it can pass: then it
+slips at it. The benchmarks' lock-up is now exact at every step after it
+(speeds to 2e-15, the clutch's 16 N·m exactly); only the step it locks in
+shows the average torque, and the lock-up is read at that step's end.
+Data Checks' note that a clutch can ring is gone, and so is the solver's
+gain check for clutches.
+
+- Mixed Cycle 2.8748 → 2.8695 l/100 km (−0.18 %), and the 5 ms fixture
+  now gives the same figure to 1e-5 (it was 2.8721, 0.09 % apart): the
+  ringing after each shift and engine start, and the locked clutch's
+  slip loss, cost fuel that depended on the step.
+- EPA city 2.8290 → 2.8273 l/100 km, highway 3.2347 → 3.2276; the EPA
+  city run makes one more engine start at the 10 ms step (31, at
+  1,299 s) than at 2.5 ms (30), so its battery ends higher (56.64 %
+  against 56.29 % at a 56.34 % start, still within 1 % of the fuel's
+  energy: no charge correction).
+- The channel outside its tube is the clutch's *Losses* while locked
+  (28 W → 0).
+
+| Fixture | Number | Old | New | Change |
+|---|---|---|---|---|
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — final SOC | 51.9124 % | 51.9121 % | -0.00033 (-0.00 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — energy delivered | 0.207203 kWh | 0.207182 kWh | -2.1e-05 (-0.01 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — energy recuperated | 0.209672 kWh | 0.209646 kWh | -2.6e-05 (-0.01 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — internal losses | 0.003217 kWh | 0.003218 kWh | +1e-06 (+0.03 %) |
+| hybrid-car Mixed Cycle (shipped step) | Engine — fuel used | 0.204651 kg | 0.204278 kg | -0.000373 (-0.18 %) |
+| hybrid-car Mixed Cycle (shipped step) | Fuel consumption | 2.87475 l/100km | 2.86951 l/100km | -0.005242 (-0.18 %) |
+| hybrid-car Mixed Cycle (shipped step) | CO₂ emissions | 67.8915 g/km | 67.7677 g/km | -0.1238 (-0.18 %) |
+| hybrid-car Mixed Cycle (shipped step) | Battery energy change, share of fuel energy | -0.030683 % | -0.030952 % | -0.000269 (+0.88 %) |
+| hybrid-car Mixed Cycle (shipped step) | channels that moved | | 61 | 1 outside their tube |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — final SOC | 51.9114 % | 51.911 % | -0.00033 (-0.00 %) |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — energy delivered | 0.207163 kWh | 0.207167 kWh | +4e-06 (+0.00 %) |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — energy recuperated | 0.209614 kWh | 0.209613 kWh | -1e-06 (-0.00 %) |
+| hybrid-car Mixed Cycle (fine step) | Engine — fuel used | 0.204461 kg | 0.204278 kg | -0.000183 (-0.09 %) |
+| hybrid-car Mixed Cycle (fine step) | Fuel consumption | 2.87208 l/100km | 2.86951 l/100km | -0.002574 (-0.09 %) |
+| hybrid-car Mixed Cycle (fine step) | CO₂ emissions | 67.8285 g/km | 67.7677 g/km | -0.06078 (-0.09 %) |
+| hybrid-car Mixed Cycle (fine step) | Battery energy change, share of fuel energy | -0.031412 % | -0.031653 % | -0.000241 (+0.77 %) |
+| hybrid-car Mixed Cycle (fine step) | channels that moved | | 59 | 1 outside their tube |

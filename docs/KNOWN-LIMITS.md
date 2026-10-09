@@ -106,14 +106,9 @@ either. Also:
   limit the tyre still gives μ times its load but the battery power and
   energy include the power that spins the wheels. The time at the grip
   limit counts driven wheels only; there is no peak-slip figure. The time
-  and that share follow the solver step when the driveline rings (see *A
-  closing clutch can ring* and *Stiff settings* below), and only a Data
-  Checks note says so:
-  at the 10 ms step the P2 Hybrid Car's slipping clutch rings in second
-  gear and pushes its driven wheels to the grip limit both ways, so its
-  75 m takes 6.474 s against 6.344 s at 1 ms (2 % slower) and it is at
-  the grip limit 7.3 % of the run against 0 %; a *Step* of 0.002 s gives
-  6.345 s and 0 %. A too-stiff tyre can even beat a slip-free car: the
+  and that share follow the solver step when a stiff tyre rings (see
+  *Stiff settings* below); the P2 Hybrid Car's 75 m takes 6.314 s at the
+  10 ms step and 6.309 s at 1 ms, never at the grip limit. A too-stiff tyre can even beat a slip-free car: the
   Battery Electric Car at a *Slip Stiffness* of 1000 gives 5.015 s,
   faster than a slip-free point mass's 5.172 s. Without a
   Driver, or with a Script between the Driver and the motors, full
@@ -560,9 +555,8 @@ minimum or an average, for example from the CSV export, or put the
   and a car held braked, `backend/tests/test_numerics.py`): stable up to
   a gain of 2.94 on its scale, unstable from 3.92; LightSim keeps it at 3
   or less, so other manoeuvres may still differ. A value edited during a
-  live run is not checked. A strong clutch on a light shaft is only noted
-  (see *A closing clutch can ring* below): its step is not reduced. Below
-  the limit, the step still shows at launch and at a stop. A car braked to a stop can also
+  live run is not checked. Below the limit, the step still shows at
+  launch and at a stop. A car braked to a stop can also
   creep with the brake fully applied: under 0.2 km/h at the default *Slip
   Stiffness* of 10, about 2 km/h at 30 and up to 23 km/h at 300, at the
   10 ms solver step. When a car pulls away from rest faster than
@@ -571,19 +565,23 @@ minimum or an average, for example from the CSV export, or put the
   one step to the next) until it reaches 0.7-2.3 m/s (measured on a 300 kg
   Formula Student car at μ 1-1.6); at a Formula Student launch this moves
   the 75 m time by about 0.4 %. *Roadmap:* ENG-09.
-- **A closing clutch can ring at the 10 ms step.** While a clutch slips by
-  more than 0.5 rad/s the solver passes its full torque for the whole
-  step, and at 10 ms that overshoots the lock-up: the shaft on either side
-  can swing by several hundred 1/min from one step to the next (up to
-  770 1/min in the P2 Hybrid Car) for a few steps, now and then for a
-  second or two, before the clutch locks. Energy is still conserved, but
-  the fuel it costs follows the step: the P2 Hybrid Car's EPA city figure
-  reads 2.838 l/100 km at the shipped 10 ms step, 0.017 (0.6 %) above a
-  2.5 ms run (2.821), with the same engine starts; its highway and Mixed
-  Cycle figures are about 0.004 above. Data Checks note a clutch whose
-  torque can change its slip by more than 20 times that band (10 rad/s) in one
-  step (the P2 Hybrid Car's: 65 rad/s), but the step is not made smaller
-  for it. *Roadmap:* ENG-09.
+- **A clutch locks on a solver step.** A clutch slips at its whole torque
+  (engagement × *Max Torque*) while its two sides turn at different speeds,
+  and sticks once they meet, passing whatever keeps them together up to
+  that torque. The solver step in which its slip would pass through zero
+  ends with it locked: its torque over that step is the average that ends
+  the slip (60 N·m in a step spent half slipping at 100 N·m and half
+  locked at 16 N·m), so its *Torque* channel shows that average at the
+  lock-up and the lock-up is read up to one step (10 ms) late; the speeds,
+  the momentum and the energy lost are those of the exact lock-up.
+  *Roadmap:* ENG-09.
+- **The P2 Hybrid Car's engine starts can follow the step.** Its control
+  script starts the engine when that is asked for 0.2 s in a row, and near
+  its thresholds a step can tip one start: on EPA city it starts the engine
+  31 times at the shipped 10 ms step and 30 times at 2.5 ms (once more at
+  1,299 s), 2.827 against 2.808 l/100 km (0.7 %). Its highway (3.228 and
+  3.228) and Mixed Cycle (2.870 at both) figures do not depend on the step.
+  *Roadmap:* MOD-14.
 - **Fuel-cell hydrogen use is a fixed figure per kWh** (*Specific H₂
   Consumption*, 55 g/kWh by default), which overstates it at part load by up
   to about a third and understates it at full load.

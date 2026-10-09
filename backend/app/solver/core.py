@@ -131,8 +131,7 @@ def run_case(
                            f"for the larger step: the run takes about "
                            f"{MAX_SUBSTEP / choice.step:.3g} times as long.")
     for text, _ in choice.warnings if choice else ():
-        if "too stiff" in text:  # (a clutch that can ring is told by Data Checks only)
-            rt.message("warning", text)
+        rt.message("warning", text)
     n_sub = max(1, math.ceil(dt_rec / h_max - 1e-9))
     dt = dt_rec / n_sub
     output_every = max(1, int(getattr(case, "outputEvery", 1) or 1))

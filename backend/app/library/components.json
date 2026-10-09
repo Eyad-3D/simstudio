@@ -3349,7 +3349,7 @@
       "name": "Clutch",
       "icon": "target",
       "domain": "mechanical",
-      "description": "Friction clutch (smooth Coulomb model). Transmits up to engagement × maximum torque across the slipping interface; under load a small residual slip remains even when fully engaged. Unwired engagement = fully closed.",
+      "description": "Friction clutch (dry friction). While its two sides turn at different speeds it slips and passes engagement × Max Torque against the slip; once they meet it sticks and passes whatever torque keeps them together, up to that torque, with no slip and no loss. In the solver step in which its slip would pass through zero it locks. Unwired engagement = fully closed.",
       "ports": [
         {
           "id": "flange_a",

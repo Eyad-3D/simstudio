@@ -2,11 +2,11 @@
  "_about": "Stored reference results of this example (CON-15): written by backend/tests/update_golden.py, explained in tests/golden/CHANGES.md.",
  "creation": {
   "appVersion": "0.2.0",
-  "gitCommit": "111c05f",
+  "gitCommit": "92d745e",
   "solver": "fixed step, at most 10 ms; recorded every 1 s",
   "date": "2026-10-09",
   "machine": "Linux x86_64, Python 3.11.15",
-  "note": "A coasting car stops, and stays stopped"
+  "note": "A clutch is dry friction: it slips at its torque and sticks when its sides meet"
  },
  "cases": {
   "case-accel-75m": {

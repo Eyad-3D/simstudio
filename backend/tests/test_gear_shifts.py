@@ -140,3 +140,23 @@ def test_through_gripping_tyres_the_vehicle_takes_part_in_the_shift():
     assert books["Gearbox"].terms["gear shifts"] > 0
     residual = next(s.value for s in r.summary if s.label == "Energy balance residual")
     assert abs(residual) < 0.5  # % (the solver step's own interface error)
+
+
+def test_an_engine_behind_a_closed_clutch_keeps_its_speed_and_the_clutch_slips():
+    """A clutch's torque is limited, so it passes no impulse: at the shift
+    the engine keeps its speed and the clutch slips at its torque until the
+    engine meets the new input speed, then sticks again (its heat is the
+    clutch's loss). Before the clutch stuck in the step its slip passed
+    through zero, it overshot at the 10 ms step and rang from one side to
+    the other for the rest of this run."""
+    r = simulate(_geared_vehicle(locked_clutch_engine=True), "case")
+    eng, mot = _speeds(r, "eng"), _speeds(r, "mot")
+    slip = {round(p["t"], 6): p["value"] / RPM for p in series(r, "cl", "sig_slip_speed")}
+    torque = {round(p["t"], 6): p["value"] for p in series(r, "cl", "sig_torque")}
+    assert slip[0.99] == 0.0  # stuck before the shift
+    assert eng[1.01] > mot[1.01] + 30.0  # the engine kept its speed, the input dropped
+    assert torque[1.01] == pytest.approx(300.0)  # slipping at its whole torque
+    stuck = next(t for t in sorted(slip) if t > 1.0 and slip[t] == 0.0)
+    assert stuck < 1.2 and all(slip[t] == 0.0 for t in slip if t >= stuck)  # stuck, for good
+    books = _books(r)
+    assert books["Clutch"].losses > 0 and books["Gearbox"].terms["gear shifts"] > 0

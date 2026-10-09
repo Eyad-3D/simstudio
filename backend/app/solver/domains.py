@@ -38,7 +38,6 @@ from .runtime import (
     AIR_DENSITY,
     AMBIENT_C,
     AMBIENT_KPA,
-    CLUTCH_BAND,
     GRAVITY,
     RPM,
     SPEED_LIMIT_BAND,
@@ -2673,19 +2672,35 @@ class MechanicalSlave(_CtxSlave):
             x = plan.x
             shafts = []  # (motor or engine, its speed factor, segment): booked after the solve
             axles = []  # (wheel, segment, its tyre force, its implicit part per rad/s)
-            # clutch torques at the step's start (their implicit part is
-            # added below), for the gear losses of the segments they drive
+            # the clutches: dry friction. A clutch that slips passes its whole
+            # torque (engagement × capacity) against its slip; one that does
+            # not (stuck) passes whatever keeps its two sides together, up to
+            # that capacity. Their modes are settled with the solve below;
+            # here their torques at the step's start, for the gear losses of
+            # the segments they drive (a stuck clutch's from the last step)
             clutch_t: list[float] = []
             clutch_cap: list[float] = []
+            clutch_slip: list[float] = []  # each one's slip at the step's start, rad/s
+            clutch_mode: list[float | None] = []  # None: stuck, else its torque's sign
             for j, ga, gb, rel_pairs in lay.clutches:
                 engage = rt.read_signal(j.el_id, "sig_engage_in")
                 engage = max(0.0, min(1.0, engage if engage is not None else 1.0))
                 cap_c = engage * max(0.0, float(ctx.params(j.el_id).get("max_torque_Nm", 0)))
-                d_omega = (j.child_a_m * omega_seg[j.child_a]
-                           - j.child_b_m * omega_seg[j.child_b])
-                t_c = max(-cap_c, min(cap_c, cap_c / CLUTCH_BAND * d_omega)) if cap_c > 0 else 0.0
+                w_a = j.child_a_m * omega_seg[j.child_a]
+                w_b = j.child_b_m * omega_seg[j.child_b]
+                d_omega = w_a - w_b
+                if cap_c <= 0:
+                    mode, t_c = 0.0, 0.0  # open
+                elif abs(d_omega) <= 1e-9 * (abs(w_a) + abs(w_b) + 1.0):
+                    mode = None  # its sides turn together: it holds them, if it can
+                    t_c = max(-cap_c, min(cap_c, st.clutch_torque.get(j.el_id, 0.0)))
+                else:
+                    mode = 1.0 if d_omega > 0 else -1.0
+                    t_c = mode * cap_c
                 clutch_t.append(t_c)
                 clutch_cap.append(cap_c)
+                clutch_slip.append(d_omega)
+                clutch_mode.append(mode)
             # torque-source bookkeeping for joint channels
             torque_above: dict[int, float] = defaultdict(float)  # root seg → torque at axis
             brake_t = [0.0] * len(st.dl.segments)  # each segment's brake torque
@@ -2766,23 +2781,71 @@ class MechanicalSlave(_CtxSlave):
                 for i in range(n):
                     q_vec[i] += g[i] * tau
 
-            # clutches: smooth Coulomb coupling, implicit in Δω
-            for (j, ga, gb, rel_pairs), t_c, cap_c in zip(lay.clutches, clutch_t, clutch_cap):
-                if cap_c <= 0:
-                    continue
-                k_c = cap_c / CLUTCH_BAND
-                for i in range(n):
-                    q_vec[i] += -t_c * ga[i] + t_c * gb[i]
-                if abs(t_c) < cap_c:  # unclamped → implicit
-                    c = dt * k_c
-                    for i, k, ri, rk in rel_pairs:
-                        m_mat[i][k] += c * ri * rk
-
             for i in range(n):  # symmetrize
                 for k in range(i + 1, n):
                     m_mat[k][i] = m_mat[i][k]
+            # the clutches, settled with the solve: a slipping one adds its
+            # torque; a stuck one holds its slip at zero over the step with
+            # the torque λ that takes (a constraint, M α + Σ λ r = Q, r·α =
+            # −slip/dt, r its sides' speed difference per coordinate). One
+            # that would need more than its capacity slips at it instead; one
+            # whose slip would pass through zero in the step sticks in it.
+            # Before, a slipping clutch could overshoot its lock-up and ring.
+            stuck = [c for c, mode in enumerate(clutch_mode) if mode is None]
+            freed: set[int] = set()  # came unstuck this step: they slip on
+
+            def solve_clutches() -> tuple[list[float], dict[int, float]]:
+                q_c = q_vec[:]
+                for c, ((j, ga, gb, _), mode) in enumerate(zip(lay.clutches, clutch_mode)):
+                    if mode:  # slipping: its whole torque, against its slip
+                        t_c = mode * clutch_cap[c]
+                        for i in range(n):
+                            q_c[i] += -t_c * ga[i] + t_c * gb[i]
+                if not stuck:
+                    return solve_linear(m_mat, q_c), {}
+                size = n + len(stuck)
+                a_mat = [row[:] + [0.0] * len(stuck) for row in m_mat] + [
+                    [0.0] * size for _ in stuck]
+                for r, c in enumerate(stuck):
+                    _, ga, gb, _ = lay.clutches[c]
+                    for i in range(n):
+                        a_mat[i][n + r] = a_mat[n + r][i] = ga[i] - gb[i]
+                    q_c.append(-clutch_slip[c] / dt)
+                sol = solve_linear(a_mat, q_c)
+                return sol[:n], dict(zip(stuck, sol[n:]))
+
             try:
-                alpha = solve_linear(m_mat, q_vec)
+                for _ in range(2 * len(lay.clutches) + 1):
+                    try:
+                        alpha, held = solve_clutches()
+                    except SingularMatrixError:
+                        if not stuck:
+                            raise
+                        # (clutches that cannot all be held at once: they slip)
+                        for c in stuck:
+                            clutch_mode[c] = 1.0 if clutch_slip[c] >= 0 else -1.0
+                            freed.add(c)
+                        stuck = []
+                        alpha, held = solve_clutches()
+                    changed = False
+                    for c in list(stuck):  # more than it can pass: it slips
+                        if abs(held[c]) > clutch_cap[c] * (1.0 + 1e-9):
+                            clutch_mode[c] = 1.0 if held[c] > 0 else -1.0
+                            stuck.remove(c)
+                            freed.add(c)
+                            changed = True
+                    for c, ((j, ga, gb, _), mode) in enumerate(zip(lay.clutches, clutch_mode)):
+                        if mode and c not in freed:  # its slip through zero: it sticks
+                            s_end = clutch_slip[c] + dt * sum((ga[i] - gb[i]) * alpha[i]
+                                                              for i in range(n))
+                            if s_end * mode <= 0.0:
+                                clutch_mode[c] = None
+                                stuck.append(c)
+                                changed = True
+                    if not changed:
+                        break
+                else:  # (every clutch changed what it could: the modes it ended in)
+                    alpha, held = solve_clutches()
             except SingularMatrixError:
                 detail = (
                     f"Driveline equations became numerically singular at t = {t:g} s "
@@ -2791,6 +2854,10 @@ class MechanicalSlave(_CtxSlave):
                 )
                 rt.message("error", detail)
                 return StepResult(status="error", detail=detail)
+            for c, (j, _, _, _) in enumerate(lay.clutches):
+                st.clutch_raw[j.el_id] = clutch_t[c]  # (the torque its gear losses were worked out on)
+                st.clutch_torque[j.el_id] = (held[c] if clutch_mode[c] is None
+                                             else (clutch_mode[c] or 0.0) * clutch_cap[c])
             clamped = []  # (coordinate, its speed unclamped)
             x_start = x[:]
             for i in range(n):
@@ -2822,15 +2889,11 @@ class MechanicalSlave(_CtxSlave):
                     if cache is not None:
                         cache.rpm = abs(src.m * omega_seg[s_idx]) * RPM
                         st.chain_power_w += getattr(cache, "p_mech_w", 0.0)
-            # the clutches' channels: the slip the step left, and the torque
-            # that acted over it (with its implicit part)
-            for (j, ga, gb, _), t_c, cap_c in zip(lay.clutches, clutch_t, clutch_cap):
-                st.clutch_raw[j.el_id] = t_c  # (the torque its gear losses were worked out on)
-                if abs(t_c) < cap_c:
-                    t_c += dt * (cap_c / CLUTCH_BAND) * sum((ga[i] - gb[i]) * alpha[i]
-                                                            for i in range(n))
-                st.clutch_torque[j.el_id] = t_c
-                st.clutch_slip[j.el_id] = (j.child_a_m * omega_seg[j.child_a]
+            # the clutches' channels: the slip the step left (0 when stuck)
+            # and the torque that acted over it (set with the solve)
+            for c, (j, _, _, _) in enumerate(lay.clutches):
+                st.clutch_slip[j.el_id] = (0.0 if clutch_mode[c] is None else
+                                           j.child_a_m * omega_seg[j.child_a]
                                            - j.child_b_m * omega_seg[j.child_b])
             for j in st.dl.joints:
                 if j.kind != "split":
