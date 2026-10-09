@@ -56,8 +56,8 @@ The summary says for how long each limit held the car back, for example
 
 | Case | Result |
 |---|---|
-| *Acceleration 75 m* | 3.751 s from the start line, 118.86 km/h at the line, 0-100 km/h in 2.95 s |
-| *Autocross (flying lap)* | 57.721 s for the flying lap, 60.32 km/h average |
+| *Acceleration 75 m* | 3.751 s from the start line, 118.89 km/h at the line, 0-100 km/h in 2.95 s |
+| *Autocross (flying lap)* | 57.721 s for the flying lap, 60.31 km/h average |
 | *Endurance energy* (23 laps, 30 kW limit) | 1,428.53 s, 5.33 kWh net from the Accumulator, 25.02 % SOC left |
 
 At FS Czech Republic 2025 the 35 electric teams took 3.51 to 6.44 s over
@@ -79,8 +79,8 @@ These results are estimates: see the messages each run gives, and
 1. **Halve the power.** On *Acceleration 75 m*, set the Accumulator's
    *Output Power Limit* from 80 to 40 kW. How much slower is the car?
 
-   **Answer:** 3.751 to 4.232 s, 0.480 s slower, and 95.92 km/h at the
-   line instead of 118.86 km/h.
+   **Answer:** 3.751 to 4.231 s, 0.481 s slower, and 95.94 km/h at the
+   line instead of 118.89 km/h.
 
 2. **Use worn tyres.** On *Acceleration 75 m*, set the *Friction
    Coefficient μ* of *Wheel RL* and *Wheel RR* from 1.5 to 1.3. What
@@ -96,7 +96,7 @@ These results are estimates: see the messages each run gives, and
    under *Parameter overrides*, set *Accumulator · Output Power Limit (0 =
    none)* to 25. What do you gain and what do you lose?
 
-   **Answer:** The car needs 1,454.696 s instead of 1,428.53 s (26 s
+   **Answer:** The car needs 1,454.700 s instead of 1,428.53 s (26 s
    more) and ends with 34.16 % SOC instead of 25.02 %. Lesson 3,
    [Size the accumulator](../lessons/fs-3-accumulator.md), uses this
    trade.

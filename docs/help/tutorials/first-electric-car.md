@@ -37,8 +37,8 @@ The *Results* page compares the new run with the one before, the
 baseline ([how](../how-to/compare-two-runs.md)).
 
 **Check:** *Consumption* still reads 14.05 kWh/100 km, but the battery's
-final SOC (state of charge, how full it is) falls from 84.92 % to
-82.11 %.
+final SOC (state of charge, how full it is) falls from 84.93 % to
+82.12 %.
 
 The car needs the same energy, which is a larger share of a smaller
 battery. LightSim does not make the car lighter when the battery
@@ -138,14 +138,14 @@ Press **Run**, and **Show results** when it ends.
 
 **Check:** the run ends as *success* with *Distance driven* 23.267 km.
 *Consumption* should be between 9.5 and 11.5 kWh/100 km: LightSim gives
-10.48 kWh/100 km with the values above.
+10.46 kWh/100 km with the values above.
 
 If your run is a *warning* or *failed*, *Problems* says why: compare your
 wires and signals with steps 4 and 5.
 
 ### 8. Compare it with the example
 
-Your car uses 10.48 kWh/100 km on the WLTC, the example 14.05: 25 % less.
+Your car uses 10.46 kWh/100 km on the WLTC, the example 14.05: 26 % less.
 It is 727 kg lighter, its tyres roll more easily (the library's Wheel
 has a *Rolling Resistance Coeff.* of 0.0085, the example's wheels
 0.011), and its air drag is about the same (the drag coefficient times

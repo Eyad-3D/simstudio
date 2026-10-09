@@ -151,8 +151,8 @@ load come from public data; their motor, engine and battery maps are generic (in
 | Battery Electric Car (2021 Cupra Born values from FASTSim) | WLTC energy at the battery | 14.1 kWh/100 km | about 15–16 kWh/100 km rated at the charging socket, charging losses included (background knowledge, unverified) | 13–17 kWh/100 km |
 | | 0–100 km/h | 7.1 s | 7.3 s (maker's figure, background knowledge) | ±10 % |
 | | Top speed | 160 km/h | 160 km/h (limited) | ±2 %, and within the motor's maximum speed |
-| P2 Hybrid Car (Hyundai Ioniq Hybrid test mass and EPA road load) | EPA city cycle (UDDS) fuel | 2.84 l/100 km (no cold start) | 2.91 l/100 km (EPA 2022 test car list) | 2–5 l/100 km, and at most 4.5 after correcting for the battery's change of charge |
-| | EPA highway cycle (HWFET) fuel | 3.24 l/100 km | 2.94 l/100 km (EPA 2022 test car list) | same as the city cycle |
+| P2 Hybrid Car (Hyundai Ioniq Hybrid test mass and EPA road load) | EPA city cycle (UDDS) fuel | 2.83 l/100 km (no cold start) | 2.91 l/100 km (EPA 2022 test car list) | 2–5 l/100 km, and at most 4.5 after correcting for the battery's change of charge |
+| | EPA highway cycle (HWFET) fuel | 3.23 l/100 km | 2.94 l/100 km (EPA 2022 test car list) | same as the city cycle |
 | | Battery charge at the end | same as at the start | charge-sustaining | within 1 % of the start |
 | FS Electric (generic) (typical Formula Student values, no real car) | 75 m acceleration, from the start line | 3.75 s, 119 km/h at the line, 0–100 km/h in 2.95 s | FS Czech Republic 2025, best times of 35 EV teams: 3.51–6.44 s, median 3.91 s | 3.5–4.5 s, 100–130 km/h, 2.5–4.0 s; within 0.5 % at a 1 ms step; faster with each 10 kW of Output Power Limit from 40 to 80 kW (4.23 to 3.75 s) |
 | | Endurance energy (lap mode, 22.5 km, Output Power Limit 30 kW) | 5.33 kWh net at the accumulator, 18 % of the energy drawn recuperated, 25 % charge left, 22.9 kW RMS | FS Czech Republic 2025 efficiency, 14 scored teams: 3.19–6.15 kWh, median 5.25 kWh | 3.19–6.15 kWh, 10–40 % recuperated, at least 10 points above the minimum charge, 15–35 kW RMS |

@@ -398,12 +398,12 @@
  "facts": [
   {
    "page": "tutorials/first-run.md",
-   "text": "the run ends as *success* with *Consumption* 11.12 kWh/100 km",
-   "expr": "status('bev-city') == 'success' and round(v('bev-city', 'Consumption'), 2) == 11.12"
+   "text": "the run ends as *success* with *Consumption* 11.11 kWh/100 km",
+   "expr": "status('bev-city') == 'success' and round(v('bev-city', 'Consumption'), 2) == 11.11"
   },
   {
    "page": "tutorials/first-run.md",
-   "text": "11.12 kWh/100 km",
+   "text": "11.11 kWh/100 km",
    "expr": "v('bev-city', 'Consumption')",
    "format": "{:.2f} kWh/100 km"
   },
@@ -450,7 +450,7 @@
   },
   {
    "page": "tutorials/first-electric-car.md",
-   "text": "falls from 84.92 % to 82.11 %",
+   "text": "falls from 84.93 % to 82.12 %",
    "expr": "(v('bev-wltc', 'HV Battery Pack — final SOC'), v('bev-wltc-40', 'HV Battery Pack — final SOC'))",
    "format": "{0[0]:.2f} % to {0[1]:.2f} %"
   },
@@ -486,31 +486,31 @@
   },
   {
    "page": "tutorials/first-electric-car.md",
-   "text": "LightSim gives 10.48 kWh/100 km with the values above",
+   "text": "LightSim gives 10.46 kWh/100 km with the values above",
    "expr": "v('first-car-wltc', 'Consumption')",
    "format": "{:.2f} kWh/100 km"
   },
   {
    "page": "tutorials/first-electric-car.md",
-   "text": "Your car uses 10.48 kWh/100 km on the WLTC, the example 14.05: 25 % less",
+   "text": "Your car uses 10.46 kWh/100 km on the WLTC, the example 14.05: 26 % less",
    "expr": "(v('first-car-wltc', 'Consumption'), v('bev-wltc', 'Consumption'), 100 * (1 - v('first-car-wltc', 'Consumption') / v('bev-wltc', 'Consumption')))",
    "format": "{0[0]:.2f} kWh/100 km on the WLTC, the example {0[1]:.2f}: {0[2]:.0f} % less"
   },
   {
    "page": "examples/bev-car.md",
-   "text": "*City Cycle* | 11.12 kWh/100 km | 7.292 km | 88.76 % |",
+   "text": "*City Cycle* | 11.11 kWh/100 km | 7.292 km | 88.76 % |",
    "expr": "(v('bev-city', 'Consumption'), v('bev-city', 'Distance driven'), v('bev-city', 'HV Battery Pack — final SOC'))",
    "format": "*City Cycle* | {0[0]:.2f} kWh/100 km | {0[1]:.3f} km | {0[2]:.2f} % |"
   },
   {
    "page": "examples/bev-car.md",
-   "text": "*WLTC Class 3b* | 14.05 kWh/100 km | 23.267 km | 84.92 % |",
+   "text": "*WLTC Class 3b* | 14.05 kWh/100 km | 23.267 km | 84.93 % |",
    "expr": "(v('bev-wltc', 'Consumption'), v('bev-wltc', 'Distance driven'), v('bev-wltc', 'HV Battery Pack — final SOC'))",
    "format": "*WLTC Class 3b* | {0[0]:.2f} kWh/100 km | {0[1]:.3f} km | {0[2]:.2f} % |"
   },
   {
    "page": "examples/bev-car.md",
-   "text": "*WLTC, heating/air-con on* | 18.89 kWh/100 km | 23.267 km | 83.19 % |",
+   "text": "*WLTC, heating/air-con on* | 18.88 kWh/100 km | 23.267 km | 83.19 % |",
    "expr": "(v('bev-wltc-hvac', 'Consumption'), v('bev-wltc-hvac', 'Distance driven'), v('bev-wltc-hvac', 'HV Battery Pack — final SOC'))",
    "format": "*WLTC, heating/air-con on* | {0[0]:.2f} kWh/100 km | {0[1]:.3f} km | {0[2]:.2f} % |"
   },
@@ -522,7 +522,7 @@
   },
   {
    "page": "examples/bev-car.md",
-   "text": "*WLTC, hot day (35 °C, air-con on)* | 16.77 kWh/100 km | 23.267 km | 83.95 % |",
+   "text": "*WLTC, hot day (35 °C, air-con on)* | 16.76 kWh/100 km | 23.267 km | 83.95 % |",
    "expr": "(v('bev-wltc-summer', 'Consumption'), v('bev-wltc-summer', 'Distance driven'), v('bev-wltc-summer', 'HV Battery Pack — final SOC'))",
    "format": "*WLTC, hot day (35 °C, air-con on)* | {0[0]:.2f} kWh/100 km | {0[1]:.3f} km | {0[2]:.2f} % |"
   },
@@ -546,7 +546,7 @@
   },
   {
    "page": "examples/bev-car.md",
-   "text": "14.05 to 18.89 kWh/100 km, 4.84 kWh/100 km more (34 %)",
+   "text": "14.05 to 18.88 kWh/100 km, 4.84 kWh/100 km more (34 %)",
    "expr": "(v('bev-wltc', 'Consumption'), v('bev-wltc-hvac', 'Consumption'), v('bev-wltc-hvac', 'Consumption') - v('bev-wltc', 'Consumption'), 100 * (v('bev-wltc-hvac', 'Consumption') / v('bev-wltc', 'Consumption') - 1))",
    "format": "{0[0]:.2f} to {0[1]:.2f} kWh/100 km, {0[2]:.2f} kWh/100 km more ({0[3]:.0f} %)"
   },
@@ -564,7 +564,7 @@
   },
   {
    "page": "examples/bev-car.md",
-   "text": "*Consumption* stays at 14.05 kWh/100 km and the final SOC falls from 84.92 % to 82.11 %",
+   "text": "*Consumption* stays at 14.05 kWh/100 km and the final SOC falls from 84.93 % to 82.12 %",
    "expr": "(v('bev-wltc-40', 'Consumption'), v('bev-wltc', 'HV Battery Pack — final SOC'), v('bev-wltc-40', 'HV Battery Pack — final SOC'))",
    "format": "{0[0]:.2f} kWh/100 km and the final SOC falls from {0[1]:.2f} % to {0[2]:.2f} %"
   },
@@ -594,37 +594,37 @@
   },
   {
    "page": "examples/hybrid-car.md",
-   "text": "*EPA city (UDDS)* | 2.84 l/100 km | 67.0 g/km | 11.99 km |",
+   "text": "*EPA city (UDDS)* | 2.83 l/100 km | 66.8 g/km | 11.99 km |",
    "expr": "(v('hy-udds', 'Fuel consumption'), v('hy-udds', 'CO₂ emissions'), v('hy-udds', 'Distance driven'))",
    "format": "*EPA city (UDDS)* | {0[0]:.2f} l/100 km | {0[1]:.1f} g/km | {0[2]:.5g} km |"
   },
   {
    "page": "examples/hybrid-car.md",
-   "text": "*EPA highway (HWFET)* | 3.24 l/100 km | 76.4 g/km | 16.507 km |",
+   "text": "*EPA highway (HWFET)* | 3.23 l/100 km | 76.2 g/km | 16.507 km |",
    "expr": "(v('hy-hwfet', 'Fuel consumption'), v('hy-hwfet', 'CO₂ emissions'), v('hy-hwfet', 'Distance driven'))",
    "format": "*EPA highway (HWFET)* | {0[0]:.2f} l/100 km | {0[1]:.1f} g/km | {0[2]:.5g} km |"
   },
   {
    "page": "examples/hybrid-car.md",
-   "text": "*Mixed Cycle* | 2.88 l/100 km | 68.0 g/km | 9.556 km |",
+   "text": "*Mixed Cycle* | 2.87 l/100 km | 67.8 g/km | 9.556 km |",
    "expr": "(v('hy-mixed', 'Fuel consumption'), v('hy-mixed', 'CO₂ emissions'), v('hy-mixed', 'Distance driven'))",
    "format": "*Mixed Cycle* | {0[0]:.2f} l/100 km | {0[1]:.1f} g/km | {0[2]:.3f} km |"
   },
   {
    "page": "examples/hybrid-car.md",
-   "text": "Over the whole cycle the engine starts 30 times",
+   "text": "Over the whole cycle the engine starts 31 times",
    "expr": "rises('hy-udds', 'Hybrid Control Unit · engine_on')",
    "format": "the engine starts {} times"
   },
   {
    "page": "examples/hybrid-car.md",
-   "text": "2.84 to 3.30 l/100 km, 16 % more",
+   "text": "2.83 to 3.27 l/100 km, 16 % more",
    "expr": "(v('hy-udds', 'Fuel consumption'), v('hy-udds-12v', 'Fuel consumption'), 100 * (v('hy-udds-12v', 'Fuel consumption') / v('hy-udds', 'Fuel consumption') - 1))",
    "format": "{0[0]:.2f} to {0[1]:.2f} l/100 km, {0[2]:.0f} % more"
   },
   {
    "page": "examples/hybrid-car.md",
-   "text": "3.24 to 3.28 l/100 km, about 1 % more",
+   "text": "3.23 to 3.27 l/100 km, about 1 % more",
    "expr": "(v('hy-hwfet', 'Fuel consumption'), v('hy-hwfet-200', 'Fuel consumption'), 100 * (v('hy-hwfet-200', 'Fuel consumption') / v('hy-hwfet', 'Fuel consumption') - 1))",
    "format": "{0[0]:.2f} to {0[1]:.2f} l/100 km, about {0[2]:.0f} % more"
   },
@@ -635,7 +635,7 @@
   },
   {
    "page": "examples/hybrid-car.md",
-   "text": "In the city: 2.84 against 3.24 l/100 km",
+   "text": "In the city: 2.83 against 3.23 l/100 km",
    "expr": "(v('hy-udds', 'Fuel consumption'), v('hy-hwfet', 'Fuel consumption'))",
    "format": "In the city: {0[0]:.2f} against {0[1]:.2f} l/100 km"
   },
@@ -658,13 +658,13 @@
   },
   {
    "page": "examples/fs-electric.md",
-   "text": "3.751 s from the start line, 118.86 km/h at the line, 0-100 km/h in 2.95 s",
+   "text": "3.751 s from the start line, 118.89 km/h at the line, 0-100 km/h in 2.95 s",
    "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel', 'Speed at 75 m'), v('fs-accel', 'Time to 100 km/h'))",
    "format": "{0[0]:.3f} s from the start line, {0[1]:.2f} km/h at the line, 0-100 km/h in {0[2]:.2f} s"
   },
   {
    "page": "examples/fs-electric.md",
-   "text": "57.721 s for the flying lap, 60.32 km/h average",
+   "text": "57.721 s for the flying lap, 60.31 km/h average",
    "expr": "(v('fs-autocross', 'Lap time'), v('fs-autocross', 'Average speed'))",
    "format": "{0[0]:.3f} s for the flying lap, {0[1]:.2f} km/h average"
   },
@@ -676,7 +676,7 @@
   },
   {
    "page": "examples/fs-electric.md",
-   "text": "3.751 to 4.232 s, 0.480 s slower, and 95.92 km/h at the line instead of 118.86 km/h",
+   "text": "3.751 to 4.231 s, 0.481 s slower, and 95.94 km/h at the line instead of 118.89 km/h",
    "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel-40', 'Time to 75 m'), v('fs-accel-40', 'Time to 75 m') - v('fs-accel', 'Time to 75 m'), v('fs-accel-40', 'Speed at 75 m'), v('fs-accel', 'Speed at 75 m'))",
    "format": "{0[0]:.3f} to {0[1]:.3f} s, {0[2]:.3f} s slower, and {0[3]:.2f} km/h at the line instead of {0[4]:.2f} km/h"
   },
@@ -688,13 +688,13 @@
   },
   {
    "page": "examples/fs-electric.md",
-   "text": "The car needs 1,454.696 s instead of 1,428.53 s (26 s more) and ends with 34.16 % SOC instead of 25.02 %",
+   "text": "The car needs 1,454.700 s instead of 1,428.53 s (26 s more) and ends with 34.16 % SOC instead of 25.02 %",
    "expr": "(v('fs-endurance-25', 'Total time'), v('fs-endurance', 'Total time'), v('fs-endurance-25', 'Total time') - v('fs-endurance', 'Total time'), v('fs-endurance-25', 'Accumulator — final SOC'), v('fs-endurance', 'Accumulator — final SOC'))",
    "format": "The car needs {0[0]:,.3f} s instead of {0[1]:,.2f} s ({0[2]:.0f} s more) and ends with {0[3]:.2f} % SOC instead of {0[4]:.2f} %"
   },
   {
    "page": "lessons/fs-1-acceleration.md",
-   "text": "*Time to 75 m* 3.751 s and *Speed at 75 m* 118.86 km/h",
+   "text": "*Time to 75 m* 3.751 s and *Speed at 75 m* 118.89 km/h",
    "expr": "(v('fs-accel', 'Time to 75 m'), v('fs-accel', 'Speed at 75 m'))",
    "format": "*Time to 75 m* {0[0]:.3f} s and *Speed at 75 m* {0[1]:.2f} km/h"
   },
@@ -735,7 +735,7 @@
   },
   {
    "page": "lessons/fs-1-acceleration.md",
-   "text": "4.232 s at 40 kW, 4.040 s at 50 kW, 3.910 s at 60 kW, 3.82 s at 70 kW and 3.751 s at 80 kW",
+   "text": "4.231 s at 40 kW, 4.039 s at 50 kW, 3.909 s at 60 kW, 3.82 s at 70 kW and 3.751 s at 80 kW",
    "expr": "tuple(v(r, 'Time to 75 m') for r in ('fs-accel-40', 'fs-accel-50', 'fs-accel-60', 'fs-accel-70', 'fs-accel'))",
    "format": "{0[0]:.3f} s at 40 kW, {0[1]:.3f} s at 50 kW, {0[2]:.3f} s at 60 kW, {0[3]:.3g} s at 70 kW and {0[4]:.3f} s at 80 kW"
   },
@@ -775,13 +775,13 @@
   },
   {
    "page": "lessons/fs-2-endurance.md",
-   "text": "*Time limited by power cap* reads 703.265 s and *Time limited by cornering grip* 434.603 s",
+   "text": "*Time limited by power cap* reads 703.266 s and *Time limited by cornering grip* 434.603 s",
    "expr": "(v('fs-endurance', 'Time limited by power cap'), v('fs-endurance', 'Time limited by cornering grip'))",
    "format": "*Time limited by power cap* reads {0[0]:.3f} s and *Time limited by cornering grip* {0[1]:.3f} s"
   },
   {
    "page": "lessons/fs-3-accumulator.md",
-   "text": "the *Total time* is 1,454.696 s at 25 kW, 1,428.53 s at 30 kW and 1,407.635 s at 35 kW; the final SOC 34.16 %, 25.02 % and 16.44 %",
+   "text": "the *Total time* is 1,454.700 s at 25 kW, 1,428.53 s at 30 kW and 1,407.638 s at 35 kW; the final SOC 34.16 %, 25.02 % and 16.44 %",
    "expr": "tuple(v(r, 'Total time') for r in ('fs-endurance-25', 'fs-endurance', 'fs-endurance-35')) + tuple(v(r, 'Accumulator — final SOC') for r in ('fs-endurance-25', 'fs-endurance', 'fs-endurance-35'))",
    "format": "the *Total time* is {0[0]:,.3f} s at 25 kW, {0[1]:,.2f} s at 30 kW and {0[2]:,.3f} s at 35 kW; the final SOC {0[3]:.2f} %, {0[4]:.2f} % and {0[5]:.2f} %"
   },
@@ -827,13 +827,13 @@
   },
   {
    "page": "theory/why-numbers-differ.md",
-   "text": "uses 18.89 kWh/100 km instead of 14.05",
+   "text": "uses 18.88 kWh/100 km instead of 14.05",
    "expr": "(v('bev-wltc-hvac', 'Consumption'), v('bev-wltc', 'Consumption'))",
    "format": "uses {0[0]:.2f} kWh/100 km instead of {0[1]:.2f}"
   },
   {
    "page": "theory/why-numbers-differ.md",
-   "text": "uses 2.84 l/100 km on the EPA city cycle",
+   "text": "uses 2.83 l/100 km on the EPA city cycle",
    "expr": "v('hy-udds', 'Fuel consumption')",
    "format": "uses {:.2f} l/100 km"
   },
@@ -875,7 +875,7 @@
   },
   {
    "page": "examples/aero-bev.md",
-   "text": "From 543.4 to 310.3 km",
+   "text": "From 543.3 to 310.3 km",
    "expr": "(v('aero-udds', 'Range at this consumption'), v('aero-udds-heat', 'Range at this consumption'))",
    "format": "From {0[0]:.1f} to {0[1]:.1f} km"
   }

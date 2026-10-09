@@ -40,7 +40,7 @@ On *EPA city (UDDS)* (the EPA Urban Dynamometer Driving Schedule,
 3. **Braking.** The motor brakes as a generator and charges the battery;
    the engine stops.
 4. **At every stop** the engine is off. Over the whole cycle the engine
-   starts 30 times.
+   starts 31 times.
 
 Tick *Engine · Speed*, *HV Battery · SOC* and *Vehicle · Vehicle Speed*
 on the *Results* page to see the engine switch on and off. The script's
@@ -54,9 +54,9 @@ not flattered by a battery that ran down.
 
 | Case | Fuel consumption | CO₂ | Distance |
 |---|---|---|---|
-| *EPA city (UDDS)* | 2.84 l/100 km | 67.0 g/km | 11.99 km |
-| *EPA highway (HWFET)* | 3.24 l/100 km | 76.4 g/km | 16.507 km |
-| *Mixed Cycle* | 2.88 l/100 km | 68.0 g/km | 9.556 km |
+| *EPA city (UDDS)* | 2.83 l/100 km | 66.8 g/km | 11.99 km |
+| *EPA highway (HWFET)* | 3.23 l/100 km | 76.2 g/km | 16.507 km |
+| *Mixed Cycle* | 2.87 l/100 km | 67.8 g/km | 9.556 km |
 
 EPA's own tests of the Ioniq Blue give 2.91 l/100 km in the city and
 2.94 l/100 km on the highway. The city figure here is lower because the
@@ -85,14 +85,14 @@ with the one before. Set the value back afterwards.
 1. **Double the 12 V loads.** On *EPA city (UDDS)*, set the *12 V Loads*'
    *Constant Power Draw* from 0.5 to 1.0 kW. How much more fuel does the car use?
 
-   **Answer:** 2.84 to 3.30 l/100 km, 16 % more. In town the car is slow,
+   **Answer:** 2.83 to 3.27 l/100 km, 16 % more. In town the car is slow,
    so 0.5 kW more for 1,369 s is a large share of the energy per
    kilometre; the engine has to make it, through the battery.
 
 2. **Add 200 kg on the highway.** On *EPA highway (HWFET)*, set the
    Vehicle's *Vehicle Mass* from 1,474 to 1674. How much more fuel?
 
-   **Answer:** 3.24 to 3.28 l/100 km, about 1 % more. On the highway the
+   **Answer:** 3.23 to 3.27 l/100 km, about 1 % more. On the highway the
    car hardly speeds up or brakes, and this example's road load comes
    from fixed coefficients A, B and C (a coast-down test's), which do not
    change with mass: so the 200 kg cost fuel only when the car speeds up.
@@ -102,7 +102,7 @@ with the one before. Set the value back afterwards.
 3. **Compare city and highway.** Run *EPA city (UDDS)* and *EPA highway
    (HWFET)*. Where does the hybrid use less fuel per 100 km, and why?
 
-   **Answer:** In the city: 2.84 against 3.24 l/100 km. In town the
+   **Answer:** In the city: 2.83 against 3.23 l/100 km. In town the
    hybrid recovers braking energy and stops its engine at every stop; on
    the highway it drives at steady speed with the engine on, where a
    hybrid has little to gain and air drag is higher.

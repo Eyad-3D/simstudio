@@ -722,7 +722,7 @@ minimum or an average, for example from the CSV export, or put the
   mass and road load from EPA data (EPA's own coefficients A/B/C, with the
   axle's losses counted once), but its engine, motor and battery maps
   are generic, not the car's. With its charge-sustaining control script it
-  uses about 2.84 l/100 km on the EPA city cycle and 3.24 on the highway
+  uses about 2.83 l/100 km on the EPA city cycle and 3.23 on the highway
   cycle, against 2.91 and 2.94 for the real car in EPA's tests. The model
   has no cold start, engine warm-up or start-up fuel, so its city figure
   reads below EPA's, whose city test starts cold; on the highway, with its
@@ -824,8 +824,8 @@ minimum or an average, for example from the CSV export, or put the
 - **Charge balancing repeats the whole run.** A hybrid's cycle case is run
   again from the charge its battery ended with until the battery's stored
   energy changes by less than 1 % of the fuel's energy (ENG-33): started
-  at 30, 50 or 70 %, the P2 Hybrid Car's Mixed Cycle gives 2.878 l/100 km
-  in 2 runs, against 2.8777 at its hand-set start. Each extra run takes as
+  at 30, 50 or 70 %, the P2 Hybrid Car's Mixed Cycle gives 2.872 l/100 km
+  in 2 runs, against 2.8695 at its hand-set start. Each extra run takes as
   long as the first, and the *Results* page shows only the last run (the
   others are listed in *Messages*, not kept in the run history). A live run
   shows the first run as it goes; later runs show only when they finish. A

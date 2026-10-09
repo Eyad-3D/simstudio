@@ -53,10 +53,10 @@ same.
 
 ## 4. Read the results
 
-**Check:** the run ends as *success* with *Consumption* 11.12 kWh/100 km.
+**Check:** the run ends as *success* with *Consumption* 11.11 kWh/100 km.
 
 - The numbers above the chart sum up the run: *Consumption*
-  11.12 kWh/100 km, *Distance driven* 7.292 km, the battery's final SOC,
+  11.11 kWh/100 km, *Distance driven* 7.292 km, the battery's final SOC,
   88.76 %, and the energy it gave and took back. **All summary values**
   under the chart opens the full list.
 - The chart opens on the *Target Speed* (dashed) over the *Vehicle Speed*:
