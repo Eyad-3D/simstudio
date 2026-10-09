@@ -6,6 +6,8 @@
  * instead of O(kused n). See lsim_cvodes_dky.c.
  * -----------------------------------------------------------------*/
 
+#include <nvector/nvector_serial.h>
+
 #include "idas_impl.h"
 
 #define LSIM_HUNDRED SUN_RCONST(100.0)
@@ -39,7 +41,7 @@ int lsim_ida_dky_select(void* ida_mem, sunrealtype t, int n_idx,
     psij_1 = IDA_mem->ida_psi[j - 1];
   }
   nvec = IDA_mem->ida_kused + 1;
-  for (j = 0; j < nvec; j++) { pd[j] = N_VGetArrayPointer(IDA_mem->ida_phi[j]); }
+  for (j = 0; j < nvec; j++) { pd[j] = NV_DATA_S(IDA_mem->ida_phi[j]); }
   for (m = 0; m < n_idx; m++)
   {
     sunindextype k = idx[m];

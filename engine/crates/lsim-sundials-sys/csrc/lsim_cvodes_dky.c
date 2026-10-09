@@ -6,7 +6,12 @@
  * highest order first, as N_VLinearCombination_Serial adds), but O(q) per
  * component instead of O(q n). The run loop uses it to read a sampled
  * block's inputs at every tick without interpolating the whole state.
+ * The powers of s are built one from the last (the same products, in the
+ * same order, as CVodeGetDky's loop), and the history arrays are read
+ * directly: the engine's vectors are all serial.
  * -----------------------------------------------------------------*/
+
+#include <nvector/nvector_serial.h>
 
 #include "cvodes_impl.h"
 
@@ -18,7 +23,7 @@ int lsim_cvode_dky_select(void* cvode_mem, sunrealtype t, int n_idx,
                           const sunindextype* idx, sunrealtype* out)
 {
   CVodeMem cv_mem;
-  sunrealtype s, tfuzz, tp, tn1, c[L_MAX];
+  sunrealtype s, tfuzz, tp, tn1, c[L_MAX], pw[L_MAX];
   sunrealtype* zd[L_MAX];
   int i, j, m, nvec;
 
@@ -32,13 +37,14 @@ int lsim_cvode_dky_select(void* cvode_mem, sunrealtype t, int n_idx,
   tn1 = cv_mem->cv_tn + tfuzz;
   if ((t - tp) * (t - tn1) > LSIM_ZERO) { return CV_BAD_T; }
 
-  s    = (t - cv_mem->cv_tn) / cv_mem->cv_h;
+  s     = (t - cv_mem->cv_tn) / cv_mem->cv_h;
+  pw[0] = LSIM_ONE;
+  for (j = 1; j <= cv_mem->cv_q; j++) { pw[j] = pw[j - 1] * s; }
   nvec = 0;
   for (j = cv_mem->cv_q; j >= 0; j--)
   {
-    c[nvec] = LSIM_ONE;
-    for (i = 0; i < j; i++) { c[nvec] *= s; }
-    zd[nvec] = N_VGetArrayPointer(cv_mem->cv_zn[j]);
+    c[nvec]  = pw[j];
+    zd[nvec] = NV_DATA_S(cv_mem->cv_zn[j]);
     nvec += 1;
   }
   for (m = 0; m < n_idx; m++)

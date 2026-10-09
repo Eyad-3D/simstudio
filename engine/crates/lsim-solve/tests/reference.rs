@@ -602,3 +602,71 @@ fn dense_band_and_sparse_lu_give_the_same_runs() {
         }
     }
 }
+
+/// A sampled block's inputs come from the selected-component dense output
+/// (our C helpers beside CVODES and IDAS); it gives exactly the bits of
+/// the full dense output at every time inside every step, on both paths.
+#[test]
+fn the_selected_dense_output_is_the_full_one_bit_for_bit() {
+    use lsim_solve::{Integrator, Step, sundials::Sundials};
+    let lib = library();
+    let mut compared = 0;
+    for case in cases() {
+        let p = &case.problem;
+        for force_implicit in [false, true] {
+            let built = build(&lib, &case.top, force_implicit);
+            let m = &built.jit;
+            let l = *lsim_ir::ModelFunctions::layout(m);
+            let mut y0 = vec![0.0; l.n_y()];
+            let mut d0 = vec![0.0; l.n_d];
+            lsim_ir::ModelFunctions::start(m, &built.info.params, &mut y0, &mut d0);
+            let u = vec![0.0; l.n_u];
+            let settings =
+                lsim_solve::init::InitSettings { rtol: 1e-8, atol: 1e-10, max_iterations: 50 };
+            lsim_solve::init::initialise(m, &built.info, 0.0, &mut y0, &mut d0, &u, &settings)
+                .expect("initialises");
+            let opts = SolverOptions { rtol: 1e-8, atol: 1e-10, ..Default::default() };
+            let grid = OutputGrid { t0: 0.0, t_end: p.t_end, dt: p.output_dt };
+            let mut integ =
+                Sundials::new(m, &built.info, &opts, grid, &y0, d0, u, None).expect("sets up");
+            let n = l.n_y();
+            // every entry, and a reversed subset
+            let all: Vec<usize> = (0..n).collect();
+            let some: Vec<usize> = (0..n).rev().step_by(2).collect();
+            let (mut full, mut sel) = (vec![0.0; n], vec![0.0; n]);
+            let mut t = 0.0;
+            for _ in 0..200 {
+                let st = integ.step(p.t_end).expect("steps");
+                let t_new = st.time();
+                for f in [0.0, 0.13, 0.5, 0.77, 0.999] {
+                    let tk = t + f * (t_new - t);
+                    integ.interpolate(tk, &mut full).unwrap();
+                    for idx in [&all, &some] {
+                        integ.interpolate_select(tk, idx, &mut sel[..idx.len()]).unwrap();
+                        for (k, &i) in idx.iter().enumerate() {
+                            assert_eq!(
+                                sel[k].to_bits(),
+                                full[i].to_bits(),
+                                "{} {}: entry {i} at t = {tk}: {} against {}",
+                                p.id,
+                                if force_implicit { "DAE" } else { "ODE" },
+                                sel[k],
+                                full[i]
+                            );
+                            compared += 1;
+                        }
+                    }
+                }
+                t = t_new;
+                if matches!(st, Step::Stopped(_)) {
+                    break;
+                }
+                if let Step::Root(..) = st {
+                    let y = integ.y().to_vec();
+                    integ.restart(t, &y).expect("restarts");
+                }
+            }
+        }
+    }
+    assert!(compared > 10_000, "only {compared} values compared");
+}

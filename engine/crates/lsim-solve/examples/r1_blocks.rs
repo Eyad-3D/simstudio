@@ -5,6 +5,12 @@
 //! prints the best of several runs and the machine's load.
 //!
 //! `cargo run --release -p lsim-solve --example r1_blocks`
+//!
+//! `STAGES` sets the ladder's size (default 20), `REPS` the rounds (7), and
+//! `PERIOD` the block's period (default 0.01 s). A shorter period
+//! multiplies the ticks, so their cost stands well above the run-to-run
+//! noise of a shared machine; the cost per tick is then scaled back to the
+//! 180 001 ticks of a 10 ms block.
 
 #[path = "shared/models.rs"]
 mod models;
@@ -13,14 +19,14 @@ use lsim_ir::runtime::DiscreteBlock;
 use lsim_solve::{BlockInfo, OutputGrid, RunInfo, SolverOptions, simulate};
 use std::time::Instant;
 
-struct Idle;
+struct Idle(f64);
 
 impl DiscreteBlock for Idle {
     fn name(&self) -> &str {
         "'Script'"
     }
     fn period(&self) -> f64 {
-        0.01
+        self.0
     }
     fn init(&mut self, _: f64, _: &[f64], _: &mut [f64]) -> Result<(), String> {
         Ok(())
@@ -69,6 +75,7 @@ fn main() {
     let grid = OutputGrid { t0: 0.0, t_end: 1800.0, dt: 1.0 };
     let opts = SolverOptions::default();
     let reps: usize = std::env::var("REPS").ok().and_then(|s| s.parse().ok()).unwrap_or(7);
+    let period: f64 = std::env::var("PERIOD").ok().and_then(|s| s.parse().ok()).unwrap_or(0.01);
     println!(
         "{} states, {} channels; load before: {}",
         prepared.states.len(),
@@ -91,7 +98,7 @@ fn main() {
                     name: "'Script'".into(),
                     inputs: vec![i],
                     outputs: vec![out],
-                    period: 0.01,
+                    period,
                     // a computed input is evaluated alone, as RunInfo::from_prepared does
                     chains: vec![match info.var_sources[i] {
                         lsim_solve::VarSource::Computed => {
@@ -110,7 +117,7 @@ fn main() {
     for _ in 0..reps {
         for (k, (_, input)) in variants.iter().enumerate() {
             let mut blocks: Vec<Box<dyn DiscreteBlock>> =
-                if input.is_some() { vec![Box::new(Idle)] } else { vec![] };
+                if input.is_some() { vec![Box::new(Idle(period))] } else { vec![] };
             let c0 = cpu_now();
             let t0 = Instant::now();
             let r = simulate(&jit, &infos[k], &opts, grid, &mut blocks).expect("runs");
@@ -133,14 +140,22 @@ fn main() {
         );
         results.push(t[0]);
     }
+    let ticks = last[1].unwrap().1 as f64;
+    let per_tick: Vec<f64> = (1..4).map(|k| (results[k] - results[0]) / ticks).collect();
     println!(
-        "overhead of an idle 10 ms block: {:+.1} % (discrete input), {:+.1} % (state input), {:+.1} % (computed input); per tick {:.0} / {:.0} / {:.0} ns; load after: {}",
+        "overhead of an idle block ticking every {period} s: {:+.1} % (discrete input), {:+.1} % (state input), {:+.1} % (computed input)",
         100.0 * (results[1] / results[0] - 1.0),
         100.0 * (results[2] / results[0] - 1.0),
         100.0 * (results[3] / results[0] - 1.0),
-        (results[1] - results[0]) / 180_001.0 * 1e9,
-        (results[2] - results[0]) / 180_001.0 * 1e9,
-        (results[3] - results[0]) / 180_001.0 * 1e9,
+    );
+    println!(
+        "per tick {:.0} / {:.0} / {:.0} ns; so a 10 ms block (180 001 ticks) costs {:+.2} / {:+.2} / {:+.2} % of this run; load after: {}",
+        per_tick[0] * 1e9,
+        per_tick[1] * 1e9,
+        per_tick[2] * 1e9,
+        100.0 * per_tick[0] * 180_001.0 / results[0],
+        100.0 * per_tick[1] * 180_001.0 / results[0],
+        100.0 * per_tick[2] * 180_001.0 / results[0],
         load()
     );
 }
