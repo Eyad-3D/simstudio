@@ -20,6 +20,9 @@ thiserror.workspace = true
 [dev-dependencies]
 lsim-lib.workspace = true
 lsim-prep.workspace = true
+lsim-project.workspace = true
+lsim-solve.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true
