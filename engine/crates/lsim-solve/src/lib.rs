@@ -305,6 +305,11 @@ pub trait Integrator {
     /// after the discrete variables changed. `t` may lie inside the last
     /// step (the rest of the step is dropped).
     fn restart(&mut self, t: f64, y: &[f64]) -> Result<(), SolveError>;
+    /// Makes the iteration variables of `y` consistent at `t` with the
+    /// discrete values `d`, the states held (event iteration re-checks the
+    /// conditions with them after a discrete value changed). A model
+    /// without iteration variables has nothing to do.
+    fn consistent_z(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError>;
     /// Work done so far.
     fn stats(&self) -> SolverStats;
     /// The energy integrals at `t` (inside the last step), when the backend

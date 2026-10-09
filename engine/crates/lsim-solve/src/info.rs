@@ -157,6 +157,12 @@ pub struct RunInfo {
     pub table_names: Vec<String>,
     /// for each residual of the initialisation system: the equation it is
     pub init_labels: Vec<String>,
+    /// whether a zero-crossing function, a mode's relation or a `when`'s
+    /// assigned value reads an iteration variable (through the
+    /// assignments): event iteration then solves the iteration variables
+    /// again whenever a discrete value changes, before it re-checks the
+    /// conditions
+    pub events_read_z: bool,
 }
 
 impl RunInfo {
@@ -182,6 +188,7 @@ impl RunInfo {
             asserts: vec![],
             table_names: vec![],
             init_labels: vec![],
+            events_read_z: true,
         }
     }
 
@@ -277,6 +284,7 @@ impl RunInfo {
                 .collect(),
             table_names: flat.tables.iter().map(|t| t.name.clone()).collect(),
             init_labels: m.init.residuals.iter().map(|r| labelled(&r.origin)).collect(),
+            events_read_z: events_read_z(m),
         }
     }
 
@@ -286,6 +294,38 @@ impl RunInfo {
     pub fn with_params(&self, params: &[f64]) -> RunInfo {
         RunInfo { params: params.to_vec(), ..self.clone() }
     }
+}
+
+/// Whether an event's condition or assigned value reads an iteration
+/// variable, through the assignments ([`RunInfo::events_read_z`]).
+fn events_read_z(m: &PreparedModel) -> bool {
+    if m.algebraics.is_empty() {
+        return false;
+    }
+    let mut reads: HashMap<Slot, bool> = m.algebraics.iter().map(|s| (*s, true)).collect();
+    let depends = |e: &Expr, reads: &HashMap<Slot, bool>| {
+        e.any(&mut |x| match x {
+            Expr::Var(v) | Expr::Pre(v) => reads.get(&Slot::Var(*v)).copied().unwrap_or(false),
+            Expr::Der(v) => reads.get(&Slot::Der(*v)).copied().unwrap_or(false),
+            _ => false,
+        })
+    };
+    for a in &m.assignments {
+        let r = depends(&a.expr, &reads);
+        reads.insert(a.target, r);
+    }
+    // an alias reads what its target reads
+    for a in &m.aliases {
+        if let AliasTarget::Var { var, .. } = a.target
+            && reads.get(&Slot::Var(var)).copied().unwrap_or(false)
+        {
+            reads.insert(Slot::Var(a.var), true);
+        }
+    }
+    let reads_expr = |e: &Expr| depends(e, &reads);
+    m.zero_crossings.iter().any(|z| reads_expr(&z.expr))
+        || m.modes.iter().any(|md| reads_expr(&md.relation))
+        || m.whens.iter().any(|w| w.assign.iter().any(|(_, e)| reads_expr(e)))
 }
 
 /// The structure of `∂[x'; g]/∂y` from the prepared model: which entries

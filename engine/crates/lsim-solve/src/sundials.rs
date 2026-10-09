@@ -1063,6 +1063,25 @@ impl Integrator for Sundials<'_> {
         Ok(())
     }
 
+    fn consistent_z(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError> {
+        if self.prob.layout.n_z == 0 {
+            return Ok(());
+        }
+        let pr = &*self.prob;
+        consistent_z(
+            pr.model(),
+            &self.info,
+            &pr.jac,
+            t,
+            y,
+            &pr.p,
+            d,
+            &pr.u,
+            &InitSettings { rtol: self.opts.rtol, atol: self.opts.atol, max_iterations: 50 },
+        )
+        .map(|_| ())
+    }
+
     fn stats(&self) -> SolverStats {
         let mut s = self.done;
         s += self.counters();

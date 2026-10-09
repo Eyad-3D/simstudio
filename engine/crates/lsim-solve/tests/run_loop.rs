@@ -229,3 +229,59 @@ fn mode_changes_a_tick_makes_are_no_event_storm() {
         assert!(flips >= 1999, "{backend:?}: {flips} mode changes");
     }
 }
+
+/// Event iteration re-checks the conditions with the iteration variables
+/// solved again for the new discrete values: a `when` whose condition
+/// reads an iteration variable that another `when` just moved fires at
+/// the same instant.
+#[test]
+fn a_condition_on_an_iteration_variable_is_rechecked_with_its_new_value() {
+    // x' = 1; 0 = z - (x + 10 d0);
+    // when x >= 1: d0 := 1  (z jumps from 1 to 11)
+    // when z >= 5: d1 := 1  (true from that instant)
+    let model = Hand {
+        layout: layout(1, 1, 0, 2, 2, 2, 4),
+        f: Box::new(|i, out| {
+            out[0] = 1.0;
+            out[1] = i.y[1] - (i.y[0] + 10.0 * i.d[0]);
+        }),
+        jvp: Box::new(|_, v, out| {
+            out[0] = 0.0;
+            out[1] = v[1] - v[0];
+        }),
+        roots: Box::new(|i, out| {
+            out[0] = i.y[0] - 1.0;
+            out[1] = i.y[1] - 5.0;
+        }),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.y[1];
+            out[2] = i.d[0];
+            out[3] = i.d[1];
+        }),
+        when: Box::new(|_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = 1.0;
+            }
+            if fired[1] != 0.0 {
+                d[1] = 1.0;
+            }
+        }),
+        modes: None,
+        y0: vec![0.0, 0.0],
+        d0: vec![0.0, 0.0],
+    };
+    let mut info = RunInfo::bare(2, 4, vec![]);
+    info.root_dirs = vec![1, 1];
+    whens(&mut info, &[(0, Direction::Rising, "first"), (1, Direction::Rising, "second")]);
+    for backend in backends() {
+        let opts = SolverOptions { backend, rtol: 1e-9, atol: 1e-12, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.5 };
+        let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+        let labels: Vec<_> = run.events.iter().map(|e| e.label.as_str()).collect();
+        assert_eq!(labels, ["first", "second"], "{backend:?}: {:?}", run.events);
+        assert_eq!(run.events[0].t, run.events[1].t, "{backend:?}: one instant");
+        assert!((run.events[0].t - 1.0).abs() < 1e-8, "{backend:?}");
+        assert_eq!(*run.values[3].last().unwrap(), 1.0, "{backend:?}");
+    }
+}

@@ -311,12 +311,18 @@ impl Loop<'_> {
     /// from false to true at this instant: each condition is compared with
     /// its value before anything changed here, with the discrete values
     /// `d_pre` (before a sample tick set its outputs, say), not with the
-    /// values `d` already holds on entry. Returns whether a discrete value
-    /// changed from `d_pre`.
+    /// values `d` already holds on entry. Whenever a discrete value has
+    /// changed, the iteration variables in `y` are solved again (the states
+    /// held) before anything reads them: the `when` values, the modes'
+    /// relations and the conditions all see the algebraic equations as
+    /// they hold for the new discrete values. Returns whether a discrete
+    /// value changed from `d_pre`.
+    #[allow(clippy::too_many_arguments)]
     fn iterate(
         &mut self,
+        integ: &mut dyn Integrator,
         t: f64,
-        y: &[f64],
+        y: &mut [f64],
         d: &mut Vec<f64>,
         d_pre: &[f64],
         dirs: Option<&[i32]>,
@@ -327,6 +333,8 @@ impl Loop<'_> {
         let mut any_fired = false;
         // the conditions just before the event
         self.eval_roots(t, y, d_pre, true);
+        // the discrete values y's iteration variables are consistent with
+        let mut z_for: Vec<f64> = d_pre.to_vec();
         if let Some(dirs) = dirs {
             // a crossing the integrator reported fires below by its
             // direction; as a value before the event it is neutral, so the
@@ -363,6 +371,7 @@ impl Loop<'_> {
         let mut iterations = 0;
         loop {
             if any_fired {
+                self.solve_z(integ, t, y, d, &mut z_for)?;
                 let mut d_new = d.clone();
                 let inp = EvalInput { t, y, p: &info.params, d, u: self.u };
                 self.model.when(&inp, &fired, &mut self.work, &mut d_new);
@@ -371,7 +380,10 @@ impl Loop<'_> {
                 any_fired = false;
             }
             // every mode from its relation with the new discrete values
-            self.modes_from_relations(t, y, d)?;
+            self.solve_z(integ, t, y, d, &mut z_for)?;
+            if self.modes_from_relations(t, y, d)? {
+                self.solve_z(integ, t, y, d, &mut z_for)?;
+            }
             if self.roots.is_empty() {
                 break;
             }
@@ -426,7 +438,30 @@ impl Loop<'_> {
             }
             std::mem::swap(&mut self.roots_prev, &mut self.roots);
         }
+        self.solve_z(integ, t, y, d, &mut z_for)?;
         Ok(d.as_slice() != d_pre)
+    }
+
+    /// Solves the iteration variables of `y` again (the states held) when
+    /// the discrete values changed since they were solved for `z_for`, and
+    /// the events read them.
+    fn solve_z(
+        &mut self,
+        integ: &mut dyn Integrator,
+        t: f64,
+        y: &mut [f64],
+        d: &[f64],
+        z_for: &mut Vec<f64>,
+    ) -> Result<(), SolveError> {
+        if self.model.layout().n_z == 0 || z_for.as_slice() == d {
+            return Ok(());
+        }
+        if self.info.events_read_z {
+            integ.consistent_z(t, y, d)?;
+        }
+        z_for.clear();
+        z_for.extend_from_slice(d);
+        Ok(())
     }
 
     /// Sets every mode from its condition at the start (no `when` fires at
@@ -689,7 +724,7 @@ pub fn run_loop(
             // initialisation no `when` fires on them (each condition starts
             // as it is), the modes follow them
             let d_init = d.clone();
-            lp.iterate(t, &y, &mut d, &d_init, None)?;
+            lp.iterate(integ, t, &mut y, &mut d, &d_init, None)?;
             integ.discrete_mut().copy_from_slice(&d);
             integ.restart(t, &y)?;
             y.copy_from_slice(integ.y());
@@ -821,7 +856,7 @@ pub fn run_loop(
                     }
                     lp.record(tk, crate::EventKind::Block(b))?;
                     lp.scheduled = true;
-                    let it = lp.iterate(tk, &yk, &mut d, &d_pre, None);
+                    let it = lp.iterate(integ, tk, &mut yk, &mut d, &d_pre, None);
                     lp.scheduled = false;
                     it?;
                     integ.discrete_mut().copy_from_slice(&d);
@@ -858,7 +893,7 @@ pub fn run_loop(
             if stale {
                 let before = ledger.as_mut().map(|lg| lg.before_event(t, &lp.vars, p));
                 let d_pre = d.clone();
-                if lp.iterate(t, &y, &mut d, &d_pre, None)? {
+                if lp.iterate(integ, t, &mut y, &mut d, &d_pre, None)? {
                     integ.discrete_mut().copy_from_slice(&d);
                     lp.update_sides(t, &y, &d, None);
                     integ.set_root_sides(&lp.sides);
@@ -919,7 +954,7 @@ pub fn run_loop(
             // a time event is scheduled; a root (with any ticks at its
             // instant) is a state event
             lp.scheduled = !is_root;
-            let it = lp.iterate(t, &y, &mut d, &d_pre, dirs);
+            let it = lp.iterate(integ, t, &mut y, &mut d, &d_pre, dirs);
             lp.scheduled = false;
             changed |= it?;
             if at_time_event {

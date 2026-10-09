@@ -531,6 +531,24 @@ where
         Ok(())
     }
 
+    fn consistent_z(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError> {
+        if !self.dae {
+            return Ok(());
+        }
+        consistent_z(
+            self.model,
+            self.info,
+            &self.jac,
+            t,
+            y,
+            &self.info.params,
+            d,
+            self.u,
+            &InitSettings { rtol: self.opts.rtol, atol: self.opts.atol, max_iterations: 50 },
+        )
+        .map(|_| ())
+    }
+
     fn stats(&self) -> SolverStats {
         let s = self.solver.get_statistics();
         SolverStats {
