@@ -604,9 +604,7 @@ additive). What the other packages change to use them:
 * Show `PreparedModel::warnings` in the build report and the Python
   `model.report`.
 
-**WP2 and WP3** keep: WP2's three 10⁵-equation scale tests fail (speed
-work pending) and `reinit` actions are dropped by preparation (they must
-reach `PreparedWhen`); WP3's interpreted tape (`tape.rs`) is not wired in,
+**WP3** keeps: its interpreted tape (`tape.rs`) is not wired in,
 `InitFunctions::guess` uses the flat start values rather than
 `InitSystem::guesses`, and asserts have no compiled function yet.
 
@@ -662,7 +660,23 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    equations use the held value, so the integrator never sees a
    discontinuity. Relations under `noEvent` are evaluated as they stand.
    Stage 1 supports `when` with one comparison and rejects the rest with a
-   clear message.
+   clear message. **`reinit(x, v)`** (WP2) restarts a state at an event
+   without anything new in the run loop, which applies only discrete
+   assignments: after alias elimination `x` (resolved to its alias root)
+   is split into a continuous part and its jumps, `x = x.continuous +
+   x.jump` with `der(x)` read as `der(x.continuous)` everywhere, and the
+   action becomes the discrete assignment `x.jump := v − x.continuous`.
+   The integrator's state is `x.continuous` (it inherits `x`'s start and
+   `fixed`; dummy derivatives keep it a state before anything else), so
+   right after the event `x = v` exactly while nothing the integrator
+   sees jumps. As with every assignment of a `when` clause, a discrete
+   variable `v` reads is its new value (`pre(i)` for the old one) and
+   continuous ones are their values at the event. A target that is not a
+   state, or that index reduction cannot keep one (two rigidly coupled
+   speeds both restarted), is `REINIT-NOT-STATE`. The gear change of
+   `mech_gear_change` (a dog clutch keeping `J2 ω2 + i2 J1 ω1`) runs to
+   the reference's digits (2·10⁻¹⁴) and its energy books show the exact
+   shift loss.
 9. **Initialisation system** (WP2). A separate matching with the `fixed`
    start values and `initial equation`s as knowns/equations; its own BLT;
    compiled as its own functions; solved by Newton with line search, then
@@ -1157,7 +1171,22 @@ with a test model: two ideal sources in parallel; a circuit with no ground;
 a floating thermal network; two speed sources on one rigid shaft; a
 gearbox with no ratio input; a signal input left open; an algebraic loop
 through a controller with no feed-through break; a part not connected at
-all. Run-time failures get the same treatment: a Newton failure names the
+all. The catalogue as built (each code's model and expected parts are in
+`lsim-prep/tests/faults.rs`, one test per fault): `ELEC-SOURCE-LOOP`,
+`ELEC-CURRENT-SOURCES`, `ELEC-NO-GROUND`, `THERM-FLOATING`,
+`THERM-TEMP-CONFLICT`, `MECH-SPEED-CONFLICT`, `MECH-FLOATING`,
+`PART-UNCONNECTED`, `GEAR-NO-RATIO`, `SIGNAL-UNCONNECTED`, `SIGNAL-SOURCES`,
+`CAUSAL-LOOP` (a warning), `SINGULAR-LOOP`, `INIT-OVER`, `DER-NOT-STATE`,
+`INDEX-DIFFERENTIATE`, `STATE-SELECT-SINGULAR`, `PIVOT-ZERO-AT-START` (a
+warning), `PARAM-CYCLE`, `EXTERNAL-PERIOD`, `EXTERNAL-LOOP` (a warning),
+`WHEN-CONDITION`, `WHEN-CONTINUOUS`, `REINIT-NOT-STATE`, `STRUCT-OVER` and
+`STRUCT-UNDER`; `INIT-START-IGNORED` is tested with the index-reduction
+models and the `INVERSE-*` codes with fast mode's. A floating network is
+told apart two ways: structurally (a node balance that alias elimination
+reduces to 0 = 0 is dropped, leaving the potentials undecided) and, when
+the structure balances, numerically (a linear block singular at the start
+whose null direction moves only potentials, temperatures or speeds, all
+together). Run-time failures get the same treatment: a Newton failure names the
 block's parts and the equations with the worst residuals; an integrator
 failure names the variables with the largest error-test weights; repeated
 events name the modes that chatter.

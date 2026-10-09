@@ -445,3 +445,102 @@ fn a_constraint_through_a_table_cannot_be_differentiated() {
     );
     expect_in(&lib, &top, "INDEX-DIFFERENTIATE", &["src"], Severity::Error);
 }
+
+#[test]
+fn constraints_that_contradict_each_other() {
+    // x follows the clock, and is also held still: with each variable's
+    // derivatives counted as the variable (the check before index
+    // reduction) there are two equations for x, so the fault is found
+    // before differentiation could go on forever (INDEX-TOO-HIGH stays a
+    // safety net: Pantelides ends on any system that passes this check)
+    let d = custom(
+        "Faults.Contradiction",
+        vec![state("x", "s", 0.0, "")],
+        vec![eq(n("x"), Expr::Time, "x follows the clock"), eq(der("x"), c(0.0), "x is held")],
+    );
+    let lib = with(vec![d]);
+    let top = model(vec![labelled(sub("k", "Faults.Contradiction", &[]), "Clock")], &[]);
+    expect_in(&lib, &top, "STRUCT-OVER", &["k"], Severity::Error);
+}
+
+#[test]
+fn a_constraint_that_is_singular_at_the_start() {
+    // a point held at the origin by x² + y² = 0: the constraint's gradient
+    // vanishes there, so no choice of states works
+    use common::guess;
+    let d = ComponentDef {
+        name: "Faults.Point".into(),
+        params: vec![param("m", "kg", 1.0, ""), param("g", "m/s2", 9.81, "")],
+        vars: vec![
+            state("x", "m", 0.0, ""),
+            guess("y", "m", c(0.0)),
+            state("vx", "m/s", 0.0, ""),
+            guess("vy", "m/s", c(0.0)),
+            guess("F", "N/m", c(0.0)),
+        ],
+        equations: vec![
+            eq(der("x"), n("vx"), ""),
+            eq(der("y"), n("vy"), ""),
+            eq(n("m") * der("vx"), -(n("x") * n("F")), ""),
+            eq(n("m") * der("vy"), -(n("y") * n("F")) - n("m") * n("g"), ""),
+            eq(n("x") * n("x") + n("y") * n("y"), c(0.0), "it stays at the origin"),
+        ],
+        ..Default::default()
+    };
+    let lib = with(vec![d]);
+    let top = model(vec![labelled(sub("pt", "Faults.Point", &[]), "Point")], &[]);
+    expect_in(&lib, &top, "STATE-SELECT-SINGULAR", &["pt"], Severity::Error);
+}
+
+#[test]
+fn a_restart_of_something_that_is_not_a_state() {
+    let mut d = custom(
+        "Faults.Restart",
+        vec![state("x", "1", 0.0, ""), var("y", "1", "")],
+        vec![
+            eq(der("x"), n("rate"), "x grows"),
+            eq(n("y"), c(2.0) * n("x"), "y is twice x"),
+            EquationDecl {
+                eq: Equation::When {
+                    condition: cmp(CmpOp::Gt, n("x"), c(1.0)),
+                    actions: vec![WhenAction::Reinit { var: "y".into(), value: c(0.0) }],
+                },
+                label: Some("y restarts".into()),
+            },
+        ],
+    );
+    d.params = vec![param("rate", "1/s", 1.0, "")];
+    let lib = with(vec![d]);
+    let top = model(vec![labelled(sub("r", "Faults.Restart", &[]), "Counter")], &[]);
+    let d = expect_in(&lib, &top, "REINIT-NOT-STATE", &["r"], Severity::Error);
+    assert!(d.message.contains("y of 'Counter'"), "{}", d.message);
+}
+
+#[test]
+fn restarts_of_two_rigidly_coupled_speeds() {
+    // two inertias on one shaft have one state between them: restarting
+    // both speeds cannot keep both
+    let kick = custom(
+        "Faults.Kick",
+        vec![],
+        vec![EquationDecl {
+            eq: Equation::When {
+                condition: cmp(CmpOp::Gt, Expr::Time, c(1.0)),
+                actions: vec![
+                    WhenAction::Reinit { var: "a.w".into(), value: c(1.0) },
+                    WhenAction::Reinit { var: "b.w".into(), value: c(2.0) },
+                ],
+            },
+            label: Some("both speeds restart".into()),
+        }],
+    );
+    let mut kick = kick;
+    kick.components = vec![
+        sub("a", "Rotational.Inertia", &[("J", c(1.0))]),
+        sub("b", "Rotational.Inertia", &[("J", c(2.0))]),
+    ];
+    kick.connections = vec![connect("a.b", "b.a")];
+    let lib = with(vec![kick]);
+    let top = model(vec![labelled(sub("k", "Faults.Kick", &[]), "Shaft")], &[]);
+    expect_in(&lib, &top, "REINIT-NOT-STATE", &["k"], Severity::Error);
+}

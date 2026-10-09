@@ -43,6 +43,7 @@ pub mod modes;
 pub mod numeric;
 pub mod params;
 pub mod pipeline;
+pub mod reinit;
 pub mod sparsity;
 pub mod structure;
 pub mod symbolic;

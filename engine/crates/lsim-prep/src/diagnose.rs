@@ -27,6 +27,7 @@
 //! | `INIT-OVER` | initial equations that contradict the model or each other |
 //! | `INIT-START-IGNORED` | a fixed start value the model cannot meet (warning) |
 //! | `STATE-SELECT-SINGULAR` | no fixed choice of states works at the start (index reduction) |
+//! | `REINIT-NOT-STATE` | `reinit` of something that is not a state, or cannot stay one |
 //! | `INVERSE-OVER`, `INVERSE-UNDER` | fast mode's prescription over- or under-determines the model |
 //! | `STRUCT-OVER`, `STRUCT-UNDER` | anything else structurally singular |
 

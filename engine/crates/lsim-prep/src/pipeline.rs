@@ -13,7 +13,7 @@ use crate::graph::{Bipartite, NONE, hopcroft_karp};
 use crate::index::{self, IndexFault};
 use crate::init::{self, InitBuild, RowKind};
 use crate::system::{NodeEnv, NodeKind, Sys};
-use crate::{alias, external, inverse, key, modes, numeric, sparsity, units_check};
+use crate::{alias, external, inverse, key, modes, numeric, reinit, sparsity, units_check};
 use lsim_ir::component::{ComponentDef, Library};
 use lsim_ir::eval::eval;
 use lsim_ir::expr::{CmpOp, Expr};
@@ -226,6 +226,7 @@ pub fn run(
     };
     let aliases = alias::eliminate_with(&mut flat, &input);
     clock.lap("aliases");
+    let restarted = reinit::apply(&mut flat, &mut extras.start, &aliases)?;
     let limits_flat = if spec.is_some() { inverse::pass_limits(&mut flat) } else { vec![] };
     let flat_modes = modes::extract(&mut flat);
     let nv = flat.vars.len();
@@ -337,17 +338,6 @@ pub fn run(
                 d.parts = parts_of(&flat, std::iter::once(w.origin.instance));
                 diags.push(d);
             }
-        }
-        if !w.reinit.is_empty() {
-            let mut d = Diagnostic::error(
-                "NOT-YET",
-                format!(
-                    "{}: reinit in a when-clause is not supported yet.",
-                    flat.instance_name(w.origin.instance)
-                ),
-            );
-            d.parts = parts_of(&flat, std::iter::once(w.origin.instance));
-            diags.push(d);
         }
         node_whens.push(NodeWhen {
             crossing: fixed_expr(&sys, &f, "an event condition", &w.origin, &mut diags),
@@ -618,24 +608,26 @@ pub fn run(
     clock.lap("start");
 
     // dummy derivatives
-    let fixed_node: Vec<bool> = sys
+    // how strongly to keep each node a state: a restarted state's
+    // continuous part above all (reinit needs it), then a fixed start
+    let mut keep_node: Vec<u8> = sys
         .nodes
         .iter()
-        .map(|n| n.order == 0 && flat.var(n.var).fixed && flat.var(n.var).start.is_some())
+        .map(|n| u8::from(n.order == 0 && flat.var(n.var).fixed && flat.var(n.var).start.is_some()))
         .collect();
+    for r in &restarted {
+        if let Some(nd) = sys.base[r.continuous.0 as usize] {
+            keep_node[nd] = 2;
+        }
+    }
     let (is_state, dummy) = if differentiated > 0 {
         let point = if solved.is_ok() { vals.clone() } else { generic_values(&sys, &flat) };
-        let sel = index::dummy_derivatives(&sys, &point, &pvals, &fixed_node)
+        let sel = index::dummy_derivatives(&sys, &point, &pvals, &keep_node)
             .or_else(|f| {
                 if solved.is_ok() {
                     Err(f)
                 } else {
-                    index::dummy_derivatives(
-                        &sys,
-                        &generic_values(&sys, &flat),
-                        &pvals,
-                        &fixed_node,
-                    )
+                    index::dummy_derivatives(&sys, &generic_values(&sys, &flat), &pvals, &keep_node)
                 }
             })
             .map_err(|f| vec![index_diag(&flat, &sys, f)])?;
@@ -644,6 +636,23 @@ pub fn run(
         (trivial_states, vec![false; nn])
     };
     report.dummy_derivatives = (0..nn).filter(|&n| dummy[n]).map(|n| sys.name(&flat, n)).collect();
+    // a restarted state must stay one
+    let lost: Vec<Diagnostic> = restarted
+        .iter()
+        .filter(|r| !sys.base[r.continuous.0 as usize].is_some_and(|nd| is_state[nd]))
+        .map(|r| {
+            reinit::not_state(
+                &flat,
+                r.var,
+                &r.origin,
+                "it is rigidly tied to other states, and index reduction had to make it follow \
+                 from them",
+            )
+        })
+        .collect();
+    if !lost.is_empty() {
+        return Err(lost);
+    }
     clock.lap("states");
 
     // the model: sorted, torn, solved

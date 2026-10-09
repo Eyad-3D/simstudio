@@ -201,14 +201,14 @@ pub struct Selection {
 
 /// Chooses the dummy derivatives after [`pantelides`]. `vals` are node
 /// values at the initial point (or generic values when the initial point
-/// is not known), `params` the parameter values, `fixed[n]` whether node
-/// `n`'s start value is fixed (such variables are kept as states when
-/// there is a choice).
+/// is not known), `params` the parameter values, `keep[n]` how strongly
+/// node `n` is kept a state when there is a choice (2: the continuous part
+/// of a state `reinit` restarts, 1: a fixed start value, 0: neither).
 pub fn dummy_derivatives(
     sys: &Sys,
     vals: &[f64],
     params: &[f64],
-    fixed: &[bool],
+    keep: &[u8],
 ) -> Result<Selection, IndexFault> {
     let n_nodes = sys.nodes.len();
     let mut dummy = vec![false; n_nodes];
@@ -257,17 +257,35 @@ pub fn dummy_derivatives(
                 }
             }
             // choosing a dummy demotes the node it is the derivative of:
-            // prefer to demote nodes without a fixed start, then derivative
-            // nodes (keeping declared variables as states), then later
-            // variables
-            let pref: Vec<(bool, u32, u32)> = col_nodes
+            // prefer to demote nodes kept least strongly (a restarted
+            // state's continuous part most, then a fixed start), then
+            // derivative nodes (keeping declared variables as states),
+            // then later variables
+            let pref: Vec<(u8, u32, u32)> = col_nodes
                 .iter()
                 .map(|&nd| {
                     let i = sys.nodes[nd].integral.unwrap_or(nd);
-                    (!fixed[i], sys.nodes[i].order, sys.nodes[nd].var.0)
+                    (u8::MAX - keep[i], sys.nodes[i].order, sys.nodes[nd].var.0)
                 })
                 .collect();
-            match select_columns(&m, &pref) {
+            // a column kept above all (a restarted state's) is chosen only
+            // when no regular choice avoids it
+            let strong: Vec<bool> = col_nodes
+                .iter()
+                .map(|&nd| keep[sys.nodes[nd].integral.unwrap_or(nd)] >= 2)
+                .collect();
+            let selected = if strong.contains(&true) {
+                let masked: Vec<Vec<f64>> = m
+                    .iter()
+                    .map(|row| {
+                        row.iter().zip(&strong).map(|(&x, &s)| if s { 0.0 } else { x }).collect()
+                    })
+                    .collect();
+                select_columns(&masked, &pref).or_else(|| select_columns(&m, &pref))
+            } else {
+                select_columns(&m, &pref)
+            };
+            match selected {
                 Some(sel) => chosen_all.extend(sel.into_iter().map(|c| col_nodes[c])),
                 None => {
                     return Err(IndexFault::Singular { eqs: rows.clone(), nodes: col_nodes });
