@@ -38,7 +38,8 @@ pub mod sweep;
 pub use accuracy::{AccuracyReport, ChannelChange, accuracy_check, compare_runs};
 pub use energy::{EnergyBooks, PartBooks};
 pub use info::{
-    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, InputChain, ModeInfo, RunInfo, VarSource,
+    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, InputChain, ModeInfo, RunInfo, TimeCrossing,
+    VarSource,
 };
 pub use recorder::Recorder;
 pub use run::run_loop;
@@ -339,6 +340,12 @@ pub trait Integrator {
     /// 0: none): the run loop sets it after every event so a function that
     /// rests at zero after its crossing (a held value) does not fire again.
     fn set_root_sides(&mut self, _sides: &[f64]) {}
+    /// The root functions the integrator must not watch (true): the run
+    /// loop schedules them itself as exact time events. A backend that
+    /// watches every root function must say so (false).
+    fn set_root_mask(&mut self, mask: &[bool]) -> bool {
+        !mask.iter().any(|m| *m)
+    }
     /// The method now in use, for the report.
     fn method(&self) -> String {
         "BDF".into()

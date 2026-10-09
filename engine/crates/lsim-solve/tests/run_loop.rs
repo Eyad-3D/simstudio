@@ -5,11 +5,12 @@
 //! events located exactly; the momentum kept at a change of a rigid
 //! coupling.
 
+use lsim_ir::expr::Expr;
 use lsim_ir::prepared::Direction;
 use lsim_ir::runtime::{DiscreteBlock, EvalInput, Layout, ModelFunctions};
 use lsim_solve::{
     Backend, BlockInfo, EventKind, ModeInfo, OutputGrid, RunInfo, SimResult, SolverOptions,
-    VarSource, simulate,
+    TimeCrossing, VarSource, simulate,
 };
 
 type F = Box<dyn Fn(&EvalInput<'_>, &mut [f64]) + Send + Sync>;
@@ -518,4 +519,99 @@ fn a_slight_change_at_a_tick_needs_no_restart() {
     // a changing tick makes the next tick a stop time: a step ends at each
     // of the 200 ticks; restarting at each would take several more
     assert!(run.stats.steps < 300, "{} steps", run.stats.steps);
+}
+
+/// `when time >= 1`: a time event, reached exactly as a stop time (root
+/// finding lands a few ulps after it), and the output point at 1 shows the
+/// value just after it.
+#[test]
+fn a_when_on_time_fires_exactly_at_its_time() {
+    // y' = d; when time >= 1: d := 1 (the crossing: time - 1)
+    let model = Hand {
+        layout: layout(1, 0, 0, 1, 1, 1, 2),
+        f: Box::new(|i, out| out[0] = i.d[0]),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(|i, out| out[0] = i.t - 1.0),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+        }),
+        when: Box::new(|_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = 1.0;
+            }
+        }),
+        modes: None,
+        y0: vec![0.0],
+        d0: vec![0.0],
+    };
+    let mut info = RunInfo::bare(1, 2, vec![]);
+    info.root_dirs = vec![1];
+    whens(&mut info, &[(0, Direction::Rising, "'Step': on")]);
+    info.time_crossings = vec![Some(TimeCrossing { at: Expr::Const(1.0), rising: true })];
+    for backend in backends() {
+        let opts = SolverOptions { backend, rtol: 1e-9, atol: 1e-12, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.25 };
+        let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+        let fired: Vec<f64> =
+            run.events.iter().filter(|e| e.kind == EventKind::When(0)).map(|e| e.t).collect();
+        assert_eq!(fired, [1.0], "{backend:?}: exactly at 1: {:?}", run.events);
+        assert_eq!(run.values[1][at(&run, 1.0)], 1.0, "{backend:?}: after the event at 1");
+        assert_eq!(run.values[1][at(&run, 0.75)], 0.0, "{backend:?}");
+        for (k, t) in run.times.iter().enumerate() {
+            let exact = (t - 1.0).max(0.0);
+            assert!((run.values[0][k] - exact).abs() < 1e-9, "{backend:?} t = {t}");
+        }
+    }
+}
+
+/// A mode of `time > 1` (false at 1 exactly, true right after) switches at
+/// 1 exactly, and the output point at 1 shows its value just after.
+#[test]
+fn a_mode_on_time_switches_exactly_at_its_time() {
+    // y' = m, m: time > 1 (crossing time - 1; its falling copy too)
+    let model = Hand {
+        layout: layout(1, 0, 0, 1, 2, 2, 2),
+        f: Box::new(|i, out| out[0] = i.d[0]),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(|i, out| {
+            out[0] = i.t - 1.0;
+            out[1] = i.t - 1.0;
+        }),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+        }),
+        when: Box::new(|_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = 1.0;
+            }
+            if fired[1] != 0.0 {
+                d[0] = 0.0;
+            }
+        }),
+        modes: Some(Box::new(|i, _, d| d[0] = if i.t > 1.0 { 1.0 } else { 0.0 })),
+        y0: vec![0.0],
+        d0: vec![0.0],
+    };
+    let mut info = RunInfo::bare(1, 2, vec![]);
+    info.root_dirs = vec![1, -1];
+    whens(&mut info, &[(0, Direction::Rising, "on"), (1, Direction::Falling, "off")]);
+    info.modes = vec![ModeInfo { crossing: 0, discrete: 0, label: "'Timer': on".into() }];
+    let tc = Some(TimeCrossing { at: Expr::Const(1.0), rising: true });
+    info.time_crossings = vec![tc.clone(), tc];
+    for backend in backends() {
+        let opts = SolverOptions { backend, rtol: 1e-9, atol: 1e-12, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.25 };
+        let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+        let flips: Vec<f64> = run
+            .events
+            .iter()
+            .filter(|e| matches!(e.kind, EventKind::Mode(_)))
+            .map(|e| e.t)
+            .collect();
+        assert_eq!(flips, [1.0], "{backend:?}: {:?}", run.events);
+        assert_eq!(run.values[1][at(&run, 1.0)], 1.0, "{backend:?}");
+        assert!((run.values[0].last().unwrap() - 1.0).abs() < 1e-9, "{backend:?}");
+    }
 }

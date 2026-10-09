@@ -58,6 +58,8 @@ struct Problem {
     /// 0: none), so a function resting at zero after its event does not
     /// fire again
     zero_side: Vec<f64>,
+    /// root functions not watched (time events the run loop schedules)
+    root_mask: Vec<bool>,
     /// table guards watched after the model's own root functions
     n_guards: usize,
 }
@@ -194,7 +196,7 @@ unsafe extern "C" fn cv_root(t: f64, y: N_Vector, g: *mut f64, ud: *mut c_void) 
         if pr.n_guards > 0 {
             m.table_guards(&inp, &mut pr.work, &mut g[nr..]);
         }
-        crate::run::apply_zero_sides(g, &pr.zero_side);
+        crate::run::apply_zero_sides(g, &pr.zero_side, &pr.root_mask);
     }
     0
 }
@@ -467,6 +469,7 @@ impl<'m> Sundials<'m> {
             lin,
             quad,
             zero_side: vec![0.0; layout.n_roots + model.table_guard_list().len()],
+            root_mask: vec![],
             n_guards: model.table_guard_list().len(),
         });
         // SAFETY: plain SUNDIALS set-up; every object is freed in `Drop`.
@@ -1040,6 +1043,11 @@ impl Integrator for Sundials<'_> {
 
     fn set_root_sides(&mut self, sides: &[f64]) {
         self.prob.zero_side.copy_from_slice(sides);
+    }
+
+    fn set_root_mask(&mut self, mask: &[bool]) -> bool {
+        self.prob.root_mask = mask.to_vec();
+        true
     }
 
     fn restart(&mut self, t: f64, y: &[f64]) -> Result<(), SolveError> {

@@ -487,3 +487,42 @@ fn the_homotopy_initialises_what_newton_alone_cannot() {
     assert!(out.homotopy_steps > 0, "Newton alone should not have made it");
     assert!((y[0] - 3.0).abs() < 1e-8);
 }
+
+/// A `when time >= t_step` of a prepared model (the library's step) is a
+/// time event the run loop reaches exactly: the step happens at t_step,
+/// not a few ulps after it, and the output point there shows it.
+#[test]
+fn a_prepared_step_in_time_happens_exactly_at_its_time() {
+    use lsim_ir::component::build::{connect, sub};
+    use lsim_ir::expr::c;
+    let top = lsim_ir::ComponentDef {
+        name: "StepAndSpin".into(),
+        components: vec![
+            sub("step", "Signal.Step", &[("y0", c(0.0)), ("y1", c(1.0)), ("t_step", c(0.5))]),
+            sub("drive", "Rotational.ConstantTorque", &[("tau", c(2.0))]),
+            sub("rotor", "Rotational.Inertia", &[("J", c(1.0))]),
+        ],
+        connections: vec![connect("drive.flange", "rotor.a")],
+        ..Default::default()
+    };
+    let built = common::build(&common::library(), &top, false);
+    assert!(
+        built.info.time_crossings.iter().any(Option::is_some),
+        "the step's crossing is a time crossing"
+    );
+    for backend in backends() {
+        let opts = SolverOptions { backend, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.125 };
+        let run = simulate(&built.jit, &built.info, &opts, grid, &mut []).unwrap();
+        let steps: Vec<f64> = run
+            .events
+            .iter()
+            .filter(|e| matches!(e.kind, EventKind::When(_)))
+            .map(|e| e.t)
+            .collect();
+        assert_eq!(steps, [0.5], "{backend:?}: {:?}", run.events);
+        let y = run.channel("step.y").unwrap();
+        let k = run.times.iter().position(|t| *t == 0.5).expect("0.5 on the grid");
+        assert_eq!((y[k - 1], y[k]), (0.0, 1.0), "{backend:?}: the output at 0.5 is after it");
+    }
+}

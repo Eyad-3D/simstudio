@@ -20,7 +20,16 @@
 //!   (the IR has no `initial()`). A sample tick at the start time is an
 //!   event after the initialisation like any other.
 //! * **Time events** ([`RunInfo::time_events`]) are reached exactly as stop
-//!   times and restart the integrator.
+//!   times and restart the integrator. So are **time crossings**
+//!   ([`RunInfo::time_crossings`]): a zero-crossing function that depends
+//!   on time only between events (`when time >= t_shift`, a mode of `if
+//!   time > t_on`) is not left to root finding, which lands a few ulps
+//!   after it; the run loop computes its time from the parameters and
+//!   discrete values, stops there exactly and fires it in its direction.
+//!   Its modes take their values just after the instant (`time > t1` is
+//!   true from the event at `t1` on). At every scheduled event (and at a
+//!   root) sample ticks due at that instant join the event, and an output
+//!   point there shows the values just after it.
 //! * **Sampled blocks** ([`DiscreteBlock`], DESIGN.md risk R1) tick at
 //!   `offset + k·period`. A tick that falls inside a step is evaluated on
 //!   the dense output; if its outputs did not change, nothing else happens
@@ -113,6 +122,14 @@ struct Loop<'a> {
     /// the event being handled was scheduled (a sample tick, a time event):
     /// the mode changes and `when`s it causes are no state events
     scheduled: bool,
+    /// per root function that depends on time only: the time it next
+    /// crosses zero, scheduled exactly (NaN: not ahead)
+    t_star: Vec<f64>,
+    /// per root function: it crosses at this instant, as scheduled (its
+    /// modes take their values just after it)
+    crossing_now: Vec<bool>,
+    /// the backend leaves the time crossings to the run loop
+    use_timed: bool,
 }
 
 /// Whether two times are one instant to the integrators: closer than a
@@ -123,12 +140,18 @@ pub(crate) fn same_instant(a: f64, b: f64) -> bool {
 }
 
 /// Maps an exact zero of a root function to the side it counts as, so a
-/// function resting at zero after its event does not fire again (the
+/// function resting at zero after its event does not fire again, and holds
+/// the masked ones (time events the run loop schedules) at a constant (the
 /// backends call this on every evaluation of the root functions).
-pub(crate) fn apply_zero_sides(g: &mut [f64], sides: &[f64]) {
+pub(crate) fn apply_zero_sides(g: &mut [f64], sides: &[f64], mask: &[bool]) {
     for (g, s) in g.iter_mut().zip(sides) {
         if *g == 0.0 && *s != 0.0 {
             *g = *s * f64::MIN_POSITIVE;
+        }
+    }
+    for (g, m) in g.iter_mut().zip(mask) {
+        if *m {
+            *g = 1.0;
         }
     }
 }
@@ -181,6 +204,7 @@ impl Loop<'_> {
         let before = d.to_vec();
         let inp = EvalInput { t, y, p: &self.info.params, d: &before, u: self.u };
         self.model.modes(&inp, &mut self.work, d);
+        self.right_limits(d);
         let mut changed = false;
         for k in 0..self.info.modes.len() {
             let i = self.info.modes[k].discrete;
@@ -190,6 +214,44 @@ impl Loop<'_> {
             }
         }
         Ok(changed)
+    }
+
+    /// The modes of time crossings that cross at this instant, as
+    /// scheduled, take their values just after it (a relation `time > t1`
+    /// is false at `t1` exactly, true right after: the event at `t1` is
+    /// where it becomes true; `time >= t1` agrees).
+    fn right_limits(&self, d: &mut [f64]) {
+        for m in &self.info.modes {
+            if self.crossing_now.get(m.crossing).copied().unwrap_or(false) {
+                let rising =
+                    self.info.time_crossings[m.crossing].as_ref().is_some_and(|c| c.rising);
+                d[m.discrete] = if rising { 1.0 } else { 0.0 };
+            }
+        }
+    }
+
+    /// Whether root function `c` is a time crossing the run loop schedules.
+    fn timed(&self, c: usize) -> bool {
+        self.use_timed && self.info.time_crossings.get(c).is_some_and(|x| x.is_some())
+    }
+
+    /// The next crossing time of every time crossing, from the parameters
+    /// and the discrete values now (the channels just sampled at `t`).
+    fn schedule(&mut self, t: f64) {
+        if !self.use_timed {
+            return;
+        }
+        for (k, tc) in self.info.time_crossings.iter().enumerate() {
+            self.t_star[k] = match tc {
+                Some(tc) => {
+                    let env =
+                        crate::info::ChannelEnv { t, vars: &self.vars, params: &self.info.params };
+                    let at = lsim_ir::eval::eval(&tc.at, &env);
+                    if at > t { at } else { f64::NAN }
+                }
+                None => f64::NAN,
+            };
+        }
     }
 
     /// The model's asserts on the channels just sampled.
@@ -424,6 +486,9 @@ impl Loop<'_> {
                 }
             }
             for (k, m) in info.modes.iter().enumerate() {
+                if self.crossing_now.get(m.crossing).copied().unwrap_or(false) {
+                    continue;
+                }
                 let g = self.roots[m.crossing];
                 let want = if g > 0.0 {
                     1.0
@@ -560,9 +625,13 @@ impl Loop<'_> {
             let before = d.to_vec();
             let inp = EvalInput { t, y, p: &self.info.params, d: &before, u: self.u };
             self.model.modes(&inp, &mut self.work, d);
+            self.right_limits(d);
             self.eval_roots(t, y, d, false);
             let mut again = false;
             for m in &self.info.modes {
+                if self.crossing_now.get(m.crossing).copied().unwrap_or(false) {
+                    continue;
+                }
                 let g = self.roots[m.crossing];
                 let want = if g > 0.0 {
                     1.0
@@ -688,6 +757,9 @@ pub fn run_loop(
         warned: vec![false; info.asserts.len()],
         warnings: vec![],
         scheduled: false,
+        t_star: vec![f64::NAN; info.time_crossings.len()],
+        crossing_now: vec![false; l.n_roots],
+        use_timed: false,
     };
     let p = &info.params;
     let mut y = vec![0.0; n];
@@ -784,8 +856,24 @@ pub fn run_loop(
     // the start: modes from their conditions, blocks' initial outputs
     y.copy_from_slice(integ.y());
     let mut t = grid.t0;
+    // time crossings: the integrator leaves them to the run loop, which
+    // reaches each exactly as a stop time
+    if info.time_crossings.iter().any(Option::is_some) {
+        let mut mask = vec![false; lp.sides.len()];
+        for (k, tc) in info.time_crossings.iter().enumerate() {
+            mask[k] = tc.is_some();
+        }
+        lp.use_timed = integ.set_root_mask(&mask);
+    }
     {
         let d_before = d.clone();
+        // a time crossing exactly at the start: its modes start with their
+        // values just after it (a condition true from the start)
+        lp.sample(t, &y, &d);
+        lp.schedule(t - t.abs().max(1.0));
+        for k in 0..lp.t_star.len() {
+            lp.crossing_now[k] = lp.t_star[k] == t;
+        }
         lp.settle_modes(t, &y, &mut d)?;
         lp.sample(t, &y, &d);
         for (b, blk) in blocks.iter_mut().enumerate() {
@@ -815,8 +903,11 @@ pub fn run_loop(
             integ.restart(t, &y)?;
             y.copy_from_slice(integ.y());
         }
+        lp.crossing_now.fill(false);
     }
     lp.sample(t, &y, &d);
+    lp.schedule(t);
+    let mut scheduled_for = d.clone();
     rec.start(t, &lp.vars);
     if let Some(lg) = ledger.as_mut() {
         lg.start(t, &lp.vars, p);
@@ -845,9 +936,19 @@ pub fn run_loop(
     let mut yk = vec![0.0; n];
 
     while t < t_end {
+        // the time crossings' times move only when a discrete value does
+        if d != scheduled_for {
+            lp.schedule(t);
+            scheduled_for.copy_from_slice(&d);
+        }
         let mut t_stop = t_end;
         if let Some(&te) = info.time_events.get(next_time_event) {
             t_stop = t_stop.min(te);
+        }
+        for &ts in &lp.t_star {
+            if ts > t {
+                t_stop = t_stop.min(ts);
+            }
         }
         for c in &clocks {
             if c.stop_next {
@@ -862,6 +963,14 @@ pub fn run_loop(
         let st = if same { Step::Stopped(t_stop) } else { integ.step(t_stop)? };
         let t_new = st.time();
         let is_root = matches!(st, Step::Root(..));
+        // a scheduled event at the step's end: a time event, a time
+        // crossing; ticks and the output point there join its event (the
+        // output point takes the value just after it)
+        let stopped = matches!(st, Step::Stopped(_));
+        let at_time_event =
+            stopped && info.time_events.get(next_time_event).is_some_and(|&te| te == t_new);
+        let crossing_due = stopped && lp.t_star.contains(&t_new);
+        let event_now = is_root || at_time_event || crossing_due;
 
         // the integrator's error estimate
         if !same && integ.local_error(&mut local) {
@@ -883,11 +992,11 @@ pub fn run_loop(
         // go on: the point after it (recorded already)
         let mut resumed: Option<Vec<f64>> = None;
         loop {
-            let tg = rec.next_grid_time().filter(|&g| g < t_new || (g == t_new && !is_root));
+            let tg = rec.next_grid_time().filter(|&g| g < t_new || (g == t_new && !event_now));
             let mut tick: Option<(usize, f64)> = None;
             for (b, c) in clocks.iter().enumerate() {
                 let tk = c.next();
-                if (tk < t_new || (tk == t_new && !is_root)) && tick.is_none_or(|(_, x)| tk < x) {
+                if (tk < t_new || (tk == t_new && !event_now)) && tick.is_none_or(|(_, x)| tk < x) {
                     tick = Some((b, tk));
                 }
             }
@@ -994,11 +1103,12 @@ pub fn run_loop(
 
         // a mode its condition no longer agrees with (one that left zero
         // right after a restart, where root finding cannot see it)
-        if !is_root && !info.modes.is_empty() {
+        if !event_now && !info.modes.is_empty() {
             lp.eval_roots(t, &y, &d, false);
             let stale = info.modes.iter().any(|m| {
                 let g = lp.roots[m.crossing];
-                (g > 0.0 && d[m.discrete] == 0.0) || (g < 0.0 && d[m.discrete] != 0.0)
+                !lp.timed(m.crossing)
+                    && ((g > 0.0 && d[m.discrete] == 0.0) || (g < 0.0 && d[m.discrete] != 0.0))
             });
             if stale {
                 let before = ledger.as_mut().map(|lg| lg.before_event(t, &lp.vars, p));
@@ -1015,15 +1125,13 @@ pub fn run_loop(
             }
         }
 
-        let at_time_event = matches!(st, Step::Stopped(_))
-            && info.time_events.get(next_time_event).is_some_and(|&te| te == t_new);
-        if is_root || at_time_event {
+        if event_now {
             let before_vars = lp.vars.clone();
             let before = ledger.as_mut().map(|lg| lg.before_event(t, &before_vars, p));
-            // ticks due exactly at a root join its event
+            // ticks due exactly at the event join it
             let d_pre = d.clone();
             let mut changed = false;
-            if is_root {
+            {
                 for (b, c) in clocks.iter_mut().enumerate() {
                     if c.next() == t {
                         report.block_ticks += 1;
@@ -1054,19 +1162,40 @@ pub fn run_loop(
                     }
                 }
             }
-            let dirs = match &st {
-                Step::Root(_, dirs) => Some(dirs.as_slice()),
+            // the time crossings due now cross as scheduled: in their
+            // direction, exactly here
+            let timed_dirs: Option<Vec<i32>> = crossing_due.then(|| {
+                let mut v = vec![0; lp.sides.len()];
+                for (k, &ts) in lp.t_star.iter().enumerate() {
+                    if ts == t {
+                        lp.crossing_now[k] = true;
+                        let rising = info.time_crossings[k].as_ref().is_some_and(|c| c.rising);
+                        v[k] = if rising { 1 } else { -1 };
+                    }
+                }
+                v
+            });
+            let dirs = match (&st, &timed_dirs) {
+                (Step::Root(_, dirs), _) => Some(dirs.as_slice()),
+                (_, Some(v)) => Some(v.as_slice()),
                 _ => None,
             };
-            if let Some(dirs) = dirs {
+            if is_root && let Some(dirs) = dirs {
                 lp.guard_crossings(t, dirs)?;
             }
-            // a time event is scheduled; a root (with any ticks at its
-            // instant) is a state event
+            // a time event or crossing is scheduled; a root (with any ticks
+            // at its instant) is a state event
             lp.scheduled = !is_root;
             let it = lp.iterate(integ, t, &mut y, &mut d, &d_pre, dirs);
             lp.scheduled = false;
             changed |= it?;
+            if crossing_due {
+                for k in 0..lp.t_star.len() {
+                    if lp.t_star[k] == t {
+                        lp.t_star[k] = f64::NAN;
+                    }
+                }
+            }
             if at_time_event {
                 while info.time_events.get(next_time_event).is_some_and(|&te| te <= t) {
                     lp.record(t, crate::EventKind::Time(next_time_event))?;
@@ -1075,6 +1204,7 @@ pub fn run_loop(
                 changed = true;
             }
             lp.update_sides(t, &y, &d, dirs);
+            lp.crossing_now.fill(false);
             integ.set_root_sides(&lp.sides);
             if changed {
                 integ.discrete_mut().copy_from_slice(&d);

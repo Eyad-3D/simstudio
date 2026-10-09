@@ -28,6 +28,21 @@ pub struct ModeInfo {
     pub label: String,
 }
 
+/// A zero-crossing function that depends on time only, between events:
+/// `rate · (t − at)` with a constant rate and `at` an expression of
+/// parameters and discrete variables (a `when time >= t_shift`, a mode of
+/// `if time > t_on`). The run loop schedules it as a time event at `at`,
+/// reached exactly as a stop time, instead of locating it by root finding
+/// (which lands a few ulps after it, so an output at exactly `at` would
+/// show the value before the event).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TimeCrossing {
+    /// when it crosses zero (flat scope: parameters, discrete variables)
+    pub at: Expr,
+    /// it rises through zero as time passes (its rate is positive)
+    pub rising: bool,
+}
+
 /// Where a sampled block (a [`lsim_ir::DiscreteBlock`]) reads and writes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlockInfo {
@@ -157,6 +172,10 @@ pub struct RunInfo {
     pub table_names: Vec<String>,
     /// for each residual of the initialisation system: the equation it is
     pub init_labels: Vec<String>,
+    /// for each zero-crossing function that depends on time only between
+    /// events: when it crosses (empty, or `None` for the others: located
+    /// by root finding)
+    pub time_crossings: Vec<Option<TimeCrossing>>,
     /// whether a zero-crossing function, a mode's relation or a `when`'s
     /// assigned value reads an iteration variable (through the
     /// assignments): event iteration then solves the iteration variables
@@ -188,6 +207,7 @@ impl RunInfo {
             asserts: vec![],
             table_names: vec![],
             init_labels: vec![],
+            time_crossings: vec![],
             events_read_z: true,
         }
     }
@@ -284,6 +304,11 @@ impl RunInfo {
                 .collect(),
             table_names: flat.tables.iter().map(|t| t.name.clone()).collect(),
             init_labels: m.init.residuals.iter().map(|r| labelled(&r.origin)).collect(),
+            time_crossings: {
+                let discrete: std::collections::HashSet<VarId> =
+                    m.discretes.iter().copied().collect();
+                m.zero_crossings.iter().map(|z| time_crossing(&z.expr, &discrete)).collect()
+            },
             events_read_z: events_read_z(m),
         }
     }
@@ -293,6 +318,100 @@ impl RunInfo {
     /// consistent vector.
     pub fn with_params(&self, params: &[f64]) -> RunInfo {
         RunInfo { params: params.to_vec(), ..self.clone() }
+    }
+}
+
+/// The crossing time of `f` when it is `c · time + b` with a constant
+/// `c ≠ 0` and `b` free of time and of continuous variables: `at = −b / c`
+/// (written so that `time − t1` gives `t1` exactly).
+pub fn time_crossing(
+    f: &Expr,
+    discrete: &std::collections::HashSet<VarId>,
+) -> Option<TimeCrossing> {
+    let (c, b) = time_affine(f, discrete)?;
+    if c == 0.0 || !c.is_finite() {
+        return None;
+    }
+    let at = if c == 1.0 {
+        neg(b)
+    } else if c == -1.0 {
+        b
+    } else {
+        Expr::Binary(lsim_ir::expr::BinaryOp::Div, Box::new(neg(b)), Box::new(Expr::Const(c)))
+    };
+    Some(TimeCrossing { at, rising: c > 0.0 })
+}
+
+fn neg(e: Expr) -> Expr {
+    match e {
+        Expr::Neg(a) => *a,
+        Expr::Const(v) => Expr::Const(-v),
+        e => Expr::Neg(Box::new(e)),
+    }
+}
+
+/// `e` as `c · time + b` (c a constant, b free of time and of continuous
+/// variables), if it is one.
+fn time_affine(e: &Expr, discrete: &std::collections::HashSet<VarId>) -> Option<(f64, Expr)> {
+    use lsim_ir::expr::BinaryOp::*;
+    let timeless = |e: &Expr| {
+        !e.any(&mut |x| match x {
+            Expr::Time | Expr::Der(_) | Expr::Name(_) => true,
+            Expr::Var(v) | Expr::Pre(v) => !discrete.contains(v),
+            _ => false,
+        })
+    };
+    if timeless(e) {
+        return Some((0.0, e.clone()));
+    }
+    let add = |a: Expr, b: Expr, minus: bool| -> Expr {
+        match (a, b) {
+            (a, Expr::Const(0.0)) => a,
+            (Expr::Const(0.0), b) => {
+                if minus {
+                    neg(b)
+                } else {
+                    b
+                }
+            }
+            (a, b) => Expr::Binary(if minus { Sub } else { Add }, Box::new(a), Box::new(b)),
+        }
+    };
+    match e {
+        Expr::Time => Some((1.0, Expr::Const(0.0))),
+        Expr::Neg(a) => {
+            let (c, b) = time_affine(a, discrete)?;
+            Some((-c, neg(b)))
+        }
+        Expr::Binary(op @ (Add | Sub), a, b) => {
+            let (ca, ea) = time_affine(a, discrete)?;
+            let (cb, eb) = time_affine(b, discrete)?;
+            let minus = *op == Sub;
+            Some((if minus { ca - cb } else { ca + cb }, add(ea, eb, minus)))
+        }
+        Expr::Binary(Mul, a, b) => {
+            let (ca, ea) = time_affine(a, discrete)?;
+            let (cb, eb) = time_affine(b, discrete)?;
+            match (ca == 0.0, cb == 0.0, &ea, &eb) {
+                (true, false, Expr::Const(k), _) => {
+                    Some((k * cb, Expr::Binary(Mul, Box::new(Expr::Const(*k)), Box::new(eb))))
+                }
+                (false, true, _, Expr::Const(k)) => {
+                    Some((ca * k, Expr::Binary(Mul, Box::new(ea), Box::new(Expr::Const(*k)))))
+                }
+                _ => None,
+            }
+        }
+        Expr::Binary(Div, a, b) => {
+            let (ca, ea) = time_affine(a, discrete)?;
+            match time_affine(b, discrete)? {
+                (cb, Expr::Const(k)) if cb == 0.0 && k != 0.0 => {
+                    Some((ca / k, Expr::Binary(Div, Box::new(ea), Box::new(Expr::Const(k)))))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
     }
 }
 
@@ -661,5 +780,43 @@ impl Env for ChannelEnv<'_> {
     }
     fn param(&self, p: ParamId) -> f64 {
         self.params[p.0 as usize]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lsim_ir::expr::BinaryOp;
+
+    fn bin(op: BinaryOp, a: Expr, b: Expr) -> Expr {
+        Expr::Binary(op, Box::new(a), Box::new(b))
+    }
+
+    #[test]
+    fn a_crossing_affine_in_time_becomes_a_time_event() {
+        let discrete: std::collections::HashSet<VarId> = [VarId(1)].into_iter().collect();
+        let p = || Expr::Param(ParamId(0));
+        let env = lsim_ir::eval::SliceEnv { t: 0.0, vars: &[0.0, 2.5], ders: &[], params: &[4.0] };
+        let at = |f: Expr| {
+            time_crossing(&f, &discrete).map(|c| (lsim_ir::eval::eval(&c.at, &env), c.rising))
+        };
+        // time - t1: exactly t1, rising
+        assert_eq!(at(bin(BinaryOp::Sub, Expr::Time, p())), Some((4.0, true)));
+        // t1 - time: falling
+        assert_eq!(at(bin(BinaryOp::Sub, p(), Expr::Time)), Some((4.0, false)));
+        // 2 time - t1, and time - (a discrete + t1)
+        assert_eq!(
+            at(bin(BinaryOp::Sub, bin(BinaryOp::Mul, Expr::Const(2.0), Expr::Time), p())),
+            Some((2.0, true))
+        );
+        assert_eq!(
+            at(bin(BinaryOp::Sub, Expr::Time, bin(BinaryOp::Add, Expr::Var(VarId(1)), p()))),
+            Some((6.5, true))
+        );
+        // a continuous variable, or time inside a function: root finding
+        assert_eq!(at(bin(BinaryOp::Sub, Expr::Time, Expr::Var(VarId(0)))), None);
+        assert_eq!(at(Expr::Call(lsim_ir::Builtin::Sin, vec![Expr::Time])), None);
+        // no time at all
+        assert_eq!(at(p()), None);
     }
 }
