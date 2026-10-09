@@ -1661,7 +1661,6 @@ fn grid_point(
 /// After a restart at an event: the right limit is recorded (and a grid
 /// point exactly at the event takes it), the stored-energy jump booked.
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 fn after_event(
     lp: &mut Loop<'_>,
     rec: &mut Recorder,
