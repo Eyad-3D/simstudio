@@ -6,7 +6,7 @@
 
 use crate::causal::{self, Ctx, ParamInfo, Sorted};
 use crate::diagnose::{
-    self, Structure, equation_words, info, local_name, parts_of, pretty, warning,
+    self, Quantity, Structure, equation_words, info, local_name, parts_of, pretty, warning,
 };
 use crate::flatten::{self, Extras};
 use crate::graph::{Bipartite, NONE, hopcroft_karp};
@@ -252,17 +252,42 @@ pub fn run(
     let fixed_expr =
         |sys: &Sys, e: &Expr, what: &str, origin: &Origin, diags: &mut Vec<Diagnostic>| {
             sys.from_flat_fixed(e).unwrap_or_else(|v| {
+                // the variables equal to it, as the model may have named
+                // any of them
+                let same: Vec<VarId> = std::iter::once(v)
+                    .chain(aliases.iter().filter_map(|a| match a.target {
+                        AliasTarget::Var { var, .. } if var == v => Some(a.var),
+                        _ => None,
+                    }))
+                    .collect();
                 let mut d = Diagnostic::error(
                     "DER-NOT-STATE",
                     format!(
-                        "{} reads der({}) in {what}, but nothing in the model makes {} change \
-                     continuously.",
+                        "{} reads the rate of change of {} in {what}, but nothing in the model \
+                         makes it change continuously.",
                         flat.instance_name(origin.instance),
-                        flat.var(v).name,
-                        local_name(&flat, v)
+                        if same.len() == 1 {
+                            local_name(&flat, v)
+                        } else {
+                            format!(
+                                "{} (the same as {})",
+                                local_name(&flat, v),
+                                same[1..]
+                                    .iter()
+                                    .take(4)
+                                    .map(|&x| local_name(&flat, x))
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            )
+                        }
                     ),
                 );
-                d.parts = parts_of(&flat, std::iter::once(origin.instance));
+                // the part that reads it, and the parts the variable is of
+                d.parts = parts_of(
+                    &flat,
+                    std::iter::once(origin.instance)
+                        .chain(same.iter().map(|&x| flat.var(x).instance)),
+                );
                 diags.push(d);
                 Expr::Const(0.0)
             })
@@ -517,6 +542,44 @@ pub fn run(
         let names: Vec<String> =
             parts.iter().map(|p| format!("'{}'", diagnose::label_of(&flat, p))).collect();
         if b.linear && ns.singular {
+            // what the singular block leaves undecided: the potentials of a
+            // circuit all moving together is a circuit with no ground
+            let rows: Vec<&Expr> = b.eqs.iter().map(|&k| ib.row(&sys, k)).collect();
+            let mut probe = vals.clone();
+            let free = numeric::null_direction(&rows, &b.nodes, &mut probe, &pvals, 0.0);
+            let floating = free.and_then(|x| {
+                let moving: Vec<usize> = (0..x.len()).filter(|&j| x[j].abs() > 1e-6).collect();
+                let together = moving.iter().all(|&j| (x[j] - x[moving[0]]).abs() < 1e-6);
+                let qs: BTreeSet<Quantity> = moving
+                    .iter()
+                    .map(|&j| {
+                        let node = &sys.nodes[b.nodes[j]];
+                        if node.order == 0 {
+                            diagnose::quantity(&flat, lib, node.var)
+                        } else {
+                            Quantity::Other
+                        }
+                    })
+                    .collect();
+                let across = qs.len() == 1
+                    && (qs.contains(&Quantity::Voltage)
+                        || qs.contains(&Quantity::Temperature)
+                        || qs.contains(&Quantity::Speed));
+                if together && across {
+                    diagnose::floating(&qs, &diagnose::join_names(&names))
+                } else {
+                    None
+                }
+            });
+            if let Some(mut d) = floating {
+                d.parts = parts;
+                d.detail = b
+                    .eqs
+                    .iter()
+                    .map(|&k| equation_words(&flat, ib.origin(&sys, &flat, k)))
+                    .collect();
+                return Err(vec![d]);
+            }
             let mut d = Diagnostic::error(
                 "SINGULAR-LOOP",
                 format!(

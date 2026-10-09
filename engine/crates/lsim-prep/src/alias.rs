@@ -64,6 +64,9 @@ enum Found {
     Pair(VarId, VarId, f64),
     /// a = value
     Const(VarId, f64),
+    /// 0 = 0: the equation says nothing (a closed network's last balance,
+    /// once its other balances made its currents aliases of each other)
+    Identity,
 }
 
 fn classify(lhs: &Expr, rhs: &Expr) -> Option<Found> {
@@ -96,6 +99,7 @@ fn classify(lhs: &Expr, rhs: &Expr) -> Option<Found> {
             Some(Found::Pair(*a, *b, -cb / ca))
         }
         [(a, ca)] => Some(Found::Const(*a, -k / ca)),
+        [] if k == 0.0 => Some(Found::Identity),
         _ => None,
     }
 }
@@ -163,7 +167,14 @@ pub fn eliminate_with(flat: &mut FlatSystem, known: &[bool]) -> Vec<AliasEntry> 
         let mut keep = Vec::with_capacity(flat.equations.len());
         for e in std::mem::take(&mut flat.equations) {
             let mut used = false;
-            match classify(&e.lhs, &e.rhs) {
+            let found = classify(&e.lhs, &e.rhs);
+            if let Some(Found::Identity) = found {
+                // dropped: it removes no unknown, and keeping it would hide
+                // the unknown it fails to decide (a circuit's missing
+                // ground) behind a numerically singular block
+                continue;
+            }
+            match found {
                 Some(Found::Pair(a, b, s))
                     if !discrete[a.0 as usize] && !discrete[b.0 as usize] =>
                 {

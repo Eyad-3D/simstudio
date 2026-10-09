@@ -61,7 +61,9 @@ pub fn quantity(flat: &FlatSystem, lib: &Library, v: VarId) -> Quantity {
     let (port, across) = match &var.role {
         VarRole::Across { port } => (port, true),
         VarRole::Through { port } => (port, false),
-        _ => return Quantity::Other,
+        // an internal variable (an inertia's own speed, which alias
+        // elimination keeps for the shaft): its unit says what it is
+        _ => return by_dimension(var.unit.dim),
     };
     let def = &flat.instance(var.instance).def;
     let connector =
@@ -78,6 +80,19 @@ pub fn quantity(flat: &FlatSystem, lib: &Library, v: VarId) -> Quantity {
         (Some("Flange" | "TFlange"), false) => Quantity::Torque,
         (Some("HeatPort"), true) => Quantity::Temperature,
         (Some("HeatPort"), false) => Quantity::Heat,
+        _ => Quantity::Other,
+    }
+}
+
+/// What a quantity is from its dimension alone.
+fn by_dimension(d: lsim_ir::units::Dim) -> Quantity {
+    match d.0 {
+        [2, 1, -3, -1, 0, 0, 0] => Quantity::Voltage,
+        [0, 0, 0, 1, 0, 0, 0] => Quantity::Current,
+        [0, 0, -1, 0, 0, 0, 0] | [1, 0, -1, 0, 0, 0, 0] => Quantity::Speed,
+        [2, 1, -2, 0, 0, 0, 0] | [1, 1, -2, 0, 0, 0, 0] => Quantity::Torque,
+        [0, 0, 0, 0, 1, 0, 0] => Quantity::Temperature,
+        [2, 1, -3, 0, 0, 0, 0] => Quantity::Heat,
         _ => Quantity::Other,
     }
 }
@@ -204,14 +219,23 @@ pub fn singular(s: &Structure<'_>) -> Vec<Diagnostic> {
             .collect();
         let setter_names = quoted(flat, &setters.iter().cloned().collect::<Vec<_>>());
         let only = |q: Quantity| qs.len() == 1 && qs.contains(&q);
-        let generic = format!(
-            "{} set the same quantity more than once: {} ({}) for {} ({}).",
-            join_names(&names),
-            count(rows.len(), "equation"),
-            words.join("; "),
-            count(cols.len(), "unknown"),
-            what.join(", ")
-        );
+        let generic = if cols.is_empty() {
+            format!(
+                "{} set the same quantity more than once: {} ({}) with nothing left to decide.",
+                join_names(&names),
+                count(rows.len(), "equation"),
+                words.join("; "),
+            )
+        } else {
+            format!(
+                "{} set the same quantity more than once: {} ({}) for {} ({}).",
+                join_names(&names),
+                count(rows.len(), "equation"),
+                words.join("; "),
+                count(cols.len(), "unknown"),
+                what.join(", ")
+            )
+        };
         let prescribed_involved = inverse && rows.iter().any(|&r| s.row_has_input[r]);
         let mut d = if inverse && prescribed_involved {
             Diagnostic::error(
@@ -296,7 +320,15 @@ pub fn singular(s: &Structure<'_>) -> Vec<Diagnostic> {
         let gt = s.graph.transpose();
         let (rows, cols) = under_part(s.graph, &gt, s.matching);
         let vars: Vec<VarId> = cols.iter().map(|&c| s.vars[c]).collect();
-        let parts = parts_of(flat, vars.iter().map(|&v| flat.var(v).instance));
+        let mut parts = parts_of(flat, vars.iter().map(|&v| flat.var(v).instance));
+        // the parts whose equations take part as well: a floating network
+        // is named by all its parts, not only those holding its unknowns
+        let wide = parts_of(
+            flat,
+            vars.iter()
+                .map(|&v| flat.var(v).instance)
+                .chain(rows.iter().map(|&r| s.origins[r].instance)),
+        );
         let names = quoted(flat, &parts);
         let what: Vec<String> = vars.iter().map(|&v| local_name(flat, v)).collect();
         let qs: BTreeSet<_> = vars.iter().map(|&v| quantity(flat, s.lib, v)).collect();
@@ -347,44 +379,9 @@ pub fn singular(s: &Structure<'_>) -> Vec<Diagnostic> {
                 )
                 .with_hint("Wire it into the model, or delete it."),
             )
-        } else if only(&[Quantity::Voltage, Quantity::Other]) && qs.contains(&Quantity::Voltage) {
-            Some(
-                Diagnostic::error(
-                    "ELEC-NO-GROUND",
-                    format!(
-                        "The circuit of {} has no ground: nothing fixes its voltages, only the \
-                         differences between them.",
-                        join_names(&names)
-                    ),
-                )
-                .with_hint("Connect a Ground block to one node of the circuit."),
-            )
-        } else if only(&[Quantity::Temperature, Quantity::Other])
-            && qs.contains(&Quantity::Temperature)
-        {
-            Some(
-                Diagnostic::error(
-                    "THERM-FLOATING",
-                    format!(
-                        "The thermal network of {} has no heat capacity and no fixed \
-                         temperature: nothing decides its temperatures.",
-                        join_names(&names)
-                    ),
-                )
-                .with_hint("Give one part a heat capacity, or connect the network to the ambient."),
-            )
-        } else if only(&[Quantity::Speed, Quantity::Other]) && qs.contains(&Quantity::Speed) {
-            Some(
-                Diagnostic::error(
-                    "MECH-FLOATING",
-                    format!(
-                        "Nothing drives or holds the shaft of {}: it has no inertia, no speed \
-                         source and no fixed point, so its speed is not decided.",
-                        join_names(&names)
-                    ),
-                )
-                .with_hint("Give the shaft an inertia, or fix it to the frame."),
-            )
+        } else if let Some(d) = floating(&qs, &join_names(&quoted(flat, &wide))) {
+            parts = wide;
+            Some(d)
         } else {
             Some(Diagnostic::error("STRUCT-UNDER", generic.clone()).with_hint(
                 "Look for a part that is not connected, a circuit with no Ground, or a shaft with \
@@ -401,6 +398,51 @@ pub fn singular(s: &Structure<'_>) -> Vec<Diagnostic> {
         }
     }
     out
+}
+
+/// The diagnostic of a network whose across quantity has no reference,
+/// when the quantities `qs` left undecided are those of one domain (its
+/// across quantity among them): `ELEC-NO-GROUND`, `THERM-FLOATING` or
+/// `MECH-FLOATING`. `names` names the network's parts.
+pub fn floating(qs: &BTreeSet<Quantity>, names: &str) -> Option<Diagnostic> {
+    use Quantity::*;
+    let within = |allowed: &[Quantity]| qs.iter().all(|q| allowed.contains(q));
+    if qs.contains(&Voltage) && within(&[Voltage, Current, Other]) {
+        Some(
+            Diagnostic::error(
+                "ELEC-NO-GROUND",
+                format!(
+                    "The circuit of {names} has no ground: nothing fixes its voltages, only the \
+                     differences between them."
+                ),
+            )
+            .with_hint("Connect a Ground block to one node of the circuit."),
+        )
+    } else if qs.contains(&Temperature) && within(&[Temperature, Heat, Other]) {
+        Some(
+            Diagnostic::error(
+                "THERM-FLOATING",
+                format!(
+                    "The thermal network of {names} has no heat capacity and no fixed \
+                     temperature: nothing decides its temperatures."
+                ),
+            )
+            .with_hint("Give one part a heat capacity, or connect the network to the ambient."),
+        )
+    } else if qs.contains(&Speed) && within(&[Speed, Torque, Other]) {
+        Some(
+            Diagnostic::error(
+                "MECH-FLOATING",
+                format!(
+                    "Nothing drives or holds the shaft of {names}: it has no inertia, no speed \
+                     source and no fixed point, so its speed is not decided."
+                ),
+            )
+            .with_hint("Give the shaft an inertia, or fix it to the frame."),
+        )
+    } else {
+        None
+    }
 }
 
 /// An expression with names instead of indices, for the details.
