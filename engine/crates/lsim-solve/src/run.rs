@@ -70,9 +70,158 @@ struct Loop<'a> {
     events: Vec<EventRecord>,
     recent: VecDeque<(f64, String)>,
     window: f64,
+    /// for each root function (the model's, then the table guards): the
+    /// side an exact zero counts as
+    sides: Vec<f64>,
+    /// the model's root functions and table guards, unmapped
+    raw: Vec<f64>,
+    /// the mode whose crossing (or its falling copy) each root function is
+    mode_of_root: Vec<Option<usize>>,
+    /// per table guard: since when it is outside its data
+    outside_since: Vec<Option<f64>>,
+    /// per table guard: time spent outside, and when it first left
+    outside_total: Vec<(f64, f64)>,
+    /// asserts that already warned
+    warned: Vec<bool>,
+    warnings: Vec<String>,
+}
+
+/// Maps an exact zero of a root function to the side it counts as, so a
+/// function resting at zero after its event does not fire again (the
+/// backends call this on every evaluation of the root functions).
+pub(crate) fn apply_zero_sides(g: &mut [f64], sides: &[f64]) {
+    for (g, s) in g.iter_mut().zip(sides) {
+        if *g == 0.0 && *s != 0.0 {
+            *g = *s * f64::MIN_POSITIVE;
+        }
+    }
 }
 
 impl Loop<'_> {
+    /// The model's root functions and table guards at (t, y, d), unmapped.
+    fn eval_raw(&mut self, t: f64, y: &[f64], d: &[f64]) {
+        let nr = self.model.layout().n_roots;
+        let inp = EvalInput { t, y, p: &self.info.params, d, u: self.u };
+        self.model.roots(&inp, &mut self.work, &mut self.raw[..nr]);
+        if self.raw.len() > nr {
+            self.model.table_guards(&inp, &mut self.work, &mut self.raw[nr..]);
+        }
+    }
+
+    /// The sides of exact zeros after an event at `t` (crossings reported
+    /// in `dirs`), handed to the integrator.
+    fn update_sides(&mut self, t: f64, y: &[f64], d: &[f64], dirs: Option<&[i32]>) {
+        if self.raw.is_empty() {
+            return;
+        }
+        self.eval_raw(t, y, d);
+        for c in 0..self.raw.len() {
+            let g = self.raw[c];
+            self.sides[c] = if g > 0.0 {
+                1.0
+            } else if g < 0.0 {
+                -1.0
+            } else if let Some(k) = self.mode_of_root[c] {
+                if d[self.info.modes[k].discrete] != 0.0 { 1.0 } else { -1.0 }
+            } else if let Some(r) = dirs.and_then(|x| x.get(c)).filter(|r| **r != 0) {
+                *r as f64
+            } else {
+                self.sides[c]
+            };
+        }
+    }
+
+    /// Sets every mode from its relation (`ModelFunctions::modes`, which
+    /// decides the value exactly at zero), recording the flips.
+    fn modes_from_relations(
+        &mut self,
+        t: f64,
+        y: &[f64],
+        d: &mut [f64],
+    ) -> Result<bool, SolveError> {
+        if self.info.modes.is_empty() {
+            return Ok(false);
+        }
+        let before = d.to_vec();
+        let inp = EvalInput { t, y, p: &self.info.params, d: &before, u: self.u };
+        self.model.modes(&inp, &mut self.work, d);
+        let mut changed = false;
+        for k in 0..self.info.modes.len() {
+            let i = self.info.modes[k].discrete;
+            if d[i] != before[i] {
+                changed = true;
+                self.record(t, EventKind::Mode(k))?;
+            }
+        }
+        Ok(changed)
+    }
+
+    /// The model's asserts on the channels just sampled.
+    fn check_asserts(&mut self, t: f64) -> Result<(), SolveError> {
+        for (k, a) in self.info.asserts.iter().enumerate() {
+            let env = crate::info::ChannelEnv { t, vars: &self.vars, params: &self.info.params };
+            let v = lsim_ir::eval::eval(&a.condition, &env);
+            if v == 0.0 {
+                if a.error {
+                    return Err(SolveError::Assert { t, message: a.message.clone() });
+                }
+                if !self.warned[k] {
+                    self.warned[k] = true;
+                    self.warnings.push(format!("at t = {t:.6} s: {}", a.message));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Table guards that crossed at `t`: leaving the data on an `Error`
+    /// axis stops the run; the others book the time outside.
+    fn guard_crossings(&mut self, t: f64, dirs: &[i32]) -> Result<(), SolveError> {
+        let nr = self.model.layout().n_roots;
+        let guards = self.model.table_guard_list();
+        for (k, g) in guards.iter().enumerate() {
+            match dirs.get(nr + k).copied().unwrap_or(0) {
+                -1 => self.leave_table(k, t, g)?,
+                1 => {
+                    if let Some(t0) = self.outside_since[k].take() {
+                        self.outside_total[k].0 += t - t0;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn leave_table(
+        &mut self,
+        k: usize,
+        t: f64,
+        g: &lsim_ir::runtime::TableGuard,
+    ) -> Result<(), SolveError> {
+        let name = self
+            .info
+            .table_names
+            .get(g.table as usize)
+            .cloned()
+            .unwrap_or_else(|| format!("table {}", g.table));
+        if g.outside == lsim_ir::table::Outside::Error {
+            return Err(SolveError::TableOutside {
+                t,
+                message: format!(
+                    "the table '{name}' was read outside its data on its {} axis, which allows no                      values outside (outside = Error): widen the table or keep the operating point inside it",
+                    if g.axis == 0 { "first" } else { "second" }
+                ),
+            });
+        }
+        if self.outside_since[k].is_none() {
+            self.outside_since[k] = Some(t);
+            if self.outside_total[k].1.is_nan() {
+                self.outside_total[k].1 = t;
+            }
+        }
+        Ok(())
+    }
     fn sample(&mut self, t: f64, y: &[f64], d: &[f64]) {
         let inp = EvalInput { t, y, p: &self.info.params, d, u: self.u };
         self.model.vars(&inp, &mut self.work, &mut self.vars);
@@ -188,6 +337,8 @@ impl Loop<'_> {
                 fired.fill(0.0);
                 any_fired = false;
             }
+            // every mode from its relation with the new discrete values
+            self.modes_from_relations(t, y, d)?;
             if self.roots.is_empty() {
                 break;
             }
@@ -252,6 +403,9 @@ impl Loop<'_> {
             return Ok(());
         }
         for _ in 0..=self.opts.max_event_iterations {
+            let before = d.to_vec();
+            let inp = EvalInput { t, y, p: &self.info.params, d: &before, u: self.u };
+            self.model.modes(&inp, &mut self.work, d);
             self.eval_roots(t, y, d, false);
             let mut again = false;
             for m in &self.info.modes {
@@ -268,7 +422,7 @@ impl Loop<'_> {
                     again = true;
                 }
             }
-            if !again {
+            if !again && d == before.as_slice() {
                 return Ok(());
             }
         }
@@ -323,6 +477,30 @@ pub fn run_loop(
         events: vec![],
         recent: VecDeque::new(),
         window: (opts.storm_window * span).max(1e-6),
+        sides: vec![0.0; l.n_roots + model.table_guard_list().len()],
+        raw: vec![0.0; l.n_roots + model.table_guard_list().len()],
+        mode_of_root: {
+            let mut m = vec![None; l.n_roots + model.table_guard_list().len()];
+            for (k, md) in info.modes.iter().enumerate() {
+                if md.crossing < l.n_roots {
+                    m[md.crossing] = Some(k);
+                }
+                // preparation's falling copy of a mode's crossing
+                let copy = md.crossing + 1;
+                if copy < l.n_roots
+                    && m[copy].is_none()
+                    && info.whens.iter().any(|(c, dir)| *c == copy && *dir == Direction::Falling)
+                    && !info.modes.iter().any(|o| o.crossing == copy)
+                {
+                    m[copy] = Some(k);
+                }
+            }
+            m
+        },
+        outside_since: vec![None; model.table_guard_list().len()],
+        outside_total: vec![(0.0, f64::NAN); model.table_guard_list().len()],
+        warned: vec![false; info.asserts.len()],
+        warnings: vec![],
     };
     let p = &info.params;
     let mut y = vec![0.0; n];
@@ -366,13 +544,13 @@ pub fn run_loop(
                 stop_next: false,
                 inputs: vec![0.0; bi.inputs.len()],
                 outputs: vec![0.0; bi.outputs.len()],
-                needs_vars: srcs.iter().any(|s| *s == VarSource::Computed),
+                needs_vars: srcs.contains(&VarSource::Computed),
                 needs_y: srcs.iter().any(|s| matches!(s, VarSource::Y(_) | VarSource::NegY(_))),
             }
         })
         .collect();
     for c in &clocks {
-        if !(c.period > 0.0) || !c.period.is_finite() {
+        if c.period.is_nan() || c.period <= 0.0 || !c.period.is_finite() {
             return Err(SolveError::Block {
                 block: "a sampled block".into(),
                 t: grid.t0,
@@ -417,6 +595,19 @@ pub fn run_loop(
     if let Some(lg) = ledger.as_mut() {
         lg.start(t, &lp.vars, p);
     }
+    lp.check_asserts(t)?;
+    // table guards already outside at the start
+    let guards = model.table_guard_list();
+    if !guards.is_empty() {
+        lp.eval_raw(t, &y, &d);
+        for (k, g) in guards.iter().enumerate() {
+            if lp.raw[l.n_roots + k] < 0.0 {
+                lp.leave_table(k, t, g)?;
+            }
+        }
+    }
+    lp.update_sides(t, &y, &d, None);
+    integ.set_root_sides(&lp.sides);
 
     let mut next_time_event = 0;
     while next_time_event < info.time_events.len() && info.time_events[next_time_event] <= t {
@@ -518,6 +709,8 @@ pub fn run_loop(
                     lp.record(tk, crate::EventKind::Block(b))?;
                     lp.iterate(tk, &yk, &mut d, None)?;
                     integ.discrete_mut().copy_from_slice(&d);
+                    lp.update_sides(tk, &yk, &d, None);
+                    integ.set_root_sides(&lp.sides);
                     integ.restart(tk, &yk)?;
                     y.copy_from_slice(integ.y());
                     after_event(&mut lp, &mut rec, integ, &mut ledger, before, tk, &y, &d)?;
@@ -531,11 +724,12 @@ pub fn run_loop(
             continue;
         }
 
-        // the step's end point, for min/max/mean
+        // the step's end point, for min/max/mean, and the asserts
         y.copy_from_slice(integ.y());
         lp.sample(t_new, &y, &d);
         rec.interior(t_new, &lp.vars);
         t = t_new;
+        lp.check_asserts(t)?;
 
         // a mode its condition no longer agrees with (one that left zero
         // right after a restart, where root finding cannot see it)
@@ -549,6 +743,8 @@ pub fn run_loop(
                 let before = ledger.as_mut().map(|lg| lg.before_event(t, &lp.vars, p));
                 if lp.iterate(t, &y, &mut d, None)? {
                     integ.discrete_mut().copy_from_slice(&d);
+                    lp.update_sides(t, &y, &d, None);
+                    integ.set_root_sides(&lp.sides);
                     integ.restart(t, &y)?;
                     y.copy_from_slice(integ.y());
                     after_event(&mut lp, &mut rec, integ, &mut ledger, before, t, &y, &d)?;
@@ -599,6 +795,9 @@ pub fn run_loop(
                 Step::Root(_, dirs) => Some(dirs.as_slice()),
                 _ => None,
             };
+            if let Some(dirs) = dirs {
+                lp.guard_crossings(t, dirs)?;
+            }
             changed |= lp.iterate(t, &y, &mut d, dirs)?;
             if at_time_event {
                 while info.time_events.get(next_time_event).is_some_and(|&te| te <= t) {
@@ -607,6 +806,8 @@ pub fn run_loop(
                 }
                 changed = true;
             }
+            lp.update_sides(t, &y, &d, dirs);
+            integ.set_root_sides(&lp.sides);
             if changed {
                 integ.discrete_mut().copy_from_slice(&d);
                 integ.restart(t, &y)?;
@@ -642,6 +843,21 @@ pub fn run_loop(
     report.notes = integ.setup_notes();
     report.stats = integ.stats();
     report.events = lp.events.len();
+    // time spent outside tables' data
+    for (k, g) in model.table_guard_list().iter().enumerate() {
+        if let Some(t0) = lp.outside_since[k].take() {
+            lp.outside_total[k].0 += t_end - t0;
+        }
+        let (total, first) = lp.outside_total[k];
+        if total > 0.0 || !first.is_nan() {
+            let name = info.table_names.get(g.table as usize).cloned().unwrap_or_default();
+            report.warnings.push(format!(
+                "the table '{name}' was read outside its data on its {} axis for {total:.6} s, first at t = {first:.6} s",
+                if g.axis == 0 { "first" } else { "second" }
+            ));
+        }
+    }
+    report.warnings.append(&mut lp.warnings);
     if let Some(e) = &energy {
         report.notes.push(e.summary());
         if e.relative_closure > 1e-6 {

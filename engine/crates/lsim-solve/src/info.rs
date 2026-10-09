@@ -78,6 +78,18 @@ pub struct EnergyPart {
     pub stored: Option<Expr>,
 }
 
+/// A condition that must hold while the model runs (a component's
+/// `assert`), in flat scope.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AssertInfo {
+    /// what must hold (a truth value: non-zero is true)
+    pub condition: Expr,
+    /// what to tell the user, naming the part
+    pub message: String,
+    /// true: stop the run; false: warn once and go on
+    pub error: bool,
+}
+
 /// The energy books of every primitive part with physical ports.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct EnergyInfo {
@@ -117,6 +129,13 @@ pub struct RunInfo {
     pub var_sources: Vec<VarSource>,
     /// the energy books; `None`: no books are kept
     pub energy: Option<Arc<EnergyInfo>>,
+    /// the conditions checked at every accepted step
+    pub asserts: Vec<AssertInfo>,
+    /// each table's name (index: the table's number in the flat system),
+    /// for the table guards' messages
+    pub table_names: Vec<String>,
+    /// for each residual of the initialisation system: the equation it is
+    pub init_labels: Vec<String>,
 }
 
 impl RunInfo {
@@ -139,6 +158,9 @@ impl RunInfo {
             pattern: None,
             var_sources: vec![VarSource::Computed; n_vars],
             energy: None,
+            asserts: vec![],
+            table_names: vec![],
+            init_labels: vec![],
         }
     }
 
@@ -192,12 +214,39 @@ impl RunInfo {
             params: flat.params.iter().map(|p| p.value).collect(),
             y_names,
             residual_labels: m.residuals.iter().map(|r| labelled(&r.origin)).collect(),
-            modes: vec![],
+            modes: m
+                .modes
+                .iter()
+                .filter_map(|md| {
+                    Some(ModeInfo {
+                        crossing: md.crossing,
+                        discrete: *d_index.get(&md.var)?,
+                        label: labelled(&md.origin),
+                    })
+                })
+                .collect(),
             time_events: vec![],
             blocks,
-            pattern: Some(structural_pattern(m)),
+            pattern: Some(
+                if m.jac_pattern.n > 0 && m.jac_pattern.col_ptr.len() == m.jac_pattern.n + 1 {
+                    m.jac_pattern.clone()
+                } else {
+                    structural_pattern(m)
+                },
+            ),
             var_sources: var_sources(m),
             energy: Some(Arc::new(energy_info(m))),
+            asserts: flat
+                .asserts
+                .iter()
+                .map(|a| AssertInfo {
+                    condition: a.condition.clone(),
+                    message: format!("{}: {}", labelled(&a.origin), a.message),
+                    error: a.error,
+                })
+                .collect(),
+            table_names: flat.tables.iter().map(|t| t.name.clone()).collect(),
+            init_labels: m.init.residuals.iter().map(|r| labelled(&r.origin)).collect(),
         }
     }
 

@@ -306,7 +306,7 @@ fn a_chattering_mode_is_named_in_an_event_storm() {
         println!("{backend:?}: {err}");
         match err {
             SolveError::EventStorm { t, parts, .. } => {
-                assert!(t >= 1.0 && t < 1.01, "{t}");
+                assert!((1.0..1.01).contains(&t), "{t}");
                 assert_eq!(parts, vec!["'Relay': on".to_string()]);
             }
             other => panic!("not a storm: {other}"),

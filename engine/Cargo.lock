@@ -987,8 +987,11 @@ dependencies = [
 name = "lsim-lang"
 version = "0.1.0"
 dependencies = [
+ "lsim-codegen",
  "lsim-ir",
  "lsim-lib",
+ "lsim-prep",
+ "lsim-solve",
  "thiserror 2.0.21",
 ]
 
@@ -1003,8 +1006,10 @@ dependencies = [
 name = "lsim-prep"
 version = "0.1.0"
 dependencies = [
+ "lsim-codegen",
  "lsim-ir",
  "lsim-lib",
+ "lsim-solve",
  "serde_json",
  "sha2",
 ]

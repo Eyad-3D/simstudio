@@ -288,7 +288,22 @@ Modelica's scalar set, plus two engine built-ins:
 * table interpolation `Table { table, args }` — 1-D and 2-D tables held as
   runtime data (monotone cubic by default, so the result is C¹ and the
   solver needs no events at breakpoints; linear and the outside-data rules
-  of today's `tableOutside` as options).
+  of today's `tableOutside` as options). In component scope `args[0]` is
+  the table parameter's name and the rest are the abscissae
+  (`expr::table("ocv", vec![soc])`, printed `ocv(soc)`); in flat scope
+  `table` indexes `FlatSystem::tables` and `args` are the abscissae.
+
+The text format writes `a == b` and `a <> b`; the IR holds them as
+`a >= b and a <= b` and `a < b or a > b` (no new comparison operators), and
+`true`/`false` as 1 and 0.
+
+**Tables** (`table.rs`): one `TableData` serves the language, preparation
+and the code generator: breakpoints `x` and `y` (empty for 1-D), values
+row-major (`values[i * y.len() + j]` at `(x[i], y[j])`), `interpolation`
+(`MonotoneCubic` by default, or `Linear`), `outside` per axis (`Clamp` by
+default, `Linear`, `Error`: today's `tableOutside`) and `axis_units` (the
+axes' coherent SI unit texts). `TableData::check` says in plain words what
+is malformed.
 
 ### 5.3 Components (`component.rs`)
 
@@ -302,16 +317,25 @@ Modelica's scalar set, plus two engine built-ins:
   (specific energy × mass flow) for tanks, engines and fuel cells.
 * `PortDecl`: physical (of a connector type), or a causal signal `Input`/
   `Output` with a unit.
-* `ParamDecl`: unit, display unit, default (a number or an expression of
-  the same scope's parameters), min/max, `structural` (today's
-  `variability: fixed`: may change the equations, part of the cache key;
-  every other parameter is a runtime input).
+* `ParamDecl`: unit, display unit, default, min/max, `structural`
+  (today's `variability: fixed`: may change the equations, part of the
+  cache key; every other parameter is a runtime input). The default is a
+  `ParamValue`: `Real(expr)` (a number or an expression of the same
+  scope's parameters), `Bool` (structural), `Enum("Mode.Auto")` (an option
+  of an enumeration type, structural; in equations it is its position
+  counting from 1), or a table: `Table1D`, `Table2D` (default rules) or
+  `Table(TableData)` (its own rules); `ParamValue::table()` gives any of
+  them as `TableData`.
+* `EnumType` (a name and its options) in `ComponentDef::types`, or in
+  `Library::types` for types several components share; a name is looked
+  up in the declaring component first (`Library::enum_ordinal`).
 * `VarDecl`: unit, continuous or discrete, start value, `fixed`, nominal.
 * `SubDecl` + `Connect`: composition. A composite (the battery made of a
   source, R0 and an RC pair; a whole vehicle) and a primitive are the same
   type; a project's diagram is one top-level `ComponentDef`.
-* `EquationDecl`: `lhs = rhs`, `when cond then …`, `assert`, each with a
-  plain-words label that fault messages quote.
+* `EquationDecl`: `lhs = rhs`, `when cond then …` (assignments to
+  discrete variables and `reinit` of states), `assert` (an error or a
+  warning), each with a plain-words label that fault messages quote.
 * `EnergyDecl`: stored energy and loss power, for the energy books.
 
 ### 5.4 The text format (`lsim-lang`)
@@ -349,9 +373,9 @@ model Rotational.ThresholdBrake "A brake that clamps on, for good, …"
   discrete Real engaged(unit = "1", start = 0, fixed = true) "1 once engaged";
 equation
   flange.tau = tau_max * engaged "it takes its torque once engaged";
-  when flange.w >= w_on then "it engages when the speed reaches w_on"
+  when flange.w >= w_on then
     engaged = 1;
-  end when;
+  end when "it engages when the speed reaches w_on";
   annotation(__LightSim_energy(loss = tau_max * engaged * flange.w));
 end Rotational.ThresholdBrake;
 ```
@@ -361,7 +385,9 @@ the IR's scoping but not in Modelica; WP1's parser rejects it and WP5
 renames such parameters, as Stage 1 already did for the source.)
 
 Energy books use the vendor annotation `__LightSim_energy`, which Base
-Modelica tools ignore. Labels are the strings after equations.
+Modelica tools ignore. Labels are the strings after equations. The
+format's user documentation, with every declaration and error message,
+is [`docs/text-format.md`](docs/text-format.md).
 
 ### 5.5 The flat system (`flat.rs`)
 
@@ -371,7 +397,12 @@ that made it (the n-th equation of a definition, a connection set's across
 or through equation, an unconnected port, a signal link). Origins are what
 let every later stage speak about the user's parts. Parameters keep their
 bindings (`r0.R = r0`) so changing a parent's value updates its children
-without a rebuild (implemented in `Model::set_param`).
+without a rebuild (implemented in `Model::set_param`); they are laid out in
+binding order, so one pass in order re-evaluates them. Also: `tables`
+(one `FlatTable` per table parameter — name, instance, the parameter
+(whose value is the table's index), the unit of its values and its
+`TableData`; a part handed its parent's table shares it) and `asserts`
+(`FlatAssert`: condition, message, error or warning, origin).
 
 ### 5.6 The prepared model (`prepared.rs`)
 
@@ -392,11 +423,61 @@ part of an implicit block (mass-matrix-like coupling, e.g. two inertias
 through an ideal gear) becomes a `z` with `x' = z`, so the form is
 universal. Also: the alias table (eliminated variables are still recorded
 under their names), zero-crossing functions and `when` clauses, sampled
-external blocks (`ExternalBlock`), and the structure key.
+external blocks (`ExternalBlock`: a part whose definition's name begins
+with `External.`, with a `period` parameter; its signal outputs are
+discrete variables the host sets at each tick), and the structure key.
+
+Since the work packages joined (WP2, WP3), the prepared model also holds:
+
+| field | what | made by | used by |
+|---|---|---|---|
+| `jac_pattern: SparsityPattern` | the structure of `∂[x'; g]/∂y` through the assignments (CSC, `y` order; `n` = 0: not computed) | WP2 | WP3 (colouring; it checks the pattern covers its own), WP4 (sparse LU) |
+| `modes: Vec<Mode>` | the `if` relations held as discrete Booleans (below) | WP2 | WP3, WP4 |
+| `init: InitSystem` | the initialisation system (below) | WP2 | WP3 (`InitFunctions`), WP4 |
+| `limits: Vec<LimitSite>` | inverse models: every `limit` passed through, with its bounds and origin | WP2 | WP6 (fast-mode flags) |
+| `guards: Vec<ParamGuard>` | parameter expressions explicit solutions divide by: a parameter change that makes one zero needs a new preparation | WP2 | WP6 (`set_param`, sweeps) |
+| `warnings: Vec<Diagnostic>` | what preparation noticed that does not stop a run | WP2 | WP6 (build report, the app) |
+
+`inputs` (u): in an inverse model, for each prescribed variable in the
+`InverseSpec`'s order, the variable and then its time derivatives as deep
+as the model needs them (`body.v`, `der(body.v)`, `der(der(body.v))` where
+index reduction differentiated twice); `PreparedModel::input_names()`
+gives their names.
+
+**Modes** (`Mode { var, relation, crossing, origin }`): a relation of the
+equations outside `noEvent` (an `if` condition, the sign test of `abs`
+and `sign`) becomes a discrete variable `var` (1 true, 0 false, one of
+`discretes`) that the equations read instead, so the integrator never sees
+a discontinuity. The contract:
+
+* `zero_crossings[crossing]` is positive where the relation holds and
+  negative where it does not (`lhs - rhs` for `>`, `>=`; `rhs - lhs` for
+  `<`, `<=`): away from zero, `var = 1` exactly when the crossing is
+  positive;
+* at the start and after every event the run loop sets every mode from its
+  relation (`ModelFunctions::modes`), which also decides the value at
+  zero, and iterates events until nothing changes;
+* preparation also adds two `when` clauses per mode — rising on `crossing`
+  sets 1, falling on its copy at `crossing + 1` sets 0 — so a run loop
+  that knows only `when` clauses keeps every mode right between events.
+
+**Initialisation** (`InitSystem { unknowns, guesses, assignments,
+residuals, discrete_starts }`): the equations at the start time (the
+model's, those index reduction differentiated, the initial equations and
+the start values that must hold), sorted like the model: Newton iterates
+on `unknowns` (first guesses: `guesses`, expressions of the parameters)
+until `residuals` vanish, with `assignments` explicit in between; after a
+solve every entry of `y` and every state derivative has a value.
+`discrete_starts` are the discrete variables' start values (a mode's is its
+relation at the solution). `is_empty()`: the start values hold as they
+are. Preparation also writes the solved start values into the flat
+variables' `start`, so a model without an initialisation solver starts
+right too.
 
 Contracts already written for the parallel work: `SparsityPattern`
 (Jacobian structure, WP2 → WP3/WP4), `DiscreteBlock` (sampled blocks,
-WP4 ↔ WP6), `InverseSpec` (fast mode, WP2 ↔ WP6).
+WP4 ↔ WP6), `InverseSpec` (fast mode, WP2 ↔ WP6), and the modes and
+initialisation above (WP2 → WP3 → WP4).
 
 ### 5.7 The compiled model (`runtime.rs`)
 
@@ -410,11 +491,100 @@ pub trait ModelFunctions: Send + Sync {
     fn when(&self, inp: &EvalInput, fired: &[f64], work: &mut [f64], d_out: &mut [f64]);
     fn start(&self, p: &[f64], y0: &mut [f64], d0: &mut [f64]);
     fn jacobian_dense(&self, inp: &EvalInput, work: &mut [f64], out: &mut [f64]) { /* n jvp's */ }
+    // with defaults, so hand-written models need not implement them:
+    fn sparsity(&self) -> Option<&SparsityPattern> { None }           // the CSC pattern jacobian_sparse fills
+    fn jacobian_sparse(&self, inp: &EvalInput, work: &mut [f64], values: &mut [f64]) { /* from dense */ }
+    fn modes(&self, inp: &EvalInput, work: &mut [f64], d_out: &mut [f64]) {}   // every mode from its relation
+    fn init(&self) -> Option<&dyn InitFunctions> { None }              // the compiled InitSystem
+    fn table_guard_list(&self) -> &[TableGuard] { &[] }                // the table axes the run loop watches
+    fn table_guards(&self, inp: &EvalInput, work: &mut [f64], out: &mut [f64]) {}  // > 0 inside the data
+}
+
+pub trait InitFunctions: Send + Sync {   // Newton on w, then y0
+    fn n_w(&self) -> usize;
+    fn guess(&self, p: &[f64], w0: &mut [f64]);
+    fn residual(&self, inp: &EvalInput, work: &mut [f64], out: &mut [f64]);
+    fn jvp(&self, inp: &EvalInput, v: &[f64], work: &mut [f64], out: &mut [f64]);
+    fn sparsity(&self) -> &SparsityPattern;
+    fn jacobian_sparse(&self, inp: &EvalInput, work: &mut [f64], values: &mut [f64]);
+    fn finish(&self, inp: &EvalInput, work: &mut [f64], y0: &mut [f64]);
 }
 ```
 
 `EvalInput { t, y, p, d, u }`. The functions are pure; the caller owns the
 buffers, so one compiled model serves any number of simultaneous runs.
+`TableGuard { table, axis, outside }` names one watched table axis: its
+guard is `min(a - lo, hi - a)` of the axis argument, positive inside the
+data; an `Error` axis stops the run where its guard falls through zero,
+the others are booked as time spent outside.
+
+### 5.8 Shared types: what each package must do
+
+The shared types above were unified on the branch `engine/ir-unify`
+(work packages 1, 2 and 3 merged; every addition relative to Stage 1 is
+additive). What the other packages change to use them:
+
+**WP4 (lsim-solve)**
+
+* `RunInfo::from_prepared`: fill `modes` from `PreparedModel::modes`
+  (`ModeInfo { crossing: m.crossing, discrete: position of m.var in
+  discretes, label }`); the rule `d = roots[crossing] > 0` holds by the
+  contract above. The mode's two `when` clauses (on `crossing` and
+  `crossing + 1`) set the same values, so handling both is harmless.
+* At the start and after each event, call `ModelFunctions::modes` before
+  event iteration (it decides the value exactly at zero).
+* Initialise with `ModelFunctions::init()` when it is `Some`: damped
+  Newton on `w` (`guess`, `residual`, `jacobian_sparse` on `sparsity`),
+  then `finish` gives `y0`; keep homotopy and `IDACalcIC` after it.
+* Use `PreparedModel::jac_pattern` (when `n > 0`) or
+  `ModelFunctions::sparsity()` for the sparse LU, and
+  `jacobian_sparse` for its values.
+* Watch `table_guard_list()`/`table_guards()` as extra root functions:
+  stop with the table's name at an `Error` axis, book time outside the
+  others.
+* Check `FlatSystem::asserts` at accepted steps (evaluate with
+  `lsim_ir::eval` over the `vars` output until a compiled function
+  exists): stop on an error, warn once on a warning.
+* A `when` clause whose function stays exactly zero after its event (a
+  held voltage) makes IDA fail with "root found at and very near t";
+  deactivate such a root after the event as CVODE does.
+
+**WP5 (lsim-lib, lsim-project)**
+
+* Tables: make table parameters with `ParamValue::Table1D`/`Table2D`, or
+  `ParamValue::Table(TableData { … })` to set `interpolation: Linear` (as
+  today's app) or `outside` per axis (`tableOutside`); read them with
+  `lsim_ir::expr::table("loss_map", vec![w, tau])`. A `TableData` is a
+  rectangular grid: resample today's table2d sheets onto the union of
+  their inner points (exact for linear interpolation). This replaces the
+  stand-in expansion in `lsim-lib/src/table.rs`.
+* Enumerations: `EnumType` in `ComponentDef::types` (or
+  `Library::types`), parameters `ParamValue::Enum("Gearbox.Mode.Auto")`.
+* Rename `Battery.OcvR0Rc`'s parameters `r0`, `r1`, `c1`, which share
+  names with its parts (the text format rejects the clash).
+* Sampled blocks: a definition named `External.…` with signal ports and a
+  `period` parameter.
+* Any exhaustive `match` on `ParamValue` gains the `Table2D` and `Table`
+  arms (or uses `ParamValue::table()`).
+
+**WP6 (lsim-fast, lsim-engine, lsim-py)**
+
+* Fill an inverse model's `u` in `PreparedModel::input_names()` order:
+  `InverseSpec::input_names()` (value, then `der()`) misses a second
+  derivative where index reduction needs one.
+* Take fast mode's limit sites from `PreparedModel::limits` (their bounds
+  and origins) instead of searching the equations for `limit`.
+* `Model::set_param`: a table parameter's value is its table's index
+  (change table data with `JitModel::with_tables`, no recompile); when a
+  parameter change makes a `ParamGuard` zero, prepare again.
+* Show `PreparedModel::warnings` in the build report and the Python
+  `model.report`.
+
+**WP2 and WP3** keep: WP2's three 10⁵-equation scale tests fail (speed
+work pending) and `reinit` actions are dropped by preparation (they must
+reach `PreparedWhen`); WP3's interpreted tape (`tape.rs`) is not wired in,
+`InitFunctions::guess` uses the flat start values rather than
+`InitSystem::guesses`, and asserts have no compiled function yet.
 
 ## 6. Preparation pipeline
 
@@ -508,15 +678,18 @@ WP3 adds:
   (greedy, largest-first) and one `jvp` sweep per colour, filling the
   CSC values directly: `jacobian_sparse(inp, work, values)`. A vehicle
   model's Jacobian needs ~5–15 colours whatever its size.
-* **Tables.** Runtime calls `lsim_table1(handle, x)` / `lsim_table2(handle,
-  x, y)` with value and derivative; handles index a table store passed in
-  the `EvalInput` (tables are parameters: no recompile). Monotone cubic by
-  Fritsch–Carlson (C¹, no overshoot), bilinear-monotone for 2-D; linear and
-  today's `tableOutside` rules as options.
+* **Tables.** The generated code calls the table runtime
+  (`lsim-codegen/src/tables.rs`) for value and derivatives; the data live
+  in the compiled model's table store built from `FlatSystem::tables`
+  (tables are runtime data: `JitModel::with_tables` swaps them without
+  recompiling). Monotone cubic by Fritsch–Carlson (C¹, no overshoot),
+  bicubic Hermite patches in 2-D; linear and today's `tableOutside` rules
+  as options; each read axis gets a table guard for the run loop.
 * **Large models.** Assignments split into chunks of bounded size, chained
   through the `work` buffer, so register allocation stays linear; a budget
   test (10⁴ equations compile in under 100 ms).
-* **Modes** for `if` relations, and the initialisation functions.
+* **Modes** for `if` relations (`modes`: every mode from its relation),
+  and the initialisation functions (`InitFunctions`), as in 5.6–5.7.
 
 **Cache.** Keyed by SHA-256 of the model's inputs (top component, every
 library definition it reaches, connectors, options, engine version); the
@@ -569,7 +742,9 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   the dense interpolant) with each crossing's direction; the spike locates
   its brake event to 7e-10 s at rtol 1e-10.
 * At an event: `when` actions run (`ModelFunctions::when`), mode Booleans
-  flip, then **event iteration**: re-evaluate the conditions with the new
+  flip (a mode's crossing is positive where its relation holds;
+  `ModelFunctions::modes` sets every mode from its relation: section 5.6),
+  then **event iteration**: re-evaluate the conditions with the new
   discrete values until nothing changes (bounded, with a diagnostic naming
   the chattering parts if it does not settle), then **re-initialise**:
   CVODE restarts from y; IDA recomputes consistent `z` and `x'`
@@ -586,8 +761,9 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
 ### 8.3 Initialisation
 
 1. Start values: `fixed` ones are conditions, others guesses.
-2. Solve the initialisation system (prepared separately, section 6) by
-   damped Newton with the exact Jacobian.
+2. Solve the initialisation system (`PreparedModel::init`, compiled as
+   `ModelFunctions::init()`: section 5.6–5.7) by damped Newton with the
+   exact sparse Jacobian; `finish` gives the start vector.
 3. If Newton fails: **homotopy** from a simplified problem
    (Modelica's `homotopy(actual, simplified)` operator, available to
    component writers, e.g. a battery with zero RC current or a clutch

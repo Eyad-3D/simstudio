@@ -138,8 +138,8 @@ impl Integrand {
             [(1.0, 2.0), (1.0, 1.0), (-1.0, 1.0), (-1.0, 2.0)].iter().enumerate()
         {
             let step = sign * mult * h;
-            for i in 0..self.shifted.len() {
-                self.shifted[i] = inp.y[i] + step * ydot[i];
+            for ((s, y), yd) in self.shifted.iter_mut().zip(inp.y).zip(ydot) {
+                *s = y + step * yd;
             }
             let at = EvalInput { t: inp.t + step, y: &self.shifted, ..*inp };
             m.vars(&at, work, &mut self.vars);
@@ -326,8 +326,8 @@ impl Ledger {
     /// Stored energy just after an event: the jump is booked.
     pub fn after_event(&mut self, t: f64, vars: &[f64], params: &[f64], before: &[f64]) {
         self.stored(t, vars, params);
-        for k in 0..self.jumps.len() {
-            self.jumps[k] += self.scratch[k] - before[k];
+        for ((j, now), was) in self.jumps.iter_mut().zip(&self.scratch).zip(before) {
+            *j += now - was;
         }
     }
 

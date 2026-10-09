@@ -21,6 +21,10 @@ pub struct JacStructure {
     pub ml: usize,
     /// upper band width (largest j - i)
     pub mu: usize,
+    /// when the compiled model fills its own sparse Jacobian
+    /// ([`ModelFunctions::jacobian_sparse`]) on a structure this one
+    /// contains: where each of its entries goes here
+    model_map: Option<Vec<usize>>,
 }
 
 impl JacStructure {
@@ -57,7 +61,35 @@ impl JacStructure {
             col_ptr.push(row_idx.len());
         }
         let colours = colour(n, &col_ptr, &row_idx);
-        JacStructure { n, col_ptr, row_idx, colours, ml, mu }
+        JacStructure { n, col_ptr, row_idx, colours, ml, mu, model_map: None }
+    }
+
+    /// The structure for `m`: the compiled model's own sparse Jacobian
+    /// when it has one (its values then come from
+    /// [`ModelFunctions::jacobian_sparse`]), else `pattern`, else dense;
+    /// with the diagonal added.
+    pub fn for_model(m: &dyn ModelFunctions, pattern: Option<&SparsityPattern>, n: usize) -> Self {
+        match m.sparsity() {
+            Some(p) if p.n == n && p.col_ptr.len() == n + 1 => {
+                let mut s = Self::new(Some(p), n);
+                let mut map = Vec::with_capacity(p.row_idx.len());
+                for j in 0..n {
+                    let mine = &s.row_idx[s.col_ptr[j]..s.col_ptr[j + 1]];
+                    for &i in &p.row_idx[p.col_ptr[j]..p.col_ptr[j + 1]] {
+                        let k = mine.binary_search(&i).expect("the diagonal was only added");
+                        map.push(s.col_ptr[j] + k);
+                    }
+                }
+                s.model_map = Some(map);
+                s
+            }
+            _ => Self::new(pattern, n),
+        }
+    }
+
+    /// Whether the values come from the model's own sparse Jacobian.
+    pub fn uses_model_jacobian(&self) -> bool {
+        self.model_map.is_some()
     }
 
     /// Number of stored entries.
@@ -77,6 +109,7 @@ impl JacStructure {
             c.sort_unstable();
             c.dedup();
         }
+        // the model's own Jacobian no longer covers it: coloured products
         *self = Self::from_columns(self.n, cols);
     }
 
@@ -92,6 +125,15 @@ impl JacStructure {
         out: &mut [f64],
         values: &mut [f64],
     ) {
+        if let Some(map) = &self.model_map {
+            let mut own = vec![0.0; map.len()];
+            m.jacobian_sparse(inp, work, &mut own);
+            values.fill(0.0);
+            for (k, &pos) in map.iter().enumerate() {
+                values[pos] = own[k];
+            }
+            return;
+        }
         for cols in &self.colours {
             for &j in cols {
                 seed[j] = 1.0;

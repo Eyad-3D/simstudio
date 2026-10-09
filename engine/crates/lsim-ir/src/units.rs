@@ -146,6 +146,13 @@ pub struct Unit {
     pub offset: f64,
 }
 
+/// The dimensionless unit 1.
+impl Default for Unit {
+    fn default() -> Self {
+        Unit::ONE
+    }
+}
+
 impl Unit {
     /// The dimensionless unit 1.
     pub const ONE: Unit = Unit { dim: Dim::NONE, scale: 1.0, offset: 0.0 };

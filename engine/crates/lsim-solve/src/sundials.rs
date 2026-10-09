@@ -54,6 +54,12 @@ struct Problem {
     jvals: Vec<f64>,
     lin: Lin,
     quad: Option<Integrand>,
+    /// for each root function: the side an exact zero counts as (+1, -1;
+    /// 0: none), so a function resting at zero after its event does not
+    /// fire again
+    zero_side: Vec<f64>,
+    /// table guards watched after the model's own root functions
+    n_guards: usize,
 }
 
 impl Problem {
@@ -183,7 +189,12 @@ unsafe extern "C" fn cv_root(t: f64, y: N_Vector, g: *mut f64, ud: *mut c_void) 
         let nr = pr.layout.n_roots;
         let m = pr.model();
         let inp = EvalInput { t, y: slice(y, n), p: &pr.p, d: &pr.d, u: &pr.u };
-        m.roots(&inp, &mut pr.work, std::slice::from_raw_parts_mut(g, nr));
+        let g = std::slice::from_raw_parts_mut(g, nr + pr.n_guards);
+        m.roots(&inp, &mut pr.work, &mut g[..nr]);
+        if pr.n_guards > 0 {
+            m.table_guards(&inp, &mut pr.work, &mut g[nr..]);
+        }
+        crate::run::apply_zero_sides(g, &pr.zero_side);
     }
     0
 }
@@ -396,9 +407,9 @@ impl<'m> Sundials<'m> {
             std::mem::transmute::<&'m dyn ModelFunctions, &'static dyn ModelFunctions>(model)
         };
         // the Jacobian's structure, checked against the model at the start
-        let mut jac = JacStructure::new(info.pattern.as_ref(), n);
+        let mut jac = JacStructure::for_model(model, info.pattern.as_ref(), n);
         let mut notes = vec![];
-        if info.pattern.is_some() && n <= 3000 && n > 0 {
+        if (info.pattern.is_some() || jac.uses_model_jacobian()) && n <= 3000 && n > 0 {
             let inp = EvalInput { t: t0, y: y0, p: &info.params, d: &d0, u: &u };
             let mut work = vec![0.0; layout.n_work];
             let miss = jac.missing(model, &inp, &mut work);
@@ -418,20 +429,20 @@ impl<'m> Sundials<'m> {
             (LinearSolver::Auto, _) if jac.ml + jac.mu <= 20 => Lin::Band,
             (LinearSolver::Auto, _) => Lin::Sparse,
         };
+        let how = if jac.uses_model_jacobian() {
+            "the model's own sparse Jacobian".to_string()
+        } else {
+            format!("{} coloured Jacobian-vector products", jac.colours.len())
+        };
         notes.push(match lin {
-            Lin::Dense => {
-                format!("dense LU on {n} unknowns; Jacobian by {} products", jac.colours.len())
-            }
+            Lin::Dense => format!("dense LU on {n} unknowns; Jacobian from {how}"),
             Lin::Band => format!(
-                "band LU on {n} unknowns (widths {} below, {} above); Jacobian by {} products",
-                jac.ml,
-                jac.mu,
-                jac.colours.len()
+                "band LU on {n} unknowns (widths {} below, {} above); Jacobian from {how}",
+                jac.ml, jac.mu
             ),
             Lin::Sparse => format!(
-                "sparse LU (faer) on {n} unknowns, {} non-zeros; Jacobian by {} products",
-                jac.nnz(),
-                jac.colours.len()
+                "sparse LU (faer) on {n} unknowns, {} non-zeros; Jacobian from {how}",
+                jac.nnz()
             ),
         });
         let n_q = quad.as_ref().map(|q| q.len()).unwrap_or(0);
@@ -449,6 +460,8 @@ impl<'m> Sundials<'m> {
             jac,
             lin,
             quad,
+            zero_side: vec![0.0; layout.n_roots + model.table_guard_list().len()],
+            n_guards: model.table_guard_list().len(),
         });
         // SAFETY: plain SUNDIALS set-up; every object is freed in `Drop`.
         unsafe {
@@ -517,8 +530,13 @@ impl<'m> Sundials<'m> {
                 prob,
                 err,
                 n,
-                n_roots: layout.n_roots,
-                root_dirs: info.root_dirs.iter().map(|&x| x as c_int).collect(),
+                n_roots: layout.n_roots + model.table_guard_list().len(),
+                root_dirs: info
+                    .root_dirs
+                    .iter()
+                    .map(|&x| x as c_int)
+                    .chain(std::iter::repeat_n(0, model.table_guard_list().len()))
+                    .collect(),
                 t_last: t0,
                 t_end: grid.t_end,
                 opts: opts.clone(),
@@ -754,8 +772,8 @@ impl<'m> Sundials<'m> {
         let nx = pr.layout.n_x;
         // SAFETY: yp is our serial vector of n values.
         let yp = unsafe { slice(self.yp, n) };
-        for i in 0..n {
-            yp[i] = if i < nx { pr.out[i] } else { 0.0 };
+        for (i, v) in yp.iter_mut().enumerate() {
+            *v = if i < nx { pr.out[i] } else { 0.0 };
         }
         let h = (1e-3 * (self.t_end - t).abs()).max(1e-9);
         // SAFETY: `mem` is a live IDA memory; y and yp are its vectors.
@@ -941,6 +959,10 @@ impl Integrator for Sundials<'_> {
 
     fn discrete_mut(&mut self) -> &mut [f64] {
         &mut self.prob.d
+    }
+
+    fn set_root_sides(&mut self, sides: &[f64]) {
+        self.prob.zero_side.copy_from_slice(sides);
     }
 
     fn restart(&mut self, t: f64, y: &[f64]) -> Result<(), SolveError> {

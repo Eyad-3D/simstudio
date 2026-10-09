@@ -34,6 +34,7 @@ use std::time::Instant;
 /// What the closures share with the integrator.
 struct Shared {
     d: RefCell<Vec<f64>>,
+    zero_side: RefCell<Vec<f64>>,
     work: RefCell<Vec<f64>>,
     rhs: Cell<u64>,
     jvp: Cell<u64>,
@@ -68,10 +69,11 @@ pub fn simulate(
     let n = l.n_y();
     let n_x = l.n_x;
     let nr = l.n_roots;
+    let ng = model.table_guard_list().len();
     let p = info.params.clone();
     // a consistent start for the iteration variables (diffsol's own
     // initialisation then has nothing left to do)
-    let jac = JacStructure::new(info.pattern.as_ref(), n);
+    let jac = JacStructure::for_model(model, info.pattern.as_ref(), n);
     let mut y_start = y0.to_vec();
     let init = consistent_z(
         model,
@@ -86,6 +88,7 @@ pub fn simulate(
     )?;
     let shared = Shared {
         d: RefCell::new(d0),
+        zero_side: RefCell::new(vec![0.0; nr + ng]),
         work: RefCell::new(vec![0.0; l.n_work]),
         rhs: Cell::new(0),
         jvp: Cell::new(0),
@@ -106,13 +109,18 @@ pub fn simulate(
     let y_init = y_start.clone();
     let init_fn = move |_p: &[f64], _t: f64, y: &mut [f64]| y.copy_from_slice(&y_init);
     let root = |x: &[f64], _p: &[f64], t: f64, out: &mut [f64]| {
-        if nr == 0 {
+        if nr + ng == 0 {
             out[0] = 1.0;
             return;
         }
         let d = shared.d.borrow();
         let inp = EvalInput { t, y: x, p: &p, d: &d, u };
-        model.roots(&inp, &mut shared.work.borrow_mut(), out);
+        let mut work = shared.work.borrow_mut();
+        model.roots(&inp, &mut work, &mut out[..nr]);
+        if ng > 0 {
+            model.table_guards(&inp, &mut work, &mut out[nr..]);
+        }
+        crate::run::apply_zero_sides(out, &shared.zero_side.borrow());
     };
     let builder = OdeBuilder::<NalgebraMat<f64>>::new()
         .t0(grid.t0)
@@ -120,7 +128,7 @@ pub fn simulate(
         .atol(atol)
         .rhs_implicit(rhs, jvp)
         .init(init_fn, n)
-        .root(root, nr.max(1));
+        .root(root, (nr + ng).max(1));
     let ctx = Ctx {
         model,
         info,
@@ -263,7 +271,8 @@ where
     }
 
     fn interp(&mut self, t: f64) -> Result<Vec<f64>, SolveError> {
-        if t == self.solver.state().t {
+        let ts = self.solver.state().t;
+        if t == ts || (t - ts).abs() <= 8.0 * f64::EPSILON * t.abs().max(1.0) {
             return Ok(to_vec(self.solver.state().y));
         }
         let r = self.solver.interpolate_inplace(t, &mut self.tmp);
@@ -272,7 +281,8 @@ where
     }
 
     fn interp_dy(&mut self, t: f64) -> Result<Vec<f64>, SolveError> {
-        if t == self.solver.state().t {
+        let ts = self.solver.state().t;
+        if t == ts || (t - ts).abs() <= 8.0 * f64::EPSILON * t.abs().max(1.0) {
             return Ok(to_vec(self.solver.state().dy));
         }
         let r = self.solver.interpolate_dy_inplace(t, &mut self.tmp);
@@ -281,10 +291,18 @@ where
     }
 
     fn roots_at(&mut self, t: f64, y: &[f64]) -> Vec<f64> {
-        let mut g = vec![0.0; self.model.layout().n_roots];
+        let nr = self.model.layout().n_roots;
+        let ng = self.model.table_guard_list().len();
+        let mut g = vec![0.0; nr + ng];
         let d = self.shared.d.borrow();
         let inp = EvalInput { t, y, p: &self.info.params, d: &d, u: self.u };
-        self.model.roots(&inp, &mut self.shared.work.borrow_mut(), &mut g);
+        let mut work = self.shared.work.borrow_mut();
+        self.model.roots(&inp, &mut work, &mut g[..nr]);
+        if ng > 0 {
+            self.model.table_guards(&inp, &mut work, &mut g[nr..]);
+        }
+        drop(work);
+        crate::run::apply_zero_sides(&mut g, &self.shared.zero_side.borrow());
         g
     }
 
@@ -322,6 +340,20 @@ where
         }
         self.quad = Some(q);
         res
+    }
+
+    /// The integrals at the solver's state (after a step that ended a few
+    /// ulps short of a stop time): those at its end.
+    fn integrate_to_state(&mut self) -> Result<(), SolveError> {
+        let ts = self.solver.state().t;
+        let mut q = vec![0.0; self.q_a.len()];
+        if ts > self.t_a {
+            self.integrate(ts, &mut q)?;
+        } else {
+            q.copy_from_slice(&self.q_a);
+        }
+        self.q_b = q;
+        Ok(())
     }
 
     /// Puts the solver at `t` with `y` (iteration variables made
@@ -388,6 +420,17 @@ where
             self.q_a = q;
         }
         let t_state = self.solver.state().t;
+        // diffsol may stop a few ulps short of a stop time: that is the
+        // stop time
+        let near =
+            |a: f64, b: f64| (a - b).abs() <= 8.0 * f64::EPSILON * a.abs().max(b.abs()).max(1.0);
+        if near(t_stop, t_state) {
+            self.y = to_vec(self.solver.state().y);
+            self.t = t_stop;
+            self.q_b = self.q_a.clone();
+            self.integrate_to_state()?;
+            return Ok(Step::Stopped(t_stop));
+        }
         if t_stop > t_state {
             let r = self.solver.set_stop_time(t_stop);
             r.map_err(|e| self.fail("stop time", e))?;
@@ -407,8 +450,9 @@ where
                 let mut q = vec![0.0; self.q_a.len()];
                 self.integrate(t_n, &mut q)?;
                 self.q_b = q;
-                Ok(if matches!(reason, OdeSolverStopReason::TstopReached) {
-                    Step::Stopped(t_n)
+                Ok(if matches!(reason, OdeSolverStopReason::TstopReached) || near(t_stop, t_n) {
+                    self.t = t_stop;
+                    Step::Stopped(t_stop)
                 } else {
                     Step::Internal(t_n)
                 })
@@ -438,10 +482,11 @@ where
                 self.y = yr;
                 self.t = t_r;
                 self.pending_back = Some(t_r);
-                let watched = dirs
-                    .iter()
-                    .zip(&self.info.root_dirs)
-                    .any(|(d, w)| *d != 0 && (*w == 0 || *w == *d));
+                // table guards (after the model's roots) are watched both ways
+                let watched = dirs.iter().enumerate().any(|(k, d)| {
+                    let w = self.info.root_dirs.get(k).copied().unwrap_or(0);
+                    *d != 0 && (w == 0 || w == *d)
+                });
                 Ok(if watched { Step::Root(t_r, dirs) } else { Step::Internal(t_r) })
             }
         }
@@ -466,6 +511,10 @@ where
         // them, inside this integrator's own methods; the returned slice
         // borrows `self` mutably, so none of them can run while it lives.
         unsafe { (*self.shared.d.as_ptr()).as_mut_slice() }
+    }
+
+    fn set_root_sides(&mut self, sides: &[f64]) {
+        self.shared.zero_side.borrow_mut().copy_from_slice(sides);
     }
 
     fn restart(&mut self, t: f64, y: &[f64]) -> Result<(), SolveError> {

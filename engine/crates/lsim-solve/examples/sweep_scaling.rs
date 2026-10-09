@@ -6,6 +6,7 @@
 //!
 //! `cargo run --release -p lsim-solve --example sweep_scaling`
 
+#[path = "shared/models.rs"]
 mod models;
 
 use lsim_solve::{OutputGrid, RunInfo, SolverOptions, sweep};

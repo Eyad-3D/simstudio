@@ -37,7 +37,7 @@ pub mod sweep;
 
 pub use accuracy::{AccuracyReport, ChannelChange, accuracy_check, compare_runs};
 pub use energy::{EnergyBooks, PartBooks};
-pub use info::{BlockInfo, EnergyInfo, EnergyPart, ModeInfo, RunInfo, VarSource};
+pub use info::{AssertInfo, BlockInfo, EnergyInfo, EnergyPart, ModeInfo, RunInfo, VarSource};
 pub use recorder::Recorder;
 pub use run::run_loop;
 pub use sweep::sweep;
@@ -78,6 +78,22 @@ pub enum SolveError {
     #[error("the energy books do not close: {message}")]
     EnergyBooks {
         /// how far, and which parts
+        message: String,
+    },
+    /// A table was read outside its data on an axis that forbids it.
+    #[error("at t = {t} s, {message}")]
+    TableOutside {
+        /// where
+        t: f64,
+        /// which table and axis, in words
+        message: String,
+    },
+    /// A model's `assert` (an error) failed.
+    #[error("at t = {t} s, {message}")]
+    Assert {
+        /// where
+        t: f64,
+        /// the assert's message, naming the part
         message: String,
     },
     /// A sampled block failed.
@@ -283,6 +299,10 @@ pub trait Integrator {
     fn local_error(&mut self, _out: &mut [f64]) -> bool {
         false
     }
+    /// For each root function, the side an exact zero counts as (+1 or -1;
+    /// 0: none): the run loop sets it after every event so a function that
+    /// rests at zero after its crossing (a held value) does not fire again.
+    fn set_root_sides(&mut self, _sides: &[f64]) {}
     /// The method now in use, for the report.
     fn method(&self) -> String {
         "BDF".into()
@@ -440,6 +460,35 @@ pub fn simulate(
     let mut d0 = vec![0.0; l.n_d];
     model.start(&info.params, &mut y0, &mut d0);
     let u = vec![0.0; l.n_u];
+    let start = init::initialise(
+        model,
+        info,
+        grid.t0,
+        &mut y0,
+        &mut d0,
+        &u,
+        &init::InitSettings { rtol: opts.rtol, atol: opts.atol, max_iterations: 50 },
+    )?;
+    let result = run_backend(model, info, opts, grid, y0, d0, u, blocks, started);
+    result.map(|mut r| {
+        r.report.notes.insert(0, format!("start: {start}"));
+        r
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_backend(
+    model: &dyn ModelFunctions,
+    info: &RunInfo,
+    opts: &SolverOptions,
+    grid: OutputGrid,
+    y0: Vec<f64>,
+    d0: Vec<f64>,
+    u: Vec<f64>,
+    blocks: &mut [Box<dyn DiscreteBlock>],
+    started: Instant,
+) -> Result<SimResult, SolveError> {
+    let l = *model.layout();
     let quad = if opts.energy_books {
         info.energy.as_ref().filter(|e| !e.parts.is_empty()).map(|e| energy::Integrand::new(e, &l))
     } else {
