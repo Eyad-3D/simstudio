@@ -1000,6 +1000,7 @@ name = "lsim-lib"
 version = "0.1.0"
 dependencies = [
  "lsim-ir",
+ "serde_json",
 ]
 
 [[package]]
@@ -1018,7 +1019,12 @@ dependencies = [
 name = "lsim-project"
 version = "0.1.0"
 dependencies = [
+ "lsim-codegen",
  "lsim-ir",
+ "lsim-lang",
+ "lsim-lib",
+ "lsim-prep",
+ "lsim-solve",
  "serde_json",
 ]
 
