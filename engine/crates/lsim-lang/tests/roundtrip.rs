@@ -267,6 +267,7 @@ fn everything() -> ComponentDef {
         ],
         initial_equations: vec![eq(n("soc"), c(0.5), "start half full")],
         energy: EnergyDecl { stored: None, loss: Some(expr::table("loss_map", vec![n("i")])) },
+        impulse: vec![],
     }
 }
 

@@ -202,6 +202,18 @@ pub struct InstanceEnergy {
     pub loss: Option<Expr>,
 }
 
+/// A relative velocity an instance keeps through an impulse while a
+/// condition holds ([`crate::ImpulseDecl`], in flat scope).
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct FlatImpulse {
+    /// the relative velocity kept
+    pub keep: Expr,
+    /// while this holds
+    pub active: Expr,
+    /// where it came from
+    pub origin: Origin,
+}
+
 /// The flat system.
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct FlatSystem {
@@ -228,6 +240,9 @@ pub struct FlatSystem {
     /// conditions checked while the model runs
     #[serde(default)]
     pub asserts: Vec<FlatAssert>,
+    /// relative velocities instances keep through an impulse
+    #[serde(default)]
+    pub impulse: Vec<FlatImpulse>,
 }
 
 impl FlatSystem {

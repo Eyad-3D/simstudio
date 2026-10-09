@@ -349,6 +349,24 @@ pub struct EnergyDecl {
     pub loss: Option<Expr>,
 }
 
+/// A relative velocity a component keeps through an impulse while a
+/// condition holds: it passes a rigid, instantaneous engagement elsewhere
+/// in the model on rigidly, as if it were a rigid coupling for that
+/// instant. A tyre that grips keeps its slip velocity (`keep = w*r - v`
+/// while it is not at its grip limit), so a gear shift's impulse reaches
+/// the vehicle; a part that carries only bounded forces (a slipping
+/// clutch, a tyre at its grip limit) declares none and passes no impulse.
+/// The text format writes it as `annotation(__LightSim_impulse(keep = …,
+/// active = …))`.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct ImpulseDecl {
+    /// the relative velocity kept (an expression of the component's
+    /// variables, linear in its velocities)
+    pub keep: Expr,
+    /// while this holds (a truth value)
+    pub active: Expr,
+}
+
 /// A component definition.
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct ComponentDef {
@@ -375,6 +393,9 @@ pub struct ComponentDef {
     /// the enumeration types it declares for its own parameters
     #[serde(default)]
     pub types: Vec<EnumType>,
+    /// the relative velocities it keeps through an impulse
+    #[serde(default)]
+    pub impulse: Vec<ImpulseDecl>,
 }
 
 /// A set of connector and component definitions.
