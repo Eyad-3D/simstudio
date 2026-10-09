@@ -159,11 +159,11 @@ widened for a known error of today's engine.
   tick has set the outputs. Modes are re-checked
   against their relations, so the library's friction holds its conditions
   as modes.
-* Mode changes a tick makes count towards the event-storm limit, though
+* Mode changes a tick makes counted towards the event-storm limit, though
   the clock schedules them: the Hybrid Control Unit switching the engine's
   throttle on and off from one tick to the next stopped the UDDS and HWFET
-  runs. The harness allows 8 mode changes per tick of the fastest sampled
-  block over the limit (`golden::storm_allowance`).
+  runs. The run loop no longer counts what a tick or a time event changes
+  at its instant, and the harness's allowance for it is gone.
 * Each tick whose outputs change restarts IDA (about 30 steps per 10 ms
   tick on the hybrid: most of its run time, with the Script's round trip
   to Python). On the WLTC the error test on the iteration variables

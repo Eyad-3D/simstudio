@@ -8,8 +8,8 @@
 use lsim_ir::prepared::Direction;
 use lsim_ir::runtime::{DiscreteBlock, EvalInput, Layout, ModelFunctions};
 use lsim_solve::{
-    Backend, BlockInfo, EventKind, OutputGrid, RunInfo, SimResult, SolverOptions, VarSource,
-    simulate,
+    Backend, BlockInfo, EventKind, ModeInfo, OutputGrid, RunInfo, SimResult, SolverOptions,
+    VarSource, simulate,
 };
 
 type F = Box<dyn Fn(&EvalInput<'_>, &mut [f64]) + Send + Sync>;
@@ -170,5 +170,62 @@ fn a_when_made_true_by_a_ticks_output_fires_at_the_tick() {
         assert!((fired[0] - 0.3).abs() < 1e-12, "{backend:?}: at the tick, not {}", fired[0]);
         assert_eq!(run.values[2][at(&run, 0.2)], 0.0, "{backend:?}");
         assert_eq!(run.values[2][at(&run, 0.3)], 1.0, "{backend:?}: latched at the tick");
+    }
+}
+
+/// Mode changes a clock tick makes are scheduled by the clock: a block
+/// that switches a mode at each of its ticks is not an event storm.
+#[test]
+fn mode_changes_a_tick_makes_are_no_event_storm() {
+    // y' = m with the mode m: u > 0.5; the block toggles u at every tick
+    // (2000 ticks a second: 200 within the storm window of 0.1 s)
+    let model = Hand {
+        layout: layout(1, 0, 0, 2, 2, 2, 3),
+        f: Box::new(|i, out| out[0] = i.d[1]),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(|i, out| {
+            out[0] = i.d[0] - 0.5;
+            out[1] = i.d[0] - 0.5;
+        }),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+            out[2] = i.d[1];
+        }),
+        when: Box::new(|_, fired, d| {
+            if fired[0] != 0.0 {
+                d[1] = 1.0;
+            }
+            if fired[1] != 0.0 {
+                d[1] = 0.0;
+            }
+        }),
+        modes: Some(Box::new(|i, _, d| d[1] = if i.d[0] > 0.5 { 1.0 } else { 0.0 })),
+        y0: vec![0.0],
+        d0: vec![0.0, 0.0],
+    };
+    let mut info = RunInfo::bare(1, 3, vec![]);
+    info.root_dirs = vec![1, -1];
+    whens(
+        &mut info,
+        &[(0, Direction::Rising, "'Switch': on"), (1, Direction::Falling, "'Switch': off")],
+    );
+    info.modes = vec![ModeInfo { crossing: 0, discrete: 1, label: "'Switch': on".into() }];
+    info.var_sources = vec![VarSource::Y(0), VarSource::D(0), VarSource::D(1)];
+    info.blocks = vec![block(vec![0], vec![0], 5e-4)];
+    for backend in backends() {
+        let opts = SolverOptions { backend, storm_window: 0.1, ..Default::default() };
+        let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![Box::new(Sampled {
+            period: 5e-4,
+            offset: 0.0,
+            law: |t, _, o| o[0] = if (t / 5e-4).round() as i64 % 2 == 0 { 1.0 } else { 0.0 },
+        })];
+        let grid = OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.1 };
+        let run = simulate(&model, &info, &opts, grid, &mut blocks)
+            .unwrap_or_else(|e| panic!("{backend:?}: {e}"));
+        // on half of the time: y(1) = 0.5
+        assert!((run.values[0].last().unwrap() - 0.5).abs() < 1e-9, "{backend:?}");
+        let flips = run.events.iter().filter(|e| matches!(e.kind, EventKind::Mode(_))).count();
+        assert!(flips >= 1999, "{backend:?}: {flips} mode changes");
     }
 }

@@ -20,7 +20,9 @@
 //!   tick changes nothing again.
 //! * **Event storms**: more than [`SolverOptions::storm_events`] state
 //!   events in [`SolverOptions::storm_window`] of the run stop it, naming
-//!   the conditions (and so the parts) that chatter.
+//!   the conditions (and so the parts) that chatter. Sample ticks and time
+//!   events are scheduled, and so is every mode change and `when` they
+//!   cause at their instant: none of them counts.
 //! * **Modes checked after every step**: a mode whose condition left zero
 //!   right after a restart (root finding cannot see a crossing that starts
 //!   exactly at zero) is caught at the step's end and flipped there.
@@ -97,6 +99,9 @@ struct Loop<'a> {
     /// asserts that already warned
     warned: Vec<bool>,
     warnings: Vec<String>,
+    /// the event being handled was scheduled (a sample tick, a time event):
+    /// the mode changes and `when`s it causes are no state events
+    scheduled: bool,
 }
 
 /// Maps an exact zero of a root function to the side it counts as, so a
@@ -261,8 +266,9 @@ impl Loop<'_> {
         };
         self.events.push(EventRecord { t, when, label: label.clone(), kind });
         // storm detection: state events only (clocks and time events are
-        // scheduled, not chattering)
-        if matches!(kind, EventKind::Block(_) | EventKind::Time(_)) {
+        // scheduled, not chattering, and so is what they cause at their
+        // instant: a controller switching a mode from one tick to the next)
+        if self.scheduled || matches!(kind, EventKind::Block(_) | EventKind::Time(_)) {
             return Ok(());
         }
         self.recent.push_back((t, label));
@@ -560,6 +566,7 @@ pub fn run_loop(
         outside_total: vec![(0.0, f64::NAN); model.table_guard_list().len()],
         warned: vec![false; info.asserts.len()],
         warnings: vec![],
+        scheduled: false,
     };
     let p = &info.params;
     let mut y = vec![0.0; n];
@@ -813,7 +820,10 @@ pub fn run_loop(
                         d[o] = new_outputs[k];
                     }
                     lp.record(tk, crate::EventKind::Block(b))?;
-                    lp.iterate(tk, &yk, &mut d, &d_pre, None)?;
+                    lp.scheduled = true;
+                    let it = lp.iterate(tk, &yk, &mut d, &d_pre, None);
+                    lp.scheduled = false;
+                    it?;
                     integ.discrete_mut().copy_from_slice(&d);
                     lp.update_sides(tk, &yk, &d, None);
                     integ.set_root_sides(&lp.sides);
@@ -906,7 +916,12 @@ pub fn run_loop(
             if let Some(dirs) = dirs {
                 lp.guard_crossings(t, dirs)?;
             }
-            changed |= lp.iterate(t, &y, &mut d, &d_pre, dirs)?;
+            // a time event is scheduled; a root (with any ticks at its
+            // instant) is a state event
+            lp.scheduled = !is_root;
+            let it = lp.iterate(t, &y, &mut d, &d_pre, dirs);
+            lp.scheduled = false;
+            changed |= it?;
             if at_time_event {
                 while info.time_events.get(next_time_event).is_some_and(|&te| te <= t) {
                     lp.record(t, crate::EventKind::Time(next_time_event))?;

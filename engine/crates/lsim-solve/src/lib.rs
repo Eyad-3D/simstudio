@@ -183,7 +183,8 @@ pub struct SolverOptions {
     /// event iterations allowed at one instant before the run stops
     pub max_event_iterations: usize,
     /// an event storm: more than this many state events (zero crossings and
-    /// modes; sample ticks and time events do not count) …
+    /// modes; sample ticks and time events do not count, nor what they
+    /// change at their instant) …
     pub storm_events: usize,
     /// … within this share of the run's length (at least 1 µs)
     pub storm_window: f64,

@@ -315,7 +315,6 @@ pub fn run_case(
         .map_err(|e| e.iter().map(|d| d.to_string()).collect::<Vec<_>>().join("; "))?;
     let build_seconds = t0.elapsed().as_secs_f64();
     let run = &rep.run;
-    let solver = &storm_allowance(solver, &model, run.duration);
     let t1 = std::time::Instant::now();
     let go = |t_end: f64| -> Result<SimResult, String> {
         let mut blocks = hosts(&model, &rep, python)?;
@@ -333,25 +332,6 @@ pub fn run_case(
     let figures = figures(project, &rep, &model, &result);
     Ok(CaseRun { report: rep, result, figures, build_seconds, run_seconds })
 }
-
-/// The run loop counts the mode changes a sample tick makes (a controller
-/// switching an engine's throttle on and off from one tick to the next, as
-/// the hybrid's Hybrid Control Unit does on the city cycle) as state events
-/// towards its event-storm limit, though the clock schedules them: a
-/// model with sampled blocks may make up to [`MODE_CHANGES_PER_TICK`] of
-/// them at each tick of its fastest block over and above the limit.
-pub fn storm_allowance(solver: &SolverOptions, model: &Model, duration: f64) -> SolverOptions {
-    let mut opts = solver.clone();
-    let fastest = model.info.blocks.iter().map(|b| b.period).filter(|p| *p > 0.0).reduce(f64::min);
-    if let Some(period) = fastest {
-        let ticks = (opts.storm_window * duration / period).ceil().max(1.0) as usize;
-        opts.storm_events += MODE_CHANGES_PER_TICK * ticks;
-    }
-    opts
-}
-
-/// See [`storm_allowance`].
-pub const MODE_CHANGES_PER_TICK: usize = 8;
 
 /// What the battery figures need of a battery as the case runs it.
 #[derive(Clone)]
