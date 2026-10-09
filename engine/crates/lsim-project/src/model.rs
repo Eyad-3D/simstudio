@@ -37,32 +37,6 @@ impl Env for Params<'_> {
     }
 }
 
-/// A variable kept by alias elimination takes the start value (a guess) of
-/// a variable eliminated in its favour when it has none of its own (or
-/// only 0, which preparation writes where its own start solve did not
-/// converge): the
-/// battery's terminal voltage guess then reaches the bus voltage its node's
-/// port carries. Without it the initialisation starts the bus at 0 V, where
-/// `v·i = P` gives no current (a singular Jacobian). Preparation should do
-/// this itself (work package 2); until then it is done here.
-pub fn carry_alias_starts(m: &mut PreparedModel) {
-    use lsim_ir::prepared::AliasTarget;
-    let mut given: Vec<(VarId, f64)> = vec![];
-    for a in &m.aliases {
-        if let AliasTarget::Var { var, negated } = a.target
-            && m.flat.var(var).start.is_none_or(|s| s == 0.0)
-            && let Some(s) = m.flat.var(a.var).start
-            && s != 0.0
-            && !given.iter().any(|(v, _)| *v == var)
-        {
-            given.push((var, if negated { -s } else { s }));
-        }
-    }
-    for (v, s) in given {
-        m.flat.vars[v.0 as usize].start = Some(s);
-    }
-}
-
 fn diags(e: impl std::fmt::Display) -> Vec<Diagnostic> {
     vec![Diagnostic::error("CODEGEN", e.to_string())]
 }
@@ -79,8 +53,7 @@ impl Model {
         top: &ComponentDef,
         opts: &PrepOptions,
     ) -> Result<Model, Vec<Diagnostic>> {
-        let mut prepared = lsim_prep::prepare(lib, top, opts)?;
-        carry_alias_starts(&mut prepared);
+        let prepared = lsim_prep::prepare(lib, top, opts)?;
         let jit = lsim_codegen::compile(&prepared, &CodegenOptions::default()).map_err(diags)?;
         let info = RunInfo::from_prepared(&prepared);
         Ok(Model { prepared, jit, info })

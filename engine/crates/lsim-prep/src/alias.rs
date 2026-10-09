@@ -312,6 +312,52 @@ pub fn eliminate_with(flat: &mut FlatSystem, known: &[bool]) -> Vec<AliasEntry> 
     table
 }
 
+/// A variable kept by alias elimination with no start value of its own
+/// takes one from the variables eliminated in its favour, with their sign:
+/// a fixed one first, else the first in the model's order. It is a guess
+/// for the kept variable (preparation's start solve and the run's
+/// initialisation start from it); a fixed start of an eliminated variable
+/// stays a condition of the initialisation system on the kept one. So a
+/// battery's terminal voltage guess reaches the bus voltage its node's port
+/// carries, where `v·i = P` from 0 V would give no current (a singular
+/// start). `start` holds the start expressions per variable.
+pub fn carry_starts(flat: &mut FlatSystem, start: &mut [Option<Expr>], aliases: &[AliasEntry]) {
+    let has_start = |flat: &FlatSystem, start: &[Option<Expr>], v: VarId| {
+        start.get(v.0 as usize).is_some_and(|s| s.is_some()) || flat.var(v).start.is_some()
+    };
+    // per kept variable: (fixed, the alias, its sign)
+    let mut best: std::collections::BTreeMap<u32, (bool, VarId, bool)> = Default::default();
+    for a in aliases {
+        let AliasTarget::Var { var, negated } = a.target else { continue };
+        if has_start(flat, start, var) || !has_start(flat, start, a.var) {
+            continue;
+        }
+        let fixed = flat.var(a.var).fixed;
+        let better = match best.get(&var.0) {
+            None => true,
+            Some((f, w, _)) => (fixed && !f) || (fixed == *f && a.var < *w),
+        };
+        if better {
+            best.insert(var.0, (fixed, a.var, negated));
+        }
+    }
+    for (kept, (_, from, negated)) in best {
+        let kept = kept as usize;
+        let i = from.0 as usize;
+        let expr = start
+            .get(i)
+            .cloned()
+            .flatten()
+            .or_else(|| flat.vars[i].start.map(Expr::Const))
+            .expect("a start");
+        let value = flat.vars[i].start;
+        if kept < start.len() {
+            start[kept] = Some(if negated { -expr } else { expr });
+        }
+        flat.vars[kept].start = value.map(|v| if negated { -v } else { v });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
