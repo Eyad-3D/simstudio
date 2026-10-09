@@ -372,6 +372,9 @@ pub struct Sundials<'m> {
     /// the last step's start (the dense output is valid from here to
     /// `t_last`)
     t_step_start: f64,
+    /// the last point whose iteration variables were solved: (t, y, d);
+    /// a restart there needs no second solve
+    z_solved: Option<(f64, Vec<f64>, Vec<f64>)>,
     _model: PhantomData<&'m dyn ModelFunctions>,
 }
 
@@ -549,6 +552,7 @@ impl<'m> Sundials<'m> {
                 methods: vec![],
                 fresh: true,
                 t_step_start: t0,
+                z_solved: None,
                 _model: PhantomData,
             };
             match kind {
@@ -596,7 +600,7 @@ impl<'m> Sundials<'m> {
                     }
                     s.init_roots()?;
                     s.methods.push((t0, Lmm::Bdf));
-                    let what = s.consistent(t0)?;
+                    let what = s.consistent(t0, None)?;
                     s.notes.push(format!("initialisation: {what}"));
                 }
             }
@@ -752,46 +756,81 @@ impl<'m> Sundials<'m> {
         rho
     }
 
-    /// IDA: makes z consistent (Newton, then homotopy) and x' with it.
-    fn consistent(&mut self, t: f64) -> Result<String, SolveError> {
+    /// IDA: makes z consistent (Newton, then homotopy) and y' with it (x'
+    /// from the model, z' from the algebraic equations differentiated along
+    /// the solution). At the start IDA's own `IDACalcIC` refines the point;
+    /// at a restart (`h0`: the step IDA had planned) it is consistent
+    /// already, and the first step starts from `h0`, not from IDA's
+    /// default of a step that moves y by half a tolerance unit.
+    fn consistent(&mut self, t: f64, h0: Option<f64>) -> Result<String, SolveError> {
         let n = self.n;
         let pr = &mut *self.prob;
         // SAFETY: y is our serial vector of n values.
         let y = unsafe { slice(self.y, n) };
-        let outcome = consistent_z(
-            pr.model(),
-            &self.info,
-            &pr.jac,
-            t,
-            y,
-            &pr.p,
-            &pr.d,
-            &pr.u,
-            &InitSettings { rtol: self.opts.rtol, atol: self.opts.atol, max_iterations: 50 },
-        )?;
-        // x' from the model at the consistent point
-        let m = pr.model();
-        let inp = EvalInput { t, y, p: &pr.p, d: &pr.d, u: &pr.u };
-        m.residual(&inp, &mut pr.work, &mut pr.out);
-        let nx = pr.layout.n_x;
+        let solved = self
+            .z_solved
+            .take()
+            .is_some_and(|(ts, ys, ds)| ts == t && ys.as_slice() == &y[..] && ds == pr.d);
+        let outcome = if solved {
+            crate::init::InitOutcome::default()
+        } else {
+            consistent_z(
+                pr.model(),
+                &self.info,
+                &pr.jac,
+                t,
+                y,
+                &pr.p,
+                &pr.d,
+                &pr.u,
+                &InitSettings { rtol: self.opts.rtol, atol: self.opts.atol, max_iterations: 50 },
+            )?
+        };
+        // y' at the consistent point
         // SAFETY: yp is our serial vector of n values.
         let yp = unsafe { slice(self.yp, n) };
-        for (i, v) in yp.iter_mut().enumerate() {
-            *v = if i < nx { pr.out[i] } else { 0.0 };
-        }
-        let h = (1e-3 * (self.t_end - t).abs()).max(1e-9);
+        crate::init::rates(pr.model(), &pr.jac, t, y, &pr.p, &pr.d, &pr.u, yp);
         // SAFETY: `mem` is a live IDA memory; y and yp are its vectors.
         unsafe {
             self.check(IDAReInit(self.mem, t, self.y, self.yp), "IDAReInit", t)?;
             if self.n_q > 0 {
                 self.check(IDAQuadReInit(self.mem, self.yq), "IDAQuadReInit", t)?;
             }
-            self.check(
-                IDACalcIC(self.mem, IDA_YA_YDP_INIT, t + h),
-                "the consistent initialisation (IDACalcIC)",
-                t,
-            )?;
-            self.check(IDAGetConsistentIC(self.mem, self.y, self.yp), "IDAGetConsistentIC", t)?;
+            match h0 {
+                None => {
+                    let h = (1e-3 * (self.t_end - t).abs()).max(1e-9);
+                    self.check(
+                        IDACalcIC(self.mem, IDA_YA_YDP_INIT, t + h),
+                        "the consistent initialisation (IDACalcIC)",
+                        t,
+                    )?;
+                    self.check(
+                        IDAGetConsistentIC(self.mem, self.y, self.yp),
+                        "IDAGetConsistentIC",
+                        t,
+                    )?;
+                }
+                Some(h) => {
+                    let pr = &mut *self.prob;
+                    let h0 = crate::init::first_step(
+                        pr.model(),
+                        t,
+                        slice(self.y, n),
+                        slice(self.yp, n),
+                        &pr.p,
+                        &pr.d,
+                        &pr.u,
+                        &InitSettings {
+                            rtol: self.opts.rtol,
+                            atol: self.opts.atol,
+                            max_iterations: 0,
+                        },
+                        &self.info.y_nominal,
+                        h,
+                    );
+                    self.check(IDASetInitStep(self.mem, h0), "IDASetInitStep", t)?;
+                }
+            }
         }
         self.fresh = true;
         Ok(outcome.describe())
@@ -1012,6 +1051,19 @@ impl Integrator for Sundials<'_> {
             unsafe { slice(self.yq, self.n_q).copy_from_slice(&q) };
         }
         let h_last = (self.t_last - self.last_step_start()).abs();
+        // the step the integrator had planned next (0 before its first
+        // step: then it chooses)
+        let mut h_next = 0.0;
+        if !self.fresh {
+            // SAFETY: `mem` is live.
+            unsafe {
+                match self.kind {
+                    Kind::Cvode => CVodeGetCurrentStep(self.mem, &mut h_next),
+                    Kind::Ida => IDAGetCurrentStep(self.mem, &mut h_next),
+                };
+            }
+        }
+        let h_next = h_next.abs();
         self.done.restarts += 1;
         // SAFETY: y is our serial vector of n values.
         unsafe { slice(self.y, self.n).copy_from_slice(y) };
@@ -1052,15 +1104,60 @@ impl Integrator for Sundials<'_> {
                     self.fresh = true;
                     self.init_roots()?;
                 }
+                let h0 = if h_next > 0.0 {
+                    let pr = &mut *self.prob;
+                    let mut yp = vec![0.0; self.n];
+                    crate::init::rates(pr.model(), &pr.jac, t, y, &pr.p, &pr.d, &pr.u, &mut yp);
+                    crate::init::first_step(
+                        pr.model(),
+                        t,
+                        y,
+                        &yp,
+                        &pr.p,
+                        &pr.d,
+                        &pr.u,
+                        &InitSettings {
+                            rtol: self.opts.rtol,
+                            atol: self.opts.atol,
+                            max_iterations: 0,
+                        },
+                        &self.info.y_nominal,
+                        h_next,
+                    )
+                } else {
+                    0.0
+                };
+                // SAFETY: `mem` is live.
+                unsafe { self.check(CVodeSetInitStep(self.mem, h0), "CVodeSetInitStep", t)? };
             }
             Kind::Ida => {
                 self.done += self.counters();
                 self.t_last = t;
                 self.init_roots()?;
-                self.consistent(t)?;
+                self.consistent(t, Some(h_next))?;
             }
         }
         Ok(())
+    }
+
+    fn resume(&mut self, t: f64) -> bool {
+        // the discrete values are the problem's already; the history stays
+        !self.fresh && t == self.t_last
+    }
+
+    fn planned_step(&self) -> f64 {
+        if self.fresh {
+            return 0.0;
+        }
+        let mut h = 0.0;
+        // SAFETY: `mem` is live.
+        unsafe {
+            match self.kind {
+                Kind::Cvode => CVodeGetCurrentStep(self.mem, &mut h),
+                Kind::Ida => IDAGetCurrentStep(self.mem, &mut h),
+            };
+        }
+        h.abs()
     }
 
     fn consistent_z(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError> {
@@ -1078,8 +1175,9 @@ impl Integrator for Sundials<'_> {
             d,
             &pr.u,
             &InitSettings { rtol: self.opts.rtol, atol: self.opts.atol, max_iterations: 50 },
-        )
-        .map(|_| ())
+        )?;
+        self.z_solved = Some((t, y.to_vec(), d.to_vec()));
+        Ok(())
     }
 
     fn stats(&self) -> SolverStats {

@@ -305,6 +305,18 @@ pub trait Integrator {
     /// after the discrete variables changed. `t` may lie inside the last
     /// step (the rest of the step is dropped).
     fn restart(&mut self, t: f64, y: &[f64]) -> Result<(), SolveError>;
+    /// Goes on from `t`, the end of the last step, keeping the integration
+    /// history (no restart), after an event that changed discrete values
+    /// so little that the next step's error test hardly sees it. False when
+    /// the backend cannot (its last step does not end at `t`, or it has
+    /// none): the run loop then restarts it.
+    fn resume(&mut self, _t: f64) -> bool {
+        false
+    }
+    /// The step the integrator plans next, s (0: none yet).
+    fn planned_step(&self) -> f64 {
+        0.0
+    }
     /// Makes the iteration variables of `y` consistent at `t` with the
     /// discrete values `d`, the states held (event iteration re-checks the
     /// conditions with them after a discrete value changed). A model
@@ -426,8 +438,12 @@ pub struct SolverReport {
     pub events: usize,
     /// sampled-block ticks
     pub block_ticks: u64,
-    /// ticks that changed an output (and so restarted the integrator)
+    /// ticks that changed an output (and so restarted the integrator,
+    /// unless the change was slight)
     pub block_changes: u64,
+    /// of those, the ones so slight that the integration went on with its
+    /// history (no restart): the next step's error test checked them
+    pub light_restarts: u64,
     /// the integrator's own error estimate
     pub error: ErrorEstimate,
     /// warnings for the user

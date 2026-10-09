@@ -460,6 +460,74 @@ impl Loop<'_> {
         Ok(d.as_slice() != d_pre)
     }
 
+    /// Whether a sample tick's change at `t` (the end of the integrator's
+    /// last step, `y` the point after the event) is so slight that the
+    /// integration can go on with its history: only the block's `outputs`
+    /// changed (no mode, no `when`), no condition or table guard changed
+    /// side, and the jumps the next step's error test will see are within
+    /// a tenth of its budget: the derivatives' jump over the planned step,
+    /// `h ‖Δx'‖`, and the iteration variables' jump `‖Δz‖` (left out when
+    /// the error test leaves them out), weighted as the test weighs them.
+    /// Then the integrator resumes. On return `y`'s iteration variables
+    /// are consistent with `d`.
+    #[allow(clippy::too_many_arguments)]
+    fn slight(
+        &mut self,
+        integ: &mut dyn Integrator,
+        t: f64,
+        y: &mut [f64],
+        d_pre: &[f64],
+        d: &[f64],
+        outputs: &[usize],
+    ) -> Result<bool, SolveError> {
+        let only_outputs =
+            d.iter().zip(d_pre).enumerate().all(|(i, (a, b))| a == b || outputs.contains(&i));
+        let h = integ.planned_step();
+        if !only_outputs || h <= 0.0 {
+            return Ok(false);
+        }
+        let l = *self.model.layout();
+        let (n_x, n) = (l.n_x, l.n_y());
+        let y_old = integ.y().to_vec();
+        if l.n_z > 0 && !self.info.events_read_z {
+            integ.consistent_z(t, y, d)?;
+        }
+        // the conditions keep their sides
+        self.eval_raw(t, &y_old, d_pre);
+        let before = self.raw.clone();
+        self.eval_raw(t, y, d);
+        if before
+            .iter()
+            .zip(&self.raw)
+            .any(|(a, b)| (*a > 0.0) != (*b > 0.0) || (*a < 0.0) != (*b < 0.0))
+        {
+            return Ok(false);
+        }
+        let mut f0 = vec![0.0; n];
+        let mut f1 = vec![0.0; n];
+        let p = &self.info.params;
+        self.model.residual(
+            &EvalInput { t, y: &y_old, p, d: d_pre, u: self.u },
+            &mut self.work,
+            &mut f0,
+        );
+        self.model.residual(&EvalInput { t, y, p, d, u: self.u }, &mut self.work, &mut f1);
+        let w = |i: usize| {
+            1.0 / (self.opts.rtol * y[i].abs() + self.opts.atol * self.info.y_nominal[i])
+        };
+        let rms = |s: f64, k: usize| if k == 0 { 0.0 } else { (s / k as f64).sqrt() };
+        let dx = rms((0..n_x).map(|i| ((f1[i] - f0[i]) * w(i)).powi(2)).sum(), n_x);
+        let dz = if self.opts.suppress_algebraic_error {
+            0.0
+        } else {
+            rms((n_x..n).map(|i| ((y[i] - y_old[i]) * w(i)).powi(2)).sum(), n - n_x)
+        };
+        if !(h * dx <= 0.1 && dz <= 0.1) {
+            return Ok(false);
+        }
+        Ok(integ.resume(t))
+    }
+
     /// Solves the iteration variables of `y` again (the states held) when
     /// the discrete values changed since they were solved for `z_for`, and
     /// the events read them.
@@ -811,6 +879,9 @@ pub fn run_loop(
 
         // grid points and ticks inside the step, in time order
         let mut cut = false;
+        // a slight tick change at the step's end that let the integration
+        // go on: the point after it (recorded already)
+        let mut resumed: Option<Vec<f64>> = None;
         loop {
             let tg = rec.next_grid_time().filter(|&g| g < t_new || (g == t_new && !is_root));
             let mut tick: Option<(usize, f64)> = None;
@@ -885,6 +956,14 @@ pub fn run_loop(
                     integ.discrete_mut().copy_from_slice(&d);
                     lp.update_sides(tk, &yk, &d, None);
                     integ.set_root_sides(&lp.sides);
+                    if tk == t_new && lp.slight(integ, tk, &mut yk, &d_pre, &d, outs)? {
+                        // the integration goes on: the next step's error
+                        // test checks what the change does
+                        report.light_restarts += 1;
+                        after_event(&mut lp, &mut rec, integ, &mut ledger, before, tk, &yk, &d)?;
+                        resumed = Some(yk.clone());
+                        continue;
+                    }
                     integ.restart(tk, &yk)?;
                     y.copy_from_slice(integ.y());
                     after_event(&mut lp, &mut rec, integ, &mut ledger, before, tk, &y, &d)?;
@@ -899,9 +978,17 @@ pub fn run_loop(
         }
 
         // the step's end point, for min/max/mean, and the asserts
-        y.copy_from_slice(integ.y());
-        lp.sample(t_new, &y, &d);
-        rec.interior(t_new, &lp.vars);
+        match &resumed {
+            Some(after) => {
+                y.copy_from_slice(after);
+                lp.sample(t_new, &y, &d);
+            }
+            None => {
+                y.copy_from_slice(integ.y());
+                lp.sample(t_new, &y, &d);
+                rec.interior(t_new, &lp.vars);
+            }
+        }
         t = t_new;
         lp.check_asserts(t)?;
 

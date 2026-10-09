@@ -438,3 +438,84 @@ fn a_when_at_its_threshold_at_the_start_counts_as_true() {
         assert!((fired[0] - t_up).abs() < 1e-7, "{backend:?}: {}", fired[0]);
     }
 }
+
+/// A restart after a tick that changed an output costs a few steps, not
+/// the ramp-up from a tiny first step at first order.
+#[test]
+fn a_restart_after_a_tick_costs_a_few_steps() {
+    // a sample-and-hold controller u_k = 1 - y(t_k) every 10 ms over 10 s
+    let (model, mut info) = held_dae();
+    info.blocks = vec![block(vec![0], vec![0], 0.01)];
+    for (backend, n_z) in [(Backend::Sundials, 1), (Backend::Sundials, 0)] {
+        let mut model_x = Hand { ..held_dae().0 };
+        let mut info_x = info.clone();
+        if n_z == 0 {
+            // the same as an ODE (CVODE): y' = u - y
+            model_x.layout.n_z = 0;
+            model_x.f = Box::new(|i, out| out[0] = i.d[0] - i.y[0]);
+            model_x.jvp = Box::new(|_, v, out| out[0] = -v[0]);
+            model_x.vars = Box::new(|i, out| {
+                out[0] = i.y[0];
+                out[1] = 2.0 * i.y[0];
+                out[2] = i.d[0];
+            });
+            model_x.y0 = vec![1.0];
+            info_x = RunInfo { y_nominal: vec![1.0], y_names: vec!["y0".into()], ..info_x };
+        }
+        let (m, inf) = if n_z == 1 { (&model, &info) } else { (&model_x, &info_x) };
+        let opts = SolverOptions { backend, rtol: 1e-6, atol: 1e-8, ..Default::default() };
+        let mut blocks: Vec<Box<dyn DiscreteBlock>> =
+            vec![Box::new(Sampled { period: 0.01, offset: 0.0, law: |_, i, o| o[0] = 1.0 - i[0] })];
+        let grid = OutputGrid { t0: 0.0, t_end: 10.0, dt: 0.1 };
+        let run = simulate(m, inf, &opts, grid, &mut blocks).unwrap();
+        let per_tick = run.stats.steps as f64 / run.report.block_changes as f64;
+        println!(
+            "{} (n_z = {n_z}): {} steps, {} changing ticks: {per_tick:.1} steps a tick",
+            run.backend, run.stats.steps, run.report.block_changes
+        );
+        // the discrete-time solution: y_{k+1} = y_k e^-T + (1 - y_k)(1 - e^-T)
+        let e = (-0.01f64).exp();
+        let mut y = 1.0;
+        for _ in 0..1000 {
+            y = y * e + (1.0 - y) * (1.0 - e);
+        }
+        let err = (run.values[0].last().unwrap() - y).abs();
+        assert!(err < 1e-5, "{}: error {err:e}", run.backend);
+        assert!(per_tick <= 5.0, "{}: {per_tick:.1} steps a tick", run.backend);
+    }
+}
+
+/// A tick whose output change is a rounding error goes on with the
+/// integration's history (no restart), and the run is the one without the
+/// change to within the tolerance.
+#[test]
+fn a_slight_change_at_a_tick_needs_no_restart() {
+    let (model, mut info) = held_dae();
+    info.blocks = vec![block(vec![0], vec![0], 0.01)];
+    let opts = SolverOptions { rtol: 1e-8, atol: 1e-10, ..Default::default() };
+    let grid = OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.1 };
+    // u = 0.5 throughout, but each tick moves it by a few ulps
+    let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![Box::new(Sampled {
+        period: 0.01,
+        offset: 0.0,
+        law: |t, _, o| o[0] = 0.5 + 1e-15 * (t * 100.0).round(),
+    })];
+    let run = simulate(&model, &info, &opts, grid, &mut blocks).unwrap();
+    println!(
+        "{} changing ticks, {} light, {} restarts, {} steps",
+        run.report.block_changes, run.report.light_restarts, run.stats.restarts, run.stats.steps
+    );
+    // the tick at the start sets u from 0 to 0.5 and restarts; every other
+    // tick ends a step (a changing tick makes the next one a stop time) and
+    // goes on
+    assert_eq!(run.report.block_changes, 201);
+    assert_eq!(run.report.light_restarts, 200);
+    // y' = 0.5 - y from y(0) = 1: y = 0.5 + 0.5 e^-t
+    for (k, t) in run.times.iter().enumerate() {
+        let exact = 0.5 + 0.5 * (-t).exp();
+        assert!((run.values[0][k] - exact).abs() < 1e-7, "t = {t}: {}", run.values[0][k]);
+    }
+    // a changing tick makes the next tick a stop time: a step ends at each
+    // of the 200 ticks; restarting at each would take several more
+    assert!(run.stats.steps < 300, "{} steps", run.stats.steps);
+}

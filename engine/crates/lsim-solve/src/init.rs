@@ -408,6 +408,118 @@ pub fn consistent_z(
     }
 }
 
+/// The rates `y' = [x'; z']` at a consistent point `(t, y)`: `x'` from the
+/// model, `z'` from the algebraic equations differentiated along the
+/// solution, `0 = g_x x' + g_z z' + g_t` (`g_t` by a forward difference in
+/// time, for time-dependent inputs). IDA restarts from them: with `z' = 0`
+/// its predictor misses the iteration variables' motion by `h z'` and the
+/// error test holds the first steps to a fraction of the tolerance. When
+/// `g_z` is singular (it cannot be at a consistent point of an index-1
+/// model) `z'` stays 0.
+#[allow(clippy::too_many_arguments, clippy::needless_range_loop)]
+pub fn rates(
+    m: &dyn ModelFunctions,
+    jac: &JacStructure,
+    t: f64,
+    y: &[f64],
+    p: &[f64],
+    d: &[f64],
+    u: &[f64],
+    yp: &mut [f64],
+) {
+    let l = *m.layout();
+    let (n_x, n_z) = (l.n_x, l.n_z);
+    let n = l.n_y();
+    let mut work = vec![0.0; l.n_work];
+    let mut f = vec![0.0; n];
+    let inp = EvalInput { t, y, p, d, u };
+    m.residual(&inp, &mut work, &mut f);
+    yp[..n_x].copy_from_slice(&f[..n_x]);
+    yp[n_x..].fill(0.0);
+    if n_z == 0 {
+        return;
+    }
+    let mut vals = vec![0.0; jac.nnz()];
+    let (mut seed, mut out) = (vec![0.0; n], vec![0.0; n]);
+    jac.eval(m, &inp, &mut work, &mut seed, &mut out, &mut vals);
+    // g_t: the residuals one small time step on, the unknowns held
+    let dt = 1e-7 * t.abs().max(1.0);
+    let mut f_dt = vec![0.0; n];
+    m.residual(&EvalInput { t: t + dt, ..inp }, &mut work, &mut f_dt);
+    let mut rhs: Vec<f64> = (0..n_z).map(|k| -(f_dt[n_x + k] - f[n_x + k]) / dt).collect();
+    let mut trip = vec![];
+    for j in 0..n {
+        for k in jac.col_ptr[j]..jac.col_ptr[j + 1] {
+            let i = jac.row_idx[k];
+            if i < n_x {
+                continue;
+            }
+            if j < n_x {
+                rhs[i - n_x] -= vals[k] * f[j];
+            } else {
+                trip.push((i - n_x, j - n_x, vals[k]));
+            }
+        }
+    }
+    if let Some(zp) = lin_solve(n_z, &trip, &rhs) {
+        yp[n_x..].copy_from_slice(&zp);
+    }
+}
+
+/// The first step after a restart at `(t, y)` with the rates `yp`, as
+/// CVODE sizes its own first step: the order-1 error of a step h is about
+/// `h² ‖x''‖ / 2` (weighted as the error test weighs it), so `h0 = ½
+/// √(2 / ‖x''‖)`, `x''` a difference of `x'` along the solution over a
+/// trial step (shortened once when the estimate says it is too long). No
+/// longer than `h_cap` (the step the integrator had planned: the
+/// solution's other time scales do not change at an event), nor than
+/// `h_max` (0: none).
+#[allow(clippy::too_many_arguments)]
+pub fn first_step(
+    m: &dyn ModelFunctions,
+    t: f64,
+    y: &[f64],
+    yp: &[f64],
+    p: &[f64],
+    d: &[f64],
+    u: &[f64],
+    s: &InitSettings,
+    nominal: &[f64],
+    h_cap: f64,
+) -> f64 {
+    let l = *m.layout();
+    let (n_x, n) = (l.n_x, l.n_y());
+    if n_x == 0 || h_cap <= 0.0 {
+        return h_cap;
+    }
+    let mut work = vec![0.0; l.n_work];
+    let mut f = vec![0.0; n];
+    let mut ys = vec![0.0; n];
+    let mut hg = h_cap;
+    let mut h_new = h_cap;
+    for _ in 0..2 {
+        for i in 0..n {
+            ys[i] = y[i] + hg * yp[i];
+        }
+        m.residual(&EvalInput { t: t + hg, y: &ys, p, d, u }, &mut work, &mut f);
+        let mut sum = 0.0;
+        for i in 0..n_x {
+            let w = 1.0 / (s.rtol * y[i].abs() + s.atol * nominal[i]);
+            sum += ((f[i] - yp[i]) / hg * w).powi(2);
+        }
+        let ydd = (sum / n_x as f64).sqrt();
+        if !ydd.is_finite() {
+            return h_cap * 1e-3;
+        }
+        h_new = if ydd * hg * hg > 2.0 { (2.0 / ydd).sqrt() } else { hg };
+        if h_new >= hg {
+            break;
+        }
+        hg = h_new;
+    }
+    (0.5 * h_new).min(h_cap)
+}
+
 /// The start of a run: solves the model's initialisation system when it
 /// has one, writing the start vector into `y0`; then sets every mode from
 /// its relation at the start, solving again (a few times at most) while a
