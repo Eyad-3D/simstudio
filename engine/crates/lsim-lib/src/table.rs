@@ -167,6 +167,26 @@ impl Table1 {
         (self.x.first().copied().unwrap_or(0.0), self.x.last().copied().unwrap_or(0.0))
     }
 
+    /// The table with a constant extension past its first (`lo`) and last
+    /// (`hi`) point, as wide as its span: for an argument that cannot leave
+    /// the data on that side (a speed magnitude at 0, an SOC held to 0-1),
+    /// so the run loop's watch of the table's edge is never resting exactly
+    /// on it. The values the argument can take are unchanged.
+    pub fn padded(&self, lo: bool, hi: bool) -> Table1 {
+        let (Some(&x0), Some(&xn)) = (self.x.first(), self.x.last()) else { return self.clone() };
+        let d = (xn - x0).abs().max(1.0);
+        let mut t = self.clone();
+        if lo {
+            t.x.insert(0, x0 - d);
+            t.y.insert(0, self.y[0]);
+        }
+        if hi {
+            t.x.push(xn + d);
+            t.y.push(*self.y.last().expect("a point"));
+        }
+        t
+    }
+
     /// The table as runtime data: linear, today's outside rule, the axis
     /// in `x_unit`. The abscissae must increase strictly (take a profile's
     /// steps out first with [`Table1::split_steps`]).
@@ -281,6 +301,29 @@ impl Table2 {
             return yb;
         }
         ya + (yb - ya) * (xo - xa) / (xb - xa)
+    }
+
+    /// The table padded (see [`Table1::padded`]) on its outer axis
+    /// (`outer`: low end, high end) and on every sheet's inner axis.
+    pub fn padded(&self, outer: (bool, bool), inner: (bool, bool)) -> Table2 {
+        let mut t = self.clone();
+        for s in &mut t.sheets {
+            *s = s.padded(inner.0, inner.1);
+        }
+        if let (Some(&x0), Some(&xn)) = (self.outer.first(), self.outer.last()) {
+            let d = (xn - x0).abs().max(1.0);
+            if outer.0 {
+                t.outer.insert(0, x0 - d);
+                let s0 = t.sheets[0].clone();
+                t.sheets.insert(0, s0);
+            }
+            if outer.1 {
+                t.outer.push(xn + d);
+                let sn = t.sheets.last().expect("a sheet").clone();
+                t.sheets.push(sn);
+            }
+        }
+        t
     }
 
     /// The table as runtime data on one rectangular grid: the outer

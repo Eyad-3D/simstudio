@@ -9,6 +9,12 @@ use crate::x::*;
 use lsim_ir::expr::Expr;
 use lsim_ir::{CmpOp, ComponentDef, EnergyDecl, Equation, EquationDecl, WhenAction};
 
+/// How far, as a share of the friction force, the holding force must exceed
+/// it to break away: far below anything physical, and above the round-off
+/// of a holding force solved for at the event (the sliding force the
+/// conditions are re-checked with equals the friction force exactly).
+pub const BREAKAWAY: f64 = 1e-6;
+
 /// The friction mode logic shared by every Coulomb friction with stiction
 /// (rotational and translational, to the frame or between two flanges).
 ///
@@ -20,17 +26,44 @@ use lsim_ir::{CmpOp, ComponentDef, EnergyDecl, Equation, EquationDecl, WhenActio
 /// is the friction force against the motion. Mode changes are events:
 ///
 /// * sliding → stuck when the relative speed `s` crosses zero in the
-///   direction it was sliding (the conditions are on `s` alone, so a mode
-///   change never re-triggers them);
+///   direction it was sliding, once the slide is established (`armed`: its
+///   speed got clear of 0 by `s_small` since it broke away), and only with
+///   a friction force to hold (a released brake never sticks). Right after
+///   a break-away under a force that only just exceeds the friction, the
+///   speed stays within round-off of 0 for a while; a crossing then is
+///   noise, not a stop, and sticking on it would chatter;
+/// * while sliding, the direction follows the motion once the speed is
+///   clear of 0 (a direction latched from values the run loop's event
+///   iteration had not solved again is put right);
 /// * stuck → sliding when the holding force exceeds the friction force
-///   (by `eps`, so a free part with no force on it stays put): it slides
-///   the way that force pushes.
+///   (by a relative `BREAKAWAY` margin and `eps`): it slides the way that
+///   force pushes. The conditions are held as modes, which the run loop
+///   checks against their relations after every accepted step, so a
+///   holding force already past the friction force when the integrator
+///   restarts is caught too (a `when` condition alone would miss it).
+///
+/// * stuck → sliding when its sides are found moving apart by more than
+///   `s_jump` (held modes too): a re-initialisation of the speeds around it
+///   (a gear change re-solves the speeds the gears tie together) can move
+///   one side and not the other; it then slides, armed, until its sides
+///   meet again (while it holds, its relative speed does not change).
+///
+/// A part starts sliding (unarmed): with a force on it beyond the friction
+/// it moves off at once; with less, it settles to stuck within `s_small`
+/// (a condition true at the start never fires a `when`).
 ///
 /// `s` is the relative speed, `a` its rate, `f` the force (torque) through
 /// the element, `fc` the friction force's magnitude, `unit` a parameter of
 /// value 1 that gives the acceleration the force's units.
 pub fn friction_mode_eqs(s: &str, a: &str, f: &str, fc: &str, unit: &str) -> Vec<EquationDecl> {
     let stuck = || n("stuck");
+    let sliding = || lt(pre("stuck"), c(0.5));
+    let can_stick = |forwards: bool| {
+        and(
+            and(if forwards { gt(pre("dir"), c(0.0)) } else { lt(pre("dir"), c(0.0)) }, sliding()),
+            and(gt(pre("armed"), c(0.5)), gt(n(fc), n("eps"))),
+        )
+    };
     vec![
         eq(
             c(0.0),
@@ -38,16 +71,22 @@ pub fn friction_mode_eqs(s: &str, a: &str, f: &str, fc: &str, unit: &str) -> Vec
             "stuck, it holds (no relative acceleration); sliding, it takes the friction force \
              against the motion",
         ),
+        when(
+            gt(n(s), n("s_small")),
+            &[("dir", ite(sliding(), c(1.0), pre("dir"))), ("armed", c(1.0))],
+            "sliding, it moves forwards",
+        ),
+        when(
+            lt(n(s), -n("s_small")),
+            &[("dir", ite(sliding(), c(-1.0), pre("dir"))), ("armed", c(1.0))],
+            "sliding, it moves backwards",
+        ),
         EquationDecl {
             eq: Equation::When {
                 condition: lsim_ir::expr::cmp(CmpOp::Lt, n(s), c(0.0)),
                 actions: vec![WhenAction::Assign {
                     var: "stuck".into(),
-                    value: ite(
-                        and(gt(pre("dir"), c(0.0)), lt(pre("stuck"), c(0.5))),
-                        c(1.0),
-                        pre("stuck"),
-                    ),
+                    value: ite(can_stick(true), c(1.0), pre("stuck")),
                 }],
             },
             label: Some("it sticks when, sliding forwards, it comes to rest".into()),
@@ -57,36 +96,147 @@ pub fn friction_mode_eqs(s: &str, a: &str, f: &str, fc: &str, unit: &str) -> Vec
                 condition: lsim_ir::expr::cmp(CmpOp::Gt, n(s), c(0.0)),
                 actions: vec![WhenAction::Assign {
                     var: "stuck".into(),
-                    value: ite(
-                        and(lt(pre("dir"), c(0.0)), lt(pre("stuck"), c(0.5))),
-                        c(1.0),
-                        pre("stuck"),
-                    ),
+                    value: ite(can_stick(false), c(1.0), pre("stuck")),
                 }],
             },
             label: Some("it sticks when, sliding backwards, it comes to rest".into()),
         },
+        eq(
+            n("brk_fwd"),
+            ite(
+                gt(
+                    stuck() * (n(f) - n(fc) * c(1.0 + BREAKAWAY) - n("eps"))
+                        + (stuck() - c(1.0)) * n("eps"),
+                    c(0.0),
+                ),
+                c(1.0),
+                c(0.0),
+            ),
+            "the holding force exceeds the friction force forwards",
+        ),
+        eq(
+            n("brk_back"),
+            ite(
+                gt(
+                    stuck() * (-n(f) - n(fc) * c(1.0 + BREAKAWAY) - n("eps"))
+                        + (stuck() - c(1.0)) * n("eps"),
+                    c(0.0),
+                ),
+                c(1.0),
+                c(0.0),
+            ),
+            "the holding force exceeds the friction force backwards",
+        ),
         when(
-            gt(stuck() * (n(f) - n(fc) - n("eps")) + (stuck() - c(1.0)) * n("eps"), c(0.0)),
-            &[("stuck", c(0.0)), ("dir", c(1.0))],
+            gt(n("brk_fwd"), c(0.5)),
+            &[("stuck", c(0.0)), ("dir", c(1.0)), ("armed", c(0.0))],
             "it breaks away forwards when the holding force exceeds the friction force",
         ),
         when(
-            gt(stuck() * (-n(f) - n(fc) - n("eps")) + (stuck() - c(1.0)) * n("eps"), c(0.0)),
-            &[("stuck", c(0.0)), ("dir", c(-1.0))],
+            gt(n("brk_back"), c(0.5)),
+            &[("stuck", c(0.0)), ("dir", c(-1.0)), ("armed", c(0.0))],
             "it breaks away backwards when the holding force exceeds the friction force",
         ),
+        eq(
+            n("jmp_fwd"),
+            ite(
+                gt(
+                    stuck() * (n(s) - n("s_jump")) + (stuck() - c(1.0)) * n("s_jump"),
+                    c(0.0) * n("s_jump"),
+                ),
+                c(1.0),
+                c(0.0),
+            ),
+            "stuck, its sides were moved apart forwards",
+        ),
+        eq(
+            n("jmp_back"),
+            ite(
+                gt(
+                    stuck() * (-n(s) - n("s_jump")) + (stuck() - c(1.0)) * n("s_jump"),
+                    c(0.0) * n("s_jump"),
+                ),
+                c(1.0),
+                c(0.0),
+            ),
+            "stuck, its sides were moved apart backwards",
+        ),
+        when(
+            gt(n("jmp_fwd"), c(0.5)),
+            &[("stuck", c(0.0)), ("dir", c(1.0)), ("armed", c(1.0))],
+            "it slides forwards when its sides were moved apart",
+        ),
+        when(
+            gt(n("jmp_back"), c(0.5)),
+            &[("stuck", c(0.0)), ("dir", c(-1.0)), ("armed", c(1.0))],
+            "it slides backwards when its sides were moved apart",
+        ),
     ]
+}
+
+/// The break-away signals of a friction element (held modes).
+pub fn breakaway_vars() -> Vec<lsim_ir::VarDecl> {
+    vec![
+        var(
+            "brk_fwd",
+            "1",
+            "1 while stuck with the holding force past the friction force forwards",
+        ),
+        var(
+            "brk_back",
+            "1",
+            "1 while stuck with the holding force past the friction force backwards",
+        ),
+        var("jmp_fwd", "1", "1 while stuck with its sides moved apart forwards"),
+        var("jmp_back", "1", "1 while stuck with its sides moved apart backwards"),
+    ]
+}
+
+/// A driveline part's speed (a shaft, a gear, a differential's carrier, a
+/// motor's rotor, an engine's crank) starting at the parameter `start`.
+/// Its start is not fixed: where rigid couplings leave a choice of which
+/// speeds stay states (index reduction's dummy derivatives prefer to keep
+/// those with fixed starts), the wheels' speeds and a clutch's slip are
+/// kept and these follow them. A gear change, which re-solves the speeds
+/// the gears tie together, then keeps the wheels' and the vehicle's speeds
+/// and moves the parts between the wheels and the clutch to the new ratio
+/// (what it gains or loses shows in the energy books as changed at
+/// events), rather than keeping a motor's speed and moving one wheel of an
+/// open differential. Keeping the momentum of everything the gears tie
+/// together needs a re-initialisation at the shift that preparation does
+/// not pass on yet (DESIGN.md 5.8).
+pub fn driveline_speed(name: &str, start: &str, doc: &str) -> lsim_ir::VarDecl {
+    let mut w = state(name, "rad/s", 0.0, doc);
+    w.start = Some(n(start));
+    w.fixed = false;
+    w
+}
+
+/// The speed beyond which a sliding friction's direction follows the
+/// motion.
+pub fn s_small(unit: &str) -> lsim_ir::ParamDecl {
+    p("s_small", unit, 1e-6, "beyond this relative speed its direction follows the motion")
+}
+
+/// The relative speed past which a stuck friction whose sides were moved
+/// apart slides (far above any drift of a held relative speed, far below
+/// what a gear change moves).
+pub fn s_jump(unit: &str) -> lsim_ir::ParamDecl {
+    p("s_jump", unit, 1e-3, "stuck, it slides when its sides are moved apart by more than this")
 }
 
 /// The discrete mode variables of a friction element, starting stuck when
 /// its relative speed starts at zero.
 pub fn friction_mode_vars(s0: &str) -> Vec<lsim_ir::VarDecl> {
-    let mut stuck = discrete("stuck", "1", 0.0, "1 while it holds, 0 while it slides");
-    stuck.start = Some(ite(and(ge(n(s0), c(0.0)), le(n(s0), c(0.0))), c(1.0), c(0.0)));
+    // it starts sliding (see friction_mode_eqs), armed when it starts moving
+    let stuck = discrete("stuck", "1", 0.0, "1 while it holds, 0 while it slides");
     let mut dir = discrete("dir", "1", 1.0, "the direction it slides in: +1 or -1");
     dir.start = Some(ite(ge(n(s0), c(0.0)), c(1.0), c(-1.0)));
-    vec![stuck, dir]
+    let mut armed = discrete("armed", "1", 0.0, "1 once its slide has got clear of 0");
+    armed.start = Some(ite(and(ge(n(s0), c(0.0)), le(n(s0), c(0.0))), c(0.0), c(1.0)));
+    let mut v = vec![stuck, dir, armed];
+    v.extend(breakaway_vars());
+    v
 }
 
 /// The core of a Coulomb friction with stiction, to the fixed frame or
@@ -122,6 +272,8 @@ pub fn friction_core(name: &str, doc: &str, conn: &str, two_sided: bool, fc: Exp
             1.0,
             "unit carrier (value 1) giving the acceleration the force's units",
         ),
+        s_small(au),
+        s_jump(au),
     ];
     let mut vars = vec![
         state("s", au, 0.0, "relative speed (a - b, or of the part)"),
@@ -129,6 +281,10 @@ pub fn friction_core(name: &str, doc: &str, conn: &str, two_sided: bool, fc: Exp
         var("f_c", fu, "friction force magnitude, at least 0"),
     ];
     vars[0].start = Some(n("s0"));
+    // between two flanges its slip follows the sides' speeds where rigid
+    // couplings leave a choice (a clutch: the engine behind it keeps its
+    // speed at a gear change, and it slips)
+    vars[0].fixed = !two_sided;
     vars.extend(friction_mode_vars("s0"));
     let (f_into, speed_eq) = if two_sided {
         (

@@ -271,7 +271,11 @@ pub fn climate(cfg: &ClimateConfig) -> ComponentDef {
     ));
     eqs.push(eq(
         n("p_asked"),
-        ite(gt(abs(n("q")), c(0.0)), abs(n("q")) / n("sig_cop") + n("fan_power_kW"), c(0.0)),
+        ite(
+            gt(noev(abs(n("q"))), c(0.0)),
+            noev(abs(n("q"))) / n("sig_cop") + n("fan_power_kW"),
+            c(0.0),
+        ),
         "the electrical power that heat asks for, with the blower",
     ));
     eqs.push(eq(n("sig_power"), n("p_asked") * share.clone(), "it draws what its source serves"));
@@ -363,12 +367,14 @@ pub fn bus_manager(motors: usize, consumers: usize) -> ComponentDef {
     let pos = sum((1..=motors).map(|m| max(req(m), zero())).chain([zero()]));
     let neg = sum((1..=motors).map(|m| min(req(m), zero())).chain([zero()]));
     let tol = |x: Expr| c(1e-9) * max(n("unit_W"), abs(x));
+    // every switch here is continuous in its effect (a window equal to the
+    // request at its boundary), so none needs an event
     let mut eqs = vec![
         eq(n("fixed"), fixed, "the consumers' demand"),
         eq(n("deliver"), max(n("p_deliver"), zero()), "what the source gives"),
         eq(
             n("served"),
-            ite(gt(n("fixed"), n("deliver")), n("deliver") / n("fixed"), c(1.0)),
+            ite(noev(gt(n("fixed"), n("deliver"))), n("deliver") / n("fixed"), c(1.0)),
             "the consumers are served first, cut back when the source cannot carry them",
         ),
         eq(n("hi"), n("p_deliver") - n("fixed") * n("served"), "room left for the motors"),
@@ -377,15 +383,18 @@ pub fn bus_manager(motors: usize, consumers: usize) -> ComponentDef {
         eq(n("neg"), neg, "what the motors recuperating ask to feed back"),
         eq(
             n("cut_hi"),
-            ite(gt(n("pos") + n("neg"), n("hi") + tol(n("hi"))), c(1.0), c(0.0)),
+            ite(noev(gt(n("pos") + n("neg"), n("hi") + tol(n("hi")))), c(1.0), c(0.0)),
             "the motors ask for more than the room",
         ),
         eq(
             n("cut_lo"),
             ite(
                 and(
-                    lt(n("cut_hi"), c(0.5)),
-                    and(lt(n("pos") + n("neg"), n("lo") - tol(n("lo"))), lt(n("neg"), zero())),
+                    noev(lt(n("cut_hi"), c(0.5))),
+                    and(
+                        noev(lt(n("pos") + n("neg"), n("lo") - tol(n("lo")))),
+                        noev(lt(n("neg"), zero())),
+                    ),
                 ),
                 c(1.0),
                 c(0.0),
@@ -406,12 +415,12 @@ pub fn bus_manager(motors: usize, consumers: usize) -> ComponentDef {
     for m in 1..=motors {
         eqs.push(eq(
             n(&format!("p_hi{m}")),
-            ite(and(gt(n("cut_hi"), c(0.5)), gt(req(m), zero())), n("k_hi") * req(m), big()),
+            ite(noev(and(gt(n("cut_hi"), c(0.5)), gt(req(m), zero()))), n("k_hi") * req(m), big()),
             "its share of the room",
         ));
         eqs.push(eq(
             n(&format!("p_lo{m}")),
-            ite(and(gt(n("cut_lo"), c(0.5)), lt(req(m), zero())), n("k_lo") * req(m), -big()),
+            ite(noev(and(gt(n("cut_lo"), c(0.5)), lt(req(m), zero()))), n("k_lo") * req(m), -big()),
             "its share of what the source takes",
         ));
     }

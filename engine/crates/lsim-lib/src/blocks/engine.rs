@@ -35,6 +35,12 @@ pub struct EngineConfig {
     pub enable_wired: bool,
     /// a Fuel Tank feeds it (it stops when the tank is empty)
     pub tank: bool,
+    /// it sits behind a clutch, away from the wheels: its speed stays a
+    /// state where rigid couplings leave a choice, so at a gear change it
+    /// keeps its speed and the clutch slips (else it follows the wheels'
+    /// speeds like the other driveline parts, see
+    /// [`crate::rotational::driveline_speed`])
+    pub behind_clutch: bool,
 }
 
 impl EngineConfig {
@@ -71,6 +77,7 @@ impl EngineConfig {
             throttle_wired,
             enable_wired,
             tank,
+            behind_clutch: false,
         })
     }
 }
@@ -81,9 +88,22 @@ impl EngineConfig {
     /// speeds.
     pub fn values(&self) -> Result<Vec<(String, ParamValue)>, String> {
         Ok(vec![
-            ("full_load_torque".into(), ParamValue::Table(self.full_load.data("rad/s")?)),
-            ("drag_torque".into(), ParamValue::Table(self.drag.data("rad/s")?)),
-            ("fuel_map".into(), ParamValue::Table(self.fuel_map.grid_data(["rad/s", "N.m"])?)),
+            // the maps are read at a speed held to the full-load curve's
+            // range and at torques of 0 or more: padded past those edges, so
+            // the run loop's watch of an edge never rests on it
+            (
+                "full_load_torque".into(),
+                ParamValue::Table(self.full_load.padded(true, true).data("rad/s")?),
+            ),
+            ("drag_torque".into(), ParamValue::Table(self.drag.padded(true, false).data("rad/s")?)),
+            (
+                "fuel_map".into(),
+                ParamValue::Table(
+                    self.fuel_map
+                        .padded((true, true), (true, false))
+                        .grid_data(["rad/s", "N.m"])?,
+                ),
+            ),
             ("k_scale".into(), ParamValue::Real(c(self.scale))),
             (
                 "n_first".into(),
@@ -95,8 +115,8 @@ impl EngineConfig {
 
     fn is_default_structure(&self) -> bool {
         let d = EngineConfig::default();
-        (self.throttle_wired, self.enable_wired, self.tank)
-            == (d.throttle_wired, d.enable_wired, d.tank)
+        (self.throttle_wired, self.enable_wired, self.tank, self.behind_clutch)
+            == (d.throttle_wired, d.enable_wired, d.tank, d.behind_clutch)
     }
 }
 
@@ -145,6 +165,7 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
         });
     }
     params.push(p("w0", "rad/s", 0.0, "its speed at the start"));
+    params.push(p("w_slow", "rad/s", 0.1, "below this speed the drag fades with the speed"));
     params.push(pe(
         "J",
         "kg.m2",
@@ -175,8 +196,8 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
     {
         ports.push(out(id, q));
     }
-    let mut w = state("w", "rad/s", 0.0, "speed");
-    w.start = Some(n("w0"));
+    let mut w = crate::rotational::driveline_speed("w", "w0", "speed");
+    w.fixed = cfg.behind_clutch;
     let mut vars = vec![
         w,
         var("wa", "rad/s", "speed magnitude"),
@@ -206,14 +227,15 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
     let below_top = le(n("wa"), n("n_last") + c(1e-9 * RPM) * n("unit_rad_s"));
     let fm = |t: Expr| lsim_ir::expr::table("fuel_map", vec![n("n_map"), t]);
     let fuel_thr = fm(n("t_b1"));
-    let fuel_b2 = fm(n("t_b2"));
+    // (read where its branch uses it: at no negative torque)
+    let fuel_b2 = fm(max(n("t_b2"), c(0.0) * n("unit_N_m")));
     let fuel_0 = fm(c(0.0) * n("unit_N_m"));
     let t_full = lsim_ir::expr::table("full_load_torque", vec![n("n_map")]);
     let t_drag = lsim_ir::expr::table("drag_torque", vec![n("wa")]);
     let eqs = vec![
         eq(n("w"), n("shaft.w"), "it turns with the shaft"),
         eq(n("J") * der("w"), n("T") + n("shaft.tau"), "its inertia"),
-        eq(n("wa"), abs(n("w")), "speed magnitude"),
+        eq(n("wa"), noev(abs(n("w"))), "speed magnitude (its kink at 0 needs no event)"),
         eq(n("thr"), thr, "throttle"),
         eq(n("on"), ite(on, c(1.0), c(0.0)), "switched on and fuelled"),
         eq(
@@ -263,7 +285,12 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
             ite(
                 gt(n("fired_thr"), c(0.5)),
                 n("t_b1"),
-                ite(gt(n("fired_idle"), c(0.5)), n("t_b2"), -(sign(n("w")) * n("t_drag"))),
+                ite(
+                    gt(n("fired_idle"), c(0.5)),
+                    n("t_b2"),
+                    // against the motion, fading below 0.1 rad/s (see the E-Motor)
+                    -(n("t_drag") * noev(n("w") / max(noev(abs(n("w"))), n("w_slow")))),
+                ),
             ),
             "fired, its torque; not fired, its drag against the motion",
         ),
@@ -304,8 +331,12 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
     ];
     let mut all = uc.into_params();
     all.extend(params);
-    let fp =
-        [cfg.throttle_wired as u8 as f64, cfg.enable_wired as u8 as f64, cfg.tank as u8 as f64];
+    let fp = [
+        cfg.throttle_wired as u8 as f64,
+        cfg.enable_wired as u8 as f64,
+        cfg.tank as u8 as f64,
+        cfg.behind_clutch as u8 as f64,
+    ];
     ComponentDef {
         name: variant("Blocks.CombustionEngine", cfg.is_default_structure(), fp),
         doc: doc(id),

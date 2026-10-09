@@ -91,6 +91,8 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
         ),
         p("unit_kg", "kg", 1.0, "unit carrier"),
         p("unit_N", "N", 1.0, "unit carrier"),
+        crate::rotational::s_small("m/s"),
+        crate::rotational::s_jump("m/s"),
     ]);
     let mut ports =
         vec![lsim_ir::component::build::port("road", "TFlange", "where the wheels push it")];
@@ -118,16 +120,11 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
     ports.push(output("df_rear", "N", "the load moved onto the rear axle (for the wheels)"));
     let mut v = state("v", "m/s", 0.0, "speed along the road");
     v.start = Some(n("initial_speed_kmh"));
-    let mut stuck =
-        discrete("stuck", "1", 1.0, "1 while it stands still, held by its rolling resistance");
-    stuck.start = Some(ite(
-        and(ge(n("initial_speed_kmh"), c(0.0)), le(n("initial_speed_kmh"), c(0.0))),
-        c(1.0),
-        c(0.0),
-    ));
-    let mut dir = discrete("dir", "1", 1.0, "the direction it moves in");
-    dir.start = Some(ite(ge(n("initial_speed_kmh"), c(0.0)), c(1.0), c(-1.0)));
-    let vars = vec![
+    // the rolling resistance's friction modes (it starts sliding: see
+    // rotational::friction_mode_eqs)
+    let mut friction_vars = crate::rotational::friction_mode_vars("initial_speed_kmh");
+    friction_vars[0].doc = "1 while it stands still, held by its rolling resistance".into();
+    let mut vars = vec![
         v,
         var("acc", "m/s2", "acceleration"),
         state("z", "m", 0.0, "height climbed"),
@@ -140,12 +137,12 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
         var("f_rr_c", "N", "rolling resistance, as a friction force's magnitude"),
         var("f_fric", "N", "the rolling resistance acting now"),
         var("f_grade", "N", "the weight's pull along the road"),
-        stuck,
-        dir,
         var("down", "N", "downforce"),
         var("dz", "N", "load moved from the front axle to the rear"),
     ];
-    let speed_abs = abs(n("v"));
+    vars.extend(friction_vars);
+    // v·|v| is smooth at 0: no event needed for |v|'s kink
+    let speed_abs = noev(abs(n("v")));
     let (f_aero, f_visc, f_rr) = if cfg.abc {
         (
             n("road_load_c_N_per_kmh2") * n("v") * speed_abs.clone() * n("rho") / n("rho0"),
@@ -165,6 +162,10 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
         )
     };
     let grade = if cfg.grade_wired { n("sig_grade_in") } else { c(0.0) };
+    // rolling resistance as a Coulomb friction with stiction: it holds the
+    // vehicle at rest until the drive overcomes it, and stops it when it
+    // comes to rest (the shared friction logic)
+    let friction = crate::rotational::friction_mode_eqs("v", "acc", "f_fric", "f_rr_c", "unit_kg");
     let mut eqs = vec![
         eq(n("road.v"), n("v"), "it moves with its wheels' contact"),
         eq(n("acc"), der("v"), "its acceleration"),
@@ -179,49 +180,6 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
             n("mass_kg") * n("acc"),
             n("road.f") - n("f_aero") - n("f_visc") - n("f_grade") - n("f_fric"),
             "m·a is the tyres' push less the road load",
-        ),
-        eq(
-            c(0.0),
-            ite(
-                gt(n("stuck"), c(0.5)),
-                n("acc") * n("unit_kg"),
-                n("f_fric") - n("dir") * n("f_rr_c"),
-            ),
-            "standing, rolling resistance holds it; moving, it acts against the motion",
-        ),
-        when(
-            lt(n("v"), c(0.0)),
-            &[(
-                "stuck",
-                ite(and(gt(pre("dir"), c(0.0)), lt(pre("stuck"), c(0.5))), c(1.0), pre("stuck")),
-            )],
-            "moving forwards, it comes to rest",
-        ),
-        when(
-            gt(n("v"), c(0.0)),
-            &[(
-                "stuck",
-                ite(and(lt(pre("dir"), c(0.0)), lt(pre("stuck"), c(0.5))), c(1.0), pre("stuck")),
-            )],
-            "moving backwards, it comes to rest",
-        ),
-        when(
-            gt(
-                n("stuck") * (n("f_fric") - n("f_rr_c") - n("eps"))
-                    + (n("stuck") - c(1.0)) * n("eps"),
-                c(0.0),
-            ),
-            &[("stuck", c(0.0)), ("dir", c(1.0))],
-            "it starts moving forwards when pushed past its rolling resistance",
-        ),
-        when(
-            gt(
-                n("stuck") * (-n("f_fric") - n("f_rr_c") - n("eps"))
-                    + (n("stuck") - c(1.0)) * n("eps"),
-                c(0.0),
-            ),
-            &[("stuck", c(0.0)), ("dir", c(-1.0))],
-            "it starts moving backwards when pushed past its rolling resistance",
         ),
         eq(der("z"), n("v") * n("sin_t"), "the height it climbs"),
         eq(der("dist"), n("v"), "the distance it drives"),
@@ -248,6 +206,7 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
         eq(n("sig_p_grade"), n("f_grade") * n("v"), "climbing power"),
         eq(n("sig_p_accel"), n("mass_kg") * n("acc") * n("v"), "acceleration power"),
     ];
+    eqs.extend(friction);
     let bal = clamp(n("aero_balance_front_pct"), c(0.0), c(1.0));
     if cfg.two_axles {
         let wf = n("share_front") * n("w_n");
@@ -398,7 +357,7 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
             n("shaft.tau") - n("F") * n("r"),
             "its inertia: the shaft's torque less the tyre's",
         ),
-        eq(n("sig_speed"), abs(n("w")), "wheel speed"),
+        eq(n("sig_speed"), noev(abs(n("w"))), "wheel speed"),
         eq(n("sig_force"), n("F"), "traction force"),
         eq(n("sig_torque"), n("F") * n("r"), "drive torque"),
         eq(n("sig_normal_load"), n("N"), "normal load"),
@@ -409,6 +368,7 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
             var("v", "m/s", "the vehicle's speed"),
             var("slip", "1", "longitudinal slip"),
             var("mu_eff", "1", "friction coefficient at this load"),
+            var("at_grip", "1", "1 while its force is at the tyre's grip limit"),
         ]);
         let fz0 = ite(gt(n("mu_nominal_load_N"), c(0.0)), n("mu_nominal_load_N"), n("fz_static"));
         eqs.extend([
@@ -425,13 +385,26 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
             ),
             eq(
                 n("slip"),
-                (n("w") * n("r") - n("v")) / max(abs(n("v")), n("v_eps")),
+                // |v|'s kink at 0 lies inside max(…, v_eps): no event for it
+                (n("w") * n("r") - n("v")) / max(noev(abs(n("v"))), n("v_eps")),
                 "slip: (ω·r − v) over the vehicle's speed (at least 0.5 m/s)",
             ),
             eq(
                 n("F"),
                 n("N") * clamp(n("c_slip") * n("slip"), -n("mu_eff"), n("mu_eff")),
                 "slip stiffness × slip × load, up to μ × load",
+            ),
+            eq(
+                n("at_grip"),
+                ite(
+                    noev(and(
+                        ge(abs(n("c_slip") * n("slip")), n("mu_eff")),
+                        gt(n("mu_eff") * n("N"), c(0.0) * n("unit_N")),
+                    )),
+                    c(1.0),
+                    c(0.0),
+                ),
+                "at the grip limit (for the share of a run spent there; no event)",
             ),
             eq(n("road.f"), -n("F"), "it pushes the vehicle with F"),
             eq(n("sig_slip"), n("slip"), "slip"),
@@ -538,9 +511,10 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
         eq(
             der("I"),
             ite(
+                // the error's sign needs no event: der(I) = err is 0 there
                 or(
-                    and(gt(n("cmd_u"), c(1.0)), ge(n("err"), c(0.0))),
-                    and(lt(n("cmd_u"), c(-1.0)), le(n("err"), c(0.0))),
+                    and(gt(n("cmd_u"), c(1.0)), noev(ge(n("err"), c(0.0)))),
+                    and(lt(n("cmd_u"), c(-1.0)), noev(le(n("err"), c(0.0)))),
                 ),
                 c(0.0) * n("unit_ms"),
                 n("err"),
@@ -561,7 +535,7 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
         eq(
             n("share"),
             ite(
-                gt(n("regen_cap"), c(0.0)),
+                noev(gt(n("regen_cap"), c(0.0))),
                 n("t_rg") / max(n("regen_cap"), c(1e-9) * n("unit_Nm")),
                 c(0.0),
             ),
@@ -574,13 +548,13 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
         ),
         eq(
             n("sig_traction_cmd"),
-            ite(ge(n("cmd"), c(0.0)), n("cmd"), -n("share")),
+            ite(noev(ge(n("cmd"), c(0.0))), n("cmd"), -n("share")),
             "throttle, or recuperation",
         ),
         eq(
             n("sig_brake_cmd"),
             ite(
-                and(lt(n("cmd"), c(0.0)), gt(n("fr_cap"), c(0.0))),
+                noev(and(lt(n("cmd"), c(0.0)), gt(n("fr_cap"), c(0.0)))),
                 n("t_fr") / max(n("fr_cap"), c(1e-9) * n("unit_Nm")),
                 c(0.0),
             ),

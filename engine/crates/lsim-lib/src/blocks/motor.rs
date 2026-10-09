@@ -99,12 +99,24 @@ impl MotorConfig {
     pub fn values(&self) -> Result<Vec<(String, ParamValue)>, String> {
         let last = self.full_load.inner_range().map(|r| r.1).unwrap_or(1e30);
         Ok(vec![
+            // speeds and torque magnitudes are never below 0: the maps are
+            // padded there, so the run loop's watch of their edges never
+            // rests on an edge at standstill
             (
                 "full_load_torque".into(),
-                ParamValue::Table(self.full_load.grid_data(["V", "rad/s"])?),
+                ParamValue::Table(
+                    self.full_load
+                        .padded((false, false), (true, false))
+                        .grid_data(["V", "rad/s"])?,
+                ),
             ),
-            ("power_loss".into(), ParamValue::Table(self.loss.grid_data(["rad/s", "N.m"])?)),
-            ("drag_torque".into(), ParamValue::Table(self.drag.data("rad/s")?)),
+            (
+                "power_loss".into(),
+                ParamValue::Table(
+                    self.loss.padded((true, false), (true, false)).grid_data(["rad/s", "N.m"])?,
+                ),
+            ),
+            ("drag_torque".into(), ParamValue::Table(self.drag.padded(true, false).data("rad/s")?)),
             ("kt".into(), ParamValue::Real(c(self.scales[0]))),
             ("kn".into(), ParamValue::Real(c(self.scales[1]))),
             ("w_fl_last".into(), ParamValue::Real(c(last))),
@@ -142,6 +154,7 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         });
     }
     params.push(p("w0", "rad/s", 0.0, "the rotor's speed at the start"));
+    params.push(p("w_slow", "rad/s", 0.1, "below this speed the drag fades with the speed"));
     params.push(pe(
         "w_max",
         "rad/s",
@@ -185,8 +198,7 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         "W",
         "the electrical power its command asks for (for the bus manager)",
     ));
-    let mut w = state("w", "rad/s", 0.0, "rotor speed");
-    w.start = Some(n("w0"));
+    let w = crate::rotational::driveline_speed("w", "w0", "rotor speed");
     let mut vars = vec![
         w,
         guess("v", "V", c(400.0) * n("unit_V"), "supply voltage"),
@@ -216,8 +228,10 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
     let loss_at = |torque: Expr| lsim_ir::expr::table("power_loss", vec![n("wa"), torque]);
     let wmax = n("w_max");
     let band = c(SPEED_LIMIT_BAND);
+    // the continuous switches (equal on both sides of their boundary) need
+    // no event: their relations are under noEvent
     let t_drive = ite(
-        gt(n("wa"), wmax.clone() * (c(1.0) - band.clone())),
+        noev(gt(n("wa"), wmax.clone() * (c(1.0) - band.clone()))),
         n("t_fl") * max(c(0.0), wmax.clone() - n("wa")) / (band * wmax.clone()),
         n("t_fl"),
     );
@@ -227,13 +241,13 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         eq(n("i"), n("pos.i"), "the current it takes"),
         eq(n("w"), n("shaft.w"), "the rotor turns with the shaft"),
         eq(n("J") * der("w"), n("T") + n("shaft.tau"), "the rotor's inertia"),
-        eq(n("wa"), abs(n("w")), "speed magnitude"),
+        eq(n("wa"), noev(abs(n("w"))), "speed magnitude (its kink at 0 needs no event)"),
         eq(n("dem"), clamp(n("sig_demand_in"), c(-1.0), c(1.0)), "the command, held to −1…1"),
         eq(n("t_fl"), t_fl_expr, "the full-load map at this voltage and speed"),
         eq(
             n("t_cmd"),
             ite(
-                gt(n("dem"), c(0.0)),
+                noev(gt(n("dem"), c(0.0))),
                 n("dem") * t_drive,
                 n("dem") * n("t_fl") * n("q4_torque_scale_pct"),
             ),
@@ -241,14 +255,15 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         ),
         eq(
             n("p_req"),
-            n("t_cmd") * n("w") + loss_at(abs(n("t_cmd"))),
+            n("t_cmd") * n("w") + loss_at(noev(abs(n("t_cmd")))),
             "shaft power plus the loss map",
         ),
         eq(
             n("alive"),
             ite(
                 and(
-                    and(gt(n("v"), c(1.0) * n("unit_V")), gt(abs(n("dem")), c(0.0))),
+                    // a command of exactly 0 is an instant (no event)
+                    and(gt(n("v"), c(1.0) * n("unit_V")), noev(gt(abs(n("dem")), c(0.0)))),
                     le(n("wa"), wmax.clone() * c(1.0 + 1e-9)),
                 ),
                 c(1.0),
@@ -257,7 +272,15 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             "the inverter runs for a command other than 0, a live supply, up to the maximum speed",
         ),
     ];
-    let unpowered = -(sign(n("w")) * lsim_ir::expr::table("drag_torque", vec![n("wa")]));
+    // unpowered, the drag torque acts against the motion; below 0.1 rad/s
+    // (about 1 rpm) it fades in proportion to the speed, so a rotor coming
+    // to rest settles at 0 instead of chattering about it (a bare
+    // −sign(w)·drag switches every time the speed crosses 0; a Coulomb
+    // friction with stiction would hold the driveline together with its
+    // stuck brakes, which is statically indeterminate)
+    let unpowered = -(lsim_ir::expr::table("drag_torque", vec![n("wa")])
+        * noev(n("w") / max(noev(abs(n("w"))), n("w_slow"))));
+
     if cfg.windowed {
         vars.push(guess("frac", "1", c(1.0), "the share of the command its supply allows"));
         let l0 = loss_at(c(0.0) * n("unit_N_m"));
@@ -270,14 +293,14 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             ),
             "with no room even for its spin losses, the inverter is off",
         ));
-        let p_of = n("frac") * n("t_cmd") * n("w") + loss_at(abs(n("frac") * n("t_cmd")));
+        let p_of = n("frac") * n("t_cmd") * n("w") + loss_at(noev(abs(n("frac") * n("t_cmd"))));
         eqs.push(eq(
             c(0.0),
             ite(
-                gt(n("p_req"), n("p_hi")),
+                noev(gt(n("p_req"), n("p_hi"))),
                 p_of.clone() - n("p_hi"),
                 ite(
-                    lt(n("p_req"), n("p_lo")),
+                    noev(lt(n("p_req"), n("p_lo"))),
                     p_of - n("p_lo"),
                     (n("frac") - c(1.0)) * n("unit_W"),
                 ),
@@ -294,7 +317,7 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             ite(
                 and(
                     gt(n("alive"), c(0.5)),
-                    or(gt(n("p_req"), n("p_hi")), lt(n("p_req"), n("p_lo"))),
+                    noev(or(gt(n("p_req"), n("p_hi")), lt(n("p_req"), n("p_lo")))),
                 ),
                 c(1.0),
                 c(0.0),
@@ -304,7 +327,10 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         eqs.push(eq(
             der("e_regen_lost"),
             ite(
-                and(gt(n("alive"), c(0.5)), lt(n("p_req"), min(n("p_lo"), c(0.0) * n("unit_W")))),
+                and(
+                    gt(n("alive"), c(0.5)),
+                    noev(lt(n("p_req"), min(n("p_lo"), c(0.0) * n("unit_W")))),
+                ),
                 n("p_elec") - n("p_req"),
                 c(0.0) * n("unit_W"),
             ),
@@ -323,7 +349,11 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
     eqs.extend([
         eq(
             n("p_elec"),
-            ite(gt(n("on"), c(0.5)), n("T") * n("w") + loss_at(abs(n("T"))), c(0.0) * n("unit_W")),
+            ite(
+                gt(n("on"), c(0.5)),
+                n("T") * n("w") + loss_at(noev(abs(n("T")))),
+                c(0.0) * n("unit_W"),
+            ),
             "powered: shaft power plus the loss map; unpowered: nothing",
         ),
         eq(n("v") * n("i"), n("p_elec"), "it takes that power from its supply"),
