@@ -158,16 +158,19 @@ def test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step():
     for label in ("Time to 75 m", "Speed at 75 m"):
         assert _rows(fine)[label].value == _rows(coarse)[label].value
     s = _rows(fine)
-    assert s["Time to 75 m"].value == pytest.approx(5.527, abs=0.002)
-    assert s["Speed at 75 m"].value == pytest.approx(86.11, abs=0.02)
+    # (5.527 s and 86.11 km/h before the distance was the trapezoid of each
+    # step's speeds: the speed at the step's end, held over the step, ran
+    # 0.12 m ahead of it by the line)
+    assert s["Time to 75 m"].value == pytest.approx(5.533, abs=0.002)
+    assert s["Speed at 75 m"].value == pytest.approx(86.16, abs=0.02)
     dist = _values(fine, "el-vehicle", "sig_distance")
     v_line = s["Speed at 75 m"].value / 3.6
     assert 75.0 <= dist[-1] <= 75.0 + v_line * 0.01 + 1e-4
     assert s["Simulated duration"].value < 5.6
     assert s["Time to 75 m"].limit == 25.0 and s["Time to 75 m"].passed is True
     assert fine.status == "success", [m.text for m in fine.messages]
-    assert any(m.level == "info" and "solved: 553 of 2500 steps × 0.01 s, ended at 75 m "
-               "driven at t = 5.53 s" in m.text
+    assert any(m.level == "info" and "solved: 554 of 2500 steps × 0.01 s, ended at 75 m "
+               "driven at t = 5.54 s" in m.text
                for m in fine.messages)
 
     perf = load_example("bev-car")
@@ -182,7 +185,7 @@ def test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step():
 
 def test_the_start_line_starts_the_timer_and_the_gap_is_signed():
     """Staged 0.3 m behind the start line (FS Rules 2026 v1.1 (FSG) D 5.2.3), the
-    time runs from 0.3 m to 75.3 m driven: 5.216 s against 5.527 s from
+    time runs from 0.3 m to 75.3 m driven: 5.216 s against 5.533 s from
     rest. The gap to a reference time is positive when slower."""
     result = simulate(_bev(start=0.3, reference=5.0), "case-city")
     ts = [p["t"] for p in series(result, "el-vehicle", "sig_distance")]

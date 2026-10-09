@@ -76,18 +76,18 @@ E_kin = 0.0002  # measured 9.63e-05
 closure = 1e-09  # measured 2.95e-16
 
 [veh_coastdown."as stated"]
-v = 0.0073  # measured 0.00365
-x = 0.00023  # measured 0.000111
+v = 4.2e-05  # measured 2.09e-05
+x = 9.4e-05  # measured 4.66e-05
 t_event = 0.00012  # measured 5.75e-05
-t_stop = "never"
+t_stop = 3.2e-05  # measured 1.58e-05
 E_aero = 4.8e-05  # measured 2.37e-05
 E_roll = 4.8e-05  # measured 2.37e-05
-E_kin = 1e-09  # measured 2.24e-13
-closure = 1e-09  # measured 1.72e-15
+E_kin = 1e-09  # measured 0
+closure = 1e-09  # measured 3.45e-15
 
 [veh_constant_power."as stated"]
 v = 0.0018  # measured 0.000855
-x = 0.002  # measured 0.000985
+x = 0.002  # measured 0.00105
 t_event = 0.0042  # measured 0.00207
 E_supplied = 0.00021  # measured 0.000103
 E_kin = 0.0035  # measured 0.00174

@@ -2906,22 +2906,37 @@ class MechanicalSlave(_CtxSlave):
                 ctx.grip_limited_s += dt
             f_aero, f_roll = ctx.road_load(ctx.v, f_roll, ctx.slope_cos)
             f_grade = ctx.veh_mass * GRAVITY * ctx.slope_sin
-            roll_taper = max(0.0, min(1.0, ctx.v / 0.3))
-            accel = (f_tire - f_aero - f_roll * roll_taper - f_grade) / ctx.veh_mass
             v_start = ctx.v
-            ctx.v = max(0.0, ctx.v + accel * dt)
-            ctx.accel = (ctx.v - v_start) / dt  # as moved: 0 while held at rest
-            ctx.distance += ctx.v * dt
+            # Rolling resistance acts in full while the car rolls, to the stop.
+            # A car that would roll through zero within the step stops in it,
+            # at t* = v₀ / |a|, and stays stopped: at rest the rolling
+            # resistance holds it (static friction) until what pushes it, the
+            # tyres less the slope, beats it. It never rolls backwards.
+            push = f_tire - f_grade
+            if v_start > 0.0 or push > f_roll + f_aero:
+                accel = (push - f_aero - f_roll) / ctx.veh_mass
+                v_end = v_start + accel * dt
+                if v_end > 0.0:
+                    v_mid = 0.5 * (v_start + v_end)
+                else:  # it stops at t* in the step: its mean speed over the step
+                    v_end = 0.0
+                    v_mid = 0.5 * v_start * v_start / (-accel * dt)
+            else:  # held at rest
+                v_end = v_mid = 0.0
+            ctx.v = v_end
+            ctx.accel = (v_end - v_start) / dt  # as moved: 0 while held at rest
+            ctx.distance += v_mid * dt  # (the speed is linear over the step, to the stop)
             rt.publish(ctx.veh_id, "sig_speed", ctx.v * 3.6)
             rt.publish(ctx.veh_id, "sig_distance", ctx.distance)
             # its energy book (MOD-10), inline: the tyres' power in, air drag and
             # rolling resistance lost, kinetic and potential energy stored, at
             # the step's mean speed (so its books close as its speed was
-            # integrated); close_book makes its Flow of the running totals
-            v_mid = ctx.v_mid = 0.5 * (v_start + ctx.v)
+            # integrated, a stop within the step included); close_book makes
+            # its Flow of the running totals
+            ctx.v_mid = v_mid
             ke_w = 0.5 * ctx.veh_mass * (ctx.v * ctx.v - v_start * v_start) / dt
             road = ctx.road_w  # [air drag, rolling resistance, climbing, acceleration], W
-            p_aero, p_roll, p_grade = f_aero * v_mid, f_roll * roll_taper * v_mid, f_grade * v_mid
+            p_aero, p_roll, p_grade = f_aero * v_mid, f_roll * v_mid, f_grade * v_mid
             road[0], road[1], road[2], road[3] = p_aero, p_roll, p_grade, ke_w
             acc = ctx.road_j
             acc[0] += p_aero * dt

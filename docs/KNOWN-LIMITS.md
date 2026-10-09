@@ -814,7 +814,9 @@ minimum or an average, for example from the CSV export, or put the
   *Workaround:* fit the demand table to logged heater and
   air-conditioning power for your car. *Roadmap:* MOD-46 (cabin model).
 - **Forward driving only.** No reverse, and no rolling back: a car on a steep
-  hill stays put even with no brakes. *Roadmap:* MOD-21, ENG-21.
+  hill stays put even with no brakes. (Going forwards, rolling resistance
+  acts in full to the stop and holds a car at rest until its tyres, less the
+  slope, push harder; a car that stops within a solver step stops in it.) *Roadmap:* MOD-21, ENG-21.
 - **Drive cycles are longitudinal only.** A drive cycle, performance or
   acceleration case does not corner: weight shifts between the axles but
   not from side to side. Lap cases corner, as a quasi-steady-state

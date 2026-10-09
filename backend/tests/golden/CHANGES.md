@@ -1087,3 +1087,66 @@ and the channels that report them do.
 | hybrid-car Mixed Cycle (shipped step) | channels that moved | | 9 | 1 outside their tube |
 | hybrid-car Mixed Cycle (fine step) | Energy balance residual | 0.004824 % | 0 % | -0.004824 (-100.00 %) |
 | hybrid-car Mixed Cycle (fine step) | channels that moved | | 9 | 0 outside their tube |
+
+## A coasting car stops, and stays stopped
+
+The Vehicle's rolling resistance faded out below 0.3 m/s (it was scaled by
+v / 0.3), so a coasting car never stopped: its speed decayed for ever (the
+benchmarks' coast-down from 108 km/h had not stopped after 220 s, against
+an exact stop at 193.18 s), and on a gentle downhill a car crept on where
+the faded resistance met the slope's pull (0.53 km/h on 0.5 %). Now the
+rolling resistance acts in full while the car rolls, to the stop. A car
+whose speed would pass through zero within a solver step stops in it, at
+t* = v₀ / |a|, its distance and energy books ending where the stop is; at
+rest the rolling resistance holds it (static friction) until the tyres,
+less the slope, push harder. The distance is the trapezoid of each step's
+speeds (the speed is linear over the step, to the stop): it was the end
+speed held over the step, a little ahead of the speed it integrated. The
+lap solver drops the same 0.3 m/s fade.
+
+- The Battery Electric Car stands exactly still at its stops. Before, its
+  speed only crept towards 0 there, and the Driver held a tiny braking
+  command that kept the inverter on: the E-Motor's spin losses (about
+  60 W) while it stood, and the friction brakes held 20 N·m (now 6). City
+  Cycle 11.1207 → 11.1140 kWh/100 km (−0.06 %), WLTC 14.0530 → 14.0456
+  (−0.05 %, its Low phase −0.33 %), the other WLTC cases −0.03 to −0.04 %.
+- The 29 channels outside their tube are the brakes' torque and power and
+  the Driver's brake command at the final stop (t = 540 s on).
+- The hybrid switches its engine and motor off at standstill already: its
+  figures move by under 0.01 % (EPA city 2.82916 → 2.82895 l/100 km),
+  the Efficient Electric Sedan's by under 0.005 %.
+- FS Electric's acceleration: 75 m in 3.7511 → 3.7507 s, 0-100 km/h
+  2.9468 → 2.9454 s; the Battery Electric Car's 75 m from rest (not a
+  stored case) 5.527 → 5.533 s, as the trapezoid's distance no longer runs
+  ahead of the speed.
+
+| Fixture | Number | Old | New | Change |
+|---|---|---|---|---|
+| bev-car City Cycle (shipped step) | HV Battery Pack — final SOC | 88.764 % | 88.7647 % | +0.000745 (+0.00 %) |
+| bev-car City Cycle (shipped step) | HV Battery Pack — energy delivered | 0.880865 kWh | 0.880373 kWh | -0.000492 (-0.06 %) |
+| bev-car City Cycle (shipped step) | Distance driven | 7.29169 km | 7.29168 km | -1.3e-05 (-0.00 %) |
+| bev-car City Cycle (shipped step) | Consumption | 11.1207 kWh/100km | 11.114 kWh/100km | -0.00672 (-0.06 %) |
+| bev-car City Cycle (shipped step) | Consumption at the socket (AC) | 12.9311 kWh/100km | 12.9232 kWh/100km | -0.007813 (-0.06 %) |
+| bev-car City Cycle (shipped step) | Fuel-economy equivalent (MPGe, AC) | 161.961 MPGe | 162.059 MPGe | +0.09792 (+0.06 %) |
+| bev-car City Cycle (shipped step) | Range at this consumption | 537.894 km | 538.219 km | +0.3252 (+0.06 %) |
+| bev-car City Cycle (shipped step) | channels that moved | | 57 | 29 outside their tube |
+| bev-car City Cycle (fine step) | HV Battery Pack — final SOC | 88.7639 % | 88.7646 % | +0.000745 (+0.00 %) |
+| bev-car City Cycle (fine step) | HV Battery Pack — energy delivered | 0.880911 kWh | 0.880419 kWh | -0.000492 (-0.06 %) |
+| bev-car City Cycle (fine step) | Distance driven | 7.29169 km | 7.29168 km | -1.1e-05 (-0.00 %) |
+| bev-car City Cycle (fine step) | Consumption | 11.1217 kWh/100km | 11.1149 kWh/100km | -0.006725 (-0.06 %) |
+| bev-car City Cycle (fine step) | Consumption at the socket (AC) | 12.9322 kWh/100km | 12.9243 kWh/100km | -0.007819 (-0.06 %) |
+| bev-car City Cycle (fine step) | Fuel-economy equivalent (MPGe, AC) | 161.948 MPGe | 162.046 MPGe | +0.09797 (+0.06 %) |
+| bev-car City Cycle (fine step) | Range at this consumption | 537.848 km | 538.173 km | +0.3254 (+0.06 %) |
+| bev-car City Cycle (fine step) | channels that moved | | 57 | 28 outside their tube |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — energy delivered | 0.207201 kWh | 0.207203 kWh | +2e-06 (+0.00 %) |
+| hybrid-car Mixed Cycle (shipped step) | HV Battery — energy recuperated | 0.209671 kWh | 0.209672 kWh | +1e-06 (+0.00 %) |
+| hybrid-car Mixed Cycle (shipped step) | Fuel consumption | 2.87475 l/100km | 2.87475 l/100km | +3e-06 (+0.00 %) |
+| hybrid-car Mixed Cycle (shipped step) | CO₂ emissions | 67.8915 g/km | 67.8915 g/km | +8.4e-05 (+0.00 %) |
+| hybrid-car Mixed Cycle (shipped step) | Battery energy change, share of fuel energy | -0.030668 % | -0.030683 % | -1.5e-05 (+0.05 %) |
+| hybrid-car Mixed Cycle (shipped step) | channels that moved | | 69 | 24 outside their tube |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — energy delivered | 0.207162 kWh | 0.207163 kWh | +1e-06 (+0.00 %) |
+| hybrid-car Mixed Cycle (fine step) | HV Battery — energy recuperated | 0.209613 kWh | 0.209614 kWh | +1e-06 (+0.00 %) |
+| hybrid-car Mixed Cycle (fine step) | Fuel consumption | 2.87208 l/100km | 2.87208 l/100km | +3e-06 (+0.00 %) |
+| hybrid-car Mixed Cycle (fine step) | CO₂ emissions | 67.8284 g/km | 67.8285 g/km | +8.4e-05 (+0.00 %) |
+| hybrid-car Mixed Cycle (fine step) | Battery energy change, share of fuel energy | -0.031397 % | -0.031412 % | -1.5e-05 (+0.05 %) |
+| hybrid-car Mixed Cycle (fine step) | channels that moved | | 68 | 24 outside their tube |
