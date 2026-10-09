@@ -8,6 +8,17 @@
 //!   with the new discrete values until nothing changes (bounded: a
 //!   condition that keeps flipping at one instant stops the run naming
 //!   it); the integrator restarts only if a discrete value changed.
+//! * **`when` clauses** follow Modelica: a clause fires at each instant its
+//!   condition changes from false to true while the model runs, compared
+//!   with its value just before that instant (before a sample tick set
+//!   its outputs, say). Nothing fires at the start: the initialisation
+//!   takes every condition as it is there (Modelica's `pre(c) = c` after
+//!   initialisation; sampled blocks' initial outputs are start values
+//!   too), so a condition already true at the start fires only once it
+//!   has been false, and one exactly at its threshold at the start counts
+//!   as true. What must hold from the start belongs in the start values
+//!   (the IR has no `initial()`). A sample tick at the start time is an
+//!   event after the initialisation like any other.
 //! * **Time events** ([`RunInfo::time_events`]) are reached exactly as stop
 //!   times and restart the integrator.
 //! * **Sampled blocks** ([`DiscreteBlock`], DESIGN.md risk R1) tick at

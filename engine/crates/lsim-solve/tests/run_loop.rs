@@ -341,3 +341,100 @@ fn a_tick_just_before_the_end_ends_the_run() {
         assert_eq!(*run.values[2].last().unwrap(), 11.0 * 0.03, "{backend:?}");
     }
 }
+
+/// Modelica's `when`: it fires when its condition changes from false to
+/// true. A condition already true at the start does not fire there (the
+/// start takes it as it is, as `pre(c) = c` after Modelica's
+/// initialisation), and fires as soon as it becomes true again after
+/// having been false.
+#[test]
+fn a_when_true_at_the_start_fires_only_when_it_becomes_true_again() {
+    // p'' = -p, p(0) = 1.5: p = 1.5 cos t, positive at the start, false
+    // from pi/2, true again at 3 pi/2; when p > 0: n := n + 1
+    let model = Hand {
+        layout: layout(2, 0, 0, 1, 1, 1, 3),
+        f: Box::new(|i, out| {
+            out[0] = i.y[1];
+            out[1] = -i.y[0];
+        }),
+        jvp: Box::new(|_, v, out| {
+            out[0] = v[1];
+            out[1] = -v[0];
+        }),
+        roots: Box::new(|i, out| out[0] = i.y[0]),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.y[1];
+            out[2] = i.d[0];
+        }),
+        when: Box::new(|i, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = i.d[0] + 1.0;
+            }
+        }),
+        modes: None,
+        y0: vec![1.5, 0.0],
+        d0: vec![0.0],
+    };
+    let mut info = RunInfo::bare(2, 3, vec![]);
+    info.root_dirs = vec![1];
+    whens(&mut info, &[(0, Direction::Rising, "'Counter': up")]);
+    for backend in backends() {
+        let opts = SolverOptions { backend, rtol: 1e-9, atol: 1e-12, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 6.0, dt: 0.5 };
+        let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+        let fired: Vec<f64> =
+            run.events.iter().filter(|e| e.kind == EventKind::When(0)).map(|e| e.t).collect();
+        assert_eq!(fired.len(), 1, "{backend:?}: {:?}", run.events);
+        let t_up = 1.5 * std::f64::consts::PI;
+        assert!((fired[0] - t_up).abs() < 1e-7, "{backend:?}: {}", fired[0]);
+        assert_eq!(run.values[2][at(&run, 4.5)], 0.0, "{backend:?}");
+        assert_eq!(*run.values[2].last().unwrap(), 1.0, "{backend:?}");
+    }
+}
+
+/// A condition exactly at its threshold at the start counts as true there
+/// (as `p >= 0` is): it fires once it has been false and becomes true
+/// again, not as it leaves the threshold upwards at the start.
+#[test]
+fn a_when_at_its_threshold_at_the_start_counts_as_true() {
+    // p = sin t: p'' = -p, p(0) = 0, p'(0) = 1; when p >= 0: n := n + 1
+    let model = Hand {
+        layout: layout(2, 0, 0, 1, 1, 1, 3),
+        f: Box::new(|i, out| {
+            out[0] = i.y[1];
+            out[1] = -i.y[0];
+        }),
+        jvp: Box::new(|_, v, out| {
+            out[0] = v[1];
+            out[1] = -v[0];
+        }),
+        roots: Box::new(|i, out| out[0] = i.y[0]),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.y[1];
+            out[2] = i.d[0];
+        }),
+        when: Box::new(|i, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = i.d[0] + 1.0;
+            }
+        }),
+        modes: None,
+        y0: vec![0.0, 1.0],
+        d0: vec![0.0],
+    };
+    let mut info = RunInfo::bare(2, 3, vec![]);
+    info.root_dirs = vec![1];
+    whens(&mut info, &[(0, Direction::Rising, "'Counter': up")]);
+    for backend in backends() {
+        let opts = SolverOptions { backend, rtol: 1e-9, atol: 1e-12, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 7.0, dt: 0.5 };
+        let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+        let fired: Vec<f64> =
+            run.events.iter().filter(|e| e.kind == EventKind::When(0)).map(|e| e.t).collect();
+        assert_eq!(fired.len(), 1, "{backend:?}: {:?}", run.events);
+        let t_up = 2.0 * std::f64::consts::PI;
+        assert!((fired[0] - t_up).abs() < 1e-7, "{backend:?}: {}", fired[0]);
+    }
+}
