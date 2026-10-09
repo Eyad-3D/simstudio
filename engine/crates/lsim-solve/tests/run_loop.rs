@@ -623,7 +623,9 @@ fn a_mode_on_time_switches_exactly_at_its_time() {
 /// three, the vehicle's reflected through the gripping tyre (it keeps its
 /// slip velocity): w⁺ = (J_m r1 r2 + J_w + m R²) w⁻ / (J_m r2² + J_w +
 /// m R²). At its grip limit the tyre passes no impulse and the vehicle
-/// keeps its speed.
+/// keeps its speed. Of the kinetic energy lost, the tyre books what the
+/// impulse through it dissipates at its slip (impulse × slip velocity, as
+/// today's engine books it), the gearbox the rest.
 #[test]
 fn a_shift_keeps_the_momentum_through_a_tyre_that_grips() {
     let (jm, jw, m, rr, r1, r2) = (0.05, 1.2, 1500.0, 0.3, 12.0, 7.0);
@@ -675,6 +677,7 @@ fn a_shift_keeps_the_momentum_through_a_tyre_that_grips() {
             part("wheel", Some(half(jw, 0))),
             part("body", Some(half(m, 2))),
             part("gearbox", None),
+            part("tyre", None),
         ],
     }));
     let ivar = |var: usize, states: Vec<usize>, part: Option<usize>| ImpulseVar {
@@ -691,6 +694,7 @@ fn a_shift_keeps_the_momentum_through_a_tyre_that_grips() {
                 keep: v(0) * Expr::Param(ParamId(0)) - v(2),
                 active: Expr::Const(if grips { 1.0 } else { 0.0 }),
                 vars: vec![0, 2],
+                part: Some(4),
             }],
             discretes: vec![0],
         }));
@@ -710,19 +714,26 @@ fn a_shift_keeps_the_momentum_through_a_tyre_that_grips() {
         assert_eq!(run.report.impulses, 1);
         assert!((run.values[0][k] - w1).abs() < 1e-12 * w1, "grips {grips}: w");
         assert!((run.values[2][k] - v1).abs() < 1e-12 * v1, "grips {grips}: v");
-        // the kinetic energy it lost, booked to the gearbox
+        // the kinetic energy it lost: the tyre's share is the impulse
+        // through it, m (v⁺ − v⁻), times its slip velocity (0.2 m/s), the
+        // gearbox's the rest
         let e = |w: f64, r: f64, vv: f64| {
             0.5 * jm * (r * w) * (r * w) + 0.5 * jw * w * w + 0.5 * m * vv * vv
         };
         let lost = e(w0, r1, v0) - e(w1, r2, v1);
+        let in_tyre = m * (v1 - v0) * 0.2;
         let books = run.energy.as_ref().unwrap();
-        let gearbox = books.parts.iter().find(|p| p.path == "gearbox").unwrap();
-        assert!(lost > 0.0);
-        assert!(
-            (gearbox.impulse_lost - lost).abs() < 1e-9 * lost,
-            "{} vs {lost}",
-            gearbox.impulse_lost
+        let book = |path: &str| books.parts.iter().find(|p| p.path == path).unwrap().impulse_lost;
+        println!(
+            "grips {grips}: lost {lost} J, gearbox {} J, tyre {} J (exact {in_tyre} J)",
+            book("gearbox"),
+            book("tyre")
         );
+        assert!(lost > 0.0);
+        assert_eq!(in_tyre == 0.0, !grips);
+        assert!((book("tyre") - in_tyre).abs() < 1e-9 * lost, "tyre");
+        assert!((book("gearbox") - (lost - in_tyre)).abs() < 1e-9 * lost, "gearbox");
         assert!((books.impulse_loss - lost).abs() < 1e-9 * lost);
+        assert!((books.impulse_link_loss - in_tyre).abs() < 1e-9 * lost);
     }
 }

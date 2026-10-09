@@ -95,6 +95,10 @@ pub struct ImpulseLink {
     pub active: Expr,
     /// the flat variables `keep` reads
     pub vars: Vec<usize>,
+    /// the energy part (index in [`EnergyInfo::parts`]) of the instance
+    /// that declares it: what the impulse dissipates across the relative
+    /// velocity it keeps (a gripping tyre's slip) is booked to it
+    pub part: Option<usize>,
 }
 
 /// Where a sampled block (a [`lsim_ir::DiscreteBlock`]) reads and writes.
@@ -478,7 +482,9 @@ fn impulse_info(m: &PreparedModel, energy: &EnergyInfo) -> Option<ImpulseInfo> {
             for &v in &read {
                 add(v, &mut vars);
             }
-            ImpulseLink { keep: l.keep.clone(), active: l.active.clone(), vars: read }
+            let path = &m.flat.instance(l.origin.instance).path;
+            let part = energy.parts.iter().position(|p| &p.path == path);
+            ImpulseLink { keep: l.keep.clone(), active: l.active.clone(), vars: read, part }
         })
         .collect();
     if discretes.is_empty() {

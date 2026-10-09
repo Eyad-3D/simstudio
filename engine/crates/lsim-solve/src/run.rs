@@ -46,7 +46,9 @@
 //!   that declares it passes an impulse on (a tyre that grips, keeping its
 //!   slip velocity) and through none with bounded forces (a slipping
 //!   clutch). The kinetic energy that loses is booked as lost at the
-//!   event, to the part whose coupling changed ([`crate::ImpulseInfo`]).
+//!   event: a coupling that passed the impulse on books what it
+//!   dissipated across the velocity it keeps (a tyre's slip share), the
+//!   part whose coupling changed the rest ([`crate::ImpulseInfo`]).
 //! * **Event storms**: more than [`SolverOptions::storm_events`] state
 //!   events in [`SolverOptions::storm_window`] of the run stop it, naming
 //!   the conditions (and so the parts) that chatter. Sample ticks and time
@@ -59,7 +61,7 @@
 //!   point, stored energy before and after every event, the closure at the
 //!   end.
 
-use crate::energy::Ledger;
+use crate::energy::{Engagement, Ledger};
 use crate::info::VarSource;
 use crate::{
     ErrorEstimate, EventKind, EventRecord, Integrator, OutputGrid, Recorder, RunInfo, SimResult,
@@ -614,10 +616,13 @@ impl Loop<'_> {
     /// and inertias that keeps the momentum of everything the rigid
     /// couplings tie together, as a perfectly inelastic engagement does
     /// (`w_out⁺ = (J_out w_out⁻ + r J_in w_in⁻) / (J_out + r² J_in)` for a
-    /// gear of ratio r between two inertias). Returns the energy parts to
-    /// book the lost energy to (whose coupling changed), or `None` when
-    /// nothing moved. `y`'s states change; its iteration variables are
-    /// left for the restart to solve.
+    /// gear of ratio r between two inertias). Returns where the lost
+    /// energy goes, or `None` when nothing moved: each link that passed
+    /// the impulse on takes what it dissipated across the relative
+    /// velocity it keeps (λ·keep for its impulse λ: a gripping tyre's
+    /// slip times the impulse through it), the parts whose coupling
+    /// changed the rest. `y`'s states change; its iteration variables
+    /// are left for the restart to solve.
     #[allow(clippy::too_many_arguments)]
     fn impulse(
         &mut self,
@@ -627,7 +632,7 @@ impl Loop<'_> {
         d_pre: &[f64],
         d: &[f64],
         before: &[f64],
-    ) -> Result<Option<Vec<usize>>, SolveError> {
+    ) -> Result<Option<Engagement>, SolveError> {
         let Some(imp) = self.info.impulse.clone() else { return Ok(None) };
         if !self.opts.impulses || !imp.discretes.iter().any(|&k| d[k] != d_pre[k]) {
             return Ok(None);
@@ -857,11 +862,27 @@ impl Loop<'_> {
         for (c, &sx) in ss.iter().enumerate() {
             y[sx] += sol[c];
         }
+        // what each link dissipated: its impulse λ times the relative
+        // velocity it keeps, at the mean of before and after (the energy's
+        // change is ΔUᵀ H Ū; of H ΔU, the links' part is −Gᵀλ)
+        let links: Vec<(Option<usize>, f64)> = links
+            .iter()
+            .enumerate()
+            .map(|(li, &lk)| {
+                let kept: f64 = (0..nv)
+                    .map(|r| {
+                        let jump = du[r] + (0..ns).map(|c| b[r * ns + c] * sol[c]).sum::<f64>();
+                        g[li * nv + r] * (before[imp.vars[vs[r]].var] + 0.5 * jump)
+                    })
+                    .sum();
+                (imp.links[lk].part, sol[ns + li] * kept)
+            })
+            .collect();
         // the parts whose coupling changed
         let mut parts: Vec<usize> = changed.iter().filter_map(|&k| imp.vars[k].part).collect();
         parts.sort_unstable();
         parts.dedup();
-        Ok(Some(parts))
+        Ok(Some(Engagement { changed: parts, links }))
     }
 
     /// Solves the iteration variables of `y` again (the states held) when
@@ -1373,7 +1394,7 @@ pub fn run_loop(
                         tk,
                         &y,
                         &d,
-                        imp.as_deref(),
+                        imp.as_ref(),
                     )?;
                     t = tk;
                     cut = true;
@@ -1432,7 +1453,7 @@ pub fn run_loop(
                         t,
                         &y,
                         &d,
-                        imp.as_deref(),
+                        imp.as_ref(),
                     )?;
                     continue;
                 }
@@ -1540,7 +1561,7 @@ pub fn run_loop(
                     t,
                     &y,
                     &d,
-                    imp.as_deref(),
+                    imp.as_ref(),
                 )?;
             } else if rec.next_grid_time() == Some(t) {
                 grid_point(&mut lp, &mut rec, integ, &mut ledger, t, &mut yk, &d)?;
@@ -1678,7 +1699,7 @@ fn after_event(
     t: f64,
     y: &[f64],
     d: &[f64],
-    impulse: Option<&[usize]>,
+    impulse: Option<&Engagement>,
 ) -> Result<(), SolveError> {
     lp.sample(t, y, d);
     rec.interior(t, &lp.vars);

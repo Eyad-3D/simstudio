@@ -441,7 +441,9 @@ passes one on as if it were rigid for that moment says so with
 `annotation(__LightSim_impulse(keep = …, active = …))`: the relative
 velocity it keeps through an impulse, and while it does. A tyre that
 grips keeps its slip velocity, so a gear shift's impulse reaches the
-vehicle:
+vehicle. What the impulse dissipates across the velocity it keeps (the
+impulse through the tyre times its slip velocity) is booked to that part,
+the rest of the engagement's loss to the part whose coupling changed:
 
 ```modelica
 model Vehicle.GripTyre "A tyre whose force follows its slip, up to its grip."

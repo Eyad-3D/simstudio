@@ -22,7 +22,8 @@
 //! downforce, never below 0. Its rolling resistance (c_rr × normal load)
 //! is handed to the body's friction. While it grips (not at its grip
 //! limit, and loaded) it keeps its slip velocity through an impulse, so a
-//! gear shift's impulse reaches the vehicle as in today's engine.
+//! gear shift's impulse reaches the vehicle as in today's engine, and it
+//! books what the impulse dissipates at its slip (today's share too).
 //!
 //! **Driver** (driver.driver): today's PI speed controller with its
 //! conditional-integration anti-windup and recuperation blending, in
