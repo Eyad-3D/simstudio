@@ -691,6 +691,14 @@ impl Loop<'_> {
                     h[b * m + a] = x;
                 }
             }
+            // round-off of the differences is no coupling (a body's ½ m v²
+            // + m g z has no v-z term, nor a z-z one)
+            let top = h.iter().fold(0.0f64, |a, x| a.max(x.abs()));
+            for x in h.iter_mut() {
+                if x.abs() <= 1e-9 * top {
+                    *x = 0.0;
+                }
+            }
             hess.push(h);
         }
         // the links active before the event

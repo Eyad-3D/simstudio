@@ -8,10 +8,12 @@
 use lsim_ir::expr::Expr;
 use lsim_ir::prepared::Direction;
 use lsim_ir::runtime::{DiscreteBlock, EvalInput, Layout, ModelFunctions};
+use lsim_ir::{ParamId, VarId};
 use lsim_solve::{
-    Backend, BlockInfo, EventKind, ModeInfo, OutputGrid, RunInfo, SimResult, SolverOptions,
-    TimeCrossing, VarSource, simulate,
+    Backend, BlockInfo, EnergyInfo, EnergyPart, EventKind, ImpulseInfo, ImpulseLink, ImpulseVar,
+    ModeInfo, OutputGrid, RunInfo, SimResult, SolverOptions, TimeCrossing, VarSource, simulate,
 };
+use std::sync::Arc;
 
 type F = Box<dyn Fn(&EvalInput<'_>, &mut [f64]) + Send + Sync>;
 type FV = Box<dyn Fn(&EvalInput<'_>, &[f64], &mut [f64]) + Send + Sync>;
@@ -613,5 +615,114 @@ fn a_mode_on_time_switches_exactly_at_its_time() {
         assert_eq!(flips, [1.0], "{backend:?}: {:?}", run.events);
         assert_eq!(run.values[1][at(&run, 1.0)], 1.0, "{backend:?}");
         assert!((run.values[0].last().unwrap() - 1.0).abs() < 1e-9, "{backend:?}");
+    }
+}
+
+/// A motor geared to a wheel whose tyre grips a vehicle; the gear's ratio
+/// steps from r1 to r2 at t = 1. The impulse keeps the momentum of all
+/// three, the vehicle's reflected through the gripping tyre (it keeps its
+/// slip velocity): w⁺ = (J_m r1 r2 + J_w + m R²) w⁻ / (J_m r2² + J_w +
+/// m R²). At its grip limit the tyre passes no impulse and the vehicle
+/// keeps its speed.
+#[test]
+fn a_shift_keeps_the_momentum_through_a_tyre_that_grips() {
+    let (jm, jw, m, rr, r1, r2) = (0.05, 1.2, 1500.0, 0.3, 12.0, 7.0);
+    // y = [w (wheel), v (vehicle)]; d = [ratio]; vars = [w, w_m = ratio w, v, ratio]
+    let model = Hand {
+        layout: layout(2, 0, 1, 1, 1, 1, 4),
+        f: Box::new(|_, out| {
+            out[0] = 0.0;
+            out[1] = 0.0;
+        }),
+        jvp: Box::new(|_, _, out| {
+            out[0] = 0.0;
+            out[1] = 0.0;
+        }),
+        roots: Box::new(|i, out| out[0] = i.t - 1.0),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0] * i.y[0];
+            out[2] = i.y[1];
+            out[3] = i.d[0];
+        }),
+        when: Box::new(move |_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = r2;
+            }
+        }),
+        modes: None,
+        // the tyre slips by 0.2 m/s before the shift
+        y0: vec![60.0, 60.0 * rr - 0.2],
+        d0: vec![r1],
+    };
+    let v = |k: u32| Expr::Var(VarId(k));
+    let half = |c: f64, k: u32| Expr::Const(0.5 * c) * v(k) * v(k);
+    let part = |path: &str, stored: Option<Expr>| EnergyPart {
+        path: path.into(),
+        name: format!("'{path}'"),
+        power: Expr::Const(0.0),
+        loss: None,
+        stored,
+    };
+    let mut info = RunInfo::bare(2, 4, vec![rr]);
+    info.root_dirs = vec![1];
+    whens(&mut info, &[(0, Direction::Rising, "'Gearbox': shift")]);
+    info.time_crossings = vec![Some(TimeCrossing { at: Expr::Const(1.0), rising: true })];
+    info.y_nominal = vec![100.0, 10.0];
+    info.energy = Some(Arc::new(EnergyInfo {
+        parts: vec![
+            part("motor", Some(half(jm, 1))),
+            part("wheel", Some(half(jw, 0))),
+            part("body", Some(half(m, 2))),
+            part("gearbox", None),
+        ],
+    }));
+    let ivar = |var: usize, states: Vec<usize>, part: Option<usize>| ImpulseVar {
+        var,
+        states,
+        reads_z: false,
+        part,
+    };
+    for grips in [true, false] {
+        info.impulse = Some(Arc::new(ImpulseInfo {
+            vars: vec![ivar(1, vec![0], Some(3)), ivar(0, vec![0], None), ivar(2, vec![1], None)],
+            parts: vec![(0, vec![0]), (1, vec![1]), (2, vec![2])],
+            links: vec![ImpulseLink {
+                keep: v(0) * Expr::Param(ParamId(0)) - v(2),
+                active: Expr::Const(if grips { 1.0 } else { 0.0 }),
+                vars: vec![0, 2],
+            }],
+            discretes: vec![0],
+        }));
+        let opts = SolverOptions { rtol: 1e-10, atol: 1e-10, ..Default::default() };
+        let run =
+            simulate(&model, &info, &opts, OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.5 }, &mut [])
+                .unwrap();
+        let (w0, v0) = (60.0, 60.0 * rr - 0.2);
+        let mr2 = if grips { m * rr * rr } else { 0.0 };
+        let w1 = (jm * r1 * r2 + jw + mr2) * w0 / (jm * r2 * r2 + jw + mr2);
+        let v1 = if grips { v0 + rr * (w1 - w0) } else { v0 };
+        let k = at(&run, 1.0);
+        println!(
+            "grips {grips}: w {} (exact {w1}), v {} (exact {v1}), {} impulses",
+            run.values[0][k], run.values[2][k], run.report.impulses
+        );
+        assert_eq!(run.report.impulses, 1);
+        assert!((run.values[0][k] - w1).abs() < 1e-12 * w1, "grips {grips}: w");
+        assert!((run.values[2][k] - v1).abs() < 1e-12 * v1, "grips {grips}: v");
+        // the kinetic energy it lost, booked to the gearbox
+        let e = |w: f64, r: f64, vv: f64| {
+            0.5 * jm * (r * w) * (r * w) + 0.5 * jw * w * w + 0.5 * m * vv * vv
+        };
+        let lost = e(w0, r1, v0) - e(w1, r2, v1);
+        let books = run.energy.as_ref().unwrap();
+        let gearbox = books.parts.iter().find(|p| p.path == "gearbox").unwrap();
+        assert!(lost > 0.0);
+        assert!(
+            (gearbox.impulse_lost - lost).abs() < 1e-9 * lost,
+            "{} vs {lost}",
+            gearbox.impulse_lost
+        );
+        assert!((books.impulse_loss - lost).abs() < 1e-9 * lost);
     }
 }

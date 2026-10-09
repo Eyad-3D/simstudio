@@ -20,7 +20,9 @@
 //! μ with its load sensitivity; normal load = its share of the weight
 //! normal to the road plus its part of its axle's load transfer and
 //! downforce, never below 0. Its rolling resistance (c_rr × normal load)
-//! is handed to the body's friction.
+//! is handed to the body's friction. While it grips (not at its grip
+//! limit, and loaded) it keeps its slip velocity through an impulse, so a
+//! gear shift's impulse reaches the vehicle as in today's engine.
 //!
 //! **Driver** (driver.driver): today's PI speed controller with its
 //! conditional-integration anti-windup and recuperation blending, in
@@ -423,6 +425,17 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
     } else {
         c(0.0) * n("unit_N") * n("v_eps")
     };
+    // gripping, it passes an impulse on (a gear shift's reaches the
+    // vehicle): its slip velocity is kept through it, as today's engine
+    // keeps it; at its grip limit, or carrying no load, it slides
+    let impulse = if cfg.on_vehicle {
+        vec![lsim_ir::ImpulseDecl {
+            keep: n("w") * n("r") - n("v"),
+            active: and(lt(n("at_grip"), c(0.5)), gt(n("N"), c(0.0) * n("unit_N"))),
+        }]
+    } else {
+        vec![]
+    };
     ComponentDef {
         name: variant("Blocks.Wheel", cfg == WheelConfig::default(), [cfg.on_vehicle as u8 as f64]),
         doc: doc(id),
@@ -434,6 +447,7 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
             stored: Some(c(0.5) * n("inertia_kgm2") * n("w") * n("w")),
             loss: Some(loss),
         },
+        impulse,
         ..Default::default()
     }
 }
