@@ -181,6 +181,30 @@ with an in-tree `lsim-sundials-sys` that compiles the vendored C sources
 with the `cc` crate and ships pre-generated bindings — no CMake, no
 libclang, only the C compiler every Rust target already needs.
 
+**Done (work package 4).** `crates/lsim-sundials-sys` holds the SUNDIALS
+7.1.1 sources of `sundials-sys` 0.6.2 that are built (CVODES, IDAS,
+KINSOL, the serial vector, dense/band/sparse matrices, dense and band LU,
+the Newton and fixed-point solvers; LICENSE and NOTICE kept), one
+hand-written `sundials_config.h` for every platform (compiler-specific
+settings chosen by the preprocessor), and the committed bindings, made by
+`tools/bindgen` (the only thing that needs libclang, run when SUNDIALS is
+upgraded; the bindings are portable across 64-bit targets: no layout
+tests, C `long` kept as `c_long`, fixed-width integers spelled as Rust's,
+`FILE` opaque). The C code is compiled at -O2 with floating-point
+contraction off in every Cargo profile, so results do not depend on the
+build profile or on fused multiply-add hardware. Measured on Linux: the C
+part builds in about 20 s at `-j 2`; with CMake, clang, LLVM and bindgen
+hidden from `PATH` and `LIBCLANG_PATH` unset, a rebuild and the spike's
+tests pass, and bindgen, clang-sys, cmake and 20 other build-only crates
+left the lockfile. CI must still prove the Windows (MSVC, `/fp:precise`)
+and macOS (Xcode command-line tools, arm64 and x86-64) builds. Beside the
+SUNDIALS sources, `csrc/` holds our two small C helpers (BSD-3, like the
+code they read): the dense output of CVODES and IDAS for selected
+components only, with the same coefficients and summation order as
+`CVodeGetDky`/`IDAGetDky` (a test checks they give the full dense
+output's exact bits inside every step), so a sampled block's tick
+interpolates only what it reads.
+
 ### 3.5 Decision
 
 **SUNDIALS (CVODE for models without iteration variables, IDA for index-1
@@ -288,7 +312,22 @@ Modelica's scalar set, plus two engine built-ins:
 * table interpolation `Table { table, args }` — 1-D and 2-D tables held as
   runtime data (monotone cubic by default, so the result is C¹ and the
   solver needs no events at breakpoints; linear and the outside-data rules
-  of today's `tableOutside` as options).
+  of today's `tableOutside` as options). In component scope `args[0]` is
+  the table parameter's name and the rest are the abscissae
+  (`expr::table("ocv", vec![soc])`, printed `ocv(soc)`); in flat scope
+  `table` indexes `FlatSystem::tables` and `args` are the abscissae.
+
+The text format writes `a == b` and `a <> b`; the IR holds them as
+`a >= b and a <= b` and `a < b or a > b` (no new comparison operators), and
+`true`/`false` as 1 and 0.
+
+**Tables** (`table.rs`): one `TableData` serves the language, preparation
+and the code generator: breakpoints `x` and `y` (empty for 1-D), values
+row-major (`values[i * y.len() + j]` at `(x[i], y[j])`), `interpolation`
+(`MonotoneCubic` by default, or `Linear`), `outside` per axis (`Clamp` by
+default, `Linear`, `Error`: today's `tableOutside`) and `axis_units` (the
+axes' coherent SI unit texts). `TableData::check` says in plain words what
+is malformed.
 
 ### 5.3 Components (`component.rs`)
 
@@ -302,16 +341,25 @@ Modelica's scalar set, plus two engine built-ins:
   (specific energy × mass flow) for tanks, engines and fuel cells.
 * `PortDecl`: physical (of a connector type), or a causal signal `Input`/
   `Output` with a unit.
-* `ParamDecl`: unit, display unit, default (a number or an expression of
-  the same scope's parameters), min/max, `structural` (today's
-  `variability: fixed`: may change the equations, part of the cache key;
-  every other parameter is a runtime input).
+* `ParamDecl`: unit, display unit, default, min/max, `structural`
+  (today's `variability: fixed`: may change the equations, part of the
+  cache key; every other parameter is a runtime input). The default is a
+  `ParamValue`: `Real(expr)` (a number or an expression of the same
+  scope's parameters), `Bool` (structural), `Enum("Mode.Auto")` (an option
+  of an enumeration type, structural; in equations it is its position
+  counting from 1), or a table: `Table1D`, `Table2D` (default rules) or
+  `Table(TableData)` (its own rules); `ParamValue::table()` gives any of
+  them as `TableData`.
+* `EnumType` (a name and its options) in `ComponentDef::types`, or in
+  `Library::types` for types several components share; a name is looked
+  up in the declaring component first (`Library::enum_ordinal`).
 * `VarDecl`: unit, continuous or discrete, start value, `fixed`, nominal.
 * `SubDecl` + `Connect`: composition. A composite (the battery made of a
   source, R0 and an RC pair; a whole vehicle) and a primitive are the same
   type; a project's diagram is one top-level `ComponentDef`.
-* `EquationDecl`: `lhs = rhs`, `when cond then …`, `assert`, each with a
-  plain-words label that fault messages quote.
+* `EquationDecl`: `lhs = rhs`, `when cond then …` (assignments to
+  discrete variables and `reinit` of states), `assert` (an error or a
+  warning), each with a plain-words label that fault messages quote.
 * `EnergyDecl`: stored energy and loss power, for the energy books.
 
 ### 5.4 The text format (`lsim-lang`)
@@ -349,9 +397,9 @@ model Rotational.ThresholdBrake "A brake that clamps on, for good, …"
   discrete Real engaged(unit = "1", start = 0, fixed = true) "1 once engaged";
 equation
   flange.tau = tau_max * engaged "it takes its torque once engaged";
-  when flange.w >= w_on then "it engages when the speed reaches w_on"
+  when flange.w >= w_on then
     engaged = 1;
-  end when;
+  end when "it engages when the speed reaches w_on";
   annotation(__LightSim_energy(loss = tau_max * engaged * flange.w));
 end Rotational.ThresholdBrake;
 ```
@@ -361,7 +409,9 @@ the IR's scoping but not in Modelica; WP1's parser rejects it and WP5
 renames such parameters, as Stage 1 already did for the source.)
 
 Energy books use the vendor annotation `__LightSim_energy`, which Base
-Modelica tools ignore. Labels are the strings after equations.
+Modelica tools ignore. Labels are the strings after equations. The
+format's user documentation, with every declaration and error message,
+is [`docs/text-format.md`](docs/text-format.md).
 
 ### 5.5 The flat system (`flat.rs`)
 
@@ -371,7 +421,12 @@ that made it (the n-th equation of a definition, a connection set's across
 or through equation, an unconnected port, a signal link). Origins are what
 let every later stage speak about the user's parts. Parameters keep their
 bindings (`r0.R = r0`) so changing a parent's value updates its children
-without a rebuild (implemented in `Model::set_param`).
+without a rebuild (implemented in `Model::set_param`); they are laid out in
+binding order, so one pass in order re-evaluates them. Also: `tables`
+(one `FlatTable` per table parameter — name, instance, the parameter
+(whose value is the table's index), the unit of its values and its
+`TableData`; a part handed its parent's table shares it) and `asserts`
+(`FlatAssert`: condition, message, error or warning, origin).
 
 ### 5.6 The prepared model (`prepared.rs`)
 
@@ -392,11 +447,61 @@ part of an implicit block (mass-matrix-like coupling, e.g. two inertias
 through an ideal gear) becomes a `z` with `x' = z`, so the form is
 universal. Also: the alias table (eliminated variables are still recorded
 under their names), zero-crossing functions and `when` clauses, sampled
-external blocks (`ExternalBlock`), and the structure key.
+external blocks (`ExternalBlock`: a part whose definition's name begins
+with `External.`, with a `period` parameter; its signal outputs are
+discrete variables the host sets at each tick), and the structure key.
+
+Since the work packages joined (WP2, WP3), the prepared model also holds:
+
+| field | what | made by | used by |
+|---|---|---|---|
+| `jac_pattern: SparsityPattern` | the structure of `∂[x'; g]/∂y` through the assignments (CSC, `y` order; `n` = 0: not computed) | WP2 | WP3 (colouring; it checks the pattern covers its own), WP4 (sparse LU) |
+| `modes: Vec<Mode>` | the `if` relations held as discrete Booleans (below) | WP2 | WP3, WP4 |
+| `init: InitSystem` | the initialisation system (below) | WP2 | WP3 (`InitFunctions`), WP4 |
+| `limits: Vec<LimitSite>` | inverse models: every `limit` passed through, with its bounds and origin | WP2 | WP6 (fast-mode flags) |
+| `guards: Vec<ParamGuard>` | parameter expressions explicit solutions divide by: a parameter change that makes one zero needs a new preparation | WP2 | WP6 (`set_param`, sweeps) |
+| `warnings: Vec<Diagnostic>` | what preparation noticed that does not stop a run | WP2 | WP6 (build report, the app) |
+
+`inputs` (u): in an inverse model, for each prescribed variable in the
+`InverseSpec`'s order, the variable and then its time derivatives as deep
+as the model needs them (`body.v`, `der(body.v)`, `der(der(body.v))` where
+index reduction differentiated twice); `PreparedModel::input_names()`
+gives their names.
+
+**Modes** (`Mode { var, relation, crossing, origin }`): a relation of the
+equations outside `noEvent` (an `if` condition, the sign test of `abs`
+and `sign`) becomes a discrete variable `var` (1 true, 0 false, one of
+`discretes`) that the equations read instead, so the integrator never sees
+a discontinuity. The contract:
+
+* `zero_crossings[crossing]` is positive where the relation holds and
+  negative where it does not (`lhs - rhs` for `>`, `>=`; `rhs - lhs` for
+  `<`, `<=`): away from zero, `var = 1` exactly when the crossing is
+  positive;
+* at the start and after every event the run loop sets every mode from its
+  relation (`ModelFunctions::modes`), which also decides the value at
+  zero, and iterates events until nothing changes;
+* preparation also adds two `when` clauses per mode — rising on `crossing`
+  sets 1, falling on its copy at `crossing + 1` sets 0 — so a run loop
+  that knows only `when` clauses keeps every mode right between events.
+
+**Initialisation** (`InitSystem { unknowns, guesses, assignments,
+residuals, discrete_starts }`): the equations at the start time (the
+model's, those index reduction differentiated, the initial equations and
+the start values that must hold), sorted like the model: Newton iterates
+on `unknowns` (first guesses: `guesses`, expressions of the parameters)
+until `residuals` vanish, with `assignments` explicit in between; after a
+solve every entry of `y` and every state derivative has a value.
+`discrete_starts` are the discrete variables' start values (a mode's is its
+relation at the solution). `is_empty()`: the start values hold as they
+are. Preparation also writes the solved start values into the flat
+variables' `start`, so a model without an initialisation solver starts
+right too.
 
 Contracts already written for the parallel work: `SparsityPattern`
 (Jacobian structure, WP2 → WP3/WP4), `DiscreteBlock` (sampled blocks,
-WP4 ↔ WP6), `InverseSpec` (fast mode, WP2 ↔ WP6).
+WP4 ↔ WP6), `InverseSpec` (fast mode, WP2 ↔ WP6), and the modes and
+initialisation above (WP2 → WP3 → WP4).
 
 ### 5.7 The compiled model (`runtime.rs`)
 
@@ -410,11 +515,98 @@ pub trait ModelFunctions: Send + Sync {
     fn when(&self, inp: &EvalInput, fired: &[f64], work: &mut [f64], d_out: &mut [f64]);
     fn start(&self, p: &[f64], y0: &mut [f64], d0: &mut [f64]);
     fn jacobian_dense(&self, inp: &EvalInput, work: &mut [f64], out: &mut [f64]) { /* n jvp's */ }
+    // with defaults, so hand-written models need not implement them:
+    fn sparsity(&self) -> Option<&SparsityPattern> { None }           // the CSC pattern jacobian_sparse fills
+    fn jacobian_sparse(&self, inp: &EvalInput, work: &mut [f64], values: &mut [f64]) { /* from dense */ }
+    fn modes(&self, inp: &EvalInput, work: &mut [f64], d_out: &mut [f64]) {}   // every mode from its relation
+    fn init(&self) -> Option<&dyn InitFunctions> { None }              // the compiled InitSystem
+    fn table_guard_list(&self) -> &[TableGuard] { &[] }                // the table axes the run loop watches
+    fn table_guards(&self, inp: &EvalInput, work: &mut [f64], out: &mut [f64]) {}  // > 0 inside the data
+}
+
+pub trait InitFunctions: Send + Sync {   // Newton on w, then y0
+    fn n_w(&self) -> usize;
+    fn guess(&self, p: &[f64], w0: &mut [f64]);
+    fn residual(&self, inp: &EvalInput, work: &mut [f64], out: &mut [f64]);
+    fn jvp(&self, inp: &EvalInput, v: &[f64], work: &mut [f64], out: &mut [f64]);
+    fn sparsity(&self) -> &SparsityPattern;
+    fn jacobian_sparse(&self, inp: &EvalInput, work: &mut [f64], values: &mut [f64]);
+    fn finish(&self, inp: &EvalInput, work: &mut [f64], y0: &mut [f64]);
 }
 ```
 
 `EvalInput { t, y, p, d, u }`. The functions are pure; the caller owns the
 buffers, so one compiled model serves any number of simultaneous runs.
+`TableGuard { table, axis, outside }` names one watched table axis: its
+guard is `min(a - lo, hi - a)` of the axis argument, positive inside the
+data; an `Error` axis stops the run where its guard falls through zero,
+the others are booked as time spent outside.
+
+### 5.8 Shared types: what each package must do
+
+The shared types above were unified on the branch `engine/ir-unify`
+(work packages 1, 2 and 3 merged; every addition relative to Stage 1 is
+additive). What the other packages change to use them:
+
+**WP4 (lsim-solve)**
+
+* `RunInfo::from_prepared`: fill `modes` from `PreparedModel::modes`
+  (`ModeInfo { crossing: m.crossing, discrete: position of m.var in
+  discretes, label }`); the rule `d = roots[crossing] > 0` holds by the
+  contract above. The mode's two `when` clauses (on `crossing` and
+  `crossing + 1`) set the same values, so handling both is harmless.
+* At the start and after each event, call `ModelFunctions::modes` before
+  event iteration (it decides the value exactly at zero).
+* Initialise with `ModelFunctions::init()` when it is `Some`: damped
+  Newton on `w` (`guess`, `residual`, `jacobian_sparse` on `sparsity`),
+  then `finish` gives `y0`; keep homotopy and `IDACalcIC` after it.
+* Use `PreparedModel::jac_pattern` (when `n > 0`) or
+  `ModelFunctions::sparsity()` for the sparse LU, and
+  `jacobian_sparse` for its values.
+* Watch `table_guard_list()`/`table_guards()` as extra root functions:
+  stop with the table's name at an `Error` axis, book time outside the
+  others.
+* Check `FlatSystem::asserts` at accepted steps (evaluate with
+  `lsim_ir::eval` over the `vars` output until a compiled function
+  exists): stop on an error, warn once on a warning.
+* A `when` clause whose function stays exactly zero after its event (a
+  held voltage) makes IDA fail with "root found at and very near t";
+  deactivate such a root after the event as CVODE does.
+
+**WP5 (lsim-lib, lsim-project)**
+
+* Tables: make table parameters with `ParamValue::Table1D`/`Table2D`, or
+  `ParamValue::Table(TableData { … })` to set `interpolation: Linear` (as
+  today's app) or `outside` per axis (`tableOutside`); read them with
+  `lsim_ir::expr::table("loss_map", vec![w, tau])`. A `TableData` is a
+  rectangular grid: resample today's table2d sheets onto the union of
+  their inner points (exact for linear interpolation). This replaces the
+  stand-in expansion in `lsim-lib/src/table.rs`.
+* Enumerations: `EnumType` in `ComponentDef::types` (or
+  `Library::types`), parameters `ParamValue::Enum("Gearbox.Mode.Auto")`.
+* Rename `Battery.OcvR0Rc`'s parameters `r0`, `r1`, `c1`, which share
+  names with its parts (the text format rejects the clash).
+* Sampled blocks: a definition named `External.…` with signal ports and a
+  `period` parameter.
+* Any exhaustive `match` on `ParamValue` gains the `Table2D` and `Table`
+  arms (or uses `ParamValue::table()`).
+
+**WP6 (lsim-fast, lsim-engine, lsim-py)**
+
+* Fill an inverse model's `u` in `PreparedModel::input_names()` order:
+  `InverseSpec::input_names()` (value, then `der()`) misses a second
+  derivative where index reduction needs one.
+* Take fast mode's limit sites from `PreparedModel::limits` (their bounds
+  and origins) instead of searching the equations for `limit`.
+* `Model::set_param`: a table parameter's value is its table's index
+  (change table data with `JitModel::with_tables`, no recompile); when a
+  parameter change makes a `ParamGuard` zero, prepare again.
+* Show `PreparedModel::warnings` in the build report and the Python
+  `model.report`.
+
+**WP3** keeps: its interpreted tape (`tape.rs`) is not wired in,
+`InitFunctions::guess` uses the flat start values rather than
+`InitSystem::guesses`, and asserts have no compiled function yet.
 
 ## 6. Preparation pipeline
 
@@ -468,7 +660,26 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    equations use the held value, so the integrator never sees a
    discontinuity. Relations under `noEvent` are evaluated as they stand.
    Stage 1 supports `when` with one comparison and rejects the rest with a
-   clear message.
+   clear message. **`reinit(x, v)`** (WP2) restarts a state at an event
+   without anything new in the run loop, which applies only discrete
+   assignments: after alias elimination `x` (resolved to its alias root)
+   is split into a continuous part and its jumps, `x = x.continuous +
+   x.jump` with `der(x)` read as `der(x.continuous)` everywhere, and the
+   action becomes the discrete assignment `x.jump := v − x.continuous`.
+   The integrator's state is `x.continuous` (it inherits `x`'s start and
+   `fixed`; dummy derivatives keep it a state before anything else), so
+   right after the event `x = v` exactly while nothing the integrator
+   sees jumps. As with every assignment of a `when` clause, a discrete
+   variable `v` reads is its new value (`pre(i)` for the old one) and
+   continuous ones are their values at the event. A target that is not a
+   state, or that index reduction cannot keep one (two rigidly coupled
+   speeds both restarted), is `REINIT-NOT-STATE`. In fast mode's inverse
+   model the motion is prescribed: a restart of a prescribed speed is
+   dropped and one of a speed that follows it changes nothing, both told
+   as information (`REINIT-PRESCRIBED`). The gear change of
+   `mech_gear_change` (a dog clutch keeping `J2 ω2 + i2 J1 ω1`) runs to
+   the reference's digits (2·10⁻¹⁴) and its energy books show the exact
+   shift loss.
 9. **Initialisation system** (WP2). A separate matching with the `fixed`
    start values and `initial equation`s as knowns/equations; its own BLT;
    compiled as its own functions; solved by Newton with line search, then
@@ -508,15 +719,18 @@ WP3 adds:
   (greedy, largest-first) and one `jvp` sweep per colour, filling the
   CSC values directly: `jacobian_sparse(inp, work, values)`. A vehicle
   model's Jacobian needs ~5–15 colours whatever its size.
-* **Tables.** Runtime calls `lsim_table1(handle, x)` / `lsim_table2(handle,
-  x, y)` with value and derivative; handles index a table store passed in
-  the `EvalInput` (tables are parameters: no recompile). Monotone cubic by
-  Fritsch–Carlson (C¹, no overshoot), bilinear-monotone for 2-D; linear and
-  today's `tableOutside` rules as options.
+* **Tables.** The generated code calls the table runtime
+  (`lsim-codegen/src/tables.rs`) for value and derivatives; the data live
+  in the compiled model's table store built from `FlatSystem::tables`
+  (tables are runtime data: `JitModel::with_tables` swaps them without
+  recompiling). Monotone cubic by Fritsch–Carlson (C¹, no overshoot),
+  bicubic Hermite patches in 2-D; linear and today's `tableOutside` rules
+  as options; each read axis gets a table guard for the run loop.
 * **Large models.** Assignments split into chunks of bounded size, chained
   through the `work` buffer, so register allocation stays linear; a budget
   test (10⁴ equations compile in under 100 ms).
-* **Modes** for `if` relations, and the initialisation functions.
+* **Modes** for `if` relations (`modes`: every mode from its relation),
+  and the initialisation functions (`InitFunctions`), as in 5.6–5.7.
 
 **Cache.** Keyed by SHA-256 of the model's inputs (top component, every
 library definition it reaches, connectors, options, engine version); the
@@ -563,13 +777,47 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   convergence failures switch back. Automatic, reported in the run report.
 * **diffsol backend** behind a feature, for the cross-check suite.
 
+**As built (work package 4).**
+
+* The integrators are **CVODES and IDAS** (CVODE and IDA with
+  quadratures and sensitivities; the same algorithms), for the energy
+  quadratures. `Integrator` gained, with defaults: `quadrature` (the
+  integrals inside the last step), `local_error` (the error estimate),
+  `set_root_sides` (below, 8.2), `method` and `setup_notes` (the report).
+* **Linear solver** (`LinearSolver::Auto`): dense LU up to 40 unknowns,
+  band LU when the Jacobian's band widths sum to at most 20, faer sparse LU
+  otherwise (`faer_ls`: a direct `SUNLinearSolver` on SUNDIALS' CSC
+  matrix; symbolic analysis once per structure, numeric factorisation per
+  setup, `Par::Seq` so parallel runs do not contend; a non-finite solve is
+  a recoverable failure). The Jacobian's values come from the compiled
+  model's own coloured sparse Jacobian (`jacobian_sparse`) when its
+  structure covers the matrix's, else from coloured Jacobian-vector
+  products; the structure is checked against the model at the start (n ≤
+  3000) and extended where it misses an entry.
+* **Method choice** (`Method::Auto`): at the start, Adams with fixed-point
+  iteration when the power-iteration estimate ρ of the Jacobian's spectral
+  radius times the run's length is at most 100, else BDF; at each restart
+  BDF → Adams when ρ·h < 0.2 for the last step h, Adams → BDF when ρ·h >
+  1.5; during a run Adams → BDF on a convergence failure or when
+  nonlinear failures exceed 10 % of the steps. The report says which and
+  why. (The reference problems' RC and RL circuits and the L = 0 motor run
+  on Adams; the spike and the motor with inductance on BDF.)
+* **diffsol** 0.17.1 (pinned, nalgebra dense LU): the same run loop; root
+  directions from the root functions' signs at the step's start and at
+  the root; the iteration variables made consistent by the same Newton as
+  IDA's path; the energy integrals by three-point Gauss–Legendre on its
+  dense output; its smallest step lowered to 1e-20 (section 3.2); a stop
+  time it reaches a few ulps short counts as reached.
+
 ### 8.2 Events
 
 * Zero crossings are located by SUNDIALS' root finding (Illinois method on
   the dense interpolant) with each crossing's direction; the spike locates
   its brake event to 7e-10 s at rtol 1e-10.
 * At an event: `when` actions run (`ModelFunctions::when`), mode Booleans
-  flip, then **event iteration**: re-evaluate the conditions with the new
+  flip (a mode's crossing is positive where its relation holds;
+  `ModelFunctions::modes` sets every mode from its relation: section 5.6),
+  then **event iteration**: re-evaluate the conditions with the new
   discrete values until nothing changes (bounded, with a diagnostic naming
   the chattering parts if it does not settle), then **re-initialise**:
   CVODE restarts from y; IDA recomputes consistent `z` and `x'`
@@ -583,11 +831,32 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   Modelica approach; the run loop reports more than N events in a time
   window with the parts involved.
 
+**As built (work package 4).** Event iteration runs `when` actions, then
+`ModelFunctions::modes`, then re-evaluates every condition until nothing
+changes (at most `max_event_iterations`, 50); the integrator restarts only
+if a discrete value changed. After every event each root function is
+given the side an exact zero counts as (the side it is on, else its mode's
+value, else the direction it crossed in): a function that rests at zero
+after its crossing — the spike's speed is exactly 300.0 for the first
+steps after the brake engages — no longer fires again (IDA reported the
+brake five times without this). After every accepted step the modes are
+checked against their relations, catching a crossing that started exactly
+at zero right after a restart, where root finding cannot see it. Table
+guards (`table_guard_list`) are watched as extra root functions: an
+`Error` axis stops the run naming the table; the others are booked as time
+outside, reported as warnings. The model's asserts are checked at every
+accepted step. An event storm is more than `storm_events` (100) state
+events (crossings and modes; sample ticks and time events do not count)
+within `storm_window` (1e-3) of the run's length, at least 1 µs; the
+error names the conditions with their counts (the relay test: "101
+events within 1.1e-12 s, from 'Relay': on (101×)").
+
 ### 8.3 Initialisation
 
 1. Start values: `fixed` ones are conditions, others guesses.
-2. Solve the initialisation system (prepared separately, section 6) by
-   damped Newton with the exact Jacobian.
+2. Solve the initialisation system (`PreparedModel::init`, compiled as
+   `ModelFunctions::init()`: section 5.6–5.7) by damped Newton with the
+   exact sparse Jacobian; `finish` gives the start vector.
 3. If Newton fails: **homotopy** from a simplified problem
    (Modelica's `homotopy(actual, simplified)` operator, available to
    component writers, e.g. a battery with zero RC current or a clutch
@@ -596,6 +865,20 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
 4. If that fails: a diagnostic naming the block that did not converge, its
    parts, and the residuals' worst equations.
 5. IDA then refines with `IDACalcIC` for the integrator's own consistency.
+
+**As built (work package 4)** (`lsim-solve/src/init.rs`): one damped
+Newton serves the initialisation system (`ModelFunctions::init`, then
+`finish`, then every mode from its relation, solved again while a mode
+changes) and the iteration variables at the start and after every event.
+Dense LU up to 100 unknowns, sparse above; backtracking line search on the
+row-equilibrated residual; it stops when the update's weighted norm is
+below 1e-3 of the tolerance, or when the residual is at round-off after
+full Newton steps with the update inside the tolerance (at rtol 1e-10 the
+first test alone asks for less than round-off). The homotopy is the
+Newton homotopy `F(w) - (1 - λ) F(w0)` until the IR has Modelica's
+`homotopy()` operator for simplified models; it cannot pass a fold of the
+solution path. A failure names the three equations with the largest
+residuals and what they solve for.
 
 ### 8.4 Results, quadratures, sweeps
 
@@ -609,6 +892,44 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
 * **Parallel sweeps** (WP4/WP6): `rayon` over parameter sets, one
   integrator and buffer set per worker, one shared compiled model, the
   Python GIL released for the whole sweep.
+
+**As built (work package 4).** The energy integrals are under the
+integrator's error control by default (`energy_error_control`): without
+it they ride on the states' steps, and a fast-decaying loss came out 100×
+less accurate than the tolerance (the RC step's resistor loss at rtol
+1e-10: 1.3e-8 of the energy scale; with it 2.5e-11). The stored energy's
+change is integrated too, its rate taken along the solution by a
+fourth-order central difference of the declared stored energy in the
+direction (1, y') (exact for the quadratic energies of capacitors,
+inductors and masses), so the books close to round-off when every part's
+books agree with its equations (section 11). The integrator's own error
+estimate goes into the report: the largest local error of any step as a
+share of the tolerance, and per variable the local errors summed over the
+run (an upper bound of the global error that ignores damping).
+
+Sweeps run one set per rayon task on a pool of the asked size (each run
+single-threaded inside), sharing the compiled model. Measured
+(`lsim-solve/examples/sweep_scaling.rs`, release build, the WLTC-length
+ladder drive, 4 vCPUs, each measurement started once other processes had
+used under 0.3 cores for 5 s, and their use during it read from
+/proc/stat: 0.02–0.18 cores):
+
+| sweep | 1 thread | 4 threads | speed-up | cores used | CPU per run, 1 → 4 threads |
+|---|---|---|---|---|---|
+| 16 sets, 21 states (100 ms runs), best of 5 in one process | 1542 ms | 448 ms | 3.44× | 3.75 | 96.3 → 105.0 ms |
+| the same, a fresh process per sweep, best of 5 (median) | 1725 (1759) ms | 485 (525) ms | 3.56× (3.35×) | 3.36–3.69 | 106–111 → 112–120 ms |
+| 64 sets, 21 states, best of 2 | 6644 ms | 1625 ms | 4.09× | 3.90 | 102.8 → 99.1 ms |
+| 16 sets, 101 states (600 ms runs), best of 2 | 9446 ms | 2554 ms | 3.70× | 3.72 | 583.8 → 593.8 ms |
+
+So ≥ 3.5× holds once a sweep has many runs or long ones; 16 runs of
+100 ms lose about 6 % to the last runs' tail (3.75 of 4 cores used) and a
+few per cent to the kernel: a run's results (271 channels × 1801 points
+× value, min, max and mean: 15.6 MB) are new memory, about 4 900 page
+faults and 10 ms of system time a run in a fresh process, and the
+allocator's per-thread arenas reuse freed memory less than the main
+thread's. Writing the results into one buffer backed by huge pages would
+save most of those 10 ms in every run, sequential or not (a change to
+`SimResult`'s layout, left for WP6 with the Python API).
 
 ## 9. Causal blocks, Script blocks and FMUs in an acausal network
 
@@ -624,10 +945,33 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   trait (already in `lsim-ir`): Script blocks (sandboxed Python, as
   today), FMUs for co-simulation (FMPy in its sandbox, as today), digital
   controllers. Each has a period; its outputs are discrete variables held
-  between ticks. The run loop stops the integrator exactly at each tick
-  (stop time), reads the inputs from the solution, calls `tick`, and
-  **restarts the integrator only if an output changed** (a restart costs
-  a few small steps; most ticks of a slow controller change nothing).
+  between ticks. The run loop reads the inputs from the solution at each
+  tick, calls `tick`, and **restarts the integrator only if an output
+  changed** (a restart costs a few small steps; most ticks of a slow
+  controller change nothing). As built (work package 4) the steps are not
+  cut at ticks: a tick inside a step is evaluated on the dense output
+  (an input that is a state or an iteration variable costs one
+  interpolation, any other one evaluation of the channels); only when an
+  output changed is the step cut back to the tick and the integrator
+  restarted there, and the block's next tick then becomes a stop time
+  until a tick changes nothing again. So a block that changes nothing
+  leaves the steps and the solution exactly as without it (tested: equal
+  results and step counts). Measured (`lsim-solve/examples/r1_blocks.rs`,
+  release build, the run thread's CPU time, the period shortened to
+  0.1 ms so 18 million ticks stand well above a shared machine's noise):
+  a tick that changes nothing costs 19 ns when the block reads a discrete
+  value, 47 ns when it reads a state (one selected-component
+  interpolation) and 108 ns when it reads a computed channel (its chain
+  of assignments interpreted, here through a sine source). A 10 ms block
+  over a WLTC (180 001 ticks) so costs 3.4, 8.5 or 19.4 ms: about 3.4 /
+  8.5 / 19.5 % of the 21-state test drive, which runs at 18 000× real
+  time (100 ms); 0.6 / 1.4 / 3.2 % of the 101-state one (about 3 000×
+  real time, 600 ms); and at most 1.1 % of any model that runs at the
+  1000× target.
+  So the < 5 % criterion holds for models as costly as the 101-state
+  drive or more, not for very cheap ones read through a computed channel
+  (where the absolute cost is still under 20 ms a WLTC). The block's own
+  work comes on top: a sandboxed Python tick costs microseconds.
   Today's Script blocks run every solver step (≤ 10 ms); they keep that
   rate by default (a `period` parameter, default 10 ms) so results match.
 * **FMUs for model exchange** (WP4, later): their states join `x`, their
@@ -687,6 +1031,22 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   control, the run checks the global closure Σ(sources) − Σ(losses) −
   ΔΣ(stored) − Σ(boundaries) against the energy throughput and reports it
   (target ≤ 1e-6).
+
+  As built (work package 4): every primitive with physical ports gets ∫
+  power in, ∫ |power in|, ∫ loss and ∫ d(stored)/dt; parts that declare
+  neither loss nor storage are the boundaries (sources, grounds, lossless
+  converters) whose net intake is the energy supplied. The **closure** is
+  supplied − lost − ∫ d(stored)/dt, relative to the throughput (half the
+  sum of every part's ∫ |power in|): it is round-off when the books are
+  right (≤ 4e-14 on every ODE run of the suite, ≤ 3e-9 on IDA at rtol 1e-8
+  and 1.1e-7 at 1e-6 for the spike's DAE form, where y' of the iteration
+  variables comes from IDA's own formula), and the run warns above 1e-6
+  and can be made to fail (`energy_tolerance`), naming the parts whose
+  books close worst. Jumps of the stored energy at events, from the states
+  before and after, are booked as a separate entry (energy lost at
+  events). The **drift** — stored energy from the states at the end minus
+  the books' — is the integration error of the energies, of the order of
+  rtol; it is reported, with a warning when it exceeds 100·rtol.
 * **Solver report** on every run: backend, method, tolerances, steps,
   evaluations, Jacobians, error-test and Newton failures, events (with
   times and parts), restarts, initialisation path, energy closure.
@@ -814,7 +1174,22 @@ with a test model: two ideal sources in parallel; a circuit with no ground;
 a floating thermal network; two speed sources on one rigid shaft; a
 gearbox with no ratio input; a signal input left open; an algebraic loop
 through a controller with no feed-through break; a part not connected at
-all. Run-time failures get the same treatment: a Newton failure names the
+all. The catalogue as built (each code's model and expected parts are in
+`lsim-prep/tests/faults.rs`, one test per fault): `ELEC-SOURCE-LOOP`,
+`ELEC-CURRENT-SOURCES`, `ELEC-NO-GROUND`, `THERM-FLOATING`,
+`THERM-TEMP-CONFLICT`, `MECH-SPEED-CONFLICT`, `MECH-FLOATING`,
+`PART-UNCONNECTED`, `GEAR-NO-RATIO`, `SIGNAL-UNCONNECTED`, `SIGNAL-SOURCES`,
+`CAUSAL-LOOP` (a warning), `SINGULAR-LOOP`, `INIT-OVER`, `DER-NOT-STATE`,
+`INDEX-DIFFERENTIATE`, `STATE-SELECT-SINGULAR`, `PIVOT-ZERO-AT-START` (a
+warning), `PARAM-CYCLE`, `EXTERNAL-PERIOD`, `EXTERNAL-LOOP` (a warning),
+`WHEN-CONDITION`, `WHEN-CONTINUOUS`, `REINIT-NOT-STATE`, `STRUCT-OVER` and
+`STRUCT-UNDER`; `INIT-START-IGNORED` is tested with the index-reduction
+models and the `INVERSE-*` codes with fast mode's. A floating network is
+told apart two ways: structurally (a node balance that alias elimination
+reduces to 0 = 0 is dropped, leaving the potentials undecided) and, when
+the structure balances, numerically (a linear block singular at the start
+whose null direction moves only potentials, temperatures or speeds, all
+together). Run-time failures get the same treatment: a Newton failure names the
 block's parts and the equations with the worst residuals; an integrator
 failure names the variables with the largest error-test weights; repeated
 events name the modes that chatter.
@@ -946,6 +1321,16 @@ work end to end) or against hand-written test doubles of the interfaces.
   ones; energy closure ≤ 1e-6 on every example; a 10 ms Script block that
   changes nothing costs < 5 % run time; sweeps scale ≥ 3.5× on 4 cores;
   the build needs only a C compiler on Windows, macOS and Linux.
+* **Status (as built)**: the exact-answer suite passes on both backends,
+  ODE and DAE paths (`lsim-solve/tests/reference.rs`); the backends agree
+  within 4.2·rtol; events within 2.6·rtol on SUNDIALS at every tolerance,
+  on diffsol within 7.2·rtol at 1e-6 and 1e-8 but up to 34·rtol at 1e-10
+  (its root finding, not ours: the cross-check is held to 50·rtol);
+  energy closure ≤ 1.1e-7 everywhere tested (no example project imports
+  until WP5); the idle 10 ms block and the sweeps as measured in sections
+  9 and 8.4 (< 5 % for models as costly as the 101-state drive, 19.5 % on
+  a 100 ms model read through a computed channel; 3.44–4.09×); the build
+  proven on Linux only.
 
 ### WP5 — Component library and project import
 
@@ -1002,19 +1387,28 @@ the vehicle body). A short integration checkpoint each week runs
 
 | # | risk | mitigation |
 |---|---|---|
-| R1 | Sampled Script blocks at 10 ms force 180 000 integrator restarts on WLTC | restart only when an output changes; recommend continuous-time controllers; measure (WP4 acceptance) |
-| R2 | SUNDIALS build on Windows/macOS | in-tree `cc` build with committed config header and bindings; CI on all three from the start (WP4/WP6) |
+| R1 | Sampled Script blocks at 10 ms force 180 000 integrator restarts on WLTC | restart only when an output changes; recommend continuous-time controllers; measure (WP4 acceptance). **WP4:** done — no restart and no extra step for a tick that changes nothing; 19–108 ns a tick, < 5 % of the run for models at or slower than ~3 000× real time (section 9) |
+| R2 | SUNDIALS build on Windows/macOS | in-tree `cc` build with committed config header and bindings; CI on all three from the start (WP4/WP6). **WP4:** built and tested on Linux with only a C compiler; the MSVC and macOS builds are written for (config header, `/fp:precise`) but still to be proven in CI |
 | R3 | Index reduction needs dynamic state selection for some models | static dummy derivatives with an initial pivoting check cover vehicle drivelines; report the rare case clearly; dynamic selection only if a real model needs it |
-| R4 | Friction and clutch modes chatter | force-based stick/slip conditions in the components; event-storm detection naming the parts |
+| R4 | Friction and clutch modes chatter | force-based stick/slip conditions in the components; event-storm detection naming the parts. **WP4:** storm detection done (over 100 state events within 1e-3 of the run, the error names the modes' parts; tested on a chattering mode); the force-based conditions are WP5's |
 | R5 | Golden comparisons show differences that are today's numerical error | measured bands from today's own fine-step runs; differences triaged and documented |
 | R6 | Fast-mode target of 10⁶× real time | Rosenbrock-W with Jacobian reuse; explicit backward evaluation of the sorted inverse model; measured early in WP6 |
 | R7 | diffsol API churn | pinned exact version; it is the second backend, not the product's |
 | R8 | Cranelift code quality on very large models | chunking; measure; LLVM is not an option (licence-clean but heavy to ship); our models are straight-line arithmetic where Cranelift does well |
-| R9 | KLU is LGPL and banned | faer sparse LU (MIT) as our SUNDIALS linear solver (WP4) |
+| R9 | KLU is LGPL and banned | faer sparse LU (MIT) as our SUNDIALS linear solver (WP4). **WP4:** done; dense, band and sparse LU give the same runs on every reference model (test) |
 | R10 | Parallel agents change `lsim-ir` incompatibly | additive changes only; owners agree; check.sh in every package's CI |
 | R11 | Base Modelica is a moving specification (MCP-0031) | the text format is a strict subset; import tracks the published version |
 
 ## 18. Licences
+
+Since work package 4 the workspace builds with 231 third-party crates,
+all permissive (licences.py and cargo-deny: "bans ok, licenses ok"):
+sundials-sys, bindgen, clang-sys, libloading and cmake are gone; in came
+`cc` with `jobserver` and `getrandom` (MIT OR Apache-2.0; `r-efi` taken
+under MIT), faer 0.24.4 (MIT), rayon (MIT OR Apache-2.0), diffsol 0.17.1
+(MIT) with nalgebra (Apache-2.0) and their dependencies, and, for tests
+only, toml (MIT OR Apache-2.0). The vendored SUNDIALS is BSD-3-Clause and
+contains no KLU and no GPL code.
 
 `scripts/licences.py` (run by `check.sh`) reads `cargo metadata` and
 requires every third-party crate's SPDX expression to be satisfiable with

@@ -5,6 +5,7 @@
 
 use crate::component::VarKind;
 use crate::expr::Expr;
+pub use crate::table::FlatTable;
 use crate::units::Unit;
 use serde::{Deserialize, Serialize};
 
@@ -165,6 +166,19 @@ pub struct FlatWhen {
     pub origin: Origin,
 }
 
+/// A flat `assert`: the condition must hold while the model runs.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct FlatAssert {
+    /// what must hold (flat scope, a truth value)
+    pub condition: Expr,
+    /// what to tell the user when it does not
+    pub message: String,
+    /// true: stop the run; false: warn and go on
+    pub error: bool,
+    /// where it came from
+    pub origin: Origin,
+}
+
 /// The power flowing into an instance through one of its ports.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct PortPower {
@@ -207,6 +221,13 @@ pub struct FlatSystem {
     pub port_powers: Vec<PortPower>,
     /// stored energy and losses of the instances that declare them
     pub energy: Vec<InstanceEnergy>,
+    /// tables (what a flat [`Expr::Table`] indexes): runtime data, like
+    /// parameter values
+    #[serde(default)]
+    pub tables: Vec<FlatTable>,
+    /// conditions checked while the model runs
+    #[serde(default)]
+    pub asserts: Vec<FlatAssert>,
 }
 
 impl FlatSystem {

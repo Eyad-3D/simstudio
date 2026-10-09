@@ -1,6 +1,6 @@
 [package]
 name = "lsim-lang"
-description = "The text format for equation components (a unit-checked subset that maps one-to-one onto Base Modelica): printer now, parser in work package 1"
+description = "The text format of components (Modelica syntax, units checked at parse time): parser with spans and plain-words errors, printer, Base Modelica import"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,6 +14,10 @@ thiserror.workspace = true
 
 [dev-dependencies]
 lsim-lib.workspace = true
+# to simulate imported Base Modelica models in the tests
+lsim-prep.workspace = true
+lsim-codegen.workspace = true
+lsim-solve.workspace = true
 
 [lints]
 workspace = true

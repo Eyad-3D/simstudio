@@ -20,6 +20,7 @@
 //! results).
 
 use crate::expr::Expr;
+pub use crate::table::{Interpolation, Outside, TableData};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -97,9 +98,12 @@ pub enum ParamValue {
     Real(Expr),
     /// true or false (structural: it may change the equations)
     Bool(bool),
-    /// one of the declared options (structural)
+    /// one of the options of an enumeration type (structural), by its
+    /// qualified name: `"Mode.Manual"` is the option `Manual` of the type
+    /// `Mode` (see [`EnumType`]); the type is the text before the last dot
     Enum(String),
-    /// a 1-D table: abscissae (in `axis_unit`) and values (in the unit)
+    /// a 1-D table: abscissae (in `axis_unit`) and values (in the unit),
+    /// interpolated by the default rules ([`TableData`])
     Table1D {
         /// the abscissae, increasing
         x: Vec<f64>,
@@ -108,6 +112,85 @@ pub enum ParamValue {
         /// the abscissae's unit text
         axis_unit: String,
     },
+    /// a 2-D table: the values at the grid points `(x1[i], x2[j])`, in the
+    /// unit, interpolated by the default rules ([`TableData`])
+    Table2D {
+        /// the first axis' points, increasing
+        x1: Vec<f64>,
+        /// the second axis' points, increasing
+        x2: Vec<f64>,
+        /// row-major: `values[i * x2.len() + j]` is at `(x1[i], x2[j])`
+        values: Vec<f64>,
+        /// the two axes' unit texts
+        axis_units: [String; 2],
+    },
+    /// a table of one or two axes with its own interpolation and
+    /// outside-the-data rules
+    Table(TableData),
+}
+
+impl ParamValue {
+    /// The table this value holds, with its rules (the defaults for
+    /// [`ParamValue::Table1D`] and [`ParamValue::Table2D`]); `None` when it
+    /// is not a table.
+    pub fn table(&self) -> Option<TableData> {
+        match self {
+            ParamValue::Table1D { x, y, axis_unit } => Some(TableData {
+                axis_units: [axis_unit.clone(), String::new()],
+                ..TableData::new_1d(x.clone(), y.clone())
+            }),
+            ParamValue::Table2D { x1, x2, values, axis_units } => Some(TableData {
+                axis_units: axis_units.clone(),
+                ..TableData::new_2d(x1.clone(), x2.clone(), values.clone())
+            }),
+            ParamValue::Table(t) => Some(t.clone()),
+            _ => None,
+        }
+    }
+}
+
+/// One option of an enumeration type.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct EnumLiteral {
+    /// its name (`Manual`)
+    pub name: String,
+    /// what it means
+    pub doc: String,
+}
+
+/// An enumeration type (Modelica's `type Mode = enumeration(Manual, Auto)`):
+/// a parameter of this type takes one of its options. Its value is
+/// [`ParamValue::Enum`] with the option's qualified name (`"Mode.Auto"`);
+/// in equations the option `Mode.Auto` stands for its position, counting
+/// from 1 (Modelica's `Integer(Mode.Auto)`), so `mode == Mode.Auto`
+/// compares numbers.
+///
+/// A component declares the types it uses in [`ComponentDef::types`];
+/// types shared by several components go in [`Library::types`]. A name is
+/// looked up in the component that declares the parameter first, then in
+/// the library.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct EnumType {
+    /// its name (`Mode`, or a qualified library name `Gearbox.Mode`)
+    pub name: String,
+    /// its options, in order
+    pub literals: Vec<EnumLiteral>,
+    /// what it is
+    pub doc: String,
+}
+
+impl EnumType {
+    /// The position of the option `literal` (its bare name, `Auto`),
+    /// counting from 1, as Modelica's `Integer()` gives it.
+    pub fn ordinal(&self, literal: &str) -> Option<usize> {
+        self.literals.iter().position(|l| l.name == literal).map(|i| i + 1)
+    }
+}
+
+/// Splits an option's qualified name (`"Gearbox.Mode.Auto"`) into its type
+/// (`"Gearbox.Mode"`) and the option (`"Auto"`).
+pub fn split_enum_value(qualified: &str) -> Option<(&str, &str)> {
+    qualified.rsplit_once('.')
 }
 
 /// A parameter.
@@ -289,6 +372,9 @@ pub struct ComponentDef {
     pub initial_equations: Vec<EquationDecl>,
     /// its energy books
     pub energy: EnergyDecl,
+    /// the enumeration types it declares for its own parameters
+    #[serde(default)]
+    pub types: Vec<EnumType>,
 }
 
 /// A set of connector and component definitions.
@@ -298,6 +384,9 @@ pub struct Library {
     pub connectors: BTreeMap<String, ConnectorDef>,
     /// components by name
     pub components: BTreeMap<String, ComponentDef>,
+    /// enumeration types shared by its components, by name
+    #[serde(default)]
+    pub types: BTreeMap<String, EnumType>,
 }
 
 impl Library {
@@ -309,6 +398,24 @@ impl Library {
     /// Adds (or replaces) a component.
     pub fn add(&mut self, c: ComponentDef) {
         self.components.insert(c.name.clone(), c);
+    }
+
+    /// Adds (or replaces) a shared enumeration type.
+    pub fn add_type(&mut self, t: EnumType) {
+        self.types.insert(t.name.clone(), t);
+    }
+
+    /// The enumeration type `name` as `scope` sees it: one `scope`
+    /// declares, else the library's.
+    pub fn enum_type<'a>(&'a self, scope: &'a ComponentDef, name: &str) -> Option<&'a EnumType> {
+        scope.types.iter().find(|t| t.name == name).or_else(|| self.types.get(name))
+    }
+
+    /// The number an enumeration option (`"Mode.Auto"`) stands for, as
+    /// `scope` sees its type: its position counting from 1.
+    pub fn enum_ordinal(&self, scope: &ComponentDef, qualified: &str) -> Option<usize> {
+        let (ty, lit) = split_enum_value(qualified)?;
+        self.enum_type(scope, ty)?.ordinal(lit)
     }
 }
 
@@ -390,5 +497,58 @@ pub mod build {
     /// connect(a, b)
     pub fn connect(a: &str, b: &str) -> Connect {
         Connect { a: a.into(), b: b.into() }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enumeration_options_count_from_one() {
+        let mode = EnumType {
+            name: "Mode".into(),
+            literals: vec![
+                EnumLiteral { name: "Manual".into(), doc: String::new() },
+                EnumLiteral { name: "Auto".into(), doc: String::new() },
+            ],
+            doc: String::new(),
+        };
+        let mut lib = Library::default();
+        let mut shared = mode.clone();
+        shared.name = "Gearbox.Mode".into();
+        shared.literals.reverse();
+        lib.add_type(shared);
+        let scope = ComponentDef { types: vec![mode], ..Default::default() };
+        assert_eq!(lib.enum_ordinal(&scope, "Mode.Auto"), Some(2));
+        assert_eq!(lib.enum_ordinal(&scope, "Gearbox.Mode.Auto"), Some(1));
+        assert_eq!(lib.enum_ordinal(&scope, "Mode.Sport"), None);
+        assert_eq!(split_enum_value("Gearbox.Mode.Auto"), Some(("Gearbox.Mode", "Auto")));
+    }
+
+    #[test]
+    fn tables_normalise_and_check_their_shape() {
+        let t1 =
+            ParamValue::Table1D { x: vec![0.0, 1.0], y: vec![3.0, 4.0], axis_unit: "1".into() };
+        let d = t1.table().unwrap();
+        assert_eq!(d.dims(), 1);
+        assert_eq!(d.interpolation, Interpolation::MonotoneCubic);
+        assert_eq!(d.outside, [Outside::Clamp; 2]);
+        assert_eq!(d.axis_units[0], "1");
+        assert!(d.check().is_ok());
+        let t2 = ParamValue::Table2D {
+            x1: vec![0.0, 1.0],
+            x2: vec![0.0, 10.0, 20.0],
+            values: vec![1.0; 6],
+            axis_units: ["rad/s".into(), "N.m".into()],
+        };
+        assert!(t2.table().unwrap().check().is_ok());
+        let mut bad = t2.table().unwrap();
+        bad.values.pop();
+        assert_eq!(bad.check().unwrap_err(), "the table has 6 grid points but 5 values");
+        bad.values.push(1.0);
+        bad.y = vec![0.0, 20.0, 10.0];
+        assert!(bad.check().unwrap_err().contains("increase strictly, but 20 is followed by 10"));
+        assert_eq!(ParamValue::Bool(true).table(), None);
     }
 }

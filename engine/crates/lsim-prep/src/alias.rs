@@ -10,24 +10,40 @@
 //! substituting constants creates new aliases (`v = p.v - n.v` with
 //! `n.v = 0`).
 
-use crate::symbolic::simplify;
 use lsim_ir::VarKind;
 use lsim_ir::expr::{BinaryOp, Expr};
 use lsim_ir::flat::{FlatSystem, VarId};
 use lsim_ir::prepared::{AliasEntry, AliasTarget};
-use std::collections::HashMap;
 
-/// A linear form: Σ coef·var + constant.
-fn linear(e: &Expr, scale: f64, terms: &mut HashMap<VarId, f64>, k: &mut f64) -> bool {
+/// The most terms an alias equation's linear form is read for: an alias
+/// has two, and longer sums (a node's current balance) are no aliases.
+const MAX_TERMS: usize = 8;
+
+/// A few terms, on the stack.
+struct Terms {
+    t: [(VarId, f64); MAX_TERMS],
+    n: usize,
+}
+
+impl Terms {
+    fn push(&mut self, x: (VarId, f64)) -> bool {
+        if self.n == MAX_TERMS {
+            return false;
+        }
+        self.t[self.n] = x;
+        self.n += 1;
+        true
+    }
+}
+
+/// A linear form: Σ coef·var + constant (terms unmerged).
+fn linear(e: &Expr, scale: f64, terms: &mut Terms, k: &mut f64) -> bool {
     match e {
         Expr::Const(v) => {
             *k += scale * v;
             true
         }
-        Expr::Var(v) => {
-            *terms.entry(*v).or_insert(0.0) += scale;
-            true
-        }
+        Expr::Var(v) => terms.push((*v, scale)),
         Expr::Neg(a) => linear(a, -scale, terms, k),
         Expr::Binary(BinaryOp::Add, a, b) => {
             linear(a, scale, terms, k) && linear(b, scale, terms, k)
@@ -48,22 +64,42 @@ enum Found {
     Pair(VarId, VarId, f64),
     /// a = value
     Const(VarId, f64),
+    /// 0 = 0: the equation says nothing (a closed network's last balance,
+    /// once its other balances made its currents aliases of each other)
+    Identity,
 }
 
 fn classify(lhs: &Expr, rhs: &Expr) -> Option<Found> {
-    let mut terms = HashMap::new();
+    let mut terms = Terms { t: [(VarId(0), 0.0); MAX_TERMS], n: 0 };
     let mut k = 0.0;
     if !(linear(lhs, 1.0, &mut terms, &mut k) && linear(rhs, -1.0, &mut terms, &mut k)) {
         return None;
     }
-    terms.retain(|_, c| *c != 0.0);
-    let mut t: Vec<(VarId, f64)> = terms.into_iter().collect();
-    t.sort_by_key(|(v, _)| *v);
-    match t.as_slice() {
+    let ts = &mut terms.t[..terms.n];
+    ts.sort_by_key(|(v, _)| *v);
+    let mut merged = Terms { t: [(VarId(0), 0.0); MAX_TERMS], n: 0 };
+    for &(v, c) in ts.iter() {
+        if merged.n > 0 && merged.t[merged.n - 1].0 == v {
+            merged.t[merged.n - 1].1 += c;
+        } else {
+            merged.push((v, c));
+        }
+    }
+    let mut t = [(VarId(0), 0.0); MAX_TERMS];
+    let mut n = 0;
+    for &(v, c) in &merged.t[..merged.n] {
+        if c != 0.0 {
+            t[n] = (v, c);
+            n += 1;
+        }
+    }
+    let t = &t[..n];
+    match t {
         [(a, ca), (b, cb)] if k == 0.0 && ca.abs() == cb.abs() => {
             Some(Found::Pair(*a, *b, -cb / ca))
         }
         [(a, ca)] => Some(Found::Const(*a, -k / ca)),
+        [] if k == 0.0 => Some(Found::Identity),
         _ => None,
     }
 }
@@ -98,15 +134,24 @@ impl Classes {
     }
 }
 
-#[allow(clippy::needless_range_loop)] // several arrays indexed in step
 /// Removes aliases from `flat.equations` (and substitutes them in `whens`
 /// and the energy expressions); returns the alias table.
 pub fn eliminate(flat: &mut FlatSystem) -> Vec<AliasEntry> {
+    let known = vec![false; flat.vars.len()];
+    eliminate_with(flat, &known)
+}
+
+#[allow(clippy::needless_range_loop)] // several arrays indexed in step
+/// [`eliminate`] with some variables `known` (an inverse model's
+/// prescribed inputs): a known variable is kept in preference to any other
+/// (a state equal to it is eliminated in its favour), two known variables
+/// are never merged and a known variable never becomes a constant.
+pub fn eliminate_with(flat: &mut FlatSystem, known: &[bool]) -> Vec<AliasEntry> {
     let n = flat.vars.len();
     let mut is_state = vec![false; n];
     for e in &flat.equations {
         for side in [&e.lhs, &e.rhs] {
-            side.walk(&mut |x| {
+            crate::walk::visit(side, &mut |x| {
                 if let Expr::Der(v) = x {
                     is_state[v.0 as usize] = true;
                 }
@@ -122,7 +167,14 @@ pub fn eliminate(flat: &mut FlatSystem) -> Vec<AliasEntry> {
         let mut keep = Vec::with_capacity(flat.equations.len());
         for e in std::mem::take(&mut flat.equations) {
             let mut used = false;
-            match classify(&e.lhs, &e.rhs) {
+            let found = classify(&e.lhs, &e.rhs);
+            if let Some(Found::Identity) = found {
+                // dropped: it removes no unknown, and keeping it would hide
+                // the unknown it fails to decide (a circuit's missing
+                // ground) behind a numerically singular block
+                continue;
+            }
+            match found {
                 Some(Found::Pair(a, b, s))
                     if !discrete[a.0 as usize] && !discrete[b.0 as usize] =>
                 {
@@ -130,16 +182,22 @@ pub fn eliminate(flat: &mut FlatSystem) -> Vec<AliasEntry> {
                     let (rb, sb) = cls.find(b.0 as usize);
                     // a = s·b, a = sa·ra, b = sb·rb  →  ra = s·sa·sb·rb
                     let rel = s * sa * sb;
+                    let (a_known, b_known) = (known[ra], known[rb]);
                     let (a_state, b_state) = (is_state[ra], is_state[rb]);
                     let (a_val, b_val) = (cls.value[ra].is_some(), cls.value[rb].is_some());
                     let merge = ra != rb
-                        && !(a_state && b_state)
-                        && !(a_val && b_val)
+                        && !(a_known && b_known)
+                        && !(a_known && b_val)
+                        && !(b_known && a_val)
+                        && (a_known || b_known || !(a_state && b_state))
                         && !(a_state && b_val)
                         && !(b_state && a_val);
                     if merge {
-                        // keep the constant, else the state, else the older variable
-                        let keep_a = a_val || (!b_val && (a_state || (!b_state && ra < rb)));
+                        // keep the known input, else the constant, else the
+                        // state, else the older variable
+                        let keep_a = a_known
+                            || (!b_known
+                                && (a_val || (!b_val && (a_state || (!b_state && ra < rb)))));
                         let (keep_root, drop_root) = if keep_a { (ra, rb) } else { (rb, ra) };
                         cls.parent[drop_root] = keep_root;
                         cls.sign[drop_root] = rel; // ±1 is its own inverse
@@ -149,7 +207,7 @@ pub fn eliminate(flat: &mut FlatSystem) -> Vec<AliasEntry> {
                 }
                 Some(Found::Const(a, value)) if !discrete[a.0 as usize] => {
                     let (ra, sa) = cls.find(a.0 as usize);
-                    if !is_state[ra] && cls.value[ra].is_none() {
+                    if !is_state[ra] && !known[ra] && cls.value[ra].is_none() {
                         cls.value[ra] = Some(value * sa);
                         eliminated[ra] = true;
                         used = true;
@@ -182,23 +240,43 @@ pub fn eliminate(flat: &mut FlatSystem) -> Vec<AliasEntry> {
             };
             repl[i] = target;
         }
-        let sub = |e: Expr| {
-            simplify(e.rewrite(&mut |x| match x {
-                Expr::Var(v) => repl[v.0 as usize].clone().unwrap_or(Expr::Var(v)),
-                Expr::Der(v) => match &repl[v.0 as usize] {
-                    Some(Expr::Var(w)) => Expr::Der(*w),
-                    Some(Expr::Neg(w)) => match &**w {
-                        Expr::Var(w) => -Expr::Der(*w),
-                        _ => Expr::Der(v),
-                    },
-                    _ => Expr::Der(v),
-                },
-                other => other,
-            }))
+        // only what reads a replaced variable is rewritten
+        let touched = |e: &Expr| {
+            crate::walk::any(
+                e,
+                &mut |x| matches!(x, Expr::Var(v) | Expr::Der(v) if repl[v.0 as usize].is_some()),
+            )
         };
-        for e in &mut flat.equations {
+        let sub = |mut e: Expr| {
+            if !touched(&e) {
+                return e;
+            }
+            crate::walk::mutate(&mut e, &mut |x| match *x {
+                Expr::Var(v) => {
+                    if let Some(r) = &repl[v.0 as usize] {
+                        *x = r.clone();
+                    }
+                }
+                Expr::Der(v) => match &repl[v.0 as usize] {
+                    Some(Expr::Var(w)) => *x = Expr::Der(*w),
+                    Some(Expr::Neg(w)) => {
+                        if let Expr::Var(w) = &**w {
+                            *x = -Expr::Der(*w);
+                        }
+                    }
+                    _ => {}
+                },
+                _ => {}
+            });
+            crate::symbolic::simplify_mut(&mut e);
+            e
+        };
+        for e in flat.equations.iter_mut().chain(flat.initial_equations.iter_mut()) {
             e.lhs = sub(std::mem::replace(&mut e.lhs, Expr::Const(0.0)));
             e.rhs = sub(std::mem::replace(&mut e.rhs, Expr::Const(0.0)));
+        }
+        for a in &mut flat.asserts {
+            a.condition = sub(std::mem::replace(&mut a.condition, Expr::Const(0.0)));
         }
         for w in &mut flat.whens {
             w.condition = sub(std::mem::replace(&mut w.condition, Expr::Const(0.0)));

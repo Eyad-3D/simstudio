@@ -19,19 +19,30 @@ pub trait Env {
     }
     /// a parameter's value
     fn param(&self, p: ParamId) -> f64;
+    /// the table `k` of the flat system interpolated at `args` (NaN when
+    /// this environment has no tables)
+    fn table(&self, k: u32, args: &[f64]) -> f64 {
+        let _ = (k, args);
+        f64::NAN
+    }
 }
 
 fn truth(b: bool) -> f64 {
     if b { 1.0 } else { 0.0 }
 }
 
-/// Evaluates `e`. Unresolved names and tables give NaN.
+/// Evaluates `e`. Unresolved names give NaN; tables come from
+/// [`Env::table`].
 pub fn eval(e: &Expr, env: &dyn Env) -> f64 {
     let ev = |x: &Expr| eval(x, env);
     match e {
         Expr::Const(v) => *v,
         Expr::Time => env.time(),
-        Expr::Name(_) | Expr::Table { .. } => f64::NAN,
+        Expr::Name(_) => f64::NAN,
+        Expr::Table { table, args } => {
+            let at: Vec<f64> = args.iter().map(ev).collect();
+            env.table(*table, &at)
+        }
         Expr::Var(v) => env.var(*v),
         Expr::Param(p) => env.param(*p),
         Expr::Der(v) => env.der(*v),

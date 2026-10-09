@@ -1,32 +1,60 @@
 //! # lsim-prep: model preparation
 //!
 //! From a component tree to the [`PreparedModel`] the code generator
-//! compiles (DESIGN.md, *Preparation pipeline*):
+//! compiles (DESIGN.md, *Preparation pipeline*), in [`pipeline`]:
 //!
-//! 1. [`flatten`] — instances, parameters, port variables, connection sets;
+//! 1. [`flatten`] — instances, parameters (in binding order), port
+//!    variables, connection sets, start values as expressions of the
+//!    parameters, sampled external blocks;
 //! 2. [`units_check`] — every equation balances its dimensions;
-//! 3. [`alias`] — `a = ±b` and `a = constant` removed;
-//! 4. [`structure`] — matching, block-lower-triangular order, explicit
-//!    solving of affine single equations, iteration variables for the rest,
-//!    zero crossings for `when` clauses; structural faults as plain-language
-//!    diagnostics;
-//! 5. [`key`] — the structure key for the compiled-code cache.
+//! 3. [`inverse`] — fast mode only: the prescribed trajectory becomes an
+//!    input, the driver is removed, limits pass through;
+//! 4. [`alias`] — `a = ±b` and `a = constant` removed;
+//! 5. [`modes`] — relations of `if`-expressions, `abs` and `sign` become
+//!    held modes with zero crossings;
+//! 6. [`system`] — every variable and derivative a node, every equation a
+//!    residual; a structurally singular model is told in plain words
+//!    ([`diagnose`]);
+//! 7. [`index`] — Pantelides' algorithm and dummy derivatives;
+//! 8. [`init`] — the initialisation system, solved at preparation
+//!    ([`numeric`]) for the pivoting checks and the states' choice;
+//! 9. [`causal`] — Hopcroft–Karp matching ([`graph`]), block-lower-
+//!    triangular order, tearing, linear blocks and explicit solving with
+//!    pivot checks;
+//! 10. [`external`] — the tick order of sampled blocks; [`sparsity`] —
+//!     the Jacobian's pattern; [`key`] — the structure key.
 //!
-//! Stage 1 is a real but minimal version of each step. Work package 2
-//! (DESIGN.md) owns this crate and adds Hopcroft–Karp matching, tearing,
-//! Pantelides index reduction with dummy derivatives, if-expression events,
-//! the inverse-model (fast mode) preparation and a stronger simplifier.
+//! [`prepare`] makes the forward model, [`prepare_inverse`] fast mode's
+//! inverse model, [`prepare_init`] the initialisation system alone (it is
+//! also part of every prepared model, `PreparedModel::init`), and
+//! [`prepare_with_report`] tells what preparation found.
 
 pub mod alias;
+pub mod causal;
+pub mod diagnose;
+pub mod external;
 pub mod flatten;
+pub mod graph;
+pub mod index;
+pub mod init;
+pub mod inverse;
 pub mod key;
+pub mod modes;
+pub mod numeric;
+pub mod params;
+pub mod pipeline;
+pub mod reinit;
+pub mod sparsity;
 pub mod structure;
 pub mod symbolic;
+pub mod system;
 pub mod units_check;
+pub mod walk;
 
+pub use pipeline::{BlockSummary, PrepReport, Settings};
 pub use structure::CausalOptions;
 
-use lsim_ir::{ComponentDef, Diagnostic, Library, PreparedModel};
+use lsim_ir::{ComponentDef, Diagnostic, InitSystem, InverseSpec, Library, PreparedModel};
 
 /// Options for [`prepare`].
 #[derive(Clone, Debug, Default)]
@@ -35,28 +63,52 @@ pub struct PrepOptions {
     pub force_implicit: bool,
 }
 
+impl PrepOptions {
+    fn settings(&self) -> Settings {
+        Settings { force_implicit: self.force_implicit, ..Settings::default() }
+    }
+}
+
 /// Flattens, checks, simplifies and sorts `top` into a prepared model.
 pub fn prepare(
     lib: &Library,
     top: &ComponentDef,
     opts: &PrepOptions,
 ) -> Result<PreparedModel, Vec<Diagnostic>> {
-    let mut flat = flatten::flatten(lib, top)?;
-    let unit_faults = units_check::check(&flat, lib, top);
-    if !unit_faults.is_empty() {
-        return Err(unit_faults);
-    }
-    let (flat_vars, flat_equations) = (flat.vars.len(), flat.equations.len());
-    let aliases = alias::eliminate(&mut flat);
-    let mut model = structure::causalize(
-        flat,
-        aliases,
-        &CausalOptions { force_implicit: opts.force_implicit },
-        lib,
-    )?;
-    model.stats.flat_vars = flat_vars;
-    model.stats.flat_equations = flat_equations;
-    Ok(model)
+    pipeline::run(lib, top, None, &opts.settings()).map(|(m, _)| m)
+}
+
+/// Prepares fast mode's inverse model: the same equations with the
+/// variables `spec.prescribed` (and their derivatives) known inputs and the
+/// signal inputs `spec.freed` computed from them (DESIGN.md, *Fast mode*).
+pub fn prepare_inverse(
+    lib: &Library,
+    top: &ComponentDef,
+    spec: &InverseSpec,
+    opts: &PrepOptions,
+) -> Result<PreparedModel, Vec<Diagnostic>> {
+    pipeline::run(lib, top, Some(spec), &opts.settings()).map(|(m, _)| m)
+}
+
+/// The initialisation system of `top` (also `PreparedModel::init` of
+/// [`prepare`]'s result).
+pub fn prepare_init(
+    lib: &Library,
+    top: &ComponentDef,
+    opts: &PrepOptions,
+) -> Result<InitSystem, Vec<Diagnostic>> {
+    prepare(lib, top, opts).map(|m| m.init)
+}
+
+/// [`prepare`] or (with `spec`) [`prepare_inverse`] with explicit
+/// settings, and the report of what preparation found.
+pub fn prepare_with_report(
+    lib: &Library,
+    top: &ComponentDef,
+    spec: Option<&InverseSpec>,
+    settings: &Settings,
+) -> Result<(PreparedModel, PrepReport), Vec<Diagnostic>> {
+    pipeline::run(lib, top, spec, settings)
 }
 
 #[cfg(test)]
@@ -89,12 +141,12 @@ mod tests {
         for d in &err {
             println!("{d}");
         }
-        let over = err.iter().find(|d| d.code == "STRUCT-OVER").expect("over-determined");
-        assert!(over.message.contains("'Bench supply' and 'Charger'"), "{}", over.message);
-        assert!(over.hint.as_ref().unwrap().contains("parallel"));
-        let under = err.iter().find(|d| d.code == "STRUCT-UNDER").expect("under-determined");
-        assert!(under.message.contains("Nothing determines"), "{}", under.message);
-        assert_eq!(over.parts, vec!["v1".to_string(), "v2".to_string()]);
+        let fault = err.iter().find(|d| d.code == "ELEC-SOURCE-LOOP").expect("recognised");
+        assert!(fault.message.contains("'Bench supply' and 'Charger'"), "{}", fault.message);
+        assert!(fault.hint.as_ref().unwrap().contains("parallel"));
+        assert_eq!(fault.parts, vec!["v1".to_string(), "v2".to_string()]);
+        // the loop current left undetermined is the same fault, told once
+        assert_eq!(err.len(), 1, "{err:#?}");
     }
 
     #[test]
