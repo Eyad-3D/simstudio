@@ -42,6 +42,10 @@ fn part_label(flat: &FlatSystem, i: InstanceId) -> String {
     flat.instance_name(flat.top_part(i))
 }
 
+fn part_path(flat: &FlatSystem, i: InstanceId) -> String {
+    flat.instance(flat.top_part(i)).path.clone()
+}
+
 /// Applies `spec` to the flat system (before alias elimination).
 pub fn apply(
     flat: &mut FlatSystem,
@@ -53,16 +57,18 @@ pub fn apply(
     for name in &spec.prescribed {
         match flat.find_var(name) {
             Some(v) if flat.var(v).kind == VarKind::Continuous => prescribed.push(v),
-            Some(v) => diags.push(
-                Diagnostic::error(
+            Some(v) => {
+                let mut d = Diagnostic::error(
                     "INVERSE-PRESCRIBED",
                     format!(
                         "Fast mode cannot prescribe '{name}' of {}: it is a discrete variable.",
                         part_label(flat, flat.var(v).instance)
                     ),
                 )
-                .with_hint("Prescribe the vehicle's speed (a continuous variable)."),
-            ),
+                .with_hint("Prescribe the vehicle's speed (a continuous variable).");
+                d.parts = vec![part_path(flat, flat.var(v).instance)];
+                diags.push(d);
+            }
             None => diags.push(
                 Diagnostic::error(
                     "INVERSE-UNKNOWN-NAME",
@@ -92,13 +98,16 @@ pub fn apply(
             matches!(&e.origin.kind, OriginKind::SignalLink { .. }) && e.lhs == Expr::Var(f)
         });
         let Some(link) = link else {
-            diags.push(Diagnostic::error(
+            let mut d = Diagnostic::error(
                 "INVERSE-NOT-INPUT",
                 format!(
                     "Fast mode is asked to free '{name}' of {}, which is not a linked signal input.",
                     part_label(flat, flat.var(f).instance)
                 ),
-            ));
+            )
+            .with_hint("Free the signal input the driver's command goes into.");
+            d.parts = vec![part_path(flat, flat.var(f).instance)];
+            diags.push(d);
             continue;
         };
         let Expr::Var(src) = link.rhs else { continue };
@@ -145,7 +154,13 @@ pub fn apply(
                     continue;
                 }
             }
-            let user = part_label(flat, e.origin.instance);
+            // a link drawn on the diagram is the user's input's: name the
+            // part that reads it
+            let user_inst = match (&e.origin.kind, &e.lhs) {
+                (OriginKind::SignalLink { .. }, Expr::Var(v)) => flat.var(*v).instance,
+                _ => e.origin.instance,
+            };
+            let user = part_label(flat, user_inst);
             let mut d = Diagnostic::error(
                 "INVERSE-DRIVER-USED",
                 format!(
@@ -159,8 +174,10 @@ pub fn apply(
                 "In fast mode only the commands the motion decides can come from the driver: \\
                  free that input too, or feed it from another block.",
             );
-            d.parts = vec![flat.instance(flat.top_part(e.origin.instance)).path.clone()];
+            d.parts = vec![part_path(flat, user_inst)];
             d.parts.extend(drivers.iter().map(|d| flat.instance(*d).path.clone()));
+            d.parts.sort();
+            d.parts.dedup();
             diags.push(d);
             continue;
         }
