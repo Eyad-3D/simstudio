@@ -322,7 +322,8 @@ def validate_project(project: Project) -> list[DataCheck]:
         for text in e.errors:
             add("error", text, ids=e.involved.get(text, ()), fix=_model_fix(text))
     if model is not None:
-        replaced = _drive_checks(project, model, add)
+        case_models = _case_models(project, model, add)
+        replaced = _drive_checks(project, model, case_models, add)
         for text in model.warnings:
             if text not in replaced:
                 add("warning", text, ids=model.involved.get(text, ()), fix=_model_fix(text))
@@ -335,14 +336,15 @@ def validate_project(project: Project) -> list[DataCheck]:
                     f"implicit ground return. Wire it to Ground for an explicit return path.",
                     el)
 
-        case_models = _case_models(project, model, add)
         _plausibility_checks(model, add)
         _map_checks(model, add)
         _lap_checks(project, case_models, add)
         _distance_checks(project, model, add)
         _step_checks(project, model, case_models, add)
 
-        if not model.drivelines and not any(b.consumers for b in model.buses):
+        coasting = any(m is not None and _moves_unpowered(m)
+                       for m in (model, *case_models.values()))  # (a coast-down is something)
+        if not model.drivelines and not any(b.consumers for b in model.buses) and not coasting:
             add("info", "Model has no driveline and no electrical loads — nothing will happen.")
 
     if not any(s.elements for s in project.systems):
@@ -473,13 +475,47 @@ def _model_fix(text: str) -> str | None:
     return next((fix for words, fix in MODEL_FIXES.items() if words in text), None)
 
 
-def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
+def _slope_can_pull(model: Model, src: str) -> bool:
+    """Can the signal block ``src``, wired to the Vehicle's Grade input, ever
+    be a downhill slope (a negative grade)? A Constant and a typed Road
+    Profile say; a Script, Lookup Table or FMU might, so it is assumed to."""
+    kind, p = model.cdef_of[src].id, model.params_of[src]
+    if kind == "signal.constant":
+        value = _as_number(p.get("value"))
+        return value is not None and value < 0
+    if kind == "signal.road_profile":
+        return any(grade < 0 for _, grade in parse_profile(str(p.get("profile", ""))))
+    return True
+
+
+def _moves_unpowered(model: Model) -> bool:
+    """Can the Vehicle move with nothing driving it? It does when it starts
+    with speed to coast down from (its Initial Speed) or when a slope that
+    can run downhill is wired to its Grade input. A vehicle at rest on the
+    level, or uphill, stays where it is."""
+    veh = model.vehicle
+    if veh is None:
+        return False
+    speed = _as_number(model.params_of[veh].get("initial_speed_kmh", 0))
+    if speed is not None and speed > 0:
+        return True
+    src = model.signal_route.get((veh, "sig_grade_in"))
+    return src is not None and _slope_can_pull(model, src[0])
+
+
+def _drive_checks(project: Project, model: Model, case_models: dict[str, Model | None],
+                  add: Add) -> set[str]:
     """Can this model do its job? Checks that a run would otherwise "pass"
     while the vehicle never moves or parts silently do nothing: unconnected
     parts, motors without an energy source, motors and engines that reach no
     wheel, open differentials with a free output, missing command signals,
     and a speed demand that reaches no motor or engine. Returns the model
-    advisories (build_model warnings) it reports as errors instead."""
+    advisories (build_model warnings) it reports as errors, or that do not
+    apply to the model, instead.
+
+    A vehicle with no motor or engine, or no wheels, is an error only where
+    nothing can move it (a coast-down starts with speed, a hill pulls); a
+    Driving Task that feeds another part (a gear schedule) needs no Driver."""
     elements, cdef_of, route = model.elements, model.cdef_of, model.signal_route
     replaced: set[str] = set()
 
@@ -576,13 +612,51 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
                     f"its demand is not met.",
                  fix="Add a battery, fuel cell or voltage source to its bus.")
 
+    # -- a vehicle nothing drives: a coast-down, or one that cannot move ---------
+    # (per case: a case can start the vehicle at speed, or on a slope, with its
+    # own values; a case whose values do not build is reported already)
+    runs = [(c, case_models.get(c.id)) for c in project.cases] or [(None, model)]
+    runs = [(c, m) for c, m in runs if m is not None]
+    at_rest = [c for c, m in runs if not _moves_unpowered(m)]
+    coasts = len(at_rest) < len(runs)
+
+    def stays_put(text: str, ids: Iterable[str | None], fix: str) -> None:
+        """``text`` as an error for the model when the vehicle cannot move in
+        any case, else for the cases it cannot move in."""
+        if runs and len(at_rest) == len(runs):
+            add("error", text, ids=ids, fix=fix)
+            return
+        for c in at_rest:
+            add("error", f"Case '{c.name}': {text.rstrip('.')}, as the vehicle starts at rest "
+                         f"with no slope to pull it.", ids=ids, fix=fix, case=c)
+
+    def coast_note(why: str) -> None:
+        """What the run will be, when the vehicle only coasts."""
+        veh = model.vehicle
+        label = elements[veh].label
+        if model.params_of[veh].get("road_load_mode") == ROAD_LOAD_ABC:
+            add("info", f"Vehicle '{label}' {why}: it coasts down from its Initial Speed or runs "
+                        f"down a slope against its road load. That is right for a coast-down "
+                        f"test.", elements[veh])
+        else:
+            add("warning",
+                f"Vehicle '{label}' {why}: it coasts down from its Initial Speed or runs down a "
+                f"slope, but the wheels carry the rolling resistance, so only the air drag "
+                f"slows it.", elements[veh],
+                fix="Set the Vehicle's Road Load From to Coefficients A/B/C (the measured road "
+                    "load stands in for the wheels), or connect wheels.")
+
     # -- drive path: motors and engines must reach the wheels ---------------------
     for text in model.warnings:
-        if text in (NO_VEHICLE, NO_WHEELS):
+        if text == NO_VEHICLE:
             add("error", text, ids=model.involved.get(text, ()),
-                fix="Add a Vehicle from the library (Vehicle group); it carries the wheels."
-                if text == NO_VEHICLE else "Connect the wheels to the driveline.")
+                fix="Add a Vehicle from the library (Vehicle group); it carries the wheels.")
             replaced.add(text)
+        elif text == NO_WHEELS:
+            stays_put(text, model.involved.get(text, ()), "Connect the wheels to the driveline.")
+            if coasts:
+                coast_note("has no connected wheels, so nothing drives or brakes it")
+            replaced.add(text)  # (it does not apply where the vehicle can coast)
     path_errors = False
     for src in sources:
         kind, label = PROPULSION[typ(src)][0], elements[src].label
@@ -604,12 +678,19 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
     driven = any(reaches_load(dl) and any(typ(e) in PROPULSION for e in dl.element_group)
                  for dl in model.drivelines)
     if vehicle_model and any_wheels and not driven and not path_errors:
-        add("error", "No E-Motor or Engine is connected to the wheels — the vehicle cannot "
-                     "move." if sources else
-                     "The model has no E-Motor or Engine — nothing drives the wheels.",
-            ids=sources or [model.vehicle],
-            fix="Connect a motor or engine shaft through the driveline to the wheels." if sources
-            else "Add an E-Motor or Engine from the library and connect it to the wheels.")
+        if sources:
+            add("error", "No E-Motor or Engine is connected to the wheels — the vehicle cannot "
+                         "move.", ids=sources,
+                fix="Connect a motor or engine shaft through the driveline to the wheels.")
+        else:
+            stays_put("The model has no E-Motor or Engine — nothing drives the wheels.",
+                      [model.vehicle],
+                      "Add an E-Motor or Engine from the library and connect it to the wheels.")
+            if coasts:
+                add("info", f"The model has no E-Motor or Engine, so nothing drives the wheels: "
+                            f"Vehicle '{elements[model.vehicle].label}' coasts down from its "
+                            f"Initial Speed or runs down a slope. That is right for a "
+                            f"coast-down test.", elements[model.vehicle])
 
     def side_reaches_load(joint: str, port: str) -> bool:
         seen, stack = {joint}, list(mech_peers.get((joint, port), []))
@@ -702,9 +783,18 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
                      fix=f"In Data Bus Connections, pick it as the source of {label} · "
                          f"Target Speed.")
     elif vehicle_model and tasks and sources and not any(commanded(t) & demands for t in tasks):
-        err(tasks[0], f"No Driver follows the Driving Task '{elements[tasks[0]].label}' — add "
-                      f"a Driver, wire the task to its Target Speed and its Traction Command "
-                      f"to the powertrain.")
+        # a task that feeds a part other than a controller (a Gearbox's Gear Select, a
+        # Clutch's Engagement) is a schedule that needs no Driver; one that feeds
+        # nothing, or only controllers that go nowhere, is a speed profile that waits
+        # for one
+        idle = [t for t in tasks if all(typ(e) in CONTROLLER_TYPES for e, _ in commanded(t))]
+        if idle:
+            err(idle[0], f"No Driver follows the Driving Task '{elements[idle[0]].label}' — add "
+                         f"a Driver, wire the task to its Target Speed and its Traction Command "
+                         f"to the powertrain.")
+            replaced.add(NO_DRIVER)
+    if demands <= route.keys():
+        # (no Driver is needed where nothing is to be commanded or the demands are wired)
         replaced.add(NO_DRIVER)
 
     # -- actuator and block inputs that silently fall back to a fixed value --------

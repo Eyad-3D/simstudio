@@ -1139,6 +1139,15 @@ sections.
 
 ### Fixed
 
+- Data Checks no longer stop a coast-down or a gear schedule. A Vehicle
+  with no wheels, or with wheels and no E-Motor or Engine, is an error only
+  when nothing can move it: with an *Initial Speed* above 0 (also one a
+  case sets), or a Grade input that can run downhill, the run goes ahead
+  and Problems say it only coasts (with the default road load, which leaves
+  the rolling resistance to the wheels, a warning says only the air drag
+  slows it). A Driving Task that feeds a Gearbox, Clutch or Brake needs no
+  Driver; one that feeds nothing still does. The "No Driver element"
+  warning is dropped when every E-Motor and Engine has its command wired.
 - A battery's SOC can be compared with measured SOC: a constant 1C
   discharge now empties it in one hour whatever the shape of its OCV
   table (before, 3,611 s on the default table and 3,666 s on a steeper

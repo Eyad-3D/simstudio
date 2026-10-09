@@ -179,6 +179,217 @@ def test_a_locked_differential_may_have_a_free_output():
     assert not [e for e in _errors(proj) if "reaches no wheel" in e]
 
 
+# ---- a coast-down and a gear schedule are valid models, not broken drives ----------
+
+NO_WHEELS = "Vehicle present but no connected wheels — it will not move."
+NO_MOTOR = "The model has no E-Motor or Engine — nothing drives the wheels."
+NO_DRIVER_FOLLOWS = "No Driver follows the Driving Task 'Gear'"
+
+
+def _coast_down(speed_kmh: float = 100.0, mode: str = "Coefficients A/B/C", extra=(), links=(),
+                **vehicle) -> Project:
+    """A Vehicle alone, as a coast-down test has it: no wheels, no motor."""
+    return project(
+        [el("veh", "vehicle.body", "Vehicle", initial_speed_kmh=speed_kmh, road_load_mode=mode,
+            **vehicle), *extra],
+        [], list(links), duration=20, time_step=1)
+
+
+def _levels(proj: Project) -> dict[str, list[str]]:
+    found: dict[str, list[str]] = {"error": [], "warning": [], "info": []}
+    for c in validate_project(proj):
+        found[c.level].append(c.text)
+    return found
+
+
+def test_a_vehicle_with_an_initial_speed_and_nothing_else_may_coast_down():
+    found = _levels(_coast_down(100.0))
+    assert found["error"] == [] and found["warning"] == []
+    # the model's own "it will not move" warning is not repeated either
+    assert not any("will not move" in t for t in found["info"])
+    assert any("coasts down from its Initial Speed" in t for t in found["info"])
+    assert not any("nothing will happen" in t for t in found["info"])
+
+
+def test_a_coast_down_run_is_not_refused():
+    proj = _coast_down(100.0)
+    result = client.post("/api/simulate", json={"project": proj.model_dump(),
+                                                "caseId": "case"}).json()
+    assert result["status"] != "failed", result["messages"]
+    assert not any(m["text"].startswith("Data check failed") for m in result["messages"])
+
+
+def test_a_vehicle_at_rest_with_nothing_to_move_it_is_still_an_error():
+    # (the first tutorial's model: its first check, by these very words)
+    assert _levels(_coast_down(0.0))["error"] == [NO_WHEELS]
+    check = next(c for c in validate_project(_coast_down(0.0)) if c.level == "error")
+    assert check.caseId is None and check.elementIds == ["veh"]
+
+
+@pytest.mark.parametrize("source, params, moves", [
+    ("signal.constant", {"value": -4}, True),
+    ("signal.constant", {"value": 0}, False),
+    ("signal.constant", {"value": 6}, False),
+    ("signal.road_profile", {"profile": "0:0; 100:-3; 200:0"}, True),
+    ("signal.road_profile", {"profile": "0:0; 100:3; 200:0"}, False),
+    ("signal.road_profile", {"profile": "0:0; 200:0"}, False),
+    ("signal.lookup", {}, True),  # a block that might say anything
+])
+def test_a_vehicle_at_rest_moves_only_if_a_slope_can_pull_it_downhill(source, params, moves):
+    proj = _coast_down(0.0, extra=[el("slope", source, "Slope", **params)],
+                       links=[dbc(1, "slope", "sig_grade" if "road" in source else "sig_out",
+                                  "veh", "sig_grade_in")])
+    errors = _levels(proj)["error"]
+    assert errors == ([] if moves else [NO_WHEELS])
+
+
+def test_a_case_that_starts_the_vehicle_at_speed_stops_only_the_cases_that_do_not():
+    proj = _coast_down(0.0)
+    proj.cases = [SimCase(id="rest", name="At rest", duration=10, timeStep=1),
+                  SimCase(id="coast", name="From 80", duration=10, timeStep=1,
+                          parameterOverrides={"veh": {"initial_speed_kmh": 80}})]
+    checks = validate_project(proj)
+    errors = [(c.caseId, c.text) for c in checks if c.level == "error"]
+    assert errors == [("rest", "Case 'At rest': " + NO_WHEELS.rstrip(".") + ", as the vehicle "
+                       "starts at rest with no slope to pull it.")]
+    assert [c.text for c in run_blockers(checks, "coast")] == []
+    assert len(run_blockers(checks, "rest")) == 1
+    # ... and when the model itself starts at speed, a case that sets it back to 0 is the one stopped
+    proj = _coast_down(80.0)
+    proj.cases = [SimCase(id="rest", name="At rest", duration=10, timeStep=1,
+                          parameterOverrides={"veh": {"initial_speed_kmh": 0}}),
+                  SimCase(id="coast", name="From 80", duration=10, timeStep=1)]
+    checks = validate_project(proj)
+    assert [c.caseId for c in checks if c.level == "error"] == ["rest"]
+    assert run_blockers(checks, "coast") == []
+
+
+def test_a_coast_down_with_the_default_road_load_warns_that_only_the_air_slows_it():
+    # "Drag and rolling resistance": the wheels carry the rolling resistance, and there are none
+    found = _levels(_coast_down(100.0, mode="Drag and rolling resistance"))
+    assert found["error"] == []
+    assert len(found["warning"]) == 1
+    assert "only the air drag slows it" in found["warning"][0]
+    assert "Coefficients A/B/C" in next(c.fix for c in validate_project(
+        _coast_down(100.0, mode="Drag and rolling resistance")) if c.level == "warning")
+
+
+def _unpowered_car(speed_kmh: float) -> Project:
+    """The axle of bev_axle() with its battery, bus and motor taken away."""
+    proj = bev_axle()
+    proj.systems[0].elements = [e for e in proj.systems[0].elements
+                                if e.id not in ("batt", "hvbus", "mot")]
+    proj.systems[0].connections = [c for c in proj.systems[0].connections
+                                   if c.id not in ("c1", "c2", "c3")]
+    proj.dataBusConnections = [d for d in proj.dataBusConnections if d.id != "db2"]
+    next(e for e in proj.systems[0].elements if e.id == "veh").parameterOverrides[
+        "initial_speed_kmh"] = speed_kmh
+    return proj
+
+
+def test_a_car_with_wheels_and_no_motor_may_coast_down_from_a_speed():
+    found = _levels(_unpowered_car(100.0))
+    assert found["error"] == []
+    assert any("nothing drives the wheels" in t and "coasts down" in t for t in found["info"])
+    assert not any("No Driver element" in t for t in found["warning"])  # nothing to command
+
+
+def test_a_car_with_wheels_and_no_motor_that_starts_at_rest_is_still_an_error():
+    assert _levels(_unpowered_car(0.0))["error"] == [NO_MOTOR]
+
+
+def test_a_motor_that_does_not_reach_the_wheels_is_an_error_even_at_speed():
+    # an initial speed does not excuse a motor and a wheel train that are not joined
+    proj = bev_axle()
+    proj.systems[0].connections = [c for c in proj.systems[0].connections if c.id != "c3"]
+    proj.systems[0].elements = [e if e.id != "veh" else
+                                el("veh", "vehicle.body", "Vehicle", initial_speed_kmh=100)
+                                for e in proj.systems[0].elements]
+    errors = _levels(proj)["error"]
+    assert any("is not mechanically connected" in t for t in errors), errors
+
+
+def _gear_schedule_car(schedule_to: str | None = "gb", demand: bool = True) -> Project:
+    """Voltage source -> E-Motor -> Gearbox -> Wheel -> Vehicle with no Driver: a Constant
+    commands the motor and a Driving Task sets the gear (the reference suite's gear change)."""
+    elements = [
+        el("veh", "vehicle.body", "Vehicle", mass_kg=1000),
+        el("src", "electric.voltage_source", "Supply", voltage_V=350),
+        el("bus", "electric.node", "Bus"),
+        el("mot", "motor.emotor", "E-Motor"),
+        el("gb", "mech.gearbox", "Gearbox", ratios={"1": 12, "2": 7}),
+        el("whl", "propulsion.wheel", "Wheel"),
+        el("dem", "signal.constant", "Demand", value=0.5),
+        el("gear", "signal.driving_task", "Gear", profile="0:1; 3.99:1; 3.99:2"),
+    ]
+    connections = [conn(1, "src", "pos", "bus", "t1"), conn(2, "bus", "t2", "mot", "pos"),
+                   conn(3, "mot", "shaft", "gb", "flange_in"),
+                   conn(4, "gb", "flange_out", "whl", "shaft")]
+    databus = []
+    if demand:
+        databus.append(dbc(1, "dem", "sig_out", "mot", "sig_demand_in"))
+    if schedule_to:
+        databus.append(dbc(2, "gear", "sig_demand", schedule_to, "sig_gear_in"))
+    return project(elements, connections, databus, duration=8, time_step=0.01)
+
+
+def test_a_driving_task_that_sets_the_gear_needs_no_driver():
+    found = _levels(_gear_schedule_car())
+    assert found["error"] == []
+    assert not any("No Driver" in t for t in found["warning"])  # the demand is wired
+
+
+def test_a_gear_schedule_may_pass_through_a_lookup_to_the_clutch_or_brake():
+    proj = _gear_schedule_car(schedule_to=None)
+    proj.systems[0].elements += [el("lut", "signal.lookup", "Lookup"),
+                                 el("clu", "mech.clutch", "Clutch")]
+    proj.systems[0].connections = [c for c in proj.systems[0].connections if c.id != "c3"] + [
+        conn(5, "mot", "shaft", "clu", "flange_a"), conn(6, "clu", "flange_b", "gb", "flange_in")]
+    proj.dataBusConnections += [dbc(3, "gear", "sig_demand", "lut", "sig_x_in"),
+                                dbc(4, "lut", "sig_out", "clu", "sig_engage_in")]
+    assert _levels(proj)["error"] == []
+
+
+def test_a_driving_task_that_feeds_nothing_still_needs_a_driver():
+    errors = _levels(_gear_schedule_car(schedule_to=None))["error"]
+    assert len(errors) == 1 and errors[0].startswith(NO_DRIVER_FOLLOWS)
+    assert "add a Driver" in errors[0]
+
+
+def test_a_driving_task_that_feeds_only_a_dead_end_still_needs_a_driver():
+    proj = _gear_schedule_car(schedule_to=None)
+    proj.systems[0].elements.append(el("lut", "signal.lookup", "Lookup"))  # its output goes nowhere
+    proj.dataBusConnections.append(dbc(3, "gear", "sig_demand", "lut", "sig_x_in"))
+    errors = _levels(proj)["error"]
+    assert len(errors) == 1 and errors[0].startswith(NO_DRIVER_FOLLOWS)
+
+
+def test_a_second_driving_task_with_no_driver_to_follow_it_is_the_one_named():
+    proj = _gear_schedule_car()
+    proj.systems[0].elements.append(el("speed", "signal.driving_task", "Speed Profile"))
+    errors = _levels(proj)["error"]
+    assert len(errors) == 1 and errors[0].startswith(
+        "No Driver follows the Driving Task 'Speed Profile'")
+
+
+def test_a_gear_schedule_does_not_excuse_a_motor_with_no_command():
+    errors = _levels(_gear_schedule_car(demand=False))["error"]
+    assert errors == ["E-Motor 'E-Motor' has no Traction Command signal — it will never "
+                      "produce torque."]
+
+
+def test_a_driving_task_that_commands_the_motor_itself_is_as_before():
+    proj = _gear_schedule_car(schedule_to=None)
+    proj.dataBusConnections = [dbc(1, "gear", "sig_demand", "mot", "sig_demand_in")]
+    assert _levels(proj)["error"] == []
+
+
+def test_the_no_driver_note_stays_where_the_commands_are_not_wired():
+    proj = _gear_schedule_car(demand=False)
+    assert any(c.text.startswith("No Driver element") and c.level == "warning"
+               for c in validate_project(proj))
+
+
 # ---- VAL-01: implausible parameters (warnings quoting the numbers) -------------------
 
 @pytest.mark.parametrize("element, key, value, expected", [

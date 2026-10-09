@@ -148,7 +148,9 @@ Python.
 express and runs it through the `lightsim` package, at its default 10 ms
 solver step (and at 5 ms, for the order of convergence). What it cannot
 express (RC and RL circuits, a motor's winding inductance, anything
-thermal) is listed with the reason. Starting a part spinning needs a
+thermal) is listed with the reason. Every project it builds goes through
+LightSim's Data Checks first, as a user's would: an error in one stops the
+benchmark. Starting a part spinning needs a
 preamble (the E-Motor spins it up first), constant current needs a Lookup
 trick, and a DC motor or a constant power is written as a full-load curve;
 each expression says how it is built.

@@ -1,0 +1,15 @@
+[package]
+name = "lsim-lib"
+description = "The component library in the engine's IR: connectors, physical primitives, composites and (later) the vehicle blocks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license-file.workspace = true
+repository.workspace = true
+
+[dependencies]
+lsim-ir.workspace = true
+
+[lints]
+workspace = true

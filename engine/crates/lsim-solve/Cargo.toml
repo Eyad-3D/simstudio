@@ -1,0 +1,22 @@
+[package]
+name = "lsim-solve"
+description = "The solver layer: integrator interface, SUNDIALS CVODE/IDA backend, the run loop with exact events and re-initialisation, dense output with per-interval min/max/mean"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license-file.workspace = true
+repository.workspace = true
+
+[features]
+default = ["sundials"]
+# SUNDIALS CVODE and IDA (BSD-3-Clause), the production integrators
+sundials = ["dep:sundials-sys"]
+
+[dependencies]
+lsim-ir.workspace = true
+thiserror.workspace = true
+sundials-sys = { workspace = true, optional = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,3 @@
+# builds normally go to CARGO_TARGET_DIR; this catches builds without it
+/target/
+/experiments/*/target/

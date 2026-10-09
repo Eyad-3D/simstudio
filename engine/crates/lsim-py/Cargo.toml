@@ -1,0 +1,29 @@
+[package]
+name = "lsim-py"
+description = "Python bindings (PyO3, built into a wheel with maturin): the module lightsim_engine that the lightsim package wraps"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license-file.workspace = true
+repository.workspace = true
+
+[lib]
+name = "lightsim_engine"
+crate-type = ["cdylib", "rlib"]
+# the tests of the bindings run from Python, against the built module
+test = false
+doctest = false
+
+[features]
+# set by maturin when it builds the wheel: do not link libpython
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+lsim-engine.workspace = true
+lsim-ir.workspace = true
+lsim-solve.workspace = true
+pyo3.workspace = true
+
+[lints]
+workspace = true

@@ -150,7 +150,6 @@ class Run:
     result: object  # lightsim.Result
     wall_s: float
     steps: int | None
-    checks: list[str]
 
     def ch(self, el_id: str, port: str) -> list[float | None]:
         return list(self.result.channel(f"{el_id}:{port}").values)
@@ -192,21 +191,31 @@ class Run:
 SOLVED = re.compile(r"solved: (\d+)(?: of \d+)? steps × \S+ s(?:, ended[^(]*)? \((\d+) sub-steps")
 
 
+class DataChecksRefused(RuntimeError):
+    """The Data Checks found an error in a reference model."""
+
+
 def run_project(data: dict) -> Run:
-    """Check and run a project file's one case; time only the run."""
+    """Check and run a project file's one case; time only the run.
+
+    A reference model goes through the Data Checks like any user's model: an
+    error in it stops the benchmark (it is the check or the model that is
+    wrong, not something to run past)."""
     schemas = engine("schemas")
     proj = lightsim.Project(schemas.Project.model_validate(data))
-    checks = [f"Data Check error, run anyway: {c.text}" for c in proj.check()
-              if c.level == "error"]
+    # the checks Project.run(check=True) makes, here outside the timer
+    refused = [c.text for c in proj.check() if c.level == "error" and c.case_id in (None, "case")]
+    if refused:
+        raise DataChecksRefused(f"{data['name']}: Data Check failed: " + " ".join(refused))
     t0 = time.perf_counter()
-    result = proj.run("case", check=False)
+    result = proj.run("case", check=False)  # (checked just above)
     wall = time.perf_counter() - t0
     steps = None
     for m in result.messages:
         found = SOLVED.search(m.text)
         if found:
             steps = int(found.group(1)) * int(found.group(2))
-    return Run(result, wall, steps, checks)
+    return Run(result, wall, steps)
 
 
 def _trace(run: Run, signals: dict[str, list[float | None]], energy: dict[str, float],
@@ -234,8 +243,7 @@ def _trace(run: Run, signals: dict[str, list[float | None]], energy: dict[str, f
     return Trace(times=times, signals=sig, energy=energy,
                  closure_j=run.closure_j() if closure is None else closure,
                  wall_s=run.wall_s, sim_s=t_all[-1] if t_all else 0.0, steps=run.steps,
-                 status=run.result.status,
-                 messages=run.checks + msgs)
+                 status=run.result.status, messages=msgs)
 
 
 def _scaled(values, factor: float, offset: float = 0.0) -> list[float | None]:
