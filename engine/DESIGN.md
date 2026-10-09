@@ -627,7 +627,11 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    equation each, repeated to a fixed point (constants create new aliases).
    States are kept as representatives; two states are never merged (that
    is a constraint for index reduction) and a state never becomes a
-   constant. In the spike, 32 of 49 variables go.
+   constant. In the spike, 32 of 49 variables go. A kept variable without
+   a start value of its own takes one (a guess) from the variables
+   eliminated in its favour, with their sign: a fixed one first, else the
+   first in the model's order (a battery's voltage guess reaches the bus
+   its node's port carries).
 4. **Matching.** Unknowns are the non-state variables and the states'
    derivatives. Stage 1: Kuhn's augmenting paths (iterative) with a greedy
    start. WP2: Hopcroft–Karp (O(E√V)) for 10⁵-equation models.
@@ -679,7 +683,11 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    as information (`REINIT-PRESCRIBED`). The gear change of
    `mech_gear_change` (a dog clutch keeping `J2 ω2 + i2 J1 ω1`) runs to
    the reference's digits (2·10⁻¹⁴) and its energy books show the exact
-   shift loss.
+   shift loss. A gear needs no `reinit` for that, though: where the
+   inertias that meet at a shift are the model's and not the gear's (the
+   library's gearbox), the run loop's impulse projection keeps the
+   momentum at any change of rigid couplings (section 8.2); a `reinit`
+   that already keeps it leaves it nothing to move.
 9. **Initialisation system** (WP2). A separate matching with the `fixed`
    start values and `initial equation`s as knowns/equations; its own BLT;
    compiled as its own functions; solved by Newton with line search, then
@@ -850,6 +858,86 @@ events (crossings and modes; sample ticks and time events do not count)
 within `storm_window` (1e-3) of the run's length, at least 1 µs; the
 error names the conditions with their counts (the relay test: "101
 events within 1.1e-12 s, from 'Relay': on (101×)").
+
+**Run-loop fixes after the golden comparison (work package 4, second
+round).**
+
+* *`when` semantics.* A `when` fires when its condition changes from false
+  to true at an instant, compared with its value just before that instant:
+  with the discrete values before a sample tick set its outputs, not after
+  (a condition a tick's outputs made true never fired). Nothing fires at
+  the start, as in Modelica (`pre(c) = c` after initialisation; sampled
+  blocks' initial outputs are start values too): a condition already true
+  at the start fires once it has been false, one exactly at its threshold
+  at the start counts as true; what must hold from the start belongs in
+  the start values (the IR has no `initial()`).
+* *Iteration variables in event iteration.* Whenever a discrete value
+  changes during event iteration, the iteration variables are solved again
+  (states held, `Integrator::consistent_z`) before the `when` values, the
+  modes' relations and the conditions read them (`RunInfo::events_read_z`
+  says whether any does).
+* *Scheduled events are no storms.* What a sample tick or a time event
+  changes at its instant (a controller switching an engine's throttle from
+  one tick to the next) does not count towards `storm_events`.
+* *One instant.* A stop time within 16 ulps of the current time (a tick
+  that rounds just before the end) is that instant: the run loop does not
+  step (SUNDIALS refuses such an interval) and handles what is due there.
+  The output grid ends at `t_end` exactly.
+* *Exact time events.* A zero-crossing function that depends on time only
+  between events (`c·time + b`, `b` of parameters and discrete values:
+  `when time >= t_shift`, a mode of `if time > t_on`) is taken out of root
+  finding (a root mask in both backends) and reached exactly as a stop
+  time, fired in its direction there, rescheduled after every discrete
+  change (`RunInfo::time_crossings`). Its modes take their values just
+  after the instant. At every scheduled event, as at a root, the ticks due
+  at that instant join the event and an output point there shows the
+  values just after it.
+* *Restarts.* A restart hands IDA `y'` in full (`x'` from the model, `z'`
+  from `0 = g_x x' + g_z z' + g_t`), skips `IDACalcIC` (the point is
+  consistent) and the Newton solve when event iteration just did it, and
+  sizes the first step as CVODE sizes its own (`h0 = ½ √(2 / ‖x''‖)`,
+  capped by the step the integrator had planned; for CVODE too). A tick
+  whose change is slight (only its outputs changed, no condition changed
+  side, the jumps of `x'` over the planned step and of `z` within a tenth
+  of the error test's budget) lets the integration go on with its history
+  (a light restart), checked by the next step's error test. On a
+  sample-and-hold DAE the steps per changing tick fell from 11.4 to 2.2
+  (IDA) and 2.6 to 1.9 (CVODE); on the first 100 s of the hybrid's UDDS
+  from 302 622 to 224 414 steps and 160 944 to 65 664 Jacobians, 2 000 of
+  its 10 000 changing ticks light. The remaining steps resolve the fast
+  transient each torque command excites (the tyres' slip settles in about
+  1e-4 s), which the error test on the iteration variables demands.
+* *`suppress_algebraic_error` stays off.* Leaving the iteration variables
+  out of the error test takes the hybrid's first 100 s from 230 234 to
+  62 458 steps and the BEV's first 50 s of WLTC from 7 076 to 2 307; the
+  exact-answer suite still passes, but at the same tolerance the DAE
+  path's errors grow up to 8× (elec_rc_step's current 6.6e-9 → 5.2e-8,
+  motor_dc_spinup's 6.0e-10 → 4.7e-9 and its event 1.4e-10 → 1.3e-9 s).
+  Accuracy comes first: it stays an option, off by default.
+* *Rigid engagements: the impulse projection.* When an event changes how
+  the states map onto the variables the parts' stored energies read (a
+  gearbox shifts), the states coupled to what changed move to the nearest
+  consistent ones in the metric of the stored energies, `min ½ ΔUᵀ H ΔU`,
+  every active link (`ImpulseDecl`: a tyre that grips keeps its slip
+  velocity) holding: for inertias and masses the momentum of everything
+  the rigid couplings tie together is kept, as a perfectly inelastic
+  engagement keeps it (`w_out⁺ = (J_out w_out⁻ + r J_in w_in⁻) / (J_out +
+  r² J_in)`), whichever speeds are states. Parts with bounded forces (a
+  slipping clutch) are separate states and pass nothing. The kinetic
+  energy that loses is booked where it is dissipated
+  (`PartBooks::impulse_lost`; `EnergyBooks::impulse_loss`, part of what
+  was lost at events): a link that passed the impulse on takes the
+  impulse through it (its multiplier λ) times the relative velocity it
+  keeps, as today's engine books a gripping tyre's slip share
+  (`EnergyBooks::impulse_link_loss`), and the part whose coupling changed
+  the rest (the energy's change is ΔUᵀ H Ū, Ū the mean of before and
+  after, and of H ΔU the links' part is −Gᵀλ). `mech_gear_change` runs
+  to 6e-16 with its loss exact; `SolverOptions::impulses` turns it off.
+  The structure (`RunInfo::impulse`: the stored energies' variables, the
+  states and discrete values each follows from, the links) comes from the
+  prepared model; the Hessians and the variables' sensitivity to the
+  states are differences at the event (exact for quadratic energies and
+  the linear kinematics of rigid couplings).
 
 ### 8.3 Initialisation
 
@@ -1321,6 +1409,13 @@ work end to end) or against hand-written test doubles of the interfaces.
   ones; energy closure ≤ 1e-6 on every example; a 10 ms Script block that
   changes nothing costs < 5 % run time; sweeps scale ≥ 3.5× on 4 cores;
   the build needs only a C compiler on Windows, macOS and Linux.
+* **Second round (from the golden comparison)**: `when` conditions made
+  true by a tick fire; what a clock schedules is no event storm; `when`
+  semantics at the start decided as Modelica's; event iteration with the
+  iteration variables solved again; ticks a few ulps before the end;
+  cheap restarts (11.4 → 2.2 steps a tick on a DAE) and light ones; exact
+  time events; the impulse projection that keeps the momentum at a gear
+  shift (section 8.2); `suppress_algebraic_error` measured and left off.
 * **Status (as built)**: the exact-answer suite passes on both backends,
   ODE and DAE paths (`lsim-solve/tests/reference.rs`); the backends agree
   within 4.2·rtol; events within 2.6·rtol on SUNDIALS at every tolerance,

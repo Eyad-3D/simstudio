@@ -89,6 +89,16 @@ fn main() {
         let figs = golden::compare_figures(&reference, &run.figures);
         let chans = golden::compare_channels(&reference, &run);
         let books = run.result.energy.as_ref();
+        // today's gear shifts: the kinetic energy a shift loses, less the
+        // tyres' share (booked to their slip), under the gearboxes' "gear
+        // shifts" term, kWh
+        let today_shifts: f64 = reference["fine"]["part_energy"]
+            .as_array()
+            .map(|parts| {
+                parts.iter().filter_map(|p| p["terms"]["gear shifts"].as_f64()).sum::<f64>()
+            })
+            .unwrap_or(0.0)
+            + 0.0; // (an empty sum is −0)
         let _ = writeln!(md, "## {tag} ({})\n", reference["name"].as_str().unwrap_or(""));
         let _ = writeln!(
             md,
@@ -100,11 +110,21 @@ fn main() {
             reference["normal"]["wall_seconds"].as_f64().unwrap_or(0.0),
             reference["fine"]["wall_seconds"].as_f64().unwrap_or(0.0),
             books
-                .map(|b| format!(
-                    "Energy books: closure {:.1e} of the throughput, {:.4} kWh lost at events.",
-                    b.relative_closure,
-                    b.event_loss / 3.6e6
-                ))
+                .map(|b| {
+                    let shifts = match run.result.report.impulses {
+                        0 => String::new(),
+                        n => format!(
+                            " ({n} gear shifts: {:.6} kWh in the gears, today {today_shifts:.6} kWh; {:.6} kWh in the tyres' slip)",
+                            (b.impulse_loss - b.impulse_link_loss) / 3.6e6,
+                            b.impulse_link_loss / 3.6e6,
+                        ),
+                    };
+                    format!(
+                        "Energy books: closure {:.1e} of the throughput, {:.4} kWh lost at events{shifts}.",
+                        b.relative_closure,
+                        b.event_loss / 3.6e6,
+                    )
+                })
                 .unwrap_or_default()
         );
         let _ = writeln!(
@@ -160,6 +180,13 @@ fn main() {
             "steps": run.result.stats.steps, "events": run.result.events.len(),
             "energy_closure": books.map(|b| b.relative_closure),
             "energy_event_loss_kwh": books.map(|b| b.event_loss / 3.6e6),
+            "energy_shift_loss_kwh": books.map(|b| b.impulse_loss / 3.6e6),
+            "energy_shift_gear_kwh": books.map(|b| (b.impulse_loss - b.impulse_link_loss) / 3.6e6),
+            "energy_shift_tyre_kwh": books.map(|b| b.impulse_link_loss / 3.6e6),
+            "today_shift_gear_kwh": today_shifts,
+            "gear_shifts": run.result.report.impulses,
+            "light_restarts": run.result.report.light_restarts,
+            "block_changes": run.result.report.block_changes,
             "figures": figs.iter().map(row_json).collect::<Vec<_>>(),
             "channels": chans.iter().map(row_json).collect::<Vec<_>>(),
         }));

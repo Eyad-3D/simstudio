@@ -15,20 +15,31 @@ directory shared between worktrees mixes their workspace crates silently.
 | Package | Branch | State | Next |
 |---|---|---|---|
 | WP1 language, units | `engine/ir-unify` (merged) | Done: parser and printer with plain errors and units checked at parse time; Base Modelica import (13 models match exact answers); 63 malformed inputs; round trip of the library; `engine/docs/text-format.md`; unified shared types | The gear-change model in the text format, now that preparation carries `reinit` |
-| WP2 preparation | `wp2/prep` (merged) | Done: index-2/3 models match exact answers to 1e-9 or better; tearing matches the brute-force minimum on 8 loops; 10⁵-equation networks prepare in 0.49–0.69 s; a test model per fault code; inverse models of stand-ins of the example cars; `reinit` as a when-assignment to a state's jump part (gear change exact to 2e-14, its loss booked to 4e-14) | Index reduction through tables; a start value carried from an alias to its representative |
+| WP2 preparation | `wp2/prep` (merged) | Done: index-2/3 models match exact answers to 1e-9 or better; tearing matches the brute-force minimum on 8 loops; 10⁵-equation networks prepare in 0.49–0.69 s; a test model per fault code; inverse models of stand-ins of the example cars; `reinit` as a when-assignment to a state's jump part (gear change exact to 2e-14, its loss booked to 4e-14); a start value carried from an alias to its representative (`wp4/solver`) | Index reduction through tables |
 | WP3 code generation | `wp3/codegen` (work in progress) | Rewrite: coloured sparse Jacobians, parallel chunked compiles, monotone cubic 1-D/2-D tables, compiled modes, guards and initialisation | 10⁴ equations under 100 ms (≈3× over); acceptance tests; machine-code caching decision |
-| WP4 solver | `wp4/solver` (merged) | Done: SUNDIALS built with only a C compiler (Linux); SUNDIALS and diffsol backends agree within 4.2·rtol; faer sparse LU; events, initialisation, energy books, accuracy check, sweeps (3.44–4.09× on 4 cores) | Run-loop fixes from WP5 (below); exact time events; an idle 10 ms block costs 19.5 % on the smallest models (target 5 %); Windows/macOS CI |
-| WP5 library, import | `wp5/library` (merged) | Done: physical library and the 36 vehicle blocks; project importer; 194 of 201 golden figures inside their bands, energy books closed to 1e-6 or better | Gear shifts with `reinit` (5 battery figures wait on it); 2 intended differences documented in `lsim-project/golden/README.md` |
+| WP4 solver | `wp4/solver` | Done: SUNDIALS built with only a C compiler (Linux); SUNDIALS and diffsol backends agree within 4.2·rtol; faer sparse LU; events, initialisation, energy books, accuracy check, sweeps (3.44–4.09× on 4 cores). Second round: the run-loop fixes from WP5's golden comparison, exact time events, cheap and light restarts, the impulse projection that keeps the momentum at a gear shift (DESIGN.md 8.2) | An idle 10 ms block costs 19.5 % on the smallest models (target 5 %); Windows/macOS CI |
+| WP5 library, import | `wp5/library` (merged) | Done: physical library and the 36 vehicle blocks; project importer; 201 of 201 golden figures inside their bands since the solver's second round (gear shifts keep the momentum), energy books closed to 1e-6 or better | The intended difference (a gear's loss on the torque its gears carry) sits at the edge of one band; documented in `lsim-project/golden/README.md` |
 | WP6 fast mode, Python | `wp6/fast-engine-python` (work in progress, on the old base) | Rosenbrock-W fast stepper; limit flags match the forward run's limit hits; engine facade | Fast mode 2.6×10⁵× real time (target 10⁶×), full dynamic 500× (target 1000×); Python API; app flag; wheels |
 
-## Open run-loop issues (from the golden comparison)
+## Run-loop issues from the golden comparison: resolved (`wp4/solver`)
 
-- A `when` condition made true by a sample tick's new outputs never fires.
-- Mode changes a tick makes count towards the event-storm limit.
-- A `when` condition already true at the start never fires.
-- IDA stops with "tout too close to t0" when a tick falls just before the
-  end time.
-- Each tick whose outputs change restarts IDA (about 30 steps per tick on
-  the hybrid car).
-- A shift at `time = c` is found by root finding (t = c + 1.4e-13), so the
-  output point at exactly c shows the value before the shift.
+- A `when` condition made true by a sample tick's new outputs fires at the
+  tick (its value before the event is the one before the tick).
+- Mode changes a tick or a time event makes at its instant are scheduled,
+  not an event storm; the golden harness's allowance is gone.
+- A `when` condition already true at the start: decided as Modelica does
+  (nothing fires at the start; it fires once it has been false and becomes
+  true again), documented and tested.
+- Event iteration re-checks the conditions with the iteration variables
+  solved for the new discrete values.
+- A tick a few ulps before the end time is that instant (no "tout too
+  close to t0"); the output grid ends at the end time exactly.
+- A restart hands IDA y' in full (z' too), skips the second consistency
+  solve and sizes its first step from x''; a slight change goes on without
+  a restart. `suppress_algebraic_error` was measured and stays off (its
+  errors grow up to 8× on the exact-answer suite's DAEs).
+- A condition on time alone (`time >= c`) is an exact time event at c.
+- A gear shift keeps the momentum of everything the gears tie together, the
+  vehicle's through the tyres that grip, and books the shift's loss to the
+  gearbox, the tyres' slip share to the tyres, as today's engine does (an
+  impulse projection in the run loop).
