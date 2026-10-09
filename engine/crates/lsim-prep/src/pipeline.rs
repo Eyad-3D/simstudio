@@ -458,11 +458,33 @@ pub fn run(
     };
     let trivial_states: Vec<bool> =
         sys.nodes.iter().map(|n| n.kind == NodeKind::Unknown && n.deriv.is_some()).collect();
+    // needed for the state choice, the modes' first values, initial
+    // equations and start values the model overrides; for small models
+    // always (their pivots are checked at the start too)
+    let needed = settings.numeric_start
+        && (differentiated > 0
+            || !node_modes.is_empty()
+            || !initial_eqs.is_empty()
+            || !ib.dropped.is_empty()
+            || !ib.constant_conflicts.is_empty()
+            || ib.kinds.iter().any(|k| matches!(k, RowKind::Assumed(_)))
+            || sys.eqs.len() <= 20_000);
     let mut model_sorted = None;
+    // with the model's sorting reused, no iteration variable and only
+    // constant start values, the start values hold as they are: the
+    // initialisation system is empty
+    let mut trivial_init = false;
     let init_sorted = if reuse {
         let (_, sorted) = sort_model(&trivial_states)?;
         clock.lap("sort");
-        let composed = compose_init(&ib, &sorted);
+        let constant = |e: &Expr| matches!(e, Expr::Const(_));
+        trivial_init = sorted.iteration.is_empty()
+            && ib.starts.iter().all(|(_, _, v)| constant(v))
+            && extras.start.iter().enumerate().all(|(i, s)| {
+                flat.vars[i].kind != VarKind::Discrete || s.as_ref().is_none_or(constant)
+            });
+        let composed =
+            if trivial_init && !needed { Sorted::default() } else { compose_init(&ib, &sorted) };
         model_sorted = Some(sorted);
         composed
     } else {
@@ -483,17 +505,7 @@ pub fn run(
 
     // the start at preparation
     let mut vals = start_guesses(&sys, &flat);
-    // needed for the state choice, the modes' first values, initial
-    // equations and start values the model overrides; for small models
-    // always (their pivots are checked at the start too)
-    let needed = differentiated > 0
-        || !node_modes.is_empty()
-        || !initial_eqs.is_empty()
-        || !ib.dropped.is_empty()
-        || !ib.constant_conflicts.is_empty()
-        || ib.kinds.iter().any(|k| matches!(k, RowKind::Assumed(_)))
-        || sys.eqs.len() <= 20_000;
-    let solved = if settings.numeric_start && needed {
+    let solved = if needed {
         numeric::solve(&init_sorted, &mut vals, &pvals, 0.0).map_err(Some)
     } else {
         Err(None)
@@ -738,27 +750,31 @@ pub fn run(
         })
         .collect();
     let init_iteration = init_sorted.iteration.clone();
-    let init_system = InitSystem {
-        unknowns: init_iteration.iter().map(|&n| map.slot[n]).collect(),
-        guesses: init_iteration.iter().map(|&n| guess_of(n)).collect(),
-        assignments: init_sorted
-            .assignments
-            .into_iter()
-            .map(|(n, e, k)| Assignment {
-                target: map.slot[n],
-                expr: map.to_flat_owned(e),
-                origin: ib.origin(&sys, &flat, k).clone(),
-            })
-            .collect(),
-        residuals: init_sorted
-            .residuals
-            .into_iter()
-            .map(|(e, k)| Residual {
-                expr: map.to_flat_owned(e),
-                origin: ib.origin(&sys, &flat, k).clone(),
-            })
-            .collect(),
-        discrete_starts,
+    let init_system = if trivial_init {
+        InitSystem::default()
+    } else {
+        InitSystem {
+            unknowns: init_iteration.iter().map(|&n| map.slot[n]).collect(),
+            guesses: init_iteration.iter().map(|&n| guess_of(n)).collect(),
+            assignments: init_sorted
+                .assignments
+                .into_iter()
+                .map(|(n, e, k)| Assignment {
+                    target: map.slot[n],
+                    expr: map.to_flat_owned(e),
+                    origin: ib.origin(&sys, &flat, k).clone(),
+                })
+                .collect(),
+            residuals: init_sorted
+                .residuals
+                .into_iter()
+                .map(|(e, k)| Residual {
+                    expr: map.to_flat_owned(e),
+                    origin: ib.origin(&sys, &flat, k).clone(),
+                })
+                .collect(),
+            discrete_starts,
+        }
     };
 
     // the start values the Stage 1 code generator bakes in
