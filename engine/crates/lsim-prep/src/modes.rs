@@ -4,8 +4,8 @@
 //! `abs` and `sign`) outside `noEvent` would make the right-hand side
 //! jump inside a step. Each becomes a *mode*: a discrete variable that
 //! holds the relation's value between events, read by the equation in its
-//! place, with the relation's zero-crossing function `lhs - rhs` to locate
-//! where it changes. Equal relations share one mode. Relations of
+//! place, with the relation's zero-crossing function (positive where the
+//! relation holds: [`crossing`]) to locate where it changes. Equal relations share one mode. Relations of
 //! parameters and discrete variables only change at events anyway and are
 //! left as they are; so is everything under `noEvent`.
 
@@ -145,19 +145,35 @@ pub fn extract(flat: &mut FlatSystem) -> Vec<FlatMode> {
     modes
 }
 
-/// The value a relation takes just after its crossing function rose
-/// through zero (`true` for `>`/`>=`).
-pub fn value_when_rising(relation: &Expr) -> f64 {
+/// A relation's zero-crossing function, positive where the relation
+/// holds and negative where it does not: `lhs - rhs` for `>` and `>=`,
+/// `rhs - lhs` for `<` and `<=` (the shared contract of
+/// [`lsim_ir::Mode::crossing`]). So rising through zero makes the relation
+/// true and falling makes it false, whatever its operator.
+pub fn crossing(relation: &Expr) -> Expr {
+    let simplify = crate::symbolic::simplify;
     match relation {
-        Expr::Compare(CmpOp::Gt | CmpOp::Ge, ..) => 1.0,
-        _ => 0.0,
+        Expr::Compare(CmpOp::Gt | CmpOp::Ge, a, b) => simplify((**a).clone() - (**b).clone()),
+        Expr::Compare(CmpOp::Lt | CmpOp::Le, a, b) => simplify((**b).clone() - (**a).clone()),
+        other => other.clone(),
     }
 }
 
-/// A relation's zero-crossing function, `lhs - rhs`.
-pub fn crossing(relation: &Expr) -> Expr {
-    match relation {
-        Expr::Compare(_, a, b) => crate::symbolic::simplify((**a).clone() - (**b).clone()),
-        other => other.clone(),
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lsim_ir::expr::{c, cmp};
+
+    #[test]
+    fn a_crossing_is_positive_where_its_relation_holds() {
+        let w = Expr::Var(VarId(0));
+        for (op, at_two) in
+            [(CmpOp::Gt, 1.0), (CmpOp::Ge, 1.0), (CmpOp::Lt, -1.0), (CmpOp::Le, -1.0)]
+        {
+            let f = crossing(&cmp(op, w.clone(), c(1.0)));
+            let env = lsim_ir::eval::SliceEnv { t: 0.0, vars: &[2.0], ders: &[0.0], params: &[] };
+            // w = 2: `w > 1` holds, `w < 1` does not
+            assert_eq!(lsim_ir::eval::eval(&f, &env).signum(), at_two, "{op:?}: {f}");
+        }
     }
 }

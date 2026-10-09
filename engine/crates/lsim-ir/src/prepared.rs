@@ -110,14 +110,23 @@ pub struct PreparedWhen {
 /// relation of the equations (an `if` condition, or the sign test inside
 /// `abs` or `sign`) outside `noEvent`. Between events the equations read
 /// the discrete variable `var` (1 true, 0 false) instead of the relation,
-/// so the integrator never sees a discontinuity; the relation's
-/// zero-crossing function `lhs - rhs` locates where it changes.
+/// so the integrator never sees a discontinuity.
 ///
-/// Every mode is also kept up to date by two `when` clauses of the model
-/// (on two copies of its zero crossing: rising sets the value the relation
-/// takes above zero, falling the value below), so a run loop that knows
-/// only `when` clauses holds it right between events; `relation` serves
-/// the initial value and event iteration.
+/// The contract between preparation, the code generator and the run loop:
+///
+/// * `zero_crossings[crossing]` is positive where the relation holds and
+///   negative where it does not (`lhs - rhs` for `>` and `>=`, `rhs - lhs`
+///   for `<` and `<=`), so away from its zero `var = 1` exactly when the
+///   crossing is positive, and a run loop may flip `var` with the
+///   crossing's sign;
+/// * at the start and after every event the run loop sets `var` from the
+///   relation itself ([`crate::ModelFunctions::modes`] evaluates every
+///   mode's relation), which also decides the value exactly at zero
+///   (`>=` holds there, `>` does not);
+/// * preparation also adds two `when` clauses per mode: a rising one on
+///   `crossing` itself that sets `var` to 1, and a falling one on a copy
+///   of it at `crossing + 1` that sets `var` to 0; so a run loop that knows
+///   only `when` clauses keeps every mode right between events.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Mode {
     /// the discrete variable holding the relation's value (1 true, 0
@@ -127,7 +136,7 @@ pub struct Mode {
     /// stands
     pub relation: Expr,
     /// the index of its zero-crossing function in
-    /// [`PreparedModel::zero_crossings`]
+    /// [`PreparedModel::zero_crossings`]: positive where the relation holds
     pub crossing: usize,
     /// where it came from
     pub origin: Origin,

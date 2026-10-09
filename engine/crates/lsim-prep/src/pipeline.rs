@@ -609,10 +609,10 @@ pub fn run(
     let mut prepared_modes = vec![];
     for m in &node_modes {
         let relation = map.to_flat(&m.relation);
+        // positive where the relation holds: rising sets 1, falling 0
         let f = modes::crossing(&relation);
-        let up = modes::value_when_rising(&relation);
         let k = zero_crossings.len();
-        for (dir, value) in [(Direction::Rising, up), (Direction::Falling, 1.0 - up)] {
+        for (dir, value) in [(Direction::Rising, 1.0), (Direction::Falling, 0.0)] {
             zero_crossings.push(ZeroCrossing { expr: f.clone(), origin: m.origin.clone() });
             whens.push(PreparedWhen {
                 crossing: zero_crossings.len() - 1,
