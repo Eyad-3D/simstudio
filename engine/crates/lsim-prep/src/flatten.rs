@@ -9,7 +9,19 @@
 //!
 //! Parameters stay symbolic in the equations (runtime inputs); their values
 //! are evaluated here, in SI, and a parameter bound to others keeps that
-//! binding so the run can re-evaluate it.
+//! binding so the run can re-evaluate it. Parameters are laid out in
+//! binding order — a parent's before its children's, and within a
+//! component each after the ones its default refers to — so one pass in
+//! order re-evaluates every binding; a default that refers back to itself
+//! through others is an error. Start values stay expressions of the
+//! parameters too ([`Extras::start`]), for the initialisation system.
+//!
+//! A component whose definition's name begins with `External.` is a
+//! sampled external block (a Script block, an FMU for co-simulation, a
+//! digital controller: DESIGN.md, *Causal blocks*): it has no equations,
+//! its signal outputs are discrete variables the host sets at each tick,
+//! its signal inputs are read at each tick, and its parameter `period` is
+//! the tick spacing in seconds.
 
 use lsim_ir::component::{
     ComponentDef, Equation, Library, ParamValue, PortKind, TableData, WhenAction, split_enum_value,
@@ -48,9 +60,21 @@ enum PortVars {
     Signal { var: VarId, output: bool },
 }
 
+/// What flattening knows beyond the flat system.
+#[derive(Clone, Debug, Default)]
+pub struct Extras {
+    /// per parameter: its declared lowest and highest value
+    pub param_range: Vec<(Option<f64>, Option<f64>)>,
+    /// per variable: its start value as an expression of the parameters
+    pub start: Vec<Option<Expr>>,
+    /// the sampled external blocks, in the order they were found
+    pub external: Vec<lsim_ir::ExternalBlock>,
+}
+
 struct Flattener<'a> {
     lib: &'a Library,
     flat: FlatSystem,
+    extras: Extras,
     scopes: Vec<Scope>,
     defs: Vec<&'a ComponentDef>,
     ports: HashMap<(InstanceId, usize), PortVars>,
@@ -80,15 +104,41 @@ impl Env for ParamEnv<'_> {
     }
 }
 
+/// The sum of `terms` as a balanced tree, so a connection set of thousands
+/// of ports does not make an expression thousands of levels deep.
+fn balanced_sum(mut terms: Vec<Expr>) -> Expr {
+    while terms.len() > 1 {
+        let mut next = Vec::with_capacity(terms.len().div_ceil(2));
+        let mut it = terms.into_iter();
+        while let Some(a) = it.next() {
+            next.push(match it.next() {
+                Some(b) => a + b,
+                None => a,
+            });
+        }
+        terms = next;
+    }
+    terms.pop().expect("a set has members")
+}
+
 fn join(path: &str, name: &str) -> String {
     if path.is_empty() { name.to_string() } else { format!("{path}.{name}") }
 }
 
 /// Flattens `top` (a model or any component) against `lib`.
 pub fn flatten(lib: &Library, top: &ComponentDef) -> Result<FlatSystem, Vec<Diagnostic>> {
+    flatten_full(lib, top).map(|(f, _)| f)
+}
+
+/// [`flatten`], with what the later steps need besides the flat system.
+pub fn flatten_full(
+    lib: &Library,
+    top: &ComponentDef,
+) -> Result<(FlatSystem, Extras), Vec<Diagnostic>> {
     let mut f = Flattener {
         lib,
         flat: FlatSystem::default(),
+        extras: Extras::default(),
         scopes: vec![],
         defs: vec![],
         ports: HashMap::new(),
@@ -101,7 +151,7 @@ pub fn flatten(lib: &Library, top: &ComponentDef) -> Result<FlatSystem, Vec<Diag
     };
     f.instantiate(top, String::new(), None, None, None, &HashMap::new());
     f.connection_equations();
-    if f.diags.is_empty() { Ok(f.flat) } else { Err(f.diags) }
+    if f.diags.is_empty() { Ok((f.flat, f.extras)) } else { Err(f.diags) }
 }
 
 /// A parameter value handed down by a modifier: SI value and binding,
@@ -250,7 +300,74 @@ impl<'a> Flattener<'a> {
 
     fn new_var(&mut self, rec: FlatVar) -> VarId {
         self.flat.vars.push(rec);
+        self.extras.start.push(None);
         VarId(self.flat.vars.len() as u32 - 1)
+    }
+
+    /// The order to create a component's parameters in: each after the
+    /// parameters of the same component its default refers to.
+    fn param_order(
+        &mut self,
+        id: InstanceId,
+        def: &ComponentDef,
+        given: &HashMap<String, Given>,
+    ) -> Vec<usize> {
+        let n = def.params.len();
+        let index: HashMap<&str, usize> =
+            def.params.iter().enumerate().map(|(k, p)| (p.name.as_str(), k)).collect();
+        let mut deps: Vec<Vec<usize>> = vec![vec![]; n];
+        for (k, p) in def.params.iter().enumerate() {
+            if given.contains_key(&p.name) {
+                continue;
+            }
+            if let ParamValue::Real(e) = &p.default {
+                e.walk(&mut |x| {
+                    if let Expr::Name(nm) = x
+                        && let Some(&j) = index.get(nm.as_str())
+                        && j != k
+                    {
+                        deps[k].push(j);
+                    }
+                    if let Expr::Name(nm) = x
+                        && nm == &p.name
+                    {
+                        deps[k].push(k);
+                    }
+                });
+            }
+        }
+        let mut done = vec![false; n];
+        let mut order = Vec::with_capacity(n);
+        while order.len() < n {
+            let next = (0..n).find(|&k| !done[k] && deps[k].iter().all(|&j| done[j] && j != k));
+            match next {
+                Some(k) => {
+                    done[k] = true;
+                    order.push(k);
+                }
+                None => {
+                    let stuck: Vec<String> = (0..n)
+                        .filter(|&k| !done[k])
+                        .map(|k| format!("'{}'", def.params[k].name))
+                        .collect();
+                    let who = self.describe(id);
+                    let mut d = Diagnostic::error(
+                        "PARAM-CYCLE",
+                        format!(
+                            "In {who}, the parameters {} are each given by the others: none of \
+                             them has a value to start from.",
+                            stuck.join(", ")
+                        ),
+                    )
+                    .with_hint("Give one of them a number.");
+                    d.parts.push(self.flat.instance(id).path.clone());
+                    self.diags.push(d);
+                    order.extend((0..n).filter(|&k| !done[k]));
+                    break;
+                }
+            }
+        }
+        order
     }
 
     fn instantiate(
@@ -273,8 +390,9 @@ impl<'a> Flattener<'a> {
         self.scopes.push(Scope::default());
         self.defs.push(def);
 
-        // parameters
-        for p in &def.params {
+        // parameters, in binding order
+        for k in self.param_order(id, def, given) {
+            let p = &def.params[k];
             let unit = self.si_unit(id, &format!("parameter '{}'", p.name), &p.unit);
             let is_table = p.default.table().is_some();
             let g = match given.get(&p.name) {
@@ -333,6 +451,7 @@ impl<'a> Flattener<'a> {
                 structural: g.structural,
                 instance: id,
             });
+            self.extras.param_range.push((p.min, p.max));
             self.scopes[id.0 as usize].syms.insert(p.name.clone(), Sym::Param(pid));
         }
         for m in given.keys() {
@@ -346,6 +465,7 @@ impl<'a> Flattener<'a> {
         }
 
         // ports
+        let external = def.name.starts_with("External.");
         for (k, port) in def.ports.iter().enumerate() {
             match &port.kind {
                 PortKind::Physical { connector } => {
@@ -400,12 +520,13 @@ impl<'a> Flattener<'a> {
                 PortKind::Input { unit } | PortKind::Output { unit } => {
                     let output = matches!(port.kind, PortKind::Output { .. });
                     let u = self.si_unit(id, &format!("port '{}'", port.name), unit);
+                    let held = output && external;
                     let v = self.new_var(FlatVar {
                         name: join(&path, &port.name),
                         unit: u,
                         unit_text: unit.clone(),
-                        kind: VarKind::Continuous,
-                        start: None,
+                        kind: if held { VarKind::Discrete } else { VarKind::Continuous },
+                        start: held.then_some(0.0),
                         fixed: false,
                         nominal: 1.0,
                         instance: id,
@@ -420,10 +541,11 @@ impl<'a> Flattener<'a> {
         // own variables
         for v in &def.vars {
             let unit = self.si_unit(id, &format!("variable '{}'", v.name), &v.unit);
-            let start = v.start.as_ref().map(|s| {
-                let r = self.resolve(id, s, &format!("the start value of '{}'", v.name));
-                eval(&r, &ParamEnv(&self.flat))
-            });
+            let start_expr = v
+                .start
+                .as_ref()
+                .map(|s| self.resolve(id, s, &format!("the start value of '{}'", v.name)));
+            let start = start_expr.as_ref().map(|r| eval(r, &ParamEnv(&self.flat)));
             let vid = self.new_var(FlatVar {
                 name: join(&path, &v.name),
                 unit,
@@ -435,7 +557,12 @@ impl<'a> Flattener<'a> {
                 instance: id,
                 role: VarRole::Local,
             });
+            self.extras.start[vid.0 as usize] = start_expr;
             self.scopes[id.0 as usize].syms.insert(v.name.clone(), Sym::Var(vid));
+        }
+
+        if external {
+            self.external_block(id, def);
         }
 
         // sub-components
@@ -553,6 +680,49 @@ impl<'a> Flattener<'a> {
             }
         }
         id
+    }
+
+    fn external_block(&mut self, id: InstanceId, def: &ComponentDef) {
+        let mut inputs = vec![];
+        let mut outputs = vec![];
+        for (k, port) in def.ports.iter().enumerate() {
+            match self.ports.get(&(id, k)) {
+                Some(PortVars::Signal { var, output: false }) => inputs.push(*var),
+                Some(PortVars::Signal { var, output: true }) => outputs.push(*var),
+                _ => {
+                    let who = self.describe(id);
+                    self.diags.push(Diagnostic::error(
+                        "EXTERNAL-PORT",
+                        format!(
+                            "{who} is a sampled block, so its port '{}' must be a signal.",
+                            port.name
+                        ),
+                    ));
+                }
+            }
+        }
+        let period = match self.lookup(id, "period") {
+            Some(Sym::Param(p)) => self.flat.params[p.0 as usize].value,
+            _ => f64::NAN,
+        };
+        if period.is_nan() || period <= 0.0 {
+            let who = self.describe(id);
+            let mut d = Diagnostic::error(
+                "EXTERNAL-PERIOD",
+                format!("{who} is a sampled block but has no positive parameter 'period'."),
+            )
+            .with_hint("Give it a sample period in seconds.");
+            d.parts.push(self.flat.instance(id).path.clone());
+            self.diags.push(d);
+        }
+        if !def.equations.is_empty() {
+            let who = self.describe(id);
+            self.diags.push(Diagnostic::error(
+                "EXTERNAL-EQUATIONS",
+                format!("{who} is a sampled block: its outputs come from the host, not equations."),
+            ));
+        }
+        self.extras.external.push(lsim_ir::ExternalBlock { instance: id, inputs, outputs, period });
     }
 
     /// A parameter value: `scope` is where its expression's names live,
@@ -714,7 +884,7 @@ impl<'a> Flattener<'a> {
             }
             match vars[0] {
                 PortVars::Physical { .. } => {
-                    let mut sum: Option<Expr> = None;
+                    let mut terms: Vec<Expr> = Vec::with_capacity(members.len());
                     let first_across = match vars[0] {
                         PortVars::Physical { across, .. } => across,
                         _ => unreachable!(),
@@ -722,25 +892,31 @@ impl<'a> Flattener<'a> {
                     for (k, (n, pv)) in members.iter().zip(&vars).enumerate() {
                         let PortVars::Physical { across, through } = *pv else { continue };
                         if k > 0 {
+                            // a large set names the two ports each equation joins
+                            let ports = if names.len() <= 8 {
+                                names.clone()
+                            } else {
+                                vec![names[0].clone(), names[k].clone()]
+                            };
                             self.flat.equations.push(FlatEquation {
                                 lhs: Expr::Var(first_across),
                                 rhs: Expr::Var(across),
                                 origin: Origin {
                                     instance: scope,
-                                    kind: OriginKind::ConnectionAcross { ports: names.clone() },
+                                    kind: OriginKind::ConnectionAcross { ports },
                                     label: None,
                                 },
                             });
                         }
-                        let term = if n.outside { -Expr::Var(through) } else { Expr::Var(through) };
-                        sum = Some(match sum {
-                            None => term,
-                            Some(s) => s + term,
+                        terms.push(if n.outside {
+                            -Expr::Var(through)
+                        } else {
+                            Expr::Var(through)
                         });
                     }
                     self.flat.equations.push(FlatEquation {
                         lhs: Expr::Const(0.0),
-                        rhs: sum.expect("a set has members"),
+                        rhs: balanced_sum(terms),
                         origin: Origin {
                             instance: scope,
                             kind: OriginKind::ConnectionThrough { ports: names.clone() },
@@ -763,14 +939,23 @@ impl<'a> Flattener<'a> {
                     }
                     if sources.len() != 1 {
                         let who = self.describe(scope);
-                        self.diags.push(Diagnostic::error(
+                        let mut d = Diagnostic::error(
                             "SIGNAL-SOURCES",
                             format!(
                                 "In {who}, the signal link joining {} has {} outputs driving it; it needs exactly one.",
                                 names.join(", "),
                                 sources.len()
                             ),
-                        ));
+                        );
+                        let mut parts: Vec<String> = members
+                            .iter()
+                            .filter(|n| n.inst.0 != 0)
+                            .map(|n| self.flat.instance(self.flat.top_part(n.inst)).path.clone())
+                            .collect();
+                        parts.sort();
+                        parts.dedup();
+                        d.parts = parts;
+                        self.diags.push(d);
                         continue;
                     }
                     let (src, src_name) = sources[0].clone();
@@ -820,14 +1005,27 @@ impl<'a> Flattener<'a> {
                 }
                 PortVars::Signal { output: false, .. } if inside_free => {
                     let who = self.describe(inst);
-                    let port = &self.defs[inst.0 as usize].ports[k].name;
-                    self.diags.push(
+                    let port = self.defs[inst.0 as usize].ports[k].name.clone();
+                    let lower = port.to_lowercase();
+                    let mut d = if lower.contains("gear") || lower.contains("ratio") {
+                        Diagnostic::error(
+                            "GEAR-NO-RATIO",
+                            format!(
+                                "{who} has no gear selected: its input '{port}' is not connected, \
+                                 so nothing says which ratio it runs in."
+                            ),
+                        )
+                        .with_hint("Link its gear input to a gear selection or a Constant block.")
+                    } else {
                         Diagnostic::error(
                             "SIGNAL-UNCONNECTED",
                             format!("The input '{port}' of {who} is not connected."),
                         )
-                        .with_hint("Link it to a signal output, or to a Constant block."),
-                    );
+                        .with_hint("Link it to a signal output, or to a Constant block.")
+                    };
+                    d.parts.push(self.flat.instance(self.flat.top_part(inst)).path.clone());
+                    d.detail.push(name.clone());
+                    self.diags.push(d);
                 }
                 _ => {}
             }

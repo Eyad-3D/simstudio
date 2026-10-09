@@ -17,6 +17,7 @@
 
 use crate::expr::Expr;
 use crate::flat::{FlatSystem, Origin, VarId};
+use crate::runtime::SparsityPattern;
 use serde::{Deserialize, Serialize};
 
 /// An unknown of the sorted system: a variable or a state's derivative.
@@ -105,6 +106,61 @@ pub struct PreparedWhen {
     pub origin: Origin,
 }
 
+/// A mode (DESIGN.md, *Events and modes*): the held truth value of one
+/// relation of the equations (an `if` condition, or the sign test inside
+/// `abs` or `sign`) outside `noEvent`. Between events the equations read
+/// the discrete variable `var` (1 true, 0 false) instead of the relation,
+/// so the integrator never sees a discontinuity; the relation's
+/// zero-crossing function `lhs - rhs` locates where it changes.
+///
+/// Every mode is also kept up to date by two `when` clauses of the model
+/// (on two copies of its zero crossing: rising sets the value the relation
+/// takes above zero, falling the value below), so a run loop that knows
+/// only `when` clauses holds it right between events; `relation` serves
+/// the initial value and event iteration.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct Mode {
+    /// the discrete variable holding the relation's value
+    pub var: VarId,
+    /// the relation as written (flat scope, a comparison), evaluated as it
+    /// stands
+    pub relation: Expr,
+    /// the index of its zero-crossing function in
+    /// [`PreparedModel::zero_crossings`]
+    pub crossing: usize,
+    /// where it came from
+    pub origin: Origin,
+}
+
+/// The initialisation system (DESIGN.md, *Initialisation*): it computes a
+/// consistent start of a run from the parameters (and the inputs at the
+/// start time) with its own sorted equations — the model's equations,
+/// including those index reduction differentiated, its initial equations
+/// and the start values that must hold — solved by Newton on `unknowns`
+/// with the assignments explicit in between, as the model itself is.
+///
+/// After a solve every slot of the model's `y` (each state `Var(x)` and
+/// each iteration variable) has a value, being either one of `unknowns` or
+/// the target of one of `assignments`; so does every state's derivative.
+/// Relations are evaluated as they stand (no mode is held yet).
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+pub struct InitSystem {
+    /// the Newton unknowns (the tearing variables of the start problem)
+    pub unknowns: Vec<Slot>,
+    /// a first guess for each unknown: an expression of the parameters
+    pub guesses: Vec<Expr>,
+    /// explicit assignments in evaluation order; they read the unknowns,
+    /// parameters, inputs, discrete start values and earlier targets
+    pub assignments: Vec<Assignment>,
+    /// one residual per unknown
+    pub residuals: Vec<Residual>,
+    /// the start value of each discrete variable, in
+    /// [`PreparedModel::discretes`] order: an expression of the parameters,
+    /// except for a mode's variable, whose start is its relation evaluated
+    /// at the solution
+    pub discrete_starts: Vec<Expr>,
+}
+
 /// Where an external sampled block (a [`crate::runtime::DiscreteBlock`])
 /// sits in the model.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -131,6 +187,34 @@ pub struct InverseSpec {
     /// signal inputs (full flat names) that become unknowns, usually the
     /// driver's commands
     pub freed: Vec<String>,
+}
+
+/// A `limit(value, lo, hi)` of an inverse model (DESIGN.md, *Fast mode*):
+/// the inverse model passes `value` through instead of clamping it, and the
+/// fast-mode stepper flags each stretch of time it is outside `[lo, hi]`.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct LimitSite {
+    /// the limited quantity (flat scope)
+    pub value: Expr,
+    /// its lower bound
+    pub lo: Expr,
+    /// its upper bound
+    pub hi: Expr,
+    /// the equation (and so the part) that holds the limit
+    pub origin: Origin,
+}
+
+/// A condition on the parameters that preparation relied on: an equation
+/// was solved explicitly by dividing by `expr`, an expression of the
+/// parameters only, which therefore must not be zero. A parameter change
+/// that makes it zero needs a new preparation (the equation then becomes
+/// implicit); the run checks the guards whenever parameters change.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct ParamGuard {
+    /// must not be zero (flat scope, parameters only)
+    pub expr: Expr,
+    /// the equation that was solved by dividing by it
+    pub origin: Origin,
 }
 
 /// Counts that describe the preparation, for the run report.
@@ -182,4 +266,27 @@ pub struct PreparedModel {
     pub structure_key: String,
     /// counts for the report
     pub stats: PrepStats,
+    /// the structural sparsity of `∂[x'; g]/∂y` through the assignments
+    /// (rows and columns in `y = [x; z]` order), for colouring and sparse LU
+    #[serde(default)]
+    pub jac_pattern: SparsityPattern,
+    /// the modes of `if` relations (each one's variable is among
+    /// `discretes`)
+    #[serde(default)]
+    pub modes: Vec<Mode>,
+    /// the initialisation system
+    #[serde(default)]
+    pub init: InitSystem,
+    /// inverse models only: every `limit` of the equations, passed through
+    /// and to be flagged (a forward model clamps and lists none)
+    #[serde(default)]
+    pub limits: Vec<LimitSite>,
+    /// the parameter expressions explicit solutions divide by
+    #[serde(default)]
+    pub guards: Vec<ParamGuard>,
+    /// what preparation noticed that does not stop the model from running
+    /// (a start value that cannot hold, a loop through controllers …),
+    /// told like every other diagnostic
+    #[serde(default)]
+    pub warnings: Vec<crate::diag::Diagnostic>,
 }

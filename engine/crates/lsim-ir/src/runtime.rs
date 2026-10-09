@@ -15,11 +15,13 @@
 //! * `u`: inputs, in [`crate::PreparedModel::inputs`] order;
 //! * residual output `[x'; g]`: the state derivatives, then the residuals.
 
+use serde::{Deserialize, Serialize};
+
 /// The sparsity of `∂[x'; g]/∂y`, column-compressed: the rows of column
 /// `j` are `row_idx[col_ptr[j]..col_ptr[j + 1]]`, increasing. Produced by
 /// lsim-prep (work package 2), used by lsim-codegen to colour and fill
 /// the Jacobian and by lsim-solve's sparse LU (work packages 3 and 4).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SparsityPattern {
     /// n_y
     pub n: usize,
