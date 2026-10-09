@@ -686,10 +686,11 @@ pub fn run(
                 let mut d = warning(
                     "PIVOT-ZERO-AT-START",
                     format!(
-                        "At the start, solving {} divides by {}, which is {v} there: the run \
+                        "At the start, solving {} divides by {}, which is {} there: the run \
                          would start with an infinite or undefined value.",
                         equation_words(&flat, o),
-                        a
+                        sys.pretty(&flat, a),
+                        if v == 0.0 { "0".to_string() } else { v.to_string() }
                     ),
                 )
                 .with_hint("Start it from a value where the quantity is not zero.");

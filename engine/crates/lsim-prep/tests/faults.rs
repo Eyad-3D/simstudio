@@ -394,7 +394,8 @@ fn a_division_by_a_quantity_that_starts_at_zero() {
         ],
         &[("cap.p", "load.p"), ("cap.n", "load.n"), ("cap.n", "gnd.p")],
     );
-    expect_in(&library(), &top, "PIVOT-ZERO-AT-START", &["load"], Severity::Warning);
+    let d = expect_in(&library(), &top, "PIVOT-ZERO-AT-START", &["load"], Severity::Warning);
+    assert!(d.message.contains("divides by -cap.v, which is 0"), "{}", d.message);
 }
 
 #[test]

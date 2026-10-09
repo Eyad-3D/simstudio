@@ -273,6 +273,20 @@ impl Sys {
         }
         s
     }
+
+    /// A node-space expression with names, for messages.
+    pub fn pretty(&self, flat: &FlatSystem, e: &Expr) -> String {
+        let named = crate::walk::map_up(e, &mut |x| match x {
+            Expr::Var(v) if (v.0 as usize) < self.nodes.len() => {
+                Expr::Name(self.name(flat, v.0 as usize))
+            }
+            Expr::Param(p) if (p.0 as usize) < flat.params.len() => {
+                Expr::Name(flat.params[p.0 as usize].name.clone())
+            }
+            other => other,
+        });
+        named.to_string()
+    }
 }
 
 /// How the nodes map onto the prepared model, once the states are chosen.

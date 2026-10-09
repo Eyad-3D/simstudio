@@ -39,11 +39,37 @@ enum Sym {
     Param(ParamId),
 }
 
+/// A definition's own names, shared by every instance of it: each
+/// variable by the order the instance creates its variables in, each
+/// parameter by its declaration index. (Building a map of names per
+/// instance cost most of flattening's allocations.)
 #[derive(Default)]
+struct Template {
+    syms: FxMap<String, Local>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Local {
+    /// the instance's n-th variable
+    Var(u32),
+    /// the k-th declared parameter
+    Param(u32),
+}
+
+/// An instance's names: its definition's template, where its variables
+/// start, its parameters, and its sub-components.
 struct Scope {
-    syms: FxMap<String, Sym>,
+    template: usize,
+    var_base: u32,
+    /// how many of its variables exist yet (names of later ones are not
+    /// in scope yet, as when they were added one by one)
+    n_vars: u32,
+    /// by declaration index (`NO_PARAM` until created)
+    params: Vec<ParamId>,
     subs: FxMap<String, InstanceId>,
 }
+
+const NO_PARAM: ParamId = ParamId(u32::MAX);
 
 /// A port as an end of connections: `outside` is a composite's own port
 /// seen from inside it.
@@ -87,6 +113,12 @@ struct Flattener<'a> {
     diags: Vec<Diagnostic>,
     /// table parameters: their index in `flat.tables`
     table_of: FxMap<ParamId, u32>,
+    /// each definition's names (by the definition's address)
+    templates: Vec<Template>,
+    template_of: FxMap<usize, usize>,
+    /// parameter creation orders, by definition and the set of parameters
+    /// given (when no cycle was found)
+    orders: FxMap<(usize, u64), std::rc::Rc<[usize]>>,
 }
 
 struct ParamEnv<'a>(&'a FlatSystem);
@@ -134,6 +166,19 @@ fn join(path: &str, name: &str) -> String {
     s
 }
 
+/// `path.a.b` in one allocation.
+fn join2(path: &str, a: &str, b: &str) -> String {
+    let mut s = String::with_capacity(path.len() + a.len() + b.len() + 2);
+    if !path.is_empty() {
+        s.push_str(path);
+        s.push('.');
+    }
+    s.push_str(a);
+    s.push('.');
+    s.push_str(b);
+    s
+}
+
 /// Flattens `top` (a model or any component) against `lib`.
 pub fn flatten(lib: &Library, top: &ComponentDef) -> Result<FlatSystem, Vec<Diagnostic>> {
     flatten_full(lib, top).map(|(f, _)| f)
@@ -158,6 +203,9 @@ pub fn flatten_full(
         node_scope: vec![],
         diags: vec![],
         table_of: FxMap::default(),
+        templates: vec![],
+        template_of: FxMap::default(),
+        orders: FxMap::default(),
     };
     f.instantiate(top, String::new(), None, None, None, &FxMap::default());
     f.connection_equations();
@@ -226,8 +274,14 @@ impl<'a> Flattener<'a> {
 
     fn lookup(&self, inst: InstanceId, name: &str) -> Option<Sym> {
         let scope = &self.scopes[inst.0 as usize];
-        if let Some(s) = scope.syms.get(name) {
-            return Some(*s);
+        match self.templates[scope.template].syms.get(name) {
+            Some(Local::Var(n)) if *n < scope.n_vars => {
+                return Some(Sym::Var(VarId(scope.var_base + n)));
+            }
+            Some(Local::Param(k)) if scope.params[*k as usize] != NO_PARAM => {
+                return Some(Sym::Param(scope.params[*k as usize]));
+            }
+            _ => {}
         }
         let (head, rest) = name.split_once('.')?;
         let sub = scope.subs.get(head)?;
@@ -240,43 +294,69 @@ impl<'a> Flattener<'a> {
         self.lib.enum_ordinal(def, qualified).map(|k| k as f64)
     }
 
-    /// Resolves names in `e` (component scope of `inst`) to flat references.
-    fn resolve(&mut self, inst: InstanceId, e: &Expr, what: &dyn Fn() -> String) -> Expr {
-        let mut missing: Vec<String> = vec![];
-        let mut not_tables: Vec<String> = vec![];
-        let out = crate::walk::map_up(e, &mut |x| match x {
-            Expr::Name(n) => match self.lookup(inst, &n) {
+    /// The tree of [`Flattener::resolve`], rebuilt from references (a name
+    /// is looked up, never cloned): `der(x)` and `pre(x)` of a variable
+    /// become `Der`/`Pre`, a table read by its parameter its flat table.
+    fn resolve_in(
+        &self,
+        inst: InstanceId,
+        e: &Expr,
+        missing: &mut Vec<String>,
+        not_tables: &mut Vec<String>,
+    ) -> Expr {
+        let b = Box::new;
+        let mut r = |x: &Expr| self.resolve_in(inst, x, missing, not_tables);
+        match e {
+            Expr::Name(n) => match self.lookup(inst, n) {
                 Some(Sym::Var(v)) => Expr::Var(v),
                 Some(Sym::Param(p)) => Expr::Param(p),
-                None => match self.enum_option(inst, &n) {
+                None => match self.enum_option(inst, n) {
                     Some(k) => Expr::Const(k),
                     None => {
-                        missing.push(n);
+                        missing.push(n.clone());
                         Expr::Const(f64::NAN)
                     }
                 },
             },
-            // component scope names the table first; flat scope indexes it
-            Expr::Table { args, .. } if matches!(args.first(), Some(Expr::Param(_))) => {
-                let Some(Expr::Param(p)) = args.first() else { unreachable!() };
-                match self.table_of.get(p) {
-                    Some(&k) => Expr::Table { table: k, args: args[1..].to_vec() },
-                    None => {
-                        not_tables.push(self.flat.params[p.0 as usize].name.clone());
-                        Expr::Const(f64::NAN)
-                    }
+            Expr::Neg(a) => Expr::Neg(b(r(a))),
+            Expr::Not(a) => Expr::Not(b(r(a))),
+            Expr::NoEvent(a) => Expr::NoEvent(b(r(a))),
+            Expr::Binary(op, x, y) => Expr::Binary(*op, b(r(x)), b(r(y))),
+            Expr::Compare(op, x, y) => Expr::Compare(*op, b(r(x)), b(r(y))),
+            Expr::And(x, y) => Expr::And(b(r(x)), b(r(y))),
+            Expr::Or(x, y) => Expr::Or(b(r(x)), b(r(y))),
+            Expr::If(c, x, y) => Expr::If(b(r(c)), b(r(x)), b(r(y))),
+            Expr::Call(g @ (Builtin::Der | Builtin::Pre), args) if args.len() == 1 => {
+                match (g, r(&args[0])) {
+                    (Builtin::Der, Expr::Var(v)) => Expr::Der(v),
+                    (Builtin::Pre, Expr::Var(v)) => Expr::Pre(v),
+                    (_, a) => Expr::Call(*g, vec![a]),
                 }
             }
-            Expr::Call(Builtin::Der, args) if matches!(args.first(), Some(Expr::Var(_))) => {
-                let Some(Expr::Var(v)) = args.first() else { unreachable!() };
-                Expr::Der(*v)
+            Expr::Call(g, args) => Expr::Call(*g, args.iter().map(&mut r).collect()),
+            Expr::Table { table, args } => {
+                let args: Vec<Expr> = args.iter().map(&mut r).collect();
+                // component scope names the table first; flat scope indexes it
+                match args.first() {
+                    Some(Expr::Param(p)) => match self.table_of.get(p) {
+                        Some(&k) => Expr::Table { table: k, args: args[1..].to_vec() },
+                        None => {
+                            not_tables.push(self.flat.params[p.0 as usize].name.clone());
+                            Expr::Const(f64::NAN)
+                        }
+                    },
+                    _ => Expr::Table { table: *table, args },
+                }
             }
-            Expr::Call(Builtin::Pre, args) if matches!(args.first(), Some(Expr::Var(_))) => {
-                let Some(Expr::Var(v)) = args.first() else { unreachable!() };
-                Expr::Pre(*v)
-            }
-            other => other,
-        });
+            leaf => leaf.clone(),
+        }
+    }
+
+    /// Resolves names in `e` (component scope of `inst`) to flat references.
+    fn resolve(&mut self, inst: InstanceId, e: &Expr, what: &dyn Fn() -> String) -> Expr {
+        let mut missing: Vec<String> = vec![];
+        let mut not_tables: Vec<String> = vec![];
+        let out = self.resolve_in(inst, e, &mut missing, &mut not_tables);
         for n in missing {
             let who = self.describe(inst);
             let what = what();
@@ -297,13 +377,15 @@ impl<'a> Flattener<'a> {
             ));
         }
         let mut as_number = None;
-        crate::walk::visit(&out, &mut |x| {
-            if let Expr::Param(p) = x
-                && self.table_of.contains_key(p)
-            {
-                as_number.get_or_insert(*p);
-            }
-        });
+        if !self.table_of.is_empty() {
+            crate::walk::visit(&out, &mut |x| {
+                if let Expr::Param(p) = x
+                    && self.table_of.contains_key(p)
+                {
+                    as_number.get_or_insert(*p);
+                }
+            });
+        }
         if let Some(p) = as_number {
             let who = self.describe(inst);
             let what = what();
@@ -325,9 +407,50 @@ impl<'a> Flattener<'a> {
         VarId(self.flat.vars.len() as u32 - 1)
     }
 
+    /// Puts an instance's newly created variable in its scope under `name`
+    /// (built only for the definition's first instance).
+    fn own_var(&mut self, id: InstanceId, fresh: bool, name: impl FnOnce() -> String) {
+        let scope = &mut self.scopes[id.0 as usize];
+        let n = scope.n_vars;
+        scope.n_vars += 1;
+        if fresh {
+            let t = scope.template;
+            self.templates[t].syms.insert(name(), Local::Var(n));
+        }
+    }
+
     /// The order to create a component's parameters in: each after the
     /// parameters of the same component its default refers to.
     fn param_order(
+        &mut self,
+        id: InstanceId,
+        def: &ComponentDef,
+        given: &FxMap<String, Given>,
+    ) -> std::rc::Rc<[usize]> {
+        let n = def.params.len();
+        let key = (n <= 64).then(|| {
+            let mask = def
+                .params
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| given.contains_key(&p.name))
+                .fold(0u64, |m, (k, _)| m | (1 << k));
+            (def as *const ComponentDef as usize, mask)
+        });
+        if let Some(o) = key.and_then(|k| self.orders.get(&k)) {
+            return o.clone();
+        }
+        let before = self.diags.len();
+        let order: std::rc::Rc<[usize]> = self.param_order_of(id, def, given).into();
+        if let Some(k) = key
+            && self.diags.len() == before
+        {
+            self.orders.insert(k, order.clone());
+        }
+        order
+    }
+
+    fn param_order_of(
         &mut self,
         id: InstanceId,
         def: &ComponentDef,
@@ -408,11 +531,27 @@ impl<'a> Flattener<'a> {
             label,
             ui_id,
         });
-        self.scopes.push(Scope::default());
+        let def_key = def as *const ComponentDef as usize;
+        let (template, fresh) = match self.template_of.get(&def_key) {
+            Some(&t) => (t, false),
+            None => {
+                self.templates.push(Template::default());
+                self.template_of.insert(def_key, self.templates.len() - 1);
+                (self.templates.len() - 1, true)
+            }
+        };
+        self.scopes.push(Scope {
+            template,
+            var_base: self.flat.vars.len() as u32,
+            n_vars: 0,
+            params: vec![NO_PARAM; def.params.len()],
+            subs: FxMap::default(),
+        });
         self.defs.push(def);
 
         // parameters, in binding order
-        for k in self.param_order(id, def, given) {
+        let order = self.param_order(id, def, given);
+        for &k in order.iter() {
             let p = &def.params[k];
             let unit = self.si_unit(id, &|| format!("parameter '{}'", p.name), &p.unit);
             let is_table = p.default.table().is_some();
@@ -434,7 +573,7 @@ impl<'a> Flattener<'a> {
                     id,
                     def,
                     &p.default,
-                    &format!("the default of '{}'", p.name),
+                    &|| format!("the default of '{}'", p.name),
                     p.structural,
                 ),
             };
@@ -474,7 +613,10 @@ impl<'a> Flattener<'a> {
                 instance: id,
             });
             self.extras.param_range.push((p.min, p.max));
-            self.scopes[id.0 as usize].syms.insert(p.name.clone(), Sym::Param(pid));
+            self.scopes[id.0 as usize].params[k] = pid;
+            if fresh {
+                self.templates[template].syms.insert(p.name.clone(), Local::Param(k as u32));
+            }
         }
         for m in given.keys() {
             if !def.params.iter().any(|p| &p.name == m) {
@@ -510,10 +652,9 @@ impl<'a> Flattener<'a> {
                     .into_iter()
                     .enumerate()
                     {
-                        let local = join(&port.name, &q.name);
                         let unit = self.si_unit(id, &|| format!("port '{}'", port.name), &q.unit);
                         ids[j] = self.new_var(FlatVar {
-                            name: join(&path, &local),
+                            name: join2(&path, &port.name, &q.name),
                             unit,
                             unit_text: q.unit.clone(),
                             kind: VarKind::Continuous,
@@ -523,7 +664,7 @@ impl<'a> Flattener<'a> {
                             instance: id,
                             role,
                         });
-                        self.scopes[id.0 as usize].syms.insert(local, Sym::Var(ids[j]));
+                        self.own_var(id, fresh, || join(&port.name, &q.name));
                     }
                     self.ports
                         .insert((id, k), PortVars::Physical { across: ids[0], through: ids[1] });
@@ -554,7 +695,7 @@ impl<'a> Flattener<'a> {
                         instance: id,
                         role: if output { VarRole::Output } else { VarRole::Input },
                     });
-                    self.scopes[id.0 as usize].syms.insert(port.name.clone(), Sym::Var(v));
+                    self.own_var(id, fresh, || port.name.clone());
                     self.ports.insert((id, k), PortVars::Signal { var: v, output });
                 }
             }
@@ -580,7 +721,7 @@ impl<'a> Flattener<'a> {
                 role: VarRole::Local,
             });
             self.extras.start[vid.0 as usize] = start_expr;
-            self.scopes[id.0 as usize].syms.insert(v.name.clone(), Sym::Var(vid));
+            self.own_var(id, fresh, || v.name.clone());
         }
 
         if external {
@@ -603,7 +744,7 @@ impl<'a> Flattener<'a> {
                     id,
                     sdef,
                     &m.value,
-                    &format!("the value given to {}.{}", s.name, m.param),
+                    &|| format!("the value given to {}.{}", s.name, m.param),
                     false,
                 );
                 sub_given.insert(m.param.clone(), g);
@@ -758,7 +899,7 @@ impl<'a> Flattener<'a> {
         scope: InstanceId,
         owner: &ComponentDef,
         v: &ParamValue,
-        what: &str,
+        what: &dyn Fn() -> String,
         structural: bool,
     ) -> Given {
         let num = |value: f64, binding: Option<Expr>, structural: bool| Given {
@@ -779,7 +920,7 @@ impl<'a> Flattener<'a> {
                         ..num(k as f64, None, false)
                     };
                 }
-                let r = self.resolve(scope, e, &|| what.to_string());
+                let r = self.resolve(scope, e, what);
                 let value = eval(&r, &ParamEnv(&self.flat));
                 let bound = r.any(&mut |x| matches!(x, Expr::Param(_)));
                 num(value, bound.then_some(r), structural)
@@ -799,7 +940,10 @@ impl<'a> Flattener<'a> {
                         .unwrap_or_else(|| " (its type is not known)".into());
                     self.diags.push(Diagnostic::error(
                         "ENUM-OPTION",
-                        format!("In {who}, {what} is '{q}', which is not an option of its type{options}."),
+                        format!(
+                            "In {who}, {} is '{q}', which is not an option of its type{options}.",
+                            what()
+                        ),
                     ));
                     num(f64::NAN, None, true)
                 }
