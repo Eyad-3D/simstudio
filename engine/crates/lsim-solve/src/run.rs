@@ -298,24 +298,38 @@ impl Loop<'_> {
         Ok(())
     }
 
-    /// Event iteration at `t`: fires the `when` clauses whose crossings the
-    /// integrator reported (`dirs`), sets the modes they flip, then
-    /// re-evaluates every condition with the new discrete values until
-    /// nothing changes. Returns whether a discrete value changed.
+    /// Event iteration at `t` (Modelica's): fires the `when` clauses whose
+    /// crossings the integrator reported (`dirs`), sets the modes they
+    /// flip, then re-evaluates every condition with the new discrete values
+    /// until nothing changes. A `when` fires when its condition changes
+    /// from false to true at this instant: each condition is compared with
+    /// its value before anything changed here, with the discrete values
+    /// `d_pre` (before a sample tick set its outputs, say), not with the
+    /// values `d` already holds on entry. Returns whether a discrete value
+    /// changed from `d_pre`.
     fn iterate(
         &mut self,
         t: f64,
         y: &[f64],
         d: &mut Vec<f64>,
+        d_pre: &[f64],
         dirs: Option<&[i32]>,
     ) -> Result<bool, SolveError> {
         let info = self.info;
         let n_whens = info.whens.len();
-        let start = d.clone();
         let mut fired = vec![0.0; n_whens];
         let mut any_fired = false;
-        self.eval_roots(t, y, d, true);
+        // the conditions just before the event
+        self.eval_roots(t, y, d_pre, true);
         if let Some(dirs) = dirs {
+            // a crossing the integrator reported fires below by its
+            // direction; as a value before the event it is neutral, so the
+            // re-check does not fire it a second time
+            for (c, r) in dirs.iter().enumerate() {
+                if *r != 0 && c < self.roots_prev.len() {
+                    self.roots_prev[c] = 0.0;
+                }
+            }
             for (k, (c, dir)) in info.whens.iter().enumerate() {
                 let r = dirs.get(*c).copied().unwrap_or(0);
                 let hit = match dir {
@@ -406,7 +420,7 @@ impl Loop<'_> {
             }
             std::mem::swap(&mut self.roots_prev, &mut self.roots);
         }
-        Ok(*d != start)
+        Ok(d.as_slice() != d_pre)
     }
 
     /// Sets every mode from its condition at the start (no `when` fires at
@@ -664,7 +678,11 @@ pub fn run_loop(
             c.inputs = inputs;
         }
         if d != d_before {
-            lp.iterate(t, &y, &mut d, None)?;
+            // the blocks' initial outputs are start values: as in Modelica's
+            // initialisation no `when` fires on them (each condition starts
+            // as it is), the modes follow them
+            let d_init = d.clone();
+            lp.iterate(t, &y, &mut d, &d_init, None)?;
             integ.discrete_mut().copy_from_slice(&d);
             integ.restart(t, &y)?;
             y.copy_from_slice(integ.y());
@@ -790,11 +808,12 @@ pub fn run_loop(
                     lp.sample(tk, &yk, &d);
                     rec.interior(tk, &lp.vars);
                     let before = ledger.as_mut().map(|lg| lg.before_event(tk, &lp.vars, p));
+                    let d_pre = d.clone();
                     for (k, &o) in outs.iter().enumerate() {
                         d[o] = new_outputs[k];
                     }
                     lp.record(tk, crate::EventKind::Block(b))?;
-                    lp.iterate(tk, &yk, &mut d, None)?;
+                    lp.iterate(tk, &yk, &mut d, &d_pre, None)?;
                     integ.discrete_mut().copy_from_slice(&d);
                     lp.update_sides(tk, &yk, &d, None);
                     integ.set_root_sides(&lp.sides);
@@ -828,7 +847,8 @@ pub fn run_loop(
             });
             if stale {
                 let before = ledger.as_mut().map(|lg| lg.before_event(t, &lp.vars, p));
-                if lp.iterate(t, &y, &mut d, None)? {
+                let d_pre = d.clone();
+                if lp.iterate(t, &y, &mut d, &d_pre, None)? {
                     integ.discrete_mut().copy_from_slice(&d);
                     lp.update_sides(t, &y, &d, None);
                     integ.set_root_sides(&lp.sides);
@@ -846,6 +866,7 @@ pub fn run_loop(
             let before_vars = lp.vars.clone();
             let before = ledger.as_mut().map(|lg| lg.before_event(t, &before_vars, p));
             // ticks due exactly at a root join its event
+            let d_pre = d.clone();
             let mut changed = false;
             if is_root {
                 for (b, c) in clocks.iter_mut().enumerate() {
@@ -885,7 +906,7 @@ pub fn run_loop(
             if let Some(dirs) = dirs {
                 lp.guard_crossings(t, dirs)?;
             }
-            changed |= lp.iterate(t, &y, &mut d, dirs)?;
+            changed |= lp.iterate(t, &y, &mut d, &d_pre, dirs)?;
             if at_time_event {
                 while info.time_events.get(next_time_event).is_some_and(|&te| te <= t) {
                     lp.record(t, crate::EventKind::Time(next_time_event))?;
