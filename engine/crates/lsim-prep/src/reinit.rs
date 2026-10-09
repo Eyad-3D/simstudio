@@ -23,6 +23,11 @@
 //! other variable. When the target is not a state at all (nothing reads
 //! its derivative), or index reduction cannot keep it one (it follows from
 //! another state), preparation says so (`REINIT-NOT-STATE`).
+//!
+//! In fast mode's inverse model the motion is prescribed: a restart of a
+//! prescribed variable is dropped, and one of a speed that follows the
+//! prescription moves only its continuous part, not the speed. Both are
+//! told as information (`REINIT-PRESCRIBED`), not as faults.
 
 use crate::diagnose::{local_name, parts_of};
 use lsim_ir::expr::Expr;
@@ -40,6 +45,24 @@ pub struct Restarted {
     pub jump: VarId,
     /// the first `when` clause that restarts it
     pub origin: Origin,
+}
+
+/// The note of a `reinit` that fast mode's prescribed motion overrides.
+pub fn prescribed(flat: &FlatSystem, x: VarId, origin: &Origin) -> Diagnostic {
+    let by = if flat.var(x).instance == origin.instance {
+        String::new()
+    } else {
+        format!(" by {}", flat.instance_name(origin.instance))
+    };
+    let mut d = crate::diagnose::info(
+        "REINIT-PRESCRIBED",
+        format!(
+            "In fast mode the motion is prescribed, so the restart of {}{by} has no effect.",
+            local_name(flat, x)
+        ),
+    );
+    d.parts = parts_of(flat, [origin.instance, flat.var(x).instance].into_iter());
+    d
 }
 
 /// The diagnostic of a `reinit` whose target is not a state.
@@ -62,11 +85,14 @@ pub fn not_state(flat: &FlatSystem, x: VarId, origin: &Origin, why: &str) -> Dia
 
 /// Rewrites every `reinit` of `flat` (after alias elimination) as the
 /// assignment of a jump; `start` holds the start expressions per variable
-/// and grows with the new variables.
+/// and grows with the new variables. `known`: an inverse model's
+/// prescribed inputs (whose restarts are dropped, told in `notes`).
 pub fn apply(
     flat: &mut FlatSystem,
     start: &mut Vec<Option<Expr>>,
     aliases: &[AliasEntry],
+    known: &[bool],
+    notes: &mut Vec<Diagnostic>,
 ) -> Result<Vec<Restarted>, Vec<Diagnostic>> {
     if flat.whens.iter().all(|w| w.reinit.is_empty()) {
         return Ok(vec![]);
@@ -108,6 +134,10 @@ pub fn apply(
                     continue;
                 }
             };
+            if known.get(root.0 as usize).copied().unwrap_or(false) {
+                notes.push(prescribed(flat, *x, &when.origin));
+                continue;
+            }
             let v = flat.var(root);
             if v.kind != VarKind::Continuous || !differentiated[root.0 as usize] {
                 diags.push(not_state(

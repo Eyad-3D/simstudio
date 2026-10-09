@@ -226,7 +226,7 @@ pub fn run(
     };
     let aliases = alias::eliminate_with(&mut flat, &input);
     clock.lap("aliases");
-    let restarted = reinit::apply(&mut flat, &mut extras.start, &aliases)?;
+    let restarted = reinit::apply(&mut flat, &mut extras.start, &aliases, &input, &mut warnings)?;
     let limits_flat = if spec.is_some() { inverse::pass_limits(&mut flat) } else { vec![] };
     let flat_modes = modes::extract(&mut flat);
     let nv = flat.vars.len();
@@ -636,22 +636,27 @@ pub fn run(
         (trivial_states, vec![false; nn])
     };
     report.dummy_derivatives = (0..nn).filter(|&n| dummy[n]).map(|n| sys.name(&flat, n)).collect();
-    // a restarted state must stay one
-    let lost: Vec<Diagnostic> = restarted
+    // a restarted state must stay one (in fast mode the prescribed motion
+    // decides it, and the restart moves only its continuous part)
+    let lost: Vec<&reinit::Restarted> = restarted
         .iter()
         .filter(|r| !sys.base[r.continuous.0 as usize].is_some_and(|nd| is_state[nd]))
-        .map(|r| {
-            reinit::not_state(
-                &flat,
-                r.var,
-                &r.origin,
-                "it is rigidly tied to other states, and index reduction had to make it follow \
-                 from them",
-            )
-        })
         .collect();
-    if !lost.is_empty() {
-        return Err(lost);
+    if spec.is_some() {
+        warnings.extend(lost.iter().map(|r| reinit::prescribed(&flat, r.var, &r.origin)));
+    } else if !lost.is_empty() {
+        return Err(lost
+            .iter()
+            .map(|r| {
+                reinit::not_state(
+                    &flat,
+                    r.var,
+                    &r.origin,
+                    "it is rigidly tied to other states, and index reduction had to make it \
+                     follow from them",
+                )
+            })
+            .collect());
     }
     clock.lap("states");
 

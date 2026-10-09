@@ -255,3 +255,78 @@ fn a_bouncing_ball_restarts_its_speed_at_each_impact() {
     assert!(bounces >= 3, "{bounces}");
     assert!(err < 1e-7, "{err:e}");
 }
+
+/// In fast mode the load's speed is prescribed: the shift's restart has no
+/// effect on the motion (it is told as information), and the torque the
+/// motor needs follows from the prescribed speed in either gear.
+#[test]
+fn fast_mode_prescribes_the_motion_through_a_gear_change() {
+    use lsim_ir::InverseSpec;
+    let actuator = ComponentDef {
+        name: "Test.TorqueActuator".into(),
+        ports: vec![port("flange", "Flange", ""), signal("tau", false, "N.m")],
+        equations: vec![eq(n("flange.tau"), -n("tau"), "it drives with the torque it is told")],
+        ..Default::default()
+    };
+    let command = ComponentDef {
+        name: "Test.TorqueCommand".into(),
+        ports: vec![signal("y", true, "N.m")],
+        params: vec![param("k", "N.m", T, "")],
+        equations: vec![eq(n("y"), n("k"), "a constant command")],
+        ..Default::default()
+    };
+    let mut lib = library();
+    lib.add(shifting_gear());
+    lib.add(actuator);
+    lib.add(command);
+    let mut top = gear_change();
+    top.components[0] = sub("torque", "Test.TorqueActuator", &[]);
+    top.components.push(sub("command", "Test.TorqueCommand", &[]));
+    top.connections.push(connect("command.y", "torque.tau"));
+    // the forward model still runs the shift
+    prepare_with_report(&lib, &top, None, &Settings::default())
+        .unwrap_or_else(|d| panic!("{d:#?}"));
+    let spec = InverseSpec { prescribed: vec!["load.w".into()], freed: vec!["torque.tau".into()] };
+    let (m, report) = prepare_with_report(&lib, &top, Some(&spec), &Settings::default())
+        .unwrap_or_else(|d| panic!("{d:#?}"));
+    println!("{:?}", m.warnings);
+    assert_eq!(report.removed, ["command"]);
+    assert!(m.warnings.iter().any(|d| d.code == "REINIT-PRESCRIBED"), "{:#?}", m.warnings);
+    assert_eq!(m.input_names(), ["load.w", "der(load.w)"]);
+    // T = (J2 + i² J1) a / i in either gear, at w2 = 50, a = 2 (first gear)
+    let vals = {
+        use lsim_ir::eval::{SliceEnv, eval};
+        let p: Vec<f64> = m.flat.params.iter().map(|q| q.value).collect();
+        let mut vars = vec![f64::NAN; m.flat.vars.len()];
+        let ders = vec![f64::NAN; m.flat.vars.len()];
+        for v in m.states.iter().chain(&m.discretes) {
+            vars[v.0 as usize] = m.flat.var(*v).start.unwrap_or(0.0);
+        }
+        for (v, x) in m.inputs.iter().zip([50.0, 2.0]) {
+            vars[v.0 as usize] = x;
+        }
+        assert!(m.algebraics.is_empty(), "explicit");
+        let mut ders = ders;
+        for a in &m.assignments {
+            let x = eval(&a.expr, &SliceEnv { t: 0.0, vars: &vars, ders: &ders, params: &p });
+            match a.target {
+                lsim_ir::Slot::Var(v) => vars[v.0 as usize] = x,
+                lsim_ir::Slot::Der(v) => ders[v.0 as usize] = x,
+            }
+        }
+        for a in &m.aliases {
+            vars[a.var.0 as usize] = match a.target {
+                lsim_ir::AliasTarget::Const(c) => c,
+                lsim_ir::AliasTarget::Var { var, negated } => {
+                    let x = vars[var.0 as usize];
+                    if negated { -x } else { x }
+                }
+            };
+        }
+        vars
+    };
+    let tau = vals[m.flat.find_var("torque.tau").unwrap().0 as usize];
+    let want = (J2 + I1 * I1 * J1) * 2.0 / I1;
+    println!("torque {tau} (exact {want})");
+    assert!((tau - want).abs() < 1e-12 * want, "{tau}");
+}

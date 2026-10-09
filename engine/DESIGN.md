@@ -673,7 +673,10 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    variable `v` reads is its new value (`pre(i)` for the old one) and
    continuous ones are their values at the event. A target that is not a
    state, or that index reduction cannot keep one (two rigidly coupled
-   speeds both restarted), is `REINIT-NOT-STATE`. The gear change of
+   speeds both restarted), is `REINIT-NOT-STATE`. In fast mode's inverse
+   model the motion is prescribed: a restart of a prescribed speed is
+   dropped and one of a speed that follows it changes nothing, both told
+   as information (`REINIT-PRESCRIBED`). The gear change of
    `mech_gear_change` (a dog clutch keeping `J2 ω2 + i2 J1 ω1`) runs to
    the reference's digits (2·10⁻¹⁴) and its energy books show the exact
    shift loss.
