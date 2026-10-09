@@ -97,6 +97,19 @@ pub fn extra() -> Vec<ComponentDef> {
         n("V0") * call(Builtin::Sin, vec![c(2.0 * std::f64::consts::PI) * n("f") * Expr::Time]),
         "the source holds a sine voltage",
     ));
+    let mut diode = two_pin("Electrical.Diode");
+    diode.doc = "Shockley diode: i = Is (exp(v / Vt) - 1).".into();
+    diode.params = vec![param("Is", "A", 1e-9, ""), param("Vt", "V", 0.025, "")];
+    diode.equations.push(eq(
+        n("i"),
+        n("Is") * (call(Builtin::Exp, vec![n("v") / n("Vt")]) - c(1.0)),
+        "the diode's law",
+    ));
+    let mut power_load = two_pin("Electrical.PowerLoad");
+    power_load.doc = "A load that draws a constant power: v i = P.".into();
+    power_load.params = vec![param("P", "W", 1.0, "")];
+    power_load.vars[1] = guess("i", "A", c(1.0));
+    power_load.equations.push(eq(n("v") * n("i"), n("P"), "it draws its power"));
     let mut current = two_pin("Electrical.ConstantCurrent");
     current.params = vec![param("I", "A", 1.0, "")];
     current.equations.push(eq(n("i"), n("I"), "the source holds its current"));
@@ -148,6 +161,8 @@ pub fn extra() -> Vec<ComponentDef> {
         ..Default::default()
     };
     vec![
+        diode,
+        power_load,
         torque,
         gear,
         speed_source,
@@ -272,4 +287,41 @@ pub fn worst(run: &SimResult, channel: &str, exact: impl Fn(f64) -> f64) -> f64 
         err = err.max((ch[k] - x).abs());
     }
     err / scale.max(1e-300)
+}
+
+/// Every variable's value at t = 0 by the reference interpreter, for a
+/// model whose unknowns are all explicit (states take their start values).
+pub fn explicit_values(m: &PreparedModel) -> Vec<f64> {
+    use lsim_ir::eval::{SliceEnv, eval};
+    use lsim_ir::{AliasTarget, Slot};
+    assert!(m.algebraics.is_empty(), "explicit models only");
+    let n = m.flat.vars.len();
+    let p: Vec<f64> = m.flat.params.iter().map(|q| q.value).collect();
+    let mut vars = vec![f64::NAN; n];
+    let mut ders = vec![f64::NAN; n];
+    for v in m.states.iter().chain(&m.discretes) {
+        vars[v.0 as usize] = m.flat.var(*v).start.unwrap_or(0.0);
+    }
+    for a in &m.assignments {
+        let x = eval(&a.expr, &SliceEnv { t: 0.0, vars: &vars, ders: &ders, params: &p });
+        match a.target {
+            Slot::Var(v) => vars[v.0 as usize] = x,
+            Slot::Der(v) => ders[v.0 as usize] = x,
+        }
+    }
+    for a in &m.aliases {
+        vars[a.var.0 as usize] = match a.target {
+            AliasTarget::Const(c) => c,
+            AliasTarget::Var { var, negated } => {
+                let x = vars[var.0 as usize];
+                if negated { -x } else { x }
+            }
+        };
+    }
+    vars
+}
+
+/// A variable's value by name in [`explicit_values`].
+pub fn value_of(m: &PreparedModel, vals: &[f64], name: &str) -> f64 {
+    vals[m.flat.find_var(name).unwrap_or_else(|| panic!("no variable {name}")).0 as usize]
 }

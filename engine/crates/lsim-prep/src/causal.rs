@@ -437,15 +437,17 @@ fn causalize(
 /// symbolically for its tearing variable.
 const SUBSTITUTION_BUDGET: usize = 20_000;
 
-fn tear_block(
+/// A block's equations (local) to its unknowns (local), each edge marked
+/// solvable or not, and each unknown's equations.
+type BlockGraph = (Vec<Vec<(usize, bool)>>, Vec<Vec<usize>>);
+
+fn block_graph(
     eqs: &[&Expr],
     inc: &[&[usize]],
     block: &[usize],
     nodes: &[usize],
     ctx: &Ctx<'_>,
-    out: &mut Sorted,
-    info: &mut BlockInfo,
-) {
+) -> BlockGraph {
     let m = block.len();
     let local_of: crate::walk::FxMap<usize, usize> =
         nodes.iter().enumerate().map(|(k, &n)| (n, k)).collect();
@@ -461,6 +463,63 @@ fn tear_block(
         }
         edges.push(row);
     }
+    (edges, var_rows)
+}
+
+/// The fewest tearing variables that make `block` (its equations and
+/// unknowns, as in [`BlockInfo`]) explicit, by exhaustive search over the
+/// subsets of its unknowns up to `max` variables: a yardstick for the
+/// tearing heuristic on small blocks. `None` when more are needed, or the
+/// search would try more than `budget` subsets.
+pub fn minimal_tearing(
+    eqs: &[&Expr],
+    inc: &[&[usize]],
+    info: &BlockInfo,
+    ctx: &Ctx<'_>,
+    max: usize,
+    budget: usize,
+) -> Option<usize> {
+    let (edges, var_rows) = block_graph(eqs, inc, &info.eqs, &info.nodes, ctx);
+    let m = info.nodes.len();
+    let mut tried = 0usize;
+    for k in 0..=max.min(m) {
+        // every k-subset of 0..m, in lexicographic order
+        let mut comb: Vec<usize> = (0..k).collect();
+        loop {
+            tried += 1;
+            if tried > budget {
+                return None;
+            }
+            if causalize(&edges, &var_rows, &comb, false).is_some() {
+                return Some(k);
+            }
+            // the next combination
+            let mut i = k;
+            while i > 0 && comb[i - 1] == m - k + i - 1 {
+                i -= 1;
+            }
+            if i == 0 {
+                break;
+            }
+            comb[i - 1] += 1;
+            for j in i..k {
+                comb[j] = comb[j - 1] + 1;
+            }
+        }
+    }
+    None
+}
+
+fn tear_block(
+    eqs: &[&Expr],
+    inc: &[&[usize]],
+    block: &[usize],
+    nodes: &[usize],
+    ctx: &Ctx<'_>,
+    out: &mut Sorted,
+    info: &mut BlockInfo,
+) {
+    let (edges, var_rows) = block_graph(eqs, inc, block, nodes, ctx);
     let mut c = causalize(&edges, &var_rows, &[], true).expect("choosing never fails");
     // give back every tearing variable the block can do without
     let work: usize = edges.iter().map(Vec::len).sum::<usize>() * c.torn.len();

@@ -146,35 +146,25 @@ fn print(name: &str, t: &Timed) {
     );
 }
 
+/// The three networks one after the other (in one test, so they do not
+/// compete with each other for the memory bus while being timed).
 #[test]
-fn an_rc_ladder_of_100k_equations_prepares_in_under_a_second() {
+fn networks_of_100k_equations_prepare_in_under_a_second() {
     let t = timed(&rc_ladder(8400));
     print("RC ladder", &t);
     assert!(t.model.stats.flat_equations >= 100_000);
     assert_eq!(t.model.states.len(), 8400);
     assert!(t.model.algebraics.is_empty());
-    assert!(t.cpu < 1.0, "{} s", t.cpu);
-}
+    let rc = t.cpu;
 
-#[test]
-fn a_torsional_chain_of_100k_equations_prepares_in_under_a_second() {
     let t = timed(&torsional_chain(9100));
     print("torsional chain", &t);
     assert!(t.model.stats.flat_equations >= 100_000);
     assert!(t.model.algebraics.is_empty());
-    assert!(t.cpu < 1.0, "{} s", t.cpu);
-}
+    let chain = t.cpu;
 
-#[test]
-fn a_resistive_ladder_of_100k_equations_prepares_in_under_a_second() {
     let t = timed(&resistive_ladder(7200));
     print("resistive ladder", &t);
-    for b in &t.report.blocks {
-        println!(
-            "  block of {}: {} torn, linear {}, {} iterated",
-            b.size, b.torn, b.linear, b.iteration
-        );
-    }
     assert!(t.model.stats.flat_equations >= 100_000);
     // one block as large as the ladder, torn to one variable
     let big = t.report.blocks.iter().max_by_key(|b| b.size).unwrap();
@@ -185,5 +175,9 @@ fn a_resistive_ladder_of_100k_equations_prepares_in_under_a_second() {
         big.torn,
         big.linear
     );
-    assert!(t.cpu < 1.0, "{} s", t.cpu);
+    let ladder = t.cpu;
+    for (name, cpu) in [("RC ladder", rc), ("torsional chain", chain), ("resistive ladder", ladder)]
+    {
+        assert!(cpu < 1.0, "{name}: {cpu} s");
+    }
 }

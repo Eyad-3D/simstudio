@@ -31,11 +31,15 @@ pub struct Settings {
     /// solve the start at preparation (for the pivoting checks, the state
     /// choice and the start values the Stage 1 code generator bakes in)
     pub numeric_start: bool,
+    /// find the fewest tearing variables of each small block by exhaustive
+    /// search, for the report ([`BlockSummary::minimal`]): a yardstick for
+    /// the tearing heuristic, not needed to run
+    pub tearing_minimum: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { force_implicit: false, numeric_start: true }
+        Settings { force_implicit: false, numeric_start: true, tearing_minimum: false }
     }
 }
 
@@ -50,6 +54,9 @@ pub struct BlockSummary {
     pub linear: bool,
     /// iteration variables it keeps (0 when solved explicitly)
     pub iteration: usize,
+    /// the fewest tearing variables possible, by exhaustive search (when
+    /// [`Settings::tearing_minimum`] asked for it and the block is small)
+    pub minimal: Option<usize>,
     /// its unknowns' names
     pub unknowns: Vec<String>,
     /// the diagram parts it involves
@@ -574,6 +581,14 @@ pub fn run(
         }
     };
     report.blocks = summaries(&sorted, &sys, &flat, |k| &flat.equations[sys.eqs[k].src].origin);
+    if settings.tearing_minimum {
+        let big = sorted.blocks.iter().filter(|b| b.eqs.len() > 1 || b.iter.1 > b.iter.0);
+        for (summary, b) in report.blocks.iter_mut().zip(big) {
+            if b.nodes.len() <= 80 {
+                summary.minimal = causal::minimal_tearing(&refs, &incs, b, &ctx, b.torn, 5_000_000);
+            }
+        }
+    }
     report.init_blocks = summaries(&init_sorted, &sys, &flat, |k| ib.origin(&sys, &flat, k));
     warnings.extend(causal_loops(&sorted, &sys, &flat, lib));
 
@@ -938,6 +953,7 @@ fn summaries<'a>(
             torn: b.torn,
             linear: b.linear,
             iteration: b.iter.1 - b.iter.0,
+            minimal: None,
             unknowns: b.nodes.iter().map(|&n| sys.name(flat, n)).collect(),
             parts: parts_of(flat, b.eqs.iter().map(|&k| origin(k).instance)),
         })
