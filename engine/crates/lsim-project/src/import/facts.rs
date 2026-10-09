@@ -38,7 +38,7 @@ impl Element {
             && own.len() == n_axes
             && let Some(s) = own.get(axis).and_then(Value::as_str)
         {
-            return lsim_lib::table::Outside::parse(s);
+            return lsim_lib::table::outside(s);
         }
         catalog::axis_outside(&self.kind, key, axis)
     }
@@ -62,7 +62,10 @@ impl Element {
     /// and direction.
     pub fn port_kind(&self, port: &str) -> Option<(String, String)> {
         let from = |p: &Value| {
-            (p["kind"].as_str().unwrap_or("signal").to_string(), p["direction"].as_str().unwrap_or("").to_string())
+            (
+                p["kind"].as_str().unwrap_or("signal").to_string(),
+                p["direction"].as_str().unwrap_or("").to_string(),
+            )
         };
         if let Some(p) = self.dynamic_ports.iter().find(|p| p["id"] == port) {
             return Some(from(p));
@@ -85,6 +88,19 @@ pub struct Bus {
     pub consumers: Vec<String>,
     /// electric nodes on it, with the terminal wired to its source
     pub nodes: Vec<(String, Option<usize>)>,
+    /// every port on its rail
+    pub members: Vec<End>,
+}
+
+impl Bus {
+    /// Its source hands its motors and consumers a power window (a battery
+    /// or a fuel cell; a voltage source gives whatever is asked).
+    pub fn windowed(&self) -> bool {
+        matches!(
+            self.source.as_ref().map(|s| s.1.as_str()),
+            Some("battery.generic" | "fuelcell.stack")
+        )
+    }
 }
 
 /// A wheel's share of the weight.
@@ -143,6 +159,8 @@ pub struct Facts {
     pub kin: HashMap<End, Kin>,
     /// the axle gears run lossless (coefficients that include their drag)
     pub lossless_axle: bool,
+    /// an acceleration test: the driver holds full throttle
+    pub full_throttle: bool,
     /// warnings
     pub warnings: Vec<String>,
 }
@@ -168,6 +186,18 @@ impl Facts {
         self.kin.get(&(el.to_string(), port.to_string()))
     }
 
+    /// The bus an element's port sits on.
+    pub fn bus_of(&self, el: &str, port: &str) -> Option<&Bus> {
+        self.buses.iter().find(|b| b.members.iter().any(|(e, p)| e == el && p == port))
+    }
+
+    /// Whether an element's `pos` sits on a bus whose source hands out a
+    /// power window (its motors and consumers then take a bus manager's
+    /// window or share).
+    pub fn windowed(&self, el: &str) -> bool {
+        self.bus_of(el, "pos").is_some_and(Bus::windowed)
+    }
+
     /// The output linked to an input, if any.
     pub fn source_of(&self, el: &str, port: &str) -> Option<&End> {
         self.links.iter().find(|(_, to)| to.0 == el && to.1 == port).map(|(from, _)| from)
@@ -176,11 +206,29 @@ impl Facts {
 
 const RATIO_TYPES: [&str; 2] = ["mech.final_drive", "mech.gearbox"];
 
-/// Reads the project into facts, with the case's overrides applied.
-pub fn read(project: &Value, case: Option<&Value>, cycles: &dyn Fn(&str) -> Option<String>) -> Result<Facts, Vec<String>> {
+/// A drive cycle as a profile: its points as profile text (`x:v; …`,
+/// speed in km/h, grade in %), and whether x is the distance driven.
+#[derive(Clone, Debug)]
+pub struct Cycle {
+    /// the speed profile, if it has one
+    pub speed: Option<String>,
+    /// the grade profile, if it has one
+    pub grade: Option<String>,
+    /// x is the distance driven, m (else the time, s)
+    pub distance: bool,
+}
+
+/// Reads the project into facts, with the case's overrides applied;
+/// `cycles` finds a drive cycle by its id.
+pub fn read(
+    project: &Value,
+    case: Option<&Value>,
+    cycles: &dyn Fn(&str) -> Option<Cycle>,
+) -> Result<Facts, Vec<String>> {
     let mut f = Facts::default();
     let mut errors = vec![];
-    let case_over = case.and_then(|c| c["parameterOverrides"].as_object()).cloned().unwrap_or_default();
+    let case_over =
+        case.and_then(|c| c["parameterOverrides"].as_object()).cloned().unwrap_or_default();
     for sys in project["systems"].as_array().into_iter().flatten() {
         for el in sys["elements"].as_array().into_iter().flatten() {
             let id = el["id"].as_str().unwrap_or("").to_string();
@@ -189,7 +237,10 @@ pub fn read(project: &Value, case: Option<&Value>, cycles: &dyn Fn(&str) -> Opti
                 continue; // a container: its children are elements of their own system
             }
             if catalog::block(&kind).is_none() {
-                errors.push(format!("'{}' is a {kind}, which is not in LightSim's library.", el["label"].as_str().unwrap_or(&id)));
+                errors.push(format!(
+                    "'{}' is a {kind}, which is not in LightSim's library.",
+                    el["label"].as_str().unwrap_or(&id)
+                ));
                 continue;
             }
             let empty = Map::new();
@@ -205,18 +256,30 @@ pub fn read(project: &Value, case: Option<&Value>, cycles: &dyn Fn(&str) -> Opti
             let mut params = catalog::merged(&kind, &over);
             // a drive cycle's trace becomes the profile (today's build_model)
             if matches!(kind.as_str(), "signal.driving_task" | "signal.road_profile")
-                && let Some(cy) = params.get("cycle").and_then(Value::as_str).filter(|s| !s.is_empty())
+                && let Some(cy) =
+                    params.get("cycle").and_then(Value::as_str).filter(|s| !s.is_empty())
             {
                 let cy = cy.to_string();
+                let label = el["label"].as_str().unwrap_or(&id);
                 match cycles(&cy) {
-                    Some(text) if kind == "signal.driving_task" => {
-                        params.insert("profile".into(), Value::String(text));
+                    Some(c) => {
+                        let text = if kind == "signal.driving_task" { c.speed } else { c.grade };
+                        match text {
+                            Some(t) => {
+                                params.insert("profile".into(), Value::String(t));
+                                if c.distance {
+                                    params.insert("mode".into(), Value::String("distance".into()));
+                                }
+                            }
+                            None => errors.push(format!(
+                                "'{label}' drives the cycle '{cy}', which has no {} profile.",
+                                if kind == "signal.driving_task" { "speed" } else { "grade" }
+                            )),
+                        }
                     }
-                    Some(_) => errors.push(format!(
-                        "Road Profile '{}': grades from drive cycles are not imported yet.",
-                        el["label"].as_str().unwrap_or(&id)
-                    )),
-                    None => errors.push(format!("the drive cycle '{cy}' is not available to the importer.")),
+                    None => {
+                        errors.push(format!("'{label}': the drive cycle '{cy}' is not available."))
+                    }
                 }
             }
             f.index.insert(id.clone(), f.elements.len());
@@ -231,7 +294,7 @@ pub fn read(project: &Value, case: Option<&Value>, cycles: &dyn Fn(&str) -> Opti
         }
     }
     let end = |e: &str, p: &str| (e.to_string(), p.to_string());
-    let mut add_signal = |f: &mut Facts, a: End, b: End| {
+    let add_signal = |f: &mut Facts, a: End, b: End| {
         let (ka, kb) = (
             f.index.get(&a.0).and_then(|&i| f.elements[i].port_kind(&a.1)),
             f.index.get(&b.0).and_then(|&i| f.elements[i].port_kind(&b.1)),
@@ -252,8 +315,14 @@ pub fn read(project: &Value, case: Option<&Value>, cycles: &dyn Fn(&str) -> Opti
     };
     for sys in project["systems"].as_array().into_iter().flatten() {
         for w in sys["connections"].as_array().into_iter().flatten() {
-            let a = end(w["sourceElementId"].as_str().unwrap_or(""), w["sourcePortId"].as_str().unwrap_or(""));
-            let b = end(w["targetElementId"].as_str().unwrap_or(""), w["targetPortId"].as_str().unwrap_or(""));
+            let a = end(
+                w["sourceElementId"].as_str().unwrap_or(""),
+                w["sourcePortId"].as_str().unwrap_or(""),
+            );
+            let b = end(
+                w["targetElementId"].as_str().unwrap_or(""),
+                w["targetPortId"].as_str().unwrap_or(""),
+            );
             let (Some(ia), Some(ib)) = (f.index.get(&a.0), f.index.get(&b.0)) else { continue };
             let (ka, kb) = (f.elements[*ia].port_kind(&a.1), f.elements[*ib].port_kind(&b.1));
             let (Some((ka, _)), Some((kb, _))) = (ka, kb) else { continue };
@@ -282,7 +351,8 @@ pub fn read(project: &Value, case: Option<&Value>, cycles: &dyn Fn(&str) -> Opti
     f.driver = single(&f, "driver.driver", &mut errors);
     f.fuel_tank = single(&f, "fuel.tank", &mut errors);
     f.h2_tank = single(&f, "fuel.h2_tank", &mut errors);
-    f.ambient = f.of_kind("boundary.ambient").next().map(|e| e.id.clone());
+    let ambient = f.of_kind("boundary.ambient").next().map(|e| e.id.clone());
+    f.ambient = ambient;
     if let Some(v) = &f.vehicle {
         let vp = &f.el(v).params;
         f.lossless_axle = catalog::text(vp, "road_load_mode", "") == "Coefficients A/B/C"
@@ -309,7 +379,8 @@ fn wheel_shares(f: &mut Facts) {
     let total: f64 = wheels.iter().map(|w| w.1).sum();
     let scale = total > 0.0 && (total - 1.0).abs() > 1e-9;
     let norm = |s: f64| if scale { s / total } else { s };
-    let axle_sum = |front: bool| -> f64 { wheels.iter().filter(|w| w.2 == front).map(|w| norm(w.1)).sum() };
+    let axle_sum =
+        |front: bool| -> f64 { wheels.iter().filter(|w| w.2 == front).map(|w| norm(w.1)).sum() };
     let (sf, sr) = (axle_sum(true), axle_sum(false));
     let count = |front: bool| wheels.iter().filter(|w| w.2 == front).count() as f64;
     for (id, s, front) in &wheels {
@@ -332,14 +403,17 @@ fn buses(f: &mut Facts) {
         }
         r
     }
-    let mut union = |p: &mut HashMap<End, End>, a: &End, b: &End| {
+    let union = |p: &mut HashMap<End, End>, a: &End, b: &End| {
         let (ra, rb) = (find(p, a), find(p, b));
         if ra != rb {
             p.insert(ra, rb);
         }
     };
     let elec = |f: &Facts, e: &End| {
-        f.index.get(&e.0).and_then(|&i| f.elements[i].port_kind(&e.1)).is_some_and(|k| k.0 == "electrical")
+        f.index
+            .get(&e.0)
+            .and_then(|&i| f.elements[i].port_kind(&e.1))
+            .is_some_and(|k| k.0 == "electrical")
     };
     for (a, b) in f.wires.clone() {
         if elec(f, &a) {
@@ -376,16 +450,20 @@ fn buses(f: &mut Facts) {
         for (e, p) in members {
             let k = f.el(e).kind.as_str();
             match (k, p.as_str()) {
-                ("battery.generic" | "electric.voltage_source" | "fuelcell.stack", "pos") | ("controller.dcdc", "b_pos") => {
+                ("battery.generic" | "electric.voltage_source" | "fuelcell.stack", "pos")
+                | ("controller.dcdc", "b_pos") => {
                     if bus.source.is_none() {
                         bus.source = Some((e.clone(), k.to_string()));
                     }
                 }
                 ("motor.emotor", "pos") => bus.motors.push(e.clone()),
-                ("electric.constant_drive" | "electric.climate", "pos") => bus.consumers.push(e.clone()),
+                ("electric.constant_drive" | "electric.climate", "pos") => {
+                    bus.consumers.push(e.clone())
+                }
                 _ => {}
             }
         }
+        bus.members = members.clone();
         for (e, _) in members {
             if f.el(e).kind == "electric.node" && !bus.nodes.iter().any(|(n, _)| n == e) {
                 // the terminal wired straight to the source's positive port
@@ -419,13 +497,16 @@ fn rigid_ports(kind: &str) -> &'static [&'static str] {
         "mech.node" => &["f1", "f2", "f3", "f4"],
         "mech.shaft" => &["flange_a", "flange_b"],
         "mech.brake" => &["flange"],
-        "motor.emotor" | "engine.combustion" | "propulsion.wheel" | "propulsion.propeller" => &["shaft"],
+        "motor.emotor" | "engine.combustion" | "propulsion.wheel" | "propulsion.propeller" => {
+            &["shaft"]
+        }
         _ => &[],
     }
 }
 
 fn efficiency(e: &Element, lossless_axle: bool) -> f64 {
-    let axle = matches!(e.kind.as_str(), "mech.final_drive" | "mech.differential" | "mech.transfer_case");
+    let axle =
+        matches!(e.kind.as_str(), "mech.final_drive" | "mech.differential" | "mech.transfer_case");
     if axle && lossless_axle {
         return 1.0;
     }
@@ -435,7 +516,10 @@ fn efficiency(e: &Element, lossless_axle: bool) -> f64 {
 /// The gearbox's ratio in its default gear (the nearest defined gear).
 pub fn default_ratio(e: &Element) -> f64 {
     let g = e.num("default_gear", 1.0);
-    let t = e.params.get("ratios").and_then(|v| lsim_lib::table::Table1::from_json(v, Default::default()).ok());
+    let t = e
+        .params
+        .get("ratios")
+        .and_then(|v| lsim_lib::table::Table1::from_json(v, Default::default()).ok());
     let Some(t) = t else { return 1.0 };
     let mut best = (f64::INFINITY, 1.0);
     for (x, y) in t.x.iter().zip(&t.y) {
@@ -450,7 +534,11 @@ pub fn default_ratio(e: &Element) -> f64 {
 /// wheels up through nodes, shafts, brakes, splits and gears, with the
 /// efficiency of the way down; clutches are taken closed.
 fn kinematics(f: &mut Facts) {
-    let v0 = f.vehicle.as_ref().map(|v| f.el(v).num("initial_speed_kmh", 0.0).max(0.0) / 3.6).unwrap_or(0.0);
+    let v0 = f
+        .vehicle
+        .as_ref()
+        .map(|v| f.el(v).num("initial_speed_kmh", 0.0).max(0.0) / 3.6)
+        .unwrap_or(0.0);
     // port → peers
     let mut peers: HashMap<End, Vec<End>> = HashMap::new();
     for (a, b) in &f.wires {
@@ -483,6 +571,11 @@ fn kinematics(f: &mut Facts) {
         // through the element
         let Some(&i) = f.index.get(&p.0) else { continue };
         let e = f.elements[i].clone();
+        // a split's other output, when known
+        let other_val = {
+            let other = if p.1 == "flange_out_a" { "flange_out_b" } else { "flange_out_a" };
+            port_val.get(&(e.id.clone(), other.to_string())).cloned()
+        };
         let mut set = |port: &str, v: Kin, todo: &mut Vec<End>| {
             let k = (e.id.clone(), port.to_string());
             if !port_val.contains_key(&k) {
@@ -492,7 +585,8 @@ fn kinematics(f: &mut Facts) {
         };
         let kind = e.kind.as_str();
         if rigid_ports(kind).contains(&p.1.as_str()) || kind == "mech.clutch" {
-            let ports: &[&str] = if kind == "mech.clutch" { &["flange_a", "flange_b"] } else { rigid_ports(kind) };
+            let ports: &[&str] =
+                if kind == "mech.clutch" { &["flange_a", "flange_b"] } else { rigid_ports(kind) };
             let eta = if kind == "mech.shaft" { efficiency(&e, f.lossless_axle) } else { 1.0 };
             for q in ports {
                 if *q != p.1 {
@@ -500,7 +594,8 @@ fn kinematics(f: &mut Facts) {
                 }
             }
         } else if RATIO_TYPES.contains(&kind) && p.1 == "flange_out" {
-            let ratio = if kind == "mech.gearbox" { default_ratio(&e) } else { e.num("ratio", 1.0) };
+            let ratio =
+                if kind == "mech.gearbox" { default_ratio(&e) } else { e.num("ratio", 1.0) };
             let ratio = if ratio != 0.0 { ratio } else { 1.0 };
             let mut gbs = val.gearboxes.clone();
             if kind == "mech.gearbox" {
@@ -513,16 +608,18 @@ fn kinematics(f: &mut Facts) {
                 w0: val.w0 * ratio,
             };
             set("flange_in", k, &mut todo);
-        } else if matches!(kind, "mech.differential" | "mech.transfer_case") && p.1 != "flange_in" {
-            let other = if p.1 == "flange_out_a" { "flange_out_b" } else { "flange_out_a" };
-            let ko = (e.id.clone(), other.to_string());
-            if let Some(vo) = port_val.get(&ko).cloned() {
+        } else if matches!(kind, "mech.differential" | "mech.transfer_case")
+            && p.1 != "flange_in"
+            && let Some(vo) = other_val
+        {
+            {
                 let fb = if kind == "mech.transfer_case" {
                     1.0 - (e.num("torque_split_a_pct", 50.0) / 100.0).clamp(0.0, 1.0)
                 } else {
                     0.5
                 };
-                let (va, vb) = if p.1 == "flange_out_a" { (val.clone(), vo) } else { (vo, val.clone()) };
+                let (va, vb) =
+                    if p.1 == "flange_out_a" { (val.clone(), vo) } else { (vo, val.clone()) };
                 let r = e.num("ratio", 1.0);
                 let r = if r != 0.0 { r } else { 1.0 };
                 let mut gbs = va.gearboxes.clone();

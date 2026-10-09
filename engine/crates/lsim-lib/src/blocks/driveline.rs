@@ -26,7 +26,12 @@ use lsim_ir::EnergyDecl;
 
 /// `ite(tau·w >= 0, eta, 1/eta)`: the loss follows the power.
 fn eta_dir(tau: Expr, w: Expr, eta: Expr) -> Expr {
-    ite(ge(tau * w, c(0.0)), eta.clone(), c(1.0) / eta)
+    // η^s with s the power's direction: +1 (η, the loss comes off what
+    // passes on) or −1 (1/η, flowing back), blended within `p_dir` of no
+    // power so the torque it passes on stays continuous through a power
+    // reversal at rest (no event; the loss τ·w·(1 − η^s) is never negative)
+    exp(lsim_ir::expr::call(lsim_ir::Builtin::Log, vec![eta])
+        * noev(clamp(tau * w / n("p_dir"), c(-1.0), c(1.0))))
 }
 
 /// mech.node: four flanges on one rigid shaft.
@@ -36,7 +41,7 @@ pub fn mech_node() -> ComponentDef {
     let mut eqs: Vec<lsim_ir::EquationDecl> =
         fs[1..].iter().map(|f| eq(n(&format!("{f}.w")), n("f1.w"), "one rigid shaft")).collect();
     eqs.push(eq(c(0.0), sum(fs.iter().map(|f| n(&format!("{f}.tau")))), "the torques sum to zero"));
-    eqs.push(eq(n("sig_speed"), abs(n("f1.w")), "its speed"));
+    eqs.push(eq(n("sig_speed"), noev(abs(n("f1.w"))), "its speed"));
     let mut ports: Vec<PortDecl> = fs.iter().map(|f| phys(id, f, "Flange")).collect();
     ports.push(out(id, "sig_speed"));
     ComponentDef {
@@ -55,6 +60,12 @@ pub fn shaft() -> ComponentDef {
     let mut params = cps(id, &["efficiency_pct", "inertia_kgm2"]);
     params.push(p("w0", "rad/s", 0.0, "its speed at the start"));
     params.push(pe("eta", "1", max(n("efficiency_pct"), c(1e-3)), "efficiency"));
+    params.push(p(
+        "p_dir",
+        "W",
+        1.0,
+        "within this power of none, its loss blends between the directions",
+    ));
     let mut w = state("w", "rad/s", 0.0, "its speed");
     w.start = Some(n("w0"));
     ComponentDef {
@@ -104,6 +115,12 @@ pub fn final_drive() -> ComponentDef {
     let mut params = cps(id, &["ratio", "inertia_in_kgm2", "inertia_out_kgm2", "efficiency_pct"]);
     params.push(p("w0", "rad/s", 0.0, "its output speed at the start"));
     params.push(pe("eta", "1", max(n("efficiency_pct"), c(1e-3)), "efficiency"));
+    params.push(p(
+        "p_dir",
+        "W",
+        1.0,
+        "within this power of none, its loss blends between the directions",
+    ));
     params.push(pe(
         "i",
         "1",
@@ -148,7 +165,7 @@ pub fn final_drive() -> ComponentDef {
                 "the output side: the gear's torque × ratio, less its loss",
             ),
             eq(n("sig_power"), n("tau_x") * w_in.clone(), "transmitted power"),
-            eq(n("sig_speed_out"), abs(n("w_out")), "output speed"),
+            eq(n("sig_speed_out"), noev(abs(n("w_out"))), "output speed"),
             eq(n("sig_losses"), n("tau_x") * w_in.clone() * (c(1.0) - n("eta_d")), "its loss"),
         ],
         energy: EnergyDecl {
@@ -206,6 +223,12 @@ pub fn gearbox(cfg: &GearboxConfig) -> ComponentDef {
         cps(id, &["default_gear", "efficiency_pct", "inertia_in_kgm2", "inertia_out_kgm2"]);
     params.push(p("w0", "rad/s", 0.0, "its output speed at the start"));
     params.push(pe("eta", "1", max(n("efficiency_pct"), c(1e-3)), "efficiency"));
+    params.push(p(
+        "p_dir",
+        "W",
+        1.0,
+        "within this power of none, its loss blends between the directions",
+    ));
     let mut ports = vec![phys(id, "flange_in", "Flange"), phys(id, "flange_out", "Flange")];
     if cfg.select_wired {
         ports.push(inp(id, "sig_gear_in"));
@@ -266,7 +289,7 @@ pub fn gearbox(cfg: &GearboxConfig) -> ComponentDef {
             ),
             eq(n("sig_gear"), n("gear"), "active gear"),
             eq(n("ratio_now"), n("ratio"), "the selected ratio"),
-            eq(n("sig_speed_out"), abs(n("w_out")), "output speed"),
+            eq(n("sig_speed_out"), noev(abs(n("w_out"))), "output speed"),
             eq(n("sig_power"), n("tau_x") * n("w_in"), "transmitted power"),
             eq(n("sig_losses"), n("tau_x") * n("w_in") * (c(1.0) - n("eta_d")), "its loss"),
         ],
@@ -311,6 +334,12 @@ pub fn split(cfg: SplitConfig) -> ComponentDef {
     }
     params.push(p("w0", "rad/s", 0.0, "its input speed at the start"));
     params.push(pe("eta", "1", max(n("efficiency_pct"), c(1e-3)), "efficiency"));
+    params.push(p(
+        "p_dir",
+        "W",
+        1.0,
+        "within this power of none, its loss blends between the directions",
+    ));
     params.push(pe(
         "i",
         "1",
@@ -360,7 +389,7 @@ pub fn split(cfg: SplitConfig) -> ComponentDef {
     eqs.extend([
         eq(n("sig_torque_a"), -n("flange_out_a.tau"), "torque out to side a"),
         eq(n("sig_torque_b"), -n("flange_out_b.tau"), "torque out to side b"),
-        eq(n("sig_speed_in"), abs(n("w")), "input speed"),
+        eq(n("sig_speed_in"), noev(abs(n("w"))), "input speed"),
         eq(n("sig_power"), n("tau_x") * n("w"), "input power"),
         eq(n("sig_losses"), n("tau_x") * n("w") * (c(1.0) - n("eta_d")), "its loss"),
     ]);
@@ -444,10 +473,15 @@ impl Default for BrakeConfig {
     }
 }
 
-/// mech.brake: its disc's inertia and Coulomb friction with stiction
-/// against the frame, capacity command × maximum torque: it holds the shaft
-/// at standstill until the torque on it exceeds that (today: torque against
-/// the rotation, holding by a one-step rule below 0.5 rad/s).
+/// mech.brake: its disc's inertia and a friction torque against the
+/// rotation, capacity command × maximum torque. Within `w_hold` of
+/// standstill the torque is in proportion to the speed (a stiff damper:
+/// holding a shaft at rest it lets it creep at most at `w_hold`), beyond it
+/// it is the full capacity: a brake on each wheel of an axle, coupled
+/// through a differential to a motor and through stiff tyres to the
+/// vehicle, then holds without the stick-slip events that, with today's
+/// run loop, chatter at every stop (today's brake: torque against the
+/// rotation, holding below 0.5 rad/s by a one-step rule).
 pub fn brake(cfg: BrakeConfig) -> ComponentDef {
     let id = "mech.brake";
     let cmd = if cfg.demand_wired { clamp(n("sig_demand_in"), c(0.0), c(1.0)) } else { c(0.0) };
@@ -458,9 +492,8 @@ pub fn brake(cfg: BrakeConfig) -> ComponentDef {
     ports.extend([out(id, "sig_torque"), out(id, "sig_power")]);
     let mut params = cps(id, &["max_torque_Nm", "inertia_kgm2"]);
     params.extend([
-        p("s0", "rad/s", 0.0, "the disc's speed at the start (it starts held at 0)"),
-        p("eps", "N.m", 1e-9, "how far the torque must exceed the brake's to turn it"),
-        p("unit_m", "kg.m2", 1.0, "unit carrier"),
+        p("s0", "rad/s", 0.0, "the disc's speed at the start"),
+        p("w_hold", "rad/s", 1e-3, "within this speed of rest its torque grows with the speed"),
     ]);
     let mut s = state("s", "rad/s", 0.0, "the disc's speed");
     s.start = Some(n("s0"));
@@ -470,14 +503,17 @@ pub fn brake(cfg: BrakeConfig) -> ComponentDef {
         var("f_c", "N.m", "the brake's torque capacity now"),
         var("tau_b", "N.m", "the torque the brake takes"),
     ];
-    vars.extend(crate::rotational::friction_mode_vars("s0"));
     let mut eqs = vec![
         eq(n("s"), n("flange.w"), "the disc turns with the shaft"),
         eq(n("acc"), der("s"), "its acceleration"),
         eq(n("inertia_kgm2") * n("acc"), n("flange.tau") - n("tau_b"), "the disc's inertia"),
         eq(n("f_c"), cmd * max(n("max_torque_Nm"), c(0.0)), "command × maximum torque"),
     ];
-    eqs.extend(crate::rotational::friction_mode_eqs("s", "acc", "tau_b", "f_c", "unit_m"));
+    eqs.push(eq(
+        n("tau_b"),
+        n("f_c") * noev(clamp(n("s") / n("w_hold"), c(-1.0), c(1.0))),
+        "its torque against the rotation: its capacity, in proportion to the speed near rest",
+    ));
     eqs.extend([
         eq(n("sig_torque"), n("f_c"), "brake torque (its capacity now)"),
         eq(n("sig_power"), n("tau_b") * n("s"), "braking power"),
@@ -526,12 +562,13 @@ pub fn propeller() -> ComponentDef {
             eq(n("w"), n("shaft.w"), "it turns with the shaft"),
             eq(
                 n("t_load"),
-                max(n("torque_ref_Nm"), c(0.0)) * n("w") * abs(n("w")) / (n("w_ref") * n("w_ref")),
+                max(n("torque_ref_Nm"), c(0.0)) * n("w") * noev(abs(n("w")))
+                    / (n("w_ref") * n("w_ref")),
                 "torque ∝ speed²",
             ),
             eq(n("inertia_kgm2") * der("w"), n("shaft.tau") - n("t_load"), "its inertia"),
-            eq(n("sig_speed"), abs(n("w")), "its speed"),
-            eq(n("sig_shaft_power"), abs(n("t_load") * n("w")), "shaft power"),
+            eq(n("sig_speed"), noev(abs(n("w"))), "its speed"),
+            eq(n("sig_shaft_power"), noev(abs(n("t_load") * n("w"))), "shaft power"),
         ],
         energy: EnergyDecl {
             stored: Some(c(0.5) * n("inertia_kgm2") * n("w") * n("w")),

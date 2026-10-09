@@ -115,7 +115,8 @@ impl BatteryConfig {
     /// and the table's mean.
     pub fn values(&self) -> Result<Vec<(String, ParamValue)>, String> {
         Ok(vec![
-            ("ocv_table".into(), ParamValue::Table(self.ocv.data("1")?)),
+            // read at the SOC held to 0-1: padded past both ends
+            ("ocv_table".into(), ParamValue::Table(self.ocv.padded(true, true).data("1")?)),
             ("ocv_mean".into(), ParamValue::Real(c(ocv_mean(&self.ocv)))),
         ])
     }
@@ -156,7 +157,7 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
     params.push(table_param(
         "ocv_table",
         "V",
-        defaults.ocv.data("1").expect("the default OCV table"),
+        defaults.ocv.padded(true, true).data("1").expect("the default OCV table"),
         "open-circuit voltage by SOC (0-1)",
     ));
     params.push(p("ocv_mean", "V", ocv_mean(&defaults.ocv), "the OCV table's mean over 0-100 %"));
@@ -235,6 +236,8 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
         v.nominal = Some(1.0);
     }
     let v1 = if cfg.rc { n("v1") } else { c(0.0) * n("unit_V") };
+    // charging or discharging switches are continuous at i = 0 (both sides
+    // give 0): no event for them
     let mut eqs = vec![
         eq(n("v"), n("pos.v") - n("neg.v"), "its terminal voltage"),
         eq(c(0.0), n("pos.i") + n("neg.i"), "the current into pos leaves at neg"),
@@ -249,7 +252,7 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
         eq(n("v"), n("a_volt") - n("r0") * n("i"), "R0's drop"),
         eq(
             der("soc"),
-            -(ite(ge(n("i"), c(0.0)), n("i"), n("eta_c") * n("i")) / n("Q")),
+            -(ite(noev(ge(n("i"), c(0.0))), n("i"), n("eta_c") * n("i")) / n("Q")),
             "the SOC counts the charge, only a share of it stored while charging",
         ),
         eq(n("sig_soc"), n("soc"), "SOC"),
@@ -258,7 +261,7 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
         eq(n("sig_power"), n("v") * n("i"), "discharge power"),
         eq(
             n("sig_losses"),
-            ite(ge(n("i"), c(0.0)), c(1.0), n("eta_c")) * n("ocv") * n("i") - n("v") * n("i"),
+            ite(noev(ge(n("i"), c(0.0))), c(1.0), n("eta_c")) * n("ocv") * n("i") - n("v") * n("i"),
             "what the cells give up less what reaches the terminals",
         ),
         eq(
@@ -271,12 +274,16 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
         eq(der("e_losses"), n("sig_losses"), "internal losses"),
         eq(
             der("e_chem"),
-            -(n("ocv") * ite(ge(n("i"), c(0.0)), n("i"), n("eta_c") * n("i"))),
+            -(n("ocv") * ite(noev(ge(n("i"), c(0.0))), n("i"), n("eta_c") * n("i"))),
             "the chemical energy follows the charge stored",
         ),
     ];
     let mut loss = n("r0") * n("i") * n("i")
-        + ite(lt(n("i"), c(0.0)), (c(1.0) - n("eta_c")) * n("ocv") * -n("i"), c(0.0) * n("unit_W"));
+        + ite(
+            noev(lt(n("i"), c(0.0))),
+            (c(1.0) - n("eta_c")) * n("ocv") * -n("i"),
+            c(0.0) * n("unit_W"),
+        );
     let mut stored = n("e_chem");
     if cfg.rc {
         params.push(pe("r1", "Ohm", max(n("rc_resistance_ohm"), c(1e-9)), "R1"));
