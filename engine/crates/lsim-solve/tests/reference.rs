@@ -554,3 +554,51 @@ fn a_computed_channel_evaluated_alone_matches_the_compiled_channels() {
     }
     assert!(checked > 50, "only {checked} channels checked");
 }
+
+/// The three linear solvers (SUNDIALS' dense and band LU, faer's sparse
+/// LU behind our own SUNLinearSolver) give the same runs: forced on every
+/// reference model, both paths, the channels agree with the dense run to
+/// well within the tolerance.
+#[test]
+fn dense_band_and_sparse_lu_give_the_same_runs() {
+    use lsim_solve::LinearSolver;
+    let lib = library();
+    for case in cases() {
+        let p = &case.problem;
+        for force_implicit in [false, true] {
+            let built = build(&lib, &case.top, force_implicit);
+            let grid = OutputGrid { t0: 0.0, t_end: p.t_end, dt: p.output_dt };
+            let run = |ls: LinearSolver| {
+                let opts = SolverOptions {
+                    rtol: 1e-8,
+                    atol: 1e-10,
+                    linear_solver: ls,
+                    method: lsim_solve::Method::Bdf,
+                    ..Default::default()
+                };
+                simulate(&built.jit, &built.info, &opts, grid, &mut []).expect("runs")
+            };
+            let dense = run(LinearSolver::Dense);
+            for ls in [LinearSolver::Band, LinearSolver::Sparse] {
+                let r = run(ls);
+                let mut worst = 0.0f64;
+                for (i, ch) in dense.values.iter().enumerate() {
+                    let scale = ch.iter().fold(0.0f64, |m, x| m.max(x.abs())).max(1e-300);
+                    for (a, b) in ch.iter().zip(&r.values[i]) {
+                        worst = worst.max((a - b).abs() / scale);
+                    }
+                }
+                let note =
+                    r.report.notes.iter().find(|n| n.contains("LU")).cloned().unwrap_or_default();
+                println!(
+                    "{:<22} {} {ls:?}: {} steps (dense {}), differs by {worst:.1e}; {note}",
+                    p.id,
+                    if force_implicit { "DAE" } else { "ODE" },
+                    r.stats.steps,
+                    dense.stats.steps
+                );
+                assert!(worst <= 1e-7, "{}: {ls:?} differs from dense LU by {worst:e}", p.id);
+            }
+        }
+    }
+}
