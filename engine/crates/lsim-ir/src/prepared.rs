@@ -180,7 +180,10 @@ impl InitSystem {
 }
 
 /// Where an external sampled block (a [`crate::runtime::DiscreteBlock`])
-/// sits in the model.
+/// sits in the model. A part whose definition's name begins with
+/// `External.` is one: it has no equations, its signal outputs are
+/// discrete variables the host sets at each tick, its signal inputs are
+/// read at each tick, and its parameter `period` is the tick spacing.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct ExternalBlock {
     /// the instance it is (its path names the host's implementation)
@@ -263,8 +266,12 @@ pub struct PreparedModel {
     pub algebraics: Vec<Slot>,
     /// d: the discrete variables
     pub discretes: Vec<VarId>,
-    /// u: inputs set from outside (prescribed trajectories, and their
-    /// derivatives in an inverse model)
+    /// u: inputs set from outside. In an inverse model (fast mode), for
+    /// each variable of [`InverseSpec::prescribed`] in its order: the
+    /// variable, then its time derivatives as deep as the model needs
+    /// them (`der(body.v)`, and `der(der(body.v))` where index reduction
+    /// differentiated twice); each is a flat variable of that name
+    /// ([`PreparedModel::input_names`])
     pub inputs: Vec<VarId>,
     /// sampled blocks run outside the equations
     pub external: Vec<ExternalBlock>,
@@ -309,4 +316,62 @@ pub struct PreparedModel {
     /// told like every other diagnostic
     #[serde(default)]
     pub warnings: Vec<crate::diag::Diagnostic>,
+}
+
+impl PreparedModel {
+    /// The inputs' names, in [`PreparedModel::inputs`] order: what the
+    /// caller fills `u` from (an inverse model's prescribed variables and
+    /// their derivatives, `body.v`, `der(body.v)` …).
+    pub fn input_names(&self) -> Vec<String> {
+        self.inputs.iter().map(|v| self.flat.var(*v).name.clone()).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::component::VarKind;
+    use crate::flat::{FlatVar, InstanceId, VarRole};
+    use crate::units::Unit;
+
+    #[test]
+    fn inputs_are_named_by_their_flat_variables() {
+        let mut flat = FlatSystem::default();
+        for name in ["body.v", "der(body.v)", "x"] {
+            flat.vars.push(FlatVar {
+                name: name.into(),
+                unit: Unit::ONE,
+                unit_text: "1".into(),
+                kind: VarKind::Continuous,
+                start: None,
+                fixed: false,
+                nominal: 1.0,
+                instance: InstanceId(0),
+                role: VarRole::Local,
+            });
+        }
+        let m = PreparedModel {
+            flat,
+            states: vec![VarId(2)],
+            algebraics: vec![],
+            discretes: vec![],
+            inputs: vec![VarId(0), VarId(1)],
+            external: vec![],
+            assignments: vec![],
+            residuals: vec![],
+            aliases: vec![],
+            zero_crossings: vec![],
+            whens: vec![],
+            structure_key: String::new(),
+            stats: PrepStats::default(),
+            jac_pattern: SparsityPattern::default(),
+            modes: vec![],
+            init: InitSystem::default(),
+            limits: vec![],
+            guards: vec![],
+            warnings: vec![],
+        };
+        assert_eq!(m.input_names(), ["body.v", "der(body.v)"]);
+        assert!(m.init.is_empty());
+    }
 }
