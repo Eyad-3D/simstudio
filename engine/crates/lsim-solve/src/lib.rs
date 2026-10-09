@@ -350,11 +350,16 @@ pub struct OutputGrid {
 }
 
 impl OutputGrid {
-    /// The grid's times.
+    /// The grid's times: from `t0` every `dt`, the last one `t_end`
+    /// exactly (also when `n·dt` rounds a few ulps short of it).
     pub fn times(&self) -> Vec<f64> {
         let n = ((self.t_end - self.t0) / self.dt - 1e-9).ceil().max(0.0) as usize;
         let mut t: Vec<f64> =
-            (0..=n).map(|k| (self.t0 + k as f64 * self.dt).min(self.t_end)).collect();
+            (0..=n)
+                .map(|k| {
+                    if k == n { self.t_end } else { (self.t0 + k as f64 * self.dt).min(self.t_end) }
+                })
+                .collect();
         t.dedup();
         t
     }

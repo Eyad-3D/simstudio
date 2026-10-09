@@ -71,6 +71,10 @@ fn layout(
     Layout { n_x, n_z, n_p, n_d, n_u: 0, n_roots, n_whens, n_vars, n_work: 1 }
 }
 
+fn nothing_v() -> FV {
+    Box::new(|_, _, _| {})
+}
+
 fn backends() -> Vec<Backend> {
     let mut b = vec![Backend::Sundials];
     if cfg!(feature = "diffsol") {
@@ -283,5 +287,57 @@ fn a_condition_on_an_iteration_variable_is_rechecked_with_its_new_value() {
         assert_eq!(run.events[0].t, run.events[1].t, "{backend:?}: one instant");
         assert!((run.events[0].t - 1.0).abs() < 1e-8, "{backend:?}");
         assert_eq!(*run.values[3].last().unwrap(), 1.0, "{backend:?}");
+    }
+}
+
+/// The DAE of the restart tests: y' = u - y, 0 = z - 2 y, the block's
+/// output u a discrete variable it sets from y.
+fn held_dae() -> (Hand, RunInfo) {
+    let model = Hand {
+        layout: layout(1, 1, 0, 1, 0, 0, 3),
+        f: Box::new(|i, out| {
+            out[0] = i.d[0] - i.y[0];
+            out[1] = i.y[1] - 2.0 * i.y[0];
+        }),
+        jvp: Box::new(|_, v, out| {
+            out[0] = -v[0];
+            out[1] = v[1] - 2.0 * v[0];
+        }),
+        roots: Box::new(|_, _| {}),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.y[1];
+            out[2] = i.d[0];
+        }),
+        when: nothing_v(),
+        modes: None,
+        y0: vec![1.0, 2.0],
+        d0: vec![0.0],
+    };
+    let mut info = RunInfo::bare(2, 3, vec![]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::Y(1), VarSource::D(0)];
+    (model, info)
+}
+
+/// A tick that changes its output a few ulps before the end time leaves
+/// an interval the integrators cannot step: the run ends there.
+#[test]
+fn a_tick_just_before_the_end_ends_the_run() {
+    // ticks every 0.03 s: the eleventh is at 0.32999999999999996, the end
+    // at 0.33
+    assert!(11.0 * std::hint::black_box(0.03) < 0.33);
+    let (model, mut info) = held_dae();
+    info.blocks = vec![block(vec![0], vec![0], 0.03)];
+    for backend in backends() {
+        let opts = SolverOptions { backend, rtol: 1e-9, atol: 1e-12, ..Default::default() };
+        let mut blocks: Vec<Box<dyn DiscreteBlock>> =
+            vec![Box::new(Sampled { period: 0.03, offset: 0.0, law: |t, _, o| o[0] = t })];
+        let grid = OutputGrid { t0: 0.0, t_end: 0.33, dt: 0.03 };
+        let run = simulate(&model, &info, &opts, grid, &mut blocks)
+            .unwrap_or_else(|e| panic!("{backend:?}: {e}"));
+        assert_eq!(*run.times.last().unwrap(), 0.33);
+        assert_eq!(run.report.block_changes, 11, "{backend:?}");
+        // the last output point carries the last tick's output
+        assert_eq!(*run.values[2].last().unwrap(), 11.0 * 0.03, "{backend:?}");
     }
 }

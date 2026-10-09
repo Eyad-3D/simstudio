@@ -104,6 +104,13 @@ struct Loop<'a> {
     scheduled: bool,
 }
 
+/// Whether two times are one instant to the integrators: closer than a
+/// few ulps, an interval they cannot step (SUNDIALS refuses one shorter
+/// than 2 ulps: "tout too close to t0").
+pub(crate) fn same_instant(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 16.0 * f64::EPSILON * a.abs().max(b.abs())
+}
+
 /// Maps an exact zero of a root function to the side it counts as, so a
 /// function resting at zero after its event does not fire again (the
 /// backends call this on every evaluation of the root functions).
@@ -768,12 +775,17 @@ pub fn run_loop(
                 t_stop = t_stop.min(c.next());
             }
         }
-        let st = integ.step(t_stop)?;
+        // a stop time a few ulps away (a tick that falls just before the
+        // end, two clocks' ticks that round apart) is this instant: the
+        // integrators cannot step so short an interval, and the solution
+        // does not move across it
+        let same = same_instant(t, t_stop);
+        let st = if same { Step::Stopped(t_stop) } else { integ.step(t_stop)? };
         let t_new = st.time();
         let is_root = matches!(st, Step::Root(..));
 
         // the integrator's error estimate
-        if integ.local_error(&mut local) {
+        if !same && integ.local_error(&mut local) {
             let yv = integ.y();
             for i in 0..n {
                 ymax[i] = ymax[i].max(yv[i].abs());

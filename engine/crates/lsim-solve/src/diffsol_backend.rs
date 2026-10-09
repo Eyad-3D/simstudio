@@ -272,7 +272,7 @@ where
 
     fn interp(&mut self, t: f64) -> Result<Vec<f64>, SolveError> {
         let ts = self.solver.state().t;
-        if t == ts || (t - ts).abs() <= 8.0 * f64::EPSILON * t.abs().max(1.0) {
+        if t == ts || crate::run::same_instant(t, ts) {
             return Ok(to_vec(self.solver.state().y));
         }
         let r = self.solver.interpolate_inplace(t, &mut self.tmp);
@@ -282,7 +282,7 @@ where
 
     fn interp_dy(&mut self, t: f64) -> Result<Vec<f64>, SolveError> {
         let ts = self.solver.state().t;
-        if t == ts || (t - ts).abs() <= 8.0 * f64::EPSILON * t.abs().max(1.0) {
+        if t == ts || crate::run::same_instant(t, ts) {
             return Ok(to_vec(self.solver.state().dy));
         }
         let r = self.solver.interpolate_dy_inplace(t, &mut self.tmp);
