@@ -124,20 +124,19 @@ pub(crate) fn module(
     Ok((m, decls))
 }
 
-/// The signature of every generated function:
-/// `(t, y, p, d, u, v, work, out, tables)`.
+/// The signature of every generated function: one pointer, to a
+/// [`crate::CallCtx`].
 pub(crate) fn eval_signature(m: &JITModule) -> Signature {
     let mut sig = m.make_signature();
-    sig.params.push(AbiParam::new(F64));
-    for _ in 0..8 {
-        sig.params.push(AbiParam::new(I64));
-    }
+    sig.params.push(AbiParam::new(I64));
     sig
 }
 
 /// A function's machine code, ready to define in the module.
 pub(crate) struct Compiled {
     pub id: FuncId,
+    /// Cranelift IR instructions
+    pub insts: usize,
     pub bytes: Vec<u8>,
     pub align: u64,
     pub relocs: Vec<ModuleReloc>,
@@ -152,6 +151,10 @@ fn compile_one(
 ) -> Result<Compiled, CodegenError> {
     let started = std::time::Instant::now();
     let insts = func.dfg.num_insts();
+    if let Some(dir) = std::env::var_os("LSIM_CODEGEN_DUMP") {
+        let path = std::path::Path::new(&dir).join(format!("f{}.clif", id.as_u32()));
+        let _ = std::fs::write(path, func.display().to_string());
+    }
     let mut ctx = Context::for_function(func);
     ctx.compile(&**isa, &mut ControlPlane::default())
         .map_err(|e| CodegenError::Backend(format!("{:?}", e.inner)))?;
@@ -172,7 +175,7 @@ fn compile_one(
             started.elapsed().as_secs_f64() * 1e3
         );
     }
-    Ok(Compiled { id, bytes, align, relocs })
+    Ok(Compiled { id, insts, bytes, align, relocs })
 }
 
 /// Builds (with `build(plan, chunk, id)`) and compiles every function,

@@ -136,13 +136,58 @@ impl ModelFunctions for Timed<'_> {
     }
 }
 
+/// Counts of what a model's assignments compute (`STATS=1`).
+fn stats(m: &lsim_ir::PreparedModel) {
+    use lsim_ir::expr::{BinaryOp, Expr};
+    use std::collections::BTreeMap;
+    let mut c: BTreeMap<String, usize> = BTreeMap::new();
+    let mut count = |e: &Expr| {
+        e.walk(&mut |x| {
+            let k = match x {
+                Expr::Binary(BinaryOp::Pow, _, b) => match **b {
+                    Expr::Const(n) => format!("pow {n}"),
+                    _ => "pow var".into(),
+                },
+                Expr::Binary(op, ..) => format!("{op:?}"),
+                Expr::Call(f, _) => f.name().to_string(),
+                Expr::Table { args, .. } => format!("table{}", args.len()),
+                Expr::If(..) => "if".into(),
+                Expr::Compare(..) => "compare".into(),
+                _ => return,
+            };
+            *c.entry(k).or_default() += 1;
+        })
+    };
+    for a in &m.assignments {
+        count(&a.expr);
+    }
+    for r in &m.residuals {
+        count(&r.expr);
+    }
+    let mut zc = 0;
+    for z in &m.zero_crossings {
+        z.expr.walk(&mut |_| zc += 1);
+    }
+    println!("  ops: {c:?}; zero-crossing nodes {zc}");
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let run_for: Option<f64> =
         args.iter().position(|a| a == "--run").and_then(|i| args.get(i + 1)?.parse().ok());
     let filter = args.first().filter(|a| !a.starts_with("--")).cloned().unwrap_or_default();
     let reps: usize = std::env::var("REPS").ok().and_then(|s| s.parse().ok()).unwrap_or(7);
-    let opts = CodegenOptions::default();
+    let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
+    let mut opts = CodegenOptions::default();
+    if let Ok(o) = std::env::var("OPT") {
+        opts.opt_level = leak(o);
+    }
+    if let Ok(r) = std::env::var("REGALLOC") {
+        opts.regalloc = leak(r);
+    }
+    if let Some(t) = std::env::var("THREADS").ok().and_then(|t| t.parse().ok()) {
+        opts.threads = t;
+    }
     for car in cars::cars(&filter) {
         let m = &car.model;
         let mut best = f64::INFINITY;
@@ -171,12 +216,14 @@ fn main() {
             l.n_vars
         );
         println!(
-            "  compile {:.2} ms best of {reps} (analysis {:.2}, IR {:.2}, codegen {:.2}; {} functions, {} kB, {} threads, opt {}, {}); Jacobian {} nnz, {} colours",
+            "  compile {:.2} ms best of {reps} (analysis {:.2}, IR {:.2}, codegen {:.2}; {} functions, {} instructions, {} taped operations, {} kB, {} threads, opt {}, {}); Jacobian {} nnz, {} colours",
             best * 1e3,
             r.analysis_seconds * 1e3,
             r.ir_seconds * 1e3,
             r.codegen_seconds * 1e3,
             r.functions,
+            r.instructions,
+            r.tape_ops,
             r.code_bytes / 1024,
             r.threads,
             r.opt_level,
@@ -184,6 +231,9 @@ fn main() {
             r.jac_nnz,
             r.jac_colours
         );
+        if std::env::var_os("STATS").is_some() {
+            stats(m);
+        }
         let p: Vec<f64> = m.flat.params.iter().map(|q| q.value).collect();
         let (y0, d0) = start_point(&j, &p);
         let u = vec![0.0; l.n_u];

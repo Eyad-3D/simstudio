@@ -5,14 +5,16 @@
 
 use crate::CodegenError;
 use crate::analysis::{Ctx, Row, Src, System, TableSite};
+use crate::backend::{Clif, Emit};
 use crate::jit::Import;
-use crate::lower::{Args, D, Lw, LwSetup, TanLayout, TanMode};
+use crate::lower::{D, Exact, Lw, LwSetup, TanLayout, TanMode};
+use crate::tape::{Recorder, Tape};
 use cranelift_codegen::ir::{Function, InstBuilder, Signature, UserFuncName};
 use cranelift_codegen::isa::TargetFrontendConfig;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::FuncId;
 use lsim_ir::prepared::{AliasTarget, Slot};
-use lsim_ir::{SparsityPattern, VarId};
+use lsim_ir::{Expr, SparsityPattern, VarId};
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -41,6 +43,21 @@ pub(crate) enum Kind {
 impl Kind {
     pub(crate) fn init(self) -> bool {
         matches!(self, Kind::InitResidual | Kind::InitJvp | Kind::InitJac | Kind::InitFinish)
+    }
+
+    /// Whether its arithmetic is the interpreter's to the bit (no
+    /// shortcuts): the functions the run loop compares with the
+    /// interpreter.
+    pub(crate) fn exact(self) -> Exact {
+        match self {
+            Kind::Roots | Kind::When | Kind::Modes | Kind::Guards => Exact::Interpreter,
+            _ => Exact::Fast,
+        }
+    }
+
+    /// Its machine functions' name.
+    pub(crate) fn fname(self) -> String {
+        self.name().to_string()
     }
 
     pub(crate) fn name(self) -> &'static str {
@@ -91,7 +108,7 @@ impl<'m> Env<'m> {
         if kind.init() { self.init.as_ref().expect("an initialisation system") } else { &self.main }
     }
 
-    fn coloured(&self, kind: Kind) -> &Coloured {
+    pub(crate) fn coloured(&self, kind: Kind) -> &Coloured {
         if kind.init() {
             self.init_jac.as_ref().expect("an initialisation system")
         } else {
@@ -281,7 +298,11 @@ fn kept(sys: &System<'_>, list: &[usize], seg: &[u32], tail: &[usize]) -> Vec<bo
 
 /// Plans a kind computing its own assignments, or `None` when it
 /// computes nothing.
-fn plan_kind(env: &Env<'_>, kind: Kind, shape: Shape) -> Result<Option<Plan>, CodegenError> {
+pub(crate) fn plan_kind(
+    env: &Env<'_>,
+    kind: Kind,
+    shape: Shape,
+) -> Result<Option<Plan>, CodegenError> {
     if !env.has_outputs(kind) {
         return Ok(None);
     }
@@ -301,10 +322,15 @@ fn plan_kind(env: &Env<'_>, kind: Kind, shape: Shape) -> Result<Option<Plan>, Co
 /// Every function of the model. A small model gets one self-contained
 /// function per kind (each computing only what its outputs need: fastest
 /// calls). A large one shares work to compile less: the residual's
-/// assignments keep every value in `work`, the channels add only the
-/// assignments the residual does not need, and Jacobian-vector products
-/// come from the coloured Jacobian.
-pub(crate) fn plans(env: &Env<'_>, shape: Shape, large: bool) -> Result<Vec<Plan>, CodegenError> {
+/// assignments keep every value in `work`, and the channels add only the
+/// assignments the residual does not need. Jacobian-vector products come
+/// from the coloured Jacobian unless `compile_jvp`.
+pub(crate) fn plans(
+    env: &Env<'_>,
+    shape: Shape,
+    large: bool,
+    compile_jvp: bool,
+) -> Result<Vec<Plan>, CodegenError> {
     let mut out = vec![];
     let mut push = |p: Option<Plan>| {
         if let Some(p) = p {
@@ -312,7 +338,7 @@ pub(crate) fn plans(env: &Env<'_>, shape: Shape, large: bool) -> Result<Vec<Plan
         }
     };
     if !large {
-        for kind in [Kind::Residual, Kind::Jvp, Kind::Jac, Kind::Vars] {
+        for kind in [Kind::Residual, Kind::Jac, Kind::Vars] {
             push(plan_kind(env, kind, shape)?);
         }
     } else {
@@ -363,6 +389,9 @@ pub(crate) fn plans(env: &Env<'_>, shape: Shape, large: bool) -> Result<Vec<Plan
         }
         push(plan_kind(env, Kind::Jac, shape)?);
     }
+    if compile_jvp {
+        push(plan_kind(env, Kind::Jvp, shape)?);
+    }
     for kind in [
         Kind::Roots,
         Kind::When,
@@ -389,6 +418,47 @@ pub(crate) fn work_need(env: &Env<'_>, plan: &Plan, tan: &TanLayout) -> usize {
     }
 }
 
+/// What a plan's lowering is set up with.
+fn setup<'a>(env: &'a Env<'a>, plan: &'a Plan, tan: &'a TanLayout) -> LwSetup<'a> {
+    LwSetup {
+        cx: &env.cx,
+        sys: env.sys(plan.kind),
+        mode: env.mode(plan.kind),
+        exact: plan.kind.exact(),
+        fma: env.fma,
+        keep: &plan.keep,
+        tan,
+    }
+}
+
+/// Lowers positions `range` of a plan's list (and its outputs when
+/// `outputs`) into `lw`.
+fn lower_range<E: Emit>(
+    lw: &mut Lw<'_, E>,
+    env: &Env<'_>,
+    plan: &Plan,
+    range: std::ops::Range<usize>,
+    outputs_too: bool,
+) -> Result<(), CodegenError> {
+    let sys = env.sys(plan.kind);
+    for q in range.clone() {
+        if q > range.start && plan.seg[q] != plan.seg[q - 1] {
+            lw.new_segment();
+        }
+        let k = plan.list[q];
+        let d = lw.lower(sys.exprs[k])?;
+        lw.define(k, d);
+    }
+    if outputs_too {
+        let n = plan.list.len();
+        if n > 0 && plan.seg[n] != plan.seg[n - 1] {
+            lw.new_segment();
+        }
+        outputs(lw, env, plan.kind)?;
+    }
+    Ok(())
+}
+
 /// Builds the IR of one chunk of a plan.
 pub(crate) fn build_chunk(
     env: &Env<'_>,
@@ -399,8 +469,6 @@ pub(crate) fn build_chunk(
     sig: &Signature,
     fc: TargetFrontendConfig,
 ) -> Result<Function, CodegenError> {
-    let kind = plan.kind;
-    let sys = env.sys(kind);
     let range = plan.chunks[c].clone();
     let mut fctx = FunctionBuilderContext::new();
     let mut func = Function::with_name_signature(UserFuncName::user(0, id.as_u32()), sig.clone());
@@ -409,53 +477,37 @@ pub(crate) fn build_chunk(
         let block = b.create_block();
         b.append_block_params_for_function_params(block);
         b.switch_to_block(block);
-        let p = b.block_params(block).to_vec();
-        let args = Args {
-            t: p[0],
-            y: p[1],
-            p: p[2],
-            d: p[3],
-            u: p[4],
-            v: p[5],
-            work: p[6],
-            out: p[7],
-            tabs: p[8],
-        };
-        let setup = LwSetup {
-            cx: &env.cx,
-            sys,
-            decls: &env.decls,
-            mode: env.mode(kind),
-            when: kind == Kind::When,
-            fma: env.fma,
-            keep: &plan.keep,
-            tan,
-        };
-        let mut lw = Lw::new(&mut b, setup, args);
-        for q in range.clone() {
-            if q > range.start && plan.seg[q] != plan.seg[q - 1] {
-                lw.new_segment();
-            }
-            let k = plan.list[q];
-            let d = lw.lower(sys.exprs[k])?;
-            lw.define(k, d);
+        let ctx = b.block_params(block)[0];
+        {
+            let e = Clif::new(&mut b, ctx, &env.decls);
+            let mut lw = Lw::new(e, setup(env, plan, tan));
+            let last = plan.outputs && c + 1 == plan.chunks.len();
+            lower_range(&mut lw, env, plan, range, last)?;
         }
-        if plan.outputs && c + 1 == plan.chunks.len() {
-            let n = plan.list.len();
-            if n > 0 && plan.seg[n] != plan.seg[n - 1] {
-                lw.new_segment();
-            }
-            outputs(&mut lw, env, kind)?;
-        }
-        lw.b.ins().return_(&[]);
+        b.ins().return_(&[]);
         b.seal_all_blocks();
         b.finalize(fc);
     }
     Ok(func)
 }
 
+/// Records a whole plan (every chunk, then its outputs) on a tape.
+pub(crate) fn build_tape(
+    env: &Env<'_>,
+    plan: &Plan,
+    tan: &TanLayout,
+) -> Result<Tape, CodegenError> {
+    let mut lw = Lw::new(Recorder::default(), setup(env, plan, tan));
+    lower_range(&mut lw, env, plan, 0..plan.list.len(), plan.outputs)?;
+    Ok(lw.e.finish())
+}
+
 /// The value of an output row.
-fn row(lw: &mut Lw<'_, '_>, sys: &System<'_>, r: &Row<'_>) -> Result<D, CodegenError> {
+fn row<E: Emit>(
+    lw: &mut Lw<'_, E>,
+    sys: &System<'_>,
+    r: &Row<'_>,
+) -> Result<D<E::V>, CodegenError> {
     match r {
         Row::Slot(s) => {
             let src = sys.row_src(*s)?;
@@ -465,16 +517,59 @@ fn row(lw: &mut Lw<'_, '_>, sys: &System<'_>, r: &Row<'_>) -> Result<D, CodegenE
     }
 }
 
+/// The order in which the `when` clauses' assignments are applied: each
+/// after every assignment of a discrete variable it reads directly (not
+/// through `pre`), so that it reads that variable's new value; otherwise
+/// in the order written (an assignment reading its own target, or a cycle
+/// among them, reads the values assigned so far). Items are (clause,
+/// position in the clause).
+pub(crate) fn when_order(m: &lsim_ir::PreparedModel) -> Vec<(usize, usize)> {
+    let items: Vec<(usize, usize)> = m
+        .whens
+        .iter()
+        .enumerate()
+        .flat_map(|(w, c)| (0..c.assign.len()).map(move |k| (w, k)))
+        .collect();
+    let n = items.len();
+    let target = |i: usize| m.whens[items[i].0].assign[items[i].1].0;
+    // per item: the items that must come first
+    let mut before: Vec<Vec<usize>> = vec![vec![]; n];
+    for i in 0..n {
+        let expr = &m.whens[items[i].0].assign[items[i].1].1;
+        let mut reads = vec![];
+        expr.walk(&mut |x| {
+            if let Expr::Var(v) = x {
+                reads.push(*v);
+            }
+        });
+        for j in 0..n {
+            if j != i && target(j) != target(i) && reads.contains(&target(j)) {
+                before[i].push(j);
+            }
+        }
+    }
+    // Kahn's algorithm, the earliest written first; what is left of a
+    // cycle in the order written
+    let mut done = vec![false; n];
+    let mut order = Vec::with_capacity(n);
+    while order.len() < n {
+        let next = (0..n).find(|&i| !done[i] && before[i].iter().all(|&j| done[j]));
+        let i = next.unwrap_or_else(|| (0..n).find(|&i| !done[i]).expect("one left"));
+        done[i] = true;
+        order.push(items[i]);
+    }
+    order
+}
+
 /// Emits the kind's outputs.
-fn outputs(lw: &mut Lw<'_, '_>, env: &Env<'_>, kind: Kind) -> Result<(), CodegenError> {
+fn outputs<E: Emit>(lw: &mut Lw<'_, E>, env: &Env<'_>, kind: Kind) -> Result<(), CodegenError> {
     let m = env.cx.model;
     let sys = env.sys(kind);
-    let out = lw.a.out;
     match kind {
         Kind::Residual | Kind::ResidualOut | Kind::InitResidual => {
             for (i, r) in sys.rows.iter().enumerate() {
                 let d = row(lw, sys, r)?;
-                lw.store(out, i, d.v);
+                lw.store_out(i, d.v);
             }
         }
         Kind::Jvp | Kind::InitJvp => {
@@ -484,7 +579,7 @@ fn outputs(lw: &mut Lw<'_, '_>, env: &Env<'_>, kind: Kind) -> Result<(), Codegen
                     Some(&(_, x)) => lw.tv(x),
                     None => lw.cst(0.0),
                 };
-                lw.store(out, i, v);
+                lw.store_out(i, v);
             }
         }
         Kind::Jac | Kind::InitJac => {
@@ -499,7 +594,7 @@ fn outputs(lw: &mut Lw<'_, '_>, env: &Env<'_>, kind: Kind) -> Result<(), Codegen
                         )));
                     };
                     let v = lw.tv(x);
-                    lw.store(out, k, v);
+                    lw.store_out(k, v);
                     written[k] = true;
                 }
             }
@@ -507,7 +602,7 @@ fn outputs(lw: &mut Lw<'_, '_>, env: &Env<'_>, kind: Kind) -> Result<(), Codegen
                 let zero = lw.cst(0.0);
                 for (k, w) in written.iter().enumerate() {
                     if !w {
-                        lw.store(out, k, zero);
+                        lw.store_out(k, zero);
                     }
                 }
             }
@@ -515,7 +610,7 @@ fn outputs(lw: &mut Lw<'_, '_>, env: &Env<'_>, kind: Kind) -> Result<(), Codegen
         Kind::Roots => {
             for (k, z) in m.zero_crossings.iter().enumerate() {
                 let d = lw.lower(&z.expr)?;
-                lw.store(out, k, d.v);
+                lw.store_out(k, d.v);
             }
         }
         Kind::VarsRest => {}
@@ -526,41 +621,37 @@ fn outputs(lw: &mut Lw<'_, '_>, env: &Env<'_>, kind: Kind) -> Result<(), Codegen
                     Some(AliasTarget::Var { var, negated }) => {
                         let s = sys.resolve(&env.cx, *var, false)?;
                         let x = lw.src(s, false)?.v;
-                        if *negated { lw.b.ins().fneg(x) } else { x }
+                        if *negated { lw.e.neg(x) } else { x }
                     }
                     None => {
                         let s = sys.resolve(&env.cx, VarId(i as u32), false)?;
                         lw.src(s, false)?.v
                     }
                 };
-                lw.store(out, i, v);
+                lw.store_out(i, v);
             }
         }
         Kind::When => {
-            let fired = lw.a.v;
-            for (k, w) in m.whens.iter().enumerate() {
-                if w.assign.is_empty() {
-                    continue;
-                }
-                let f = lw.b.ins().load(
-                    cranelift_codegen::ir::types::F64,
-                    cranelift_codegen::ir::MemFlagsData::trusted(),
-                    fired,
-                    (8 * k) as i32,
-                );
+            for (w, k) in when_order(m) {
+                let (var, expr) = &m.whens[w].assign[k];
+                let Some(&idx) = env.cx.d_index.get(&var.0) else {
+                    return Err(CodegenError::Unsupported(format!(
+                        "a when clause assigns {:?}, which is not a discrete variable",
+                        m.flat.var(*var).name
+                    )));
+                };
+                let f = lw.load_v(w);
                 let cond = lw.is_true(f);
-                for (var, expr) in &w.assign {
-                    let Some(&idx) = env.cx.d_index.get(&var.0) else {
-                        return Err(CodegenError::Unsupported(format!(
-                            "a when clause assigns {:?}, which is not a discrete variable",
-                            m.flat.var(*var).name
-                        )));
-                    };
-                    let new = lw.lower(expr)?.v;
-                    let old = lw.src(Src::D(idx), false)?.v;
-                    let v = lw.b.ins().select(cond, new, old);
-                    lw.store(out, idx, v);
-                }
+                // a discrete variable it reads directly: its new value (as
+                // assigned so far, in `when_order`); `pre`: the value
+                // before the event; the assignments it reads: before the
+                // event
+                lw.when_new = true;
+                let new = lw.lower(expr)?.v;
+                let old = lw.src(Src::D(idx), false)?.v;
+                lw.when_new = false;
+                let v = lw.e.select(cond, new, old);
+                lw.store_out(idx, v);
             }
         }
         Kind::Modes => {
@@ -573,10 +664,8 @@ fn outputs(lw: &mut Lw<'_, '_>, env: &Env<'_>, kind: Kind) -> Result<(), Codegen
                 };
                 let d = lw.lower(&md.relation)?;
                 let c = lw.is_true(d.v);
-                let one = lw.cst(1.0);
-                let zero = lw.cst(0.0);
-                let v = lw.b.ins().select(c, one, zero);
-                lw.store(out, idx, v);
+                let v = lw.as_number(c);
+                lw.store_out(idx, v);
             }
         }
         Kind::Guards => {
@@ -584,8 +673,8 @@ fn outputs(lw: &mut Lw<'_, '_>, env: &Env<'_>, kind: Kind) -> Result<(), Codegen
             for s in &env.sites {
                 for (axis, a) in s.args.iter().enumerate() {
                     let x = lw.lower(a)?.v;
-                    let v = lw.table_guard(s.table, axis as u8, x);
-                    lw.store(out, g, v);
+                    let v = lw.e.table_guard(s.table, axis as u8, x);
+                    lw.store_out(g, v);
                     g += 1;
                 }
             }
@@ -603,7 +692,7 @@ fn outputs(lw: &mut Lw<'_, '_>, env: &Env<'_>, kind: Kind) -> Result<(), Codegen
                     };
                     lw.cst(start)
                 };
-                lw.store(out, i, v);
+                lw.store_out(i, v);
             }
         }
     }

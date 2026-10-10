@@ -6,8 +6,8 @@
 //! | function | computes |
 //! |---|---|
 //! | `residual` | `[x'; g]`: the state derivatives, then the residuals |
-//! | `jvp` | `(∂[x'; g]/∂y)·v` in forward mode (dual numbers): exact |
-//! | `jacobian_sparse` | every structural non-zero of `∂[x'; g]/∂y`, column-compressed, in one forward sweep over the colours of a column colouring |
+//! | `jacobian_sparse` | every structural non-zero of `∂[x'; g]/∂y`, column-compressed, in one forward sweep over the colours of a column colouring (dual numbers: exact) |
+//! | `jvp` | `(∂[x'; g]/∂y)·v`, from the coloured Jacobian (exact) |
 //! | `roots` | the zero-crossing functions |
 //! | `vars` | every flat variable, aliases included (the recorded channels) |
 //! | `when` | the discrete variables after the fired `when` clauses |
@@ -15,11 +15,20 @@
 //! | `table_guards` | how far inside its data each table read is (for the run loop's outside-the-data handling) |
 //! | initialisation | the initialisation problem's residuals, Jacobian and the start vector it gives ([`lsim_ir::InitFunctions`]) |
 //!
+//! The functions a run calls only a handful of times (the
+//! initialisation's) are not compiled: the same lowering records them on
+//! a tape that a tight loop interprets (`tape.rs`), bitwise what their
+//! machine code would compute, at no compile time.
+//!
 //! Parameters, discrete variables, inputs and table data are read from
 //! memory at every call, so changing them never recompiles. Transcendental
 //! functions call the Rust standard library (the reference interpreter's
-//! own functions, so results agree bit for bit); tables call the
-//! [`tables`] runtime (monotone cubic, C¹).
+//! own functions); tables call the [`tables`] runtime (monotone cubic,
+//! C¹). The functions the run loop compares with the interpreter (zero
+//! crossings, modes, `when` clauses, table guards) are bitwise
+//! `lsim_ir::eval`; the residual, the Jacobian and the channels may
+//! multiply a constant integer power out (within one rounding of the
+//! exact power).
 //!
 //! Large models compile in bounded time: each function only computes the
 //! assignments its outputs need, values pass between distant assignments
@@ -28,10 +37,12 @@
 //! compile on several threads (DESIGN.md, *Code generation*).
 
 mod analysis;
+mod backend;
 mod emit;
 mod jit;
 mod lower;
 pub mod tables;
+mod tape;
 
 pub use jit::MATH_SYMBOLS;
 
@@ -49,6 +60,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tables::{Table, TableStore};
+use tape::Tape;
 
 /// Why compilation failed.
 #[derive(Debug, thiserror::Error)]
@@ -88,6 +100,13 @@ pub struct CodegenOptions {
     pub segment_nodes: usize,
     /// Threads to compile on (0: as many as the machine has, at most 4).
     pub threads: usize,
+    /// The initialisation's functions run on a tape (`true`, the default:
+    /// a run calls them a handful of times) rather than as machine code.
+    pub tape_init: bool,
+    /// Jacobian-vector products get their own machine code (`false`, the
+    /// default: they come from the coloured Jacobian, exact, and a run
+    /// calls them rarely).
+    pub compile_jvp: bool,
 }
 
 impl Default for CodegenOptions {
@@ -99,6 +118,8 @@ impl Default for CodegenOptions {
             chunk_nodes: 12_000,
             segment_nodes: 48,
             threads: 0,
+            tape_init: true,
+            compile_jvp: false,
         }
     }
 }
@@ -110,12 +131,16 @@ pub struct CompileReport {
     pub seconds: f64,
     /// analysis (dependencies, sparsity, colouring, plans), s
     pub analysis_seconds: f64,
-    /// building Cranelift IR, s
+    /// building Cranelift IR and tapes, s (summed over threads)
     pub ir_seconds: f64,
-    /// Cranelift's compilation and linking, s
+    /// Cranelift's compilation and linking, s (summed over threads)
     pub codegen_seconds: f64,
     /// machine functions
     pub functions: usize,
+    /// operations recorded on tapes
+    pub tape_ops: usize,
+    /// Cranelift IR instructions compiled
+    pub instructions: usize,
     /// bytes of machine code
     pub code_bytes: usize,
     /// the optimisation level used
@@ -132,29 +157,87 @@ pub struct CompileReport {
     pub jac_colours: usize,
 }
 
-type RawFn = unsafe extern "C" fn(
-    f64,
-    *const f64,
-    *const f64,
-    *const f64,
-    *const f64,
-    *const f64,
-    *mut f64,
-    *mut f64,
-    *const *const Table,
-);
+/// What a generated function reads and writes: its one argument points to
+/// this (the generated code loads the fields at fixed offsets:
+/// `backend.rs`, `Base`).
+#[repr(C)]
+struct CallCtx {
+    t: f64,
+    y: *const f64,
+    p: *const f64,
+    d: *const f64,
+    u: *const f64,
+    v: *const f64,
+    work: *mut f64,
+    out: *mut f64,
+    tabs: *const *const Table,
+}
 
-/// A function as a sequence of machine functions (one per chunk).
+type RawFn = unsafe extern "C" fn(*const CallCtx);
+
+/// One function of the model: machine code (a machine function per
+/// chunk), a tape, or nothing to compute.
 #[derive(Clone, Default)]
-struct Prog(Vec<RawFn>);
+enum Code {
+    #[default]
+    Empty,
+    Machine(Vec<RawFn>),
+    /// its registers in `work` from `regs_at` on
+    Tape {
+        tape: Arc<Tape>,
+        regs_at: usize,
+    },
+}
 
-/// How Jacobian-vector products are computed.
-#[derive(Clone)]
-enum JvpCode {
-    /// their own forward-mode code (small models: fastest)
-    Compiled(Prog),
-    /// from the coloured Jacobian, exact (large models: less to compile)
-    ViaJacobian,
+impl Code {
+    /// Runs it. `work` and `out` must have the lengths the code was made
+    /// for (checked by the callers), `v` the vector it reads (`fired`, a
+    /// direction) or nothing.
+    fn call(
+        &self,
+        inp: &EvalInput<'_>,
+        v: &[f64],
+        work: &mut [f64],
+        out: &mut [f64],
+        tables: &TableStore,
+    ) {
+        match self {
+            Code::Empty => {}
+            Code::Machine(fns) => {
+                let ctx = CallCtx {
+                    t: inp.t,
+                    y: inp.y.as_ptr(),
+                    p: inp.p.as_ptr(),
+                    d: inp.d.as_ptr(),
+                    u: inp.u.as_ptr(),
+                    v: v.as_ptr(),
+                    work: work.as_mut_ptr(),
+                    out: out.as_mut_ptr(),
+                    tabs: tables.ptrs(),
+                };
+                for f in fns {
+                    // SAFETY: the code reads and writes the arrays within
+                    // the lengths it was generated for, which the callers
+                    // check against the layout before calling.
+                    unsafe { f(&ctx) }
+                }
+            }
+            Code::Tape { tape, regs_at } => {
+                let (w, regs) = work.split_at_mut(*regs_at);
+                let a = tape::Arrays {
+                    t: inp.t,
+                    y: inp.y,
+                    p: inp.p,
+                    d: inp.d,
+                    u: inp.u,
+                    v,
+                    work: w,
+                    out,
+                };
+                tape.run(a, tables, regs);
+            }
+        }
+    }
 }
 
 /// Where a channel's value is read after the primal code ran.
@@ -171,9 +254,9 @@ enum VarSrc {
 #[derive(Clone)]
 enum VarsCode {
     /// their own code (small models)
-    Compiled(Prog),
+    Own(Code),
     /// the residual's assignments and the rest, then gathered (large models)
-    Gather { prog: Prog, map: Vec<VarSrc> },
+    Gather { code: Code, map: Vec<VarSrc> },
 }
 
 /// Where each flat variable's value is found once every assignment ran.
@@ -207,52 +290,22 @@ unsafe impl Send for CodeMemory {}
 // SAFETY: as above: shared references never mutate the module.
 unsafe impl Sync for CodeMemory {}
 
-/// Calls each machine function of `prog` in order.
-///
-/// # Safety
-/// The pointers must be valid for the lengths the code was generated for.
-#[inline]
-#[allow(clippy::too_many_arguments)]
-unsafe fn run(
-    prog: &Prog,
-    inp: &EvalInput<'_>,
-    v: *const f64,
-    work: *mut f64,
-    out: *mut f64,
-    tabs: *const *const Table,
-) {
-    for f in &prog.0 {
-        // SAFETY: by the caller's contract.
-        unsafe {
-            f(
-                inp.t,
-                inp.y.as_ptr(),
-                inp.p.as_ptr(),
-                inp.d.as_ptr(),
-                inp.u.as_ptr(),
-                v,
-                work,
-                out,
-                tabs,
-            )
-        }
-    }
-}
-
 /// A compiled model. Cloning is cheap (the machine code is shared).
 #[derive(Clone)]
 pub struct JitModel {
     layout: Layout,
-    residual: Prog,
-    jvp: JvpCode,
-    jac: Prog,
-    roots: Prog,
+    residual: Code,
+    /// own Jacobian-vector products (`None`: from the coloured Jacobian)
+    jvp: Option<Code>,
+    jac: Code,
+    roots: Code,
     vars: VarsCode,
-    when: Prog,
-    modes: Prog,
-    guards: Prog,
+    when: Code,
+    modes: Code,
+    guards: Code,
     pattern: SparsityPattern,
-    /// where `jacobian_dense` keeps the compressed values in `work`
+    /// where `jacobian_dense` and `jvp` keep the compressed values in
+    /// `work`
     jac_scratch: usize,
     y0: Vec<f64>,
     d0: Vec<f64>,
@@ -275,10 +328,10 @@ struct JitInit {
     n_w: usize,
     w0: Vec<f64>,
     layout: Layout,
-    residual: Prog,
-    jvp: Prog,
-    jac: Prog,
-    finish: Prog,
+    residual: Code,
+    jvp: Code,
+    jac: Code,
+    finish: Code,
     pattern: SparsityPattern,
     tables: Arc<TableStore>,
 }
@@ -303,18 +356,7 @@ impl JitModel {
     /// per colour, exact.
     pub fn jacobian_sparse(&self, inp: &EvalInput<'_>, work: &mut [f64], values: &mut [f64]) {
         self.check(inp, work, values.len(), self.pattern.nnz());
-        // SAFETY: lengths checked above; the code writes `values[..nnz]`
-        // and `work[..n_work]` only.
-        unsafe {
-            run(
-                &self.jac,
-                inp,
-                std::ptr::null(),
-                work.as_mut_ptr(),
-                values.as_mut_ptr(),
-                self.tables.ptrs(),
-            )
-        }
+        self.jac.call(inp, &[], &mut work[..self.jac_scratch], values, &self.tables);
     }
 
     /// Evaluates the Jacobian's values into the end of `work` (checked
@@ -322,15 +364,9 @@ impl JitModel {
     fn jac_into_work<'w>(&self, inp: &EvalInput<'_>, work: &'w mut [f64]) -> &'w [f64] {
         let nnz = self.pattern.nnz();
         let base = self.jac_scratch;
-        assert!(work.len() >= base + nnz);
-        // SAFETY: the generated code uses `work[..base]` and writes the
-        // values to `work[base..base + nnz]` (in bounds, checked above):
-        // disjoint ranges.
-        unsafe {
-            let w = work.as_mut_ptr();
-            run(&self.jac, inp, std::ptr::null(), w, w.add(base), self.tables.ptrs());
-        }
-        &work[base..base + nnz]
+        let (w, vals) = work.split_at_mut(base);
+        self.jac.call(inp, &[], w, &mut vals[..nnz], &self.tables);
+        &vals[..nnz]
     }
 
     /// The structure [`JitModel::jacobian_sparse`] fills.
@@ -382,38 +418,15 @@ impl ModelFunctions for JitModel {
 
     fn residual(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]) {
         self.check(inp, work, out.len(), self.layout.n_y());
-        // SAFETY: the slices have the lengths the code was generated for
-        // (checked above); the code only reads and writes inside them.
-        unsafe {
-            run(
-                &self.residual,
-                inp,
-                std::ptr::null(),
-                work.as_mut_ptr(),
-                out.as_mut_ptr(),
-                self.tables.ptrs(),
-            )
-        }
+        self.residual.call(inp, &[], work, out, &self.tables);
     }
 
     fn jvp(&self, inp: &EvalInput<'_>, v: &[f64], work: &mut [f64], out: &mut [f64]) {
         self.check(inp, work, out.len(), self.layout.n_y());
         assert_eq!(v.len(), self.layout.n_y());
         match &self.jvp {
-            JvpCode::Compiled(prog) => {
-                // SAFETY: as in `residual`; `v` has n_y values.
-                unsafe {
-                    run(
-                        prog,
-                        inp,
-                        v.as_ptr(),
-                        work.as_mut_ptr(),
-                        out.as_mut_ptr(),
-                        self.tables.ptrs(),
-                    )
-                }
-            }
-            JvpCode::ViaJacobian => {
+            Some(code) => code.call(inp, v, work, out, &self.tables),
+            None => {
                 let vals = self.jac_into_work(inp, work);
                 out.fill(0.0);
                 let p = &self.pattern;
@@ -430,47 +443,15 @@ impl ModelFunctions for JitModel {
 
     fn roots(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]) {
         self.check(inp, work, out.len(), self.layout.n_roots);
-        // SAFETY: as in `residual`.
-        unsafe {
-            run(
-                &self.roots,
-                inp,
-                std::ptr::null(),
-                work.as_mut_ptr(),
-                out.as_mut_ptr(),
-                self.tables.ptrs(),
-            )
-        }
+        self.roots.call(inp, &[], work, out, &self.tables);
     }
 
     fn vars(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]) {
         self.check(inp, work, out.len(), self.layout.n_vars);
         match &self.vars {
-            VarsCode::Compiled(prog) => {
-                // SAFETY: as in `residual`.
-                unsafe {
-                    run(
-                        prog,
-                        inp,
-                        std::ptr::null(),
-                        work.as_mut_ptr(),
-                        out.as_mut_ptr(),
-                        self.tables.ptrs(),
-                    )
-                }
-            }
-            VarsCode::Gather { prog, map } => {
-                // SAFETY: as in `residual`; the code writes `work` only.
-                unsafe {
-                    run(
-                        prog,
-                        inp,
-                        std::ptr::null(),
-                        work.as_mut_ptr(),
-                        std::ptr::null_mut(),
-                        self.tables.ptrs(),
-                    )
-                }
+            VarsCode::Own(code) => code.call(inp, &[], work, out, &self.tables),
+            VarsCode::Gather { code, map } => {
+                code.call(inp, &[], work, &mut [], &self.tables);
                 let sign = |x: f64, neg: bool| if neg { -x } else { x };
                 for (o, s) in out.iter_mut().zip(map) {
                     *o = match *s {
@@ -488,17 +469,7 @@ impl ModelFunctions for JitModel {
     fn when(&self, inp: &EvalInput<'_>, fired: &[f64], work: &mut [f64], d_out: &mut [f64]) {
         self.check(inp, work, d_out.len(), self.layout.n_d);
         assert_eq!(fired.len(), self.layout.n_whens);
-        // SAFETY: as in `residual`; `fired` has one value per when-clause.
-        unsafe {
-            run(
-                &self.when,
-                inp,
-                fired.as_ptr(),
-                work.as_mut_ptr(),
-                d_out.as_mut_ptr(),
-                self.tables.ptrs(),
-            )
-        }
+        self.when.call(inp, fired, work, d_out, &self.tables);
     }
 
     fn start(&self, _p: &[f64], y0: &mut [f64], d0: &mut [f64]) {
@@ -529,17 +500,7 @@ impl ModelFunctions for JitModel {
 
     fn modes(&self, inp: &EvalInput<'_>, work: &mut [f64], d_out: &mut [f64]) {
         self.check(inp, work, d_out.len(), self.layout.n_d);
-        // SAFETY: as in `residual`.
-        unsafe {
-            run(
-                &self.modes,
-                inp,
-                std::ptr::null(),
-                work.as_mut_ptr(),
-                d_out.as_mut_ptr(),
-                self.tables.ptrs(),
-            )
-        }
+        self.modes.call(inp, &[], work, d_out, &self.tables);
     }
 
     fn init(&self) -> Option<&dyn InitFunctions> {
@@ -552,17 +513,7 @@ impl ModelFunctions for JitModel {
 
     fn table_guards(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]) {
         self.check(inp, work, out.len(), self.guard_list.len());
-        // SAFETY: as in `residual`.
-        unsafe {
-            run(
-                &self.guards,
-                inp,
-                std::ptr::null(),
-                work.as_mut_ptr(),
-                out.as_mut_ptr(),
-                self.tables.ptrs(),
-            )
-        }
+        self.guards.call(inp, &[], work, out, &self.tables);
     }
 
     fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
@@ -607,26 +558,13 @@ impl InitFunctions for JitInit {
 
     fn residual(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]) {
         self.check(inp, work, out.len(), self.n_w);
-        // SAFETY: as in `JitModel::residual`.
-        unsafe {
-            run(
-                &self.residual,
-                inp,
-                std::ptr::null(),
-                work.as_mut_ptr(),
-                out.as_mut_ptr(),
-                self.tables.ptrs(),
-            )
-        }
+        self.residual.call(inp, &[], work, out, &self.tables);
     }
 
     fn jvp(&self, inp: &EvalInput<'_>, v: &[f64], work: &mut [f64], out: &mut [f64]) {
         self.check(inp, work, out.len(), self.n_w);
         assert_eq!(v.len(), self.n_w);
-        // SAFETY: as in `JitModel::jvp`.
-        unsafe {
-            run(&self.jvp, inp, v.as_ptr(), work.as_mut_ptr(), out.as_mut_ptr(), self.tables.ptrs())
-        }
+        self.jvp.call(inp, v, work, out, &self.tables);
     }
 
     fn sparsity(&self) -> &SparsityPattern {
@@ -635,32 +573,12 @@ impl InitFunctions for JitInit {
 
     fn jacobian_sparse(&self, inp: &EvalInput<'_>, work: &mut [f64], values: &mut [f64]) {
         self.check(inp, work, values.len(), self.pattern.nnz());
-        // SAFETY: as in `JitModel::jacobian_sparse`.
-        unsafe {
-            run(
-                &self.jac,
-                inp,
-                std::ptr::null(),
-                work.as_mut_ptr(),
-                values.as_mut_ptr(),
-                self.tables.ptrs(),
-            )
-        }
+        self.jac.call(inp, &[], work, values, &self.tables);
     }
 
     fn finish(&self, inp: &EvalInput<'_>, work: &mut [f64], y0: &mut [f64]) {
         self.check(inp, work, y0.len(), self.layout.n_y());
-        // SAFETY: as in `JitModel::residual`; `y0` has the model's n_y.
-        unsafe {
-            run(
-                &self.finish,
-                inp,
-                std::ptr::null(),
-                work.as_mut_ptr(),
-                y0.as_mut_ptr(),
-                self.tables.ptrs(),
-            )
-        }
+        self.finish.call(inp, &[], work, y0, &self.tables);
     }
 }
 
@@ -766,7 +684,7 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
         model.aliases.iter().map(|a| (a.var.0, a.target)).collect();
     let env = Env { cx, main, init, main_jac, init_jac, sites, decls, fma, alias, main_slots };
     let shape = Shape { chunk_nodes: opts.chunk_nodes.max(1), segment_nodes: opts.segment_nodes };
-    let plans: Vec<Plan> = emit::plans(&env, shape, large)?;
+    let plans: Vec<Plan> = emit::plans(&env, shape, large, opts.compile_jvp)?;
     // where kept tangents live, per system and tangent mode
     let tan_none = TanLayout { slots: vec![], end: 0 };
     let tan_main_jvp = TanLayout::new(&env.main, env.mode(Kind::Jvp));
@@ -787,6 +705,7 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
             _ => &tan_none,
         }
     };
+    let taped = |kind: Kind| opts.tape_init && kind.init();
     let sig = jit::eval_signature(&module);
     let trace = std::env::var_os("LSIM_CODEGEN_TRACE").is_some();
     let mut ids: Vec<Vec<FuncId>> = vec![];
@@ -794,18 +713,21 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
     for (i, p) in plans.iter().enumerate() {
         let sys = env.sys(p.kind);
         let mut v = vec![];
-        for (c, r) in p.chunks.iter().enumerate() {
-            let id = module
-                .declare_function(&format!("{}_{c}", p.kind.name()), Linkage::Local, &sig)
-                .map_err(|e| CodegenError::Backend(e.to_string()))?;
-            v.push(id);
-            let size: usize = p.list[r.clone()].iter().map(|&k| sys.size[k]).sum();
-            jobs.push((i, c, id, size));
+        if !taped(p.kind) {
+            for (c, r) in p.chunks.iter().enumerate() {
+                let id = module
+                    .declare_function(&format!("{}_{c}", p.kind.fname()), Linkage::Local, &sig)
+                    .map_err(|e| CodegenError::Backend(e.to_string()))?;
+                v.push(id);
+                let size: usize = p.list[r.clone()].iter().map(|&k| sys.size[k]).sum();
+                jobs.push((i, c, id, size));
+            }
         }
         if trace {
             eprintln!(
-                "lsim-codegen: {} = functions {:?}: {} assignments, {} nodes, {} kept",
-                p.kind.name(),
+                "lsim-codegen: {} = {} {:?}: {} assignments, {} nodes, {} kept",
+                p.kind.fname(),
+                if taped(p.kind) { "tape" } else { "functions" },
                 v.iter().map(|i| i.as_u32()).collect::<Vec<_>>(),
                 p.list.len(),
                 p.nodes,
@@ -816,11 +738,21 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
     }
     let analysis_done = Instant::now();
 
+    // the tapes
+    let mut tapes: HashMap<Kind, Arc<Tape>> = HashMap::new();
+    let mut tape_ops = 0;
+    for p in plans.iter().filter(|p| taped(p.kind)) {
+        let t = emit::build_tape(&env, p, tan_of(p.kind))?;
+        tape_ops += t.ops.len();
+        tapes.insert(p.kind, Arc::new(t));
+    }
+    let tape_seconds = analysis_done.elapsed().as_secs_f64();
+
     // Cranelift IR and machine code, chunk by chunk, on several threads
     // for big models
     let threads = match opts.threads {
         0 => {
-            if nodes < 3_000 {
+            if nodes < 1_000 {
                 1
             } else {
                 jit::default_threads()
@@ -837,44 +769,65 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
         })?;
     let ir_done = Instant::now();
     let mut code_bytes = 0;
+    let mut instructions = 0;
     for c in &compiled {
         code_bytes += c.bytes.len();
+        instructions += c.insts;
         module
             .define_function_bytes(c.id, c.align, &c.bytes, &c.relocs)
             .map_err(|e| CodegenError::Backend(e.to_string()))?;
     }
     module.finalize_definitions().map_err(|e| CodegenError::Backend(e.to_string()))?;
-    let prog = |kind: Kind| -> Prog {
-        match plans.iter().position(|p| p.kind == kind) {
-            None => Prog::default(),
-            Some(i) => Prog(
-                ids[i]
-                    .iter()
-                    .map(|id| {
-                        let ptr = module.get_finalized_function(*id);
-                        // SAFETY: each pointer is a function just compiled
-                        // with exactly this signature (`eval_signature`).
-                        unsafe { std::mem::transmute::<*const u8, RawFn>(ptr) }
-                    })
-                    .collect(),
-            ),
+    // where each plan's code keeps its values in `work`, and how much it
+    // needs (a tape's registers after them)
+    let need_of = |p: &Plan| -> usize {
+        let base = emit::work_need(&env, p, tan_of(p.kind));
+        match tapes.get(&p.kind) {
+            Some(t) => base + t.regs,
+            None => base,
         }
     };
-    let need = plans.iter().map(|p| emit::work_need(&env, p, tan_of(p.kind))).max().unwrap_or(0);
-    let (residual, jvp, vars) = if large {
-        let mut residual = prog(Kind::Residual);
-        residual.0.extend(prog(Kind::ResidualOut).0);
-        let mut primal = prog(Kind::Residual);
-        primal.0.extend(prog(Kind::VarsRest).0);
-        let map = vars_map(&env)?;
-        (residual, JvpCode::ViaJacobian, VarsCode::Gather { prog: primal, map })
-    } else {
-        (
-            prog(Kind::Residual),
-            JvpCode::Compiled(prog(Kind::Jvp)),
-            VarsCode::Compiled(prog(Kind::Vars)),
+    let code = |kind: Kind| -> Code {
+        let Some(i) = plans.iter().position(|p| p.kind == kind) else {
+            return Code::Empty;
+        };
+        if let Some(t) = tapes.get(&kind) {
+            let regs_at = emit::work_need(&env, &plans[i], tan_of(kind));
+            return Code::Tape { tape: t.clone(), regs_at };
+        }
+        Code::Machine(
+            ids[i]
+                .iter()
+                .map(|id| {
+                    let ptr = module.get_finalized_function(*id);
+                    // SAFETY: each pointer is a function just compiled with
+                    // exactly this signature (`eval_signature`).
+                    unsafe { std::mem::transmute::<*const u8, RawFn>(ptr) }
+                })
+                .collect(),
         )
     };
+    let need = plans.iter().map(need_of).max().unwrap_or(0);
+    let chain = |a: Code, b: Code| -> Code {
+        match (a, b) {
+            (Code::Machine(mut x), Code::Machine(y)) => {
+                x.extend(y);
+                Code::Machine(x)
+            }
+            (Code::Empty, b) => b,
+            (a, Code::Empty) => a,
+            _ => unreachable!("a large model's functions are machine code"),
+        }
+    };
+    let (residual, vars) = if large {
+        let residual = chain(code(Kind::Residual), code(Kind::ResidualOut));
+        let primal = chain(code(Kind::Residual), code(Kind::VarsRest));
+        let map = vars_map(&env)?;
+        (residual, VarsCode::Gather { code: primal, map })
+    } else {
+        (code(Kind::Residual), VarsCode::Own(code(Kind::Vars)))
+    };
+    let jvp = opts.compile_jvp.then(|| code(Kind::Jvp));
 
     // sizes and start values
     let core_work = need;
@@ -902,10 +855,10 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
             n_w: sys.n_y,
             w0: model.init.unknowns.iter().map(start_of).collect(),
             layout,
-            residual: prog(Kind::InitResidual),
-            jvp: prog(Kind::InitJvp),
-            jac: prog(Kind::InitJac),
-            finish: prog(Kind::InitFinish),
+            residual: code(Kind::InitResidual),
+            jvp: code(Kind::InitJvp),
+            jac: code(Kind::InitJac),
+            finish: code(Kind::InitFinish),
             pattern: col.pattern.clone(),
             tables: store.clone(),
         }),
@@ -915,9 +868,11 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
     let report = CompileReport {
         seconds: (done - started).as_secs_f64(),
         analysis_seconds: (analysis_done - started).as_secs_f64(),
-        ir_seconds,
+        ir_seconds: ir_seconds + tape_seconds,
         codegen_seconds: cl_seconds + (done - ir_done).as_secs_f64(),
         functions: n_functions,
+        tape_ops,
+        instructions,
         code_bytes,
         opt_level,
         regalloc,
@@ -930,12 +885,12 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
         layout,
         residual,
         jvp,
-        jac: prog(Kind::Jac),
-        roots: prog(Kind::Roots),
+        jac: code(Kind::Jac),
+        roots: code(Kind::Roots),
         vars,
-        when: prog(Kind::When),
-        modes: prog(Kind::Modes),
-        guards: prog(Kind::Guards),
+        when: code(Kind::When),
+        modes: code(Kind::Modes),
+        guards: code(Kind::Guards),
         pattern: env.main_jac.pattern.clone(),
         jac_scratch: core_work,
         y0,
