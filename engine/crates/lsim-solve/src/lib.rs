@@ -180,8 +180,16 @@ pub struct SolverOptions {
     pub energy_tolerance: f64,
     /// put the energy integrals under the integrator's error control, so
     /// they are as accurate as the states (the default; the step size then
-    /// also serves them); off: they ride on the states' steps, which can
-    /// leave a fast-decaying loss 100× less accurate than the tolerance
+    /// also serves them). Off, they ride on the states' steps, which the
+    /// states alone choose: a fast-decaying loss came out 100× less
+    /// accurate than the tolerance, and where the states are exact on long
+    /// steps (a constant torque on an inertia: 1 s steps from the start)
+    /// an integral can be off by tens of percent (9 J supplied came out as
+    /// 15.55 J). The closure compares the integrals with each other and
+    /// can be zero all the same; the drift (stored energy from the states
+    /// against its integral) shows the error, and the run warns that the
+    /// books were not under error control
+    /// ([`EnergyBooks::error_controlled`])
     pub energy_error_control: bool,
     /// event iterations allowed at one instant before the run stops with
     /// an event storm: rounds of re-checking the conditions after a change,

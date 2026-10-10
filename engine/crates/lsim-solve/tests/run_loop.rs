@@ -2259,6 +2259,56 @@ impl ModelFunctions for WithTable {
     }
 }
 
+/// A model that does not give its tables (`ModelFunctions::eval_table`
+/// left at its default) while its energy books, or a condition on a
+/// function of time, read one: the run does not start, and says which
+/// table (they would read NaN: books NaN, a failed run, a stalled search).
+#[test]
+fn a_model_that_does_not_give_the_tables_its_books_read_does_not_start() {
+    let model = || Hand {
+        layout: layout(1, 0, 0, 0, 1, 0, 1),
+        f: Box::new(|_, out| out[0] = 1.0),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(|i, out| out[0] = i.t - 3.0),
+        vars: Box::new(|i, out| out[0] = i.y[0]),
+        when: nothing_v(),
+        modes: None,
+        y0: vec![0.0],
+        d0: vec![],
+    };
+    let table = Expr::Table { table: 0, args: vec![Expr::Var(VarId(0))] };
+    let mut info = RunInfo::bare(1, 1, vec![]);
+    info.var_sources = vec![VarSource::Y(0)];
+    info.table_names = vec!["k.efficiency".into()];
+    info.root_dirs = vec![0];
+    let grid = OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.5 };
+    let opts = SolverOptions::default();
+    // the books
+    let mut books = info.clone();
+    books.energy = Some(Arc::new(EnergyInfo {
+        parts: vec![EnergyPart {
+            path: "k".into(),
+            name: "'k'".into(),
+            power: Expr::Const(1.0),
+            loss: Some(table.clone()),
+            stored: None,
+        }],
+    }));
+    let e = simulate(&model(), &books, &opts, grid, &mut []).unwrap_err().to_string();
+    println!("{e}");
+    assert!(e.contains("'k.efficiency'") && e.contains("energy books"), "{e}");
+    // without the books it runs
+    let off = SolverOptions { energy_books: false, ..opts.clone() };
+    assert!(simulate(&model(), &books, &off, grid, &mut []).is_ok());
+    // a condition on a function of time
+    let mut cond = info.clone();
+    cond.time_functions = vec![Some(TimeFunction::Mixed(
+        Expr::Table { table: 0, args: vec![Expr::Time] } - Expr::Var(VarId(0)),
+    ))];
+    let e = simulate(&model(), &cond, &opts, grid, &mut []).unwrap_err().to_string();
+    assert!(e.contains("'k.efficiency'") && e.contains("function of time"), "{e}");
+}
+
 /// `when table(time) > 0.5` for a linear table with a narrow triangle at
 /// 50 s (0, 1, 0 over 0.2 s) while nothing integrated moves: a pure time
 /// function, searched ahead through the table's pieces, fires once, at

@@ -144,10 +144,15 @@ fn check(form: Form) {
         // the books close to round-off: the stored energy's rate is the
         // power in at every instant
         assert!(b.relative_closure.abs() < 1e-12, "{form:?}: closure {:.1e}", b.relative_closure);
+        // books without their error control are flagged
+        let flagged = run.report.warnings.iter().any(|w| w.contains("without error control"));
+        assert_eq!((b.error_controlled, flagged), (control, !control), "{form:?}");
         if !control {
             // (without their error control the quadratures take the
-            // states' steps, 1 s long here: the integrals are coarse, the
-            // drift says so)
+            // states' steps, 1 s long here: the integrals are coarse, 15.55
+            // J supplied against 9, while the closure is zero; the drift
+            // says so)
+            assert!(b.relative_drift > 0.1, "{form:?}: drift {:.1e}", b.relative_drift);
             continue;
         }
         assert!((b.supplied - 9.0).abs() < 1e-7, "{form:?}: supplied {}", b.supplied);

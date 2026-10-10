@@ -1020,6 +1020,73 @@ impl Loop<'_> {
     }
 }
 
+/// Every table the run evaluates outside the compiled code (the energy
+/// books, the conditions on functions of time, the asserts, the impulse
+/// projection) is one the model gives ([`ModelFunctions::eval_table`]):
+/// without it they would read NaN (books NaN, a run that fails or a
+/// search that stalls), so the run does not start.
+fn tables_given(
+    model: &dyn ModelFunctions,
+    info: &RunInfo,
+    opts: &SolverOptions,
+    t0: f64,
+) -> Result<(), SolveError> {
+    use crate::TimeFunction;
+    let mut read: Vec<(u32, &str)> = vec![];
+    let mut visit = |e: &lsim_ir::Expr, what: &'static str| {
+        e.walk(&mut |x| {
+            if let lsim_ir::Expr::Table { table, .. } = x
+                && !read.iter().any(|(k, _)| k == table)
+            {
+                read.push((*table, what));
+            }
+        })
+    };
+    if opts.energy_books
+        && let Some(e) = &info.energy
+    {
+        for p in &e.parts {
+            for x in [Some(&p.power), p.loss.as_ref(), p.stored.as_ref()].into_iter().flatten() {
+                visit(x, "the energy books");
+            }
+        }
+        if let Some(r) = &info.stored_rates {
+            for (_, x) in &r.chain {
+                visit(x, "the energy books' rates");
+            }
+        }
+    }
+    for f in info.time_functions.iter().flatten() {
+        if let TimeFunction::Pure(g) | TimeFunction::Mixed(g) = f {
+            visit(g, "a condition on a function of time");
+        }
+    }
+    for a in &info.asserts {
+        visit(&a.condition, "an assert");
+    }
+    if opts.impulses
+        && let Some(imp) = &info.impulse
+    {
+        for e in &imp.engagements {
+            visit(&e.changes, "the impulse projection");
+        }
+    }
+    for (k, what) in read {
+        if model.eval_table(k, [0.0, 0.0]).is_none() {
+            let name = info.table_names.get(k as usize).cloned().unwrap_or_else(|| format!("{k}"));
+            return Err(SolveError::Initialisation {
+                t: t0,
+                message: format!(
+                    "{what} read the table '{name}' outside the compiled code, and the model does \
+                     not give its tables (ModelFunctions::eval_table): a wrapper around a compiled \
+                     model must pass it on"
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
 /// The run loop, for any [`Integrator`]: see the module documentation.
 #[allow(clippy::too_many_arguments)]
 pub fn run_loop(
@@ -1036,6 +1103,7 @@ pub fn run_loop(
     let n = l.n_y();
     let times = grid.times();
     let t_end = grid.t_end;
+    tables_given(model, info, opts, grid.t0)?;
     let span = (t_end - grid.t0).abs();
     let mut rec = Recorder::new(l.n_vars, &times);
     let mut lp = Loop {
@@ -1759,7 +1827,9 @@ pub fn run_loop(
             integ.quadrature(t_end, &mut lg.q)?;
             let ye = integ.y().to_vec();
             lp.sample(t_end, &ye, &d);
-            Some(lg.finish(t_end, &lp.vars, p))
+            let mut books = lg.finish(t_end, &lp.vars, p);
+            books.error_controlled = opts.energy_error_control;
+            Some(books)
         }
         None => None,
     };
@@ -1793,6 +1863,15 @@ pub fn run_loop(
     report.warnings.append(&mut lp.warnings);
     if let Some(e) = &energy {
         report.notes.push(e.summary());
+        if !e.error_controlled {
+            report.warnings.push(format!(
+                "the energy books were integrated without error control (energy_error_control \
+                 is off): their integrals ride on the states' steps and can be far off, the drift \
+                 {:.1e} of the throughput says how far; the closure compares them with each other \
+                 and can be zero all the same",
+                e.relative_drift
+            ));
+        }
         if e.relative_closure > 1e-6 {
             report.warnings.push(format!(
                 "the energy books close to {:.1e} of the throughput, above 1e-6: {}",

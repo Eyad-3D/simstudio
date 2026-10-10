@@ -603,6 +603,10 @@ additive). What the other packages change to use them:
   parameter change makes a `ParamGuard` zero, prepare again.
 * Show `PreparedModel::warnings` in the build report and the Python
   `model.report`.
+* The `Started` wrapper in lsim-engine forwards only seven methods of
+  `ModelFunctions`; it must forward every one (above, WP3): `eval_table`,
+  `modes`, `table_guard_list` and `table_guards`, `jacobian_dense` (with
+  `sparsity` and `jacobian_sparse`) and `init` too.
 
 **WP3 (lsim-codegen): the order of the zero crossings.** The compiled
 `roots` evaluates `PreparedModel::zero_crossings` in their order, one
@@ -618,6 +622,25 @@ compile error; `compiled_roots_follow_the_zero_crossings_order` in
 (time crossings at distinct times around a state crossing and a mode).
 `PreparedWhen::strict` needs nothing from the code generator: the run loop
 reads it.
+
+**WP3 (lsim-codegen): `ModelFunctions` in full.** The run loop calls every
+method of the trait, and a compiled model implements every one:
+`layout`, `residual`, `jvp`, `roots`, `vars`, `when`, `start`, `modes`
+(the modes from their relations), `init` (the compiled initialisation),
+`sparsity` and `jacobian_sparse` (the coloured Jacobian; `jacobian_dense`
+from them or from `jvp`), `table_guard_list` and `table_guards` (the
+watched table axes), and `eval_table` (a table as the compiled code
+interpolates it, value and partial derivatives: the energy books, the
+conditions on functions of time, the asserts and the impulse projection
+evaluate flat expressions outside the compiled code and read the tables
+through it). The defaults are those of a model without such things: no
+modes, no compiled initialisation, a dense Jacobian from `jvp`, no
+guards, no tables (`None`). A wrapper around a compiled model (a model
+started at other values, a sweep's set) must forward every method:
+left at a default, modes stop switching, table guards and the compiled
+initialisation vanish without an error, and a run whose books or
+conditions read a table does not start ("the model does not give its
+tables").
 
 **WP3** keeps: its interpreted tape (`tape.rs`) is not wired in,
 `InitFunctions::guess` uses the flat start values rather than
@@ -1167,7 +1190,13 @@ residuals and what they solve for.
 integrator's error control by default (`energy_error_control`): without
 it they ride on the states' steps, and a fast-decaying loss came out 100×
 less accurate than the tolerance (the RC step's resistor loss at rtol
-1e-10: 1.3e-8 of the energy scale; with it 2.5e-11). The stored energy's
+1e-10: 1.3e-8 of the energy scale; with it 2.5e-11). Where the states
+are exact on long steps the integrals can be off by tens of percent (a
+constant torque on an inertia from rest: 15.55 J supplied against 9 J,
+on 1 s steps), while the closure, which compares the integrals with each
+other, stays zero: only the drift shows it. Books computed without error
+control say so (`EnergyBooks::error_controlled`, a warning, the summary)
+so that nobody reads them as exact. The stored energy's
 change is integrated too, its rate taken along the solution in the
 direction (1, y') exactly, by forward-mode differentiation of the
 declared stored energy (section 11), so the books close to round-off

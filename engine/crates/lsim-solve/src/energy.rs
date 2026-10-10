@@ -386,6 +386,12 @@ pub struct EnergyBooks {
     pub drift: f64,
     /// |drift| / throughput
     pub relative_drift: f64,
+    /// the integrals were under the integrator's error control
+    /// ([`crate::SolverOptions::energy_error_control`]); without it they
+    /// ride on the states' steps and can be far off (the drift says how
+    /// far), while the closure, which compares them with each other, can
+    /// still be zero
+    pub error_controlled: bool,
 }
 
 impl EnergyBooks {
@@ -399,9 +405,14 @@ impl EnergyBooks {
 
     /// A sentence for the report.
     pub fn summary(&self) -> String {
+        let control = if self.error_controlled {
+            ""
+        } else {
+            " (integrals without error control: they ride on the states' steps, the drift says how far off they are)"
+        };
         format!(
             "energy books: supplied {:.6e} J = lost {:.6e} J + lost at events {:.6e} J (at gear shifts and other engagements {:.6e} J, {:.6e} J of it in the couplings that passed the impulse on) + stored {:+.6e} J; \
-             closure {:.1e} of the throughput {:.6e} J; integration drift {:.1e}",
+             closure {:.1e} of the throughput {:.6e} J; integration drift {:.1e}{control}",
             self.supplied,
             self.lost,
             self.event_loss,
