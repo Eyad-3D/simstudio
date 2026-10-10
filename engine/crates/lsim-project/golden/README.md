@@ -216,7 +216,7 @@ by less than 0.04 %. Today's "Energy balance residual" fell from
 0.0005–0.03 % to below 1e-9 %. Against the fixed engine no band had to be
 widened for a known error of today's engine.
 
-## Run loop: work package 4's second to seventh rounds
+## Run loop: work package 4's second to eighth rounds
 
 The golden comparison found these in the run loop; each is fixed on
 `wp4/solver` with a regression test (`lsim-solve/tests/run_loop.rs`):
@@ -348,6 +348,32 @@ The review of the sixth round found one regression and asked for more:
   give the tables the run reads does not start, and books computed
   without error control are flagged.
 
+The eighth round checks the driving cycle's conditions too, as the
+review decided: the breakpoint stops keep a cycle's target linear within
+a step, but the speed it is compared with curves, and two crossings can
+fall inside one step (a linear table of time against a curving state,
+above it for 0.3 s inside one step, fired 0 times; now once). On the
+golden models these are the BEV's and the aero BEV's driver command
+against its limits (two conditions) and whether the motor's spin losses,
+read from its 2-D map, fit its supply window (two), and the hybrid's
+driver command against its limits (two):
+
+* A cheap test first: a certificate, a time window and a box of the
+  states over which the condition's enclosure excludes zero, clears a
+  step whose ends and middle lie inside the box (a few comparisons per
+  state, one sample of the dense output per step). Only where none holds
+  is the step fitted along the dense output and searched. The
+  certificates clear all but 7 051 of 862 704 condition-steps of the
+  BEV's WLTC and all but 717 of 1 145 426 of the hybrid's mixed cycle.
+* 2-D tables are enclosed by their cells' polynomials, fitted to the
+  model's own interpolant; each branch of an `if` with the variables its
+  condition compares bounded as it says there.
+* The motor's "running" flag, which moves only where a `noEvent`
+  comparison flips, is left to root finding, as `noEvent` asks.
+* The crossing root finding locates at a step's end, a little after the
+  exact change, is not taken for a pulse (the first scan of the BEV's
+  WLTC cut 7 steps that way).
+
 Run time, the base (`engine/stage1` at 5581482) against the second round
 (fd361a0), both release builds, one case after another on the same
 machine:
@@ -464,6 +490,32 @@ difference is the machine's, within ±2 %.
 | bev-car/case-wltc | 215669 | 215669 | 2.63 | 2.52 |
 | aero-bev/case-wltc | 223735 | 223735 | 2.33 | 2.38 |
 | bev-car/case-city | 3999 | 3999 | 0.06 | 0.06 |
+| fs-electric/case-accel-75m | 1058 | 1058 | 0.09 | 0.09 |
+
+The eighth round (the driving cycle's conditions checked on every step,
+behind certificates) against the seventh: every figure, channel, closure
+and step count is the same to the last digit, and no run warns. The full
+comparison took 195.6 s against 191.1 s. Timed again alternating the
+two builds, two runs each, the hybrid's UDDS took 82.16 and 75.95 s at
+the seventh round and 79.84 and 76.38 s at the eighth, its HWFET 50.81
+and 50.76 s against 50.22 and 51.08 s, its mixed cycle 23.08 and 22.79 s
+against 22.05 and 23.16 s, the BEV's WLTC 2.63 and 2.68 s against 2.80
+and 2.65 s, the aero BEV's 2.46 and 2.67 s against 2.46 and 2.72 s: the
+machine's ±4 % hides the difference. Counted in instructions (callgrind),
+the checks take 0.55 % of the hybrid's mixed cycle, a quarter of it the
+one dense-output sample per step, and 3.1 % of the BEV's WLTC, whose
+steps cost a tenth of the hybrid's and which checks four conditions, two
+of them the motor's chains of 45 and 49 assignments.
+
+| case | steps, seventh round | steps, eighth | run, seventh round, s | run, eighth, s |
+|---|---:|---:|---:|---:|
+| hybrid-car/case-udds | 3023217 | 3023217 | 80.89 | 82.14 |
+| hybrid-car/case-hwfet | 1918254 | 1918254 | 51.50 | 52.30 |
+| hybrid-car/case-mixed | 572709 | 572709 | 21.41 | 21.87 |
+| hybrid-car/case-mixed-live | 572709 | 572709 | 21.52 | 22.47 |
+| bev-car/case-wltc | 215669 | 215669 | 2.52 | 2.96 |
+| aero-bev/case-wltc | 223735 | 223735 | 2.38 | 2.62 |
+| bev-car/case-city | 3999 | 3999 | 0.06 | 0.07 |
 | fs-electric/case-accel-75m | 1058 | 1058 | 0.09 | 0.09 |
 
 The hybrid's run includes the Script block's round trip to Python at
