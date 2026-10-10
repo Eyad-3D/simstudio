@@ -937,6 +937,36 @@ round).**
   507.8 to 532.6 s spanned its motor's switch-on and switch-off (both
   ends off). A stop is no restart: the integration goes on with its
   history.
+* *Conditions on explicit functions of time.* A zero-crossing function
+  that reads time beyond `c · time + b` (`sin(2π time / T) > 0.95`: a
+  heater, a PWM, a load switched by a sine) is classified by preparation
+  (`RunInfo::time_functions`), through the assignments: the computed
+  variables that read time are replaced by their definitions. One that
+  then reads only time, parameters and discrete values is taken out of
+  root finding, as a time crossing is, and its sign changes are found
+  ahead without integrating: interval arithmetic rounded outwards
+  encloses it, its rate and its second rate over a time interval (a 1-D
+  table by the compiled interpolant's cubic pieces); the search skips an
+  interval whose enclosure keeps the sign, or where it is monotone with
+  the same sign at both ends, otherwise advances by what the bound on
+  its rate allows (a function of value g and rate at most L cannot reach
+  zero within |g| / L), and bisects a bracketed change to adjacent
+  floats. The integrator stops there exactly and the crossing fires in
+  the direction the sign changes; it is searched again after it fired,
+  and when a value it reads changed. A grazing touch without a sign
+  change is passed. A function that also reads continuous variables
+  (`x > sin(ω time)`) stays with root finding, and the run loop stops at
+  every extremum of its terms in time alone (searched the same way on
+  their rates), so each is monotone within a step and a pulse they make
+  spans a stop; terms affine in time, or tables read at positions affine
+  in time, are monotone between the stops above already. What cannot be
+  searched (a 2-D table, `atan2` or a derivative that moves with time; a
+  function not defined where its search starts; a search that makes no
+  headway) is named in a warning and left to root finding: never
+  silently. (Work package 4's sixth round: the review's `sin(2π time /
+  10) > 0.95` while nothing integrated moved was stepped over entirely,
+  x(100) = 0 against 10.108, without a warning; now 10.108262410426,
+  exact to round-off, in 34 steps.)
 * *Both sides of an event at an output time.* An output time that falls
   exactly on an event records both sides, as Modelica tools write two
   rows at that time to their result files: `SimResult::values` holds the

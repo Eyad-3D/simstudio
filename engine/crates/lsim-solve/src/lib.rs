@@ -29,6 +29,7 @@ pub mod energy;
 pub mod faer_ls;
 pub mod info;
 pub mod init;
+mod interval;
 pub mod jac;
 mod recorder;
 pub mod run;
@@ -40,7 +41,7 @@ pub use accuracy::{AccuracyReport, ChannelChange, accuracy_check, compare_runs};
 pub use energy::{EnergyBooks, PartBooks};
 pub use info::{
     AssertInfo, BlockInfo, EnergyInfo, EnergyPart, EngagementInfo, ImpulseInfo, ImpulseLink,
-    InputChain, ModeInfo, RunInfo, StoredRates, TimeCrossing, VarSource,
+    InputChain, ModeInfo, RunInfo, StoredRates, TimeCrossing, TimeFunction, VarSource,
 };
 pub use recorder::Recorder;
 pub use run::run_loop;

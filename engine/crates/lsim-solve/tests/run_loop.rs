@@ -15,7 +15,7 @@ use lsim_ir::{ParamId, VarId};
 use lsim_solve::{
     Backend, BlockInfo, EnergyInfo, EnergyPart, EngagementInfo, EventKind, ImpulseInfo,
     ImpulseLink, Integrator, ModeInfo, OutputGrid, RunInfo, SimResult, SolveError, SolverOptions,
-    SolverStats, Step, TimeCrossing, VarSource, run_loop, simulate,
+    SolverStats, Step, TimeCrossing, TimeFunction, VarSource, run_loop, simulate,
 };
 use std::sync::Arc;
 
@@ -1959,6 +1959,320 @@ fn an_event_at_an_output_time_records_both_sides() {
     // x is continuous across the tick: both sides the same
     for (k, _, x) in lefts {
         assert_eq!(x, run.values[0][k]);
+    }
+}
+
+/// `sin(2π time / T) - 0.95` as an expression of time.
+fn sine_pulse(period: f64, level: f64) -> Expr {
+    use lsim_ir::expr::{BinaryOp, Builtin};
+    Expr::Binary(
+        BinaryOp::Sub,
+        Box::new(Expr::Call(
+            Builtin::Sin,
+            vec![Expr::Binary(
+                BinaryOp::Mul,
+                Box::new(Expr::Const(2.0 * std::f64::consts::PI / period)),
+                Box::new(Expr::Time),
+            )],
+        )),
+        Box::new(Expr::Const(level)),
+    )
+}
+
+/// x' = m, m the mode of `g(t) > 0` (also set by a `when` on each edge),
+/// from x = 0: x at the end is the time g was positive.
+fn pulse_model(g: Arc<dyn Fn(f64) -> f64 + Send + Sync>, g_expr: Expr) -> (Hand, RunInfo) {
+    let (g1, g2) = (g.clone(), g);
+    let model = Hand {
+        layout: layout(1, 0, 0, 1, 2, 2, 2),
+        f: Box::new(|i, out| out[0] = i.d[0]),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(move |i, out| {
+            out[0] = g1(i.t);
+            out[1] = out[0];
+        }),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+        }),
+        when: Box::new(|_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = 1.0;
+            }
+            if fired[1] != 0.0 {
+                d[0] = 0.0;
+            }
+        }),
+        modes: Some(Box::new(move |i, _, d| d[0] = if g2(i.t) > 0.0 { 1.0 } else { 0.0 })),
+        y0: vec![0.0],
+        d0: vec![0.0],
+    };
+    let mut info = RunInfo::bare(1, 2, vec![]);
+    info.root_dirs = vec![1, -1];
+    whens(&mut info, &[(0, Direction::Rising, "on"), (1, Direction::Falling, "off")]);
+    info.when_strict = vec![true, false];
+    info.modes = vec![ModeInfo { crossing: 0, discrete: 0, label: "'Pulse': on".into() }];
+    info.var_sources = vec![VarSource::Y(0), VarSource::D(0)];
+    info.time_functions =
+        vec![Some(TimeFunction::Pure(g_expr.clone())), Some(TimeFunction::Pure(g_expr))];
+    (model, info)
+}
+
+/// A condition on an explicit function of time, `sin(2π time / T) >
+/// 0.95` (a heater, a PWM, a load switched by a sine), while nothing
+/// integrated moves: the integrator's steps grow past the pulses and root
+/// finding, which sees a condition only at step ends, stepped over every
+/// one (the review: x(100) = 0 against 10.108, silently). The run loop now
+/// finds each sign change ahead and reaches it exactly: x(10 T) is 10 (π −
+/// 2 asin 0.95) / 2π · T to round-off, with or without a step limit.
+#[test]
+fn a_pulse_on_a_function_of_time_is_not_stepped_over() {
+    for period in [10.0, 100.0] {
+        // (as the expression computes it: (2π / T) · time)
+        let w = 2.0 * std::f64::consts::PI / period;
+        let g = move |t: f64| (w * t).sin() - 0.95;
+        let (model, info) = pulse_model(Arc::new(g), sine_pulse(period, 0.95));
+        let t_end = 10.0 * period;
+        let exact = 10.0 * (std::f64::consts::PI - 2.0 * 0.95f64.asin())
+            / (2.0 * std::f64::consts::PI)
+            * period;
+        for backend in backends() {
+            for max_step in [0.0, period / 100.0] {
+                let opts = SolverOptions {
+                    backend,
+                    rtol: 1e-8,
+                    atol: 1e-8,
+                    max_step,
+                    ..Default::default()
+                };
+                let grid = OutputGrid { t0: 0.0, t_end, dt: period / 10.0 };
+                let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+                let x = *run.values[0].last().unwrap();
+                let on: Vec<f64> = run
+                    .events
+                    .iter()
+                    .filter(|e| e.kind == EventKind::When(0))
+                    .map(|e| e.t)
+                    .collect();
+                println!(
+                    "{backend:?}, period {period} s, max_step {max_step}: x = {x:.12} (exact \
+                     {exact:.12}), {} pulses, {} steps",
+                    on.len(),
+                    run.stats.steps
+                );
+                assert!((x - exact).abs() < 1e-9 * exact, "{backend:?} {period} {max_step}: {x}");
+                assert_eq!(on.len(), 10, "{backend:?}: every pulse switches on");
+                // each exactly where the sine reaches 0.95: below it the
+                // float before, at or above it here
+                for t in on {
+                    let (before, here) = (g(t.next_down()), g(t));
+                    assert!(before < 0.0 && here >= 0.0, "{backend:?}: on at {t}: {before} {here}");
+                }
+                assert!(run.report.warnings.is_empty(), "{:?}", run.report.warnings);
+            }
+        }
+    }
+}
+
+/// A function of time that reads a discrete value is searched again when
+/// the value changes: `sin(2π time / 10) > level`, the level 0.95 until a
+/// time event at 25 s sets it to 0.5. Three pulses of 1.0108 s before, two
+/// of 3.3333 s after (the sine is below zero from 25 to 30 s).
+#[test]
+fn a_function_of_time_is_searched_again_when_a_value_it_reads_changes() {
+    use lsim_ir::expr::BinaryOp;
+    let w = 2.0 * std::f64::consts::PI / 10.0;
+    let model = Hand {
+        layout: layout(1, 0, 0, 2, 3, 3, 3),
+        f: Box::new(|i, out| out[0] = i.d[0]),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(move |i, out| {
+            out[0] = (w * i.t).sin() - i.d[1];
+            out[1] = out[0];
+            out[2] = i.t - 25.0;
+        }),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+            out[2] = i.d[1];
+        }),
+        when: Box::new(|_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = 1.0;
+            }
+            if fired[1] != 0.0 {
+                d[0] = 0.0;
+            }
+            if fired[2] != 0.0 {
+                d[1] = 0.5;
+            }
+        }),
+        modes: None,
+        y0: vec![0.0],
+        d0: vec![0.0, 0.95],
+    };
+    let mut info = RunInfo::bare(1, 3, vec![]);
+    info.root_dirs = vec![1, -1, 1];
+    whens(
+        &mut info,
+        &[
+            (0, Direction::Rising, "on"),
+            (1, Direction::Falling, "off"),
+            (2, Direction::Rising, "lower"),
+        ],
+    );
+    info.when_strict = vec![true, false, false];
+    info.var_sources = vec![VarSource::Y(0), VarSource::D(0), VarSource::D(1)];
+    info.time_crossings =
+        vec![None, None, Some(TimeCrossing { at: Expr::Const(25.0), rising: true })];
+    let g =
+        Expr::Binary(BinaryOp::Sub, Box::new(sine_pulse(10.0, 0.0)), Box::new(Expr::Var(VarId(2))));
+    info.time_functions =
+        vec![Some(TimeFunction::Pure(g.clone())), Some(TimeFunction::Pure(g)), None];
+    let pi = std::f64::consts::PI;
+    let exact = 3.0 * 10.0 * (pi - 2.0 * 0.95f64.asin()) / (2.0 * pi)
+        + 2.0 * 10.0 * (pi - 2.0 * 0.5f64.asin()) / (2.0 * pi);
+    for backend in backends() {
+        let opts = SolverOptions { backend, rtol: 1e-8, atol: 1e-8, ..Default::default() };
+        let run =
+            simulate(&model, &info, &opts, OutputGrid { t0: 0.0, t_end: 50.0, dt: 5.0 }, &mut [])
+                .unwrap();
+        let x = *run.values[0].last().unwrap();
+        println!("{backend:?}: x = {x:.12} (exact {exact:.12}), {} steps", run.stats.steps);
+        assert!((x - exact).abs() < 1e-9 * exact, "{backend:?}: {x}");
+    }
+}
+
+/// A pulse that passes zero twice within one default step: a Gaussian of
+/// width 1 ms at 5 s, above one half for 2 ms √ln 2, in a run of 10 s
+/// where nothing integrated moves (the integrator's steps are seconds
+/// long). Both sign changes are found and reached exactly.
+#[test]
+fn a_pulse_narrower_than_a_step_is_found() {
+    use lsim_ir::expr::{BinaryOp, Builtin};
+    let (c, s) = (5.0, 1e-3);
+    let g = move |t: f64| {
+        let z = (t - c) / s;
+        (-(z * z)).exp() - 0.5
+    };
+    let z = Expr::Binary(
+        BinaryOp::Div,
+        Box::new(Expr::Binary(BinaryOp::Sub, Box::new(Expr::Time), Box::new(Expr::Const(c)))),
+        Box::new(Expr::Const(s)),
+    );
+    let e = Expr::Binary(
+        BinaryOp::Sub,
+        Box::new(Expr::Call(
+            Builtin::Exp,
+            vec![Expr::Neg(Box::new(Expr::Binary(
+                BinaryOp::Mul,
+                Box::new(z.clone()),
+                Box::new(z),
+            )))],
+        )),
+        Box::new(Expr::Const(0.5)),
+    );
+    let (model, info) = pulse_model(Arc::new(g), e);
+    let exact = 2.0 * s * 2f64.ln().sqrt();
+    for backend in backends() {
+        let opts = SolverOptions { backend, rtol: 1e-8, atol: 1e-8, ..Default::default() };
+        let run =
+            simulate(&model, &info, &opts, OutputGrid { t0: 0.0, t_end: 10.0, dt: 1.0 }, &mut [])
+                .unwrap();
+        let x = *run.values[0].last().unwrap();
+        println!("{backend:?}: x = {x:.15e} (exact {exact:.15e}), {} steps", run.stats.steps);
+        assert!((x - exact).abs() < 1e-9 * exact, "{backend:?}: {x}");
+        // without the search the integrator steps over it
+        let mut bare = info.clone();
+        bare.time_functions.clear();
+        let run =
+            simulate(&model, &bare, &opts, OutputGrid { t0: 0.0, t_end: 10.0, dt: 1.0 }, &mut [])
+                .unwrap();
+        println!("{backend:?} without the search: x = {:e}", run.values[0].last().unwrap());
+        assert_eq!(*run.values[0].last().unwrap(), 0.0, "the failure this guards against");
+    }
+}
+
+/// A condition that mixes time and a state: `sin(2π time / T) > x` with x
+/// falling slowly from 1 (x' = -0.01): pulses appear as x drops below 1
+/// and widen. Root finding watches it (it reads a state); the run loop
+/// stops at every extremum of the sine, so no step holds a whole pulse.
+/// The time the condition held, s(t_end) with s' = m, agrees with the
+/// exact crossings (bisected here) to 1e-9.
+#[test]
+fn a_condition_mixing_time_and_a_state_is_not_stepped_over() {
+    let period = 10.0;
+    let w = 2.0 * std::f64::consts::PI / period;
+    let g = move |t: f64, x: f64| (w * t).sin() - x;
+    let model = Hand {
+        layout: layout(2, 0, 0, 1, 1, 0, 3),
+        f: Box::new(|i, out| {
+            out[0] = -0.01;
+            out[1] = i.d[0];
+        }),
+        jvp: Box::new(|_, _, out| out.fill(0.0)),
+        roots: Box::new(move |i, out| out[0] = g(i.t, i.y[0])),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.y[1];
+            out[2] = i.d[0];
+        }),
+        when: nothing_v(),
+        modes: Some(Box::new(move |i, _, d| d[0] = if g(i.t, i.y[0]) > 0.0 { 1.0 } else { 0.0 })),
+        y0: vec![1.0, 0.0],
+        d0: vec![0.0],
+    };
+    let mut info = RunInfo::bare(2, 3, vec![]);
+    info.root_dirs = vec![0];
+    info.modes = vec![ModeInfo { crossing: 0, discrete: 0, label: "'Pulse': on".into() }];
+    info.var_sources = vec![VarSource::Y(0), VarSource::Y(1), VarSource::D(0)];
+    let term = {
+        use lsim_ir::expr::{BinaryOp, Builtin};
+        Expr::Call(
+            Builtin::Sin,
+            vec![Expr::Binary(BinaryOp::Mul, Box::new(Expr::Const(w)), Box::new(Expr::Time))],
+        )
+    };
+    info.time_functions = vec![Some(TimeFunction::Mixed(vec![term]))];
+    // the exact time it held: the crossings of sin(w t) = 1 - 0.01 t
+    let t_end = 100.0;
+    let h = |t: f64| g(t, 1.0 - 0.01 * t);
+    let (mut held, mut since, n) = (0.0, None, 1_000_000);
+    for k in 0..n {
+        let (a, b) = (t_end * k as f64 / n as f64, t_end * (k + 1) as f64 / n as f64);
+        if (h(a) > 0.0) != (h(b) > 0.0) {
+            let (mut lo, mut hi) = (a, b);
+            while hi - lo > 1e-15 * hi {
+                let m = 0.5 * (lo + hi);
+                if (h(m) > 0.0) == (h(a) > 0.0) {
+                    lo = m;
+                } else {
+                    hi = m;
+                }
+            }
+            match since.take() {
+                None => since = Some(hi),
+                Some(t0) => held += hi - t0,
+            }
+        }
+    }
+    for backend in backends() {
+        let opts = SolverOptions { backend, rtol: 1e-8, atol: 1e-8, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end, dt: 10.0 };
+        let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+        let s = *run.values[1].last().unwrap();
+        println!("{backend:?}: held {s:.12} s (exact {held:.12}), {} steps", run.stats.steps);
+        assert!((s - held).abs() < 1e-9 * held, "{backend:?}: {s} against {held}");
+        // without the stops CVODE's steps span whole pulses (diffsol's
+        // stay short enough here)
+        let mut bare = info.clone();
+        bare.time_functions.clear();
+        let run = simulate(&model, &bare, &opts, grid, &mut []).unwrap();
+        let s = *run.values[1].last().unwrap();
+        println!("{backend:?} without the stops: held {s:.6} s, {} steps", run.stats.steps);
+        if backend == Backend::Sundials {
+            assert!((s - held).abs() > 1.0, "the failure this guards against: {s}");
+        }
     }
 }
 

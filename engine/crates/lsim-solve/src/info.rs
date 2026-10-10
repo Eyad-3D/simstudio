@@ -43,6 +43,28 @@ pub struct TimeCrossing {
     pub rising: bool,
 }
 
+/// A zero-crossing function that reads time beyond `c · time + b`
+/// ([`RunInfo::time_functions`]): `sin(2π time / T) > 0.95`, a pulse
+/// narrower than the steps the integrator takes while nothing it
+/// integrates moves. Root finding sees a condition only by its sign at
+/// step ends and would step over it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TimeFunction {
+    /// It reads time, parameters and discrete values only (the computed
+    /// variables that read time replaced by their definitions): the run
+    /// loop finds its sign changes ahead without integrating and reaches
+    /// each exactly, as a time crossing.
+    Pure(Expr),
+    /// It reads continuous variables too: these are its terms in time
+    /// alone (with parameters and discrete values). The run loop stops at
+    /// their extrema, so that between two stops each is monotone and a
+    /// pulse they make is not inside one step.
+    Mixed(Vec<Expr>),
+    /// It reads time in a way the run loop cannot search ahead (the run
+    /// warns, and leaves it to root finding).
+    Unhandled,
+}
+
 /// What the impulse projection at a rigid engagement needs to know about a
 /// model (DESIGN.md, *Events*): the rigid engagements, the couplings that
 /// pass an impulse on, the parts' stored energies, how every variable they
@@ -533,6 +555,13 @@ pub struct RunInfo {
     /// the tables read along time (a driving cycle's speed by time): the
     /// integrator stops at each of their breakpoints
     pub time_tables: Vec<TimeTable>,
+    /// for each zero-crossing function that reads time and is not a time
+    /// crossing: how the run loop keeps a pulse in time from being stepped
+    /// over (empty, or `None` for the others)
+    pub time_functions: Vec<Option<TimeFunction>>,
+    /// per table: the breakpoints of a 1-D table (empty: 2-D, or not
+    /// known), for the enclosures of the time functions that read it
+    pub table_breaks: Vec<Vec<f64>>,
 }
 
 /// A table read at a position that moves with time alone, `c · time + b`
@@ -706,6 +735,8 @@ impl RunInfo {
             dynamic_discretes: vec![],
             stored_rates: None,
             time_tables: vec![],
+            time_functions: vec![],
+            table_breaks: vec![],
         }
     }
 
@@ -745,6 +776,10 @@ impl RunInfo {
         let dynamic_discretes = dynamic_discretes(m, &energy);
         let impulse = impulse_info(m, &energy, &sources).map(Arc::new);
         let stored_rates = Some(Arc::new(stored_rates(m, &energy, &sources)));
+        let time_crossings: Vec<Option<TimeCrossing>> = {
+            let discrete: std::collections::HashSet<VarId> = m.discretes.iter().copied().collect();
+            m.zero_crossings.iter().map(|z| time_crossing(&z.expr, &discrete)).collect()
+        };
         let blocks = m
             .external
             .iter()
@@ -793,7 +828,6 @@ impl RunInfo {
                     structural_pattern(m)
                 },
             ),
-            var_sources: sources,
             energy: Some(Arc::new(energy)),
             asserts: flat
                 .asserts
@@ -807,11 +841,14 @@ impl RunInfo {
             table_names: flat.tables.iter().map(|t| t.name.clone()).collect(),
             init_labels: m.init.residuals.iter().map(|r| labelled(&r.origin)).collect(),
             impulse,
-            time_crossings: {
-                let discrete: std::collections::HashSet<VarId> =
-                    m.discretes.iter().copied().collect();
-                m.zero_crossings.iter().map(|z| time_crossing(&z.expr, &discrete)).collect()
-            },
+            time_functions: time_functions(m, &sources, &time_crossings),
+            table_breaks: flat
+                .tables
+                .iter()
+                .map(|t| if t.data.dims() == 1 { t.data.x.clone() } else { vec![] })
+                .collect(),
+            var_sources: sources,
+            time_crossings,
             events_read_z: events_read_z(m),
             dynamic_discretes,
             stored_rates,
@@ -1015,6 +1052,187 @@ fn time_tables(m: &PreparedModel) -> Vec<TimeTable> {
         visit(&z.expr);
     }
     out
+}
+
+/// How each zero-crossing function that reads time, and is not a time
+/// crossing, is kept from being stepped over ([`TimeFunction`]): the
+/// computed variables that read time are replaced by their definitions
+/// (through the assignments and aliases); what is left reads time,
+/// parameters and constant values (discrete values, and computed values
+/// of them), or continuous variables too.
+fn time_functions(
+    m: &PreparedModel,
+    sources: &[VarSource],
+    crossings: &[Option<TimeCrossing>],
+) -> Vec<Option<TimeFunction>> {
+    let assigned: HashMap<VarId, &Expr> = m
+        .assignments
+        .iter()
+        .filter_map(|a| match a.target {
+            Slot::Var(v) => Some((v, &a.expr)),
+            Slot::Der(_) => None,
+        })
+        .collect();
+    let alias: HashMap<VarId, AliasTarget> = m.aliases.iter().map(|a| (a.var, a.target)).collect();
+    let mut r = Resolver { assigned, alias, sources, memo: HashMap::new() };
+    // (an expression grown past this many nodes is not searched)
+    const MAX_NODES: usize = 20_000;
+    m.zero_crossings
+        .iter()
+        .enumerate()
+        .map(|(k, z)| {
+            if crossings.get(k).is_some_and(|c| c.is_some()) {
+                return None;
+            }
+            let (time, _) = r.reads(&z.expr, 0);
+            if !time {
+                return None;
+            }
+            let Some(g) = r.resolve(&z.expr, 0) else {
+                return Some(TimeFunction::Unhandled);
+            };
+            let mut nodes = 0;
+            g.walk(&mut |_| nodes += 1);
+            if nodes > MAX_NODES {
+                return Some(TimeFunction::Unhandled);
+            }
+            let (_, cont) = r.reads(&g, 0);
+            if !cont {
+                return Some(TimeFunction::Pure(g));
+            }
+            let discrete: std::collections::HashSet<VarId> = m.discretes.iter().copied().collect();
+            let mut terms = vec![];
+            r.terms(&g, &discrete, &mut terms);
+            (!terms.is_empty()).then_some(TimeFunction::Mixed(terms))
+        })
+        .collect()
+}
+
+/// Resolves the computed variables that read time ([`time_functions`]).
+struct Resolver<'a> {
+    assigned: HashMap<VarId, &'a Expr>,
+    alias: HashMap<VarId, AliasTarget>,
+    sources: &'a [VarSource],
+    /// per variable: (reads time, reads continuous variables)
+    memo: HashMap<VarId, (bool, bool)>,
+}
+
+impl Resolver<'_> {
+    /// Whether variable `v` reads time, and continuous variables (states,
+    /// iteration variables, inputs, anything not known).
+    fn var(&mut self, v: VarId, depth: usize) -> (bool, bool) {
+        if let Some(c) = self.memo.get(&v) {
+            return *c;
+        }
+        let out = match self.sources.get(v.0 as usize) {
+            Some(VarSource::D(_) | VarSource::NegD(_) | VarSource::Const(_)) => (false, false),
+            Some(VarSource::Computed) if depth < 64 => {
+                if let Some(e) = self.assigned.get(&v).copied() {
+                    self.reads(e, depth + 1)
+                } else {
+                    match self.alias.get(&v).copied() {
+                        Some(AliasTarget::Var { var, .. }) => self.var(var, depth + 1),
+                        Some(AliasTarget::Const(_)) => (false, false),
+                        None => (false, true),
+                    }
+                }
+            }
+            _ => (false, true),
+        };
+        self.memo.insert(v, out);
+        out
+    }
+
+    /// Whether `e` reads time, and continuous variables.
+    fn reads(&mut self, e: &Expr, depth: usize) -> (bool, bool) {
+        let mut vars = vec![];
+        let (mut time, mut cont) = (false, false);
+        e.walk(&mut |x| match x {
+            Expr::Time => time = true,
+            Expr::Der(_) | Expr::Name(_) => cont = true,
+            Expr::Var(v) | Expr::Pre(v) => vars.push(*v),
+            _ => {}
+        });
+        for v in vars {
+            let (t, c) = self.var(v, depth);
+            time |= t;
+            cont |= c;
+        }
+        (time, cont)
+    }
+
+    /// `e` with the computed variables that read time replaced by their
+    /// definitions (`None`: too deep).
+    fn resolve(&mut self, e: &Expr, depth: usize) -> Option<Expr> {
+        if depth > 64 {
+            return None;
+        }
+        let mut ok = true;
+        let out = e.clone().rewrite(&mut |x| match x {
+            Expr::Var(v) if self.var(v, depth).0 => {
+                let def = match self.assigned.get(&v).copied() {
+                    Some(def) => self.resolve(def, depth + 1),
+                    None => match self.alias.get(&v).copied() {
+                        Some(AliasTarget::Var { var, negated }) => {
+                            let t = self.resolve(&Expr::Var(var), depth + 1);
+                            if negated { t.map(|t| -t) } else { t }
+                        }
+                        _ => None,
+                    },
+                };
+                def.unwrap_or_else(|| {
+                    ok = false;
+                    Expr::Var(v)
+                })
+            }
+            other => other,
+        });
+        ok.then_some(out)
+    }
+
+    /// The largest parts of `e` that read time and no continuous variable,
+    /// leaving out those monotone between the stops the run loop makes
+    /// already: affine in time, or a table read at a position affine in
+    /// time (monotone between its breakpoints, [`TimeTable`]).
+    fn terms(
+        &mut self,
+        e: &Expr,
+        discrete: &std::collections::HashSet<VarId>,
+        out: &mut Vec<Expr>,
+    ) {
+        let (time, cont) = self.reads(e, 0);
+        if !time {
+            return;
+        }
+        if !cont {
+            if !monotone_between_stops(e, discrete) && !out.contains(e) {
+                out.push(e.clone());
+            }
+            return;
+        }
+        for ch in e.children() {
+            self.terms(ch, discrete, out);
+        }
+    }
+}
+
+/// Whether `e`, a function of time, is monotone between the stops the run
+/// loop makes anyway: affine in time, or a table read at a position
+/// affine in time (monotone between its breakpoints, [`TimeTable`]),
+/// scaled and shifted by values constant in time.
+fn monotone_between_stops(e: &Expr, discrete: &std::collections::HashSet<VarId>) -> bool {
+    use lsim_ir::expr::BinaryOp::*;
+    let affine = |x: &Expr| time_affine(x, discrete).is_some();
+    let timeless = |x: &Expr| time_affine(x, discrete).is_some_and(|(c, _)| c == 0.0);
+    let m = |x: &Expr| monotone_between_stops(x, discrete);
+    match e {
+        _ if affine(e) => true,
+        Expr::Table { args, .. } => args.iter().all(affine),
+        Expr::Neg(a) | Expr::NoEvent(a) => m(a),
+        Expr::Binary(Add | Sub | Mul, a, b) => (timeless(a) && m(b)) || (timeless(b) && m(a)),
+        Expr::Binary(Div, a, b) => timeless(b) && m(a),
+        _ => false,
+    }
 }
 
 /// The crossing time of `f` when it is `c · time + b` with a constant

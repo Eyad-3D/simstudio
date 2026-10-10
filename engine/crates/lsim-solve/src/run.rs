@@ -45,6 +45,14 @@
 //!   cycle's target by time) stop the integrator at each breakpoint
 //!   (without a restart): a condition they drive is checked at least
 //!   there, even when nothing integrated moves and the steps grow long.
+//! * **Conditions on explicit functions of time**
+//!   ([`RunInfo::time_functions`], [`timefn`]): one that reads time,
+//!   parameters and discrete values alone is left out of root finding;
+//!   its next sign change is found ahead without integrating
+//!   ([`crate::interval`]) and reached exactly, as a time crossing's is.
+//!   One that reads continuous variables too stays with root finding,
+//!   and the integrator stops at the extrema of its terms in time alone,
+//!   so no step holds a whole pulse.
 //! * **Sampled blocks** ([`DiscreteBlock`], DESIGN.md risk R1) tick at
 //!   `offset + k·period`. A tick that falls inside a step is evaluated on
 //!   the dense output; if its outputs did not change, nothing else happens
@@ -96,6 +104,7 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 mod impulse;
+mod timefn;
 
 /// A sampled block's schedule and buffers.
 struct Clock {
@@ -172,6 +181,8 @@ struct Loop<'a> {
     now: Vec<bool>,
     /// the backend leaves the time crossings to the run loop
     use_timed: bool,
+    /// the conditions on explicit functions of time ([`timefn`])
+    tf: timefn::TimeFns<'a>,
     /// the time tables' breakpoints as times, sorted: those whose
     /// position does not depend on a discrete value, and those that do
     /// (scheduled again when one changes)
@@ -289,14 +300,18 @@ impl Loop<'_> {
             model: self.model,
         };
         for m in &info.modes {
-            let now = self.timed(m.crossing)
-                && info.time_crossings[m.crossing]
-                    .as_ref()
-                    .is_some_and(|tc| same_instant(lsim_ir::eval::eval(&tc.at, &env), t));
-            self.now[m.crossing] = now;
-            if now {
-                let rising = info.time_crossings[m.crossing].as_ref().is_some_and(|c| c.rising);
-                d[m.discrete] = if rising { 1.0 } else { 0.0 };
+            // the side its relation takes just after this instant, when its
+            // crossing is now
+            let after = if !self.timed(m.crossing) {
+                None
+            } else if let Some(Some(tc)) = info.time_crossings.get(m.crossing) {
+                same_instant(lsim_ir::eval::eval(&tc.at, &env), t).then_some(tc.rising)
+            } else {
+                self.function_now(m.crossing, t)
+            };
+            self.now[m.crossing] = after.is_some();
+            if let Some(up) = after {
+                d[m.discrete] = if up { 1.0 } else { 0.0 };
             }
         }
     }
@@ -326,7 +341,8 @@ impl Loop<'_> {
 
     /// Whether root function `c` is a time crossing the run loop schedules.
     fn timed(&self, c: usize) -> bool {
-        self.use_timed && self.info.time_crossings.get(c).is_some_and(|x| x.is_some())
+        self.use_timed
+            && (self.info.time_crossings.get(c).is_some_and(|x| x.is_some()) || self.tf.searched(c))
     }
 
     /// The next crossing time of every time crossing, from the parameters
@@ -336,21 +352,18 @@ impl Loop<'_> {
             return;
         }
         for (k, tc) in self.info.time_crossings.iter().enumerate() {
-            self.t_star[k] = match tc {
-                Some(tc) => {
-                    let env = crate::info::ChannelEnv {
-                        t,
-                        vars: &self.vars,
-                        params: &self.info.params,
-                        model: self.model,
-                    };
-                    let at = lsim_ir::eval::eval(&tc.at, &env);
-                    // (a time within a few ulps of now is this instant:
-                    // handled here, not scheduled again)
-                    if at > t && !same_instant(at, t) { at } else { f64::NAN }
-                }
-                None => f64::NAN,
+            // (the time functions' entries are [`Loop::schedule_functions`]')
+            let Some(tc) = tc else { continue };
+            let env = crate::info::ChannelEnv {
+                t,
+                vars: &self.vars,
+                params: &self.info.params,
+                model: self.model,
             };
+            let at = lsim_ir::eval::eval(&tc.at, &env);
+            // (a time within a few ulps of now is this instant: handled
+            // here, not scheduled again)
+            self.t_star[k] = if at > t && !same_instant(at, t) { at } else { f64::NAN };
         }
     }
 
@@ -1046,9 +1059,10 @@ pub fn run_loop(
         warned_links: false,
         warnings: vec![],
         scheduled: false,
-        t_star: vec![f64::NAN; info.time_crossings.len()],
+        t_star: vec![f64::NAN; info.time_crossings.len().max(info.time_functions.len())],
         now: vec![false; l.n_roots],
         use_timed: false,
+        tf: timefn::TimeFns::new(info.time_crossings.len().max(info.time_functions.len())),
         breaks_fixed: vec![],
         breaks_moving: vec![],
     };
@@ -1154,12 +1168,16 @@ pub fn run_loop(
     let mut t = grid.t0;
     // time crossings: the integrator leaves them to the run loop, which
     // reaches each exactly as a stop time
-    if info.time_crossings.iter().any(Option::is_some) {
-        let mut mask = vec![false; lp.sides.len()];
+    // (and the time functions it searches)
+    {
+        let mut mask = lp.time_functions_start(t_end);
+        mask.resize(lp.sides.len(), false);
         for (k, tc) in info.time_crossings.iter().enumerate() {
-            mask[k] = tc.is_some();
+            mask[k] |= tc.is_some();
         }
-        lp.use_timed = integ.set_root_mask(&mask);
+        if mask.iter().any(|m| *m) {
+            lp.use_timed = integ.set_root_mask(&mask);
+        }
     }
     {
         let d_before = d.clone();
@@ -1230,6 +1248,7 @@ pub fn run_loop(
     }
     while t < t_end {
         // the time crossings' times move only when a discrete value does
+        // (a time function's next sign change after one fired too)
         if d != scheduled_for {
             lp.schedule(t);
             if !info.time_tables.is_empty() {
@@ -1237,7 +1256,10 @@ pub fn run_loop(
             }
             scheduled_for.copy_from_slice(&d);
         }
-        let mut t_stop = t_end.min(lp.next_break(t));
+        // (those that fired, ran out of steps here, or read a value that
+        // changed)
+        lp.schedule_functions(integ, t, &y)?;
+        let mut t_stop = t_end.min(lp.next_break(t)).min(lp.tf.next_stop(t));
         if let Some(&te) = info.time_events.get(next_time_event) {
             t_stop = t_stop.min(te);
         }
@@ -1578,7 +1600,10 @@ pub fn run_loop(
                 v.resize(v.len().max(lp.t_star.len()), 0);
                 for (k, &ts) in lp.t_star.iter().enumerate() {
                     if ts == t || same_instant(ts, t) {
-                        let rising = info.time_crossings[k].as_ref().is_some_and(|c| c.rising);
+                        let rising = match info.time_crossings.get(k) {
+                            Some(Some(c)) => c.rising,
+                            _ => lp.tf.dir[k] > 0,
+                        };
                         v[k] = if rising { 1 } else { -1 };
                     }
                 }
@@ -1603,6 +1628,8 @@ pub fn run_loop(
                 for k in 0..lp.t_star.len() {
                     if lp.t_star[k] == t || same_instant(lp.t_star[k], t) {
                         lp.t_star[k] = f64::NAN;
+                        // (a time function changes sign again later)
+                        lp.tf.stale[k] = lp.tf.searched(k);
                     }
                 }
             }

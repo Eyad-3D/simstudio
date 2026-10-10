@@ -704,13 +704,245 @@ fn a_condition_a_time_table_drives_is_not_stepped_over() {
     );
     assert_eq!(run.values[seen][3], 1.0, "the excursion was stepped over");
     assert!(events.iter().any(|(_, t)| (t - 10.5).abs() < 1e-6), "{events:?}");
-    // without the stops the integrator steps over it
-    let mut bare = info.clone();
-    bare.time_tables.clear();
+    // the condition reads time alone (through the table): its sign change
+    // is also found ahead and reached exactly, without the stops
+    assert!(
+        matches!(info.time_functions.as_slice(), [Some(lsim_solve::TimeFunction::Pure(_))]),
+        "{:?}",
+        info.time_functions
+    );
+    let mut searched = info.clone();
+    searched.time_tables.clear();
+    let run = simulate(&built.jit, &searched, &opts, grid, &mut []).unwrap();
+    let at: Vec<f64> =
+        run.events.iter().filter(|e| e.kind == EventKind::When(0)).map(|e| e.t).collect();
+    println!("searched, without the stops: {} steps; at {at:?}", run.stats.steps);
+    assert_eq!(run.values[seen][3], 1.0);
+    assert!(at.len() == 1 && (at[0] - 10.5).abs() < 1e-14, "{at:?}");
+    // without either the integrator steps over it
+    let mut bare = searched;
+    bare.time_functions.clear();
     let run = simulate(&built.jit, &bare, &opts, grid, &mut []).unwrap();
     println!(
-        "without the stops: {} steps; flag at the end {}",
+        "without the stops or the search: {} steps; flag at the end {}",
         run.stats.steps, run.values[seen][3]
     );
     assert_eq!(run.values[seen][3], 0.0, "the failure this guards against");
+}
+
+/// A condition on a table read at a position that moves with time but not
+/// affinely: `profile(10 + 8 sin(ω time)) > 0.5`, the profile up and down
+/// between its breakpoints. Its sign changes are searched ahead through
+/// the table's monotone cubic pieces (the compiled interpolant's), and the
+/// time it held agrees with the crossings bisected here on the compiled
+/// table itself.
+#[test]
+fn a_condition_on_a_table_of_a_function_of_time_is_found_exactly() {
+    use lsim_ir::ComponentDef;
+    use lsim_ir::component::build::{eq, param, state, var};
+    use lsim_ir::expr::{Builtin, CmpOp, call, cmp, der, if_, name as n};
+    let w = 2.0 * std::f64::consts::PI / 10.0;
+    let mut profile = lsim_ir::table::TableData::new_1d(
+        vec![0.0, 3.0, 6.0, 9.0, 12.0, 15.0, 20.0],
+        vec![0.0, 1.0, 0.2, 0.9, 0.1, 1.0, 0.0],
+    );
+    profile.axis_units[0] = "1".into();
+    let wobble = ComponentDef {
+        name: "Test.Wobble".into(),
+        params: vec![
+            param("w", "rad/s", w, "the sine's angular frequency"),
+            lsim_lib::table::table_param("profile", "1", profile, "a level by position"),
+        ],
+        vars: vec![
+            var("at", "1", "where it reads its profile"),
+            var("level", "1", "the level there"),
+            state("x", "s", 0.0, "how long the level was above one half"),
+        ],
+        equations: vec![
+            eq(
+                n("at"),
+                Expr::Const(10.0)
+                    + Expr::Const(8.0) * call(Builtin::Sin, vec![n("w") * Expr::Time]),
+                "it sweeps its profile",
+            ),
+            eq(n("level"), lsim_ir::expr::table("profile", vec![n("at")]), "the level"),
+            eq(
+                der("x"),
+                if_(
+                    cmp(CmpOp::Gt, n("level"), Expr::Const(0.5)),
+                    Expr::Const(1.0),
+                    Expr::Const(0.0),
+                ),
+                "on while the level is above one half",
+            ),
+        ],
+        ..Default::default()
+    };
+    let mut lib = common::library();
+    lib.add(wobble);
+    let top = ComponentDef {
+        name: "Test.Top".into(),
+        components: vec![lsim_ir::component::build::sub("k", "Test.Wobble", &[])],
+        ..Default::default()
+    };
+    let built = common::build(&lib, &top, false);
+    let info = &built.info;
+    assert!(
+        info.time_functions.iter().any(|f| matches!(f, Some(lsim_solve::TimeFunction::Pure(_)))),
+        "{:?}",
+        info.time_functions
+    );
+    let t_end = 40.0;
+    let run = simulate(
+        &built.jit,
+        info,
+        &SolverOptions::default(),
+        OutputGrid { t0: 0.0, t_end, dt: 10.0 },
+        &mut [],
+    )
+    .unwrap();
+    let x = *run.channel("k.x").unwrap().last().unwrap();
+    // the crossings, bisected on the compiled table
+    let table = built.jit.table(0);
+    let h = |t: f64| table.eval([10.0 + 8.0 * (w * t).sin(), 0.0]).0 - 0.5;
+    let (mut held, mut since, mut count, n) = (0.0, None, 0, 4_000_000);
+    if h(0.0) > 0.0 {
+        since = Some(0.0);
+    }
+    for k in 0..n {
+        let (a, b) = (t_end * k as f64 / n as f64, t_end * (k + 1) as f64 / n as f64);
+        if (h(a) > 0.0) != (h(b) > 0.0) {
+            count += 1;
+            let (mut lo, mut hi) = (a, b);
+            while hi - lo > 1e-15 * hi {
+                let m = 0.5 * (lo + hi);
+                if (h(m) > 0.0) == (h(a) > 0.0) {
+                    lo = m;
+                } else {
+                    hi = m;
+                }
+            }
+            match since.take() {
+                None => since = Some(hi),
+                Some(t0) => held += hi - t0,
+            }
+        }
+    }
+    if let Some(t0) = since {
+        held += t_end - t0;
+    }
+    let modes = run.events.iter().filter(|e| matches!(e.kind, EventKind::Mode(_))).count();
+    println!(
+        "held {x:.12} s (exact {held:.12}), {count} crossings, {modes} mode events, {} steps, {:?}",
+        run.stats.steps, run.report.warnings
+    );
+    assert!(count > 8, "the profile is crossed often: {count}");
+    assert!((x - held).abs() < 1e-9 * held, "{x} against {held}");
+    assert!(run.report.warnings.is_empty());
+}
+
+/// Conditions on explicit functions of time in a prepared model, found by
+/// preparation through the assignments: `sin(ω time) > 0.95` reads time
+/// alone (its sign changes are searched ahead and reached exactly);
+/// `sin(ω time) > x` reads a state too (the run loop stops at the sine's
+/// extrema, and root finding locates the crossings). Both run with the
+/// default options, nothing integrated moving fast, and agree with the
+/// exact answers: the time each held.
+#[test]
+fn conditions_on_functions_of_time_are_found_in_a_prepared_model() {
+    use lsim_ir::ComponentDef;
+    use lsim_ir::component::build::{eq, param, state, var};
+    use lsim_ir::expr::{Builtin, CmpOp, call, cmp, der, if_, name as n};
+    let period = 10.0;
+    let w = 2.0 * std::f64::consts::PI / period;
+    let pulse = ComponentDef {
+        name: "Test.Pulses".into(),
+        params: vec![param("w", "rad/s", w, "the sine's angular frequency")],
+        vars: vec![
+            var("phase", "rad", "the sine's phase"),
+            var("wave", "1", "the sine"),
+            state("on", "s", 0.0, "how long the wave was above 0.95"),
+            state("x", "1", 1.0, "a level falling slowly"),
+            state("above", "s", 0.0, "how long the wave was above the level"),
+        ],
+        equations: vec![
+            eq(n("phase"), n("w") * Expr::Time, "the phase"),
+            eq(n("wave"), call(Builtin::Sin, vec![n("phase")]), "the sine"),
+            eq(
+                der("on"),
+                if_(
+                    cmp(CmpOp::Gt, n("wave"), Expr::Const(0.95)),
+                    Expr::Const(1.0),
+                    Expr::Const(0.0),
+                ),
+                "on while the wave is above 0.95",
+            ),
+            eq(der("x"), Expr::Const(-0.01), "the level falls"),
+            eq(
+                der("above"),
+                if_(cmp(CmpOp::Gt, n("wave"), n("x")), Expr::Const(1.0), Expr::Const(0.0)),
+                "on while the wave is above the level",
+            ),
+        ],
+        ..Default::default()
+    };
+    let mut lib = common::library();
+    lib.add(pulse);
+    let top = ComponentDef {
+        name: "Test.Top".into(),
+        components: vec![lsim_ir::component::build::sub("k", "Test.Pulses", &[])],
+        ..Default::default()
+    };
+    let built = common::build(&lib, &top, false);
+    let info = &built.info;
+    println!("time functions: {:?}", info.time_functions);
+    let pure = info
+        .time_functions
+        .iter()
+        .filter(|f| matches!(f, Some(lsim_solve::TimeFunction::Pure(_))))
+        .count();
+    let mixed = info
+        .time_functions
+        .iter()
+        .filter(|f| matches!(f, Some(lsim_solve::TimeFunction::Mixed(t)) if t.len() == 1))
+        .count();
+    assert!(pure >= 1 && mixed >= 1, "{:?}", info.time_functions);
+    let t_end = 100.0;
+    let opts = SolverOptions::default();
+    let run = simulate(&built.jit, info, &opts, OutputGrid { t0: 0.0, t_end, dt: 10.0 }, &mut [])
+        .unwrap();
+    let ch = |name: &str| *run.channel(name).unwrap().last().unwrap();
+    let exact_on = 10.0 * (std::f64::consts::PI - 2.0 * 0.95f64.asin()) / w;
+    // the time sin(w t) > 1 - 0.01 t held: its crossings, bisected
+    let h = |t: f64| (w * t).sin() - (1.0 - 0.01 * t);
+    let (mut held, mut since, n) = (0.0, None, 1_000_000);
+    for k in 0..n {
+        let (a, b) = (t_end * k as f64 / n as f64, t_end * (k + 1) as f64 / n as f64);
+        if (h(a) > 0.0) != (h(b) > 0.0) {
+            let (mut lo, mut hi) = (a, b);
+            while hi - lo > 1e-15 * hi {
+                let m = 0.5 * (lo + hi);
+                if (h(m) > 0.0) == (h(a) > 0.0) {
+                    lo = m;
+                } else {
+                    hi = m;
+                }
+            }
+            match since.take() {
+                None => since = Some(hi),
+                Some(t0) => held += hi - t0,
+            }
+        }
+    }
+    println!(
+        "on {} s (exact {exact_on}), above {} s (exact {held}), {} steps, warnings {:?}",
+        ch("k.on"),
+        ch("k.above"),
+        run.stats.steps,
+        run.report.warnings
+    );
+    // (the default tolerances: the states integrate constants exactly)
+    assert!((ch("k.on") - exact_on).abs() < 1e-9 * exact_on);
+    assert!((ch("k.above") - held).abs() < 1e-6 * held);
+    assert!(run.report.warnings.is_empty(), "{:?}", run.report.warnings);
 }
