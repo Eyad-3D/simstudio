@@ -499,56 +499,15 @@ pub fn enclose(e: &Expr, cx: &Cx<'_>, t: Iv) -> J2 {
             Some(j) => j,
             None => k(cx.vars.get(v.0 as usize).copied().unwrap_or(f64::NAN)),
         },
-        Expr::Time => J2 { v: t, d: ONE, dd: ZERO },
+        Expr::Time => time_j2(t),
         Expr::Der(_) | Expr::Name(_) => J2::all(),
         Expr::Neg(a) => ev(a).neg(),
         Expr::NoEvent(a) => ev(a),
-        Expr::Binary(op, a, b) => {
-            let (a, b) = (ev(a), ev(b));
-            match op {
-                BinaryOp::Add => a.add(b),
-                BinaryOp::Sub => a.sub(b),
-                BinaryOp::Mul => a.mul(b),
-                BinaryOp::Div => a.mul(b.recip()),
-                BinaryOp::Pow => a.pow(b),
-            }
-        }
-        Expr::Compare(op, a, b) => {
-            let (aj, bj) = (ev(a), ev(b));
-            let (a, b) = (aj.v, bj.v);
-            let (yes, no) = match op {
-                CmpOp::Lt => (a.hi < b.lo, a.lo >= b.hi),
-                CmpOp::Le => (a.hi <= b.lo, a.lo > b.hi),
-                CmpOp::Gt => (a.lo > b.hi, a.hi <= b.lo),
-                CmpOp::Ge => (a.lo >= b.hi, a.hi < b.lo),
-            };
-            if yes || no {
-                return truth(yes, no);
-            }
-            // undecided: where a − b is strictly monotone it crosses zero
-            // once at most, so the truth flips once at most, one way (its
-            // rate a jump of known sign)
-            let r = aj.d.sub(bj.d);
-            if r.lo > 0.0 || r.hi < 0.0 {
-                let rises = (r.lo > 0.0) == matches!(op, CmpOp::Gt | CmpOp::Ge);
-                let d =
-                    if rises { Iv::new(0.0, f64::INFINITY) } else { Iv::new(-f64::INFINITY, 0.0) };
-                return J2 { v: UNIT, d, dd: ALL };
-            }
-            truth(false, false)
-        }
-        Expr::And(a, b) => {
-            let (a, b) = (ev(a).v, ev(b).v);
-            truth(!a.has_zero() && !b.has_zero(), a == ZERO || b == ZERO)
-        }
-        Expr::Or(a, b) => {
-            let (a, b) = (ev(a).v, ev(b).v);
-            truth(!a.has_zero() || !b.has_zero(), a == ZERO && b == ZERO)
-        }
-        Expr::Not(a) => {
-            let a = ev(a).v;
-            truth(a == ZERO, !a.has_zero())
-        }
+        Expr::Binary(op, a, b) => binary_j2(*op, ev(a), ev(b)),
+        Expr::Compare(op, a, b) => compare_j2(*op, ev(a), ev(b)),
+        Expr::And(a, b) => and_j2(ev(a), ev(b)),
+        Expr::Or(a, b) => or_j2(ev(a), ev(b)),
+        Expr::Not(a) => not_j2(ev(a)),
         Expr::If(c, a, b) => {
             let cj = ev(c);
             let cv = cj.v;
@@ -566,20 +525,7 @@ pub fn enclose(e: &Expr, cx: &Cx<'_>, t: Iv) -> J2 {
                 (None, Some(b)) => return b,
                 (None, None) => (ev(a), ev(b)),
             };
-            let v = a.v.hull(b.v);
-            // a comparison that flips once at most, one way: b + c (a − b),
-            // c a step between 0 and 1 (its rate a jump of known sign)
-            let mut x = &**c;
-            while let Expr::NoEvent(i) = x {
-                x = i;
-            }
-            let one_way = cj.d.lo >= 0.0 || cj.d.hi <= 0.0;
-            if matches!(x, Expr::Compare(..)) && one_way && cj.v == UNIT {
-                let diff = a.sub(b);
-                let d = b.d.add(cj.d.mul(diff.v)).add(UNIT.mul(diff.d));
-                return J2 { v, d, dd: ALL };
-            }
-            J2::jumps(v)
+            if_j2(is_comparison(c), cj, a, b)
         }
         Expr::Table { table, args } => {
             let at: Vec<J2> = args.iter().map(ev).collect();
@@ -587,90 +533,211 @@ pub fn enclose(e: &Expr, cx: &Cx<'_>, t: Iv) -> J2 {
         }
         Expr::Call(f, args) => {
             let arg = |i: usize| args.get(i).map(ev).unwrap_or_else(J2::all);
-            let a = arg(0);
-            let x = a.v;
             match f {
-                Builtin::Der | Builtin::Pre => J2::all(),
-                Builtin::Sin => a.chain(sin_iv(x), cos_iv(x), sin_iv(x).neg()),
-                Builtin::Cos => a.chain(cos_iv(x), sin_iv(x).neg(), cos_iv(x).neg()),
-                Builtin::Tan => {
-                    if holds_phase(x, FRAC_PI_2, PI) || !(x.lo.is_finite() && x.hi.is_finite()) {
-                        return J2::all();
-                    }
-                    let t = x.incr(f64::tan);
-                    let s = ONE.add(t.sqr());
-                    a.chain(t, s, t.mul(s).scale(2.0))
-                }
-                Builtin::Asin | Builtin::Acos => {
-                    if x.lo < -1.0 || x.hi > 1.0 {
-                        return J2::all();
-                    }
-                    let r = ONE.sub(x.sqr());
-                    let rs = sqrt_iv(r);
-                    let f1 = rs.recip();
-                    let f2 = x.mul(r.mul(rs).recip());
-                    if *f == Builtin::Asin {
-                        a.chain(x.incr(f64::asin), f1, f2)
-                    } else {
-                        a.chain(x.decr(f64::acos), f1.neg(), f2.neg())
-                    }
-                }
-                Builtin::Atan => {
-                    let r = ONE.add(x.sqr());
-                    a.chain(x.incr(f64::atan), r.recip(), x.scale(-2.0).mul(r.sqr().recip()))
-                }
-                Builtin::Atan2 => {
-                    let b = arg(1);
-                    if a.is_const() && b.is_const() && x.is_point() && b.v.is_point() {
-                        return k(x.lo.atan2(b.v.lo));
-                    }
-                    J2::all()
-                }
-                Builtin::Sinh => {
-                    let c = cosh_iv(x);
-                    a.chain(x.incr(f64::sinh), c, x.incr(f64::sinh))
-                }
-                Builtin::Cosh => a.chain(cosh_iv(x), x.incr(f64::sinh), cosh_iv(x)),
-                Builtin::Tanh => {
-                    let t = x.incr(f64::tanh);
-                    let s = ONE.sub(t.sqr());
-                    a.chain(t, s, t.mul(s).scale(-2.0))
-                }
-                Builtin::Exp => a.exp(),
-                Builtin::Log => a.ln(),
-                Builtin::Sqrt => {
-                    if x.lo < 0.0 {
-                        return J2::all();
-                    }
-                    let s = sqrt_iv(x);
-                    a.chain(s, s.recip().scale(0.5), x.mul(s).recip().scale(-0.25))
-                }
-                Builtin::Abs => {
-                    if x.lo >= 0.0 {
-                        a
-                    } else if x.hi <= 0.0 {
-                        a.neg()
-                    } else {
-                        J2 { v: Iv::new(0.0, x.mag()), d: a.d.hull(a.d.neg()), dd: ALL }
-                    }
-                }
-                Builtin::Sign => {
-                    if x.lo > 0.0 {
-                        k(1.0)
-                    } else if x.hi < 0.0 {
-                        k(-1.0)
-                    } else if x == ZERO {
-                        k(0.0)
-                    } else {
-                        J2::jumps(Iv::new(-1.0, 1.0))
-                    }
-                }
-                Builtin::Min => min_j2(a, arg(1)),
-                Builtin::Max => max_j2(a, arg(1)),
-                Builtin::Limit => min_j2(max_j2(a, arg(1)), arg(2)),
+                // (the second and third arguments of these only)
+                Builtin::Atan2 | Builtin::Min | Builtin::Max => call_j2(*f, &[arg(0), arg(1)]),
+                Builtin::Limit => call_j2(*f, &[arg(0), arg(1), arg(2)]),
+                _ => call_j2(*f, &[arg(0)]),
             }
         }
     }
+}
+
+/// Time over the times `t`: its rate one.
+pub fn time_j2(t: Iv) -> J2 {
+    J2 { v: t, d: ONE, dd: ZERO }
+}
+
+/// `a op b`.
+pub fn binary_j2(op: BinaryOp, a: J2, b: J2) -> J2 {
+    match op {
+        BinaryOp::Add => a.add(b),
+        BinaryOp::Sub => a.sub(b),
+        BinaryOp::Mul => a.mul(b),
+        BinaryOp::Div => a.mul(b.recip()),
+        BinaryOp::Pow => a.pow(b),
+    }
+}
+
+/// The comparison `aj op bj`: 1 or 0 where decided, else a truth that
+/// may flip (once, one way, where the sides' difference is strictly
+/// monotone).
+pub fn compare_j2(op: CmpOp, aj: J2, bj: J2) -> J2 {
+    let (a, b) = (aj.v, bj.v);
+    let (yes, no) = match op {
+        CmpOp::Lt => (a.hi < b.lo, a.lo >= b.hi),
+        CmpOp::Le => (a.hi <= b.lo, a.lo > b.hi),
+        CmpOp::Gt => (a.lo > b.hi, a.hi <= b.lo),
+        CmpOp::Ge => (a.lo >= b.hi, a.hi < b.lo),
+    };
+    if yes || no {
+        return truth(yes, no);
+    }
+    // undecided: where a − b is strictly monotone it crosses zero
+    // once at most, so the truth flips once at most, one way (its
+    // rate a jump of known sign)
+    let r = aj.d.sub(bj.d);
+    if r.lo > 0.0 || r.hi < 0.0 {
+        let rises = (r.lo > 0.0) == matches!(op, CmpOp::Gt | CmpOp::Ge);
+        let d = if rises { Iv::new(0.0, f64::INFINITY) } else { Iv::new(-f64::INFINITY, 0.0) };
+        return J2 { v: UNIT, d, dd: ALL };
+    }
+    truth(false, false)
+}
+
+/// `a and b` (truths).
+pub fn and_j2(a: J2, b: J2) -> J2 {
+    let (a, b) = (a.v, b.v);
+    truth(!a.has_zero() && !b.has_zero(), a == ZERO || b == ZERO)
+}
+
+/// `a or b` (truths).
+pub fn or_j2(a: J2, b: J2) -> J2 {
+    let (a, b) = (a.v, b.v);
+    truth(!a.has_zero() || !b.has_zero(), a == ZERO && b == ZERO)
+}
+
+/// `not a` (a truth).
+pub fn not_j2(a: J2) -> J2 {
+    let a = a.v;
+    truth(a == ZERO, !a.has_zero())
+}
+
+/// Whether an `if`'s condition is a comparison (through `noEvent`).
+pub fn is_comparison(c: &Expr) -> bool {
+    let mut x = c;
+    while let Expr::NoEvent(i) = x {
+        x = i;
+    }
+    matches!(x, Expr::Compare(..))
+}
+
+/// An `if` whose condition `cj` is undecided over the interval, its
+/// branches `a` and `b` enclosed where each is taken: their hull (with a
+/// rate where the condition, a comparison, flips once, one way).
+pub fn if_j2(comparison: bool, cj: J2, a: J2, b: J2) -> J2 {
+    let v = a.v.hull(b.v);
+    // a comparison that flips once at most, one way: b + c (a − b),
+    // c a step between 0 and 1 (its rate a jump of known sign)
+    let one_way = cj.d.lo >= 0.0 || cj.d.hi <= 0.0;
+    if comparison && one_way && cj.v == UNIT {
+        let diff = a.sub(b);
+        let d = b.d.add(cj.d.mul(diff.v)).add(UNIT.mul(diff.d));
+        return J2 { v, d, dd: ALL };
+    }
+    J2::jumps(v)
+}
+
+/// A built-in function (not `der`, `pre`) of its arguments' enclosures
+/// (`args[0]` the first; a missing one is unknown).
+pub fn call_j2(f: Builtin, args: &[J2]) -> J2 {
+    let arg = |i: usize| args.get(i).copied().unwrap_or_else(J2::all);
+    let k = |v: f64| J2::konst(Iv::point(v));
+    let a = arg(0);
+    let x = a.v;
+    match f {
+        Builtin::Der | Builtin::Pre => J2::all(),
+        Builtin::Sin => a.chain(sin_iv(x), cos_iv(x), sin_iv(x).neg()),
+        Builtin::Cos => a.chain(cos_iv(x), sin_iv(x).neg(), cos_iv(x).neg()),
+        Builtin::Tan => {
+            if holds_phase(x, FRAC_PI_2, PI) || !(x.lo.is_finite() && x.hi.is_finite()) {
+                return J2::all();
+            }
+            let t = x.incr(f64::tan);
+            let s = ONE.add(t.sqr());
+            a.chain(t, s, t.mul(s).scale(2.0))
+        }
+        Builtin::Asin | Builtin::Acos => {
+            if x.lo < -1.0 || x.hi > 1.0 {
+                return J2::all();
+            }
+            let r = ONE.sub(x.sqr());
+            let rs = sqrt_iv(r);
+            let f1 = rs.recip();
+            let f2 = x.mul(r.mul(rs).recip());
+            if f == Builtin::Asin {
+                a.chain(x.incr(f64::asin), f1, f2)
+            } else {
+                a.chain(x.decr(f64::acos), f1.neg(), f2.neg())
+            }
+        }
+        Builtin::Atan => {
+            let r = ONE.add(x.sqr());
+            a.chain(x.incr(f64::atan), r.recip(), x.scale(-2.0).mul(r.sqr().recip()))
+        }
+        Builtin::Atan2 => {
+            let b = arg(1);
+            if a.is_const() && b.is_const() && x.is_point() && b.v.is_point() {
+                return k(x.lo.atan2(b.v.lo));
+            }
+            J2::all()
+        }
+        Builtin::Sinh => {
+            let c = cosh_iv(x);
+            a.chain(x.incr(f64::sinh), c, x.incr(f64::sinh))
+        }
+        Builtin::Cosh => a.chain(cosh_iv(x), x.incr(f64::sinh), cosh_iv(x)),
+        Builtin::Tanh => {
+            let t = x.incr(f64::tanh);
+            let s = ONE.sub(t.sqr());
+            a.chain(t, s, t.mul(s).scale(-2.0))
+        }
+        Builtin::Exp => a.exp(),
+        Builtin::Log => a.ln(),
+        Builtin::Sqrt => {
+            if x.lo < 0.0 {
+                return J2::all();
+            }
+            let s = sqrt_iv(x);
+            a.chain(s, s.recip().scale(0.5), x.mul(s).recip().scale(-0.25))
+        }
+        Builtin::Abs => {
+            if x.lo >= 0.0 {
+                a
+            } else if x.hi <= 0.0 {
+                a.neg()
+            } else {
+                J2 { v: Iv::new(0.0, x.mag()), d: a.d.hull(a.d.neg()), dd: ALL }
+            }
+        }
+        Builtin::Sign => {
+            if x.lo > 0.0 {
+                k(1.0)
+            } else if x.hi < 0.0 {
+                k(-1.0)
+            } else if x == ZERO {
+                k(0.0)
+            } else {
+                J2::jumps(Iv::new(-1.0, 1.0))
+            }
+        }
+        Builtin::Min => min_j2(a, arg(1)),
+        Builtin::Max => max_j2(a, arg(1)),
+        Builtin::Limit => min_j2(max_j2(a, arg(1)), arg(2)),
+    }
+}
+
+/// The bound a comparison puts on a variable below (or equal to) the
+/// side enclosed by `h`: at most its largest value.
+pub fn below_j2(h: J2) -> Iv {
+    Iv { lo: f64::NEG_INFINITY, hi: h.v.hi }
+}
+
+/// The bound a comparison puts on a variable above (or equal to) the
+/// side enclosed by `l`: at least its least value.
+pub fn above_j2(l: J2) -> Iv {
+    Iv { lo: l.v.lo, hi: f64::INFINITY }
+}
+
+/// A variable's enclosure `j` cut to the bound `r` a condition puts on
+/// it where a branch is taken (`None`: nothing is left, the branch is
+/// never taken).
+pub fn cut_j2(j: J2, r: Iv) -> Option<J2> {
+    let (lo, hi) = (j.v.lo.max(r.lo), j.v.hi.min(r.hi));
+    if lo > hi {
+        return None;
+    }
+    Some(J2 { v: Iv { lo, hi }, ..j })
 }
 
 /// The bounds condition `c` puts on the variables it compares with
@@ -694,12 +761,10 @@ fn bounds(c: &Expr, holds: bool, cx: &Cx<'_>, t: Iv, out: &mut Vec<(usize, Iv)>)
             let below = matches!(op, CmpOp::Lt | CmpOp::Le) == holds;
             let (lo, hi) = if below { (a, b) } else { (b, a) };
             if let Expr::Var(v) = &**lo {
-                let h = enclose(hi, cx, t).v;
-                out.push((v.0 as usize, Iv { lo: f64::NEG_INFINITY, hi: h.hi }));
+                out.push((v.0 as usize, below_j2(enclose(hi, cx, t))));
             }
             if let Expr::Var(v) = &**hi {
-                let l = enclose(lo, cx, t).v;
-                out.push((v.0 as usize, Iv { lo: l.lo, hi: f64::INFINITY }));
+                out.push((v.0 as usize, above_j2(enclose(lo, cx, t))));
             }
         }
         _ => {}
@@ -720,11 +785,7 @@ fn branch(c: &Expr, holds: bool, e: &Expr, cx: &Cx<'_>, t: Iv) -> Option<J2> {
     let mut cut: Vec<(usize, J2)> = vec![];
     for (v, r) in b {
         let j = cut.iter().find(|(w, _)| *w == v).map(|(_, j)| *j).or_else(|| (cx.leaf)(v))?;
-        let (lo, hi) = (j.v.lo.max(r.lo), j.v.hi.min(r.hi));
-        if lo > hi {
-            return None;
-        }
-        let j = J2 { v: Iv { lo, hi }, ..j };
+        let j = cut_j2(j, r)?;
         match cut.iter_mut().find(|(w, _)| *w == v) {
             Some(x) => x.1 = j,
             None => cut.push((v, j)),

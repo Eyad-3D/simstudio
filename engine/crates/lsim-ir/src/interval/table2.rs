@@ -20,7 +20,7 @@
 
 use super::{ALL, Iv, ZERO};
 use crate::runtime::ModelFunctions;
-use std::cell::OnceCell;
+use std::sync::OnceLock;
 
 /// The regions one enclosure may visit (over more, it gives up: the box is
 /// too wide to say anything useful).
@@ -47,7 +47,7 @@ struct Patch {
 pub struct Grid2 {
     k: u32,
     ax: [Vec<f64>; 2],
-    patches: Vec<OnceCell<Option<Patch>>>,
+    patches: Vec<OnceLock<Option<Patch>>>,
 }
 
 /// The value, its partial derivatives along x and y, and the second
@@ -316,7 +316,7 @@ impl Grid2 {
         Some(Grid2 {
             k,
             ax: [x.to_vec(), y.to_vec()],
-            patches: (0..n).map(|_| OnceCell::new()).collect(),
+            patches: (0..n).map(|_| OnceLock::new()).collect(),
         })
     }
 
