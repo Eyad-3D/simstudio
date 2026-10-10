@@ -177,6 +177,10 @@ pub struct CompileReport {
     /// [`JitModel::wait_machine_code`]); the counts of machine functions,
     /// instructions and bytes above are then zero
     pub tiered: bool,
+    /// of the codegen time: placing the machine code in executable memory
+    /// and resolving its calls, s (what loading cached machine code would
+    /// cost too)
+    pub link_seconds: f64,
 }
 
 /// What a generated function reads and writes: its one argument points to
@@ -1021,7 +1025,7 @@ fn build(
     let ir_done = Instant::now();
     let code_bytes: usize = compiled.iter().map(|c| c.bytes.len()).sum();
     let instructions: usize = compiled.iter().map(|c| c.insts).sum();
-    let report = |done: Instant| CompileReport {
+    let report = |done: Instant, link_seconds: f64| CompileReport {
         seconds: (done - started).as_secs_f64(),
         analysis_seconds: (analysis_done - started).as_secs_f64(),
         ir_seconds: ir_seconds + tape_seconds,
@@ -1038,16 +1042,19 @@ fn build(
         jac_colours: env.main_jac.n_colours,
         call_conv: isa.default_call_conv().to_string(),
         tiered,
+        link_seconds,
     };
     if target.is_some() {
-        return Ok(Built::Foreign(report(Instant::now())));
+        return Ok(Built::Foreign(report(Instant::now(), 0.0)));
     }
+    let link_started = Instant::now();
     for c in &compiled {
         module
             .define_function_bytes(c.id, c.align, &c.bytes, &c.relocs)
             .map_err(|e| CodegenError::Backend(e.to_string()))?;
     }
     module.finalize_definitions().map_err(|e| CodegenError::Backend(e.to_string()))?;
+    let link_seconds = link_started.elapsed().as_secs_f64();
     // where each plan's code keeps its values in `work`, and how much it
     // needs (a tape's registers after them)
     let need_of = |p: &Plan| -> usize {
@@ -1134,7 +1141,7 @@ fn build(
         }),
         _ => None,
     };
-    let report = report(Instant::now());
+    let report = report(Instant::now(), link_seconds);
     let mut jm = JitModel {
         layout,
         residual,
