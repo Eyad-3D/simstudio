@@ -1,4 +1,7 @@
-# Packages the desktop app for Windows, Linux and macOS (Apple silicon).
+# Packages the desktop app for Windows. LightSim targets Windows only for
+# now (the owner's decision, 10 October 2026); the Linux and macOS steps
+# below stay, keyed on the matrix, so adding their two matrix entries back
+# (ubuntu-latest/linux/--linux, macos-14/macos/--mac) brings them back.
 #
 # Both halves are platform-specific — the frozen Python backend and the
 # Electron package — so each target builds on its own runner. Slower than CI
@@ -59,16 +62,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            name: linux
-            builder: --linux
           - os: windows-latest
             name: windows
             builder: --win
-          # Apple silicon (arm64) runner
-          - os: macos-14
-            name: macos
-            builder: --mac
     runs-on: ${{ matrix.os }}
 
     steps:

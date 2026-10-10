@@ -87,12 +87,13 @@ jobs:
               || echo "No report: the tests did not reach the golden fixtures."
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Script blocks run in a worker process that Windows starts its own way (a
-  # loopback socket pair, a job object the engine holds, low integrity). Run the worker's
-  # tests and the example cars, whose hybrid has a Script block, there too,
-  # with the command-line tool, the AI access rules and the wheel.
+  # LightSim targets Windows only for now (the owner's decision, 10 October
+  # 2026), so every backend test runs on Windows too: Script blocks run in a
+  # worker process that Windows starts its own way (a loopback socket pair, a
+  # job object the engine holds, low integrity), and a pipe gets the ANSI
+  # code page.
   backend-windows:
-    name: Backend on Windows (script process)
+    name: Backend on Windows (all tests)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -121,28 +122,7 @@ jobs:
 
       - name: Tests
         working-directory: backend
-        run: python -m pytest tests/test_script_sandbox.py tests/test_script_safety.py tests/test_script_trust.py tests/test_examples_plausible.py tests/test_fmu.py tests/test_cli.py tests/test_ai_access.py tests/test_wheel.py -q
-
-  # The same on macOS (Apple silicon), where Apple's sandbox locks the
-  # script process down (PLT-13, PLT-35).
-  backend-macos:
-    name: Backend on macOS (script process)
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: backend/requirements-dev.txt
-
-      - name: Install
-        working-directory: backend
-        run: python -m pip install -r requirements-dev.txt
-
-      - name: Tests
-        working-directory: backend
-        run: python -m pytest tests/test_script_sandbox.py tests/test_script_safety.py tests/test_script_trust.py tests/test_examples_plausible.py -q
+        run: python -m pytest tests/ -q
 
   # Fails when the example runs get more than 10 % slower than on the commit
   # this change starts from, timed on the same runner in alternating fresh
@@ -329,12 +309,12 @@ jobs:
           git push
 
   # The shell's own logic that runs without Electron (src/old-projects.js):
-  # plain Node, no npm ci. Windows too, for its file-system rules.
+  # plain Node, no npm ci, on Windows (the only target for now).
   desktop:
     name: Desktop shell (unit tests)
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7

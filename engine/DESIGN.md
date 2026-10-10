@@ -72,7 +72,7 @@ Contents
 | Events | located to the integrator's root-finding precision (7e-10 s at rtol 1e-10 in the spike) | event-time tests against closed forms |
 | Units | every equation dimensionally consistent at build time | `lsim-prep` unit check |
 | Licences | only permissive licences (MIT, Apache-2.0, BSD, ISC, Zlib …) | `scripts/licences.py`, cargo-deny |
-| Platforms | Windows, macOS, Linux (x86-64, arm64) | CI matrix (WP6) |
+| Platforms | Windows x86-64 only for now (the owner's decision, 10 October 2026); macOS and Linux later | Windows CI (WP6); development and most tests also run on Linux |
 
 ## 3. Choosing the solver: evidence
 
@@ -1717,7 +1717,7 @@ events name the modes that chatter.
   an expected code and named parts (like today's broken-models corpus).
 * **Python tests** (pytest) of the module once WP6 adds the API.
 * `./check.sh` runs rustfmt, clippy (warnings are errors), all tests and
-  the licence check; CI runs it on Linux, macOS and Windows.
+  the licence check; CI runs it on Windows (the target) and Linux.
 
 ## 16. Work breakdown
 
@@ -1825,7 +1825,8 @@ work end to end) or against hand-written test doubles of the interfaces.
   backends agree within tolerance; event times within 10·rtol of exact
   ones; energy closure ≤ 1e-6 on every example; a 10 ms Script block that
   changes nothing costs < 5 % run time; sweeps scale ≥ 3.5× on 4 cores;
-  the build needs only a C compiler on Windows, macOS and Linux.
+  the build needs only a C compiler on Windows (MSVC); macOS and Linux
+  later.
 * **Second round (from the golden comparison)**: `when` conditions made
   true by a tick fire; what a clock schedules is no event storm; `when`
   semantics at the start decided as Modelica's; event iteration with the
@@ -1921,7 +1922,7 @@ work end to end) or against hand-written test doubles of the interfaces.
   the key); the Python API of section 13 with NumPy arrays and GIL release;
   the `DiscreteBlock` implementations for Script blocks and FMUs over
   today's sandboxes; the conversion to today's result JSON; criterion
-  benchmarks and CI performance gates; wheels for three platforms.
+  benchmarks and CI performance gates; a Windows wheel (macOS and Linux later).
 * **Interface**:
   ```rust
   impl FastSolver for RosenbrockW { fn run(&self, m: &dyn ModelFunctions, p: &[f64], inputs: &[Trace], o: &FastOptions) -> Result<FastResult, FastError>; }

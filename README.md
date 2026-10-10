@@ -104,13 +104,12 @@ Python and Node are **not** required: the simulation engine is bundled inside.
 | Platform | Download |
 |---|---|
 | Windows 10/11 (x64) | `LightSim-Setup-<version>.exe`, or `LightSim-<version>-x64.msi` for company IT |
-| Linux (x64) | `LightSim-<version>-x86_64.AppImage` or `LightSim-<version>-amd64.deb` |
-| macOS (Apple silicon) | `LightSim-<version>-arm64.dmg`, only once the Mac build can be signed and notarised by Apple: until then there is none |
+
+LightSim is built for Windows only for now; Linux and macOS may come later.
 
 Download the installers from the
 [Releases page](https://github.com/Eyad-3D/simstudio/releases), with a
-`.sha256` checksum for each file. On Linux, mark the AppImage executable once
-(`chmod +x LightSim-*.AppImage`) and run it. To install a newer version,
+`.sha256` checksum for each file. To install a newer version,
 let LightSim check for updates (it asks the first time it opens, and
 **Help → Updates** changes the answer; see
 [Turn update checks on or off](docs/help/how-to/check-for-updates.md)), or
@@ -127,8 +126,8 @@ questions, and to fix settings for everyone with a policy file, see
 
 Builds of changes not released yet come from the **Build desktop app**
 workflow: on the repository's **Actions** tab, open the latest successful
-*Build desktop app* run on `main` and download the `lightsim-windows` or
-`lightsim-linux` artifact (a zip with the installers and their checksums; you
+*Build desktop app* run on `main` and download the `lightsim-windows`
+artifact (a zip with the installers and their checksums; you
 need to be signed in to GitHub, and artifacts expire after 90 days).
 
 ### Where your work is saved
