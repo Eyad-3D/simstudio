@@ -326,9 +326,13 @@ pub trait Integrator {
     }
     /// Makes the iteration variables of `y` consistent at `t` with the
     /// discrete values `d`, the states held (event iteration re-checks the
-    /// conditions with them after a discrete value changed). A model
-    /// without iteration variables has nothing to do.
-    fn consistent_z(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError>;
+    /// conditions with them after a discrete value changed). The run loop
+    /// calls it only for a model with iteration variables, so the default,
+    /// which does nothing, is right for an integrator of ODEs; one that
+    /// solves DAEs implements it.
+    fn consistent_z(&mut self, _t: f64, _y: &mut [f64], _d: &[f64]) -> Result<(), SolveError> {
+        Ok(())
+    }
     /// Work done so far.
     fn stats(&self) -> SolverStats;
     /// The energy integrals at `t` (inside the last step), when the backend
