@@ -240,7 +240,7 @@ impl Tape {
                 Op::Abs(d, x) => r[d as usize] = r[x as usize].abs(),
                 Op::Sqrt(d, x) => r[d as usize] = r[x as usize].sqrt(),
                 Op::Fma(d, x, y, z) => {
-                    r[d as usize] = r[x as usize].mul_add(r[y as usize], r[z as usize])
+                    r[d as usize] = fused(r[x as usize], r[y as usize], r[z as usize])
                 }
                 Op::Cmp(d, cc, x, y) => {
                     r[d as usize] = truth(cc.eval(r[x as usize], r[y as usize]))
@@ -289,6 +289,65 @@ impl Tape {
                     r[d as usize] = tables.get(k as usize).guard(axis as usize, r[x as usize])
                 }
             }
+        }
+    }
+}
+
+/// `a × b + c` rounded once, by the CPU's own fused multiply-add: the
+/// instruction the machine code runs (`vfmadd`), not a library's `fma`
+/// (`f64::mul_add` calls one on x86-64, the C runtime's on Windows). A
+/// tape has fused multiply-adds only where the CPU has them (the lowering
+/// emits them only then).
+#[inline]
+fn fused(a: f64, b: f64, c: f64) -> f64 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::arch::is_x86_feature_detected!("fma") {
+            // SAFETY: the CPU has the instruction (checked just now).
+            return unsafe { fused_x86(a, b, c) };
+        }
+    }
+    // (elsewhere `mul_add` is the instruction itself: AArch64's `fmadd`)
+    a.mul_add(b, c)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "fma")]
+fn fused_x86(a: f64, b: f64, c: f64) -> f64 {
+    use std::arch::x86_64::{_mm_cvtsd_f64, _mm_fmadd_sd, _mm_set_sd};
+    _mm_cvtsd_f64(_mm_fmadd_sd(_mm_set_sd(a), _mm_set_sd(b), _mm_set_sd(c)))
+}
+
+#[cfg(test)]
+mod tests {
+    /// The fused multiply-add is rounded once: on products whose exact
+    /// low part a separate rounding would lose, and against the exact
+    /// error of a product (Dekker's), at random.
+    #[test]
+    fn the_fused_multiply_add_rounds_once() {
+        let mut seed = 0x853c_49e6_748f_ea9bu64;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        // (1 + 2^-52)² - (1 + 2^-51) = 2^-104, which a product rounded
+        // first loses
+        let a = 1.0 + f64::EPSILON;
+        assert_eq!(super::fused(a, a, -(1.0 + 2.0 * f64::EPSILON)), 2f64.powi(-104));
+        for _ in 0..100_000 {
+            let (x, y) = (rnd() * 4.0 - 2.0, rnd() * 4.0 - 2.0);
+            let p = x * y;
+            // Dekker's exact error of the product
+            let split = |v: f64| {
+                let c = 134_217_729.0 * v;
+                let h = c - (c - v);
+                (h, v - h)
+            };
+            let ((xh, xl), (yh, yl)) = (split(x), split(y));
+            let e = ((xh * yh - p) + xh * yl + xl * yh) + xl * yl;
+            assert_eq!(super::fused(x, y, -p).to_bits(), e.to_bits(), "{x} × {y}");
         }
     }
 }
