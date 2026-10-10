@@ -145,13 +145,12 @@ jobs:
         with:
           python-version: "3.11"
 
+      # engine/rust-toolchain.toml pins the release; rustup installs it here
       - name: Rust toolchain
         run: |
-          rustup update stable --no-self-update
-          rustup default stable
-          rustup component add rustfmt clippy
+          rustup toolchain install --no-self-update
           rustc --version
-          cargo --version
+          cargo clippy --version
 
       - name: Format
         run: cargo fmt --all --check

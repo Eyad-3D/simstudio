@@ -1,0 +1,7 @@
+# The Rust release the engine is built, linted and tested with, here and in
+# CI: a newer release brings new lints that clippy's "warnings are errors"
+# gate would fail on. Move it on deliberately, with the code it asks for.
+[toolchain]
+channel = "1.94.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
