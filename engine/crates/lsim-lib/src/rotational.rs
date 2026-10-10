@@ -200,11 +200,10 @@ pub fn breakaway_vars() -> Vec<lsim_ir::VarDecl> {
 /// those with fixed starts), the wheels' speeds and a clutch's slip are
 /// kept and these follow them. At a gear change the run loop's impulse
 /// projection moves the speeds the gears tie together so that their
-/// momentum is kept, the vehicle's included through the tyres that grip
-/// (whichever speeds are states), and books the kinetic energy that loses
-/// as the gears' engagement and the tyres' relaxation lose it (the
-/// gearbox and the tyres); an engine behind a clutch keeps its speed and
-/// the clutch slips.
+/// momentum is kept (whichever speeds are states), and books the kinetic
+/// energy that loses to the gearbox; the tyres, whose forces are bounded,
+/// pass the momentum on to the vehicle over the time their slip takes to
+/// relax; an engine behind a clutch keeps its speed and the clutch slips.
 pub fn driveline_speed(name: &str, start: &str, doc: &str) -> lsim_ir::VarDecl {
     let mut w = state(name, "rad/s", 0.0, doc);
     w.start = Some(n(start));

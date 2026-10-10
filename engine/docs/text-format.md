@@ -443,32 +443,39 @@ but a declared engagement does this: a stored energy that depends on a
 discrete value is no engagement, and what a `reinit` sets at the same
 event stays as it set it.
 
-A part with only bounded forces (a slipping clutch, a tyre at its grip
-limit) passes no impulse: what is behind it keeps its speed. A part that
-passes one on says so with
-`annotation(__LightSim_impulse(keep = …, active = …))`: the relative
-velocity it keeps through an impulse, and while it does. A tyre that
-grips keeps its slip velocity, so a gear shift's impulse reaches the
-vehicle: once the gears have engaged (the gearbox's loss), the tyre's
-slip relaxes back to what it was before the shift, passing the momentum
-on to the vehicle, and the tyre books what that relaxation loses (never
-negative: an impulse against its slip it does not pass, it slides):
+A part whose forces are bounded passes no impulse in zero time: a
+slipping clutch, and a tyre, whose force is at most its grip (μ × its
+load) inside its grip as at it. At the event what is behind it keeps its
+speed; then its relative velocity relaxes through its own law, which the
+engine integrates like everything else: a tyre passes a shift's momentum
+on to the vehicle over the time its slip takes to relax, sliding at its
+grip if the shift left it past it, and its loss is its own slip loss.
+
+A coupling the model treats as stiff and unbounded (one whose force has
+no bound, taken in its stiff limit) passes an impulse on, and says so
+with `annotation(__LightSim_impulse(keep = …, active = …))`: the
+relative velocity it keeps, which relaxes back to its value before the
+event once the engagement has happened, and while it does so, judged at
+the state the engagement leaves (a coupling that comes into its range as
+the others relax joins them). When one such coupling relaxes it books
+what that loses; when several relax together, how they share the loss
+depends on their stiffnesses, which they do not declare, so the event
+books it as a whole:
 
 ```modelica
-model Vehicle.GripTyre "A tyre whose force follows its slip, up to its grip."
-  connector shaft: Flange "the wheel's shaft";
-  connector road: TFlange "the vehicle";
-  parameter Real r(unit = "m") = 0.3 "rolling radius";
-  parameter Real k(unit = "N.s/m") = 5000 "force per slip velocity";
-  parameter Real F_max(unit = "N") = 4000 "grip";
-  Real F(unit = "N") "tyre force, driving positive";
+model Rotational.StiffCoupling "A viscous coupling stiff enough to take as rigid while engaged."
+  connector a: Flange "one side";
+  connector b: Flange "the other side";
+  parameter Real d(unit = "N.m.s/rad") = 1e5 "torque per slip speed";
+  input Real engaged(unit = "1") "1 while engaged";
+  Real tau(unit = "N.m") "the torque it passes from a to b";
 equation
-  F = min(max(k * (shaft.w * r - road.v), -F_max), F_max);
-  shaft.tau = F * r;
-  road.f = -F;
-  annotation(__LightSim_energy(loss = F * (shaft.w * r - road.v)));
-  annotation(__LightSim_impulse(keep = shaft.w * r - road.v, active = abs(F) < F_max));
-end Vehicle.GripTyre;
+  tau = engaged * d * (a.w - b.w);
+  a.tau = tau "it brakes a by tau";
+  b.tau = -tau "and drives b by it";
+  annotation(__LightSim_energy(loss = tau * (a.w - b.w)));
+  annotation(__LightSim_impulse(keep = a.w - b.w, active = engaged > 0.5));
+end Rotational.StiffCoupling;
 ```
 
 ## Connector types and enumeration types
