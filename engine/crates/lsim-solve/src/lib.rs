@@ -717,6 +717,9 @@ pub fn simulate(
     grid: OutputGrid,
     blocks: &mut [Box<dyn DiscreteBlock>],
 ) -> Result<SimResult, SolveError> {
+    // the default floating-point environment for the run, the calling
+    // thread's own again after it (lsim_ir::fenv)
+    let env = lsim_ir::fenv::DefaultFloatEnv::enter();
     let started = Instant::now();
     let l = *model.layout();
     let mut y0 = vec![0.0; l.n_y()];
@@ -735,6 +738,13 @@ pub fn simulate(
     let result = run_backend(model, info, opts, grid, y0, d0, u, blocks, started);
     result.map(|mut r| {
         r.report.notes.insert(0, format!("start: {start}"));
+        if let Some(own) = env.changed() {
+            r.report.notes.push(format!(
+                "the calling thread's floating-point environment (MXCSR {own:#06x}: flush-to-zero, \
+                 denormals-are-zero or another rounding) was set to the default for the run and \
+                 restored after it"
+            ));
+        }
         r
     })
 }

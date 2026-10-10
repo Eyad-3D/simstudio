@@ -52,6 +52,7 @@ use cranelift_jit::JITModule;
 use cranelift_module::{FuncId, Linkage, Module};
 use emit::{Coloured, Env, Kind, Plan, Shape};
 use lower::TanLayout;
+use lsim_ir::fenv::DefaultFloatEnv;
 use lsim_ir::prepared::{AliasTarget, PreparedModel, Slot};
 use lsim_ir::runtime::{
     ConditionKernels, Enclosure, EvalInput, InitFunctions, Layout, ModelFunctions, SparsityPattern,
@@ -603,6 +604,9 @@ impl JitModel {
     /// parameters: no recompilation). Each table must keep its number of
     /// axes.
     pub fn with_tables(&self, data: &[TableData]) -> Result<JitModel, CodegenError> {
+        // (the tables' coefficients in the default floating-point
+        // environment, as `compile` builds them)
+        let _env = DefaultFloatEnv::enter();
         if data.len() != self.table_dims.len() {
             return Err(CodegenError::Table(format!(
                 "{} tables given, the model has {}",
@@ -882,6 +886,10 @@ fn coloured(pattern: SparsityPattern) -> Coloured {
 /// tapes instead, which compute the same: [`CompileReport::on_tapes`]
 /// says why.
 pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel, CodegenError> {
+    // the default floating-point environment (lsim_ir::fenv): tables'
+    // coefficients and constants computed here must not depend on the
+    // calling thread's
+    let _env = DefaultFloatEnv::enter();
     match build(model, opts, None, How::Auto)? {
         Built::Model(m) => Ok(*m),
         Built::NoExecutableMemory(why) => match build(model, opts, None, How::Tapes)? {
@@ -906,6 +914,7 @@ pub fn compile_for_target(
     opts: &CodegenOptions,
     triple: &str,
 ) -> Result<CompileReport, CodegenError> {
+    let _env = DefaultFloatEnv::enter();
     match build(model, opts, Some(triple), How::Auto)? {
         Built::Foreign(r) => Ok(r),
         _ => unreachable!("another target's code cannot run"),
@@ -1340,6 +1349,7 @@ fn upgrade(jm: &mut JitModel, model: &PreparedModel, opts: &CodegenOptions, star
     let up2 = up.clone();
     BACKGROUND_RUNNING.fetch_add(1, Ordering::SeqCst);
     let spawned = std::thread::Builder::new().name("lsim-codegen".into()).spawn(move || {
+        let _env = DefaultFloatEnv::enter();
         let r = match build(&model, &opts, None, How::Background(&cancel)) {
             Ok(Built::Model(mut m)) => {
                 let fits = m.layout.n_work <= layout.n_work && m.jac_scratch <= jac_scratch;

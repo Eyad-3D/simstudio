@@ -308,6 +308,8 @@ where
         std::thread::scope(|s| {
             for _ in 0..threads {
                 s.spawn(|| {
+                    // (a thread may inherit its creator's environment)
+                    let _env = lsim_ir::fenv::DefaultFloatEnv::enter();
                     loop {
                         let job = queue.lock().expect("queue").pop();
                         let Some(job) = job else { break };
