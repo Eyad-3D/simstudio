@@ -182,7 +182,11 @@ pub struct SolverOptions {
     /// also serves them); off: they ride on the states' steps, which can
     /// leave a fast-decaying loss 100× less accurate than the tolerance
     pub energy_error_control: bool,
-    /// event iterations allowed at one instant before the run stops
+    /// event iterations allowed at one instant before the run stops with
+    /// an event storm: rounds of re-checking the conditions after a change,
+    /// and, counted on their own, the rigid engagements one instant's
+    /// events chain (a shift whose new speeds fire the next shift, each
+    /// one projected); raise it for a cascade that is meant
     pub max_event_iterations: usize,
     /// an event storm: more than this many state events (zero crossings and
     /// modes; sample ticks and time events do not count, nor what they

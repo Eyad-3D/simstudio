@@ -4,7 +4,7 @@
 //! schedules; a tick just before the end; the cost of a restart; time
 //! events located exactly, re-armed or set to now at their own instant, or
 //! coinciding with a root; the momentum kept at a change of a rigid
-//! coupling.
+//! coupling, and a cascade of such changes at one instant.
 
 use lsim_ir::expr::Expr;
 use lsim_ir::prepared::Direction;
@@ -875,6 +875,149 @@ fn a_condition_the_projection_crosses_fires_at_the_shift() {
     assert!((run.values[2][k] - v1).abs() < 1e-9, "the projection moved v");
     assert_eq!(run.values[4][k], 1.0, "the when on v > v_thr fires at the shift");
     assert!(events.iter().any(|(l, t)| l.contains("v > v_thr") && *t == 1.0), "{events:?}");
+}
+
+/// A cascade of rigid engagements at one instant (from the review of the
+/// third round): a motor geared to a wheel, the gear's ratio 12·0.97^(g−1)
+/// for gear g, an automatic upshift `when w_m >= 100: gear := gear + 1` and
+/// a first upshift commanded at t = 1. The motor's inertia dominates (J_m
+/// = 1, J_w = 1e-3): each upshift barely slows the motor, the wheel taking
+/// its momentum, so after each projection the motor is at 100 rad/s or more
+/// again and the next upshift fires at the same instant, each losing a
+/// little, until the projected motor speed falls below 100 rad/s (131
+/// upshifts, computed below as Modelica's event iteration runs it). The
+/// settle loop used to stop after `max_event_iterations` + 1 projections
+/// without a word, the last round's upshift applied but never projected.
+/// Now a cascade longer than the limit stops the run with an event storm
+/// that names the engagement, the count and the condition, and with the
+/// limit raised every engagement of the cascade is projected.
+#[test]
+fn a_cascade_of_engagements_is_projected_to_its_end_or_stops_the_run() {
+    let (jm, jw) = (1.0, 1e-3);
+    let ratio = |g: f64| 12.0 * 0.97f64.powf(g - 1.0);
+    let w0 = 101.0 / 12.0;
+    let v = |k: u32| Expr::Var(VarId(k));
+    let half = |c: f64, k: u32| Expr::Const(0.5 * c) * v(k) * v(k);
+    let part = |path: &str, stored: Option<Expr>| EnergyPart {
+        path: path.into(),
+        name: format!("'{path}'"),
+        power: Expr::Const(0.0),
+        loss: None,
+        stored,
+    };
+    // y = [w]; d = [gear]; channels: 0 w, 1 w_m, 2 ratio, 3 gear
+    let model = Hand {
+        layout: layout(1, 0, 0, 1, 2, 2, 4),
+        f: Box::new(|_, out| out[0] = 0.0),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(move |i, out| {
+            out[0] = i.t - 1.0;
+            out[1] = ratio(i.d[0]) * i.y[0] - 100.0;
+        }),
+        vars: Box::new(move |i, out| {
+            out[0] = i.y[0];
+            out[1] = ratio(i.d[0]) * i.y[0];
+            out[2] = ratio(i.d[0]);
+            out[3] = i.d[0];
+        }),
+        when: Box::new(|i, fired, d| {
+            if fired[0] != 0.0 || fired[1] != 0.0 {
+                d[0] = i.d[0] + 1.0;
+            }
+        }),
+        modes: None,
+        y0: vec![w0],
+        d0: vec![1.0],
+    };
+    let mut info = RunInfo::bare(1, 4, vec![]);
+    info.root_dirs = vec![1, 1];
+    whens(
+        &mut info,
+        &[
+            (0, Direction::Rising, "'Driver': first upshift"),
+            (1, Direction::Rising, "'Shift logic': w_m >= 100"),
+        ],
+    );
+    info.when_strict = vec![false, false];
+    info.time_crossings = vec![Some(TimeCrossing { at: Expr::Const(1.0), rising: true }), None];
+    info.var_sources =
+        vec![VarSource::Y(0), VarSource::Computed, VarSource::Computed, VarSource::D(0)];
+    info.y_nominal = vec![10.0];
+    info.energy = Some(Arc::new(EnergyInfo {
+        parts: vec![
+            part("motor", Some(half(jm, 1))),
+            part("wheel", Some(half(jw, 0))),
+            part("gearbox", None),
+        ],
+    }));
+    // ratio = 12 · 0.97^(gear − 1); w_m = ratio · w
+    let ratio_expr = Expr::Const(12.0)
+        * Expr::Binary(
+            lsim_ir::expr::BinaryOp::Pow,
+            Box::new(Expr::Const(0.97)),
+            Box::new(v(3) - Expr::Const(1.0)),
+        );
+    info.impulse = Some(Arc::new(ImpulseInfo::new(
+        vec![(0, vec![1]), (1, vec![0])],
+        vec![EngagementInfo { changes: v(2), part: Some(2) }],
+        vec![],
+        vec![(2, false, ratio_expr), (1, false, v(2) * v(0))],
+        vec![],
+        &info.var_sources,
+        1,
+    )));
+    // the cascade as Modelica's event iteration runs it: upshift, project
+    // (the momentum J_m r w_m + J_w w kept with the new ratio), and again
+    // while the projected motor speed is at 100 rad/s or more
+    let (mut g, mut w, mut n) = (1.0, w0, 0u64);
+    loop {
+        let (r1, r2) = (ratio(g), ratio(g + 1.0));
+        w = (jm * r1 * r2 + jw) * w / (jm * r2 * r2 + jw);
+        g += 1.0;
+        n += 1;
+        if ratio(g) * w < 100.0 {
+            break;
+        }
+    }
+    assert_eq!(n, 131, "the cascade's length");
+    let grid = OutputGrid { t0: 0.0, t_end: 1.5, dt: 0.5 };
+    let opts = SolverOptions { rtol: 1e-10, atol: 1e-10, ..Default::default() };
+    // the default limit (50): an event storm at the instant, naming what
+    // engaged, how often, and what fired it again
+    match simulate(&model, &info, &opts, grid, &mut []) {
+        Err(SolveError::EventStorm { t, message, parts }) => {
+            println!("the run stops: {message}");
+            assert_eq!(t, 1.0);
+            assert!(message.contains("'gearbox' engaged 51 times"), "{message}");
+            assert!(message.contains("'Shift logic': w_m >= 100"), "{message}");
+            assert!(message.contains("max_event_iterations = 50"), "{message}");
+            assert!(parts.iter().any(|p| p == "'gearbox'"), "{parts:?}");
+        }
+        Ok(run) => panic!(
+            "a cascade beyond the limit went on: gear {} after {} projections",
+            run.values[3][at(&run, 1.0)],
+            run.report.impulses
+        ),
+        Err(e) => panic!("the wrong error: {e}"),
+    }
+    // the limit raised: the whole cascade, every upshift projected
+    let opts = SolverOptions { max_event_iterations: 200, ..opts };
+    let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+    let k = at(&run, 1.0);
+    println!(
+        "expected {n} upshifts at t = 1: gear {g}, w {w:.9}, w_m {:.9}; run: {} projections, gear \
+         {}, w {:.9}, w_m {:.9}",
+        ratio(g) * w,
+        run.report.impulses,
+        run.values[3][k],
+        run.values[0][k],
+        run.values[1][k]
+    );
+    assert_eq!(run.report.impulses, n);
+    assert_eq!(run.values[3][k], g);
+    assert!((run.values[0][k] - w).abs() < 1e-12 * w, "w {} vs {w}", run.values[0][k]);
+    assert!(run.values[1][k] < 100.0, "the last upshift projected");
+    assert_eq!(*run.values[3].last().unwrap(), g);
 }
 
 /// The two-stage split against the physics it stands for: a tyre with a

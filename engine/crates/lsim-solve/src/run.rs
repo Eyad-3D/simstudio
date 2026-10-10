@@ -62,7 +62,10 @@
 //!   impulse against its slip slides instead). Nothing with bounded forces
 //!   (a slipping clutch) passes an impulse, nothing but a declared
 //!   engagement starts one, and what a `reinit` set at the event stays.
-//!   Event iteration then goes on from the moved states.
+//!   Event iteration then goes on from the moved states, and an
+//!   engagement it makes there is projected in turn; a cascade of more
+//!   than [`SolverOptions::max_event_iterations`] engagements at one
+//!   instant stops the run, naming them.
 //! * **Event storms**: more than [`SolverOptions::storm_events`] state
 //!   events in [`SolverOptions::storm_window`] of the run stop it, naming
 //!   the conditions (and so the parts) that chatter. Sample ticks and time
@@ -706,8 +709,13 @@ impl Loop<'_> {
     /// projection, [`Loop::engage`]) and iterates on from the moved states,
     /// as Modelica re-checks every condition after a `reinit` at the same
     /// instant: a condition the jump crosses fires there, a mode it crosses
-    /// flips there. Until nothing changes. Returns whether a discrete value
-    /// changed from `d_pre`, and where the engagements' lost energy goes.
+    /// flips there. Until nothing changes: it ends only when every
+    /// engagement the iteration made is projected. A cascade of more than
+    /// `max_event_iterations` engagements at one instant (each one's new
+    /// speeds firing the next) stops the run with an event storm that names
+    /// the engagement and the conditions; a cascade that is meant needs a
+    /// higher limit. Returns whether a discrete value changed from `d_pre`,
+    /// and where the engagements' lost energy goes.
     #[allow(clippy::too_many_arguments)]
     fn settle(
         &mut self,
@@ -726,10 +734,17 @@ impl Loop<'_> {
         let mut books: Option<Engagement> = None;
         let mut ref_vars = before_vars.to_vec();
         let mut ref_d = d_pre.to_vec();
-        for _ in 0..=self.opts.max_event_iterations {
+        let mut engaged = 0usize;
+        // the conditions the last engagement's jump fired
+        let mut fired_by: Vec<String> = vec![];
+        loop {
             // the conditions as they stand before the states move
             self.eval_roots(t, y, d, true);
             let Some(e) = self.engage(integ, t, y, d, &ref_vars, &ref_d)? else { break };
+            engaged += 1;
+            if engaged > self.opts.max_event_iterations {
+                return Err(self.cascade(t, &e, engaged, &fired_by));
+            }
             match &mut books {
                 Some(b) => b.merge(e),
                 None => books = Some(e),
@@ -746,10 +761,56 @@ impl Loop<'_> {
             // iterate on from the moved states
             let mut z_for = d.clone();
             let mut fired = vec![0.0; self.info.whens.len()];
+            let seen = self.events.len();
             self.rounds(integ, t, y, d, &mut fired, false, &[], &mut z_for)?;
             self.solve_z(integ, t, y, d, &mut z_for)?;
+            fired_by.clear();
+            for ev in &self.events[seen..] {
+                if !fired_by.contains(&ev.label) {
+                    fired_by.push(ev.label.clone());
+                }
+            }
         }
         Ok((true, books))
+    }
+
+    /// The event storm of a cascade of rigid engagements at `t` longer than
+    /// the event iteration allows: `e` the last engagement, `n` how many
+    /// there were, `fired_by` the conditions the one before it fired.
+    fn cascade(&self, t: f64, e: &Engagement, n: usize, fired_by: &[String]) -> SolveError {
+        let energy = self.info.energy.as_ref();
+        let mut names: Vec<String> = vec![];
+        for (part, _, link) in &e.losses {
+            if *link {
+                continue;
+            }
+            let name = match (part, energy) {
+                (Some(p), Some(en)) => en.parts[*p].name.clone(),
+                _ => "a rigid engagement".to_string(),
+            };
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        let max = self.opts.max_event_iterations;
+        let why = if fired_by.is_empty() {
+            String::new()
+        } else {
+            format!(", each one's new speeds firing {} again", fired_by.join(", "))
+        };
+        let mut parts = names.clone();
+        parts.extend(fired_by.iter().cloned());
+        SolveError::EventStorm {
+            t,
+            message: format!(
+                "{} engaged {n} times at this instant{why}: more than the event iteration \
+                 allows (SolverOptions::max_event_iterations = {max}). Check those conditions \
+                 against the speeds each engagement leaves; if a cascade this long is meant, \
+                 raise the limit.",
+                names.join(", ")
+            ),
+            parts,
+        }
     }
 
     /// Solves the iteration variables of `y` again (the states held) when
