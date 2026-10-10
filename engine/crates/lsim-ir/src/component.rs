@@ -350,20 +350,22 @@ pub struct EnergyDecl {
 }
 
 /// A relative velocity a component keeps through an impulse while a
-/// condition holds: it passes a rigid, instantaneous engagement elsewhere
-/// in the model on rigidly, as if it were a rigid coupling for that
-/// instant. A tyre that grips keeps its slip velocity (`keep = w*r - v`
-/// while it is not at its grip limit), so a gear shift's impulse reaches
-/// the vehicle; a part that carries only bounded forces (a slipping
-/// clutch, a tyre at its grip limit) declares none and passes no impulse.
-/// The text format writes it as `annotation(__LightSim_impulse(keep = …,
-/// active = …))`.
+/// condition holds: a coupling the model treats as stiff and unbounded
+/// passes a rigid, instantaneous engagement elsewhere in the model on, its
+/// relative velocity `keep` relaxing back to its value before the event
+/// (the limit of a stiff coupling whose force has no bound). `active` is
+/// judged at the state the engagement leaves. A part whose forces are
+/// bounded passes no impulse in zero time and declares none: a tyre (its
+/// force is at most μ N, within its grip as at it: its slip relaxes over
+/// time, which the integrator follows), a slipping clutch. The text format
+/// writes it as `annotation(__LightSim_impulse(keep = …, active = …))`.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct ImpulseDecl {
     /// the relative velocity kept (an expression of the component's
     /// variables, linear in its velocities)
     pub keep: Expr,
-    /// while this holds (a truth value)
+    /// while this holds (a truth value), judged at the state the
+    /// engagement leaves
     pub active: Expr,
 }
 
