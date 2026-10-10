@@ -106,6 +106,18 @@ pub struct PreparedWhen {
     pub origin: Origin,
 }
 
+impl PreparedWhen {
+    /// A `when` clause on zero crossing `crossing`.
+    pub fn new(
+        crossing: usize,
+        direction: Direction,
+        assign: Vec<(VarId, Expr)>,
+        origin: Origin,
+    ) -> Self {
+        PreparedWhen { crossing, direction, assign, origin }
+    }
+}
+
 /// A mode (DESIGN.md, *Events and modes*): the held truth value of one
 /// relation of the equations (an `if` condition, or the sign test inside
 /// `abs` or `sign`) outside `noEvent`. Between events the equations read
