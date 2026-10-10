@@ -603,6 +603,7 @@ How the format maps to the engine's IR (`lsim-ir`):
 | `assert(c, "m", AssertionLevel.warning)` | `Equation::Assert { error: false }` |
 | `annotation(__LightSim_energy(…))` | `ComponentDef::energy` |
 | `annotation(__LightSim_impulse(keep = …, active = …))` | `ComponentDef::impulse` (one `ImpulseDecl` each) |
+| `annotation(__LightSim_engagement(changes = …))` | `ComponentDef::engagements` (one `EngagementDecl` each) |
 | `annotation(__LightSim(id = "…"))` on a part | `SubDecl::ui_id` |
 
 The checks at parse time follow the same rules as the engine's unit check

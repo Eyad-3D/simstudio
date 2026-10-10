@@ -489,6 +489,13 @@ pub fn to_text(def: &ComponentDef) -> String {
             expr_text(&im.active)
         );
     }
+    for en in &def.engagements {
+        let _ = writeln!(
+            s,
+            "  annotation(__LightSim_engagement(changes = {}));",
+            expr_text(&en.changes)
+        );
+    }
     let _ = writeln!(s, "end {};", ref_name(&def.name));
     s
 }
