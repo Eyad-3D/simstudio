@@ -14,7 +14,8 @@
  *   node scripts/smoke-backend.mjs [path-to-executable]
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -130,12 +131,16 @@ try {
 
   // The same executable is the command-line tool (AI-02): a run in its own
   // process, no server; exit 0 means a valid run.
+  const outDir = mkdtempSync(join(tmpdir(), "lightsim-smoke-"));
   for (const example of ["bev-car", "hybrid-car"]) {
-    const cli = spawnSync(exe, ["run", example, "--json"], { encoding: "utf8", timeout: 300_000 });
+    const out_ = join(outDir, `${example}.mat`);
+    const cli = spawnSync(exe, ["run", example, "--out", out_, "--json"],
+                          { encoding: "utf8", timeout: 300_000 });
     if (cli.status !== 0) fail(`'lightsim-backend run ${example}' exited ${cli.status}: ${cli.stderr}`);
     const out = JSON.parse(cli.stdout);
     if (out.status !== "success") fail(`'lightsim-backend run ${example}' gave ${out.status}`);
-    console.log(`✓ command line: run ${example} → ${out.status}, ${Object.keys(out.kpis).length} figures`);
+    if (!existsSync(out_)) fail(`'lightsim-backend run ${example}' wrote no ${out_}`);
+    console.log(`✓ command line: run ${example} → ${out.status}, ${Object.keys(out.summary).length} figures`);
   }
 
   console.log("\nfrozen backend smoke test passed");

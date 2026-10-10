@@ -2,7 +2,7 @@
 
 The desktop app's engine runs these when its first argument names one:
 
-  lightsim-backend run PROJECT.json [--case NAME] [--out FILE.mat|.csv] [--json]
+  lightsim-backend run PROJECT.json|EXAMPLE [--case NAME] [--out FILE.mat|.csv] [--json]
   lightsim-backend export RUN.json[.gz] [--format mat|csv|json] [--out FILE]
   lightsim-backend import-table FILE --part TYPE --param KEY [--mode M]
                                 [--sheet NAME] [--range A1:D20]
@@ -43,6 +43,13 @@ class _Usage(Exception):
 
 
 def _load_project(path: str) -> Project:
+    if not Path(path).exists():  # an example's id (bev-car), as the lightsim tool takes
+        from ..storage import load_example
+
+        try:
+            return load_example(path)
+        except (FileNotFoundError, ValueError):
+            pass  # not an example either: say the file is missing
     try:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
     except OSError as e:
@@ -267,7 +274,7 @@ def parser() -> argparse.ArgumentParser:
                     "and parameter sheets.")
     sub = p.add_subparsers(dest="command", required=True, parser_class=_Parser)
     r = sub.add_parser("run", help="run a case of a project and write its results")
-    r.add_argument("project", help="the project file (.json)")
+    r.add_argument("project", help="the project file (.json), or an example id (bev-car)")
     r.add_argument("--case", help="the case's name or id (default: the first case)")
     r.add_argument("--out", help="the results file (.mat or .csv)")
     r.add_argument("--format", choices=["mat", "csv"], help="default: from --out, else mat")

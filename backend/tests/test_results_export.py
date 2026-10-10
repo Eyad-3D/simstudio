@@ -238,6 +238,19 @@ def test_the_command_line_runs_a_case_and_writes_mat_and_csv(tmp_path, capsys):
     assert (tmp_path / "r.csv").exists()
 
 
+def test_the_command_line_runs_an_example_by_its_id(tmp_path, capsys):
+    # what the frozen engine's smoke test runs: `lightsim-backend run bev-car`
+    out = tmp_path / "accel.mat"
+    assert cli.main(["run", "fs-electric", "--case", "Acceleration 75 m", "--out", str(out),
+                     "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "success"
+    assert _load(out.read_bytes())["meta"]["model_hash"] == cli.model_hash(
+        load_example("fs-electric"))
+    # neither a file nor an example: the file is missing
+    assert cli.main(["run", "no-such-car"]) == cli.USAGE
+    assert "cannot read no-such-car" in capsys.readouterr().err
+
+
 def test_the_command_line_exit_codes(tmp_path, capsys):
     assert cli.main(["run", str(tmp_path / "missing.json")]) == cli.USAGE
     project = load_example("bev-car")
