@@ -137,6 +137,11 @@ pub struct Table {
     /// 1-D: four power-basis coefficients per interval (local coordinate
     /// `s = x - x_i`); 2-D: sixteen per cell, `a[4p + q]` of `s^p t^q`
     coef: Vec<f64>,
+    /// whether every interpolant's rates stay finite over its cells (the
+    /// coefficients and the cells' widths are moderate): then a value
+    /// inside the data is exactly its polynomial's (the terms that carry
+    /// it outside are exact zeros), which [`Table::value`] uses
+    tame: bool,
 }
 
 /// Steffen's slopes for the data `(x, f)`, at least two points.
@@ -316,6 +321,7 @@ impl Table {
             guard_axes,
             constant: data.values[0],
             coef: vec![],
+            tame: false,
         };
         match varying.len() {
             0 => {}
@@ -399,6 +405,9 @@ impl Table {
                 }
             }
         }
+        let width = |a: &Axis| a.pts.windows(2).map(|w| w[1] - w[0]).fold(0.0, f64::max);
+        t.tame = t.coef.iter().all(|c| c.abs() < 1e100)
+            && t.ax.iter().all(|a| width(a) < 1e30 && a.pts.iter().all(|p| p.abs() < 1e100));
         Ok(t)
     }
 
@@ -429,6 +438,53 @@ impl Table {
                 (v, [dx, dy])
             }
         }
+    }
+
+    /// The value alone: bitwise `self.eval(args).0`, without the partial
+    /// derivatives where they cannot change it (inside the data, a finite
+    /// non-zero value: the terms `eval` adds are exact zeros there).
+    #[inline]
+    pub fn value(&self, args: [f64; 2]) -> f64 {
+        if self.tame {
+            match self.ax.len() {
+                1 => {
+                    let a = self.arg_of[0];
+                    let other = if self.dims == 2 { args[1 - a] } else { 0.0 };
+                    let ax = &self.ax[0];
+                    let x = args[a];
+                    if x >= ax.lo() && x <= ax.hi() && !other.is_nan() {
+                        let i = ax.interval(x);
+                        let c = &self.coef[4 * i..4 * i + 4];
+                        let s = x - ax.pts[i];
+                        let v = c[0] + s * (c[1] + s * (c[2] + s * c[3]));
+                        if v.is_finite() && v != 0.0 {
+                            return v;
+                        }
+                    }
+                }
+                2 => {
+                    let (axx, axy) = (&self.ax[0], &self.ax[1]);
+                    let (x, y) = (args[0], args[1]);
+                    if x >= axx.lo() && x <= axx.hi() && y >= axy.lo() && y <= axy.hi() {
+                        let (i, j) = (axx.interval(x), axy.interval(y));
+                        let ny1 = axy.pts.len() - 1;
+                        let a = &self.coef[16 * (i * ny1 + j)..16 * (i * ny1 + j) + 16];
+                        let (s, t) = (x - axx.pts[i], y - axy.pts[j]);
+                        let mut r = [0.0; 4];
+                        for (p, rp) in r.iter_mut().enumerate() {
+                            let q = &a[4 * p..4 * p + 4];
+                            *rp = q[0] + t * (q[1] + t * (q[2] + t * q[3]));
+                        }
+                        let v = r[0] + s * (r[1] + s * (r[2] + s * r[3]));
+                        if v.is_finite() && v != 0.0 {
+                            return v;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.eval(args).0
     }
 
     #[inline]
@@ -496,7 +552,7 @@ pub(crate) unsafe extern "C" fn lsim_tab1(t: *const Table, x: f64) -> f64 {
     // SAFETY: by the caller's contract (the generated code passes the
     // table store's pointers, which live as long as the compiled model).
     let t = unsafe { &*t };
-    t.eval([x, 0.0]).0
+    t.value([x, 0.0])
 }
 
 /// The value of 1-D table `t` at `x`; writes the derivative to `d[0]`.
@@ -518,7 +574,7 @@ pub(crate) unsafe extern "C" fn lsim_tab1d(t: *const Table, x: f64, d: *mut f64)
 /// `t` must point to a live [`Table`].
 pub(crate) unsafe extern "C" fn lsim_tab2(t: *const Table, x: f64, y: f64) -> f64 {
     // SAFETY: as in `lsim_tab1`.
-    unsafe { (*t).eval([x, y]).0 }
+    unsafe { (*t).value([x, y]) }
 }
 
 /// The value of 2-D table `t` at `(x, y)`; writes the partial derivatives
@@ -618,5 +674,78 @@ mod tests {
         assert!((v - (v3 + d3[0])).abs() < 1e-14 && d == d3);
         assert!(t.eval([f64::NAN, 0.0]).0.is_nan());
         assert!(t.guard(0, 1.0) > 0.0 && t.guard(0, 3.5) < 0.0 && t.guard(0, 3.0 + 1e-12) > 0.0);
+    }
+
+    /// The value alone is bitwise the value `eval` gives, inside the data,
+    /// on its edges, outside it, at NaN and at signed zeros, on random
+    /// 1-D and 2-D tables of every interpolation and outside rule, and on
+    /// tables whose value is zero somewhere.
+    #[test]
+    fn the_value_alone_is_bitwise_evals() {
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let outs = [Outside::Clamp, Outside::Linear, Outside::Error];
+        let mut checked = 0;
+        for case in 0..300 {
+            let axis = |r: &mut dyn FnMut() -> f64, n: usize| -> Vec<f64> {
+                let mut x = -3.0 * r();
+                (0..n)
+                    .map(|_| {
+                        let v = x;
+                        x += 0.05 + 2.0 * r();
+                        v
+                    })
+                    .collect()
+            };
+            let nx = 1 + (case % 6);
+            let x = axis(&mut rnd, nx);
+            let zero = case % 4 == 0;
+            let val =
+                |r: &mut dyn FnMut() -> f64| if zero && r() < 0.5 { 0.0 } else { 4.0 * r() - 2.0 };
+            let mut data = if case % 2 == 0 {
+                let y = (0..nx).map(|_| val(&mut rnd)).collect();
+                TableData::new_1d(x.clone(), y)
+            } else {
+                let ny = 1 + (case / 2) % 5;
+                let y = axis(&mut rnd, ny);
+                let v = (0..nx * ny).map(|_| val(&mut rnd)).collect();
+                TableData::new_2d(x.clone(), y, v)
+            };
+            if case % 3 == 0 {
+                data.interpolation = lsim_ir::table::Interpolation::Linear;
+            }
+            data.outside = [outs[case % 3], outs[(case / 3) % 3]];
+            let Ok(t) = Table::new(&data) else { continue };
+            let mut probe = |a: f64, b: f64| {
+                let (v, _) = t.eval([a, b]);
+                let w = t.value([a, b]);
+                assert!(
+                    v.to_bits() == w.to_bits(),
+                    "case {case} at ({a}, {b}): eval {v:e} ({:x}), value {w:e} ({:x})",
+                    v.to_bits(),
+                    w.to_bits()
+                );
+                checked += 1;
+            };
+            let pts_x = data.x.clone();
+            let pts_y = if data.y.is_empty() { vec![0.0] } else { data.y.clone() };
+            let specials = [f64::NAN, 0.0, -0.0, 1e300, -1e300];
+            for &a in pts_x.iter().chain(&specials) {
+                for &b in pts_y.iter().chain(&specials) {
+                    probe(a, b);
+                }
+            }
+            for _ in 0..200 {
+                let a = -5.0 + 15.0 * rnd();
+                let b = -5.0 + 15.0 * rnd();
+                probe(a, b);
+            }
+        }
+        assert!(checked > 50_000, "{checked}");
     }
 }

@@ -265,16 +265,22 @@ impl Tape {
                 Op::Lib1(d, f, x) => r[d as usize] = f.eval(r[x as usize], 0.0),
                 Op::Lib2(d, f, x, y) => r[d as usize] = f.eval(r[x as usize], r[y as usize]),
                 Op::Tab1(d, k, x, g) => {
-                    let (v, gr) = tables.get(k as usize).eval([r[x as usize], 0.0]);
-                    r[d as usize] = v;
-                    if g != NONE {
+                    let t = tables.get(k as usize);
+                    if g == NONE {
+                        r[d as usize] = t.value([r[x as usize], 0.0]);
+                    } else {
+                        let (v, gr) = t.eval([r[x as usize], 0.0]);
+                        r[d as usize] = v;
                         r[g as usize] = gr[0];
                     }
                 }
                 Op::Tab2(d, k, x, y, g) => {
-                    let (v, gr) = tables.get(k as usize).eval([r[x as usize], r[y as usize]]);
-                    r[d as usize] = v;
-                    if g != NONE {
+                    let t = tables.get(k as usize);
+                    if g == NONE {
+                        r[d as usize] = t.value([r[x as usize], r[y as usize]]);
+                    } else {
+                        let (v, gr) = t.eval([r[x as usize], r[y as usize]]);
+                        r[d as usize] = v;
                         r[g as usize] = gr[0];
                         r[g as usize + 1] = gr[1];
                     }
