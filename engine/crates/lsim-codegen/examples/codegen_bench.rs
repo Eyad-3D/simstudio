@@ -23,17 +23,24 @@ fn cpu_time() -> f64 {
         .map_or(f64::NAN, |ns| ns * 1e-9)
 }
 
-fn best_compile(m: &PreparedModel, o: &CodegenOptions, reps: usize) -> (f64, f64, JitModel) {
-    let (mut best, mut best_cpu) = (f64::INFINITY, f64::INFINITY);
+/// The best of `reps` compilations: wall time, this thread's CPU time,
+/// and for a tiered model the time until its machine code was in (each
+/// waited for before the next compilation).
+fn best_compile(m: &PreparedModel, o: &CodegenOptions, reps: usize) -> (f64, f64, f64, JitModel) {
+    let (mut best, mut best_cpu, mut best_machine) = (f64::INFINITY, f64::INFINITY, f64::NAN);
     let mut keep = None;
     for _ in 0..reps {
         let (t, c) = (Instant::now(), cpu_time());
         let j = compile(m, o).expect("compiles");
         best = best.min(t.elapsed().as_secs_f64());
         best_cpu = best_cpu.min(cpu_time() - c);
+        if let Some(r) = j.wait_machine_code() {
+            let s = r.expect("machine code").seconds;
+            best_machine = if best_machine.is_nan() { s } else { best_machine.min(s) };
+        }
         keep = Some(j);
     }
-    (best, best_cpu, keep.unwrap())
+    (best, best_cpu, best_machine, keep.unwrap())
 }
 
 fn per_call(mut f: impl FnMut()) -> f64 {
@@ -104,12 +111,19 @@ fn main() {
         ("vehicle(2)", synth::vehicle(2)),
         ("vehicle(4)", synth::vehicle(4)),
         ("network(400)", synth::network(400, 7)),
+        // 10 000 equations (derivatives and assignments)
+        ("network(1430)", synth::network(1430, 7)),
         ("network(2000)", synth::network(2000, 7)),
         ("network(4000)", synth::network(4000, 7)),
     ];
     let variants: Vec<(&str, CodegenOptions)> = vec![
         ("default", CodegenOptions::default()),
         ("auto, 1 thread", CodegenOptions { threads: 1, ..Default::default() }),
+        ("never tiered", CodegenOptions { tiered_above: usize::MAX, ..Default::default() }),
+        (
+            "never tiered, 1 thread",
+            CodegenOptions { tiered_above: usize::MAX, threads: 1, ..Default::default() },
+        ),
         (
             "speed+backtracking",
             CodegenOptions { opt_level: "speed", regalloc: "backtracking", ..Default::default() },
@@ -180,8 +194,21 @@ fn main() {
             m.flat.tables.len()
         );
         for (vn, o) in &variants {
-            let (t, cpu, j) = best_compile(m, o, 3);
+            let (t, cpu, machine, j) = best_compile(m, o, 3);
             let r = &j.report;
+            if r.tiered {
+                // the tapes' costs, before the machine code is in
+                let taped = j.tapes_only().expect("tiered");
+                calls(&format!("    {vn} on tapes"), m, &taped);
+                let r = j.wait_machine_code().expect("tiered").expect("machine code");
+                println!(
+                    "  {vn:20} tiered: on tapes after {:.2} ms, machine code after {:.2} ms best of 3 ({} functions, {} kB)",
+                    t * 1e3,
+                    machine * 1e3,
+                    r.functions,
+                    r.code_bytes / 1024
+                );
+            }
             println!(
                 "  {vn:20} compile {:.2} ms, CPU {:.2} ms (analysis {:.2}, IR {:.2}, codegen {:.2}; {} functions, {} kB, {} threads, opt {}, {})",
                 t * 1e3,

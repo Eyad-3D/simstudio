@@ -59,7 +59,7 @@ use lsim_ir::runtime::{
 };
 use lsim_ir::table::TableData;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Instant;
 use tables::{Table, TableStore};
 use tape::Tape;
@@ -112,6 +112,13 @@ pub struct CodegenOptions {
     /// Kernels of the conditions that read time and the integrator's
     /// variables ([`lsim_ir::ConditionKernels`]; `true`, the default).
     pub kernels: bool,
+    /// Models above this many expression nodes are tiered: `compile`
+    /// returns them running on tapes (built in a fraction of the time
+    /// Cranelift takes) and compiles their machine code on another
+    /// thread, to which each function switches once it is in. A tape
+    /// computes bitwise what its machine code computes, so results do not
+    /// depend on when the switch happens. `usize::MAX`: never.
+    pub tiered_above: usize,
 }
 
 impl Default for CodegenOptions {
@@ -126,6 +133,7 @@ impl Default for CodegenOptions {
             tape_init: true,
             compile_jvp: false,
             kernels: true,
+            tiered_above: 20_000,
         }
     }
 }
@@ -164,6 +172,11 @@ pub struct CompileReport {
     /// the calling convention of the generated functions and of their
     /// calls (the target's default: `system_v`, `windows_fastcall` …)
     pub call_conv: String,
+    /// the model was returned on its tapes, its machine code compiling on
+    /// another thread ([`CodegenOptions::tiered_above`],
+    /// [`JitModel::wait_machine_code`]); the counts of machine functions,
+    /// instructions and bytes above are then zero
+    pub tiered: bool,
 }
 
 /// What a generated function reads and writes: its one argument points to
@@ -196,6 +209,35 @@ enum Code {
         tape: Arc<Tape>,
         regs_at: usize,
     },
+    /// these, one after the other (a large model's chained tapes)
+    Seq(Vec<Code>),
+    /// a tape until its machine code, compiled on another thread, is in:
+    /// bitwise the same function either way
+    Tiered(Arc<TieredCode>),
+}
+
+/// A function that starts on its tape and switches to machine code.
+struct TieredCode {
+    tape: Code,
+    machine: OnceLock<Code>,
+}
+
+/// A tiered model's machine code, compiled on another thread.
+#[derive(Default)]
+struct Upgrade {
+    /// the memory the machine code lives in, set before any function
+    /// switches to it
+    memory: OnceLock<Arc<CodeMemory>>,
+    /// the compilation's outcome, once it is over
+    done: Mutex<Option<Result<CompileReport, String>>>,
+    over: Condvar,
+}
+
+impl Upgrade {
+    fn finish(&self, r: Result<CompileReport, String>) {
+        *self.done.lock().unwrap_or_else(|e| e.into_inner()) = Some(r);
+        self.over.notify_all();
+    }
 }
 
 impl Code {
@@ -231,6 +273,15 @@ impl Code {
                     unsafe { f(&ctx) }
                 }
             }
+            Code::Seq(codes) => {
+                for c in codes {
+                    c.call(inp, v, work, out, tables);
+                }
+            }
+            Code::Tiered(t) => match t.machine.get() {
+                Some(m) => m.call(inp, v, work, out, tables),
+                None => t.tape.call(inp, v, work, out, tables),
+            },
             Code::Tape { tape, regs_at } => {
                 let (w, regs) = work.split_at_mut(*regs_at);
                 let a = tape::Arrays {
@@ -337,6 +388,8 @@ pub struct JitModel {
     /// details of the compilation
     pub report: CompileReport,
     _memory: Arc<CodeMemory>,
+    /// a tiered model's machine code to come
+    upgrade: Option<Arc<Upgrade>>,
 }
 
 /// The compiled initialisation problem.
@@ -389,6 +442,66 @@ impl JitModel {
     /// The structure [`JitModel::jacobian_sparse`] fills.
     pub fn pattern(&self) -> &SparsityPattern {
         &self.pattern
+    }
+
+    /// The functions a tiered model switches to machine code, in a fixed
+    /// order.
+    fn slots_mut(&mut self) -> Vec<&mut Code> {
+        let vars = match &mut self.vars {
+            VarsCode::Own(c) => c,
+            VarsCode::Gather { code, .. } => code,
+        };
+        let mut v = vec![
+            &mut self.residual,
+            &mut self.jac,
+            &mut self.roots,
+            vars,
+            &mut self.when,
+            &mut self.modes,
+            &mut self.guards,
+        ];
+        if let Some(j) = &mut self.jvp {
+            v.push(j);
+        }
+        v
+    }
+
+    /// Whether the model's functions run as machine code: always, but for
+    /// a tiered model ([`CodegenOptions::tiered_above`]) whose machine
+    /// code is still compiling (or failed to: it then stays on its tapes,
+    /// which compute the same).
+    pub fn machine_code_ready(&self) -> bool {
+        self.upgrade.as_ref().is_none_or(|u| {
+            u.done.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|r| r.is_ok())
+        })
+    }
+
+    /// A tiered model as it runs before its machine code is in: on its
+    /// tapes alone (for tests and benchmarks of the tiers); `None` for a
+    /// model compiled at once.
+    #[doc(hidden)]
+    pub fn tapes_only(&self) -> Option<JitModel> {
+        self.upgrade.as_ref()?;
+        let mut m = self.clone();
+        for c in m.slots_mut() {
+            if let Code::Tiered(t) = c {
+                *c = t.tape.clone();
+            }
+        }
+        m.upgrade = None;
+        Some(m)
+    }
+
+    /// Waits for a tiered model's machine code: its compilation's report
+    /// (`seconds` counted from the start of [`compile`]), or why the model
+    /// stays on its tapes; `None` for a model compiled at once.
+    pub fn wait_machine_code(&self) -> Option<Result<CompileReport, String>> {
+        let u = self.upgrade.as_ref()?;
+        let mut done = u.done.lock().unwrap_or_else(|e| e.into_inner());
+        while done.is_none() {
+            done = u.over.wait(done).unwrap_or_else(|e| e.into_inner());
+        }
+        done.clone()
     }
 
     /// The same machine code with other table data (tables are runtime
@@ -818,7 +931,8 @@ fn build(
             _ => &tan_none,
         }
     };
-    let taped = |kind: Kind| opts.tape_init && kind.init();
+    let tiered = target.is_none() && nodes > opts.tiered_above;
+    let taped = |kind: Kind| tiered || (opts.tape_init && kind.init());
     let sig = jit::eval_signature(&*isa);
     let trace = std::env::var_os("LSIM_CODEGEN_TRACE").is_some();
     let mut ids: Vec<Vec<FuncId>> = vec![];
@@ -923,6 +1037,7 @@ fn build(
         jac_nnz: env.main_jac.pattern.nnz(),
         jac_colours: env.main_jac.n_colours,
         call_conv: isa.default_call_conv().to_string(),
+        tiered,
     };
     if target.is_some() {
         return Ok(Built::Foreign(report(Instant::now())));
@@ -971,7 +1086,7 @@ fn build(
             }
             (Code::Empty, b) => b,
             (a, Code::Empty) => a,
-            _ => unreachable!("a large model's functions are machine code"),
+            (a, b) => Code::Seq(vec![a, b]),
         }
     };
     let (residual, vars) = if large {
@@ -1020,7 +1135,7 @@ fn build(
         _ => None,
     };
     let report = report(Instant::now());
-    Ok(Built::Model(Box::new(JitModel {
+    let mut jm = JitModel {
         layout,
         residual,
         jvp,
@@ -1046,7 +1161,62 @@ fn build(
         code_bytes,
         report,
         _memory: Arc::new(CodeMemory(module)),
-    })))
+        upgrade: None,
+    };
+    if tiered {
+        upgrade(&mut jm, model, opts, started);
+    }
+    Ok(Built::Model(Box::new(jm)))
+}
+
+/// Puts a model returned on its tapes on the way to machine code: each of
+/// its functions becomes tiered, and another thread compiles the model as
+/// a whole (the same analysis, plans and work layout) and switches each to
+/// its machine code.
+fn upgrade(jm: &mut JitModel, model: &PreparedModel, opts: &CodegenOptions, started: Instant) {
+    let up = Arc::new(Upgrade::default());
+    let slots: Vec<Arc<TieredCode>> = jm
+        .slots_mut()
+        .into_iter()
+        .map(|c| {
+            let t = Arc::new(TieredCode { tape: std::mem::take(c), machine: OnceLock::new() });
+            *c = Code::Tiered(t.clone());
+            t
+        })
+        .collect();
+    jm.upgrade = Some(up.clone());
+    let (layout, jac_scratch) = (jm.layout, jm.jac_scratch);
+    let model = model.clone();
+    let opts = CodegenOptions { tiered_above: usize::MAX, ..opts.clone() };
+    let up2 = up.clone();
+    let spawned = std::thread::Builder::new().name("lsim-codegen".into()).spawn(move || {
+        let r = match build(&model, &opts, None) {
+            Ok(Built::Model(mut m)) => {
+                let fits = m.layout.n_work <= layout.n_work && m.jac_scratch <= jac_scratch;
+                let (memory, mut report) = (m._memory.clone(), m.report.clone());
+                let codes = m.slots_mut();
+                if codes.len() != slots.len() || !fits {
+                    Err("internal: the machine code's layout differs from the tapes'".into())
+                } else {
+                    let _ = up2.memory.set(memory);
+                    for (s, c) in slots.iter().zip(codes) {
+                        let _ = s.machine.set(std::mem::take(c));
+                    }
+                    report.seconds = started.elapsed().as_secs_f64();
+                    Ok(report)
+                }
+            }
+            Ok(Built::Foreign(_)) => Err("internal: foreign code".into()),
+            Err(e) => Err(e.to_string()),
+        };
+        if let Err(e) = &r {
+            eprintln!("lsim-codegen: the model stays on its tapes: {e}");
+        }
+        up2.finish(r);
+    });
+    if let Err(e) = spawned {
+        up.finish(Err(format!("no thread to compile on: {e}")));
+    }
 }
 
 /// The ISA the code is generated for: whether it has fused multiply-add

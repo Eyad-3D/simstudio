@@ -1,11 +1,16 @@
 //! A function run from its tape computes bitwise what its machine code
-//! computes (the lowering emits the same operations into both), and
+//! computes (the lowering emits the same operations into both): the
+//! example projects' initialisation systems, and every function of a
+//! tiered model, which runs on its tapes until its machine code is in.
 //! Jacobian-vector products from the coloured Jacobian agree with their
-//! own forward-mode code: on the example projects' initialisation
-//! systems, at their start and away from it.
+//! own forward-mode code.
 
 #[path = "common/cars.rs"]
 mod cars;
+#[path = "common/random.rs"]
+mod random;
+#[path = "common/synth.rs"]
+mod synth;
 
 use lsim_codegen::{CodegenOptions, JitModel, compile};
 use lsim_ir::runtime::{EvalInput, ModelFunctions};
@@ -142,4 +147,78 @@ fn jacobian_vector_products_from_the_jacobian_match_their_own_code() {
             }
         }
     }
+}
+
+/// One of a model's functions, called with a work buffer and its output.
+type Call<'a> = dyn FnMut(&JitModel, &mut [f64], &mut [f64]) + 'a;
+
+/// Every function of a tiered model ([`CodegenOptions::tiered_above`]) on
+/// its tapes, as the model runs before its machine code is in, against the
+/// same model's machine code, bit for bit: the example projects, random
+/// models with modes and `when` clauses, and large synthetic models whose
+/// functions are chunked and chained (the residual and the channels from
+/// one primal code).
+#[test]
+fn tiered_models_compute_the_same_on_tapes_and_machine_code() {
+    let mut models: Vec<(String, lsim_ir::PreparedModel)> =
+        one_per_project().into_iter().map(|c| (c.name, c.model)).collect();
+    let mut r = synth::Rng(53);
+    for k in 0..12 {
+        let m = random::implicit_model(&mut r, 3, 2, 14, 4, 4, random::ALL_OPS);
+        models.push((format!("random model {k}"), m));
+    }
+    models.push(("vehicle(2)".into(), synth::vehicle(2)));
+    models.push(("network(300)".into(), synth::network(300, 3)));
+    let mut checked = 0;
+    for (name, m) in &models {
+        for compile_jvp in [false, true] {
+            let opts = CodegenOptions {
+                tiered_above: 0,
+                compile_jvp,
+                chunk_nodes: 1_500,
+                ..Default::default()
+            };
+            let jit = compile(m, &opts).expect("compiles");
+            assert!(jit.report.tiered, "{name}");
+            let tapes = jit.tapes_only().expect("tiered");
+            let report = jit.wait_machine_code().expect("tiered").expect("machine code");
+            assert!(report.functions > 0 && jit.machine_code_ready(), "{name}");
+            assert!(tapes.tapes_only().is_none() && !report.tiered);
+            let l = *jit.layout();
+            assert_eq!(l, *tapes.layout());
+            let p: Vec<f64> = m.flat.params.iter().map(|q| q.value).collect();
+            let (mut y0, mut d0) = (vec![0.0; l.n_y()], vec![0.0; l.n_d]);
+            jit.start(&p, &mut y0, &mut d0);
+            let u: Vec<f64> = (0..l.n_u).map(|i| 0.5 + i as f64).collect();
+            let (mut wa, mut wb) = (vec![f64::NAN; l.n_work], vec![f64::NAN; l.n_work]);
+            for (k, y) in points(&y0).into_iter().enumerate() {
+                let t = 0.75 * k as f64;
+                let inp = EvalInput { t, y: &y, p: &p, d: &d0, u: &u };
+                let mut both = |n: usize, f: &mut Call<'_>| {
+                    let (mut a, mut b) = (vec![0.0; n], vec![0.0; n]);
+                    f(&tapes, &mut wa, &mut a);
+                    f(&jit, &mut wb, &mut b);
+                    assert!(same(&a, &b), "{name}: {a:?} vs {b:?}");
+                };
+                both(l.n_y(), &mut |j, w, o| j.residual(&inp, w, o));
+                both(jit.pattern().nnz(), &mut |j, w, o| j.jacobian_sparse(&inp, w, o));
+                let v: Vec<f64> = (0..l.n_y()).map(|i| 1.0 / (1.0 + i as f64)).collect();
+                both(l.n_y(), &mut |j, w, o| j.jvp(&inp, &v, w, o));
+                both(l.n_roots, &mut |j, w, o| j.roots(&inp, w, o));
+                both(l.n_vars, &mut |j, w, o| j.vars(&inp, w, o));
+                both(jit.table_guard_list().len(), &mut |j, w, o| j.table_guards(&inp, w, o));
+                let fired: Vec<f64> = (0..l.n_whens).map(|i| ((i + k) % 2) as f64).collect();
+                both(l.n_d, &mut |j, w, o| {
+                    o.copy_from_slice(&d0);
+                    j.when(&inp, &fired, w, o)
+                });
+                both(l.n_d, &mut |j, w, o| {
+                    o.copy_from_slice(&d0);
+                    j.modes(&inp, w, o)
+                });
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked >= 100, "{checked} points");
 }
