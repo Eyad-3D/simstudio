@@ -139,8 +139,9 @@ pub struct Table {
     coef: Vec<f64>,
     /// whether every interpolant's rates stay finite over its cells (the
     /// coefficients and the cells' widths are moderate): then a value
-    /// inside the data is exactly its polynomial's (the terms that carry
-    /// it outside are exact zeros), which [`Table::value`] uses
+    /// inside the data or held at its edge is exactly its polynomial's
+    /// (the terms that carry it outside are exact zeros), which
+    /// [`Table::value`] uses
     tame: bool,
 }
 
@@ -440,67 +441,57 @@ impl Table {
         }
     }
 
-    /// The value alone: bitwise `self.eval(args).0`, without the partial
-    /// derivatives where they cannot change it (inside the data, a finite
-    /// non-zero value: the terms `eval` adds are exact zeros there).
+    /// The value alone: bitwise `self.eval(args).0` (the same code), without
+    /// the rates where they cannot change it: inside the data, or held at
+    /// its edge, the terms that carry a value across the edge are exact
+    /// zeros, and a non-zero value is the polynomial's.
     #[inline]
     pub fn value(&self, args: [f64; 2]) -> f64 {
-        if self.tame {
-            match self.ax.len() {
-                1 => {
-                    let a = self.arg_of[0];
-                    let other = if self.dims == 2 { args[1 - a] } else { 0.0 };
-                    let ax = &self.ax[0];
-                    let x = args[a];
-                    if x >= ax.lo() && x <= ax.hi() && !other.is_nan() {
-                        let i = ax.interval(x);
-                        let c = &self.coef[4 * i..4 * i + 4];
-                        let s = x - ax.pts[i];
-                        let v = c[0] + s * (c[1] + s * (c[2] + s * c[3]));
-                        if v.is_finite() && v != 0.0 {
-                            return v;
-                        }
-                    }
-                }
-                2 => {
-                    let (axx, axy) = (&self.ax[0], &self.ax[1]);
-                    let (x, y) = (args[0], args[1]);
-                    if x >= axx.lo() && x <= axx.hi() && y >= axy.lo() && y <= axy.hi() {
-                        let (i, j) = (axx.interval(x), axy.interval(y));
-                        let ny1 = axy.pts.len() - 1;
-                        let a = &self.coef[16 * (i * ny1 + j)..16 * (i * ny1 + j) + 16];
-                        let (s, t) = (x - axx.pts[i], y - axy.pts[j]);
-                        let mut r = [0.0; 4];
-                        for (p, rp) in r.iter_mut().enumerate() {
-                            let q = &a[4 * p..4 * p + 4];
-                            *rp = q[0] + t * (q[1] + t * (q[2] + t * q[3]));
-                        }
-                        let v = r[0] + s * (r[1] + s * (r[2] + s * r[3]));
-                        if v.is_finite() && v != 0.0 {
-                            return v;
-                        }
-                    }
-                }
-                _ => {}
+        match self.ax.len() {
+            0 => self.eval(args).0,
+            1 => {
+                let a = self.arg_of[0];
+                let (v, _) = self.eval1_with::<false>(args[a]);
+                // a NaN in the ignored argument still poisons the result
+                let other = if self.dims == 2 { args[1 - a] } else { 0.0 };
+                if other.is_nan() { other } else { v }
             }
+            _ => self.eval2_with::<false>(args[0], args[1]).0,
         }
-        self.eval(args).0
     }
 
     #[inline]
     fn eval1(&self, x: f64) -> (f64, f64) {
+        self.eval1_with::<true>(x)
+    }
+
+    /// The value and rate at `x`; without `RATES`, where the rate cannot
+    /// change the value (`tame`, inside the data or held at its edge, a
+    /// non-zero value), the value alone (the rate then 0).
+    #[inline(always)]
+    fn eval1_with<const RATES: bool>(&self, x: f64) -> (f64, f64) {
         let ax = &self.ax[0];
         let (xc, dx, e) = ax.place(x);
         let i = ax.interval(xc);
         let c = &self.coef[4 * i..4 * i + 4];
         let s = xc - ax.pts[i];
         let v = c[0] + s * (c[1] + s * (c[2] + s * c[3]));
+        if !RATES && self.tame && (e == 0.0 || dx == 0.0) && v != 0.0 {
+            // `v + e * d * dx` below is `v + ±0`
+            return (v, 0.0);
+        }
         let d = c[1] + s * (2.0 * c[2] + s * (3.0 * c[3]));
         (v + e * d * dx, e * d)
     }
 
     #[inline]
     fn eval2(&self, x: f64, y: f64) -> (f64, f64, f64) {
+        self.eval2_with::<true>(x, y)
+    }
+
+    /// [`Table::eval1_with`] in 2-D.
+    #[inline(always)]
+    fn eval2_with<const RATES: bool>(&self, x: f64, y: f64) -> (f64, f64, f64) {
         let (axx, axy) = (&self.ax[0], &self.ax[1]);
         let (xc, dx, ex) = axx.place(x);
         let (yc, dy, ey) = axy.place(y);
@@ -508,15 +499,23 @@ impl Table {
         let ny1 = axy.pts.len() - 1;
         let a = &self.coef[16 * (i * ny1 + j)..16 * (i * ny1 + j) + 16];
         let (s, t) = (xc - axx.pts[i], yc - axy.pts[j]);
-        // row polynomials in t and their t-derivatives
+        // row polynomials in t
         let mut r = [0.0; 4];
-        let mut rt = [0.0; 4];
-        for p in 0..4 {
+        for (p, rp) in r.iter_mut().enumerate() {
             let q = &a[4 * p..4 * p + 4];
-            r[p] = q[0] + t * (q[1] + t * (q[2] + t * q[3]));
-            rt[p] = q[1] + t * (2.0 * q[2] + t * (3.0 * q[3]));
+            *rp = q[0] + t * (q[1] + t * (q[2] + t * q[3]));
         }
         let v = r[0] + s * (r[1] + s * (r[2] + s * r[3]));
+        if !RATES && self.tame && (ex == 0.0 || dx == 0.0) && (ey == 0.0 || dy == 0.0) && v != 0.0 {
+            // every term added to `v` below is `±0`
+            return (v, 0.0, 0.0);
+        }
+        // and their t-derivatives
+        let mut rt = [0.0; 4];
+        for (p, rp) in rt.iter_mut().enumerate() {
+            let q = &a[4 * p..4 * p + 4];
+            *rp = q[1] + t * (2.0 * q[2] + t * (3.0 * q[3]));
+        }
         let vx = r[1] + s * (2.0 * r[2] + s * (3.0 * r[3]));
         let vy = rt[0] + s * (rt[1] + s * (rt[2] + s * rt[3]));
         let vxy = rt[1] + s * (2.0 * rt[2] + s * (3.0 * rt[3]));

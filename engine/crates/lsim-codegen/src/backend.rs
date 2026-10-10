@@ -203,7 +203,8 @@ pub(crate) struct Clif<'a, 'f> {
     ctx: Value,
     decls: &'a HashMap<&'static str, Import>,
     refs: HashMap<&'static str, FuncRef>,
-    /// time, the arrays' and the tables' addresses loaded in this segment
+    /// time, the arrays' and the tables' addresses, each loaded once in
+    /// the function
     bases: [Option<Value>; 9],
     scratch: Option<StackSlot>,
 }
@@ -286,7 +287,9 @@ impl Emit for Clif<'_, '_> {
     type V = Value;
 
     fn new_segment(&mut self) {
-        self.bases = [None; 9];
+        // the addresses stay: a function is one block, and reloading them
+        // per segment cost more than keeping them (the register allocator
+        // spills one only where registers run short)
     }
 
     fn konst(&mut self, x: f64) -> Value {
