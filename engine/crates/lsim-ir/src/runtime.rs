@@ -256,4 +256,15 @@ pub trait ModelFunctions: Send + Sync {
         let _ = (k, args);
         None
     }
+
+    /// Table `k`'s breakpoints as the compiled code interpolates it: its
+    /// first axis's, and its second's (empty for a 1-D table), so that the
+    /// run loop's enclosures of the tables follow the data the model was
+    /// given (a model's tables may be swapped after preparation). `None`
+    /// when the model does not give them (the default) or has no table
+    /// `k`.
+    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
+        let _ = k;
+        None
+    }
 }
