@@ -641,8 +641,9 @@ fn compiled_roots_follow_the_zero_crossings_order() {
 /// lost (the golden comparison's Battery Electric Car in winter stood 21 s
 /// at a start: its motor's switch-on, driven by the driver's command from
 /// the cycle's target, was stepped over). The table's breakpoints are stop
-/// times (`RunInfo::time_tables`, found through the assignments): no step
-/// spans one, and the flag latches at 10.5 s.
+/// times (`RunInfo::time_tables`, found through the assignment that sets
+/// the position it is read at, as the library's profiles set theirs): no
+/// step spans one, and the flag latches at 10.5 s.
 #[test]
 fn a_condition_a_time_table_drives_is_not_stepped_over() {
     use lsim_ir::component::build::{discrete, eq, state, var};
@@ -658,12 +659,14 @@ fn a_condition_a_time_table_drives_is_not_stepped_over() {
         params: vec![lsim_lib::table::table_param("profile", "1", profile, "the target by time")],
         vars: vec![
             state("x", "1", 1.0, "at rest"),
+            var("at", "s", "where it reads its profile"),
             var("target", "1", "the target"),
             discrete("seen", "1", 0.0, "1 once the target passed 0.5"),
         ],
         equations: vec![
             eq(der("x"), Expr::Const(0.0), "nothing moves"),
-            eq(n("target"), lsim_ir::expr::table("profile", vec![Expr::Time]), "the target now"),
+            eq(n("at"), Expr::Time, "it reads its profile at the time (as the library's do)"),
+            eq(n("target"), lsim_ir::expr::table("profile", vec![n("at")]), "the target now"),
             EquationDecl {
                 eq: Equation::When {
                     condition: cmp(CmpOp::Gt, n("target"), Expr::Const(0.5)),
