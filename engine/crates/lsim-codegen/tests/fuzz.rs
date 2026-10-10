@@ -13,7 +13,12 @@
 //!   same shortcut agrees bitwise; the shortcut itself is within 1 ulp of
 //!   `powf` (the "library call" tolerance), and closer than `powf` to the
 //!   exact power.
+//! * The shortcut computes the same bits on a CPU without fused
+//!   multiply-add (Dekker's product for each product's error) as on one
+//!   with: in the mirror over many arguments, and in the compiled models.
 
+#[path = "common/cars.rs"]
+mod cars;
 #[path = "common/random.rs"]
 mod random;
 #[path = "common/synth.rs"]
@@ -57,11 +62,31 @@ impl Env for Point<'_> {
     }
 }
 
+/// The exact rounding error of the product `p = a·b`: a fused
+/// multiply-add (`fma`) or Dekker's product, as the generated code
+/// computes it on a CPU with or without one (`lower.rs`,
+/// `product_error`).
+fn product_error(a: f64, b: f64, p: f64, fma: bool) -> f64 {
+    if fma {
+        return a.mul_add(b, -p);
+    }
+    let split = |v: f64| {
+        let t = 134_217_729.0 * v;
+        let hi = t - (t - v);
+        (hi, v - hi)
+    };
+    let ((a1, a2), (b1, b2)) = (split(a), split(b));
+    let err1 = p - a1 * b1;
+    let err2 = err1 - a2 * b1;
+    let err3 = err2 - a1 * b2;
+    a2 * b2 - err3
+}
+
 /// `x^n` for an integer |n| ≥ 3 as the generated code multiplies it out
-/// (`lower.rs`, `powi_exact`): double-double squaring with fused
-/// multiply-adds, one rounding; the plain product where that is not
-/// finite or the power underflows.
-fn powi_exact(x: f64, n: i32) -> f64 {
+/// (`lower.rs`, `powi_exact`): double-double squaring with each
+/// product's exact error, one rounding; the plain product outside
+/// [2^-960, 2^990] or where that is not finite.
+fn powi_exact(x: f64, n: i32, fma: bool) -> f64 {
     let two_sum = |p: f64, e: f64| {
         let s = p + e;
         let d = s - p;
@@ -73,18 +98,18 @@ fn powi_exact(x: f64, n: i32) -> f64 {
     let mut pl = x;
     for i in (0..bits - 1).rev() {
         let p = h * h;
-        let mut e = h.mul_add(h, -p);
+        let mut e = product_error(h, h, p, fma);
         if let Some(lo) = l {
-            e = (h + h).mul_add(lo, e);
+            e += (h + h) * lo;
         }
         let (s, lo) = two_sum(p, e);
         (h, l) = (s, Some(lo));
         pl *= pl;
         if (m >> i) & 1 == 1 {
             let p = h * x;
-            let mut e = h.mul_add(x, -p);
+            let mut e = product_error(h, x, p, fma);
             if let Some(lo) = l {
-                e = lo.mul_add(x, e);
+                e += lo * x;
             }
             let (s, lo) = two_sum(p, e);
             (h, l) = (s, Some(lo));
@@ -93,16 +118,17 @@ fn powi_exact(x: f64, n: i32) -> f64 {
     }
     let (r, plain) = if n < 0 {
         let q = 1.0 / h;
-        let rem = (-q).mul_add(h, 1.0);
-        let rem = match l {
-            Some(lo) => (-q).mul_add(lo, rem),
-            None => rem,
-        };
-        (q.mul_add(rem, q), 1.0 / pl)
+        let p = q * h;
+        let mut rem = (1.0 - p) - product_error(q, h, p, fma);
+        if let Some(lo) = l {
+            rem -= q * lo;
+        }
+        (q + q * rem, 1.0 / pl)
     } else {
         (h, pl)
     };
-    if r.is_finite() && pl != 0.0 { r } else { plain }
+    let inside = |v: f64| v.abs() >= 2f64.powi(-960) && v.abs() <= 2f64.powi(990);
+    if inside(x) && inside(pl) && r.is_finite() { r } else { plain }
 }
 
 /// The residual's shortcut for `x^n` (`lower.rs`, `pow_const` without
@@ -122,8 +148,8 @@ fn fast_pow(x: f64, n: f64, fma: bool) -> f64 {
         1.0 / x
     } else if n == 0.5 {
         if x == f64::NEG_INFINITY { f64::INFINITY } else { x.sqrt() + 0.0 }
-    } else if inline && fma {
-        powi_exact(x, n as i32)
+    } else if inline {
+        powi_exact(x, n as i32, fma)
     } else {
         x.powf(n)
     }
@@ -376,4 +402,97 @@ fn multiplied_out_powers_are_within_an_ulp_of_powf() {
         "{n_checked} powers: within {worst} ulp of powf; {worse_than_powf} less exact than powf"
     );
     assert!(worse_than_powf * 1000 <= n_checked, "{worse_than_powf} of {n_checked}");
+}
+
+/// The multiplied-out powers with a fused multiply-add and with Dekker's
+/// product (a CPU without one) are the same bits: over arguments of every
+/// magnitude, at the edges of the range they are kept in, and at the
+/// special values.
+#[test]
+fn multiplied_out_powers_are_the_same_with_and_without_fused_multiply_add() {
+    let mut r = Rng(7);
+    let mut checked = 0;
+    let edges = [2f64.powi(-960), 2f64.powi(990)];
+    for n in (-16..=16).filter(|n: &i32| n.abs() >= 3) {
+        for k in 0..20_000 {
+            let x = match k % 6 {
+                0 => r.range(-3.0, 3.0),
+                1 => r.range(-1e5, 1e5),
+                2 => 10f64.powf(r.range(-300.0, 300.0)) * if r.below(2) == 0 { 1.0 } else { -1.0 },
+                3 => {
+                    // around the powers' edges
+                    let e = edges[r.below(2)];
+                    e.powf(1.0 / n as f64) * r.range(0.999, 1.001)
+                }
+                4 => edges[r.below(2)] * r.range(0.5, 2.0),
+                _ => r.range(0.5, 2.0),
+            };
+            let (a, b) = (powi_exact(x, n, true), powi_exact(x, n, false));
+            assert!(same(a, b), "{x:e}^{n}: {a:e} with, {b:e} without");
+            checked += 1;
+        }
+        for x in [0.0, -0.0, f64::INFINITY, f64::NEG_INFINITY, f64::NAN, f64::MIN_POSITIVE, 5e-324]
+        {
+            assert!(same(powi_exact(x, n, true), powi_exact(x, n, false)), "{x:e}^{n}");
+        }
+    }
+    assert!(checked >= 500_000);
+}
+
+/// One of a model's functions, called with a work buffer and its output.
+type Call<'a> = dyn Fn(&JitModel, &mut [f64], &mut [f64]) + 'a;
+
+/// The compiled models, lowered for a CPU with and for one without fused
+/// multiply-add: every function bitwise the same, on random models (their
+/// constant powers included) and the example projects.
+#[test]
+fn compiled_models_are_the_same_with_and_without_fused_multiply_add() {
+    let mut models: Vec<(String, PreparedModel)> =
+        cars::one_per_project(cars::cars("")).into_iter().map(|c| (c.name, c.model)).collect();
+    let mut r = Rng(31);
+    for k in 0..40 {
+        models.push((format!("random {k}"), random::model(&mut r, 3, 60, 8, 5, random::ALL_OPS)));
+    }
+    let without = CodegenOptions { fused_multiply_add: false, ..Default::default() };
+    let mut checks = 0;
+    for (name, m) in &models {
+        let a = compile(m, &CodegenOptions::default()).expect("compiles");
+        let b = compile(m, &without).expect("compiles");
+        let l = *a.layout();
+        let p: Vec<f64> = m.flat.params.iter().map(|q| q.value).collect();
+        let (mut y0, mut d0) = (vec![0.0; l.n_y()], vec![0.0; l.n_d]);
+        a.start(&p, &mut y0, &mut d0);
+        let u = vec![0.0; l.n_u];
+        let (mut wa, mut wb) = (vec![0.0; l.n_work], vec![0.0; b.layout().n_work]);
+        for k in 0..12 {
+            let y: Vec<f64> = if k == 0 {
+                y0.clone()
+            } else {
+                (0..l.n_y()).map(|_| random::constant(&mut r)).collect()
+            };
+            let inp = EvalInput { t: r.range(-3.0, 3.0), y: &y, p: &p, d: &d0, u: &u };
+            let mut both = |n: usize, f: &Call<'_>| {
+                let (mut x, mut z) = (vec![0.0; n], vec![0.0; n]);
+                f(&a, &mut wa, &mut x);
+                f(&b, &mut wb, &mut z);
+                assert!(x.iter().zip(&z).all(|(x, z)| same(*x, *z)), "{name}: {x:?} vs {z:?}");
+                checks += n;
+            };
+            both(l.n_y(), &|j, w, o| j.residual(&inp, w, o));
+            both(l.n_vars, &|j, w, o| j.vars(&inp, w, o));
+            both(a.pattern().nnz(), &|j, w, o| j.jacobian_sparse(&inp, w, o));
+            if let (Some(ia), Some(ib)) = (a.init(), b.init()) {
+                let n = ia.n_w();
+                let mut w0 = vec![0.0; n];
+                ia.guess(&p, &mut w0);
+                let inp = EvalInput { y: &w0, ..inp };
+                let (mut x, mut z) = (vec![0.0; n], vec![0.0; n]);
+                ia.residual(&inp, &mut wa, &mut x);
+                ib.residual(&inp, &mut wb, &mut z);
+                assert!(x.iter().zip(&z).all(|(x, z)| same(*x, *z)), "{name}: initialisation");
+            }
+        }
+    }
+    println!("{} models, {checks} values compared", models.len());
+    assert!(checks > 50_000, "{checks}");
 }

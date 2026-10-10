@@ -513,11 +513,13 @@ impl<'a, E: Emit> Lw<'a, E> {
     }
 
     /// x^n for an integer |n| ≥ 3, within one rounding of the exact
-    /// power: repeated squaring in double-double arithmetic (exact
-    /// products from fused multiply-adds), then one rounding. Where that
-    /// is not finite (overflow, an infinite or NaN x) or the power
-    /// underflows to zero, the plain repeated squaring's product, which
-    /// rounds as `powf` does there.
+    /// power: repeated squaring in double-double arithmetic (each
+    /// product's exact rounding error, `product_error`), then one
+    /// rounding. The same bits on every CPU: with a fused multiply-add or
+    /// without. Where x or the power lies outside [2^-960, 2^990] (where
+    /// an error term could underflow or Dekker's split overflow), and
+    /// where the result is not finite, the plain repeated squaring's
+    /// product, which rounds as `powf` does at an overflow or underflow.
     fn powi_exact(&mut self, x: E::V, n: i32) -> E::V {
         let m = n.unsigned_abs();
         let bits = 32 - m.leading_zeros();
@@ -526,52 +528,95 @@ impl<'a, E: Emit> Lw<'a, E> {
         for i in (0..bits - 1).rev() {
             // square: h² + 2hl
             let p = self.e.mul(h, h);
-            let np = self.e.neg(p);
-            let mut e = self.e.fma(h, h, np);
+            let mut e = self.product_error(h, h, p);
             if let Some(lo) = l {
                 let h2 = self.e.add(h, h);
-                e = self.e.fma(h2, lo, e);
+                let c = self.e.mul(h2, lo);
+                e = self.e.add(e, c);
             }
             (h, l) = self.fast_two_sum(p, e);
             pl = self.e.mul(pl, pl);
             if (m >> i) & 1 == 1 {
                 // times x: hx + lx
                 let p = self.e.mul(h, x);
-                let np = self.e.neg(p);
-                let mut e = self.e.fma(h, x, np);
+                let mut e = self.product_error(h, x, p);
                 if let Some(lo) = l {
-                    e = self.e.fma(lo, x, e);
+                    let c = self.e.mul(lo, x);
+                    e = self.e.add(e, c);
                 }
                 (h, l) = self.fast_two_sum(p, e);
                 pl = self.e.mul(pl, x);
             }
         }
         let (r, plain) = if n < 0 {
-            // 1 / (h + l), corrected once
+            // 1 / (h + l), corrected once: the remainder 1 - qh is exact
             let one = self.cst(1.0);
             let q = self.e.div(one, h);
-            let nq = self.e.neg(q);
-            let rem = self.e.fma(nq, h, one);
-            let rem = match l {
-                Some(lo) => self.e.fma(nq, lo, rem),
-                None => rem,
-            };
-            let r = self.e.fma(q, rem, q);
+            let p = self.e.mul(q, h);
+            let e = self.product_error(q, h, p);
+            let rem = self.e.sub(one, p);
+            let mut rem = self.e.sub(rem, e);
+            if let Some(lo) = l {
+                let c = self.e.mul(q, lo);
+                rem = self.e.sub(rem, c);
+            }
+            let c = self.e.mul(q, rem);
+            let r = self.e.add(q, c);
             let plain = self.e.div(one, pl);
             (r, plain)
         } else {
             (h, pl)
         };
-        // keep r when it is finite and the power is not zero
+        // keep r inside the range and finite
+        let (lo, hi) = (self.cst(2f64.powi(-960)), self.cst(2f64.powi(990)));
+        let mut ok = None;
+        for v in [x, pl] {
+            let a = self.e.abs(v);
+            let above = self.e.cmp(Cc::Ge, a, lo);
+            let below = self.e.cmp(Cc::Le, a, hi);
+            let inside = self.e.and(above, below);
+            ok = Some(match ok {
+                Some(o) => self.e.and(o, inside),
+                None => inside,
+            });
+        }
         let zero = self.cst(0.0);
         let rr = self.e.sub(r, r);
         let finite = self.e.cmp(Cc::Eq, rr, zero);
-        let nonzero = self.e.cmp(Cc::Ne, pl, zero);
-        let ok = self.e.and(finite, nonzero);
+        let ok = self.e.and(ok.expect("two checks"), finite);
         self.e.select(ok, r, plain)
     }
 
-    /// (s, e) with s = fl(p + e) and s + e' = p + e exactly (|p| ≥ |e|).
+    /// The rounding error of the product `p = a·b`, exactly `a·b - p`
+    /// (for the moderate magnitudes `powi_exact` keeps): a fused
+    /// multiply-add where the target has one, Dekker's product (Veltkamp's
+    /// split) where it has not. Both are exact, so the same value.
+    fn product_error(&mut self, a: E::V, b: E::V, p: E::V) -> E::V {
+        if self.fma {
+            let np = self.e.neg(p);
+            return self.e.fma(a, b, np);
+        }
+        let split = |s: &mut Self, v: E::V| {
+            let c = s.cst(134_217_729.0); // 2^27 + 1
+            let t = s.e.mul(c, v);
+            let big = s.e.sub(t, v);
+            let hi = s.e.sub(t, big);
+            let lo = s.e.sub(v, hi);
+            (hi, lo)
+        };
+        let (a1, a2) = split(self, a);
+        let (b1, b2) = split(self, b);
+        // Shewchuk's order: each step exact
+        let t = self.e.mul(a1, b1);
+        let err1 = self.e.sub(p, t);
+        let t = self.e.mul(a2, b1);
+        let err2 = self.e.sub(err1, t);
+        let t = self.e.mul(a1, b2);
+        let err3 = self.e.sub(err2, t);
+        let t = self.e.mul(a2, b2);
+        self.e.sub(t, err3)
+    }
+
     fn fast_two_sum(&mut self, p: E::V, e: E::V) -> (E::V, Option<E::V>) {
         let s = self.e.add(p, e);
         let d = self.e.sub(s, p);
@@ -629,7 +674,7 @@ impl<'a, E: Emit> Lw<'a, E> {
                 self.e.div(half, v)
             });
             (v, d)
-        } else if inline_power(n) && self.fma {
+        } else if inline_power(n) {
             let k = n as i32;
             let v = self.powi_exact(va, k);
             let d = dual.then(|| {

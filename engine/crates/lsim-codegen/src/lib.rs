@@ -125,6 +125,11 @@ pub struct CodegenOptions {
     /// (the model then runs on its tapes: [`MachineCode::Tapes`]).
     #[doc(hidden)]
     pub deny_executable_memory: bool,
+    /// For tests: use the CPU's fused multiply-add where it has one (the
+    /// default); `false` lowers as for a CPU without, which computes the
+    /// same bits.
+    #[doc(hidden)]
+    pub fused_multiply_add: bool,
 }
 
 impl Default for CodegenOptions {
@@ -141,6 +146,7 @@ impl Default for CodegenOptions {
             kernels: true,
             tiered_above: 20_000,
             deny_executable_memory: false,
+            fused_multiply_add: true,
         }
     }
 }
@@ -1025,7 +1031,7 @@ fn build(
         r => r,
     };
     let isa = jit::isa_for(target, opt_level, regalloc)?;
-    let fma = isa.has_native_fma();
+    let fma = isa.has_native_fma() && opts.fused_multiply_add;
     let (mut module, decls) = jit::module(&isa, opts.deny_executable_memory)?;
     let alias: HashMap<u32, AliasTarget> =
         model.aliases.iter().map(|a| (a.var.0, a.target)).collect();
