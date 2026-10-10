@@ -917,10 +917,18 @@ round).**
   iteration has set, is still the instant (a timer that re-arms itself at
   its own instant leaves its relation false; `t_last := time` makes `time
   > t_last` true right after). At every scheduled event, as at a root,
-  the ticks due at that instant join the event and an output point there
-  shows the values just after it; a root located within a few ulps of a
-  scheduled time (SUNDIALS may report it instead of the stop time) is that
-  instant, and what is scheduled there joins its event.
+  the ticks due at that instant join the event; a root located within a
+  few ulps of a scheduled time (SUNDIALS may report it instead of the stop
+  time) is that instant, and what is scheduled there joins its event.
+* *Both sides of an event at an output time.* An output time that falls
+  exactly on an event records both sides, as Modelica tools write two
+  rows at that time to their result files: `SimResult::values` holds the
+  value just after the event (as every consumer has read it),
+  `SimResult::left_limits` the index and every channel's value just
+  before it (the channels as they stood before the first event of that
+  instant changed anything), in order. The golden comparison compares
+  today's engine, which records such a point before its step, with the
+  left limit.
 * *Restarts.* A restart hands IDA `y'` in full (`x'` from the model, `z'`
   from `0 = g_x x' + g_z z' + g_t`), skips `IDACalcIC` (the point is
   consistent) and the Newton solve when event iteration just did it, and

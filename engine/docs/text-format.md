@@ -309,7 +309,7 @@ end Rotational.LatchBrake;
   precision and stops there; it does not wait for the next output step.
   A condition on time alone (`time >= t_shift`) is reached exactly: the
   event is at `t_shift`, and an output at that moment shows the values
-  just after it.
+  just after it (the results keep those just before it beside them).
 * As in Modelica, a `when` acts when its condition *becomes* true while
   the model runs. A condition already true at the start does not act
   there (it acts once it has been false and becomes true again): what

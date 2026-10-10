@@ -513,6 +513,12 @@ pub struct SimResult {
     pub max: Vec<Vec<f64>>,
     /// time-mean over the interval ending at `times[k]`
     pub mean: Vec<Vec<f64>>,
+    /// the output times that fall exactly on an event: `(k, every
+    /// channel's value just before it)`, the left limit, in order of `k`;
+    /// `values[c][k]` holds the value just after the event, as everywhere.
+    /// Both sides of the event at the same time, as Modelica tools write
+    /// them to their result files (the left one first)
+    pub left_limits: Vec<(usize, Vec<f64>)>,
     /// the events, in order
     pub events: Vec<EventRecord>,
     /// work counters

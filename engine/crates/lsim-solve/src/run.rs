@@ -35,7 +35,8 @@
 //!   leaves the relation as it stands there, one that sets it to now
 //!   (`t_last := time`) makes `time > t_last` true right after. At every
 //!   scheduled event (and at a root) sample ticks due at that instant join
-//!   the event, and an output point there shows the values just after it;
+//!   the event, and an output point there shows the values just after it
+//!   (and keeps those just before it: [`crate::SimResult::left_limits`]);
 //!   a root the integrator locates within a few ulps of a scheduled time
 //!   (inside its root tolerance, it may report the root instead of the
 //!   stop time) is that instant, and the time events and crossings due
@@ -1310,6 +1311,7 @@ pub fn run_loop(
                             integ,
                             &mut ledger,
                             before,
+                            &before_vars,
                             tk,
                             &yk,
                             &d,
@@ -1338,6 +1340,7 @@ pub fn run_loop(
                             integ,
                             &mut ledger,
                             before,
+                            &before_vars,
                             tk,
                             &yk,
                             &d,
@@ -1354,6 +1357,7 @@ pub fn run_loop(
                         integ,
                         &mut ledger,
                         before,
+                        &before_vars,
                         tk,
                         &y,
                         &d,
@@ -1414,6 +1418,7 @@ pub fn run_loop(
                         integ,
                         &mut ledger,
                         before,
+                        &before_vars,
                         t,
                         &y,
                         &d,
@@ -1528,6 +1533,7 @@ pub fn run_loop(
                     integ,
                     &mut ledger,
                     before,
+                    &before_vars,
                     t,
                     &y,
                     &d,
@@ -1540,7 +1546,7 @@ pub fn run_loop(
     }
 
     // the end
-    let (values, min, max, mean) = rec.finish();
+    let (values, min, max, mean, left_limits) = rec.finish();
     let energy = match ledger {
         Some(mut lg) => {
             integ.quadrature(t_end, &mut lg.q)?;
@@ -1613,6 +1619,7 @@ pub fn run_loop(
         min,
         max,
         mean,
+        left_limits,
         events: lp.events,
         stats: report.stats,
         backend: integ.name(),
@@ -1658,7 +1665,8 @@ fn grid_point(
 }
 
 /// After a restart at an event: the right limit is recorded (and a grid
-/// point exactly at the event takes it), the stored-energy jump booked.
+/// point exactly at the event takes it, with `left`, the channels just
+/// before the event, as its left limit), the stored-energy jump booked.
 #[allow(clippy::too_many_arguments)]
 fn after_event(
     lp: &mut Loop<'_>,
@@ -1666,6 +1674,7 @@ fn after_event(
     integ: &mut dyn Integrator,
     ledger: &mut Option<Ledger>,
     before: Option<Vec<f64>>,
+    left: &[f64],
     t: f64,
     y: &[f64],
     d: &[f64],
@@ -1677,6 +1686,7 @@ fn after_event(
         lg.after_event(t, &lp.vars, &lp.info.params, &b, impulse);
     }
     if rec.next_grid_time() == Some(t) {
+        rec.left_limit(left);
         rec.grid_point(t, &lp.vars);
         if let Some(lg) = ledger.as_mut() {
             integ.quadrature(t, &mut lg.q)?;

@@ -984,7 +984,10 @@ fn rms(v: impl Iterator<Item = f64>) -> f64 {
 }
 
 /// The channels' rows: every channel of today's run that the new engine
-/// records, compared on today's output grid.
+/// records, compared on today's output grid. At an output time that falls
+/// on an event the new engine records both sides; today's engine records
+/// that point before its step, so it is compared with the new engine's
+/// left limit (the value just before the event).
 pub fn compare_channels(reference: &Value, run: &CaseRun) -> Vec<Row> {
     let mut rows = vec![];
     let times: Vec<f64> = reference["fine"]["times"]
@@ -997,7 +1000,13 @@ pub fn compare_channels(reference: &Value, run: &CaseRun) -> Vec<Row> {
     let Some(fine) = reference["fine"]["channels"].as_object() else { return rows };
     for (name, ch) in fine {
         let Some(c) = run.report.channels.get(name) else { continue };
-        let Some(newv) = res.channel(&c.var) else { continue };
+        let Some(i) = res.names.iter().position(|x| *x == c.var) else { continue };
+        let mut newv = res.values[i].clone();
+        for (k, left) in &res.left_limits {
+            if let Some(x) = newv.get_mut(*k) {
+                *x = left[i];
+            }
+        }
         let vals = |v: &Value| -> Vec<f64> {
             v["values"]
                 .as_array()

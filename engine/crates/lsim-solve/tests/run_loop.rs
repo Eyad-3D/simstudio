@@ -1885,6 +1885,82 @@ fn the_books_close_on_a_shift_with_a_sliding_tyre() {
     }
 }
 
+/// An output time that falls exactly on an event records both sides, as
+/// Modelica tools write both rows to their result files: `values` holds
+/// the value just after the event (as before), `left_limits` the value
+/// just before it at the same index. A gear shift at t = 1 on a 0.5 s
+/// grid: the gear and the speeds the projection moves, before and after;
+/// a grid that misses the shift has no left limits. A sample tick whose
+/// output changes at every output time (one that reaches nothing
+/// integrated, so the step goes on): its value just before is the last
+/// tick's.
+#[test]
+fn an_event_at_an_output_time_records_both_sides() {
+    let s = Shift::CAR;
+    let (r1, r2) = (12.0, 7.0);
+    let (w0, v0) = (60.0, 60.0 * s.rr - 0.2);
+    let (model, info) = s.model(r1, r2, [w0, v0], true, None);
+    let opts = SolverOptions { rtol: 1e-10, atol: 1e-10, ..Default::default() };
+    let run = simulate(&model, &info, &opts, OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.5 }, &mut [])
+        .unwrap();
+    let k = at(&run, 1.0);
+    let w1 = s.through(w0, r1, r2);
+    println!(
+        "left limits {:?}; values at 1 s: {:?}",
+        run.left_limits,
+        (0..4).map(|c| run.values[c][k]).collect::<Vec<_>>()
+    );
+    assert_eq!(run.left_limits.len(), 1, "one output time at an event");
+    let (kl, left) = &run.left_limits[0];
+    assert_eq!(*kl, k);
+    // channels: w, the motor's speed, v, the gear
+    assert_eq!((left[3], run.values[3][k]), (r1, r2), "the gear before and after");
+    assert!((left[0] - w0).abs() < 1e-12 * w0 && (run.values[0][k] - w1).abs() < 1e-12 * w1);
+    assert!((left[1] - r1 * w0).abs() < 1e-12 * r1 * w0);
+    assert!((left[2] - v0).abs() < 1e-12 * v0);
+    // a grid that misses the event
+    let run = simulate(&model, &info, &opts, OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.3 }, &mut [])
+        .unwrap();
+    assert!(run.left_limits.is_empty(), "{:?}", run.left_limits);
+
+    // a tick at every output time: x' = -x, d0 = the tick's time, a channel
+    let model = Hand {
+        layout: layout(1, 0, 0, 1, 0, 0, 2),
+        f: Box::new(|i, out| out[0] = -i.y[0]),
+        jvp: Box::new(|_, v, out| out[0] = -v[0]),
+        roots: Box::new(|_, _| {}),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+        }),
+        when: Box::new(|_, _, _| {}),
+        modes: None,
+        y0: vec![1.0],
+        d0: vec![0.0],
+    };
+    let mut info = RunInfo::bare(1, 2, vec![]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::D(0)];
+    info.blocks = vec![block(vec![], vec![0], 0.25)];
+    info.dynamic_discretes = vec![false];
+    let mut blocks: Vec<Box<dyn DiscreteBlock>> =
+        vec![Box::new(Sampled { period: 0.25, offset: 0.0, law: |t, _, o| o[0] = t })];
+    let opts = SolverOptions { rtol: 1e-10, atol: 1e-12, ..Default::default() };
+    let run =
+        simulate(&model, &info, &opts, OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.5 }, &mut blocks)
+            .unwrap();
+    println!("ticks: left limits {:?}, values {:?}", run.left_limits, run.values[1]);
+    // the tick at 0 changes nothing (its output is 0); those at 0.5 and 1
+    // change it from the last tick's time
+    let lefts: Vec<(usize, f64, f64)> =
+        run.left_limits.iter().map(|(k, l)| (*k, l[1], l[0])).collect();
+    assert_eq!(lefts.iter().map(|x| (x.0, x.1)).collect::<Vec<_>>(), [(1, 0.25), (2, 0.75)]);
+    assert_eq!(run.values[1], [0.0, 0.5, 1.0]);
+    // x is continuous across the tick: both sides the same
+    for (k, _, x) in lefts {
+        assert_eq!(x, run.values[0][k]);
+    }
+}
+
 /// A rigid engagement and a `reinit` at the same event: a latch stops the
 /// load (`reinit(load.w, 0)`) while the gear between it and the motor
 /// shifts. The load's speed stays where the reinit put it (the review found
