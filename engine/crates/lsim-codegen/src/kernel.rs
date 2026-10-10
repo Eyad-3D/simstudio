@@ -786,26 +786,22 @@ impl Kernels {
         let env = Env { t: Iv { lo: t[0], hi: t[1] }, d, p, u, cx: &cx };
         // the steps that do not move: as long as what they read keeps its
         // bits (and the scratch is this compilation's)
-        let key: Vec<f64> = self
-            .key
-            .iter()
-            .map(|s| match *s {
-                KeySrc::D(i) => d[i as usize],
-                KeySrc::U(i) => u[i as usize],
-                KeySrc::P(i) => p[i as usize],
-            })
-            .collect();
+        let key = |s: &KeySrc| match *s {
+            KeySrc::D(i) => d[i as usize],
+            KeySrc::U(i) => u[i as usize],
+            KeySrc::P(i) => p[i as usize],
+        };
         let mark = f64::from_bits(self.id);
-        let held = head[0].v[0].to_bits() == mark.to_bits()
-            && key
-                .iter()
-                .enumerate()
-                .all(|(i, x)| key_slot(&head[HEADER + i / 6], i % 6).to_bits() == x.to_bits());
+        let held =
+            head[0].v[0].to_bits() == mark.to_bits()
+                && self.key.iter().enumerate().all(|(i, s)| {
+                    key_slot(&head[HEADER + i / 6], i % 6).to_bits() == key(s).to_bits()
+                });
         if !held {
             run(&self.fixed.ops, &env, y, regs);
             head[0].v[0] = mark;
-            for (i, x) in key.iter().enumerate() {
-                set_key_slot(&mut head[HEADER + i / 6], i % 6, *x);
+            for (i, s) in self.key.iter().enumerate() {
+                set_key_slot(&mut head[HEADER + i / 6], i % 6, key(s));
             }
         }
         run(&c.prog.ops, &env, y, regs);
