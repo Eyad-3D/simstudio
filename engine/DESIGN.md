@@ -920,6 +920,19 @@ round).**
   the ticks due at that instant join the event; a root located within a
   few ulps of a scheduled time (SUNDIALS may report it instead of the stop
   time) is that instant, and what is scheduled there joins its event.
+* *Tables read along time are stop times.* A table read at a position
+  that moves with time alone (`c · time + b`, `b` of parameters and
+  discrete values, found through the assignments: a driving cycle's
+  target speed) has its breakpoints as stop times
+  (`RunInfo::time_tables`): no step spans one, so its kinks fall on step
+  ends and a condition it drives is checked at least at every
+  breakpoint. Root finding sees a condition only by its sign at step
+  ends, and when nothing the integrator integrates moves (a car at rest)
+  its steps grow to many seconds: the golden comparison's Battery
+  Electric Car in winter once stood 21 s at a start because a step from
+  507.8 to 532.6 s spanned its motor's switch-on and switch-off (both
+  ends off). A stop is no restart: the integration goes on with its
+  history.
 * *Both sides of an event at an output time.* An output time that falls
   exactly on an event records both sides, as Modelica tools write two
   rows at that time to their result files: `SimResult::values` holds the

@@ -3,8 +3,9 @@
 //! from the reference suite), time events, event iteration across chained
 //! `when` clauses, event storms, sampled blocks (one that changes nothing,
 //! one that changes its output at every tick), the 10× tighter check,
-//! parallel sweeps and the initialisation's homotopy; and the order
-//! contract of the compiled roots.
+//! parallel sweeps and the initialisation's homotopy; the order contract
+//! of the compiled roots; a condition a table of time drives, not stepped
+//! over.
 
 mod common;
 
@@ -629,4 +630,84 @@ fn compiled_roots_follow_the_zero_crossings_order() {
     for md in &info.modes {
         assert!(info.time_crossings[md.crossing].is_some(), "the mode of `time > t2`");
     }
+}
+
+/// A condition driven by a table of time while nothing the integrator
+/// integrates moves: a target that rises from 0 to 1 between 10 and 11 s
+/// and falls back by 12 s, `when target > 0.5` latching a flag, the only
+/// state at rest (x' = 0). The integrator, seeing nothing move, takes steps
+/// of many seconds and finds the condition false at both ends of the one
+/// that spans 10–12 s: root finding sees no sign change and the event is
+/// lost (the golden comparison's Battery Electric Car in winter stood 21 s
+/// at a start: its motor's switch-on, driven by the driver's command from
+/// the cycle's target, was stepped over). The table's breakpoints are stop
+/// times (`RunInfo::time_tables`, found through the assignments): no step
+/// spans one, and the flag latches at 10.5 s.
+#[test]
+fn a_condition_a_time_table_drives_is_not_stepped_over() {
+    use lsim_ir::component::build::{discrete, eq, state, var};
+    use lsim_ir::expr::{CmpOp, cmp, der, name as n};
+    use lsim_ir::{ComponentDef, Equation, EquationDecl, WhenAction};
+    let mut profile = lsim_ir::table::TableData::new_1d(
+        vec![0.0, 10.0, 11.0, 12.0, 30.0],
+        vec![0.0, 0.0, 1.0, 0.0, 0.0],
+    );
+    profile.axis_units[0] = "s".into();
+    let cycle = ComponentDef {
+        name: "Test.Cycle".into(),
+        params: vec![lsim_lib::table::table_param("profile", "1", profile, "the target by time")],
+        vars: vec![
+            state("x", "1", 1.0, "at rest"),
+            var("target", "1", "the target"),
+            discrete("seen", "1", 0.0, "1 once the target passed 0.5"),
+        ],
+        equations: vec![
+            eq(der("x"), Expr::Const(0.0), "nothing moves"),
+            eq(n("target"), lsim_ir::expr::table("profile", vec![Expr::Time]), "the target now"),
+            EquationDecl {
+                eq: Equation::When {
+                    condition: cmp(CmpOp::Gt, n("target"), Expr::Const(0.5)),
+                    actions: vec![WhenAction::Assign {
+                        var: "seen".into(),
+                        value: Expr::Const(1.0),
+                    }],
+                },
+                label: Some("the target passes 0.5".into()),
+            },
+        ],
+        ..Default::default()
+    };
+    let mut lib = common::library();
+    lib.add(cycle);
+    let top = ComponentDef {
+        name: "Test.Top".into(),
+        components: vec![lsim_ir::component::build::sub("k", "Test.Cycle", &[])],
+        ..Default::default()
+    };
+    let built = common::build(&lib, &top, false);
+    let info = &built.info;
+    println!("time tables: {:?}", info.time_tables);
+    assert_eq!(info.time_tables.len(), 1);
+    assert_eq!(info.time_tables[0].at, [0.0, 10.0, 11.0, 12.0, 30.0]);
+    assert_eq!(info.time_tables[0].c, 1.0);
+    let seen = info.var_names.iter().position(|x| x == "k.seen").unwrap();
+    let opts = SolverOptions::default();
+    let grid = OutputGrid { t0: 0.0, t_end: 30.0, dt: 10.0 };
+    let run = simulate(&built.jit, info, &opts, grid, &mut []).unwrap();
+    let events: Vec<(String, f64)> = run.events.iter().map(|e| (e.label.clone(), e.t)).collect();
+    println!(
+        "{} steps; flag at the end {}; events {events:?}",
+        run.stats.steps, run.values[seen][3]
+    );
+    assert_eq!(run.values[seen][3], 1.0, "the excursion was stepped over");
+    assert!(events.iter().any(|(_, t)| (t - 10.5).abs() < 1e-6), "{events:?}");
+    // without the stops the integrator steps over it
+    let mut bare = info.clone();
+    bare.time_tables.clear();
+    let run = simulate(&built.jit, &bare, &opts, grid, &mut []).unwrap();
+    println!(
+        "without the stops: {} steps; flag at the end {}",
+        run.stats.steps, run.values[seen][3]
+    );
+    assert_eq!(run.values[seen][3], 0.0, "the failure this guards against");
 }

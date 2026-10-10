@@ -41,6 +41,10 @@
 //!   (inside its root tolerance, it may report the root instead of the
 //!   stop time) is that instant, and the time events and crossings due
 //!   there join its event.
+//! * **Tables read along time** ([`RunInfo::time_tables`]: a driving
+//!   cycle's target by time) stop the integrator at each breakpoint
+//!   (without a restart): a condition they drive is checked at least
+//!   there, even when nothing integrated moves and the steps grow long.
 //! * **Sampled blocks** ([`DiscreteBlock`], DESIGN.md risk R1) tick at
 //!   `offset + k·period`. A tick that falls inside a step is evaluated on
 //!   the dense output; if its outputs did not change, nothing else happens
@@ -168,6 +172,11 @@ struct Loop<'a> {
     now: Vec<bool>,
     /// the backend leaves the time crossings to the run loop
     use_timed: bool,
+    /// the time tables' breakpoints as times, sorted: those whose
+    /// position does not depend on a discrete value, and those that do
+    /// (scheduled again when one changes)
+    breaks_fixed: Vec<f64>,
+    breaks_moving: Vec<f64>,
 }
 
 /// Whether two times are one instant to the integrators: closer than a
@@ -334,6 +343,41 @@ impl Loop<'_> {
                 None => f64::NAN,
             };
         }
+    }
+
+    /// The times of the time tables' breakpoints ([`RunInfo::time_tables`]):
+    /// all of them (`moving`: only those whose position reads a discrete
+    /// value), with the channels and parameters as they stand.
+    fn schedule_breaks(&mut self, t: f64, moving: bool) {
+        let mut out = vec![];
+        for tt in &self.info.time_tables {
+            let reads = tt.b.any(&mut |x| matches!(x, lsim_ir::Expr::Var(_)));
+            if moving && !reads {
+                continue;
+            }
+            let env = crate::info::ChannelEnv { t, vars: &self.vars, params: &self.info.params };
+            let b = lsim_ir::eval::eval(&tt.b, &env);
+            out.extend(tt.at.iter().map(|x| (x - b) / tt.c).filter(|x| x.is_finite()));
+        }
+        out.sort_by(f64::total_cmp);
+        out.dedup();
+        if moving {
+            self.breaks_moving = out;
+        } else {
+            self.breaks_fixed = out;
+        }
+    }
+
+    /// The next time table breakpoint after `t` (not within a few ulps of
+    /// it), or infinity.
+    fn next_break(&self, t: f64) -> f64 {
+        [&self.breaks_fixed, &self.breaks_moving]
+            .iter()
+            .filter_map(|b| {
+                let k = b.partition_point(|x| *x <= t || same_instant(*x, t));
+                b.get(k).copied()
+            })
+            .fold(f64::INFINITY, f64::min)
     }
 
     /// The model's asserts on the channels just sampled.
@@ -986,6 +1030,8 @@ pub fn run_loop(
         t_star: vec![f64::NAN; info.time_crossings.len()],
         now: vec![false; l.n_roots],
         use_timed: false,
+        breaks_fixed: vec![],
+        breaks_moving: vec![],
     };
     for (k, (c, _)) in info.whens.iter().enumerate() {
         if *c < lp.when_of_root.len() && lp.mode_of_root[*c].is_none() {
@@ -1160,13 +1206,19 @@ pub fn run_loop(
     let mut ymax: Vec<f64> = y.iter().map(|v| v.abs()).collect();
     let mut yk = vec![0.0; n];
 
+    if !info.time_tables.is_empty() {
+        lp.schedule_breaks(t, false);
+    }
     while t < t_end {
         // the time crossings' times move only when a discrete value does
         if d != scheduled_for {
             lp.schedule(t);
+            if !info.time_tables.is_empty() {
+                lp.schedule_breaks(t, true);
+            }
             scheduled_for.copy_from_slice(&d);
         }
-        let mut t_stop = t_end;
+        let mut t_stop = t_end.min(lp.next_break(t));
         if let Some(&te) = info.time_events.get(next_time_event) {
             t_stop = t_stop.min(te);
         }

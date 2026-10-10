@@ -530,6 +530,25 @@ pub struct RunInfo {
     /// assignments to differentiate along the solution); `None`: from the
     /// variables' sources alone ([`StoredRates::from_sources`])
     pub stored_rates: Option<Arc<StoredRates>>,
+    /// the tables read along time (a driving cycle's speed by time): the
+    /// integrator stops at each of their breakpoints
+    pub time_tables: Vec<TimeTable>,
+}
+
+/// A table read at a position that moves with time alone, `c · time + b`
+/// (`b` of parameters and discrete values): its breakpoints are stop
+/// times, so no step spans one. A condition such a table drives (a
+/// controller's command from a driving cycle's target) is checked at least
+/// at every breakpoint even when nothing the integrator integrates moves
+/// (a car at rest), and the table's kinks fall on step ends.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TimeTable {
+    /// the breakpoints along that axis
+    pub at: Vec<f64>,
+    /// `c`, per second
+    pub c: f64,
+    /// `b`
+    pub b: Expr,
 }
 
 /// How the energy books take each stored energy's rate, `dE/dt` along the
@@ -688,6 +707,7 @@ impl RunInfo {
             events_read_z: true,
             dynamic_discretes: vec![],
             stored_rates: None,
+            time_tables: vec![],
         }
     }
 
@@ -797,6 +817,7 @@ impl RunInfo {
             events_read_z: events_read_z(m),
             dynamic_discretes,
             stored_rates,
+            time_tables: time_tables(m),
         }
     }
 
@@ -908,6 +929,94 @@ fn impulse_info(
         .filter_map(|r| Some((*y_of.get(&r.continuous)?, *d_of.get(&r.jump)?)))
         .collect();
     Some(ImpulseInfo::new(parts, engagements, links, chain, restarts, sources, m.states.len()))
+}
+
+/// The tables read at a position affine in time ([`TimeTable`]), through
+/// the assignments that compute it.
+fn time_tables(m: &PreparedModel) -> Vec<TimeTable> {
+    let discrete: std::collections::HashSet<VarId> = m.discretes.iter().copied().collect();
+    let assigned: HashMap<VarId, &Expr> = m
+        .assignments
+        .iter()
+        .filter_map(|a| match a.target {
+            Slot::Var(v) => Some((v, &a.expr)),
+            Slot::Der(_) => None,
+        })
+        .collect();
+    // a computed variable that moves with time alone, as `c · time + b`
+    // (memoised; None: it reads a state or an iteration variable)
+    fn affine_var(
+        v: VarId,
+        assigned: &HashMap<VarId, &Expr>,
+        discrete: &std::collections::HashSet<VarId>,
+        memo: &mut HashMap<VarId, Option<Expr>>,
+        depth: usize,
+    ) -> Option<Expr> {
+        if let Some(m) = memo.get(&v) {
+            return m.clone();
+        }
+        let def = *assigned.get(&v)?;
+        if depth > 64 {
+            return None;
+        }
+        let r = resolve(def, assigned, discrete, memo, depth + 1).and_then(|e| {
+            let (c, b) = time_affine(&e, discrete)?;
+            Some(Expr::Const(c) * Expr::Time + b)
+        });
+        memo.insert(v, r.clone());
+        r
+    }
+    // `e` with its computed variables replaced by their forms in time
+    fn resolve(
+        e: &Expr,
+        assigned: &HashMap<VarId, &Expr>,
+        discrete: &std::collections::HashSet<VarId>,
+        memo: &mut HashMap<VarId, Option<Expr>>,
+        depth: usize,
+    ) -> Option<Expr> {
+        let mut ok = true;
+        let out = e.clone().rewrite(&mut |x| match x {
+            Expr::Var(v) if assigned.contains_key(&v) => {
+                affine_var(v, assigned, discrete, memo, depth).unwrap_or_else(|| {
+                    ok = false;
+                    Expr::Var(v)
+                })
+            }
+            other => other,
+        });
+        ok.then_some(out)
+    }
+    let mut memo: HashMap<VarId, Option<Expr>> = HashMap::new();
+    let mut seen: BTreeSet<(u32, usize, String)> = BTreeSet::new();
+    let mut out = vec![];
+    let mut visit = |e: &Expr| {
+        e.walk(&mut |x| {
+            let Expr::Table { table, args } = x else { return };
+            for (axis, arg) in args.iter().enumerate().take(2) {
+                let Some(pos) = resolve(arg, &assigned, &discrete, &mut memo, 0) else { continue };
+                let Some((c, b)) = time_affine(&pos, &discrete) else { continue };
+                if c == 0.0 || !c.is_finite() {
+                    continue;
+                }
+                let Some(t) = m.flat.tables.get(*table as usize) else { continue };
+                let at = if axis == 0 { t.data.x.clone() } else { t.data.y.clone() };
+                if at.is_empty() || !seen.insert((*table, axis, format!("{c} {b}"))) {
+                    continue;
+                }
+                out.push(TimeTable { at, c, b });
+            }
+        })
+    };
+    for a in &m.assignments {
+        visit(&a.expr);
+    }
+    for r in &m.residuals {
+        visit(&r.expr);
+    }
+    for z in &m.zero_crossings {
+        visit(&z.expr);
+    }
+    out
 }
 
 /// The crossing time of `f` when it is `c · time + b` with a constant
