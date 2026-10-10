@@ -1622,6 +1622,17 @@ work end to end) or against hand-written test doubles of the interfaces.
   every golden case, from 1.6e-6); tables read along time stop the
   integrator at their breakpoints; both sides of an event at an output
   time recorded (`SimResult::left_limits`).
+* **Sixth round (from the final review)**: every sampled block due at an
+  instant ticks in one event (an output point there no longer shows the
+  state between two ticks); the energy books read the model's tables
+  (`ModelFunctions::eval_table`), the rates through them and through
+  the time exact; conditions on explicit functions of time found ahead
+  without integrating and reached exactly (interval enclosures,
+  `RunInfo::time_functions`), those that mix time and states stopped at
+  the extrema of their time terms, the rest named in a warning; a zero
+  direction has a zero rate; left limits of the changed channels only;
+  moving tables' breakpoints recomputed. The golden comparison is the
+  same to the last digit (none of its models has such a condition).
 * **Status (as built)**: the exact-answer suite passes on both backends,
   ODE and DAE paths (`lsim-solve/tests/reference.rs`); the backends agree
   within 4.2·rtol; events within 2.6·rtol on SUNDIALS at every tolerance,

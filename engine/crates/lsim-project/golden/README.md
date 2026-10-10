@@ -63,19 +63,19 @@ relaxes after a shift is in their own slip losses (below).
 | case | figures inside | channels inside | energy books: closure | gear shifts | as the gears engaged, kWh (today's gearbox term) | steps | events | run, s |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | aero-bev/case-hwfet | 10/10 | 63/67 | 1.3e-10 | — | — | 82027 | 17 | 0.87 |
-| aero-bev/case-udds | 14/14 | 63/67 | 1.3e-10 | — | — | 179312 | 257 | 2.10 |
-| aero-bev/case-wltc | 18/18 | 63/67 | 2.5e-11 | — | — | 223735 | 122 | 2.34 |
-| bev-car/case-city | 10/11 | 65/70 | 1.5e-09 | — | — | 3999 | 17 | 0.09 |
+| aero-bev/case-udds | 14/14 | 63/67 | 1.3e-10 | — | — | 179312 | 257 | 2.13 |
+| aero-bev/case-wltc | 18/18 | 63/67 | 2.5e-11 | — | — | 223735 | 122 | 2.33 |
+| bev-car/case-city | 10/11 | 65/70 | 1.5e-09 | — | — | 3999 | 17 | 0.06 |
 | bev-car/case-city-live | 10/11 | 65/70 | 1.5e-09 | — | — | 3999 | 17 | 0.06 |
-| bev-car/case-wltc | 19/19 | 65/70 | 2.7e-10 | — | — | 215669 | 122 | 2.53 |
-| bev-car/case-wltc-hvac | 19/19 | 65/70 | 5.8e-11 | — | — | 214113 | 122 | 2.41 |
-| bev-car/case-wltc-summer | 20/20 | 65/70 | 7.4e-11 | — | — | 214496 | 122 | 2.38 |
-| bev-car/case-wltc-winter | 20/20 | 65/70 | 2.6e-11 | — | — | 215305 | 122 | 2.52 |
-| fs-electric/case-accel-75m | 19/19 | 65/65 | 1.7e-10 | — | — | 1058 | 13 | 0.08 |
-| hybrid-car/case-hwfet | 9/9 | 88/88 | 3.3e-12 | 16 | 0.0002062 (0.0003367) | 1918254 | 76998 | 46.70 |
-| hybrid-car/case-mixed | 9/9 | 82/88 | 1.2e-12 | 10 | 0.0001447 (0.0002622) | 572709 | 56209 | 21.86 |
-| hybrid-car/case-mixed-live | 9/9 | 82/88 | 1.2e-12 | 10 | 0.0001447 (0.0002622) | 572709 | 56209 | 21.12 |
-| hybrid-car/case-udds | 13/13 | 88/88 | 6.8e-12 | 104 | 0.0016634 (0.0035028) | 3023217 | 118094 | 76.53 |
+| bev-car/case-wltc | 19/19 | 65/70 | 2.7e-10 | — | — | 215669 | 122 | 2.63 |
+| bev-car/case-wltc-hvac | 19/19 | 65/70 | 5.8e-11 | — | — | 214113 | 122 | 2.72 |
+| bev-car/case-wltc-summer | 20/20 | 65/70 | 7.4e-11 | — | — | 214496 | 122 | 2.86 |
+| bev-car/case-wltc-winter | 20/20 | 65/70 | 2.6e-11 | — | — | 215305 | 122 | 2.77 |
+| fs-electric/case-accel-75m | 19/19 | 65/65 | 1.7e-10 | — | — | 1058 | 13 | 0.09 |
+| hybrid-car/case-hwfet | 9/9 | 88/88 | 3.3e-12 | 16 | 0.0002062 (0.0003367) | 1918254 | 76998 | 47.03 |
+| hybrid-car/case-mixed | 9/9 | 82/88 | 1.2e-12 | 10 | 0.0001447 (0.0002622) | 572709 | 56209 | 21.28 |
+| hybrid-car/case-mixed-live | 9/9 | 82/88 | 1.2e-12 | 10 | 0.0001447 (0.0002622) | 572709 | 56209 | 20.97 |
+| hybrid-car/case-udds | 13/13 | 88/88 | 6.8e-12 | 104 | 0.0016634 (0.0035028) | 3023217 | 118094 | 76.11 |
 
 199 of the 201 figures are inside their bands (194 before work package
 4's second round, below), and 984 of 1038 channels (949 after its fourth
@@ -93,7 +93,7 @@ them, before its step (the run keeps both sides: below). The energy books
 close to 1.5e-9 of their throughput or better in every case (the
 hybrid's to about 1e-11), each stored energy's rate exact. Every figure
 moved by at most 1.5e-3 × band since the fourth round, most by less than
-5e-4.
+5e-4, and none in the sixth.
 
 ## Triage
 
@@ -216,7 +216,7 @@ by less than 0.04 %. Today's "Energy balance residual" fell from
 0.0005–0.03 % to below 1e-9 %. Against the fixed engine no band had to be
 widened for a known error of today's engine.
 
-## Run loop: work package 4's second to fifth rounds
+## Run loop: work package 4's second to sixth rounds
 
 The golden comparison found these in the run loop; each is fixed on
 `wp4/solver` with a regression test (`lsim-solve/tests/run_loop.rs`):
@@ -308,6 +308,29 @@ time:
   cycle's target speed) now have their breakpoints as stop times.
 * An output time at an event records both sides (above).
 
+The review of the fifth round found three older defects and asked for
+two smaller changes, each fixed with a regression test:
+
+* Two sampled blocks ticking together at an output time inside a step:
+  the output point showed the state between the two ticks (one block's
+  new output beside the other's old one). Every block due at an instant
+  now ticks in one event.
+* A declared stored energy or loss that read a table made the books NaN
+  (they had no tables), and the default run, its books under error
+  control, stopped at t = 0. The books read the model's own
+  interpolants, the rates through them exact.
+* A condition on an explicit function of time was stepped over while
+  nothing integrated moved (`sin(2π time / 10) > 0.95`: x(100) = 0
+  against 10.108, without a warning). Its sign changes are found ahead
+  without integrating and reached exactly; a condition that mixes time
+  and states stops the integrator at the extrema of its terms in time;
+  what cannot be searched is said in a warning.
+* A zero direction has a zero rate in the exact derivatives (`sqrt` at
+  zero: no `inf · 0`); the left limits keep only the channels the event
+  changed (on the hybrid's UDDS 1.33 MB instead of 4.18 MB); the
+  breakpoints of a table whose position moves are recomputed after a
+  discrete change, not kept as stale stops.
+
 Run time, the base (`engine/stage1` at 5581482) against the second round
 (fd361a0), both release builds, one case after another on the same
 machine:
@@ -380,6 +403,28 @@ The exact rates replace four evaluations of every channel per step, and
 the smooth integrand lets the quadratures' error control take longer
 steps (the electric cars 9–10 % fewer); the breakpoint stops add a stop
 per second of a driving cycle, without a restart.
+
+The sixth round (every block due at an instant ticks in one event, the
+books read the model's tables, conditions on explicit functions of time
+searched ahead, left limits of the changed channels only) against the
+fifth, measured the same way: every figure, channel, closure and step
+count is the same to the last digit. None of the example projects has a
+condition on a function of time other than a driving cycle's table read
+along time, whose breakpoints are stops already (its terms are monotone
+between them), no stored energy or loss that reads a table, and no two
+blocks ticking together inside a step. The run times move within what
+single runs spread (181.6 s in all before, 181.9 s now):
+
+| case | steps, fifth round | steps, sixth | run, fifth round, s | run, sixth, s |
+|---|---:|---:|---:|---:|
+| hybrid-car/case-udds | 3023217 | 3023217 | 76.53 | 76.11 |
+| hybrid-car/case-hwfet | 1918254 | 1918254 | 46.70 | 47.03 |
+| hybrid-car/case-mixed | 572709 | 572709 | 21.86 | 21.28 |
+| hybrid-car/case-mixed-live | 572709 | 572709 | 21.12 | 20.97 |
+| bev-car/case-wltc | 215669 | 215669 | 2.53 | 2.63 |
+| aero-bev/case-wltc | 223735 | 223735 | 2.34 | 2.33 |
+| bev-car/case-city | 3999 | 3999 | 0.09 | 0.06 |
+| fs-electric/case-accel-75m | 1058 | 1058 | 0.08 | 0.09 |
 
 The hybrid's run includes the Script block's round trip to Python at
 every 10 ms tick (137 000 on the UDDS), and most of its remaining steps
