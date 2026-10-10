@@ -2,7 +2,8 @@
 //! answers: `when` conditions made true by a sample tick, by the start, by
 //! another `when` through an iteration variable; mode changes a clock
 //! schedules; a tick just before the end; the cost of a restart; time
-//! events located exactly; the momentum kept at a change of a rigid
+//! events located exactly, re-armed or set to now at their own instant, or
+//! coinciding with a root; the momentum kept at a change of a rigid
 //! coupling.
 
 use lsim_ir::expr::Expr;
@@ -735,5 +736,213 @@ fn a_shift_keeps_the_momentum_through_a_tyre_that_grips() {
         assert!((book("gearbox") - (lost - in_tyre)).abs() < 1e-9 * lost, "gearbox");
         assert!((books.impulse_loss - lost).abs() < 1e-9 * lost);
         assert!((books.impulse_link_loss - in_tyre).abs() < 1e-9 * lost);
+    }
+}
+
+/// A state event and a time crossing at the same instant (within
+/// SUNDIALS' root tolerance): `when x >= ...: a := 1` (root finding) and
+/// `when time >= 1: b := 1` (a time crossing, scheduled exactly). Both
+/// must fire.
+#[test]
+fn a_time_crossing_coinciding_with_a_root_still_fires() {
+    let model = Hand {
+        layout: layout(1, 0, 0, 2, 2, 2, 3),
+        f: Box::new(|_, out| out[0] = 1.0),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(|i, out| {
+            out[0] = i.y[0] - 1.0;
+            out[1] = i.t - 1.0;
+        }),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+            out[2] = i.d[1];
+        }),
+        when: Box::new(|_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = 1.0;
+            }
+            if fired[1] != 0.0 {
+                d[1] = 1.0;
+            }
+        }),
+        modes: None,
+        y0: vec![0.0],
+        d0: vec![0.0, 0.0],
+    };
+    let mut info = RunInfo::bare(1, 3, vec![]);
+    info.root_dirs = vec![1, 1];
+    whens(
+        &mut info,
+        &[(0, Direction::Rising, "'A': y >= 1"), (1, Direction::Rising, "'B': time >= 1")],
+    );
+    info.time_crossings = vec![None, Some(TimeCrossing { at: Expr::Const(1.0), rising: true })];
+    // the same with `when time >= (1 - 1e-15) + x` for a state x that
+    // rests at 0 (x' = 0): its root lies 1e-15 s before the stop time 1,
+    // inside SUNDIALS' root tolerance, so the integrator reports it at 1
+    // exactly, as a root (not as the stop time)
+    let resting = Hand {
+        f: Box::new(|_, out| out[0] = 0.0),
+        roots: Box::new(|i, out| {
+            out[0] = i.t - (1.0 - 1e-15) - i.y[0];
+            out[1] = i.t - 1.0;
+        }),
+        ..model
+    };
+    let resting = Hand { y0: vec![0.0], ..resting };
+    for (dt, model) in [(0.25, &resting), (0.3, &resting)] {
+        let opts = SolverOptions { rtol: 1e-9, atol: 1e-12, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 2.0, dt };
+        let run = simulate(model, &info, &opts, grid, &mut []).unwrap();
+        let fired: Vec<(usize, f64)> = run
+            .events
+            .iter()
+            .filter_map(|e| match e.kind {
+                EventKind::When(k) => Some((k, e.t)),
+                _ => None,
+            })
+            .collect();
+        println!("dt {dt}: whens fired {fired:?}; b at the end {}", run.values[2].last().unwrap());
+        assert_eq!(*run.values[1].last().unwrap(), 1.0, "A fired");
+        assert_eq!(*run.values[2].last().unwrap(), 1.0, "B (time >= 1) fired: {fired:?}");
+    }
+}
+
+/// `if time > t_last` with `t_last := time` set by an event at t = 1 (a
+/// timer that restarts): the relation is false at 1 exactly and true right
+/// after. y' = m (the mode), so y(2) = 1. The time crossing `time - t_last`
+/// is taken out of root finding; after the event its time is now, so it is
+/// not scheduled, and the mode is not checked at step ends either.
+#[test]
+fn a_time_mode_whose_time_is_set_to_now_switches_right_after() {
+    // d = [m, t_last]; crossings: 0 `time - 1` (when: t_last := time),
+    // 1 and 2 `time - t_last` (the mode and its falling copy)
+    let model = Hand {
+        layout: layout(1, 0, 0, 2, 3, 3, 3),
+        f: Box::new(|i, out| out[0] = i.d[0]),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(|i, out| {
+            out[0] = i.t - 1.0;
+            out[1] = i.t - i.d[1];
+            out[2] = i.t - i.d[1];
+        }),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+            out[2] = i.d[1];
+        }),
+        when: Box::new(|i, fired, d| {
+            if fired[0] != 0.0 {
+                d[1] = i.t;
+            }
+            if fired[1] != 0.0 {
+                d[0] = 1.0;
+            }
+            if fired[2] != 0.0 {
+                d[0] = 0.0;
+            }
+        }),
+        modes: Some(Box::new(|i, _, d| d[0] = if i.t > i.d[1] { 1.0 } else { 0.0 })),
+        y0: vec![0.0],
+        d0: vec![0.0, 5.0],
+    };
+    let mut info = RunInfo::bare(1, 3, vec![]);
+    info.root_dirs = vec![1, 1, -1];
+    whens(
+        &mut info,
+        &[
+            (0, Direction::Rising, "'Timer': restart"),
+            (1, Direction::Rising, "on"),
+            (2, Direction::Falling, "off"),
+        ],
+    );
+    info.modes =
+        vec![ModeInfo { crossing: 1, discrete: 0, label: "'Timer': time > t_last".into() }];
+    let t_last = || Expr::Var(VarId(2));
+    let tcs = vec![
+        Some(TimeCrossing { at: Expr::Const(1.0), rising: true }),
+        Some(TimeCrossing { at: t_last(), rising: true }),
+        Some(TimeCrossing { at: t_last(), rising: true }),
+    ];
+    for timed in [false, true] {
+        info.time_crossings = if timed { tcs.clone() } else { vec![] };
+        let opts = SolverOptions { rtol: 1e-9, atol: 1e-12, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.25 };
+        let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+        let y_end = *run.values[0].last().unwrap();
+        println!(
+            "time crossings scheduled: {timed}: mode at the end {}, y(2) = {y_end} (exact 1), \
+             events {:?}",
+            run.values[1].last().unwrap(),
+            run.events.iter().map(|e| (e.label.clone(), e.t)).collect::<Vec<_>>()
+        );
+        assert!((y_end - 1.0).abs() < 1e-6, "timed {timed}: y(2) = {y_end}, exact 1");
+    }
+}
+
+/// A periodic timer: `when time >= t_next: t_next := t_next + 0.5`, and
+/// `y' = if time >= t_next then 1 else 0`. At each instant t_next the
+/// when moves t_next on, so the relation re-evaluated in the event
+/// iteration is false again: y stays 0 (Modelica). The mode's crossing is
+/// due at the same instant as the when's, and `right_limits` sets it to
+/// its value just after the *old* t_next.
+#[test]
+fn a_time_mode_rearmed_at_its_own_instant() {
+    // d = [mode, t_next]; crossings: 0 when, 1 mode, 2 its falling copy
+    let model = Hand {
+        layout: layout(1, 0, 0, 2, 3, 3, 3),
+        f: Box::new(|i, out| out[0] = i.d[0]),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(|i, out| {
+            out[0] = i.t - i.d[1];
+            out[1] = i.t - i.d[1];
+            out[2] = i.t - i.d[1];
+        }),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+            out[2] = i.d[1];
+        }),
+        when: Box::new(|i, fired, d| {
+            if fired[0] != 0.0 {
+                d[1] = i.d[1] + 0.5;
+            }
+            if fired[1] != 0.0 {
+                d[0] = 1.0;
+            }
+            if fired[2] != 0.0 {
+                d[0] = 0.0;
+            }
+        }),
+        modes: Some(Box::new(|i, _, d| d[0] = if i.t >= i.d[1] { 1.0 } else { 0.0 })),
+        y0: vec![0.0],
+        d0: vec![0.0, 0.5],
+    };
+    let mut info = RunInfo::bare(1, 3, vec![]);
+    info.root_dirs = vec![1, 1, -1];
+    whens(
+        &mut info,
+        &[
+            (0, Direction::Rising, "'Timer': t_next += 0.5"),
+            (1, Direction::Rising, "on"),
+            (2, Direction::Falling, "off"),
+        ],
+    );
+    info.modes =
+        vec![ModeInfo { crossing: 1, discrete: 0, label: "'Timer': time >= t_next".into() }];
+    let tc = || Some(TimeCrossing { at: Expr::Var(VarId(2)), rising: true });
+    for timed in [false, true] {
+        info.time_crossings = if timed { vec![tc(), tc(), tc()] } else { vec![] };
+        let opts = SolverOptions { rtol: 1e-9, atol: 1e-12, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 2.2, dt: 0.1 };
+        let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+        let y_end = *run.values[0].last().unwrap();
+        println!(
+            "time crossings scheduled: {timed}: y(2.2) = {y_end:.6} (Modelica 0), t_next = {}, \
+             mode at 0.6: {}",
+            run.values[2].last().unwrap(),
+            run.values[1][6]
+        );
+        assert!(y_end.abs() < 1e-6, "timed {timed}: y(2.2) = {y_end}");
     }
 }

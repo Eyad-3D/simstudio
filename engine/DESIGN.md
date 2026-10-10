@@ -889,9 +889,14 @@ round).**
   finding (a root mask in both backends) and reached exactly as a stop
   time, fired in its direction there, rescheduled after every discrete
   change (`RunInfo::time_crossings`). Its modes take their values just
-  after the instant. At every scheduled event, as at a root, the ticks due
-  at that instant join the event and an output point there shows the
-  values just after it.
+  after the instant while its time, with the discrete values the event
+  iteration has set, is still the instant (a timer that re-arms itself at
+  its own instant leaves its relation false; `t_last := time` makes `time
+  > t_last` true right after). At every scheduled event, as at a root,
+  the ticks due at that instant join the event and an output point there
+  shows the values just after it; a root located within a few ulps of a
+  scheduled time (SUNDIALS may report it instead of the stop time) is that
+  instant, and what is scheduled there joins its event.
 * *Restarts.* A restart hands IDA `y'` in full (`x'` from the model, `z'`
   from `0 = g_x x' + g_z z' + g_t`), skips `IDACalcIC` (the point is
   consistent) and the Newton solve when event iteration just did it, and
