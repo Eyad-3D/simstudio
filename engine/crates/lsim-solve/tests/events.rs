@@ -730,6 +730,138 @@ fn a_condition_a_time_table_drives_is_not_stepped_over() {
     assert_eq!(run.values[seen][3], 0.0, "the failure this guards against");
 }
 
+/// The test cycle of [`a_condition_a_time_table_drives_is_not_stepped_over`]
+/// (a flag latched when its profile, read at the time, passes 0.5), built.
+fn cycle_model() -> common::Built {
+    use lsim_ir::component::build::{discrete, eq, state, var};
+    use lsim_ir::expr::{CmpOp, cmp, der, name as n};
+    use lsim_ir::{ComponentDef, Equation, EquationDecl, WhenAction};
+    let mut profile = lsim_ir::table::TableData::new_1d(
+        vec![0.0, 10.0, 11.0, 12.0, 30.0],
+        vec![0.0, 0.0, 1.0, 0.0, 0.0],
+    );
+    profile.axis_units[0] = "s".into();
+    let cycle = ComponentDef {
+        name: "Test.Cycle".into(),
+        params: vec![lsim_lib::table::table_param("profile", "1", profile, "the target by time")],
+        vars: vec![
+            state("x", "1", 1.0, "at rest"),
+            var("at", "s", "where it reads its profile"),
+            var("target", "1", "the target"),
+            discrete("seen", "1", 0.0, "1 once the target passed 0.5"),
+        ],
+        equations: vec![
+            eq(der("x"), Expr::Const(0.0), "nothing moves"),
+            eq(n("at"), Expr::Time, "it reads its profile at the time (as the library's do)"),
+            eq(n("target"), lsim_ir::expr::table("profile", vec![n("at")]), "the target now"),
+            EquationDecl {
+                eq: Equation::When {
+                    condition: cmp(CmpOp::Gt, n("target"), Expr::Const(0.5)),
+                    actions: vec![WhenAction::Assign {
+                        var: "seen".into(),
+                        value: Expr::Const(1.0),
+                    }],
+                },
+                label: Some("the target passes 0.5".into()),
+            },
+        ],
+        ..Default::default()
+    };
+    let mut lib = common::library();
+    lib.add(cycle);
+    let top = ComponentDef {
+        name: "Test.Top".into(),
+        components: vec![lsim_ir::component::build::sub("k", "Test.Cycle", &[])],
+        ..Default::default()
+    };
+    common::build(&lib, &top, false)
+}
+
+/// A compiled model given other table data after preparation
+/// (`JitModel::with_tables`: the cycle's pulse moved from 10–12 s to
+/// 20–22 s, the run information still the prepared one's): the run takes
+/// the tables' breakpoints from the model (`ModelFunctions::table_axes`),
+/// so its stops and its search ahead follow the new data, and the flag
+/// latches at 20.5 s. A model that does not give its breakpoints is run on
+/// the prepared ones: its stops at 10–12 s and its search, over pieces the
+/// new data do not have, step over the moved pulse.
+#[test]
+fn a_model_given_other_tables_is_run_on_their_breakpoints() {
+    let built = cycle_model();
+    let info = &built.info;
+    let mut moved = lsim_ir::table::TableData::new_1d(
+        vec![0.0, 20.0, 21.0, 22.0, 30.0],
+        vec![0.0, 0.0, 1.0, 0.0, 0.0],
+    );
+    moved.axis_units[0] = "s".into();
+    let jit = built.jit.with_tables(&[moved]).expect("takes the new data");
+    assert_eq!(
+        ModelFunctions::table_axes(&jit, 0),
+        Some([vec![0.0, 20.0, 21.0, 22.0, 30.0], vec![]])
+    );
+    let seen = info.var_names.iter().position(|x| x == "k.seen").unwrap();
+    let opts = SolverOptions::default();
+    let grid = OutputGrid { t0: 0.0, t_end: 30.0, dt: 10.0 };
+    let run = simulate(&jit, info, &opts, grid, &mut []).unwrap();
+    let at: Vec<f64> =
+        run.events.iter().filter(|e| e.kind == EventKind::When(0)).map(|e| e.t).collect();
+    println!("{} steps; at {at:?}", run.stats.steps);
+    assert_eq!(run.values[seen][3], 1.0, "the moved pulse was stepped over");
+    assert!(at.len() == 1 && (at[0] - 20.5).abs() < 1e-12, "{at:?}");
+    // the same model hiding its breakpoints: the prepared ones mislead
+    struct Hidden<'a>(&'a lsim_codegen::JitModel);
+    impl ModelFunctions for Hidden<'_> {
+        fn layout(&self) -> &Layout {
+            self.0.layout()
+        }
+        fn residual(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+            self.0.residual(inp, w, out)
+        }
+        fn jvp(&self, inp: &EvalInput<'_>, v: &[f64], w: &mut [f64], out: &mut [f64]) {
+            self.0.jvp(inp, v, w, out)
+        }
+        fn roots(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+            self.0.roots(inp, w, out)
+        }
+        fn vars(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+            self.0.vars(inp, w, out)
+        }
+        fn when(&self, inp: &EvalInput<'_>, f: &[f64], w: &mut [f64], d: &mut [f64]) {
+            self.0.when(inp, f, w, d)
+        }
+        fn start(&self, p: &[f64], y0: &mut [f64], d0: &mut [f64]) {
+            self.0.start(p, y0, d0)
+        }
+        fn jacobian_dense(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+            self.0.jacobian_dense(inp, w, out)
+        }
+        fn sparsity(&self) -> Option<&lsim_ir::runtime::SparsityPattern> {
+            ModelFunctions::sparsity(self.0)
+        }
+        fn jacobian_sparse(&self, inp: &EvalInput<'_>, w: &mut [f64], v: &mut [f64]) {
+            ModelFunctions::jacobian_sparse(self.0, inp, w, v)
+        }
+        fn modes(&self, inp: &EvalInput<'_>, w: &mut [f64], d: &mut [f64]) {
+            self.0.modes(inp, w, d)
+        }
+        fn init(&self) -> Option<&dyn lsim_ir::runtime::InitFunctions> {
+            self.0.init()
+        }
+        fn table_guard_list(&self) -> &[lsim_ir::runtime::TableGuard] {
+            self.0.table_guard_list()
+        }
+        fn table_guards(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+            self.0.table_guards(inp, w, out)
+        }
+        fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+            self.0.eval_table(k, args)
+        }
+    }
+    let run = simulate(&Hidden(&jit), info, &opts, grid, &mut []).unwrap();
+    println!("breakpoints hidden: {} steps; flag {}", run.stats.steps, run.values[seen][3]);
+    assert_eq!(run.values[seen][3], 0.0, "the failure this guards against");
+}
+
 /// A condition on a table read at a position that moves with time but not
 /// affinely: `profile(10 + 8 sin(ω time)) > 0.5`, the profile up and down
 /// between its breakpoints. Its sign changes are searched ahead through

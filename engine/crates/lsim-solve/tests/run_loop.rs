@@ -2358,8 +2358,13 @@ fn a_double_crossing_of_a_driving_cycle_condition_within_a_step_is_found() {
     info.when_strict = vec![true];
     info.time_crossings = vec![None];
     info.table_breaks = vec![vec![0.0, 100.0]];
-    info.time_tables =
-        vec![lsim_solve::info::TimeTable { at: vec![0.0, 100.0], c: 1.0, b: Expr::Const(0.0) }];
+    info.time_tables = vec![lsim_solve::info::TimeTable {
+        table: 0,
+        axis: 0,
+        at: vec![0.0, 100.0],
+        c: 1.0,
+        b: Expr::Const(0.0),
+    }];
     info.time_functions = vec![Some(TimeFunction::Mixed {
         chain: vec![],
         g: Expr::Table { table: 0, args: vec![Expr::Time] } - Expr::Var(VarId(0)),
@@ -3670,6 +3675,91 @@ impl Integrator for Stops<'_> {
     }
 }
 
+/// A model giving its tables' breakpoints (`ModelFunctions::table_axes`)
+/// over a hand model's other methods.
+struct WithAxes(Hand, Vec<Option<[Vec<f64>; 2]>>);
+
+impl ModelFunctions for WithAxes {
+    fn layout(&self) -> &Layout {
+        self.0.layout()
+    }
+    fn residual(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+        self.0.residual(inp, w, out)
+    }
+    fn jvp(&self, inp: &EvalInput<'_>, v: &[f64], w: &mut [f64], out: &mut [f64]) {
+        self.0.jvp(inp, v, w, out)
+    }
+    fn roots(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+        self.0.roots(inp, w, out)
+    }
+    fn vars(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+        self.0.vars(inp, w, out)
+    }
+    fn when(&self, inp: &EvalInput<'_>, fired: &[f64], w: &mut [f64], d: &mut [f64]) {
+        self.0.when(inp, fired, w, d)
+    }
+    fn start(&self, p: &[f64], y0: &mut [f64], d0: &mut [f64]) {
+        self.0.start(p, y0, d0)
+    }
+    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
+        self.1.get(k as usize).cloned().flatten()
+    }
+}
+
+/// The run takes its tables' breakpoints from the model when it gives
+/// them: a 1-D table's breakpoints, a 2-D table's axes, and the stops of a
+/// table read along time (on either axis) follow the data the model was
+/// given (a compiled model's tables may be swapped after preparation). A
+/// model that gives none, or the same, leaves the run as prepared.
+#[test]
+fn the_tables_breakpoints_follow_the_data_the_model_gives() {
+    let model = |axes: Vec<Option<[Vec<f64>; 2]>>| {
+        let hand = Hand {
+            layout: layout(1, 0, 0, 0, 0, 0, 1),
+            f: Box::new(|_, out| out[0] = 0.0),
+            jvp: Box::new(|_, _, out| out[0] = 0.0),
+            roots: Box::new(|_, _| {}),
+            vars: Box::new(|i, out| out[0] = i.y[0]),
+            when: nothing_v(),
+            modes: None,
+            y0: vec![0.0],
+            d0: vec![],
+        };
+        WithAxes(hand, axes)
+    };
+    let mut info = RunInfo::bare(1, 0, vec![]);
+    info.table_names = vec!["cycle".into(), "map".into()];
+    info.table_breaks = vec![vec![0.0, 1.0], vec![]];
+    info.table_axes = vec![[vec![], vec![]], [vec![0.0, 1.0], vec![0.0, 2.0]]];
+    let along = |table: u32, axis: usize, at: Vec<f64>| lsim_solve::info::TimeTable {
+        table,
+        axis,
+        at,
+        c: 1.0,
+        b: Expr::Const(0.0),
+    };
+    info.time_tables = vec![along(0, 0, vec![0.0, 1.0]), along(1, 1, vec![0.0, 2.0])];
+    // none given, or the same: as prepared
+    assert!(info.with_model_tables(&model(vec![])).is_none());
+    let same = vec![Some([vec![0.0, 1.0], vec![]]), Some([vec![0.0, 1.0], vec![0.0, 2.0]])];
+    assert!(info.with_model_tables(&model(same)).is_none());
+    // other data: the model's
+    let other =
+        vec![Some([vec![0.0, 3.0, 4.0], vec![]]), Some([vec![0.0, 1.0], vec![0.0, 5.0, 6.0]])];
+    let got = info.with_model_tables(&model(other)).expect("other breakpoints");
+    assert_eq!(got.table_breaks, vec![vec![0.0, 3.0, 4.0], vec![]]);
+    assert!(got.table_axes[0].iter().all(|a| a.is_empty()));
+    assert_eq!(got.table_axes[1], [vec![0.0, 1.0], vec![0.0, 5.0, 6.0]]);
+    assert_eq!(got.time_tables[0].at, vec![0.0, 3.0, 4.0]);
+    assert_eq!(got.time_tables[1].at, vec![0.0, 5.0, 6.0]);
+    // only the table that changed
+    let one = vec![None, Some([vec![0.0, 1.0], vec![0.0, 7.0]])];
+    let got = info.with_model_tables(&model(one)).expect("other breakpoints");
+    assert_eq!(got.table_breaks[0], vec![0.0, 1.0]);
+    assert_eq!(got.time_tables[0].at, vec![0.0, 1.0]);
+    assert_eq!(got.time_tables[1].at, vec![0.0, 7.0]);
+}
+
 /// A table read at `time - shift`, the shift a discrete value a `when`
 /// sets to 2.5 at 5 s: its breakpoints (0, 10, 20 along its axis) are stop
 /// times at 0, 10, 20 s, then at 2.5, 12.5, 22.5 s. The review found the
@@ -3703,6 +3793,8 @@ fn a_table_whose_position_moves_keeps_no_stale_stops() {
     info.var_sources = vec![VarSource::Y(0), VarSource::D(0)];
     info.time_crossings = vec![Some(TimeCrossing { at: Expr::Const(5.0), rising: true })];
     info.time_tables = vec![TimeTable {
+        table: 0,
+        axis: 0,
         at: vec![0.0, 10.0, 20.0],
         c: 1.0,
         b: Expr::Neg(Box::new(Expr::Var(VarId(1)))),

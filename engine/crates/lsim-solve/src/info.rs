@@ -593,6 +593,10 @@ pub struct RunInfo {
 /// (a car at rest), and the table's kinks fall on step ends.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TimeTable {
+    /// the table
+    pub table: u32,
+    /// the axis read along time
+    pub axis: usize,
     /// the breakpoints along that axis
     pub at: Vec<f64>,
     /// `c`, per second
@@ -892,6 +896,51 @@ impl RunInfo {
         }
     }
 
+    /// The run with the tables `model` gives, when they differ from the
+    /// prepared ones (`None`: they do not, or the model does not give its
+    /// tables' breakpoints, [`ModelFunctions::table_axes`]): a compiled
+    /// model's tables may be swapped after preparation, and the
+    /// enclosures of the conditions on functions of time, and the stops at
+    /// the breakpoints of the tables read along time, must follow the data
+    /// the model interpolates.
+    pub fn with_model_tables(&self, model: &dyn ModelFunctions) -> Option<RunInfo> {
+        let n = self.table_names.len().max(self.table_breaks.len()).max(self.table_axes.len());
+        let mut changed: Vec<(usize, [Vec<f64>; 2])> = vec![];
+        for k in 0..n {
+            let Some([x, y]) = model.table_axes(k as u32) else { continue };
+            let (breaks, axes) = if y.is_empty() {
+                (x.clone(), [vec![], vec![]])
+            } else {
+                (vec![], [x.clone(), y.clone()])
+            };
+            // (a table the run has no entry for: no breakpoints, no axes)
+            let same = self.table_breaks.get(k).map_or(breaks.is_empty(), |b| *b == breaks)
+                && self.table_axes.get(k).map_or(axes[0].is_empty(), |a| *a == axes);
+            if !same {
+                changed.push((k, [x, y]));
+            }
+        }
+        if changed.is_empty() {
+            return None;
+        }
+        let mut info = self.clone();
+        info.table_breaks.resize(n, vec![]);
+        info.table_axes.resize(n, [vec![], vec![]]);
+        for (k, [x, y]) in changed {
+            if y.is_empty() {
+                info.table_breaks[k] = x.clone();
+                info.table_axes[k] = [vec![], vec![]];
+            } else {
+                info.table_breaks[k] = vec![];
+                info.table_axes[k] = [x.clone(), y.clone()];
+            }
+            for tt in info.time_tables.iter_mut().filter(|tt| tt.table as usize == k) {
+                tt.at = if tt.axis == 0 { x.clone() } else { y.clone() };
+            }
+        }
+        Some(info)
+    }
+
     /// The same run with other parameter values (a sweep's set). Bound
     /// parameters are not re-evaluated here: the caller passes a complete,
     /// consistent vector.
@@ -1074,7 +1123,7 @@ fn time_tables(m: &PreparedModel) -> Vec<TimeTable> {
                 if at.is_empty() || !seen.insert((*table, axis, format!("{c} {b}"))) {
                     continue;
                 }
-                out.push(TimeTable { at, c, b });
+                out.push(TimeTable { table: *table, axis, at, c, b });
             }
         })
     };

@@ -1111,6 +1111,9 @@ pub fn run_loop(
     let n = l.n_y();
     let times = grid.times();
     let t_end = grid.t_end;
+    // the tables' breakpoints as the model interpolates them
+    let given = info.with_model_tables(model);
+    let info = given.as_ref().unwrap_or(info);
     tables_given(model, info, opts, grid.t0)?;
     let span = (t_end - grid.t0).abs();
     let mut rec = Recorder::new(l.n_vars, &times);

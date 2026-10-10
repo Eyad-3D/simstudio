@@ -524,6 +524,8 @@ pub trait ModelFunctions: Send + Sync {
     fn init(&self) -> Option<&dyn InitFunctions> { None }              // the compiled InitSystem
     fn table_guard_list(&self) -> &[TableGuard] { &[] }                // the table axes the run loop watches
     fn table_guards(&self, inp: &EvalInput, work: &mut [f64], out: &mut [f64]) {}  // > 0 inside the data
+    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> { None } // value, partials
+    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> { None }   // the breakpoints it interpolates
 }
 
 pub trait InitFunctions: Send + Sync {   // Newton on w, then y0
@@ -607,8 +609,9 @@ additive). What the other packages change to use them:
   `model.report`.
 * The `Started` wrapper in lsim-engine forwards only seven methods of
   `ModelFunctions`; it must forward every one (above, WP3): `eval_table`,
-  `modes`, `table_guard_list` and `table_guards`, `jacobian_dense` (with
-  `sparsity` and `jacobian_sparse`) and `init` too.
+  `modes`, `table_guard_list` and `table_guards`, `table_axes`,
+  `jacobian_dense` (with `sparsity` and `jacobian_sparse`) and `init`
+  too.
 
 **WP3 (lsim-codegen): the order of the zero crossings.** The compiled
 `roots` evaluates `PreparedModel::zero_crossings` in their order, one
@@ -631,18 +634,21 @@ method of the trait, and a compiled model implements every one:
 (the modes from their relations), `init` (the compiled initialisation),
 `sparsity` and `jacobian_sparse` (the coloured Jacobian; `jacobian_dense`
 from them or from `jvp`), `table_guard_list` and `table_guards` (the
-watched table axes), and `eval_table` (a table as the compiled code
+watched table axes), `eval_table` (a table as the compiled code
 interpolates it, value and partial derivatives: the energy books, the
 conditions on functions of time, the asserts and the impulse projection
 evaluate flat expressions outside the compiled code and read the tables
-through it). The defaults are those of a model without such things: no
+through it), and `table_axes` (the breakpoints of the data it
+interpolates, which the run loop's stops and enclosures follow when a
+model's tables are swapped after preparation). The defaults are those of a model without such things: no
 modes, no compiled initialisation, a dense Jacobian from `jvp`, no
 guards, no tables (`None`). A wrapper around a compiled model (a model
 started at other values, a sweep's set) must forward every method:
 left at a default, modes stop switching, table guards and the compiled
-initialisation vanish without an error, and a run whose books or
+initialisation vanish without an error, a run whose books or
 conditions read a table does not start ("the model does not give its
-tables").
+tables"), and a model given other table data is run on the prepared
+breakpoints (its stops and enclosures in the wrong places, silently).
 
 **WP3** keeps: its interpreted tape (`tape.rs`) is not wired in,
 `InitFunctions::guess` uses the flat start values rather than
@@ -976,7 +982,12 @@ round).**
   Electric Car in winter once stood 21 s at a start because a step from
   507.8 to 532.6 s spanned its motor's switch-on and switch-off (both
   ends off). A stop is no restart: the integration goes on with its
-  history.
+  history. The breakpoints are those of the data the model interpolates:
+  a compiled model's tables may be swapped after preparation
+  (`JitModel::with_tables`), so the run takes them from the model
+  (`ModelFunctions::table_axes`) where they differ from the prepared
+  ones, for these stops and for the enclosures of the conditions on
+  functions of time (`RunInfo::with_model_tables`).
 * *Conditions on explicit functions of time.* A zero-crossing function
   that reads time beyond `c · time + b` (`sin(2π time / T) > 0.95`: a
   heater, a PWM, a load switched by a sine) is classified by preparation
