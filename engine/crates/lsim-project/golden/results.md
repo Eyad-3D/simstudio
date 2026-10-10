@@ -16,7 +16,7 @@ that falls on an event is compared on the value just before the event
 
 ## aero-bev/case-hwfet (EPA highway (HWFET))
 
-New engine: build 0.04 s, run 0.87 s (82027 steps, 17 events); today: 14.7 s at 10 ms, 145.0 s at 1 ms. Energy books: closure 1.3e-10 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.03 s, run 0.87 s (82027 steps, 17 events); today: 14.7 s at 10 ms, 145.0 s at 1 ms. Energy books: closure 1.3e-10 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -42,7 +42,7 @@ Channels: 63 of 67 inside their bands (RMS of the difference to today's 1 ms run
 
 ## aero-bev/case-udds (EPA city (UDDS))
 
-New engine: build 0.03 s, run 2.13 s (179312 steps, 257 events); today: 38.9 s at 10 ms, 293.9 s at 1 ms. Energy books: closure 1.3e-10 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.03 s, run 1.96 s (179312 steps, 257 events); today: 38.9 s at 10 ms, 293.9 s at 1 ms. Energy books: closure 1.3e-10 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -72,7 +72,7 @@ Channels: 63 of 67 inside their bands (RMS of the difference to today's 1 ms run
 
 ## aero-bev/case-wltc (WLTC Class 3b)
 
-New engine: build 0.03 s, run 2.33 s (223735 steps, 122 events); today: 32.3 s at 10 ms, 321.7 s at 1 ms. Energy books: closure 2.5e-11 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.03 s, run 2.38 s (223735 steps, 122 events); today: 32.3 s at 10 ms, 321.7 s at 1 ms. Energy books: closure 2.5e-11 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -134,7 +134,7 @@ Channels: 65 of 70 inside their bands (RMS of the difference to today's 1 ms run
 
 ## bev-car/case-city-live (City Cycle (live, 10×))
 
-New engine: build 0.04 s, run 0.06 s (3999 steps, 17 events); today: 10.7 s at 10 ms, 107.0 s at 1 ms. Energy books: closure 1.5e-9 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.03 s, run 0.06 s (3999 steps, 17 events); today: 10.7 s at 10 ms, 107.0 s at 1 ms. Energy books: closure 1.5e-9 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -162,7 +162,7 @@ Channels: 65 of 70 inside their bands (RMS of the difference to today's 1 ms run
 
 ## bev-car/case-wltc (WLTC Class 3b)
 
-New engine: build 0.04 s, run 2.63 s (215669 steps, 122 events); today: 33.8 s at 10 ms, 360.9 s at 1 ms. Energy books: closure 2.7e-10 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.04 s, run 2.52 s (215669 steps, 122 events); today: 33.8 s at 10 ms, 360.9 s at 1 ms. Energy books: closure 2.7e-10 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -198,7 +198,7 @@ Channels: 65 of 70 inside their bands (RMS of the difference to today's 1 ms run
 
 ## bev-car/case-wltc-hvac (WLTC, heating/air-con on)
 
-New engine: build 0.04 s, run 2.72 s (214113 steps, 122 events); today: 32.9 s at 10 ms, 331.4 s at 1 ms. Energy books: closure 5.8e-11 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.03 s, run 2.48 s (214113 steps, 122 events); today: 32.9 s at 10 ms, 331.4 s at 1 ms. Energy books: closure 5.8e-11 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -234,7 +234,7 @@ Channels: 65 of 70 inside their bands (RMS of the difference to today's 1 ms run
 
 ## bev-car/case-wltc-summer (WLTC, hot day (35 °C, air-con on))
 
-New engine: build 0.03 s, run 2.86 s (214496 steps, 122 events); today: 33.1 s at 10 ms, 342.4 s at 1 ms. Energy books: closure 7.4e-11 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.03 s, run 2.48 s (214496 steps, 122 events); today: 33.1 s at 10 ms, 342.4 s at 1 ms. Energy books: closure 7.4e-11 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -271,7 +271,7 @@ Channels: 65 of 70 inside their bands (RMS of the difference to today's 1 ms run
 
 ## bev-car/case-wltc-winter (WLTC, winter day (−7 °C, heating on))
 
-New engine: build 0.04 s, run 2.77 s (215305 steps, 122 events); today: 33.2 s at 10 ms, 334.1 s at 1 ms. Energy books: closure 2.6e-11 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.05 s, run 2.86 s (215305 steps, 122 events); today: 33.2 s at 10 ms, 334.1 s at 1 ms. Energy books: closure 2.6e-11 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -336,7 +336,7 @@ Channels: 65 of 65 inside their bands (RMS of the difference to today's 1 ms run
 
 ## hybrid-car/case-hwfet (EPA highway (HWFET))
 
-New engine: build 0.02 s, run 47.03 s (1918254 steps, 76998 events); today: 23.9 s at 10 ms, 193.4 s at 1 ms. Energy books: closure 3.3e-12 of the throughput, 0.0002 kWh lost at events (16 gear shifts: 0.000206 kWh as the gears engaged; today's gearbox term 0.000337 kWh).
+New engine: build 0.02 s, run 51.50 s (1918254 steps, 76998 events); today: 23.9 s at 10 ms, 193.4 s at 1 ms. Energy books: closure 3.3e-12 of the throughput, 0.0002 kWh lost at events (16 gear shifts: 0.000206 kWh as the gears engaged; today's gearbox term 0.000337 kWh).
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -354,7 +354,7 @@ Channels: 88 of 88 inside their bands (RMS of the difference to today's 1 ms run
 
 ## hybrid-car/case-mixed (Mixed Cycle)
 
-New engine: build 0.03 s, run 21.28 s (572709 steps, 56209 events); today: 24.8 s at 10 ms, 158.3 s at 1 ms. Energy books: closure 1.2e-12 of the throughput, 0.0001 kWh lost at events (10 gear shifts: 0.000145 kWh as the gears engaged; today's gearbox term 0.000262 kWh).
+New engine: build 0.02 s, run 21.41 s (572709 steps, 56209 events); today: 24.8 s at 10 ms, 158.3 s at 1 ms. Energy books: closure 1.2e-12 of the throughput, 0.0001 kWh lost at events (10 gear shifts: 0.000145 kWh as the gears engaged; today's gearbox term 0.000262 kWh).
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -381,7 +381,7 @@ Channels: 82 of 88 inside their bands (RMS of the difference to today's 1 ms run
 
 ## hybrid-car/case-mixed-live (Mixed Cycle (live, 10×))
 
-New engine: build 0.02 s, run 20.97 s (572709 steps, 56209 events); today: 17.4 s at 10 ms, 199.2 s at 1 ms. Energy books: closure 1.2e-12 of the throughput, 0.0001 kWh lost at events (10 gear shifts: 0.000145 kWh as the gears engaged; today's gearbox term 0.000262 kWh).
+New engine: build 0.03 s, run 21.52 s (572709 steps, 56209 events); today: 17.4 s at 10 ms, 199.2 s at 1 ms. Energy books: closure 1.2e-12 of the throughput, 0.0001 kWh lost at events (10 gear shifts: 0.000145 kWh as the gears engaged; today's gearbox term 0.000262 kWh).
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -408,7 +408,7 @@ Channels: 82 of 88 inside their bands (RMS of the difference to today's 1 ms run
 
 ## hybrid-car/case-udds (EPA city (UDDS))
 
-New engine: build 0.02 s, run 76.11 s (3023217 steps, 118094 events); today: 40.5 s at 10 ms, 391.0 s at 1 ms. Energy books: closure 6.8e-12 of the throughput, 0.0017 kWh lost at events (104 gear shifts: 0.001663 kWh as the gears engaged; today's gearbox term 0.003503 kWh).
+New engine: build 0.02 s, run 80.89 s (3023217 steps, 118094 events); today: 40.5 s at 10 ms, 391.0 s at 1 ms. Energy books: closure 6.8e-12 of the throughput, 0.0017 kWh lost at events (104 gear shifts: 0.001663 kWh as the gears engaged; today's gearbox term 0.003503 kWh).
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|

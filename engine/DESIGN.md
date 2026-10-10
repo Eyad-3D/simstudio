@@ -1687,6 +1687,17 @@ work end to end) or against hand-written test doubles of the interfaces.
   direction has a zero rate; left limits of the changed channels only;
   moving tables' breakpoints recomputed. The golden comparison is the
   same to the last digit (none of its models has such a condition).
+* **Seventh round (from the review of the sixth)**: a block ticking at an
+  instant reads the iteration variables solved again for what the blocks
+  before it set (`RunInfo::z_discretes`, `SolverReport::z_solves`), and a
+  computed input read through its chain at a stop is evaluated there;
+  mixed conditions are checked along every step's dense output
+  (`SolverReport::pulses_found`) instead of stopping at their time terms'
+  extrema; integer powers enclosed with a proven bound and the platform's
+  libm tested; a run whose books or conditions read a table the model
+  does not give does not start (the full `ModelFunctions` contract, §5.8);
+  books without error control flagged. The golden comparison is the same
+  to the last digit again.
 * **Status (as built)**: the exact-answer suite passes on both backends,
   ODE and DAE paths (`lsim-solve/tests/reference.rs`); the backends agree
   within 4.2·rtol; events within 2.6·rtol on SUNDIALS at every tolerance,
