@@ -16,21 +16,26 @@
 //!    masses; for a gear between two inertias `w_out⁺ = (J_out w_out⁻ +
 //!    r J_in w_in⁻) / (J_out + r² J_in)`. The kinetic energy that loses is
 //!    the engaging part's (`E⁻ − E_a ≥ 0`: a projection).
-//! 2. **The couplings that pass the impulse on relax.** A tyre has only
-//!    bounded forces, so it passes no impulse in zero time; in the rigid
-//!    limit its slip relaxes at once to the slip it had before the event,
-//!    exchanging momentum between the wheels and the vehicle: the same
-//!    balance over the states the active links reach, each link `l`
-//!    keeping `keep_l = κ⁻_l` with its impulse `λ_l`. The kinetic energy
-//!    that loses is the link's: `λ_l (κ_a,l + κ⁻_l) / 2` (the impulse
-//!    times the mean slip, `κ_a` after stage 1). A friction contact can
-//!    only pass an impulse along its slip, so a link whose share would be
-//!    negative slides instead (passes nothing) and the stage is solved
-//!    again without it: every share is ≥ 0. The two stages end where one
-//!    projection keeping every slip would (stage 1's change is orthogonal,
-//!    in the masses' metric, to everything stage 2 can move), so the total
-//!    loss is the same; the split is the physical one, which a fully
-//!    resolved stiff tyre approaches as its stiffness grows.
+//! 2. **The couplings that pass the impulse on relax.** Only a coupling a
+//!    model declares stiff and unbounded (an [`crate::ImpulseLink`])
+//!    passes an impulse on. A part whose forces are bounded passes none in
+//!    zero time, a tyre included (its force is at most μ N, within its grip
+//!    as at it): the integrator follows its relative velocity after the
+//!    event with the part's own law, and its loss is its own. A link whose
+//!    `active` holds at the state stage 1 leaves relaxes to its relative
+//!    velocity before the event, exchanging momentum between what it
+//!    couples: the same balance over the states the active links reach,
+//!    each keeping `keep_l = κ⁻_l` with its impulse `λ_l`. A link whose
+//!    `active` comes to hold where the others' relaxation leaves the
+//!    states joins them and the stage is solved again (the set only grows,
+//!    so this ends). The kinetic energy that loses is the link's when one
+//!    link passes the impulse on; when several do, how they share it
+//!    depends on their stiffnesses, which they do not declare, and the
+//!    event books it as a whole (a warning says so). The two stages end
+//!    where one projection keeping every active link would (stage 1's
+//!    change is orthogonal, in the masses' metric, to everything stage 2
+//!    can move), so the total loss is the same; a fully resolved stiff,
+//!    unbounded link approaches the split as its stiffness grows.
 //!
 //! The derivatives are exact: `B` and the links' gradients by forward-mode
 //! differentiation through the model's assignments (iteration variables'
@@ -319,14 +324,15 @@ impl Loop<'_> {
             return Ok(None);
         }
 
-        // stage 2: the links that pass the impulse on relax to their
-        // relative velocity before the event
+        // stage 2: the links that pass the impulse on, judged at the state
+        // the rigid stage left, relax to their relative velocity before the
+        // event
         let y_a = y.to_vec();
         self.sample(t, y, d);
         let vars_a = self.vars.clone();
         let start: Vec<usize> = union.iter().copied().collect();
         let mut on: Vec<usize> =
-            (0..imp.links.len()).filter(|&lk| at(ref_vars, &imp.links[lk].active) != 0.0).collect();
+            (0..imp.links.len()).filter(|&lk| at(&vars_a, &imp.links[lk].active) != 0.0).collect();
         loop {
             let (vars_b, states_b) = imp.coupled(&start, &on);
             let links_in: Vec<usize> = on
@@ -364,39 +370,49 @@ impl Loop<'_> {
                     break;
                 }
             };
-            // each link's share: its impulse times its mean relative velocity
-            let shares: Vec<f64> = targets
-                .iter()
-                .zip(&lambda)
-                .map(|((lk, k_minus), lam)| {
-                    let k_a = at(&vars_a, &imp.links[*lk].keep);
-                    lam * 0.5 * (k_a + k_minus)
-                })
-                .collect();
-            let scale: f64 = shares.iter().map(|s| s.abs()).sum::<f64>();
-            let worst = (0..shares.len()).min_by(|a, b| shares[*a].total_cmp(&shares[*b]));
-            if let Some(w) = worst
-                && shares[w] < -1e-12 * scale
-            {
-                // an impulse against its slip: that link slides instead
-                let lk = targets[w].0;
-                on.retain(|x| *x != lk);
-                y.copy_from_slice(&y_a);
-                continue;
-            }
             if reads_z {
                 integ.consistent_z(t, y, d)?;
             }
             self.sample(t, y, d);
             let after = self.vars.clone();
+            // a link that did not pass the impulse on at the state the rigid
+            // stage left, but does where the others' relaxation leaves it,
+            // takes part too (the set only grows: this ends)
+            let joins: Vec<usize> = (0..imp.links.len())
+                .filter(|lk| !on.contains(lk) && at(&after, &imp.links[*lk].active) != 0.0)
+                .collect();
+            if !joins.is_empty() {
+                on.extend(joins);
+                y.copy_from_slice(&y_a);
+                continue;
+            }
             let lost = self.stored(t, &parts, &vars_a) - self.stored(t, &parts, &after);
-            let total: f64 = shares.iter().map(|s| s.max(0.0)).sum();
-            if total > 0.0 {
-                for ((lk, _), s) in targets.iter().zip(&shares) {
-                    losses.push((imp.links[*lk].part, lost * s.max(0.0) / total, true));
+            // the links that passed an impulse: one books what the stage
+            // lost; how several share it depends on their stiffnesses,
+            // which they do not declare, so the event books it as a whole
+            let scale: f64 = lambda.iter().map(|l| l.abs()).sum();
+            let passed: Vec<usize> = targets
+                .iter()
+                .zip(&lambda)
+                .filter(|(_, l)| l.abs() > 1e-12 * scale)
+                .map(|((lk, _), _)| *lk)
+                .collect();
+            match passed.as_slice() {
+                [] => {}
+                [lk] => losses.push((imp.links[*lk].part, lost, true)),
+                _ => {
+                    losses.push((None, lost, true));
+                    if !self.warned_links {
+                        self.warned_links = true;
+                        self.warnings.push(format!(
+                            "at t = {t:.6} s {} couplings passed a rigid engagement's impulse on \
+                             together: the kinetic energy their relaxation lost ({lost:.6e} J) is \
+                             booked to the event, not to them one by one (how they share it \
+                             depends on their stiffnesses); so at every such event of this run",
+                            passed.len()
+                        ));
+                    }
                 }
-            } else if lost != 0.0 {
-                losses.push((None, lost, true));
             }
             break;
         }

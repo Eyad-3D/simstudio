@@ -630,8 +630,11 @@ fn a_mode_on_time_switches_exactly_at_its_time() {
 /// A gear (its ratio the discrete d0) between a motor and a wheel whose
 /// tyre drives a vehicle: y = [w (wheel), v (vehicle)]; channels [w, the
 /// motor's speed d0·w, v, d0]. The gear declares that a change of its
-/// ratio is a rigid engagement; the tyre keeps its slip velocity `w R - v`
-/// through an impulse while `grips`.
+/// ratio is a rigid engagement; the tyre is declared a stiff, unbounded
+/// link that keeps its slip velocity `w R - v` through an impulse while
+/// `grips` (a model's idealization: a real tyre's force is bounded by its
+/// grip, so it passes no impulse and declares none, as the library's
+/// does; see the tests further down).
 struct Shift {
     jm: f64,
     jw: f64,
@@ -768,15 +771,16 @@ fn shift_books(run: &SimResult) -> (f64, f64, f64) {
     (book("gearbox"), book("tyre"), books.impulse_loss)
 }
 
-/// A motor geared to a wheel whose tyre grips a vehicle; the gear's ratio
-/// steps from r1 to r2 at t = 1. The momentum of all three is kept, the
-/// vehicle's reflected through the gripping tyre (its slip velocity is
-/// kept): w⁺ = (J_m r1 r2 + J_w + m R²) w⁻ / (J_m r2² + J_w + m R²). The
-/// loss splits as the physics does: the motor and the wheel meet first
-/// (a rigid engagement, the vehicle not yet involved: the gearbox's loss),
-/// then the tyre's slip relaxes back, passing the momentum on to the
-/// vehicle (the tyre's loss). At its grip limit the tyre passes nothing:
-/// the vehicle keeps its speed and the gearbox's loss is all there is.
+/// A motor geared to a wheel whose tyre, a stiff and unbounded link, grips
+/// a vehicle; the gear's ratio steps from r1 to r2 at t = 1. The momentum
+/// of all three is kept, the vehicle's reflected through the gripping
+/// tyre (its slip velocity is kept): w⁺ = (J_m r1 r2 + J_w + m R²) w⁻ /
+/// (J_m r2² + J_w + m R²). The loss splits as the physics does: the motor
+/// and the wheel meet first (a rigid engagement, the vehicle not yet
+/// involved: the gearbox's loss), then the tyre's slip relaxes back,
+/// passing the momentum on to the vehicle (the tyre's loss). Declared
+/// inactive, the tyre passes nothing: the vehicle keeps its speed and the
+/// gearbox's loss is all there is.
 #[test]
 fn a_shift_keeps_the_momentum_through_a_tyre_that_grips() {
     let s = Shift::CAR;
@@ -817,12 +821,13 @@ fn a_shift_keeps_the_momentum_through_a_tyre_that_grips() {
     }
 }
 
-/// A downshift while the tyre drives (slip velocity +0.2 m/s): the rotor
-/// must speed up, so the motor and the wheel meet at a wheel speed well
-/// below the vehicle's, and the tyre's slip, relaxing back to +0.2 m/s,
-/// decelerates the vehicle. Both shares are losses (the review found the
-/// tyre booking a negative one, -113 J, when it took the impulse times its
-/// slip before the event): a friction contact cannot return energy.
+/// A downshift while the tyre (the stiff link) drives (slip velocity
+/// +0.2 m/s): the rotor must speed up, so the motor and the wheel meet at
+/// a wheel speed well below the vehicle's, and the tyre's slip, relaxing
+/// back to +0.2 m/s, decelerates the vehicle. Both shares are losses (the
+/// review found the tyre booking a negative one, -113 J, when it took the
+/// impulse times its slip before the event): a friction contact cannot
+/// return energy.
 #[test]
 fn a_gripping_tyre_books_no_negative_loss_on_a_downshift() {
     let s = Shift::CAR;
@@ -1027,7 +1032,8 @@ fn a_cascade_of_engagements_is_projected_to_its_end_or_stops_the_run() {
 }
 
 /// The two-stage split against the physics it stands for: a tyre with a
-/// linear, stiff force law F = k (w R - v) and no projection through it
+/// linear, stiff force law F = k (w R - v), unbounded (no grip limit: the
+/// idealization a link declares), and no projection through it
 /// (the gear's rigid engagement only), its slip transient integrated, a
 /// constant motor torque driving. The tyre's loss over the transient (its
 /// ∫ F (w R - v) dt, an extra state) and the speeds after it approach the
@@ -1124,6 +1130,592 @@ fn the_tyres_share_is_what_a_stiff_tyre_dissipates() {
     assert!(gaps[1].0 < 0.2 * gaps[0].0 && gaps[2].0 < 0.2 * gaps[1].0, "{gaps:?}");
     assert!(gaps[2].0 < 1e-3, "{gaps:?}");
     assert!(gaps[2].1 < 1e-4, "{gaps:?}");
+}
+
+/// Two links on one wheel, each to its own body: link A always passes the
+/// impulse on, link B only while its slip is under 0.05 m/s. The rigid
+/// stage (a shift, 12 → 7) leaves the wheel 8.6 m/s ahead of both bodies:
+/// B is outside its range there, A relaxes, and where A's relaxation
+/// leaves the wheel (a heavy first body: the wheel comes back to within
+/// 0.03 m/s of the second) B is inside its range, so it joins and the
+/// stage is solved again with both. Exact: the momentum of the motor, the
+/// wheel and both bodies kept with both slips back at 0.01 m/s. Two links
+/// passed the impulse on: their share of the loss is the event's, not
+/// split between them.
+#[test]
+fn a_link_that_comes_into_its_range_as_another_relaxes_joins_it() {
+    let (jm, jw, m1, m2, rr) = (0.05, 1.2, 15000.0, 300.0, 0.3);
+    let (r1, r2, w0, slip0) = (12.0, 7.0, 60.0, 0.01);
+    // y = [w, v1, v2]; d = [r]; channels 0 w, 1 r w, 2 v1, 3 r, 4 v2
+    let model = Hand {
+        layout: layout(3, 0, 1, 1, 1, 1, 5),
+        f: Box::new(|_, out| out.fill(0.0)),
+        jvp: Box::new(|_, _, out| out.fill(0.0)),
+        roots: Box::new(|i, out| out[0] = i.t - 1.0),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0] * i.y[0];
+            out[2] = i.y[1];
+            out[3] = i.d[0];
+            out[4] = i.y[2];
+        }),
+        when: Box::new(move |_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = r2;
+            }
+        }),
+        modes: None,
+        y0: vec![w0, w0 * rr - slip0, w0 * rr - slip0],
+        d0: vec![r1],
+    };
+    let v = |k: u32| Expr::Var(VarId(k));
+    let half = |c: f64, k: u32| Expr::Const(0.5 * c) * v(k) * v(k);
+    let part = |path: &str, stored: Option<Expr>| EnergyPart {
+        path: path.into(),
+        name: format!("'{path}'"),
+        power: Expr::Const(0.0),
+        loss: None,
+        stored,
+    };
+    let mut info = RunInfo::bare(3, 5, vec![rr]);
+    info.root_dirs = vec![1];
+    whens(&mut info, &[(0, Direction::Rising, "'Gearbox': shift")]);
+    info.when_strict = vec![false];
+    info.time_crossings = vec![Some(TimeCrossing { at: Expr::Const(1.0), rising: true })];
+    info.y_nominal = vec![100.0, 10.0, 10.0];
+    info.var_sources = vec![
+        VarSource::Y(0),
+        VarSource::Computed,
+        VarSource::Y(1),
+        VarSource::D(0),
+        VarSource::Y(2),
+    ];
+    info.energy = Some(Arc::new(EnergyInfo {
+        parts: vec![
+            part("motor", Some(half(jm, 1))),
+            part("wheel", Some(half(jw, 0))),
+            part("body 1", Some(half(m1, 2))),
+            part("body 2", Some(half(m2, 4))),
+            part("gearbox", None),
+            part("link A", None),
+            part("link B", None),
+        ],
+    }));
+    let slip = |b: u32| v(0) * Expr::Param(ParamId(0)) - v(b);
+    let in_range = Expr::Compare(
+        lsim_ir::expr::CmpOp::Lt,
+        Box::new(Expr::Call(lsim_ir::expr::Builtin::Abs, vec![slip(4)])),
+        Box::new(Expr::Const(0.05)),
+    );
+    info.impulse = Some(Arc::new(ImpulseInfo::new(
+        vec![(0, vec![1]), (1, vec![0]), (2, vec![2]), (3, vec![4])],
+        vec![EngagementInfo { changes: v(3), part: Some(4) }],
+        vec![
+            ImpulseLink { keep: slip(2), active: Expr::Const(1.0), part: Some(5) },
+            ImpulseLink { keep: slip(4), active: in_range, part: Some(6) },
+        ],
+        vec![(1, false, v(3) * v(0))],
+        vec![],
+        &info.var_sources,
+        3,
+    )));
+    let opts = SolverOptions { rtol: 1e-10, atol: 1e-10, ..Default::default() };
+    let run = simulate(&model, &info, &opts, OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.5 }, &mut [])
+        .unwrap();
+    let k = at(&run, 1.0);
+    let energy = |w: f64, r: f64, v1: f64, v2: f64| {
+        0.5 * jm * (r * w) * (r * w) + 0.5 * jw * w * w + 0.5 * m1 * v1 * v1 + 0.5 * m2 * v2 * v2
+    };
+    // the rigid stage, then A alone: B's slip there
+    let wa = (jm * r1 * r2 + jw) * w0 / (jm * r2 * r2 + jw);
+    let mr1 = m1 * rr * rr;
+    let w_a_only = (jm * r1 * r2 + jw + mr1) * w0 / (jm * r2 * r2 + jw + mr1);
+    let (slip_b_a, slip_b_after_a) =
+        (wa * rr - (w0 * rr - slip0), w_a_only * rr - (w0 * rr - slip0));
+    // both
+    let mr = (m1 + m2) * rr * rr;
+    let w1 = (jm * r1 * r2 + jw + mr) * w0 / (jm * r2 * r2 + jw + mr);
+    let v1 = w1 * rr - slip0;
+    let v0 = w0 * rr - slip0;
+    let books = run.energy.as_ref().unwrap();
+    let book = |path: &str| books.parts.iter().find(|p| p.path == path).unwrap().impulse_lost;
+    let in_links = energy(wa, r2, v0, v0) - energy(w1, r2, v1, v1);
+    println!(
+        "B's slip after the rigid stage {slip_b_a:.4} m/s, after A alone {slip_b_after_a:.4}; w \
+         {} (exact {w1}), v1 {} v2 {} (exact {v1}); lost: gearbox {} J, links {} J (exact \
+         {in_links}), A {} J, B {} J; warnings {:?}",
+        run.values[0][k],
+        run.values[2][k],
+        run.values[4][k],
+        book("gearbox"),
+        books.impulse_link_loss,
+        book("link A"),
+        book("link B"),
+        run.report.warnings
+    );
+    assert!(slip_b_a.abs() > 0.05 && slip_b_after_a.abs() < 0.05, "the case: B joins");
+    assert!((run.values[0][k] - w1).abs() < 1e-12 * w1);
+    assert!((run.values[2][k] - v1).abs() < 1e-12 * v1);
+    assert!((run.values[4][k] - v1).abs() < 1e-12 * v1);
+    assert!((books.impulse_link_loss - in_links).abs() < 1e-9 * in_links);
+    assert_eq!((book("link A"), book("link B")), (0.0, 0.0), "the event's, not theirs");
+    assert!(run.report.warnings.iter().any(|w| w.contains("2 couplings passed")));
+}
+
+/// From the review of the third round: a tyre with a grip limit, as every
+/// tyre has, F = clamp(k (w R − v), ±F_max), F_max = 4000 N, declared to
+/// pass an impulse on only while its force is inside its grip, `|k (w R −
+/// v)| < F_max` (its own law). A downshift (7 → 12) while driving: the
+/// rigid stage leaves the wheel 10 m/s slower than the road. The tyre
+/// gripped before the event, and the projection used to relax its slip at
+/// once, passing about 900 N s; a tyre limited to 4000 N takes about 0.2 s
+/// to pass that, whatever its stiffness, and the runs with the slip
+/// integrated did not approach the projected one as k grew (the vehicle
+/// 0.196 m/s apart 50 ms after the shift at k = 2e5, 2e6 and 2e7 N s/m,
+/// the motor 611 against 737 rad/s). Judged at the state the rigid stage
+/// leaves, the tyre is far past its grip: it passes nothing at the event,
+/// and the run is the one with its slip integrated at every stiffness,
+/// speeds and the tyre's loss over the transient alike.
+#[test]
+fn a_tyre_past_its_grip_after_the_rigid_stage_passes_no_impulse() {
+    let (jm, jw, m, rr) = (0.05, 1.2, 1500.0, 0.3);
+    let (r1, r2, torque, f_max) = (7.0, 12.0, 50.0, 4000.0);
+    let model = |k: f64| {
+        let force = move |s: f64| (k * s).clamp(-f_max, f_max);
+        let slope = move |s: f64| if (k * s).abs() < f_max { k } else { 0.0 };
+        Hand {
+            layout: layout(3, 0, 1, 1, 1, 1, 5),
+            f: Box::new(move |i, out| {
+                let r = i.d[0];
+                let s = i.y[0] * rr - i.y[1];
+                let fz = force(s);
+                out[0] = (r * torque - rr * fz) / (jm * r * r + jw);
+                out[1] = fz / m;
+                out[2] = fz * s;
+            }),
+            jvp: Box::new(move |i, dv, out| {
+                let r = i.d[0];
+                let s = i.y[0] * rr - i.y[1];
+                let ds = dv[0] * rr - dv[1];
+                let df = slope(s) * ds;
+                out[0] = -rr * df / (jm * r * r + jw);
+                out[1] = df / m;
+                out[2] = df * s + force(s) * ds;
+            }),
+            roots: Box::new(|i, out| out[0] = i.t - 1.0),
+            vars: Box::new(|i, out| {
+                out[0] = i.y[0];
+                out[1] = i.d[0] * i.y[0];
+                out[2] = i.y[1];
+                out[3] = i.d[0];
+                out[4] = i.y[2];
+            }),
+            when: Box::new(move |_, fired, d| {
+                if fired[0] != 0.0 {
+                    d[0] = r2;
+                }
+            }),
+            modes: None,
+            // the slip of a 2000 N drive force, within the grip
+            y0: vec![60.0, 60.0 * rr - 2000.0 / k, 0.0],
+            d0: vec![r1],
+        }
+    };
+    let v = |k: u32| Expr::Var(VarId(k));
+    let info = |k: f64, link: bool| {
+        let mut info = RunInfo::bare(3, 5, vec![rr]);
+        info.root_dirs = vec![1];
+        whens(&mut info, &[(0, Direction::Rising, "'Gearbox': shift")]);
+        info.when_strict = vec![false];
+        info.time_crossings = vec![Some(TimeCrossing { at: Expr::Const(1.0), rising: true })];
+        info.y_nominal = vec![100.0, 10.0, 1.0];
+        info.var_sources = vec![
+            VarSource::Y(0),
+            VarSource::Computed,
+            VarSource::Y(1),
+            VarSource::D(0),
+            VarSource::Y(2),
+        ];
+        let half = |c: f64, k: u32| Expr::Const(0.5 * c) * v(k) * v(k);
+        let part = |path: &str, stored: Option<Expr>| EnergyPart {
+            path: path.into(),
+            name: format!("'{path}'"),
+            power: Expr::Const(0.0),
+            loss: None,
+            stored,
+        };
+        info.energy = Some(Arc::new(EnergyInfo {
+            parts: vec![
+                part("motor", Some(half(jm, 1))),
+                part("wheel", Some(half(jw, 0))),
+                part("body", Some(half(m, 2))),
+                part("gearbox", None),
+                part("tyre", None),
+            ],
+        }));
+        let slip = v(0) * Expr::Param(ParamId(0)) - v(2);
+        let inside = Expr::Compare(
+            lsim_ir::expr::CmpOp::Lt,
+            Box::new(Expr::Call(lsim_ir::expr::Builtin::Abs, vec![Expr::Const(k) * slip.clone()])),
+            Box::new(Expr::Const(f_max)),
+        );
+        info.impulse = Some(Arc::new(ImpulseInfo::new(
+            vec![(0, vec![1]), (1, vec![0]), (2, vec![2])],
+            vec![EngagementInfo { changes: v(3), part: Some(3) }],
+            if link {
+                vec![ImpulseLink { keep: slip, active: inside, part: Some(4) }]
+            } else {
+                vec![]
+            },
+            vec![(1, false, v(3) * v(0))],
+            vec![],
+            &info.var_sources,
+            3,
+        )));
+        info
+    };
+    let run = |k: f64, link: bool| -> SimResult {
+        let opts = SolverOptions { rtol: 1e-9, atol: 1e-9, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 1.5, dt: 0.05 };
+        simulate(&model(k), &info(k, link), &opts, grid, &mut []).unwrap()
+    };
+    let book = |r: &SimResult, path: &str| {
+        r.energy.as_ref().unwrap().parts.iter().find(|p| p.path == path).unwrap().impulse_lost
+    };
+    for k in [2e5, 2e6, 2e7] {
+        let (resolved, projected) = (run(k, false), run(k, true));
+        let i1 = at(&resolved, 1.0);
+        let (i2, i6) = (i1 + 1, i1 + 6); // 1.05 s, 1.3 s
+        let q = |r: &SimResult, i: usize| r.values[4][i] - r.values[4][i1];
+        let slip_a = resolved.values[0][i1] * rr - resolved.values[2][i1];
+        println!(
+            "k {k:.0e}: slip after the rigid stage {slip_a:.3} m/s (force {:.0} N, grip {f_max} \
+             N); v(1.05) {:.6} / {:.6} m/s, v(1.3) {:.6} / {:.6}; motor at 1.05 {:.3} / {:.3} \
+             rad/s; tyre's loss by 1.05 s {:.3} / {:.3} J ({} J at the shift)",
+            k * slip_a,
+            resolved.values[2][i2],
+            projected.values[2][i2],
+            resolved.values[2][i6],
+            projected.values[2][i6],
+            resolved.values[1][i2],
+            projected.values[1][i2],
+            q(&resolved, i2),
+            book(&projected, "tyre") + q(&projected, i2),
+            book(&projected, "tyre"),
+        );
+        assert!((k * slip_a).abs() > f_max, "past its grip after the rigid stage");
+        assert_eq!(book(&projected, "tyre"), 0.0, "k {k:.0e}: no impulse through the tyre");
+        for i in [i1, i2, i6, resolved.times.len() - 1] {
+            for c in [0, 1, 2, 4] {
+                let (a, b) = (resolved.values[c][i], projected.values[c][i]);
+                assert!(
+                    (a - b).abs() <= 1e-12 * a.abs().max(1.0),
+                    "k {k:.0e}, channel {c} at {}: resolved {a}, projected {b}",
+                    resolved.times[i]
+                );
+            }
+        }
+        assert_eq!(book(&resolved, "gearbox"), book(&projected, "gearbox"));
+    }
+}
+
+/// A car with a motor on each axle (the two-axle case, FS Electric's
+/// layout): the front motor drives through a two-speed gear, the rear one
+/// through a fixed ratio; each axle's tyres follow the library's law, F =
+/// N clamp(c κ / max(|v|, v_eps), ±μ) (κ = w R − v), so they pass bounded
+/// forces only. A shift of the front gear at t = 0.5 s, against the fully
+/// resolved car: the gear mesh a stiff damper (c_g, its relative speed
+/// relaxing as the new ratio engages, no projection at all), everything
+/// integrated. As the mesh stiffens the resolved car approaches the run
+/// with the projection (the rigid stage only, the tyres' slips
+/// integrated): the speeds over the transient, the gear's loss and each
+/// tyre's loss. Relaxing the tyres at once instead (declared as links
+/// while inside their grip, judged after the rigid stage, as the third
+/// round did for gripping tyres) is not that limit: the front tyre's slip
+/// takes about 25 ms to relax at this load and speed, and that run stays
+/// apart however stiff the mesh. An upshift that leaves the front tyre
+/// inside its grip, and a downshift that leaves it past its grip, sliding.
+#[test]
+fn a_two_axle_shift_matches_the_fully_resolved_car() {
+    let (m, rr, g) = (300.0, 0.228, 9.81);
+    let (jm, jw, jr) = (0.02, 0.4, 0.4 + 0.02 * 36.0);
+    let (tf, trw) = (10.0, 60.0);
+    let (c, mu, v_eps) = (20.0, 1.5, 0.5);
+    let (nf, nr) = (0.45 * m * g, 0.55 * m * g);
+    // F = N clamp(c κ / s, ±μ), s = max(|v|, v_eps); its derivatives
+    let force =
+        move |n: f64, kappa: f64, v: f64| n * (c * kappa / v.abs().max(v_eps)).clamp(-mu, mu);
+    let dforce = move |n: f64, kappa: f64, v: f64, dk: f64, dv: f64| {
+        let s = v.abs().max(v_eps);
+        if (c * kappa / s).abs() >= mu {
+            return 0.0;
+        }
+        let ds = if v.abs() > v_eps { v.signum() * dv } else { 0.0 };
+        n * c * (dk / s - kappa * ds / (s * s))
+    };
+    let v0 = 20.0;
+    let t_s = 0.5;
+    // the projected car: y = [w_f, w_r, v, q_f, q_r]; d = [r]; channels 0
+    // w_f, 1 motor (r w_f), 2 w_r, 3 v, 4 r, 5 q_f, 6 q_r
+    let projected = |r1: f64, r2: f64| Hand {
+        layout: layout(5, 0, 1, 1, 1, 1, 7),
+        f: Box::new(move |i, out| {
+            let (wf, wr, v, r) = (i.y[0], i.y[1], i.y[2], i.d[0]);
+            let (kf, kr) = (wf * rr - v, wr * rr - v);
+            let (ff, fr) = (force(nf, kf, v), force(nr, kr, v));
+            out[0] = (r * tf - rr * ff) / (jm * r * r + jw);
+            out[1] = (trw - rr * fr) / jr;
+            out[2] = (ff + fr) / m;
+            out[3] = ff * kf;
+            out[4] = fr * kr;
+        }),
+        jvp: Box::new(move |i, d, out| {
+            let (wf, wr, v, r) = (i.y[0], i.y[1], i.y[2], i.d[0]);
+            let (kf, kr) = (wf * rr - v, wr * rr - v);
+            let (dkf, dkr) = (d[0] * rr - d[2], d[1] * rr - d[2]);
+            let dff = dforce(nf, kf, v, dkf, d[2]);
+            let dfr = dforce(nr, kr, v, dkr, d[2]);
+            out[0] = -rr * dff / (jm * r * r + jw);
+            out[1] = -rr * dfr / jr;
+            out[2] = (dff + dfr) / m;
+            out[3] = dff * kf + force(nf, kf, v) * dkf;
+            out[4] = dfr * kr + force(nr, kr, v) * dkr;
+        }),
+        roots: Box::new(move |i, out| out[0] = i.t - t_s),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0] * i.y[0];
+            out[2] = i.y[1];
+            out[3] = i.y[2];
+            out[4] = i.d[0];
+            out[5] = i.y[3];
+            out[6] = i.y[4];
+        }),
+        when: Box::new(move |_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = r2;
+            }
+        }),
+        modes: None,
+        y0: vec![v0 / rr, v0 / rr, v0, 0.0, 0.0],
+        d0: vec![r1],
+    };
+    let v = |k: u32| Expr::Var(VarId(k));
+    let projected_info = |links: bool| {
+        let mut info = RunInfo::bare(5, 7, vec![rr]);
+        info.root_dirs = vec![1];
+        whens(&mut info, &[(0, Direction::Rising, "'Front gear': shift")]);
+        info.when_strict = vec![false];
+        info.time_crossings = vec![Some(TimeCrossing { at: Expr::Const(t_s), rising: true })];
+        info.y_nominal = vec![100.0, 100.0, 10.0, 1.0, 1.0];
+        info.var_sources = vec![
+            VarSource::Y(0),
+            VarSource::Computed,
+            VarSource::Y(1),
+            VarSource::Y(2),
+            VarSource::D(0),
+            VarSource::Y(3),
+            VarSource::Y(4),
+        ];
+        let half = |c: f64, k: u32| Expr::Const(0.5 * c) * v(k) * v(k);
+        let part = |path: &str, stored: Option<Expr>| EnergyPart {
+            path: path.into(),
+            name: format!("'{path}'"),
+            power: Expr::Const(0.0),
+            loss: None,
+            stored,
+        };
+        info.energy = Some(Arc::new(EnergyInfo {
+            parts: vec![
+                part("front motor", Some(half(jm, 1))),
+                part("front wheels", Some(half(jw, 0))),
+                part("rear axle", Some(half(jr, 2))),
+                part("body", Some(half(m, 3))),
+                part("front gear", None),
+                part("front tyres", None),
+                part("rear tyres", None),
+            ],
+        }));
+        // inside its grip: |c κ / max(|v|, v_eps)| < μ
+        let link = |w: u32, part: usize| {
+            let kappa = v(w) * Expr::Param(ParamId(0)) - v(3);
+            let s = Expr::Call(
+                lsim_ir::expr::Builtin::Max,
+                vec![Expr::Call(lsim_ir::expr::Builtin::Abs, vec![v(3)]), Expr::Const(v_eps)],
+            );
+            let slip =
+                Expr::Call(lsim_ir::expr::Builtin::Abs, vec![Expr::Const(c) * kappa.clone() / s]);
+            ImpulseLink {
+                keep: kappa,
+                active: Expr::Compare(
+                    lsim_ir::expr::CmpOp::Lt,
+                    Box::new(slip),
+                    Box::new(Expr::Const(mu)),
+                ),
+                part: Some(part),
+            }
+        };
+        info.impulse = Some(Arc::new(ImpulseInfo::new(
+            vec![(0, vec![1]), (1, vec![0]), (2, vec![2]), (3, vec![3])],
+            vec![EngagementInfo { changes: v(4), part: Some(4) }],
+            if links { vec![link(0, 5), link(2, 6)] } else { vec![] },
+            vec![(1, false, v(4) * v(0))],
+            vec![],
+            &info.var_sources,
+            5,
+        )));
+        info
+    };
+    // the fully resolved car: y = [w_m, w_f, w_r, v, q_f, q_r, q_g]; the
+    // mesh passes T_g = c_g (w_m − r w_f); channels as above, 1 w_m, 7 q_g
+    let resolved = |r1: f64, r2: f64, cg: f64| Hand {
+        layout: layout(7, 0, 0, 1, 1, 1, 8),
+        f: Box::new(move |i, out| {
+            let (wm, wf, wr, v, r) = (i.y[0], i.y[1], i.y[2], i.y[3], i.d[0]);
+            let (kf, kr) = (wf * rr - v, wr * rr - v);
+            let (ff, fr) = (force(nf, kf, v), force(nr, kr, v));
+            let tg = cg * (wm - r * wf);
+            out[0] = (tf - tg) / jm;
+            out[1] = (r * tg - rr * ff) / jw;
+            out[2] = (trw - rr * fr) / jr;
+            out[3] = (ff + fr) / m;
+            out[4] = ff * kf;
+            out[5] = fr * kr;
+            out[6] = tg * (wm - r * wf);
+        }),
+        jvp: Box::new(move |i, d, out| {
+            let (wm, wf, wr, v, r) = (i.y[0], i.y[1], i.y[2], i.y[3], i.d[0]);
+            let (kf, kr) = (wf * rr - v, wr * rr - v);
+            let (dkf, dkr) = (d[1] * rr - d[3], d[2] * rr - d[3]);
+            let dff = dforce(nf, kf, v, dkf, d[3]);
+            let dfr = dforce(nr, kr, v, dkr, d[3]);
+            let ds = d[0] - r * d[1];
+            let dtg = cg * ds;
+            out[0] = -dtg / jm;
+            out[1] = (r * dtg - rr * dff) / jw;
+            out[2] = -rr * dfr / jr;
+            out[3] = (dff + dfr) / m;
+            out[4] = dff * kf + force(nf, kf, v) * dkf;
+            out[5] = dfr * kr + force(nr, kr, v) * dkr;
+            out[6] = 2.0 * cg * (wm - r * wf) * ds;
+        }),
+        roots: Box::new(move |i, out| out[0] = i.t - t_s),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[1];
+            out[1] = i.y[0];
+            out[2] = i.y[2];
+            out[3] = i.y[3];
+            out[4] = i.d[0];
+            out[5] = i.y[4];
+            out[6] = i.y[5];
+            out[7] = i.y[6];
+        }),
+        when: Box::new(move |_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = r2;
+            }
+        }),
+        modes: None,
+        y0: vec![r1 * v0 / rr, v0 / rr, v0 / rr, v0, 0.0, 0.0, 0.0],
+        d0: vec![r1],
+    };
+    let resolved_info = || {
+        let mut info = RunInfo::bare(7, 8, vec![]);
+        info.root_dirs = vec![1];
+        whens(&mut info, &[(0, Direction::Rising, "'Front gear': shift")]);
+        info.when_strict = vec![false];
+        info.time_crossings = vec![Some(TimeCrossing { at: Expr::Const(t_s), rising: true })];
+        info.y_nominal = vec![100.0, 100.0, 100.0, 10.0, 1.0, 1.0, 1.0];
+        info
+    };
+    let opts = SolverOptions { rtol: 1e-10, atol: 1e-10, ..Default::default() };
+    let grid = OutputGrid { t0: 0.0, t_end: t_s + 0.1, dt: 0.001 };
+    let book = |r: &SimResult, path: &str| {
+        r.energy.as_ref().unwrap().parts.iter().find(|p| p.path == path).unwrap().impulse_lost
+    };
+    for (r1, r2, inside) in [(9.0, 8.6, true), (6.0, 9.0, false)] {
+        let proj =
+            simulate(&projected(r1, r2), &projected_info(false), &opts, grid, &mut []).unwrap();
+        let at_once =
+            simulate(&projected(r1, r2), &projected_info(true), &opts, grid, &mut []).unwrap();
+        let k0 = at(&proj, t_s);
+        // from 1 ms after the shift on (the resolved mesh takes J/c_g to
+        // engage: the output point at the instant shows it about to)
+        let window: Vec<usize> = (k0 + 1..proj.times.len()).collect();
+        let slip = |r: &SimResult, k: usize| r.values[0][k] * rr - r.values[3][k];
+        let s_a = c * slip(&proj, k0) / proj.values[3][k0];
+        println!(
+            "shift {r1} -> {r2}: front slip after the rigid stage {:.3} m/s (c κ / v = {s_a:.4}, \
+             grip {mu})",
+            slip(&proj, k0)
+        );
+        assert_eq!(s_a.abs() < mu, inside);
+        // the gaps to the resolved car over the transient: speeds (m/s at
+        // the rim), and the losses over it (J)
+        let gaps = |run: &SimResult, res: &SimResult, gear: f64| {
+            let mut dv = 0.0f64;
+            for &k in &window {
+                for (a, b) in [(3, 3), (0, 0), (2, 2)] {
+                    dv = dv.max(
+                        (run.values[a][k] - res.values[b][k]).abs() * if a == 3 { 1.0 } else { rr },
+                    );
+                }
+                let motor = (run.values[1][k] - res.values[1][k]).abs() * rr / r2;
+                dv = dv.max(motor);
+            }
+            let end = *window.last().unwrap();
+            let lost = |r: &SimResult, ch: usize| r.values[ch][end] - r.values[ch][k0 - 1];
+            let tyre_f = (book(run, "front tyres") + lost(run, 5) - lost(res, 5)).abs();
+            let tyre_r = (book(run, "rear tyres") + lost(run, 6) - lost(res, 6)).abs();
+            // the mesh's loss as the new ratio engages (10 ms: its steady
+            // loss, T²/c_g, stays out of it as the mesh stiffens)
+            let gear_gap = (gear - (res.values[7][k0 + 10] - res.values[7][k0 - 1])).abs();
+            (dv, tyre_f, tyre_r, gear_gap)
+        };
+        let mut last = (f64::INFINITY, 0.0, 0.0, 0.0);
+        for cg in [10.0, 100.0, 1000.0] {
+            let res =
+                simulate(&resolved(r1, r2, cg), &resolved_info(), &opts, grid, &mut []).unwrap();
+            assert_eq!(at(&res, t_s), k0);
+            let g_p = gaps(&proj, &res, book(&proj, "front gear"));
+            let g_a = gaps(&at_once, &res, book(&at_once, "front gear"));
+            println!(
+                "  mesh c_g {cg:>5}: projection with the tyres integrated: speeds within {:.2e} \
+                 m/s, front tyre's loss {:.2e} J, rear's {:.2e} J, gear's {:.2e} J (of {:.3} J); \
+                 tyres relaxed at once: {:.2e} m/s, {:.2e} J, {:.2e} J",
+                g_p.0,
+                g_p.1,
+                g_p.2,
+                g_p.3,
+                book(&proj, "front gear"),
+                g_a.0,
+                g_a.1,
+                g_a.2
+            );
+            // the gaps close as the mesh stiffens, about tenfold a decade
+            assert!(g_p.0 < 0.2 * last.0, "c_g {cg}: speeds {} after {}", g_p.0, last.0);
+            last = g_p;
+            if cg == 1000.0 {
+                assert!(g_p.0 < 2e-3, "speeds {}", g_p.0);
+                assert!(g_p.1 < 1e-2 * lost_scale(&res, k0), "front tyre {}", g_p.1);
+                assert!(g_p.3 < 2e-2 * book(&proj, "front gear"), "gear {}", g_p.3);
+                if inside {
+                    // relaxing the tyres at once stays apart
+                    assert!(g_a.0 > 20.0 * g_p.0, "at once {} vs {}", g_a.0, g_p.0);
+                } else {
+                    // past its grip the front tyre slides either way
+                    assert!((g_a.0 - g_p.0).abs() <= 1e-12, "{} vs {}", g_a.0, g_p.0);
+                }
+            }
+        }
+    }
+}
+
+/// The tyre losses' scale over the transient of a resolved run: the
+/// front tyres' loss over it, J.
+fn lost_scale(res: &SimResult, k0: usize) -> f64 {
+    let end = res.times.len() - 1;
+    (res.values[5][end] - res.values[5][k0 - 1]).abs()
 }
 
 /// A rigid engagement and a `reinit` at the same event: a latch stops the

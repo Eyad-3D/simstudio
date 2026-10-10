@@ -55,11 +55,13 @@ pub struct TimeCrossing {
 /// jump as an instantaneous, rigid engagement makes them, in two stages.
 /// First the rigidly coupled inertias meet: their momentum is kept, and
 /// the kinetic energy that loses is the engaging part's. Then each
-/// coupling that passes an impulse on (a tyre that grips) relaxes to the
-/// relative velocity it had before the event, passing momentum on (to the
-/// vehicle): the kinetic energy that loses is that coupling's. A coupling
-/// with only bounded forces (a slipping clutch, a tyre at its grip limit)
-/// passes nothing. Nothing else starts a projection (a stored energy that
+/// coupling a model declares stiff and unbounded ([`ImpulseLink`]) whose
+/// `active` holds at the state the first stage left relaxes to the
+/// relative velocity it had before the event, passing momentum on: the
+/// kinetic energy that loses is that coupling's (the event's, when several
+/// share it). A coupling with bounded forces (a tyre, within or at its
+/// grip; a slipping clutch) passes nothing in zero time: the integrator
+/// follows it after the event. Nothing else starts a projection (a stored energy that
 /// merely depends on a discrete value does not), and what a `reinit` set at
 /// the event stays where it put it.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -119,9 +121,12 @@ pub struct EngagementInfo {
     pub part: Option<usize>,
 }
 
-/// A coupling that keeps the relative velocity `keep` through an impulse
-/// while `active` holds (a tyre that grips keeps its slip velocity, so a
-/// gear shift's impulse reaches the vehicle), in flat scope.
+/// A coupling a model declares stiff and unbounded (in the rigid limit):
+/// at an engagement it passes the impulse on, its relative velocity `keep`
+/// relaxing back to its value before the event, while `active` holds at
+/// the state the rigid engagement leaves (or comes to hold as the other
+/// links relax). A coupling with bounded forces (a tyre, a slipping
+/// clutch) declares none. In flat scope.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ImpulseLink {
     /// the relative velocity kept

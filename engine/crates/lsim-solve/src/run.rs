@@ -55,13 +55,14 @@
 //!   gearbox's selected ratio changes), the states jump as an
 //!   instantaneous, rigid engagement makes them: the inertias the
 //!   engagement ties together meet keeping their momentum (the engaging
-//!   part books the kinetic energy that loses), then each coupling that
-//!   passes the impulse on (a tyre that grips) relaxes to its relative
-//!   velocity before the event, passing the momentum on to the vehicle
-//!   (the coupling books what that loses; one that would have to pass an
-//!   impulse against its slip slides instead). Nothing with bounded forces
-//!   (a slipping clutch) passes an impulse, nothing but a declared
-//!   engagement starts one, and what a `reinit` set at the event stays.
+//!   part books the kinetic energy that loses), then each coupling a model
+//!   declares stiff and unbounded, judged at the state that leaves,
+//!   relaxes to its relative velocity before the event. Nothing with
+//!   bounded forces passes an impulse in zero time (a tyre, whose force is
+//!   at most μ N; a slipping clutch): the integrator follows its relative
+//!   velocity after the event with its own law. Nothing but a declared
+//!   engagement starts a projection, and what a `reinit` set at the event
+//!   stays.
 //!   Event iteration then goes on from the moved states, and an
 //!   engagement it makes there is projected in turn; a cascade of more
 //!   than [`SolverOptions::max_event_iterations`] engagements at one
@@ -151,6 +152,8 @@ struct Loop<'a> {
     outside_total: Vec<(f64, f64)>,
     /// asserts that already warned
     warned: Vec<bool>,
+    /// whether several links shared an engagement's impulse (warned once)
+    warned_links: bool,
     warnings: Vec<String>,
     /// the event being handled was scheduled (a sample tick, a time event):
     /// the mode changes and `when`s it causes are no state events
@@ -976,6 +979,7 @@ pub fn run_loop(
         outside_since: vec![None; model.table_guard_list().len()],
         outside_total: vec![(0.0, f64::NAN); model.table_guard_list().len()],
         warned: vec![false; info.asserts.len()],
+        warned_links: false,
         warnings: vec![],
         scheduled: false,
         t_star: vec![f64::NAN; info.time_crossings.len()],

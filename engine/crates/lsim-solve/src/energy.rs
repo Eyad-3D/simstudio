@@ -198,9 +198,9 @@ pub struct PartBooks {
     /// the kinetic energy rigid engagements took at events (part of what
     /// the model lost at events): an engaging part (a gearbox at its
     /// shifts) books what its rigid coupling lost as the inertias it ties
-    /// together met; a coupling that passed the impulse on (a tyre that
-    /// grips) what its relaxation to its relative velocity before the event
-    /// lost
+    /// together met; a coupling declared to pass the impulse on, when it
+    /// alone did, what its relaxation to its relative velocity before the
+    /// event lost
     pub impulse_lost: f64,
     /// energy_in - lost - stored_integral: zero when the part's declared
     /// books agree with its equations (declared parts only)
@@ -231,9 +231,9 @@ pub struct EnergyBooks {
     /// of it, what rigid engagements took (gear shifts: the kinetic energy
     /// an impulse that keeps the momentum loses)
     pub impulse_loss: f64,
-    /// of that, what the couplings that passed the impulse on lost as they
-    /// relaxed (gripping tyres, in their slip); the rest is the engaging
-    /// parts' (the gearboxes')
+    /// of that, what the couplings declared to pass the impulse on lost as
+    /// they relaxed (booked to the coupling when one did, to the event when
+    /// several did); the rest is the engaging parts' (the gearboxes')
     pub impulse_link_loss: f64,
     /// change of the stored energy between events, integrated
     pub stored_integral: f64,
