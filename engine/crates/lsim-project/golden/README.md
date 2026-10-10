@@ -216,7 +216,7 @@ by less than 0.04 %. Today's "Energy balance residual" fell from
 0.0005–0.03 % to below 1e-9 %. Against the fixed engine no band had to be
 widened for a known error of today's engine.
 
-## Run loop: work package 4's second to eighth rounds
+## Run loop: work package 4's second to ninth rounds
 
 The golden comparison found these in the run loop; each is fixed on
 `wp4/solver` with a regression test (`lsim-solve/tests/run_loop.rs`):
@@ -374,6 +374,21 @@ driver command against its limits (two):
   exact change, is not taken for a pulse (the first scan of the BEV's
   WLTC cut 7 steps that way).
 
+The ninth round makes both checks rigorous. They read the polynomial the
+integrator interpolates with (CVODE's Nordsieck array, IDA's divided
+differences, diffsol's interpolant through six Chebyshev points, exact
+for its order up to a round-off it carries) instead of a fit, and a step
+is cleared only when a bound on each state over the whole step, not
+three samples of it, lies inside the certificate's box: a state that
+swings by k √3 / 36 inside a step, back at its value at the step's ends
+and middle, passed the old check with a box of half its swing. The
+certificates now clear all but 6 386 of 862 704 condition-steps of the
+BEV's WLTC and all but 677 of 1 145 426 of the hybrid's mixed cycle.
+Adams' order is capped at 7. The run takes the tables' breakpoints from the data the model
+interpolates, and refuses to start when anything it evaluates outside
+the compiled code (now also the impulse projection's chain and links,
+and the time events' instants) reads a table the model does not give.
+
 Run time, the base (`engine/stage1` at 5581482) against the second round
 (fd361a0), both release builds, one case after another on the same
 machine:
@@ -517,6 +532,34 @@ of them the motor's chains of 45 and 49 assignments.
 | aero-bev/case-wltc | 223735 | 223735 | 2.38 | 2.62 |
 | bev-car/case-city | 3999 | 3999 | 0.06 | 0.07 |
 | fs-electric/case-accel-75m | 1058 | 1058 | 0.09 | 0.09 |
+
+The ninth round (both checks on the integrator's own polynomial, bounded
+rigorously; the tables' breakpoints from the model; the start-up check of
+every table the run reads) against the eighth: each case's output is the
+same byte for byte, so every figure, channel, closure and step count is
+the same to the last digit, and no run warns. The full comparison took
+201.4 s against 195.6 s. Timed again alternating the two builds, two
+runs each, the hybrid's UDDS took 86.58 and 82.33 s at the eighth round
+and 84.68 and 85.46 s at the ninth, its HWFET 56.56 and 55.86 s against
+53.64 and 53.41 s, its mixed cycle 23.08 and 24.39 s against 23.66 and
+23.14 s, the BEV's WLTC 2.92 and 2.74 s against 2.98 and 2.85 s, the aero
+BEV's 3.01 and 2.53 s against 2.94 and 2.65 s: the machine's noise hides
+the difference. Counted in instructions (callgrind), the checks take
+3.33 % of the BEV's WLTC against 3.10 % at the eighth round, and 0.64 %
+of the hybrid's mixed cycle against 0.55 %; lsim-project's `scan_share`
+example puts the BEV's at 4.8 % of its run time (the median of five
+runs).
+
+| case | steps, eighth round | steps, ninth | run, eighth round, s | run, ninth, s |
+|---|---:|---:|---:|---:|
+| hybrid-car/case-udds | 3023217 | 3023217 | 82.14 | 81.86 |
+| hybrid-car/case-hwfet | 1918254 | 1918254 | 52.30 | 55.46 |
+| hybrid-car/case-mixed | 572709 | 572709 | 21.87 | 23.74 |
+| hybrid-car/case-mixed-live | 572709 | 572709 | 22.47 | 22.70 |
+| bev-car/case-wltc | 215669 | 215669 | 2.96 | 2.80 |
+| aero-bev/case-wltc | 223735 | 223735 | 2.62 | 2.65 |
+| bev-car/case-city | 3999 | 3999 | 0.07 | 0.07 |
+| fs-electric/case-accel-75m | 1058 | 1058 | 0.09 | 0.10 |
 
 The hybrid's run includes the Script block's round trip to Python at
 every 10 ms tick (137 000 on the UDDS), and most of its remaining steps
