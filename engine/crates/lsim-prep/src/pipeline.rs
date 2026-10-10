@@ -227,7 +227,7 @@ pub fn run(
         None => (vec![false; flat.vars.len()], vec![]),
     };
     let aliases = alias::eliminate_with(&mut flat, &input);
-    alias::carry_starts(&mut flat, &mut extras.start, &aliases);
+    warnings.extend(alias::carry_starts(&mut flat, &mut extras.start, &aliases));
     clock.lap("aliases");
     let restarted = reinit::apply(&mut flat, &mut extras.start, &aliases, &input, &mut warnings)?;
     let limits_flat = if spec.is_some() { inverse::pass_limits(&mut flat) } else { vec![] };

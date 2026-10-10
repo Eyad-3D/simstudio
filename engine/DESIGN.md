@@ -627,11 +627,13 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    equation each, repeated to a fixed point (constants create new aliases).
    States are kept as representatives; two states are never merged (that
    is a constraint for index reduction) and a state never becomes a
-   constant. In the spike, 32 of 49 variables go. A kept variable without
-   a start value of its own takes one (a guess) from the variables
-   eliminated in its favour, with their sign: a fixed one first, else the
-   first in the model's order (a battery's voltage guess reaches the bus
-   its node's port carries).
+   constant. In the spike, 32 of 49 variables go. A kept variable takes
+   its start value (a guess) from the variables made one with it, its own
+   included, with their sign (a battery's voltage guess reaches the bus
+   its node's port carries): a fixed one first, then the guess farthest
+   from zero, then the first in the model's order, so the choice depends
+   neither on the order the parts are listed in nor on which variable is
+   kept; guesses that disagree are told (`START-ALIAS-CONFLICT`).
 4. **Matching.** Unknowns are the non-state variables and the states'
    derivatives. Stage 1: Kuhn's augmenting paths (iterative) with a greedy
    start. WP2: Hopcroft–Karp (O(E√V)) for 10⁵-equation models.
