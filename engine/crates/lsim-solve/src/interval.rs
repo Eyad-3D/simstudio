@@ -8,17 +8,22 @@
 //! over. A function of time alone between events (with parameters and
 //! discrete values) needs no integration to find where it changes sign:
 //! [`J2`] encloses the function, its rate and its second rate over a time
-//! interval, rigorously (interval arithmetic rounded outwards, a table by
-//! its monotone cubic pieces), and [`first_change`] walks forward in time.
+//! interval, rigorously (interval arithmetic rounded outwards, a 1-D table
+//! by its cubic pieces, a 2-D one by its cells' polynomials; each branch
+//! of an `if` with the variables its condition compares bounded as the
+//! condition says there), and [`first_change`] walks forward in time.
 //! It skips an interval whose enclosure keeps the sign, or where the
-//! function is monotone with the same sign at both ends; otherwise it
+//! function is monotone with the same sign at both ends (a comparison
+//! whose sides' difference is strictly monotone over the interval flips
+//! once at most, one way: a step of known sign, monotone too); otherwise it
 //! advances by what the bound on the rate allows (a function of value g
 //! and rate at most L cannot reach zero within |g| / L), shrinking the
 //! interval as it nears a zero, and bisects to adjacent floats once a sign
 //! change is bracketed. A grazing touch without a sign change is passed.
 //!
 //! Rounding: every operation's bounds are widened outwards, by an ulp for
-//! the exactly rounded ones (`+`, `−`, `×`, `÷`, `sqrt`), by 2 ulps for the
+//! the exactly rounded ones (`+`, `−`, `×`, `÷`, `sqrt`; a product with a
+//! zero bound is exactly zero), by 2 ulps for the
 //! platform's `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`,
 //! `tanh`, `exp`, `ln` and `powf`, which assumes each is within 1 ulp of
 //! the exact value (glibc's are; `tests/libm.rs` checks `sin`, `cos`,
@@ -29,6 +34,9 @@ use crate::info::table_at;
 use lsim_ir::expr::{BinaryOp, Builtin, CmpOp, Expr};
 use lsim_ir::runtime::ModelFunctions;
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
+
+mod table2;
+pub(crate) use table2::Grid2;
 
 /// A closed interval `[lo, hi]` (bounds may be infinite).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -57,7 +65,7 @@ fn up(mut x: f64, n: u32) -> f64 {
 }
 
 impl Iv {
-    fn new(lo: f64, hi: f64) -> Iv {
+    pub(crate) fn new(lo: f64, hi: f64) -> Iv {
         if lo.is_nan() || hi.is_nan() || lo > hi { ALL } else { Iv { lo, hi } }
     }
 
@@ -128,11 +136,23 @@ impl Iv {
                 return Iv::point(p);
             }
         }
-        let p = |a: f64, b: f64| if a == 0.0 || b == 0.0 { 0.0 } else { a * b };
-        let c = [p(self.lo, o.lo), p(self.lo, o.hi), p(self.hi, o.lo), p(self.hi, o.hi)];
-        let lo = c.iter().copied().fold(f64::INFINITY, f64::min);
-        let hi = c.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        Iv::wide(lo, hi, 1)
+        // the products of nonzero bounds rounded outwards; a zero bound's
+        // products are exactly zero (a step's rate [0, ∞] stays one-signed)
+        let (mut lo, mut hi, mut zero) = (f64::INFINITY, f64::NEG_INFINITY, false);
+        for (a, b) in [(self.lo, o.lo), (self.lo, o.hi), (self.hi, o.lo), (self.hi, o.hi)] {
+            if a == 0.0 || b == 0.0 {
+                zero = true;
+            } else {
+                let x = a * b;
+                lo = lo.min(x);
+                hi = hi.max(x);
+            }
+        }
+        let (mut lo, mut hi) = (down(lo, 1), up(hi, 1));
+        if zero {
+            (lo, hi) = (lo.min(0.0), hi.max(0.0));
+        }
+        Iv::new(lo, hi)
     }
 
     fn scale(self, k: f64) -> Iv {
@@ -254,7 +274,7 @@ pub(crate) struct J2 {
 }
 
 impl J2 {
-    fn konst(v: Iv) -> J2 {
+    pub(crate) fn konst(v: Iv) -> J2 {
         J2 { v, d: ZERO, dd: ZERO }
     }
 
@@ -262,8 +282,9 @@ impl J2 {
         J2 { v: ALL, d: ALL, dd: ALL }
     }
 
-    /// A value whose rates are unknown (a jump inside the interval).
-    fn jumps(v: Iv) -> J2 {
+    /// A value whose rates are unknown (a jump inside the interval, or a
+    /// variable known only to lie in `v`).
+    pub(crate) fn jumps(v: Iv) -> J2 {
         J2 { v, d: ALL, dd: ALL }
     }
 
@@ -271,10 +292,19 @@ impl J2 {
         self.d == ZERO && self.dd == ZERO
     }
 
+    /// Whether its rates are unknown ([`J2::jumps`]).
+    fn is_jumps(&self) -> bool {
+        self.d == ALL && self.dd == ALL
+    }
+
     /// f(self), given f's enclosures over `self.v`: f, f', f''.
     fn chain(self, f: Iv, f1: Iv, f2: Iv) -> J2 {
         if self.is_const() {
             return J2::konst(f);
+        }
+        if self.is_jumps() && f1 != ZERO {
+            // (what the general case gives, without the work)
+            return J2::jumps(f);
         }
         J2 { v: f, d: f1.mul(self.d), dd: f2.mul(self.d.sqr()).add(f1.mul(self.dd)) }
     }
@@ -283,7 +313,7 @@ impl J2 {
         J2 { v: self.v.add(o.v), d: self.d.add(o.d), dd: self.dd.add(o.dd) }
     }
 
-    fn neg(self) -> J2 {
+    pub(crate) fn neg(self) -> J2 {
         J2 { v: self.v.neg(), d: self.d.neg(), dd: self.dd.neg() }
     }
 
@@ -292,6 +322,10 @@ impl J2 {
     }
 
     fn mul(self, o: J2) -> J2 {
+        if (self.is_jumps() && o.v != ZERO) || (o.is_jumps() && self.v != ZERO) {
+            // (what the general case gives, without the work)
+            return J2::jumps(self.v.mul(o.v));
+        }
         J2 {
             v: self.v.mul(o.v),
             d: self.d.mul(o.v).add(self.v.mul(o.d)),
@@ -362,9 +396,11 @@ pub(crate) struct Cx<'a> {
     /// per table: the first axis's breakpoints of a 1-D table (empty: not
     /// known, or 2-D)
     pub breaks: &'a [Vec<f64>],
-    /// the variables that move along a step: each as the polynomial
-    /// through the integrator's dense output (the others are constant)
-    pub along: &'a [(usize, Poly)],
+    /// per table: a 2-D table's grid (`None`: 1-D, or not known)
+    pub grids: &'a [Option<Grid2>],
+    /// the variables that move (along a step, or within a box), by
+    /// channel: their enclosures (`None`: constant, its channel's value)
+    pub leaf: &'a dyn Fn(usize) -> Option<J2>,
 }
 
 /// A variable along a step: the polynomial through the integrator's dense
@@ -386,10 +422,17 @@ impl Poly {
         self.a.iter().rev().fold(0.0, |p, a| p * u + a)
     }
 
+    /// The value over `t` alone (as [`Poly::j2`] gives it).
+    pub(crate) fn value(&self, t: Iv) -> Iv {
+        let u = Iv::wide((t.lo - self.c) / self.s, (t.hi - self.c) / self.s, 2);
+        let v = self.a.iter().rev().fold(ZERO, |p, a| p.mul(u).add(Iv::point(*a)));
+        Iv::new(v.lo - self.err, v.hi + self.err)
+    }
+
     /// The value, rate and second rate over `t` (interval Horner; the
     /// rates' error bounded from `err` by Markov's inequality, n² per
     /// derivative for a polynomial of degree n on [-1, 1]).
-    fn j2(&self, t: Iv) -> J2 {
+    pub(crate) fn j2(&self, t: Iv) -> J2 {
         let u = Iv::wide((t.lo - self.c) / self.s, (t.hi - self.c) / self.s, 2);
         let horner =
             |coef: &[f64]| coef.iter().rev().fold(ZERO, |p, a| p.mul(u).add(Iv::point(*a)));
@@ -409,19 +452,29 @@ impl Poly {
 }
 
 /// Whether [`enclose`] can bound `e` usefully over a time interval: no
-/// derivative, unresolved name, 2-D table or `atan2` whose arguments move
-/// (`moves`: with time, or with the variables that move along a step), and
-/// every 1-D table's breakpoints known.
-pub(crate) fn supported(e: &Expr, breaks: &[Vec<f64>], moves: &dyn Fn(&Expr) -> bool) -> bool {
+/// derivative, unresolved name or `atan2` whose arguments move (`moves`:
+/// with time, or with the variables that move along a step), and every
+/// table whose arguments move known (a 1-D table's breakpoints, a 2-D
+/// table's grid: `grids`, per table).
+pub(crate) fn supported(
+    e: &Expr,
+    breaks: &[Vec<f64>],
+    grids: &[Option<Grid2>],
+    moves: &dyn Fn(&Expr) -> bool,
+) -> bool {
     let mut ok = true;
     e.walk(&mut |x| match x {
         Expr::Der(_) | Expr::Name(_) => ok = false,
         Expr::Call(Builtin::Der | Builtin::Pre, _) => ok = false,
         Expr::Call(Builtin::Atan2, args) if args.iter().any(moves) => ok = false,
         Expr::Table { table, args } if args.iter().any(moves) => {
-            if args.len() != 1 || breaks.get(*table as usize).is_none_or(|b| b.is_empty()) {
-                ok = false;
-            }
+            let k = *table as usize;
+            let known = match args.len() {
+                1 => breaks.get(k).is_some_and(|b| !b.is_empty()),
+                2 => grids.get(k).is_some_and(|g| g.is_some()),
+                _ => false,
+            };
+            ok &= known;
         }
         _ => {}
     });
@@ -435,8 +488,8 @@ pub(crate) fn enclose(e: &Expr, cx: &Cx<'_>, t: Iv) -> J2 {
     match e {
         Expr::Const(v) => k(*v),
         Expr::Param(p) => k(cx.params[p.0 as usize]),
-        Expr::Var(v) | Expr::Pre(v) => match cx.along.iter().find(|(i, _)| *i == v.0 as usize) {
-            Some((_, p)) => p.j2(t),
+        Expr::Var(v) | Expr::Pre(v) => match (cx.leaf)(v.0 as usize) {
+            Some(j) => j,
             None => k(cx.vars.get(v.0 as usize).copied().unwrap_or(f64::NAN)),
         },
         Expr::Time => J2 { v: t, d: ONE, dd: ZERO },
@@ -454,14 +507,28 @@ pub(crate) fn enclose(e: &Expr, cx: &Cx<'_>, t: Iv) -> J2 {
             }
         }
         Expr::Compare(op, a, b) => {
-            let (a, b) = (ev(a).v, ev(b).v);
+            let (aj, bj) = (ev(a), ev(b));
+            let (a, b) = (aj.v, bj.v);
             let (yes, no) = match op {
                 CmpOp::Lt => (a.hi < b.lo, a.lo >= b.hi),
                 CmpOp::Le => (a.hi <= b.lo, a.lo > b.hi),
                 CmpOp::Gt => (a.lo > b.hi, a.hi <= b.lo),
                 CmpOp::Ge => (a.lo >= b.hi, a.hi < b.lo),
             };
-            truth(yes, no)
+            if yes || no {
+                return truth(yes, no);
+            }
+            // undecided: where a − b is strictly monotone it crosses zero
+            // once at most, so the truth flips once at most, one way (its
+            // rate a jump of known sign)
+            let r = aj.d.sub(bj.d);
+            if r.lo > 0.0 || r.hi < 0.0 {
+                let rises = (r.lo > 0.0) == matches!(op, CmpOp::Gt | CmpOp::Ge);
+                let d =
+                    if rises { Iv::new(0.0, f64::INFINITY) } else { Iv::new(-f64::INFINITY, 0.0) };
+                return J2 { v: UNIT, d, dd: ALL };
+            }
+            truth(false, false)
         }
         Expr::And(a, b) => {
             let (a, b) = (ev(a).v, ev(b).v);
@@ -476,14 +543,36 @@ pub(crate) fn enclose(e: &Expr, cx: &Cx<'_>, t: Iv) -> J2 {
             truth(a == ZERO, !a.has_zero())
         }
         Expr::If(c, a, b) => {
-            let c = ev(c).v;
-            if !c.has_zero() {
-                ev(a)
-            } else if c == ZERO {
-                ev(b)
-            } else {
-                J2::jumps(ev(a).v.hull(ev(b).v))
+            let cj = ev(c);
+            let cv = cj.v;
+            if !cv.has_zero() {
+                return ev(a);
+            } else if cv == ZERO {
+                return ev(b);
             }
+            // each branch where it is taken: the variables the condition
+            // compares bounded as it says (a branch it rules out entirely
+            // is never taken)
+            let (a, b) = match (branch(c, true, a, cx, t), branch(c, false, b, cx, t)) {
+                (Some(a), Some(b)) => (a, b),
+                (Some(a), None) => return a,
+                (None, Some(b)) => return b,
+                (None, None) => (ev(a), ev(b)),
+            };
+            let v = a.v.hull(b.v);
+            // a comparison that flips once at most, one way: b + c (a − b),
+            // c a step between 0 and 1 (its rate a jump of known sign)
+            let mut x = &**c;
+            while let Expr::NoEvent(i) = x {
+                x = i;
+            }
+            let one_way = cj.d.lo >= 0.0 || cj.d.hi <= 0.0;
+            if matches!(x, Expr::Compare(..)) && one_way && cj.v == UNIT {
+                let diff = a.sub(b);
+                let d = b.d.add(cj.d.mul(diff.v)).add(UNIT.mul(diff.d));
+                return J2 { v, d, dd: ALL };
+            }
+            J2::jumps(v)
         }
         Expr::Table { table, args } => {
             let at: Vec<J2> = args.iter().map(ev).collect();
@@ -577,6 +666,69 @@ pub(crate) fn enclose(e: &Expr, cx: &Cx<'_>, t: Iv) -> J2 {
     }
 }
 
+/// The bounds condition `c` puts on the variables it compares with
+/// something else when it holds (`holds`) or fails: `x < y` bounds `x`
+/// above by `y`'s largest value and `y` below by `x`'s least; through
+/// `noEvent`, `not`, `and` (both hold) and `or` (both fail).
+fn bounds(c: &Expr, holds: bool, cx: &Cx<'_>, t: Iv, out: &mut Vec<(usize, Iv)>) {
+    match c {
+        Expr::NoEvent(a) => bounds(a, holds, cx, t, out),
+        Expr::Not(a) => bounds(a, !holds, cx, t, out),
+        Expr::And(a, b) if holds => {
+            bounds(a, true, cx, t, out);
+            bounds(b, true, cx, t, out);
+        }
+        Expr::Or(a, b) if !holds => {
+            bounds(a, false, cx, t, out);
+            bounds(b, false, cx, t, out);
+        }
+        Expr::Compare(op, a, b) => {
+            // x below y (or equal) when it holds
+            let below = matches!(op, CmpOp::Lt | CmpOp::Le) == holds;
+            let (lo, hi) = if below { (a, b) } else { (b, a) };
+            if let Expr::Var(v) = &**lo {
+                let h = enclose(hi, cx, t).v;
+                out.push((v.0 as usize, Iv { lo: f64::NEG_INFINITY, hi: h.hi }));
+            }
+            if let Expr::Var(v) = &**hi {
+                let l = enclose(lo, cx, t).v;
+                out.push((v.0 as usize, Iv { lo: l.lo, hi: f64::INFINITY }));
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Branch `e` of an `if` on `c` where it is taken (`holds`: the condition
+/// holds there): its variables bounded as `c` says; `None` when the
+/// bounds leave a variable no value (the branch is never taken).
+fn branch(c: &Expr, holds: bool, e: &Expr, cx: &Cx<'_>, t: Iv) -> Option<J2> {
+    let mut b: Vec<(usize, Iv)> = vec![];
+    bounds(c, holds, cx, t, &mut b);
+    // only the variables that move (a constant one decides the condition)
+    b.retain(|(v, _)| (cx.leaf)(*v).is_some());
+    if b.is_empty() {
+        return Some(enclose(e, cx, t));
+    }
+    let mut cut: Vec<(usize, J2)> = vec![];
+    for (v, r) in b {
+        let j = cut.iter().find(|(w, _)| *w == v).map(|(_, j)| *j).or_else(|| (cx.leaf)(v))?;
+        let (lo, hi) = (j.v.lo.max(r.lo), j.v.hi.min(r.hi));
+        if lo > hi {
+            return None;
+        }
+        let j = J2 { v: Iv { lo, hi }, ..j };
+        match cut.iter_mut().find(|(w, _)| *w == v) {
+            Some(x) => x.1 = j,
+            None => cut.push((v, j)),
+        }
+    }
+    let leaf =
+        |v: usize| cut.iter().find(|(w, _)| *w == v).map(|(_, j)| *j).or_else(|| (cx.leaf)(v));
+    let inner = Cx { leaf: &leaf, ..*cx };
+    Some(enclose(e, &inner, t))
+}
+
 fn sqrt_iv(x: Iv) -> Iv {
     if x.lo < 0.0 { ALL } else { x.incr(f64::sqrt) }
 }
@@ -624,8 +776,9 @@ fn max_j2(a: J2, b: J2) -> J2 {
     }
 }
 
-/// A table at `at`: constant arguments give its value; a 1-D table whose
-/// argument moves is enclosed piece by piece.
+/// A table at `at`: constant arguments give its value; a table whose
+/// arguments move is enclosed piece by piece (a 2-D table by its grid's
+/// patches).
 fn table_j2(cx: &Cx<'_>, k: u32, at: &[J2]) -> J2 {
     if at.iter().all(|a| a.is_const() && a.v.is_point()) {
         let args: Vec<f64> = at.iter().map(|a| a.v.lo).collect();
@@ -633,6 +786,22 @@ fn table_j2(cx: &Cx<'_>, k: u32, at: &[J2]) -> J2 {
             Some((v, _)) => J2::konst(Iv::point(v)),
             None => J2::all(),
         };
+    }
+    if let [a, b] = at {
+        let Some(Some(grid)) = cx.grids.get(k as usize) else { return J2::all() };
+        let Some([f, fx, fy, fxx, fxy, fyy]) = grid.enclose(cx.model, a.v, b.v) else {
+            return J2::all();
+        };
+        // f(a(t), b(t)): the rate f_x a' + f_y b', the second rate
+        // f_xx a'² + 2 f_xy a' b' + f_yy b'² + f_x a'' + f_y b''
+        let d = fx.mul(a.d).add(fy.mul(b.d));
+        let dd = fxx
+            .mul(a.d.sqr())
+            .add(fxy.mul(a.d.mul(b.d)).scale(2.0))
+            .add(fyy.mul(b.d.sqr()))
+            .add(fx.mul(a.dd))
+            .add(fy.mul(b.dd));
+        return J2 { v: f, d, dd };
     }
     let xs = match cx.breaks.get(k as usize) {
         Some(b) if !b.is_empty() && at.len() == 1 => b,
@@ -865,7 +1034,8 @@ pub(crate) fn first_change(
             if ph == 0.0 && s1 == s0 && s0 != 0 { Err(after(hi)) } else { Ok((hi, s1 > s0)) }
         };
         let pr = p(r);
-        let monotone = s0 != 0 && (d.lo > 0.0 || d.hi < 0.0);
+        // (monotone in the wide sense: a step of known sign counts)
+        let monotone = s0 != 0 && (d.lo >= 0.0 || d.hi <= 0.0);
         let found = if monotone && sign(pr) == s0 {
             t = r;
             g = Some(pr);
@@ -1017,7 +1187,7 @@ mod tests {
             ),
         ];
         let m = no_model();
-        let cx = Cx { params: &[], vars: &[], model: &m, breaks: &[], along: &[] };
+        let cx = Cx { params: &[], vars: &[], model: &m, breaks: &[], grids: &[], leaf: &|_| None };
         for e in &exprs {
             for (lo, hi) in [(0.0, 0.3), (0.3, 1.7), (1.9, 2.1), (2.4, 2.6), (0.0, 9.0), (5.0, 5.0)]
             {
@@ -1139,7 +1309,7 @@ mod tests {
             Expr::Const(0.95),
         );
         let m = no_model();
-        let cx = Cx { params: &[], vars: &[], model: &m, breaks: &[], along: &[] };
+        let cx = Cx { params: &[], vars: &[], model: &m, breaks: &[], grids: &[], leaf: &|_| None };
         let mut p = |t: f64| point(&e, t);
         let mut enc = |l: f64, r: f64| {
             let j = enclose(&e, &cx, Iv::new(l, r));
@@ -1174,7 +1344,7 @@ mod tests {
     #[test]
     fn a_narrow_pulse_and_a_jump_are_found_and_a_touch_is_passed() {
         let m = no_model();
-        let cx = Cx { params: &[], vars: &[], model: &m, breaks: &[], along: &[] };
+        let cx = Cx { params: &[], vars: &[], model: &m, breaks: &[], grids: &[], leaf: &|_| None };
         let run = |e: &Expr, a: f64, b: f64| {
             let mut p = |t: f64| point(e, t);
             let mut enc = |l: f64, r: f64| {

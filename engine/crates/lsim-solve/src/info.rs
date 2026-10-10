@@ -55,14 +55,23 @@ pub enum TimeFunction {
     /// loop finds its sign changes ahead without integrating and reaches
     /// each exactly, as a time crossing.
     Pure(Expr),
-    /// It reads continuous variables too: the function with every
-    /// computed variable replaced by its definition, its leaves time,
-    /// parameters, discrete values, states, iteration variables and
-    /// inputs. Root finding watches it, and after every step the run loop
-    /// checks the step along the integrator's dense output for a sign
-    /// change root finding cannot see (two inside one step): the step
-    /// ends at the first.
-    Mixed(Expr),
+    /// It reads continuous variables too: the computed variables it reads
+    /// (`chain`: each with its definition, in evaluation order, through
+    /// the assignments and aliases) and the function `g` over them; what
+    /// neither defines is a leaf: time, parameters, discrete values,
+    /// states, iteration variables, inputs. Root finding watches it, and
+    /// the run loop makes sure no step holds a sign change root finding
+    /// cannot see (two inside one step): a cheap certificate that the
+    /// function keeps its sign over a time window and a box of the states,
+    /// or the step taken along the integrator's dense output; the step
+    /// ends at the first such change. (One whose value moves only where a
+    /// `noEvent` comparison flips is left to root finding.)
+    Mixed {
+        /// (computed variable, its definition), in evaluation order
+        chain: Vec<(usize, Expr)>,
+        /// the zero-crossing function
+        g: Expr,
+    },
     /// It reads time in a way the run loop cannot search ahead (the run
     /// warns, and leaves it to root finding).
     Unhandled,
@@ -571,6 +580,9 @@ pub struct RunInfo {
     /// per table: the breakpoints of a 1-D table (empty: 2-D, or not
     /// known), for the enclosures of the time functions that read it
     pub table_breaks: Vec<Vec<f64>>,
+    /// per table: a 2-D table's two axes (empty: 1-D, or not known), for
+    /// the same
+    pub table_axes: Vec<[Vec<f64>; 2]>,
 }
 
 /// A table read at a position that moves with time alone, `c · time + b`
@@ -747,6 +759,7 @@ impl RunInfo {
             time_tables: vec![],
             time_functions: vec![],
             table_breaks: vec![],
+            table_axes: vec![],
         }
     }
 
@@ -857,6 +870,17 @@ impl RunInfo {
                 .tables
                 .iter()
                 .map(|t| if t.data.dims() == 1 { t.data.x.clone() } else { vec![] })
+                .collect(),
+            table_axes: flat
+                .tables
+                .iter()
+                .map(|t| {
+                    if t.data.dims() == 2 {
+                        [t.data.x.clone(), t.data.y.clone()]
+                    } else {
+                        [vec![], vec![]]
+                    }
+                })
                 .collect(),
             var_sources: sources,
             time_crossings,
@@ -1087,7 +1111,7 @@ fn time_functions(
         .collect();
     let alias: HashMap<VarId, AliasTarget> = m.aliases.iter().map(|a| (a.var, a.target)).collect();
     let mut r = Resolver { assigned, alias, sources, memo: HashMap::new() };
-    // (an expression grown past this many nodes is not searched)
+    // (a pure function grown past this many nodes is not searched)
     const MAX_NODES: usize = 20_000;
     m.zero_crossings
         .iter()
@@ -1112,18 +1136,8 @@ fn time_functions(
             if !cont {
                 return Some(TimeFunction::Pure(g));
             }
-            // (its time terms monotone between the stops made anyway, a
-            // table read along time or an affine one: left to root
-            // finding with those stops)
-            let discrete: std::collections::HashSet<VarId> = m.discretes.iter().copied().collect();
-            let mut terms = vec![];
-            r.terms(&g, &discrete, &mut terms);
-            if terms.is_empty() {
-                return None;
-            }
-            let mut budget = MAX_NODES;
-            match r.resolve_all(&z.expr, 0, &mut budget) {
-                Some(full) => Some(TimeFunction::Mixed(full)),
+            match r.chain_of(&z.expr) {
+                Some(chain) => Some(TimeFunction::Mixed { chain, g: z.expr.clone() }),
                 None => Some(TimeFunction::Unhandled),
             }
         })
@@ -1212,98 +1226,66 @@ impl Resolver<'_> {
         ok.then_some(out)
     }
 
-    /// `e` with every computed variable replaced by its definition (through
-    /// the assignments and aliases), within `budget` nodes (`None`: past
-    /// it, too deep, or a variable no definition gives).
-    fn resolve_all(&mut self, e: &Expr, depth: usize, budget: &mut usize) -> Option<Expr> {
-        if depth > 64 {
-            return None;
-        }
-        let mut ok = true;
-        let out = e.clone().rewrite(&mut |x| {
-            if !ok {
-                return x;
+    /// The computed variables `e` reads, through the assignments and
+    /// aliases, each with its definition, in evaluation order (`None`: one
+    /// that nothing defines, a definition that reads itself, or past
+    /// 100,000 of them).
+    fn chain_of(&self, e: &Expr) -> Option<Vec<(usize, Expr)>> {
+        let mut out: Vec<(usize, Expr)> = vec![];
+        let mut done: std::collections::HashSet<VarId> = Default::default();
+        let mut open: std::collections::HashSet<VarId> = Default::default();
+        // depth first, a variable after what it reads (an explicit stack:
+        // (variable, its definition's reads pushed already))
+        let reads = |x: &Expr| {
+            let mut v = vec![];
+            x.walk(&mut |y| {
+                if let Expr::Var(w) | Expr::Pre(w) = y {
+                    v.push(*w);
+                }
+            });
+            v
+        };
+        let mut stack: Vec<(VarId, bool)> =
+            reads(e).into_iter().rev().map(|v| (v, false)).collect();
+        while let Some((v, expanded)) = stack.pop() {
+            if done.contains(&v) || self.sources.get(v.0 as usize) != Some(&VarSource::Computed) {
+                continue;
             }
-            match x {
-                Expr::Var(v) | Expr::Pre(v)
-                    if self.sources.get(v.0 as usize) == Some(&VarSource::Computed) =>
-                {
-                    let def = match self.assigned.get(&v).copied() {
-                        Some(def) => self.resolve_all(def, depth + 1, budget),
-                        None => match self.alias.get(&v).copied() {
-                            Some(AliasTarget::Var { var, negated }) => {
-                                let t = self.resolve_all(&Expr::Var(var), depth + 1, budget);
-                                if negated { t.map(|t| -t) } else { t }
-                            }
-                            Some(AliasTarget::Const(c)) => Some(Expr::Const(c)),
-                            None => None,
-                        },
-                    };
-                    match def {
-                        Some(d) => {
-                            let mut n = 0;
-                            d.walk(&mut |_| n += 1);
-                            if n > *budget {
-                                ok = false;
-                                return Expr::Var(v);
-                            }
-                            *budget -= n;
-                            d
-                        }
-                        None => {
-                            ok = false;
-                            Expr::Var(v)
+            if !expanded && !open.insert(v) {
+                // reached again before its definition is done: a loop
+                return None;
+            }
+            let def = match self.assigned.get(&v).copied() {
+                Some(d) => d.clone(),
+                None => match self.alias.get(&v).copied() {
+                    Some(AliasTarget::Var { var, negated }) => {
+                        if negated {
+                            -Expr::Var(var)
+                        } else {
+                            Expr::Var(var)
                         }
                     }
+                    Some(AliasTarget::Const(c)) => Expr::Const(c),
+                    None => return None,
+                },
+            };
+            if expanded {
+                done.insert(v);
+                open.remove(&v);
+                out.push((v.0 as usize, def));
+            } else {
+                stack.push((v, true));
+                for w in reads(&def).into_iter().rev() {
+                    if !done.contains(&w) {
+                        stack.push((w, false));
+                    }
                 }
-                other => other,
             }
-        });
-        ok.then_some(out)
-    }
-
-    /// The largest parts of `e` that read time and no continuous variable,
-    /// leaving out those monotone between the stops the run loop makes
-    /// already: affine in time, or a table read at a position affine in
-    /// time (monotone between its breakpoints, [`TimeTable`]).
-    fn terms(
-        &mut self,
-        e: &Expr,
-        discrete: &std::collections::HashSet<VarId>,
-        out: &mut Vec<Expr>,
-    ) {
-        let (time, cont) = self.reads(e, 0);
-        if !time {
-            return;
-        }
-        if !cont {
-            if !monotone_between_stops(e, discrete) && !out.contains(e) {
-                out.push(e.clone());
+            if out.len() > 100_000 {
+                return None;
             }
-            return;
         }
-        for ch in e.children() {
-            self.terms(ch, discrete, out);
-        }
-    }
-}
-
-/// Whether `e`, a function of time, is monotone between the stops the run
-/// loop makes anyway: affine in time, or a table read at a position
-/// affine in time (monotone between its breakpoints, [`TimeTable`]),
-/// scaled and shifted by values constant in time.
-fn monotone_between_stops(e: &Expr, discrete: &std::collections::HashSet<VarId>) -> bool {
-    use lsim_ir::expr::BinaryOp::*;
-    let affine = |x: &Expr| time_affine(x, discrete).is_some();
-    let timeless = |x: &Expr| time_affine(x, discrete).is_some_and(|(c, _)| c == 0.0);
-    let m = |x: &Expr| monotone_between_stops(x, discrete);
-    match e {
-        _ if affine(e) => true,
-        Expr::Table { args, .. } => args.iter().all(affine),
-        Expr::Neg(a) | Expr::NoEvent(a) => m(a),
-        Expr::Binary(Add | Sub | Mul, a, b) => (timeless(a) && m(b)) || (timeless(b) && m(a)),
-        Expr::Binary(Div, a, b) => timeless(b) && m(a),
-        _ => false,
+        Some(out)
     }
 }
 

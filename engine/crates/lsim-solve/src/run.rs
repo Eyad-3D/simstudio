@@ -105,6 +105,7 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 mod impulse;
+mod mixed;
 mod timefn;
 
 /// A sampled block's schedule and buffers.
@@ -1057,8 +1058,15 @@ fn tables_given(
         }
     }
     for f in info.time_functions.iter().flatten() {
-        if let TimeFunction::Pure(g) | TimeFunction::Mixed(g) = f {
-            visit(g, "a condition on a function of time");
+        match f {
+            TimeFunction::Pure(g) => visit(g, "a condition on a function of time"),
+            TimeFunction::Mixed { chain, g } => {
+                for (_, e) in chain {
+                    visit(e, "a condition on a function of time");
+                }
+                visit(g, "a condition on a function of time");
+            }
+            TimeFunction::Unhandled => {}
         }
     }
     for a in &info.asserts {
@@ -1374,7 +1382,8 @@ pub fn run_loop(
         // finding did not see (two inside one step: a pulse): the step
         // ends there, as at a root; the state there from the dense output
         let mut y_cut: Option<Vec<f64>> = None;
-        if !same && let Some((at, dirs)) = lp.scan_mixed(integ, t, st.time(), &d)? {
+        let reported: &[i32] = if let Step::Root(_, dirs) = &st { dirs } else { &[] };
+        if !same && let Some((at, dirs)) = lp.scan_mixed(integ, t, st.time(), reported, &d, &y)? {
             let mut yv = vec![0.0; n];
             integ.interpolate(at, &mut yv)?;
             y_cut = Some(yv);
@@ -1859,6 +1868,10 @@ pub fn run_loop(
                 if g.axis == 0 { "first" } else { "second" }
             ));
         }
+    }
+    for m in &lp.tf.mixed {
+        report.mixed_certified += m.certified;
+        report.mixed_scanned += m.scanned;
     }
     report.warnings.append(&mut lp.warnings);
     if let Some(e) = &energy {

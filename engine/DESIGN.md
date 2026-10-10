@@ -988,33 +988,74 @@ round).**
   the direction the sign changes; it is searched again after it fired,
   and when a value it reads changed. A grazing touch without a sign
   change is passed. A function that also reads continuous variables
-  (`x > sin(ω time)`) stays with root finding, which sees a sign change
-  only between a step's ends: after every step the run loop takes the
-  step along the integrator's dense output, the states and iteration
-  variables the function reads (every computed variable resolved) as the
-  polynomials of degree 7 through that output at Chebyshev points, the
-  fit checked at one more point and its error carried into the
-  enclosures (Markov's inequality for the rates). The same search finds
-  the function's first sign change in the step; one root finding did not
-  report ends the step there, at the first time the model's own root
-  function on the dense output is on the new side, as a root does
-  (`SolverReport::pulses_found`). It costs about 1.2 µs a step for each
-  such condition. A function whose time terms are only affine in time or
-  tables read at positions affine in time is left to root finding with
-  the stops above (its time terms are monotone cubics between them; the
-  scan would cost every driving-cycle condition that much on every
-  step). What cannot be
-  searched (a 2-D table, `atan2` or a derivative that moves with time; a
-  function not defined where its search starts; a search that makes no
-  headway) is named in a warning and left to root finding: never
-  silently. (Work package 4's sixth round: the review's `sin(2π time /
-  10) > 0.95` while nothing integrated moved was stepped over entirely,
-  x(100) = 0 against 10.108, without a warning; now 10.108262410426,
-  exact to round-off, in 34 steps. The seventh round: the extremum stops
-  then used for the mixed ones missed a pulse inside a monotone stretch
-  of the time term, `sin(time) > x` with x' = 0.3, 0.29 s long on the
-  sine's rising flank: 0 of 1 fired in 5 steps, without a warning; the
-  scan along the dense output fires it, in 5 steps.)
+  (`x > sin(ω time)`; a driver's command from a driving cycle's target
+  against the car's speed; a motor's limits from its maps at that
+  command) stays with root finding, which sees a sign change only between
+  a step's ends, and every step is checked for two inside it, a pulse:
+  the driving cycle's conditions too, whose target the breakpoint stops
+  keep linear within a step while the speed it is compared with curves.
+  The function is evaluated through the chain of the assignments it reads
+  (a variable several of them share once; the steps that do not move
+  along a step enclosed once while the discrete values keep theirs), not
+  expanded into one expression: a motor's limits read 45 and 49 of them,
+  which expanded ran to 160,000 and 250,000 characters. Two checks, the
+  cheap one first. A certificate: a time window and a box of the states
+  it reads over which
+  its enclosure excludes zero, made around the state at a step's end (the
+  box's half-width the last step's change and twice its bulge for each
+  step of the window;
+  the window doubles while certificates hold, and an attempt that fails
+  waits a few steps, up to 16, before the next). A step inside the window
+  whose ends and middle lie inside the box, by twice the step's change
+  and four times its bulge (the middle's distance from the chord) on
+  either side, needs no more: a few comparisons per state, and one
+  sample of the dense output per step for all such functions. Where none
+  holds, the step along the integrator's dense output: the states and
+  iteration variables the function reads as the polynomials of degree 7
+  through that output at Chebyshev points, the fit checked at one more
+  point and its error carried into the enclosures (Markov's inequality
+  for the rates); the whole step's enclosure first, then the same search
+  for the first sign change. One root finding did not report ends the
+  step there, at the first time the model's own root function on the
+  dense output is on the new side, as a root does
+  (`SolverReport::pulses_found`); the crossing root finding located at
+  the step's end is not one (it locates a root to 100 ε (|t| + h), a
+  little after the change found here, which is then the only change up
+  to the step's end). A 2-D table is enclosed cell by cell: each region of
+  its grid holds a polynomial (bilinear or bicubic inside the data, of
+  degree 1 along an axis past it), fitted on first use to the model's own
+  interpolant at a tensor grid of points inside the region, exactly up to
+  round-off, and checked at one more; a box across cells takes their
+  hull. A comparison whose sides' difference is strictly monotone over an
+  interval flips once at most, one way: the search treats it, and a
+  branch it selects between, as monotone. A function whose value moves
+  only where a `noEvent` comparison flips (built of values constant
+  between events, of such comparisons and functions of these: a motor's
+  "running" flag, a command other than exactly 0) is left to root
+  finding, as `noEvent` asks: no event needs locating where such a
+  comparison flips, and the comparisons a model makes events of are
+  modes, constant along a step. On the golden models the certificates
+  clear all but 7,051 of 862,704 condition-steps of the BEV's WLTC and
+  all but 717 of 1,145,426 of the hybrid's mixed cycle; the checks take
+  3.1 % of the BEV run's instructions (four conditions, two of them the
+  motor's chains, on steps a tenth as costly as the hybrid's) and under
+  0.6 % of the hybrid's. What cannot be searched
+  (`atan2` or a derivative that moves with time, a table whose points are
+  not known; a function not defined where its search starts; a search
+  that makes no headway) is named in a warning and left to root finding:
+  never silently. (Work package 4's sixth round: the review's `sin(2π
+  time / 10) > 0.95` while nothing integrated moved was stepped over
+  entirely, x(100) = 0 against 10.108, without a warning; now
+  10.108262410426, exact to round-off, in 34 steps. The seventh round:
+  the extremum stops then used for the mixed ones missed a pulse inside a
+  monotone stretch of the time term, `sin(time) > x` with x' = 0.3,
+  0.29 s long on the sine's rising flank: 0 of 1 fired in 5 steps,
+  without a warning; the scan along the dense output fires it, in 5
+  steps. The eighth round scans the driving cycle's conditions too: a
+  linear table of time against a state that curves, above it for 0.3 s
+  inside one step, fired 0 times with root finding and the breakpoint
+  stops alone, and fires once now, through a 1-D table and through a 2-D
+  one.)
 * *Both sides of an event at an output time.* An output time that falls
   exactly on an event records both sides, as Modelica tools write two
   rows at that time to their result files: `SimResult::values` holds the

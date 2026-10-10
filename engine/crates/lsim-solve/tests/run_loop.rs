@@ -2187,9 +2187,10 @@ fn a_mixed_pulse_inside_a_monotone_stretch_of_its_time_term_fires() {
     info.when_strict = vec![true];
     info.time_crossings = vec![None];
     // as preparation classifies it: mixed
-    info.time_functions = vec![Some(TimeFunction::Mixed(
-        Expr::Call(lsim_ir::expr::Builtin::Sin, vec![Expr::Time]) - Expr::Var(VarId(0)),
-    ))];
+    info.time_functions = vec![Some(TimeFunction::Mixed {
+        chain: vec![],
+        g: Expr::Call(lsim_ir::expr::Builtin::Sin, vec![Expr::Time]) - Expr::Var(VarId(0)),
+    })];
     // the exact crossings upwards of sin(t) - x(t)
     let g = |t: f64| t.sin() - (x0 + c * t);
     let t_end = 6.0;
@@ -2302,11 +2303,309 @@ fn a_model_that_does_not_give_the_tables_its_books_read_does_not_start() {
     assert!(simulate(&model(), &books, &off, grid, &mut []).is_ok());
     // a condition on a function of time
     let mut cond = info.clone();
-    cond.time_functions = vec![Some(TimeFunction::Mixed(
-        Expr::Table { table: 0, args: vec![Expr::Time] } - Expr::Var(VarId(0)),
-    ))];
+    cond.time_functions = vec![Some(TimeFunction::Mixed {
+        chain: vec![],
+        g: Expr::Table { table: 0, args: vec![Expr::Time] } - Expr::Var(VarId(0)),
+    })];
     let e = simulate(&model(), &cond, &opts, grid, &mut []).unwrap_err().to_string();
     assert!(e.contains("'k.efficiency'") && e.contains("function of time"), "{e}");
+}
+
+/// A driving-cycle-style condition: `when target(time) > x`, the target a
+/// linear table read along time (1 m/s from 0 to 100 s), x a state that
+/// curves (x'' = 2k, k = 0.01): target - x = -k (t - 40)(t - 40.3), above
+/// zero for 0.3 s around 40.15 s, by at most 2.25e-4. The integrator
+/// integrates x exactly (a quadratic), so its steps span the pulse, and
+/// the table's breakpoints (0 and 100 s) are its only stops: root finding
+/// sees the same sign at both ends of the step. The run loop finds both
+/// crossings inside the step along the dense output.
+#[test]
+fn a_double_crossing_of_a_driving_cycle_condition_within_a_step_is_found() {
+    let k = 0.01;
+    let (t1, t2) = (40.0, 40.3);
+    let model = WithTable(
+        Hand {
+            layout: layout(2, 0, 0, 1, 1, 1, 3),
+            f: Box::new(move |i, out| {
+                out[0] = i.y[1];
+                out[1] = 2.0 * k;
+            }),
+            jvp: Box::new(|_, v, out| {
+                out[0] = v[1];
+                out[1] = 0.0;
+            }),
+            roots: Box::new(|i, out| out[0] = i.t - i.y[0]),
+            vars: Box::new(|i, out| {
+                out[0] = i.y[0];
+                out[1] = i.y[1];
+                out[2] = i.d[0];
+            }),
+            when: Box::new(|_, fired, d| {
+                if fired[0] != 0.0 {
+                    d[0] += 1.0;
+                }
+            }),
+            modes: None,
+            y0: vec![k * t1 * t2, 1.0 - k * (t1 + t2)],
+            d0: vec![0.0],
+        },
+        |x| (x, 1.0),
+    );
+    let mut info = RunInfo::bare(2, 3, vec![]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::Y(1), VarSource::D(0)];
+    info.root_dirs = vec![1];
+    whens(&mut info, &[(0, Direction::Rising, "'Driver': behind the target")]);
+    info.when_strict = vec![true];
+    info.time_crossings = vec![None];
+    info.table_breaks = vec![vec![0.0, 100.0]];
+    info.time_tables =
+        vec![lsim_solve::info::TimeTable { at: vec![0.0, 100.0], c: 1.0, b: Expr::Const(0.0) }];
+    info.time_functions = vec![Some(TimeFunction::Mixed {
+        chain: vec![],
+        g: Expr::Table { table: 0, args: vec![Expr::Time] } - Expr::Var(VarId(0)),
+    })];
+    for backend in backends() {
+        let opts = SolverOptions { backend, rtol: 1e-8, atol: 1e-8, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 100.0, dt: 10.0 };
+        let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+        let fired: Vec<f64> = run.events.iter().map(|e| e.t).collect();
+        println!(
+            "{backend:?}: fired at {fired:?}, {} steps, {} pulses found, warnings {:?}",
+            run.stats.steps, run.report.pulses_found, run.report.warnings
+        );
+        assert_eq!(*run.values[2].last().unwrap(), 1.0, "{backend:?}: {fired:?}");
+        // (the crossing's slope is 0.003: the state's integration error
+        // of ~1e-7 moves it by ~4e-5 s)
+        assert!((fired[0] - t1).abs() < 1e-3, "{backend:?}: {fired:?}");
+        assert!(run.report.warnings.is_empty());
+        // without the scan the step spans the pulse
+        let mut bare = info.clone();
+        bare.time_functions.clear();
+        let run = simulate(&model, &bare, &opts, grid, &mut []).unwrap();
+        println!("{backend:?} without the scan: fired {} times", run.values[2].last().unwrap());
+        if backend == Backend::Sundials {
+            assert_eq!(*run.values[2].last().unwrap(), 0.0, "the failure this guards against");
+        }
+    }
+}
+
+/// A model whose table 0 is a 2-D table, `f(a, b)` with its partial
+/// derivatives.
+struct WithTable2(Hand, fn(f64, f64) -> (f64, [f64; 2]));
+
+impl ModelFunctions for WithTable2 {
+    fn layout(&self) -> &Layout {
+        self.0.layout()
+    }
+    fn residual(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+        self.0.residual(inp, w, out)
+    }
+    fn jvp(&self, inp: &EvalInput<'_>, v: &[f64], w: &mut [f64], out: &mut [f64]) {
+        self.0.jvp(inp, v, w, out)
+    }
+    fn roots(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+        self.0.roots(inp, w, out)
+    }
+    fn vars(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+        self.0.vars(inp, w, out)
+    }
+    fn when(&self, inp: &EvalInput<'_>, fired: &[f64], w: &mut [f64], d: &mut [f64]) {
+        self.0.when(inp, fired, w, d)
+    }
+    fn modes(&self, inp: &EvalInput<'_>, w: &mut [f64], d: &mut [f64]) {
+        self.0.modes(inp, w, d)
+    }
+    fn start(&self, p: &[f64], y0: &mut [f64], d0: &mut [f64]) {
+        self.0.start(p, y0, d0)
+    }
+    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+        (k == 0).then(|| (self.1)(args[0], args[1]))
+    }
+}
+
+/// The state of [`a_double_crossing_of_a_driving_cycle_condition_within_a_step_is_found`]
+/// (x'' = 2k from x = k t₁ t₂, x' = 1 − k (t₁ + t₂), so t − x = −k (t −
+/// t₁)(t − t₂)), counting the times its one condition fires in d[0].
+fn curving_state(k: f64, t1: f64, t2: f64, root: fn(f64, f64) -> f64) -> Hand {
+    Hand {
+        layout: layout(2, 0, 0, 1, 1, 1, 3),
+        f: Box::new(move |i, out| {
+            out[0] = i.y[1];
+            out[1] = 2.0 * k;
+        }),
+        jvp: Box::new(|_, v, out| {
+            out[0] = v[1];
+            out[1] = 0.0;
+        }),
+        roots: Box::new(move |i, out| out[0] = root(i.t, i.y[0])),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.y[1];
+            out[2] = i.d[0];
+        }),
+        when: Box::new(|_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] += 1.0;
+            }
+        }),
+        modes: None,
+        y0: vec![k * t1 * t2, 1.0 - k * (t1 + t2)],
+        d0: vec![0.0],
+    }
+}
+
+/// The double crossing of
+/// [`a_double_crossing_of_a_driving_cycle_condition_within_a_step_is_found`]
+/// through a 2-D table read at time and at the state, `f(time, x)` with `f(a,
+/// b) = a − b` on a 3 × 3 grid (bilinear, as a motor's map): the run
+/// encloses the table by its cells, and finds the pulse along the step.
+#[test]
+fn a_double_crossing_through_a_2d_table_within_a_step_is_found() {
+    let (k, t1, t2) = (0.01, 40.0, 40.3);
+    let model = WithTable2(curving_state(k, t1, t2, |t, x| t - x), |a, b| (a - b, [1.0, -1.0]));
+    let mut info = RunInfo::bare(2, 3, vec![]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::Y(1), VarSource::D(0)];
+    info.root_dirs = vec![1];
+    whens(&mut info, &[(0, Direction::Rising, "'Motor': over its map")]);
+    info.when_strict = vec![true];
+    info.time_crossings = vec![None];
+    info.table_breaks = vec![vec![]];
+    info.table_axes = vec![[vec![0.0, 50.0, 100.0], vec![0.0, 50.0, 100.0]]];
+    info.time_functions = vec![Some(TimeFunction::Mixed {
+        chain: vec![],
+        g: Expr::Table { table: 0, args: vec![Expr::Time, Expr::Var(VarId(0))] },
+    })];
+    for backend in backends() {
+        let opts = SolverOptions { backend, rtol: 1e-8, atol: 1e-8, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 100.0, dt: 10.0 };
+        let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+        let fired: Vec<f64> = run.events.iter().map(|e| e.t).collect();
+        println!(
+            "{backend:?}: fired at {fired:?}, {} steps, {} pulses found, {} certified, {} \
+             scanned, warnings {:?}",
+            run.stats.steps,
+            run.report.pulses_found,
+            run.report.mixed_certified,
+            run.report.mixed_scanned,
+            run.report.warnings
+        );
+        assert_eq!(*run.values[2].last().unwrap(), 1.0, "{backend:?}: {fired:?}");
+        assert!((fired[0] - t1).abs() < 1e-3, "{backend:?}: {fired:?}");
+        assert!(run.report.warnings.is_empty(), "{:?}", run.report.warnings);
+        assert!(run.report.mixed_scanned > 0);
+        // without the scan the step spans the pulse
+        let mut bare = info.clone();
+        bare.time_functions.clear();
+        let run = simulate(&model, &bare, &opts, grid, &mut []).unwrap();
+        if backend == Backend::Sundials {
+            assert_eq!(*run.values[2].last().unwrap(), 0.0, "the failure this guards against");
+        }
+    }
+}
+
+/// A condition whose value moves only where a `noEvent` comparison flips
+/// (`if noEvent(time > x) then 1 else -1`): its changes are left to root
+/// finding, as `noEvent` asks (no event needs to be located there), so
+/// the run does not check its steps, and says nothing. The same condition
+/// without `noEvent` is checked along every step, and its pulse is found.
+#[test]
+fn a_condition_switched_only_by_no_event_is_left_to_root_finding() {
+    let (k, t1, t2) = (0.01, 40.0, 40.3);
+    let model = curving_state(k, t1, t2, |t, x| if t > x { 1.0 } else { -1.0 });
+    let mut info = RunInfo::bare(2, 3, vec![]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::Y(1), VarSource::D(0)];
+    info.root_dirs = vec![1];
+    whens(&mut info, &[(0, Direction::Rising, "'Switch': on")]);
+    info.when_strict = vec![true];
+    info.time_crossings = vec![None];
+    let cmp = Expr::Compare(
+        lsim_ir::expr::CmpOp::Gt,
+        Box::new(Expr::Time),
+        Box::new(Expr::Var(VarId(0))),
+    );
+    let cond = |c: Expr| {
+        Some(TimeFunction::Mixed {
+            chain: vec![],
+            g: Expr::If(Box::new(c), Box::new(Expr::Const(1.0)), Box::new(Expr::Const(-1.0))),
+        })
+    };
+    info.time_functions = vec![cond(Expr::NoEvent(Box::new(cmp.clone())))];
+    let mut events = info.clone();
+    events.time_functions = vec![cond(cmp)];
+    let opts = SolverOptions { rtol: 1e-8, atol: 1e-8, ..Default::default() };
+    let grid = OutputGrid { t0: 0.0, t_end: 100.0, dt: 10.0 };
+    let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+    println!(
+        "noEvent: fired {} times, {} certified, {} scanned, warnings {:?}",
+        run.values[2].last().unwrap(),
+        run.report.mixed_certified,
+        run.report.mixed_scanned,
+        run.report.warnings
+    );
+    assert!(run.report.warnings.is_empty(), "{:?}", run.report.warnings);
+    assert_eq!((run.report.mixed_certified, run.report.mixed_scanned), (0, 0));
+    let run = simulate(&model, &events, &opts, grid, &mut []).unwrap();
+    let fired: Vec<f64> = run.events.iter().map(|e| e.t).collect();
+    println!("without noEvent: fired at {fired:?}, {} scanned", run.report.mixed_scanned);
+    assert!(run.report.mixed_scanned > 0);
+    assert_eq!(*run.values[2].last().unwrap(), 1.0, "{fired:?}");
+    assert!((fired[0] - t1).abs() < 1e-3, "{fired:?}");
+}
+
+/// A condition that jumps (`if x > time then 0.5 else -0.5`, x = 10 +
+/// time / 2) crosses once, at 20 s: root finding locates the jump to its
+/// tolerance (100 ε (|t| + h)), a little after the change the run finds
+/// along the step, exactly. That change is the crossing root finding
+/// reports, not a pulse: the condition fires once, and no step is cut.
+#[test]
+fn the_crossing_root_finding_reports_is_not_taken_for_a_pulse() {
+    let model = Hand {
+        layout: layout(1, 0, 0, 1, 1, 1, 2),
+        f: Box::new(|_, out| out[0] = 0.5),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(|i, out| out[0] = if i.y[0] > i.t { 0.5 } else { -0.5 }),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+        }),
+        when: Box::new(|_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] += 1.0;
+            }
+        }),
+        modes: None,
+        y0: vec![10.0],
+        d0: vec![0.0],
+    };
+    let mut info = RunInfo::bare(1, 2, vec![]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::D(0)];
+    info.root_dirs = vec![-1];
+    whens(&mut info, &[(0, Direction::Falling, "'Chase': caught up")]);
+    info.when_strict = vec![true];
+    info.time_crossings = vec![None];
+    let cmp = Expr::Compare(
+        lsim_ir::expr::CmpOp::Gt,
+        Box::new(Expr::Var(VarId(0))),
+        Box::new(Expr::Time),
+    );
+    info.time_functions = vec![Some(TimeFunction::Mixed {
+        chain: vec![],
+        g: Expr::If(Box::new(cmp), Box::new(Expr::Const(0.5)), Box::new(Expr::Const(-0.5))),
+    })];
+    for backend in backends() {
+        let opts = SolverOptions { backend, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 40.0, dt: 10.0 };
+        let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+        let fired: Vec<f64> = run.events.iter().map(|e| e.t).collect();
+        println!(
+            "{backend:?}: fired at {fired:?}, {} pulses found, {} scanned",
+            run.report.pulses_found, run.report.mixed_scanned
+        );
+        assert_eq!(*run.values[1].last().unwrap(), 1.0, "{backend:?}: {fired:?}");
+        assert!((fired[0] - 20.0).abs() < 1e-9, "{backend:?}: {fired:?}");
+        assert_eq!(run.report.pulses_found, 0, "{backend:?}");
+        assert!(run.report.mixed_scanned > 0, "{backend:?}");
+    }
 }
 
 /// `when table(time) > 0.5` for a linear table with a narrow triangle at
@@ -2515,7 +2814,7 @@ fn a_condition_mixing_time_and_a_state_is_not_stepped_over() {
             vec![Expr::Binary(BinaryOp::Mul, Box::new(Expr::Const(w)), Box::new(Expr::Time))],
         ) - Expr::Var(VarId(0))
     };
-    info.time_functions = vec![Some(TimeFunction::Mixed(gx))];
+    info.time_functions = vec![Some(TimeFunction::Mixed { chain: vec![], g: gx })];
     // the exact time it held: the crossings of sin(w t) = 1 - 0.01 t
     let t_end = 100.0;
     let h = |t: f64| g(t, 1.0 - 0.01 * t);

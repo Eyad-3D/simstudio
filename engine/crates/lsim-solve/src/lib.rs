@@ -507,6 +507,12 @@ pub struct SolverReport {
     /// steps ended at a sign change of a condition that mixes time and
     /// states, found along the step, that root finding did not see
     pub pulses_found: u64,
+    /// steps of such conditions a certificate cleared (a few comparisons
+    /// per state they read), summed over the conditions
+    pub mixed_certified: u64,
+    /// steps of such conditions taken along the dense output, where no
+    /// certificate held, summed over the conditions
+    pub mixed_scanned: u64,
     /// the integrator's own error estimate
     pub error: ErrorEstimate,
     /// warnings for the user
