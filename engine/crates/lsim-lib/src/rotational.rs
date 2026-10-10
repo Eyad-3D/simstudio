@@ -598,6 +598,12 @@ pub fn lossy_gear(name: &str, ratio_input: bool) -> ComponentDef {
             stored: None,
             loss: Some(n("a.tau") * n("a.w") + n("b.tau") * n("b.w")),
         },
+        // a signal ratio's change is a rigid engagement (a gear shift)
+        engagements: if ratio_input {
+            vec![lsim_ir::EngagementDecl { changes: n("ratio") }]
+        } else {
+            vec![]
+        },
         ..Default::default()
     }
 }

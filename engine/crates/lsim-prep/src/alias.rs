@@ -282,6 +282,9 @@ pub fn eliminate_with(flat: &mut FlatSystem, known: &[bool]) -> Vec<AliasEntry> 
             im.keep = sub(std::mem::replace(&mut im.keep, Expr::Const(0.0)));
             im.active = sub(std::mem::replace(&mut im.active, Expr::Const(0.0)));
         }
+        for en in &mut flat.engagements {
+            en.changes = sub(std::mem::replace(&mut en.changes, Expr::Const(0.0)));
+        }
         for w in &mut flat.whens {
             w.condition = sub(std::mem::replace(&mut w.condition, Expr::Const(0.0)));
             for (_, v) in w.assign.iter_mut().chain(w.reinit.iter_mut()) {

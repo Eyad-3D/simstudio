@@ -119,6 +119,15 @@ fn a_gear_change_keeps_the_angular_momentum_and_loses_the_exact_energy() {
     println!("{report:#?}");
     let names: Vec<&str> = m.states.iter().map(|v| m.flat.var(*v).name.as_str()).collect();
     assert_eq!(names, ["load.w.continuous"], "the restarted speed's continuous part is the state");
+    // the split is recorded, for the run loop's impulse projection to
+    // leave what a reinit set alone
+    let split: Vec<[&str; 3]> = m
+        .flat
+        .restarts
+        .iter()
+        .map(|r| [r.var, r.continuous, r.jump].map(|v| m.flat.var(v).name.as_str()))
+        .collect();
+    assert_eq!(split, [["load.w", "load.w.continuous", "load.w.jump"]]);
     assert_eq!(m.whens.len(), 1);
     assert_eq!(m.whens[0].assign.len(), 2, "the new ratio and the speed's jump");
 
@@ -329,4 +338,46 @@ fn fast_mode_prescribes_the_motion_through_a_gear_change() {
     let want = (J2 + I1 * I1 * J1) * 2.0 / I1;
     println!("torque {tau} (exact {want})");
     assert!((tau - want).abs() < 1e-12 * want, "{tau}");
+}
+
+/// A gear whose ratio is a signal declares that a change of it is a rigid
+/// engagement; preparation carries the declaration into the flat system,
+/// in terms of the variables it keeps.
+#[test]
+fn a_shifting_gear_declares_its_engagement() {
+    let mut lib = library();
+    lib.add(lsim_lib::rotational::lossy_gear("Test.VariableGear", true));
+    let top = ComponentDef {
+        name: "Test.Shift".into(),
+        components: vec![
+            sub("motor", "Rotational.Inertia", &[("J", c(J1))]),
+            sub("load", "Rotational.Inertia", &[("J", c(J2))]),
+            sub("drive", "Rotational.ConstantTorque", &[("tau", c(T))]),
+            sub("gear", "Test.VariableGear", &[]),
+            sub("select", "Signal.Step", &[("y0", c(I1)), ("y1", c(I2)), ("t_step", c(T_SHIFT))]),
+        ],
+        connections: vec![
+            connect("drive.flange", "motor.a"),
+            connect("motor.b", "gear.a"),
+            connect("gear.b", "load.a"),
+            connect("select.y", "gear.ratio"),
+        ],
+        ..Default::default()
+    };
+    let (m, _) = prepare_with_report(&lib, &top, None, &Settings::default())
+        .unwrap_or_else(|d| panic!("{d:#?}"));
+    assert_eq!(m.flat.engagements.len(), 1);
+    let en = &m.flat.engagements[0];
+    assert_eq!(m.flat.instance(en.origin.instance).path, "gear");
+    // `gear.ratio` is an alias: the declaration reads the variable kept
+    let mut read = vec![];
+    en.changes.walk(&mut |x| {
+        if let Expr::Var(v) = x {
+            read.push(m.flat.var(*v).name.clone());
+        }
+    });
+    assert_eq!(read.len(), 1);
+    assert!(m.aliases.iter().all(|a| m.flat.var(a.var).name != read[0]), "{read:?} is an alias");
+    // the fixed-ratio gear declares none
+    assert!(lsim_lib::rotational::lossy_gear("Test.FixedGear", false).engagements.is_empty());
 }

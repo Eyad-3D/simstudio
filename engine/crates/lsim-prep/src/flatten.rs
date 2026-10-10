@@ -844,6 +844,17 @@ impl<'a> Flattener<'a> {
             };
             self.flat.impulse.push(lsim_ir::FlatImpulse { keep, active, origin });
         }
+        // the rigid engagements it makes
+        for (k, en) in def.engagements.iter().enumerate() {
+            let what = || format!("what changes at its rigid engagement ({})", k + 1);
+            let changes = self.resolve(id, &en.changes, &what);
+            let origin = Origin {
+                instance: id,
+                kind: OriginKind::Component { index: usize::MAX },
+                label: Some("a change of it is a rigid engagement".into()),
+            };
+            self.flat.engagements.push(lsim_ir::FlatEngagement { changes, origin });
+        }
 
         // connections
         for cn in &def.connections {

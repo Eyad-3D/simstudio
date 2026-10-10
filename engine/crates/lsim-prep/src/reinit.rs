@@ -197,6 +197,7 @@ pub fn apply(
                 ..origin.clone()
             },
         });
+        flat.restarts.push(lsim_ir::FlatRestart { var: root, continuous, jump });
         restarted.push(Restarted { var: root, continuous, jump, origin });
     }
 
