@@ -419,7 +419,8 @@ impl Drop for CodeMemory {
         if let Some(m) = self.0.take() {
             // SAFETY: the last holder of the `Arc` is going away, and with
             // it every pointer into this memory (above): no function in it
-            // runs or is called again.
+            // runs or is called again. A link the system refused drops it
+            // before any pointer into it was taken.
             unsafe { m.free_memory() }
         }
     }
@@ -1188,7 +1189,11 @@ fn build(
         return Err(jit::cancelled());
     }
     let link_started = Instant::now();
+    // from here on the memory is given back however this returns, a refused
+    // link included (no pointer into it is taken before it succeeds)
+    let mut memory = CodeMemory(Some(module));
     if !compiled.is_empty() {
+        let module = memory.0.as_mut().expect("the module lives until the memory is dropped");
         // a system that refuses executable memory (allocating it, or
         // making it executable) leaves the model to its tapes
         for c in &compiled {
@@ -1201,8 +1206,7 @@ fn build(
         }
     }
     let link_seconds = link_started.elapsed().as_secs_f64();
-    // from here on the memory is given back however this returns
-    let memory = Arc::new(CodeMemory(Some(module)));
+    let memory = Arc::new(memory);
     // where each plan's code keeps its values in `work`, and how much it
     // needs (a tape's registers after them)
     let need_of = |p: &Plan| -> usize {
