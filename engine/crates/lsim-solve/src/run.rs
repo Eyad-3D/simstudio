@@ -1022,10 +1022,13 @@ impl Loop<'_> {
 }
 
 /// Every table the run evaluates outside the compiled code (the energy
-/// books, the conditions on functions of time, the asserts, the impulse
-/// projection) is one the model gives ([`ModelFunctions::eval_table`]):
-/// without it they would read NaN (books NaN, a run that fails or a
-/// search that stalls), so the run does not start.
+/// books, the conditions on functions of time, the asserts, the time
+/// events' instants and the positions of the tables read along time, the
+/// impulse projection; a sampled block's computed input reads no table:
+/// it is read from the channels then) is one the model gives
+/// ([`ModelFunctions::eval_table`]): without it they would read NaN
+/// (books NaN, a run that fails or a search that stalls), so the run does
+/// not start.
 fn tables_given(
     model: &dyn ModelFunctions,
     info: &RunInfo,
@@ -1072,11 +1075,36 @@ fn tables_given(
     for a in &info.asserts {
         visit(&a.condition, "an assert");
     }
+    for c in info.time_crossings.iter().flatten() {
+        visit(&c.at, "a time event's instant");
+    }
+    for tt in &info.time_tables {
+        visit(&tt.b, "a table read along time");
+    }
     if opts.impulses
         && let Some(imp) = &info.impulse
     {
+        // what it evaluates: the engagements, how the computed variables
+        // follow from the state, the links' relative velocities and their
+        // conditions, and the stored energies it balances (with the books
+        // off too)
+        let what = "the impulse projection";
         for e in &imp.engagements {
-            visit(&e.changes, "the impulse projection");
+            visit(&e.changes, what);
+        }
+        for (_, _, e) in &imp.chain {
+            visit(e, what);
+        }
+        for l in &imp.links {
+            visit(&l.keep, what);
+            visit(&l.active, what);
+        }
+        if let Some(e) = &info.energy {
+            for (k, _) in &imp.parts {
+                if let Some(x) = e.parts.get(*k).and_then(|p| p.stored.as_ref()) {
+                    visit(x, what);
+                }
+            }
         }
     }
     for (k, what) in read {

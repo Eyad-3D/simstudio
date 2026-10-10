@@ -645,9 +645,11 @@ modes, no compiled initialisation, a dense Jacobian from `jvp`, no
 guards, no tables (`None`). A wrapper around a compiled model (a model
 started at other values, a sweep's set) must forward every method:
 left at a default, modes stop switching, table guards and the compiled
-initialisation vanish without an error, a run whose books or
-conditions read a table does not start ("the model does not give its
-tables"), and a model given other table data is run on the prepared
+initialisation vanish without an error, a run whose books,
+conditions, time events or impulse projection read a table does not
+start ("the model does not give its tables": every expression the run
+evaluates outside the compiled code is checked at the start), and a
+model given other table data is run on the prepared
 breakpoints (its stops and enclosures in the wrong places, silently).
 
 **WP3** keeps: its interpreted tape (`tape.rs`) is not wired in,

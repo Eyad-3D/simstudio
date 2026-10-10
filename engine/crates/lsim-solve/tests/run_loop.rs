@@ -2261,9 +2261,10 @@ impl ModelFunctions for WithTable {
 }
 
 /// A model that does not give its tables (`ModelFunctions::eval_table`
-/// left at its default) while its energy books, or a condition on a
-/// function of time, read one: the run does not start, and says which
-/// table (they would read NaN: books NaN, a failed run, a stalled search).
+/// left at its default) while its energy books, a condition on a function
+/// of time, a time event's instant or the impulse projection read one: the
+/// run does not start, and says which table (they would read NaN: books
+/// NaN, a failed run, a stalled search, a projection that fails).
 #[test]
 fn a_model_that_does_not_give_the_tables_its_books_read_does_not_start() {
     let model = || Hand {
@@ -2309,6 +2310,48 @@ fn a_model_that_does_not_give_the_tables_its_books_read_does_not_start() {
     })];
     let e = simulate(&model(), &cond, &opts, grid, &mut []).unwrap_err().to_string();
     assert!(e.contains("'k.efficiency'") && e.contains("function of time"), "{e}");
+    // a time event's instant
+    let mut timed = info.clone();
+    let at = Expr::Table { table: 0, args: vec![Expr::Const(1.0)] };
+    timed.time_crossings = vec![Some(TimeCrossing { at, rising: true })];
+    let e = simulate(&model(), &timed, &opts, grid, &mut []).unwrap_err().to_string();
+    assert!(e.contains("'k.efficiency'") && e.contains("time event"), "{e}");
+    // the impulse projection: how a computed variable follows from the
+    // state, a link's relative velocity or its condition, the stored
+    // energy it balances (with the books off too); without the projection
+    // the run starts
+    let x = || Expr::Var(VarId(0));
+    let link = |keep: Expr, active: Expr| ImpulseLink { keep, active, part: None };
+    let projected = |chain: Vec<(usize, bool, Expr)>, links: Vec<ImpulseLink>, stored: bool| {
+        let mut i = info.clone();
+        i.var_sources = vec![VarSource::Y(0), VarSource::Computed];
+        i.energy = Some(Arc::new(EnergyInfo {
+            parts: vec![EnergyPart {
+                path: "k".into(),
+                name: "'k'".into(),
+                power: Expr::Const(0.0),
+                loss: None,
+                stored: Some(if stored { table.clone() } else { x() * x() }),
+            }],
+        }));
+        let imp =
+            ImpulseInfo::new(vec![(0, vec![0])], vec![], links, chain, vec![], &i.var_sources, 1);
+        i.impulse = Some(Arc::new(imp));
+        i
+    };
+    let books_off = SolverOptions { energy_books: false, ..opts.clone() };
+    let cases = [
+        ("chain", projected(vec![(1, false, table.clone())], vec![], false)),
+        ("keep", projected(vec![], vec![link(table.clone(), Expr::Const(1.0))], false)),
+        ("active", projected(vec![], vec![link(x(), table.clone())], false)),
+        ("stored", projected(vec![], vec![], true)),
+    ];
+    for (what, run) in &cases {
+        let e = simulate(&model(), run, &books_off, grid, &mut []).unwrap_err().to_string();
+        assert!(e.contains("'k.efficiency'") && e.contains("impulse projection"), "{what}: {e}");
+        let off = SolverOptions { impulses: false, ..books_off.clone() };
+        assert!(simulate(&model(), run, &off, grid, &mut []).is_ok(), "{what}");
+    }
 }
 
 /// A driving-cycle-style condition: `when target(time) > x`, the target a

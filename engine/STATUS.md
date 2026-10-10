@@ -91,7 +91,8 @@ directory shared between worktrees mixes their workspace crates silently.
 - Blocks ticking at one instant read the iteration variables as the
   blocks before them left them (solved again when needed), and a
   computed input at the instant it is read.
-- A model that does not give the tables its books or conditions read
-  does not start; books computed without error control are flagged.
+- A model that does not give the tables its books, conditions, time
+  events or impulse projection read does not start; books computed
+  without error control are flagged.
 - The breakpoints of a table whose position moves are recomputed after
   a discrete change (no stale stops).
