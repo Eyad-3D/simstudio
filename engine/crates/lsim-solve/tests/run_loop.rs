@@ -1,7 +1,8 @@
 //! The run loop's event handling on hand-written models with exact
 //! answers: `when` conditions made true by a sample tick, by the start, by
 //! another `when` through an iteration variable; mode changes a clock
-//! schedules; a tick just before the end; the cost of a restart; time
+//! schedules; a tick just before the end; ticks of several blocks at one
+//! output time; the cost of a restart; time
 //! events located exactly, re-armed or set to now at their own instant, or
 //! coinciding with a root; the momentum kept at a change of a rigid
 //! coupling, and a cascade of such changes at one instant; an integrator
@@ -1958,6 +1959,78 @@ fn an_event_at_an_output_time_records_both_sides() {
     // x is continuous across the tick: both sides the same
     for (k, _, x) in lefts {
         assert_eq!(x, run.values[0][k]);
+    }
+}
+
+/// Sampled blocks ticking together at an output time: the output point
+/// shows the values after every tick of the instant, and its left limit
+/// those before them all (the review found the point between the ticks:
+/// the first block's new output beside the second's old one). A block that
+/// reads another's output at a common tick reads its new value, as at an
+/// event's instant; ticks a few ulps apart (15 × 0.1 and 6 × 0.25) are one
+/// instant.
+#[test]
+fn two_blocks_ticking_at_one_output_time_both_show_there() {
+    // x' = d0 + d1 - x; channels [x, d0, d1]
+    let model = Hand {
+        layout: layout(1, 0, 0, 2, 0, 0, 3),
+        f: Box::new(|i, out| out[0] = i.d[0] + i.d[1] - i.y[0]),
+        jvp: Box::new(|_, v, out| out[0] = -v[0]),
+        roots: Box::new(|_, _| {}),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+            out[2] = i.d[1];
+        }),
+        when: Box::new(|_, _, _| {}),
+        modes: None,
+        y0: vec![0.0],
+        d0: vec![0.0, 0.0],
+    };
+    let mut info = RunInfo::bare(1, 3, vec![]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::D(0), VarSource::D(1)];
+    info.dynamic_discretes = vec![true, true];
+    let grid = OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.5 };
+    let tick_time: fn(f64, &[f64], &mut [f64]) = |t, _, o| o[0] = t;
+    for backend in backends() {
+        let opts = SolverOptions { backend, rtol: 1e-9, atol: 1e-9, ..Default::default() };
+        // two blocks, each setting its output to the tick's time every 0.1 s
+        info.blocks = vec![block(vec![], vec![0], 0.1), block(vec![], vec![1], 0.1)];
+        let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![
+            Box::new(Sampled { period: 0.1, offset: 0.0, law: tick_time }),
+            Box::new(Sampled { period: 0.1, offset: 0.0, law: tick_time }),
+        ];
+        let run = simulate(&model, &info, &opts, grid, &mut blocks).unwrap();
+        for k in 1..run.times.len() {
+            let t = run.times[k];
+            let left = run.left_limits.iter().find(|(i, _)| *i == k).map(|(_, v)| (v[1], v[2]));
+            println!(
+                "{backend:?} t = {t}: {} {}; left {left:?}",
+                run.values[1][k], run.values[2][k]
+            );
+            assert_eq!((run.values[1][k], run.values[2][k]), (t, t), "{backend:?} at {t}");
+            let left = left.expect("a left limit at every output time");
+            assert!((left.0 - (t - 0.1)).abs() < 1e-14 && left.0 == left.1, "{backend:?} at {t}");
+        }
+        // the second reads the first's output (period 0.25): at a common
+        // tick it reads the first's new value; its output is that plus one
+        info.blocks = vec![block(vec![], vec![0], 0.1), block(vec![1], vec![1], 0.25)];
+        let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![
+            Box::new(Sampled { period: 0.1, offset: 0.0, law: tick_time }),
+            Box::new(Sampled { period: 0.25, offset: 0.0, law: |_, i, o| o[0] = i[0] + 1.0 }),
+        ];
+        let run = simulate(&model, &info, &opts, grid, &mut blocks).unwrap();
+        for k in 1..run.times.len() {
+            let t = run.times[k];
+            let (a, b) = (run.values[1][k], run.values[2][k]);
+            println!("{backend:?} t = {t}: {a} {b}");
+            assert!((a - t).abs() < 1e-15 && b == a + 1.0, "{backend:?} at {t}: {a} {b}");
+            // before the instant: the first's last output, and the second's
+            // from its tick 0.25 s earlier
+            let (_, left) = run.left_limits.iter().find(|(i, _)| *i == k).expect("a left limit");
+            assert!((left[1] - (t - 0.1)).abs() < 1e-14, "{backend:?} at {t}: {}", left[1]);
+            assert!((left[2] - (t - 0.3 + 1.0)).abs() < 1e-14, "{backend:?} at {t}: {}", left[2]);
+        }
     }
 }
 

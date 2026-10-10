@@ -906,7 +906,11 @@ round).**
 * *One instant.* A stop time within 16 ulps of the current time (a tick
   that rounds just before the end) is that instant: the run loop does not
   step (SUNDIALS refuses such an interval) and handles what is due there.
-  The output grid ends at `t_end` exactly.
+  The output grid ends at `t_end` exactly. The ticks of all the blocks
+  due at one instant (inside a step or at its end, a few ulps apart
+  included) are one event: each block reads its inputs with what the
+  blocks before it set, and an output point at that instant shows the
+  values after all of them (its left limit those before them all).
 * *Exact time events.* A zero-crossing function that depends on time only
   between events (`c·time + b`, `b` of parameters and discrete values:
   `when time >= t_shift`, a mode of `if time > t_on`) is taken out of root

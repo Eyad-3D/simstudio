@@ -1288,57 +1288,85 @@ pub fn run_loop(
                 (Some(g), None) => {
                     grid_point(&mut lp, &mut rec, integ, &mut ledger, g, &mut yk, &d)?;
                 }
-                (_, Some((b, tk))) => {
-                    report.block_ticks += 1;
-                    let c = &mut clocks[b];
-                    let mut inputs = std::mem::take(&mut c.inputs);
-                    if c.needs_vars || tk == t_new {
-                        // the whole state (and the channels)
-                        integ.interpolate(tk, &mut yk)?;
-                        if c.needs_vars {
-                            lp.sample(tk, &yk, &d);
+                (_, Some((_, tk))) => {
+                    // every clock due at this instant ticks in it, in order,
+                    // each reading its inputs with what the ones before it
+                    // set, as at an event's instant: the instant's values
+                    // are those after all of them
+                    let due: Vec<usize> = (0..clocks.len())
+                        .filter(|&b| {
+                            let x = clocks[b].next();
+                            x == tk || same_instant(x, tk)
+                        })
+                        .collect();
+                    let mut d_tick = d.clone();
+                    let mut changed_blocks: Vec<usize> = vec![];
+                    let mut have_y = false;
+                    for &b in &due {
+                        report.block_ticks += 1;
+                        let c = &mut clocks[b];
+                        let mut inputs = std::mem::take(&mut c.inputs);
+                        if c.needs_vars || tk == t_new {
+                            // the whole state (and the channels)
+                            if !have_y {
+                                integ.interpolate(tk, &mut yk)?;
+                                have_y = true;
+                            }
+                            if c.needs_vars {
+                                lp.sample(tk, &yk, &d_tick);
+                            }
+                            lp.read_inputs(b, &yk, &d_tick, &mut inputs);
+                        } else {
+                            // only the entries of y the block reads
+                            if c.needs_y {
+                                integ.interpolate_select(tk, &c.y_idx, &mut c.y_vals)?;
+                            }
+                            lp.read_inputs_selected(b, tk, c, &d_tick, &mut inputs);
                         }
-                        lp.read_inputs(b, &yk, &d, &mut inputs);
-                    } else {
-                        // only the entries of y the block reads
-                        if c.needs_y {
-                            integ.interpolate_select(tk, &c.y_idx, &mut c.y_vals)?;
+                        let outs = &info.blocks[b].outputs;
+                        for (k, &o) in outs.iter().enumerate() {
+                            c.outputs[k] = d_tick[o];
                         }
-                        lp.read_inputs_selected(b, tk, c, &d, &mut inputs);
+                        let blk = &mut blocks[b];
+                        blk.tick(tk, &inputs, &mut c.outputs).map_err(|m| SolveError::Block {
+                            block: blk.name().into(),
+                            t: tk,
+                            message: m,
+                        })?;
+                        c.inputs = inputs;
+                        c.k += 1;
+                        let changed =
+                            outs.iter().enumerate().any(|(k, &o)| d_tick[o] != c.outputs[k]);
+                        c.stop_next = changed;
+                        if changed {
+                            report.block_changes += 1;
+                            for (k, &o) in outs.iter().enumerate() {
+                                d_tick[o] = c.outputs[k];
+                            }
+                            changed_blocks.push(b);
+                        }
                     }
-                    let outs = &info.blocks[b].outputs;
-                    for (k, &o) in outs.iter().enumerate() {
-                        c.outputs[k] = d[o];
-                    }
-                    let blk = &mut blocks[b];
-                    blk.tick(tk, &inputs, &mut c.outputs).map_err(|m| SolveError::Block {
-                        block: blk.name().into(),
-                        t: tk,
-                        message: m,
-                    })?;
-                    c.inputs = inputs;
-                    c.k += 1;
-                    let changed = outs.iter().enumerate().any(|(k, &o)| d[o] != c.outputs[k]);
-                    c.stop_next = changed;
-                    if !changed {
+                    if changed_blocks.is_empty() {
                         continue;
                     }
                     // the outputs changed: an event at the tick; the rest of
                     // the step is dropped
-                    report.block_changes += 1;
-                    if !(c.needs_vars || tk == t_new) {
+                    if !have_y {
                         integ.interpolate(tk, &mut yk)?;
                     }
-                    let new_outputs = c.outputs.clone();
                     lp.sample(tk, &yk, &d);
                     rec.interior(tk, &lp.vars);
                     let before = ledger.as_mut().map(|lg| lg.before_event(tk, &lp.vars, p));
                     let before_vars = lp.vars.clone();
                     let d_pre = d.clone();
-                    for (k, &o) in outs.iter().enumerate() {
-                        d[o] = new_outputs[k];
+                    d.copy_from_slice(&d_tick);
+                    for &b in &changed_blocks {
+                        lp.record(tk, crate::EventKind::Block(b))?;
                     }
-                    lp.record(tk, crate::EventKind::Block(b))?;
+                    let outs: Vec<usize> = changed_blocks
+                        .iter()
+                        .flat_map(|&b| info.blocks[b].outputs.iter().copied())
+                        .collect();
                     lp.scheduled = true;
                     let it = lp.settle(integ, tk, &mut yk, &mut d, &d_pre, None, &before_vars);
                     lp.scheduled = false;
@@ -1356,7 +1384,9 @@ pub fn run_loop(
                         });
                     if inert {
                         report.inert_ticks += 1;
-                        clocks[b].stop_next = false;
+                        for &b in &due {
+                            clocks[b].stop_next = false;
+                        }
                         after_event(
                             &mut lp,
                             &mut rec,
@@ -1381,7 +1411,7 @@ pub fn run_loop(
                     integ.set_root_sides(&lp.sides);
                     if imp.is_none()
                         && tk == t_new
-                        && lp.slight(integ, tk, &mut yk, &d_pre, &d, outs)?
+                        && lp.slight(integ, tk, &mut yk, &d_pre, &d, &outs)?
                     {
                         // the integration goes on: the next step's error
                         // test checks what the change does
@@ -1489,7 +1519,7 @@ pub fn run_loop(
             let mut changed = false;
             {
                 for (b, c) in clocks.iter_mut().enumerate() {
-                    if c.next() == t {
+                    if c.next() == t || same_instant(c.next(), t) {
                         report.block_ticks += 1;
                         let mut inputs = std::mem::take(&mut c.inputs);
                         lp.read_inputs(b, &y, &d, &mut inputs);
