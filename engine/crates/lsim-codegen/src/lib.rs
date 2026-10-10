@@ -344,12 +344,36 @@ fn vars_map(env: &Env<'_>) -> Result<Vec<VarSrc>, CodegenError> {
         .collect()
 }
 
-/// Owns the JIT memory; the code in it is immutable once finalised.
-struct CodeMemory(#[allow(dead_code)] JITModule);
+/// Owns the JIT memory; the code in it is immutable once finalised, and
+/// given back when this is dropped (cranelift-jit's memory provider leaks
+/// it otherwise).
+///
+/// Pointers to the functions in it live only next to an `Arc` of it: in
+/// the `JitModel` that holds it as `_memory`, or, for a tiered model, in
+/// its `TieredCode`s, whose holders hold the `Upgrade` whose `memory` is set
+/// before any of them switches to machine code.
+struct CodeMemory(Option<JITModule>);
+
+impl CodeMemory {
+    fn module(&self) -> &JITModule {
+        self.0.as_ref().expect("the module lives until the memory is dropped")
+    }
+}
+
+impl Drop for CodeMemory {
+    fn drop(&mut self) {
+        if let Some(m) = self.0.take() {
+            // SAFETY: the last holder of the `Arc` is going away, and with
+            // it every pointer into this memory (above): no function in it
+            // runs or is called again.
+            unsafe { m.free_memory() }
+        }
+    }
+}
 
 // SAFETY: after `finalize_definitions` the module's code pages are read-and-
 // execute only and nothing mutates them; the module is only dropped (which
-// frees them) when the last `JitModel` holding this `Arc` goes away.
+// frees them) when the last holder of this `Arc` goes away.
 unsafe impl Send for CodeMemory {}
 // SAFETY: as above: shared references never mutate the module.
 unsafe impl Sync for CodeMemory {}
@@ -1055,6 +1079,8 @@ fn build(
     }
     module.finalize_definitions().map_err(|e| CodegenError::Backend(e.to_string()))?;
     let link_seconds = link_started.elapsed().as_secs_f64();
+    // from here on the memory is given back however this returns
+    let memory = Arc::new(CodeMemory(Some(module)));
     // where each plan's code keeps its values in `work`, and how much it
     // needs (a tape's registers after them)
     let need_of = |p: &Plan| -> usize {
@@ -1076,7 +1102,7 @@ fn build(
             ids[i]
                 .iter()
                 .map(|id| {
-                    let ptr = module.get_finalized_function(*id);
+                    let ptr = memory.module().get_finalized_function(*id);
                     // SAFETY: each pointer is a function just compiled with
                     // exactly this signature (`eval_signature`).
                     unsafe { std::mem::transmute::<*const u8, RawFn>(ptr) }
@@ -1167,7 +1193,7 @@ fn build(
         compile_seconds: report.seconds,
         code_bytes,
         report,
-        _memory: Arc::new(CodeMemory(module)),
+        _memory: memory,
         upgrade: None,
     };
     if tiered {
