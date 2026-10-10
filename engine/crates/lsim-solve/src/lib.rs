@@ -514,12 +514,14 @@ pub struct SimResult {
     pub max: Vec<Vec<f64>>,
     /// time-mean over the interval ending at `times[k]`
     pub mean: Vec<Vec<f64>>,
-    /// the output times that fall exactly on an event: `(k, every
-    /// channel's value just before it)`, the left limit, in order of `k`;
-    /// `values[c][k]` holds the value just after the event, as everywhere.
-    /// Both sides of the event at the same time, as Modelica tools write
-    /// them to their result files (the left one first)
-    pub left_limits: Vec<(usize, Vec<f64>)>,
+    /// the output times that fall exactly on an event, in order of the
+    /// output point: the values just before it (the left limit) of the
+    /// channels the event changed; `values[c][k]` holds the value just
+    /// after the event, as everywhere ([`SimResult::before`] gives either
+    /// side's for any channel). Both sides of the event at the same time,
+    /// as Modelica tools write them to their result files (the left one
+    /// first)
+    pub left_limits: Vec<LeftLimit>,
     /// the events, in order
     pub events: Vec<EventRecord>,
     /// work counters
@@ -536,10 +538,58 @@ pub struct SimResult {
     pub report: SolverReport,
 }
 
+/// The values just before an event that falls on an output time: only
+/// those of the channels the event changed (the others' are the values
+/// after it, [`SimResult::values`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LeftLimit {
+    /// the output point: `times[k]`
+    pub k: usize,
+    /// the channels whose value just before the event differs from the
+    /// value just after, increasing
+    pub channels: Vec<u32>,
+    /// their values just before it
+    pub before: Vec<f64>,
+}
+
+impl LeftLimit {
+    /// The changes from `left` (every channel just before) to `right`
+    /// (just after) at output point `k`.
+    pub fn new(k: usize, left: &[f64], right: &[f64]) -> LeftLimit {
+        let mut out = LeftLimit { k, channels: vec![], before: vec![] };
+        for (c, (a, b)) in left.iter().zip(right).enumerate() {
+            if a.to_bits() != b.to_bits() && !(a.is_nan() && b.is_nan()) {
+                out.channels.push(c as u32);
+                out.before.push(*a);
+            }
+        }
+        out.channels.shrink_to_fit();
+        out.before.shrink_to_fit();
+        out
+    }
+
+    /// Channel `c`'s value just before the event, when the event changed it.
+    pub fn get(&self, c: usize) -> Option<f64> {
+        let c = u32::try_from(c).ok()?;
+        self.channels.binary_search(&c).ok().map(|i| self.before[i])
+    }
+}
+
 impl SimResult {
     /// A channel's values by name.
     pub fn channel(&self, name: &str) -> Option<&[f64]> {
         self.names.iter().position(|n| n == name).map(|i| self.values[i].as_slice())
+    }
+
+    /// Channel `c`'s value just before output point `k`: its left limit
+    /// when an event falls there, else its value (`values[c][k]`).
+    pub fn before(&self, c: usize, k: usize) -> f64 {
+        let left = self
+            .left_limits
+            .binary_search_by_key(&k, |l| l.k)
+            .ok()
+            .and_then(|i| self.left_limits[i].get(c));
+        left.unwrap_or(self.values[c][k])
     }
 }
 

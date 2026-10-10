@@ -1002,9 +1002,9 @@ pub fn compare_channels(reference: &Value, run: &CaseRun) -> Vec<Row> {
         let Some(c) = run.report.channels.get(name) else { continue };
         let Some(i) = res.names.iter().position(|x| *x == c.var) else { continue };
         let mut newv = res.values[i].clone();
-        for (k, left) in &res.left_limits {
-            if let Some(x) = newv.get_mut(*k) {
-                *x = left[i];
+        for l in &res.left_limits {
+            if let (Some(x), Some(left)) = (newv.get_mut(l.k), l.get(i)) {
+                *x = left;
             }
         }
         let vals = |v: &Value| -> Vec<f64> {

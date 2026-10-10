@@ -971,11 +971,17 @@ round).**
   exactly on an event records both sides, as Modelica tools write two
   rows at that time to their result files: `SimResult::values` holds the
   value just after the event (as every consumer has read it),
-  `SimResult::left_limits` the index and every channel's value just
-  before it (the channels as they stood before the first event of that
-  instant changed anything), in order. The golden comparison compares
-  today's engine, which records such a point before its step, with the
-  left limit.
+  `SimResult::left_limits` the index and the values just before it of
+  the channels the event changed (the channels as they stood before the
+  first event of that instant changed anything), in order;
+  `SimResult::before(c, k)` gives either side's value of any channel.
+  The golden comparison compares today's engine, which records such a
+  point before its step, with the left limit. (Work package 4's sixth
+  round kept every channel at first: on the hybrid's UDDS, where a
+  controller tick falls on 1092 of its 1370 output points, that was
+  4.18 MB beside 5.20 MB of values. Of the 474 channels, an event changes
+  97 on average: kept as `u32` channel numbers with their values, the
+  left limits take 1.33 MB.)
 * *Restarts.* A restart hands IDA `y'` in full (`x'` from the model, `z'`
   from `0 = g_x x' + g_z z' + g_t`), skips `IDACalcIC` (the point is
   consistent) and the Newton solve when event iteration just did it, and

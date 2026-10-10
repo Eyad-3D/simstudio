@@ -1818,7 +1818,7 @@ fn after_event(
         lg.after_event(t, &lp.vars, &lp.info.params, &b, impulse);
     }
     if rec.next_grid_time() == Some(t) {
-        rec.left_limit(left);
+        rec.left_limit(left, &lp.vars);
         rec.grid_point(t, &lp.vars);
         if let Some(lg) = ledger.as_mut() {
             integ.quadrature(t, &mut lg.q)?;

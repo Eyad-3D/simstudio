@@ -1912,13 +1912,15 @@ fn an_event_at_an_output_time_records_both_sides() {
         (0..4).map(|c| run.values[c][k]).collect::<Vec<_>>()
     );
     assert_eq!(run.left_limits.len(), 1, "one output time at an event");
-    let (kl, left) = &run.left_limits[0];
-    assert_eq!(*kl, k);
+    assert_eq!(run.left_limits[0].k, k);
+    let left = |c: usize| run.before(c, k);
     // channels: w, the motor's speed, v, the gear
-    assert_eq!((left[3], run.values[3][k]), (r1, r2), "the gear before and after");
-    assert!((left[0] - w0).abs() < 1e-12 * w0 && (run.values[0][k] - w1).abs() < 1e-12 * w1);
-    assert!((left[1] - r1 * w0).abs() < 1e-12 * r1 * w0);
-    assert!((left[2] - v0).abs() < 1e-12 * v0);
+    assert_eq!((left(3), run.values[3][k]), (r1, r2), "the gear before and after");
+    assert!((left(0) - w0).abs() < 1e-12 * w0 && (run.values[0][k] - w1).abs() < 1e-12 * w1);
+    assert!((left(1) - r1 * w0).abs() < 1e-12 * r1 * w0);
+    assert!((left(2) - v0).abs() < 1e-12 * v0);
+    // only what the event changed is kept: every channel here
+    assert_eq!(run.left_limits[0].channels, [0, 1, 2, 3]);
     // a grid that misses the event
     let run = simulate(&model, &info, &opts, OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.3 }, &mut [])
         .unwrap();
@@ -1953,13 +1955,15 @@ fn an_event_at_an_output_time_records_both_sides() {
     // the tick at 0 changes nothing (its output is 0); those at 0.5 and 1
     // change it from the last tick's time
     let lefts: Vec<(usize, f64, f64)> =
-        run.left_limits.iter().map(|(k, l)| (*k, l[1], l[0])).collect();
+        run.left_limits.iter().map(|l| (l.k, run.before(1, l.k), run.before(0, l.k))).collect();
     assert_eq!(lefts.iter().map(|x| (x.0, x.1)).collect::<Vec<_>>(), [(1, 0.25), (2, 0.75)]);
     assert_eq!(run.values[1], [0.0, 0.5, 1.0]);
-    // x is continuous across the tick: both sides the same
+    // x is continuous across the tick: both sides the same, and only the
+    // tick's output is kept
     for (k, _, x) in lefts {
         assert_eq!(x, run.values[0][k]);
     }
+    assert!(run.left_limits.iter().all(|l| l.channels == [1]), "{:?}", run.left_limits);
 }
 
 /// `sin(2π time / T) - 0.95` as an expression of time.
@@ -2367,7 +2371,11 @@ fn two_blocks_ticking_at_one_output_time_both_show_there() {
         let run = simulate(&model, &info, &opts, grid, &mut blocks).unwrap();
         for k in 1..run.times.len() {
             let t = run.times[k];
-            let left = run.left_limits.iter().find(|(i, _)| *i == k).map(|(_, v)| (v[1], v[2]));
+            let left = run
+                .left_limits
+                .iter()
+                .any(|l| l.k == k)
+                .then(|| (run.before(1, k), run.before(2, k)));
             println!(
                 "{backend:?} t = {t}: {} {}; left {left:?}",
                 run.values[1][k], run.values[2][k]
@@ -2391,9 +2399,10 @@ fn two_blocks_ticking_at_one_output_time_both_show_there() {
             assert!((a - t).abs() < 1e-15 && b == a + 1.0, "{backend:?} at {t}: {a} {b}");
             // before the instant: the first's last output, and the second's
             // from its tick 0.25 s earlier
-            let (_, left) = run.left_limits.iter().find(|(i, _)| *i == k).expect("a left limit");
-            assert!((left[1] - (t - 0.1)).abs() < 1e-14, "{backend:?} at {t}: {}", left[1]);
-            assert!((left[2] - (t - 0.3 + 1.0)).abs() < 1e-14, "{backend:?} at {t}: {}", left[2]);
+            assert!(run.left_limits.iter().any(|l| l.k == k), "a left limit at {t}");
+            let left = |c: usize| run.before(c, k);
+            assert!((left(1) - (t - 0.1)).abs() < 1e-14, "{backend:?} at {t}: {}", left(1));
+            assert!((left(2) - (t - 0.3 + 1.0)).abs() < 1e-14, "{backend:?} at {t}: {}", left(2));
         }
     }
 }

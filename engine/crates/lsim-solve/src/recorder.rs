@@ -24,7 +24,7 @@ pub struct Recorder {
     last: Vec<f64>,
     interval_start: f64,
     /// grid points at an event: (index, the values just before it)
-    left: Vec<(usize, Vec<f64>)>,
+    left: Vec<crate::LeftLimit>,
 }
 
 impl Recorder {
@@ -100,10 +100,11 @@ impl Recorder {
         self.reset(t, v);
     }
 
-    /// The next grid point falls on an event: `v` are the values just
-    /// before it (the grid point itself takes the values after it).
-    pub fn left_limit(&mut self, v: &[f64]) {
-        self.left.push((self.next, v.to_vec()));
+    /// The next grid point falls on an event: `left` are the values just
+    /// before it, `right` those after it (the grid point's); the channels
+    /// it changed are kept.
+    pub fn left_limit(&mut self, left: &[f64], right: &[f64]) {
+        self.left.push(crate::LeftLimit::new(self.next, left, right));
     }
 
     /// Values, min, max and mean per channel, and the left limits at the
@@ -111,7 +112,7 @@ impl Recorder {
     #[allow(clippy::type_complexity)]
     pub fn finish(
         self,
-    ) -> (Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<(usize, Vec<f64>)>) {
+    ) -> (Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<crate::LeftLimit>) {
         (self.values, self.min, self.max, self.mean, self.left)
     }
 }
