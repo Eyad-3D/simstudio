@@ -1298,7 +1298,7 @@ pub fn run_loop(
                                     && !info.dynamic_discretes.get(i).copied().unwrap_or(true))
                         });
                     if inert {
-                        report.light_restarts += 1;
+                        report.inert_ticks += 1;
                         clocks[b].stop_next = false;
                         after_event(
                             &mut lp,

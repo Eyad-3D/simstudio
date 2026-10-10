@@ -188,6 +188,7 @@ fn main() {
             "today_shift_gear_kwh": today_shifts,
             "gear_shifts": run.result.report.impulses,
             "light_restarts": run.result.report.light_restarts,
+            "inert_ticks": run.result.report.inert_ticks,
             "block_changes": run.result.report.block_changes,
             "figures": figs.iter().map(row_json).collect::<Vec<_>>(),
             "channels": chans.iter().map(row_json).collect::<Vec<_>>(),

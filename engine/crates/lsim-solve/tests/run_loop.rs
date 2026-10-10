@@ -509,14 +509,19 @@ fn a_slight_change_at_a_tick_needs_no_restart() {
     })];
     let run = simulate(&model, &info, &opts, grid, &mut blocks).unwrap();
     println!(
-        "{} changing ticks, {} light, {} restarts, {} steps",
-        run.report.block_changes, run.report.light_restarts, run.stats.restarts, run.stats.steps
+        "{} changing ticks, {} inert, {} light, {} restarts, {} steps",
+        run.report.block_changes,
+        run.report.inert_ticks,
+        run.report.light_restarts,
+        run.stats.restarts,
+        run.stats.steps
     );
     // the tick at the start sets u from 0 to 0.5 and restarts; every other
     // tick ends a step (a changing tick makes the next one a stop time) and
     // goes on
     assert_eq!(run.report.block_changes, 201);
     assert_eq!(run.report.light_restarts, 200);
+    assert_eq!(run.report.inert_ticks, 0, "u reaches y'");
     // y' = 0.5 - y from y(0) = 1: y = 0.5 + 0.5 e^-t
     for (k, t) in run.times.iter().enumerate() {
         let exact = 0.5 + 0.5 * (-t).exp();
@@ -1946,12 +1951,17 @@ fn a_tick_that_reaches_nothing_integrated_needs_no_restart() {
         vec![Box::new(Sampled { period: 0.01, offset: 0.0, law: |t, _, o| o[0] = t })];
     let run = simulate(&model, &info, &opts, grid, &mut blocks).unwrap();
     println!(
-        "{} changing ticks, {} without a restart, {} restarts, {} steps",
-        run.report.block_changes, run.report.light_restarts, run.stats.restarts, run.stats.steps
+        "{} changing ticks, {} inert, {} light, {} restarts, {} steps",
+        run.report.block_changes,
+        run.report.inert_ticks,
+        run.report.light_restarts,
+        run.stats.restarts,
+        run.stats.steps
     );
     // (the first tick, at the start, changes nothing: its output is 0)
     assert_eq!(run.report.block_changes, 200);
-    assert_eq!(run.report.light_restarts, 200);
+    assert_eq!(run.report.inert_ticks, 200);
+    assert_eq!(run.report.light_restarts, 0);
     assert_eq!(run.stats.restarts, 0);
     for (k, t) in run.times.iter().enumerate() {
         assert!((run.values[0][k] - (-t).exp()).abs() < 1e-7, "t = {t}");

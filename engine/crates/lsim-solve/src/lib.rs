@@ -480,12 +480,15 @@ pub struct SolverReport {
     /// sampled-block ticks
     pub block_ticks: u64,
     /// ticks that changed an output (and so restarted the integrator,
-    /// unless the change was slight)
+    /// unless they are counted below)
     pub block_changes: u64,
-    /// of those, the ones that went on with the integration's history (no
-    /// restart): ticks whose outputs reach nothing the integrator
-    /// integrates, and, with [`SolverOptions::light_restarts`], ones so
-    /// slight that the next step's error test checked them
+    /// of those, the ticks whose outputs reach nothing the integrator
+    /// integrates or watches ([`RunInfo::dynamic_discretes`]): the step
+    /// went on, exactly, with no restart and no cut
+    pub inert_ticks: u64,
+    /// of those, with [`SolverOptions::light_restarts`] (opt-in), the ticks
+    /// so slight that the integration went on with its history instead of
+    /// restarting, the next step's error test checking the change
     pub light_restarts: u64,
     /// impulse projections at rigid engagements (gear shifts)
     pub impulses: u64,
