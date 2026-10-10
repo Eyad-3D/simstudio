@@ -264,7 +264,7 @@ def test_edits_are_dry_runs_and_saving_needs_a_confirmation(folder):
     project = json.loads((folder / f"{saved['project']}.json").read_text(encoding="utf-8"))
     vehicle = next(e for s in project["systems"] for e in s["elements"] if e["label"] == "Vehicle")
     assert vehicle["parameterOverrides"]["mass_kg"] == 2100
-    assert (BACKEND / "projects" / "bev-car.json").read_text().count('"mass_kg": 1927') == 1
+    assert (BACKEND / "projects" / "bev-car.json").read_text(encoding="utf-8").count('"mass_kg": 1927') == 1
 
 
 def test_an_edit_with_a_bad_operation_changes_nothing(folder):
@@ -466,7 +466,7 @@ def test_every_call_goes_into_the_local_audit_log(folder):
     entry = last_audit_entry(folder)
     assert entry["tool"] == "run_checks" and entry["project"] == "example:bev-car"
     assert entry["client"] == "pytest" and entry["ok"] is True
-    lines = (folder / ".ai" / "audit.jsonl").read_text().splitlines()
+    lines = (folder / ".ai" / "audit.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2
 
 

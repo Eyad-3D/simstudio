@@ -84,7 +84,7 @@ def test_code_from_elsewhere_never_runs_before_approval(trust):
     assert result["status"] != "failed", result["messages"]
 
     # remembered on disk, for that exact code only
-    saved = json.loads((trust / ".script-trust.json").read_text())
+    saved = json.loads((trust / ".script-trust.json").read_text(encoding="utf-8"))
     assert script_trust.code_hash(code) in saved["approved"]
     script_trust._reset_for_tests()
     assert script_trust.is_approved(code)
@@ -158,7 +158,7 @@ def test_approvals_are_the_users_own_not_the_projects_folders(tmp_path, monkeypa
         assert (own / ".script-trust-migrated").exists()
         script_trust.approve([code])
         assert script_trust.code_hash(code) in json.loads(
-            (own / ".script-trust.json").read_text())["approved"]
+            (own / ".script-trust.json").read_text(encoding="utf-8"))["approved"]
     finally:
         script_trust._reset_for_tests()
 

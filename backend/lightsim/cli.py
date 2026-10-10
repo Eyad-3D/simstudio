@@ -385,10 +385,16 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    for stream in (sys.stdout, sys.stderr):  # a Windows console may not take "—" or "CO₂"
+    # Windows gives a pipe (a script, MATLAB's system()) the ANSI code page,
+    # which has no "CO₂" or "•": a pipe gets UTF-8, which its reader decodes;
+    # a console replaces what it cannot show
+    for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(errors="replace")  # type: ignore[union-attr]
-        except (AttributeError, ValueError):
+            if stream.isatty():
+                stream.reconfigure(errors="replace")  # type: ignore[union-attr]
+            else:
+                stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        except (AttributeError, ValueError, OSError):
             pass
     from .project import LightSimError
     from .units import UnitError

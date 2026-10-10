@@ -8,7 +8,8 @@ const path = require("node:path");
 const { test } = require("node:test");
 
 const ROOT = path.join(__dirname, "..", "..");
-const builder = fs.readFileSync(path.join(__dirname, "..", "electron-builder.yml"), "utf8");
+// a Windows checkout has CRLF line ends
+const builder = fs.readFileSync(path.join(__dirname, "..", "electron-builder.yml"), "utf8").replace(/\r\n/g, "\n");
 
 /** The extraResources entries as {from, to} (the config's own simple form). */
 function extraResources() {

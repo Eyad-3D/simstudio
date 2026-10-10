@@ -82,7 +82,7 @@ def test_a_file_in_any_folder_opens_saves_and_keeps_its_runs_beside_it(repo, pro
     # runs and backups sit beside the file, each folder ignored by git
     assert client.put("/api/projects/team-car/runs/run-1", json=_run("run-1")).status_code == 200
     assert (repo / "car.lightsim-runs" / "run-1.json.gz").is_file()
-    assert (repo / "car.lightsim-runs" / ".gitignore").read_text().splitlines()[-1] == "*"
+    assert (repo / "car.lightsim-runs" / ".gitignore").read_text(encoding="utf-8").splitlines()[-1] == "*"
     assert (repo / "car.lightsim-backups" / ".gitignore").is_file()
     assert len(client.get("/api/projects/team-car/backups").json()) == 1
 
@@ -133,7 +133,7 @@ def test_a_copy_whose_id_is_taken_gets_its_own(repo, projects):
     other = _open(copy)["id"]
     assert other != "team-car" and other.startswith("team-car-")
     assert client.get(f"/api/projects/{other}").json()["id"] == other
-    assert json.loads(copy.read_text())["id"] == "team-car", "the file changes only when saved"
+    assert json.loads(copy.read_text(encoding="utf-8"))["id"] == "team-car", "the file changes only when saved"
     # a project in the projects folder with the same id also counts
     _save({**_example(), "id": "mine"})
     clash = _write(repo / "mine.lightsim", {**_example(), "id": "mine"})

@@ -38,7 +38,7 @@ def test_bundle_manifest_and_contents(tmp_path):
     assert manifest["name"] == "lightsim" and manifest["server"]["entry_point"] == "server/launcher.js"
     assert [t["name"] for t in manifest["tools"]] == [t["name"] for t in TOOLS]
     assert manifest["user_config"]["allowed_folders"]["type"] == "directory"
-    assert manifest["version"] == (ROOT / "VERSION").read_text().strip()
+    assert manifest["version"] == (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
 
 def _talk(env: dict, lines: list[dict]) -> list[dict]:

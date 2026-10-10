@@ -227,7 +227,7 @@ def test_a_kept_fmu_swapped_after_its_check_does_not_run():
     assert [p.name for p in (store.fmu_dir() / "unpacked").iterdir()] == []  # no copies left
     # the real file unpacks
     kept.write_bytes(good)
-    assert (store.unpacked(sha) / "modelDescription.xml").read_text() == "<good/>"
+    assert (store.unpacked(sha) / "modelDescription.xml").read_text(encoding="utf-8") == "<good/>"
 
 
 @pytest.mark.parametrize("bad", ["../evil.txt", "/abs/evil.txt", "a/../../evil.txt",

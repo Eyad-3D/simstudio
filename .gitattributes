@@ -1,0 +1,5 @@
+# Data files are checked out byte for byte on every platform. Windows
+# checkouts turn LF into CRLF in text files, which changed the SHA-256
+# fingerprints of the drive cycles (CON-04) and so the data a Windows build
+# ships.
+*.csv -text

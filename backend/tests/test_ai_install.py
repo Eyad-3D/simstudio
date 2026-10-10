@@ -81,7 +81,7 @@ def test_codex_entry_the_user_wrote_is_not_replaced():
 def test_the_commands(capsys, sandbox):
     assert main(["install", "--client", "vscode"]) == 0
     assert "VS Code" in capsys.readouterr().out
-    entry = json.loads(install.CLIENTS["vscode"].config_path().read_text())["servers"]["lightsim"]
+    entry = json.loads(install.CLIENTS["vscode"].config_path().read_text(encoding="utf-8"))["servers"]["lightsim"]
     assert entry["type"] == "stdio" and entry["args"][-1] == "mcp"
     assert main(["status"]) == 0
     out = capsys.readouterr().out
