@@ -31,9 +31,10 @@
 //! binary search; a NaN argument gives NaN.
 
 use lsim_ir::table::{Interpolation, Outside, TableData};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// One axis of a built table.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct Axis {
     /// breakpoints, strictly increasing (at least one)
     pts: Vec<f64>,
@@ -43,6 +44,24 @@ struct Axis {
     outside: Outside,
     /// the app's tolerance: float noise this close to an edge is inside
     tol: f64,
+    /// the interval found last (uneven breakpoints): a run reads a table
+    /// at nearby arguments call after call, and checking it first spares
+    /// most searches. Any value is a valid start (it is checked); threads
+    /// sharing the table may overwrite each other's, which costs a search
+    /// and changes no result.
+    hint: AtomicUsize,
+}
+
+impl Clone for Axis {
+    fn clone(&self) -> Axis {
+        Axis {
+            pts: self.pts.clone(),
+            uniform: self.uniform,
+            outside: self.outside,
+            tol: self.tol,
+            hint: AtomicUsize::new(self.hint.load(Ordering::Relaxed)),
+        }
+    }
 }
 
 impl Axis {
@@ -56,7 +75,13 @@ impl Axis {
             })
             .flatten();
         let (lo, hi) = (pts[0], pts[n - 1]);
-        Axis { pts: pts.to_vec(), uniform, outside, tol: 1e-9 * lo.abs().max(hi.abs()) }
+        Axis {
+            pts: pts.to_vec(),
+            uniform,
+            outside,
+            tol: 1e-9 * lo.abs().max(hi.abs()),
+            hint: AtomicUsize::new(0),
+        }
     }
 
     fn lo(&self) -> f64 {
@@ -77,6 +102,15 @@ impl Axis {
             let i = ((x - x0) * inv_h) as usize;
             return i.min(last);
         }
+        // the interval found last, or the next one: exactly the search's
+        // answer (the last start at or below x) when x lies in it
+        let p = &self.pts;
+        let h = self.hint.load(Ordering::Relaxed).min(last);
+        for i in [h, h + 1] {
+            if i <= last && x >= p[i] && (i == last || x < p[i + 1]) {
+                return i;
+            }
+        }
         // branch-free lower bound over the interval starts
         let p = &self.pts[..=last];
         let (mut lo, mut n) = (0usize, p.len());
@@ -87,6 +121,7 @@ impl Axis {
             }
             n -= half;
         }
+        self.hint.store(lo, Ordering::Relaxed);
         lo
     }
 
@@ -673,6 +708,53 @@ mod tests {
         assert!((v - (v3 + d3[0])).abs() < 1e-14 && d == d3);
         assert!(t.eval([f64::NAN, 0.0]).0.is_nan());
         assert!(t.guard(0, 1.0) > 0.0 && t.guard(0, 3.5) < 0.0 && t.guard(0, 3.0 + 1e-12) > 0.0);
+    }
+
+    /// The interval search started at the last interval found gives the
+    /// plain search's interval, whatever was found before: on uneven axes,
+    /// along random walks and jumps, at the breakpoints, outside, at NaN.
+    #[test]
+    fn the_hinted_interval_is_the_searched_one() {
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let search = |p: &[f64], x: f64| -> usize {
+            let last = p.len() - 2;
+            (0..=last).rev().find(|&k| x >= p[k]).unwrap_or(0)
+        };
+        let mut checked = 0;
+        for case in 0..200 {
+            let n = 2 + case % 40;
+            let mut x = -5.0 * rnd();
+            let pts: Vec<f64> = (0..n)
+                .map(|_| {
+                    let v = x;
+                    x += 0.01 + 3.0 * rnd() * rnd();
+                    v
+                })
+                .collect();
+            let ax = Axis::new(&pts, Outside::Linear);
+            assert!(ax.uniform.is_none() || n < 3, "uneven");
+            let (lo, hi) = (pts[0], pts[n - 1]);
+            let mut at = lo + (hi - lo) * rnd();
+            for k in 0..400 {
+                at = match k % 7 {
+                    0 => lo + (hi - lo) * rnd(),
+                    1 => pts[(rnd() * n as f64) as usize % n],
+                    2 => f64::NAN,
+                    3 => lo - 1.0,
+                    _ => (at + (hi - lo) * 0.02 * (rnd() - 0.5)).clamp(lo, hi),
+                };
+                let want = search(&pts, at);
+                assert_eq!(ax.interval(at), want, "case {case}, x = {at}, axis {pts:?}");
+                checked += 1;
+            }
+        }
+        assert!(checked >= 80_000);
     }
 
     /// The value alone is bitwise the value `eval` gives, inside the data,
