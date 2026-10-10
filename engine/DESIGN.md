@@ -1107,11 +1107,10 @@ integrator's error control by default (`energy_error_control`): without
 it they ride on the states' steps, and a fast-decaying loss came out 100×
 less accurate than the tolerance (the RC step's resistor loss at rtol
 1e-10: 1.3e-8 of the energy scale; with it 2.5e-11). The stored energy's
-change is integrated too, its rate taken along the solution by a
-fourth-order central difference of the declared stored energy in the
-direction (1, y') (exact for the quadratic energies of capacitors,
-inductors and masses), so the books close to round-off when every part's
-books agree with its equations (section 11). The integrator's own error
+change is integrated too, its rate taken along the solution in the
+direction (1, y') exactly, by forward-mode differentiation of the
+declared stored energy (section 11), so the books close to round-off
+when every part's books agree with its equations. The integrator's own error
 estimate goes into the report: the largest local error of any step as a
 share of the tolerance, and per variable the local errors summed over the
 run (an upper bound of the global error that ignores damping).
@@ -1257,10 +1256,16 @@ save most of those 10 ms in every run, sequential or not (a change to
   (`RunInfo::stored_rates`), with `y'` the model's own `x' = f(t, x, z)`
   for the states on every backend (on IDA its `y'` would differ by the
   residual its Newton iteration leaves) and the integrator's rate for the
-  iteration variables. Only a stored energy that reaches a derivative, the
-  time or a table through its assignments takes a fourth-order central
-  difference, its step moving no entry of `y` by more than 1e-3 of its
-  size or of its nominal scale. (Work package 4's fourth round found the
+  iteration variables. The time's rate is one; a table is the model's own
+  interpolant (`ModelFunctions::eval_table`: the books' powers, losses
+  and stored energies read the tables the compiled code reads), its
+  derivatives exact (a C¹ monotone cubic). Only a stored energy that
+  reaches a derivative or a previous value through its assignments takes
+  a fourth-order central difference, its step moving no entry of `y` by
+  more than 1e-3 of its size or of its nominal scale. (Work package 4's sixth round
+  found the books without tables: a declared stored energy or loss that
+  read one made them NaN, and the default run, its books under error
+  control, stopped at t = 0.) (Work package 4's fourth round found the
   difference's step collapsing whenever an entry of `y` passed zero while
   moving: its round-off grows as `|E| / step`, and a full fuel tank stores
   some 1e9 J, so the hybrid's books closed to only 1.6e-6 on the UDDS and

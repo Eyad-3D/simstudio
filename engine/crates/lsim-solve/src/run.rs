@@ -282,7 +282,12 @@ impl Loop<'_> {
             return;
         }
         self.sample(t, y, d);
-        let env = crate::info::ChannelEnv { t, vars: &self.vars, params: &info.params };
+        let env = crate::info::ChannelEnv {
+            t,
+            vars: &self.vars,
+            params: &info.params,
+            model: self.model,
+        };
         for m in &info.modes {
             let now = self.timed(m.crossing)
                 && info.time_crossings[m.crossing]
@@ -333,8 +338,12 @@ impl Loop<'_> {
         for (k, tc) in self.info.time_crossings.iter().enumerate() {
             self.t_star[k] = match tc {
                 Some(tc) => {
-                    let env =
-                        crate::info::ChannelEnv { t, vars: &self.vars, params: &self.info.params };
+                    let env = crate::info::ChannelEnv {
+                        t,
+                        vars: &self.vars,
+                        params: &self.info.params,
+                        model: self.model,
+                    };
                     let at = lsim_ir::eval::eval(&tc.at, &env);
                     // (a time within a few ulps of now is this instant:
                     // handled here, not scheduled again)
@@ -355,7 +364,12 @@ impl Loop<'_> {
             if moving && !reads {
                 continue;
             }
-            let env = crate::info::ChannelEnv { t, vars: &self.vars, params: &self.info.params };
+            let env = crate::info::ChannelEnv {
+                t,
+                vars: &self.vars,
+                params: &self.info.params,
+                model: self.model,
+            };
             let b = lsim_ir::eval::eval(&tt.b, &env);
             out.extend(tt.at.iter().map(|x| (x - b) / tt.c).filter(|x| x.is_finite()));
         }
@@ -383,7 +397,12 @@ impl Loop<'_> {
     /// The model's asserts on the channels just sampled.
     fn check_asserts(&mut self, t: f64) -> Result<(), SolveError> {
         for (k, a) in self.info.asserts.iter().enumerate() {
-            let env = crate::info::ChannelEnv { t, vars: &self.vars, params: &self.info.params };
+            let env = crate::info::ChannelEnv {
+                t,
+                vars: &self.vars,
+                params: &self.info.params,
+                model: self.model,
+            };
             let v = lsim_ir::eval::eval(&a.condition, &env);
             if v == 0.0 {
                 if a.error {
@@ -1042,7 +1061,7 @@ pub fn run_loop(
     let mut y = vec![0.0; n];
     let mut d = integ.discrete_mut().to_vec();
     let mut ledger = if opts.energy_books {
-        info.energy.as_ref().filter(|e| !e.parts.is_empty()).map(|e| Ledger::new(e, &l))
+        info.energy.as_ref().filter(|e| !e.parts.is_empty()).map(|e| Ledger::new(e, model))
     } else {
         None
     };
@@ -1731,7 +1750,7 @@ fn grid_point(
     lp: &mut Loop<'_>,
     rec: &mut Recorder,
     integ: &mut dyn Integrator,
-    ledger: &mut Option<Ledger>,
+    ledger: &mut Option<Ledger<'_>>,
     t: f64,
     yk: &mut [f64],
     d: &[f64],
@@ -1754,7 +1773,7 @@ fn after_event(
     lp: &mut Loop<'_>,
     rec: &mut Recorder,
     integ: &mut dyn Integrator,
-    ledger: &mut Option<Ledger>,
+    ledger: &mut Option<Ledger<'_>>,
     before: Option<Vec<f64>>,
     left: &[f64],
     t: f64,

@@ -5,7 +5,7 @@
 
 use lsim_ir::eval::Env;
 use lsim_ir::prepared::{AliasTarget, Direction, PreparedModel};
-use lsim_ir::runtime::SparsityPattern;
+use lsim_ir::runtime::{ModelFunctions, SparsityPattern};
 use lsim_ir::{Expr, ParamId, Slot, VarId};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -554,9 +554,10 @@ pub struct TimeTable {
 /// How the energy books take each stored energy's rate, `dE/dt` along the
 /// solution, exactly: by forward-mode differentiation in the direction
 /// `(1, y')` through the assignments that compute the variables the
-/// stored energies read. A stored energy whose variables reach a
-/// derivative, the time, a previous value or a table through them is
-/// left to a finite difference.
+/// stored energies read (the time's rate is one; a table's derivatives
+/// are those of the model's interpolant, [`ModelFunctions::eval_table`]).
+/// A stored energy whose variables reach a derivative or a previous value
+/// through them is left to a finite difference.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StoredRates {
     /// (variable, its expression), in evaluation order
@@ -592,14 +593,11 @@ impl StoredRates {
 }
 
 /// Whether `e` reads what a rate along the solution cannot take exactly
-/// here: a derivative, the time, a previous value, a table, a name.
+/// here: a derivative, a previous value, a name.
 fn reaches_unknown(e: &Expr) -> bool {
     let mut bad = false;
     e.walk(&mut |x| {
-        if matches!(
-            x,
-            Expr::Der(_) | Expr::Time | Expr::Pre(_) | Expr::Table { .. } | Expr::Name(_)
-        ) {
+        if matches!(x, Expr::Der(_) | Expr::Pre(_) | Expr::Name(_)) {
             bad = true;
         }
     });
@@ -1524,11 +1522,13 @@ fn part_name(flat: &lsim_ir::FlatSystem, id: lsim_ir::InstanceId) -> String {
     flat.instance_name(id)
 }
 
-/// Evaluates flat-scope expressions from the channel values.
+/// Evaluates flat-scope expressions from the channel values, with the
+/// model's tables as its compiled code interpolates them.
 pub(crate) struct ChannelEnv<'a> {
     pub t: f64,
     pub vars: &'a [f64],
     pub params: &'a [f64],
+    pub model: &'a dyn ModelFunctions,
 }
 
 impl Env for ChannelEnv<'_> {
@@ -1543,6 +1543,23 @@ impl Env for ChannelEnv<'_> {
     }
     fn param(&self, p: ParamId) -> f64 {
         self.params[p.0 as usize]
+    }
+    fn table(&self, k: u32, args: &[f64]) -> f64 {
+        table_at(self.model, k, args).map_or(f64::NAN, |(v, _)| v)
+    }
+}
+
+/// Table `k` of `model` at `args` (one or two of them): its value and
+/// partial derivatives, `None` when the model does not give it.
+pub(crate) fn table_at(
+    model: &dyn ModelFunctions,
+    k: u32,
+    args: &[f64],
+) -> Option<(f64, [f64; 2])> {
+    match args {
+        [x] => model.eval_table(k, [*x, 0.0]),
+        [x, y] => model.eval_table(k, [*x, *y]),
+        _ => None,
     }
 }
 

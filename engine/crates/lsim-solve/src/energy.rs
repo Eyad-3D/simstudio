@@ -7,9 +7,10 @@
 //! along the solution, `y'` the model's own `x' = f(t, x, z)` for the states
 //! and the integrator's rate for the iteration variables). The rate is
 //! exact: forward-mode differentiation of the declared stored energy in the
-//! direction (1, y') through the assignments ([`crate::StoredRates`]); a
-//! stored energy that reaches a derivative, the time or a table through
-//! them takes a fourth-order central difference instead, its step moving
+//! direction (1, y') through the assignments ([`crate::StoredRates`]), the
+//! model's tables with their interpolants' exact derivatives; a stored
+//! energy that reaches a derivative or a previous value through them takes
+//! a fourth-order central difference instead, its step moving
 //! no entry of y by more than 1e-3 of its size or of its nominal scale
 //! (round-off in a difference grows as |E| / step: a full fuel tank holds
 //! some 1e9 J). Jumps of the stored energy at events are booked
@@ -95,6 +96,8 @@ pub struct Integrand {
 /// leaves from y' (states, iteration variables), the chain's from its
 /// steps computed so far.
 struct Along<'a> {
+    t: f64,
+    model: &'a dyn ModelFunctions,
     params: &'a [f64],
     vars: &'a [f64],
     ydot: &'a [f64],
@@ -124,6 +127,12 @@ impl DualEnv for Along<'_> {
     }
     fn param(&self, p: ParamId) -> f64 {
         self.params[p.0 as usize]
+    }
+    fn time(&self) -> Result<Dual, ()> {
+        Ok(Dual { v: self.t, d: 1.0 })
+    }
+    fn table(&self, k: u32, args: &[f64]) -> Option<(f64, [f64; 2])> {
+        crate::info::table_at(self.model, k, args)
     }
 }
 
@@ -180,7 +189,7 @@ impl Integrand {
         out: &mut [f64],
     ) {
         m.vars(inp, work, &mut self.vars);
-        let env = ChannelEnv { t: inp.t, vars: &self.vars, params: inp.p };
+        let env = ChannelEnv { t: inp.t, vars: &self.vars, params: inp.p, model: m };
         for (part, s) in self.info.parts.iter().zip(&self.slots) {
             let p = eval(&part.power, &env);
             out[s.power] = p;
@@ -196,6 +205,8 @@ impl Integrand {
         // stored energy, by forward-mode differentiation
         for k in 0..self.rates.chain.len() {
             let env = Along {
+                t: inp.t,
+                model: m,
                 params: inp.p,
                 vars: &self.vars,
                 ydot,
@@ -212,6 +223,8 @@ impl Integrand {
             self.differ[j] = true;
             if self.rates.exact[j] {
                 let env = Along {
+                    t: inp.t,
+                    model: m,
                     params: inp.p,
                     vars: &self.vars,
                     ydot,
@@ -252,7 +265,7 @@ impl Integrand {
             }
             let at = EvalInput { t: inp.t + step, y: &self.shifted, ..*inp };
             m.vars(&at, work, &mut self.vars);
-            let env = ChannelEnv { t: at.t, vars: &self.vars, params: inp.p };
+            let env = ChannelEnv { t: at.t, vars: &self.vars, params: inp.p, model: m };
             for (j, part) in self.info.parts.iter().enumerate() {
                 if let Some(e) = &part.stored {
                     self.stored[j][k] = eval(e, &env);
@@ -399,7 +412,9 @@ impl EnergyBooks {
 
 /// The run loop's side of the books: stored energies at the start, the
 /// jumps at events, and the series on the output grid.
-pub(crate) struct Ledger {
+pub(crate) struct Ledger<'m> {
+    /// (for its tables)
+    model: &'m dyn ModelFunctions,
     info: Arc<EnergyInfo>,
     slots: Vec<Slot>,
     stored0: Vec<f64>,
@@ -433,8 +448,8 @@ impl Engagement {
     }
 }
 
-impl Ledger {
-    pub fn new(info: &Arc<EnergyInfo>, _l: &Layout) -> Self {
+impl<'m> Ledger<'m> {
+    pub fn new(info: &Arc<EnergyInfo>, model: &'m dyn ModelFunctions) -> Self {
         let info = info.clone();
         let (slots, n_q) = slots(&info);
         let n = info.parts.len();
@@ -449,6 +464,7 @@ impl Ledger {
                     ..Default::default()
                 })
                 .collect(),
+            model,
             info,
             slots,
             stored0: vec![0.0; n],
@@ -461,7 +477,7 @@ impl Ledger {
     }
 
     fn stored(&mut self, t: f64, vars: &[f64], params: &[f64]) {
-        let env = ChannelEnv { t, vars, params };
+        let env = ChannelEnv { t, vars, params, model: self.model };
         for (k, p) in self.info.parts.iter().enumerate() {
             self.scratch[k] = p.stored.as_ref().map(|e| eval(e, &env)).unwrap_or(0.0);
         }

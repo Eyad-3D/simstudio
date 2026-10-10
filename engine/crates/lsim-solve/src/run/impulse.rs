@@ -50,9 +50,9 @@
 use super::Loop;
 use crate::ad::{self, Jet, JetEnv};
 use crate::energy::Engagement;
-use crate::info::{ChannelEnv, ImpulseInfo, VarSource};
+use crate::info::{ChannelEnv, ImpulseInfo, VarSource, table_at};
 use crate::{Integrator, SolveError};
-use lsim_ir::runtime::EvalInput;
+use lsim_ir::runtime::{EvalInput, ModelFunctions};
 use lsim_ir::{Expr, ParamId, VarId};
 use std::collections::{BTreeSet, HashMap};
 
@@ -60,6 +60,7 @@ use std::collections::{BTreeSet, HashMap};
 /// the free states, computed from y, d and u through the chain.
 struct Store<'a> {
     t: f64,
+    model: &'a dyn ModelFunctions,
     params: &'a [f64],
     y: &'a [f64],
     d: &'a [f64],
@@ -148,12 +149,16 @@ impl JetEnv for Store<'_> {
     fn der(&self, v: VarId) -> f64 {
         self.ders.get(&(v.0 as usize)).copied().unwrap_or(f64::NAN)
     }
+    fn table(&self, k: u32, args: &[f64]) -> Option<(f64, [f64; 2])> {
+        table_at(self.model, k, args)
+    }
 }
 
 /// A stored energy as a function of the variables it reads, with its
 /// gradient and Hessian (second-order seeds on those variables).
 struct EnergyEnv<'a> {
     t: f64,
+    model: &'a dyn ModelFunctions,
     params: &'a [f64],
     at: &'a [usize],
     vals: &'a [f64],
@@ -179,6 +184,9 @@ impl JetEnv for EnergyEnv<'_> {
     }
     fn param(&self, p: ParamId) -> f64 {
         self.params[p.0 as usize]
+    }
+    fn table(&self, k: u32, args: &[f64]) -> Option<(f64, [f64; 2])> {
+        table_at(self.model, k, args)
     }
 }
 
@@ -218,8 +226,9 @@ impl Loop<'_> {
         self.sample(t, y, d);
         let cur = self.vars.clone();
         let params = self.info.params.clone();
+        let model = self.model;
         let at = |vars: &[f64], e: &Expr| {
-            lsim_ir::eval::eval(e, &ChannelEnv { t, vars, params: &params })
+            lsim_ir::eval::eval(e, &ChannelEnv { t, vars, params: &params, model })
         };
         let changed: Vec<usize> = (0..imp.engagements.len())
             .filter(|&k| {
@@ -423,7 +432,7 @@ impl Loop<'_> {
     fn stored(&self, t: f64, parts: &[usize], vars: &[f64]) -> f64 {
         let Some(imp) = &self.info.impulse else { return 0.0 };
         let Some(energy) = &self.info.energy else { return 0.0 };
-        let env = ChannelEnv { t, vars, params: &self.info.params };
+        let env = ChannelEnv { t, vars, params: &self.info.params, model: self.model };
         parts
             .iter()
             .filter_map(|&p| energy.parts[imp.parts[p].0].stored.as_ref())
@@ -447,7 +456,14 @@ impl Loop<'_> {
             let (k, at) = &imp.parts[p];
             let Some(e) = &energy.parts[*k].stored else { continue };
             let vals: Vec<f64> = at.iter().map(|v| before[*v]).collect();
-            let env = EnergyEnv { t, params: &self.info.params, at, vals: &vals, second: false };
+            let env = EnergyEnv {
+                t,
+                model: self.model,
+                params: &self.info.params,
+                at,
+                vals: &vals,
+                second: false,
+            };
             out.push((p, at.clone(), ad::eval(e, &env)?.g));
         }
         Ok(Balance { parts: out, links })
@@ -501,6 +517,7 @@ impl Loop<'_> {
             };
             let mut store = Store {
                 t,
+                model: self.model,
                 params: &info.params,
                 y,
                 d,
@@ -530,7 +547,14 @@ impl Loop<'_> {
                     }
                 }
                 let vals: Vec<f64> = jets.iter().map(|j| j.v).collect();
-                let env = EnergyEnv { t, params: &info.params, at, vals: &vals, second: true };
+                let env = EnergyEnv {
+                    t,
+                    model: self.model,
+                    params: &info.params,
+                    at,
+                    vals: &vals,
+                    second: true,
+                };
                 let ej = match ad::eval(e, &env) {
                     Ok(j) => j,
                     Err(why) => return Ok(Err(why)),
