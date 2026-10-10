@@ -204,6 +204,9 @@ pub struct RunInfo {
     pub root_dirs: Vec<i32>,
     /// for each `when` clause: what it is, in words
     pub when_labels: Vec<String>,
+    /// for each `when` clause: its condition is strict (`x > 0`: an exact
+    /// zero does not hold; empty: none is)
+    pub when_strict: Vec<bool>,
     /// parameter values, SI
     pub params: Vec<f64>,
     /// each entry of y by name (states, then iteration variables)
@@ -256,6 +259,7 @@ impl RunInfo {
             whens: vec![],
             root_dirs: vec![],
             when_labels: vec![],
+            when_strict: vec![],
             params,
             y_names: (0..n_y).map(|i| format!("y{i}")).collect(),
             residual_labels: vec![],
@@ -332,6 +336,7 @@ impl RunInfo {
             whens: m.whens.iter().map(|w| (w.crossing, w.direction)).collect(),
             root_dirs,
             when_labels: m.whens.iter().map(|w| labelled(&w.origin)).collect(),
+            when_strict: m.whens.iter().map(|w| w.strict).collect(),
             params: flat.params.iter().map(|p| p.value).collect(),
             y_names,
             residual_labels: m.residuals.iter().map(|r| labelled(&r.origin)).collect(),

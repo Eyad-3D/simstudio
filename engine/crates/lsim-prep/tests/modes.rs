@@ -1,13 +1,15 @@
 //! Modes (DESIGN.md, *Events and modes*): relations of `if`, `abs` and
 //! `sign` outside `noEvent` become discrete modes held between events, and
-//! the models run to their exact answers across the switches.
+//! the models run to their exact answers across the switches. And a
+//! `when` condition keeps its strictness (`>` against `>=`) through
+//! preparation, which Modelica's semantics need at an exact zero.
 
 mod common;
 
 use common::*;
-use lsim_ir::ComponentDef;
-use lsim_ir::component::build::{connect, eq, param, port, state, sub, var};
+use lsim_ir::component::build::{connect, discrete, eq, param, port, state, sub, var};
 use lsim_ir::expr::{Builtin, CmpOp, Expr, c, call, cmp, der, if_, name as n};
+use lsim_ir::{ComponentDef, Equation, EquationDecl, WhenAction};
 use lsim_prep::{Settings, prepare_with_report};
 
 /// An RC circuit fed by a source that switches off at t_off: the source's
@@ -117,4 +119,56 @@ fn quadratic_drag_flips_its_mode_as_the_speed_passes_zero() {
     // one instant (the mode's when clause and its flip are both recorded)
     assert!(!run.events.is_empty() && run.events.iter().all(|e| e.t == run.events[0].t));
     assert!((run.events[0].t - t1).abs() < 1e-8, "{} vs {t1}", run.events[0].t);
+}
+
+/// `when x > 0` with x(0) = 0 and x' = 1: the strict relation is false at
+/// the start and true right after it, so (Modelica) the clause fires just
+/// after the start; `when x >= 0` holds already at the start and never
+/// fires. The same falling: x' = -1, `x < 0` fires, `x <= 0` does not.
+/// (Preparation lowers `>` and `>=` to the same crossing; the strictness
+/// rides along on the prepared when clause.)
+#[test]
+fn a_strict_when_at_its_threshold_at_the_start() {
+    for (op, rate, fires) in [
+        (CmpOp::Gt, 1.0, 1.0),
+        (CmpOp::Ge, 1.0, 0.0),
+        (CmpOp::Lt, -1.0, 1.0),
+        (CmpOp::Le, -1.0, 0.0),
+    ] {
+        let counter = ComponentDef {
+            name: "Test.Counter".into(),
+            params: vec![param("rate", "1/s", rate, "")],
+            vars: vec![state("x", "1", 0.0, ""), discrete("count", "1", 0.0, "")],
+            equations: vec![
+                eq(der("x"), n("rate"), "x moves off zero"),
+                EquationDecl {
+                    eq: Equation::When {
+                        condition: cmp(op, n("x"), c(0.0)),
+                        actions: vec![WhenAction::Assign {
+                            var: "count".into(),
+                            value: n("count") + c(1.0),
+                        }],
+                    },
+                    label: Some("it counts".into()),
+                },
+            ],
+            ..Default::default()
+        };
+        let mut lib = library();
+        lib.add(counter);
+        let top = ComponentDef {
+            name: "Test.Top".into(),
+            components: vec![sub("k", "Test.Counter", &[])],
+            ..Default::default()
+        };
+        let (m, _) = prepare_with_report(&lib, &top, None, &Settings::default())
+            .unwrap_or_else(|d| panic!("{d:#?}"));
+        assert_eq!(m.whens[0].strict, matches!(op, CmpOp::Gt | CmpOp::Lt));
+        let run = simulate(&m, 1.0, 0.25, 1e-9);
+        let count = *run.channel("k.count").unwrap().last().unwrap();
+        println!(
+            "when x {op:?} 0 from x(0) = 0, x' = {rate}: fired {count} times (Modelica: {fires})"
+        );
+        assert_eq!(count, fires, "{op:?}");
+    }
 }

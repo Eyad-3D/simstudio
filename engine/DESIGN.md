@@ -868,9 +868,13 @@ round).**
   (a condition a tick's outputs made true never fired). Nothing fires at
   the start, as in Modelica (`pre(c) = c` after initialisation; sampled
   blocks' initial outputs are start values too): a condition already true
-  at the start fires once it has been false, one exactly at its threshold
-  at the start counts as true; what must hold from the start belongs in
-  the start values (the IR has no `initial()`).
+  at the start fires once it has been false; one exactly at its threshold
+  counts as it is written: `x >= 0` holds at zero, `x > 0` does not and
+  fires as x leaves zero (`PreparedWhen::strict` keeps the difference,
+  which the shared zero crossing loses; an exact zero of a `when`'s
+  crossing counts as the side its condition holds on, at the start and
+  after events). What must hold from the start belongs in the start
+  values (the IR has no `initial()`).
 * *Iteration variables in event iteration.* Whenever a discrete value
   changes during event iteration, the iteration variables are solved again
   (states held, `Integrator::consistent_z`) before the `when` values, the

@@ -15,10 +15,12 @@
 //!   takes every condition as it is there (Modelica's `pre(c) = c` after
 //!   initialisation; sampled blocks' initial outputs are start values
 //!   too), so a condition already true at the start fires only once it
-//!   has been false, and one exactly at its threshold at the start counts
-//!   as true. What must hold from the start belongs in the start values
-//!   (the IR has no `initial()`). A sample tick at the start time is an
-//!   event after the initialisation like any other.
+//!   has been false. One exactly at its threshold counts as written:
+//!   `x >= 0` holds at zero, a strict `x > 0` does not, and fires as x
+//!   leaves zero ([`RunInfo::when_strict`]). What must hold from the
+//!   start belongs in the start values (the IR has no `initial()`). A
+//!   sample tick at the start time is an event after the initialisation
+//!   like any other.
 //! * **Time events** ([`RunInfo::time_events`]) are reached exactly as stop
 //!   times and restart the integrator. So are **time crossings**
 //!   ([`RunInfo::time_crossings`]): a zero-crossing function that depends
@@ -131,6 +133,9 @@ struct Loop<'a> {
     raw: Vec<f64>,
     /// the mode whose crossing (or its falling copy) each root function is
     mode_of_root: Vec<Option<usize>>,
+    /// the `when` clause each other root function decides (the first one
+    /// on it): an exact zero counts as the side its condition holds on
+    when_of_root: Vec<Option<usize>>,
     /// per table guard: since when it is outside its data
     outside_since: Vec<Option<f64>>,
     /// per table guard: time spent outside, and when it first left
@@ -204,6 +209,11 @@ impl Loop<'_> {
                 if d[self.info.modes[k].discrete] != 0.0 { 1.0 } else { -1.0 }
             } else if let Some(r) = dirs.and_then(|x| x.get(c)).filter(|r| **r != 0) {
                 *r as f64
+            } else if let Some(k) = self.when_of_root[c] {
+                // its condition at zero: `x >= 0` holds there (the positive
+                // side), `x > 0` does not (so x leaving zero upwards fires)
+                let true_side = if self.info.whens[k].1 == Direction::Falling { -1.0 } else { 1.0 };
+                if self.holds(k, 0.0) { true_side } else { -true_side }
             } else {
                 self.sides[c]
             };
@@ -261,6 +271,29 @@ impl Loop<'_> {
                 let rising =
                     self.info.time_crossings[m.crossing].as_ref().is_some_and(|c| c.rising);
                 d[m.discrete] = if rising { 1.0 } else { 0.0 };
+            }
+        }
+    }
+
+    /// Whether `when` clause `k`'s condition holds where its crossing is
+    /// `g`: `x >= 0` (rising, not strict) holds at zero, `x > 0` (strict)
+    /// does not; a falling clause's condition is `x <= 0` or `x < 0`.
+    fn holds(&self, k: usize, g: f64) -> bool {
+        let strict = self.info.when_strict.get(k).copied().unwrap_or(false);
+        match self.info.whens[k].1 {
+            Direction::Rising | Direction::Both => {
+                if strict {
+                    g > 0.0
+                } else {
+                    g >= 0.0
+                }
+            }
+            Direction::Falling => {
+                if strict {
+                    g < 0.0
+                } else {
+                    g <= 0.0
+                }
             }
         }
     }
@@ -452,17 +485,14 @@ impl Loop<'_> {
         self.eval_roots(t, y, d_pre, true);
         // the discrete values y's iteration variables are consistent with
         let mut z_for: Vec<f64> = d_pre.to_vec();
+        // the clauses on crossings the integrator reported: they fire (or
+        // not) by its direction, and the first round does not check them
+        // again
+        let mut reported = vec![false; n_whens];
         if let Some(dirs) = dirs {
-            // a crossing the integrator reported fires below by its
-            // direction; as a value before the event it is neutral, so the
-            // re-check does not fire it a second time
-            for (c, r) in dirs.iter().enumerate() {
-                if *r != 0 && c < self.roots_prev.len() {
-                    self.roots_prev[c] = 0.0;
-                }
-            }
             for (k, (c, dir)) in info.whens.iter().enumerate() {
                 let r = dirs.get(*c).copied().unwrap_or(0);
+                reported[k] = r != 0;
                 let hit = match dir {
                     Direction::Rising => r > 0,
                     Direction::Falling => r < 0,
@@ -495,21 +525,45 @@ impl Loop<'_> {
                 }
             }
         }
+        self.rounds(integ, t, y, d, &mut fired, any_fired, &reported, &mut z_for)?;
+        self.solve_z(integ, t, y, d, &mut z_for)?;
+        Ok(d.as_slice() != d_pre)
+    }
+
+    /// Event iteration's rounds at `t`: applies the `when` clauses in
+    /// `fired`, sets every mode from its relation, and re-checks every
+    /// condition against its value in the round before (on entry:
+    /// `self.roots_prev`), until nothing changes. A clause fires when its
+    /// condition goes from not holding to holding (Modelica's edge);
+    /// `skip`: clauses the first round does not check (decided already).
+    #[allow(clippy::too_many_arguments)]
+    fn rounds(
+        &mut self,
+        integ: &mut dyn Integrator,
+        t: f64,
+        y: &mut [f64],
+        d: &mut Vec<f64>,
+        fired: &mut [f64],
+        mut any_fired: bool,
+        skip: &[bool],
+        z_for: &mut Vec<f64>,
+    ) -> Result<(), SolveError> {
+        let info = self.info;
         let mut iterations = 0;
         loop {
             if any_fired {
-                self.solve_z(integ, t, y, d, &mut z_for)?;
+                self.solve_z(integ, t, y, d, z_for)?;
                 let mut d_new = d.clone();
                 let inp = EvalInput { t, y, p: &info.params, d, u: self.u };
-                self.model.when(&inp, &fired, &mut self.work, &mut d_new);
+                self.model.when(&inp, fired, &mut self.work, &mut d_new);
                 *d = d_new;
                 fired.fill(0.0);
                 any_fired = false;
             }
             // every mode from its relation with the new discrete values
-            self.solve_z(integ, t, y, d, &mut z_for)?;
+            self.solve_z(integ, t, y, d, z_for)?;
             if self.modes_from_relations(t, y, d)? {
-                self.solve_z(integ, t, y, d, &mut z_for)?;
+                self.solve_z(integ, t, y, d, z_for)?;
             }
             if self.roots.is_empty() {
                 break;
@@ -518,10 +572,12 @@ impl Loop<'_> {
             let mut again = false;
             let mut flipped = vec![];
             for (k, (c, dir)) in info.whens.iter().enumerate() {
+                if iterations == 0 && skip.get(k).copied().unwrap_or(false) {
+                    continue;
+                }
                 let (a, b) = (self.roots_prev[*c], self.roots[*c]);
                 let hit = match dir {
-                    Direction::Rising => a < 0.0 && b >= 0.0,
-                    Direction::Falling => a > 0.0 && b <= 0.0,
+                    Direction::Rising | Direction::Falling => !self.holds(k, a) && self.holds(k, b),
                     Direction::Both => (a < 0.0 && b >= 0.0) || (a > 0.0 && b <= 0.0),
                 };
                 if hit {
@@ -568,8 +624,7 @@ impl Loop<'_> {
             }
             std::mem::swap(&mut self.roots_prev, &mut self.roots);
         }
-        self.solve_z(integ, t, y, d, &mut z_for)?;
-        Ok(d.as_slice() != d_pre)
+        Ok(())
     }
 
     /// Whether a sample tick's change at `t` (the end of the integrator's
@@ -1080,6 +1135,7 @@ pub fn run_loop(
             }
             m
         },
+        when_of_root: vec![None; l.n_roots + model.table_guard_list().len()],
         outside_since: vec![None; model.table_guard_list().len()],
         outside_total: vec![(0.0, f64::NAN); model.table_guard_list().len()],
         warned: vec![false; info.asserts.len()],
@@ -1089,6 +1145,11 @@ pub fn run_loop(
         now: vec![false; l.n_roots],
         use_timed: false,
     };
+    for (k, (c, _)) in info.whens.iter().enumerate() {
+        if *c < lp.when_of_root.len() && lp.mode_of_root[*c].is_none() {
+            lp.when_of_root[*c].get_or_insert(k);
+        }
+    }
     let p = &info.params;
     let mut y = vec![0.0; n];
     let mut d = integ.discrete_mut().to_vec();

@@ -313,7 +313,10 @@ end Rotational.LatchBrake;
 * As in Modelica, a `when` acts when its condition *becomes* true while
   the model runs. A condition already true at the start does not act
   there (it acts once it has been false and becomes true again): what
-  must hold from the start belongs in the start values.
+  must hold from the start belongs in the start values. A condition
+  exactly at its threshold is taken as written: `when x >= 0` with x
+  starting at 0 is already true; `when x > 0` is not, and acts as x
+  leaves 0.
 * `when a then … elsewhen b then … end when;` handles two conditions; if
   both become true at the same moment, the first branch wins.
 

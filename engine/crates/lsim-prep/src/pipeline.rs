@@ -98,6 +98,8 @@ impl Clock {
 struct NodeWhen {
     crossing: Expr,
     direction: Direction,
+    /// the condition does not hold at an exact zero (`x > 0`)
+    strict: bool,
     assign: Vec<(VarId, Expr)>,
     origin: Origin,
 }
@@ -325,6 +327,8 @@ pub fn run(
             continue;
         };
         let rising = matches!(op, CmpOp::Gt | CmpOp::Ge) != flip;
+        // `x > 0` and `not (x >= 0)` (x < 0) do not hold at zero
+        let strict = matches!(op, CmpOp::Gt | CmpOp::Lt) != flip;
         let f = crate::symbolic::simplify((**a).clone() - (**b).clone());
         for (v, _) in &w.assign {
             if flat.var(*v).kind != VarKind::Discrete {
@@ -343,6 +347,7 @@ pub fn run(
         node_whens.push(NodeWhen {
             crossing: fixed_expr(&sys, &f, "an event condition", &w.origin, &mut diags),
             direction: if rising { Direction::Rising } else { Direction::Falling },
+            strict,
             assign: w
                 .assign
                 .iter()
@@ -764,12 +769,15 @@ pub fn run(
     for w in &node_whens {
         zero_crossings
             .push(ZeroCrossing { expr: map.to_flat(&w.crossing), origin: w.origin.clone() });
-        whens.push(PreparedWhen::new(
-            zero_crossings.len() - 1,
-            w.direction,
-            w.assign.iter().map(|(v, x)| (*v, map.to_flat(x))).collect(),
-            w.origin.clone(),
-        ));
+        whens.push(PreparedWhen {
+            strict: w.strict,
+            ..PreparedWhen::new(
+                zero_crossings.len() - 1,
+                w.direction,
+                w.assign.iter().map(|(v, x)| (*v, map.to_flat(x))).collect(),
+                w.origin.clone(),
+            )
+        });
     }
     let mut prepared_modes = vec![];
     for m in &node_modes {
