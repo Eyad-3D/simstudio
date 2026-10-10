@@ -3,7 +3,8 @@
 //! from the reference suite), time events, event iteration across chained
 //! `when` clauses, event storms, sampled blocks (one that changes nothing,
 //! one that changes its output at every tick), the 10× tighter check,
-//! parallel sweeps and the initialisation's homotopy.
+//! parallel sweeps and the initialisation's homotopy; and the order
+//! contract of the compiled roots.
 
 mod common;
 
@@ -524,5 +525,108 @@ fn a_prepared_step_in_time_happens_exactly_at_its_time() {
         let y = run.channel("step.y").unwrap();
         let k = run.times.iter().position(|t| *t == 0.5).expect("0.5 on the grid");
         assert_eq!((y[k - 1], y[k]), (0.0, 1.0), "{backend:?}: the output at 0.5 is after it");
+    }
+}
+
+/// The order contract between preparation, the code generator and the run
+/// loop (DESIGN.md 5.8): the compiled `roots` evaluates
+/// `PreparedModel::zero_crossings` in their order, and the run loop indexes
+/// every per-crossing table by it (`RunInfo::time_crossings`, the modes'
+/// and the `when` clauses' crossings). A model with time crossings at
+/// distinct times between a state crossing and a mode: each compiled root
+/// that `time_crossings` says crosses at `at` must change sign there, in
+/// its direction. A code generator that reordered the roots would fail
+/// this.
+#[test]
+fn compiled_roots_follow_the_zero_crossings_order() {
+    use lsim_ir::component::build::{discrete, eq, param, state, sub, var};
+    use lsim_ir::expr::{CmpOp, cmp, der, if_, name as n};
+    use lsim_ir::{ComponentDef, Equation, EquationDecl, WhenAction};
+    let when = |condition: Expr, var: &str, label: &str| EquationDecl {
+        eq: Equation::When {
+            condition,
+            actions: vec![WhenAction::Assign { var: var.into(), value: Expr::Const(1.0) }],
+        },
+        label: Some(label.into()),
+    };
+    let clock = ComponentDef {
+        name: "Test.Clock".into(),
+        params: vec![
+            param("rate", "1/s", 1.0, ""),
+            param("t1", "s", 0.3, ""),
+            param("t2", "s", 0.7, ""),
+            param("t3", "s", 0.9, ""),
+        ],
+        vars: vec![
+            state("x", "1", 0.0, ""),
+            discrete("a", "1", 0.0, ""),
+            discrete("b", "1", 0.0, ""),
+            discrete("c", "1", 0.0, ""),
+            var("y", "1", ""),
+        ],
+        equations: vec![
+            eq(der("x"), n("rate"), "x rises"),
+            when(cmp(CmpOp::Ge, Expr::Time, n("t1")), "a", "a at t1"),
+            when(cmp(CmpOp::Ge, n("x"), Expr::Const(0.5)), "b", "b at x = 0.5"),
+            eq(
+                n("y"),
+                if_(cmp(CmpOp::Gt, Expr::Time, n("t2")), Expr::Const(1.0), Expr::Const(0.0)),
+                "y after t2",
+            ),
+            when(cmp(CmpOp::Lt, n("t3"), Expr::Time), "c", "c after t3"),
+        ],
+        ..Default::default()
+    };
+    let mut lib = common::library();
+    lib.add(clock);
+    let top = ComponentDef {
+        name: "Test.Top".into(),
+        components: vec![sub("k", "Test.Clock", &[])],
+        ..Default::default()
+    };
+    let built = common::build(&lib, &top, false);
+    let (m, info, jit) = (&built.prepared, &built.info, &built.jit);
+    let n_roots = m.zero_crossings.len();
+    assert_eq!(jit.layout().n_roots, n_roots, "one compiled root per zero crossing");
+    assert_eq!(info.time_crossings.len(), n_roots);
+    let l = *jit.layout();
+    let (mut y0, mut d0) = (vec![0.0; l.n_y()], vec![0.0; l.n_d]);
+    jit.start(&info.params, &mut y0, &mut d0);
+    let mut work = vec![0.0; l.n_work];
+    let mut vars = vec![0.0; l.n_vars];
+    let mut out = vec![0.0; n_roots];
+    let mut root = |t: f64, k: usize| {
+        let inp = EvalInput { t, y: &y0, p: &info.params, d: &d0, u: &[] };
+        jit.roots(&inp, &mut work, &mut out);
+        out[k]
+    };
+    let inp = EvalInput { t: 0.0, y: &y0, p: &info.params, d: &d0, u: &[] };
+    jit.vars(&inp, &mut vec![0.0; l.n_work], &mut vars);
+    let env = lsim_ir::eval::SliceEnv { t: 0.0, vars: &vars, ders: &[], params: &info.params };
+    let mut seen = vec![];
+    for (k, tc) in info.time_crossings.iter().enumerate() {
+        let Some(tc) = tc else {
+            // the state crossing x - 0.5: -0.5 at the start, whatever the time
+            assert_eq!(root(0.0, k), -0.5, "crossing {k}");
+            assert_eq!(root(1.0, k), -0.5, "crossing {k}");
+            continue;
+        };
+        let at = lsim_ir::eval::eval(&tc.at, &env);
+        let (before, after) = (root(at - 1e-6, k), root(at + 1e-6, k));
+        println!("crossing {k}: {} at {at}: {before:e} → {after:e}", m.zero_crossings[k].expr);
+        assert!(root(at, k).abs() < 1e-12, "crossing {k} is not zero at its time {at}");
+        if tc.rising {
+            assert!(before < 0.0 && after > 0.0, "crossing {k} does not rise at {at}");
+        } else {
+            assert!(before > 0.0 && after < 0.0, "crossing {k} does not fall at {at}");
+        }
+        seen.push((at * 10.0).round() as i64);
+    }
+    seen.sort();
+    seen.dedup();
+    assert_eq!(seen, [3, 7, 9], "the three times");
+    // the modes' and the when clauses' crossings are indices into the same
+    for md in &info.modes {
+        assert!(info.time_crossings[md.crossing].is_some(), "the mode of `time > t2`");
     }
 }

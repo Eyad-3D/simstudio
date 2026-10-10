@@ -604,6 +604,21 @@ additive). What the other packages change to use them:
 * Show `PreparedModel::warnings` in the build report and the Python
   `model.report`.
 
+**WP3 (lsim-codegen): the order of the zero crossings.** The compiled
+`roots` evaluates `PreparedModel::zero_crossings` in their order, one
+output each (`Layout::n_roots` is their number), the table guards after
+them in `table_guard_list()` order. The run loop indexes every
+per-crossing table by that order and nothing else: `RunInfo::time_crossings`
+(a crossing it schedules as an exact time event instead of watching it),
+the root directions and sides, the modes' and the `when` clauses'
+`crossing`, the root mask it hands the integrator. A code generator that
+reorders, merges or drops crossings breaks all of them without a
+compile error; `compiled_roots_follow_the_zero_crossings_order` in
+`lsim-solve/tests/events.rs` checks the contract on a compiled model
+(time crossings at distinct times around a state crossing and a mode).
+`PreparedWhen::strict` needs nothing from the code generator: the run loop
+reads it.
+
 **WP3** keeps: its interpreted tape (`tape.rs`) is not wired in,
 `InitFunctions::guess` uses the flat start values rather than
 `InitSystem::guesses`, and asserts have no compiled function yet.
