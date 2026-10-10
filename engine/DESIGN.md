@@ -905,17 +905,29 @@ round).**
   from `0 = g_x x' + g_z z' + g_t`), skips `IDACalcIC` (the point is
   consistent) and the Newton solve when event iteration just did it, and
   sizes the first step as CVODE sizes its own (`h0 = ½ √(2 / ‖x''‖)`,
-  capped by the step the integrator had planned; for CVODE too). A tick
-  whose change is slight (only its outputs changed, no condition changed
-  side, the jumps of `x'` over the planned step and of `z` within a tenth
-  of the error test's budget) lets the integration go on with its history
-  (a light restart), checked by the next step's error test. On a
+  capped by the step the integrator had planned; for CVODE too). On a
   sample-and-hold DAE the steps per changing tick fell from 11.4 to 2.2
-  (IDA) and 2.6 to 1.9 (CVODE); on the first 100 s of the hybrid's UDDS
-  from 302 622 to 224 414 steps and 160 944 to 65 664 Jacobians, 2 000 of
-  its 10 000 changing ticks light. The remaining steps resolve the fast
-  transient each torque command excites (the tyres' slip settles in about
-  1e-4 s), which the error test on the iteration variables demands.
+  (IDA) and 2.6 to 1.9 (CVODE). The remaining steps on the hybrid resolve
+  the fast transient each torque command excites (the tyres' slip settles
+  in about 1e-4 s), which the error test on the iteration variables
+  demands. A tick whose changed outputs reach nothing the integrator
+  integrates or watches (`RunInfo::dynamic_discretes`: no state
+  derivative, residual, energy integrand, zero crossing or table argument
+  reads them) leaves the solution exactly as it is: the step stands,
+  without a restart.
+* *Light restarts are opt-in* (`SolverOptions::light_restarts`). Going
+  on with the integration's history after a slight tick (only its
+  outputs changed, no condition changed side, the jumps of `x'` over the
+  planned step and of `z` within a tenth of the error test's budget)
+  passes each step's error test, but the history carries the kink the
+  tick put into `x'` into the next steps, and for a steadily moving
+  command that error has the same sign at every tick: it accumulates to
+  about half a tick times the command's whole change. On a 10 000-tick
+  ramp at rtol 1e-6 that is 57 tolerance units against 1.6e-11 with
+  restarts; a sine command, 5.1e-6 against 3e-15 (the review's tests,
+  now in `lsim-solve/tests/run_loop.rs`). A rigorous bound would have to
+  carry the kink through the variable-order history, so the default
+  restarts.
 * *`suppress_algebraic_error` stays off.* Leaving the iteration variables
   out of the error test takes the hybrid's first 100 s from 230 234 to
   62 458 steps and the BEV's first 50 s of WLTC from 7 076 to 2 307; the

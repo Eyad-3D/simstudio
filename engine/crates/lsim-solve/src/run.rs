@@ -44,10 +44,13 @@
 //!   `offset + k·period`. A tick that falls inside a step is evaluated on
 //!   the dense output; if its outputs did not change, nothing else happens
 //!   (no restart, no shortened step: a block that changes nothing costs one
-//!   interpolation of its inputs and its own call). If they changed, the
-//!   step is cut back to the tick: the integrator restarts there with the
-//!   new values, and the block's next tick becomes a stop time until a
-//!   tick changes nothing again.
+//!   interpolation of its inputs and its own call), and so it is when the
+//!   outputs that changed reach nothing the integrator integrates or
+//!   watches ([`RunInfo::dynamic_discretes`]). Otherwise the step is cut
+//!   back to the tick: the integrator restarts there with the new values
+//!   (or, with [`SolverOptions::light_restarts`], opt-in, goes on with its
+//!   history after a slight change at a step's end), and the block's next
+//!   tick becomes a stop time until a tick changes nothing again.
 //! * **Impulses**: when an event changes how the states map onto the
 //!   velocities the parts' stored energies weigh (a gearbox shifts), the
 //!   states jump to the nearest consistent ones in that metric: the
@@ -627,7 +630,8 @@ impl Loop<'_> {
         Ok(())
     }
 
-    /// Whether a sample tick's change at `t` (the end of the integrator's
+    /// With light restarts on ([`SolverOptions::light_restarts`], opt-in),
+    /// whether a sample tick's change at `t` (the end of the integrator's
     /// last step, `y` the point after the event) is so slight that the
     /// integration can go on with its history: only the block's `outputs`
     /// changed (no mode, no `when`), no condition or table guard changed
@@ -650,7 +654,7 @@ impl Loop<'_> {
         let only_outputs =
             d.iter().zip(d_pre).enumerate().all(|(i, (a, b))| a == b || outputs.contains(&i));
         let h = integ.planned_step();
-        if !only_outputs || h <= 0.0 {
+        if !self.opts.light_restarts || !only_outputs || h <= 0.0 {
             return Ok(false);
         }
         let l = *self.model.layout();
@@ -1450,6 +1454,34 @@ pub fn run_loop(
                     lp.scheduled = false;
                     it?;
                     integ.discrete_mut().copy_from_slice(&d);
+                    // outputs that reach nothing the integrator integrates
+                    // or watches (a value only shown as a channel): the
+                    // solution is exactly the one without the tick, so the
+                    // step stands (no cut, no restart)
+                    let inert = d.iter().zip(&d_pre).enumerate().all(|(i, (a, b))| {
+                        a == b
+                            || (outs.contains(&i)
+                                && !info.dynamic_discretes.get(i).copied().unwrap_or(true))
+                    });
+                    if inert {
+                        report.light_restarts += 1;
+                        clocks[b].stop_next = false;
+                        after_event(
+                            &mut lp,
+                            &mut rec,
+                            integ,
+                            &mut ledger,
+                            before,
+                            tk,
+                            &yk,
+                            &d,
+                            None,
+                        )?;
+                        if tk == t_new {
+                            resumed = Some(yk.clone());
+                        }
+                        continue;
+                    }
                     let imp = lp.impulse(integ, tk, &mut yk, &d_pre, &d, &before_vars)?;
                     if imp.is_some() {
                         report.impulses += 1;

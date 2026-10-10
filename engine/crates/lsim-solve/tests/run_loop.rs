@@ -12,7 +12,8 @@ use lsim_ir::runtime::{DiscreteBlock, EvalInput, Layout, ModelFunctions};
 use lsim_ir::{ParamId, VarId};
 use lsim_solve::{
     Backend, BlockInfo, EnergyInfo, EnergyPart, EventKind, ImpulseInfo, ImpulseLink, ImpulseVar,
-    ModeInfo, OutputGrid, RunInfo, SimResult, SolverOptions, TimeCrossing, VarSource, simulate,
+    Integrator, ModeInfo, OutputGrid, RunInfo, SimResult, SolveError, SolverOptions, SolverStats,
+    Step, TimeCrossing, VarSource, run_loop, simulate,
 };
 use std::sync::Arc;
 
@@ -489,14 +490,15 @@ fn a_restart_after_a_tick_costs_a_few_steps() {
     }
 }
 
-/// A tick whose output change is a rounding error goes on with the
-/// integration's history (no restart), and the run is the one without the
-/// change to within the tolerance.
+/// With light restarts on (they are opt-in), a tick whose output change is
+/// a rounding error goes on with the integration's history (no restart),
+/// and the run is the one without the change to within the tolerance.
 #[test]
 fn a_slight_change_at_a_tick_needs_no_restart() {
     let (model, mut info) = held_dae();
     info.blocks = vec![block(vec![0], vec![0], 0.01)];
-    let opts = SolverOptions { rtol: 1e-8, atol: 1e-10, ..Default::default() };
+    let opts =
+        SolverOptions { rtol: 1e-8, atol: 1e-10, light_restarts: true, ..Default::default() };
     let grid = OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.1 };
     // u = 0.5 throughout, but each tick moves it by a few ulps
     let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![Box::new(Sampled {
@@ -945,4 +947,358 @@ fn a_time_mode_rearmed_at_its_own_instant() {
         );
         assert!(y_end.abs() < 1e-6, "timed {timed}: y(2.2) = {y_end}");
     }
+}
+
+/// A sampled block's law: (t, inputs, outputs).
+type Law = Box<dyn Fn(f64, &[f64], &mut [f64]) + Send>;
+
+/// A sampled block whose law is a closure.
+struct SampledBy {
+    period: f64,
+    law: Law,
+}
+
+impl DiscreteBlock for SampledBy {
+    fn name(&self) -> &str {
+        "'Controller'"
+    }
+    fn period(&self) -> f64 {
+        self.period
+    }
+    fn init(&mut self, _t: f64, _i: &[f64], _o: &mut [f64]) -> Result<(), String> {
+        Ok(())
+    }
+    fn tick(&mut self, t: f64, i: &[f64], o: &mut [f64]) -> Result<(), String> {
+        (self.law)(t, i, o);
+        Ok(())
+    }
+}
+
+/// The SUNDIALS integrator that never resumes (`resume` left at the
+/// trait's default, false): every changing tick restarts it.
+struct NoResume<'m>(lsim_solve::sundials::Sundials<'m>);
+
+impl Integrator for NoResume<'_> {
+    fn name(&self) -> &'static str {
+        self.0.name()
+    }
+    fn step(&mut self, t_stop: f64) -> Result<Step, SolveError> {
+        self.0.step(t_stop)
+    }
+    fn y(&self) -> &[f64] {
+        self.0.y()
+    }
+    fn interpolate(&mut self, t: f64, out: &mut [f64]) -> Result<(), SolveError> {
+        self.0.interpolate(t, out)
+    }
+    fn interpolate_select(
+        &mut self,
+        t: f64,
+        idx: &[usize],
+        out: &mut [f64],
+    ) -> Result<(), SolveError> {
+        self.0.interpolate_select(t, idx, out)
+    }
+    fn discrete_mut(&mut self) -> &mut [f64] {
+        self.0.discrete_mut()
+    }
+    fn restart(&mut self, t: f64, y: &[f64]) -> Result<(), SolveError> {
+        self.0.restart(t, y)
+    }
+    fn planned_step(&self) -> f64 {
+        self.0.planned_step()
+    }
+    fn consistent_z(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError> {
+        self.0.consistent_z(t, y, d)
+    }
+    fn stats(&self) -> SolverStats {
+        self.0.stats()
+    }
+    fn quadrature(&mut self, t: f64, out: &mut [f64]) -> Result<(), SolveError> {
+        self.0.quadrature(t, out)
+    }
+    fn local_error(&mut self, out: &mut [f64]) -> bool {
+        self.0.local_error(out)
+    }
+    fn set_root_sides(&mut self, sides: &[f64]) {
+        self.0.set_root_sides(sides)
+    }
+    fn set_root_mask(&mut self, mask: &[bool]) -> bool {
+        self.0.set_root_mask(mask)
+    }
+    fn method(&self) -> String {
+        self.0.method()
+    }
+}
+
+/// How a run treats a changing tick: restart every time, the default, or
+/// with light restarts on.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Ticks {
+    Restart,
+    Default,
+    Light,
+}
+
+fn run_ticks(
+    model: &Hand,
+    info: &RunInfo,
+    opts: &SolverOptions,
+    grid: OutputGrid,
+    blocks: &mut [Box<dyn DiscreteBlock>],
+    how: Ticks,
+) -> SimResult {
+    match how {
+        Ticks::Default => simulate(model, info, opts, grid, blocks).unwrap(),
+        Ticks::Light => {
+            let opts = SolverOptions { light_restarts: true, ..opts.clone() };
+            simulate(model, info, &opts, grid, blocks).unwrap()
+        }
+        Ticks::Restart => {
+            let l = *model.layout();
+            let mut y0 = vec![0.0; l.n_y()];
+            let mut d0 = vec![0.0; l.n_d];
+            model.start(&info.params, &mut y0, &mut d0);
+            let integ =
+                lsim_solve::sundials::Sundials::new(model, info, opts, grid, &y0, d0, vec![], None)
+                    .unwrap();
+            let mut integ = NoResume(integ);
+            run_loop(model, info, opts, grid, &mut integ, &[], blocks, std::time::Instant::now())
+                .unwrap()
+        }
+    }
+}
+
+/// Sample-and-hold drive of a pure integrator, x' = u_k (a position from a
+/// held velocity command), and of a first-order lag, x' = (u_k - x)/tau,
+/// each as an ODE (CVODE) and with an algebraic copy z = x (IDA).
+/// u_k = A sin(w t_k) changes a little at every tick: each changing tick is
+/// a kink of x'. Exact: piecewise from the held values. The default run
+/// restarts at each changing tick and is as accurate as forced restarts;
+/// light restarts (opt-in) carry each kink into the next steps through the
+/// integration's history, and the error that leaves accumulates (from the
+/// review: 5e-6 against 3e-15 at rtol 1e-6, when light restarts were the
+/// default).
+#[test]
+fn light_restarts_cost_accuracy_against_an_exact_answer() {
+    let period = 0.01;
+    let t_end = 20.0;
+    let (amp, w) = (1e-3, 1.0);
+    for tau in [f64::INFINITY, 0.5] {
+        for n_z in [0usize, 1] {
+            for rtol in [1e-6, 1e-8] {
+                let model = Hand {
+                    layout: layout(1, n_z, 0, 1, 0, 0, 2),
+                    f: Box::new(move |i, out| {
+                        out[0] = if tau.is_finite() { (i.d[0] - i.y[0]) / tau } else { i.d[0] };
+                        if out.len() > 1 {
+                            out[1] = i.y[1] - i.y[0];
+                        }
+                    }),
+                    jvp: Box::new(move |_, v, out| {
+                        out[0] = if tau.is_finite() { -v[0] / tau } else { 0.0 };
+                        if out.len() > 1 {
+                            out[1] = v[1] - v[0];
+                        }
+                    }),
+                    roots: Box::new(|_, _| {}),
+                    vars: Box::new(|i, out| {
+                        out[0] = i.y[0];
+                        out[1] = i.d[0];
+                    }),
+                    when: Box::new(|_, _, _| {}),
+                    modes: None,
+                    y0: if n_z == 1 { vec![1.0, 1.0] } else { vec![1.0] },
+                    d0: vec![0.0],
+                };
+                let mut info = RunInfo::bare(1 + n_z, 2, vec![]);
+                info.var_sources = vec![VarSource::Y(0), VarSource::D(0)];
+                info.blocks = vec![BlockInfo {
+                    name: "'Controller'".into(),
+                    chains: vec![],
+                    inputs: vec![],
+                    outputs: vec![0],
+                    period,
+                }];
+                let opts = SolverOptions { rtol, atol: rtol, ..Default::default() };
+                let grid = OutputGrid { t0: 0.0, t_end, dt: 0.5 };
+                // the exact answer on the grid, from the held values
+                let u_k = |k: usize| amp * (w * k as f64 * period).sin();
+                let exact = |t: f64| {
+                    let mut x = 1.0;
+                    let mut k = 0usize;
+                    loop {
+                        let t0 = k as f64 * period;
+                        let t1 = ((k + 1) as f64 * period).min(t);
+                        if t1 <= t0 {
+                            return x;
+                        }
+                        let h = t1 - t0;
+                        x = if tau.is_finite() {
+                            u_k(k) + (x - u_k(k)) * (-h / tau).exp()
+                        } else {
+                            x + u_k(k) * h
+                        };
+                        k += 1;
+                    }
+                };
+                let mut res = vec![];
+                for how in [Ticks::Restart, Ticks::Default, Ticks::Light] {
+                    let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![Box::new(SampledBy {
+                        period,
+                        law: Box::new(move |t, _, o| o[0] = amp * (w * t).sin()),
+                    })];
+                    let run = run_ticks(&model, &info, &opts, grid, &mut blocks, how);
+                    let err = run
+                        .times
+                        .iter()
+                        .enumerate()
+                        .map(|(k, t)| (run.values[0][k] - exact(*t)).abs())
+                        .fold(0.0f64, f64::max);
+                    res.push((err, run.stats.steps, run.report.light_restarts));
+                }
+                println!(
+                    "tau {tau}, n_z {n_z}, rtol {rtol:.0e}: restarts: error {:.2e} ({} steps); \
+                     default: {:.2e} ({} steps, {} light); light restarts on: {:.2e} ({} \
+                     steps, {} light)",
+                    res[0].0, res[0].1, res[1].0, res[1].1, res[1].2, res[2].0, res[2].1, res[2].2
+                );
+                // the default restarts at every changing tick: as accurate
+                // as forced restarts
+                assert_eq!(res[1].2, 0, "no light restart by default");
+                assert!(
+                    res[1].0 <= res[0].0 * (1.0 + 1e-9) + 1e-15,
+                    "{} vs {}",
+                    res[1].0,
+                    res[0].0
+                );
+            }
+        }
+    }
+}
+
+/// A long run of a pure integrator driven by a slowly ramping held
+/// command (a distance or a state of charge from a sampled current
+/// command): x' = u_k, u_k = k·delta, 10 000 ticks, against the exact
+/// sample-and-hold answer. The kink error of a light restart has the same
+/// sign at every tick here, so it accumulates to about half a tick times
+/// the command's whole change (from the review: 57 tolerance units at rtol
+/// 1e-6 when light restarts were the default). The default stays within
+/// one tolerance unit, as forced restarts do.
+#[test]
+fn light_restarts_on_a_long_ramp() {
+    let period = 0.01;
+    for (t_end, delta, rtol) in [(100.0, 1e-4, 1e-6), (100.0, 1e-4, 1e-4), (100.0, 1e-6, 1e-6)] {
+        let model = Hand {
+            layout: layout(1, 0, 0, 1, 0, 0, 2),
+            f: Box::new(|i, out| out[0] = i.d[0]),
+            jvp: Box::new(|_, _, out| out[0] = 0.0),
+            roots: Box::new(|_, _| {}),
+            vars: Box::new(|i, out| {
+                out[0] = i.y[0];
+                out[1] = i.d[0];
+            }),
+            when: Box::new(|_, _, _| {}),
+            modes: None,
+            y0: vec![0.0],
+            d0: vec![0.0],
+        };
+        let mut info = RunInfo::bare(1, 2, vec![]);
+        info.var_sources = vec![VarSource::Y(0), VarSource::D(0)];
+        info.blocks = vec![BlockInfo {
+            name: "'Controller'".into(),
+            chains: vec![],
+            inputs: vec![],
+            outputs: vec![0],
+            period,
+        }];
+        let opts = SolverOptions { rtol, atol: rtol, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end, dt: 1.0 };
+        // x(t) = sum over whole periods of u_k T, plus the part period
+        let exact = |t: f64| {
+            let n = (t / period + 1e-9).floor() as u64;
+            let full: f64 = (0..n).map(|k| k as f64 * delta * period).sum();
+            full + n as f64 * delta * (t - n as f64 * period)
+        };
+        let mut res = vec![];
+        for how in [Ticks::Restart, Ticks::Default, Ticks::Light] {
+            let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![Box::new(SampledBy {
+                period,
+                law: Box::new(move |t, _, o| o[0] = (t / period).round() * delta),
+            })];
+            let run = run_ticks(&model, &info, &opts, grid, &mut blocks, how);
+            let (mut err, mut rel) = (0.0f64, 0.0f64);
+            for (k, t) in run.times.iter().enumerate() {
+                let x = exact(*t);
+                err = err.max((run.values[0][k] - x).abs());
+                rel = rel.max((run.values[0][k] - x).abs() / (rtol * x.abs() + rtol));
+            }
+            res.push((err, rel, run.stats.steps, run.report.light_restarts));
+        }
+        println!(
+            "ramp {delta:.0e}/tick, rtol {rtol:.0e}, x(T) = {:.3}: restarts: error {:.2e} ({:.2} \
+             tol, {} steps); default: {:.2e} ({:.2} tol, {} steps, {} light); light restarts \
+             on: {:.2e} ({:.2} tol, {} steps, {} light)",
+            exact(t_end),
+            res[0].0,
+            res[0].1,
+            res[0].2,
+            res[1].0,
+            res[1].1,
+            res[1].2,
+            res[1].3,
+            res[2].0,
+            res[2].1,
+            res[2].2,
+            res[2].3
+        );
+        // the global error of forced restarts is within one tolerance unit;
+        // the default's must be too
+        assert!(res[1].1 <= 1.0, "the default: {:.1} tolerance units", res[1].1);
+    }
+}
+
+/// A tick whose outputs reach nothing the integrator integrates (a value
+/// only shown as a channel) goes on without a restart, by default: the
+/// solution is exactly the one without the tick.
+#[test]
+fn a_tick_that_reaches_nothing_integrated_needs_no_restart() {
+    // x' = -x; the block's output d0 is only a channel
+    let model = Hand {
+        layout: layout(1, 0, 0, 1, 0, 0, 2),
+        f: Box::new(|i, out| out[0] = -i.y[0]),
+        jvp: Box::new(|_, v, out| out[0] = -v[0]),
+        roots: Box::new(|_, _| {}),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+        }),
+        when: Box::new(|_, _, _| {}),
+        modes: None,
+        y0: vec![1.0],
+        d0: vec![0.0],
+    };
+    let mut info = RunInfo::bare(1, 2, vec![]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::D(0)];
+    info.blocks = vec![block(vec![], vec![0], 0.01)];
+    info.dynamic_discretes = vec![false];
+    let opts = SolverOptions { rtol: 1e-8, atol: 1e-10, ..Default::default() };
+    let grid = OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.1 };
+    let mut blocks: Vec<Box<dyn DiscreteBlock>> =
+        vec![Box::new(Sampled { period: 0.01, offset: 0.0, law: |t, _, o| o[0] = t })];
+    let run = simulate(&model, &info, &opts, grid, &mut blocks).unwrap();
+    println!(
+        "{} changing ticks, {} without a restart, {} restarts, {} steps",
+        run.report.block_changes, run.report.light_restarts, run.stats.restarts, run.stats.steps
+    );
+    // (the first tick, at the start, changes nothing: its output is 0)
+    assert_eq!(run.report.block_changes, 200);
+    assert_eq!(run.report.light_restarts, 200);
+    assert_eq!(run.stats.restarts, 0);
+    for (k, t) in run.times.iter().enumerate() {
+        assert!((run.values[0][k] - (-t).exp()).abs() < 1e-7, "t = {t}");
+    }
+    // the channel shows the held output: its last tick at or before t
+    assert!((run.values[1].last().unwrap() - 2.0).abs() < 1e-12);
+    assert!(run.stats.steps < 300, "{} steps", run.stats.steps);
 }

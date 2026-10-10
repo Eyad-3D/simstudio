@@ -246,6 +246,14 @@ pub struct RunInfo {
     /// again whenever a discrete value changes, before it re-checks the
     /// conditions
     pub events_read_z: bool,
+    /// per discrete value: whether it reaches what the integrator
+    /// integrates or watches (a state's derivative, a residual of the
+    /// iteration variables, an energy integrand, a zero-crossing function,
+    /// a table's argument) through the assignments. A sample tick that
+    /// changes only values that do not leaves the solution exactly as it
+    /// is: the step stands, no restart. Empty: every discrete value counts
+    /// as reaching them
+    pub dynamic_discretes: Vec<bool>,
 }
 
 impl RunInfo {
@@ -275,6 +283,7 @@ impl RunInfo {
             impulse: None,
             time_crossings: vec![],
             events_read_z: true,
+            dynamic_discretes: vec![],
         }
     }
 
@@ -311,6 +320,7 @@ impl RunInfo {
             m.discretes.iter().enumerate().map(|(k, v)| (*v, k)).collect();
         let sources = var_sources(m);
         let energy = energy_info(m);
+        let dynamic_discretes = dynamic_discretes(m, &energy);
         let impulse = impulse_info(m, &energy).map(Arc::new);
         let blocks = m
             .external
@@ -380,6 +390,7 @@ impl RunInfo {
                 m.zero_crossings.iter().map(|z| time_crossing(&z.expr, &discrete)).collect()
             },
             events_read_z: events_read_z(m),
+            dynamic_discretes,
         }
     }
 
@@ -590,6 +601,71 @@ fn time_affine(e: &Expr, discrete: &std::collections::HashSet<VarId>) -> Option<
         }
         _ => None,
     }
+}
+
+/// Per discrete value: whether it reaches a state's derivative, a residual,
+/// an energy integrand, a zero-crossing function or a table's argument
+/// through the assignments ([`RunInfo::dynamic_discretes`]).
+fn dynamic_discretes(m: &PreparedModel, energy: &EnergyInfo) -> Vec<bool> {
+    let mut deps: HashMap<Slot, BTreeSet<usize>> = HashMap::new();
+    for (k, v) in m.discretes.iter().enumerate() {
+        deps.insert(Slot::Var(*v), [k].into());
+    }
+    let read = |e: &Expr, deps: &HashMap<Slot, BTreeSet<usize>>| {
+        let mut out = BTreeSet::new();
+        e.walk(&mut |x| {
+            let s = match x {
+                Expr::Var(v) | Expr::Pre(v) => Slot::Var(*v),
+                Expr::Der(v) => Slot::Der(*v),
+                _ => return,
+            };
+            if let Some(d) = deps.get(&s) {
+                out.extend(d.iter().copied());
+            }
+        });
+        out
+    };
+    for a in &m.assignments {
+        let s = read(&a.expr, &deps);
+        deps.insert(a.target, s);
+    }
+    // an alias reads what its target reads
+    for a in &m.aliases {
+        if let AliasTarget::Var { var, .. } = a.target
+            && let Some(s) = deps.get(&Slot::Var(var)).cloned()
+        {
+            deps.insert(Slot::Var(a.var), s);
+        }
+    }
+    let mut dynamic = vec![false; m.discretes.len()];
+    let mut mark = |s: &BTreeSet<usize>| {
+        for k in s {
+            dynamic[*k] = true;
+        }
+    };
+    for v in &m.states {
+        if let Some(s) = deps.get(&Slot::Der(*v)) {
+            mark(s);
+        }
+    }
+    for r in &m.residuals {
+        mark(&read(&r.expr, &deps));
+    }
+    for z in &m.zero_crossings {
+        mark(&read(&z.expr, &deps));
+    }
+    // (a table's guard watches its arguments)
+    for a in &m.assignments {
+        if a.expr.any(&mut |x| matches!(x, Expr::Table { .. })) {
+            mark(&read(&a.expr, &deps));
+        }
+    }
+    for p in &energy.parts {
+        for e in [Some(&p.power), p.loss.as_ref(), p.stored.as_ref()].into_iter().flatten() {
+            mark(&read(e, &deps));
+        }
+    }
+    dynamic
 }
 
 /// Whether an event's condition or assigned value reads an iteration

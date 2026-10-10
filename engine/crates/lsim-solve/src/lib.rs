@@ -196,6 +196,16 @@ pub struct SolverOptions {
     /// impulse projection, [`RunInfo::impulse`]); off: the states stay and
     /// the speeds they set jump to the new couplings
     pub impulses: bool,
+    /// let a sample tick whose change the next step's error test can
+    /// absorb go on with the integration's history instead of restarting
+    /// (a light restart). Off by default: the history carries the kink the
+    /// tick put in the derivatives into the next steps, and the error that
+    /// leaves has the same sign at every tick of a steadily moving command,
+    /// so it accumulates beyond the tolerance over a long run (a 10 000-tick
+    /// ramp at rtol 1e-6: 57 tolerance units). A tick whose outputs reach
+    /// nothing the integrator integrates or watches goes on without a
+    /// restart either way ([`RunInfo::dynamic_discretes`]): that is exact
+    pub light_restarts: bool,
 }
 
 impl Default for SolverOptions {
@@ -216,6 +226,7 @@ impl Default for SolverOptions {
             storm_window: 1e-3,
             suppress_algebraic_error: false,
             impulses: true,
+            light_restarts: false,
         }
     }
 }
@@ -458,8 +469,10 @@ pub struct SolverReport {
     /// ticks that changed an output (and so restarted the integrator,
     /// unless the change was slight)
     pub block_changes: u64,
-    /// of those, the ones so slight that the integration went on with its
-    /// history (no restart): the next step's error test checked them
+    /// of those, the ones that went on with the integration's history (no
+    /// restart): ticks whose outputs reach nothing the integrator
+    /// integrates, and, with [`SolverOptions::light_restarts`], ones so
+    /// slight that the next step's error test checked them
     pub light_restarts: u64,
     /// impulse projections at changes of rigid couplings (gear shifts)
     pub impulses: u64,
