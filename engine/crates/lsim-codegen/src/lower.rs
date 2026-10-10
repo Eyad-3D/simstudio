@@ -514,13 +514,15 @@ impl<'a, E: Emit> Lw<'a, E> {
 
     /// x^n for an integer |n| ≥ 3, within one rounding of the exact
     /// power: repeated squaring in double-double arithmetic (exact
-    /// products from fused multiply-adds), then one rounding. Overflow,
-    /// underflow to zero and non-finite x fall back to the plain product.
+    /// products from fused multiply-adds), then one rounding. Where that
+    /// is not finite (overflow, an infinite or NaN x) or the power
+    /// underflows to zero, the plain repeated squaring's product, which
+    /// rounds as `powf` does there.
     fn powi_exact(&mut self, x: E::V, n: i32) -> E::V {
         let m = n.unsigned_abs();
         let bits = 32 - m.leading_zeros();
         let (mut h, mut l): (E::V, Option<E::V>) = (x, None);
-        let mut last_p = x;
+        let mut pl = x;
         for i in (0..bits - 1).rev() {
             // square: h² + 2hl
             let p = self.e.mul(h, h);
@@ -531,7 +533,7 @@ impl<'a, E: Emit> Lw<'a, E> {
                 e = self.e.fma(h2, lo, e);
             }
             (h, l) = self.fast_two_sum(p, e);
-            last_p = p;
+            pl = self.e.mul(pl, pl);
             if (m >> i) & 1 == 1 {
                 // times x: hx + lx
                 let p = self.e.mul(h, x);
@@ -541,7 +543,7 @@ impl<'a, E: Emit> Lw<'a, E> {
                     e = self.e.fma(lo, x, e);
                 }
                 (h, l) = self.fast_two_sum(p, e);
-                last_p = p;
+                pl = self.e.mul(pl, x);
             }
         }
         let (r, plain) = if n < 0 {
@@ -555,16 +557,16 @@ impl<'a, E: Emit> Lw<'a, E> {
                 None => rem,
             };
             let r = self.e.fma(q, rem, q);
-            let plain = self.e.div(one, last_p);
+            let plain = self.e.div(one, pl);
             (r, plain)
         } else {
-            (h, last_p)
+            (h, pl)
         };
         // keep r when it is finite and the power is not zero
         let zero = self.cst(0.0);
         let rr = self.e.sub(r, r);
         let finite = self.e.cmp(Cc::Eq, rr, zero);
-        let nonzero = self.e.cmp(Cc::Ne, last_p, zero);
+        let nonzero = self.e.cmp(Cc::Ne, pl, zero);
         let ok = self.e.and(finite, nonzero);
         self.e.select(ok, r, plain)
     }
