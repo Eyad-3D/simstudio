@@ -1123,6 +1123,50 @@ fn tables_given(
     Ok(())
 }
 
+/// The tables the run stops at or encloses along time by their
+/// breakpoints (the tables read along time, those the conditions on
+/// functions of time read) whose values the model gives but not their
+/// breakpoints ([`ModelFunctions::table_axes`]): one warning each. The run
+/// then uses the breakpoints it was prepared with, wrong if the table's
+/// data changed since (a wrapper around a compiled model that does not
+/// pass `table_axes` on).
+fn axes_missing(model: &dyn ModelFunctions, info: &RunInfo) -> Vec<String> {
+    use crate::TimeFunction;
+    let mut used: std::collections::BTreeSet<u32> =
+        info.time_tables.iter().map(|tt| tt.table).collect();
+    let mut add = |e: &lsim_ir::Expr| {
+        e.walk(&mut |x| {
+            if let lsim_ir::Expr::Table { table, .. } = x {
+                used.insert(*table);
+            }
+        })
+    };
+    for f in info.time_functions.iter().flatten() {
+        match f {
+            TimeFunction::Pure(g) => add(g),
+            TimeFunction::Mixed { chain, g } => {
+                for (_, e) in chain {
+                    add(e);
+                }
+                add(g);
+            }
+            TimeFunction::Unhandled => {}
+        }
+    }
+    used.into_iter()
+        .filter(|&k| model.eval_table(k, [0.0, 0.0]).is_some() && model.table_axes(k).is_none())
+        .map(|k| {
+            let name = info.table_names.get(k as usize).cloned().unwrap_or_else(|| format!("{k}"));
+            format!(
+                "the table '{name}': the model gives its values but not its breakpoints \
+                 (ModelFunctions::table_axes), so the run stops and searches along time at the \
+                 breakpoints it was prepared with, wrong if the table's data changed since (a \
+                 wrapper around a compiled model must pass table_axes on)"
+            )
+        })
+        .collect()
+}
+
 /// The run loop, for any [`Integrator`]: see the module documentation.
 #[allow(clippy::too_many_arguments)]
 pub fn run_loop(
@@ -1139,7 +1183,9 @@ pub fn run_loop(
     let n = l.n_y();
     let times = grid.times();
     let t_end = grid.t_end;
-    // the tables' breakpoints as the model interpolates them
+    // the tables' breakpoints as the model interpolates them (said where
+    // the model gives a table's values but not its breakpoints)
+    let axes_warnings = axes_missing(model, info);
     let given = info.with_model_tables(model);
     let info = given.as_ref().unwrap_or(info);
     tables_given(model, info, opts, grid.t0)?;
@@ -1182,7 +1228,7 @@ pub fn run_loop(
         outside_total: vec![(0.0, f64::NAN); model.table_guard_list().len()],
         warned: vec![false; info.asserts.len()],
         warned_links: false,
-        warnings: vec![],
+        warnings: axes_warnings,
         scheduled: false,
         t_star: vec![f64::NAN; info.time_crossings.len().max(info.time_functions.len())],
         now: vec![false; l.n_roots],

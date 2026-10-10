@@ -384,6 +384,10 @@ mod tests {
         fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
             (k == 0).then(|| self.0.eval(args))
         }
+        fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
+            let second = if self.0.dims() == 2 { self.0.points(1).to_vec() } else { vec![] };
+            (k == 0).then(|| [self.0.points(0).to_vec(), second])
+        }
     }
 
     fn model(data: &TableData) -> One {

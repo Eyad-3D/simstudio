@@ -784,7 +784,7 @@ fn cycle_model() -> common::Built {
 /// so its stops and its search ahead follow the new data, and the flag
 /// latches at 20.5 s. A model that does not give its breakpoints is run on
 /// the prepared ones: its stops at 10–12 s and its search, over pieces the
-/// new data do not have, step over the moved pulse.
+/// new data do not have, step over the moved pulse; the run warns of it.
 #[test]
 fn a_model_given_other_tables_is_run_on_their_breakpoints() {
     let built = cycle_model();
@@ -860,6 +860,14 @@ fn a_model_given_other_tables_is_run_on_their_breakpoints() {
     let run = simulate(&Hidden(&jit), info, &opts, grid, &mut []).unwrap();
     println!("breakpoints hidden: {} steps; flag {}", run.stats.steps, run.values[seen][3]);
     assert_eq!(run.values[seen][3], 0.0, "the failure this guards against");
+    // ... and says so, once for the table
+    let said: Vec<&String> =
+        run.report.warnings.iter().filter(|w| w.contains("ModelFunctions::table_axes")).collect();
+    println!("{said:?}");
+    assert_eq!(said.len(), 1, "{:?}", run.report.warnings);
+    // the model that gives them warns of nothing
+    let run = simulate(&jit, info, &opts, grid, &mut []).unwrap();
+    assert!(run.report.warnings.is_empty(), "{:?}", run.report.warnings);
 }
 
 /// A condition on a table read at a position that moves with time but not

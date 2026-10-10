@@ -2224,8 +2224,8 @@ fn a_mixed_pulse_inside_a_monotone_stretch_of_its_time_term_fires() {
 }
 
 /// A model with a table: `Hand` and a 1-D table 0 given by a function
-/// (value and slope).
-struct WithTable(Hand, fn(f64) -> (f64, f64));
+/// (value and slope), and its breakpoints.
+struct WithTable(Hand, fn(f64) -> (f64, f64), Vec<f64>);
 
 impl ModelFunctions for WithTable {
     fn layout(&self) -> &Layout {
@@ -2257,6 +2257,9 @@ impl ModelFunctions for WithTable {
             let (v, d) = (self.1)(args[0]);
             (v, [d, 0.0])
         })
+    }
+    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
+        (k == 0).then(|| [self.2.clone(), vec![]])
     }
 }
 
@@ -2393,6 +2396,7 @@ fn a_double_crossing_of_a_driving_cycle_condition_within_a_step_is_found() {
             d0: vec![0.0],
         },
         |x| (x, 1.0),
+        vec![0.0, 100.0],
     );
     let mut info = RunInfo::bare(2, 3, vec![]);
     info.var_sources = vec![VarSource::Y(0), VarSource::Y(1), VarSource::D(0)];
@@ -2447,8 +2451,8 @@ fn a_double_crossing_of_a_driving_cycle_condition_within_a_step_is_found() {
 }
 
 /// A model whose table 0 is a 2-D table, `f(a, b)` with its partial
-/// derivatives.
-struct WithTable2(Hand, fn(f64, f64) -> (f64, [f64; 2]));
+/// derivatives, and its axes.
+struct WithTable2(Hand, fn(f64, f64) -> (f64, [f64; 2]), [Vec<f64>; 2]);
 
 impl ModelFunctions for WithTable2 {
     fn layout(&self) -> &Layout {
@@ -2477,6 +2481,9 @@ impl ModelFunctions for WithTable2 {
     }
     fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
         (k == 0).then(|| (self.1)(args[0], args[1]))
+    }
+    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
+        (k == 0).then(|| self.2.clone())
     }
 }
 
@@ -2519,7 +2526,12 @@ fn curving_state(k: f64, t1: f64, t2: f64, root: fn(f64, f64) -> f64) -> Hand {
 #[test]
 fn a_double_crossing_through_a_2d_table_within_a_step_is_found() {
     let (k, t1, t2) = (0.01, 40.0, 40.3);
-    let model = WithTable2(curving_state(k, t1, t2, |t, x| t - x), |a, b| (a - b, [1.0, -1.0]));
+    let grid50 = || vec![0.0, 50.0, 100.0];
+    let model = WithTable2(
+        curving_state(k, t1, t2, |t, x| t - x),
+        |a, b| (a - b, [1.0, -1.0]),
+        [grid50(), grid50()],
+    );
     let mut info = RunInfo::bare(2, 3, vec![]);
     info.var_sources = vec![VarSource::Y(0), VarSource::Y(1), VarSource::D(0)];
     info.root_dirs = vec![1];
@@ -2701,6 +2713,7 @@ fn a_pure_condition_on_a_linear_table_fires_once() {
             d0: vec![0.0],
         },
         tri,
+        vec![0.0, 50.0, 50.1, 50.2, 100.0],
     );
     let mut info = RunInfo::bare(1, 2, vec![]);
     info.var_sources = vec![VarSource::Y(0), VarSource::D(0)];

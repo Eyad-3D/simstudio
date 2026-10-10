@@ -629,28 +629,34 @@ compile error; `compiled_roots_follow_the_zero_crossings_order` in
 reads it.
 
 **WP3 (lsim-codegen): `ModelFunctions` in full.** The run loop calls every
-method of the trait, and a compiled model implements every one:
-`layout`, `residual`, `jvp`, `roots`, `vars`, `when`, `start`, `modes`
-(the modes from their relations), `init` (the compiled initialisation),
-`sparsity` and `jacobian_sparse` (the coloured Jacobian; `jacobian_dense`
-from them or from `jvp`), `table_guard_list` and `table_guards` (the
-watched table axes), `eval_table` (a table as the compiled code
-interpolates it, value and partial derivatives: the energy books, the
-conditions on functions of time, the asserts and the impulse projection
-evaluate flat expressions outside the compiled code and read the tables
-through it), and `table_axes` (the breakpoints of the data it
-interpolates, which the run loop's stops and enclosures follow when a
-model's tables are swapped after preparation). The defaults are those of a model without such things: no
-modes, no compiled initialisation, a dense Jacobian from `jvp`, no
-guards, no tables (`None`). A wrapper around a compiled model (a model
-started at other values, a sweep's set) must forward every method:
-left at a default, modes stop switching, table guards and the compiled
-initialisation vanish without an error, a run whose books,
-conditions, time events or impulse projection read a table does not
-start ("the model does not give its tables": every expression the run
-evaluates outside the compiled code is checked at the start), and a
-model given other table data is run on the prepared
-breakpoints (its stops and enclosures in the wrong places, silently).
+method of the trait, and a compiled model implements every one: `layout`,
+`residual`, `jvp`, `roots`, `vars`, `when`, `start`, `modes` (the modes
+from their relations), `init` (the compiled initialisation), `sparsity`
+and `jacobian_sparse` (the coloured Jacobian; `jacobian_dense` from them
+or from `jvp`), `table_guard_list` and `table_guards` (the watched table
+axes), `eval_table` (a table as the compiled code interpolates it, value
+and partial derivatives: the energy books, the conditions on functions of
+time, the asserts and the impulse projection evaluate flat expressions
+outside the compiled code and read the tables through it), and
+`table_axes` (the breakpoints of the data it interpolates, which the run
+loop's stops and enclosures follow when a model's tables are swapped after
+preparation). The defaults are those of a model without such things: no
+modes, no compiled initialisation, a dense Jacobian from `jvp`, no guards,
+no tables (`None`). A wrapper around a compiled model (a model started at
+other values, a sweep's set) must forward every method: left at a default,
+modes stop switching, table guards and the compiled initialisation vanish
+without an error, a run whose books, conditions, time events or impulse
+projection read a table does not start ("the model does not give its
+tables": every expression the run evaluates outside the compiled code is
+checked at the start), and a model given other table data is run on the
+prepared breakpoints (its stops and enclosures in the wrong places; the
+run warns, once per table it stops at or encloses, when the model gives a
+table's values, `eval_table`, but not its breakpoints, `table_axes`). The
+plan for the long term: one accessor, `table(k) -> Option<&dyn TableView>`
+(the values, the partial derivatives and the breakpoints together), so
+that a wrapper passes a table on whole or not at all; it replaces
+`eval_table` and `table_axes` when WP6 reworks `Started`, with a WP6 test
+that a started model gives its tables' values and breakpoints.
 
 **WP3 (lsim-codegen): compiled condition kernels.** The run loop checks
 every step of a condition that reads time and continuous variables
