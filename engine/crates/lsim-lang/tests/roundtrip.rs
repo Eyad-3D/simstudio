@@ -271,6 +271,7 @@ fn everything() -> ComponentDef {
             keep: n("x") * n("k") - n("y"),
             active: cmp(CmpOp::Lt, n("x"), c(0.5)),
         }],
+        engagements: vec![],
     }
 }
 

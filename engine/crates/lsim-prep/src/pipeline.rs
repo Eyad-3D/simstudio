@@ -764,12 +764,12 @@ pub fn run(
     for w in &node_whens {
         zero_crossings
             .push(ZeroCrossing { expr: map.to_flat(&w.crossing), origin: w.origin.clone() });
-        whens.push(PreparedWhen {
-            crossing: zero_crossings.len() - 1,
-            direction: w.direction,
-            assign: w.assign.iter().map(|(v, x)| (*v, map.to_flat(x))).collect(),
-            origin: w.origin.clone(),
-        });
+        whens.push(PreparedWhen::new(
+            zero_crossings.len() - 1,
+            w.direction,
+            w.assign.iter().map(|(v, x)| (*v, map.to_flat(x))).collect(),
+            w.origin.clone(),
+        ));
     }
     let mut prepared_modes = vec![];
     for m in &node_modes {
@@ -779,12 +779,12 @@ pub fn run(
         let k = zero_crossings.len();
         for (dir, value) in [(Direction::Rising, 1.0), (Direction::Falling, 0.0)] {
             zero_crossings.push(ZeroCrossing { expr: f.clone(), origin: m.origin.clone() });
-            whens.push(PreparedWhen {
-                crossing: zero_crossings.len() - 1,
-                direction: dir,
-                assign: vec![(m.var, Expr::Const(value))],
-                origin: m.origin.clone(),
-            });
+            whens.push(PreparedWhen::new(
+                zero_crossings.len() - 1,
+                dir,
+                vec![(m.var, Expr::Const(value))],
+                m.origin.clone(),
+            ));
         }
         prepared_modes.push(Mode { var: m.var, relation, crossing: k, origin: m.origin.clone() });
     }

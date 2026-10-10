@@ -367,6 +367,25 @@ pub struct ImpulseDecl {
     pub active: Expr,
 }
 
+/// A rigid engagement a component makes: when `changes` takes a new value
+/// at an event (a gear's selected ratio at a shift), the speeds the
+/// component's rigid coupling ties together jump as an instantaneous,
+/// rigid engagement makes them. The run loop then keeps the momentum of
+/// everything the coupling ties together (an impulse projection, passed on
+/// through the couplings that declare [`ImpulseDecl`]s) and books the
+/// kinetic energy the engagement loses to this component. Nothing else
+/// starts a projection: a stored energy that merely depends on a discrete
+/// value (a converter's sampled duty ratio) does not, nor does a `reinit`,
+/// whose restarted states the projection leaves where the `reinit` put
+/// them. The text format writes it as
+/// `annotation(__LightSim_engagement(changes = …))`.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct EngagementDecl {
+    /// what takes a new value at an engagement (the selected ratio): an
+    /// expression of the component's variables and parameters
+    pub changes: Expr,
+}
+
 /// A component definition.
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct ComponentDef {
@@ -396,6 +415,9 @@ pub struct ComponentDef {
     /// the relative velocities it keeps through an impulse
     #[serde(default)]
     pub impulse: Vec<ImpulseDecl>,
+    /// the rigid engagements it makes
+    #[serde(default)]
+    pub engagements: Vec<EngagementDecl>,
 }
 
 /// A set of connector and component definitions.

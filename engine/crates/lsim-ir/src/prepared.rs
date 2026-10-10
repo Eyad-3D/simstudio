@@ -104,17 +104,24 @@ pub struct PreparedWhen {
     pub assign: Vec<(VarId, Expr)>,
     /// where it came from
     pub origin: Origin,
+    /// the condition is strict (`x > 0`, `x < 0`): exactly at zero it does
+    /// not hold. Otherwise (`x >= 0`, `x <= 0`) it holds there. The zero
+    /// crossing is the same either way; Modelica's semantics differ only
+    /// at an exact zero (a strict `when x > 0` from x = 0 fires as x
+    /// leaves zero, a `when x >= 0` counts as already true)
+    #[serde(default)]
+    pub strict: bool,
 }
 
 impl PreparedWhen {
-    /// A `when` clause on zero crossing `crossing`.
+    /// A `when` clause on zero crossing `crossing` (not strict).
     pub fn new(
         crossing: usize,
         direction: Direction,
         assign: Vec<(VarId, Expr)>,
         origin: Origin,
     ) -> Self {
-        PreparedWhen { crossing, direction, assign, origin }
+        PreparedWhen { crossing, direction, assign, origin, strict: false }
     }
 }
 
