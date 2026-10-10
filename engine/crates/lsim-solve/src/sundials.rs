@@ -20,8 +20,8 @@ use crate::energy::Integrand;
 use crate::init::{InitSettings, consistent_z};
 use crate::jac::JacStructure;
 use crate::{
-    Integrator, LinearSolver, Method, OutputGrid, RunInfo, SolveError, SolverOptions, SolverStats,
-    Step,
+    DenseOutput, Integrator, LinearSolver, Method, OutputGrid, RunInfo, SolveError, SolverOptions,
+    SolverStats, Step,
 };
 use lsim_ir::runtime::{EvalInput, Layout, ModelFunctions};
 use lsim_sundials_sys::*;
@@ -1054,6 +1054,92 @@ impl Integrator for Sundials<'_> {
         };
         self.check(flag, "the dense output", t)?;
         Ok(())
+    }
+
+    fn dense_output(
+        &mut self,
+        t0: f64,
+        idx: &[usize],
+        out: &mut DenseOutput,
+    ) -> Result<bool, SolveError> {
+        if self.fresh {
+            // no step since the start or a restart: the state, constant
+            let y = self.y();
+            let ys: Vec<f64> = idx.iter().map(|i| y[*i]).collect();
+            out.constant(self.t_last, ys.into_iter());
+            return Ok(true);
+        }
+        // CVODE's Nordsieck array holds up to 13 vectors, IDA's divided
+        // differences up to 6 (the shims write q + 1 per entry)
+        const MOST: usize = 13;
+        let n = idx.len();
+        let mut coef = std::mem::take(&mut out.coef);
+        if coef.len() < n * MOST {
+            coef.resize(n * MOST, 0.0);
+        }
+        const _: () = assert!(size_of::<usize>() == size_of::<sunindextype>());
+        let sel = idx.as_ptr() as *const sunindextype;
+        let mut info = [0.0; 3];
+        let mut psi = [0.0; MOST];
+        let mut q: c_int = 0;
+        // SAFETY: `mem` is live; `coef` holds at least `n · MOST` values,
+        // `info` 3, `psi` MOST.
+        let flag = unsafe {
+            match self.kind {
+                Kind::Cvode => lsim_cvode_dense_select(
+                    self.mem,
+                    n as c_int,
+                    sel,
+                    coef.len() as c_int,
+                    coef.as_mut_ptr(),
+                    info.as_mut_ptr(),
+                    &mut q,
+                ),
+                Kind::Ida => lsim_ida_dense_select(
+                    self.mem,
+                    n as c_int,
+                    sel,
+                    coef.len() as c_int,
+                    coef.as_mut_ptr(),
+                    psi.as_mut_ptr(),
+                    info.as_mut_ptr(),
+                    &mut q,
+                ),
+            }
+        };
+        self.check(flag, "the dense output's polynomial", self.t_last)?;
+        let q = q as usize;
+        let (tn, step) = match self.kind {
+            Kind::Cvode => (info[0], info[2]),
+            Kind::Ida => (info[0], info[1]),
+        };
+        // the part of the step asked for must lie inside the last step
+        let fuzz = 100.0 * f64::EPSILON * (tn.abs() + step.abs());
+        if t0 < tn - step.abs() - fuzz {
+            out.coef = coef;
+            return Ok(false);
+        }
+        out.origin = tn;
+        out.nodes.resize(q, 0.0);
+        out.scales.resize(q, 0.0);
+        match self.kind {
+            Kind::Cvode => {
+                out.nodes.fill(0.0);
+                out.scales.fill(info[1]);
+            }
+            Kind::Ida => {
+                for (i, (x, s)) in out.nodes.iter_mut().zip(&mut out.scales).enumerate() {
+                    *x = if i == 0 { 0.0 } else { -psi[i - 1] };
+                    *s = psi[i];
+                }
+            }
+        }
+        // (the values past the last entry's are left: not cleared, nor
+        // filled again on the next step)
+        out.coef = coef;
+        out.err.resize(n, 0.0);
+        out.err.fill(0.0);
+        Ok(true)
     }
 
     fn discrete_mut(&mut self) -> &mut [f64] {

@@ -156,7 +156,20 @@ impl Iv {
     }
 
     fn scale(self, k: f64) -> Iv {
-        self.mul(Iv::point(k))
+        if self.is_point() || !k.is_finite() {
+            return self.mul(Iv::point(k));
+        }
+        if k == 0.0 || self == ZERO {
+            return ZERO;
+        }
+        // a bound of zero stays exactly zero; the others rounded outwards
+        let (p, q) = (self.lo * k, self.hi * k);
+        let (lo, lo0, hi, hi0) = if k > 0.0 {
+            (p, self.lo == 0.0, q, self.hi == 0.0)
+        } else {
+            (q, self.hi == 0.0, p, self.lo == 0.0)
+        };
+        Iv::new(if lo0 { 0.0 } else { lo.next_down() }, if hi0 { 0.0 } else { hi.next_up() })
     }
 
     fn recip(self) -> Iv {
@@ -403,50 +416,271 @@ pub(crate) struct Cx<'a> {
     pub leaf: &'a dyn Fn(usize) -> Option<J2>,
 }
 
-/// A variable along a step: the polynomial through the integrator's dense
-/// output, `Σ a_k u^k` in `u = (τ − c) / s` on `[-1, 1]`, and a bound
-/// `err` on its distance from that output (round-off, a dense output that
-/// is not a polynomial of that degree).
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Poly {
-    pub c: f64,
-    pub s: f64,
-    pub a: Vec<f64>,
-    pub err: f64,
+/// Bounds on the size over the step `[t0, t1]` of each function of the
+/// Newton basis `x`, `s` about `origin` ([`Basis`]), into `out` (`|β_j| ≤
+/// out[j]`): the product of each factor's size at the step's ends, rounded
+/// up. Cheaper than [`Basis::set`], and looser.
+pub(crate) fn basis_sizes(
+    origin: f64,
+    x: &[f64],
+    s: &[f64],
+    (t0, t1): (f64, f64),
+    out: &mut Vec<f64>,
+) {
+    let q = x.len().min(s.len());
+    out.resize(q + 1, 1.0);
+    out[0] = 1.0;
+    // τ at the ends, each within half an ulp of the exact value
+    let (a, b) = (t0 - origin, t1 - origin);
+    let et = 2.0 * f64::EPSILON * a.abs().max(b.abs());
+    // |τ − x| is largest at an end; three roundings in each factor and one
+    // in each product, 4 j + 1 half-ulps for β_j: the products start from
+    // a factor above 1 that covers them (NaN spreads: the bound then fails
+    // every check)
+    let mut p = 1.0 + 4.0 * (q as f64 + 2.0) * f64::EPSILON;
+    for (o, (xi, si)) in out[1..].iter_mut().zip(x.iter().zip(s)) {
+        p *= ((a - xi).abs().max((b - xi).abs()) + et) / si.abs();
+        *o = p;
+    }
 }
 
-impl Poly {
-    /// The value at `t`.
+/// A bound on how far `Σ a_j β_j` strays from `a_0` over the step (`sizes`
+/// from [`basis_sizes`]), `err` beyond it, rounded up so that `a_0 ∓` it in
+/// floating point lies outside every value (infinite when the sizes are
+/// not those of this polynomial's basis).
+pub(crate) fn stray(a: &[f64], sizes: &[f64], err: f64) -> f64 {
+    if a.is_empty() || a.len() > sizes.len() {
+        return f64::INFINITY;
+    }
+    let mut r = 0.0f64;
+    for (aj, sj) in a[1..].iter().zip(&sizes[1..]) {
+        r += aj.abs() * sj;
+    }
+    let n = a.len() as f64;
+    (r + err) * (1.0 + 2.0 * (n + 2.0) * f64::EPSILON)
+        + 2.0 * f64::EPSILON * a[0].abs()
+        + f64::MIN_POSITIVE
+}
+
+/// The product of `[a, b]` and `[c, d]`, all four finite (`a ≤ b`, `c ≤
+/// d`), each end the product of two of them, rounded to nearest.
+fn mul_ends(a: f64, b: f64, c: f64, d: f64) -> (f64, f64) {
+    if a >= 0.0 {
+        if c >= 0.0 {
+            (a * c, b * d)
+        } else if d <= 0.0 {
+            (b * c, a * d)
+        } else {
+            (b * c, b * d)
+        }
+    } else if b <= 0.0 {
+        if c >= 0.0 {
+            (a * d, b * c)
+        } else if d <= 0.0 {
+            (b * d, a * c)
+        } else {
+            (a * d, a * c)
+        }
+    } else if c >= 0.0 {
+        (a * d, b * d)
+    } else if d <= 0.0 {
+        (b * c, a * c)
+    } else {
+        let (p, q, r, s) = (a * d, b * c, a * c, b * d);
+        (if p <= q { p } else { q }, if r >= s { r } else { s })
+    }
+}
+
+/// The Newton basis of a dense output over a step, `β_j(τ) = Π_{i<j} (τ −
+/// x_i) / s_i`, `τ = t − origin`: each function's range over the step
+/// (rounded outwards), and its coefficients in powers of τ (made when a
+/// step is searched). Kept between steps (no allocation).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Basis {
+    /// the step
+    t0: f64,
+    t1: f64,
+    /// per function, its range over the step as a middle and a radius,
+    /// and a bound on its magnitude there (`[mid, rad, mag]`; `β_0 = 1`)
+    ranges: Vec<[f64; 3]>,
+    /// per function, its coefficients in powers of τ (empty until asked)
+    mono: Vec<Vec<Iv>>,
+}
+
+impl Basis {
+    /// The basis `x`, `s` about `origin` over the step `[t0, t1]`.
+    pub(crate) fn set(&mut self, origin: f64, x: &[f64], s: &[f64], t0: f64, t1: f64) {
+        (self.t0, self.t1) = (t0.min(t1), t0.max(t1));
+        self.mono.clear();
+        self.ranges.clear();
+        self.ranges.push([1.0, 0.0, 1.0]);
+        // τ over the step, each end within half an ulp of the exact value
+        let (a, b) = (self.t0 - origin, self.t1 - origin);
+        let reach = a.abs().max(b.abs());
+        let et = f64::EPSILON * reach;
+        let (mut lo, mut hi) = (1.0f64, 1.0f64);
+        let up = 1.0 + 2.0 * f64::EPSILON;
+        for (xi, si) in x.iter().zip(s) {
+            // the factor (τ − x) / s over the step: two roundings in each end,
+            // the first's error absolute (the second may cancel exactly)
+            let (p, q) = ((a - et - xi) / si, (b + et - xi) / si);
+            let (flo, fhi) = if p <= q { (p, q) } else { (q, p) };
+            let ef = 4.0 * f64::EPSILON * ((reach + xi.abs()) / si.abs())
+                + 2.0 * f64::EPSILON * flo.abs().max(fhi.abs());
+            let (flo, fhi) = (flo - ef, fhi + ef);
+            // (a step or node that is not finite: no bound)
+            if !(flo >= -f64::MAX && fhi <= f64::MAX) {
+                self.unbounded(x.len().min(s.len()));
+                return;
+            }
+            // its product with the range so far, each end within half an ulp
+            let (nlo, nhi) = mul_ends(lo, hi, flo, fhi);
+            let ep = f64::EPSILON * nlo.abs().max(nhi.abs());
+            (lo, hi) = (nlo - ep, nhi + ep);
+            // (an overflow: no bound)
+            if !(lo >= -f64::MAX && hi <= f64::MAX) {
+                self.unbounded(x.len().min(s.len()));
+                return;
+            }
+            // as a middle and a radius (rounded up: the two hold the range)
+            let mid = 0.5 * (lo + hi);
+            let rad = (hi - mid).max(mid - lo) * up + f64::MIN_POSITIVE;
+            self.ranges.push([mid, rad, (mid.abs() + rad) * up]);
+        }
+    }
+
+    /// The functions from the last one set up to `β_q` unbounded.
+    fn unbounded(&mut self, q: usize) {
+        self.ranges.resize(q + 1, [0.0, f64::INFINITY, f64::INFINITY]);
+    }
+
+    /// The range over the step of `Σ a_j β_j` (sums of products in
+    /// floating point, their round-off bounded).
+    pub(crate) fn range(&self, a: &[f64]) -> Iv {
+        let Some((&a0, rest)) = a.split_first() else {
+            return ZERO;
+        };
+        if a.len() > self.ranges.len() {
+            // (not the basis this polynomial is in)
+            return ALL;
+        }
+        // the middle, the radius and the size (β_0 = 1)
+        let (mut c, mut r, mut m) = (a0, 0.0f64, a0.abs());
+        for (aj, [mid, rad, mag]) in rest.iter().zip(&self.ranges[1..]) {
+            c += aj * mid;
+            r += aj.abs() * rad;
+            m += aj.abs() * mag;
+        }
+        let e = 2.0 * (a.len() as f64 + 1.0) * f64::EPSILON * m + f64::MIN_POSITIVE;
+        Iv::new(c - r - e, c + r + e)
+    }
+
+    /// The polynomial `Σ a_j β_j` of the Newton form `origin`, `x`, `s`
+    /// (the one the basis was [`Basis::set`] to: an entry of the dense
+    /// output), within `err` of the integrator's interpolant over the step.
+    pub(crate) fn poly(
+        &mut self,
+        (origin, x, s): (f64, &[f64], &[f64]),
+        a: &[f64],
+        err: f64,
+    ) -> DensePoly {
+        let q = x.len();
+        if self.mono.len() != q + 1 {
+            // β_j = β_{j−1} (τ − x_{j−1}) / s_{j−1}, in powers of τ
+            self.mono.clear();
+            self.mono.push(vec![ONE]);
+            for j in 1..=q {
+                let (xj, rs) = (Iv::point(x[j - 1]), Iv::point(s[j - 1]).recip());
+                let prev = &self.mono[j - 1];
+                let next: Vec<Iv> = (0..=j)
+                    .map(|k| {
+                        let up = if k >= 1 { prev[k - 1] } else { ZERO };
+                        let down = if k < j { prev[k].mul(xj) } else { ZERO };
+                        up.sub(down).mul(rs)
+                    })
+                    .collect();
+                self.mono.push(next);
+            }
+        }
+        let mut c = vec![ZERO; q + 1];
+        for (aj, bj) in a.iter().zip(&self.mono) {
+            for (ck, bk) in c.iter_mut().zip(bj) {
+                *ck = ck.add(bk.scale(*aj));
+            }
+        }
+        let dc: Vec<Iv> = (1..=q).map(|k| c[k].scale(k as f64)).collect();
+        let ddc: Vec<Iv> = (2..=q).map(|k| c[k].scale((k * (k - 1)) as f64)).collect();
+        // the floating-point evaluation's round-off over the step: a few ε
+        // of each term's size
+        let size: f64 = a.iter().zip(&self.ranges).map(|(aj, bj)| aj.abs() * bj[2]).sum();
+        let round = 4.0 * (q as f64 + 2.0) * f64::EPSILON * size;
+        // Markov's inequality on the step for the rates' share of `err`
+        let len = self.t1 - self.t0;
+        let n2 = (q * q) as f64;
+        let err = if err > 0.0 && len > 0.0 {
+            [err, 2.0 * n2 / len * err, 4.0 * n2 * (n2 - 1.0) / (3.0 * len * len) * err]
+        } else {
+            [err, 0.0, 0.0]
+        };
+        DensePoly { origin, x: x.to_vec(), s: s.to_vec(), a: a.to_vec(), c, dc, ddc, err, round }
+    }
+}
+
+/// A variable along a step: an entry of the integrator's dense output over
+/// the step ([`Basis::poly`]), its Newton form expanded into powers of τ
+/// with interval coefficients rounded outwards, so that its enclosures hold
+/// that polynomial itself. `err` bounds its distance from the integrator's
+/// interpolant (0 when it is that interpolant, as SUNDIALS holds it), the
+/// rates' share by Markov's inequality over the step; `round` bounds the
+/// round-off of evaluating it in floating point ([`DensePoly::at`]), by
+/// which the value's enclosure is widened so that the point values lie
+/// inside it.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct DensePoly {
+    origin: f64,
+    x: Vec<f64>,
+    s: Vec<f64>,
+    a: Vec<f64>,
+    c: Vec<Iv>,
+    dc: Vec<Iv>,
+    ddc: Vec<Iv>,
+    err: [f64; 3],
+    round: f64,
+}
+
+impl DensePoly {
+    /// The value at `t` in floating point (the nested Newton form, as the
+    /// integrators evaluate it).
     pub(crate) fn at(&self, t: f64) -> f64 {
-        let u = (t - self.c) / self.s;
-        self.a.iter().rev().fold(0.0, |p, a| p * u + a)
+        let tau = t - self.origin;
+        let q = self.x.len();
+        let mut acc = self.a[q];
+        for j in (0..q).rev() {
+            acc = self.a[j] + (tau - self.x[j]) / self.s[j] * acc;
+        }
+        acc
     }
 
-    /// The value over `t` alone (as [`Poly::j2`] gives it).
+    fn horner(c: &[Iv], tau: Iv) -> Iv {
+        c.iter().rev().fold(ZERO, |p, a| p.mul(tau).add(*a))
+    }
+
+    /// The value over `t` alone (as [`DensePoly::j2`] gives it).
     pub(crate) fn value(&self, t: Iv) -> Iv {
-        let u = Iv::wide((t.lo - self.c) / self.s, (t.hi - self.c) / self.s, 2);
-        let v = self.a.iter().rev().fold(ZERO, |p, a| p.mul(u).add(Iv::point(*a)));
-        Iv::new(v.lo - self.err, v.hi + self.err)
+        let tau = Iv::wide(t.lo - self.origin, t.hi - self.origin, 1);
+        let v = Self::horner(&self.c, tau);
+        let e = self.err[0] + self.round;
+        Iv::new(v.lo - e, v.hi + e)
     }
 
-    /// The value, rate and second rate over `t` (interval Horner; the
-    /// rates' error bounded from `err` by Markov's inequality, n² per
-    /// derivative for a polynomial of degree n on [-1, 1]).
+    /// The value, rate and second rate over `t` (interval Horner).
     pub(crate) fn j2(&self, t: Iv) -> J2 {
-        let u = Iv::wide((t.lo - self.c) / self.s, (t.hi - self.c) / self.s, 2);
-        let horner =
-            |coef: &[f64]| coef.iter().rev().fold(ZERO, |p, a| p.mul(u).add(Iv::point(*a)));
-        let n = self.a.len();
-        let d1: Vec<f64> = (1..n).map(|k| k as f64 * self.a[k]).collect();
-        let d2: Vec<f64> = (2..n).map(|k| (k * (k - 1)) as f64 * self.a[k]).collect();
-        let m = ((n.max(2) - 1) * (n.max(2) - 1)) as f64;
-        let e = self.err;
-        let widen = |x: Iv, e: f64| Iv::new(x.lo - e, x.hi + e);
-        let s = self.s;
+        let tau = Iv::wide(t.lo - self.origin, t.hi - self.origin, 1);
+        let widen = |x: Iv, e: f64| if e > 0.0 { Iv::new(x.lo - e, x.hi + e) } else { x };
         J2 {
-            v: widen(horner(&self.a), e),
-            d: widen(horner(&d1).scale(1.0 / s), m * e / s),
-            dd: widen(horner(&d2).scale(1.0 / (s * s)), m * m * e / (s * s)),
+            v: widen(Self::horner(&self.c, tau), self.err[0] + self.round),
+            d: widen(Self::horner(&self.dc, tau), self.err[1]),
+            dd: widen(Self::horner(&self.ddc, tau), self.err[2]),
         }
     }
 }
@@ -1264,35 +1498,66 @@ mod tests {
         println!("powi: worst {worst:.1} ulps from the exact power");
     }
 
-    /// A variable along a step, as a polynomial: its enclosures hold its
-    /// value and rates everywhere inside, and its error widens them.
+    /// A variable along a step, as the dense output's Newton form: its
+    /// enclosures hold its value (as evaluated in floating point too) and
+    /// rates everywhere inside, an error bound widens them, and the basis
+    /// ranges bound its range.
     #[test]
-    fn a_polynomial_leaf_holds_its_values_and_rates() {
-        let p =
-            Poly { c: 3.0, s: 0.5, a: vec![1.0, -2.0, 0.5, 3.0, -1.0, 0.25, 0.1, -0.05], err: 0.0 };
-        let du = |u: f64, k: usize| -> f64 {
-            // the k-th derivative in u
-            (k..p.a.len())
-                .map(|i| {
-                    let f: f64 = ((i - k + 1)..=i).map(|x| x as f64).product();
-                    f * p.a[i] * u.powi((i - k) as i32)
-                })
-                .sum()
+    fn a_dense_output_leaf_holds_its_values_and_rates() {
+        // a cubic in Newton form (IDA's kind of nodes and scales), about 3
+        let (origin, x, s, a) = (3.0, [0.0, -0.3, -0.7], [0.3, 0.4, 0.5], [1.0, -2.0, 0.5, 3.0]);
+        // its powers of τ, by hand: b1 = τ/0.3, b2 = b1 (τ + 0.3)/0.4,
+        // b3 = b2 (τ + 0.7)/0.5
+        let poly = |tau: f64| -> [f64; 3] {
+            let b1 = [0.0, 1.0 / 0.3];
+            let b2 = [0.0, 0.3 * b1[1] / 0.4, b1[1] / 0.4];
+            let b3 = [0.0, 0.7 * b2[1] / 0.5, (0.7 * b2[2] + b2[1]) / 0.5, b2[2] / 0.5];
+            let c = [
+                a[0],
+                a[1] * b1[1] + a[2] * b2[1] + a[3] * b3[1],
+                a[2] * b2[2] + a[3] * b3[2],
+                a[3] * b3[3],
+            ];
+            let v = c[0] + tau * (c[1] + tau * (c[2] + tau * c[3]));
+            let d = c[1] + tau * (2.0 * c[2] + tau * 3.0 * c[3]);
+            let dd = 2.0 * c[2] + 6.0 * c[3] * tau;
+            [v, d, dd]
         };
-        for (lo, hi) in [(2.5, 3.5), (2.9, 3.1), (3.2, 3.2), (2.5, 2.6)] {
+        let mut basis = Basis::default();
+        basis.set(origin, &x, &s, 2.3, 3.0);
+        let p = basis.poly((origin, &x, &s), &a, 0.0);
+        for (lo, hi) in [(2.3, 3.0), (2.9, 3.0), (2.5, 2.5), (2.3, 2.4)] {
             let j = p.j2(Iv::new(lo, hi));
+            let v = p.value(Iv::new(lo, hi));
             for k in 0..=100 {
                 let t = lo + (hi - lo) * k as f64 / 100.0;
-                let u = (t - p.c) / p.s;
-                let (v, d, dd) = (du(u, 0), du(u, 1) / p.s, du(u, 2) / (p.s * p.s));
-                assert!((p.at(t) - v).abs() < 1e-12);
-                assert!(j.v.lo <= v && v <= j.v.hi, "[{lo}, {hi}] at {t}: {v} {:?}", j.v);
-                assert!(j.d.lo <= d && d <= j.d.hi, "[{lo}, {hi}] at {t}: {d} {:?}", j.d);
-                assert!(j.dd.lo <= dd && dd <= j.dd.hi, "[{lo}, {hi}] at {t}: {dd} {:?}", j.dd);
+                let [pv, pd, pdd] = poly(t - origin);
+                let slack = |x: f64| 1e-13 * (1.0 + x.abs());
+                let near = |i: Iv, x: f64| i.lo - slack(x) <= x && x <= i.hi + slack(x);
+                assert!((p.at(t) - pv).abs() < 1e-12, "at {t}: {} {pv}", p.at(t));
+                assert!(j.v.lo <= p.at(t) && p.at(t) <= j.v.hi, "[{lo}, {hi}] at {t}: {:?}", j.v);
+                assert!(v.lo <= p.at(t) && p.at(t) <= v.hi);
+                assert!(near(j.v, pv) && near(j.d, pd) && near(j.dd, pdd), "[{lo}, {hi}] at {t}");
             }
+            // tight: a few ulps beyond the sampled spread
+            assert!(j.v.hi - j.v.lo <= 2.0 * (hi - lo) * 50.0 + 1e-12);
         }
-        let wide = Poly { err: 1e-3, ..p.clone() }.j2(Iv::new(3.0, 3.0));
-        assert!(wide.v.hi - wide.v.lo >= 2e-3 && wide.d.hi - wide.d.lo >= 2e-3 / p.s);
+        // an error bound widens the value, and the rates by Markov's factor
+        let wide = basis.poly((origin, &x, &s), &a, 1e-3).j2(Iv::new(3.0, 3.0));
+        assert!(wide.v.hi - wide.v.lo >= 2e-3 && wide.d.hi - wide.d.lo >= 2.0 * 18.0 / 0.7 * 1e-3);
+        // the basis ranges and the range of the sum hold every value, and so
+        // does the bound on how far it strays from its first coefficient
+        let r = basis.range(&a);
+        let mut sizes = vec![];
+        basis_sizes(origin, &x, &s, (2.3, 3.0), &mut sizes);
+        let w = stray(&a, &sizes, 0.0);
+        for k in 0..=100 {
+            let t = 2.3 + 0.7 * k as f64 / 100.0;
+            assert!(r.lo <= p.at(t) && p.at(t) <= r.hi, "{t}: {r:?}");
+            assert!(a[0] - w <= p.at(t) && p.at(t) <= a[0] + w, "{t}: {w}");
+        }
+        // (looser than the range)
+        assert!(2.0 * w >= r.hi - r.lo);
     }
 
     /// A sine pulse: every sign change found in order, exactly (the float

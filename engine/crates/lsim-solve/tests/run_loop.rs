@@ -2842,9 +2842,21 @@ fn a_condition_mixing_time_and_a_state_is_not_stepped_over() {
         let grid = OutputGrid { t0: 0.0, t_end, dt: 10.0 };
         let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
         let s = *run.values[1].last().unwrap();
-        println!("{backend:?}: held {s:.12} s (exact {held:.12}), {} steps", run.stats.steps);
+        println!(
+            "{backend:?}: held {s:.12} s (exact {held:.12}), {} steps, {} pulses",
+            run.stats.steps, run.report.pulses_found
+        );
         assert!((s - held).abs() < 1e-9 * held, "{backend:?}: {s} against {held}");
-        assert!(run.report.pulses_found > 0, "{backend:?}");
+        // CVODE's steps span whole pulses, which the scan finds; diffsol's
+        // stay short enough here that root finding sees every crossing, and
+        // the scan finds none (the eighth round's fitted polynomials found
+        // two: a falling change 4e-14 s after the falling crossing just
+        // fired, an artefact of the fit)
+        if backend == Backend::Sundials {
+            assert!(run.report.pulses_found > 0, "{backend:?}");
+        } else {
+            assert_eq!(run.report.pulses_found, 0, "{backend:?}");
+        }
         // without the scan CVODE's steps span whole pulses (diffsol's
         // stay short enough here)
         let mut bare = info.clone();

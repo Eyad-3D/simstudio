@@ -19,8 +19,7 @@
 //! ([`super::mixed`]): a certificate that the condition keeps its sign
 //! over a window and a box of its states clears most steps with a few
 //! comparisons; elsewhere the states and iteration variables the
-//! condition reads, as the polynomials through the integrator's dense
-//! output (sampled at Chebyshev points, the fit checked at one more),
+//! condition reads, as the polynomial the integrator's dense output is,
 //! enclose it over any part of the step, and the same search finds its
 //! first sign change there. One that root finding did not report ends the
 //! step, as a root does. One whose value moves only where a `noEvent`
@@ -100,14 +99,13 @@ pub(super) struct TimeFns<'a> {
     /// per table: a 2-D table's grid, its patches fitted as enclosures
     /// need them
     pub(super) grids: Vec<Option<Grid2>>,
-    /// the entries of y the mixed conditions read
+    /// the entries of y the mixed conditions read, and per entry of y its
+    /// position among them
     pub(super) mixed_y: Vec<usize>,
-    /// scratch of their check: the states they read at a step's end, at
-    /// its middle (and those alone), and where each may stray within it
-    pub(super) y1: Vec<f64>,
-    pub(super) ym: Vec<f64>,
-    pub(super) mid: Vec<f64>,
-    pub(super) span: Vec<[f64; 2]>,
+    pub(super) ypos: Vec<usize>,
+    /// scratch of their check along a step (boxed: taken and put back on
+    /// every step)
+    pub(super) scratch: Option<Box<super::mixed::StepScratch>>,
 }
 
 impl TimeFns<'_> {
@@ -124,10 +122,8 @@ impl TimeFns<'_> {
             t_end: f64::INFINITY,
             grids: vec![],
             mixed_y: vec![],
-            y1: vec![],
-            ym: vec![],
-            mid: vec![],
-            span: vec![],
+            ypos: vec![],
+            scratch: None,
         }
     }
 
@@ -237,6 +233,11 @@ impl<'a> Loop<'a> {
         let mut ys: Vec<usize> = self.tf.mixed.iter().flat_map(|m| m.reads_y()).copied().collect();
         ys.sort_unstable();
         ys.dedup();
+        let n = ys.last().map_or(0, |i| i + 1);
+        self.tf.ypos = vec![usize::MAX; n];
+        for (k, &i) in ys.iter().enumerate() {
+            self.tf.ypos[i] = k;
+        }
         self.tf.mixed_y = ys;
         mask
     }

@@ -305,6 +305,69 @@ impl std::ops::AddAssign for SolverStats {
     }
 }
 
+/// The polynomial an integrator's dense output is over its last step, for
+/// some entries of y, in Newton form:
+///
+/// `y(t) = Σ_j a_j Π_{i<j} (τ − x_i) / s_i`, `τ = t − origin`,
+///
+/// the nodes `x_i` and scales `s_i` shared by the entries (CVODE's
+/// Nordsieck array: every `x_i = 0`, `s_i = h`; IDA's modified divided
+/// differences: `x_0 = 0`, `x_i = −ψ_{i−1}`, `s_i = ψ_i`). The run loop
+/// encloses it over any part of the step with outward rounding.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DenseOutput {
+    /// τ's origin
+    pub origin: f64,
+    /// the nodes `x_i`, as many as the degree
+    pub nodes: Vec<f64>,
+    /// the scales `s_i`
+    pub scales: Vec<f64>,
+    /// per entry, its `degree + 1` coefficients `a_j`, entry after entry
+    /// (any values after the last entry's are not part of it)
+    pub coef: Vec<f64>,
+    /// per entry, a bound on its distance from the integrator's own
+    /// interpolant over the part of the step asked for (0: it is that
+    /// interpolant, as the integrator holds it)
+    pub err: Vec<f64>,
+}
+
+impl DenseOutput {
+    /// The polynomial's degree.
+    pub fn degree(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Entry `m`'s coefficients.
+    pub fn coefficients(&self, m: usize) -> &[f64] {
+        let k = self.degree() + 1;
+        &self.coef[m * k..(m + 1) * k]
+    }
+
+    /// Entry `m` at `t`, in floating point (as the integrators evaluate
+    /// their dense output: the nested Newton form).
+    pub fn at(&self, m: usize, t: f64) -> f64 {
+        let tau = t - self.origin;
+        let a = self.coefficients(m);
+        let q = self.degree();
+        let mut acc = a[q];
+        for j in (0..q).rev() {
+            acc = a[j] + (tau - self.nodes[j]) / self.scales[j] * acc;
+        }
+        acc
+    }
+
+    /// The constant `y` at `t` (an integrator that has not stepped yet).
+    pub fn constant(&mut self, t: f64, y: impl Iterator<Item = f64>) {
+        self.origin = t;
+        self.nodes.clear();
+        self.scales.clear();
+        self.coef.clear();
+        self.coef.extend(y);
+        self.err.clear();
+        self.err.resize(self.coef.len(), 0.0);
+    }
+}
+
 /// A time integrator for `x' = f(t, x, z)`, `0 = g(t, x, z)`.
 pub trait Integrator {
     /// The backend's name, for the run report.
@@ -330,6 +393,19 @@ pub trait Integrator {
             *o = y[*i];
         }
         Ok(())
+    }
+    /// The polynomial the dense output is over the last step, for the
+    /// entries `idx` of y ([`DenseOutput`]), to be read on `[t0, the
+    /// step's end]` (inside the last step). False when the backend does
+    /// not give it (the default) or `t0` lies before the last step: the run
+    /// loop then cannot check a condition along the step, and says so.
+    fn dense_output(
+        &mut self,
+        _t0: f64,
+        _idx: &[usize],
+        _out: &mut DenseOutput,
+    ) -> Result<bool, SolveError> {
+        Ok(false)
     }
     /// The discrete variables the model functions read.
     fn discrete_mut(&mut self) -> &mut [f64];

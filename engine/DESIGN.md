@@ -198,12 +198,14 @@ hidden from `PATH` and `LIBCLANG_PATH` unset, a rebuild and the spike's
 tests pass, and bindgen, clang-sys, cmake and 20 other build-only crates
 left the lockfile. CI must still prove the Windows (MSVC, `/fp:precise`)
 and macOS (Xcode command-line tools, arm64 and x86-64) builds. Beside the
-SUNDIALS sources, `csrc/` holds our two small C helpers (BSD-3, like the
+SUNDIALS sources, `csrc/` holds our four small C helpers (BSD-3, like the
 code they read): the dense output of CVODES and IDAS for selected
 components only, with the same coefficients and summation order as
 `CVodeGetDky`/`IDAGetDky` (a test checks they give the full dense
 output's exact bits inside every step), so a sampled block's tick
-interpolates only what it reads.
+interpolates only what it reads; and the polynomial that dense output
+is over the last step, for selected components, as CVODES and IDAS hold
+it (no arithmetic), which the mixed conditions' check encloses.
 
 ### 3.5 Decision
 
@@ -1003,26 +1005,32 @@ round).**
   (a variable several of them share once; the steps that do not move
   along a step enclosed once while the discrete values keep theirs), not
   expanded into one expression: a motor's limits read 45 and 49 of them,
-  which expanded ran to 160,000 and 250,000 characters. Two checks, the
-  cheap one first. A certificate: a time window and a box of the states
-  it reads over which
-  its enclosure excludes zero, made around the state at a step's end (the
-  box's half-width the last step's change and twice its bulge for each
-  step of the window;
-  the window doubles while certificates hold, and an attempt that fails
-  waits a few steps, up to 16, before the next). A step inside the window
-  whose ends and middle lie inside the box, by twice the step's change
-  and four times its bulge (the middle's distance from the chord) on
-  either side, needs no more: a few comparisons per state, and one
-  sample of the dense output per step for all such functions. Where none
-  holds, the step along the integrator's dense output: the states and
-  iteration variables the function reads as the polynomials of degree 7
-  through that output at Chebyshev points, the fit checked at one more
-  point and its error carried into the enclosures (Markov's inequality
-  for the rates); the whole step's enclosure first, then the same search
-  for the first sign change. One root finding did not report ends the
-  step there, at the first time the model's own root function on the
-  dense output is on the new side, as a root does
+  which expanded ran to 160,000 and 250,000 characters. Both checks read
+  the integrator's dense output over the step as the polynomial it
+  interpolates with (`Integrator::dense_output`: CVODE's Nordsieck array
+  and IDA's divided differences as they hold them, through two more C
+  helpers; diffsol's interpolant through six Chebyshev points, exact for
+  its order up to a round-off carried as an error), so no pulse can hide
+  between samples. Two checks, the cheap one first. A certificate: a time
+  window and a box of the states it reads over which its enclosure
+  excludes zero, made around the state at a step's end (the box's
+  half-width the width of the state's range over the last step for each
+  step of the window, and one more; the window doubles while certificates
+  hold, and an attempt that fails waits a few steps, up to 16, before the
+  next). A step inside the window over which each state stays inside the
+  box needs no more: first by how far the state may stray from its
+  polynomial's value at the step's end (the sizes of the basis functions
+  over the step: a few products per state, for all such functions), then,
+  where that is not enough, by its range (each basis function's range by
+  interval products); both rounded outwards. Where none holds, the step
+  along the dense output: the states and iteration variables the function
+  reads as that polynomial, in powers of the time with interval
+  coefficients rounded outwards (the value widened by the round-off of
+  evaluating it in floating point; diffsol's error carried, by Markov's
+  inequality for the rates); the whole step's enclosure first, then the
+  same search for the first sign change. One root finding did not report
+  ends the step there, at the first time the model's own root function on
+  the dense output is on the new side, as a root does
   (`SolverReport::pulses_found`); the crossing root finding located at
   the step's end is not one (it locates a root to 100 ε (|t| + h), a
   little after the change found here, which is then the only change up
@@ -1040,11 +1048,11 @@ round).**
   finding, as `noEvent` asks: no event needs locating where such a
   comparison flips, and the comparisons a model makes events of are
   modes, constant along a step. On the golden models the certificates
-  clear all but 7,051 of 862,704 condition-steps of the BEV's WLTC and
-  all but 717 of 1,145,426 of the hybrid's mixed cycle; the checks take
-  3.1 % of the BEV run's instructions (four conditions, two of them the
-  motor's chains, on steps a tenth as costly as the hybrid's) and under
-  0.6 % of the hybrid's. What cannot be searched
+  clear all but 6,386 of 862,704 condition-steps of the BEV's WLTC and
+  all but 677 of 1,145,426 of the hybrid's mixed cycle; the checks take
+  3.3 % of the BEV run's instructions (four conditions, two of them the
+  motor's chains, on steps a tenth as costly as the hybrid's) and 0.64 %
+  of the hybrid's. What cannot be searched
   (`atan2` or a derivative that moves with time, a table whose points are
   not known; a function not defined where its search starts; a search
   that makes no headway) is named in a warning and left to root finding:
@@ -1060,7 +1068,11 @@ round).**
   linear table of time against a state that curves, above it for 0.3 s
   inside one step, fired 0 times with root finding and the breakpoint
   stops alone, and fires once now, through a 1-D table and through a 2-D
-  one.)
+  one. The ninth round reads the integrator's polynomial instead of
+  fitting one: a state that swings by k √3 / 36 inside one step, back at
+  its value at the step's ends and middle (k s (s − ½)(s − 1)), passed
+  the check that sampled those three points with a box of half its
+  swing; its bound over the step does not.)
 * *Both sides of an event at an output time.* An output time that falls
   exactly on an event records both sides, as Modelica tools write two
   rows at that time to their result files: `SimResult::values` holds the

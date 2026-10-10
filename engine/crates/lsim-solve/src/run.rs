@@ -1383,7 +1383,7 @@ pub fn run_loop(
         // ends there, as at a root; the state there from the dense output
         let mut y_cut: Option<Vec<f64>> = None;
         let reported: &[i32] = if let Step::Root(_, dirs) = &st { dirs } else { &[] };
-        if !same && let Some((at, dirs)) = lp.scan_mixed(integ, t, st.time(), reported, &d, &y)? {
+        if !same && let Some((at, dirs)) = lp.scan_mixed(integ, t, st.time(), reported, &d)? {
             let mut yv = vec![0.0; n];
             integ.interpolate(at, &mut yv)?;
             y_cut = Some(yv);

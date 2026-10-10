@@ -7,32 +7,37 @@
 //! conditions too: the stops at the cycle's breakpoints keep its target
 //! linear within a step, but the state it is compared with may curve.
 //!
+//! Both checks read the integrator's dense output over the step as the
+//! polynomial it interpolates with ([`crate::DenseOutput`]: SUNDIALS'
+//! Nordsieck array or divided differences as it holds them; diffsol's
+//! interpolant through six Chebyshev points, exact for its order up to a
+//! round-off carried as an error), so no pulse can hide between samples.
 //! Two checks, the cheap one first:
 //!
 //! * **A certificate.** The condition keeps its sign over a time window
 //!   and a box of the states it reads: its interval enclosure there (the
 //!   time terms exactly, a table by its pieces) excludes zero. A step
-//!   inside the window whose ends and middle lie inside the box, by twice
-//!   the step's change and four times its bulge (the middle's distance
-//!   from the chord) on either side, needs no more: a few comparisons per
-//!   state, and one sample of the dense output per step for all the
-//!   conditions. The certificate is made again, around the state at a
-//!   step's end, when a step leaves it (its window grows while it holds,
+//!   inside the window over which each of those states stays inside the
+//!   box needs no more. Where a state goes over the step is bounded first
+//!   by how far it may stray from its polynomial's value at the step's end
+//!   (the sizes of the basis functions over the step: a few products per
+//!   state, for all the conditions), and, where that is not enough, by its
+//!   range (the basis functions' ranges by interval products); both
+//!   rounded outwards. The certificate is made again, around the state at
+//!   a step's end, when a step leaves it (its window grows while it holds,
 //!   and shrinks when the condition is near zero; after a failure the next
 //!   attempt waits a few steps, longer each time, to 16).
 //! * **The step along the dense output**, where no certificate holds: the
-//!   states and iteration variables the condition reads, as the
-//!   polynomials of degree 7 through the integrator's dense output at
-//!   Chebyshev points (a BDF dense output exactly; the fit checked at one
-//!   more point, its error carried into the enclosures), enclose the
-//!   condition over any part of the step, and [`first_change`] finds its
-//!   first sign change (the whole step's enclosure first, which settles
-//!   most). One root finding did not report ends the step, as a root does,
-//!   where the model's own root function on the dense output is on the
-//!   new side. The crossing root finding located at the step's end is not
-//!   one: it locates a root to its tolerance (100 ε (|t| + h)), a little
-//!   after the change found here, which is then the only change up to the
-//!   step's end.
+//!   states and iteration variables the condition reads, as that
+//!   polynomial (in powers of the time, its coefficients intervals rounded
+//!   outwards), enclose the condition over any part of the step, and
+//!   [`first_change`] finds its first sign change (the whole step's
+//!   enclosure first, which settles most). One root finding did not
+//!   report ends the step, as a root does, where the model's own root
+//!   function on the dense output is on the new side. The crossing root
+//!   finding located at the step's end is not one: it locates a root to
+//!   its tolerance (100 ε (|t| + h)), a little after the change found
+//!   here, which is then the only change up to the step's end.
 //!
 //! The condition is evaluated through the chain of the assignments it
 //! reads (a shared variable once), not expanded into one expression; the
@@ -48,63 +53,17 @@
 
 use super::{Loop, same_instant};
 use crate::info::{VarSource, table_at};
-use crate::interval::{Cx, Found, Grid2, Iv, J2, Poly, enclose, first_change, supported};
-use crate::{Integrator, SolveError};
+use crate::interval::{
+    Basis, Cx, DensePoly, Found, Grid2, Iv, J2, basis_sizes, enclose, first_change, stray,
+    supported,
+};
+use crate::{DenseOutput, Integrator, SolveError};
 use lsim_ir::runtime::ModelFunctions;
 use lsim_ir::{Expr, ParamId, VarId};
 use std::cell::RefCell;
-use std::sync::OnceLock;
 
 /// The steps one search may take.
 const BUDGET: usize = 4000;
-
-/// The points a step is sampled at along its dense output: Chebyshev
-/// (Lobatto) points of `[-1, 1]`, the ends included.
-const NODES: usize = 8;
-
-fn nodes() -> [f64; NODES] {
-    std::array::from_fn(|j| -(j as f64 * std::f64::consts::PI / (NODES - 1) as f64).cos())
-}
-
-/// The inverse of the Vandermonde matrix at [`nodes`]: the coefficients of
-/// the polynomial of degree 7 through values there (a dense output of
-/// order up to 7 exactly).
-fn inverse_vandermonde() -> &'static [[f64; NODES]; NODES] {
-    static INV: OnceLock<[[f64; NODES]; NODES]> = OnceLock::new();
-    INV.get_or_init(|| {
-        let u = nodes();
-        // [V | I] → [I | V⁻¹], partial pivoting
-        let mut m = [[0.0; 2 * NODES]; NODES];
-        for (i, row) in m.iter_mut().enumerate() {
-            for (k, x) in row.iter_mut().take(NODES).enumerate() {
-                *x = u[i].powi(k as i32);
-            }
-            row[NODES + i] = 1.0;
-        }
-        for col in 0..NODES {
-            let piv = (col..NODES)
-                .max_by(|a, b| m[*a][col].abs().total_cmp(&m[*b][col].abs()))
-                .unwrap_or(col);
-            m.swap(col, piv);
-            let p = m[col][col];
-            for x in m[col].iter_mut() {
-                *x /= p;
-            }
-            for r in 0..NODES {
-                if r != col {
-                    let f = m[r][col];
-                    if f != 0.0 {
-                        let pivot_row = m[col];
-                        for (x, pv) in m[r].iter_mut().zip(pivot_row) {
-                            *x -= f * pv;
-                        }
-                    }
-                }
-            }
-        }
-        std::array::from_fn(|i| std::array::from_fn(|k| m[i][NODES + k]))
-    })
-}
 
 /// What a channel is to a mixed condition.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -321,12 +280,86 @@ impl<'a> Mixed<'a> {
     }
 }
 
-/// How far a state may stray from its values at a step's ends `a`, `b`
-/// (`m`: at its middle) within the step: twice its change, and four times
-/// its bulge (the middle's distance from the chord; a quadratic's
-/// greatest).
-fn reach(a: f64, m: f64, b: f64) -> f64 {
-    2.0 * (b - a).abs() + 4.0 * (m - 0.5 * (a + b)).abs()
+/// The scratch of the mixed conditions' check along a step, kept between
+/// steps: the dense output's polynomial for the states they read, bounds
+/// on the size of its basis functions over the step and on where each
+/// state strays (by entry of y), the basis itself (set when first
+/// needed), and the states at the step's end and their ranges over it (by
+/// entry of y, filled when needed).
+#[derive(Default)]
+pub(super) struct StepScratch {
+    dense: DenseOutput,
+    step: (f64, f64),
+    sizes: Vec<f64>,
+    near: Vec<[f64; 2]>,
+    basis: Basis,
+    exact: bool,
+    y1: Vec<f64>,
+    span: Vec<[f64; 2]>,
+}
+
+impl StepScratch {
+    /// The step `[t0, t1]`, its dense output in place for the entries
+    /// `idx` of y (of `ny`): the sizes of its basis functions over the
+    /// step, and where each entry may stray (the basis itself, the states
+    /// at the step's end and their ranges over it when needed).
+    fn start(&mut self, (t0, t1): (f64, f64), idx: &[usize], ny: usize) {
+        let dense = &self.dense;
+        self.step = (t0, t1);
+        self.exact = false;
+        basis_sizes(dense.origin, &dense.nodes, &dense.scales, (t0, t1), &mut self.sizes);
+        self.near.resize(ny, [f64::NAN; 2]);
+        let entries = dense.coef.chunks_exact(dense.degree() + 1).zip(&dense.err);
+        for (&i, (a, &e)) in idx.iter().zip(entries) {
+            let r = stray(a, &self.sizes, e);
+            self.near[i] = [a[0] - r, a[0] + r];
+        }
+        self.y1.resize(ny, f64::NAN);
+        self.span.resize(ny, [f64::NAN; 2]);
+    }
+
+    /// The basis set to the step.
+    fn set_basis(&mut self) {
+        if !self.exact {
+            let (t0, t1) = self.step;
+            self.basis.set(self.dense.origin, &self.dense.nodes, &self.dense.scales, t0, t1);
+            self.exact = true;
+        }
+    }
+
+    /// The ranges over the step of the states `idx` (by entry of y; `ypos`
+    /// their entries in the dense output), into `span`.
+    fn spans(&mut self, idx: &[usize], ypos: &[usize]) {
+        self.set_basis();
+        let l = self.dense.degree() + 1;
+        for &i in idx {
+            let k = ypos[i];
+            let r = self.basis.range(&self.dense.coef[k * l..(k + 1) * l]);
+            let e = self.dense.err[k];
+            self.span[i] =
+                if e > 0.0 { [(r.lo - e).next_down(), (r.hi + e).next_up()] } else { [r.lo, r.hi] };
+        }
+    }
+
+    /// Whether the states `idx` stay inside the box `lo`, `hi` over the
+    /// step: by how far each may stray from its polynomial's first
+    /// coefficient first (no basis needed), by their ranges when that is
+    /// not enough.
+    fn inside(&mut self, idx: &[usize], ypos: &[usize], lo: &[f64], hi: &[f64]) -> bool {
+        inside_box(idx, &self.near, lo, hi) || {
+            self.spans(idx, ypos);
+            inside_box(idx, &self.span, lo, hi)
+        }
+    }
+}
+
+/// Whether the ranges `span` of the states `y_idx` (by entry of y) over a
+/// step lie inside the box `[lo, hi]` (by position).
+fn inside_box(y_idx: &[usize], span: &[[f64; 2]], lo: &[f64], hi: &[f64]) -> bool {
+    y_idx.iter().zip(lo.iter().zip(hi)).all(|(&i, (lo, hi))| {
+        let [a, b] = span[i];
+        a >= *lo && b <= *hi
+    })
 }
 
 /// What the run loop makes of a mixed condition.
@@ -484,9 +517,8 @@ impl<'a> Loop<'a> {
     /// t1]` that root finding did not report (`reported`: the directions
     /// of the crossings it located at `t1`, per root function; empty for a
     /// step that did not end at one), in a direction one of its root
-    /// functions is watched in (`y0`: the state at `t0`; the integrator's
-    /// at `t1`). Returns its time, and per root function the direction
-    /// (+1, -1; 0 for the others).
+    /// functions is watched in. Returns its time, and per root function the
+    /// direction (+1, -1; 0 for the others).
     pub(super) fn scan_mixed(
         &mut self,
         integ: &mut dyn Integrator,
@@ -494,57 +526,65 @@ impl<'a> Loop<'a> {
         t1: f64,
         reported: &[i32],
         d: &[f64],
-        y0: &[f64],
     ) -> Result<Option<(f64, Vec<i32>)>, SolveError> {
         if self.tf.mixed.is_empty() || t1 <= t0 || same_instant(t0, t1) {
             return Ok(None);
         }
-        // the states the conditions read at the step's end and at its
-        // middle (scratch kept between steps)
-        let mut y1 = std::mem::take(&mut self.tf.y1);
-        let y = integ.y();
-        y1.resize(y.len(), f64::NAN);
-        for &i in &self.tf.mixed_y {
-            y1[i] = y[i];
-        }
-        let mut ym = std::mem::take(&mut self.tf.ym);
-        ym.resize(y1.len(), f64::NAN);
-        let mut mid = std::mem::take(&mut self.tf.mid);
-        mid.resize(self.tf.mixed_y.len(), 0.0);
-        integ.interpolate_select(0.5 * (t0 + t1), &self.tf.mixed_y, &mut mid)?;
-        // where each may stray within the step: its values at the ends and
-        // the middle, widened by twice its change and four times its bulge
-        let mut span = std::mem::take(&mut self.tf.span);
-        span.resize(y1.len(), [f64::NAN; 2]);
-        for (&i, &v) in self.tf.mixed_y.iter().zip(&mid) {
-            ym[i] = v;
-            let (a, b) = (y0[i], y1[i]);
-            let e = reach(a, v, b);
-            span[i] = [a.min(v).min(b) - e, a.max(v).max(b) + e];
-        }
-        let out = self.scan_mixed_at(integ, t0, t1, reported, d, y0, &y1, &ym, &span);
-        self.tf.y1 = y1;
-        self.tf.ym = ym;
-        self.tf.mid = mid;
-        self.tf.span = span;
+        // the dense output's polynomial over the step, for every state the
+        // conditions read (scratch kept between steps)
+        let mut sc = self.tf.scratch.take().unwrap_or_default();
+        let out = self.scan_mixed_with(integ, (t0, t1), reported, d, &mut sc);
+        self.tf.scratch = Some(sc);
         out
     }
 
-    /// [`Self::scan_mixed`] with the states the conditions read at the
-    /// step's end in `y1`, at its middle in `ym`, and where they may stray
-    /// within it in `span`.
-    #[allow(clippy::too_many_arguments)]
+    /// [`Self::scan_mixed`] with its scratch.
+    fn scan_mixed_with(
+        &mut self,
+        integ: &mut dyn Integrator,
+        (t0, t1): (f64, f64),
+        reported: &[i32],
+        d: &[f64],
+        sc: &mut StepScratch,
+    ) -> Result<Option<(f64, Vec<i32>)>, SolveError> {
+        let n = self.tf.mixed_y.len();
+        let dense = &mut sc.dense;
+        if !integ.dense_output(t0, &self.tf.mixed_y, dense)?
+            || dense.coef.len() < n * (dense.degree() + 1)
+            || dense.err.len() < n
+        {
+            for j in 0..self.tf.mixed.len() {
+                self.cannot_check(j, "the integrator gives no polynomial for its dense output");
+            }
+            return Ok(None);
+        }
+        sc.start((t0, t1), &self.tf.mixed_y, integ.y().len());
+        self.scan_mixed_at(integ, (t0, t1), reported, d, sc)
+    }
+
+    /// Says once that mixed condition `j` could not be checked along a
+    /// step, and why.
+    fn cannot_check(&mut self, j: usize, why: &str) {
+        if !std::mem::replace(&mut self.tf.mixed[j].warned, true) {
+            let k = self.tf.mixed[j].roots[0];
+            let label = self.crossing_label(k);
+            self.warnings.push(format!(
+                "'{label}': a step could not be checked for a pulse of its condition ({why}); \
+                 root finding alone watches it there, and can step over a pulse shorter than a \
+                 step (a smaller max_step guards against that)"
+            ));
+        }
+    }
+
+    /// [`Self::scan_mixed`] with the dense output's polynomial over the
+    /// step in `sc`.
     fn scan_mixed_at(
         &mut self,
         integ: &mut dyn Integrator,
-        t0: f64,
-        t1: f64,
+        (t0, t1): (f64, f64),
         reported: &[i32],
         d: &[f64],
-        y0: &[f64],
-        y1: &[f64],
-        ym: &[f64],
-        span: &[[f64; 2]],
+        sc: &mut StepScratch,
     ) -> Result<Option<(f64, Vec<i32>)>, SolveError> {
         let mut best: Option<(f64, usize, bool)> = None;
         let mut jscratch: Vec<J2> = vec![];
@@ -559,8 +599,7 @@ impl<'a> Loop<'a> {
             };
             let m = &self.tf.mixed[j];
             // a certificate holds for this step: nothing more to check (the
-            // step's ends and middle inside its box, by twice the step's
-            // change and four times its bulge on either side)
+            // range of each state it reads over the step inside its box)
             let holds = m.cert.as_ref().is_some_and(|c| {
                 t0 >= c.from
                     && t1 <= c.until
@@ -568,10 +607,7 @@ impl<'a> Loop<'a> {
                         .iter()
                         .zip(&c.consts)
                         .all(|(k, v)| base.vars[*k].to_bits() == v.to_bits())
-                    && m.y_idx.iter().zip(c.lo.iter().zip(&c.hi)).all(|(&i, (lo, hi))| {
-                        let [a, b] = span[i];
-                        a >= *lo && b <= *hi
-                    })
+                    && sc.inside(&m.y_idx, &self.tf.ypos, &c.lo, &c.hi)
             });
             if holds {
                 self.tf.mixed[j].certified += 1;
@@ -579,30 +615,21 @@ impl<'a> Loop<'a> {
             }
             // the step along the dense output
             let limit = best.map_or(t1, |b| b.0);
+            sc.set_basis();
             let found = self.scan_step(
-                integ,
                 j,
                 (t0, t1, limit),
                 reported,
+                (&sc.dense, &mut sc.basis),
                 &base,
                 &mut jscratch,
                 &mut fscratch,
-            )?;
+            );
             self.tf.mixed[j].scanned += 1;
             match found {
                 Ok(Some((at, rising))) => best = Some((at, j, rising)),
                 Ok(None) => {}
-                Err(why) => {
-                    if !std::mem::replace(&mut self.tf.mixed[j].warned, true) {
-                        let k = self.tf.mixed[j].roots[0];
-                        let label = self.crossing_label(k);
-                        self.warnings.push(format!(
-                            "'{label}': a step could not be checked for a pulse of its condition \
-                             ({why}); root finding alone watches it there, and can step over a \
-                             pulse shorter than a step (a smaller max_step guards against that)"
-                        ));
-                    }
-                }
+                Err(why) => self.cannot_check(j, &why),
             }
             // a certificate for the steps ahead, around the state at t1
             let m = &mut self.tf.mixed[j];
@@ -610,7 +637,12 @@ impl<'a> Loop<'a> {
             if m.wait > 0 {
                 m.wait -= 1;
             } else {
-                self.certify(j, t0, t1, y0, ym, y1, &mut jscratch);
+                let y = integ.y();
+                for &i in &m.y_idx {
+                    sc.y1[i] = y[i];
+                }
+                sc.spans(&m.y_idx, &self.tf.ypos);
+                self.certify(j, (t0, t1), &sc.y1, &sc.span, &mut jscratch);
             }
         }
         let Some((at, j, rising)) = best else { return Ok(None) };
@@ -627,53 +659,32 @@ impl<'a> Loop<'a> {
         Ok(self.model_side(integ, k, at, rising, t1, d)?.map(|at| (at, dirs)))
     }
 
-    /// Mixed condition `j` along the step `[t0, t1]` of the dense output:
-    /// its first sign change in a watched direction before `limit` that is
-    /// not the crossing root finding located at `t1` (`reported`), with
-    /// its direction (`Err`: why it could not be checked).
+    /// Mixed condition `j` along the step `[t0, t1]` of the dense output
+    /// (`dense`, for the states the conditions read): its first sign
+    /// change in a watched direction before `limit` that is not the
+    /// crossing root finding located at `t1` (`reported`), with its
+    /// direction (`Err`: why it could not be checked).
     #[allow(clippy::too_many_arguments)]
     fn scan_step(
         &self,
-        integ: &mut dyn Integrator,
         j: usize,
         (t0, t1, limit): (f64, f64, f64),
         reported: &[i32],
+        (dense, basis): (&DenseOutput, &mut Basis),
         base: &Base<'_>,
         jscratch: &mut Vec<J2>,
         fscratch: &mut Vec<f64>,
-    ) -> Result<Result<Option<(f64, bool)>, String>, SolveError> {
+    ) -> Result<Option<(f64, bool)>, String> {
         let m = &self.tf.mixed[j];
-        let (c, s) = (0.5 * (t0 + t1), 0.5 * (t1 - t0));
-        let u = nodes();
-        let inv = inverse_vandermonde();
         let ny = m.y_idx.len();
-        // the entries of y it reads at the nodes, and at one more
-        let mut f = vec![[0.0; NODES]; ny];
-        let mut buf = vec![0.0; ny];
-        for (q, uq) in u.iter().enumerate() {
-            let tau = match q {
-                0 => t0,
-                _ if q == NODES - 1 => t1,
-                _ => c + s * uq,
-            };
-            integ.interpolate_select(tau, &m.y_idx, &mut buf)?;
-            for (fi, b) in f.iter_mut().zip(&buf) {
-                fi[q] = *b;
-            }
-        }
-        let check = c + 0.37 * s;
-        integ.interpolate_select(check, &m.y_idx, &mut buf)?;
-        let polys: Vec<Poly> = f
+        // each state it reads: the dense output's polynomial itself
+        let polys: Vec<DensePoly> = m
+            .y_idx
             .iter()
-            .zip(&buf)
-            .map(|(fi, at_check)| {
-                let a: Vec<f64> =
-                    (0..NODES).map(|k| (0..NODES).map(|q| inv[k][q] * fi[q]).sum()).collect();
-                let mut p = Poly { c, s, a, err: 0.0 };
-                let scale: f64 = p.a.iter().map(|x| x.abs()).sum::<f64>()
-                    + fi.iter().fold(0.0f64, |x, y| x.max(y.abs()));
-                p.err = 256.0 * f64::EPSILON * scale + 4.0 * (p.at(check) - at_check).abs();
-                p
+            .map(|&i| {
+                let k = self.tf.ypos[i];
+                let form = (dense.origin, &dense.nodes[..], &dense.scales[..]);
+                basis.poly(form, dense.coefficients(k), dense.err[k])
             })
             .collect();
         let jcell = std::cell::RefCell::new(std::mem::take(jscratch));
@@ -744,23 +755,20 @@ impl<'a> Loop<'a> {
         };
         *jscratch = jcell.into_inner();
         *fscratch = fcell.into_inner();
-        Ok(out)
+        out
     }
 
     /// A certificate for mixed condition `j` from `t1` on: a time window
     /// and a box of its states around `y1` over which its enclosure
-    /// excludes zero, the box's half-width the last step's change and
-    /// twice its bulge for each step the window holds at that pace, and
+    /// excludes zero, the box's half-width each state's range over the
+    /// last step (`span`) for each step the window holds at that pace, and
     /// one more; none when the condition is too near zero.
-    #[allow(clippy::too_many_arguments)]
     fn certify(
         &mut self,
         j: usize,
-        t0: f64,
-        t1: f64,
-        y0: &[f64],
-        ym: &[f64],
+        (t0, t1): (f64, f64),
         y1: &[f64],
+        span: &[[f64; 2]],
         scratch: &mut Vec<J2>,
     ) {
         let h = t1 - t0;
@@ -783,7 +791,7 @@ impl<'a> Loop<'a> {
                 .y_idx
                 .iter()
                 .map(|&i| {
-                    let move_ = 0.5 * reach(y0[i], ym[i], y1[i]) * (steps + 1.0);
+                    let move_ = (span[i][1] - span[i][0]) * (steps + 1.0);
                     let r = move_ + 1e-9 * y1[i].abs();
                     (y1[i] - r, y1[i] + r)
                 })
@@ -870,6 +878,61 @@ impl<'a> Loop<'a> {
 mod tests {
     use super::*;
     use lsim_ir::expr::{BinaryOp, Builtin, CmpOp};
+
+    /// A state that swings out and back within one step, S-shaped (`c − k
+    /// u (u − ½)(u − 1)`, u from 1 to 0 across the step): it has the same
+    /// value at the step's ends and middle, so a check of those three
+    /// points (the eighth round's certificate) would have kept a box it
+    /// leaves. Its range over the step, from the dense output's polynomial
+    /// itself, does not fit the box.
+    #[test]
+    fn an_s_shaped_swing_inside_one_step_leaves_the_certificate() {
+        let (t0, h, k, c) = (10.0, 0.5, 2.0, 3.0);
+        // the cubic in powers of τ = t − (t0 + h) (a Newton form with nodes
+        // 0 and scales 1): u = −τ / h, −k (u³ − 3u²/2 + u/2)
+        let (a3, a2, a1) = (k / (h * h * h), 1.5 * k / (h * h), 0.5 * k / h);
+        let coef = [c, a1, a2, a3];
+        let dense = DenseOutput {
+            origin: t0 + h,
+            nodes: vec![0.0; 3],
+            scales: vec![1.0; 3],
+            coef: coef.to_vec(),
+            err: vec![0.0],
+        };
+        let at = |t: f64| dense.at(0, t);
+        // the ends and the middle are at c
+        for t in [t0, t0 + 0.5 * h, t0 + h] {
+            assert!((at(t) - c).abs() < 1e-12, "{t}: {}", at(t));
+        }
+        // it swings by k √3 / 36 ≈ 0.096 either way
+        let swing = k * 3f64.sqrt() / 36.0;
+        let peak = at(t0 + h * (0.5 - 3f64.sqrt() / 6.0));
+        assert!((peak - c - swing).abs() < 1e-9, "{peak}");
+        // a box of half the swing about c holds the three points the old
+        // check sampled, with its margins (twice the change, four times
+        // the bulge: both zero)
+        let (lo, hi) = ([c - 0.5 * swing], [c + 0.5 * swing]);
+        assert!([at(t0), at(t0 + 0.5 * h), at(t0 + h)].iter().all(|y| lo[0] <= *y && *y <= hi[0]));
+        // the check along the step does not hold in it: not by how far the
+        // state may stray from its first coefficient (that bound holds the
+        // swing), nor by its range
+        let mut sc = StepScratch { dense: dense.clone(), ..Default::default() };
+        sc.start((t0, t0 + h), &[0], 1);
+        let [nlo, nhi] = sc.near[0];
+        assert!(nlo <= c - swing && nhi >= c + swing, "{:?}", sc.near[0]);
+        assert!(!sc.inside(&[0], &[0], &lo, &hi));
+        assert!(sc.exact);
+        // the step's range does not fit it
+        let mut basis = Basis::default();
+        basis.set(dense.origin, &dense.nodes, &dense.scales, t0, t0 + h);
+        let r = basis.range(dense.coefficients(0));
+        assert!(r.lo <= c - swing && r.hi >= c + swing, "{r:?}");
+        let span = [[r.lo, r.hi]];
+        assert!(!inside_box(&[0], &span, &lo, &hi));
+        // a box that holds the swing holds the range... once wide enough
+        // for the range's overestimate
+        assert!(inside_box(&[0], &span, &[r.lo], &[r.hi]));
+    }
 
     /// Only a value that moves where a `noEvent` comparison flips, and
     /// nowhere else, is switched: a continuous function inside `noEvent`

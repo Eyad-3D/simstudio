@@ -20,8 +20,8 @@ use crate::energy::Integrand;
 use crate::init::{InitSettings, consistent_z};
 use crate::jac::JacStructure;
 use crate::{
-    Integrator, OutputGrid, RunInfo, SimResult, SolveError, SolverOptions, SolverStats, Step,
-    run_loop,
+    DenseOutput, Integrator, OutputGrid, RunInfo, SimResult, SolveError, SolverOptions,
+    SolverStats, Step, run_loop,
 };
 use diffsol::{
     Bdf, NalgebraContext, NalgebraLU, NalgebraMat, NalgebraVec, OdeBuilder, OdeEquationsImplicit,
@@ -510,6 +510,60 @@ where
         let y = self.interp(t)?;
         out.copy_from_slice(&y);
         Ok(())
+    }
+
+    /// diffsol's BDF interpolates a step with a polynomial of degree its
+    /// order, at most 5, but does not expose its difference array: its
+    /// values at six Chebyshev points of `[t0, t]` give that polynomial in
+    /// Newton form, up to round-off (bounded generously, 4096 ε of the
+    /// largest value).
+    fn dense_output(
+        &mut self,
+        t0: f64,
+        idx: &[usize],
+        out: &mut DenseOutput,
+    ) -> Result<bool, SolveError> {
+        let t1 = self.t;
+        if t0 >= t1 || t0 < self.t_a {
+            if t0 >= t1 {
+                let ys: Vec<f64> = idx.iter().map(|i| self.y[*i]).collect();
+                out.constant(t1, ys.into_iter());
+                return Ok(true);
+            }
+            return Ok(false);
+        }
+        const K: usize = 6;
+        let (c, h) = (0.5 * (t0 + t1), 0.5 * (t1 - t0));
+        let ts: [f64; K] = std::array::from_fn(|i| match i {
+            0 => t1,
+            _ if i == K - 1 => t0,
+            _ => c + h * (i as f64 * std::f64::consts::PI / (K - 1) as f64).cos(),
+        });
+        let mut f = vec![[0.0; K]; idx.len()];
+        for (i, t) in ts.iter().enumerate() {
+            let y = if i == 0 { self.y.clone() } else { self.interp(*t)? };
+            for (fm, k) in f.iter_mut().zip(idx) {
+                fm[i] = y[*k];
+            }
+        }
+        out.origin = t1;
+        out.nodes = ts[..K - 1].iter().map(|t| t - t1).collect();
+        out.scales = vec![1.0; K - 1];
+        out.coef.clear();
+        out.err.clear();
+        for fm in &f {
+            // divided differences, in place
+            let mut a = *fm;
+            for j in 1..K {
+                for i in (j..K).rev() {
+                    a[i] = (a[i] - a[i - 1]) / (ts[i] - ts[i - j]);
+                }
+            }
+            out.coef.extend_from_slice(&a);
+            let big = fm.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+            out.err.push(4096.0 * f64::EPSILON * big);
+        }
+        Ok(true)
     }
 
     fn discrete_mut(&mut self) -> &mut [f64] {
