@@ -343,11 +343,19 @@ pub trait Integrator {
     /// Makes the iteration variables of `y` consistent at `t` with the
     /// discrete values `d`, the states held (event iteration re-checks the
     /// conditions with them after a discrete value changed). The run loop
-    /// calls it only for a model with iteration variables, so the default,
-    /// which does nothing, is right for an integrator of ODEs; one that
-    /// solves DAEs implements it.
-    fn consistent_z(&mut self, _t: f64, _y: &mut [f64], _d: &[f64]) -> Result<(), SolveError> {
-        Ok(())
+    /// calls it only for a model with iteration variables, so an
+    /// integrator of ODEs never sees it. The default fails: an integrator
+    /// that solves DAEs and does not implement it stops the run there
+    /// instead of going on with iteration variables that no longer hold.
+    fn consistent_z(&mut self, t: f64, _y: &mut [f64], _d: &[f64]) -> Result<(), SolveError> {
+        Err(SolveError::Integrator {
+            t,
+            message: format!(
+                "the {} integrator cannot make a model's iteration variables consistent after \
+                 an event (Integrator::consistent_z is not implemented)",
+                self.name()
+            ),
+        })
     }
     /// Work done so far.
     fn stats(&self) -> SolverStats;

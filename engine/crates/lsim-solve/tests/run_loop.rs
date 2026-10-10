@@ -4,7 +4,8 @@
 //! schedules; a tick just before the end; the cost of a restart; time
 //! events located exactly, re-armed or set to now at their own instant, or
 //! coinciding with a root; the momentum kept at a change of a rigid
-//! coupling, and a cascade of such changes at one instant.
+//! coupling, and a cascade of such changes at one instant; an integrator
+//! that cannot solve a DAE's iteration variables at an event.
 
 use lsim_ir::expr::Expr;
 use lsim_ir::prepared::Direction;
@@ -1587,6 +1588,105 @@ impl Integrator for NoResume<'_> {
     fn method(&self) -> String {
         self.0.method()
     }
+}
+
+/// An integrator that does not implement `consistent_z`: the trait's
+/// default.
+struct NoConsistentZ<'m>(lsim_solve::sundials::Sundials<'m>);
+
+impl Integrator for NoConsistentZ<'_> {
+    fn name(&self) -> &'static str {
+        "test"
+    }
+    fn step(&mut self, t_stop: f64) -> Result<Step, SolveError> {
+        self.0.step(t_stop)
+    }
+    fn y(&self) -> &[f64] {
+        self.0.y()
+    }
+    fn interpolate(&mut self, t: f64, out: &mut [f64]) -> Result<(), SolveError> {
+        self.0.interpolate(t, out)
+    }
+    fn discrete_mut(&mut self) -> &mut [f64] {
+        self.0.discrete_mut()
+    }
+    fn restart(&mut self, t: f64, y: &[f64]) -> Result<(), SolveError> {
+        self.0.restart(t, y)
+    }
+    fn stats(&self) -> SolverStats {
+        self.0.stats()
+    }
+    fn set_root_sides(&mut self, sides: &[f64]) {
+        self.0.set_root_sides(sides)
+    }
+}
+
+/// `Integrator::consistent_z`'s default: an integrator that leaves it out
+/// stops a DAE's run at the first event that needs the iteration
+/// variables solved again (here `when x >= 1` changes what z is, and `when
+/// z >= 5` reads it), instead of going on with a z that no longer holds;
+/// the same integrator with it runs the model to its exact answer.
+#[test]
+fn an_integrator_that_cannot_solve_iteration_variables_stops_a_dae_at_its_event() {
+    // x' = 1; 0 = z - (x + 10 d0); when x >= 1: d0 := 1; when z >= 5: d1 := 1
+    let model = Hand {
+        layout: layout(1, 1, 0, 2, 2, 2, 4),
+        f: Box::new(|i, out| {
+            out[0] = 1.0;
+            out[1] = i.y[1] - (i.y[0] + 10.0 * i.d[0]);
+        }),
+        jvp: Box::new(|_, v, out| {
+            out[0] = 0.0;
+            out[1] = v[1] - v[0];
+        }),
+        roots: Box::new(|i, out| {
+            out[0] = i.y[0] - 1.0;
+            out[1] = i.y[1] - 5.0;
+        }),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.y[1];
+            out[2] = i.d[0];
+            out[3] = i.d[1];
+        }),
+        when: Box::new(|_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = 1.0;
+            }
+            if fired[1] != 0.0 {
+                d[1] = 1.0;
+            }
+        }),
+        modes: None,
+        y0: vec![0.0, 0.0],
+        d0: vec![0.0, 0.0],
+    };
+    let mut info = RunInfo::bare(2, 4, vec![]);
+    info.root_dirs = vec![1, 1];
+    whens(&mut info, &[(0, Direction::Rising, "first"), (1, Direction::Rising, "second")]);
+    let opts = SolverOptions { rtol: 1e-9, atol: 1e-12, ..Default::default() };
+    let grid = OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.5 };
+    let integ = || {
+        let l = *model.layout();
+        let mut y0 = vec![0.0; l.n_y()];
+        let mut d0 = vec![0.0; l.n_d];
+        model.start(&info.params, &mut y0, &mut d0);
+        lsim_solve::sundials::Sundials::new(&model, &info, &opts, grid, &y0, d0, vec![], None)
+            .unwrap()
+    };
+    let now = std::time::Instant::now();
+    let err = run_loop(&model, &info, &opts, grid, &mut NoConsistentZ(integ()), &[], &mut [], now)
+        .expect_err("a DAE event without consistent iteration variables");
+    println!("{err}");
+    match err {
+        SolveError::Integrator { t, message } => {
+            assert!((t - 1.0).abs() < 1e-8, "at the event: {t}");
+            assert!(message.contains("consistent_z"), "{message}");
+        }
+        e => panic!("the wrong error: {e}"),
+    }
+    let run = run_loop(&model, &info, &opts, grid, &mut integ(), &[], &mut [], now).unwrap();
+    assert_eq!(*run.values[3].last().unwrap(), 1.0);
 }
 
 /// How a run treats a changing tick: restart every time, the default, or
