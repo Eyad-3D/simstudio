@@ -883,7 +883,9 @@ builds):
   of operations that `tape.rs` interprets. Both receive the same
   operations in the same order, so a tape computes bit for bit what its
   machine code computes (tests: `tape.rs`, on the initialisation systems
-  and on every function of tiered models). Generated functions take one
+  and on every function of tiered models); a tape's fused multiply-add is
+  the CPU's own instruction (`_mm_fmadd_sd`), as the machine code's is,
+  not a library's `fma`. Generated functions take one
   argument, a pointer to their inputs and outputs (`CallCtx`), are one
   block each, and load each array's address once.
 * **Exactness.** The functions the run loop compares with the interpreter
@@ -892,10 +894,18 @@ builds):
   contraction, the interpreter's library functions (`powf` for every
   power), its rule for `min`/`max` at a tie of signed zeros. The residual,
   the Jacobian and the channels multiply out a constant integer power
-  `x^n` (3 ≤ |n| ≤ 16) in double-double arithmetic with fused
-  multiply-adds and round once: within 1 ulp of the exact power, closer to
-  it than `powf` (`tests/fuzz.rs`: 280 000 powers), where the target has
-  fused multiply-add (else `powf`).
+  `x^n` (3 ≤ |n| ≤ 16) in double-double arithmetic and round once: within
+  1 ulp of the exact power, closer to it than `powf` (`tests/fuzz.rs`:
+  280 000 powers). Each product's exact rounding error comes from a fused
+  multiply-add where the CPU has one and from Dekker's product where it
+  has not, so CPUs with and without FMA compute the same bits (the fuzz
+  test's mirror on 560 000 powers, the compiled models both ways, and the
+  golden comparison lowered both ways, byte-identical); outside
+  [2^-960, 2^990] the plain repeated squaring's product. The machine
+  code's results are then the same on every x86-64 CPU; the library
+  functions it calls are the platform's (glibc even picks FMA variants of
+  `exp`, `log`, `sin`… by CPU), which section 17's R12 proposes to replace
+  by one the engine ships.
 * **Sparse coloured Jacobians.** Column colouring of the sparsity pattern
   (greedy, largest-first) and one forward sweep with a tangent per colour,
   filling the CSC values directly: `jacobian_sparse`. The example cars need
@@ -923,6 +933,25 @@ builds):
   (built by the same lowering in a fraction of Cranelift's time) and
   another thread compiles its machine code, to which each function then
   switches (`JitModel::wait_machine_code`); results do not depend on when.
+  The compilation stops when the last holder of the model goes away, and
+  `JitModel::machine_code` says how the functions run (machine code, on
+  tapes while it compiles, on tapes for good and why).
+* **Memory.** A model's machine code is given back when its last holder
+  goes away (cranelift-jit's memory provider leaks it unless the module's
+  `free_memory` is called: `tests/memory.rs`). Where the system refuses
+  executable memory (Windows' Arbitrary Code Guard, some security
+  policies), a model runs on its tapes, which compute the same, and
+  `CompileReport::on_tapes` says so (`tests/fallback.rs`, with the
+  refusal simulated in the memory provider).
+* **The floating-point environment.** Compiling (on every thread it
+  uses) and running a model (lsim-solve's `simulate` and `run_loop`) set
+  the default environment, rounding to nearest with subnormals kept, for
+  their duration and restore the calling thread's own after
+  (`lsim_ir::fenv`): a host library's flush-to-zero or denormals-are-zero
+  would otherwise turn subnormals into zeros, in the tables' coefficients
+  and in the interval enclosures' rounding (`tests/fenv.rs`). Model
+  functions called directly, outside a run, compute in the caller's
+  environment.
 * **Modes, guards, the initialisation** (`InitFunctions`, on tapes: a run
   calls them a handful of times), and the **condition kernels** of section
   5.8 (point kernels on tapes, interval kernels as programs over
@@ -935,6 +964,24 @@ builds):
   pages in order (Windows commits a thread's stack one guard page at a
   time). `tests/conventions.rs` compiles the example projects and random
   models for the other x86-64 platform too (Windows from Linux).
+* **Unwind information: none** (`unwind_info=false`). Nothing unwinds
+  through generated code (it calls only functions that cannot panic, and
+  a panic in an `extern "C"` function aborts), but on Windows a debugger,
+  a profiler (ETW, VTune) or a crash dump cannot walk the stack through a
+  JIT frame, and a structured exception raised in one (an access
+  violation) finds no handler there. Registering the frames would take:
+  `unwind_info=true`, so that Cranelift describes each function's
+  prologue (`CompiledCode::create_unwind_info` gives the Windows x64
+  `UNWIND_INFO`); placing each `UNWIND_INFO` in the module's memory within
+  4 GB of the code (the table holds 32-bit offsets from one base);
+  building the `RUNTIME_FUNCTION` table (start, end, unwind information
+  of each function) and calling `RtlAddFunctionTable(table, count, base)`
+  once the code is final, and `RtlDeleteFunctionTable` before
+  `free_memory` gives the memory back (or `RtlInstallFunctionTableCallback`
+  over the module's whole range). cranelift-jit does none of it (wasmtime
+  does, in its own code memory). On Linux the counterparts are
+  registering `.eh_frame` with `__register_frame` and a perf map
+  (`/tmp/perf-<pid>.map`) for profilers. Not done yet.
 
 **Compile time.** The example cars: 10–17 ms on four threads, 23–32 ms of
 one thread (`tests/budget.rs`, budget 50 ms). A network of 10 000
@@ -1923,7 +1970,12 @@ work end to end) or against hand-written test doubles of the interfaces.
   instructions against the interpreter's 240 million: the interval
   arithmetic itself, which must stay bitwise the interpreter's), the rest
   of the check, 2.5 %, is the run loop's (dense output, bases,
-  certificates). Golden comparison byte-identical throughout.
+  certificates). Golden comparison byte-identical throughout. After the
+  review: a dropped model gives its machine code back; a tiered model's
+  compilation stops when it is dropped and reports how it ends; a system
+  that refuses executable memory gets tapes; compiling and running set
+  the default floating-point environment; the exact powers are the same
+  bits with and without FMA (section 7).
 
 ### WP4 — Solver runtime
 
@@ -2079,7 +2131,7 @@ the vehicle body). A short integration checkpoint each week runs
 | R9 | KLU is LGPL and banned | faer sparse LU (MIT) as our SUNDIALS linear solver (WP4). **WP4:** done; dense, band and sparse LU give the same runs on every reference model (test) |
 | R10 | Parallel agents change `lsim-ir` incompatibly | additive changes only; owners agree; check.sh in every package's CI |
 | R11 | Base Modelica is a moving specification (MCP-0031) | the text format is a strict subset; import tracks the published version |
-| R12 | Windows x64 is the target and only Linux is tested here | **WP3:** generated code takes the ISA's default calling convention everywhere, checked per function and by compiling every example for `x86_64-pc-windows-msvc` in the tests; stack probes for large frames. Only Windows CI can run the code there: the convention end to end, the stack probes, the MSVC CRT's maths functions against `lsim-solve/tests/libm.rs` (a libm the engine ships, the same on every platform, would make results identical everywhere and the interval widening sound by construction), and the bitwise tape tests with the CRT's `fma` |
+| R12 | Windows x64 is the target and only Linux is tested here | **WP3:** generated code takes the ISA's default calling convention everywhere, checked per function and by compiling every example for `x86_64-pc-windows-msvc` in the tests; stack probes for large frames; tapes where executable memory is refused; the default floating-point environment for compiling and running; the same bits on CPUs with and without FMA. Only Windows CI can run the code there: the convention end to end, the stack probes, the refusal path on a real Arbitrary Code Guard process, and the MSVC CRT's maths functions against `lsim-solve/tests/libm.rs`. Proposed: a libm the engine ships and calls everywhere (CORE-MATH's correctly rounded functions, MIT, built by the `cc` build that builds SUNDIALS), which would make results the same on every platform and CPU and the interval widening sound by construction; the libm test should then also cover `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `tanh`, `pow` and `atan2`, which the interval code widens too |
 
 ## 18. Licences
 
