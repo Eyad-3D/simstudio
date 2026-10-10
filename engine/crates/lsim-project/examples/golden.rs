@@ -89,10 +89,10 @@ fn main() {
         let figs = golden::compare_figures(&reference, &run.figures);
         let chans = golden::compare_channels(&reference, &run);
         let books = run.result.energy.as_ref();
-        // today's gear shifts: the kinetic energy a shift loses, less the
-        // impulse through the tyres times their slip before the shift
-        // (booked to the tyres), under the gearboxes' "gear shifts" term,
-        // kWh
+        // today's gear shifts: the kinetic energy a shift loses (its tyres'
+        // slip relaxed at once), less the impulse through the tyres times
+        // their slip before the shift (booked to the tyres), under the
+        // gearboxes' "gear shifts" term, kWh
         let today_shifts: f64 = reference["fine"]["part_energy"]
             .as_array()
             .map(|parts| {
@@ -112,13 +112,21 @@ fn main() {
             reference["fine"]["wall_seconds"].as_f64().unwrap_or(0.0),
             books
                 .map(|b| {
+                    // the tyres pass no impulse: what their slip loses
+                    // after a shift is their own slip loss, over time
+                    let links = if b.impulse_link_loss != 0.0 {
+                        format!(
+                            ", {:.6} kWh in couplings that passed the impulse on",
+                            b.impulse_link_loss / 3.6e6
+                        )
+                    } else {
+                        String::new()
+                    };
                     let shifts = match run.result.report.impulses {
                         0 => String::new(),
                         n => format!(
-                            " ({n} gear shifts: {:.6} kWh, {:.6} kWh as the gears engaged, {:.6} kWh as the tyres' slip relaxed; today's gearbox term {today_shifts:.6} kWh)",
-                            b.impulse_loss / 3.6e6,
+                            " ({n} gear shifts: {:.6} kWh as the gears engaged{links}; today's gearbox term {today_shifts:.6} kWh)",
                             (b.impulse_loss - b.impulse_link_loss) / 3.6e6,
-                            b.impulse_link_loss / 3.6e6,
                         ),
                     };
                     format!(

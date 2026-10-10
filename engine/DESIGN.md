@@ -896,7 +896,10 @@ round).**
   changes during event iteration, the iteration variables are solved again
   (states held, `Integrator::consistent_z`) before the `when` values, the
   modes' relations and the conditions read them (`RunInfo::events_read_z`
-  says whether any does).
+  says whether any does). The trait's default fails the run: an
+  integrator of DAEs that does not implement it cannot go on silently
+  with iteration variables that no longer hold (an integrator of ODEs
+  never sees it).
 * *Scheduled events are no storms.* What a sample tick or a time event
   changes at its instant (a controller switching an engine's throttle from
   one tick to the next) does not count towards `storm_events`.
@@ -931,7 +934,8 @@ round).**
   integrates or watches (`RunInfo::dynamic_discretes`: no state
   derivative, residual, energy integrand, zero crossing or table argument
   reads them) leaves the solution exactly as it is: the step stands,
-  without a restart.
+  without a restart (`SolverReport::inert_ticks` counts them;
+  `light_restarts` counts only the opt-in kind below).
 * *Light restarts are opt-in* (`SolverOptions::light_restarts`). Going
   on with the integration's history after a slight tick (only its
   outputs changed, no condition changed side, the jumps of `x'` over the
@@ -970,38 +974,64 @@ round).**
      read, `B = ∂U/∂x`. For kinetic energies that is the perfectly
      inelastic engagement (`w_out⁺ = (J_out w_out⁻ + r J_in w_in⁻) /
      (J_out + r² J_in)`), whichever speeds are states. Its loss, `E⁻ − E_a
-     ≥ 0`, is the engaging part's. Parts with bounded forces (a slipping
-     clutch) are separate states and pass nothing.
-  2. *The links relax.* A tyre passes no impulse in zero time; in the
-     rigid limit its slip relaxes at once back to the slip it had before
-     the event, exchanging momentum between the wheels and the vehicle:
-     the same balance over the states the active links (`ImpulseDecl`)
-     reach, each keeping `keep = κ⁻` with its impulse λ. Its loss is
-     `λ (κ_a + κ⁻) / 2` (the impulse times the mean slip). A friction
-     contact passes an impulse only along its slip, so a link whose share
-     would be negative slides (passes nothing) and the stage is solved
-     again without it: every share is ≥ 0.
-  The end state is the one projection that keeps every slip would give
-  (stage 1's change is orthogonal, in the masses' metric, to what stage 2
-  can move), so the total loss is the same; the split is the physical
-  one. A fully resolved stiff tyre (no projection through it, its slip
-  transient integrated) dissipates the tyre's share to within 1.2e-2,
-  1.2e-3 and 1.2e-4 as its stiffness grows from 2e4 to 2e6 N per m/s
-  (`the_tyres_share_is_what_a_stiff_tyre_dissipates`). Today's engine
-  books the impulse times the slip *before* the event to the tyre (on a
-  downshift while driving that is negative, −113 J in the review's case,
-  where the tyre's share is in fact +1703 J and the gearbox's 321 J); it
-  ends in the same state. The losses are the coupled parts' stored
-  energies before and after each stage (`Engagement`), nothing else that
-  jumps at the same instant. Derivatives are exact: `B` and the links'
-  gradients by forward-mode differentiation through the assignments
-  (`lsim-solve/src/ad.rs`; the iteration variables' `∂z/∂x = −g_z⁻¹ g_x`
-  from the compiled Jacobian), the stored energies' gradients and
-  Hessians by second-order forward differentiation, and Newton's method
-  solves the balance (one step for quadratic energies and linear
-  kinematics; a stiffening energy `½ J w² + ¼ c w⁴` is kept to 1e-13).
-  Event iteration goes on from the moved states: a condition the jump
-  crosses fires at the event, a mode it crosses flips there.
+     ≥ 0`, is the engaging part's.
+  2. *Stiff, unbounded links relax.* A part whose forces are bounded
+     passes no impulse in zero time, and a tyre is one: its force is at
+     most μ N, inside its grip as at it. After stage 1 its slip relaxes
+     through its own law, inside its grip over its relaxation time (on
+     the hybrid 0.2 to 7 ms, on a 300 kg two-axle car at 20 m/s about
+     25 ms) or sliding at its grip, and the integrator follows that
+     exactly; its loss is its own slip loss, booked as it happens. So the
+     library's wheel declares no link, nor does a slipping clutch. A link
+     (`ImpulseDecl { keep, active }`) stands for a coupling a model
+     treats as stiff and unbounded: its `active` is judged at the state
+     stage 1 leaves; it relaxes back to its relative velocity before the
+     event (`keep = κ⁻`, its impulse λ), the same balance over the states
+     the active links reach; a link that comes into its range where the
+     others' relaxation leaves the states joins them and the stage is
+     solved again (the set only grows). One link books what the stage
+     loses; several share it as their stiffnesses say, which they do not
+     declare, so the event books it as a whole (and the run warns once).
+  The end state is the one projection keeping every active link would
+  give (stage 1's change is orthogonal, in the masses' metric, to what
+  stage 2 can move), so the total loss is the same. Against fully
+  resolved runs:
+  * a stiff, unbounded link (a linear tyre law with no grip limit) and no
+    projection through it: the tyre's dissipation approaches its share
+    within 1.2e-2, 1.2e-3 and 1.2e-4 as its stiffness grows from 2e4 to
+    2e6 N per m/s (`the_tyres_share_is_what_a_stiff_tyre_dissipates`);
+  * a tyre with a grip limit (the review's: F = clamp(k κ, ±4000 N), a
+    7 → 12 downshift): it slides after stage 1, and the run is the one
+    with its slip integrated at every stiffness (it was 0.196 m/s apart
+    50 ms after the shift, the motor at 737 against 611 rad/s, when the
+    grip was judged before the event and the slip relaxed at once;
+    `a_tyre_past_its_grip_after_the_rigid_stage_passes_no_impulse`);
+  * a car with a motor on each axle and the library's tyre law, against
+    the car whose gear mesh is a stiff damper and nothing is projected:
+    as the mesh stiffens tenfold the speeds over the whole transient
+    come tenfold closer (4.7e-4 m/s at c_g = 1000 N·m·s/rad), and so do
+    each tyre's and the gear's losses; relaxing the tyres at once while
+    inside their grip, as the third round did, stays 0.67 m/s and 22 J
+    apart (`a_two_axle_shift_matches_the_fully_resolved_car`).
+  Today's engine relaxes the slip of every tyre that gripped before the
+  shift at once, and books the impulse times the slip *before* the event
+  to the tyre (negative on a downshift while driving). The losses are the
+  coupled parts' stored energies before and after each stage
+  (`Engagement`), nothing else that jumps at the same instant. Derivatives
+  are exact: `B` and the links' gradients by forward-mode differentiation
+  through the assignments (`lsim-solve/src/ad.rs`; the iteration
+  variables' `∂z/∂x = −g_z⁻¹ g_x` from the compiled Jacobian), the stored
+  energies' gradients and Hessians by second-order forward
+  differentiation, and Newton's method solves the balance (one step for
+  quadratic energies and linear kinematics; a stiffening energy `½ J w² +
+  ¼ c w⁴` is kept to 1e-13). Event iteration goes on from the moved
+  states: a condition the jump crosses fires at the event, a mode it
+  crosses flips there, and an engagement it makes is projected in turn;
+  a cascade of more than `SolverOptions::max_event_iterations`
+  engagements at one instant stops the run with an event storm naming
+  the engagement and the conditions (raise the limit for one that is
+  meant: the review's 131 upshifts at one instant run exactly with it at
+  200).
   `mech_gear_change` runs to 5e-16 with its loss exact;
   `SolverOptions::impulses` turns the projection off.
 
@@ -1494,6 +1524,14 @@ work end to end) or against hand-written test doubles of the interfaces.
   at the same instant; strict `when` conditions (`PreparedWhen::strict`);
   alias start conflicts told and decided independently of the order; the
   zero crossings' order a stated, tested contract (section 5.8).
+* **Fourth round (from the review of the third)**: a tyre passes no
+  impulse (its force is bounded by its grip): after a shift's rigid
+  engagement its slip relaxes in time, integrated, which a fully resolved
+  two-axle car confirms and relaxing at once does not; links are judged
+  after the rigid stage, join as others relax, and several share their
+  loss as the event's; a cascade of engagements at one instant is
+  projected to its end or stops the run naming it; `consistent_z` fails
+  by default; inert ticks are counted apart from light restarts.
 * **Status (as built)**: the exact-answer suite passes on both backends,
   ODE and DAE paths (`lsim-solve/tests/reference.rs`); the backends agree
   within 4.2·rtol; events within 2.6·rtol on SUNDIALS at every tolerance,
