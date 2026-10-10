@@ -38,6 +38,8 @@ pub(crate) enum Kind {
     InitJvp,
     InitJac,
     InitFinish,
+    /// the point kernel of zero crossing k (its closure, then its value)
+    Point(u32),
 }
 
 impl Kind {
@@ -50,18 +52,24 @@ impl Kind {
     /// interpreter.
     pub(crate) fn exact(self) -> Exact {
         match self {
-            Kind::Roots | Kind::When | Kind::Modes | Kind::Guards => Exact::Interpreter,
+            Kind::Roots | Kind::When | Kind::Modes | Kind::Guards | Kind::Point(_) => {
+                Exact::Interpreter
+            }
             _ => Exact::Fast,
         }
     }
 
     /// Its machine functions' name.
     pub(crate) fn fname(self) -> String {
-        self.name().to_string()
+        match self {
+            Kind::Point(k) => format!("point{k}"),
+            k => k.name().to_string(),
+        }
     }
 
     pub(crate) fn name(self) -> &'static str {
         match self {
+            Kind::Point(_) => "point",
             Kind::Residual => "residual",
             Kind::ResidualOut => "residual_out",
             Kind::Jvp => "jvp",
@@ -141,6 +149,7 @@ impl<'m> Env<'m> {
                 self.init.as_ref().is_some_and(|s| !s.rows.is_empty())
             }
             Kind::InitFinish => self.init.is_some() && !self.main_slots.is_empty(),
+            Kind::Point(k) => (k as usize) < m.zero_crossings.len(),
         }
     }
 
@@ -211,6 +220,7 @@ impl<'m> Env<'m> {
                     }
                 }
             }
+            Kind::Point(k) => out.extend(sys.refs_of(cx, &m.zero_crossings[k as usize].expr)?),
         }
         out.sort_unstable();
         out.dedup();
@@ -612,6 +622,10 @@ fn outputs<E: Emit>(lw: &mut Lw<'_, E>, env: &Env<'_>, kind: Kind) -> Result<(),
                 let d = lw.lower(&z.expr)?;
                 lw.store_out(k, d.v);
             }
+        }
+        Kind::Point(k) => {
+            let d = lw.lower(&m.zero_crossings[k as usize].expr)?;
+            lw.store_out(0, d.v);
         }
         Kind::VarsRest => {}
         Kind::Vars => {

@@ -225,6 +225,12 @@ pub struct SolverOptions {
     /// step), for the benchmark of its share of the run (lsim-project's
     /// `scan_share` example). Off by default
     pub time_mixed_checks: bool,
+    /// check the conditions that mix time and states with the model's
+    /// compiled kernels where it has them
+    /// ([`lsim_ir::ModelFunctions::condition_kernels`]: bitwise the
+    /// interpreter, faster). On by default; off, every condition is
+    /// interpreted from the IR
+    pub condition_kernels: bool,
 }
 
 impl Default for SolverOptions {
@@ -247,6 +253,7 @@ impl Default for SolverOptions {
             impulses: true,
             light_restarts: false,
             time_mixed_checks: false,
+            condition_kernels: true,
         }
     }
 }

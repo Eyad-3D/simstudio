@@ -577,6 +577,10 @@ impl TableStore {
     pub(crate) fn get(&self, k: usize) -> &Table {
         &self.tables[k]
     }
+
+    pub(crate) fn len(&self) -> usize {
+        self.tables.len()
+    }
 }
 
 #[cfg(test)]

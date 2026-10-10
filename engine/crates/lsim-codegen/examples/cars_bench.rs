@@ -169,6 +169,44 @@ fn stats(m: &lsim_ir::PreparedModel) {
         z.expr.walk(&mut |_| zc += 1);
     }
     println!("  ops: {c:?}; zero-crossing nodes {zc}");
+    let info = RunInfo::from_prepared(m);
+    for (k, f) in info.time_functions.iter().enumerate() {
+        match f {
+            Some(lsim_solve::TimeFunction::Mixed { chain, g }) => {
+                let nodes: usize = chain.iter().map(|(_, e)| e.size()).sum::<usize>() + g.size();
+                let ifs: usize = chain
+                    .iter()
+                    .map(|(_, e)| {
+                        let mut n = 0;
+                        e.walk(&mut |x| n += matches!(x, Expr::If(..)) as usize);
+                        n
+                    })
+                    .sum();
+                let tables: usize = chain
+                    .iter()
+                    .map(|(_, e)| {
+                        let mut n = 0;
+                        e.walk(&mut |x| n += matches!(x, Expr::Table { .. }) as usize);
+                        n
+                    })
+                    .sum();
+                println!(
+                    "  mixed condition {k} '{}': chain of {} steps, {nodes} nodes, {ifs} ifs, {tables} tables",
+                    m.zero_crossings[k].origin.label.clone().unwrap_or_default(),
+                    chain.len()
+                );
+                if std::env::var_os("SHOW").is_some() {
+                    println!("    g = {g}");
+                    for (v, e) in chain {
+                        println!("    {} = {e}", m.flat.vars[*v].name);
+                    }
+                }
+            }
+            Some(lsim_solve::TimeFunction::Pure(_)) => println!("  pure time function {k}"),
+            Some(lsim_solve::TimeFunction::Unhandled) => println!("  unhandled {k}"),
+            None => {}
+        }
+    }
 }
 
 fn main() {

@@ -40,6 +40,7 @@ mod analysis;
 mod backend;
 mod emit;
 mod jit;
+mod kernel;
 mod lower;
 pub mod tables;
 mod tape;
@@ -53,7 +54,8 @@ use emit::{Coloured, Env, Kind, Plan, Shape};
 use lower::TanLayout;
 use lsim_ir::prepared::{AliasTarget, PreparedModel, Slot};
 use lsim_ir::runtime::{
-    EvalInput, InitFunctions, Layout, ModelFunctions, SparsityPattern, TableGuard,
+    ConditionKernels, Enclosure, EvalInput, InitFunctions, Layout, ModelFunctions, SparsityPattern,
+    TableGuard,
 };
 use lsim_ir::table::TableData;
 use std::collections::HashMap;
@@ -107,6 +109,9 @@ pub struct CodegenOptions {
     /// default: they come from the coloured Jacobian, exact, and a run
     /// calls them rarely).
     pub compile_jvp: bool,
+    /// Kernels of the conditions that read time and the integrator's
+    /// variables ([`lsim_ir::ConditionKernels`]; `true`, the default).
+    pub kernels: bool,
 }
 
 impl Default for CodegenOptions {
@@ -120,6 +125,7 @@ impl Default for CodegenOptions {
             threads: 0,
             tape_init: true,
             compile_jvp: false,
+            kernels: true,
         }
     }
 }
@@ -313,6 +319,14 @@ pub struct JitModel {
     table_dims: Vec<usize>,
     tables: Arc<TableStore>,
     init: Option<JitInit>,
+    /// the interval kernels of the conditions
+    kernels: Option<Arc<kernel::Kernels>>,
+    /// per zero crossing: its point kernel
+    points: Vec<Option<Code>>,
+    /// the scratch values the point kernels need
+    point_work: usize,
+    /// the tables' breakpoints and 2-D grids, as the run loop builds them
+    table_tools: Arc<kernel::Tools>,
     /// time spent compiling, s
     pub compile_seconds: f64,
     /// bytes of machine code (all functions)
@@ -398,6 +412,8 @@ impl JitModel {
         let names: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
         let store = Arc::new(TableStore::new(&refs, &names).map_err(CodegenError::Table)?);
         let mut m = self.clone();
+        m.table_tools = Arc::new(kernel::table_tools(&store));
+        m.kernels = self.kernels.as_ref().map(|k| Arc::new(k.fresh()));
         m.tables = store.clone();
         if let Some(i) = &mut m.init {
             i.tables = store;
@@ -528,6 +544,66 @@ impl ModelFunctions for JitModel {
             let second = if t.dims() == 2 { t.points(1).to_vec() } else { vec![] };
             [t.points(0).to_vec(), second]
         })
+    }
+
+    fn condition_kernels(&self) -> Option<&dyn ConditionKernels> {
+        self.kernels.as_ref().is_some_and(|k| k.any()).then_some(self as &dyn ConditionKernels)
+    }
+}
+
+impl ConditionKernels for JitModel {
+    fn covers(&self, k: usize) -> bool {
+        self.kernels.as_ref().is_some_and(|ks| ks.covers(k))
+            && self.points.get(k).is_some_and(|p| p.is_some())
+    }
+
+    fn scratch(&self) -> (usize, usize) {
+        (self.point_work.max(1), self.kernels.as_ref().map_or(0, |k| k.scratch()))
+    }
+
+    fn point(&self, k: usize, inp: &EvalInput<'_>, work: &mut [f64]) -> f64 {
+        let l = &self.layout;
+        assert!(
+            inp.y.len() == l.n_y()
+                && inp.p.len() == l.n_p
+                && inp.d.len() == l.n_d
+                && inp.u.len() == l.n_u,
+            "input vectors do not match the compiled model's layout"
+        );
+        assert!(work.len() >= self.point_work, "the point kernels' scratch is too short");
+        let Some(Some(code)) = self.points.get(k) else {
+            return f64::NAN;
+        };
+        let mut out = [f64::NAN];
+        code.call(inp, &[], work, &mut out, &self.tables);
+        out[0]
+    }
+
+    fn enclose(
+        &self,
+        k: usize,
+        t: [f64; 2],
+        y: &[Enclosure],
+        d: &[f64],
+        p: &[f64],
+        u: &[f64],
+        work: &mut [Enclosure],
+    ) -> Enclosure {
+        let l = &self.layout;
+        assert!(
+            y.len() == l.n_y() && p.len() == l.n_p && d.len() == l.n_d && u.len() == l.n_u,
+            "input vectors do not match the compiled model's layout"
+        );
+        let Some(ks) = &self.kernels else {
+            return Enclosure {
+                v: [f64::NEG_INFINITY, f64::INFINITY],
+                d: [f64::NEG_INFINITY, f64::INFINITY],
+                dd: [f64::NEG_INFINITY, f64::INFINITY],
+            };
+        };
+        let (breaks, grids) = &*self.table_tools;
+        let tools = kernel::TableTools { model: self, breaks, grids };
+        ks.enclose(k, t, y, d, p, u, work, &tools)
     }
 }
 
@@ -746,6 +822,30 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
         tape_ops += t.ops.len();
         tapes.insert(p.kind, Arc::new(t));
     }
+    // the conditions' kernels: interval programs and taped point kernels
+    let (kernels, points, point_work) = if opts.kernels {
+        let ks = kernel::candidates(model, &env.main, &env.cx);
+        if trace {
+            eprintln!("lsim-codegen: kernels for the zero crossings {ks:?}");
+        }
+        let built = kernel::Kernels::build(model, &env.main, &env.cx, &ks);
+        let mut points: Vec<Option<Code>> = vec![None; model.zero_crossings.len()];
+        let mut need = 0;
+        for &k in &ks {
+            if !built.covers(k as usize) {
+                continue;
+            }
+            let Some(plan) = emit::plan_kind(&env, Kind::Point(k), shape)? else { continue };
+            let t = emit::build_tape(&env, &plan, &tan_none)?;
+            tape_ops += t.ops.len();
+            let regs_at = emit::work_need(&env, &plan, &tan_none);
+            need = need.max(regs_at + t.regs);
+            points[k as usize] = Some(Code::Tape { tape: Arc::new(t), regs_at });
+        }
+        (Some(Arc::new(built)), points, need)
+    } else {
+        (None, vec![None; model.zero_crossings.len()], 0)
+    };
     let tape_seconds = analysis_done.elapsed().as_secs_f64();
 
     // Cranelift IR and machine code, chunk by chunk, on several threads
@@ -897,8 +997,12 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
         d0,
         guard_list,
         table_dims: env.cx.table_dims.clone(),
+        table_tools: Arc::new(kernel::table_tools(&store)),
         tables: store,
         init,
+        kernels,
+        points,
+        point_work,
         compile_seconds: report.seconds,
         code_bytes,
         report,

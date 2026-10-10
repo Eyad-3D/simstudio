@@ -45,8 +45,9 @@ fn initialisation_tapes_are_bitwise_their_machine_code() {
     for car in one_per_project() {
         let m = &car.model;
         let taped = compile(m, &CodegenOptions::default()).expect("compiles");
-        let machine = compile(m, &CodegenOptions { tape_init: false, ..Default::default() })
-            .expect("compiles");
+        let machine =
+            compile(m, &CodegenOptions { tape_init: false, kernels: false, ..Default::default() })
+                .expect("compiles");
         assert!(taped.report.tape_ops > 0, "{}: nothing taped", car.name);
         assert_eq!(machine.report.tape_ops, 0);
         let (Some(it), Some(im)) = (taped.init(), machine.init()) else {

@@ -7,7 +7,8 @@
 //! cargo run --release -p lsim-project --example scan_share -- [RUNS] [project/case ...]
 //! ```
 //!
-//! By default the BEV's WLTC, five runs. Each run times the check with two
+//! By default the BEV's WLTC, five runs, with the model's compiled
+//! condition kernels (`LSIM_CONDITION_KERNELS=0`: interpreted). Each run times the check with two
 //! clock readings a step (`SolverOptions::time_mixed_checks`, which costs
 //! well under 1 % of the run); the share is the check's time over the
 //! run's. The last line per case is JSON: the median and the least share
@@ -38,8 +39,15 @@ fn main() {
         .ok()
         .map(|p| PythonHost { python: PathBuf::from(p), backend: repo.join("backend") });
     // the golden comparison's tolerances
-    let solver =
-        SolverOptions { rtol: 1e-6, atol: 1e-8, time_mixed_checks: true, ..Default::default() };
+    // `LSIM_CONDITION_KERNELS=0`: every condition interpreted
+    let kernels = std::env::var("LSIM_CONDITION_KERNELS").map_or(true, |v| v != "0");
+    let solver = SolverOptions {
+        rtol: 1e-6,
+        atol: 1e-8,
+        time_mixed_checks: true,
+        condition_kernels: kernels,
+        ..Default::default()
+    };
     for case in &args {
         let Some((project, id)) = case.split_once('/') else {
             eprintln!("usage: scan_share [RUNS] [project/case ...]");

@@ -60,7 +60,7 @@ use crate::interval::{
     supported,
 };
 use crate::{DenseOutput, Integrator, SolveError};
-use lsim_ir::runtime::ModelFunctions;
+use lsim_ir::runtime::{ConditionKernels, Enclosure, EvalInput, ModelFunctions};
 use lsim_ir::{Expr, ParamId, VarId};
 use std::cell::RefCell;
 
@@ -116,9 +116,55 @@ pub(super) struct Mixed<'a> {
     fails: u32,
     wait: u32,
     warned: bool,
+    /// the model's compiled kernel of it (its zero crossing), when it has
+    /// one and the run uses kernels
+    kernel: Option<usize>,
     /// steps a certificate cleared, steps taken along the dense output
     pub(super) certified: u64,
     pub(super) scanned: u64,
+}
+
+/// The buffers the compiled kernels read and use (kept between steps).
+#[derive(Default)]
+pub(super) struct KernelScratch {
+    /// the leaves' enclosures, by entry of y
+    yenc: Vec<Enclosure>,
+    /// the interval kernels' scratch
+    work: Vec<Enclosure>,
+    /// the leaves' values, by entry of y
+    y: Vec<f64>,
+    /// the point kernels' scratch
+    pwork: Vec<f64>,
+}
+
+impl KernelScratch {
+    /// Buffers for the kernels `k` of a model with `n_y` entries of y.
+    pub(super) fn new(k: &dyn ConditionKernels, n_y: usize) -> Self {
+        let (nv, ne) = k.scratch();
+        let all = Enclosure {
+            v: [f64::NEG_INFINITY, f64::INFINITY],
+            d: [f64::NEG_INFINITY, f64::INFINITY],
+            dd: [f64::NEG_INFINITY, f64::INFINITY],
+        };
+        KernelScratch {
+            yenc: vec![all; n_y],
+            work: vec![all; ne],
+            y: vec![0.0; n_y],
+            pwork: vec![0.0; nv],
+        }
+    }
+}
+
+fn enc(j: J2) -> Enclosure {
+    Enclosure { v: [j.v.lo, j.v.hi], d: [j.d.lo, j.d.hi], dd: [j.dd.lo, j.dd.hi] }
+}
+
+fn j2(e: &Enclosure) -> J2 {
+    J2 {
+        v: Iv { lo: e.v[0], hi: e.v[1] },
+        d: Iv { lo: e.d[0], hi: e.d[1] },
+        dd: Iv { lo: e.dd[0], hi: e.dd[1] },
+    }
 }
 
 /// Where a condition's constants come from.
@@ -128,6 +174,12 @@ struct Base<'a> {
     model: &'a dyn ModelFunctions,
     breaks: &'a [Vec<f64>],
     grids: &'a [Option<Grid2>],
+    /// the discrete values and inputs (the compiled kernels read them)
+    d: &'a [f64],
+    u: &'a [f64],
+    /// the model's compiled kernels and their buffers (`None`: the run
+    /// interprets every condition)
+    kern: Option<(&'a dyn ConditionKernels, &'a std::cell::RefCell<KernelScratch>)>,
 }
 
 /// A mixed condition at a time, its leaves' values given and its chain
@@ -191,8 +243,21 @@ impl<'a> Mixed<'a> {
         self.g == g && self.chain == chain
     }
 
+    /// Checks it with the model's compiled kernel of zero crossing `k`.
+    pub(super) fn use_kernel(&mut self, k: usize) {
+        self.kernel = Some(k);
+    }
+
     /// The condition at `t`, its leaves at `ys` (in `y_idx` order).
     fn point(&self, t: f64, ys: &[f64], base: &Base<'_>, scratch: &mut Vec<f64>) -> f64 {
+        if let (Some(k), Some((kern, buf))) = (self.kernel, base.kern) {
+            let buf = &mut *buf.borrow_mut();
+            for (&i, y) in self.y_idx.iter().zip(ys) {
+                buf.y[i] = *y;
+            }
+            let inp = EvalInput { t, y: &buf.y, p: base.params, d: base.d, u: base.u };
+            return kern.point(k, &inp, &mut buf.pwork);
+        }
         scratch.clear();
         for (_, e) in self.chain {
             let v = lsim_ir::eval::eval(e, &PointEnv { t, m: self, ys, chain: scratch, base });
@@ -210,6 +275,22 @@ impl<'a> Mixed<'a> {
         base: &Base<'_>,
         scratch: &mut Vec<J2>,
     ) -> J2 {
+        if let (Some(k), Some((kern, buf))) = (self.kernel, base.kern) {
+            let buf = &mut *buf.borrow_mut();
+            for (pos, &i) in self.y_idx.iter().enumerate() {
+                buf.yenc[i] = enc(leaf(pos));
+            }
+            let e = kern.enclose(
+                k,
+                [t.lo, t.hi],
+                &buf.yenc,
+                base.d,
+                base.params,
+                base.u,
+                &mut buf.work,
+            );
+            return j2(&e);
+        }
         // the leaves first (each once), then the chain's steps
         scratch.clear();
         scratch.extend((0..self.y_idx.len()).map(leaf));
@@ -510,6 +591,7 @@ impl<'a> Loop<'a> {
             fails: 0,
             wait: 0,
             warned: false,
+            kernel: None,
             certified: 0,
             scanned: 0,
         })
@@ -598,6 +680,9 @@ impl<'a> Loop<'a> {
                 model: self.model,
                 breaks: &self.info.table_breaks,
                 grids: &self.tf.grids,
+                d,
+                u: self.u,
+                kern: self.tf.kernels.as_ref().map(|(k, b)| (*k, b)),
             };
             let m = &self.tf.mixed[j];
             // a certificate holds for this step: nothing more to check (the
@@ -644,7 +729,7 @@ impl<'a> Loop<'a> {
                     sc.y1[i] = y[i];
                 }
                 sc.spans(&m.y_idx, &self.tf.ypos);
-                self.certify(j, (t0, t1), &sc.y1, &sc.span, &mut jscratch);
+                self.certify(j, (t0, t1), &sc.y1, &sc.span, d, &mut jscratch);
             }
         }
         let Some((at, j, rising)) = best else { return Ok(None) };
@@ -771,6 +856,7 @@ impl<'a> Loop<'a> {
         (t0, t1): (f64, f64),
         y1: &[f64],
         span: &[[f64; 2]],
+        d: &[f64],
         scratch: &mut Vec<J2>,
     ) {
         let h = t1 - t0;
@@ -781,6 +867,9 @@ impl<'a> Loop<'a> {
             model: self.model,
             breaks: &self.info.table_breaks,
             grids: &self.tf.grids,
+            d,
+            u: self.u,
+            kern: self.tf.kernels.as_ref().map(|(k, b)| (*k, b)),
         };
         let m = &self.tf.mixed[j];
         let mut w = if m.window > 0.0 { m.window } else { 16.0 * h };
