@@ -569,6 +569,15 @@ impl ModelFunctions for JitModel {
         let k = k as usize;
         (k < self.table_dims.len()).then(|| self.tables.get(k).eval(args))
     }
+
+    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
+        let k = k as usize;
+        (k < self.table_dims.len()).then(|| {
+            let t = self.tables.get(k);
+            let second = if t.dims() == 2 { t.points(1).to_vec() } else { vec![] };
+            [t.points(0).to_vec(), second]
+        })
+    }
 }
 
 impl JitInit {
