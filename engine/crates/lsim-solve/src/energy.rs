@@ -9,8 +9,9 @@
 //! exact: forward-mode differentiation of the declared stored energy in the
 //! direction (1, y') through the assignments ([`crate::StoredRates`]), the
 //! model's tables with their interpolants' exact derivatives; a stored
-//! energy that reaches a derivative or a previous value through them takes
-//! a fourth-order central difference instead, its step moving
+//! energy that reaches a derivative or a previous value through them, or
+//! whose rate is not finite there (`sqrt` at zero moving), takes a
+//! fourth-order central difference instead, its step moving
 //! no entry of y by more than 1e-3 of its size or of its nominal scale
 //! (round-off in a difference grows as |E| / step: a full fuel tank holds
 //! some 1e9 J). Jumps of the stored energy at events are booked
@@ -233,7 +234,11 @@ impl Integrand {
                     jets: &self.jets,
                     upto: self.jets.len(),
                 };
-                if let Ok(r) = ad::dual(e, &env) {
+                // (a rate that is not finite, as of `sqrt` at zero moving
+                // away from it, is left to the difference)
+                if let Ok(r) = ad::dual(e, &env)
+                    && r.d.is_finite()
+                {
                     out[is] = r.d;
                     self.differ[j] = false;
                 }

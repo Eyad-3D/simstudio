@@ -1962,6 +1962,56 @@ fn an_event_at_an_output_time_records_both_sides() {
     }
 }
 
+/// A stored energy whose rate has an infinite factor along a zero
+/// direction: sqrt(2x) at x = 0 while x is not moving yet (x' = t, x =
+/// t²/2, so sqrt(2x) = t, filled at 1 W by a source). The rate there is
+/// zero, not inf · 0 = NaN: the review found the books taking NaN, which
+/// with their error control on stopped the run at its start.
+#[test]
+fn a_stored_rate_along_a_zero_direction_is_zero() {
+    let model = Hand {
+        layout: layout(1, 0, 0, 0, 0, 0, 1),
+        f: Box::new(|i, out| out[0] = i.t),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(|_, _| {}),
+        vars: Box::new(|i, out| out[0] = i.y[0]),
+        when: nothing_v(),
+        modes: None,
+        y0: vec![0.0],
+        d0: vec![],
+    };
+    let mut info = RunInfo::bare(1, 1, vec![]);
+    info.var_sources = vec![VarSource::Y(0)];
+    let x = Expr::Var(VarId(0));
+    let sqrt = |e: Expr| Expr::Call(lsim_ir::expr::Builtin::Sqrt, vec![e]);
+    let part = |path: &str, power: f64, stored: Option<Expr>| EnergyPart {
+        path: path.into(),
+        name: format!("'{path}'"),
+        power: Expr::Const(power),
+        loss: None,
+        stored,
+    };
+    info.energy = Some(Arc::new(EnergyInfo {
+        parts: vec![
+            part("store", 1.0, Some(sqrt(Expr::Const(2.0) * x))),
+            part("source", -1.0, None),
+        ],
+    }));
+    for backend in backends() {
+        let opts = SolverOptions { backend, rtol: 1e-10, atol: 1e-12, ..Default::default() };
+        let run =
+            simulate(&model, &info, &opts, OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.5 }, &mut [])
+                .unwrap_or_else(|e| panic!("{backend:?}: {e}"));
+        let b = run.energy.as_ref().expect("the books");
+        println!(
+            "{backend:?}: supplied {} J, stored {} J (integrated {} J), closure {:.1e}",
+            b.supplied, b.stored_change, b.stored_integral, b.relative_closure
+        );
+        assert!(b.relative_closure.is_finite() && b.relative_closure.abs() < 1e-6, "{backend:?}");
+        assert!((b.supplied - 2.0).abs() < 1e-7 && (b.stored_change - 2.0).abs() < 1e-7);
+    }
+}
+
 /// Sampled blocks ticking together at an output time: the output point
 /// shows the values after every tick of the instant, and its left limit
 /// those before them all (the review found the point between the ticks:

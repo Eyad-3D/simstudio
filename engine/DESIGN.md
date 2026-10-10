@@ -1259,10 +1259,13 @@ save most of those 10 ms in every run, sequential or not (a change to
   iteration variables. The time's rate is one; a table is the model's own
   interpolant (`ModelFunctions::eval_table`: the books' powers, losses
   and stored energies read the tables the compiled code reads), its
-  derivatives exact (a C¹ monotone cubic). Only a stored energy that
-  reaches a derivative or a previous value through its assignments takes
-  a fourth-order central difference, its step moving no entry of `y` by
-  more than 1e-3 of its size or of its nominal scale. (Work package 4's sixth round
+  derivatives exact (a C¹ monotone cubic); along a zero direction a rate
+  is zero, even where the function's own derivative is infinite (`sqrt`
+  at zero: no `inf · 0`). Only a stored energy that reaches a derivative
+  or a previous value through its assignments, or whose rate is not
+  finite at a point (`sqrt` at zero while moving), takes a fourth-order
+  central difference, its step moving no entry of `y` by more than 1e-3
+  of its size or of its nominal scale. (Work package 4's sixth round
   found the books without tables: a declared stored energy or loss that
   read one made them NaN, and the default run, its books under error
   control, stopped at t = 0.) (Work package 4's fourth round found the

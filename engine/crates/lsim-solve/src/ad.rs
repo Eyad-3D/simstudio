@@ -9,7 +9,8 @@
 //! constant. Tables are the model's interpolants (C¹ monotone cubics):
 //! their first derivatives are exact; a table whose arguments depend on a
 //! seed has no second derivatives here (an error, for the caller to
-//! report).
+//! report). A derivative along a zero direction is zero, even where the
+//! function's own derivative is infinite (`sqrt` at zero): no `inf · 0`.
 
 use lsim_ir::expr::{BinaryOp, Builtin, CmpOp, Expr};
 use lsim_ir::{ParamId, VarId};
@@ -59,13 +60,13 @@ impl Jet {
         let n = self.n();
         let mut out = Jet {
             v: f0,
-            g: self.g.iter().map(|x| f1 * x).collect(),
-            h: self.h.iter().map(|x| f1 * x).collect(),
+            g: self.g.iter().map(|x| times(f1, *x)).collect(),
+            h: self.h.iter().map(|x| times(f1, *x)).collect(),
         };
         if !out.h.is_empty() && f2 != 0.0 {
             for i in 0..n {
                 for j in 0..n {
-                    out.h[i * n + j] += f2 * self.g[i] * self.g[j];
+                    out.h[i * n + j] += times(times(f2, self.g[i]), self.g[j]);
                 }
             }
         }
@@ -78,15 +79,15 @@ impl Jet {
         let n = a.n();
         let mut out = Jet {
             v: f0,
-            g: a.g.iter().zip(&b.g).map(|(x, y)| fa * x + fb * y).collect(),
-            h: a.h.iter().zip(&b.h).map(|(x, y)| fa * x + fb * y).collect(),
+            g: a.g.iter().zip(&b.g).map(|(x, y)| times(fa, *x) + times(fb, *y)).collect(),
+            h: a.h.iter().zip(&b.h).map(|(x, y)| times(fa, *x) + times(fb, *y)).collect(),
         };
         if !out.h.is_empty() {
             for i in 0..n {
                 for j in 0..n {
-                    out.h[i * n + j] += faa * a.g[i] * a.g[j]
-                        + fab * (a.g[i] * b.g[j] + b.g[i] * a.g[j])
-                        + fbb * b.g[i] * b.g[j];
+                    out.h[i * n + j] += times(times(faa, a.g[i]), a.g[j])
+                        + times(fab, a.g[i] * b.g[j] + b.g[i] * a.g[j])
+                        + times(times(fbb, b.g[i]), b.g[j]);
                 }
             }
         }
@@ -124,19 +125,18 @@ impl Jet {
             let f2 = if y == 0.0 || y == 1.0 { 0.0 } else { y * (y - 1.0) * x.powf(y - 2.0) };
             return self.chain(f0, f1, f2);
         }
-        // x^y = exp(y ln x)
+        // x^y = exp(y ln x) (where it is zero, x = 0 and y > 0, it is zero
+        // for every y: its derivatives in y are zero, not 0 · ln 0)
         let l = x.ln();
         let f0 = x.powf(y);
-        Jet::chain2(
-            self,
-            b,
-            f0,
-            y * f0 / x,
-            f0 * l,
-            y * (y - 1.0) * f0 / (x * x),
-            f0 * (1.0 + y * l) / x,
-            f0 * l * l,
-        )
+        let (fb, fbb) = if f0 == 0.0 { (0.0, 0.0) } else { (f0 * l, f0 * l * l) };
+        // (at x = 0 the derivatives in x from x's own powers, not 0 / 0)
+        let (fa, faa) = if x == 0.0 {
+            (y * x.powf(y - 1.0), y * (y - 1.0) * x.powf(y - 2.0))
+        } else {
+            (y * f0 / x, y * (y - 1.0) * f0 / (x * x))
+        };
+        Jet::chain2(self, b, f0, fa, fb, faa, f0 * (1.0 + y * l) / x, fbb)
     }
 }
 
@@ -165,6 +165,14 @@ pub(crate) trait JetEnv {
 
 fn truth(b: bool) -> f64 {
     if b { 1.0 } else { 0.0 }
+}
+
+/// `f · d`, zero when the direction `d` is: a zero rate has a zero
+/// derivative even where `f` is infinite (`sqrt`, `x^p` with p < 1 at
+/// zero).
+#[inline]
+fn times(f: f64, d: f64) -> f64 {
+    if d == 0.0 { 0.0 } else { f * d }
 }
 
 /// Evaluates `e` with its derivatives.
@@ -200,7 +208,7 @@ pub(crate) fn eval(e: &Expr, env: &dyn JetEnv) -> Result<Jet, String> {
             let mut out = k(v);
             for (j, a) in at.iter().enumerate() {
                 for (o, x) in out.g.iter_mut().zip(&a.g) {
-                    *o += d[j] * x;
+                    *o += times(d[j], *x);
                 }
             }
             out
@@ -346,7 +354,7 @@ impl Dual {
         Dual { v, d: 0.0 }
     }
     fn f(self, f0: f64, f1: f64) -> Dual {
-        Dual { v: f0, d: f1 * self.d }
+        Dual { v: f0, d: times(f1, self.d) }
     }
 }
 
@@ -382,7 +390,7 @@ pub(crate) fn dual(e: &Expr, env: &dyn DualEnv) -> Result<Dual, ()> {
             let at: Vec<Dual> = args.iter().map(ev).collect::<Result<_, _>>()?;
             let vals: Vec<f64> = at.iter().map(|a| a.v).collect();
             let (v, g) = env.table(*table, &vals).ok_or(())?;
-            Dual { v, d: at.iter().zip(g).map(|(a, gj)| gj * a.d).sum() }
+            Dual { v, d: at.iter().zip(g).map(|(a, gj)| times(gj, a.d)).sum() }
         }
         Expr::Name(_) | Expr::Pre(_) | Expr::Der(_) => {
             return Err(());
@@ -397,10 +405,11 @@ pub(crate) fn dual(e: &Expr, env: &dyn DualEnv) -> Result<Dual, ()> {
             match op {
                 BinaryOp::Add => Dual { v: a.v + b.v, d: a.d + b.d },
                 BinaryOp::Sub => Dual { v: a.v - b.v, d: a.d - b.d },
-                BinaryOp::Mul => Dual { v: a.v * b.v, d: b.v * a.d + a.v * b.d },
+                BinaryOp::Mul => Dual { v: a.v * b.v, d: times(b.v, a.d) + times(a.v, b.d) },
                 BinaryOp::Div => {
                     let q = a.v / b.v;
-                    Dual { v: q, d: a.d / b.v - q / b.v * b.d }
+                    let da = if a.d == 0.0 { 0.0 } else { a.d / b.v };
+                    Dual { v: q, d: da - times(q / b.v, b.d) }
                 }
                 BinaryOp::Pow => {
                     let (x, y) = (a.v, b.v);
@@ -409,7 +418,10 @@ pub(crate) fn dual(e: &Expr, env: &dyn DualEnv) -> Result<Dual, ()> {
                         let f1 = if y == 0.0 { 0.0 } else { y * x.powf(y - 1.0) };
                         a.f(f0, f1)
                     } else {
-                        Dual { v: f0, d: y * f0 / x * a.d + f0 * x.ln() * b.d }
+                        // (zero for every y where it is zero: x = 0, y > 0)
+                        let fb = if f0 == 0.0 { 0.0 } else { f0 * x.ln() };
+                        let fa = if x == 0.0 { y * x.powf(y - 1.0) } else { y * f0 / x };
+                        Dual { v: f0, d: times(fa, a.d) + times(fb, b.d) }
                     }
                 }
             }
@@ -451,7 +463,12 @@ pub(crate) fn dual(e: &Expr, env: &dyn DualEnv) -> Result<Dual, ()> {
                 Builtin::Atan2 => {
                     let b = arg(1)?;
                     let r2 = b.v * b.v + a.v * a.v;
-                    Dual { v: a.v.atan2(b.v), d: (b.v * a.d - a.v * b.d) / r2 }
+                    let d = if a.d == 0.0 && b.d == 0.0 {
+                        0.0
+                    } else {
+                        (times(b.v, a.d) - times(a.v, b.d)) / r2
+                    };
+                    Dual { v: a.v.atan2(b.v), d }
                 }
                 Builtin::Sinh => a.f(x.sinh(), x.cosh()),
                 Builtin::Cosh => a.f(x.cosh(), x.sinh()),
@@ -695,6 +712,83 @@ mod tests {
         let j = eval(&e, &Two([3.7, -11.2], true)).unwrap();
         assert_eq!(j.h, vec![2.0, 0.0, 0.0, 5.0]);
         assert_eq!(j.g, vec![2.0 * 3.7, 5.0 * -11.2]);
+    }
+
+    /// x at 0, not moving (a zero gradient), and y at 2, a seed.
+    struct Still(bool);
+
+    impl JetEnv for Still {
+        fn n(&self) -> usize {
+            2
+        }
+        fn second(&self) -> bool {
+            self.0
+        }
+        fn time(&self) -> f64 {
+            0.0
+        }
+        fn var(&self, v: VarId) -> Result<Jet, String> {
+            Ok(match v.0 {
+                0 => Jet::linear(0.0, vec![0.0, 0.0], self.0),
+                _ => Jet::seed(2.0, 1, 2, self.0),
+            })
+        }
+        fn param(&self, _p: ParamId) -> f64 {
+            3.0
+        }
+    }
+
+    /// A zero direction has a zero rate, even where the function's own
+    /// derivative is infinite (`sqrt`, `x^p` with p < 1, `asin` at 1, a
+    /// quotient by zero): the review found inf · 0 = NaN there, which the
+    /// books took as a rate. A direction that moves such an argument has
+    /// an infinite rate, never NaN (the books take their difference then).
+    #[test]
+    fn a_zero_direction_has_a_zero_rate() {
+        let x = || Expr::Var(VarId(0));
+        let y = || Expr::Var(VarId(1));
+        let exprs = vec![
+            call(Builtin::Sqrt, vec![x()]),
+            bin(BinaryOp::Pow, x(), Expr::Const(0.5)),
+            bin(BinaryOp::Pow, x(), bin(BinaryOp::Mul, Expr::Const(0.25), y())),
+            bin(BinaryOp::Mul, y(), call(Builtin::Sqrt, vec![x()])),
+            call(Builtin::Asin, vec![bin(BinaryOp::Add, x(), Expr::Const(1.0))]),
+            call(Builtin::Acos, vec![bin(BinaryOp::Sub, Expr::Const(1.0), x())]),
+            bin(BinaryOp::Div, x(), x()),
+            call(Builtin::Atan2, vec![x(), x()]),
+            call(Builtin::Log, vec![x()]),
+        ];
+        // the rate along (0, 0.7): x does not move
+        struct Along(f64);
+        impl DualEnv for Along {
+            fn var(&self, v: VarId) -> Result<Dual, ()> {
+                Ok(match v.0 {
+                    0 => Dual { v: 0.0, d: self.0 },
+                    _ => Dual { v: 2.0, d: 0.7 },
+                })
+            }
+            fn param(&self, _p: ParamId) -> f64 {
+                3.0
+            }
+        }
+        for (k, e) in exprs.iter().enumerate() {
+            // (x^(0.25 y) is zero for every y > 0 at x = 0: no rate either)
+            let r = dual(e, &Along(0.0)).unwrap();
+            assert_eq!(r.d, 0.0, "{e}: {}", r.d);
+            // moving x: infinite where the derivative is (the first five
+            // and the logarithm); a quotient 0/0 and atan2 at the origin
+            // have none
+            let moving = dual(e, &Along(1.0)).unwrap();
+            if k < 5 || k == 8 {
+                assert!(moving.d.is_infinite(), "{e}: moving x: {}", moving.d);
+            }
+            // the full evaluator: x's gradient entry is zero
+            for second in [false, true] {
+                let j = eval(e, &Still(second)).unwrap();
+                assert!(j.g[0] == 0.0 && !j.g[1].is_nan(), "{e}: {:?}", j.g);
+                assert!(j.h.iter().all(|h| !h.is_nan()), "{e}: {:?}", j.h);
+            }
+        }
     }
 
     /// A table's derivatives are its interpolant's, chained through its
