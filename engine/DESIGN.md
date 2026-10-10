@@ -892,7 +892,15 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   BDF → Adams when ρ·h < 0.2 for the last step h, Adams → BDF when ρ·h >
   1.5; during a run Adams → BDF on a convergence failure or when
   nonlinear failures exceed 10 % of the steps. The report says which and
-  why. (The reference problems' RC and RL circuits and the L = 0 motor run
+  why. A step that got through with too many failures asks for BDF, and
+  the switch is made before the next step (or at a restart, if one comes
+  first): the step stays as it ended (at a root, at the stop time), with
+  its memory and so its dense output, which the mixed conditions' check,
+  the output points, the block ticks and the books read inside it (the
+  review of the ninth round found the switch made at once, the step left
+  with its end state as a constant: an output 6.4e-5 off at rtol 1e-8). A
+  step that fails switches at once, from the last step's end, where the
+  failed attempt left the memory. The energy integrals carry over both. (The reference problems' RC and RL circuits and the L = 0 motor run
   on Adams; the spike and the motor with inductance on BDF.) Adams' order
   is capped at 7 (CVODE's default is 12), so the dense output a step
   leaves is a polynomial of degree 7 at most: on smooth problems the

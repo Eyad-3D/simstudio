@@ -383,6 +383,10 @@ pub struct Sundials<'m> {
     notes: Vec<String>,
     methods: Vec<(f64, Lmm)>,
     fresh: bool,
+    /// Adams struggled on the last step: switch to BDF before the next one
+    /// (at its start, or at a restart), so that the step just taken keeps
+    /// its memory and with it its dense output; why
+    bdf_next: Option<&'static str>,
     /// the last step's start (the dense output is valid from here to
     /// `t_last`)
     t_step_start: f64,
@@ -566,6 +570,7 @@ impl<'m> Sundials<'m> {
                 notes,
                 methods: vec![],
                 fresh: true,
+                bdf_next: None,
                 t_step_start: t0,
                 z_solved: None,
                 _model: PhantomData,
@@ -919,6 +924,19 @@ impl<'m> Sundials<'m> {
     }
 
     /// Adams in trouble: back to BDF from the current point.
+    /// From Adams to BDF at `t` (the last step's end), `why`: a new memory,
+    /// the integrals carried over (read at `t` before the old memory goes).
+    fn switch_to_bdf(&mut self, t: f64, why: &str) -> Result<(), SolveError> {
+        self.notes.push(format!("switched from Adams to BDF at t = {t:.6} s ({why})"));
+        if self.n_q > 0 {
+            let mut q = vec![0.0; self.n_q];
+            self.quadrature(t, &mut q)?;
+            // SAFETY: yq holds n_q values.
+            unsafe { slice(self.yq, self.n_q).copy_from_slice(&q) };
+        }
+        self.create_cvode(Lmm::Bdf, t)
+    }
+
     fn adams_struggles(&self) -> bool {
         let c = self.counters();
         c.nonlin_fails >= 10 && c.nonlin_fails * 10 >= c.steps
@@ -935,6 +953,11 @@ impl Integrator for Sundials<'_> {
     }
 
     fn step(&mut self, t_stop: f64) -> Result<Step, SolveError> {
+        // a switch the last step asked for, now that the run loop is done
+        // with that step (its dense output, its integrals)
+        if let Some(why) = self.bdf_next.take() {
+            self.switch_to_bdf(self.t_last, why)?;
+        }
         let mut t = self.t_last;
         // SAFETY: `mem` is live; y/yp are its vectors.
         let flag = unsafe {
@@ -951,12 +974,10 @@ impl Integrator for Sundials<'_> {
         };
         if flag < 0 {
             // Adams that cannot converge: the model is stiff here after all
+            // (the failed attempt leaves the memory at the last step's end:
+            // its state, its integrals)
             if self.kind == Kind::Cvode && self.lmm == Lmm::Adams && self.auto {
-                self.notes.push(format!(
-                    "switched from Adams to BDF at t = {:.6} s (the fixed-point iteration failed)",
-                    self.t_last
-                ));
-                self.create_cvode(Lmm::Bdf, self.t_last)?;
+                self.switch_to_bdf(self.t_last, "the fixed-point iteration failed")?;
                 return self.step(t_stop);
             }
             let what = match self.kind {
@@ -968,20 +989,13 @@ impl Integrator for Sundials<'_> {
         self.t_last = t;
         self.fresh = false;
         self.t_step_start = self.last_step_start();
+        // Adams struggling (it got there, with many convergence failures):
+        // BDF from here on, but only from the next step, so that this one
+        // keeps its dense output and is reported as it ended (at a root, at
+        // the stop time)
         if self.kind == Kind::Cvode && self.lmm == Lmm::Adams && self.auto && self.adams_struggles()
         {
-            self.notes.push(format!(
-                "switched from Adams to BDF at t = {t:.6} s (repeated convergence failures)"
-            ));
-            // the quadratures carry over: read them at t first
-            if self.n_q > 0 {
-                let mut q = vec![0.0; self.n_q];
-                self.quadrature(t, &mut q)?;
-                // SAFETY: yq holds n_q values.
-                unsafe { slice(self.yq, self.n_q).copy_from_slice(&q) };
-            }
-            self.create_cvode(Lmm::Bdf, t)?;
-            return Ok(Step::Internal(t));
+            self.bdf_next = Some("repeated convergence failures");
         }
         Ok(match (self.kind, flag) {
             (Kind::Cvode, CV_ROOT_RETURN) | (Kind::Ida, IDA_ROOT_RETURN) => {
@@ -1184,7 +1198,11 @@ impl Integrator for Sundials<'_> {
             Kind::Cvode => {
                 // re-check the method where the dynamics may have changed
                 let mut lmm = self.lmm;
-                if self.auto {
+                if let Some(why) = self.bdf_next.take() {
+                    // the last step asked for BDF
+                    self.notes.push(format!("switched from Adams to BDF at t = {t:.6} s ({why})"));
+                    lmm = Lmm::Bdf;
+                } else if self.auto {
                     let rho = self.spectral_radius(t);
                     let want = if self.lmm == Lmm::Bdf && h_last > 0.0 && rho * h_last < 0.2 {
                         Lmm::Adams
