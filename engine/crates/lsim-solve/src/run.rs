@@ -1414,7 +1414,12 @@ pub fn run_loop(
         // ends there, as at a root; the state there from the dense output
         let mut y_cut: Option<Vec<f64>> = None;
         let reported: &[i32] = if let Step::Root(_, dirs) = &st { dirs } else { &[] };
-        if !same && let Some((at, dirs)) = lp.scan_mixed(integ, t, st.time(), reported, &d)? {
+        let timer = (opts.time_mixed_checks && !same).then(Instant::now);
+        let pulse = if same { None } else { lp.scan_mixed(integ, t, st.time(), reported, &d)? };
+        if let Some(t0) = timer {
+            report.mixed_seconds += t0.elapsed().as_secs_f64();
+        }
+        if let Some((at, dirs)) = pulse {
             let mut yv = vec![0.0; n];
             integ.interpolate(at, &mut yv)?;
             y_cut = Some(yv);

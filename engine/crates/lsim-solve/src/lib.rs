@@ -220,6 +220,11 @@ pub struct SolverOptions {
     /// nothing the integrator integrates or watches goes on without a
     /// restart either way ([`RunInfo::dynamic_discretes`]): that is exact
     pub light_restarts: bool,
+    /// time the check of the conditions that mix time and states along
+    /// each step ([`SolverReport::mixed_seconds`]: two clock readings a
+    /// step), for the benchmark of its share of the run (lsim-project's
+    /// `scan_share` example). Off by default
+    pub time_mixed_checks: bool,
 }
 
 impl Default for SolverOptions {
@@ -241,6 +246,7 @@ impl Default for SolverOptions {
             suppress_algebraic_error: false,
             impulses: true,
             light_restarts: false,
+            time_mixed_checks: false,
         }
     }
 }
@@ -589,6 +595,9 @@ pub struct SolverReport {
     /// steps of such conditions taken along the dense output, where no
     /// certificate held, summed over the conditions
     pub mixed_scanned: u64,
+    /// wall-clock time the check of such conditions took, s (0 unless
+    /// [`SolverOptions::time_mixed_checks`])
+    pub mixed_seconds: f64,
     /// the integrator's own error estimate
     pub error: ErrorEstimate,
     /// warnings for the user

@@ -652,6 +652,40 @@ evaluates outside the compiled code is checked at the start), and a
 model given other table data is run on the prepared
 breakpoints (its stops and enclosures in the wrong places, silently).
 
+**WP3 (lsim-codegen): compiled condition kernels.** The run loop checks
+every step of a condition that reads time and continuous variables
+(section 8.2) by interpreting it from the IR: `lsim_ir::eval` for a point,
+`interval::enclose` for an enclosure over an interval of time or a box
+of states (value, rate and second rate). On the BEV's WLTC that check
+takes 4.8 % of the run's time (3.3 % of its instructions), and its share
+grows as the compiled model gets faster. WP3 compiles it, under this
+contract (proposed by the review of work package 4's seventh and
+eighth rounds):
+
+* Each such condition becomes two kernels compiled from the same IR (the
+  chain of assignments it reads and the condition itself): a point
+  version and an interval version (enclosures of the value, the rate and
+  the second rate, rounded outwards). Both sit behind a trait the run
+  loop calls, whose default implementation is today's interpreter, so a
+  model without kernels runs as now.
+* The kernels share common subexpressions across conditions: a motor's
+  limits read 45 and 49 assignments, most of them shared.
+* A differential test: at sampled points, intervals and boxes, the
+  compiled enclosures contain the compiled and the interpreted point
+  values, and are no wider than the interpreter's enclosures.
+* `eval_table` is implemented: the kernels and the interpreter read a
+  table as the compiled code interpolates it.
+* The zero-crossing order is kept (above).
+* The compiled roots equal the interpreted chains: the `roots` output of
+  a mixed condition's crossing equals its chain and condition evaluated
+  by the interpreter at the same inputs.
+* Acceptance: after WP3's speed-up of the model itself, the check takes
+  at most 3 % of the BEV WLTC run's time, measured with lsim-project's
+  `scan_share` example (`SolverOptions::time_mixed_checks`; the median
+  of five runs, with the condition-steps cleared by a certificate and
+  searched, `SolverReport::mixed_certified` and `mixed_scanned`, beside
+  it).
+
 **WP3** keeps: its interpreted tape (`tape.rs`) is not wired in,
 `InitFunctions::guess` uses the flat start values rather than
 `InitSystem::guesses`, and asserts have no compiled function yet.
@@ -1065,7 +1099,10 @@ round).**
   all but 677 of 1,145,426 of the hybrid's mixed cycle; the checks take
   3.3 % of the BEV run's instructions (four conditions, two of them the
   motor's chains, on steps a tenth as costly as the hybrid's) and 0.64 %
-  of the hybrid's. What cannot be searched
+  of the hybrid's; lsim-project's `scan_share` example records the
+  check's share of a run's time (the BEV's WLTC: 4.8 %, the median of
+  five runs) with those counts, so that a regression shows. What cannot
+  be searched
   (`atan2` or a derivative that moves with time, a table whose points are
   not known; a function not defined where its search starts; a search
   that makes no headway) is named in a warning and left to root finding:
@@ -1692,6 +1729,13 @@ work end to end) or against hand-written test doubles of the interfaces.
   central differences; sparse and dense Jacobians agree; tables are C¹ and
   monotone where their data are; a 10⁴-equation model compiles in under
   100 ms; the example cars compile in under 50 ms.
+* **Compiled condition kernels** (from work package 4's ninth round):
+  the conditions that mix time and states compiled into a point and an
+  interval kernel from the same IR, behind a trait with the interpreter
+  as its default, sharing subexpressions across conditions; accepted on
+  the differential test, `eval_table`, the zero-crossing order, compiled
+  roots equal to the interpreted chains, and the check at most 3 % of the
+  BEV WLTC run after WP3's speed-up (section 5.8).
 
 ### WP4 — Solver runtime
 

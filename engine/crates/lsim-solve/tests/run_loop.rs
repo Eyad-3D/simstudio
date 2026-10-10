@@ -2426,6 +2426,15 @@ fn a_double_crossing_of_a_driving_cycle_condition_within_a_step_is_found() {
         // of ~1e-7 moves it by ~4e-5 s)
         assert!((fired[0] - t1).abs() < 1e-3, "{backend:?}: {fired:?}");
         assert!(run.report.warnings.is_empty());
+        // timed only when asked, and the same run then
+        assert_eq!(run.report.mixed_seconds, 0.0);
+        let timed = SolverOptions { time_mixed_checks: true, ..opts.clone() };
+        let again = simulate(&model, &info, &timed, grid, &mut []).unwrap();
+        assert!(
+            again.report.mixed_seconds > 0.0 && again.report.mixed_seconds < again.wall_seconds
+        );
+        assert_eq!(again.values, run.values, "{backend:?}");
+        assert_eq!(again.stats.steps, run.stats.steps, "{backend:?}");
         // without the scan the step spans the pulse
         let mut bare = info.clone();
         bare.time_functions.clear();
