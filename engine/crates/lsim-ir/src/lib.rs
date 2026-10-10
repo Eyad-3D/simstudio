@@ -23,6 +23,7 @@ pub mod component;
 pub mod diag;
 pub mod eval;
 pub mod expr;
+pub mod fenv;
 pub mod flat;
 pub mod interval;
 pub mod prepared;
