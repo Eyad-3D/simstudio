@@ -59,6 +59,7 @@ use lsim_ir::runtime::{
 };
 use lsim_ir::table::TableData;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Instant;
 use tables::{Table, TableStore};
@@ -119,6 +120,11 @@ pub struct CodegenOptions {
     /// computes bitwise what its machine code computes, so results do not
     /// depend on when the switch happens. `usize::MAX`: never.
     pub tiered_above: usize,
+    /// For tests: the memory provider refuses to make code executable,
+    /// as Windows' Arbitrary Code Guard and some security policies do
+    /// (the model then runs on its tapes: [`MachineCode::Tapes`]).
+    #[doc(hidden)]
+    pub deny_executable_memory: bool,
 }
 
 impl Default for CodegenOptions {
@@ -134,6 +140,7 @@ impl Default for CodegenOptions {
             compile_jvp: false,
             kernels: true,
             tiered_above: 20_000,
+            deny_executable_memory: false,
         }
     }
 }
@@ -181,6 +188,10 @@ pub struct CompileReport {
     /// and resolving its calls, s (what loading cached machine code would
     /// cost too)
     pub link_seconds: f64,
+    /// Why the model runs on its tapes for good, if it does: the system
+    /// refused to make its machine code executable (the tapes compute the
+    /// same, more slowly; [`JitModel::machine_code`])
+    pub on_tapes: Option<String>,
 }
 
 /// What a generated function reads and writes: its one argument points to
@@ -242,6 +253,42 @@ impl Upgrade {
         *self.done.lock().unwrap_or_else(|e| e.into_inner()) = Some(r);
         self.over.notify_all();
     }
+}
+
+/// Stops a tiered model's background compilation when the last holder of
+/// the model goes away (its clones share this).
+struct CancelOnDrop(Arc<AtomicBool>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Background compilations running, and those stopped because their
+/// model was dropped (for tests).
+static BACKGROUND_RUNNING: AtomicUsize = AtomicUsize::new(0);
+static BACKGROUND_CANCELLED: AtomicUsize = AtomicUsize::new(0);
+
+/// `(running, cancelled so far)`: tiered models' background compilations
+/// in this process (for tests).
+#[doc(hidden)]
+pub fn background_compiles() -> (usize, usize) {
+    (BACKGROUND_RUNNING.load(Ordering::SeqCst), BACKGROUND_CANCELLED.load(Ordering::SeqCst))
+}
+
+/// How a model's functions run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MachineCode {
+    /// as machine code
+    Ready,
+    /// on tapes, while their machine code compiles on another thread (a
+    /// tiered model: [`CodegenOptions::tiered_above`])
+    Compiling,
+    /// on tapes for good, which compute bit for bit what the machine code
+    /// would, more slowly: why (the system refused to make code
+    /// executable, or the background compilation failed)
+    Tapes(String),
 }
 
 impl Code {
@@ -418,6 +465,8 @@ pub struct JitModel {
     _memory: Arc<CodeMemory>,
     /// a tiered model's machine code to come
     upgrade: Option<Arc<Upgrade>>,
+    /// stops its compilation when the last clone goes away
+    _cancel: Option<Arc<CancelOnDrop>>,
 }
 
 /// The compiled initialisation problem.
@@ -494,14 +543,26 @@ impl JitModel {
         v
     }
 
-    /// Whether the model's functions run as machine code: always, but for
-    /// a tiered model ([`CodegenOptions::tiered_above`]) whose machine
-    /// code is still compiling (or failed to: it then stays on its tapes,
-    /// which compute the same).
+    /// Whether the model's functions run as machine code
+    /// ([`JitModel::machine_code`] is [`MachineCode::Ready`]).
     pub fn machine_code_ready(&self) -> bool {
-        self.upgrade.as_ref().is_none_or(|u| {
-            u.done.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|r| r.is_ok())
-        })
+        self.machine_code() == MachineCode::Ready
+    }
+
+    /// How the model's functions run now: as machine code, on tapes while
+    /// it compiles (tiered), or on tapes for good, and why.
+    pub fn machine_code(&self) -> MachineCode {
+        if let Some(why) = &self.report.on_tapes {
+            return MachineCode::Tapes(why.clone());
+        }
+        let Some(u) = &self.upgrade else {
+            return MachineCode::Ready;
+        };
+        match &*u.done.lock().unwrap_or_else(|e| e.into_inner()) {
+            None => MachineCode::Compiling,
+            Some(Ok(_)) => MachineCode::Ready,
+            Some(Err(why)) => MachineCode::Tapes(why.clone()),
+        }
     }
 
     /// A tiered model as it runs before its machine code is in: on its
@@ -809,9 +870,21 @@ fn coloured(pattern: SparsityPattern) -> Coloured {
 }
 
 /// Compiles `model` to machine code.
+///
+/// Where the system refuses to make the code executable (Windows'
+/// Arbitrary Code Guard, some security policies), the model runs on its
+/// tapes instead, which compute the same: [`CompileReport::on_tapes`]
+/// says why.
 pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel, CodegenError> {
-    match build(model, opts, None)? {
+    match build(model, opts, None, How::Auto)? {
         Built::Model(m) => Ok(*m),
+        Built::NoExecutableMemory(why) => match build(model, opts, None, How::Tapes)? {
+            Built::Model(mut m) => {
+                m.report.on_tapes = Some(why);
+                Ok(*m)
+            }
+            _ => unreachable!("tapes need no executable memory"),
+        },
         Built::Foreign(_) => unreachable!("the host's code is a model"),
     }
 }
@@ -827,23 +900,43 @@ pub fn compile_for_target(
     opts: &CodegenOptions,
     triple: &str,
 ) -> Result<CompileReport, CodegenError> {
-    match build(model, opts, Some(triple))? {
+    match build(model, opts, Some(triple), How::Auto)? {
         Built::Foreign(r) => Ok(r),
-        Built::Model(_) => unreachable!("another target's code cannot run"),
+        _ => unreachable!("another target's code cannot run"),
     }
 }
 
-/// What [`build`] made: a model to run, or another target's code's report.
+/// What [`build`] made: a model to run, another target's code's report,
+/// or nothing because the system refused executable memory (why).
 enum Built {
     Model(Box<JitModel>),
     Foreign(CompileReport),
+    NoExecutableMemory(String),
+}
+
+/// How [`build`] compiles a model for this machine.
+#[derive(Clone, Copy)]
+enum How<'c> {
+    /// machine code, tiered above [`CodegenOptions::tiered_above`]
+    Auto,
+    /// every function on its tape (no executable memory)
+    Tapes,
+    /// a tiered model's machine code, on its background thread: stopped
+    /// when `cancel` is set
+    Background(&'c AtomicBool),
 }
 
 fn build(
     model: &PreparedModel,
     opts: &CodegenOptions,
     target: Option<&str>,
+    how: How<'_>,
 ) -> Result<Built, CodegenError> {
+    let cancel = match how {
+        How::Background(c) => Some(c),
+        _ => None,
+    };
+    let stopped = || cancel.is_some_and(|c| c.load(Ordering::Relaxed));
     let started = Instant::now();
     let flat = &model.flat;
     let n_x = model.states.len();
@@ -933,12 +1026,15 @@ fn build(
     };
     let isa = jit::isa_for(target, opt_level, regalloc)?;
     let fma = isa.has_native_fma();
-    let (mut module, decls) = jit::module(&isa)?;
+    let (mut module, decls) = jit::module(&isa, opts.deny_executable_memory)?;
     let alias: HashMap<u32, AliasTarget> =
         model.aliases.iter().map(|a| (a.var.0, a.target)).collect();
     let env = Env { cx, main, init, main_jac, init_jac, sites, decls, fma, alias, main_slots };
     let shape = Shape { chunk_nodes: opts.chunk_nodes.max(1), segment_nodes: opts.segment_nodes };
     let plans: Vec<Plan> = emit::plans(&env, shape, large, opts.compile_jvp)?;
+    if stopped() {
+        return Err(jit::cancelled());
+    }
     // where kept tangents live, per system and tangent mode
     let tan_none = TanLayout { slots: vec![], end: 0 };
     let tan_main_jvp = TanLayout::new(&env.main, env.mode(Kind::Jvp));
@@ -959,8 +1055,9 @@ fn build(
             _ => &tan_none,
         }
     };
-    let tiered = target.is_none() && nodes > opts.tiered_above;
-    let taped = |kind: Kind| tiered || (opts.tape_init && kind.init());
+    let tiered = matches!(how, How::Auto) && target.is_none() && nodes > opts.tiered_above;
+    let all_tapes = tiered || matches!(how, How::Tapes);
+    let taped = |kind: Kind| all_tapes || (opts.tape_init && kind.init());
     let sig = jit::eval_signature(&*isa);
     let trace = std::env::var_os("LSIM_CODEGEN_TRACE").is_some();
     let mut ids: Vec<Vec<FuncId>> = vec![];
@@ -1042,7 +1139,7 @@ fn build(
     let fc = isa.frontend_config();
     let n_functions = jobs.len();
     let (compiled, ir_seconds, cl_seconds) =
-        jit::build_and_compile(&isa, jobs, threads, |plan, c, id| {
+        jit::build_and_compile(&isa, jobs, threads, cancel, |plan, c, id| {
             let p = &plans[plan];
             emit::build_chunk(&env, p, tan_of(p.kind), c, id, &sig, fc)
         })?;
@@ -1067,17 +1164,27 @@ fn build(
         call_conv: isa.default_call_conv().to_string(),
         tiered,
         link_seconds,
+        on_tapes: None,
     };
     if target.is_some() {
         return Ok(Built::Foreign(report(Instant::now(), 0.0)));
     }
-    let link_started = Instant::now();
-    for c in &compiled {
-        module
-            .define_function_bytes(c.id, c.align, &c.bytes, &c.relocs)
-            .map_err(|e| CodegenError::Backend(e.to_string()))?;
+    if stopped() {
+        return Err(jit::cancelled());
     }
-    module.finalize_definitions().map_err(|e| CodegenError::Backend(e.to_string()))?;
+    let link_started = Instant::now();
+    if !compiled.is_empty() {
+        // a system that refuses executable memory (allocating it, or
+        // making it executable) leaves the model to its tapes
+        for c in &compiled {
+            if let Err(e) = module.define_function_bytes(c.id, c.align, &c.bytes, &c.relocs) {
+                return Ok(Built::NoExecutableMemory(no_executable_memory(&e)));
+            }
+        }
+        if let Err(e) = module.finalize_definitions() {
+            return Ok(Built::NoExecutableMemory(no_executable_memory(&e)));
+        }
+    }
     let link_seconds = link_started.elapsed().as_secs_f64();
     // from here on the memory is given back however this returns
     let memory = Arc::new(CodeMemory(Some(module)));
@@ -1195,6 +1302,7 @@ fn build(
         report,
         _memory: memory,
         upgrade: None,
+        _cancel: None,
     };
     if tiered {
         upgrade(&mut jm, model, opts, started);
@@ -1218,12 +1326,15 @@ fn upgrade(jm: &mut JitModel, model: &PreparedModel, opts: &CodegenOptions, star
         })
         .collect();
     jm.upgrade = Some(up.clone());
+    let cancel = Arc::new(AtomicBool::new(false));
+    jm._cancel = Some(Arc::new(CancelOnDrop(cancel.clone())));
     let (layout, jac_scratch) = (jm.layout, jm.jac_scratch);
     let model = model.clone();
     let opts = CodegenOptions { tiered_above: usize::MAX, ..opts.clone() };
     let up2 = up.clone();
+    BACKGROUND_RUNNING.fetch_add(1, Ordering::SeqCst);
     let spawned = std::thread::Builder::new().name("lsim-codegen".into()).spawn(move || {
-        let r = match build(&model, &opts, None) {
+        let r = match build(&model, &opts, None, How::Background(&cancel)) {
             Ok(Built::Model(mut m)) => {
                 let fits = m.layout.n_work <= layout.n_work && m.jac_scratch <= jac_scratch;
                 let (memory, mut report) = (m._memory.clone(), m.report.clone());
@@ -1239,17 +1350,31 @@ fn upgrade(jm: &mut JitModel, model: &PreparedModel, opts: &CodegenOptions, star
                     Ok(report)
                 }
             }
+            Ok(Built::NoExecutableMemory(why)) => Err(why),
             Ok(Built::Foreign(_)) => Err("internal: foreign code".into()),
             Err(e) => Err(e.to_string()),
         };
-        if let Err(e) = &r {
+        if cancel.load(Ordering::Relaxed) {
+            BACKGROUND_CANCELLED.fetch_add(1, Ordering::SeqCst);
+        } else if let Err(e) = &r
+            && std::env::var_os("LSIM_CODEGEN_TRACE").is_some()
+        {
             eprintln!("lsim-codegen: the model stays on its tapes: {e}");
         }
         up2.finish(r);
+        BACKGROUND_RUNNING.fetch_sub(1, Ordering::SeqCst);
     });
     if let Err(e) = spawned {
+        BACKGROUND_RUNNING.fetch_sub(1, Ordering::SeqCst);
         up.finish(Err(format!("no thread to compile on: {e}")));
     }
+}
+
+/// Why the model runs on its tapes: the system refused executable memory.
+fn no_executable_memory(e: &cranelift_module::ModuleError) -> String {
+    format!(
+        "the system refused to make the machine code executable ({e}): the model runs on its tapes, which compute the same"
+    )
 }
 
 /// The ISA the code is generated for: whether it has fused multiply-add

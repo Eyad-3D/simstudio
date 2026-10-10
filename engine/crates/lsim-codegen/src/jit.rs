@@ -8,13 +8,17 @@ use cranelift_codegen::ir::types::{F64, I64};
 use cranelift_codegen::ir::{AbiParam, Function, Signature, Type};
 use cranelift_codegen::isa::{OwnedTargetIsa, TargetIsa};
 use cranelift_codegen::{Context, settings, settings::Configurable};
-use cranelift_jit::{JITBuilder, JITModule};
+use cranelift_jit::{
+    BranchProtection, JITBuilder, JITMemoryKind, JITMemoryProvider, JITModule, SystemMemoryProvider,
+};
 use cranelift_module::{
-    FuncId, Linkage, Module, ModuleReloc, ModuleRelocTarget, default_libcall_names,
+    FuncId, Linkage, Module, ModuleError, ModuleReloc, ModuleRelocTarget, ModuleResult,
+    default_libcall_names,
 };
 use std::collections::HashMap;
+use std::io;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 macro_rules! unary_fns {
     ($($name:ident => $f:ident),* $(,)?) => {
@@ -155,8 +159,10 @@ pub(crate) fn check_conventions(isa: &dyn TargetIsa, f: &Function) -> Result<(),
 /// declarations.
 pub(crate) fn module(
     isa: &OwnedTargetIsa,
+    deny_executable: bool,
 ) -> Result<(JITModule, HashMap<&'static str, Import>), CodegenError> {
     let mut jb = JITBuilder::with_isa(isa.clone(), default_libcall_names());
+    jb.memory_provider(Box::new(Memory { system: SystemMemoryProvider::new(), deny_executable }));
     let syms = runtime_symbols();
     for (name, ptr, _) in &syms {
         jb.symbol(*name, *ptr);
@@ -172,6 +178,37 @@ pub(crate) fn module(
         decls.insert(name, Import { id, sig });
     }
     Ok((m, decls))
+}
+
+/// The JIT's memory: the system's, or (`deny_executable`, for tests) one
+/// that refuses to make code executable when the module is finalised, as
+/// Windows' Arbitrary Code Guard and some security policies do.
+struct Memory {
+    system: SystemMemoryProvider,
+    deny_executable: bool,
+}
+
+impl JITMemoryProvider for Memory {
+    fn allocate(&mut self, size: usize, align: u64, kind: JITMemoryKind) -> io::Result<*mut u8> {
+        self.system.allocate(size, align, kind)
+    }
+
+    unsafe fn free_memory(&mut self) {
+        // SAFETY: the caller's contract, passed on
+        unsafe { self.system.free_memory() }
+    }
+
+    fn finalize(&mut self, branch_protection: BranchProtection) -> ModuleResult<()> {
+        if self.deny_executable {
+            return Err(ModuleError::Allocation {
+                err: io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "making code executable is not allowed here (simulated)",
+                ),
+            });
+        }
+        self.system.finalize(branch_protection)
+    }
 }
 
 /// The signature of every generated function: one pointer, to a
@@ -239,6 +276,7 @@ pub(crate) fn build_and_compile<F>(
     isa: &OwnedTargetIsa,
     mut jobs: Vec<(usize, usize, FuncId, usize)>,
     threads: usize,
+    cancel: Option<&AtomicBool>,
     build: F,
 ) -> Result<(Vec<Compiled>, f64, f64), CodegenError>
 where
@@ -249,6 +287,9 @@ where
     let ir_ns = AtomicU64::new(0);
     let cl_ns = AtomicU64::new(0);
     let one = |job: (usize, usize, FuncId, usize)| -> Result<Compiled, CodegenError> {
+        if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+            return Err(cancelled());
+        }
         let t0 = std::time::Instant::now();
         let f = build(job.0, job.1, job.2)?;
         check_conventions(&**isa, &f)?;
@@ -271,7 +312,11 @@ where
                         let job = queue.lock().expect("queue").pop();
                         let Some(job) = job else { break };
                         let r = one(job);
+                        let stop = r.is_err();
                         done.lock().expect("results").push(r);
+                        if stop {
+                            break;
+                        }
                     }
                 });
             }
@@ -280,6 +325,11 @@ where
     };
     let secs = |a: &AtomicU64| a.load(Ordering::Relaxed) as f64 * 1e-9;
     Ok((done?, secs(&ir_ns), secs(&cl_ns)))
+}
+
+/// The error of a compilation stopped because nobody wants its result.
+pub(crate) fn cancelled() -> CodegenError {
+    CodegenError::Backend("cancelled: the model was dropped".into())
 }
 
 /// How many threads to compile on.
@@ -323,7 +373,7 @@ mod tests {
             assert!(check_conventions(&*isa, &function(own, other)).is_err());
             // and what the code generator makes is the target's
             assert_eq!(eval_signature(&*isa).call_conv, own);
-            let (_, decls) = module(&isa).expect("a module");
+            let (_, decls) = module(&isa, false).expect("a module");
             assert!(decls.values().all(|d| d.sig.call_conv == own));
         }
     }
