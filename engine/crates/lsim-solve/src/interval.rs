@@ -16,6 +16,14 @@
 //! and rate at most L cannot reach zero within |g| / L), shrinking the
 //! interval as it nears a zero, and bisects to adjacent floats once a sign
 //! change is bracketed. A grazing touch without a sign change is passed.
+//!
+//! Rounding: every operation's bounds are widened outwards, by an ulp for
+//! the exactly rounded ones (`+`, `−`, `×`, `÷`, `sqrt`), by 2 ulps for the
+//! platform's `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`,
+//! `tanh`, `exp`, `ln` and `powf`, which assumes each is within 1 ulp of
+//! the exact value (glibc's are; `tests/libm.rs` checks `sin`, `cos`,
+//! `exp` and `ln` on the platform), and relatively by n ε for `powi`
+//! (repeated squaring: up to (n − 1) ε / 2).
 
 use crate::info::table_at;
 use lsim_ir::expr::{BinaryOp, Builtin, CmpOp, Expr};
@@ -220,13 +228,19 @@ fn powi_iv(a: Iv, n: i32) -> Iv {
     if n < 0 {
         return powi_iv(a, -n).recip();
     }
+    // `powi` multiplies by repeated squaring (compiler-rt's __powidf2):
+    // its relative error is at most (n - 1) u (u = ε / 2), measured at 4.6
+    // ulps for n = 8, 10.3 for 16 and 44 for 64: widened by n ε relatively
     let (p0, p1) = (a.lo.powi(n), a.hi.powi(n));
+    let r = n as f64 * f64::EPSILON;
+    let lo_of = |x: f64| down(x - r * x.abs(), 1);
+    let hi_of = |x: f64| up(x + r * x.abs(), 1);
     if n % 2 == 1 || a.lo >= 0.0 {
-        Iv::wide(p0, p1, 2)
+        Iv::new(lo_of(p0), hi_of(p1))
     } else if a.hi <= 0.0 {
-        Iv::wide(p1, p0, 2)
+        Iv::new(lo_of(p1), hi_of(p0))
     } else {
-        Iv::new(0.0, up(p0.max(p1), 2))
+        Iv::new(0.0, hi_of(p0.max(p1)))
     }
 }
 
@@ -1042,6 +1056,42 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// An integer power's enclosure holds the power however `powi`
+    /// rounds (repeated squaring is off by up to 44 ulps at n = 64): the
+    /// exact power, from `powf` (within an ulp) and from the product
+    /// computed in double-double, at many points.
+    #[test]
+    fn an_integer_power_encloses_the_exact_power() {
+        // x^n in double-double: (hi, lo) with hi + lo the product to ~1e-32
+        fn dd_pow(x: f64, n: i32) -> f64 {
+            let (mut hi, mut lo) = (1.0f64, 0.0f64);
+            for _ in 0..n {
+                let p = hi * x;
+                let e = hi.mul_add(x, -p) + lo * x;
+                let s = p + e;
+                lo = e - (s - p);
+                hi = s;
+            }
+            hi + lo
+        }
+        let mut worst = 0.0f64;
+        for k in 0..20_000 {
+            let x = 0.5 + 1.5 * (k as f64 / 20_000.0) + 1e-7 * (k as f64).sin();
+            for n in [3, 8, 16, 31, 64] {
+                let iv = powi_iv(Iv::point(x), n);
+                let exact = dd_pow(x, n);
+                let ulps = (x.powi(n) - exact).abs() / (exact.next_up() - exact);
+                worst = worst.max(ulps);
+                assert!(iv.lo <= exact && exact <= iv.hi, "{x}^{n}: {exact} not in {iv:?}");
+                assert!(iv.lo <= x.powf(n as f64) && x.powf(n as f64) <= iv.hi, "{x}^{n}");
+                let neg = powi_iv(Iv::point(-x), n);
+                let e = if n % 2 == 0 { exact } else { -exact };
+                assert!(neg.lo <= e && e <= neg.hi, "-{x}^{n}");
+            }
+        }
+        println!("powi: worst {worst:.1} ulps from the exact power");
     }
 
     /// A variable along a step, as a polynomial: its enclosures hold its
