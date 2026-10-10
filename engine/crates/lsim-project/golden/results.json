@@ -1,7 +1,7 @@
 [
   {
     "block_changes": 0,
-    "build_seconds": 0.025166347,
+    "build_seconds": 0.023837832,
     "case": "case-hwfet",
     "channels": [
       {
@@ -864,13 +864,13 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "aero-bev",
-    "run_seconds": 1.002958146,
+    "run_seconds": 1.064511289,
     "steps": 82027,
     "today_shift_gear_kwh": 0.0
   },
   {
     "block_changes": 0,
-    "build_seconds": 0.025913502,
+    "build_seconds": 0.020343434,
     "case": "case-udds",
     "channels": [
       {
@@ -1777,13 +1777,13 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "aero-bev",
-    "run_seconds": 2.56337438,
+    "run_seconds": 2.277056928,
     "steps": 179312,
     "today_shift_gear_kwh": 0.0
   },
   {
     "block_changes": 0,
-    "build_seconds": 0.027175788,
+    "build_seconds": 0.033354579,
     "case": "case-wltc",
     "channels": [
       {
@@ -2734,13 +2734,13 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "aero-bev",
-    "run_seconds": 2.6531920209999997,
+    "run_seconds": 3.135246684,
     "steps": 223735,
     "today_shift_gear_kwh": 0.0
   },
   {
     "block_changes": 0,
-    "build_seconds": 0.024443003,
+    "build_seconds": 0.029176822,
     "case": "case-city",
     "channels": [
       {
@@ -3647,13 +3647,13 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "bev-car",
-    "run_seconds": 0.072105191,
+    "run_seconds": 0.069238849,
     "steps": 3999,
     "today_shift_gear_kwh": 0.0
   },
   {
     "block_changes": 0,
-    "build_seconds": 0.025553999,
+    "build_seconds": 0.031765019,
     "case": "case-city-live",
     "channels": [
       {
@@ -4560,13 +4560,13 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "bev-car",
-    "run_seconds": 0.077110057,
+    "run_seconds": 0.073734682,
     "steps": 3999,
     "today_shift_gear_kwh": 0.0
   },
   {
     "block_changes": 0,
-    "build_seconds": 0.0303803,
+    "build_seconds": 0.024178479,
     "case": "case-wltc",
     "channels": [
       {
@@ -5561,13 +5561,13 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "bev-car",
-    "run_seconds": 2.8008759899999998,
+    "run_seconds": 2.8044944899999997,
     "steps": 215669,
     "today_shift_gear_kwh": 0.0
   },
   {
     "block_changes": 0,
-    "build_seconds": 0.025117402,
+    "build_seconds": 0.026621554,
     "case": "case-wltc-hvac",
     "channels": [
       {
@@ -6562,13 +6562,13 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "bev-car",
-    "run_seconds": 2.678377027,
+    "run_seconds": 2.733042521,
     "steps": 214113,
     "today_shift_gear_kwh": 0.0
   },
   {
     "block_changes": 0,
-    "build_seconds": 0.033704632,
+    "build_seconds": 0.036089807,
     "case": "case-wltc-summer",
     "channels": [
       {
@@ -7574,13 +7574,13 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "bev-car",
-    "run_seconds": 2.800852346,
+    "run_seconds": 3.016020038,
     "steps": 214496,
     "today_shift_gear_kwh": 0.0
   },
   {
     "block_changes": 0,
-    "build_seconds": 0.026762602,
+    "build_seconds": 0.028972629,
     "case": "case-wltc-winter",
     "channels": [
       {
@@ -8586,13 +8586,13 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "bev-car",
-    "run_seconds": 2.891007496,
+    "run_seconds": 2.812609191,
     "steps": 215305,
     "today_shift_gear_kwh": 0.0
   },
   {
     "block_changes": 0,
-    "build_seconds": 0.044959996,
+    "build_seconds": 0.04724421,
     "case": "case-accel-75m",
     "channels": [
       {
@@ -9532,13 +9532,13 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "fs-electric",
-    "run_seconds": 0.101586831,
+    "run_seconds": 0.090576359,
     "steps": 1058,
     "today_shift_gear_kwh": 0.0
   },
   {
     "block_changes": 75557,
-    "build_seconds": 0.025821813,
+    "build_seconds": 0.027194036,
     "case": "case-hwfet",
     "channels": [
       {
@@ -10621,13 +10621,13 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "hybrid-car",
-    "run_seconds": 55.463630569,
+    "run_seconds": 56.205422046,
     "steps": 1918254,
     "today_shift_gear_kwh": 0.0003367030628088183
   },
   {
     "block_changes": 55998,
-    "build_seconds": 0.024739858,
+    "build_seconds": 0.035523288,
     "case": "case-mixed",
     "channels": [
       {
@@ -11710,13 +11710,13 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "hybrid-car",
-    "run_seconds": 23.741068595,
+    "run_seconds": 25.155986694,
     "steps": 572709,
     "today_shift_gear_kwh": 0.0002622194290398881
   },
   {
     "block_changes": 55998,
-    "build_seconds": 0.021720792,
+    "build_seconds": 0.024757263,
     "case": "case-mixed-live",
     "channels": [
       {
@@ -12799,13 +12799,13 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "hybrid-car",
-    "run_seconds": 22.701415647,
+    "run_seconds": 23.408999341,
     "steps": 572709,
     "today_shift_gear_kwh": 0.0002622194290398881
   },
   {
     "block_changes": 113983,
-    "build_seconds": 0.026908325,
+    "build_seconds": 0.032213834,
     "case": "case-udds",
     "channels": [
       {
@@ -13932,7 +13932,7 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "hybrid-car",
-    "run_seconds": 81.855187824,
+    "run_seconds": 85.144796935,
     "steps": 3023217,
     "today_shift_gear_kwh": 0.0035027903800966907
   }

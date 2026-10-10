@@ -563,6 +563,13 @@ runs).
 | bev-car/case-city | 3999 | 3999 | 0.07 | 0.07 |
 | fs-electric/case-accel-75m | 1058 | 1058 | 0.09 | 0.10 |
 
+After the review of the ninth round (an automatic Adams → BDF switch
+made before the next step, so the step that asked for it keeps its dense
+output; diffsol's dense-output bound called an estimate and its end node
+placed at the state's own time; a warning where a model gives a table's
+values but not its breakpoints): each case's output is again the same
+byte for byte, and no run warns. The full comparison took 208.0 s.
+
 The hybrid's run includes the Script block's round trip to Python at
 every 10 ms tick (137 000 on the UDDS), and most of its remaining steps
 follow the tyres' slip, which settles within about 1e-4 s after each
