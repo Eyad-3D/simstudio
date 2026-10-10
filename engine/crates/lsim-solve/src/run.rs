@@ -367,14 +367,17 @@ impl Loop<'_> {
         }
     }
 
-    /// The times of the time tables' breakpoints ([`RunInfo::time_tables`]):
-    /// all of them (`moving`: only those whose position reads a discrete
-    /// value), with the channels and parameters as they stand.
+    /// The times of the time tables' breakpoints ([`RunInfo::time_tables`]),
+    /// with the channels and parameters as they stand: those whose
+    /// position reads no discrete value (`moving` false: once, at the
+    /// start), or those whose position does (`moving`: again after every
+    /// discrete change, so no stale stop is kept where a breakpoint was).
     fn schedule_breaks(&mut self, t: f64, moving: bool) {
         let mut out = vec![];
         for tt in &self.info.time_tables {
-            let reads = tt.b.any(&mut |x| matches!(x, lsim_ir::Expr::Var(_)));
-            if moving && !reads {
+            let reads =
+                tt.b.any(&mut |x| matches!(x, lsim_ir::Expr::Var(_) | lsim_ir::Expr::Pre(_)));
+            if moving != reads {
                 continue;
             }
             let env = crate::info::ChannelEnv {
@@ -1245,6 +1248,7 @@ pub fn run_loop(
 
     if !info.time_tables.is_empty() {
         lp.schedule_breaks(t, false);
+        lp.schedule_breaks(t, true);
     }
     while t < t_end {
         // the time crossings' times move only when a discrete value does

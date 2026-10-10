@@ -2867,6 +2867,131 @@ impl Integrator for NoResume<'_> {
     }
 }
 
+/// CVODE, recording the stop times the run loop asks for.
+struct Stops<'m>(lsim_solve::sundials::Sundials<'m>, Vec<f64>);
+
+impl Integrator for Stops<'_> {
+    fn name(&self) -> &'static str {
+        self.0.name()
+    }
+    fn step(&mut self, t_stop: f64) -> Result<Step, SolveError> {
+        self.1.push(t_stop);
+        self.0.step(t_stop)
+    }
+    fn y(&self) -> &[f64] {
+        self.0.y()
+    }
+    fn interpolate(&mut self, t: f64, out: &mut [f64]) -> Result<(), SolveError> {
+        self.0.interpolate(t, out)
+    }
+    fn interpolate_select(
+        &mut self,
+        t: f64,
+        idx: &[usize],
+        out: &mut [f64],
+    ) -> Result<(), SolveError> {
+        self.0.interpolate_select(t, idx, out)
+    }
+    fn discrete_mut(&mut self) -> &mut [f64] {
+        self.0.discrete_mut()
+    }
+    fn restart(&mut self, t: f64, y: &[f64]) -> Result<(), SolveError> {
+        self.0.restart(t, y)
+    }
+    fn resume(&mut self, t: f64) -> bool {
+        self.0.resume(t)
+    }
+    fn planned_step(&self) -> f64 {
+        self.0.planned_step()
+    }
+    fn consistent_z(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError> {
+        self.0.consistent_z(t, y, d)
+    }
+    fn stats(&self) -> SolverStats {
+        self.0.stats()
+    }
+    fn quadrature(&mut self, t: f64, out: &mut [f64]) -> Result<(), SolveError> {
+        self.0.quadrature(t, out)
+    }
+    fn local_error(&mut self, out: &mut [f64]) -> bool {
+        self.0.local_error(out)
+    }
+    fn set_root_sides(&mut self, sides: &[f64]) {
+        self.0.set_root_sides(sides)
+    }
+    fn set_root_mask(&mut self, mask: &[bool]) -> bool {
+        self.0.set_root_mask(mask)
+    }
+    fn method(&self) -> String {
+        self.0.method()
+    }
+}
+
+/// A table read at `time - shift`, the shift a discrete value a `when`
+/// sets to 2.5 at 5 s: its breakpoints (0, 10, 20 along its axis) are stop
+/// times at 0, 10, 20 s, then at 2.5, 12.5, 22.5 s. The review found the
+/// stops of the start kept after the change (the breakpoints of a table
+/// whose position moves were scheduled with the fixed ones once, and kept):
+/// no stop is left at 10 or 20 s.
+#[test]
+fn a_table_whose_position_moves_keeps_no_stale_stops() {
+    use lsim_solve::info::TimeTable;
+    let model = Hand {
+        layout: layout(1, 0, 0, 1, 1, 1, 2),
+        f: Box::new(|_, out| out[0] = 1.0),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(|i, out| out[0] = i.t - 5.0),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+        }),
+        when: Box::new(|_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = 2.5;
+            }
+        }),
+        modes: None,
+        y0: vec![0.0],
+        d0: vec![0.0],
+    };
+    let mut info = RunInfo::bare(1, 2, vec![]);
+    info.root_dirs = vec![1];
+    whens(&mut info, &[(0, Direction::Rising, "'Cycle': shift")]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::D(0)];
+    info.time_crossings = vec![Some(TimeCrossing { at: Expr::Const(5.0), rising: true })];
+    info.time_tables = vec![TimeTable {
+        at: vec![0.0, 10.0, 20.0],
+        c: 1.0,
+        b: Expr::Neg(Box::new(Expr::Var(VarId(1)))),
+    }];
+    let opts = SolverOptions::default();
+    let grid = OutputGrid { t0: 0.0, t_end: 30.0, dt: 10.0 };
+    let integ = lsim_solve::sundials::Sundials::new(
+        &model,
+        &info,
+        &opts,
+        grid,
+        &[0.0],
+        vec![0.0],
+        vec![],
+        None,
+    )
+    .unwrap();
+    let mut integ = Stops(integ, vec![]);
+    let run =
+        run_loop(&model, &info, &opts, grid, &mut integ, &[], &mut [], std::time::Instant::now())
+            .unwrap();
+    let mut stops = integ.1.clone();
+    stops.dedup();
+    println!("stops {stops:?}; x(30) = {}", run.values[0][3]);
+    for want in [5.0, 12.5, 22.5] {
+        assert!(stops.contains(&want), "a stop at {want}: {stops:?}");
+    }
+    for stale in [10.0, 20.0] {
+        assert!(!stops.contains(&stale), "a stale stop at {stale}: {stops:?}");
+    }
+}
+
 /// An integrator that does not implement `consistent_z`: the trait's
 /// default.
 struct NoConsistentZ<'m>(lsim_solve::sundials::Sundials<'m>);
