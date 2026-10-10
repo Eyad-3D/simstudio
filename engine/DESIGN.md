@@ -1568,13 +1568,20 @@ work end to end) or against hand-written test doubles of the interfaces.
   loss as the event's; a cascade of engagements at one instant is
   projected to its end or stops the run naming it; `consistent_z` fails
   by default; inert ticks are counted apart from light restarts.
+* **Fifth round (from the review of the fourth)**: the energy books'
+  stored-energy rates exact (forward-mode through the assignments, the
+  model's x' on IDA), the closure back to round-off (1.5e-9 or better on
+  every golden case, from 1.6e-6); tables read along time stop the
+  integrator at their breakpoints; both sides of an event at an output
+  time recorded (`SimResult::left_limits`).
 * **Status (as built)**: the exact-answer suite passes on both backends,
   ODE and DAE paths (`lsim-solve/tests/reference.rs`); the backends agree
   within 4.2·rtol; events within 2.6·rtol on SUNDIALS at every tolerance,
   on diffsol within 7.2·rtol at 1e-6 and 1e-8 but up to 34·rtol at 1e-10
   (its root finding, not ours: the cross-check is held to 50·rtol);
-  energy closure ≤ 1.1e-7 everywhere tested (no example project imports
-  until WP5); the idle 10 ms block and the sweeps as measured in sections
+  energy closure ≤ 1.1e-7 everywhere tested before the example projects
+  imported, ≤ 1.5e-9 on every golden case since the stored-energy rates
+  are exact; the idle 10 ms block and the sweeps as measured in sections
   9 and 8.4 (< 5 % for models as costly as the 101-state drive, 19.5 % on
   a 100 ms model read through a computed channel; 3.44–4.09×); the build
   proven on Linux only.

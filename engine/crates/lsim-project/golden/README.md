@@ -62,47 +62,48 @@ relaxes after a shift is in their own slip losses (below).
 
 | case | figures inside | channels inside | energy books: closure | gear shifts | as the gears engaged, kWh (today's gearbox term) | steps | events | run, s |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| aero-bev/case-hwfet | 10/10 | 63/67 | 6.2e-09 | — | — | 91471 | 17 | 1.21 |
-| aero-bev/case-udds | 14/14 | 63/67 | 1.0e-08 | — | — | 198417 | 257 | 2.78 |
-| aero-bev/case-wltc | 18/18 | 63/67 | 1.8e-09 | — | — | 248324 | 122 | 3.40 |
-| bev-car/case-city | 11/11 | 65/70 | 3.1e-08 | — | — | 4572 | 17 | 0.07 |
-| bev-car/case-city-live | 11/11 | 65/70 | 3.1e-08 | — | — | 4572 | 17 | 0.07 |
-| bev-car/case-wltc | 19/19 | 65/70 | 3.2e-09 | — | — | 237694 | 122 | 3.48 |
-| bev-car/case-wltc-hvac | 19/19 | 65/70 | 3.0e-09 | — | — | 238156 | 122 | 3.61 |
-| bev-car/case-wltc-summer | 20/20 | 65/70 | 6.6e-10 | — | — | 236544 | 122 | 3.54 |
-| bev-car/case-wltc-winter | 20/20 | 65/70 | 1.8e-09 | — | — | 238122 | 122 | 3.40 |
-| fs-electric/case-accel-75m | 19/19 | 65/65 | 9.2e-08 | — | — | 1058 | 13 | 0.09 |
-| hybrid-car/case-hwfet | 9/9 | 72/88 | 5.4e-07 | 16 | 0.0002062 (0.0003367) | 1927517 | 76944 | 53.36 |
-| hybrid-car/case-mixed | 9/9 | 82/88 | 5.3e-09 | 10 | 0.0001447 (0.0002622) | 577834 | 56210 | 23.32 |
-| hybrid-car/case-mixed-live | 9/9 | 82/88 | 5.3e-09 | 10 | 0.0001447 (0.0002622) | 577834 | 56210 | 22.15 |
-| hybrid-car/case-udds | 13/13 | 69/88 | 1.6e-06 | 104 | 0.0016634 (0.0035028) | 3032825 | 118096 | 83.86 |
+| aero-bev/case-hwfet | 10/10 | 63/67 | 1.3e-10 | — | — | 82027 | 17 | 0.87 |
+| aero-bev/case-udds | 14/14 | 63/67 | 1.3e-10 | — | — | 179312 | 257 | 2.10 |
+| aero-bev/case-wltc | 18/18 | 63/67 | 2.5e-11 | — | — | 223735 | 122 | 2.34 |
+| bev-car/case-city | 10/11 | 65/70 | 1.5e-09 | — | — | 3999 | 17 | 0.09 |
+| bev-car/case-city-live | 10/11 | 65/70 | 1.5e-09 | — | — | 3999 | 17 | 0.06 |
+| bev-car/case-wltc | 19/19 | 65/70 | 2.7e-10 | — | — | 215669 | 122 | 2.53 |
+| bev-car/case-wltc-hvac | 19/19 | 65/70 | 5.8e-11 | — | — | 214113 | 122 | 2.41 |
+| bev-car/case-wltc-summer | 20/20 | 65/70 | 7.4e-11 | — | — | 214496 | 122 | 2.38 |
+| bev-car/case-wltc-winter | 20/20 | 65/70 | 2.6e-11 | — | — | 215305 | 122 | 2.52 |
+| fs-electric/case-accel-75m | 19/19 | 65/65 | 1.7e-10 | — | — | 1058 | 13 | 0.08 |
+| hybrid-car/case-hwfet | 9/9 | 88/88 | 3.3e-12 | 16 | 0.0002062 (0.0003367) | 1918254 | 76998 | 46.70 |
+| hybrid-car/case-mixed | 9/9 | 82/88 | 1.2e-12 | 10 | 0.0001447 (0.0002622) | 572709 | 56209 | 21.86 |
+| hybrid-car/case-mixed-live | 9/9 | 82/88 | 1.2e-12 | 10 | 0.0001447 (0.0002622) | 572709 | 56209 | 21.12 |
+| hybrid-car/case-udds | 13/13 | 88/88 | 6.8e-12 | 104 | 0.0016634 (0.0035028) | 3023217 | 118094 | 76.53 |
 
-All 201 figures are inside their bands (194 before work package 4's second
-round, below), and 949 of 1038 channels (971 after its third round, 952
-before its second): the 22 more outside are the hybrid's HWFET and UDDS
-channels at the output points where a shift happens, which now show the
-tyres' slip just after the gears engaged and before it relaxed (below;
-without those points every one of them is inside). The figure closest to
-its band is the Battery Electric Car's recuperated energy on the city
-cycle, at 0.99996 × band: the intended difference below, at the edge of
-its band (1.0002 × before the second round's restarts and time events
-moved it by 2e-8 kWh). The next is at 0.44 × band. The energy books close
-to 1.6e-6 of their throughput or better (the hybrid's UDDS; its HWFET
-5.4e-7, every other case 9.2e-8 or better): what moved is the fuel
-tank's, whose integrals are held to the integrator's tolerance against a
-tank of some 1e9 J, and which the integrated tyre transients leave less
-close than the 2.7e-8 before. The fourth round (a tyre passes no
-impulse) leaves every figure of the electric cars bit for bit where it
-was; the hybrid's moved by at most 0.17 × band, most of them towards
-today's 1 ms run (the UDDS battery's internal losses +0.276 → +0.112 ×
-band).
+199 of the 201 figures are inside their bands (194 before work package
+4's second round, below), and 984 of 1038 channels (949 after its fourth
+round, 952 before its second). The two figures outside are the Battery
+Electric Car's recuperated energy on the city cycle (city and
+city-live), at 1.0013 × band: the intended difference below, which the
+converged run puts at 1.0044 × band (the 0.99996 × of earlier rounds was
+that much integration error at rtol 1e-6, inside by chance). The next
+figure is at 0.44 × band. Every channel outside is that same intended
+difference (the differential's and the final drive's torques, power and
+losses; on the hybrid's mixed cycle the gearbox's too, below). The output
+points where an event happens, which put 22 of the hybrid's channels
+outside after the fourth round, are compared as today's engine records
+them, before its step (the run keeps both sides: below). The energy books
+close to 1.5e-9 of their throughput or better in every case (the
+hybrid's to about 1e-11), each stored energy's rate exact. Every figure
+moved by at most 1.5e-3 × band since the fourth round, most by less than
+5e-4.
 
 ## Triage
 
 ### Intended: a gear's loss acts on the torque its gears carry
 
-*bev-car city and city-live: energy recuperated, +0.99996 × band (7.887e-5
-kWh of a 7.888e-5 kWh band, 0.11 %): inside, at the edge. Channels of
+*bev-car city and city-live: energy recuperated, +1.0013 × band (7.898e-5
+kWh against a 7.888e-5 kWh band, 0.11 % of the figure): just outside;
+converged (rtol 1e-7, 1e-8, 1e-9: 1.0041, 1.0044, 1.0044 × band), 7.923e-5
+kWh. Earlier rounds landed at 0.99996 × band, inside by an integration
+error of 3.5e-7 kWh at rtol 1e-6. Channels of
 every electric car and of the hybrid's mixed cycle: the differential's
 torques and power, the final drive's power and losses (on the hybrid also
 the gearbox's power and losses, 1.15 × band).*
@@ -123,27 +124,24 @@ physical one; the channels are compared as defined, so they stay outside.
 On the hybrid's mixed cycle the largest differences are at the start
 (−12.5 N·m on the differential while the car pulls away), the same term.
 
-### Not a difference: an event at an output time
+### Resolved: an event at an output time
 
-*hybrid-car HWFET and UDDS: the Hybrid Control Unit's gear and clutch
-commands, the gearbox's gear, the motor's speed, the clutch's slip,
-torque and losses; since the fourth round also the driven wheels' speed,
-slip and slip losses, the final drive's and the differential's speeds,
-torques and power, the gearbox's power and losses (HWFET) and the
-vehicle's acceleration power.* The Hybrid Control Unit's 10 ms ticks
-fall on the output grid (1 s), and some of its decisions land exactly on
-an output point: a shift at t = 57 s on the HWFET and at 699 s and 966 s
-on the UDDS, a clutch command at 682 s on the HWFET. The new engine
-records the point just after the event (an output point at an event
-shows the values after it): the gears have engaged, the clutch slips as
-the engine behind it keeps its speed (9.5 kW at 57 s, 12.7 kW at 966 s),
-and the driven tyres' slip has not yet relaxed (0.038 at 57 s against
-0.008 before the shift, 0.415 at 699 s: their slip losses 1.2 and 9.0 kW
-there, the vehicle's acceleration power 59 and 43 kW). Today's record of
-that point is taken before its step. Without those points every one of
-these channels is inside its band (at most 0.77 × band: the HWFET's
-clutch losses, where today's are zero at every point and the band is
-round-off; then the HWFET's vehicle acceleration power at 0.41 ×).
+*After the fourth round: 22 of the hybrid's HWFET and UDDS channels
+outside their bands (16 and 19 × band at most, the driven wheels' slip
+losses 49 ×), earlier the clutch's and the gear commands' channels at
+the same points. Now: all inside.*
+
+The Hybrid Control Unit's 10 ms ticks fall on the output grid (1 s), and
+some of its decisions land exactly on an output point: a shift at t = 57
+s on the HWFET and at 699 s and 966 s on the UDDS, a clutch command at
+682 s on the HWFET. An output point at an event showed only the values
+just after it (the gears engaged, the clutch slipping as the engine
+behind it keeps its speed, the driven tyres' slip not yet relaxed);
+today's engine records that point before its step. The run now keeps
+both sides of an event at an output time, as Modelica tools write two
+rows at that time to their result files (`SimResult::left_limits` beside
+`SimResult::values`, which still hold the value just after it), and the
+comparison takes the side today's engine records.
 
 ### Intended: a tyre passes no impulse
 
@@ -218,7 +216,7 @@ by less than 0.04 %. Today's "Energy balance residual" fell from
 0.0005–0.03 % to below 1e-9 %. Against the fixed engine no band had to be
 widened for a known error of today's engine.
 
-## Run loop: work package 4's second, third and fourth rounds
+## Run loop: work package 4's second to fifth rounds
 
 The golden comparison found these in the run loop; each is fixed on
 `wp4/solver` with a regression test (`lsim-solve/tests/run_loop.rs`):
@@ -289,6 +287,27 @@ reviewer's test (and more):
   it silently), and the run report counts the ticks that reach nothing
   integrated (`inert_ticks`) apart from the opt-in light restarts.
 
+The review of the fourth round found the energy books' closure down to
+1.6e-6 (from 2.7e-8) and asked for both sides of an event at an output
+time:
+
+* The books took each stored energy's rate by a finite difference whose
+  step collapsed whenever an entry of the state passed zero while moving
+  (the engine's speed at each start): its round-off grows as the stored
+  energy over that step, and a full fuel tank stores some 1.7e9 J. The
+  error depended on the step sequence, which the fourth round's tyre
+  transients had reshuffled (on the HWFET 10.5, 1.6, −0.8 and 1.9 J for
+  rtol 1, 0.999, 1.001 and 0.99 × 1e-6). The rates are now exact
+  (forward-mode differentiation through the assignments; on IDA the
+  states' rate the model's own x', not IDA's y'): every case closes to
+  1.5e-9 or better, and the runs are 5–31 % faster, the smooth
+  integrand letting the steps grow.
+* Those longer steps then let a car at rest step over a condition: the
+  Battery Electric Car in winter stood 21 s at a start, one step spanning
+  its motor's switch-on and switch-off. Tables read along time (the
+  cycle's target speed) now have their breakpoints as stop times.
+* An output time at an event records both sides (above).
+
 Run time, the base (`engine/stage1` at 5581482) against the second round
 (fd361a0), both release builds, one case after another on the same
 machine:
@@ -342,6 +361,25 @@ about 900 steps on the UDDS (0.03 %) and 1 400 on the mixed cycle
 (0.24 %); the run times move by −1 % to +4 %, within what single runs
 spread (mixed and mixed-live are the same computation: 23.32 and 22.15
 s); the electric cars, which do not shift, take the same steps.
+
+The fifth round (exact stored-energy rates, the breakpoint stops, both
+sides of events) against the fourth, measured the same way:
+
+| case | steps, fourth round | steps, fifth | run, fourth round, s | run, fifth, s |
+|---|---:|---:|---:|---:|
+| hybrid-car/case-udds | 3032825 | 3023217 | 83.86 | 76.53 |
+| hybrid-car/case-hwfet | 1927517 | 1918254 | 53.36 | 46.70 |
+| hybrid-car/case-mixed | 577834 | 572709 | 23.32 | 21.86 |
+| hybrid-car/case-mixed-live | 577834 | 572709 | 22.15 | 21.12 |
+| bev-car/case-wltc | 237694 | 215669 | 3.48 | 2.53 |
+| aero-bev/case-wltc | 248324 | 223735 | 3.40 | 2.34 |
+| bev-car/case-city | 4572 | 3999 | 0.07 | 0.09 |
+| fs-electric/case-accel-75m | 1058 | 1058 | 0.09 | 0.08 |
+
+The exact rates replace four evaluations of every channel per step, and
+the smooth integrand lets the quadratures' error control take longer
+steps (the electric cars 9–10 % fewer); the breakpoint stops add a stop
+per second of a driving cycle, without a restart.
 
 The hybrid's run includes the Script block's round trip to Python at
 every 10 ms tick (137 000 on the UDDS), and most of its remaining steps
