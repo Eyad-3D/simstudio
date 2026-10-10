@@ -161,6 +161,9 @@ pub struct CompileReport {
     pub jac_nnz: usize,
     /// colours of its column colouring (forward directions per sweep)
     pub jac_colours: usize,
+    /// the calling convention of the generated functions and of their
+    /// calls (the target's default: `system_v`, `windows_fastcall` …)
+    pub call_conv: String,
 }
 
 /// What a generated function reads and writes: its one argument points to
@@ -666,6 +669,40 @@ fn coloured(pattern: SparsityPattern) -> Coloured {
 
 /// Compiles `model` to machine code.
 pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel, CodegenError> {
+    match build(model, opts, None)? {
+        Built::Model(m) => Ok(*m),
+        Built::Foreign(_) => unreachable!("the host's code is a model"),
+    }
+}
+
+/// Compiles `model` for another target, named by its triple (such as
+/// `x86_64-pc-windows-msvc`), as far as machine code, which cannot run
+/// here, and reports on it: for tests that the code generator is right
+/// for a target the test machine is not (its calling convention above
+/// all).
+#[doc(hidden)]
+pub fn compile_for_target(
+    model: &PreparedModel,
+    opts: &CodegenOptions,
+    triple: &str,
+) -> Result<CompileReport, CodegenError> {
+    match build(model, opts, Some(triple))? {
+        Built::Foreign(r) => Ok(r),
+        Built::Model(_) => unreachable!("another target's code cannot run"),
+    }
+}
+
+/// What [`build`] made: a model to run, or another target's code's report.
+enum Built {
+    Model(Box<JitModel>),
+    Foreign(CompileReport),
+}
+
+fn build(
+    model: &PreparedModel,
+    opts: &CodegenOptions,
+    target: Option<&str>,
+) -> Result<Built, CodegenError> {
     let started = Instant::now();
     let flat = &model.flat;
     let n_x = model.states.len();
@@ -753,7 +790,7 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
         }
         r => r,
     };
-    let isa = jit::isa(opt_level, regalloc)?;
+    let isa = jit::isa_for(target, opt_level, regalloc)?;
     let fma = isa.has_native_fma();
     let (mut module, decls) = jit::module(&isa)?;
     let alias: HashMap<u32, AliasTarget> =
@@ -782,7 +819,7 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
         }
     };
     let taped = |kind: Kind| opts.tape_init && kind.init();
-    let sig = jit::eval_signature(&module);
+    let sig = jit::eval_signature(&*isa);
     let trace = std::env::var_os("LSIM_CODEGEN_TRACE").is_some();
     let mut ids: Vec<Vec<FuncId>> = vec![];
     let mut jobs: Vec<(usize, usize, FuncId, usize)> = vec![];
@@ -868,11 +905,29 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
             emit::build_chunk(&env, p, tan_of(p.kind), c, id, &sig, fc)
         })?;
     let ir_done = Instant::now();
-    let mut code_bytes = 0;
-    let mut instructions = 0;
+    let code_bytes: usize = compiled.iter().map(|c| c.bytes.len()).sum();
+    let instructions: usize = compiled.iter().map(|c| c.insts).sum();
+    let report = |done: Instant| CompileReport {
+        seconds: (done - started).as_secs_f64(),
+        analysis_seconds: (analysis_done - started).as_secs_f64(),
+        ir_seconds: ir_seconds + tape_seconds,
+        codegen_seconds: cl_seconds + (done - ir_done).as_secs_f64(),
+        functions: n_functions,
+        tape_ops,
+        instructions,
+        code_bytes,
+        opt_level,
+        regalloc,
+        threads,
+        nodes,
+        jac_nnz: env.main_jac.pattern.nnz(),
+        jac_colours: env.main_jac.n_colours,
+        call_conv: isa.default_call_conv().to_string(),
+    };
+    if target.is_some() {
+        return Ok(Built::Foreign(report(Instant::now())));
+    }
     for c in &compiled {
-        code_bytes += c.bytes.len();
-        instructions += c.insts;
         module
             .define_function_bytes(c.id, c.align, &c.bytes, &c.relocs)
             .map_err(|e| CodegenError::Backend(e.to_string()))?;
@@ -964,24 +1019,8 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
         }),
         _ => None,
     };
-    let done = Instant::now();
-    let report = CompileReport {
-        seconds: (done - started).as_secs_f64(),
-        analysis_seconds: (analysis_done - started).as_secs_f64(),
-        ir_seconds: ir_seconds + tape_seconds,
-        codegen_seconds: cl_seconds + (done - ir_done).as_secs_f64(),
-        functions: n_functions,
-        tape_ops,
-        instructions,
-        code_bytes,
-        opt_level,
-        regalloc,
-        threads,
-        nodes,
-        jac_nnz: nnz,
-        jac_colours: env.main_jac.n_colours,
-    };
-    Ok(JitModel {
+    let report = report(Instant::now());
+    Ok(Built::Model(Box::new(JitModel {
         layout,
         residual,
         jvp,
@@ -1007,7 +1046,7 @@ pub fn compile(model: &PreparedModel, opts: &CodegenOptions) -> Result<JitModel,
         code_bytes,
         report,
         _memory: Arc::new(CodeMemory(module)),
-    })
+    })))
 }
 
 /// The ISA the code is generated for: whether it has fused multiply-add

@@ -5,11 +5,13 @@ use crate::CodegenError;
 use crate::tables::{lsim_tab_guard, lsim_tab1, lsim_tab1d, lsim_tab2, lsim_tab2d};
 use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::ir::types::{F64, I64};
-use cranelift_codegen::ir::{AbiParam, Function, Signature};
-use cranelift_codegen::isa::OwnedTargetIsa;
+use cranelift_codegen::ir::{AbiParam, Function, Signature, Type};
+use cranelift_codegen::isa::{OwnedTargetIsa, TargetIsa};
 use cranelift_codegen::{Context, settings, settings::Configurable};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{FuncId, Linkage, Module, ModuleReloc, default_libcall_names};
+use cranelift_module::{
+    FuncId, Linkage, Module, ModuleReloc, ModuleRelocTarget, default_libcall_names,
+};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -77,8 +79,20 @@ pub const MATH_SYMBOLS: &[&str] = &[
     "lsim_atan2",
 ];
 
-/// The target ISA with the chosen settings.
+/// The host's ISA with the chosen settings.
 pub(crate) fn isa(opt_level: &str, regalloc: &str) -> Result<OwnedTargetIsa, CodegenError> {
+    isa_for(None, opt_level, regalloc)
+}
+
+/// The ISA of `target` (a triple such as `x86_64-pc-windows-msvc`; the
+/// host when `None`) with the chosen settings and the host's CPU
+/// features: another target's only for tests of the code generator's
+/// portability (its code cannot run here).
+pub(crate) fn isa_for(
+    target: Option<&str>,
+    opt_level: &str,
+    regalloc: &str,
+) -> Result<OwnedTargetIsa, CodegenError> {
     let be = |e: &dyn std::fmt::Display| CodegenError::Backend(e.to_string());
     let mut fb = settings::builder();
     fb.set("opt_level", opt_level).map_err(|e| be(&e))?;
@@ -86,16 +100,55 @@ pub(crate) fn isa(opt_level: &str, regalloc: &str) -> Result<OwnedTargetIsa, Cod
     // nothing unwinds through generated code (it calls only functions
     // that cannot panic)
     fb.set("unwind_info", "false").map_err(|e| be(&e))?;
+    // a frame larger than a page touches its pages in order: Windows
+    // commits a thread's stack one guard page at a time, and a frame that
+    // skips the guard page faults (elsewhere the probes are harmless)
+    fb.set("enable_probestack", "true").map_err(|e| be(&e))?;
+    fb.set("probestack_strategy", "inline").map_err(|e| be(&e))?;
     fb.set("enable_verifier", if cfg!(debug_assertions) { "true" } else { "false" })
         .map_err(|e| be(&e))?;
-    let isa = cranelift_native::builder()
-        .map_err(|e| be(&e))?
-        .finish(settings::Flags::new(fb))
-        .map_err(|e| be(&e))?;
+    let builder = match target {
+        None => cranelift_native::builder().map_err(|e| be(&e))?,
+        Some(t) => {
+            let mut b = cranelift_codegen::isa::lookup_by_name(t).map_err(|e| be(&e))?;
+            cranelift_native::infer_native_flags(&mut b).map_err(|e| be(&e))?;
+            b
+        }
+    };
+    let isa = builder.finish(settings::Flags::new(fb)).map_err(|e| be(&e))?;
     if isa.pointer_type() != I64 {
         return Err(CodegenError::Unsupported("targets with 64-bit pointers only".into()));
     }
     Ok(isa)
+}
+
+/// A signature in the target's own calling convention, the one its C
+/// compilers use and Rust's `extern "C"` means there (System V on Linux
+/// and macOS, the Windows x64 convention on Windows): the runtime
+/// symbols are `extern "C"` Rust functions and generated functions are
+/// called as `extern "C"` ones. Every signature the code generator makes
+/// comes from here; [`check_conventions`] holds every compiled function
+/// to it.
+pub(crate) fn signature(isa: &dyn TargetIsa, params: &[Type], returns: &[Type]) -> Signature {
+    let mut sig = Signature::new(isa.default_call_conv());
+    sig.params.extend(params.iter().map(|t| AbiParam::new(*t)));
+    sig.returns.extend(returns.iter().map(|t| AbiParam::new(*t)));
+    sig
+}
+
+/// Refuses a function whose own signature or any signature it calls
+/// through is not in the target's default calling convention (one built
+/// with a fixed convention, which would mismatch the Rust side on some
+/// platform).
+pub(crate) fn check_conventions(isa: &dyn TargetIsa, f: &Function) -> Result<(), CodegenError> {
+    let want = isa.default_call_conv();
+    let sigs = std::iter::once(&f.signature).chain(f.dfg.signatures.values());
+    match sigs.map(|s| s.call_conv).find(|c| *c != want) {
+        None => Ok(()),
+        Some(c) => Err(CodegenError::Backend(format!(
+            "a signature in the {c} calling convention, the target's is {want}"
+        ))),
+    }
 }
 
 /// A JIT module whose code links against the runtime symbols, and their
@@ -111,11 +164,8 @@ pub(crate) fn module(
     let mut m = JITModule::new(jb);
     let mut decls = HashMap::new();
     for (name, _, args) in syms {
-        let mut sig = m.make_signature();
-        for is_ptr in args {
-            sig.params.push(AbiParam::new(if is_ptr { I64 } else { F64 }));
-        }
-        sig.returns.push(AbiParam::new(F64));
+        let params: Vec<Type> = args.iter().map(|&p| if p { I64 } else { F64 }).collect();
+        let sig = signature(&**isa, &params, &[F64]);
         let id = m
             .declare_function(name, Linkage::Import, &sig)
             .map_err(|e| CodegenError::Backend(e.to_string()))?;
@@ -126,10 +176,8 @@ pub(crate) fn module(
 
 /// The signature of every generated function: one pointer, to a
 /// [`crate::CallCtx`].
-pub(crate) fn eval_signature(m: &JITModule) -> Signature {
-    let mut sig = m.make_signature();
-    sig.params.push(AbiParam::new(I64));
-    sig
+pub(crate) fn eval_signature(isa: &dyn TargetIsa) -> Signature {
+    signature(isa, &[I64], &[])
 }
 
 /// A function's machine code, ready to define in the module.
@@ -161,12 +209,18 @@ fn compile_one(
     let code = ctx.compiled_code().expect("just compiled");
     let align = code.buffer.alignment as u64;
     let bytes = code.code_buffer().to_vec();
-    let relocs = code
+    let relocs: Vec<ModuleReloc> = code
         .buffer
         .relocs()
         .iter()
         .map(|r| ModuleReloc::from_mach_reloc(r, &ctx.func, id))
         .collect();
+    // calls go to the runtime symbols only: never to a library function
+    // of Cranelift's own choosing, which the JIT would look up in the
+    // platform's C runtime
+    if let Some(r) = relocs.iter().find(|r| !matches!(r.name, ModuleRelocTarget::User { .. })) {
+        return Err(CodegenError::Backend(format!("a call to {:?}", r.name)));
+    }
     if trace {
         eprintln!(
             "lsim-codegen: function {} ({insts} instructions, {} bytes) in {:.2} ms",
@@ -197,6 +251,7 @@ where
     let one = |job: (usize, usize, FuncId, usize)| -> Result<Compiled, CodegenError> {
         let t0 = std::time::Instant::now();
         let f = build(job.0, job.1, job.2)?;
+        check_conventions(&**isa, &f)?;
         let t1 = std::time::Instant::now();
         let r = compile_one(isa, job.2, f, trace);
         ir_ns.fetch_add((t1 - t0).as_nanos() as u64, Ordering::Relaxed);
@@ -230,4 +285,46 @@ where
 /// How many threads to compile on.
 pub(crate) fn default_threads() -> usize {
     std::thread::available_parallelism().map_or(1, |n| n.get()).min(4)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cranelift_codegen::ir::{ExtFuncData, ExternalName, UserExternalName, UserFuncName};
+    use cranelift_codegen::isa::CallConv;
+
+    /// A function in convention `own` that calls through `callee`.
+    fn function(own: CallConv, callee: CallConv) -> Function {
+        let mut f = Function::with_name_signature(UserFuncName::user(0, 0), Signature::new(own));
+        let sig = f.import_signature(Signature::new(callee));
+        let user = f.declare_imported_user_function(UserExternalName { namespace: 0, index: 1 });
+        f.import_function(ExtFuncData {
+            name: ExternalName::user(user),
+            signature: sig,
+            colocated: false,
+            patchable: false,
+        });
+        f
+    }
+
+    /// The guard holds every compiled function to the target's default
+    /// convention: a signature built with a fixed one (the other
+    /// platform's) is refused, in the function itself or in a call.
+    #[test]
+    fn a_fixed_calling_convention_is_refused() {
+        for (triple, own, other) in [
+            ("x86_64-pc-windows-msvc", CallConv::WindowsFastcall, CallConv::SystemV),
+            ("x86_64-unknown-linux-gnu", CallConv::SystemV, CallConv::WindowsFastcall),
+        ] {
+            let isa = isa_for(Some(triple), "speed", "backtracking").expect("an x86-64 ISA");
+            assert_eq!(isa.default_call_conv(), own);
+            assert!(check_conventions(&*isa, &function(own, own)).is_ok());
+            assert!(check_conventions(&*isa, &function(other, own)).is_err());
+            assert!(check_conventions(&*isa, &function(own, other)).is_err());
+            // and what the code generator makes is the target's
+            assert_eq!(eval_signature(&*isa).call_conv, own);
+            let (_, decls) = module(&isa).expect("a module");
+            assert!(decls.values().all(|d| d.sig.call_conv == own));
+        }
+    }
 }
