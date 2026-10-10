@@ -333,7 +333,8 @@ pub struct DenseOutput {
     pub coef: Vec<f64>,
     /// per entry, a bound on its distance from the integrator's own
     /// interpolant over the part of the step asked for (0: it is that
-    /// interpolant, as the integrator holds it)
+    /// interpolant, as the integrator holds it; a backend that cannot
+    /// prove one gives an estimate and says so: diffsol's)
     pub err: Vec<f64>,
 }
 

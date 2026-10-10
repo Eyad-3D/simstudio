@@ -209,6 +209,7 @@ where
         n,
         y,
         t: ctx.grid.t0,
+        t_y: ctx.grid.t0,
         t_a: ctx.grid.t0,
         q_a: vec![0.0; n_q],
         q_b: vec![0.0; n_q],
@@ -245,6 +246,9 @@ where
     /// y at `t` (the end of the last step, or a root inside it)
     y: Vec<f64>,
     t: f64,
+    /// the time `y` is the state at: `t`, but for a step that ended a few
+    /// ulps short of the stop time, reported at the stop time
+    t_y: f64,
     /// the last step's start and the integrals there
     t_a: f64,
     q_a: Vec<f64>,
@@ -398,6 +402,7 @@ where
         *s.h = (0.1 * h_old).max(1e-12 * t.abs().max(1.0));
         self.y = y;
         self.t = t;
+        self.t_y = t;
         self.t_a = t;
         self.pending_back = None;
         Ok(())
@@ -433,6 +438,7 @@ where
         if near(t_stop, t_state) {
             self.y = to_vec(self.solver.state().y);
             self.t = t_stop;
+            self.t_y = t_state;
             self.q_b = self.q_a.clone();
             self.integrate_to_state()?;
             return Ok(Step::Stopped(t_stop));
@@ -453,6 +459,7 @@ where
             OdeSolverStopReason::InternalTimestep | OdeSolverStopReason::TstopReached => {
                 self.y = to_vec(self.solver.state().y);
                 self.t = t_n;
+                self.t_y = t_n;
                 let mut q = vec![0.0; self.q_a.len()];
                 self.integrate(t_n, &mut q)?;
                 self.q_b = q;
@@ -487,6 +494,7 @@ where
                 self.q_b = q;
                 self.y = yr;
                 self.t = t_r;
+                self.t_y = t_r;
                 self.pending_back = Some(t_r);
                 // table guards (after the model's roots) are watched both ways
                 let watched = dirs.iter().enumerate().any(|(k, d)| {
@@ -515,15 +523,19 @@ where
     /// diffsol's BDF interpolates a step with a polynomial of degree its
     /// order, at most 5, but does not expose its difference array: its
     /// values at six Chebyshev points of `[t0, t]` give that polynomial in
-    /// Newton form, up to round-off (bounded generously, 4096 ε of the
-    /// largest value).
+    /// Newton form, up to round-off. The error carried is an estimate, not
+    /// a proof: 4096 ε of the largest value, generous for the round-off of
+    /// diffsol's own interpolation, which this cannot see (diffsol 0.17.1
+    /// keeps its differences and order private). The step's end node is
+    /// the time the state is at (a step that ended a few ulps short of the
+    /// stop time is reported at the stop time).
     fn dense_output(
         &mut self,
         t0: f64,
         idx: &[usize],
         out: &mut DenseOutput,
     ) -> Result<bool, SolveError> {
-        let t1 = self.t;
+        let t1 = self.t_y;
         if t0 >= t1 || t0 < self.t_a {
             if t0 >= t1 {
                 let ys: Vec<f64> = idx.iter().map(|i| self.y[*i]).collect();

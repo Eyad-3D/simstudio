@@ -1066,7 +1066,11 @@ round).**
   and IDA's divided differences as they hold them, through two more C
   helpers; diffsol's interpolant through six Chebyshev points, exact for
   its order up to a round-off carried as an error), so no pulse can hide
-  between samples. Two checks, the cheap one first. A certificate: a time
+  between samples. On SUNDIALS the checks are rigorous; on diffsol that
+  carried round-off, 4096 ε of the largest sample, is an estimate, not a
+  proof (diffsol 0.17.1 keeps its differences and order private, so the
+  round-off of its own interpolation cannot be bounded from outside).
+  Two checks, the cheap one first. A certificate: a time
   window and a box of the states it reads over which its enclosure
   excludes zero, made around the state at a step's end (the box's
   half-width the width of the state's range over the last step for each

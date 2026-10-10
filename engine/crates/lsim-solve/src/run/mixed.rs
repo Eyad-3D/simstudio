@@ -11,7 +11,9 @@
 //! polynomial it interpolates with ([`crate::DenseOutput`]: SUNDIALS'
 //! Nordsieck array or divided differences as it holds them; diffsol's
 //! interpolant through six Chebyshev points, exact for its order up to a
-//! round-off carried as an error), so no pulse can hide between samples.
+//! round-off carried as an error), so no pulse can hide between samples:
+//! rigorously on SUNDIALS; on diffsol the carried round-off is an
+//! estimate, as diffsol keeps what would bound it private.
 //! Two checks, the cheap one first:
 //!
 //! * **A certificate.** The condition keeps its sign over a time window

@@ -374,20 +374,22 @@ driver command against its limits (two):
   exact change, is not taken for a pulse (the first scan of the BEV's
   WLTC cut 7 steps that way).
 
-The ninth round makes both checks rigorous. They read the polynomial the
-integrator interpolates with (CVODE's Nordsieck array, IDA's divided
-differences, diffsol's interpolant through six Chebyshev points, exact
-for its order up to a round-off it carries) instead of a fit, and a step
-is cleared only when a bound on each state over the whole step, not
-three samples of it, lies inside the certificate's box: a state that
-swings by k √3 / 36 inside a step, back at its value at the step's ends
-and middle, passed the old check with a box of half its swing. The
-certificates now clear all but 6 386 of 862 704 condition-steps of the
-BEV's WLTC and all but 677 of 1 145 426 of the hybrid's mixed cycle.
-Adams' order is capped at 7. The run takes the tables' breakpoints from the data the model
-interpolates, and refuses to start when anything it evaluates outside
-the compiled code (now also the impulse projection's chain and links,
-and the time events' instants) reads a table the model does not give.
+The ninth round makes both checks rigorous on SUNDIALS (the golden runs'
+integrator). They read the polynomial the integrator interpolates with
+(CVODE's Nordsieck array, IDA's divided differences, diffsol's
+interpolant through six Chebyshev points, exact for its order up to a
+round-off it carries, which on diffsol is an estimate) instead of a fit,
+and a step is cleared only when a bound on each state over the whole
+step, not three samples of it, lies inside the certificate's box: a
+state that swings by k √3 / 36 inside a step, back at its value at the
+step's ends and middle, passed the old check with a box of half its
+swing. The certificates now clear all but 6 386 of 862 704
+condition-steps of the BEV's WLTC and all but 677 of 1 145 426 of the
+hybrid's mixed cycle. Adams' order is capped at 7. The run takes the
+tables' breakpoints from the data the model interpolates, and refuses to
+start when anything it evaluates outside the compiled code (now also the
+impulse projection's chain and links, and the time events' instants)
+reads a table the model does not give.
 
 Run time, the base (`engine/stage1` at 5581482) against the second round
 (fd361a0), both release builds, one case after another on the same
