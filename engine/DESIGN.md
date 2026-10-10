@@ -663,34 +663,82 @@ every step of a condition that reads time and continuous variables
 (section 8.2) by interpreting it from the IR: `lsim_ir::eval` for a point,
 `interval::enclose` for an enclosure over an interval of time or a box
 of states (value, rate and second rate). On the BEV's WLTC that check
-takes 4.8 % of the run's time (3.3 % of its instructions), and its share
+takes 3.3 % of the run's instructions (4.8 % of its time), and its share
 grows as the compiled model gets faster. WP3 compiles it, under this
-contract (proposed by the review of work package 4's seventh and
-eighth rounds):
+contract (proposed by the reviews of work package 4's seventh to ninth
+rounds), before it starts on it:
 
-* Each such condition becomes two kernels compiled from the same IR (the
-  chain of assignments it reads and the condition itself): a point
-  version and an interval version (enclosures of the value, the rate and
-  the second rate, rounded outwards). Both sit behind a trait the run
-  loop calls, whose default implementation is today's interpreter, so a
-  model without kernels runs as now.
-* The kernels share common subexpressions across conditions: a motor's
-  limits read 45 and 49 assignments, most of them shared.
-* A differential test: at sampled points, intervals and boxes, the
-  compiled enclosures contain the compiled and the interpreted point
-  values, and are no wider than the interpreter's enclosures.
-* `eval_table` is implemented: the kernels and the interpreter read a
-  table as the compiled code interpolates it.
-* The zero-crossing order is kept (above).
-* The compiled roots equal the interpreted chains: the `roots` output of
-  a mixed condition's crossing equals its chain and condition evaluated
-  by the interpreter at the same inputs.
-* Acceptance: after WP3's speed-up of the model itself, the check takes
-  at most 3 % of the BEV WLTC run's time, measured with lsim-project's
-  `scan_share` example (`SolverOptions::time_mixed_checks`; the median
-  of five runs, with the condition-steps cleared by a certificate and
-  searched, `SolverReport::mixed_certified` and `mixed_scanned`, beside
-  it).
+* **The interface**, in `lsim-ir/src/runtime.rs` (added, additively),
+  with the interpreter as the default:
+
+  ```rust
+  /// [lo, hi] of a value and of its first two rates over an interval,
+  /// rounded outwards (lsim-solve's `J2`)
+  pub struct Enclosure { pub v: [f64; 2], pub d: [f64; 2], pub dd: [f64; 2] }
+
+  pub trait ConditionKernels: Send + Sync {
+      /// whether zero-crossing function k is compiled (one the run loop
+      /// checks along steps: `RunInfo::time_functions[k]` is `Mixed`)
+      fn covers(&self, k: usize) -> bool;
+      /// the scratch `point` and `enclose` need: (values, enclosures)
+      fn scratch(&self) -> (usize, usize);
+      /// condition k (its chain of assignments, then the condition) at
+      /// a point: `inp` as for `roots`
+      fn point(&self, k: usize, inp: &EvalInput, work: &mut [f64]) -> f64;
+      /// condition k over the times `t`, each entry of y it reads given
+      /// by its enclosure there (`y[i]`, one per entry of y; the others
+      /// are not read), at the discrete values, parameters and inputs
+      fn enclose(&self, k: usize, t: [f64; 2], y: &[Enclosure], d: &[f64], p: &[f64],
+                 u: &[f64], work: &mut [Enclosure]) -> Enclosure;
+  }
+
+  // ModelFunctions gains, with the default None (the interpreter):
+  fn condition_kernels(&self) -> Option<&dyn ConditionKernels> { None }
+  ```
+
+  Conditions are indexed by their zero-crossing function (the order of
+  the zero crossings, above). The run loop gives the leaves as it does
+  the interpreter's: along a step a state's dense-output polynomial
+  (value and rates), in a certificate's box the box with its rates
+  unknown; the caller owns the scratch, so one compiled model serves
+  any number of runs.
+* **Bitwise the interpreter.** `point` is bitwise the interpreter's value
+  of the chain and the condition at the same inputs, and the model's
+  compiled `roots` output for that crossing is bitwise the same: the
+  IR's order of operations, no fused multiply-add contraction, the same
+  library functions as the interpreter calls (a libm the code generator
+  brings must pass `lsim-solve/tests/libm.rs`, on which the interval
+  code's 2-ulp widening of library results rests). `enclose` keeps the
+  IR's order too, with `interval.rs`'s rounding rules (each operation
+  rounded outwards as there, library results widened by its 2 ulps): its
+  enclosure is bitwise the interpreter's, so it holds the point values
+  and is exactly as wide.
+* **Shared subexpressions** across the conditions (a motor's limits read
+  45 and 49 assignments, most of them shared): computed once, which
+  changes no result.
+* **Tables read at run time.** The kernels read a table's values and its
+  breakpoints (the pieces of a 1-D table's enclosure, a 2-D table's
+  cells) from the model's table runtime when they run, never baked into
+  the code: a model's tables may be swapped after compilation
+  (`JitModel::with_tables`). `eval_table` and `table_axes` are
+  implemented.
+* **Declining.** A condition a kernel cannot handle is not covered
+  (`covers(k)` false) and is interpreted, with the same warnings as
+  today: what cannot be searched is still decided from the IR by the run
+  loop, not by the kernels.
+* **The zero-crossing order** is kept (above).
+* **A differential test**: at sampled points, intervals and boxes, on
+  every condition of the golden models and on random expressions,
+  `point` and `enclose` are bitwise the interpreter's, the enclosures
+  contain the point values, and `roots` is bitwise `point`.
+* **Acceptance**: the golden comparison byte-identical with the kernels
+  on and off (a switch in `SolverOptions`; off is the interpreter), with
+  identical `mixed_certified`, `mixed_scanned` and `pulses_found`; and,
+  after WP3's speed-up of the model itself, the check at most 3 % of the
+  BEV WLTC run's instructions under callgrind (`scan_mixed`'s inclusive
+  share), with its share of the run's time from lsim-project's
+  `scan_share` example (`SolverOptions::time_mixed_checks`, the median of
+  five runs) reported beside it.
 
 **WP3** keeps: its interpreted tape (`tape.rs`) is not wired in,
 `InitFunctions::guess` uses the flat start values rather than
@@ -1749,11 +1797,13 @@ work end to end) or against hand-written test doubles of the interfaces.
   100 ms; the example cars compile in under 50 ms.
 * **Compiled condition kernels** (from work package 4's ninth round):
   the conditions that mix time and states compiled into a point and an
-  interval kernel from the same IR, behind a trait with the interpreter
-  as its default, sharing subexpressions across conditions; accepted on
-  the differential test, `eval_table`, the zero-crossing order, compiled
-  roots equal to the interpreted chains, and the check at most 3 % of the
-  BEV WLTC run after WP3's speed-up (section 5.8).
+  interval kernel from the same IR (`ConditionKernels` in lsim-ir, the
+  interpreter its default), bitwise the interpreter's and the compiled
+  `roots` bitwise the point kernel, sharing subexpressions, tables read at
+  run time, a condition declined falling back to the interpreter;
+  accepted on the differential test, the golden comparison byte-identical
+  with the kernels on and off, and the check at most 3 % of the BEV WLTC
+  run's instructions after WP3's speed-up (section 5.8).
 
 ### WP4 — Solver runtime
 
