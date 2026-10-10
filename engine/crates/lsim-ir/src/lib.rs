@@ -24,6 +24,7 @@ pub mod diag;
 pub mod eval;
 pub mod expr;
 pub mod flat;
+pub mod interval;
 pub mod prepared;
 pub mod runtime;
 pub mod table;

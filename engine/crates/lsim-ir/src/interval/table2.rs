@@ -19,7 +19,7 @@
 //! edge (bilinear cells), so such a box has no second derivatives.
 
 use super::{ALL, Iv, ZERO};
-use lsim_ir::runtime::ModelFunctions;
+use crate::runtime::ModelFunctions;
 use std::cell::OnceCell;
 
 /// The regions one enclosure may visit (over more, it gives up: the box is
@@ -44,7 +44,7 @@ struct Patch {
 
 /// A 2-D table's grid and its regions' polynomials (fitted on first use).
 #[derive(Debug)]
-pub(crate) struct Grid2 {
+pub struct Grid2 {
     k: u32,
     ax: [Vec<f64>; 2],
     patches: Vec<OnceCell<Option<Patch>>>,
@@ -52,7 +52,7 @@ pub(crate) struct Grid2 {
 
 /// The value, its partial derivatives along x and y, and the second
 /// partials xx, xy, yy over a box.
-pub(crate) type Partials = [Iv; 6];
+pub type Partials = [Iv; 6];
 
 /// Where region `r` of an axis starts, its scale, its degree, the points a
 /// fit samples and the point that checks it (in its local coordinate):
@@ -300,14 +300,14 @@ impl Patch {
 }
 
 /// The regions of an axis with points `x` that `[a, b]` meets.
-fn regions(x: &[f64], a: f64, b: f64) -> std::ops::RangeInclusive<usize> {
+pub fn regions(x: &[f64], a: f64, b: f64) -> std::ops::RangeInclusive<usize> {
     x.partition_point(|p| *p < a)..=x.partition_point(|p| *p <= b)
 }
 
 impl Grid2 {
     /// Table `k` on the grid `x × y` (`None`: an axis of fewer than two
     /// points, or not increasing).
-    pub(crate) fn new(k: u32, x: &[f64], y: &[f64]) -> Option<Grid2> {
+    pub fn new(k: u32, x: &[f64], y: &[f64]) -> Option<Grid2> {
         let ok = |a: &[f64]| a.len() >= 2 && a.windows(2).all(|w| w[0] < w[1]);
         if !ok(x) || !ok(y) {
             return None;
@@ -321,7 +321,7 @@ impl Grid2 {
     }
 
     /// The table's enclosures over the box `x × y` (`None`: not bounded).
-    pub(crate) fn enclose(&self, model: &dyn ModelFunctions, x: Iv, y: Iv) -> Option<Partials> {
+    pub fn enclose(&self, model: &dyn ModelFunctions, x: Iv, y: Iv) -> Option<Partials> {
         let finite = |t: Iv| t.lo.is_finite() && t.hi.is_finite();
         if !finite(x) || !finite(y) {
             return None;
@@ -359,148 +359,5 @@ impl Grid2 {
             }
         }
         Some(out)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use lsim_ir::runtime::{EvalInput, Layout};
-    use lsim_ir::table::{Interpolation, Outside, TableData};
-
-    /// A model whose only table is `t`, interpolated by the code
-    /// generator's own runtime.
-    struct One(lsim_codegen::tables::Table, Layout);
-    impl ModelFunctions for One {
-        fn layout(&self) -> &Layout {
-            &self.1
-        }
-        fn residual(&self, _: &EvalInput<'_>, _: &mut [f64], _: &mut [f64]) {}
-        fn jvp(&self, _: &EvalInput<'_>, _: &[f64], _: &mut [f64], _: &mut [f64]) {}
-        fn roots(&self, _: &EvalInput<'_>, _: &mut [f64], _: &mut [f64]) {}
-        fn vars(&self, _: &EvalInput<'_>, _: &mut [f64], _: &mut [f64]) {}
-        fn when(&self, _: &EvalInput<'_>, _: &[f64], _: &mut [f64], _: &mut [f64]) {}
-        fn start(&self, _: &[f64], _: &mut [f64], _: &mut [f64]) {}
-        fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
-            (k == 0).then(|| self.0.eval(args))
-        }
-        fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
-            let second = if self.0.dims() == 2 { self.0.points(1).to_vec() } else { vec![] };
-            (k == 0).then(|| [self.0.points(0).to_vec(), second])
-        }
-    }
-
-    fn model(data: &TableData) -> One {
-        let layout = Layout {
-            n_x: 0,
-            n_z: 0,
-            n_p: 0,
-            n_d: 0,
-            n_u: 0,
-            n_roots: 0,
-            n_whens: 0,
-            n_vars: 0,
-            n_work: 0,
-        };
-        One(lsim_codegen::tables::Table::new(data).expect("table"), layout)
-    }
-
-    /// Every value and partial derivative sampled in a box lies in its
-    /// enclosure, on both interpolations and every outside rule, for boxes
-    /// inside a cell, across cells and past the data; the second partials
-    /// too, by differences of the derivatives, where the box keeps to one
-    /// region.
-    #[test]
-    fn a_2d_table_is_enclosed_over_a_box() {
-        let x: Vec<f64> = vec![0.0, 1.0, 2.5, 3.0, 5.0];
-        let y: Vec<f64> = vec![-1.0, 0.0, 0.5, 2.0];
-        let values: Vec<f64> = x
-            .iter()
-            .flat_map(|a| y.iter().map(move |b| (a * 1.3).sin() * 4.0 + a * b * b - 2.0 * b))
-            .collect();
-        let boxes = [
-            ((0.2, 0.7), (0.1, 0.4)),
-            ((1.0, 1.0), (0.5, 0.5)),
-            ((0.6, 2.8), (-0.5, 1.2)),
-            ((-2.0, 0.5), (1.5, 3.0)),
-            ((4.0, 7.0), (-3.0, -0.2)),
-            ((2.6, 2.9), (2.5, 2.6)),
-            ((-1.0, 6.0), (-2.0, 3.0)),
-        ];
-        for interpolation in [Interpolation::Linear, Interpolation::MonotoneCubic] {
-            for outside in [Outside::Clamp, Outside::Linear] {
-                let data = TableData {
-                    interpolation,
-                    outside: [outside, outside],
-                    ..TableData::new_2d(x.clone(), y.clone(), values.clone())
-                };
-                let m = model(&data);
-                let g = Grid2::new(0, &x, &y).expect("grid");
-                for ((xa, xb), (ya, yb)) in boxes {
-                    let what = format!("{interpolation:?} {outside:?} [{xa}, {xb}] × [{ya}, {yb}]");
-                    let e = g.enclose(&m, Iv::new(xa, xb), Iv::new(ya, yb)).expect(&what);
-                    let one_region =
-                        regions(&x, xa, xb).count() == 1 && regions(&y, ya, yb).count() == 1;
-                    let mut spread = (f64::INFINITY, f64::NEG_INFINITY);
-                    for i in 0..=40 {
-                        for j in 0..=40 {
-                            let a = xa + (xb - xa) * i as f64 / 40.0;
-                            let b = ya + (yb - ya) * j as f64 / 40.0;
-                            let (v, d) = m.0.eval([a, b]);
-                            let holds = |t: Iv, v: f64| t.lo <= v && v <= t.hi;
-                            spread = (spread.0.min(v), spread.1.max(v));
-                            assert!(
-                                holds(e[0], v),
-                                "{what}: value {v} at ({a}, {b}) not in {:?}",
-                                e[0]
-                            );
-                            assert!(
-                                holds(e[1], d[0]),
-                                "{what}: d/dx {} at ({a}, {b}) not in {:?}",
-                                d[0],
-                                e[1]
-                            );
-                            assert!(
-                                holds(e[2], d[1]),
-                                "{what}: d/dy {} at ({a}, {b}) not in {:?}",
-                                d[1],
-                                e[2]
-                            );
-                            if one_region && xa < xb && ya < yb && i < 40 && j < 40 {
-                                let dh = 1e-6;
-                                let (a2, b2) = ((a + dh).min(xb), (b + dh).min(yb));
-                                let (_, dx) = m.0.eval([a2, b]);
-                                let (_, dy) = m.0.eval([a, b2]);
-                                let fd = |p: f64, q: f64, h: f64| (p - q) / h;
-                                let tol = |t: Iv| 1e-4 * (1.0 + t.mag());
-                                let near = |t: Iv, v: f64| t.lo - tol(t) <= v && v <= t.hi + tol(t);
-                                if a2 > a {
-                                    let s = fd(dx[0], d[0], a2 - a);
-                                    assert!(near(e[3], s), "{what}: d²/dx² {s} not in {:?}", e[3]);
-                                    let s = fd(dx[1], d[1], a2 - a);
-                                    assert!(near(e[4], s), "{what}: d²/dxdy {s} not in {:?}", e[4]);
-                                }
-                                if b2 > b {
-                                    let s = fd(dy[1], d[1], b2 - b);
-                                    assert!(near(e[5], s), "{what}: d²/dy² {s} not in {:?}", e[5]);
-                                }
-                            }
-                        }
-                    }
-                    // and tight, for a box inside one region: a bilinear
-                    // cell to its values' spread (its extremes at the box's
-                    // corners, sampled) and the fit's error bound, a cubic
-                    // one to a few times it (interval Horner)
-                    if one_region {
-                        let (w, s) = (e[0].hi - e[0].lo, spread.1 - spread.0);
-                        let most = match interpolation {
-                            Interpolation::Linear => s + 1e-6,
-                            Interpolation::MonotoneCubic => 4.0 * s + 1e-6,
-                        };
-                        assert!(w <= most, "{what}: {:?} for a spread {s}", e[0]);
-                    }
-                }
-            }
-        }
     }
 }
