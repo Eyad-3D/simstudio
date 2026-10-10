@@ -47,7 +47,8 @@ pub use prepared::{
     ZeroCrossing,
 };
 pub use runtime::{
-    DiscreteBlock, EvalInput, InitFunctions, Layout, ModelFunctions, SparsityPattern, TableGuard,
+    ConditionKernels, DiscreteBlock, Enclosure, EvalInput, InitFunctions, Layout, ModelFunctions,
+    SparsityPattern, TableGuard,
 };
 pub use table::{FlatTable, Interpolation, Outside, TableData};
 pub use units::{Dim, Unit, UnitError};

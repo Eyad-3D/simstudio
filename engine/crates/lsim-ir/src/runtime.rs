@@ -267,4 +267,63 @@ pub trait ModelFunctions: Send + Sync {
         let _ = k;
         None
     }
+
+    /// The compiled kernels of the conditions the run loop checks along
+    /// its steps ([`ConditionKernels`]), if the model has them. `None` (the
+    /// default): the run loop interprets them from the IR.
+    fn condition_kernels(&self) -> Option<&dyn ConditionKernels> {
+        None
+    }
+}
+
+/// `[lo, hi]` of a value and of its first two rates over an interval of
+/// time (or a box of the states), rounded outwards: the run loop's
+/// enclosures of a condition (lsim-solve's `J2`). An unknown rate is
+/// `[-∞, ∞]`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Enclosure {
+    /// the value
+    pub v: [f64; 2],
+    /// its rate
+    pub d: [f64; 2],
+    /// its second rate
+    pub dd: [f64; 2],
+}
+
+/// Compiled kernels of the zero-crossing functions the run loop checks
+/// along every step (DESIGN.md §5.8, *compiled condition kernels*): those
+/// that read time and continuous variables. Each covered condition `k`
+/// (indexed by its zero crossing) has a point kernel and an interval
+/// kernel, both compiled from the same IR as the interpreter evaluates and
+/// bitwise the interpreter's: `point` is `lsim_ir::eval` of the chain of
+/// assignments the condition reads and of the condition, and `enclose` is
+/// the interval interpreter's enclosure, with its rounding rules. The
+/// caller owns the scratch, so one compiled model serves any number of
+/// runs at once.
+pub trait ConditionKernels: Send + Sync {
+    /// Whether zero-crossing function `k` is compiled (the others are
+    /// interpreted).
+    fn covers(&self, k: usize) -> bool;
+
+    /// The scratch `point` and `enclose` need: (values, enclosures).
+    fn scratch(&self) -> (usize, usize);
+
+    /// Condition `k` (its chain of assignments, then the condition) at a
+    /// point: `inp` as for [`ModelFunctions::roots`].
+    fn point(&self, k: usize, inp: &EvalInput<'_>, work: &mut [f64]) -> f64;
+
+    /// Condition `k` over the times `t`, each entry of y it reads given by
+    /// its enclosure there (`y[i]`, one per entry of y; the others are not
+    /// read), at the discrete values `d`, parameters `p` and inputs `u`.
+    #[allow(clippy::too_many_arguments)]
+    fn enclose(
+        &self,
+        k: usize,
+        t: [f64; 2],
+        y: &[Enclosure],
+        d: &[f64],
+        p: &[f64],
+        u: &[f64],
+        work: &mut [Enclosure],
+    ) -> Enclosure;
 }
