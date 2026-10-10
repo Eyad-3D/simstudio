@@ -2911,6 +2911,7 @@ fn a_condition_mixing_time_and_a_state_is_not_stepped_over() {
         let opts = SolverOptions { backend, rtol: 1e-8, atol: 1e-8, ..Default::default() };
         let grid = OutputGrid { t0: 0.0, t_end, dt: 10.0 };
         let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+        let steps = run.stats.steps;
         let s = *run.values[1].last().unwrap();
         println!(
             "{backend:?}: held {s:.12} s (exact {held:.12}), {} steps, {} pulses",
@@ -2936,6 +2937,9 @@ fn a_condition_mixing_time_and_a_state_is_not_stepped_over() {
         println!("{backend:?} without the scan: held {s:.6} s, {} steps", run.stats.steps);
         if backend == Backend::Sundials {
             assert!((s - held).abs() > 1.0, "the failure this guards against: {s}");
+        } else {
+            // diffsol's scan found nothing to cut: the same steps
+            assert_eq!(run.stats.steps, steps, "{backend:?}");
         }
     }
 }
