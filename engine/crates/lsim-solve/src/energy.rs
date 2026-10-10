@@ -196,10 +196,11 @@ pub struct PartBooks {
     /// change of stored energy between events, integrated (∫ dE/dt dt)
     pub stored_integral: f64,
     /// the kinetic energy rigid engagements took at events (part of what
-    /// the model lost at events): a part whose coupling changed (a
-    /// gearbox's shifts) books what the couplings that passed the impulse
-    /// on did not take; such a coupling (a tyre that grips) books what the
-    /// impulse dissipated across the relative velocity it keeps (its slip)
+    /// the model lost at events): an engaging part (a gearbox at its
+    /// shifts) books what its rigid coupling lost as the inertias it ties
+    /// together met; a coupling that passed the impulse on (a tyre that
+    /// grips) what its relaxation to its relative velocity before the event
+    /// lost
     pub impulse_lost: f64,
     /// energy_in - lost - stored_integral: zero when the part's declared
     /// books agree with its equations (declared parts only)
@@ -230,9 +231,9 @@ pub struct EnergyBooks {
     /// of it, what rigid engagements took (gear shifts: the kinetic energy
     /// an impulse that keeps the momentum loses)
     pub impulse_loss: f64,
-    /// of that, what the couplings that passed the impulse on took across
-    /// the relative velocity they keep (gripping tyres, at their slip); the
-    /// rest is the parts' whose coupling changed (the gearboxes')
+    /// of that, what the couplings that passed the impulse on lost as they
+    /// relaxed (gripping tyres, in their slip); the rest is the engaging
+    /// parts' (the gearboxes')
     pub impulse_link_loss: f64,
     /// change of the stored energy between events, integrated
     pub stored_integral: f64,
@@ -295,15 +296,24 @@ pub(crate) struct Ledger {
     impulse_links: f64,
 }
 
-/// Where an impulse's loss goes ([`Ledger::after_event`]).
+/// What the rigid engagements at an event lost, and where
+/// ([`Ledger::after_event`]).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct Engagement {
-    /// the energy parts whose coupling changed: they share what the links
-    /// did not take
-    pub changed: Vec<usize>,
-    /// per link that passed the impulse on: its energy part and what the
-    /// impulse dissipated across the relative velocity it keeps, J
-    pub links: Vec<(Option<usize>, f64)>,
+    /// (energy part, J lost there, whether it is a link that passed the
+    /// impulse on): the engaging parts' stage, the links' relaxation; the
+    /// coupled parts' stored energies before and after each, nothing else
+    pub losses: Vec<(Option<usize>, f64, bool)>,
+    /// how many projections moved states
+    pub count: u64,
+}
+
+impl Engagement {
+    /// Another projection at the same event.
+    pub fn merge(&mut self, o: Engagement) {
+        self.losses.extend(o.losses);
+        self.count += o.count;
+    }
 }
 
 impl Ledger {
@@ -355,11 +365,11 @@ impl Ledger {
         self.scratch.clone()
     }
 
-    /// Stored energy just after an event: the jump is booked. When an
-    /// impulse projection moved the states (`impulse`), the energy the
-    /// event took is what the engagement lost: the links that passed the
-    /// impulse on book their shares, the parts whose coupling changed the
-    /// rest.
+    /// Stored energy just after an event: the jump is booked. When rigid
+    /// engagements moved the states (`impulse`), what they lost is booked
+    /// to the engaging parts and the links, as the projection measured it
+    /// on the coupled parts' stored energies (other jumps at the same
+    /// instant are not theirs).
     pub fn after_event(
         &mut self,
         t: f64,
@@ -369,27 +379,18 @@ impl Ledger {
         impulse: Option<&Engagement>,
     ) {
         self.stored(t, vars, params);
-        let mut change = 0.0;
         for ((j, now), was) in self.jumps.iter_mut().zip(&self.scratch).zip(before) {
             *j += now - was;
-            change += now - was;
         }
         if let Some(e) = impulse {
-            // the links' shares to their parts, the rest to the parts whose
-            // coupling changed (a link with no part leaves its share there)
-            let mut lost = -change;
-            for &(part, l) in &e.links {
-                if let Some(k) = part {
-                    self.books[k].impulse_lost += l;
-                    self.impulse_links += l;
-                    lost -= l;
+            for &(part, lost, link) in &e.losses {
+                match part {
+                    Some(k) => self.books[k].impulse_lost += lost,
+                    None => self.impulse_unbooked += lost,
                 }
-            }
-            if e.changed.is_empty() {
-                self.impulse_unbooked += lost;
-            }
-            for &k in &e.changed {
-                self.books[k].impulse_lost += lost / e.changed.len() as f64;
+                if link {
+                    self.impulse_links += lost;
+                }
             }
         }
     }

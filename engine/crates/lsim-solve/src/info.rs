@@ -43,44 +43,79 @@ pub struct TimeCrossing {
     pub rising: bool,
 }
 
-/// What an impulse projection needs to know about a model (DESIGN.md,
-/// *Events*): the variables the parts' stored energies read, how each one
-/// follows from the states, and the couplings that pass an impulse on.
+/// What the impulse projection at a rigid engagement needs to know about a
+/// model (DESIGN.md, *Events*): the rigid engagements, the couplings that
+/// pass an impulse on, the parts' stored energies, how every variable they
+/// read follows from the states (the model's assignments, which the
+/// projection interprets with exact derivatives) and the states `reinit`
+/// restarts.
 ///
-/// When a discrete change alters how the states map onto these variables
-/// (a gearbox's ratio), a rigid, instantaneous engagement makes the
-/// velocities jump: the states move to the nearest consistent ones in the
-/// metric of the stored energies (the kinetic energy for masses and
-/// inertias), which keeps the momentum of everything the rigid couplings
-/// tie together, and the kinetic energy that loses is booked as lost at
-/// that event. Parts with bounded forces (a slipping clutch, a tyre at its
-/// grip limit) pass no impulse: their sides are separate states.
+/// When an engagement's `changes` takes a new value at an event (a
+/// gearbox's selected ratio), the speeds its rigid coupling ties together
+/// jump as an instantaneous, rigid engagement makes them, in two stages.
+/// First the rigidly coupled inertias meet: their momentum is kept, and
+/// the kinetic energy that loses is the engaging part's. Then each
+/// coupling that passes an impulse on (a tyre that grips) relaxes to the
+/// relative velocity it had before the event, passing momentum on (to the
+/// vehicle): the kinetic energy that loses is that coupling's. A coupling
+/// with only bounded forces (a slipping clutch, a tyre at its grip limit)
+/// passes nothing. Nothing else starts a projection (a stored energy that
+/// merely depends on a discrete value does not), and what a `reinit` set at
+/// the event stays where it put it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ImpulseInfo {
-    /// the flat variables the stored energies read
-    pub vars: Vec<ImpulseVar>,
     /// per energy part with a stored energy: (its index in
-    /// [`EnergyInfo::parts`], the positions in `vars` of what it reads)
+    /// [`EnergyInfo::parts`], the flat variables its stored energy reads)
     pub parts: Vec<(usize, Vec<usize>)>,
+    /// the rigid engagements
+    pub engagements: Vec<EngagementInfo>,
     /// couplings that keep a relative velocity through an impulse
     pub links: Vec<ImpulseLink>,
-    /// the discrete values any of `vars` depends on (indices into d,
-    /// increasing): only a change of one of them can need a projection
-    pub discretes: Vec<usize>,
+    /// how each computed variable the stored energies, the links and the
+    /// engagements read follows from y, d and u: (flat variable, whether it
+    /// is the variable's derivative, its expression), in evaluation order
+    pub chain: Vec<(usize, bool, Expr)>,
+    /// per variable a `reinit` restarts: (its continuous part's entry of y,
+    /// its jump's entry of d)
+    pub restarts: Vec<(usize, usize)>,
+    /// what each flat variable depends on (derived)
+    deps: HashMap<usize, Deps>,
+    /// per link: the flat variables `keep` reads (derived)
+    link_vars: Vec<Vec<usize>>,
+    /// every flat variable the stored energies and links read (derived)
+    vars: Vec<usize>,
+    /// per state: the variables of `vars` that depend on it (derived)
+    by_state: HashMap<usize, Vec<usize>>,
+    /// the chain step that computes each variable, and what each step
+    /// reads (derived)
+    step_of: HashMap<(usize, bool), usize>,
+    step_reads: Vec<Vec<(usize, bool)>>,
+    /// the discrete values the engagements depend on, and whether one
+    /// depends on an iteration variable (derived)
+    eng_discretes: BTreeSet<usize>,
+    eng_reads_z: bool,
 }
 
-/// One variable a stored energy reads.
+/// What a flat variable depends on, through the assignments.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Deps {
+    /// states (entries of y)
+    pub states: BTreeSet<usize>,
+    /// discrete values (entries of d)
+    pub discretes: BTreeSet<usize>,
+    /// an iteration variable
+    pub z: bool,
+}
+
+/// A rigid engagement a part makes ([`lsim_ir::EngagementDecl`], in flat
+/// scope).
 #[derive(Clone, Debug, PartialEq)]
-pub struct ImpulseVar {
-    /// the flat variable (index into the channels)
-    pub var: usize,
-    /// the states it depends on (indices into y), through the assignments
-    pub states: Vec<usize>,
-    /// it depends on an iteration variable
-    pub reads_z: bool,
-    /// the energy part (index in [`EnergyInfo::parts`]) whose equation
-    /// computes it: a projection's loss is booked to the part whose
-    /// coupling changed
+pub struct EngagementInfo {
+    /// what takes a new value at an engagement (a gear's selected ratio)
+    pub changes: Expr,
+    /// the energy part (index in [`EnergyInfo::parts`]) of the instance
+    /// that declares it: the kinetic energy its engagement loses is booked
+    /// to it
     pub part: Option<usize>,
 }
 
@@ -93,12 +128,244 @@ pub struct ImpulseLink {
     pub keep: Expr,
     /// while this holds (a truth value)
     pub active: Expr,
-    /// the flat variables `keep` reads
-    pub vars: Vec<usize>,
     /// the energy part (index in [`EnergyInfo::parts`]) of the instance
-    /// that declares it: what the impulse dissipates across the relative
-    /// velocity it keeps (a gripping tyre's slip) is booked to it
+    /// that declares it: the kinetic energy its relaxation loses is booked
+    /// to it
     pub part: Option<usize>,
+}
+
+impl ImpulseInfo {
+    /// The projection's structure from its parts: the stored energies (and
+    /// the variables they read), the engagements, the links, how the
+    /// computed variables follow from y, d and u (`chain`, in evaluation
+    /// order), the restarted states, where each variable comes from
+    /// (`sources`) and the number of states.
+    pub fn new(
+        parts: Vec<(usize, Vec<usize>)>,
+        engagements: Vec<EngagementInfo>,
+        links: Vec<ImpulseLink>,
+        chain: Vec<(usize, bool, Expr)>,
+        restarts: Vec<(usize, usize)>,
+        sources: &[VarSource],
+        n_x: usize,
+    ) -> ImpulseInfo {
+        let leaf = |v: usize| -> Option<Deps> {
+            let mut d = Deps::default();
+            match sources.get(v).copied()? {
+                VarSource::Y(i) | VarSource::NegY(i) => {
+                    if i < n_x {
+                        d.states.insert(i);
+                    } else {
+                        d.z = true;
+                    }
+                }
+                VarSource::D(i) | VarSource::NegD(i) => {
+                    d.discretes.insert(i);
+                }
+                VarSource::U(_) | VarSource::Const(_) => {}
+                VarSource::Computed => return None,
+            }
+            Some(d)
+        };
+        let mut deps: HashMap<(usize, bool), Deps> = HashMap::new();
+        let mut step_of = HashMap::new();
+        let mut step_reads = vec![];
+        for (k, (v, der, e)) in chain.iter().enumerate() {
+            let mut d = Deps::default();
+            let mut reads = vec![];
+            e.walk(&mut |x| {
+                let key = match x {
+                    Expr::Var(w) => (w.0 as usize, false),
+                    Expr::Der(w) => (w.0 as usize, true),
+                    _ => return,
+                };
+                reads.push(key);
+                let from = deps.get(&key).cloned().or_else(|| {
+                    if key.1 {
+                        // a derivative the chain does not compute: an
+                        // iteration variable
+                        Some(Deps { z: true, ..Default::default() })
+                    } else {
+                        leaf(key.0)
+                    }
+                });
+                if let Some(f) = from {
+                    d.states.extend(f.states);
+                    d.discretes.extend(f.discretes);
+                    d.z |= f.z;
+                }
+            });
+            deps.insert((*v, *der), d);
+            step_of.insert((*v, *der), k);
+            step_reads.push(reads);
+        }
+        let read = |e: &Expr| {
+            let mut out = BTreeSet::new();
+            e.walk(&mut |x| {
+                if let Expr::Var(v) = x {
+                    out.insert(v.0 as usize);
+                }
+            });
+            out
+        };
+        let link_vars: Vec<Vec<usize>> =
+            links.iter().map(|l| read(&l.keep).into_iter().collect()).collect();
+        let mut all: BTreeSet<usize> = BTreeSet::new();
+        for (_, at) in &parts {
+            all.extend(at.iter().copied());
+        }
+        for lv in &link_vars {
+            all.extend(lv.iter().copied());
+        }
+        for en in &engagements {
+            all.extend(read(&en.changes));
+        }
+        let mut var_deps: HashMap<usize, Deps> = HashMap::new();
+        for &v in &all {
+            let d = deps.get(&(v, false)).cloned().or_else(|| leaf(v)).unwrap_or_default();
+            var_deps.insert(v, d);
+        }
+        for ((v, der), d) in &deps {
+            if !der {
+                var_deps.entry(*v).or_insert_with(|| d.clone());
+            }
+        }
+        let vars: Vec<usize> = {
+            let mut s: BTreeSet<usize> = BTreeSet::new();
+            for (_, at) in &parts {
+                s.extend(at.iter().copied());
+            }
+            for lv in &link_vars {
+                s.extend(lv.iter().copied());
+            }
+            s.into_iter().collect()
+        };
+        let mut by_state: HashMap<usize, Vec<usize>> = HashMap::new();
+        for &u in &vars {
+            for &s in &var_deps[&u].states {
+                by_state.entry(s).or_default().push(u);
+            }
+        }
+        let (mut eng_discretes, mut eng_reads_z) = (BTreeSet::new(), false);
+        for en in &engagements {
+            for v in read(&en.changes) {
+                if let Some(d) = var_deps.get(&v) {
+                    eng_discretes.extend(d.discretes.iter().copied());
+                    eng_reads_z |= d.z;
+                }
+            }
+        }
+        ImpulseInfo {
+            parts,
+            engagements,
+            links,
+            chain,
+            restarts,
+            deps: var_deps,
+            link_vars,
+            vars,
+            by_state,
+            step_of,
+            step_reads,
+            eng_discretes,
+            eng_reads_z,
+        }
+    }
+
+    /// Whether an engagement can have changed between the discrete values
+    /// `before` and `d` (one it depends on changed).
+    pub(crate) fn may_engage(&self, d: &[f64], before: &[f64]) -> bool {
+        !self.engagements.is_empty()
+            && (self.eng_reads_z || self.eng_discretes.iter().any(|&k| d[k] != before[k]))
+    }
+
+    /// What flat variable `v` depends on.
+    pub(crate) fn deps(&self, v: usize) -> Deps {
+        self.deps.get(&v).cloned().unwrap_or_default()
+    }
+
+    /// The discrete values an expression depends on.
+    pub(crate) fn expr_discretes(&self, e: &Expr) -> BTreeSet<usize> {
+        let mut out = BTreeSet::new();
+        e.walk(&mut |x| {
+            if let Expr::Var(v) = x
+                && let Some(d) = self.deps.get(&(v.0 as usize))
+            {
+                out.extend(d.discretes.iter().copied());
+            }
+        });
+        out
+    }
+
+    /// Every flat variable the stored energies and the links read.
+    pub(crate) fn vars(&self) -> &[usize] {
+        &self.vars
+    }
+
+    /// The flat variables link `l`'s `keep` reads.
+    pub(crate) fn link_vars(&self, l: usize) -> &[usize] {
+        &self.link_vars[l]
+    }
+
+    /// Whether a variable of the energies or links depends on an
+    /// iteration variable.
+    pub(crate) fn reads_z(&self) -> bool {
+        self.vars.iter().any(|v| self.deps.get(v).is_some_and(|d| d.z))
+    }
+
+    /// What `start` is rigidly coupled to: through the states the
+    /// variables depend on (and every variable that depends on those
+    /// states), and through the links in `links` (all their variables
+    /// move together). The variables and the states.
+    pub(crate) fn coupled(
+        &self,
+        start: &[usize],
+        links: &[usize],
+    ) -> (BTreeSet<usize>, BTreeSet<usize>) {
+        let mut vars: BTreeSet<usize> = BTreeSet::new();
+        let mut states: BTreeSet<usize> = BTreeSet::new();
+        let mut todo: Vec<usize> = start.to_vec();
+        while let Some(u) = todo.pop() {
+            if !vars.insert(u) {
+                continue;
+            }
+            if let Some(d) = self.deps.get(&u) {
+                for &s in &d.states {
+                    if states.insert(s) {
+                        todo.extend(self.by_state.get(&s).into_iter().flatten().copied());
+                    }
+                }
+            }
+            for &lk in links {
+                if self.link_vars[lk].contains(&u) {
+                    todo.extend(self.link_vars[lk].iter().copied());
+                }
+            }
+        }
+        (vars, states)
+    }
+
+    /// The energy parts whose stored energy reads one of `vars`.
+    pub(crate) fn parts_touching(&self, vars: &BTreeSet<usize>) -> Vec<usize> {
+        (0..self.parts.len())
+            .filter(|&k| self.parts[k].1.iter().any(|v| vars.contains(v)))
+            .collect()
+    }
+
+    /// The chain's steps that compute `vars` (with what they read), in
+    /// evaluation order.
+    pub(crate) fn steps_for(&self, vars: &BTreeSet<usize>) -> Vec<usize> {
+        let mut need: BTreeSet<usize> = BTreeSet::new();
+        let mut todo: Vec<(usize, bool)> = vars.iter().map(|v| (*v, false)).collect();
+        while let Some(key) = todo.pop() {
+            if let Some(&k) = self.step_of.get(&key)
+                && need.insert(k)
+            {
+                todo.extend(self.step_reads[k].iter().copied());
+            }
+        }
+        need.into_iter().collect()
+    }
 }
 
 /// Where a sampled block (a [`lsim_ir::DiscreteBlock`]) reads and writes.
@@ -233,8 +500,8 @@ pub struct RunInfo {
     pub table_names: Vec<String>,
     /// for each residual of the initialisation system: the equation it is
     pub init_labels: Vec<String>,
-    /// what the impulse projection at a change of rigid couplings needs;
-    /// `None`: no projection (a model without stored energies)
+    /// what the impulse projection at a rigid engagement needs; `None`: no
+    /// projection (a model that declares no rigid engagement)
     pub impulse: Option<Arc<ImpulseInfo>>,
     /// for each zero-crossing function that depends on time only between
     /// events: when it crosses (empty, or `None` for the others: located
@@ -321,7 +588,7 @@ impl RunInfo {
         let sources = var_sources(m);
         let energy = energy_info(m);
         let dynamic_discretes = dynamic_discretes(m, &energy);
-        let impulse = impulse_info(m, &energy).map(Arc::new);
+        let impulse = impulse_info(m, &energy, &sources).map(Arc::new);
         let blocks = m
             .external
             .iter()
@@ -402,111 +669,106 @@ impl RunInfo {
     }
 }
 
-/// The impulse projection's structure ([`ImpulseInfo`]); `None` when no
-/// stored energy reads a variable that a discrete value moves.
-fn impulse_info(m: &PreparedModel, energy: &EnergyInfo) -> Option<ImpulseInfo> {
-    let n_x = m.states.len();
-    // what each slot depends on: states, discrete values, iteration variables
-    #[derive(Clone, Default)]
-    struct Deps {
-        states: BTreeSet<usize>,
-        discretes: BTreeSet<usize>,
-        z: bool,
+/// The impulse projection's structure ([`ImpulseInfo`]); `None` when the
+/// model declares no rigid engagement.
+fn impulse_info(
+    m: &PreparedModel,
+    energy: &EnergyInfo,
+    sources: &[VarSource],
+) -> Option<ImpulseInfo> {
+    if m.flat.engagements.is_empty() {
+        return None;
     }
-    let mut deps: HashMap<Slot, Deps> = HashMap::new();
-    for (i, v) in m.states.iter().enumerate() {
-        deps.insert(Slot::Var(*v), Deps { states: [i].into(), ..Default::default() });
-    }
-    for s in &m.algebraics {
-        deps.insert(*s, Deps { z: true, ..Default::default() });
-    }
-    for (k, v) in m.discretes.iter().enumerate() {
-        deps.insert(Slot::Var(*v), Deps { discretes: [k].into(), ..Default::default() });
-    }
-    let mut origin: HashMap<VarId, lsim_ir::InstanceId> = HashMap::new();
-    for a in &m.assignments {
-        let mut d = Deps::default();
-        a.expr.walk(&mut |x| {
-            let slot = match x {
-                Expr::Var(v) | Expr::Pre(v) => Slot::Var(*v),
-                Expr::Der(v) => Slot::Der(*v),
-                _ => return,
-            };
-            if let Some(e) = deps.get(&slot) {
-                d.states.extend(e.states.iter().copied());
-                d.discretes.extend(e.discretes.iter().copied());
-                d.z |= e.z;
-            }
-        });
-        if let Slot::Var(v) = a.target {
-            origin.insert(v, a.origin.instance);
-        }
-        deps.insert(a.target, d);
-    }
-    let alias: HashMap<VarId, AliasTarget> = m.aliases.iter().map(|a| (a.var, a.target)).collect();
-    let root = |v: VarId| match alias.get(&v) {
-        Some(AliasTarget::Var { var, .. }) => Some(*var),
-        Some(AliasTarget::Const(_)) => None,
-        None => Some(v),
+    let part_of = |i: lsim_ir::InstanceId| {
+        let path = &m.flat.instance(i).path;
+        energy.parts.iter().position(|p| &p.path == path)
     };
-    let mut vars: Vec<ImpulseVar> = vec![];
-    let mut index: HashMap<usize, usize> = HashMap::new();
-    let mut discretes: BTreeSet<usize> = BTreeSet::new();
-    let mut add = |v: usize, vars: &mut Vec<ImpulseVar>| -> usize {
-        if let Some(&k) = index.get(&v) {
-            return k;
-        }
-        let r = root(VarId(v as u32));
-        let d = r.and_then(|r| deps.get(&Slot::Var(r))).cloned().unwrap_or_default();
-        discretes.extend(d.discretes.iter().copied());
-        vars.push(ImpulseVar {
-            var: v,
-            states: d.states.into_iter().filter(|&i| i < n_x).collect(),
-            reads_z: d.z,
-            part: r.and_then(|r| origin.get(&r)).and_then(|i| {
-                let path = &m.flat.instance(*i).path;
-                energy.parts.iter().position(|p| &p.path == path)
-            }),
-        });
-        index.insert(v, vars.len() - 1);
-        vars.len() - 1
-    };
-    let mut parts = vec![];
-    for (k, p) in energy.parts.iter().enumerate() {
-        let Some(e) = &p.stored else { continue };
-        let mut read = BTreeSet::new();
+    let read = |e: &Expr, out: &mut BTreeSet<usize>| {
         e.walk(&mut |x| {
             if let Expr::Var(v) = x {
-                read.insert(v.0 as usize);
+                out.insert(v.0 as usize);
             }
-        });
-        let at: Vec<usize> = read.into_iter().map(|v| add(v, &mut vars)).collect();
-        parts.push((k, at));
+        })
+    };
+    let mut parts = vec![];
+    let mut wanted: BTreeSet<usize> = BTreeSet::new();
+    for (k, p) in energy.parts.iter().enumerate() {
+        let Some(e) = &p.stored else { continue };
+        let mut at = BTreeSet::new();
+        read(e, &mut at);
+        wanted.extend(at.iter().copied());
+        parts.push((k, at.into_iter().collect()));
     }
-    let links = m
+    let links: Vec<ImpulseLink> = m
         .flat
         .impulse
         .iter()
         .map(|l| {
-            let mut read = BTreeSet::new();
-            l.keep.walk(&mut |x| {
-                if let Expr::Var(v) = x {
-                    read.insert(v.0 as usize);
-                }
-            });
-            let read: Vec<usize> = read.into_iter().collect();
-            for &v in &read {
-                add(v, &mut vars);
+            read(&l.keep, &mut wanted);
+            ImpulseLink {
+                keep: l.keep.clone(),
+                active: l.active.clone(),
+                part: part_of(l.origin.instance),
             }
-            let path = &m.flat.instance(l.origin.instance).path;
-            let part = energy.parts.iter().position(|p| &p.path == path);
-            ImpulseLink { keep: l.keep.clone(), active: l.active.clone(), vars: read, part }
         })
         .collect();
-    if discretes.is_empty() {
-        return None;
+    let engagements: Vec<EngagementInfo> = m
+        .flat
+        .engagements
+        .iter()
+        .map(|en| {
+            read(&en.changes, &mut wanted);
+            EngagementInfo { changes: en.changes.clone(), part: part_of(en.origin.instance) }
+        })
+        .collect();
+    // the assignments these variables need, in evaluation order; aliases
+    // of computed variables after them
+    let assigned: HashMap<Slot, usize> =
+        m.assignments.iter().enumerate().map(|(k, a)| (a.target, k)).collect();
+    let alias: HashMap<VarId, AliasTarget> = m.aliases.iter().map(|a| (a.var, a.target)).collect();
+    let mut need: BTreeSet<usize> = BTreeSet::new();
+    let mut alias_steps: Vec<(usize, bool, Expr)> = vec![];
+    let mut seen: BTreeSet<Slot> = BTreeSet::new();
+    let mut todo: Vec<Slot> = wanted.iter().map(|v| Slot::Var(VarId(*v as u32))).collect();
+    while let Some(slot) = todo.pop() {
+        if !seen.insert(slot) {
+            continue;
+        }
+        if let Some(&k) = assigned.get(&slot) {
+            need.insert(k);
+            m.assignments[k].expr.walk(&mut |x| match x {
+                Expr::Var(r) => todo.push(Slot::Var(*r)),
+                Expr::Der(r) => todo.push(Slot::Der(*r)),
+                _ => {}
+            });
+        } else if let Slot::Var(v) = slot
+            && sources.get(v.0 as usize) == Some(&VarSource::Computed)
+            && let Some(AliasTarget::Var { var, negated }) = alias.get(&v)
+        {
+            let e = if *negated { -Expr::Var(*var) } else { Expr::Var(*var) };
+            alias_steps.push((v.0 as usize, false, e));
+            todo.push(Slot::Var(*var));
+        }
     }
-    Some(ImpulseInfo { vars, parts, links, discretes: discretes.into_iter().collect() })
+    let mut chain: Vec<(usize, bool, Expr)> = need
+        .into_iter()
+        .map(|k| {
+            let a = &m.assignments[k];
+            let (Slot::Var(w) | Slot::Der(w)) = a.target;
+            (w.0 as usize, matches!(a.target, Slot::Der(_)), a.expr.clone())
+        })
+        .collect();
+    chain.extend(alias_steps.into_iter().rev());
+    let y_of: HashMap<VarId, usize> = m.states.iter().enumerate().map(|(i, v)| (*v, i)).collect();
+    let d_of: HashMap<VarId, usize> =
+        m.discretes.iter().enumerate().map(|(k, v)| (*v, k)).collect();
+    let restarts = m
+        .flat
+        .restarts
+        .iter()
+        .filter_map(|r| Some((*y_of.get(&r.continuous)?, *d_of.get(&r.jump)?)))
+        .collect();
+    Some(ImpulseInfo::new(parts, engagements, links, chain, restarts, sources, m.states.len()))
 }
 
 /// The crossing time of `f` when it is `c · time + b` with a constant

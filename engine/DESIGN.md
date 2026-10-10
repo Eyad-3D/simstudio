@@ -935,30 +935,58 @@ round).**
   path's errors grow up to 8× (elec_rc_step's current 6.6e-9 → 5.2e-8,
   motor_dc_spinup's 6.0e-10 → 4.7e-9 and its event 1.4e-10 → 1.3e-9 s).
   Accuracy comes first: it stays an option, off by default.
-* *Rigid engagements: the impulse projection.* When an event changes how
-  the states map onto the variables the parts' stored energies read (a
-  gearbox shifts), the states coupled to what changed move to the nearest
-  consistent ones in the metric of the stored energies, `min ½ ΔUᵀ H ΔU`,
-  every active link (`ImpulseDecl`: a tyre that grips keeps its slip
-  velocity) holding: for inertias and masses the momentum of everything
-  the rigid couplings tie together is kept, as a perfectly inelastic
-  engagement keeps it (`w_out⁺ = (J_out w_out⁻ + r J_in w_in⁻) / (J_out +
-  r² J_in)`), whichever speeds are states. Parts with bounded forces (a
-  slipping clutch) are separate states and pass nothing. The kinetic
-  energy that loses is booked where it is dissipated
-  (`PartBooks::impulse_lost`; `EnergyBooks::impulse_loss`, part of what
-  was lost at events): a link that passed the impulse on takes the
-  impulse through it (its multiplier λ) times the relative velocity it
-  keeps, as today's engine books a gripping tyre's slip share
-  (`EnergyBooks::impulse_link_loss`), and the part whose coupling changed
-  the rest (the energy's change is ΔUᵀ H Ū, Ū the mean of before and
-  after, and of H ΔU the links' part is −Gᵀλ). `mech_gear_change` runs
-  to 6e-16 with its loss exact; `SolverOptions::impulses` turns it off.
-  The structure (`RunInfo::impulse`: the stored energies' variables, the
-  states and discrete values each follows from, the links) comes from the
-  prepared model; the Hessians and the variables' sensitivity to the
-  states are differences at the event (exact for quadratic energies and
-  the linear kinematics of rigid couplings).
+* *Rigid engagements: the impulse projection* (`lsim-solve/src/run/
+  impulse.rs`). Only a part's declared engagement starts one
+  (`EngagementDecl { changes }`: the library's gearbox and a gear whose
+  ratio is a signal declare their ratio): when `changes` takes a new value
+  at an event, the speeds the coupling ties together jump as an
+  instantaneous, rigid engagement makes them. A stored energy that merely
+  depends on a discrete value starts nothing (the review found the first
+  version undoing a model's own `reinit`: a bouncing ball fell through
+  the floor), and the states a `reinit` set at the event
+  (`FlatSystem::restarts`, the jump that changed) stay where it put them.
+  Two stages, as the physics has them in the rigid limit:
+  1. *The rigid engagement.* The states coupled to the variables the
+     engagement moved (with the states held), through the assignments,
+     move so that the momentum the stored energies weigh is kept:
+     `Bᵀ (∇E(U(x)) − ∇E(U⁻)) = 0`, `U` the variables the stored energies
+     read, `B = ∂U/∂x`. For kinetic energies that is the perfectly
+     inelastic engagement (`w_out⁺ = (J_out w_out⁻ + r J_in w_in⁻) /
+     (J_out + r² J_in)`), whichever speeds are states. Its loss, `E⁻ − E_a
+     ≥ 0`, is the engaging part's. Parts with bounded forces (a slipping
+     clutch) are separate states and pass nothing.
+  2. *The links relax.* A tyre passes no impulse in zero time; in the
+     rigid limit its slip relaxes at once back to the slip it had before
+     the event, exchanging momentum between the wheels and the vehicle:
+     the same balance over the states the active links (`ImpulseDecl`)
+     reach, each keeping `keep = κ⁻` with its impulse λ. Its loss is
+     `λ (κ_a + κ⁻) / 2` (the impulse times the mean slip). A friction
+     contact passes an impulse only along its slip, so a link whose share
+     would be negative slides (passes nothing) and the stage is solved
+     again without it: every share is ≥ 0.
+  The end state is the one projection that keeps every slip would give
+  (stage 1's change is orthogonal, in the masses' metric, to what stage 2
+  can move), so the total loss is the same; the split is the physical
+  one. A fully resolved stiff tyre (no projection through it, its slip
+  transient integrated) dissipates the tyre's share to within 1.2e-2,
+  1.2e-3 and 1.2e-4 as its stiffness grows from 2e4 to 2e6 N per m/s
+  (`the_tyres_share_is_what_a_stiff_tyre_dissipates`). Today's engine
+  books the impulse times the slip *before* the event to the tyre (on a
+  downshift while driving that is negative, −113 J in the review's case,
+  where the tyre's share is in fact +1703 J and the gearbox's 321 J); it
+  ends in the same state. The losses are the coupled parts' stored
+  energies before and after each stage (`Engagement`), nothing else that
+  jumps at the same instant. Derivatives are exact: `B` and the links'
+  gradients by forward-mode differentiation through the assignments
+  (`lsim-solve/src/ad.rs`; the iteration variables' `∂z/∂x = −g_z⁻¹ g_x`
+  from the compiled Jacobian), the stored energies' gradients and
+  Hessians by second-order forward differentiation, and Newton's method
+  solves the balance (one step for quadratic energies and linear
+  kinematics; a stiffening energy `½ J w² + ¼ c w⁴` is kept to 1e-13).
+  Event iteration goes on from the moved states: a condition the jump
+  crosses fires at the event, a mode it crosses flips there.
+  `mech_gear_change` runs to 5e-16 with its loss exact;
+  `SolverOptions::impulses` turns the projection off.
 
 ### 8.3 Initialisation
 

@@ -202,8 +202,9 @@ pub fn breakaway_vars() -> Vec<lsim_ir::VarDecl> {
 /// projection moves the speeds the gears tie together so that their
 /// momentum is kept, the vehicle's included through the tyres that grip
 /// (whichever speeds are states), and books the kinetic energy that loses
-/// to the gearbox, less the gripping tyres' slip share, which they book;
-/// an engine behind a clutch keeps its speed and the clutch slips.
+/// as the gears' engagement and the tyres' relaxation lose it (the
+/// gearbox and the tyres); an engine behind a clutch keeps its speed and
+/// the clutch slips.
 pub fn driveline_speed(name: &str, start: &str, doc: &str) -> lsim_ir::VarDecl {
     let mut w = state(name, "rad/s", 0.0, doc);
     w.start = Some(n(start));

@@ -21,6 +21,7 @@
 //! * [`sweep`] — parameter sets in parallel (rayon), one compiled model.
 
 pub mod accuracy;
+mod ad;
 #[cfg(feature = "diffsol")]
 pub mod diffsol_backend;
 pub mod energy;
@@ -38,7 +39,7 @@ pub mod sweep;
 pub use accuracy::{AccuracyReport, ChannelChange, accuracy_check, compare_runs};
 pub use energy::{EnergyBooks, PartBooks};
 pub use info::{
-    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, ImpulseInfo, ImpulseLink, ImpulseVar,
+    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, EngagementInfo, ImpulseInfo, ImpulseLink,
     InputChain, ModeInfo, RunInfo, TimeCrossing, VarSource,
 };
 pub use recorder::Recorder;
@@ -191,10 +192,10 @@ pub struct SolverOptions {
     pub storm_window: f64,
     /// IDA: leave the iteration variables out of the local error test
     pub suppress_algebraic_error: bool,
-    /// at a change of rigid couplings (a gear shift), move the states to
-    /// keep the momentum of everything the couplings tie together (an
-    /// impulse projection, [`RunInfo::impulse`]); off: the states stay and
-    /// the speeds they set jump to the new couplings
+    /// at a rigid engagement a part declares (a gear shift), move the
+    /// states to keep the momentum of everything the engagement ties
+    /// together (an impulse projection, [`RunInfo::impulse`]); off: the
+    /// states stay and the speeds they set jump to the new couplings
     pub impulses: bool,
     /// let a sample tick whose change the next step's error test can
     /// absorb go on with the integration's history instead of restarting
@@ -474,7 +475,7 @@ pub struct SolverReport {
     /// integrates, and, with [`SolverOptions::light_restarts`], ones so
     /// slight that the next step's error test checked them
     pub light_restarts: u64,
-    /// impulse projections at changes of rigid couplings (gear shifts)
+    /// impulse projections at rigid engagements (gear shifts)
     pub impulses: u64,
     /// the integrator's own error estimate
     pub error: ErrorEstimate,

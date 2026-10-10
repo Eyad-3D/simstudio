@@ -414,14 +414,15 @@ loses. Other Modelica tools ignore the annotation.
 
 ## Rigid engagements
 
-When an event changes a rigid coupling between moving parts (a gear
-whose ratio changes at a shift), the speeds the coupling ties together
-jump, as an instantaneous, rigid engagement makes them: the engine keeps
-the momentum of everything the coupling ties together, with the masses
-and inertias the parts declare in their stored energy, and books the
-kinetic energy the engagement loses as lost at that moment, to the part
-whose coupling changed. A gear-change model needs nothing more than its
-equations; there is no `reinit` to write:
+A part whose rigid coupling changes at an event (a gear whose ratio
+changes at a shift) says so with
+`annotation(__LightSim_engagement(changes = …))`: when `changes` takes a
+new value at an event, the speeds the coupling ties together jump as an
+instantaneous, rigid engagement makes them. The engine keeps the momentum
+of everything the coupling ties together, with the masses and inertias
+the parts declare in their stored energy, and books the kinetic energy
+the engagement loses to the part. A gear-change model needs nothing more
+than its equations and this line; there is no `reinit` to write:
 
 ```modelica
 model Rotational.ShiftingGear "A gear whose ratio is a signal: a turns ratio times as fast as b."
@@ -431,22 +432,27 @@ model Rotational.ShiftingGear "A gear whose ratio is a signal: a turns ratio tim
 equation
   a.w = ratio * b.w "a turns ratio times as fast as b";
   0 = ratio * a.tau + b.tau "the power through it is kept";
+  annotation(__LightSim_engagement(changes = ratio));
 end Rotational.ShiftingGear;
 ```
 
 For the two inertias it joins, `J_in` on its input and `J_out` on its
 output, a shift to the ratio `r` gives `w_out = (J_out·w_out + r·J_in·w_in)
-/ (J_out + r²·J_in)`, the speeds before the shift on the right.
+/ (J_out + r²·J_in)`, the speeds before the shift on the right. Nothing
+but a declared engagement does this: a stored energy that depends on a
+discrete value is no engagement, and what a `reinit` sets at the same
+event stays as it set it.
 
 A part with only bounded forces (a slipping clutch, a tyre at its grip
 limit) passes no impulse: what is behind it keeps its speed. A part that
-passes one on as if it were rigid for that moment says so with
+passes one on says so with
 `annotation(__LightSim_impulse(keep = …, active = …))`: the relative
 velocity it keeps through an impulse, and while it does. A tyre that
 grips keeps its slip velocity, so a gear shift's impulse reaches the
-vehicle. What the impulse dissipates across the velocity it keeps (the
-impulse through the tyre times its slip velocity) is booked to that part,
-the rest of the engagement's loss to the part whose coupling changed:
+vehicle: once the gears have engaged (the gearbox's loss), the tyre's
+slip relaxes back to what it was before the shift, passing the momentum
+on to the vehicle, and the tyre books what that relaxation loses (never
+negative: an impulse against its slip it does not pass, it slides):
 
 ```modelica
 model Vehicle.GripTyre "A tyre whose force follows its slip, up to its grip."
