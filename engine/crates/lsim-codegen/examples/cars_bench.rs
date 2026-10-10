@@ -68,6 +68,13 @@ struct Timed<'a> {
     m: &'a JitModel,
     ns: [AtomicU64; 8],
     calls: [AtomicU64; 8],
+    /// the last call's point (t, y, d bits) and function, and how often a
+    /// call came at the same point as the previous one: [same function,
+    /// another function]
+    last: std::sync::Mutex<(Vec<u64>, usize)>,
+    repeats: [AtomicU64; 2],
+    /// [previous][this]: calls at the previous call's point
+    pairs: [[AtomicU64; 8]; 8],
 }
 
 const NAMES: [&str; 8] = [
@@ -82,6 +89,19 @@ const NAMES: [&str; 8] = [
 ];
 
 impl Timed<'_> {
+    fn note(&self, k: usize, inp: &EvalInput<'_>) {
+        let key: Vec<u64> = std::iter::once(inp.t.to_bits())
+            .chain(inp.y.iter().map(|x| x.to_bits()))
+            .chain(inp.d.iter().map(|x| x.to_bits()))
+            .collect();
+        let mut last = self.last.lock().unwrap();
+        if last.0 == key {
+            self.repeats[if last.1 == k { 0 } else { 1 }].fetch_add(1, Ordering::Relaxed);
+            self.pairs[last.1][k].fetch_add(1, Ordering::Relaxed);
+        }
+        *last = (key, k);
+    }
+
     fn time<R>(&self, k: usize, f: impl FnOnce() -> R) -> R {
         let t = Instant::now();
         let r = f();
@@ -96,15 +116,18 @@ impl ModelFunctions for Timed<'_> {
         self.m.layout()
     }
     fn residual(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]) {
+        self.note(0, inp);
         self.time(0, || self.m.residual(inp, work, out))
     }
     fn jvp(&self, inp: &EvalInput<'_>, v: &[f64], work: &mut [f64], out: &mut [f64]) {
         self.time(1, || self.m.jvp(inp, v, work, out))
     }
     fn roots(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]) {
+        self.note(4, inp);
         self.time(4, || self.m.roots(inp, work, out))
     }
     fn vars(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]) {
+        self.note(5, inp);
         self.time(5, || self.m.vars(inp, work, out))
     }
     fn when(&self, inp: &EvalInput<'_>, fired: &[f64], work: &mut [f64], d_out: &mut [f64]) {
@@ -120,6 +143,7 @@ impl ModelFunctions for Timed<'_> {
         self.m.sparsity()
     }
     fn jacobian_sparse(&self, inp: &EvalInput<'_>, work: &mut [f64], values: &mut [f64]) {
+        self.note(2, inp);
         self.time(2, || ModelFunctions::jacobian_sparse(self.m, inp, work, values))
     }
     fn modes(&self, inp: &EvalInput<'_>, work: &mut [f64], d_out: &mut [f64]) {
@@ -132,7 +156,17 @@ impl ModelFunctions for Timed<'_> {
         self.m.table_guard_list()
     }
     fn table_guards(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]) {
+        self.note(7, inp);
         self.time(7, || self.m.table_guards(inp, work, out))
+    }
+    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+        self.m.eval_table(k, args)
+    }
+    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
+        self.m.table_axes(k)
+    }
+    fn condition_kernels(&self) -> Option<&dyn lsim_ir::ConditionKernels> {
+        self.m.condition_kernels()
     }
 }
 
@@ -301,7 +335,14 @@ fn main() {
                 println!("  (run skipped: sampled blocks need their host)");
                 continue;
             }
-            let timed = Timed { m: &j, ns: Default::default(), calls: Default::default() };
+            let timed = Timed {
+                m: &j,
+                ns: Default::default(),
+                calls: Default::default(),
+                last: Default::default(),
+                repeats: Default::default(),
+                pairs: Default::default(),
+            };
             let info = RunInfo::from_prepared(m);
             let so = SolverOptions { rtol: 1e-6, atol: 1e-8, ..Default::default() };
             let t = Instant::now();
@@ -340,6 +381,19 @@ fn main() {
                         }
                     }
                     line += &format!(" model functions {:.1} %", 100.0 * inside / wall);
+                    line += &format!(
+                        "; calls at the previous call's point: {} of the same function, {} of another",
+                        timed.repeats[0].load(Ordering::Relaxed),
+                        timed.repeats[1].load(Ordering::Relaxed)
+                    );
+                    for (a, row) in timed.pairs.iter().enumerate() {
+                        for (b, n) in row.iter().enumerate() {
+                            let n = n.load(Ordering::Relaxed);
+                            if n > 0 {
+                                line += &format!("\n    {} then {}: {n}", NAMES[a], NAMES[b]);
+                            }
+                        }
+                    }
                     println!("{line}");
                 }
             }
