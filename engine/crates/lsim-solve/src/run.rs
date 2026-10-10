@@ -116,6 +116,11 @@ struct Clock {
     outputs: Vec<f64>,
     needs_vars: bool,
     needs_y: bool,
+    /// an input is a computed channel (with or without its chain)
+    reads_vars: bool,
+    /// an input reads an iteration variable (an entry of y past the
+    /// states, or a channel computed without a chain: any)
+    reads_z: bool,
     /// the entries of y the inputs read (when no input needs the
     /// channels), and for each input its position among them
     y_idx: Vec<usize>,
@@ -990,6 +995,15 @@ impl Loop<'_> {
         }
     }
 
+    /// Whether the discrete values `now` differ from `then` in one that
+    /// moves the iteration variables ([`RunInfo::z_discretes`]).
+    fn moves_z(&self, now: &[f64], then: &[f64]) -> bool {
+        self.model.layout().n_z > 0
+            && now.iter().zip(then).enumerate().any(|(i, (a, b))| {
+                a.to_bits() != b.to_bits() && self.info.z_discretes.get(i).copied().unwrap_or(true)
+            })
+    }
+
     fn read_inputs(&self, b: usize, y: &[f64], d: &[f64], out: &mut [f64]) {
         for (k, &v) in self.info.blocks[b].inputs.iter().enumerate() {
             out[k] = match self.info.var_sources.get(v).copied().unwrap_or(VarSource::Computed) {
@@ -1137,7 +1151,11 @@ pub fn run_loop(
                 .enumerate()
                 .any(|(k, s)| *s == VarSource::Computed && chain(k).is_none());
             let needs_y = !y_idx.is_empty();
+            let reads_z = needs_vars || y_idx.iter().any(|&i| i >= l.n_x);
+            let reads_vars = srcs.contains(&VarSource::Computed);
             Clock {
+                reads_z,
+                reads_vars,
                 y_vals: vec![0.0; y_idx.len()],
                 y_idx,
                 y_pos,
@@ -1347,20 +1365,40 @@ pub fn run_loop(
                     let mut d_tick = d.clone();
                     let mut changed_blocks: Vec<usize> = vec![];
                     let mut have_y = false;
+                    // the state with its iteration variables solved again
+                    // for what the blocks before set, when a block reads
+                    // them (and the discrete values they are solved for)
+                    let mut yz: Option<(Vec<f64>, Vec<f64>)> = None;
                     for &b in &due {
                         report.block_ticks += 1;
                         let c = &mut clocks[b];
                         let mut inputs = std::mem::take(&mut c.inputs);
-                        if c.needs_vars || tk == t_new {
+                        let z_for = yz.as_ref().map_or(d.as_slice(), |x| x.1.as_slice());
+                        if c.reads_z && lp.moves_z(&d_tick, z_for) {
+                            if !have_y {
+                                integ.interpolate(tk, &mut yk)?;
+                                have_y = true;
+                            }
+                            let mut yv = yz.take().map_or_else(|| yk.clone(), |x| x.0);
+                            integ.consistent_z(tk, &mut yv, &d_tick)?;
+                            report.z_solves += 1;
+                            yz = Some((yv, d_tick.clone()));
+                        }
+                        let fresh = c.reads_z && yz.is_some();
+                        if c.needs_vars || tk == t_new || fresh {
                             // the whole state (and the channels)
                             if !have_y {
                                 integ.interpolate(tk, &mut yk)?;
                                 have_y = true;
                             }
-                            if c.needs_vars {
-                                lp.sample(tk, &yk, &d_tick);
+                            let ys = match &yz {
+                                Some((v, _)) if c.reads_z => v.as_slice(),
+                                _ => yk.as_slice(),
+                            };
+                            if c.reads_vars {
+                                lp.sample(tk, ys, &d_tick);
                             }
-                            lp.read_inputs(b, &yk, &d_tick, &mut inputs);
+                            lp.read_inputs(b, ys, &d_tick, &mut inputs);
                         } else {
                             // only the entries of y the block reads
                             if c.needs_y {
@@ -1563,11 +1601,31 @@ pub fn run_loop(
             let d_pre = d.clone();
             let mut changed = false;
             {
+                // (as inside a step: the iteration variables solved again
+                // for what the blocks before set, the channels sampled
+                // again, when a block reads them)
+                let mut yz: Option<(Vec<f64>, Vec<f64>)> = None;
+                let mut resampled = false;
                 for (b, c) in clocks.iter_mut().enumerate() {
                     if c.next() == t || same_instant(c.next(), t) {
                         report.block_ticks += 1;
                         let mut inputs = std::mem::take(&mut c.inputs);
-                        lp.read_inputs(b, &y, &d, &mut inputs);
+                        let z_for = yz.as_ref().map_or(d_pre.as_slice(), |x| x.1.as_slice());
+                        if c.reads_z && lp.moves_z(&d, z_for) {
+                            let mut yv = yz.take().map_or_else(|| y.clone(), |x| x.0);
+                            integ.consistent_z(t, &mut yv, &d)?;
+                            report.z_solves += 1;
+                            yz = Some((yv, d.clone()));
+                        }
+                        let ys = match &yz {
+                            Some((v, _)) if c.reads_z => v.as_slice(),
+                            _ => y.as_slice(),
+                        };
+                        if c.reads_vars && d != d_pre {
+                            lp.sample(t, ys, &d);
+                            resampled = true;
+                        }
+                        lp.read_inputs(b, ys, &d, &mut inputs);
                         let outs = &info.blocks[b].outputs;
                         for (k, &o) in outs.iter().enumerate() {
                             c.outputs[k] = d[o];
@@ -1591,6 +1649,9 @@ pub fn run_loop(
                             changed = true;
                         }
                     }
+                }
+                if resampled {
+                    lp.vars.copy_from_slice(&before_vars);
                 }
             }
             // the time crossings due now cross as scheduled: in their

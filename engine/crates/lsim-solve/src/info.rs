@@ -548,6 +548,12 @@ pub struct RunInfo {
     /// is: the step stands, no restart. Empty: every discrete value counts
     /// as reaching them
     pub dynamic_discretes: Vec<bool>,
+    /// per discrete value: whether it reaches the residuals that determine
+    /// the iteration variables (through the assignments): a sampled block
+    /// that reads an iteration variable at an instant where another block
+    /// changed one of these reads it solved again. Empty: every discrete
+    /// value counts as reaching them
+    pub z_discretes: Vec<bool>,
     /// how the energy books take each stored energy's rate exactly (the
     /// assignments to differentiate along the solution); `None`: from the
     /// variables' sources alone ([`StoredRates::from_sources`])
@@ -733,6 +739,7 @@ impl RunInfo {
             time_crossings: vec![],
             events_read_z: true,
             dynamic_discretes: vec![],
+            z_discretes: vec![],
             stored_rates: None,
             time_tables: vec![],
             time_functions: vec![],
@@ -774,6 +781,7 @@ impl RunInfo {
         let sources = var_sources(m);
         let energy = energy_info(m);
         let dynamic_discretes = dynamic_discretes(m, &energy);
+        let z_discretes = z_discretes(m);
         let impulse = impulse_info(m, &energy, &sources).map(Arc::new);
         let stored_rates = Some(Arc::new(stored_rates(m, &energy, &sources)));
         let time_crossings: Vec<Option<TimeCrossing>> = {
@@ -851,6 +859,7 @@ impl RunInfo {
             time_crossings,
             events_read_z: events_read_z(m),
             dynamic_discretes,
+            z_discretes,
             stored_rates,
             time_tables: time_tables(m),
         }
@@ -1392,6 +1401,47 @@ fn dynamic_discretes(m: &PreparedModel, energy: &EnergyInfo) -> Vec<bool> {
         }
     }
     dynamic
+}
+
+/// Per discrete value: whether it reaches a residual of the iteration
+/// variables through the assignments ([`RunInfo::z_discretes`]).
+fn z_discretes(m: &PreparedModel) -> Vec<bool> {
+    let mut deps: HashMap<Slot, BTreeSet<usize>> = HashMap::new();
+    for (k, v) in m.discretes.iter().enumerate() {
+        deps.insert(Slot::Var(*v), [k].into());
+    }
+    let read = |e: &Expr, deps: &HashMap<Slot, BTreeSet<usize>>| {
+        let mut out = BTreeSet::new();
+        e.walk(&mut |x| {
+            let s = match x {
+                Expr::Var(v) | Expr::Pre(v) => Slot::Var(*v),
+                Expr::Der(v) => Slot::Der(*v),
+                _ => return,
+            };
+            if let Some(d) = deps.get(&s) {
+                out.extend(d.iter().copied());
+            }
+        });
+        out
+    };
+    for a in &m.assignments {
+        let s = read(&a.expr, &deps);
+        deps.insert(a.target, s);
+    }
+    for a in &m.aliases {
+        if let AliasTarget::Var { var, .. } = a.target
+            && let Some(s) = deps.get(&Slot::Var(var)).cloned()
+        {
+            deps.insert(Slot::Var(a.var), s);
+        }
+    }
+    let mut out = vec![false; m.discretes.len()];
+    for r in &m.residuals {
+        for k in read(&r.expr, &deps) {
+            out[k] = true;
+        }
+    }
+    out
 }
 
 /// Whether an event's condition or assigned value reads an iteration

@@ -493,6 +493,9 @@ pub struct SolverReport {
     pub light_restarts: u64,
     /// impulse projections at rigid engagements (gear shifts)
     pub impulses: u64,
+    /// iteration variables solved again between the ticks of one instant
+    /// (a block reading what a block before it moved)
+    pub z_solves: u64,
     /// the integrator's own error estimate
     pub error: ErrorEstimate,
     /// warnings for the user

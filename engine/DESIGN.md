@@ -910,7 +910,17 @@ round).**
   due at one instant (inside a step or at its end, a few ulps apart
   included) are one event: each block reads its inputs with what the
   blocks before it set, and an output point at that instant shows the
-  values after all of them (its left limit those before them all).
+  values after all of them (its left limit those before them all). A
+  block that reads an iteration variable, after a block before it changed
+  a discrete value the iteration variables depend on
+  (`RunInfo::z_discretes`, through the assignments), reads it solved
+  again for the new values (`Integrator::consistent_z`, counted in
+  `SolverReport::z_solves`); a computed channel it reads is evaluated
+  with them too. (Work package 4's seventh round: B reading z = 2a after
+  A set a read z for A's old output, for a whole period: b = 0.8 against
+  1.0 at 0.5 s. A computed input read through its chain at a tick where
+  the integrator stopped read the channels as last sampled: b = 1.8
+  against 2.0.)
 * *Exact time events.* A zero-crossing function that depends on time only
   between events (`c·time + b`, `b` of parameters and discrete values:
   `when time >= t_shift`, a mode of `if time > t_on`) is taken out of root

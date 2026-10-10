@@ -2280,6 +2280,150 @@ fn a_condition_mixing_time_and_a_state_is_not_stepped_over() {
     }
 }
 
+/// Two blocks ticking at one instant, the second reading an iteration
+/// variable the first one's output moves: x' = z - x, 0 = z - 2a; A sets a
+/// := t, B reads z and holds it, b := z. At an instant both tick in, B
+/// reads what A set there (the order is A then B): b = 2t. The review
+/// found B reading z as it was before A's tick (b = 0.8 at 0.5 s, 1.8 at
+/// 1 s), for a whole period: the iteration variables are solved again
+/// between the ticks when a block reads them and a block before it changed
+/// a discrete value they depend on. Inside a step and at an event (a time
+/// event at 0.5 s, where the ticks join the event), on both backends.
+#[test]
+fn a_block_reads_the_iteration_variables_a_block_before_it_moved() {
+    // y = [x, z]; d = [a, b]; channels: x, z, a, b
+    let model = Hand {
+        layout: layout(1, 1, 0, 2, 0, 0, 4),
+        f: Box::new(|i, out| {
+            out[0] = i.y[1] - i.y[0];
+            out[1] = i.y[1] - 2.0 * i.d[0];
+        }),
+        jvp: Box::new(|_, v, out| {
+            out[0] = v[1] - v[0];
+            out[1] = v[1];
+        }),
+        roots: Box::new(|_, _| {}),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.y[1];
+            out[2] = i.d[0];
+            out[3] = i.d[1];
+        }),
+        when: nothing_v(),
+        modes: None,
+        y0: vec![0.0, 0.0],
+        d0: vec![0.0, 0.0],
+    };
+    let mut info = RunInfo::bare(2, 4, vec![]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::Y(1), VarSource::D(0), VarSource::D(1)];
+    info.dynamic_discretes = vec![true, false];
+    // a moves z, b does not
+    info.z_discretes = vec![true, false];
+    info.blocks = vec![block(vec![], vec![0], 0.1), block(vec![1], vec![1], 0.1)];
+    let tick_time: fn(f64, &[f64], &mut [f64]) = |t, _, o| o[0] = t;
+    let hold: fn(f64, &[f64], &mut [f64]) = |_, i, o| o[0] = i[0];
+    for backend in backends() {
+        for time_event in [false, true] {
+            let mut info = info.clone();
+            if time_event {
+                info.time_events = vec![0.5];
+            }
+            let opts = SolverOptions { backend, rtol: 1e-9, atol: 1e-9, ..Default::default() };
+            let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![
+                Box::new(Sampled { period: 0.1, offset: 0.0, law: tick_time }),
+                Box::new(Sampled { period: 0.1, offset: 0.0, law: hold }),
+            ];
+            let grid = OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.5 };
+            let run = simulate(&model, &info, &opts, grid, &mut blocks).unwrap();
+            for (k, t) in run.times.iter().enumerate() {
+                let (a, z, b) = (run.values[2][k], run.values[1][k], run.values[3][k]);
+                println!("{backend:?}, time event {time_event}: t = {t}: a {a}, z {z}, b {b}");
+                assert!((b - 2.0 * t).abs() < 1e-9, "{backend:?} {time_event} at {t}: b = {b}");
+                // before the instant: b from the tick 0.1 s earlier
+                if k > 0 {
+                    let left = run.before(3, k);
+                    assert!((left - 2.0 * (t - 0.1)).abs() < 1e-9, "{backend:?} at {t}: {left}");
+                }
+            }
+            // one solve per instant both tick in (from the second on: a
+            // is 0 at the first, as at the start)
+            assert_eq!(run.report.z_solves, 10, "{backend:?} {time_event}");
+        }
+    }
+    // a block that reads no iteration variable needs no solve
+    let mut info = info.clone();
+    info.blocks = vec![block(vec![], vec![0], 0.1), block(vec![0], vec![1], 0.1)];
+    let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![
+        Box::new(Sampled { period: 0.1, offset: 0.0, law: tick_time }),
+        Box::new(Sampled { period: 0.1, offset: 0.0, law: hold }),
+    ];
+    let opts = SolverOptions { rtol: 1e-9, atol: 1e-9, ..Default::default() };
+    let run =
+        simulate(&model, &info, &opts, OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.5 }, &mut blocks)
+            .unwrap();
+    assert_eq!(run.report.z_solves, 0);
+    // nor one that reads it after a block that changed nothing it reaches
+    info.z_discretes = vec![false, false];
+    info.blocks = vec![block(vec![], vec![0], 0.1), block(vec![1], vec![1], 0.1)];
+    let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![
+        Box::new(Sampled { period: 0.1, offset: 0.0, law: tick_time }),
+        Box::new(Sampled { period: 0.1, offset: 0.0, law: hold }),
+    ];
+    let run =
+        simulate(&model, &info, &opts, OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.5 }, &mut blocks)
+            .unwrap();
+    assert_eq!(run.report.z_solves, 0);
+}
+
+/// A block whose input is a computed channel with its chain (c = 2x, x' =
+/// 1), ticking where the integrator stops (its output changes at every
+/// tick, so its next tick is a stop): it reads c at its tick, not the
+/// channels as they were last sampled. b := c, so b = 2t at every tick.
+#[test]
+fn a_block_reads_a_computed_input_at_its_tick() {
+    use lsim_solve::InputChain;
+    // y = [x]; d = [b]; channels: x, c = 2x, b
+    let model = Hand {
+        layout: layout(1, 0, 0, 1, 0, 0, 3),
+        f: Box::new(|_, out| out[0] = 1.0),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(|_, _| {}),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = 2.0 * i.y[0];
+            out[2] = i.d[0];
+        }),
+        when: nothing_v(),
+        modes: None,
+        y0: vec![0.0],
+        d0: vec![0.0],
+    };
+    let mut info = RunInfo::bare(1, 3, vec![]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::Computed, VarSource::D(0)];
+    info.dynamic_discretes = vec![false];
+    let mut b = block(vec![1], vec![0], 0.1);
+    b.chains = vec![Some(InputChain {
+        result: (1, 1.0),
+        steps: vec![(1, false, Expr::Const(2.0) * Expr::Var(VarId(0)))],
+        from_y: vec![(0, false, 0)],
+        from_d: vec![],
+        from_u: vec![],
+    })];
+    info.blocks = vec![b];
+    let hold: fn(f64, &[f64], &mut [f64]) = |_, i, o| o[0] = i[0];
+    for backend in backends() {
+        let opts = SolverOptions { backend, rtol: 1e-9, atol: 1e-9, ..Default::default() };
+        let mut blocks: Vec<Box<dyn DiscreteBlock>> =
+            vec![Box::new(Sampled { period: 0.1, offset: 0.0, law: hold })];
+        let grid = OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.1 };
+        let run = simulate(&model, &info, &opts, grid, &mut blocks).unwrap();
+        for (k, t) in run.times.iter().enumerate() {
+            let b = run.values[2][k];
+            assert!((b - 2.0 * t).abs() < 1e-9, "{backend:?} at {t}: b = {b}");
+        }
+    }
+}
+
 /// A stored energy whose rate has an infinite factor along a zero
 /// direction: sqrt(2x) at x = 0 while x is not moving yet (x' = t, x =
 /// t²/2, so sqrt(2x) = t, filled at 1 W by a source). The rate there is
