@@ -90,8 +90,9 @@ fn main() {
         let chans = golden::compare_channels(&reference, &run);
         let books = run.result.energy.as_ref();
         // today's gear shifts: the kinetic energy a shift loses, less the
-        // tyres' share (booked to their slip), under the gearboxes' "gear
-        // shifts" term, kWh
+        // impulse through the tyres times their slip before the shift
+        // (booked to the tyres), under the gearboxes' "gear shifts" term,
+        // kWh
         let today_shifts: f64 = reference["fine"]["part_energy"]
             .as_array()
             .map(|parts| {
@@ -114,7 +115,8 @@ fn main() {
                     let shifts = match run.result.report.impulses {
                         0 => String::new(),
                         n => format!(
-                            " ({n} gear shifts: {:.6} kWh in the gears, today {today_shifts:.6} kWh; {:.6} kWh in the tyres' slip)",
+                            " ({n} gear shifts: {:.6} kWh, {:.6} kWh as the gears engaged, {:.6} kWh as the tyres' slip relaxed; today's gearbox term {today_shifts:.6} kWh)",
+                            b.impulse_loss / 3.6e6,
                             (b.impulse_loss - b.impulse_link_loss) / 3.6e6,
                             b.impulse_link_loss / 3.6e6,
                         ),

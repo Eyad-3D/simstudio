@@ -1482,6 +1482,18 @@ work end to end) or against hand-written test doubles of the interfaces.
   cheap restarts (11.4 → 2.2 steps a tick on a DAE) and light ones; exact
   time events; the impulse projection that keeps the momentum at a gear
   shift (section 8.2); `suppress_algebraic_error` measured and left off.
+* **Third round (from the review of the second)**: the projection starts
+  only at a declared rigid engagement and leaves what a `reinit` set; its
+  loss splits in two physical stages (the engaging part's, each link's,
+  all ≥ 0) checked against a resolved stiff tyre; exact derivatives
+  (forward-mode through the assignments, the compiled Jacobian for the
+  iteration variables) and Newton's method instead of finite
+  differences; event iteration goes on after it; light restarts opt-in
+  (an exact pass-through stays for ticks that reach nothing integrated);
+  time crossings' right limit only at their own time, and joining a root
+  at the same instant; strict `when` conditions (`PreparedWhen::strict`);
+  alias start conflicts told and decided independently of the order; the
+  zero crossings' order a stated, tested contract (section 5.8).
 * **Status (as built)**: the exact-answer suite passes on both backends,
   ODE and DAE paths (`lsim-solve/tests/reference.rs`); the backends agree
   within 4.2·rtol; events within 2.6·rtol on SUNDIALS at every tolerance,

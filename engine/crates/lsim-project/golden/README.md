@@ -40,37 +40,40 @@ books on; the figures are computed from its channels by today's
 definitions (`core.py`, `labfig.py`, `verdict.py`). A Script block runs
 today's own script runner in a Python process (the stand-in for work
 package 6's sandbox), the Traction Control block today's rule in Rust. A
-gear shift keeps the momentum of everything the gears tie together, the
-vehicle's through the tyres that grip, as today's engine does (the run
-loop's impulse projection, DESIGN.md 8.2), and a condition on time alone
-(`time >= c`) is an exact time event. Not compared: today's "Energy
+gear shift, which the gearbox declares a rigid engagement, keeps the
+momentum of everything the gears tie together, the vehicle's through the
+tyres that grip, as today's engine does (the run loop's impulse
+projection, DESIGN.md 8.2); its loss splits as the physics does, between
+the gears' engagement and the tyres' slip relaxing (below). A condition
+on time alone (`time >= c`) is an exact time event. Not compared: today's "Energy
 balance residual" and "Electrical energy balance error", which check
 today's integrator (the new engine's energy books report their own
 closure, below).
 
 ## Summary
 
-Release build, one case after another on one machine (4 cores). "Gear
-shifts" is the kinetic energy the shifts took, as the books show it: in
-the gears (today's gearbox's "gear shifts" term beside it) and in the
-tyres' slip.
+Release build, one case after another on one machine (4 cores). "Lost at
+the shifts" is the kinetic energy the gear shifts took (today's total,
+logged shift by shift at 10 ms, beside it), split as the books split it:
+as the gears engaged (the gearbox's) and as the tyres' slip relaxed (the
+tyres').
 
-| case | figures inside | channels inside | energy books: closure | gear shifts | in the gears, kWh (today) | in the tyres' slip, kWh | steps | events | run, s |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| aero-bev/case-hwfet | 10/10 | 63/67 | 6.2e-09 | — | — | — | 91471 | 16 | 1.24 |
-| aero-bev/case-udds | 14/14 | 63/67 | 1.0e-08 | — | — | — | 198417 | 256 | 2.70 |
-| aero-bev/case-wltc | 18/18 | 63/67 | 1.8e-09 | — | — | — | 248324 | 121 | 3.34 |
-| bev-car/case-city | 11/11 | 65/70 | 3.1e-08 | — | — | — | 4572 | 16 | 0.07 |
-| bev-car/case-city-live | 11/11 | 65/70 | 3.1e-08 | — | — | — | 4572 | 16 | 0.07 |
-| bev-car/case-wltc | 19/19 | 65/70 | 3.2e-09 | — | — | — | 237694 | 121 | 3.21 |
-| bev-car/case-wltc-hvac | 19/19 | 65/70 | 3.0e-09 | — | — | — | 238156 | 121 | 3.26 |
-| bev-car/case-wltc-summer | 20/20 | 65/70 | 6.6e-10 | — | — | — | 236544 | 121 | 3.41 |
-| bev-car/case-wltc-winter | 20/20 | 65/70 | 1.8e-09 | — | — | — | 238122 | 121 | 3.39 |
-| fs-electric/case-accel-75m | 19/19 | 65/65 | 9.2e-08 | — | — | — | 1058 | 12 | 0.10 |
-| hybrid-car/case-hwfet | 9/9 | 80/88 | 8.4e-08 | 16 | 0.0003367 (0.0003367) | 0.0000290 | 1926891 | 77007 | 51.56 |
-| hybrid-car/case-mixed | 9/9 | 82/88 | 5.3e-09 | 10 | 0.0002622 (0.0002622) | 0.0000108 | 561987 | 56199 | 21.30 |
-| hybrid-car/case-mixed-live | 9/9 | 82/88 | 5.3e-09 | 10 | 0.0002622 (0.0002622) | 0.0000108 | 561987 | 56199 | 21.96 |
-| hybrid-car/case-udds | 13/13 | 83/88 | 1.3e-07 | 104 | 0.0035031 (0.0035028) | 0.0002913 | 3025084 | 118051 | 82.31 |
+| case | figures inside | channels inside | energy books: closure | gear shifts | lost at the shifts, kWh (today) | as the gears engaged, kWh | as the tyres' slip relaxed, kWh | steps | events | run, s |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| aero-bev/case-hwfet | 10/10 | 63/67 | 6.2e-09 | — | — | — | — | 91471 | 17 | 1.26 |
+| aero-bev/case-udds | 14/14 | 63/67 | 1.0e-08 | — | — | — | — | 198417 | 257 | 2.63 |
+| aero-bev/case-wltc | 18/18 | 63/67 | 1.8e-09 | — | — | — | — | 248324 | 122 | 3.24 |
+| bev-car/case-city | 11/11 | 65/70 | 3.1e-08 | — | — | — | — | 4572 | 17 | 0.07 |
+| bev-car/case-city-live | 11/11 | 65/70 | 3.1e-08 | — | — | — | — | 4572 | 17 | 0.07 |
+| bev-car/case-wltc | 19/19 | 65/70 | 3.2e-09 | — | — | — | — | 237694 | 122 | 3.49 |
+| bev-car/case-wltc-hvac | 19/19 | 65/70 | 3.0e-09 | — | — | — | — | 238156 | 122 | 3.51 |
+| bev-car/case-wltc-summer | 20/20 | 65/70 | 6.6e-10 | — | — | — | — | 236544 | 122 | 3.50 |
+| bev-car/case-wltc-winter | 20/20 | 65/70 | 1.8e-09 | — | — | — | — | 238122 | 122 | 3.48 |
+| fs-electric/case-accel-75m | 19/19 | 65/65 | 9.2e-08 | — | — | — | — | 1058 | 13 | 0.09 |
+| hybrid-car/case-hwfet | 9/9 | 80/88 | 2.5e-08 | 16 | 0.0003657 (0.0003644) | 0.0002062 | 0.0001595 | 1927283 | 77080 | 53.83 |
+| hybrid-car/case-mixed | 9/9 | 82/88 | 6.2e-08 | 10 | 0.0002730 (0.0002729) | 0.0001447 | 0.0001283 | 576470 | 56250 | 22.36 |
+| hybrid-car/case-mixed-live | 9/9 | 82/88 | 6.2e-08 | 10 | 0.0002730 (0.0002729) | 0.0001447 | 0.0001283 | 576470 | 56250 | 21.95 |
+| hybrid-car/case-udds | 13/13 | 83/88 | 2.7e-08 | 104 | 0.0037944 (0.0037844) | 0.0016635 | 0.0021309 | 3031936 | 118065 | 83.70 |
 
 All 201 figures are inside their bands (194 before work package 4's second
 round, below), and 971 of 1038 channels (952 before). The figure closest
@@ -78,8 +81,14 @@ to its band is the Battery Electric Car's recuperated energy on the city
 cycle, at 0.99996 × band: the intended difference below, at the edge of
 its band (1.0002 × before the second round's restarts and time events
 moved it by 2e-8 kWh). The next is at 0.44 × band. The energy books close
-to 1.3e-7 of their throughput or better in every case, and the shifts'
-losses in the gears match today's to 9e-5.
+to 9.2e-8 of their throughput or better in every case. The kinetic
+energy the shifts took matches today's to 0.04–0.4 %; how it splits
+between the gears and the tyres differs from today's, intendedly (below).
+After the review of the second round's fixes, every figure of the
+electric cars is where it was, bit for bit; the hybrid's moved by at most
+1.8e-4 × band (the integration's own steps: no light restarts, the
+projection solved to round-off), and the shifts end at the same speeds,
+so only the split of their loss changed.
 
 ## Triage
 
@@ -122,6 +131,31 @@ taken before its step. Without those points every one of these channels
 is inside its band (at most 0.69 × band: the HWFET's clutch losses, where
 today's are zero at every point and the band is round-off).
 
+### Intended: how a shift's loss splits between the gears and the tyres
+
+*Not a compared figure: the gearbox's "gear shifts" term. Today 0.003503
+kWh on the UDDS (1 ms), the new engine's gears 0.001664 kWh and tyres
+0.002131 kWh; HWFET 0.000337 against 0.000206 and 0.000160; mixed
+0.000262 against 0.000145 and 0.000128. The totals agree (table above).*
+
+A tyre has only bounded forces, so it passes no impulse in zero time. In
+the rigid limit a shift is two stages: the inertias the gears tie
+together meet (the vehicle not yet involved), which is the gearbox's
+loss; then the tyre's slip, which that engagement moved, relaxes back to
+its slip before the shift, passing the momentum on to the vehicle, which
+is the tyre's loss. The two stages end where today's one-stage engagement
+ends (the same speeds, so every compared figure is unchanged), but the
+loss splits differently. Today's engine books to the tyre the impulse
+through it times its slip *before* the shift, which is not a
+dissipation: on a downshift while driving it is negative (−113 J in the
+review's case, where the stages give the tyre +1703 J and the gearbox
+321 J). The new split is checked against a fully resolved stiff tyre (no
+impulse through it, its slip transient integrated): its dissipation
+comes within 1.2e-4 of the tyre's share at 2e6 N per m/s
+(`the_tyres_share_is_what_a_stiff_tyre_dissipates` in
+`lsim-solve/tests/run_loop.rs`). Today's engine has the error; its
+figures do not depend on the split.
+
 ### Resolved: gear shifts keep the momentum
 
 *Before work package 4's second round: hybrid-car mixed and mixed-live,
@@ -130,25 +164,20 @@ battery internal losses +3.12 × band. Now: −0.04, +0.07 and +0.28 × band.*
 
 At a shift the new engine re-solved the speeds with the states held, so
 everything between the clutch and the wheels jumped to the new ratio at
-the wheels' speed, and the vehicle got none of that momentum. The run loop
-now projects the states at any event that changes how they map onto the
-speeds the parts' stored energies read (DESIGN.md 8.2): the momentum of
-everything the gears tie together is kept, the vehicle's mass reflected
-through the tyres that grip (each keeps its slip velocity), and an engine
-behind a slipping clutch keeps its speed, as in today's engine (for two
-inertias `J_in`, `J_out` and the new ratio `r`, `w_out⁺ = (J_out·w_out⁻ +
+the wheels' speed, and the vehicle got none of that momentum. The gearbox
+now declares that a change of its selected ratio is a rigid engagement,
+and the run loop projects the states there (DESIGN.md 8.2): the momentum
+of everything the gears tie together is kept, the vehicle's mass
+reflected through the tyres that grip, and an engine behind a slipping
+clutch keeps its speed, as in today's engine (for two inertias `J_in`,
+`J_out` and the new ratio `r`, `w_out⁺ = (J_out·w_out⁻ +
 r·J_in·w_in⁻)/(J_out + r²·J_in)`). No `reinit` is needed, as the inertias
-on each side are the model's and not the gearbox's. The benchmarks'
-rotational gear change (`mech_gear_change` in `tests/exact.rs`) runs to
-6e-16 with its loss exact.
-
-The kinetic energy a shift takes is booked where today's engine books
-it: the impulse through each gripping tyre times its slip velocity to
-the tyre (its slip loss), the rest to the gearbox. The two engines agree
-(the table above): on the UDDS, logged shift by shift at 10 ms, today's
-104 shifts take 0.003784 kWh of kinetic energy, 0.003501 kWh of it in the
-gears; the new engine's 104 take 0.003794 kWh, 0.003503 kWh in the gears
-(today's 1 ms run: 0.003503 kWh).
+on each side are the model's and not the gearbox's; nothing but a
+declared engagement starts a projection, and what a `reinit` sets stays.
+The benchmarks' rotational gear change (`mech_gear_change` in
+`tests/exact.rs`) runs to 5e-16 with its loss exact. Logged shift by
+shift at 10 ms, today's 104 UDDS shifts take 0.003784 kWh of kinetic
+energy, the new engine's 104 take 0.003794 kWh.
 
 ## Today's known errors and the references
 
@@ -160,7 +189,7 @@ by less than 0.04 %. Today's "Energy balance residual" fell from
 0.0005–0.03 % to below 1e-9 %. Against the fixed engine no band had to be
 widened for a known error of today's engine.
 
-## Run loop: work package 4's second round
+## Run loop: work package 4's second and third rounds
 
 The golden comparison found these in the run loop; each is fixed on
 `wp4/solver` with a regression test (`lsim-solve/tests/run_loop.rs`):
@@ -178,15 +207,42 @@ The golden comparison found these in the run loop; each is fixed on
   close to t0").
 * A restart hands IDA its derivatives in full and sizes its first step
   from the second derivative (on a sample-and-hold DAE 2.2 steps a tick,
-  11.4 before); a change too small to need a restart goes on without one
-  (`light restarts`). `suppress_algebraic_error` would take the hybrid's
-  first 100 s from 230 234 steps to 62 458, but the error on the
-  exact-answer suite's DAEs grows up to 8×: it stays off.
+  11.4 before). `suppress_algebraic_error` would take the hybrid's first
+  100 s from 230 234 steps to 62 458, but the error on the exact-answer
+  suite's DAEs grows up to 8×: it stays off.
 * A condition on time alone is an exact time event; gear shifts keep the
   momentum (above).
 
-Run time, the base (`engine/stage1` at 5581482) against `wp4/solver`, both
-release builds, one case after another on the same machine:
+The review of the second round found more, each fixed with the
+reviewer's test (and more):
+
+* Going on with the integration's history after a slight tick (a light
+  restart) accumulates an error beyond the tolerance over a long run (57
+  tolerance units on a 10 000-tick ramp at rtol 1e-6): it is opt-in now
+  (`SolverOptions::light_restarts`). A tick whose outputs reach nothing
+  the integrator integrates or watches still goes on without a restart,
+  exactly.
+* The projection started wherever a stored energy depended on a discrete
+  value, a `reinit`'s jump included (a bouncing ball fell through the
+  floor): now only at a declared engagement, leaving what a `reinit` set;
+  with exact derivatives instead of finite differences; with event
+  iteration going on from the moved states (a condition the jump crosses
+  fires at the shift); with the loss split physically (above).
+* A timer re-armed at its own instant took its relation's value just
+  after the old time; `time > t_last` with `t_last := time` never
+  switched; a time crossing at the instant SUNDIALS reports a root was
+  lost. The right limit now holds only while the crossing's time is still
+  now, and what is scheduled at a root's instant joins it.
+* A strict `when x > 0` from x = 0 fires as x leaves zero (Modelica).
+  With it the Battery Electric Car's friction now registers a backward
+  creep of 1e-5 s at the start of each cycle (one event more), which
+  moves no figure.
+* Alias start values that disagree are told, and the choice no longer
+  depends on the order the parts are listed in.
+
+Run time, the base (`engine/stage1` at 5581482) against the second round
+(fd361a0), both release builds, one case after another on the same
+machine:
 
 | case | steps before | steps now | run before, s | run now, s |
 |---|---:|---:|---:|---:|
@@ -197,6 +253,26 @@ release builds, one case after another on the same machine:
 | aero-bev/case-wltc | 249549 | 248324 | 3.23 | 3.33 |
 | bev-car/case-city | 4254 | 4572 | 0.07 | 0.08 |
 | fs-electric/case-accel-75m | 1156 | 1058 | 0.11 | 0.11 |
+
+The third round (from the review) against the second, timed the same
+way, alternating the two builds case by case, two runs each (the mean,
+then each run):
+
+| case | steps, second round | steps, third | run, second round, s | run, third, s | change |
+|---|---:|---:|---:|---:|---:|
+| hybrid-car/case-udds | 3025084 | 3031936 | 85.82 (86.23, 85.41) | 85.06 (84.59, 85.53) | −0.9 % |
+| hybrid-car/case-hwfet | 1926891 | 1927283 | 54.86 (55.04, 54.68) | 53.60 (53.62, 53.58) | −2.3 % |
+| hybrid-car/case-mixed | 561987 | 576470 | 23.30 (23.26, 23.33) | 22.75 (22.82, 22.68) | −2.3 % |
+| bev-car/case-wltc | 237694 | 237694 | 3.54 (3.50, 3.59) | 3.65 (3.83, 3.47) | +3.0 % |
+| aero-bev/case-wltc | 248324 | 248324 | 3.57 (3.52, 3.63) | 3.46 (3.66, 3.25) | −3.3 % |
+| bev-car/case-city | 4572 | 4572 | 0.09 (0.10, 0.09) | 0.08 (0.08, 0.08) | −12 % |
+| fs-electric/case-accel-75m | 1058 | 1058 | 0.11 (0.11, 0.11) | 0.12 (0.12, 0.11) | +5 % |
+
+Making light restarts opt-in costs the hybrid steps (2.6 % more on the
+mixed cycle), but a tick whose outputs reach nothing integrated keeps
+the step, and the projection runs only at a shift and without finite
+differences: the hybrid's runs are 1–2 % faster, the electric cars'
+within the runs' spread (their steps are the same).
 
 The hybrid's run includes the Script block's round trip to Python at
 every 10 ms tick (137 000 on the UDDS), and most of its remaining steps
