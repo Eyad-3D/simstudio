@@ -564,6 +564,11 @@ impl ModelFunctions for JitModel {
             )
         }
     }
+
+    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+        let k = k as usize;
+        (k < self.table_dims.len()).then(|| self.tables.get(k).eval(args))
+    }
 }
 
 impl JitInit {
