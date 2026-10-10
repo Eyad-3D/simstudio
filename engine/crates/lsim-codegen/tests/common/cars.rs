@@ -11,7 +11,7 @@ use std::path::PathBuf;
 pub struct Car {
     /// `project/case`
     pub name: String,
-    /// the prepared model (alias start values carried, as `Model::build` does)
+    /// the prepared model (as `lsim_project::model::Model::build` prepares it)
     pub model: PreparedModel,
     /// whether it has sampled blocks (Script blocks …)
     pub sampled: bool,
@@ -54,9 +54,8 @@ pub fn cars(filter: &str) -> Vec<Car> {
                 continue; // lap and performance cases are not time simulations here
             };
             let lib = rep.library();
-            let mut model = lsim_prep::prepare(&lib, &top, &Default::default())
+            let model = lsim_prep::prepare(&lib, &top, &Default::default())
                 .unwrap_or_else(|e| panic!("{tag} prepares: {e:?}"));
-            lsim_project::model::carry_alias_starts(&mut model);
             out.push(Car { name: tag, model, sampled: !rep.sampled.is_empty() });
         }
     }

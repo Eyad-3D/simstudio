@@ -70,8 +70,16 @@ struct Timed<'a> {
     calls: [AtomicU64; 8],
 }
 
-const NAMES: [&str; 8] =
-    ["residual", "jvp", "jacobian_sparse", "jacobian_dense", "roots", "vars", "when+modes", "guards"];
+const NAMES: [&str; 8] = [
+    "residual",
+    "jvp",
+    "jacobian_sparse",
+    "jacobian_dense",
+    "roots",
+    "vars",
+    "when+modes",
+    "guards",
+];
 
 impl Timed<'_> {
     fn time<R>(&self, k: usize, f: impl FnOnce() -> R) -> R {
@@ -205,11 +213,7 @@ fn main() {
                 println!("  (run skipped: sampled blocks need their host)");
                 continue;
             }
-            let timed = Timed {
-                m: &j,
-                ns: Default::default(),
-                calls: Default::default(),
-            };
+            let timed = Timed { m: &j, ns: Default::default(), calls: Default::default() };
             let info = RunInfo::from_prepared(m);
             let so = SolverOptions { rtol: 1e-6, atol: 1e-8, ..Default::default() };
             let t = Instant::now();
@@ -231,7 +235,7 @@ fn main() {
                         r.stats.steps
                     );
                     let mut inside = 0.0;
-                    for k in 0..8 {
+                    for (k, name) in NAMES.iter().enumerate() {
                         let (ns, n) = (
                             timed.ns[k].load(Ordering::Relaxed),
                             timed.calls[k].load(Ordering::Relaxed),
@@ -240,7 +244,7 @@ fn main() {
                             inside += ns as f64 * 1e-9;
                             line += &format!(
                                 " {} {}× {:.0} ns ({:.1} %),",
-                                NAMES[k],
+                                name,
                                 n,
                                 ns as f64 / n as f64,
                                 100.0 * ns as f64 * 1e-9 / wall
