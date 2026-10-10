@@ -3,8 +3,11 @@
 //! code generator's budget is about.
 #![allow(dead_code)]
 
-use lsim_ir::PreparedModel;
+use lsim_codegen::JitModel;
+use lsim_ir::{PreparedModel, Slot, VarId};
+use lsim_prep::PrepOptions;
 use lsim_project::{ImportOptions, import_case, standard_registry};
+use lsim_solve::{OutputGrid, RunInfo, SolverOptions};
 use std::path::PathBuf;
 
 /// One case of an example project, prepared.
@@ -40,6 +43,11 @@ pub fn projects() -> Vec<(String, serde_json::Value)> {
 /// Every time-domain case of every example project, prepared; `filter`
 /// keeps the names containing it.
 pub fn cars(filter: &str) -> Vec<Car> {
+    cars_with(filter, &PrepOptions::default())
+}
+
+/// [`cars`], prepared with `opts` (every block implicit, say).
+pub fn cars_with(filter: &str, opts: &PrepOptions) -> Vec<Car> {
     let reg = standard_registry();
     let mut out = vec![];
     for (name, project) in projects() {
@@ -54,10 +62,46 @@ pub fn cars(filter: &str) -> Vec<Car> {
                 continue; // lap and performance cases are not time simulations here
             };
             let lib = rep.library();
-            let model = lsim_prep::prepare(&lib, &top, &Default::default())
+            let model = lsim_prep::prepare(&lib, &top, opts)
                 .unwrap_or_else(|e| panic!("{tag} prepares: {e:?}"));
             out.push(Car { name: tag, model, sampled: !rep.sampled.is_empty() });
         }
     }
     out
+}
+
+/// One case per project (a project's cases share its model).
+pub fn one_per_project(cars: Vec<Car>) -> Vec<Car> {
+    let mut seen = std::collections::HashSet::new();
+    cars.into_iter()
+        .filter(|c| seen.insert(c.name.split('/').next().unwrap().to_string()))
+        .collect()
+}
+
+/// t, y and d at every output point (every half second) of a simulation
+/// of `m` over `t_end` seconds (an iteration variable that is a
+/// derivative, which the results do not record, takes its state's value
+/// there: a point near the drive rather than on it).
+pub fn trajectory(m: &PreparedModel, jit: &JitModel, t_end: f64) -> Vec<(f64, Vec<f64>, Vec<f64>)> {
+    let info = RunInfo::from_prepared(m);
+    let so = SolverOptions { rtol: 1e-6, atol: 1e-8, ..Default::default() };
+    let res =
+        lsim_solve::simulate(jit, &info, &so, OutputGrid { t0: 0.0, t_end, dt: 0.5 }, &mut [])
+            .expect("runs");
+    let slots: Vec<VarId> = m
+        .states
+        .iter()
+        .copied()
+        .chain(m.algebraics.iter().map(|s| match s {
+            Slot::Var(v) => *v,
+            Slot::Der(v) => *v,
+        }))
+        .collect();
+    (0..res.times.len())
+        .map(|k| {
+            let y = slots.iter().map(|v| res.values[v.0 as usize][k]).collect();
+            let d = m.discretes.iter().map(|v| res.values[v.0 as usize][k]).collect();
+            (res.times[k], y, d)
+        })
+        .collect()
 }

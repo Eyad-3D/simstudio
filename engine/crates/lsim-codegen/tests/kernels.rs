@@ -17,8 +17,8 @@ mod synth;
 use lsim_codegen::{CodegenOptions, JitModel, compile};
 use lsim_ir::interval::{self, Cx, Grid2, Iv, J2};
 use lsim_ir::runtime::{Enclosure, EvalInput, ModelFunctions};
-use lsim_ir::{Expr, ParamId, PreparedModel, Slot, VarId};
-use lsim_solve::{OutputGrid, RunInfo, SolverOptions, TimeFunction, VarSource};
+use lsim_ir::{Expr, ParamId, PreparedModel, VarId};
+use lsim_solve::{RunInfo, TimeFunction, VarSource};
 use synth::Rng;
 
 /// Equal bit for bit (NaNs alike).
@@ -295,31 +295,6 @@ fn leaf_around(r: &mut Rng, x: f64) -> J2 {
     }
 }
 
-/// y and d of every output point of a simulation of `m`.
-fn trajectory(m: &PreparedModel, jit: &JitModel, t_end: f64) -> Vec<(f64, Vec<f64>, Vec<f64>)> {
-    let info = RunInfo::from_prepared(m);
-    let so = SolverOptions { rtol: 1e-6, atol: 1e-8, ..Default::default() };
-    let res =
-        lsim_solve::simulate(jit, &info, &so, OutputGrid { t0: 0.0, t_end, dt: 0.5 }, &mut [])
-            .expect("runs");
-    let slots: Vec<VarId> = m
-        .states
-        .iter()
-        .copied()
-        .chain(m.algebraics.iter().map(|s| match s {
-            Slot::Var(v) => *v,
-            Slot::Der(v) => *v,
-        }))
-        .collect();
-    (0..res.times.len())
-        .map(|k| {
-            let y = slots.iter().map(|v| res.values[v.0 as usize][k]).collect();
-            let d = m.discretes.iter().map(|v| res.values[v.0 as usize][k]).collect();
-            (res.times[k], y, d)
-        })
-        .collect()
-}
-
 #[test]
 fn kernels_are_bitwise_the_interpreters_on_the_example_projects() {
     let mut r = Rng(17);
@@ -350,7 +325,7 @@ fn kernels_are_bitwise_the_interpreters_on_the_example_projects() {
                 })
                 .collect()
         } else {
-            trajectory(&car.model, &c.jit, 120.0)
+            cars::trajectory(&car.model, &c.jit, 120.0)
         };
         for (t, y, d) in &points {
             for (k, chain, g) in &mixed {

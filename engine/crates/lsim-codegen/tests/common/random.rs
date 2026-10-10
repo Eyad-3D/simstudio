@@ -26,9 +26,13 @@ pub struct Ops {
     pub powers: bool,
     /// tables
     pub tables: bool,
+    /// smooth functions only, on their domains (no comparisons, `if`s,
+    /// kinks): for derivatives by differences
+    pub smooth: bool,
 }
 
-pub const ALL_OPS: Ops = Ops { library: true, powers: true, tables: true };
+pub const ALL_OPS: Ops = Ops { library: true, powers: true, tables: true, smooth: false };
+pub const SMOOTH: Ops = Ops { library: true, powers: true, tables: true, smooth: true };
 
 fn c(x: f64) -> Expr {
     Expr::Const(x)
@@ -50,8 +54,46 @@ pub fn constant(r: &mut Rng) -> f64 {
     }
 }
 
+/// A random smooth expression (no kinks, no branches, every function on
+/// its domain: a divisor, a logarithm's or a root's argument kept away
+/// from zero) of at most `depth` levels.
+pub fn smooth(r: &mut Rng, depth: usize, l: &Leaves) -> Expr {
+    if depth == 0 || r.below(10) < 2 {
+        return leaf(r, l);
+    }
+    let sub = |r: &mut Rng| smooth(r, depth - 1, l);
+    // 1 + x² (at least one)
+    let pos = |x: Expr| Expr::bin(BinaryOp::Add, c(1.0), Expr::bin(BinaryOp::Mul, x.clone(), x));
+    match r.below(16) {
+        0..=2 => Expr::bin(BinaryOp::Add, sub(r), sub(r)),
+        3..=4 => Expr::bin(BinaryOp::Sub, sub(r), sub(r)),
+        5..=7 => Expr::bin(BinaryOp::Mul, sub(r), sub(r)),
+        8 => Expr::bin(BinaryOp::Div, sub(r), pos(sub(r))),
+        9 => Expr::Call(
+            [Builtin::Sin, Builtin::Cos, Builtin::Tanh, Builtin::Atan][r.below(4)],
+            vec![sub(r)],
+        ),
+        10 => Expr::Call(Builtin::Exp, vec![Expr::Call(Builtin::Tanh, vec![sub(r)])]),
+        11 => Expr::Call([Builtin::Log, Builtin::Sqrt][r.below(2)], vec![pos(sub(r))]),
+        12 => {
+            let n: f64 = [2.0, 3.0, 4.0, 7.0, -2.0, 2.5, 0.5][r.below(7)];
+            let base = if n < 0.0 || n.fract() != 0.0 { pos(sub(r)) } else { sub(r) };
+            Expr::bin(BinaryOp::Pow, base, c(n))
+        }
+        13 => Expr::bin(BinaryOp::Pow, pos(sub(r)), Expr::Call(Builtin::Tanh, vec![sub(r)])),
+        14 if !l.tables.is_empty() => {
+            let (k, dims) = l.tables[r.below(l.tables.len())];
+            Expr::Table { table: k, args: (0..dims).map(|_| sub(r)).collect() }
+        }
+        _ => Expr::Call(Builtin::Atan2, vec![sub(r), pos(sub(r))]),
+    }
+}
+
 /// A random expression of at most `depth` levels.
 pub fn expr(r: &mut Rng, depth: usize, l: &Leaves, ops: Ops) -> Expr {
+    if ops.smooth {
+        return smooth(r, depth, l);
+    }
     if depth == 0 || r.below(10) < 2 {
         return leaf(r, l);
     }
@@ -176,11 +218,29 @@ pub fn model(
     depth: usize,
     ops: Ops,
 ) -> PreparedModel {
+    implicit_model(r, n_states, 0, n_assign, n_cross, depth, ops)
+}
+
+/// [`model`] with `n_alg` iteration variables too, which the expressions
+/// read as they read the states, each with a residual `e - z` (`e` a
+/// random expression).
+pub fn implicit_model(
+    r: &mut Rng,
+    n_states: usize,
+    n_alg: usize,
+    n_assign: usize,
+    n_cross: usize,
+    depth: usize,
+    ops: Ops,
+) -> PreparedModel {
     let mut b = Builder::new();
     let mut l = Leaves { vars: vec![], params: vec![], tables: vec![], time: true };
     let states: Vec<VarId> =
         (0..n_states).map(|i| b.state(&format!("x{i}"), r.range(-2.0, 2.0))).collect();
     l.vars.extend(&states);
+    let zs: Vec<VarId> =
+        (0..n_alg).map(|i| b.algebraic(&format!("z{i}"), r.range(-2.0, 2.0))).collect();
+    l.vars.extend(&zs);
     for i in 0..3 {
         l.params.push(b.param(&format!("p{i}"), r.range(-2.0, 2.0)));
     }
@@ -190,7 +250,13 @@ pub fn model(
     if ops.tables {
         for i in 0..3 {
             let dims = 1 + (i % 2);
-            let k = b.table(&format!("t{i}"), table(r, dims));
+            let mut data = table(r, dims);
+            if ops.smooth {
+                // C¹ inside and across the edges: cubic, linear outside
+                data.interpolation = Interpolation::MonotoneCubic;
+                data.outside = [Outside::Linear, Outside::Linear];
+            }
+            let k = b.table(&format!("t{i}"), data);
             l.tables.push((k, dims));
         }
     }
@@ -203,6 +269,10 @@ pub fn model(
     for &x in &states {
         let e = expr(r, depth, &l, ops);
         b.der(x, e);
+    }
+    for &z in &zs {
+        let e = expr(r, depth, &l, ops);
+        b.residual(Expr::bin(BinaryOp::Sub, e, Expr::Var(z)));
     }
     for _ in 0..n_cross {
         let e = expr(r, depth, &l, ops);
