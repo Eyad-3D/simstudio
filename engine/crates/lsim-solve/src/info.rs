@@ -1911,19 +1911,7 @@ impl Env for ChannelEnv<'_> {
     }
 }
 
-/// Table `k` of `model` at `args` (one or two of them): its value and
-/// partial derivatives, `None` when the model does not give it.
-pub(crate) fn table_at(
-    model: &dyn ModelFunctions,
-    k: u32,
-    args: &[f64],
-) -> Option<(f64, [f64; 2])> {
-    match args {
-        [x] => model.eval_table(k, [*x, 0.0]),
-        [x, y] => model.eval_table(k, [*x, *y]),
-        _ => None,
-    }
-}
+pub(crate) use lsim_ir::interval::table_at;
 
 #[cfg(test)]
 mod tests {

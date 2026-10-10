@@ -23,7 +23,9 @@ pub mod component;
 pub mod diag;
 pub mod eval;
 pub mod expr;
+pub mod fenv;
 pub mod flat;
+pub mod interval;
 pub mod prepared;
 pub mod runtime;
 pub mod table;
@@ -47,7 +49,8 @@ pub use prepared::{
     ZeroCrossing,
 };
 pub use runtime::{
-    DiscreteBlock, EvalInput, InitFunctions, Layout, ModelFunctions, SparsityPattern, TableGuard,
+    ConditionKernels, DiscreteBlock, Enclosure, EvalInput, InitFunctions, Layout, ModelFunctions,
+    SparsityPattern, TableGuard,
 };
 pub use table::{FlatTable, Interpolation, Outside, TableData};
 pub use units::{Dim, Unit, UnitError};

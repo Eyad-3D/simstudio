@@ -1179,6 +1179,8 @@ pub fn run_loop(
     blocks: &mut [Box<dyn DiscreteBlock>],
     started: Instant,
 ) -> Result<SimResult, SolveError> {
+    // the default floating-point environment (lsim_ir::fenv)
+    let _env = lsim_ir::fenv::DefaultFloatEnv::enter();
     let l = *model.layout();
     let n = l.n_y();
     let times = grid.times();

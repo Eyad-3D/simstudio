@@ -1,518 +1,353 @@
-//! The coloured Jacobian of a large model, evaluated from a tape instead
-//! of compiled code: the same exact forward-mode derivative rules and the
-//! same structural sparsity (one direction per colour, only possible
-//! entries), run by a tight loop over a flat list of operations. Building
-//! the tape takes milliseconds where compiling the Jacobian's code would
-//! take as long as the residual's; a large stiff model evaluates its
-//! Jacobian only every few dozen steps, so the residual (compiled) stays
-//! what the run time depends on.
+//! The tape: a function's operations recorded in order and interpreted
+//! by a tight loop instead of compiled to machine code. The lowering
+//! emits exactly the operations it emits into Cranelift IR ([`Emit`]), so
+//! a tape computes bitwise what the compiled function computes; it costs
+//! no compilation, and a few nanoseconds per operation when it runs. The
+//! functions a run calls a handful of times (the initialisation's, the
+//! Jacobian-vector product) are taped rather than compiled.
 
-use crate::CodegenError;
-use crate::analysis::{Ctx, Row, Src, System};
+use crate::backend::{Base, Cc, Emit, Lib};
 use crate::tables::TableStore;
-use lsim_ir::expr::{BinaryOp, Builtin, CmpOp, Expr};
-use lsim_ir::runtime::EvalInput;
-use std::collections::HashMap;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum K {
-    Const,
-    Time,
-    Y,
-    P,
-    D,
-    U,
-    Neg,
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Pow,
-    PowC,
-    Sqrt,
-    Abs,
-    Sign,
-    Exp,
-    Log,
-    Sin,
-    Cos,
-    Tan,
-    Asin,
-    Acos,
-    Atan,
-    Sinh,
-    Cosh,
-    Tanh,
-    Atan2,
-    Min,
-    Max,
-    Lt,
-    Le,
-    Gt,
-    Ge,
-    And,
-    Or,
-    Not,
-    If,
-    Tab1,
-    Tab2,
-}
-
-/// One operation: `vals[dst] = k(vals[a], vals[b], vals[c])` (dst is its
-/// index), and its tangent entries `tans[t0..t0 + nt]`.
-#[derive(Clone, Copy, Debug)]
-struct Op {
-    k: K,
-    a: u32,
-    b: u32,
-    c: u32,
-    /// a constant, an index (y, p, d, u, table) or an exponent
-    x: f64,
-    t0: u32,
-    nt: u32,
-}
-
-/// No source entry.
+/// No register.
 const NONE: u32 = u32::MAX;
 
-/// A compiled-free coloured Jacobian.
+/// One operation; registers are indices into the register file.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Op {
+    Const(u32, f64),
+    Time(u32),
+    /// dst, array, index
+    Load(u32, Base, u32),
+    /// array, index, src
+    Store(Base, u32, u32),
+    Add(u32, u32, u32),
+    Sub(u32, u32, u32),
+    Mul(u32, u32, u32),
+    Div(u32, u32, u32),
+    Neg(u32, u32),
+    Abs(u32, u32),
+    Sqrt(u32, u32),
+    Fma(u32, u32, u32, u32),
+    Cmp(u32, Cc, u32, u32),
+    And(u32, u32, u32),
+    Or(u32, u32, u32),
+    Select(u32, u32, u32, u32),
+    BitsAnd(u32, u32, u32),
+    BitsOr(u32, u32, u32),
+    Lib1(u32, Lib, u32),
+    Lib2(u32, Lib, u32, u32),
+    /// value, table, x, the derivative's register (or NONE)
+    Tab1(u32, u32, u32, u32),
+    /// value, table, x, y, the derivatives' first register (or NONE)
+    Tab2(u32, u32, u32, u32, u32),
+    /// dst, table, axis, x
+    Guard(u32, u32, u8, u32),
+}
+
+/// A recorded function.
+#[derive(Clone, Debug, Default)]
 pub(crate) struct Tape {
-    ops: Vec<Op>,
-    /// per tangent entry of each op: the source entry in each operand
-    /// (a, b, c), or NONE
-    merge: Vec<[u32; 3]>,
-    /// per op: its tangent's directions (for building only)
-    n_tans: usize,
-    /// (values position, tangent entry) for every Jacobian value written
-    out: Vec<(u32, u32)>,
-    /// Jacobian positions that are structurally zero here
-    zeros: Vec<u32>,
-    /// the y entries' seeds: tangent entries set to one
-    seeds: Vec<u32>,
+    pub ops: Vec<Op>,
+    /// registers it uses
+    pub regs: usize,
 }
 
-struct Builder<'a> {
-    cx: &'a Ctx<'a>,
-    sys: &'a System<'a>,
-    colour: &'a [u32],
+/// Records the operations emitted.
+#[derive(Default)]
+pub(crate) struct Recorder {
     ops: Vec<Op>,
-    dirs: Vec<Vec<u32>>,
-    merge: Vec<[u32; 3]>,
-    n_tans: usize,
-    seeds: Vec<u32>,
-    assign_slot: HashMap<usize, u32>,
-    leaf: HashMap<(u8, u64), u32>,
+    next: u32,
 }
 
-impl Builder<'_> {
-    fn push(&mut self, k: K, args: [u32; 3], x: f64, tangent: bool) -> u32 {
-        let dst = self.ops.len() as u32;
-        let n_args = match k {
-            K::Const | K::Time | K::Y | K::P | K::D | K::U => 0,
-            K::Neg
-            | K::Sqrt
-            | K::Abs
-            | K::Sign
-            | K::Exp
-            | K::Log
-            | K::Sin
-            | K::Cos
-            | K::Tan
-            | K::Asin
-            | K::Acos
-            | K::Atan
-            | K::Sinh
-            | K::Cosh
-            | K::Tanh
-            | K::Not
-            | K::PowC
-            | K::Tab1 => 1,
-            K::If => 3,
-            _ => 2,
+impl Recorder {
+    fn reg(&mut self) -> u32 {
+        let r = self.next;
+        self.next += 1;
+        r
+    }
+
+    fn push(&mut self, f: impl FnOnce(u32) -> Op) -> u32 {
+        let r = self.reg();
+        self.ops.push(f(r));
+        r
+    }
+
+    pub(crate) fn finish(self) -> Tape {
+        Tape { ops: self.ops, regs: self.next as usize }
+    }
+}
+
+impl Emit for Recorder {
+    type V = u32;
+
+    fn new_segment(&mut self) {}
+
+    fn konst(&mut self, x: f64) -> u32 {
+        self.push(|r| Op::Const(r, x))
+    }
+
+    fn time(&mut self) -> u32 {
+        self.push(Op::Time)
+    }
+
+    fn load(&mut self, arr: Base, i: usize) -> u32 {
+        self.push(|r| Op::Load(r, arr, i as u32))
+    }
+
+    fn store(&mut self, arr: Base, i: usize, v: u32) {
+        self.ops.push(Op::Store(arr, i as u32, v));
+    }
+
+    fn add(&mut self, a: u32, b: u32) -> u32 {
+        self.push(|r| Op::Add(r, a, b))
+    }
+
+    fn sub(&mut self, a: u32, b: u32) -> u32 {
+        self.push(|r| Op::Sub(r, a, b))
+    }
+
+    fn mul(&mut self, a: u32, b: u32) -> u32 {
+        self.push(|r| Op::Mul(r, a, b))
+    }
+
+    fn div(&mut self, a: u32, b: u32) -> u32 {
+        self.push(|r| Op::Div(r, a, b))
+    }
+
+    fn neg(&mut self, a: u32) -> u32 {
+        self.push(|r| Op::Neg(r, a))
+    }
+
+    fn abs(&mut self, a: u32) -> u32 {
+        self.push(|r| Op::Abs(r, a))
+    }
+
+    fn sqrt(&mut self, a: u32) -> u32 {
+        self.push(|r| Op::Sqrt(r, a))
+    }
+
+    fn fma(&mut self, a: u32, b: u32, c: u32) -> u32 {
+        self.push(|r| Op::Fma(r, a, b, c))
+    }
+
+    fn cmp(&mut self, cc: Cc, a: u32, b: u32) -> u32 {
+        self.push(|r| Op::Cmp(r, cc, a, b))
+    }
+
+    fn and(&mut self, a: u32, b: u32) -> u32 {
+        self.push(|r| Op::And(r, a, b))
+    }
+
+    fn or(&mut self, a: u32, b: u32) -> u32 {
+        self.push(|r| Op::Or(r, a, b))
+    }
+
+    fn select(&mut self, c: u32, a: u32, b: u32) -> u32 {
+        self.push(|r| Op::Select(r, c, a, b))
+    }
+
+    fn bits_and(&mut self, a: u32, b: u32) -> u32 {
+        self.push(|r| Op::BitsAnd(r, a, b))
+    }
+
+    fn bits_or(&mut self, a: u32, b: u32) -> u32 {
+        self.push(|r| Op::BitsOr(r, a, b))
+    }
+
+    fn call(&mut self, f: Lib, args: &[u32]) -> u32 {
+        match f.arity() {
+            1 => self.push(|r| Op::Lib1(r, f, args[0])),
+            _ => self.push(|r| Op::Lib2(r, f, args[0], args[1])),
+        }
+    }
+
+    fn table(&mut self, k: u32, args: &[u32], derivs: bool) -> (u32, [Option<u32>; 2]) {
+        let v = self.reg();
+        let n = args.len();
+        let d0 = if derivs {
+            let d0 = self.reg();
+            if n == 2 {
+                self.reg();
+            }
+            d0
+        } else {
+            NONE
         };
-        // structural directions: the union of the operands' (none for
-        // truth values and sign, which have zero derivatives)
-        let mut d: Vec<u32> = vec![];
-        if tangent {
-            // an If's condition does not contribute
-            let first = if k == K::If { 1 } else { 0 };
-            for &s in &args[first..n_args] {
-                d.extend_from_slice(&self.dirs[s as usize]);
-            }
-            d.sort_unstable();
-            d.dedup();
+        if n == 1 {
+            self.ops.push(Op::Tab1(v, k, args[0], d0));
+        } else {
+            self.ops.push(Op::Tab2(v, k, args[0], args[1], d0));
         }
-        if k == K::Y {
-            d = vec![self.colour[x as usize]];
-        }
-        let t0 = self.n_tans as u32;
-        for dir in &d {
-            let mut m = [NONE; 3];
-            if k != K::Y {
-                for (o, &s) in args.iter().enumerate().take(n_args) {
-                    if let Ok(i) = self.dirs[s as usize].binary_search(dir) {
-                        m[o] = self.ops[s as usize].t0 + i as u32;
-                    }
-                }
-            }
-            self.merge.push(m);
-        }
-        self.n_tans += d.len();
-        if k == K::Y {
-            self.seeds.push(t0);
-        }
-        self.ops.push(Op { k, a: args[0], b: args[1], c: args[2], x, t0, nt: d.len() as u32 });
-        self.dirs.push(d);
-        dst
+        let g = if derivs { [Some(d0), (n == 2).then_some(d0 + 1)] } else { [None, None] };
+        (v, g)
     }
 
-    fn leaf(&mut self, tag: u8, k: K, x: f64) -> u32 {
-        if let Some(&s) = self.leaf.get(&(tag, x.to_bits())) {
-            return s;
-        }
-        let s = self.push(k, [0; 3], x, false);
-        self.leaf.insert((tag, x.to_bits()), s);
-        s
+    fn table_guard(&mut self, k: u32, axis: u8, x: u32) -> u32 {
+        self.push(|r| Op::Guard(r, k, axis, x))
     }
+}
 
-    fn src(&mut self, s: Src) -> u32 {
-        match s {
-            Src::Y(i) => self.leaf(1, K::Y, i as f64),
-            Src::Work(k) => self.assign_slot[&k],
-            Src::D(k) => self.leaf(2, K::D, k as f64),
-            Src::U(k) => self.leaf(3, K::U, k as f64),
-            Src::Const(c) => self.leaf(0, K::Const, c),
-        }
-    }
+/// What a tape reads and writes.
+pub(crate) struct Arrays<'a> {
+    pub t: f64,
+    pub y: &'a [f64],
+    pub p: &'a [f64],
+    pub d: &'a [f64],
+    pub u: &'a [f64],
+    pub v: &'a [f64],
+    pub work: &'a mut [f64],
+    pub out: &'a mut [f64],
+}
 
-    fn expr(&mut self, e: &Expr) -> Result<u32, CodegenError> {
-        let t = true;
-        Ok(match e {
-            Expr::Const(c) => self.leaf(0, K::Const, *c),
-            Expr::Time => self.leaf(4, K::Time, 0.0),
-            Expr::Param(p) => self.leaf(5, K::P, p.0 as f64),
-            Expr::Var(v) | Expr::Pre(v) => {
-                let s = self.sys.resolve(self.cx, *v, false)?;
-                self.src(s)
-            }
-            Expr::Der(v) => {
-                let s = self.sys.resolve(self.cx, *v, true)?;
-                self.src(s)
-            }
-            Expr::Name(n) => {
-                return Err(CodegenError::Unsupported(format!("unresolved name '{n}'")));
-            }
-            Expr::Neg(a) => {
-                let a = self.expr(a)?;
-                self.push(K::Neg, [a, 0, 0], 0.0, t)
-            }
-            Expr::NoEvent(a) => self.expr(a)?,
-            Expr::Binary(op, a, b) => {
-                if let (BinaryOp::Pow, Expr::Const(n)) = (op, &**b) {
-                    let a = self.expr(a)?;
-                    if *n == 0.0 {
-                        return Ok(self.leaf(0, K::Const, 1.0));
-                    }
-                    if *n == 1.0 {
-                        return Ok(a);
-                    }
-                    return Ok(self.push(K::PowC, [a, 0, 0], *n, t));
-                }
-                let a = self.expr(a)?;
-                let b = self.expr(b)?;
-                let k = match op {
-                    BinaryOp::Add => K::Add,
-                    BinaryOp::Sub => K::Sub,
-                    BinaryOp::Mul => K::Mul,
-                    BinaryOp::Div => K::Div,
-                    BinaryOp::Pow => K::Pow,
-                };
-                self.push(k, [a, b, 0], 0.0, t)
-            }
-            Expr::Call(f, args) => {
-                let mut s = vec![];
-                for a in args {
-                    s.push(self.expr(a)?);
-                }
-                let k = match f {
-                    Builtin::Der | Builtin::Pre => {
-                        return Err(CodegenError::Unsupported("der/pre in component scope".into()));
-                    }
-                    Builtin::Sqrt => K::Sqrt,
-                    Builtin::Abs => K::Abs,
-                    Builtin::Sign => K::Sign,
-                    Builtin::Exp => K::Exp,
-                    Builtin::Log => K::Log,
-                    Builtin::Sin => K::Sin,
-                    Builtin::Cos => K::Cos,
-                    Builtin::Tan => K::Tan,
-                    Builtin::Asin => K::Asin,
-                    Builtin::Acos => K::Acos,
-                    Builtin::Atan => K::Atan,
-                    Builtin::Sinh => K::Sinh,
-                    Builtin::Cosh => K::Cosh,
-                    Builtin::Tanh => K::Tanh,
-                    Builtin::Atan2 => K::Atan2,
-                    Builtin::Min => K::Min,
-                    Builtin::Max => K::Max,
-                    Builtin::Limit => {
-                        let lo = self.push(K::Max, [s[0], s[1], 0], 0.0, t);
-                        return Ok(self.push(K::Min, [lo, s[2], 0], 0.0, t));
-                    }
-                };
-                let tangent = k != K::Sign;
-                self.push(k, [s[0], s.get(1).copied().unwrap_or(0), 0], 0.0, tangent)
-            }
-            Expr::Compare(op, a, b) => {
-                let a = self.expr(a)?;
-                let b = self.expr(b)?;
-                let k = match op {
-                    CmpOp::Lt => K::Lt,
-                    CmpOp::Le => K::Le,
-                    CmpOp::Gt => K::Gt,
-                    CmpOp::Ge => K::Ge,
-                };
-                self.push(k, [a, b, 0], 0.0, false)
-            }
-            Expr::And(a, b) | Expr::Or(a, b) => {
-                let a = self.expr(a)?;
-                let b = self.expr(b)?;
-                let k = if matches!(e, Expr::And(..)) { K::And } else { K::Or };
-                self.push(k, [a, b, 0], 0.0, false)
-            }
-            Expr::Not(a) => {
-                let a = self.expr(a)?;
-                self.push(K::Not, [a, 0, 0], 0.0, false)
-            }
-            Expr::If(c, a, b) => {
-                let c = self.expr(c)?;
-                let a = self.expr(a)?;
-                let b = self.expr(b)?;
-                self.push(K::If, [c, a, b], 0.0, t)
-            }
-            Expr::Table { table, args } => {
-                let mut s = vec![];
-                for a in args {
-                    s.push(self.expr(a)?);
-                }
-                if s.len() == 1 {
-                    self.push(K::Tab1, [s[0], 0, 0], *table as f64, t)
-                } else {
-                    self.push(K::Tab2, [s[0], s[1], 0], *table as f64, t)
-                }
-            }
-        })
-    }
+fn truth(b: bool) -> f64 {
+    if b { 1.0 } else { 0.0 }
 }
 
 impl Tape {
-    /// Records the assignments `list` and the system's rows.
-    pub(crate) fn build(
-        cx: &Ctx<'_>,
-        sys: &System<'_>,
-        list: &[usize],
-        colour: &[u32],
-        pos: &HashMap<(usize, u32), usize>,
-        nnz: usize,
-    ) -> Result<Tape, CodegenError> {
-        let mut b = Builder {
-            cx,
-            sys,
-            colour,
-            ops: vec![],
-            dirs: vec![],
-            merge: vec![],
-            n_tans: 0,
-            seeds: vec![],
-            assign_slot: HashMap::new(),
-            leaf: HashMap::new(),
-        };
-        for &k in list {
-            let s = b.expr(sys.exprs[k])?;
-            b.assign_slot.insert(k, s);
-        }
-        let mut out = vec![];
-        let mut written = vec![false; nnz];
-        for (i, r) in sys.rows.iter().enumerate() {
-            let s = match r {
-                Row::Slot(s) => {
-                    let src = sys.row_src(*s)?;
-                    b.src(src)
-                }
-                Row::Expr(e) => b.expr(e)?,
-            };
-            let op = b.ops[s as usize];
-            for (e, dir) in b.dirs[s as usize].iter().enumerate() {
-                let Some(&p) = pos.get(&(i, *dir)) else {
-                    return Err(CodegenError::Backend(format!(
-                        "internal: a derivative of row {i} lies outside the Jacobian's pattern"
-                    )));
-                };
-                out.push((p as u32, op.t0 + e as u32));
-                written[p] = true;
-            }
-        }
-        let zeros = (0..nnz).filter(|&p| !written[p]).map(|p| p as u32).collect();
-        Ok(Tape { ops: b.ops, merge: b.merge, n_tans: b.n_tans, out, zeros, seeds: b.seeds })
-    }
-
-    /// The scratch values it needs.
-    pub(crate) fn scratch(&self) -> usize {
-        self.ops.len() + self.n_tans
-    }
-
-    /// Evaluates the Jacobian's values (column-compressed) using
-    /// `scratch` (at least [`Tape::scratch`] values).
-    pub(crate) fn eval(
-        &self,
-        inp: &EvalInput<'_>,
-        tables: &TableStore,
-        scratch: &mut [f64],
-        values: &mut [f64],
-    ) {
-        let (vals, tans) = scratch.split_at_mut(self.ops.len());
-        let tans = &mut tans[..self.n_tans];
-        for &s in &self.seeds {
-            tans[s as usize] = 1.0;
-        }
-        let truth = |b: bool| if b { 1.0 } else { 0.0 };
-        for (i, op) in self.ops.iter().enumerate() {
-            let a = vals.get(op.a as usize).copied().unwrap_or(0.0);
-            let b = vals.get(op.b as usize).copied().unwrap_or(0.0);
-            // the value, and the partial derivatives by a, b (c for If)
-            let (v, pa, pb) = match op.k {
-                K::Const => (op.x, 0.0, 0.0),
-                K::Time => (inp.t, 0.0, 0.0),
-                K::Y => (inp.y[op.x as usize], 0.0, 0.0),
-                K::P => (inp.p[op.x as usize], 0.0, 0.0),
-                K::D => (inp.d[op.x as usize], 0.0, 0.0),
-                K::U => (inp.u[op.x as usize], 0.0, 0.0),
-                K::Neg => (-a, -1.0, 0.0),
-                K::Add => (a + b, 1.0, 1.0),
-                K::Sub => (a - b, 1.0, -1.0),
-                K::Mul => (a * b, b, a),
-                K::Div => {
-                    let q = a / b;
-                    (q, 1.0 / b, -q / b)
-                }
-                K::Pow => {
-                    let v = a.powf(b);
-                    let pa = if op.nt > 0 { b * a.powf(b - 1.0) } else { 0.0 };
-                    let pb = if op.nt > 0 { v * a.ln() } else { 0.0 };
-                    (v, pa, pb)
-                }
-                K::PowC => {
-                    let n = op.x;
-                    let v = if n == 2.0 { a * a } else { a.powf(n) };
-                    let d = if n == 2.0 { 2.0 * a } else { n * a.powf(n - 1.0) };
-                    (v, d, 0.0)
-                }
-                K::Sqrt => {
-                    let v = a.sqrt();
-                    (v, 0.5 / v, 0.0)
-                }
-                K::Abs => (a.abs(), sign(a), 0.0),
-                K::Sign => (sign(a), 0.0, 0.0),
-                K::Exp => {
-                    let v = a.exp();
-                    (v, v, 0.0)
-                }
-                K::Log => (a.ln(), 1.0 / a, 0.0),
-                K::Sin => (a.sin(), a.cos(), 0.0),
-                K::Cos => (a.cos(), -a.sin(), 0.0),
-                K::Tan => {
-                    let v = a.tan();
-                    (v, 1.0 + v * v, 0.0)
-                }
-                K::Asin => (a.asin(), 1.0 / (1.0 - a * a).sqrt(), 0.0),
-                K::Acos => (a.acos(), -1.0 / (1.0 - a * a).sqrt(), 0.0),
-                K::Atan => (a.atan(), 1.0 / (1.0 + a * a), 0.0),
-                K::Sinh => (a.sinh(), a.cosh(), 0.0),
-                K::Cosh => (a.cosh(), a.sinh(), 0.0),
-                K::Tanh => {
-                    let v = a.tanh();
-                    (v, 1.0 - v * v, 0.0)
-                }
-                K::Atan2 => {
-                    let den = b * b + a * a;
-                    (a.atan2(b), b / den, -a / den)
-                }
-                K::Min => {
-                    let c = a < b || b.is_nan();
-                    (if c { a } else { b }, truth(c), truth(!c))
-                }
-                K::Max => {
-                    let c = a > b || b.is_nan();
-                    (if c { a } else { b }, truth(c), truth(!c))
-                }
-                K::Lt => (truth(a < b), 0.0, 0.0),
-                K::Le => (truth(a <= b), 0.0, 0.0),
-                K::Gt => (truth(a > b), 0.0, 0.0),
-                K::Ge => (truth(a >= b), 0.0, 0.0),
-                K::And => (truth(a != 0.0 && b != 0.0), 0.0, 0.0),
-                K::Or => (truth(a != 0.0 || b != 0.0), 0.0, 0.0),
-                K::Not => (truth(a == 0.0), 0.0, 0.0),
-                K::If => {
-                    let c = a != 0.0;
-                    let x = vals[op.c as usize];
-                    // operands: (cond, then = b, else = c)
-                    (if c { b } else { x }, truth(c), truth(!c))
-                }
-                K::Tab1 => {
-                    let (v, g) = tables.get(op.x as usize).eval([a, 0.0]);
-                    (v, g[0], 0.0)
-                }
-                K::Tab2 => {
-                    let (v, g) = tables.get(op.x as usize).eval([a, b]);
-                    (v, g[0], g[1])
-                }
-            };
-            vals[i] = v;
-            if op.nt == 0 || op.k == K::Y {
-                continue;
-            }
-            let m = &self.merge[op.t0 as usize..(op.t0 + op.nt) as usize];
-            let base = op.t0 as usize;
-            match op.k {
-                // a selection: the chosen operand's entry (no products,
-                // so an infinite entry on the other side does not leak)
-                K::Min | K::Max | K::If => {
-                    let (first, second) = if op.k == K::If { (1, 2) } else { (0, 1) };
-                    let pick_first = pa != 0.0;
-                    for (e, src) in m.iter().enumerate() {
-                        let s = if pick_first { src[first] } else { src[second] };
-                        tans[base + e] = if s == NONE { 0.0 } else { tans[s as usize] };
+    /// Runs the tape (`regs`: at least [`Tape::regs`] values).
+    pub(crate) fn run(&self, a: Arrays<'_>, tables: &TableStore, regs: &mut [f64]) {
+        let r = &mut regs[..self.regs];
+        for op in &self.ops {
+            match *op {
+                Op::Const(d, x) => r[d as usize] = x,
+                Op::Time(d) => r[d as usize] = a.t,
+                Op::Load(d, arr, i) => {
+                    let i = i as usize;
+                    r[d as usize] = match arr {
+                        Base::Y => a.y[i],
+                        Base::P => a.p[i],
+                        Base::D => a.d[i],
+                        Base::U => a.u[i],
+                        Base::V => a.v[i],
+                        Base::Work => a.work[i],
+                        Base::Out => a.out[i],
                     }
                 }
-                _ => {
-                    for (e, src) in m.iter().enumerate() {
-                        let mut t = 0.0;
-                        if src[0] != NONE {
-                            t += pa * tans[src[0] as usize];
-                        }
-                        if src[1] != NONE {
-                            t += pb * tans[src[1] as usize];
-                        }
-                        tans[base + e] = t;
+                Op::Store(arr, i, s) => {
+                    let x = r[s as usize];
+                    match arr {
+                        Base::Work => a.work[i as usize] = x,
+                        Base::Out => a.out[i as usize] = x,
+                        _ => unreachable!("only work and out are written"),
                     }
                 }
+                Op::Add(d, x, y) => r[d as usize] = r[x as usize] + r[y as usize],
+                Op::Sub(d, x, y) => r[d as usize] = r[x as usize] - r[y as usize],
+                Op::Mul(d, x, y) => r[d as usize] = r[x as usize] * r[y as usize],
+                Op::Div(d, x, y) => r[d as usize] = r[x as usize] / r[y as usize],
+                Op::Neg(d, x) => r[d as usize] = -r[x as usize],
+                Op::Abs(d, x) => r[d as usize] = r[x as usize].abs(),
+                Op::Sqrt(d, x) => r[d as usize] = r[x as usize].sqrt(),
+                Op::Fma(d, x, y, z) => {
+                    r[d as usize] = fused(r[x as usize], r[y as usize], r[z as usize])
+                }
+                Op::Cmp(d, cc, x, y) => {
+                    r[d as usize] = truth(cc.eval(r[x as usize], r[y as usize]))
+                }
+                Op::And(d, x, y) => {
+                    r[d as usize] = truth(r[x as usize] != 0.0 && r[y as usize] != 0.0)
+                }
+                Op::Or(d, x, y) => {
+                    r[d as usize] = truth(r[x as usize] != 0.0 || r[y as usize] != 0.0)
+                }
+                Op::Select(d, c, x, y) => {
+                    r[d as usize] = if r[c as usize] != 0.0 { r[x as usize] } else { r[y as usize] }
+                }
+                Op::BitsAnd(d, x, y) => {
+                    r[d as usize] =
+                        f64::from_bits(r[x as usize].to_bits() & r[y as usize].to_bits())
+                }
+                Op::BitsOr(d, x, y) => {
+                    r[d as usize] =
+                        f64::from_bits(r[x as usize].to_bits() | r[y as usize].to_bits())
+                }
+                Op::Lib1(d, f, x) => r[d as usize] = f.eval(r[x as usize], 0.0),
+                Op::Lib2(d, f, x, y) => r[d as usize] = f.eval(r[x as usize], r[y as usize]),
+                Op::Tab1(d, k, x, g) => {
+                    let t = tables.get(k as usize);
+                    if g == NONE {
+                        r[d as usize] = t.value([r[x as usize], 0.0]);
+                    } else {
+                        let (v, gr) = t.eval([r[x as usize], 0.0]);
+                        r[d as usize] = v;
+                        r[g as usize] = gr[0];
+                    }
+                }
+                Op::Tab2(d, k, x, y, g) => {
+                    let t = tables.get(k as usize);
+                    if g == NONE {
+                        r[d as usize] = t.value([r[x as usize], r[y as usize]]);
+                    } else {
+                        let (v, gr) = t.eval([r[x as usize], r[y as usize]]);
+                        r[d as usize] = v;
+                        r[g as usize] = gr[0];
+                        r[g as usize + 1] = gr[1];
+                    }
+                }
+                Op::Guard(d, k, axis, x) => {
+                    r[d as usize] = tables.get(k as usize).guard(axis as usize, r[x as usize])
+                }
             }
-        }
-        for &(p, e) in &self.out {
-            values[p as usize] = tans[e as usize];
-        }
-        for &p in &self.zeros {
-            values[p as usize] = 0.0;
         }
     }
 }
 
-fn sign(a: f64) -> f64 {
-    if a > 0.0 {
-        1.0
-    } else if a < 0.0 {
-        -1.0
-    } else {
-        0.0
+/// `a × b + c` rounded once, by the CPU's own fused multiply-add: the
+/// instruction the machine code runs (`vfmadd`), not a library's `fma`
+/// (`f64::mul_add` calls one on x86-64, the C runtime's on Windows). A
+/// tape has fused multiply-adds only where the CPU has them (the lowering
+/// emits them only then).
+#[inline]
+fn fused(a: f64, b: f64, c: f64) -> f64 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::arch::is_x86_feature_detected!("fma") {
+            // SAFETY: the CPU has the instruction (checked just now).
+            return unsafe { fused_x86(a, b, c) };
+        }
+    }
+    // (elsewhere `mul_add` is the instruction itself: AArch64's `fmadd`)
+    a.mul_add(b, c)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "fma")]
+fn fused_x86(a: f64, b: f64, c: f64) -> f64 {
+    use std::arch::x86_64::{_mm_cvtsd_f64, _mm_fmadd_sd, _mm_set_sd};
+    _mm_cvtsd_f64(_mm_fmadd_sd(_mm_set_sd(a), _mm_set_sd(b), _mm_set_sd(c)))
+}
+
+#[cfg(test)]
+mod tests {
+    /// The fused multiply-add is rounded once: on products whose exact
+    /// low part a separate rounding would lose, and against the exact
+    /// error of a product (Dekker's), at random.
+    #[test]
+    fn the_fused_multiply_add_rounds_once() {
+        let mut seed = 0x853c_49e6_748f_ea9bu64;
+        let mut rnd = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        // (1 + 2^-52)² - (1 + 2^-51) = 2^-104, which a product rounded
+        // first loses
+        let a = 1.0 + f64::EPSILON;
+        assert_eq!(super::fused(a, a, -(1.0 + 2.0 * f64::EPSILON)), 2f64.powi(-104));
+        for _ in 0..100_000 {
+            let (x, y) = (rnd() * 4.0 - 2.0, rnd() * 4.0 - 2.0);
+            let p = x * y;
+            // Dekker's exact error of the product
+            let split = |v: f64| {
+                let c = 134_217_729.0 * v;
+                let h = c - (c - v);
+                (h, v - h)
+            };
+            let ((xh, xl), (yh, yl)) = (split(x), split(y));
+            let e = ((xh * yh - p) + xh * yl + xl * yh) + xl * yl;
+            assert_eq!(super::fused(x, y, -p).to_bits(), e.to_bits(), "{x} × {y}");
+        }
     }
 }

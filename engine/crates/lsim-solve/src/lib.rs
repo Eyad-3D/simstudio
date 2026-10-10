@@ -225,6 +225,12 @@ pub struct SolverOptions {
     /// step), for the benchmark of its share of the run (lsim-project's
     /// `scan_share` example). Off by default
     pub time_mixed_checks: bool,
+    /// check the conditions that mix time and states with the model's
+    /// compiled kernels where it has them
+    /// ([`lsim_ir::ModelFunctions::condition_kernels`]: bitwise the
+    /// interpreter, faster). On by default; off, every condition is
+    /// interpreted from the IR
+    pub condition_kernels: bool,
 }
 
 impl Default for SolverOptions {
@@ -247,6 +253,7 @@ impl Default for SolverOptions {
             impulses: true,
             light_restarts: false,
             time_mixed_checks: false,
+            condition_kernels: true,
         }
     }
 }
@@ -710,6 +717,9 @@ pub fn simulate(
     grid: OutputGrid,
     blocks: &mut [Box<dyn DiscreteBlock>],
 ) -> Result<SimResult, SolveError> {
+    // the default floating-point environment for the run, the calling
+    // thread's own again after it (lsim_ir::fenv)
+    let env = lsim_ir::fenv::DefaultFloatEnv::enter();
     let started = Instant::now();
     let l = *model.layout();
     let mut y0 = vec![0.0; l.n_y()];
@@ -728,6 +738,13 @@ pub fn simulate(
     let result = run_backend(model, info, opts, grid, y0, d0, u, blocks, started);
     result.map(|mut r| {
         r.report.notes.insert(0, format!("start: {start}"));
+        if let Some(own) = env.changed() {
+            r.report.notes.push(format!(
+                "the calling thread's floating-point environment (MXCSR {own:#06x}: flush-to-zero, \
+                 denormals-are-zero or another rounding) was set to the default for the run and \
+                 restored after it"
+            ));
+        }
         r
     })
 }

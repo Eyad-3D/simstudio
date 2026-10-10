@@ -5,6 +5,9 @@
 //! cargo run --release -p lsim-project --example golden -- REF_DIR OUT_DIR [project[/case] ...]
 //! ```
 //!
+//! `LSIM_CONDITION_KERNELS=0` interprets every condition the run loop
+//! checks along its steps instead of using the model's compiled kernels.
+//!
 //! Script blocks run today's own script runner: set `LSIM_PYTHON` to the
 //! Python that runs today's engine (the repository's `backend` folder is
 //! found from this crate). Writes `OUT_DIR/golden.json` and
@@ -45,7 +48,11 @@ fn main() {
         .ok()
         .map(|p| PythonHost { python: PathBuf::from(p), backend: repo.join("backend") });
     let rtol: f64 = std::env::var("LSIM_RTOL").ok().and_then(|s| s.parse().ok()).unwrap_or(1e-6);
-    let solver = SolverOptions { rtol, atol: rtol * 1e-2, ..Default::default() };
+    // `LSIM_CONDITION_KERNELS=0`: every condition interpreted (the
+    // kernels' acceptance compares the two)
+    let kernels = std::env::var("LSIM_CONDITION_KERNELS").map_or(true, |v| v != "0");
+    let solver =
+        SolverOptions { rtol, atol: rtol * 1e-2, condition_kernels: kernels, ..Default::default() };
     let mut all = vec![];
     let mut md = String::new();
     for ((project, case), path) in golden::references(&refs) {

@@ -106,6 +106,12 @@ pub(super) struct TimeFns<'a> {
     /// scratch of their check along a step (boxed: taken and put back on
     /// every step)
     pub(super) scratch: Option<Box<super::mixed::StepScratch>>,
+    /// the model's compiled kernels of the mixed conditions and their
+    /// buffers, when the run uses them
+    pub(super) kernels: Option<(
+        &'a dyn lsim_ir::runtime::ConditionKernels,
+        std::cell::RefCell<super::mixed::KernelScratch>,
+    )>,
 }
 
 impl TimeFns<'_> {
@@ -124,6 +130,7 @@ impl TimeFns<'_> {
             mixed_y: vec![],
             ypos: vec![],
             scratch: None,
+            kernels: None,
         }
     }
 
@@ -196,6 +203,15 @@ impl<'a> Loop<'a> {
             .enumerate()
             .map(|(k, [x, y])| Grid2::new(k as u32, x, y))
             .collect();
+        // the model's compiled kernels of the mixed conditions, if the run
+        // uses them
+        if self.opts.condition_kernels
+            && let Some(k) = self.model.condition_kernels()
+        {
+            let n_y = self.model.layout().n_y();
+            self.tf.kernels =
+                Some((k, std::cell::RefCell::new(super::mixed::KernelScratch::new(k, n_y))));
+        }
         let unsupported = "atan2 or a derivative in time, or a table whose points are not known";
         for (k, f) in info.time_functions.iter().enumerate().take(n) {
             match f {
@@ -218,6 +234,9 @@ impl<'a> Loop<'a> {
                     match self.mixed_of(chain, g) {
                         Kind::Scan(mut m) => {
                             m.roots.push(k);
+                            if self.tf.kernels.as_ref().is_some_and(|(c, _)| c.covers(k)) {
+                                m.use_kernel(k);
+                            }
                             self.tf.mixed.push(*m);
                         }
                         Kind::Switched => {}
