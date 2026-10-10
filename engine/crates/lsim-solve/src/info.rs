@@ -526,6 +526,137 @@ pub struct RunInfo {
     /// is: the step stands, no restart. Empty: every discrete value counts
     /// as reaching them
     pub dynamic_discretes: Vec<bool>,
+    /// how the energy books take each stored energy's rate exactly (the
+    /// assignments to differentiate along the solution); `None`: from the
+    /// variables' sources alone ([`StoredRates::from_sources`])
+    pub stored_rates: Option<Arc<StoredRates>>,
+}
+
+/// How the energy books take each stored energy's rate, `dE/dt` along the
+/// solution, exactly: by forward-mode differentiation in the direction
+/// `(1, y')` through the assignments that compute the variables the
+/// stored energies read. A stored energy whose variables reach a
+/// derivative, the time, a previous value or a table through them is
+/// left to a finite difference.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StoredRates {
+    /// (variable, its expression), in evaluation order
+    pub chain: Vec<(usize, Expr)>,
+    /// per energy part ([`EnergyInfo::parts`]): whether its stored
+    /// energy's rate is taken exactly
+    pub exact: Vec<bool>,
+}
+
+impl StoredRates {
+    /// Without the model's assignments: exact for the stored energies that
+    /// read only states, discrete values, inputs and constants.
+    pub fn from_sources(energy: &EnergyInfo, sources: &[VarSource]) -> StoredRates {
+        let exact = energy
+            .parts
+            .iter()
+            .map(|p| {
+                p.stored.as_ref().is_some_and(|e| {
+                    let mut ok = !reaches_unknown(e);
+                    e.walk(&mut |x| {
+                        if let Expr::Var(v) = x
+                            && sources.get(v.0 as usize).is_none_or(|s| *s == VarSource::Computed)
+                        {
+                            ok = false;
+                        }
+                    });
+                    ok
+                })
+            })
+            .collect();
+        StoredRates { chain: vec![], exact }
+    }
+}
+
+/// Whether `e` reads what a rate along the solution cannot take exactly
+/// here: a derivative, the time, a previous value, a table, a name.
+fn reaches_unknown(e: &Expr) -> bool {
+    let mut bad = false;
+    e.walk(&mut |x| {
+        if matches!(
+            x,
+            Expr::Der(_) | Expr::Time | Expr::Pre(_) | Expr::Table { .. } | Expr::Name(_)
+        ) {
+            bad = true;
+        }
+    });
+    bad
+}
+
+/// The assignments the stored energies' rates need (see [`StoredRates`]).
+fn stored_rates(m: &PreparedModel, energy: &EnergyInfo, sources: &[VarSource]) -> StoredRates {
+    let assigned: HashMap<Slot, usize> =
+        m.assignments.iter().enumerate().map(|(k, a)| (a.target, k)).collect();
+    let alias: HashMap<VarId, AliasTarget> = m.aliases.iter().map(|a| (a.var, a.target)).collect();
+    let mut steps: BTreeSet<usize> = BTreeSet::new();
+    let mut alias_steps: Vec<(usize, Expr)> = vec![];
+    let mut exact = vec![];
+    for p in &energy.parts {
+        let Some(e) = &p.stored else {
+            exact.push(false);
+            continue;
+        };
+        let mut ok = !reaches_unknown(e);
+        let (mut mine, mut my_aliases) = (BTreeSet::new(), vec![]);
+        let mut seen: BTreeSet<VarId> = BTreeSet::new();
+        let mut todo: Vec<VarId> = vec![];
+        e.walk(&mut |x| {
+            if let Expr::Var(v) = x {
+                todo.push(*v);
+            }
+        });
+        while ok && let Some(v) = todo.pop() {
+            if !seen.insert(v) {
+                continue;
+            }
+            if let Some(&k) = assigned.get(&Slot::Var(v)) {
+                let a = &m.assignments[k].expr;
+                if reaches_unknown(a) {
+                    ok = false;
+                }
+                mine.insert(k);
+                a.walk(&mut |x| {
+                    if let Expr::Var(r) = x {
+                        todo.push(*r);
+                    }
+                });
+            } else if sources.get(v.0 as usize) == Some(&VarSource::Computed) {
+                match alias.get(&v) {
+                    Some(AliasTarget::Var { var, negated }) => {
+                        let t = if *negated { -Expr::Var(*var) } else { Expr::Var(*var) };
+                        my_aliases.push((v.0 as usize, t));
+                        todo.push(*var);
+                    }
+                    _ => ok = false,
+                }
+            }
+        }
+        if ok {
+            steps.extend(mine);
+            for a in my_aliases {
+                if !alias_steps.iter().any(|(v, _)| *v == a.0) {
+                    alias_steps.push(a);
+                }
+            }
+        }
+        exact.push(ok);
+    }
+    let mut chain: Vec<(usize, Expr)> = steps
+        .into_iter()
+        .map(|k| {
+            let a = &m.assignments[k];
+            let (Slot::Var(w) | Slot::Der(w)) = a.target;
+            (w.0 as usize, a.expr.clone())
+        })
+        .collect();
+    // aliases after what they copy (an alias of an alias after its target)
+    alias_steps.reverse();
+    chain.extend(alias_steps);
+    StoredRates { chain, exact }
 }
 
 impl RunInfo {
@@ -556,6 +687,7 @@ impl RunInfo {
             time_crossings: vec![],
             events_read_z: true,
             dynamic_discretes: vec![],
+            stored_rates: None,
         }
     }
 
@@ -594,6 +726,7 @@ impl RunInfo {
         let energy = energy_info(m);
         let dynamic_discretes = dynamic_discretes(m, &energy);
         let impulse = impulse_info(m, &energy, &sources).map(Arc::new);
+        let stored_rates = Some(Arc::new(stored_rates(m, &energy, &sources)));
         let blocks = m
             .external
             .iter()
@@ -663,6 +796,7 @@ impl RunInfo {
             },
             events_read_z: events_read_z(m),
             dynamic_discretes,
+            stored_rates,
         }
     }
 

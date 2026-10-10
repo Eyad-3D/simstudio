@@ -1222,15 +1222,30 @@ save most of those 10 ms in every run, sequential or not (a change to
   converters) whose net intake is the energy supplied. The **closure** is
   supplied − lost − ∫ d(stored)/dt, relative to the throughput (half the
   sum of every part's ∫ |power in|): it is round-off when the books are
-  right (≤ 4e-14 on every ODE run of the suite, ≤ 3e-9 on IDA at rtol 1e-8
-  and 1.1e-7 at 1e-6 for the spike's DAE form, where y' of the iteration
-  variables comes from IDA's own formula), and the run warns above 1e-6
+  right, and the run warns above 1e-6
   and can be made to fail (`energy_tolerance`), naming the parts whose
   books close worst. Jumps of the stored energy at events, from the states
   before and after, are booked as a separate entry (energy lost at
-  events). The **drift** — stored energy from the states at the end minus
-  the books' — is the integration error of the energies, of the order of
-  rtol; it is reported, with a warning when it exceeds 100·rtol.
+  events). Each stored energy's rate `dE/dt` is exact: forward-mode
+  differentiation of the declared stored energy along `(1, y')` through
+  the assignments that compute the variables it reads
+  (`RunInfo::stored_rates`), with `y'` the model's own `x' = f(t, x, z)`
+  for the states on every backend (on IDA its `y'` would differ by the
+  residual its Newton iteration leaves) and the integrator's rate for the
+  iteration variables. Only a stored energy that reaches a derivative, the
+  time or a table through its assignments takes a fourth-order central
+  difference, its step moving no entry of `y` by more than 1e-3 of its
+  size or of its nominal scale. (Work package 4's fourth round found the
+  difference's step collapsing whenever an entry of `y` passed zero while
+  moving: its round-off grows as `|E| / step`, and a full fuel tank stores
+  some 1e9 J, so the hybrid's books closed to only 1.6e-6 on the UDDS and
+  5.4e-7 on the HWFET, by an amount that any change of the step sequence
+  reshuffled: 10.5, 1.6, −0.8 and 1.9 J on the HWFET at rtol 1, 0.999,
+  1.001 and 0.99 × 1e-6. Exact, the same runs close to 4.3e-12, 8.1e-14,
+  5.1e-12 and 2.4e-12.) The **drift** — stored energy from the states at
+  the end minus the books' — is the integration error of the energies, of
+  the order of rtol; it is reported, with a warning when it exceeds
+  100·rtol.
 * **Solver report** on every run: backend, method, tolerances, steps,
   evaluations, Jacobians, error-test and Newton failures, events (with
   times and parts), restarts, initialisation path, energy closure.

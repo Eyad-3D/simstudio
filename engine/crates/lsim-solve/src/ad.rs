@@ -312,6 +312,164 @@ pub(crate) fn eval(e: &Expr, env: &dyn JetEnv) -> Result<Jet, String> {
     })
 }
 
+/// A value and its rate along one direction: the first-order, one-seed
+/// case of [`Jet`] without its allocations (the energy books take every
+/// stored energy's rate this way at each step).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Dual {
+    /// the value
+    pub v: f64,
+    /// its rate
+    pub d: f64,
+}
+
+impl Dual {
+    fn k(v: f64) -> Dual {
+        Dual { v, d: 0.0 }
+    }
+    fn f(self, f0: f64, f1: f64) -> Dual {
+        Dual { v: f0, d: f1 * self.d }
+    }
+}
+
+/// Where an expression's references get their values and rates.
+pub(crate) trait DualEnv {
+    /// a variable's value and rate (`Err`: it has none here)
+    fn var(&self, v: VarId) -> Result<Dual, ()>;
+    /// a parameter's value
+    fn param(&self, p: ParamId) -> f64;
+}
+
+/// `e` with its rate, by the rules of [`eval`]; `Err` for what has no rate
+/// here: the time, a derivative, a previous value, a table, a name.
+pub(crate) fn dual(e: &Expr, env: &dyn DualEnv) -> Result<Dual, ()> {
+    let ev = |x: &Expr| dual(x, env);
+    let k = Dual::k;
+    Ok(match e {
+        Expr::Const(v) => k(*v),
+        Expr::Param(p) => k(env.param(*p)),
+        Expr::Var(v) => env.var(*v)?,
+        Expr::Time | Expr::Name(_) | Expr::Pre(_) | Expr::Der(_) | Expr::Table { .. } => {
+            return Err(());
+        }
+        Expr::Neg(a) => {
+            let a = ev(a)?;
+            Dual { v: -a.v, d: -a.d }
+        }
+        Expr::NoEvent(a) => ev(a)?,
+        Expr::Binary(op, a, b) => {
+            let (a, b) = (ev(a)?, ev(b)?);
+            match op {
+                BinaryOp::Add => Dual { v: a.v + b.v, d: a.d + b.d },
+                BinaryOp::Sub => Dual { v: a.v - b.v, d: a.d - b.d },
+                BinaryOp::Mul => Dual { v: a.v * b.v, d: b.v * a.d + a.v * b.d },
+                BinaryOp::Div => {
+                    let q = a.v / b.v;
+                    Dual { v: q, d: a.d / b.v - q / b.v * b.d }
+                }
+                BinaryOp::Pow => {
+                    let (x, y) = (a.v, b.v);
+                    let f0 = x.powf(y);
+                    if b.d == 0.0 {
+                        let f1 = if y == 0.0 { 0.0 } else { y * x.powf(y - 1.0) };
+                        a.f(f0, f1)
+                    } else {
+                        Dual { v: f0, d: y * f0 / x * a.d + f0 * x.ln() * b.d }
+                    }
+                }
+            }
+        }
+        Expr::Compare(op, a, b) => {
+            let (a, b) = (ev(a)?.v, ev(b)?.v);
+            k(truth(match op {
+                CmpOp::Lt => a < b,
+                CmpOp::Le => a <= b,
+                CmpOp::Gt => a > b,
+                CmpOp::Ge => a >= b,
+            }))
+        }
+        Expr::And(a, b) => k(truth(ev(a)?.v != 0.0 && ev(b)?.v != 0.0)),
+        Expr::Or(a, b) => k(truth(ev(a)?.v != 0.0 || ev(b)?.v != 0.0)),
+        Expr::Not(a) => k(truth(ev(a)?.v == 0.0)),
+        Expr::If(c, a, b) => {
+            if ev(c)?.v != 0.0 {
+                ev(a)?
+            } else {
+                ev(b)?
+            }
+        }
+        Expr::Call(f, args) => {
+            let arg = |i: usize| args.get(i).map(ev).unwrap_or(Err(()));
+            let a = arg(0)?;
+            let x = a.v;
+            match f {
+                Builtin::Der | Builtin::Pre => return Err(()),
+                Builtin::Sin => a.f(x.sin(), x.cos()),
+                Builtin::Cos => a.f(x.cos(), -x.sin()),
+                Builtin::Tan => {
+                    let t = x.tan();
+                    a.f(t, 1.0 + t * t)
+                }
+                Builtin::Asin => a.f(x.asin(), 1.0 / (1.0 - x * x).sqrt()),
+                Builtin::Acos => a.f(x.acos(), -1.0 / (1.0 - x * x).sqrt()),
+                Builtin::Atan => a.f(x.atan(), 1.0 / (1.0 + x * x)),
+                Builtin::Atan2 => {
+                    let b = arg(1)?;
+                    let r2 = b.v * b.v + a.v * a.v;
+                    Dual { v: a.v.atan2(b.v), d: (b.v * a.d - a.v * b.d) / r2 }
+                }
+                Builtin::Sinh => a.f(x.sinh(), x.cosh()),
+                Builtin::Cosh => a.f(x.cosh(), x.sinh()),
+                Builtin::Tanh => {
+                    let t = x.tanh();
+                    a.f(t, 1.0 - t * t)
+                }
+                Builtin::Exp => {
+                    let ex = x.exp();
+                    a.f(ex, ex)
+                }
+                Builtin::Log => a.f(x.ln(), 1.0 / x),
+                Builtin::Sqrt => {
+                    let r = x.sqrt();
+                    a.f(r, 0.5 / r)
+                }
+                Builtin::Abs => {
+                    let s = if x > 0.0 {
+                        1.0
+                    } else if x < 0.0 {
+                        -1.0
+                    } else {
+                        0.0
+                    };
+                    a.f(x.abs(), s)
+                }
+                Builtin::Sign => k(if x > 0.0 {
+                    1.0
+                } else if x < 0.0 {
+                    -1.0
+                } else {
+                    0.0
+                }),
+                Builtin::Min | Builtin::Max => {
+                    let b = arg(1)?;
+                    let take_b = if *f == Builtin::Min { b.v < a.v } else { b.v > a.v };
+                    if take_b { b } else { a }
+                }
+                Builtin::Limit => {
+                    let (lo, hi) = (arg(1)?, arg(2)?);
+                    if a.v < lo.v {
+                        lo
+                    } else if a.v > hi.v {
+                        hi
+                    } else {
+                        a
+                    }
+                }
+            }
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,6 +502,69 @@ mod tests {
 
     fn call(f: Builtin, a: Vec<Expr>) -> Expr {
         Expr::Call(f, a)
+    }
+
+    /// The scalar rate (`dual`) is the full evaluator's gradient taken along
+    /// a direction, value and rate alike, on every rule.
+    #[test]
+    fn the_scalar_rate_is_the_gradient_along_its_direction() {
+        let x = || Expr::Var(VarId(0));
+        let y = || Expr::Var(VarId(1));
+        let c = Expr::Const;
+        let cmp = |op, a, b| Expr::Compare(op, Box::new(a), Box::new(b));
+        let exprs = vec![
+            bin(BinaryOp::Mul, bin(BinaryOp::Mul, c(0.5), x()), bin(BinaryOp::Mul, x(), y())),
+            bin(BinaryOp::Div, x(), bin(BinaryOp::Add, y(), Expr::Param(ParamId(0)))),
+            bin(BinaryOp::Pow, x(), c(3.0)),
+            bin(BinaryOp::Pow, x(), y()),
+            call(Builtin::Sin, vec![bin(BinaryOp::Mul, x(), y())]),
+            call(Builtin::Cos, vec![x()]),
+            call(Builtin::Tan, vec![y()]),
+            call(Builtin::Asin, vec![bin(BinaryOp::Div, x(), c(4.0))]),
+            call(Builtin::Acos, vec![bin(BinaryOp::Div, y(), c(4.0))]),
+            call(Builtin::Atan, vec![bin(BinaryOp::Sub, x(), y())]),
+            call(Builtin::Atan2, vec![y(), x()]),
+            call(Builtin::Sinh, vec![x()]),
+            call(Builtin::Cosh, vec![y()]),
+            call(Builtin::Tanh, vec![bin(BinaryOp::Mul, x(), y())]),
+            call(Builtin::Exp, vec![bin(BinaryOp::Mul, x(), y())]),
+            call(Builtin::Log, vec![bin(BinaryOp::Mul, x(), y())]),
+            call(Builtin::Sqrt, vec![bin(BinaryOp::Add, x(), y())]),
+            call(Builtin::Abs, vec![bin(BinaryOp::Sub, y(), x())]),
+            call(Builtin::Sign, vec![bin(BinaryOp::Sub, y(), x())]),
+            call(Builtin::Max, vec![x(), y()]),
+            call(Builtin::Min, vec![x(), y()]),
+            call(Builtin::Limit, vec![bin(BinaryOp::Mul, x(), y()), c(0.0), c(1.0)]),
+            Expr::Neg(Box::new(bin(BinaryOp::Sub, x(), y()))),
+            Expr::If(
+                Box::new(cmp(CmpOp::Gt, x(), y())),
+                Box::new(bin(BinaryOp::Mul, x(), x())),
+                Box::new(y()),
+            ),
+            Expr::NoEvent(Box::new(bin(BinaryOp::Mul, x(), y()))),
+        ];
+        struct Along([f64; 2], [f64; 2]);
+        impl DualEnv for Along {
+            fn var(&self, v: VarId) -> Result<Dual, ()> {
+                let i = v.0 as usize;
+                Ok(Dual { v: self.0[i], d: self.1[i] })
+            }
+            fn param(&self, _p: ParamId) -> f64 {
+                3.0
+            }
+        }
+        let (at, dir) = ([1.3, 0.7], [0.37, -1.9]);
+        for e in &exprs {
+            let j = eval(e, &Two(at, false)).unwrap();
+            let r = dual(e, &Along(at, dir)).unwrap();
+            let along = j.g[0] * dir[0] + j.g[1] * dir[1];
+            assert_eq!(r.v, j.v, "{e}");
+            assert!((r.d - along).abs() <= 1e-14 * (1.0 + along.abs()), "{e}: {} vs {along}", r.d);
+        }
+        // what has no rate here
+        for e in [Expr::Time, Expr::Der(VarId(0)), Expr::Pre(VarId(0))] {
+            assert!(dual(&e, &Along(at, dir)).is_err(), "{e}");
+        }
     }
 
     /// Every rule against central differences of the interpreter (whose

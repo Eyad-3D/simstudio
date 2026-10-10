@@ -40,7 +40,7 @@ pub use accuracy::{AccuracyReport, ChannelChange, accuracy_check, compare_runs};
 pub use energy::{EnergyBooks, PartBooks};
 pub use info::{
     AssertInfo, BlockInfo, EnergyInfo, EnergyPart, EngagementInfo, ImpulseInfo, ImpulseLink,
-    InputChain, ModeInfo, RunInfo, TimeCrossing, VarSource,
+    InputChain, ModeInfo, RunInfo, StoredRates, TimeCrossing, VarSource,
 };
 pub use recorder::Recorder;
 pub use run::run_loop;
@@ -583,7 +583,10 @@ fn run_backend(
 ) -> Result<SimResult, SolveError> {
     let l = *model.layout();
     let quad = if opts.energy_books {
-        info.energy.as_ref().filter(|e| !e.parts.is_empty()).map(|e| energy::Integrand::new(e, &l))
+        info.energy
+            .as_ref()
+            .filter(|e| !e.parts.is_empty())
+            .map(|e| energy::Integrand::new(e, info, &l))
     } else {
         None
     };

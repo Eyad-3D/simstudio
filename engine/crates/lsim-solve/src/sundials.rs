@@ -292,11 +292,19 @@ unsafe extern "C" fn ida_quad(
     unsafe {
         let pr = problem(ud);
         let n = pr.layout.n_y();
+        let nx = pr.layout.n_x;
         let m = pr.model();
         let Some(q) = pr.quad.as_mut() else { return 0 };
         let out = slice(yq, q.len());
         let inp = EvalInput { t, y: slice(yy, n), p: &pr.p, d: &pr.d, u: &pr.u };
-        q.eval(m, &inp, slice(yp, n), &mut pr.work, out);
+        // the states' rates from the model itself, x' = f(t, x, z): IDA's
+        // own y' differs from them by the residual its Newton iteration
+        // leaves, which the books would integrate (times each stored
+        // energy's weight: a full fuel tank's heating value); the
+        // iteration variables' rates have no formula but IDA's
+        m.residual(&inp, &mut pr.work, &mut pr.out);
+        pr.out[nx..n].copy_from_slice(&slice(yp, n)[nx..n]);
+        q.eval(m, &inp, &pr.out, &mut pr.work, out);
     }
     0
 }

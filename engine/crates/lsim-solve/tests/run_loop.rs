@@ -1718,6 +1718,173 @@ fn lost_scale(res: &SimResult, k0: usize) -> f64 {
     (res.values[5][end] - res.values[5][k0 - 1]).abs()
 }
 
+/// The energy books close on a shift with a sliding tyre, to round-off. A
+/// car launched from rest by an engine fed from a full fuel tank (40 kg,
+/// 1.7e9 J stored), its gear upshifting at t = 2 s (12 → 7): the rigid
+/// engagement throws the wheel ahead of the road and the tyre, F =
+/// clamp(k (w R − v), ±4000 N), slides at its grip until its slip relaxes.
+/// Every part declares its books (tank, engine, rotor, ideal gear, wheel,
+/// tyre, body), so their sum closes exactly when each stored energy's rate
+/// is its own: the review of the fourth round found the hybrid's books
+/// closing to only 1.6e-6, the fuel tank's rate taken by a finite
+/// difference whose step collapsed whenever an entry of y passed zero
+/// while moving (here the vehicle's speed at the start), its round-off
+/// growing as the tank's 1.7e9 J over that step, and on IDA from IDA's own
+/// y', off the model's x' by what its Newton iteration leaves. As an ODE
+/// (CVODE) and with the tyre's force an iteration variable (IDA).
+#[test]
+fn the_books_close_on_a_shift_with_a_sliding_tyre() {
+    let (jm, jw, mass, rr) = (0.05, 1.2, 1500.0, 0.3);
+    let (r1, r2, torque, eta) = (12.0, 7.0, 60.0, 0.35);
+    let (k, f_max, lhv, m0) = (2e4, 4000.0, 4.3e7, 40.0);
+    let force = move |s: f64| (k * s).clamp(-f_max, f_max);
+    let slope = move |s: f64| if (k * s).abs() < f_max { k } else { 0.0 };
+    for dae in [false, true] {
+        let n_y = if dae { 4 } else { 3 };
+        // y = [w, v, m (, F)]; d = [r]; channels 0 w, 1 w_m = r w, 2 v, 3 r,
+        // 4 m, 5 F, 6 the gear's input torque, 7 its output torque, 8 the
+        // fuel's power
+        let tyre = move |i: &EvalInput<'_>| {
+            if dae { i.y[3] } else { force(i.y[0] * rr - i.y[1]) }
+        };
+        let model = Hand {
+            layout: layout(3, if dae { 1 } else { 0 }, 0, 1, 1, 1, 9),
+            f: Box::new(move |i, out| {
+                let (w, r, f) = (i.y[0], i.d[0], tyre(i));
+                out[0] = (r * torque - rr * f) / (jm * r * r + jw);
+                out[1] = f / mass;
+                out[2] = -torque * r * w / (eta * lhv);
+                if dae {
+                    out[3] = i.y[3] - force(i.y[0] * rr - i.y[1]);
+                }
+            }),
+            jvp: Box::new(move |i, dv, out| {
+                let r = i.d[0];
+                let s = i.y[0] * rr - i.y[1];
+                let df = if dae { dv[3] } else { slope(s) * (dv[0] * rr - dv[1]) };
+                out[0] = -rr * df / (jm * r * r + jw);
+                out[1] = df / mass;
+                out[2] = -torque * r * dv[0] / (eta * lhv);
+                if dae {
+                    out[3] = dv[3] - slope(s) * (dv[0] * rr - dv[1]);
+                }
+            }),
+            roots: Box::new(|i, out| out[0] = i.t - 2.0),
+            vars: Box::new(move |i, out| {
+                let (w, r, f) = (i.y[0], i.d[0], tyre(i));
+                let wdot = (r * torque - rr * f) / (jm * r * r + jw);
+                let tau_in = torque - jm * r * wdot;
+                out[0] = w;
+                out[1] = r * w;
+                out[2] = i.y[1];
+                out[3] = r;
+                out[4] = i.y[2];
+                out[5] = f;
+                out[6] = tau_in;
+                out[7] = r * tau_in;
+                out[8] = torque * r * w / eta;
+            }),
+            when: Box::new(move |_, fired, d| {
+                if fired[0] != 0.0 {
+                    d[0] = r2;
+                }
+            }),
+            modes: None,
+            y0: if dae { vec![0.0, 0.0, m0, 0.0] } else { vec![0.0, 0.0, m0] },
+            d0: vec![r1],
+        };
+        let v = |k: u32| Expr::Var(VarId(k));
+        let c = Expr::Const;
+        let mut info = RunInfo::bare(n_y, 9, vec![]);
+        info.root_dirs = vec![1];
+        whens(&mut info, &[(0, Direction::Rising, "'Gearbox': upshift")]);
+        info.when_strict = vec![false];
+        info.time_crossings = vec![Some(TimeCrossing { at: c(2.0), rising: true })];
+        info.y_nominal = vec![100.0, 10.0, 10.0, 1000.0][..n_y].to_vec();
+        info.var_sources = vec![
+            VarSource::Y(0),
+            VarSource::Computed,
+            VarSource::Y(1),
+            VarSource::D(0),
+            VarSource::Y(2),
+            if dae { VarSource::Y(3) } else { VarSource::Computed },
+            VarSource::Computed,
+            VarSource::Computed,
+            VarSource::Computed,
+        ];
+        let part = |path: &str, power: Expr, loss: Option<Expr>, stored: Option<Expr>| EnergyPart {
+            path: path.into(),
+            name: format!("'{path}'"),
+            power,
+            loss,
+            stored,
+        };
+        let half = |cc: f64, k: u32| c(0.5 * cc) * v(k) * v(k);
+        let slip = v(0) * c(rr) - v(2);
+        info.energy = Some(Arc::new(EnergyInfo {
+            parts: vec![
+                part("tank", -v(8), None, Some(c(lhv) * v(4))),
+                part("engine", v(8) - c(torque) * v(1), Some(v(8) - c(torque) * v(1)), None),
+                part("rotor", c(torque) * v(1) - v(6) * v(1), None, Some(half(jm, 1))),
+                part("gearbox", v(6) * v(1) - v(7) * v(0), None, None),
+                part("wheel", v(7) * v(0) - v(5) * c(rr) * v(0), None, Some(half(jw, 0))),
+                part("tyre", v(5) * slip.clone(), Some(v(5) * slip), None),
+                part("body", v(5) * v(2), None, Some(half(mass, 2))),
+            ],
+        }));
+        // the rotor's speed through the gear: the books differentiate it
+        // exactly through this assignment
+        info.stored_rates = Some(Arc::new(lsim_solve::StoredRates {
+            chain: vec![(1, v(3) * v(0))],
+            exact: vec![true, false, true, false, true, false, true],
+        }));
+        info.impulse = Some(Arc::new(ImpulseInfo::new(
+            vec![(0, vec![4]), (2, vec![1]), (4, vec![0]), (6, vec![2])],
+            vec![EngagementInfo { changes: v(3), part: Some(3) }],
+            vec![],
+            vec![(1, false, v(3) * v(0))],
+            vec![],
+            &info.var_sources,
+            3,
+        )));
+        let opts = SolverOptions { rtol: 1e-6, atol: 1e-8, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 4.0, dt: 0.5 };
+        let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+        let books = run.energy.as_ref().unwrap();
+        let k2 = at(&run, 2.0);
+        println!(
+            "{} ({}): {} steps; at the shift F = {:.1} N (grip {f_max}), v = {:.4} m/s; closure \
+             {:.3e} J ({:.2e} of the throughput {:.4e} J); lost at the shift {:.3} J; parts: {:?}",
+            run.report.backend,
+            run.report.method,
+            run.stats.steps,
+            run.values[5][k2],
+            run.values[2][k2],
+            books.closure,
+            books.relative_closure,
+            books.throughput,
+            books.impulse_loss,
+            books.parts.iter().map(|p| (p.path.clone(), p.closure)).collect::<Vec<_>>()
+        );
+        assert!(
+            run.report.backend.contains(if dae { "IDA" } else { "CVODE" }),
+            "{}",
+            run.report.backend
+        );
+        assert_eq!(run.values[5][k2].abs(), f_max, "the tyre slides after the shift");
+        assert!(books.impulse_loss > 0.0);
+        assert!(books.relative_closure <= 1e-11, "dae {dae}: closure {}", books.relative_closure);
+        for p in &books.parts {
+            assert!(
+                p.closure.abs() <= 1e-11 * books.throughput,
+                "dae {dae}: {} closes to {:e} J",
+                p.path,
+                p.closure
+            );
+        }
+    }
+}
+
 /// A rigid engagement and a `reinit` at the same event: a latch stops the
 /// load (`reinit(load.w, 0)`) while the gear between it and the motor
 /// shifts. The load's speed stays where the reinit put it (the review found

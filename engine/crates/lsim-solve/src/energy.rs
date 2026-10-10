@@ -4,10 +4,16 @@
 //! next to the states ([`Integrand`]): the energy that entered it through
 //! its ports (∫ Σ across × through dt), the energy it turned into heat
 //! (∫ loss dt) and the change of the energy it stores (∫ dE/dt dt, the rate
-//! taken along the solution by a fourth-order central difference of the
-//! declared stored energy in the direction (1, y')). Jumps of the stored
-//! energy at events are booked separately, from the states just before and
-//! just after.
+//! along the solution, `y'` the model's own `x' = f(t, x, z)` for the states
+//! and the integrator's rate for the iteration variables). The rate is
+//! exact: forward-mode differentiation of the declared stored energy in the
+//! direction (1, y') through the assignments ([`crate::StoredRates`]); a
+//! stored energy that reaches a derivative, the time or a table through
+//! them takes a fourth-order central difference instead, its step moving
+//! no entry of y by more than 1e-3 of its size or of its nominal scale
+//! (round-off in a difference grows as |E| / step: a full fuel tank holds
+//! some 1e9 J). Jumps of the stored energy at events are booked
+//! separately, from the states just before and just after.
 //!
 //! The books of the whole model: what the parts without declared storage
 //! or losses supplied (ideal sources and other boundaries: the energy that
@@ -24,9 +30,11 @@
 //! error of the energies (the solution satisfies its equations only to the
 //! tolerance), of the order of rtol; the one-click tighter run shrinks it.
 
-use crate::info::{ChannelEnv, EnergyInfo};
+use crate::ad::{self, Dual, DualEnv};
+use crate::info::{ChannelEnv, EnergyInfo, RunInfo, StoredRates, VarSource};
 use lsim_ir::eval::eval;
 use lsim_ir::runtime::{EvalInput, Layout, ModelFunctions};
+use lsim_ir::{ParamId, VarId};
 use std::sync::Arc;
 
 /// Where one part's integrals sit.
@@ -67,22 +75,84 @@ fn slots(info: &EnergyInfo) -> (Vec<Slot>, usize) {
 /// when it declares them, ∫ loss and ∫ d(stored)/dt.
 pub struct Integrand {
     info: Arc<EnergyInfo>,
+    rates: Arc<StoredRates>,
+    sources: Arc<[VarSource]>,
+    nominal: Vec<f64>,
+    /// per flat variable: its step in `rates.chain` (usize::MAX: none)
+    pos: Vec<usize>,
+    jets: Vec<Option<Dual>>,
     vars: Vec<f64>,
     shifted: Vec<f64>,
     stored: Vec<[f64; 4]>,
+    /// per part: its rate needs the finite difference at this evaluation
+    differ: Vec<bool>,
     slots: Vec<Slot>,
     any_stored: bool,
     n: usize,
 }
 
+/// A stored energy's variables with their rates along the solution: the
+/// leaves from y' (states, iteration variables), the chain's from its
+/// steps computed so far.
+struct Along<'a> {
+    params: &'a [f64],
+    vars: &'a [f64],
+    ydot: &'a [f64],
+    sources: &'a [VarSource],
+    pos: &'a [usize],
+    jets: &'a [Option<Dual>],
+    upto: usize,
+}
+
+impl DualEnv for Along<'_> {
+    fn var(&self, v: VarId) -> Result<Dual, ()> {
+        let k = v.0 as usize;
+        let at = self.pos.get(k).copied().unwrap_or(usize::MAX);
+        if at != usize::MAX {
+            return match self.jets.get(at) {
+                Some(Some(j)) if at < self.upto => Ok(*j),
+                _ => Err(()),
+            };
+        }
+        let v = self.vars[k];
+        Ok(match self.sources.get(k) {
+            Some(VarSource::Y(i)) => Dual { v, d: self.ydot[*i] },
+            Some(VarSource::NegY(i)) => Dual { v, d: -self.ydot[*i] },
+            Some(VarSource::Computed) | None => return Err(()),
+            Some(_) => Dual { v, d: 0.0 },
+        })
+    }
+    fn param(&self, p: ParamId) -> f64 {
+        self.params[p.0 as usize]
+    }
+}
+
 impl Integrand {
-    /// The integrand of `info`'s books for a model of layout `l`.
-    pub fn new(info: &Arc<EnergyInfo>, l: &Layout) -> Self {
-        let (slots, n) = slots(info);
+    /// The integrand of `energy`'s books for a model of layout `l` run with
+    /// `info`.
+    pub fn new(energy: &Arc<EnergyInfo>, info: &RunInfo, l: &Layout) -> Self {
+        let (slots, n) = slots(energy);
+        let rates = info
+            .stored_rates
+            .clone()
+            .filter(|r| r.exact.len() == energy.parts.len())
+            .unwrap_or_else(|| Arc::new(StoredRates::from_sources(energy, &info.var_sources)));
+        let mut pos = vec![usize::MAX; l.n_vars];
+        for (k, (v, _)) in rates.chain.iter().enumerate() {
+            if let Some(p) = pos.get_mut(*v) {
+                *p = k;
+            }
+        }
         Integrand {
-            any_stored: info.parts.iter().any(|p| p.stored.is_some()),
-            stored: vec![[0.0; 4]; info.parts.len()],
-            info: info.clone(),
+            any_stored: energy.parts.iter().any(|p| p.stored.is_some()),
+            stored: vec![[0.0; 4]; energy.parts.len()],
+            differ: vec![false; energy.parts.len()],
+            jets: vec![None; rates.chain.len()],
+            pos,
+            sources: info.var_sources.clone().into(),
+            nominal: (0..l.n_y()).map(|i| info.y_nominal.get(i).copied().unwrap_or(1.0)).collect(),
+            rates,
+            info: energy.clone(),
             vars: vec![0.0; l.n_vars],
             shifted: vec![0.0; l.n_y()],
             slots,
@@ -122,13 +192,52 @@ impl Integrand {
         if !self.any_stored {
             return;
         }
-        // dE/dt along (1, y'): a fourth-order central difference with a step
-        // that moves every entry of y by at most 1e-3 of its size (exact for
-        // the quadratic stored energies of capacitors, inductors, masses)
+        // dE/dt along (1, y'), exactly: the chain's variables, then each
+        // stored energy, by forward-mode differentiation
+        for k in 0..self.rates.chain.len() {
+            let env = Along {
+                params: inp.p,
+                vars: &self.vars,
+                ydot,
+                sources: &self.sources,
+                pos: &self.pos,
+                jets: &self.jets,
+                upto: k,
+            };
+            self.jets[k] = ad::dual(&self.rates.chain[k].1, &env).ok();
+        }
+        let mut any_differ = false;
+        for (j, (part, s)) in self.info.parts.iter().zip(&self.slots).enumerate() {
+            let (Some(is), Some(e)) = (s.stored, &part.stored) else { continue };
+            self.differ[j] = true;
+            if self.rates.exact[j] {
+                let env = Along {
+                    params: inp.p,
+                    vars: &self.vars,
+                    ydot,
+                    sources: &self.sources,
+                    pos: &self.pos,
+                    jets: &self.jets,
+                    upto: self.jets.len(),
+                };
+                if let Ok(r) = ad::dual(e, &env) {
+                    out[is] = r.d;
+                    self.differ[j] = false;
+                }
+            }
+            any_differ |= self.differ[j];
+        }
+        if !any_differ {
+            return;
+        }
+        // the others: a fourth-order central difference (exact for quadratic
+        // stored energies) with a step that moves every entry of y by at
+        // most 1e-3 of its size or of its nominal scale: its round-off
+        // grows as |E| / step
         let mut h = f64::INFINITY;
-        for (y, yd) in inp.y.iter().zip(ydot) {
+        for ((y, yd), nom) in inp.y.iter().zip(ydot).zip(&self.nominal) {
             if *yd != 0.0 {
-                h = h.min(1e-3 * (y.abs() + 1e-9) / yd.abs());
+                h = h.min(1e-3 * y.abs().max(*nom) / yd.abs());
             }
         }
         if !h.is_finite() {
@@ -151,7 +260,9 @@ impl Integrand {
             }
         }
         for (j, s) in self.slots.iter().enumerate() {
-            if let Some(is) = s.stored {
+            if let Some(is) = s.stored
+                && self.differ[j]
+            {
                 let e = &self.stored[j];
                 out[is] = (-e[0] + 8.0 * e[1] - 8.0 * e[2] + e[3]) / (12.0 * h);
             }
@@ -163,6 +274,12 @@ impl Clone for Integrand {
     fn clone(&self) -> Self {
         Integrand {
             info: self.info.clone(),
+            rates: self.rates.clone(),
+            sources: self.sources.clone(),
+            nominal: self.nominal.clone(),
+            pos: self.pos.clone(),
+            jets: self.jets.clone(),
+            differ: self.differ.clone(),
             vars: self.vars.clone(),
             shifted: self.shifted.clone(),
             stored: self.stored.clone(),
