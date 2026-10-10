@@ -200,7 +200,9 @@ jobs:
     # Playwright bump whose screenshots change regenerates the PNGs on the new
     # image in the same PR.
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # About 170 tests, one at a time on one engine (playwright.config.ts),
+    # take some 25 minutes with setup; 15 stopped the suite two thirds in.
+    timeout-minutes: 40
     # The screenshots job below replaces this run when regenerating baselines.
     if: ${{ !inputs.update-screenshots }}
     steps:
