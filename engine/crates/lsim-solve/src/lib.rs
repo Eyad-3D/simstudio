@@ -496,6 +496,9 @@ pub struct SolverReport {
     /// iteration variables solved again between the ticks of one instant
     /// (a block reading what a block before it moved)
     pub z_solves: u64,
+    /// steps ended at a sign change of a condition that mixes time and
+    /// states, found along the step, that root finding did not see
+    pub pulses_found: u64,
     /// the integrator's own error estimate
     pub error: ErrorEstimate,
     /// warnings for the user

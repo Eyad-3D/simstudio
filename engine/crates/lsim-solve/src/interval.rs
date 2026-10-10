@@ -348,19 +348,63 @@ pub(crate) struct Cx<'a> {
     /// per table: the first axis's breakpoints of a 1-D table (empty: not
     /// known, or 2-D)
     pub breaks: &'a [Vec<f64>],
+    /// the variables that move along a step: each as the polynomial
+    /// through the integrator's dense output (the others are constant)
+    pub along: &'a [(usize, Poly)],
 }
 
-/// Whether [`enclose`] can bound `e` usefully as a function of time: no
+/// A variable along a step: the polynomial through the integrator's dense
+/// output, `Σ a_k u^k` in `u = (τ − c) / s` on `[-1, 1]`, and a bound
+/// `err` on its distance from that output (round-off, a dense output that
+/// is not a polynomial of that degree).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Poly {
+    pub c: f64,
+    pub s: f64,
+    pub a: Vec<f64>,
+    pub err: f64,
+}
+
+impl Poly {
+    /// The value at `t`.
+    pub(crate) fn at(&self, t: f64) -> f64 {
+        let u = (t - self.c) / self.s;
+        self.a.iter().rev().fold(0.0, |p, a| p * u + a)
+    }
+
+    /// The value, rate and second rate over `t` (interval Horner; the
+    /// rates' error bounded from `err` by Markov's inequality, n² per
+    /// derivative for a polynomial of degree n on [-1, 1]).
+    fn j2(&self, t: Iv) -> J2 {
+        let u = Iv::wide((t.lo - self.c) / self.s, (t.hi - self.c) / self.s, 2);
+        let horner =
+            |coef: &[f64]| coef.iter().rev().fold(ZERO, |p, a| p.mul(u).add(Iv::point(*a)));
+        let n = self.a.len();
+        let d1: Vec<f64> = (1..n).map(|k| k as f64 * self.a[k]).collect();
+        let d2: Vec<f64> = (2..n).map(|k| (k * (k - 1)) as f64 * self.a[k]).collect();
+        let m = ((n.max(2) - 1) * (n.max(2) - 1)) as f64;
+        let e = self.err;
+        let widen = |x: Iv, e: f64| Iv::new(x.lo - e, x.hi + e);
+        let s = self.s;
+        J2 {
+            v: widen(horner(&self.a), e),
+            d: widen(horner(&d1).scale(1.0 / s), m * e / s),
+            dd: widen(horner(&d2).scale(1.0 / (s * s)), m * m * e / (s * s)),
+        }
+    }
+}
+
+/// Whether [`enclose`] can bound `e` usefully over a time interval: no
 /// derivative, unresolved name, 2-D table or `atan2` whose arguments move
-/// with time, and every 1-D table's breakpoints known.
-pub(crate) fn supported(e: &Expr, breaks: &[Vec<f64>]) -> bool {
-    let reads_time = |e: &Expr| e.any(&mut |x| matches!(x, Expr::Time));
+/// (`moves`: with time, or with the variables that move along a step), and
+/// every 1-D table's breakpoints known.
+pub(crate) fn supported(e: &Expr, breaks: &[Vec<f64>], moves: &dyn Fn(&Expr) -> bool) -> bool {
     let mut ok = true;
     e.walk(&mut |x| match x {
         Expr::Der(_) | Expr::Name(_) => ok = false,
         Expr::Call(Builtin::Der | Builtin::Pre, _) => ok = false,
-        Expr::Call(Builtin::Atan2, args) if args.iter().any(reads_time) => ok = false,
-        Expr::Table { table, args } if args.iter().any(reads_time) => {
+        Expr::Call(Builtin::Atan2, args) if args.iter().any(moves) => ok = false,
+        Expr::Table { table, args } if args.iter().any(moves) => {
             if args.len() != 1 || breaks.get(*table as usize).is_none_or(|b| b.is_empty()) {
                 ok = false;
             }
@@ -377,7 +421,10 @@ pub(crate) fn enclose(e: &Expr, cx: &Cx<'_>, t: Iv) -> J2 {
     match e {
         Expr::Const(v) => k(*v),
         Expr::Param(p) => k(cx.params[p.0 as usize]),
-        Expr::Var(v) | Expr::Pre(v) => k(cx.vars.get(v.0 as usize).copied().unwrap_or(f64::NAN)),
+        Expr::Var(v) | Expr::Pre(v) => match cx.along.iter().find(|(i, _)| *i == v.0 as usize) {
+            Some((_, p)) => p.j2(t),
+            None => k(cx.vars.get(v.0 as usize).copied().unwrap_or(f64::NAN)),
+        },
         Expr::Time => J2 { v: t, d: ONE, dd: ZERO },
         Expr::Der(_) | Expr::Name(_) => J2::all(),
         Expr::Neg(a) => ev(a).neg(),
@@ -956,7 +1003,7 @@ mod tests {
             ),
         ];
         let m = no_model();
-        let cx = Cx { params: &[], vars: &[], model: &m, breaks: &[] };
+        let cx = Cx { params: &[], vars: &[], model: &m, breaks: &[], along: &[] };
         for e in &exprs {
             for (lo, hi) in [(0.0, 0.3), (0.3, 1.7), (1.9, 2.1), (2.4, 2.6), (0.0, 9.0), (5.0, 5.0)]
             {
@@ -997,6 +1044,37 @@ mod tests {
         }
     }
 
+    /// A variable along a step, as a polynomial: its enclosures hold its
+    /// value and rates everywhere inside, and its error widens them.
+    #[test]
+    fn a_polynomial_leaf_holds_its_values_and_rates() {
+        let p =
+            Poly { c: 3.0, s: 0.5, a: vec![1.0, -2.0, 0.5, 3.0, -1.0, 0.25, 0.1, -0.05], err: 0.0 };
+        let du = |u: f64, k: usize| -> f64 {
+            // the k-th derivative in u
+            (k..p.a.len())
+                .map(|i| {
+                    let f: f64 = ((i - k + 1)..=i).map(|x| x as f64).product();
+                    f * p.a[i] * u.powi((i - k) as i32)
+                })
+                .sum()
+        };
+        for (lo, hi) in [(2.5, 3.5), (2.9, 3.1), (3.2, 3.2), (2.5, 2.6)] {
+            let j = p.j2(Iv::new(lo, hi));
+            for k in 0..=100 {
+                let t = lo + (hi - lo) * k as f64 / 100.0;
+                let u = (t - p.c) / p.s;
+                let (v, d, dd) = (du(u, 0), du(u, 1) / p.s, du(u, 2) / (p.s * p.s));
+                assert!((p.at(t) - v).abs() < 1e-12);
+                assert!(j.v.lo <= v && v <= j.v.hi, "[{lo}, {hi}] at {t}: {v} {:?}", j.v);
+                assert!(j.d.lo <= d && d <= j.d.hi, "[{lo}, {hi}] at {t}: {d} {:?}", j.d);
+                assert!(j.dd.lo <= dd && dd <= j.dd.hi, "[{lo}, {hi}] at {t}: {dd} {:?}", j.dd);
+            }
+        }
+        let wide = Poly { err: 1e-3, ..p.clone() }.j2(Iv::new(3.0, 3.0));
+        assert!(wide.v.hi - wide.v.lo >= 2e-3 && wide.d.hi - wide.d.lo >= 2e-3 / p.s);
+    }
+
     /// A sine pulse: every sign change found in order, exactly (the float
     /// before has the other sign), and nothing after the last.
     #[test]
@@ -1011,7 +1089,7 @@ mod tests {
             Expr::Const(0.95),
         );
         let m = no_model();
-        let cx = Cx { params: &[], vars: &[], model: &m, breaks: &[] };
+        let cx = Cx { params: &[], vars: &[], model: &m, breaks: &[], along: &[] };
         let mut p = |t: f64| point(&e, t);
         let mut enc = |l: f64, r: f64| {
             let j = enclose(&e, &cx, Iv::new(l, r));
@@ -1046,7 +1124,7 @@ mod tests {
     #[test]
     fn a_narrow_pulse_and_a_jump_are_found_and_a_touch_is_passed() {
         let m = no_model();
-        let cx = Cx { params: &[], vars: &[], model: &m, breaks: &[] };
+        let cx = Cx { params: &[], vars: &[], model: &m, breaks: &[], along: &[] };
         let run = |e: &Expr, a: f64, b: f64| {
             let mut p = |t: f64| point(e, t);
             let mut enc = |l: f64, r: f64| {

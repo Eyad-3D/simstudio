@@ -965,18 +965,33 @@ round).**
   the direction the sign changes; it is searched again after it fired,
   and when a value it reads changed. A grazing touch without a sign
   change is passed. A function that also reads continuous variables
-  (`x > sin(ω time)`) stays with root finding, and the run loop stops at
-  every extremum of its terms in time alone (searched the same way on
-  their rates), so each is monotone within a step and a pulse they make
-  spans a stop; terms affine in time, or tables read at positions affine
-  in time, are monotone between the stops above already. What cannot be
+  (`x > sin(ω time)`) stays with root finding, which sees a sign change
+  only between a step's ends: after every step the run loop takes the
+  step along the integrator's dense output, the states and iteration
+  variables the function reads (every computed variable resolved) as the
+  polynomials of degree 7 through that output at Chebyshev points, the
+  fit checked at one more point and its error carried into the
+  enclosures (Markov's inequality for the rates). The same search finds
+  the function's first sign change in the step; one root finding did not
+  report ends the step there, at the first time the model's own root
+  function on the dense output is on the new side, as a root does
+  (`SolverReport::pulses_found`). It costs about 1.2 µs a step for each
+  such condition. A function whose time terms are only affine in time or
+  tables read at positions affine in time is left to root finding with
+  the stops above (its time terms are monotone cubics between them; the
+  scan would cost every driving-cycle condition that much on every
+  step). What cannot be
   searched (a 2-D table, `atan2` or a derivative that moves with time; a
   function not defined where its search starts; a search that makes no
   headway) is named in a warning and left to root finding: never
   silently. (Work package 4's sixth round: the review's `sin(2π time /
   10) > 0.95` while nothing integrated moved was stepped over entirely,
   x(100) = 0 against 10.108, without a warning; now 10.108262410426,
-  exact to round-off, in 34 steps.)
+  exact to round-off, in 34 steps. The seventh round: the extremum stops
+  then used for the mixed ones missed a pulse inside a monotone stretch
+  of the time term, `sin(time) > x` with x' = 0.3, 0.29 s long on the
+  sine's rising flank: 0 of 1 fired in 5 steps, without a warning; the
+  scan along the dense output fires it, in 5 steps.)
 * *Both sides of an event at an output time.* An output time that falls
   exactly on an event records both sides, as Modelica tools write two
   rows at that time to their result files: `SimResult::values` holds the

@@ -55,11 +55,14 @@ pub enum TimeFunction {
     /// loop finds its sign changes ahead without integrating and reaches
     /// each exactly, as a time crossing.
     Pure(Expr),
-    /// It reads continuous variables too: these are its terms in time
-    /// alone (with parameters and discrete values). The run loop stops at
-    /// their extrema, so that between two stops each is monotone and a
-    /// pulse they make is not inside one step.
-    Mixed(Vec<Expr>),
+    /// It reads continuous variables too: the function with every
+    /// computed variable replaced by its definition, its leaves time,
+    /// parameters, discrete values, states, iteration variables and
+    /// inputs. Root finding watches it, and after every step the run loop
+    /// checks the step along the integrator's dense output for a sign
+    /// change root finding cannot see (two inside one step): the step
+    /// ends at the first.
+    Mixed(Expr),
     /// It reads time in a way the run loop cannot search ahead (the run
     /// warns, and leaves it to root finding).
     Unhandled,
@@ -1109,10 +1112,20 @@ fn time_functions(
             if !cont {
                 return Some(TimeFunction::Pure(g));
             }
+            // (its time terms monotone between the stops made anyway, a
+            // table read along time or an affine one: left to root
+            // finding with those stops)
             let discrete: std::collections::HashSet<VarId> = m.discretes.iter().copied().collect();
             let mut terms = vec![];
             r.terms(&g, &discrete, &mut terms);
-            (!terms.is_empty()).then_some(TimeFunction::Mixed(terms))
+            if terms.is_empty() {
+                return None;
+            }
+            let mut budget = MAX_NODES;
+            match r.resolve_all(&z.expr, 0, &mut budget) {
+                Some(full) => Some(TimeFunction::Mixed(full)),
+                None => Some(TimeFunction::Unhandled),
+            }
         })
         .collect()
 }
@@ -1195,6 +1208,56 @@ impl Resolver<'_> {
                 })
             }
             other => other,
+        });
+        ok.then_some(out)
+    }
+
+    /// `e` with every computed variable replaced by its definition (through
+    /// the assignments and aliases), within `budget` nodes (`None`: past
+    /// it, too deep, or a variable no definition gives).
+    fn resolve_all(&mut self, e: &Expr, depth: usize, budget: &mut usize) -> Option<Expr> {
+        if depth > 64 {
+            return None;
+        }
+        let mut ok = true;
+        let out = e.clone().rewrite(&mut |x| {
+            if !ok {
+                return x;
+            }
+            match x {
+                Expr::Var(v) | Expr::Pre(v)
+                    if self.sources.get(v.0 as usize) == Some(&VarSource::Computed) =>
+                {
+                    let def = match self.assigned.get(&v).copied() {
+                        Some(def) => self.resolve_all(def, depth + 1, budget),
+                        None => match self.alias.get(&v).copied() {
+                            Some(AliasTarget::Var { var, negated }) => {
+                                let t = self.resolve_all(&Expr::Var(var), depth + 1, budget);
+                                if negated { t.map(|t| -t) } else { t }
+                            }
+                            Some(AliasTarget::Const(c)) => Some(Expr::Const(c)),
+                            None => None,
+                        },
+                    };
+                    match def {
+                        Some(d) => {
+                            let mut n = 0;
+                            d.walk(&mut |_| n += 1);
+                            if n > *budget {
+                                ok = false;
+                                return Expr::Var(v);
+                            }
+                            *budget -= n;
+                            d
+                        }
+                        None => {
+                            ok = false;
+                            Expr::Var(v)
+                        }
+                    }
+                }
+                other => other,
+            }
         });
         ok.then_some(out)
     }

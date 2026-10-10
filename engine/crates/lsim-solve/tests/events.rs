@@ -904,7 +904,7 @@ fn conditions_on_functions_of_time_are_found_in_a_prepared_model() {
     let mixed = info
         .time_functions
         .iter()
-        .filter(|f| matches!(f, Some(lsim_solve::TimeFunction::Mixed(t)) if t.len() == 1))
+        .filter(|f| matches!(f, Some(lsim_solve::TimeFunction::Mixed(_))))
         .count();
     assert!(pure >= 1 && mixed >= 1, "{:?}", info.time_functions);
     let t_end = 100.0;

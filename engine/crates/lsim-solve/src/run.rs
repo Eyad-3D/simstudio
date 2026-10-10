@@ -51,8 +51,9 @@
 //!   its next sign change is found ahead without integrating
 //!   ([`crate::interval`]) and reached exactly, as a time crossing's is.
 //!   One that reads continuous variables too stays with root finding,
-//!   and the integrator stops at the extrema of its terms in time alone,
-//!   so no step holds a whole pulse.
+//!   and every step is checked along the integrator's dense output for a
+//!   sign change root finding did not see (two inside one step): the step
+//!   ends at the first, as at a root.
 //! * **Sampled blocks** ([`DiscreteBlock`], DESIGN.md risk R1) tick at
 //!   `offset + k·period`. A tick that falls inside a step is evaluated on
 //!   the dense output; if its outputs did not change, nothing else happens
@@ -1300,7 +1301,18 @@ pub fn run_loop(
         // integrators cannot step so short an interval, and the solution
         // does not move across it
         let same = same_instant(t, t_stop);
-        let st = if same { Step::Stopped(t_stop) } else { integ.step(t_stop)? };
+        let mut st = if same { Step::Stopped(t_stop) } else { integ.step(t_stop)? };
+        // a mixed condition's sign change inside the step that root
+        // finding did not see (two inside one step: a pulse): the step
+        // ends there, as at a root; the state there from the dense output
+        let mut y_cut: Option<Vec<f64>> = None;
+        if !same && let Some((at, dirs)) = lp.scan_mixed(integ, t, st.time(), &d)? {
+            let mut yv = vec![0.0; n];
+            integ.interpolate(at, &mut yv)?;
+            y_cut = Some(yv);
+            st = Step::Root(at, dirs);
+            report.pulses_found += 1;
+        }
         let t_new = st.time();
         let is_root = matches!(st, Step::Root(..));
         // a scheduled event at the step's end: a time event, a time
@@ -1539,13 +1551,13 @@ pub fn run_loop(
         }
 
         // the step's end point, for min/max/mean, and the asserts
-        match &resumed {
-            Some(after) => {
+        match (&resumed, &y_cut) {
+            (Some(after), _) => {
                 y.copy_from_slice(after);
                 lp.sample(t_new, &y, &d);
             }
-            None => {
-                y.copy_from_slice(integ.y());
+            (None, cut) => {
+                y.copy_from_slice(cut.as_deref().unwrap_or(integ.y()));
                 lp.sample(t_new, &y, &d);
                 rec.interior(t_new, &lp.vars);
             }
@@ -1717,7 +1729,9 @@ pub fn run_loop(
             }
             lp.update_sides(t, &y, &d, dirs);
             integ.set_root_sides(&lp.sides);
-            if changed {
+            // (a step ended at a pulse the run loop found: the integrator,
+            // past it, restarts here even when nothing changed)
+            if changed || y_cut.is_some() {
                 integ.restart(t, &y)?;
                 y.copy_from_slice(integ.y());
                 after_event(

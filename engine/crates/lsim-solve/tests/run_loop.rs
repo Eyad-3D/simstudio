@@ -2147,6 +2147,233 @@ fn a_function_of_time_is_searched_again_when_a_value_it_reads_changes() {
     }
 }
 
+/// A mixed condition whose pulse lies inside a monotone stretch of its
+/// time term: `when sin(time) > x` with x' = 0.3, true for 0.29 s around
+/// acos(0.3) = 1.266 s, on the rising flank of the sine (no extremum of it
+/// there). Nothing but the ramp is integrated, so the steps grow long: the
+/// review found the default run firing 0 of 1 times in 5 steps, without a
+/// warning (1 of 1 with a step limit of 0.01 s). The pulse is made by the
+/// state and the time term together; the step is checked along its dense
+/// output, and ends at the pulse.
+#[test]
+fn a_mixed_pulse_inside_a_monotone_stretch_of_its_time_term_fires() {
+    let c = 0.3f64;
+    let t_star = c.acos();
+    let x_star = t_star.sin() - 0.01;
+    let x0 = x_star - c * t_star;
+    // y = [x]; d = [count]; channels: x, count
+    let model = Hand {
+        layout: layout(1, 0, 0, 1, 1, 1, 2),
+        f: Box::new(move |_, out| out[0] = c),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(|i, out| out[0] = i.t.sin() - i.y[0]),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+        }),
+        when: Box::new(|_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] += 1.0;
+            }
+        }),
+        modes: None,
+        y0: vec![x0],
+        d0: vec![0.0],
+    };
+    let mut info = RunInfo::bare(1, 2, vec![]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::D(0)];
+    info.root_dirs = vec![1];
+    whens(&mut info, &[(0, Direction::Rising, "'Comparator': sin(time) > x")]);
+    info.when_strict = vec![true];
+    info.time_crossings = vec![None];
+    // as preparation classifies it: mixed
+    info.time_functions = vec![Some(TimeFunction::Mixed(
+        Expr::Call(lsim_ir::expr::Builtin::Sin, vec![Expr::Time]) - Expr::Var(VarId(0)),
+    ))];
+    // the exact crossings upwards of sin(t) - x(t)
+    let g = |t: f64| t.sin() - (x0 + c * t);
+    let t_end = 6.0;
+    let n = 600_000;
+    let ups: Vec<f64> = (0..n)
+        .filter_map(|k| {
+            let (a, b) = (k as f64 * t_end / n as f64, (k + 1) as f64 * t_end / n as f64);
+            (g(a) <= 0.0 && g(b) > 0.0).then_some(b)
+        })
+        .collect();
+    assert_eq!(ups.len(), 1);
+    for backend in backends() {
+        for max_step in [0.0, 0.01] {
+            let opts =
+                SolverOptions { backend, rtol: 1e-8, atol: 1e-8, max_step, ..Default::default() };
+            let run =
+                simulate(&model, &info, &opts, OutputGrid { t0: 0.0, t_end, dt: 1.0 }, &mut [])
+                    .unwrap();
+            let count = *run.values[1].last().unwrap();
+            let at: Vec<f64> = run.events.iter().map(|e| e.t).collect();
+            println!(
+                "{backend:?}, max_step {max_step}: fired {count} times at {at:?} (exact {ups:?}), {} \
+                 steps, warnings {:?}",
+                run.stats.steps, run.report.warnings
+            );
+            assert_eq!(count, 1.0, "{backend:?} {max_step}");
+            assert!((at[0] - ups[0]).abs() < 1e-5, "{backend:?} {max_step}: {at:?}");
+            assert!(run.report.warnings.is_empty());
+        }
+    }
+}
+
+/// A model with a table: `Hand` and a 1-D table 0 given by a function
+/// (value and slope).
+struct WithTable(Hand, fn(f64) -> (f64, f64));
+
+impl ModelFunctions for WithTable {
+    fn layout(&self) -> &Layout {
+        self.0.layout()
+    }
+    fn residual(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+        self.0.residual(inp, w, out)
+    }
+    fn jvp(&self, inp: &EvalInput<'_>, v: &[f64], w: &mut [f64], out: &mut [f64]) {
+        self.0.jvp(inp, v, w, out)
+    }
+    fn roots(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+        self.0.roots(inp, w, out)
+    }
+    fn vars(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+        self.0.vars(inp, w, out)
+    }
+    fn when(&self, inp: &EvalInput<'_>, fired: &[f64], w: &mut [f64], d: &mut [f64]) {
+        self.0.when(inp, fired, w, d)
+    }
+    fn modes(&self, inp: &EvalInput<'_>, w: &mut [f64], d: &mut [f64]) {
+        self.0.modes(inp, w, d)
+    }
+    fn start(&self, p: &[f64], y0: &mut [f64], d0: &mut [f64]) {
+        self.0.start(p, y0, d0)
+    }
+    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+        (k == 0).then(|| {
+            let (v, d) = (self.1)(args[0]);
+            (v, [d, 0.0])
+        })
+    }
+}
+
+/// `when table(time) > 0.5` for a linear table with a narrow triangle at
+/// 50 s (0, 1, 0 over 0.2 s) while nothing integrated moves: a pure time
+/// function, searched ahead through the table's pieces, fires once, at
+/// 50.05 s.
+#[test]
+fn a_pure_condition_on_a_linear_table_fires_once() {
+    fn tri(x: f64) -> (f64, f64) {
+        // breakpoints 0, 50, 50.1, 50.2, 100: values 0, 0, 1, 0, 0
+        if (50.0..50.1).contains(&x) {
+            ((x - 50.0) / 0.1, 10.0)
+        } else if (50.1..50.2).contains(&x) {
+            ((50.2 - x) / 0.1, -10.0)
+        } else {
+            (0.0, 0.0)
+        }
+    }
+    let model = WithTable(
+        Hand {
+            layout: layout(1, 0, 0, 1, 1, 1, 2),
+            f: Box::new(|_, out| out[0] = 0.0),
+            jvp: Box::new(|_, _, out| out[0] = 0.0),
+            roots: Box::new(|i, out| out[0] = tri(i.t).0 - 0.5),
+            vars: Box::new(|i, out| {
+                out[0] = i.y[0];
+                out[1] = i.d[0];
+            }),
+            when: Box::new(|_, fired, d| {
+                if fired[0] != 0.0 {
+                    d[0] += 1.0;
+                }
+            }),
+            modes: None,
+            y0: vec![0.0],
+            d0: vec![0.0],
+        },
+        tri,
+    );
+    let mut info = RunInfo::bare(1, 2, vec![]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::D(0)];
+    info.root_dirs = vec![1];
+    whens(&mut info, &[(0, Direction::Rising, "'Trigger': table(time) > 0.5")]);
+    info.when_strict = vec![true];
+    info.time_crossings = vec![None];
+    let g = Expr::Table { table: 0, args: vec![Expr::Time] } - Expr::Const(0.5);
+    info.time_functions = vec![Some(TimeFunction::Pure(g))];
+    info.table_breaks = vec![vec![0.0, 50.0, 50.1, 50.2, 100.0]];
+    let opts = SolverOptions { rtol: 1e-8, atol: 1e-8, ..Default::default() };
+    let run =
+        simulate(&model, &info, &opts, OutputGrid { t0: 0.0, t_end: 100.0, dt: 10.0 }, &mut [])
+            .unwrap();
+    let fired: Vec<f64> = run.events.iter().map(|e| e.t).collect();
+    println!("fired at {fired:?}; warnings {:?}; {} steps", run.report.warnings, run.stats.steps);
+    assert_eq!(*run.values[1].last().unwrap(), 1.0);
+    assert!(fired.len() == 1 && (fired[0] - 50.05).abs() < 1e-12, "{fired:?}");
+}
+
+/// The cost of searching ahead on a long run: `sin(2π time / 10) > 0.95`
+/// toggling a mode-like flag while nothing integrated moves, over 1000
+/// periods (2000 sign changes): exact, in a few steps per sign change, far
+/// fewer than a step limit of 0.1 s would take (and less accurate).
+#[test]
+fn searching_a_pure_function_ahead_on_a_long_run_is_cheap() {
+    let period = 10.0;
+    let w = 2.0 * std::f64::consts::PI / period;
+    let model = Hand {
+        layout: layout(1, 0, 0, 1, 1, 1, 2),
+        f: Box::new(|i, out| out[0] = i.d[0]),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(move |i, out| out[0] = (w * i.t).sin() - 0.95),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+        }),
+        when: Box::new(|_, fired, d| {
+            if fired[0] != 0.0 {
+                d[0] = 1.0 - d[0];
+            }
+        }),
+        modes: None,
+        y0: vec![0.0],
+        d0: vec![0.0],
+    };
+    let mut info = RunInfo::bare(1, 2, vec![]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::D(0)];
+    info.root_dirs = vec![0];
+    whens(&mut info, &[(0, Direction::Both, "'Pulse': toggles")]);
+    info.when_strict = vec![false];
+    info.time_crossings = vec![None];
+    info.time_functions = vec![Some(TimeFunction::Pure(sine_pulse(period, 0.95)))];
+    let t_end = 1000.0 * period;
+    let exact = 1000.0 * (std::f64::consts::PI - 2.0 * 0.95f64.asin())
+        / (2.0 * std::f64::consts::PI)
+        * period;
+    let mut steps = vec![];
+    for max_step in [0.0, 0.1] {
+        let opts = SolverOptions { rtol: 1e-8, atol: 1e-8, max_step, ..Default::default() };
+        let t0 = std::time::Instant::now();
+        let run = simulate(&model, &info, &opts, OutputGrid { t0: 0.0, t_end, dt: 100.0 }, &mut [])
+            .unwrap();
+        let x = *run.values[0].last().unwrap();
+        println!(
+            "max_step {max_step}: x = {x:.9} (exact {exact:.9}), {} events, {} steps, {:.3} s",
+            run.events.len(),
+            run.stats.steps,
+            t0.elapsed().as_secs_f64()
+        );
+        assert_eq!(run.events.len(), 2000);
+        if max_step == 0.0 {
+            assert!((x - exact).abs() < 1e-9 * exact, "{x}");
+        }
+        steps.push(run.stats.steps);
+    }
+    assert!(steps[0] * 10 < steps[1], "{steps:?}");
+}
+
 /// A pulse that passes zero twice within one default step: a Gaussian of
 /// width 1 ms at 5 s, above one half for 2 ms √ln 2, in a run of 10 s
 /// where nothing integrated moves (the integrator's steps are seconds
@@ -2200,9 +2427,10 @@ fn a_pulse_narrower_than_a_step_is_found() {
 /// A condition that mixes time and a state: `sin(2π time / T) > x` with x
 /// falling slowly from 1 (x' = -0.01): pulses appear as x drops below 1
 /// and widen. Root finding watches it (it reads a state); the run loop
-/// stops at every extremum of the sine, so no step holds a whole pulse.
-/// The time the condition held, s(t_end) with s' = m, agrees with the
-/// exact crossings (bisected here) to 1e-9.
+/// checks every step along the dense output for a pulse root finding
+/// cannot see, and ends the step at it. The time the condition held,
+/// s(t_end) with s' = m, agrees with the exact crossings (bisected here)
+/// to 1e-9.
 #[test]
 fn a_condition_mixing_time_and_a_state_is_not_stepped_over() {
     let period = 10.0;
@@ -2230,14 +2458,14 @@ fn a_condition_mixing_time_and_a_state_is_not_stepped_over() {
     info.root_dirs = vec![0];
     info.modes = vec![ModeInfo { crossing: 0, discrete: 0, label: "'Pulse': on".into() }];
     info.var_sources = vec![VarSource::Y(0), VarSource::Y(1), VarSource::D(0)];
-    let term = {
+    let gx = {
         use lsim_ir::expr::{BinaryOp, Builtin};
         Expr::Call(
             Builtin::Sin,
             vec![Expr::Binary(BinaryOp::Mul, Box::new(Expr::Const(w)), Box::new(Expr::Time))],
-        )
+        ) - Expr::Var(VarId(0))
     };
-    info.time_functions = vec![Some(TimeFunction::Mixed(vec![term]))];
+    info.time_functions = vec![Some(TimeFunction::Mixed(gx))];
     // the exact time it held: the crossings of sin(w t) = 1 - 0.01 t
     let t_end = 100.0;
     let h = |t: f64| g(t, 1.0 - 0.01 * t);
@@ -2267,13 +2495,14 @@ fn a_condition_mixing_time_and_a_state_is_not_stepped_over() {
         let s = *run.values[1].last().unwrap();
         println!("{backend:?}: held {s:.12} s (exact {held:.12}), {} steps", run.stats.steps);
         assert!((s - held).abs() < 1e-9 * held, "{backend:?}: {s} against {held}");
-        // without the stops CVODE's steps span whole pulses (diffsol's
+        assert!(run.report.pulses_found > 0, "{backend:?}");
+        // without the scan CVODE's steps span whole pulses (diffsol's
         // stay short enough here)
         let mut bare = info.clone();
         bare.time_functions.clear();
         let run = simulate(&model, &bare, &opts, grid, &mut []).unwrap();
         let s = *run.values[1].last().unwrap();
-        println!("{backend:?} without the stops: held {s:.6} s, {} steps", run.stats.steps);
+        println!("{backend:?} without the scan: held {s:.6} s, {} steps", run.stats.steps);
         if backend == Backend::Sundials {
             assert!((s - held).abs() > 1.0, "the failure this guards against: {s}");
         }
