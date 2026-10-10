@@ -124,6 +124,47 @@ jobs:
         working-directory: backend
         run: python -m pytest tests/ -q
 
+  # The new engine (engine/, Rust) on Windows, the only target: SUNDIALS
+  # built with MSVC by the cc crate, the generated code called through the
+  # Windows calling convention, and every test of the workspace
+  # (engine/DESIGN.md, risks R2 and R12). engine/check.sh's gate, step by
+  # step; cargo-deny runs where it is installed.
+  engine-windows:
+    name: Engine (Rust) on Windows
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: engine
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Rust toolchain
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add rustfmt clippy
+          rustc --version
+          cargo --version
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Lints (warnings are errors)
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace --locked
+
+      - name: Licences of every third-party crate
+        run: python scripts/licences.py
+
   # Fails when the example runs get more than 10 % slower than on the commit
   # this change starts from, timed on the same runner in alternating fresh
   # processes (backend/tests/test_performance.py). No stored timings, so a
