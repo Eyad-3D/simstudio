@@ -5,7 +5,7 @@
 
 use lsim_ir::eval::Env;
 use lsim_ir::prepared::{AliasTarget, Direction, PreparedModel};
-use lsim_ir::runtime::SparsityPattern;
+use lsim_ir::runtime::{ModelFunctions, SparsityPattern};
 use lsim_ir::{Expr, ParamId, Slot, VarId};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -26,6 +26,385 @@ pub struct ModeInfo {
     pub discrete: usize,
     /// what it is, naming the part (`'Clutch': locked`)
     pub label: String,
+}
+
+/// A zero-crossing function that depends on time only, between events:
+/// `rate · (t − at)` with a constant rate and `at` an expression of
+/// parameters and discrete variables (a `when time >= t_shift`, a mode of
+/// `if time > t_on`). The run loop schedules it as a time event at `at`,
+/// reached exactly as a stop time, instead of locating it by root finding
+/// (which lands a few ulps after it, so an output at exactly `at` would
+/// show the value before the event).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TimeCrossing {
+    /// when it crosses zero (flat scope: parameters, discrete variables)
+    pub at: Expr,
+    /// it rises through zero as time passes (its rate is positive)
+    pub rising: bool,
+}
+
+/// A zero-crossing function that reads time beyond `c · time + b`
+/// ([`RunInfo::time_functions`]): `sin(2π time / T) > 0.95`, a pulse
+/// narrower than the steps the integrator takes while nothing it
+/// integrates moves. Root finding sees a condition only by its sign at
+/// step ends and would step over it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TimeFunction {
+    /// It reads time, parameters and discrete values only (the computed
+    /// variables that read time replaced by their definitions): the run
+    /// loop finds its sign changes ahead without integrating and reaches
+    /// each exactly, as a time crossing.
+    Pure(Expr),
+    /// It reads continuous variables too: the computed variables it reads
+    /// (`chain`: each with its definition, in evaluation order, through
+    /// the assignments and aliases) and the function `g` over them; what
+    /// neither defines is a leaf: time, parameters, discrete values,
+    /// states, iteration variables, inputs. Root finding watches it, and
+    /// the run loop makes sure no step holds a sign change root finding
+    /// cannot see (two inside one step): a cheap certificate that the
+    /// function keeps its sign over a time window and a box of the states,
+    /// or the step taken along the integrator's dense output; the step
+    /// ends at the first such change. (One whose value moves only where a
+    /// `noEvent` comparison flips is left to root finding.)
+    Mixed {
+        /// (computed variable, its definition), in evaluation order
+        chain: Vec<(usize, Expr)>,
+        /// the zero-crossing function
+        g: Expr,
+    },
+    /// It reads time in a way the run loop cannot search ahead (the run
+    /// warns, and leaves it to root finding).
+    Unhandled,
+}
+
+/// What the impulse projection at a rigid engagement needs to know about a
+/// model (DESIGN.md, *Events*): the rigid engagements, the couplings that
+/// pass an impulse on, the parts' stored energies, how every variable they
+/// read follows from the states (the model's assignments, which the
+/// projection interprets with exact derivatives) and the states `reinit`
+/// restarts.
+///
+/// When an engagement's `changes` takes a new value at an event (a
+/// gearbox's selected ratio), the speeds its rigid coupling ties together
+/// jump as an instantaneous, rigid engagement makes them, in two stages.
+/// First the rigidly coupled inertias meet: their momentum is kept, and
+/// the kinetic energy that loses is the engaging part's. Then each
+/// coupling a model declares stiff and unbounded ([`ImpulseLink`]) whose
+/// `active` holds at the state the first stage left relaxes to the
+/// relative velocity it had before the event, passing momentum on: the
+/// kinetic energy that loses is that coupling's (the event's, when several
+/// share it). A coupling with bounded forces (a tyre, within or at its
+/// grip; a slipping clutch) passes nothing in zero time: the integrator
+/// follows it after the event. Nothing else starts a projection (a stored energy that
+/// merely depends on a discrete value does not), and what a `reinit` set at
+/// the event stays where it put it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ImpulseInfo {
+    /// per energy part with a stored energy: (its index in
+    /// [`EnergyInfo::parts`], the flat variables its stored energy reads)
+    pub parts: Vec<(usize, Vec<usize>)>,
+    /// the rigid engagements
+    pub engagements: Vec<EngagementInfo>,
+    /// couplings that keep a relative velocity through an impulse
+    pub links: Vec<ImpulseLink>,
+    /// how each computed variable the stored energies, the links and the
+    /// engagements read follows from y, d and u: (flat variable, whether it
+    /// is the variable's derivative, its expression), in evaluation order
+    pub chain: Vec<(usize, bool, Expr)>,
+    /// per variable a `reinit` restarts: (its continuous part's entry of y,
+    /// its jump's entry of d)
+    pub restarts: Vec<(usize, usize)>,
+    /// what each flat variable depends on (derived)
+    deps: HashMap<usize, Deps>,
+    /// per link: the flat variables `keep` reads (derived)
+    link_vars: Vec<Vec<usize>>,
+    /// every flat variable the stored energies and links read (derived)
+    vars: Vec<usize>,
+    /// per state: the variables of `vars` that depend on it (derived)
+    by_state: HashMap<usize, Vec<usize>>,
+    /// the chain step that computes each variable, and what each step
+    /// reads (derived)
+    step_of: HashMap<(usize, bool), usize>,
+    step_reads: Vec<Vec<(usize, bool)>>,
+    /// the discrete values the engagements depend on, and whether one
+    /// depends on an iteration variable (derived)
+    eng_discretes: BTreeSet<usize>,
+    eng_reads_z: bool,
+}
+
+/// What a flat variable depends on, through the assignments.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Deps {
+    /// states (entries of y)
+    pub states: BTreeSet<usize>,
+    /// discrete values (entries of d)
+    pub discretes: BTreeSet<usize>,
+    /// an iteration variable
+    pub z: bool,
+}
+
+/// A rigid engagement a part makes ([`lsim_ir::EngagementDecl`], in flat
+/// scope).
+#[derive(Clone, Debug, PartialEq)]
+pub struct EngagementInfo {
+    /// what takes a new value at an engagement (a gear's selected ratio)
+    pub changes: Expr,
+    /// the energy part (index in [`EnergyInfo::parts`]) of the instance
+    /// that declares it: the kinetic energy its engagement loses is booked
+    /// to it
+    pub part: Option<usize>,
+}
+
+/// A coupling a model declares stiff and unbounded (in the rigid limit):
+/// at an engagement it passes the impulse on, its relative velocity `keep`
+/// relaxing back to its value before the event, while `active` holds at
+/// the state the rigid engagement leaves (or comes to hold as the other
+/// links relax). A coupling with bounded forces (a tyre, a slipping
+/// clutch) declares none. In flat scope.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImpulseLink {
+    /// the relative velocity kept
+    pub keep: Expr,
+    /// while this holds (a truth value)
+    pub active: Expr,
+    /// the energy part (index in [`EnergyInfo::parts`]) of the instance
+    /// that declares it: the kinetic energy its relaxation loses is booked
+    /// to it
+    pub part: Option<usize>,
+}
+
+impl ImpulseInfo {
+    /// The projection's structure from its parts: the stored energies (and
+    /// the variables they read), the engagements, the links, how the
+    /// computed variables follow from y, d and u (`chain`, in evaluation
+    /// order), the restarted states, where each variable comes from
+    /// (`sources`) and the number of states.
+    pub fn new(
+        parts: Vec<(usize, Vec<usize>)>,
+        engagements: Vec<EngagementInfo>,
+        links: Vec<ImpulseLink>,
+        chain: Vec<(usize, bool, Expr)>,
+        restarts: Vec<(usize, usize)>,
+        sources: &[VarSource],
+        n_x: usize,
+    ) -> ImpulseInfo {
+        let leaf = |v: usize| -> Option<Deps> {
+            let mut d = Deps::default();
+            match sources.get(v).copied()? {
+                VarSource::Y(i) | VarSource::NegY(i) => {
+                    if i < n_x {
+                        d.states.insert(i);
+                    } else {
+                        d.z = true;
+                    }
+                }
+                VarSource::D(i) | VarSource::NegD(i) => {
+                    d.discretes.insert(i);
+                }
+                VarSource::U(_) | VarSource::Const(_) => {}
+                VarSource::Computed => return None,
+            }
+            Some(d)
+        };
+        let mut deps: HashMap<(usize, bool), Deps> = HashMap::new();
+        let mut step_of = HashMap::new();
+        let mut step_reads = vec![];
+        for (k, (v, der, e)) in chain.iter().enumerate() {
+            let mut d = Deps::default();
+            let mut reads = vec![];
+            e.walk(&mut |x| {
+                let key = match x {
+                    Expr::Var(w) => (w.0 as usize, false),
+                    Expr::Der(w) => (w.0 as usize, true),
+                    _ => return,
+                };
+                reads.push(key);
+                let from = deps.get(&key).cloned().or_else(|| {
+                    if key.1 {
+                        // a derivative the chain does not compute: an
+                        // iteration variable
+                        Some(Deps { z: true, ..Default::default() })
+                    } else {
+                        leaf(key.0)
+                    }
+                });
+                if let Some(f) = from {
+                    d.states.extend(f.states);
+                    d.discretes.extend(f.discretes);
+                    d.z |= f.z;
+                }
+            });
+            deps.insert((*v, *der), d);
+            step_of.insert((*v, *der), k);
+            step_reads.push(reads);
+        }
+        let read = |e: &Expr| {
+            let mut out = BTreeSet::new();
+            e.walk(&mut |x| {
+                if let Expr::Var(v) = x {
+                    out.insert(v.0 as usize);
+                }
+            });
+            out
+        };
+        let link_vars: Vec<Vec<usize>> =
+            links.iter().map(|l| read(&l.keep).into_iter().collect()).collect();
+        let mut all: BTreeSet<usize> = BTreeSet::new();
+        for (_, at) in &parts {
+            all.extend(at.iter().copied());
+        }
+        for lv in &link_vars {
+            all.extend(lv.iter().copied());
+        }
+        for en in &engagements {
+            all.extend(read(&en.changes));
+        }
+        let mut var_deps: HashMap<usize, Deps> = HashMap::new();
+        for &v in &all {
+            let d = deps.get(&(v, false)).cloned().or_else(|| leaf(v)).unwrap_or_default();
+            var_deps.insert(v, d);
+        }
+        for ((v, der), d) in &deps {
+            if !der {
+                var_deps.entry(*v).or_insert_with(|| d.clone());
+            }
+        }
+        let vars: Vec<usize> = {
+            let mut s: BTreeSet<usize> = BTreeSet::new();
+            for (_, at) in &parts {
+                s.extend(at.iter().copied());
+            }
+            for lv in &link_vars {
+                s.extend(lv.iter().copied());
+            }
+            s.into_iter().collect()
+        };
+        let mut by_state: HashMap<usize, Vec<usize>> = HashMap::new();
+        for &u in &vars {
+            for &s in &var_deps[&u].states {
+                by_state.entry(s).or_default().push(u);
+            }
+        }
+        let (mut eng_discretes, mut eng_reads_z) = (BTreeSet::new(), false);
+        for en in &engagements {
+            for v in read(&en.changes) {
+                if let Some(d) = var_deps.get(&v) {
+                    eng_discretes.extend(d.discretes.iter().copied());
+                    eng_reads_z |= d.z;
+                }
+            }
+        }
+        ImpulseInfo {
+            parts,
+            engagements,
+            links,
+            chain,
+            restarts,
+            deps: var_deps,
+            link_vars,
+            vars,
+            by_state,
+            step_of,
+            step_reads,
+            eng_discretes,
+            eng_reads_z,
+        }
+    }
+
+    /// Whether an engagement can have changed between the discrete values
+    /// `before` and `d` (one it depends on changed).
+    pub(crate) fn may_engage(&self, d: &[f64], before: &[f64]) -> bool {
+        !self.engagements.is_empty()
+            && (self.eng_reads_z || self.eng_discretes.iter().any(|&k| d[k] != before[k]))
+    }
+
+    /// What flat variable `v` depends on.
+    pub(crate) fn deps(&self, v: usize) -> Deps {
+        self.deps.get(&v).cloned().unwrap_or_default()
+    }
+
+    /// The discrete values an expression depends on.
+    pub(crate) fn expr_discretes(&self, e: &Expr) -> BTreeSet<usize> {
+        let mut out = BTreeSet::new();
+        e.walk(&mut |x| {
+            if let Expr::Var(v) = x
+                && let Some(d) = self.deps.get(&(v.0 as usize))
+            {
+                out.extend(d.discretes.iter().copied());
+            }
+        });
+        out
+    }
+
+    /// Every flat variable the stored energies and the links read.
+    pub(crate) fn vars(&self) -> &[usize] {
+        &self.vars
+    }
+
+    /// The flat variables link `l`'s `keep` reads.
+    pub(crate) fn link_vars(&self, l: usize) -> &[usize] {
+        &self.link_vars[l]
+    }
+
+    /// Whether a variable of the energies or links depends on an
+    /// iteration variable.
+    pub(crate) fn reads_z(&self) -> bool {
+        self.vars.iter().any(|v| self.deps.get(v).is_some_and(|d| d.z))
+    }
+
+    /// What `start` is rigidly coupled to: through the states the
+    /// variables depend on (and every variable that depends on those
+    /// states), and through the links in `links` (all their variables
+    /// move together). The variables and the states.
+    pub(crate) fn coupled(
+        &self,
+        start: &[usize],
+        links: &[usize],
+    ) -> (BTreeSet<usize>, BTreeSet<usize>) {
+        let mut vars: BTreeSet<usize> = BTreeSet::new();
+        let mut states: BTreeSet<usize> = BTreeSet::new();
+        let mut todo: Vec<usize> = start.to_vec();
+        while let Some(u) = todo.pop() {
+            if !vars.insert(u) {
+                continue;
+            }
+            if let Some(d) = self.deps.get(&u) {
+                for &s in &d.states {
+                    if states.insert(s) {
+                        todo.extend(self.by_state.get(&s).into_iter().flatten().copied());
+                    }
+                }
+            }
+            for &lk in links {
+                if self.link_vars[lk].contains(&u) {
+                    todo.extend(self.link_vars[lk].iter().copied());
+                }
+            }
+        }
+        (vars, states)
+    }
+
+    /// The energy parts whose stored energy reads one of `vars`.
+    pub(crate) fn parts_touching(&self, vars: &BTreeSet<usize>) -> Vec<usize> {
+        (0..self.parts.len())
+            .filter(|&k| self.parts[k].1.iter().any(|v| vars.contains(v)))
+            .collect()
+    }
+
+    /// The chain's steps that compute `vars` (with what they read), in
+    /// evaluation order.
+    pub(crate) fn steps_for(&self, vars: &BTreeSet<usize>) -> Vec<usize> {
+        let mut need: BTreeSet<usize> = BTreeSet::new();
+        let mut todo: Vec<(usize, bool)> = vars.iter().map(|v| (*v, false)).collect();
+        while let Some(key) = todo.pop() {
+            if let Some(&k) = self.step_of.get(&key)
+                && need.insert(k)
+            {
+                todo.extend(self.step_reads[k].iter().copied());
+            }
+        }
+        need.into_iter().collect()
+    }
 }
 
 /// Where a sampled block (a [`lsim_ir::DiscreteBlock`]) reads and writes.
@@ -131,6 +510,9 @@ pub struct RunInfo {
     pub root_dirs: Vec<i32>,
     /// for each `when` clause: what it is, in words
     pub when_labels: Vec<String>,
+    /// for each `when` clause: its condition is strict (`x > 0`: an exact
+    /// zero does not hold; empty: none is)
+    pub when_strict: Vec<bool>,
     /// parameter values, SI
     pub params: Vec<f64>,
     /// each entry of y by name (states, then iteration variables)
@@ -157,6 +539,195 @@ pub struct RunInfo {
     pub table_names: Vec<String>,
     /// for each residual of the initialisation system: the equation it is
     pub init_labels: Vec<String>,
+    /// what the impulse projection at a rigid engagement needs; `None`: no
+    /// projection (a model that declares no rigid engagement)
+    pub impulse: Option<Arc<ImpulseInfo>>,
+    /// for each zero-crossing function that depends on time only between
+    /// events: when it crosses (empty, or `None` for the others: located
+    /// by root finding)
+    pub time_crossings: Vec<Option<TimeCrossing>>,
+    /// whether a zero-crossing function, a mode's relation or a `when`'s
+    /// assigned value reads an iteration variable (through the
+    /// assignments): event iteration then solves the iteration variables
+    /// again whenever a discrete value changes, before it re-checks the
+    /// conditions
+    pub events_read_z: bool,
+    /// per discrete value: whether it reaches what the integrator
+    /// integrates or watches (a state's derivative, a residual of the
+    /// iteration variables, an energy integrand, a zero-crossing function,
+    /// a table's argument) through the assignments. A sample tick that
+    /// changes only values that do not leaves the solution exactly as it
+    /// is: the step stands, no restart. Empty: every discrete value counts
+    /// as reaching them
+    pub dynamic_discretes: Vec<bool>,
+    /// per discrete value: whether it reaches the residuals that determine
+    /// the iteration variables (through the assignments): a sampled block
+    /// that reads an iteration variable at an instant where another block
+    /// changed one of these reads it solved again. Empty: every discrete
+    /// value counts as reaching them
+    pub z_discretes: Vec<bool>,
+    /// how the energy books take each stored energy's rate exactly (the
+    /// assignments to differentiate along the solution); `None`: from the
+    /// variables' sources alone ([`StoredRates::from_sources`])
+    pub stored_rates: Option<Arc<StoredRates>>,
+    /// the tables read along time (a driving cycle's speed by time): the
+    /// integrator stops at each of their breakpoints
+    pub time_tables: Vec<TimeTable>,
+    /// for each zero-crossing function that reads time and is not a time
+    /// crossing: how the run loop keeps a pulse in time from being stepped
+    /// over (empty, or `None` for the others)
+    pub time_functions: Vec<Option<TimeFunction>>,
+    /// per table: the breakpoints of a 1-D table (empty: 2-D, or not
+    /// known), for the enclosures of the time functions that read it
+    pub table_breaks: Vec<Vec<f64>>,
+    /// per table: a 2-D table's two axes (empty: 1-D, or not known), for
+    /// the same
+    pub table_axes: Vec<[Vec<f64>; 2]>,
+}
+
+/// A table read at a position that moves with time alone, `c · time + b`
+/// (`b` of parameters and discrete values): its breakpoints are stop
+/// times, so no step spans one. A condition such a table drives (a
+/// controller's command from a driving cycle's target) is checked at least
+/// at every breakpoint even when nothing the integrator integrates moves
+/// (a car at rest), and the table's kinks fall on step ends.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TimeTable {
+    /// the table
+    pub table: u32,
+    /// the axis read along time
+    pub axis: usize,
+    /// the breakpoints along that axis
+    pub at: Vec<f64>,
+    /// `c`, per second
+    pub c: f64,
+    /// `b`
+    pub b: Expr,
+}
+
+/// How the energy books take each stored energy's rate, `dE/dt` along the
+/// solution, exactly: by forward-mode differentiation in the direction
+/// `(1, y')` through the assignments that compute the variables the
+/// stored energies read (the time's rate is one; a table's derivatives
+/// are those of the model's interpolant, [`ModelFunctions::eval_table`]).
+/// A stored energy whose variables reach a derivative or a previous value
+/// through them is left to a finite difference.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StoredRates {
+    /// (variable, its expression), in evaluation order
+    pub chain: Vec<(usize, Expr)>,
+    /// per energy part ([`EnergyInfo::parts`]): whether its stored
+    /// energy's rate is taken exactly
+    pub exact: Vec<bool>,
+}
+
+impl StoredRates {
+    /// Without the model's assignments: exact for the stored energies that
+    /// read only states, discrete values, inputs and constants.
+    pub fn from_sources(energy: &EnergyInfo, sources: &[VarSource]) -> StoredRates {
+        let exact = energy
+            .parts
+            .iter()
+            .map(|p| {
+                p.stored.as_ref().is_some_and(|e| {
+                    let mut ok = !reaches_unknown(e);
+                    e.walk(&mut |x| {
+                        if let Expr::Var(v) = x
+                            && sources.get(v.0 as usize).is_none_or(|s| *s == VarSource::Computed)
+                        {
+                            ok = false;
+                        }
+                    });
+                    ok
+                })
+            })
+            .collect();
+        StoredRates { chain: vec![], exact }
+    }
+}
+
+/// Whether `e` reads what a rate along the solution cannot take exactly
+/// here: a derivative, a previous value, a name.
+fn reaches_unknown(e: &Expr) -> bool {
+    let mut bad = false;
+    e.walk(&mut |x| {
+        if matches!(x, Expr::Der(_) | Expr::Pre(_) | Expr::Name(_)) {
+            bad = true;
+        }
+    });
+    bad
+}
+
+/// The assignments the stored energies' rates need (see [`StoredRates`]).
+fn stored_rates(m: &PreparedModel, energy: &EnergyInfo, sources: &[VarSource]) -> StoredRates {
+    let assigned: HashMap<Slot, usize> =
+        m.assignments.iter().enumerate().map(|(k, a)| (a.target, k)).collect();
+    let alias: HashMap<VarId, AliasTarget> = m.aliases.iter().map(|a| (a.var, a.target)).collect();
+    let mut steps: BTreeSet<usize> = BTreeSet::new();
+    let mut alias_steps: Vec<(usize, Expr)> = vec![];
+    let mut exact = vec![];
+    for p in &energy.parts {
+        let Some(e) = &p.stored else {
+            exact.push(false);
+            continue;
+        };
+        let mut ok = !reaches_unknown(e);
+        let (mut mine, mut my_aliases) = (BTreeSet::new(), vec![]);
+        let mut seen: BTreeSet<VarId> = BTreeSet::new();
+        let mut todo: Vec<VarId> = vec![];
+        e.walk(&mut |x| {
+            if let Expr::Var(v) = x {
+                todo.push(*v);
+            }
+        });
+        while ok && let Some(v) = todo.pop() {
+            if !seen.insert(v) {
+                continue;
+            }
+            if let Some(&k) = assigned.get(&Slot::Var(v)) {
+                let a = &m.assignments[k].expr;
+                if reaches_unknown(a) {
+                    ok = false;
+                }
+                mine.insert(k);
+                a.walk(&mut |x| {
+                    if let Expr::Var(r) = x {
+                        todo.push(*r);
+                    }
+                });
+            } else if sources.get(v.0 as usize) == Some(&VarSource::Computed) {
+                match alias.get(&v) {
+                    Some(AliasTarget::Var { var, negated }) => {
+                        let t = if *negated { -Expr::Var(*var) } else { Expr::Var(*var) };
+                        my_aliases.push((v.0 as usize, t));
+                        todo.push(*var);
+                    }
+                    _ => ok = false,
+                }
+            }
+        }
+        if ok {
+            steps.extend(mine);
+            for a in my_aliases {
+                if !alias_steps.iter().any(|(v, _)| *v == a.0) {
+                    alias_steps.push(a);
+                }
+            }
+        }
+        exact.push(ok);
+    }
+    let mut chain: Vec<(usize, Expr)> = steps
+        .into_iter()
+        .map(|k| {
+            let a = &m.assignments[k];
+            let (Slot::Var(w) | Slot::Der(w)) = a.target;
+            (w.0 as usize, a.expr.clone())
+        })
+        .collect();
+    // aliases after what they copy (an alias of an alias after its target)
+    alias_steps.reverse();
+    chain.extend(alias_steps);
+    StoredRates { chain, exact }
 }
 
 impl RunInfo {
@@ -170,6 +741,7 @@ impl RunInfo {
             whens: vec![],
             root_dirs: vec![],
             when_labels: vec![],
+            when_strict: vec![],
             params,
             y_names: (0..n_y).map(|i| format!("y{i}")).collect(),
             residual_labels: vec![],
@@ -182,6 +754,16 @@ impl RunInfo {
             asserts: vec![],
             table_names: vec![],
             init_labels: vec![],
+            impulse: None,
+            time_crossings: vec![],
+            events_read_z: true,
+            dynamic_discretes: vec![],
+            z_discretes: vec![],
+            stored_rates: None,
+            time_tables: vec![],
+            time_functions: vec![],
+            table_breaks: vec![],
+            table_axes: vec![],
         }
     }
 
@@ -217,6 +799,15 @@ impl RunInfo {
         let d_index: HashMap<VarId, usize> =
             m.discretes.iter().enumerate().map(|(k, v)| (*v, k)).collect();
         let sources = var_sources(m);
+        let energy = energy_info(m);
+        let dynamic_discretes = dynamic_discretes(m, &energy);
+        let z_discretes = z_discretes(m);
+        let impulse = impulse_info(m, &energy, &sources).map(Arc::new);
+        let stored_rates = Some(Arc::new(stored_rates(m, &energy, &sources)));
+        let time_crossings: Vec<Option<TimeCrossing>> = {
+            let discrete: std::collections::HashSet<VarId> = m.discretes.iter().copied().collect();
+            m.zero_crossings.iter().map(|z| time_crossing(&z.expr, &discrete)).collect()
+        };
         let blocks = m
             .external
             .iter()
@@ -241,6 +832,7 @@ impl RunInfo {
             whens: m.whens.iter().map(|w| (w.crossing, w.direction)).collect(),
             root_dirs,
             when_labels: m.whens.iter().map(|w| labelled(&w.origin)).collect(),
+            when_strict: m.whens.iter().map(|w| w.strict).collect(),
             params: flat.params.iter().map(|p| p.value).collect(),
             y_names,
             residual_labels: m.residuals.iter().map(|r| labelled(&r.origin)).collect(),
@@ -264,8 +856,7 @@ impl RunInfo {
                     structural_pattern(m)
                 },
             ),
-            var_sources: sources,
-            energy: Some(Arc::new(energy_info(m))),
+            energy: Some(Arc::new(energy)),
             asserts: flat
                 .asserts
                 .iter()
@@ -277,7 +868,77 @@ impl RunInfo {
                 .collect(),
             table_names: flat.tables.iter().map(|t| t.name.clone()).collect(),
             init_labels: m.init.residuals.iter().map(|r| labelled(&r.origin)).collect(),
+            impulse,
+            time_functions: time_functions(m, &sources, &time_crossings),
+            table_breaks: flat
+                .tables
+                .iter()
+                .map(|t| if t.data.dims() == 1 { t.data.x.clone() } else { vec![] })
+                .collect(),
+            table_axes: flat
+                .tables
+                .iter()
+                .map(|t| {
+                    if t.data.dims() == 2 {
+                        [t.data.x.clone(), t.data.y.clone()]
+                    } else {
+                        [vec![], vec![]]
+                    }
+                })
+                .collect(),
+            var_sources: sources,
+            time_crossings,
+            events_read_z: events_read_z(m),
+            dynamic_discretes,
+            z_discretes,
+            stored_rates,
+            time_tables: time_tables(m),
         }
+    }
+
+    /// The run with the tables `model` gives, when they differ from the
+    /// prepared ones (`None`: they do not, or the model does not give its
+    /// tables' breakpoints, [`ModelFunctions::table_axes`]): a compiled
+    /// model's tables may be swapped after preparation, and the
+    /// enclosures of the conditions on functions of time, and the stops at
+    /// the breakpoints of the tables read along time, must follow the data
+    /// the model interpolates.
+    pub fn with_model_tables(&self, model: &dyn ModelFunctions) -> Option<RunInfo> {
+        let n = self.table_names.len().max(self.table_breaks.len()).max(self.table_axes.len());
+        let mut changed: Vec<(usize, [Vec<f64>; 2])> = vec![];
+        for k in 0..n {
+            let Some([x, y]) = model.table_axes(k as u32) else { continue };
+            let (breaks, axes) = if y.is_empty() {
+                (x.clone(), [vec![], vec![]])
+            } else {
+                (vec![], [x.clone(), y.clone()])
+            };
+            // (a table the run has no entry for: no breakpoints, no axes)
+            let same = self.table_breaks.get(k).map_or(breaks.is_empty(), |b| *b == breaks)
+                && self.table_axes.get(k).map_or(axes[0].is_empty(), |a| *a == axes);
+            if !same {
+                changed.push((k, [x, y]));
+            }
+        }
+        if changed.is_empty() {
+            return None;
+        }
+        let mut info = self.clone();
+        info.table_breaks.resize(n, vec![]);
+        info.table_axes.resize(n, [vec![], vec![]]);
+        for (k, [x, y]) in changed {
+            if y.is_empty() {
+                info.table_breaks[k] = x.clone();
+                info.table_axes[k] = [vec![], vec![]];
+            } else {
+                info.table_breaks[k] = vec![];
+                info.table_axes[k] = [x.clone(), y.clone()];
+            }
+            for tt in info.time_tables.iter_mut().filter(|tt| tt.table as usize == k) {
+                tt.at = if tt.axis == 0 { x.clone() } else { y.clone() };
+            }
+        }
+        Some(info)
     }
 
     /// The same run with other parameter values (a sweep's set). Bound
@@ -286,6 +947,627 @@ impl RunInfo {
     pub fn with_params(&self, params: &[f64]) -> RunInfo {
         RunInfo { params: params.to_vec(), ..self.clone() }
     }
+}
+
+/// The impulse projection's structure ([`ImpulseInfo`]); `None` when the
+/// model declares no rigid engagement.
+fn impulse_info(
+    m: &PreparedModel,
+    energy: &EnergyInfo,
+    sources: &[VarSource],
+) -> Option<ImpulseInfo> {
+    if m.flat.engagements.is_empty() {
+        return None;
+    }
+    let part_of = |i: lsim_ir::InstanceId| {
+        let path = &m.flat.instance(i).path;
+        energy.parts.iter().position(|p| &p.path == path)
+    };
+    let read = |e: &Expr, out: &mut BTreeSet<usize>| {
+        e.walk(&mut |x| {
+            if let Expr::Var(v) = x {
+                out.insert(v.0 as usize);
+            }
+        })
+    };
+    let mut parts = vec![];
+    let mut wanted: BTreeSet<usize> = BTreeSet::new();
+    for (k, p) in energy.parts.iter().enumerate() {
+        let Some(e) = &p.stored else { continue };
+        let mut at = BTreeSet::new();
+        read(e, &mut at);
+        wanted.extend(at.iter().copied());
+        parts.push((k, at.into_iter().collect()));
+    }
+    let links: Vec<ImpulseLink> = m
+        .flat
+        .impulse
+        .iter()
+        .map(|l| {
+            read(&l.keep, &mut wanted);
+            ImpulseLink {
+                keep: l.keep.clone(),
+                active: l.active.clone(),
+                part: part_of(l.origin.instance),
+            }
+        })
+        .collect();
+    let engagements: Vec<EngagementInfo> = m
+        .flat
+        .engagements
+        .iter()
+        .map(|en| {
+            read(&en.changes, &mut wanted);
+            EngagementInfo { changes: en.changes.clone(), part: part_of(en.origin.instance) }
+        })
+        .collect();
+    // the assignments these variables need, in evaluation order; aliases
+    // of computed variables after them
+    let assigned: HashMap<Slot, usize> =
+        m.assignments.iter().enumerate().map(|(k, a)| (a.target, k)).collect();
+    let alias: HashMap<VarId, AliasTarget> = m.aliases.iter().map(|a| (a.var, a.target)).collect();
+    let mut need: BTreeSet<usize> = BTreeSet::new();
+    let mut alias_steps: Vec<(usize, bool, Expr)> = vec![];
+    let mut seen: BTreeSet<Slot> = BTreeSet::new();
+    let mut todo: Vec<Slot> = wanted.iter().map(|v| Slot::Var(VarId(*v as u32))).collect();
+    while let Some(slot) = todo.pop() {
+        if !seen.insert(slot) {
+            continue;
+        }
+        if let Some(&k) = assigned.get(&slot) {
+            need.insert(k);
+            m.assignments[k].expr.walk(&mut |x| match x {
+                Expr::Var(r) => todo.push(Slot::Var(*r)),
+                Expr::Der(r) => todo.push(Slot::Der(*r)),
+                _ => {}
+            });
+        } else if let Slot::Var(v) = slot
+            && sources.get(v.0 as usize) == Some(&VarSource::Computed)
+            && let Some(AliasTarget::Var { var, negated }) = alias.get(&v)
+        {
+            let e = if *negated { -Expr::Var(*var) } else { Expr::Var(*var) };
+            alias_steps.push((v.0 as usize, false, e));
+            todo.push(Slot::Var(*var));
+        }
+    }
+    let mut chain: Vec<(usize, bool, Expr)> = need
+        .into_iter()
+        .map(|k| {
+            let a = &m.assignments[k];
+            let (Slot::Var(w) | Slot::Der(w)) = a.target;
+            (w.0 as usize, matches!(a.target, Slot::Der(_)), a.expr.clone())
+        })
+        .collect();
+    chain.extend(alias_steps.into_iter().rev());
+    let y_of: HashMap<VarId, usize> = m.states.iter().enumerate().map(|(i, v)| (*v, i)).collect();
+    let d_of: HashMap<VarId, usize> =
+        m.discretes.iter().enumerate().map(|(k, v)| (*v, k)).collect();
+    let restarts = m
+        .flat
+        .restarts
+        .iter()
+        .filter_map(|r| Some((*y_of.get(&r.continuous)?, *d_of.get(&r.jump)?)))
+        .collect();
+    Some(ImpulseInfo::new(parts, engagements, links, chain, restarts, sources, m.states.len()))
+}
+
+/// The tables read at a position affine in time ([`TimeTable`]), through
+/// the assignments that compute it.
+fn time_tables(m: &PreparedModel) -> Vec<TimeTable> {
+    let discrete: std::collections::HashSet<VarId> = m.discretes.iter().copied().collect();
+    let assigned: HashMap<VarId, &Expr> = m
+        .assignments
+        .iter()
+        .filter_map(|a| match a.target {
+            Slot::Var(v) => Some((v, &a.expr)),
+            Slot::Der(_) => None,
+        })
+        .collect();
+    // a computed variable that moves with time alone, as `c · time + b`
+    // (memoised; None: it reads a state or an iteration variable)
+    fn affine_var(
+        v: VarId,
+        assigned: &HashMap<VarId, &Expr>,
+        discrete: &std::collections::HashSet<VarId>,
+        memo: &mut HashMap<VarId, Option<Expr>>,
+        depth: usize,
+    ) -> Option<Expr> {
+        if let Some(m) = memo.get(&v) {
+            return m.clone();
+        }
+        let def = *assigned.get(&v)?;
+        if depth > 64 {
+            return None;
+        }
+        let r = resolve(def, assigned, discrete, memo, depth + 1).and_then(|e| {
+            let (c, b) = time_affine(&e, discrete)?;
+            Some(Expr::Const(c) * Expr::Time + b)
+        });
+        memo.insert(v, r.clone());
+        r
+    }
+    // `e` with its computed variables replaced by their forms in time
+    fn resolve(
+        e: &Expr,
+        assigned: &HashMap<VarId, &Expr>,
+        discrete: &std::collections::HashSet<VarId>,
+        memo: &mut HashMap<VarId, Option<Expr>>,
+        depth: usize,
+    ) -> Option<Expr> {
+        let mut ok = true;
+        let out = e.clone().rewrite(&mut |x| match x {
+            Expr::Var(v) if assigned.contains_key(&v) => {
+                affine_var(v, assigned, discrete, memo, depth).unwrap_or_else(|| {
+                    ok = false;
+                    Expr::Var(v)
+                })
+            }
+            other => other,
+        });
+        ok.then_some(out)
+    }
+    let mut memo: HashMap<VarId, Option<Expr>> = HashMap::new();
+    let mut seen: BTreeSet<(u32, usize, String)> = BTreeSet::new();
+    let mut out = vec![];
+    let mut visit = |e: &Expr| {
+        e.walk(&mut |x| {
+            let Expr::Table { table, args } = x else { return };
+            for (axis, arg) in args.iter().enumerate().take(2) {
+                let Some(pos) = resolve(arg, &assigned, &discrete, &mut memo, 0) else { continue };
+                let Some((c, b)) = time_affine(&pos, &discrete) else { continue };
+                if c == 0.0 || !c.is_finite() {
+                    continue;
+                }
+                let Some(t) = m.flat.tables.get(*table as usize) else { continue };
+                let at = if axis == 0 { t.data.x.clone() } else { t.data.y.clone() };
+                if at.is_empty() || !seen.insert((*table, axis, format!("{c} {b}"))) {
+                    continue;
+                }
+                out.push(TimeTable { table: *table, axis, at, c, b });
+            }
+        })
+    };
+    for a in &m.assignments {
+        visit(&a.expr);
+    }
+    for r in &m.residuals {
+        visit(&r.expr);
+    }
+    for z in &m.zero_crossings {
+        visit(&z.expr);
+    }
+    out
+}
+
+/// How each zero-crossing function that reads time, and is not a time
+/// crossing, is kept from being stepped over ([`TimeFunction`]): the
+/// computed variables that read time are replaced by their definitions
+/// (through the assignments and aliases); what is left reads time,
+/// parameters and constant values (discrete values, and computed values
+/// of them), or continuous variables too.
+fn time_functions(
+    m: &PreparedModel,
+    sources: &[VarSource],
+    crossings: &[Option<TimeCrossing>],
+) -> Vec<Option<TimeFunction>> {
+    let assigned: HashMap<VarId, &Expr> = m
+        .assignments
+        .iter()
+        .filter_map(|a| match a.target {
+            Slot::Var(v) => Some((v, &a.expr)),
+            Slot::Der(_) => None,
+        })
+        .collect();
+    let alias: HashMap<VarId, AliasTarget> = m.aliases.iter().map(|a| (a.var, a.target)).collect();
+    let mut r = Resolver { assigned, alias, sources, memo: HashMap::new() };
+    // (a pure function grown past this many nodes is not searched)
+    const MAX_NODES: usize = 20_000;
+    m.zero_crossings
+        .iter()
+        .enumerate()
+        .map(|(k, z)| {
+            if crossings.get(k).is_some_and(|c| c.is_some()) {
+                return None;
+            }
+            let (time, _) = r.reads(&z.expr, 0);
+            if !time {
+                return None;
+            }
+            let Some(g) = r.resolve(&z.expr, 0) else {
+                return Some(TimeFunction::Unhandled);
+            };
+            let mut nodes = 0;
+            g.walk(&mut |_| nodes += 1);
+            if nodes > MAX_NODES {
+                return Some(TimeFunction::Unhandled);
+            }
+            let (_, cont) = r.reads(&g, 0);
+            if !cont {
+                return Some(TimeFunction::Pure(g));
+            }
+            match r.chain_of(&z.expr) {
+                Some(chain) => Some(TimeFunction::Mixed { chain, g: z.expr.clone() }),
+                None => Some(TimeFunction::Unhandled),
+            }
+        })
+        .collect()
+}
+
+/// Resolves the computed variables that read time ([`time_functions`]).
+struct Resolver<'a> {
+    assigned: HashMap<VarId, &'a Expr>,
+    alias: HashMap<VarId, AliasTarget>,
+    sources: &'a [VarSource],
+    /// per variable: (reads time, reads continuous variables)
+    memo: HashMap<VarId, (bool, bool)>,
+}
+
+impl Resolver<'_> {
+    /// Whether variable `v` reads time, and continuous variables (states,
+    /// iteration variables, inputs, anything not known).
+    fn var(&mut self, v: VarId, depth: usize) -> (bool, bool) {
+        if let Some(c) = self.memo.get(&v) {
+            return *c;
+        }
+        let out = match self.sources.get(v.0 as usize) {
+            Some(VarSource::D(_) | VarSource::NegD(_) | VarSource::Const(_)) => (false, false),
+            Some(VarSource::Computed) if depth < 64 => {
+                if let Some(e) = self.assigned.get(&v).copied() {
+                    self.reads(e, depth + 1)
+                } else {
+                    match self.alias.get(&v).copied() {
+                        Some(AliasTarget::Var { var, .. }) => self.var(var, depth + 1),
+                        Some(AliasTarget::Const(_)) => (false, false),
+                        None => (false, true),
+                    }
+                }
+            }
+            _ => (false, true),
+        };
+        self.memo.insert(v, out);
+        out
+    }
+
+    /// Whether `e` reads time, and continuous variables.
+    fn reads(&mut self, e: &Expr, depth: usize) -> (bool, bool) {
+        let mut vars = vec![];
+        let (mut time, mut cont) = (false, false);
+        e.walk(&mut |x| match x {
+            Expr::Time => time = true,
+            Expr::Der(_) | Expr::Name(_) => cont = true,
+            Expr::Var(v) | Expr::Pre(v) => vars.push(*v),
+            _ => {}
+        });
+        for v in vars {
+            let (t, c) = self.var(v, depth);
+            time |= t;
+            cont |= c;
+        }
+        (time, cont)
+    }
+
+    /// `e` with the computed variables that read time replaced by their
+    /// definitions (`None`: too deep).
+    fn resolve(&mut self, e: &Expr, depth: usize) -> Option<Expr> {
+        if depth > 64 {
+            return None;
+        }
+        let mut ok = true;
+        let out = e.clone().rewrite(&mut |x| match x {
+            Expr::Var(v) if self.var(v, depth).0 => {
+                let def = match self.assigned.get(&v).copied() {
+                    Some(def) => self.resolve(def, depth + 1),
+                    None => match self.alias.get(&v).copied() {
+                        Some(AliasTarget::Var { var, negated }) => {
+                            let t = self.resolve(&Expr::Var(var), depth + 1);
+                            if negated { t.map(|t| -t) } else { t }
+                        }
+                        _ => None,
+                    },
+                };
+                def.unwrap_or_else(|| {
+                    ok = false;
+                    Expr::Var(v)
+                })
+            }
+            other => other,
+        });
+        ok.then_some(out)
+    }
+
+    /// The computed variables `e` reads, through the assignments and
+    /// aliases, each with its definition, in evaluation order (`None`: one
+    /// that nothing defines, a definition that reads itself, or past
+    /// 100,000 of them).
+    fn chain_of(&self, e: &Expr) -> Option<Vec<(usize, Expr)>> {
+        let mut out: Vec<(usize, Expr)> = vec![];
+        let mut done: std::collections::HashSet<VarId> = Default::default();
+        let mut open: std::collections::HashSet<VarId> = Default::default();
+        // depth first, a variable after what it reads (an explicit stack:
+        // (variable, its definition's reads pushed already))
+        let reads = |x: &Expr| {
+            let mut v = vec![];
+            x.walk(&mut |y| {
+                if let Expr::Var(w) | Expr::Pre(w) = y {
+                    v.push(*w);
+                }
+            });
+            v
+        };
+        let mut stack: Vec<(VarId, bool)> =
+            reads(e).into_iter().rev().map(|v| (v, false)).collect();
+        while let Some((v, expanded)) = stack.pop() {
+            if done.contains(&v) || self.sources.get(v.0 as usize) != Some(&VarSource::Computed) {
+                continue;
+            }
+            if !expanded && !open.insert(v) {
+                // reached again before its definition is done: a loop
+                return None;
+            }
+            let def = match self.assigned.get(&v).copied() {
+                Some(d) => d.clone(),
+                None => match self.alias.get(&v).copied() {
+                    Some(AliasTarget::Var { var, negated }) => {
+                        if negated {
+                            -Expr::Var(var)
+                        } else {
+                            Expr::Var(var)
+                        }
+                    }
+                    Some(AliasTarget::Const(c)) => Expr::Const(c),
+                    None => return None,
+                },
+            };
+            if expanded {
+                done.insert(v);
+                open.remove(&v);
+                out.push((v.0 as usize, def));
+            } else {
+                stack.push((v, true));
+                for w in reads(&def).into_iter().rev() {
+                    if !done.contains(&w) {
+                        stack.push((w, false));
+                    }
+                }
+            }
+            if out.len() > 100_000 {
+                return None;
+            }
+        }
+        Some(out)
+    }
+}
+
+/// The crossing time of `f` when it is `c · time + b` with a constant
+/// `c ≠ 0` and `b` free of time and of continuous variables: `at = −b / c`
+/// (written so that `time − t1` gives `t1` exactly).
+pub fn time_crossing(
+    f: &Expr,
+    discrete: &std::collections::HashSet<VarId>,
+) -> Option<TimeCrossing> {
+    let (c, b) = time_affine(f, discrete)?;
+    if c == 0.0 || !c.is_finite() {
+        return None;
+    }
+    let at = if c == 1.0 {
+        neg(b)
+    } else if c == -1.0 {
+        b
+    } else {
+        Expr::Binary(lsim_ir::expr::BinaryOp::Div, Box::new(neg(b)), Box::new(Expr::Const(c)))
+    };
+    Some(TimeCrossing { at, rising: c > 0.0 })
+}
+
+fn neg(e: Expr) -> Expr {
+    match e {
+        Expr::Neg(a) => *a,
+        Expr::Const(v) => Expr::Const(-v),
+        e => Expr::Neg(Box::new(e)),
+    }
+}
+
+/// `e` as `c · time + b` (c a constant, b free of time and of continuous
+/// variables), if it is one.
+fn time_affine(e: &Expr, discrete: &std::collections::HashSet<VarId>) -> Option<(f64, Expr)> {
+    use lsim_ir::expr::BinaryOp::*;
+    let timeless = |e: &Expr| {
+        !e.any(&mut |x| match x {
+            Expr::Time | Expr::Der(_) | Expr::Name(_) => true,
+            Expr::Var(v) | Expr::Pre(v) => !discrete.contains(v),
+            _ => false,
+        })
+    };
+    if timeless(e) {
+        return Some((0.0, e.clone()));
+    }
+    let add = |a: Expr, b: Expr, minus: bool| -> Expr {
+        match (a, b) {
+            (a, Expr::Const(0.0)) => a,
+            (Expr::Const(0.0), b) => {
+                if minus {
+                    neg(b)
+                } else {
+                    b
+                }
+            }
+            (a, b) => Expr::Binary(if minus { Sub } else { Add }, Box::new(a), Box::new(b)),
+        }
+    };
+    match e {
+        Expr::Time => Some((1.0, Expr::Const(0.0))),
+        Expr::Neg(a) => {
+            let (c, b) = time_affine(a, discrete)?;
+            Some((-c, neg(b)))
+        }
+        Expr::Binary(op @ (Add | Sub), a, b) => {
+            let (ca, ea) = time_affine(a, discrete)?;
+            let (cb, eb) = time_affine(b, discrete)?;
+            let minus = *op == Sub;
+            Some((if minus { ca - cb } else { ca + cb }, add(ea, eb, minus)))
+        }
+        Expr::Binary(Mul, a, b) => {
+            let (ca, ea) = time_affine(a, discrete)?;
+            let (cb, eb) = time_affine(b, discrete)?;
+            match (ca == 0.0, cb == 0.0, &ea, &eb) {
+                (true, false, Expr::Const(k), _) => {
+                    Some((k * cb, Expr::Binary(Mul, Box::new(Expr::Const(*k)), Box::new(eb))))
+                }
+                (false, true, _, Expr::Const(k)) => {
+                    Some((ca * k, Expr::Binary(Mul, Box::new(ea), Box::new(Expr::Const(*k)))))
+                }
+                _ => None,
+            }
+        }
+        Expr::Binary(Div, a, b) => {
+            let (ca, ea) = time_affine(a, discrete)?;
+            match time_affine(b, discrete)? {
+                (cb, Expr::Const(k)) if cb == 0.0 && k != 0.0 => {
+                    Some((ca / k, Expr::Binary(Div, Box::new(ea), Box::new(Expr::Const(k)))))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Per discrete value: whether it reaches a state's derivative, a residual,
+/// an energy integrand, a zero-crossing function or a table's argument
+/// through the assignments ([`RunInfo::dynamic_discretes`]).
+fn dynamic_discretes(m: &PreparedModel, energy: &EnergyInfo) -> Vec<bool> {
+    let mut deps: HashMap<Slot, BTreeSet<usize>> = HashMap::new();
+    for (k, v) in m.discretes.iter().enumerate() {
+        deps.insert(Slot::Var(*v), [k].into());
+    }
+    let read = |e: &Expr, deps: &HashMap<Slot, BTreeSet<usize>>| {
+        let mut out = BTreeSet::new();
+        e.walk(&mut |x| {
+            let s = match x {
+                Expr::Var(v) | Expr::Pre(v) => Slot::Var(*v),
+                Expr::Der(v) => Slot::Der(*v),
+                _ => return,
+            };
+            if let Some(d) = deps.get(&s) {
+                out.extend(d.iter().copied());
+            }
+        });
+        out
+    };
+    for a in &m.assignments {
+        let s = read(&a.expr, &deps);
+        deps.insert(a.target, s);
+    }
+    // an alias reads what its target reads
+    for a in &m.aliases {
+        if let AliasTarget::Var { var, .. } = a.target
+            && let Some(s) = deps.get(&Slot::Var(var)).cloned()
+        {
+            deps.insert(Slot::Var(a.var), s);
+        }
+    }
+    let mut dynamic = vec![false; m.discretes.len()];
+    let mut mark = |s: &BTreeSet<usize>| {
+        for k in s {
+            dynamic[*k] = true;
+        }
+    };
+    for v in &m.states {
+        if let Some(s) = deps.get(&Slot::Der(*v)) {
+            mark(s);
+        }
+    }
+    for r in &m.residuals {
+        mark(&read(&r.expr, &deps));
+    }
+    for z in &m.zero_crossings {
+        mark(&read(&z.expr, &deps));
+    }
+    // (a table's guard watches its arguments)
+    for a in &m.assignments {
+        if a.expr.any(&mut |x| matches!(x, Expr::Table { .. })) {
+            mark(&read(&a.expr, &deps));
+        }
+    }
+    for p in &energy.parts {
+        for e in [Some(&p.power), p.loss.as_ref(), p.stored.as_ref()].into_iter().flatten() {
+            mark(&read(e, &deps));
+        }
+    }
+    dynamic
+}
+
+/// Per discrete value: whether it reaches a residual of the iteration
+/// variables through the assignments ([`RunInfo::z_discretes`]).
+fn z_discretes(m: &PreparedModel) -> Vec<bool> {
+    let mut deps: HashMap<Slot, BTreeSet<usize>> = HashMap::new();
+    for (k, v) in m.discretes.iter().enumerate() {
+        deps.insert(Slot::Var(*v), [k].into());
+    }
+    let read = |e: &Expr, deps: &HashMap<Slot, BTreeSet<usize>>| {
+        let mut out = BTreeSet::new();
+        e.walk(&mut |x| {
+            let s = match x {
+                Expr::Var(v) | Expr::Pre(v) => Slot::Var(*v),
+                Expr::Der(v) => Slot::Der(*v),
+                _ => return,
+            };
+            if let Some(d) = deps.get(&s) {
+                out.extend(d.iter().copied());
+            }
+        });
+        out
+    };
+    for a in &m.assignments {
+        let s = read(&a.expr, &deps);
+        deps.insert(a.target, s);
+    }
+    for a in &m.aliases {
+        if let AliasTarget::Var { var, .. } = a.target
+            && let Some(s) = deps.get(&Slot::Var(var)).cloned()
+        {
+            deps.insert(Slot::Var(a.var), s);
+        }
+    }
+    let mut out = vec![false; m.discretes.len()];
+    for r in &m.residuals {
+        for k in read(&r.expr, &deps) {
+            out[k] = true;
+        }
+    }
+    out
+}
+
+/// Whether an event's condition or assigned value reads an iteration
+/// variable, through the assignments ([`RunInfo::events_read_z`]).
+fn events_read_z(m: &PreparedModel) -> bool {
+    if m.algebraics.is_empty() {
+        return false;
+    }
+    let mut reads: HashMap<Slot, bool> = m.algebraics.iter().map(|s| (*s, true)).collect();
+    let depends = |e: &Expr, reads: &HashMap<Slot, bool>| {
+        e.any(&mut |x| match x {
+            Expr::Var(v) | Expr::Pre(v) => reads.get(&Slot::Var(*v)).copied().unwrap_or(false),
+            Expr::Der(v) => reads.get(&Slot::Der(*v)).copied().unwrap_or(false),
+            _ => false,
+        })
+    };
+    for a in &m.assignments {
+        let r = depends(&a.expr, &reads);
+        reads.insert(a.target, r);
+    }
+    // an alias reads what its target reads
+    for a in &m.aliases {
+        if let AliasTarget::Var { var, .. } = a.target
+            && reads.get(&Slot::Var(var)).copied().unwrap_or(false)
+        {
+            reads.insert(Slot::Var(a.var), true);
+        }
+    }
+    let reads_expr = |e: &Expr| depends(e, &reads);
+    m.zero_crossings.iter().any(|z| reads_expr(&z.expr))
+        || m.modes.iter().any(|md| reads_expr(&md.relation))
+        || m.whens.iter().any(|w| w.assign.iter().any(|(_, e)| reads_expr(e)))
 }
 
 /// The structure of `∂[x'; g]/∂y` from the prepared model: which entries
@@ -602,11 +1884,13 @@ fn part_name(flat: &lsim_ir::FlatSystem, id: lsim_ir::InstanceId) -> String {
     flat.instance_name(id)
 }
 
-/// Evaluates flat-scope expressions from the channel values.
+/// Evaluates flat-scope expressions from the channel values, with the
+/// model's tables as its compiled code interpolates them.
 pub(crate) struct ChannelEnv<'a> {
     pub t: f64,
     pub vars: &'a [f64],
     pub params: &'a [f64],
+    pub model: &'a dyn ModelFunctions,
 }
 
 impl Env for ChannelEnv<'_> {
@@ -621,5 +1905,60 @@ impl Env for ChannelEnv<'_> {
     }
     fn param(&self, p: ParamId) -> f64 {
         self.params[p.0 as usize]
+    }
+    fn table(&self, k: u32, args: &[f64]) -> f64 {
+        table_at(self.model, k, args).map_or(f64::NAN, |(v, _)| v)
+    }
+}
+
+/// Table `k` of `model` at `args` (one or two of them): its value and
+/// partial derivatives, `None` when the model does not give it.
+pub(crate) fn table_at(
+    model: &dyn ModelFunctions,
+    k: u32,
+    args: &[f64],
+) -> Option<(f64, [f64; 2])> {
+    match args {
+        [x] => model.eval_table(k, [*x, 0.0]),
+        [x, y] => model.eval_table(k, [*x, *y]),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lsim_ir::expr::BinaryOp;
+
+    fn bin(op: BinaryOp, a: Expr, b: Expr) -> Expr {
+        Expr::Binary(op, Box::new(a), Box::new(b))
+    }
+
+    #[test]
+    fn a_crossing_affine_in_time_becomes_a_time_event() {
+        let discrete: std::collections::HashSet<VarId> = [VarId(1)].into_iter().collect();
+        let p = || Expr::Param(ParamId(0));
+        let env = lsim_ir::eval::SliceEnv { t: 0.0, vars: &[0.0, 2.5], ders: &[], params: &[4.0] };
+        let at = |f: Expr| {
+            time_crossing(&f, &discrete).map(|c| (lsim_ir::eval::eval(&c.at, &env), c.rising))
+        };
+        // time - t1: exactly t1, rising
+        assert_eq!(at(bin(BinaryOp::Sub, Expr::Time, p())), Some((4.0, true)));
+        // t1 - time: falling
+        assert_eq!(at(bin(BinaryOp::Sub, p(), Expr::Time)), Some((4.0, false)));
+        // 2 time - t1, and time - (a discrete + t1)
+        assert_eq!(
+            at(bin(BinaryOp::Sub, bin(BinaryOp::Mul, Expr::Const(2.0), Expr::Time), p())),
+            Some((2.0, true))
+        );
+        assert_eq!(
+            at(bin(BinaryOp::Sub, Expr::Time, bin(BinaryOp::Add, Expr::Var(VarId(1)), p()))),
+            Some((6.5, true))
+        );
+        // a continuous variable, or time inside a function: root finding
+        assert_eq!(at(bin(BinaryOp::Sub, Expr::Time, Expr::Var(VarId(0)))), None);
+        assert_eq!(at(Expr::Call(lsim_ir::Builtin::Sin, vec![Expr::Time])), None);
+        // no time at all
+        assert_eq!(at(p()), None);
     }
 }

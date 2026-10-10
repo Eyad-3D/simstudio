@@ -298,6 +298,9 @@ pub fn gearbox(cfg: &GearboxConfig) -> ComponentDef {
             ),
             loss: Some(n("tau_x") * n("w_in") * (c(1.0) - n("eta_d"))),
         },
+        // a change of the selected ratio is a rigid engagement: the run
+        // keeps the momentum of what the gears tie together
+        engagements: vec![lsim_ir::EngagementDecl { changes: n("ratio") }],
         ..Default::default()
     }
 }

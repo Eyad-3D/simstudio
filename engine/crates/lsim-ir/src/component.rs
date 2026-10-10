@@ -349,6 +349,45 @@ pub struct EnergyDecl {
     pub loss: Option<Expr>,
 }
 
+/// A relative velocity a component keeps through an impulse while a
+/// condition holds: a coupling the model treats as stiff and unbounded
+/// passes a rigid, instantaneous engagement elsewhere in the model on, its
+/// relative velocity `keep` relaxing back to its value before the event
+/// (the limit of a stiff coupling whose force has no bound). `active` is
+/// judged at the state the engagement leaves. A part whose forces are
+/// bounded passes no impulse in zero time and declares none: a tyre (its
+/// force is at most μ N, within its grip as at it: its slip relaxes over
+/// time, which the integrator follows), a slipping clutch. The text format
+/// writes it as `annotation(__LightSim_impulse(keep = …, active = …))`.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct ImpulseDecl {
+    /// the relative velocity kept (an expression of the component's
+    /// variables, linear in its velocities)
+    pub keep: Expr,
+    /// while this holds (a truth value), judged at the state the
+    /// engagement leaves
+    pub active: Expr,
+}
+
+/// A rigid engagement a component makes: when `changes` takes a new value
+/// at an event (a gear's selected ratio at a shift), the speeds the
+/// component's rigid coupling ties together jump as an instantaneous,
+/// rigid engagement makes them. The run loop then keeps the momentum of
+/// everything the coupling ties together (an impulse projection, passed on
+/// through the couplings that declare [`ImpulseDecl`]s) and books the
+/// kinetic energy the engagement loses to this component. Nothing else
+/// starts a projection: a stored energy that merely depends on a discrete
+/// value (a converter's sampled duty ratio) does not, nor does a `reinit`,
+/// whose restarted states the projection leaves where the `reinit` put
+/// them. The text format writes it as
+/// `annotation(__LightSim_engagement(changes = …))`.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct EngagementDecl {
+    /// what takes a new value at an engagement (the selected ratio): an
+    /// expression of the component's variables and parameters
+    pub changes: Expr,
+}
+
 /// A component definition.
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct ComponentDef {
@@ -375,6 +414,12 @@ pub struct ComponentDef {
     /// the enumeration types it declares for its own parameters
     #[serde(default)]
     pub types: Vec<EnumType>,
+    /// the relative velocities it keeps through an impulse
+    #[serde(default)]
+    pub impulse: Vec<ImpulseDecl>,
+    /// the rigid engagements it makes
+    #[serde(default)]
+    pub engagements: Vec<EngagementDecl>,
 }
 
 /// A set of connector and component definitions.

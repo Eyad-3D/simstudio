@@ -832,6 +832,29 @@ impl<'a> Flattener<'a> {
             let loss = def.energy.loss.as_ref().map(|x| self.resolve(id, x, &|| "its loss".into()));
             self.flat.energy.push(InstanceEnergy { instance: id, stored, loss });
         }
+        // what it keeps through an impulse
+        for (k, im) in def.impulse.iter().enumerate() {
+            let what = || format!("what it keeps through an impulse ({})", k + 1);
+            let keep = self.resolve(id, &im.keep, &what);
+            let active = self.resolve(id, &im.active, &what);
+            let origin = Origin {
+                instance: id,
+                kind: OriginKind::Component { index: usize::MAX },
+                label: Some("it keeps a relative velocity through an impulse".into()),
+            };
+            self.flat.impulse.push(lsim_ir::FlatImpulse { keep, active, origin });
+        }
+        // the rigid engagements it makes
+        for (k, en) in def.engagements.iter().enumerate() {
+            let what = || format!("what changes at its rigid engagement ({})", k + 1);
+            let changes = self.resolve(id, &en.changes, &what);
+            let origin = Origin {
+                instance: id,
+                kind: OriginKind::Component { index: usize::MAX },
+                label: Some("a change of it is a rigid engagement".into()),
+            };
+            self.flat.engagements.push(lsim_ir::FlatEngagement { changes, origin });
+        }
 
         // connections
         for cn in &def.connections {

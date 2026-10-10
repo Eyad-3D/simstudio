@@ -407,12 +407,12 @@ pub fn vehicle(units: usize) -> PreparedModel {
     let _ = b.let_("monitor.p_clim_kw", p_clim / c(1000.0));
     // a gear shift as a when clause
     let zc = b.crossing(v(vb) - c(15.0));
-    b.m.whens.push(PreparedWhen {
-        crossing: zc,
-        direction: Direction::Rising,
-        assign: vec![(gear, Expr::Pre(gear) + c(1.0))],
-        origin: origin(),
-    });
+    b.m.whens.push(PreparedWhen::new(
+        zc,
+        Direction::Rising,
+        vec![(gear, Expr::Pre(gear) + c(1.0))],
+        origin(),
+    ));
     b.finish()
 }
 

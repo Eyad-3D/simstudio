@@ -20,7 +20,13 @@
 //! μ with its load sensitivity; normal load = its share of the weight
 //! normal to the road plus its part of its axle's load transfer and
 //! downforce, never below 0. Its rolling resistance (c_rr × normal load)
-//! is handed to the body's friction.
+//! is handed to the body's friction. Its force is bounded (at most μ ×
+//! normal load), so it passes no impulse: at a gear shift the gears'
+//! rigid engagement moves the wheel's speed, and its slip then relaxes
+//! through its own law, inside its grip or sliding at it, passing the
+//! momentum on to the vehicle over the time that takes, its loss its own
+//! slip loss (today's engine relaxes the slip of a tyre that gripped
+//! before the shift at once).
 //!
 //! **Driver** (driver.driver): today's PI speed controller with its
 //! conditional-integration anti-windup and recuperation blending, in

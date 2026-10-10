@@ -244,4 +244,27 @@ pub trait ModelFunctions: Send + Sync {
     fn table_guards(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]) {
         let _ = (inp, work, out);
     }
+
+    /// Table `k` of the flat system ([`crate::expr::Expr::Table`]) at
+    /// `args` (the second ignored by a 1-D table) as the compiled code
+    /// interpolates it: its value and its partial derivatives, so that
+    /// expressions evaluated outside the compiled code (the energy books'
+    /// declared stored energies and losses) read the same tables. `None`
+    /// when the model does not give its tables (the default) or has no
+    /// table `k`.
+    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+        let _ = (k, args);
+        None
+    }
+
+    /// Table `k`'s breakpoints as the compiled code interpolates it: its
+    /// first axis's, and its second's (empty for a 1-D table), so that the
+    /// run loop's enclosures of the tables follow the data the model was
+    /// given (a model's tables may be swapped after preparation). `None`
+    /// when the model does not give them (the default) or has no table
+    /// `k`.
+    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
+        let _ = k;
+        None
+    }
 }

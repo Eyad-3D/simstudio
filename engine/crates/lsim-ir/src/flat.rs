@@ -202,6 +202,42 @@ pub struct InstanceEnergy {
     pub loss: Option<Expr>,
 }
 
+/// A relative velocity an instance keeps through an impulse while a
+/// condition holds ([`crate::ImpulseDecl`], in flat scope).
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct FlatImpulse {
+    /// the relative velocity kept
+    pub keep: Expr,
+    /// while this holds
+    pub active: Expr,
+    /// where it came from
+    pub origin: Origin,
+}
+
+/// A rigid engagement an instance makes ([`crate::EngagementDecl`], in flat
+/// scope).
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct FlatEngagement {
+    /// what takes a new value at an engagement
+    pub changes: Expr,
+    /// where it came from
+    pub origin: Origin,
+}
+
+/// A variable `reinit` restarts, as preparation splits it: `var =
+/// continuous + jump`, with `continuous` the state the integrator keeps and
+/// `jump` the discrete variable the `when` clauses assign. What a `reinit`
+/// set at an event, the run loop's impulse projection leaves alone.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub struct FlatRestart {
+    /// the variable restarted
+    pub var: VarId,
+    /// its continuous part (a state)
+    pub continuous: VarId,
+    /// its jumps (discrete)
+    pub jump: VarId,
+}
+
 /// The flat system.
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
 pub struct FlatSystem {
@@ -228,6 +264,16 @@ pub struct FlatSystem {
     /// conditions checked while the model runs
     #[serde(default)]
     pub asserts: Vec<FlatAssert>,
+    /// relative velocities instances keep through an impulse
+    #[serde(default)]
+    pub impulse: Vec<FlatImpulse>,
+    /// rigid engagements instances make
+    #[serde(default)]
+    pub engagements: Vec<FlatEngagement>,
+    /// variables `reinit` restarts, split into a continuous part and jumps
+    /// (filled by preparation)
+    #[serde(default)]
+    pub restarts: Vec<FlatRestart>,
 }
 
 impl FlatSystem {

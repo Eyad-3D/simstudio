@@ -278,6 +278,13 @@ pub fn eliminate_with(flat: &mut FlatSystem, known: &[bool]) -> Vec<AliasEntry> 
         for a in &mut flat.asserts {
             a.condition = sub(std::mem::replace(&mut a.condition, Expr::Const(0.0)));
         }
+        for im in &mut flat.impulse {
+            im.keep = sub(std::mem::replace(&mut im.keep, Expr::Const(0.0)));
+            im.active = sub(std::mem::replace(&mut im.active, Expr::Const(0.0)));
+        }
+        for en in &mut flat.engagements {
+            en.changes = sub(std::mem::replace(&mut en.changes, Expr::Const(0.0)));
+        }
         for w in &mut flat.whens {
             w.condition = sub(std::mem::replace(&mut w.condition, Expr::Const(0.0)));
             for (_, v) in w.assign.iter_mut().chain(w.reinit.iter_mut()) {
@@ -310,6 +317,120 @@ pub fn eliminate_with(flat: &mut FlatSystem, known: &[bool]) -> Vec<AliasEntry> 
         table.push(AliasEntry { var: VarId(i as u32), target });
     }
     table
+}
+
+/// A variable kept by alias elimination takes its start value from the
+/// variables made one with it (its own included), with their sign. It is
+/// a guess for the kept variable (preparation's start solve and the
+/// run's initialisation start from it); a fixed start of an eliminated
+/// variable stays a condition of the initialisation system on the kept
+/// one. So a battery's terminal voltage guess reaches the bus voltage its
+/// node's port carries, where `v·i = P` from 0 V would give no current (a
+/// singular start). `start` holds the start expressions per variable.
+///
+/// When the variables made one carry different guesses, which one the run
+/// starts from must not depend on the order the parts are listed in, nor
+/// on which variable alias elimination keeps, and the modeller is told
+/// (`START-ALIAS-CONFLICT`): a fixed start first, then the guess farthest
+/// from zero (a guess is there to keep the solve away from the default 0:
+/// a node's voltage, a shaft's speed), then the first in the model's
+/// order.
+pub fn carry_starts(
+    flat: &mut FlatSystem,
+    start: &mut [Option<Expr>],
+    aliases: &[AliasEntry],
+) -> Vec<lsim_ir::Diagnostic> {
+    let has_start = |flat: &FlatSystem, start: &[Option<Expr>], v: VarId| {
+        start.get(v.0 as usize).is_some_and(|s| s.is_some()) || flat.var(v).start.is_some()
+    };
+    // per kept variable: the variables made one with it that have a start
+    // value: (variable, its sign relative to the kept one)
+    let mut sets: std::collections::BTreeMap<u32, Vec<(VarId, bool)>> = Default::default();
+    for a in aliases {
+        let AliasTarget::Var { var, negated } = a.target else { continue };
+        if has_start(flat, start, a.var) {
+            sets.entry(var.0).or_default().push((a.var, negated));
+        }
+    }
+    let mut notes = vec![];
+    for (kept, from) in sets {
+        let kept_id = VarId(kept);
+        let own = has_start(flat, start, kept_id);
+        // the guesses as values of the kept variable
+        let value =
+            |v: VarId, negated: bool| flat.var(v).start.map(|s| if negated { -s } else { s });
+        let mut guesses: Vec<(VarId, bool, Option<f64>)> = vec![];
+        if own {
+            guesses.push((kept_id, flat.var(kept_id).fixed, value(kept_id, false)));
+        }
+        for &(v, negated) in &from {
+            guesses.push((v, flat.var(v).fixed, value(v, negated)));
+        }
+        let chosen = {
+            let rank = |g: &(VarId, bool, Option<f64>)| (g.1, g.2.map(f64::abs).unwrap_or(-1.0));
+            let mut best = 0;
+            for k in 1..guesses.len() {
+                let (a, b) = (rank(&guesses[k]), rank(&guesses[best]));
+                let better = (a.0 && !b.0) || (a.0 == b.0 && a.1 > b.1);
+                if better {
+                    best = k;
+                }
+            }
+            best
+        };
+        // guesses (not fixed) that differ
+        let differ = {
+            let vals: Vec<f64> = guesses.iter().filter(|g| !g.1).filter_map(|g| g.2).collect();
+            vals.iter().any(|a| vals.iter().any(|b| (a - b).abs() > 1e-12 * a.abs().max(b.abs())))
+        };
+        if differ {
+            let unit = &flat.var(kept_id).unit_text;
+            let words: Vec<String> = guesses
+                .iter()
+                .filter(|g| !g.1)
+                .map(|g| match g.2 {
+                    Some(x) => format!("{} ({x} {unit})", crate::diagnose::local_name(flat, g.0)),
+                    None => crate::diagnose::local_name(flat, g.0),
+                })
+                .collect();
+            let taken = &guesses[chosen];
+            let mut d = crate::diagnose::warning(
+                "START-ALIAS-CONFLICT",
+                format!(
+                    "{} are one and the same variable but carry different start guesses: the run \
+                     starts from {}the guess of {}.",
+                    crate::diagnose::join_names(&words),
+                    taken.2.map(|x| format!("{x} {unit}, ")).unwrap_or_default(),
+                    crate::diagnose::local_name(flat, taken.0)
+                ),
+            )
+            .with_hint(
+                "Give them the same guess, or one only, to start from the solution you mean.",
+            );
+            d.parts =
+                crate::diagnose::parts_of(flat, guesses.iter().map(|g| flat.var(g.0).instance));
+            notes.push(d);
+        }
+        let (from_var, _, _) = guesses[chosen];
+        if from_var == kept_id {
+            continue;
+        }
+        let negated = from.iter().find(|(v, _)| *v == from_var).map(|(_, n)| *n).unwrap_or(false);
+        let i = from_var.0 as usize;
+        let expr = start
+            .get(i)
+            .cloned()
+            .flatten()
+            .or_else(|| flat.vars[i].start.map(Expr::Const))
+            .expect("a start");
+        let value = flat.vars[i].start;
+        let kept = kept as usize;
+        if kept < start.len() {
+            start[kept] = Some(if negated { -expr } else { expr });
+        }
+        flat.vars[kept].start = value.map(|v| if negated { -v } else { v });
+    }
+    notes
 }
 
 #[cfg(test)]

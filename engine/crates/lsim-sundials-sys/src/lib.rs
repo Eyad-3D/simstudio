@@ -25,7 +25,8 @@ pub use bindings::*;
 
 // LightSim's additions to the C build (`csrc/`): the dense output of
 // selected components, with the same formula and summation order as
-// `CVodeGetDky`/`IDAGetDky` at k = 0, in O(order) per component.
+// `CVodeGetDky`/`IDAGetDky` at k = 0, in O(order) per component; and the
+// dense output's polynomial itself, as the integrators hold it.
 unsafe extern "C" {
     /// CVODES: `out[m] = y(t)[idx[m]]` inside the last step; `CV_BAD_T`
     /// when `t` is outside it.
@@ -43,6 +44,39 @@ unsafe extern "C" {
         n_idx: core::ffi::c_int,
         idx: *const sunindextype,
         out: *mut sunrealtype,
+    ) -> core::ffi::c_int;
+    /// CVODES: the dense output's polynomial over the last step for the
+    /// components `idx`, as CVODES holds it: `y(t) = Σ_{j≤q} zn[j] s^j`,
+    /// `s = (t − tn) / h`, valid for `t` in `[tn − hu, tn]`;
+    /// `coef[m·(q + 1) + j] = zn[j][idx[m]]` (`cap` values at most),
+    /// `info = [tn, h, hu]`, `q` the order (`CV_ILL_INPUT` when `n_idx·(q +
+    /// 1) > cap`).
+    pub fn lsim_cvode_dense_select(
+        cvode_mem: *mut core::ffi::c_void,
+        n_idx: core::ffi::c_int,
+        idx: *const sunindextype,
+        cap: core::ffi::c_int,
+        coef: *mut sunrealtype,
+        info: *mut sunrealtype,
+        q: *mut core::ffi::c_int,
+    ) -> core::ffi::c_int;
+    /// IDAS: the dense output's polynomial over the last step for the
+    /// components `idx`, as IDAS holds it: `y(t) = Σ_{j≤k} φ[j] c_j`,
+    /// `c_0 = 1`, `c_j = c_{j−1} (t − tn + ψ[j−2]) / ψ[j−1]` (`ψ[−1] = 0`),
+    /// valid for `t` in `[tn − hused, tn]`; `coef[m·(k + 1) + j] =
+    /// φ[j][idx[m]]` (`cap` values at most), `psi` the first `k` values of
+    /// ψ (5 at most), `info = [tn, hused]`, `kused` the order `k`
+    /// (`IDA_ILL_INPUT` when `n_idx·(k + 1) > cap`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn lsim_ida_dense_select(
+        ida_mem: *mut core::ffi::c_void,
+        n_idx: core::ffi::c_int,
+        idx: *const sunindextype,
+        cap: core::ffi::c_int,
+        coef: *mut sunrealtype,
+        psi: *mut sunrealtype,
+        info: *mut sunrealtype,
+        kused: *mut core::ffi::c_int,
     ) -> core::ffi::c_int;
 }
 

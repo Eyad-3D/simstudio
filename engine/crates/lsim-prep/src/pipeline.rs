@@ -98,6 +98,8 @@ impl Clock {
 struct NodeWhen {
     crossing: Expr,
     direction: Direction,
+    /// the condition does not hold at an exact zero (`x > 0`)
+    strict: bool,
     assign: Vec<(VarId, Expr)>,
     origin: Origin,
 }
@@ -225,6 +227,7 @@ pub fn run(
         None => (vec![false; flat.vars.len()], vec![]),
     };
     let aliases = alias::eliminate_with(&mut flat, &input);
+    warnings.extend(alias::carry_starts(&mut flat, &mut extras.start, &aliases));
     clock.lap("aliases");
     let restarted = reinit::apply(&mut flat, &mut extras.start, &aliases, &input, &mut warnings)?;
     let limits_flat = if spec.is_some() { inverse::pass_limits(&mut flat) } else { vec![] };
@@ -324,6 +327,8 @@ pub fn run(
             continue;
         };
         let rising = matches!(op, CmpOp::Gt | CmpOp::Ge) != flip;
+        // `x > 0` and `not (x >= 0)` (x < 0) do not hold at zero
+        let strict = matches!(op, CmpOp::Gt | CmpOp::Lt) != flip;
         let f = crate::symbolic::simplify((**a).clone() - (**b).clone());
         for (v, _) in &w.assign {
             if flat.var(*v).kind != VarKind::Discrete {
@@ -342,6 +347,7 @@ pub fn run(
         node_whens.push(NodeWhen {
             crossing: fixed_expr(&sys, &f, "an event condition", &w.origin, &mut diags),
             direction: if rising { Direction::Rising } else { Direction::Falling },
+            strict,
             assign: w
                 .assign
                 .iter()
@@ -764,10 +770,13 @@ pub fn run(
         zero_crossings
             .push(ZeroCrossing { expr: map.to_flat(&w.crossing), origin: w.origin.clone() });
         whens.push(PreparedWhen {
-            crossing: zero_crossings.len() - 1,
-            direction: w.direction,
-            assign: w.assign.iter().map(|(v, x)| (*v, map.to_flat(x))).collect(),
-            origin: w.origin.clone(),
+            strict: w.strict,
+            ..PreparedWhen::new(
+                zero_crossings.len() - 1,
+                w.direction,
+                w.assign.iter().map(|(v, x)| (*v, map.to_flat(x))).collect(),
+                w.origin.clone(),
+            )
         });
     }
     let mut prepared_modes = vec![];
@@ -778,12 +787,12 @@ pub fn run(
         let k = zero_crossings.len();
         for (dir, value) in [(Direction::Rising, 1.0), (Direction::Falling, 0.0)] {
             zero_crossings.push(ZeroCrossing { expr: f.clone(), origin: m.origin.clone() });
-            whens.push(PreparedWhen {
-                crossing: zero_crossings.len() - 1,
-                direction: dir,
-                assign: vec![(m.var, Expr::Const(value))],
-                origin: m.origin.clone(),
-            });
+            whens.push(PreparedWhen::new(
+                zero_crossings.len() - 1,
+                dir,
+                vec![(m.var, Expr::Const(value))],
+                m.origin.clone(),
+            ));
         }
         prepared_modes.push(Mode { var: m.var, relation, crossing: k, origin: m.origin.clone() });
     }

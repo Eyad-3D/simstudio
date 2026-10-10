@@ -4,10 +4,18 @@
 //! next to the states ([`Integrand`]): the energy that entered it through
 //! its ports (∫ Σ across × through dt), the energy it turned into heat
 //! (∫ loss dt) and the change of the energy it stores (∫ dE/dt dt, the rate
-//! taken along the solution by a fourth-order central difference of the
-//! declared stored energy in the direction (1, y')). Jumps of the stored
-//! energy at events are booked separately, from the states just before and
-//! just after.
+//! along the solution, `y'` the model's own `x' = f(t, x, z)` for the states
+//! and the integrator's rate for the iteration variables). The rate is
+//! exact: forward-mode differentiation of the declared stored energy in the
+//! direction (1, y') through the assignments ([`crate::StoredRates`]), the
+//! model's tables with their interpolants' exact derivatives; a stored
+//! energy that reaches a derivative or a previous value through them, or
+//! whose rate is not finite there (`sqrt` at zero moving), takes a
+//! fourth-order central difference instead, its step moving
+//! no entry of y by more than 1e-3 of its size or of its nominal scale
+//! (round-off in a difference grows as |E| / step: a full fuel tank holds
+//! some 1e9 J). Jumps of the stored energy at events are booked
+//! separately, from the states just before and just after.
 //!
 //! The books of the whole model: what the parts without declared storage
 //! or losses supplied (ideal sources and other boundaries: the energy that
@@ -24,9 +32,11 @@
 //! error of the energies (the solution satisfies its equations only to the
 //! tolerance), of the order of rtol; the one-click tighter run shrinks it.
 
-use crate::info::{ChannelEnv, EnergyInfo};
+use crate::ad::{self, Dual, DualEnv};
+use crate::info::{ChannelEnv, EnergyInfo, RunInfo, StoredRates, VarSource};
 use lsim_ir::eval::eval;
 use lsim_ir::runtime::{EvalInput, Layout, ModelFunctions};
+use lsim_ir::{ParamId, VarId};
 use std::sync::Arc;
 
 /// Where one part's integrals sit.
@@ -67,22 +77,92 @@ fn slots(info: &EnergyInfo) -> (Vec<Slot>, usize) {
 /// when it declares them, ∫ loss and ∫ d(stored)/dt.
 pub struct Integrand {
     info: Arc<EnergyInfo>,
+    rates: Arc<StoredRates>,
+    sources: Arc<[VarSource]>,
+    nominal: Vec<f64>,
+    /// per flat variable: its step in `rates.chain` (usize::MAX: none)
+    pos: Vec<usize>,
+    jets: Vec<Option<Dual>>,
     vars: Vec<f64>,
     shifted: Vec<f64>,
     stored: Vec<[f64; 4]>,
+    /// per part: its rate needs the finite difference at this evaluation
+    differ: Vec<bool>,
     slots: Vec<Slot>,
     any_stored: bool,
     n: usize,
 }
 
+/// A stored energy's variables with their rates along the solution: the
+/// leaves from y' (states, iteration variables), the chain's from its
+/// steps computed so far.
+struct Along<'a> {
+    t: f64,
+    model: &'a dyn ModelFunctions,
+    params: &'a [f64],
+    vars: &'a [f64],
+    ydot: &'a [f64],
+    sources: &'a [VarSource],
+    pos: &'a [usize],
+    jets: &'a [Option<Dual>],
+    upto: usize,
+}
+
+impl DualEnv for Along<'_> {
+    fn var(&self, v: VarId) -> Result<Dual, ()> {
+        let k = v.0 as usize;
+        let at = self.pos.get(k).copied().unwrap_or(usize::MAX);
+        if at != usize::MAX {
+            return match self.jets.get(at) {
+                Some(Some(j)) if at < self.upto => Ok(*j),
+                _ => Err(()),
+            };
+        }
+        let v = self.vars[k];
+        Ok(match self.sources.get(k) {
+            Some(VarSource::Y(i)) => Dual { v, d: self.ydot[*i] },
+            Some(VarSource::NegY(i)) => Dual { v, d: -self.ydot[*i] },
+            Some(VarSource::Computed) | None => return Err(()),
+            Some(_) => Dual { v, d: 0.0 },
+        })
+    }
+    fn param(&self, p: ParamId) -> f64 {
+        self.params[p.0 as usize]
+    }
+    fn time(&self) -> Result<Dual, ()> {
+        Ok(Dual { v: self.t, d: 1.0 })
+    }
+    fn table(&self, k: u32, args: &[f64]) -> Option<(f64, [f64; 2])> {
+        crate::info::table_at(self.model, k, args)
+    }
+}
+
 impl Integrand {
-    /// The integrand of `info`'s books for a model of layout `l`.
-    pub fn new(info: &Arc<EnergyInfo>, l: &Layout) -> Self {
-        let (slots, n) = slots(info);
+    /// The integrand of `energy`'s books for a model of layout `l` run with
+    /// `info`.
+    pub fn new(energy: &Arc<EnergyInfo>, info: &RunInfo, l: &Layout) -> Self {
+        let (slots, n) = slots(energy);
+        let rates = info
+            .stored_rates
+            .clone()
+            .filter(|r| r.exact.len() == energy.parts.len())
+            .unwrap_or_else(|| Arc::new(StoredRates::from_sources(energy, &info.var_sources)));
+        let mut pos = vec![usize::MAX; l.n_vars];
+        for (k, (v, _)) in rates.chain.iter().enumerate() {
+            if let Some(p) = pos.get_mut(*v) {
+                *p = k;
+            }
+        }
         Integrand {
-            any_stored: info.parts.iter().any(|p| p.stored.is_some()),
-            stored: vec![[0.0; 4]; info.parts.len()],
-            info: info.clone(),
+            any_stored: energy.parts.iter().any(|p| p.stored.is_some()),
+            stored: vec![[0.0; 4]; energy.parts.len()],
+            differ: vec![false; energy.parts.len()],
+            jets: vec![None; rates.chain.len()],
+            pos,
+            sources: info.var_sources.clone().into(),
+            nominal: (0..l.n_y()).map(|i| info.y_nominal.get(i).copied().unwrap_or(1.0)).collect(),
+            rates,
+            info: energy.clone(),
             vars: vec![0.0; l.n_vars],
             shifted: vec![0.0; l.n_y()],
             slots,
@@ -110,7 +190,7 @@ impl Integrand {
         out: &mut [f64],
     ) {
         m.vars(inp, work, &mut self.vars);
-        let env = ChannelEnv { t: inp.t, vars: &self.vars, params: inp.p };
+        let env = ChannelEnv { t: inp.t, vars: &self.vars, params: inp.p, model: m };
         for (part, s) in self.info.parts.iter().zip(&self.slots) {
             let p = eval(&part.power, &env);
             out[s.power] = p;
@@ -122,13 +202,60 @@ impl Integrand {
         if !self.any_stored {
             return;
         }
-        // dE/dt along (1, y'): a fourth-order central difference with a step
-        // that moves every entry of y by at most 1e-3 of its size (exact for
-        // the quadratic stored energies of capacitors, inductors, masses)
+        // dE/dt along (1, y'), exactly: the chain's variables, then each
+        // stored energy, by forward-mode differentiation
+        for k in 0..self.rates.chain.len() {
+            let env = Along {
+                t: inp.t,
+                model: m,
+                params: inp.p,
+                vars: &self.vars,
+                ydot,
+                sources: &self.sources,
+                pos: &self.pos,
+                jets: &self.jets,
+                upto: k,
+            };
+            self.jets[k] = ad::dual(&self.rates.chain[k].1, &env).ok();
+        }
+        let mut any_differ = false;
+        for (j, (part, s)) in self.info.parts.iter().zip(&self.slots).enumerate() {
+            let (Some(is), Some(e)) = (s.stored, &part.stored) else { continue };
+            self.differ[j] = true;
+            if self.rates.exact[j] {
+                let env = Along {
+                    t: inp.t,
+                    model: m,
+                    params: inp.p,
+                    vars: &self.vars,
+                    ydot,
+                    sources: &self.sources,
+                    pos: &self.pos,
+                    jets: &self.jets,
+                    upto: self.jets.len(),
+                };
+                // (a rate that is not finite, as of `sqrt` at zero moving
+                // away from it, is left to the difference)
+                if let Ok(r) = ad::dual(e, &env)
+                    && r.d.is_finite()
+                {
+                    out[is] = r.d;
+                    self.differ[j] = false;
+                }
+            }
+            any_differ |= self.differ[j];
+        }
+        if !any_differ {
+            return;
+        }
+        // the others: a fourth-order central difference (exact for quadratic
+        // stored energies) with a step that moves every entry of y by at
+        // most 1e-3 of its size or of its nominal scale: its round-off
+        // grows as |E| / step
         let mut h = f64::INFINITY;
-        for (y, yd) in inp.y.iter().zip(ydot) {
+        for ((y, yd), nom) in inp.y.iter().zip(ydot).zip(&self.nominal) {
             if *yd != 0.0 {
-                h = h.min(1e-3 * (y.abs() + 1e-9) / yd.abs());
+                h = h.min(1e-3 * y.abs().max(*nom) / yd.abs());
             }
         }
         if !h.is_finite() {
@@ -143,7 +270,7 @@ impl Integrand {
             }
             let at = EvalInput { t: inp.t + step, y: &self.shifted, ..*inp };
             m.vars(&at, work, &mut self.vars);
-            let env = ChannelEnv { t: at.t, vars: &self.vars, params: inp.p };
+            let env = ChannelEnv { t: at.t, vars: &self.vars, params: inp.p, model: m };
             for (j, part) in self.info.parts.iter().enumerate() {
                 if let Some(e) = &part.stored {
                     self.stored[j][k] = eval(e, &env);
@@ -151,7 +278,9 @@ impl Integrand {
             }
         }
         for (j, s) in self.slots.iter().enumerate() {
-            if let Some(is) = s.stored {
+            if let Some(is) = s.stored
+                && self.differ[j]
+            {
                 let e = &self.stored[j];
                 out[is] = (-e[0] + 8.0 * e[1] - 8.0 * e[2] + e[3]) / (12.0 * h);
             }
@@ -163,6 +292,12 @@ impl Clone for Integrand {
     fn clone(&self) -> Self {
         Integrand {
             info: self.info.clone(),
+            rates: self.rates.clone(),
+            sources: self.sources.clone(),
+            nominal: self.nominal.clone(),
+            pos: self.pos.clone(),
+            jets: self.jets.clone(),
+            differ: self.differ.clone(),
             vars: self.vars.clone(),
             shifted: self.shifted.clone(),
             stored: self.stored.clone(),
@@ -195,6 +330,13 @@ pub struct PartBooks {
     pub event_change: f64,
     /// change of stored energy between events, integrated (∫ dE/dt dt)
     pub stored_integral: f64,
+    /// the kinetic energy rigid engagements took at events (part of what
+    /// the model lost at events): an engaging part (a gearbox at its
+    /// shifts) books what its rigid coupling lost as the inertias it ties
+    /// together met; a coupling declared to pass the impulse on, when it
+    /// alone did, what its relaxation to its relative velocity before the
+    /// event lost
+    pub impulse_lost: f64,
     /// energy_in - lost - stored_integral: zero when the part's declared
     /// books agree with its equations (declared parts only)
     pub closure: f64,
@@ -221,6 +363,13 @@ pub struct EnergyBooks {
     pub lost: f64,
     /// energy that vanished at events (stored energy before minus after)
     pub event_loss: f64,
+    /// of it, what rigid engagements took (gear shifts: the kinetic energy
+    /// an impulse that keeps the momentum loses)
+    pub impulse_loss: f64,
+    /// of that, what the couplings declared to pass the impulse on lost as
+    /// they relaxed (booked to the coupling when one did, to the event when
+    /// several did); the rest is the engaging parts' (the gearboxes')
+    pub impulse_link_loss: f64,
     /// change of the stored energy between events, integrated
     pub stored_integral: f64,
     /// change of the stored energy over the run, from the states
@@ -237,6 +386,12 @@ pub struct EnergyBooks {
     pub drift: f64,
     /// |drift| / throughput
     pub relative_drift: f64,
+    /// the integrals were under the integrator's error control
+    /// ([`crate::SolverOptions::energy_error_control`]); without it they
+    /// ride on the states' steps and can be far off (the drift says how
+    /// far), while the closure, which compares them with each other, can
+    /// still be zero
+    pub error_controlled: bool,
 }
 
 impl EnergyBooks {
@@ -250,12 +405,19 @@ impl EnergyBooks {
 
     /// A sentence for the report.
     pub fn summary(&self) -> String {
+        let control = if self.error_controlled {
+            ""
+        } else {
+            " (integrals without error control: they ride on the states' steps, the drift says how far off they are)"
+        };
         format!(
-            "energy books: supplied {:.6e} J = lost {:.6e} J + lost at events {:.6e} J + stored {:+.6e} J; \
-             closure {:.1e} of the throughput {:.6e} J; integration drift {:.1e}",
+            "energy books: supplied {:.6e} J = lost {:.6e} J + lost at events {:.6e} J (at gear shifts and other engagements {:.6e} J, {:.6e} J of it in the couplings that passed the impulse on) + stored {:+.6e} J; \
+             closure {:.1e} of the throughput {:.6e} J; integration drift {:.1e}{control}",
             self.supplied,
             self.lost,
             self.event_loss,
+            self.impulse_loss,
+            self.impulse_link_loss,
             self.stored_integral,
             self.relative_closure,
             self.throughput,
@@ -266,7 +428,9 @@ impl EnergyBooks {
 
 /// The run loop's side of the books: stored energies at the start, the
 /// jumps at events, and the series on the output grid.
-pub(crate) struct Ledger {
+pub(crate) struct Ledger<'m> {
+    /// (for its tables)
+    model: &'m dyn ModelFunctions,
     info: Arc<EnergyInfo>,
     slots: Vec<Slot>,
     stored0: Vec<f64>,
@@ -274,10 +438,34 @@ pub(crate) struct Ledger {
     scratch: Vec<f64>,
     pub q: Vec<f64>,
     books: Vec<PartBooks>,
+    /// what impulses lost with no part to book it to
+    impulse_unbooked: f64,
+    /// what the couplings that passed impulses on took
+    impulse_links: f64,
 }
 
-impl Ledger {
-    pub fn new(info: &Arc<EnergyInfo>, _l: &Layout) -> Self {
+/// What the rigid engagements at an event lost, and where
+/// ([`Ledger::after_event`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Engagement {
+    /// (energy part, J lost there, whether it is a link that passed the
+    /// impulse on): the engaging parts' stage, the links' relaxation; the
+    /// coupled parts' stored energies before and after each, nothing else
+    pub losses: Vec<(Option<usize>, f64, bool)>,
+    /// how many projections moved states
+    pub count: u64,
+}
+
+impl Engagement {
+    /// Another projection at the same event.
+    pub fn merge(&mut self, o: Engagement) {
+        self.losses.extend(o.losses);
+        self.count += o.count;
+    }
+}
+
+impl<'m> Ledger<'m> {
+    pub fn new(info: &Arc<EnergyInfo>, model: &'m dyn ModelFunctions) -> Self {
         let info = info.clone();
         let (slots, n_q) = slots(&info);
         let n = info.parts.len();
@@ -292,17 +480,20 @@ impl Ledger {
                     ..Default::default()
                 })
                 .collect(),
+            model,
             info,
             slots,
             stored0: vec![0.0; n],
             jumps: vec![0.0; n],
             scratch: vec![0.0; n],
             q: vec![0.0; n_q],
+            impulse_unbooked: 0.0,
+            impulse_links: 0.0,
         }
     }
 
     fn stored(&mut self, t: f64, vars: &[f64], params: &[f64]) {
-        let env = ChannelEnv { t, vars, params };
+        let env = ChannelEnv { t, vars, params, model: self.model };
         for (k, p) in self.info.parts.iter().enumerate() {
             self.scratch[k] = p.stored.as_ref().map(|e| eval(e, &env)).unwrap_or(0.0);
         }
@@ -323,11 +514,33 @@ impl Ledger {
         self.scratch.clone()
     }
 
-    /// Stored energy just after an event: the jump is booked.
-    pub fn after_event(&mut self, t: f64, vars: &[f64], params: &[f64], before: &[f64]) {
+    /// Stored energy just after an event: the jump is booked. When rigid
+    /// engagements moved the states (`impulse`), what they lost is booked
+    /// to the engaging parts and the links, as the projection measured it
+    /// on the coupled parts' stored energies (other jumps at the same
+    /// instant are not theirs).
+    pub fn after_event(
+        &mut self,
+        t: f64,
+        vars: &[f64],
+        params: &[f64],
+        before: &[f64],
+        impulse: Option<&Engagement>,
+    ) {
         self.stored(t, vars, params);
         for ((j, now), was) in self.jumps.iter_mut().zip(&self.scratch).zip(before) {
             *j += now - was;
+        }
+        if let Some(e) = impulse {
+            for &(part, lost, link) in &e.losses {
+                match part {
+                    Some(k) => self.books[k].impulse_lost += lost,
+                    None => self.impulse_unbooked += lost,
+                }
+                if link {
+                    self.impulse_links += lost;
+                }
+            }
         }
     }
 
@@ -345,7 +558,11 @@ impl Ledger {
     /// The books at the end: `self.q` must hold the integrals at `t`.
     pub fn finish(mut self, t: f64, vars: &[f64], params: &[f64]) -> EnergyBooks {
         self.stored(t, vars, params);
-        let mut e = EnergyBooks::default();
+        let mut e = EnergyBooks {
+            impulse_loss: self.impulse_unbooked,
+            impulse_link_loss: self.impulse_links,
+            ..Default::default()
+        };
         let mut twice_throughput = 0.0;
         for (k, mut b) in self.books.into_iter().enumerate() {
             let s = self.slots[k];
@@ -357,6 +574,7 @@ impl Ledger {
             b.event_change = self.jumps[k];
             b.drift = b.stored_change - b.event_change - b.stored_integral;
             twice_throughput += b.throughput;
+            e.impulse_loss += b.impulse_lost;
             if b.declared {
                 b.closure = b.energy_in - b.lost - b.stored_integral;
                 e.lost += b.lost;

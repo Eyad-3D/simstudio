@@ -43,10 +43,11 @@ pub const BREAKAWAY: f64 = 1e-6;
 ///   restarts is caught too (a `when` condition alone would miss it).
 ///
 /// * stuck → sliding when its sides are found moving apart by more than
-///   `s_jump` (held modes too): a re-initialisation of the speeds around it
-///   (a gear change re-solves the speeds the gears tie together) can move
-///   one side and not the other; it then slides, armed, until its sides
-///   meet again (while it holds, its relative speed does not change).
+///   `s_jump` (held modes too): a jump of the speeds around it (a gear
+///   change moves the speeds the gears tie together, not an engine behind
+///   a clutch) can move one side and not the other; it then slides, armed,
+///   until its sides meet again (while it holds, its relative speed does
+///   not change).
 ///
 /// A part starts sliding (unarmed): with a force on it beyond the friction
 /// it moves off at once; with less, it settles to stuck within `s_small`
@@ -197,14 +198,12 @@ pub fn breakaway_vars() -> Vec<lsim_ir::VarDecl> {
 /// Its start is not fixed: where rigid couplings leave a choice of which
 /// speeds stay states (index reduction's dummy derivatives prefer to keep
 /// those with fixed starts), the wheels' speeds and a clutch's slip are
-/// kept and these follow them. A gear change, which re-solves the speeds
-/// the gears tie together, then keeps the wheels' and the vehicle's speeds
-/// and moves the parts between the wheels and the clutch to the new ratio
-/// (what it gains or loses shows in the energy books as changed at
-/// events), rather than keeping a motor's speed and moving one wheel of an
-/// open differential. Keeping the momentum of everything the gears tie
-/// together needs a re-initialisation at the shift that preparation does
-/// not pass on yet (DESIGN.md 5.8).
+/// kept and these follow them. At a gear change the run loop's impulse
+/// projection moves the speeds the gears tie together so that their
+/// momentum is kept (whichever speeds are states), and books the kinetic
+/// energy that loses to the gearbox; the tyres, whose forces are bounded,
+/// pass the momentum on to the vehicle over the time their slip takes to
+/// relax; an engine behind a clutch keeps its speed and the clutch slips.
 pub fn driveline_speed(name: &str, start: &str, doc: &str) -> lsim_ir::VarDecl {
     let mut w = state(name, "rad/s", 0.0, doc);
     w.start = Some(n(start));
@@ -598,6 +597,12 @@ pub fn lossy_gear(name: &str, ratio_input: bool) -> ComponentDef {
         energy: EnergyDecl {
             stored: None,
             loss: Some(n("a.tau") * n("a.w") + n("b.tau") * n("b.w")),
+        },
+        // a signal ratio's change is a rigid engagement (a gear shift)
+        engagements: if ratio_input {
+            vec![lsim_ir::EngagementDecl { changes: n("ratio") }]
+        } else {
+            vec![]
         },
         ..Default::default()
     }

@@ -9,9 +9,9 @@ mod common;
 use common::*;
 use lsim_ir::component::build::{connect, discrete, eq, param, port, state, sub};
 use lsim_ir::expr::{Builtin, CmpOp, Expr, c, call, cmp, der, name as n};
-use lsim_ir::{ComponentDef, Equation, EquationDecl, WhenAction};
+use lsim_ir::{ComponentDef, Equation, EquationDecl, PreparedModel, WhenAction};
 use lsim_prep::{Settings, prepare_with_report};
-use lsim_solve::{OutputGrid, RunInfo, SolverOptions};
+use lsim_solve::{OutputGrid, RunInfo, SimResult, SolverOptions};
 
 fn when(condition: Expr, actions: Vec<WhenAction>, label: &str) -> EquationDecl {
     EquationDecl { eq: Equation::When { condition, actions }, label: Some(label.into()) }
@@ -119,6 +119,15 @@ fn a_gear_change_keeps_the_angular_momentum_and_loses_the_exact_energy() {
     println!("{report:#?}");
     let names: Vec<&str> = m.states.iter().map(|v| m.flat.var(*v).name.as_str()).collect();
     assert_eq!(names, ["load.w.continuous"], "the restarted speed's continuous part is the state");
+    // the split is recorded, for the run loop's impulse projection to
+    // leave what a reinit set alone
+    let split: Vec<[&str; 3]> = m
+        .flat
+        .restarts
+        .iter()
+        .map(|r| [r.var, r.continuous, r.jump].map(|v| m.flat.var(v).name.as_str()))
+        .collect();
+    assert_eq!(split, [["load.w", "load.w.continuous", "load.w.jump"]]);
     assert_eq!(m.whens.len(), 1);
     assert_eq!(m.whens[0].assign.len(), 2, "the new ratio and the speed's jump");
 
@@ -329,4 +338,183 @@ fn fast_mode_prescribes_the_motion_through_a_gear_change() {
     let want = (J2 + I1 * I1 * J1) * 2.0 / I1;
     println!("torque {tau} (exact {want})");
     assert!((tau - want).abs() < 1e-12 * want, "{tau}");
+}
+
+/// A gear whose ratio is a signal declares that a change of it is a rigid
+/// engagement; preparation carries the declaration into the flat system,
+/// in terms of the variables it keeps.
+#[test]
+fn a_shifting_gear_declares_its_engagement() {
+    let mut lib = library();
+    lib.add(lsim_lib::rotational::lossy_gear("Test.VariableGear", true));
+    let top = ComponentDef {
+        name: "Test.Shift".into(),
+        components: vec![
+            sub("motor", "Rotational.Inertia", &[("J", c(J1))]),
+            sub("load", "Rotational.Inertia", &[("J", c(J2))]),
+            sub("drive", "Rotational.ConstantTorque", &[("tau", c(T))]),
+            sub("gear", "Test.VariableGear", &[]),
+            sub("select", "Signal.Step", &[("y0", c(I1)), ("y1", c(I2)), ("t_step", c(T_SHIFT))]),
+        ],
+        connections: vec![
+            connect("drive.flange", "motor.a"),
+            connect("motor.b", "gear.a"),
+            connect("gear.b", "load.a"),
+            connect("select.y", "gear.ratio"),
+        ],
+        ..Default::default()
+    };
+    let (m, _) = prepare_with_report(&lib, &top, None, &Settings::default())
+        .unwrap_or_else(|d| panic!("{d:#?}"));
+    assert_eq!(m.flat.engagements.len(), 1);
+    let en = &m.flat.engagements[0];
+    assert_eq!(m.flat.instance(en.origin.instance).path, "gear");
+    // `gear.ratio` is an alias: the declaration reads the variable kept
+    let mut read = vec![];
+    en.changes.walk(&mut |x| {
+        if let Expr::Var(v) = x {
+            read.push(m.flat.var(*v).name.clone());
+        }
+    });
+    assert_eq!(read.len(), 1);
+    assert!(m.aliases.iter().all(|a| m.flat.var(a.var).name != read[0]), "{read:?} is an alias");
+    // the fixed-ratio gear declares none
+    assert!(lsim_lib::rotational::lossy_gear("Test.FixedGear", false).engagements.is_empty());
+}
+
+/// A prepared model run with the energy books, impulses on or off.
+fn run_books(m: &PreparedModel, t_end: f64, dt: f64, impulses: bool) -> SimResult {
+    let jit = lsim_codegen::compile(m, &Default::default()).expect("compiles");
+    let info = RunInfo::from_prepared(m);
+    let opts = SolverOptions {
+        rtol: 1e-10,
+        atol: 1e-10,
+        energy_books: true,
+        impulses,
+        ..Default::default()
+    };
+    lsim_solve::simulate(&jit, &info, &opts, OutputGrid { t0: 0.0, t_end, dt }, &mut [])
+        .expect("runs")
+}
+
+/// The bouncing ball, built as a model with energy books is: the
+/// library's mass (½ m v² stored) on a floor that carries gravity and the
+/// height and restarts the speed at -e times the speed it hit with. No
+/// part declares a rigid engagement, so nothing projects, impulses on or
+/// off. (The review found the projection undoing the bounce, the ball
+/// falling through the floor to -29.7 m: the reinit's jump is a discrete
+/// value the mass's stored energy reads, and any such dependence started a
+/// projection then.)
+#[test]
+fn the_impulse_projection_leaves_a_bounce_alone() {
+    let (h0, g, e, mass) = (1.0, 9.81, 0.8, 0.5);
+    let floor = ComponentDef {
+        name: "Test.Floor".into(),
+        ports: vec![port("flange", "TFlange", "")],
+        params: vec![
+            param("g", "m/s2", g, ""),
+            param("e", "1", e, "restitution"),
+            param("m", "kg", mass, "the ball's mass"),
+        ],
+        vars: vec![state("h", "m", h0, "height")],
+        equations: vec![
+            eq(der("h"), n("flange.v"), "the ball moves"),
+            eq(n("flange.f"), n("m") * n("g"), "gravity pulls the ball down"),
+            when(
+                cmp(CmpOp::Lt, n("h"), c(0.0)),
+                vec![reinit("flange.v", -(n("e") * n("flange.v")))],
+                "it bounces",
+            ),
+        ],
+        ..Default::default()
+    };
+    let mut lib = library();
+    lib.add(floor);
+    let top = ComponentDef {
+        name: "Test.Drop".into(),
+        components: vec![
+            sub("ball", "Translational.Mass", &[("m", c(mass))]),
+            sub("floor", "Test.Floor", &[]),
+        ],
+        connections: vec![connect("ball.a", "floor.flange")],
+        ..Default::default()
+    };
+    let (m, _) = prepare_with_report(&lib, &top, None, &Settings::default())
+        .unwrap_or_else(|d| panic!("{d:#?}"));
+    let t1 = (2.0 * h0 / g).sqrt();
+    for impulses in [false, true] {
+        let r = run_books(&m, 2.5, 0.01, impulses);
+        let h = r.channel("floor.h").unwrap();
+        let k = r.times.iter().position(|t| *t >= t1 + 0.2).unwrap();
+        let event_loss = r.energy.as_ref().map(|b| b.event_loss).unwrap_or(f64::NAN);
+        let exact = {
+            let v0 = e * g * t1;
+            let s = r.times[k] - t1;
+            v0 * s - 0.5 * g * s * s
+        };
+        println!(
+            "impulses {impulses}: {} impulse projections; h({:.2}) = {:.4} m (exact {:.4} m), \
+             h(2.5) = {:.3} m; lost at events {:.4} J (exact {:.4} J at the first impact)",
+            r.report.impulses,
+            r.times[k],
+            h[k],
+            exact,
+            h.last().unwrap(),
+            event_loss,
+            0.5 * mass * (1.0 - e * e) * (g * t1).powi(2),
+        );
+        assert!(
+            h.iter().all(|x| *x > -1e-6),
+            "impulses {impulses}: the ball went through the floor"
+        );
+    }
+}
+
+/// A flywheel (the library's inertia) stopped dead at t = 1 by a latch
+/// that restarts its speed at 0: `when time >= 1: reinit(flange.w, 0)`.
+/// (The review found the projection keeping w = 10.)
+#[test]
+fn the_impulse_projection_leaves_a_reinit_to_rest_alone() {
+    let latch = ComponentDef {
+        name: "Test.Latch".into(),
+        ports: vec![port("flange", "Flange", "")],
+        equations: vec![
+            eq(n("flange.tau"), c(0.0), "it passes no torque between events"),
+            when(
+                cmp(CmpOp::Ge, Expr::Time, c(1.0)),
+                vec![reinit("flange.w", c(0.0))],
+                "it stops the flywheel",
+            ),
+        ],
+        ..Default::default()
+    };
+    let mut lib = library();
+    lib.add(latch);
+    let top = ComponentDef {
+        name: "Test.Flywheel".into(),
+        components: vec![
+            sub("wheel", "Rotational.Inertia", &[("J", c(2.0)), ("w0", c(10.0))]),
+            sub("latch", "Test.Latch", &[]),
+        ],
+        connections: vec![connect("wheel.a", "latch.flange")],
+        ..Default::default()
+    };
+    let (m, _) = prepare_with_report(&lib, &top, None, &Settings::default())
+        .unwrap_or_else(|d| panic!("{d:#?}"));
+    for impulses in [false, true] {
+        let r = run_books(&m, 2.0, 0.25, impulses);
+        let w = r.channel("wheel.w").unwrap();
+        println!(
+            "impulses {impulses}: {} projections; w(0.75) = {}, w(1) = {}, w(2) = {} (exact 10, 0, 0)",
+            r.report.impulses,
+            w[3],
+            w[4],
+            w.last().unwrap()
+        );
+        assert!(
+            w.last().unwrap().abs() < 1e-9,
+            "impulses {impulses}: w(2) = {}",
+            w.last().unwrap()
+        );
+    }
 }

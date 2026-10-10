@@ -21,6 +21,7 @@
 //! * [`sweep`] — parameter sets in parallel (rayon), one compiled model.
 
 pub mod accuracy;
+mod ad;
 #[cfg(feature = "diffsol")]
 pub mod diffsol_backend;
 pub mod energy;
@@ -28,6 +29,7 @@ pub mod energy;
 pub mod faer_ls;
 pub mod info;
 pub mod init;
+mod interval;
 pub mod jac;
 mod recorder;
 pub mod run;
@@ -38,7 +40,8 @@ pub mod sweep;
 pub use accuracy::{AccuracyReport, ChannelChange, accuracy_check, compare_runs};
 pub use energy::{EnergyBooks, PartBooks};
 pub use info::{
-    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, InputChain, ModeInfo, RunInfo, VarSource,
+    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, EngagementInfo, ImpulseInfo, ImpulseLink,
+    InputChain, ModeInfo, RunInfo, StoredRates, TimeCrossing, TimeFunction, VarSource,
 };
 pub use recorder::Recorder;
 pub use run::run_loop;
@@ -177,18 +180,51 @@ pub struct SolverOptions {
     pub energy_tolerance: f64,
     /// put the energy integrals under the integrator's error control, so
     /// they are as accurate as the states (the default; the step size then
-    /// also serves them); off: they ride on the states' steps, which can
-    /// leave a fast-decaying loss 100× less accurate than the tolerance
+    /// also serves them). Off, they ride on the states' steps, which the
+    /// states alone choose: a fast-decaying loss came out 100× less
+    /// accurate than the tolerance, and where the states are exact on long
+    /// steps (a constant torque on an inertia: 1 s steps from the start)
+    /// an integral can be off by tens of percent (9 J supplied came out as
+    /// 15.55 J). The closure compares the integrals with each other and
+    /// can be zero all the same; the drift (stored energy from the states
+    /// against its integral) shows the error, and the run warns that the
+    /// books were not under error control
+    /// ([`EnergyBooks::error_controlled`])
     pub energy_error_control: bool,
-    /// event iterations allowed at one instant before the run stops
+    /// event iterations allowed at one instant before the run stops with
+    /// an event storm: rounds of re-checking the conditions after a change,
+    /// and, counted on their own, the rigid engagements one instant's
+    /// events chain (a shift whose new speeds fire the next shift, each
+    /// one projected); raise it for a cascade that is meant
     pub max_event_iterations: usize,
     /// an event storm: more than this many state events (zero crossings and
-    /// modes; sample ticks and time events do not count) …
+    /// modes; sample ticks and time events do not count, nor what they
+    /// change at their instant) …
     pub storm_events: usize,
     /// … within this share of the run's length (at least 1 µs)
     pub storm_window: f64,
     /// IDA: leave the iteration variables out of the local error test
     pub suppress_algebraic_error: bool,
+    /// at a rigid engagement a part declares (a gear shift), move the
+    /// states to keep the momentum of everything the engagement ties
+    /// together (an impulse projection, [`RunInfo::impulse`]); off: the
+    /// states stay and the speeds they set jump to the new couplings
+    pub impulses: bool,
+    /// let a sample tick whose change the next step's error test can
+    /// absorb go on with the integration's history instead of restarting
+    /// (a light restart). Off by default: the history carries the kink the
+    /// tick put in the derivatives into the next steps, and the error that
+    /// leaves has the same sign at every tick of a steadily moving command,
+    /// so it accumulates beyond the tolerance over a long run (a 10 000-tick
+    /// ramp at rtol 1e-6: 57 tolerance units). A tick whose outputs reach
+    /// nothing the integrator integrates or watches goes on without a
+    /// restart either way ([`RunInfo::dynamic_discretes`]): that is exact
+    pub light_restarts: bool,
+    /// time the check of the conditions that mix time and states along
+    /// each step ([`SolverReport::mixed_seconds`]: two clock readings a
+    /// step), for the benchmark of its share of the run (lsim-project's
+    /// `scan_share` example). Off by default
+    pub time_mixed_checks: bool,
 }
 
 impl Default for SolverOptions {
@@ -208,6 +244,9 @@ impl Default for SolverOptions {
             storm_events: 100,
             storm_window: 1e-3,
             suppress_algebraic_error: false,
+            impulses: true,
+            light_restarts: false,
+            time_mixed_checks: false,
         }
     }
 }
@@ -272,6 +311,70 @@ impl std::ops::AddAssign for SolverStats {
     }
 }
 
+/// The polynomial an integrator's dense output is over its last step, for
+/// some entries of y, in Newton form:
+///
+/// `y(t) = Σ_j a_j Π_{i<j} (τ − x_i) / s_i`, `τ = t − origin`,
+///
+/// the nodes `x_i` and scales `s_i` shared by the entries (CVODE's
+/// Nordsieck array: every `x_i = 0`, `s_i = h`; IDA's modified divided
+/// differences: `x_0 = 0`, `x_i = −ψ_{i−1}`, `s_i = ψ_i`). The run loop
+/// encloses it over any part of the step with outward rounding.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DenseOutput {
+    /// τ's origin
+    pub origin: f64,
+    /// the nodes `x_i`, as many as the degree
+    pub nodes: Vec<f64>,
+    /// the scales `s_i`
+    pub scales: Vec<f64>,
+    /// per entry, its `degree + 1` coefficients `a_j`, entry after entry
+    /// (any values after the last entry's are not part of it)
+    pub coef: Vec<f64>,
+    /// per entry, a bound on its distance from the integrator's own
+    /// interpolant over the part of the step asked for (0: it is that
+    /// interpolant, as the integrator holds it; a backend that cannot
+    /// prove one gives an estimate and says so: diffsol's)
+    pub err: Vec<f64>,
+}
+
+impl DenseOutput {
+    /// The polynomial's degree.
+    pub fn degree(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Entry `m`'s coefficients.
+    pub fn coefficients(&self, m: usize) -> &[f64] {
+        let k = self.degree() + 1;
+        &self.coef[m * k..(m + 1) * k]
+    }
+
+    /// Entry `m` at `t`, in floating point (as the integrators evaluate
+    /// their dense output: the nested Newton form).
+    pub fn at(&self, m: usize, t: f64) -> f64 {
+        let tau = t - self.origin;
+        let a = self.coefficients(m);
+        let q = self.degree();
+        let mut acc = a[q];
+        for j in (0..q).rev() {
+            acc = a[j] + (tau - self.nodes[j]) / self.scales[j] * acc;
+        }
+        acc
+    }
+
+    /// The constant `y` at `t` (an integrator that has not stepped yet).
+    pub fn constant(&mut self, t: f64, y: impl Iterator<Item = f64>) {
+        self.origin = t;
+        self.nodes.clear();
+        self.scales.clear();
+        self.coef.clear();
+        self.coef.extend(y);
+        self.err.clear();
+        self.err.resize(self.coef.len(), 0.0);
+    }
+}
+
 /// A time integrator for `x' = f(t, x, z)`, `0 = g(t, x, z)`.
 pub trait Integrator {
     /// The backend's name, for the run report.
@@ -298,12 +401,54 @@ pub trait Integrator {
         }
         Ok(())
     }
+    /// The polynomial the dense output is over the last step, for the
+    /// entries `idx` of y ([`DenseOutput`]), to be read on `[t0, the
+    /// step's end]` (inside the last step). False when the backend does
+    /// not give it (the default) or `t0` lies before the last step: the run
+    /// loop then cannot check a condition along the step, and says so.
+    fn dense_output(
+        &mut self,
+        _t0: f64,
+        _idx: &[usize],
+        _out: &mut DenseOutput,
+    ) -> Result<bool, SolveError> {
+        Ok(false)
+    }
     /// The discrete variables the model functions read.
     fn discrete_mut(&mut self) -> &mut [f64];
     /// Restarts at `t` from `y` (iteration variables are made consistent),
     /// after the discrete variables changed. `t` may lie inside the last
     /// step (the rest of the step is dropped).
     fn restart(&mut self, t: f64, y: &[f64]) -> Result<(), SolveError>;
+    /// Goes on from `t`, the end of the last step, keeping the integration
+    /// history (no restart), after an event that changed discrete values
+    /// so little that the next step's error test hardly sees it. False when
+    /// the backend cannot (its last step does not end at `t`, or it has
+    /// none): the run loop then restarts it.
+    fn resume(&mut self, _t: f64) -> bool {
+        false
+    }
+    /// The step the integrator plans next, s (0: none yet).
+    fn planned_step(&self) -> f64 {
+        0.0
+    }
+    /// Makes the iteration variables of `y` consistent at `t` with the
+    /// discrete values `d`, the states held (event iteration re-checks the
+    /// conditions with them after a discrete value changed). The run loop
+    /// calls it only for a model with iteration variables, so an
+    /// integrator of ODEs never sees it. The default fails: an integrator
+    /// that solves DAEs and does not implement it stops the run there
+    /// instead of going on with iteration variables that no longer hold.
+    fn consistent_z(&mut self, t: f64, _y: &mut [f64], _d: &[f64]) -> Result<(), SolveError> {
+        Err(SolveError::Integrator {
+            t,
+            message: format!(
+                "the {} integrator cannot make a model's iteration variables consistent after \
+                 an event (Integrator::consistent_z is not implemented)",
+                self.name()
+            ),
+        })
+    }
     /// Work done so far.
     fn stats(&self) -> SolverStats;
     /// The energy integrals at `t` (inside the last step), when the backend
@@ -321,6 +466,12 @@ pub trait Integrator {
     /// 0: none): the run loop sets it after every event so a function that
     /// rests at zero after its crossing (a held value) does not fire again.
     fn set_root_sides(&mut self, _sides: &[f64]) {}
+    /// The root functions the integrator must not watch (true): the run
+    /// loop schedules them itself as exact time events. A backend that
+    /// watches every root function must say so (false).
+    fn set_root_mask(&mut self, mask: &[bool]) -> bool {
+        !mask.iter().any(|m| *m)
+    }
     /// The method now in use, for the report.
     fn method(&self) -> String {
         "BDF".into()
@@ -344,11 +495,16 @@ pub struct OutputGrid {
 }
 
 impl OutputGrid {
-    /// The grid's times.
+    /// The grid's times: from `t0` every `dt`, the last one `t_end`
+    /// exactly (also when `n·dt` rounds a few ulps short of it).
     pub fn times(&self) -> Vec<f64> {
         let n = ((self.t_end - self.t0) / self.dt - 1e-9).ceil().max(0.0) as usize;
         let mut t: Vec<f64> =
-            (0..=n).map(|k| (self.t0 + k as f64 * self.dt).min(self.t_end)).collect();
+            (0..=n)
+                .map(|k| {
+                    if k == n { self.t_end } else { (self.t0 + k as f64 * self.dt).min(self.t_end) }
+                })
+                .collect();
         t.dedup();
         t
     }
@@ -415,8 +571,34 @@ pub struct SolverReport {
     pub events: usize,
     /// sampled-block ticks
     pub block_ticks: u64,
-    /// ticks that changed an output (and so restarted the integrator)
+    /// ticks that changed an output (and so restarted the integrator,
+    /// unless they are counted below)
     pub block_changes: u64,
+    /// of those, the ticks whose outputs reach nothing the integrator
+    /// integrates or watches ([`RunInfo::dynamic_discretes`]): the step
+    /// went on, exactly, with no restart and no cut
+    pub inert_ticks: u64,
+    /// of those, with [`SolverOptions::light_restarts`] (opt-in), the ticks
+    /// so slight that the integration went on with its history instead of
+    /// restarting, the next step's error test checking the change
+    pub light_restarts: u64,
+    /// impulse projections at rigid engagements (gear shifts)
+    pub impulses: u64,
+    /// iteration variables solved again between the ticks of one instant
+    /// (a block reading what a block before it moved)
+    pub z_solves: u64,
+    /// steps ended at a sign change of a condition that mixes time and
+    /// states, found along the step, that root finding did not see
+    pub pulses_found: u64,
+    /// steps of such conditions a certificate cleared (a few comparisons
+    /// per state they read), summed over the conditions
+    pub mixed_certified: u64,
+    /// steps of such conditions taken along the dense output, where no
+    /// certificate held, summed over the conditions
+    pub mixed_scanned: u64,
+    /// wall-clock time the check of such conditions took, s (0 unless
+    /// [`SolverOptions::time_mixed_checks`])
+    pub mixed_seconds: f64,
     /// the integrator's own error estimate
     pub error: ErrorEstimate,
     /// warnings for the user
@@ -438,6 +620,14 @@ pub struct SimResult {
     pub max: Vec<Vec<f64>>,
     /// time-mean over the interval ending at `times[k]`
     pub mean: Vec<Vec<f64>>,
+    /// the output times that fall exactly on an event, in order of the
+    /// output point: the values just before it (the left limit) of the
+    /// channels the event changed; `values[c][k]` holds the value just
+    /// after the event, as everywhere ([`SimResult::before`] gives either
+    /// side's for any channel). Both sides of the event at the same time,
+    /// as Modelica tools write them to their result files (the left one
+    /// first)
+    pub left_limits: Vec<LeftLimit>,
     /// the events, in order
     pub events: Vec<EventRecord>,
     /// work counters
@@ -454,10 +644,58 @@ pub struct SimResult {
     pub report: SolverReport,
 }
 
+/// The values just before an event that falls on an output time: only
+/// those of the channels the event changed (the others' are the values
+/// after it, [`SimResult::values`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LeftLimit {
+    /// the output point: `times[k]`
+    pub k: usize,
+    /// the channels whose value just before the event differs from the
+    /// value just after, increasing
+    pub channels: Vec<u32>,
+    /// their values just before it
+    pub before: Vec<f64>,
+}
+
+impl LeftLimit {
+    /// The changes from `left` (every channel just before) to `right`
+    /// (just after) at output point `k`.
+    pub fn new(k: usize, left: &[f64], right: &[f64]) -> LeftLimit {
+        let mut out = LeftLimit { k, channels: vec![], before: vec![] };
+        for (c, (a, b)) in left.iter().zip(right).enumerate() {
+            if a.to_bits() != b.to_bits() && !(a.is_nan() && b.is_nan()) {
+                out.channels.push(c as u32);
+                out.before.push(*a);
+            }
+        }
+        out.channels.shrink_to_fit();
+        out.before.shrink_to_fit();
+        out
+    }
+
+    /// Channel `c`'s value just before the event, when the event changed it.
+    pub fn get(&self, c: usize) -> Option<f64> {
+        let c = u32::try_from(c).ok()?;
+        self.channels.binary_search(&c).ok().map(|i| self.before[i])
+    }
+}
+
 impl SimResult {
     /// A channel's values by name.
     pub fn channel(&self, name: &str) -> Option<&[f64]> {
         self.names.iter().position(|n| n == name).map(|i| self.values[i].as_slice())
+    }
+
+    /// Channel `c`'s value just before output point `k`: its left limit
+    /// when an event falls there, else its value (`values[c][k]`).
+    pub fn before(&self, c: usize, k: usize) -> f64 {
+        let left = self
+            .left_limits
+            .binary_search_by_key(&k, |l| l.k)
+            .ok()
+            .and_then(|i| self.left_limits[i].get(c));
+        left.unwrap_or(self.values[c][k])
     }
 }
 
@@ -508,7 +746,10 @@ fn run_backend(
 ) -> Result<SimResult, SolveError> {
     let l = *model.layout();
     let quad = if opts.energy_books {
-        info.energy.as_ref().filter(|e| !e.parts.is_empty()).map(|e| energy::Integrand::new(e, &l))
+        info.energy
+            .as_ref()
+            .filter(|e| !e.parts.is_empty())
+            .map(|e| energy::Integrand::new(e, info, &l))
     } else {
         None
     };

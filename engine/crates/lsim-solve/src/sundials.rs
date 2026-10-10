@@ -20,8 +20,8 @@ use crate::energy::Integrand;
 use crate::init::{InitSettings, consistent_z};
 use crate::jac::JacStructure;
 use crate::{
-    Integrator, LinearSolver, Method, OutputGrid, RunInfo, SolveError, SolverOptions, SolverStats,
-    Step,
+    DenseOutput, Integrator, LinearSolver, Method, OutputGrid, RunInfo, SolveError, SolverOptions,
+    SolverStats, Step,
 };
 use lsim_ir::runtime::{EvalInput, Layout, ModelFunctions};
 use lsim_sundials_sys::*;
@@ -29,6 +29,10 @@ use std::ffi::{CStr, c_void};
 use std::marker::PhantomData;
 use std::os::raw::{c_char, c_int, c_long};
 use std::ptr;
+
+/// The highest order CVODE's Adams method may take (the order of its
+/// dense output's polynomial).
+pub(crate) const ADAMS_MAX_ORDER: c_int = 7;
 
 /// The linear solver in use.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -58,6 +62,8 @@ struct Problem {
     /// 0: none), so a function resting at zero after its event does not
     /// fire again
     zero_side: Vec<f64>,
+    /// root functions not watched (time events the run loop schedules)
+    root_mask: Vec<bool>,
     /// table guards watched after the model's own root functions
     n_guards: usize,
 }
@@ -194,7 +200,7 @@ unsafe extern "C" fn cv_root(t: f64, y: N_Vector, g: *mut f64, ud: *mut c_void) 
         if pr.n_guards > 0 {
             m.table_guards(&inp, &mut pr.work, &mut g[nr..]);
         }
-        crate::run::apply_zero_sides(g, &pr.zero_side);
+        crate::run::apply_zero_sides(g, &pr.zero_side, &pr.root_mask);
     }
     0
 }
@@ -290,11 +296,19 @@ unsafe extern "C" fn ida_quad(
     unsafe {
         let pr = problem(ud);
         let n = pr.layout.n_y();
+        let nx = pr.layout.n_x;
         let m = pr.model();
         let Some(q) = pr.quad.as_mut() else { return 0 };
         let out = slice(yq, q.len());
         let inp = EvalInput { t, y: slice(yy, n), p: &pr.p, d: &pr.d, u: &pr.u };
-        q.eval(m, &inp, slice(yp, n), &mut pr.work, out);
+        // the states' rates from the model itself, x' = f(t, x, z): IDA's
+        // own y' differs from them by the residual its Newton iteration
+        // leaves, which the books would integrate (times each stored
+        // energy's weight: a full fuel tank's heating value); the
+        // iteration variables' rates have no formula but IDA's
+        m.residual(&inp, &mut pr.work, &mut pr.out);
+        pr.out[nx..n].copy_from_slice(&slice(yp, n)[nx..n]);
+        q.eval(m, &inp, &pr.out, &mut pr.work, out);
     }
     0
 }
@@ -369,9 +383,16 @@ pub struct Sundials<'m> {
     notes: Vec<String>,
     methods: Vec<(f64, Lmm)>,
     fresh: bool,
+    /// Adams struggled on the last step: switch to BDF before the next one
+    /// (at its start, or at a restart), so that the step just taken keeps
+    /// its memory and with it its dense output; why
+    bdf_next: Option<&'static str>,
     /// the last step's start (the dense output is valid from here to
     /// `t_last`)
     t_step_start: f64,
+    /// the last point whose iteration variables were solved: (t, y, d);
+    /// a restart there needs no second solve
+    z_solved: Option<(f64, Vec<f64>, Vec<f64>)>,
     _model: PhantomData<&'m dyn ModelFunctions>,
 }
 
@@ -464,6 +485,7 @@ impl<'m> Sundials<'m> {
             lin,
             quad,
             zero_side: vec![0.0; layout.n_roots + model.table_guard_list().len()],
+            root_mask: vec![],
             n_guards: model.table_guard_list().len(),
         });
         // SAFETY: plain SUNDIALS set-up; every object is freed in `Drop`.
@@ -548,7 +570,9 @@ impl<'m> Sundials<'m> {
                 notes,
                 methods: vec![],
                 fresh: true,
+                bdf_next: None,
                 t_step_start: t0,
+                z_solved: None,
                 _model: PhantomData,
             };
             match kind {
@@ -596,7 +620,7 @@ impl<'m> Sundials<'m> {
                     }
                     s.init_roots()?;
                     s.methods.push((t0, Lmm::Bdf));
-                    let what = s.consistent(t0)?;
+                    let what = s.consistent(t0, None)?;
                     s.notes.push(format!("initialisation: {what}"));
                 }
             }
@@ -659,6 +683,13 @@ impl<'m> Sundials<'m> {
                     self.check(CVodeSetJacFn(self.mem, Some(cv_jac)), "CVodeSetJacFn", t)?;
                 }
                 Lmm::Adams => {
+                    // order 7 at most (CVODE's default is 12): the dense
+                    // output is then a polynomial of degree 7 at most, which
+                    // the mixed conditions' check takes as it is. On smooth
+                    // problems the order rarely passes 5; on a slow cosine at
+                    // rtol 1e-12, which reaches 11 uncapped, the cap takes
+                    // 272 steps instead of 194, with half the error.
+                    self.check(CVodeSetMaxOrd(self.mem, ADAMS_MAX_ORDER), "CVodeSetMaxOrd", t)?;
                     if self.nls.is_null() {
                         self.nls = SUNNonlinSol_FixedPoint(self.y, 0, self.ctx);
                     }
@@ -752,46 +783,81 @@ impl<'m> Sundials<'m> {
         rho
     }
 
-    /// IDA: makes z consistent (Newton, then homotopy) and x' with it.
-    fn consistent(&mut self, t: f64) -> Result<String, SolveError> {
+    /// IDA: makes z consistent (Newton, then homotopy) and y' with it (x'
+    /// from the model, z' from the algebraic equations differentiated along
+    /// the solution). At the start IDA's own `IDACalcIC` refines the point;
+    /// at a restart (`h0`: the step IDA had planned) it is consistent
+    /// already, and the first step starts from `h0`, not from IDA's
+    /// default of a step that moves y by half a tolerance unit.
+    fn consistent(&mut self, t: f64, h0: Option<f64>) -> Result<String, SolveError> {
         let n = self.n;
         let pr = &mut *self.prob;
         // SAFETY: y is our serial vector of n values.
         let y = unsafe { slice(self.y, n) };
-        let outcome = consistent_z(
-            pr.model(),
-            &self.info,
-            &pr.jac,
-            t,
-            y,
-            &pr.p,
-            &pr.d,
-            &pr.u,
-            &InitSettings { rtol: self.opts.rtol, atol: self.opts.atol, max_iterations: 50 },
-        )?;
-        // x' from the model at the consistent point
-        let m = pr.model();
-        let inp = EvalInput { t, y, p: &pr.p, d: &pr.d, u: &pr.u };
-        m.residual(&inp, &mut pr.work, &mut pr.out);
-        let nx = pr.layout.n_x;
+        let solved = self
+            .z_solved
+            .take()
+            .is_some_and(|(ts, ys, ds)| ts == t && ys.as_slice() == &y[..] && ds == pr.d);
+        let outcome = if solved {
+            crate::init::InitOutcome::default()
+        } else {
+            consistent_z(
+                pr.model(),
+                &self.info,
+                &pr.jac,
+                t,
+                y,
+                &pr.p,
+                &pr.d,
+                &pr.u,
+                &InitSettings { rtol: self.opts.rtol, atol: self.opts.atol, max_iterations: 50 },
+            )?
+        };
+        // y' at the consistent point
         // SAFETY: yp is our serial vector of n values.
         let yp = unsafe { slice(self.yp, n) };
-        for (i, v) in yp.iter_mut().enumerate() {
-            *v = if i < nx { pr.out[i] } else { 0.0 };
-        }
-        let h = (1e-3 * (self.t_end - t).abs()).max(1e-9);
+        crate::init::rates(pr.model(), &pr.jac, t, y, &pr.p, &pr.d, &pr.u, yp);
         // SAFETY: `mem` is a live IDA memory; y and yp are its vectors.
         unsafe {
             self.check(IDAReInit(self.mem, t, self.y, self.yp), "IDAReInit", t)?;
             if self.n_q > 0 {
                 self.check(IDAQuadReInit(self.mem, self.yq), "IDAQuadReInit", t)?;
             }
-            self.check(
-                IDACalcIC(self.mem, IDA_YA_YDP_INIT, t + h),
-                "the consistent initialisation (IDACalcIC)",
-                t,
-            )?;
-            self.check(IDAGetConsistentIC(self.mem, self.y, self.yp), "IDAGetConsistentIC", t)?;
+            match h0 {
+                None => {
+                    let h = (1e-3 * (self.t_end - t).abs()).max(1e-9);
+                    self.check(
+                        IDACalcIC(self.mem, IDA_YA_YDP_INIT, t + h),
+                        "the consistent initialisation (IDACalcIC)",
+                        t,
+                    )?;
+                    self.check(
+                        IDAGetConsistentIC(self.mem, self.y, self.yp),
+                        "IDAGetConsistentIC",
+                        t,
+                    )?;
+                }
+                Some(h) => {
+                    let pr = &mut *self.prob;
+                    let h0 = crate::init::first_step(
+                        pr.model(),
+                        t,
+                        slice(self.y, n),
+                        slice(self.yp, n),
+                        &pr.p,
+                        &pr.d,
+                        &pr.u,
+                        &InitSettings {
+                            rtol: self.opts.rtol,
+                            atol: self.opts.atol,
+                            max_iterations: 0,
+                        },
+                        &self.info.y_nominal,
+                        h,
+                    );
+                    self.check(IDASetInitStep(self.mem, h0), "IDASetInitStep", t)?;
+                }
+            }
         }
         self.fresh = true;
         Ok(outcome.describe())
@@ -858,6 +924,19 @@ impl<'m> Sundials<'m> {
     }
 
     /// Adams in trouble: back to BDF from the current point.
+    /// From Adams to BDF at `t` (the last step's end), `why`: a new memory,
+    /// the integrals carried over (read at `t` before the old memory goes).
+    fn switch_to_bdf(&mut self, t: f64, why: &str) -> Result<(), SolveError> {
+        self.notes.push(format!("switched from Adams to BDF at t = {t:.6} s ({why})"));
+        if self.n_q > 0 {
+            let mut q = vec![0.0; self.n_q];
+            self.quadrature(t, &mut q)?;
+            // SAFETY: yq holds n_q values.
+            unsafe { slice(self.yq, self.n_q).copy_from_slice(&q) };
+        }
+        self.create_cvode(Lmm::Bdf, t)
+    }
+
     fn adams_struggles(&self) -> bool {
         let c = self.counters();
         c.nonlin_fails >= 10 && c.nonlin_fails * 10 >= c.steps
@@ -874,6 +953,11 @@ impl Integrator for Sundials<'_> {
     }
 
     fn step(&mut self, t_stop: f64) -> Result<Step, SolveError> {
+        // a switch the last step asked for, now that the run loop is done
+        // with that step (its dense output, its integrals)
+        if let Some(why) = self.bdf_next.take() {
+            self.switch_to_bdf(self.t_last, why)?;
+        }
         let mut t = self.t_last;
         // SAFETY: `mem` is live; y/yp are its vectors.
         let flag = unsafe {
@@ -890,12 +974,10 @@ impl Integrator for Sundials<'_> {
         };
         if flag < 0 {
             // Adams that cannot converge: the model is stiff here after all
+            // (the failed attempt leaves the memory at the last step's end:
+            // its state, its integrals)
             if self.kind == Kind::Cvode && self.lmm == Lmm::Adams && self.auto {
-                self.notes.push(format!(
-                    "switched from Adams to BDF at t = {:.6} s (the fixed-point iteration failed)",
-                    self.t_last
-                ));
-                self.create_cvode(Lmm::Bdf, self.t_last)?;
+                self.switch_to_bdf(self.t_last, "the fixed-point iteration failed")?;
                 return self.step(t_stop);
             }
             let what = match self.kind {
@@ -907,20 +989,13 @@ impl Integrator for Sundials<'_> {
         self.t_last = t;
         self.fresh = false;
         self.t_step_start = self.last_step_start();
+        // Adams struggling (it got there, with many convergence failures):
+        // BDF from here on, but only from the next step, so that this one
+        // keeps its dense output and is reported as it ended (at a root, at
+        // the stop time)
         if self.kind == Kind::Cvode && self.lmm == Lmm::Adams && self.auto && self.adams_struggles()
         {
-            self.notes.push(format!(
-                "switched from Adams to BDF at t = {t:.6} s (repeated convergence failures)"
-            ));
-            // the quadratures carry over: read them at t first
-            if self.n_q > 0 {
-                let mut q = vec![0.0; self.n_q];
-                self.quadrature(t, &mut q)?;
-                // SAFETY: yq holds n_q values.
-                unsafe { slice(self.yq, self.n_q).copy_from_slice(&q) };
-            }
-            self.create_cvode(Lmm::Bdf, t)?;
-            return Ok(Step::Internal(t));
+            self.bdf_next = Some("repeated convergence failures");
         }
         Ok(match (self.kind, flag) {
             (Kind::Cvode, CV_ROOT_RETURN) | (Kind::Ida, IDA_ROOT_RETURN) => {
@@ -995,12 +1070,103 @@ impl Integrator for Sundials<'_> {
         Ok(())
     }
 
+    fn dense_output(
+        &mut self,
+        t0: f64,
+        idx: &[usize],
+        out: &mut DenseOutput,
+    ) -> Result<bool, SolveError> {
+        if self.fresh {
+            // no step since the start or a restart: the state, constant
+            let y = self.y();
+            let ys: Vec<f64> = idx.iter().map(|i| y[*i]).collect();
+            out.constant(self.t_last, ys.into_iter());
+            return Ok(true);
+        }
+        // CVODE's Nordsieck array holds up to 13 vectors, IDA's divided
+        // differences up to 6 (the shims write q + 1 per entry)
+        const MOST: usize = 13;
+        let n = idx.len();
+        let mut coef = std::mem::take(&mut out.coef);
+        if coef.len() < n * MOST {
+            coef.resize(n * MOST, 0.0);
+        }
+        const _: () = assert!(size_of::<usize>() == size_of::<sunindextype>());
+        let sel = idx.as_ptr() as *const sunindextype;
+        let mut info = [0.0; 3];
+        let mut psi = [0.0; MOST];
+        let mut q: c_int = 0;
+        // SAFETY: `mem` is live; `coef` holds at least `n · MOST` values,
+        // `info` 3, `psi` MOST.
+        let flag = unsafe {
+            match self.kind {
+                Kind::Cvode => lsim_cvode_dense_select(
+                    self.mem,
+                    n as c_int,
+                    sel,
+                    coef.len() as c_int,
+                    coef.as_mut_ptr(),
+                    info.as_mut_ptr(),
+                    &mut q,
+                ),
+                Kind::Ida => lsim_ida_dense_select(
+                    self.mem,
+                    n as c_int,
+                    sel,
+                    coef.len() as c_int,
+                    coef.as_mut_ptr(),
+                    psi.as_mut_ptr(),
+                    info.as_mut_ptr(),
+                    &mut q,
+                ),
+            }
+        };
+        self.check(flag, "the dense output's polynomial", self.t_last)?;
+        let q = q as usize;
+        let (tn, step) = match self.kind {
+            Kind::Cvode => (info[0], info[2]),
+            Kind::Ida => (info[0], info[1]),
+        };
+        // the part of the step asked for must lie inside the last step
+        let fuzz = 100.0 * f64::EPSILON * (tn.abs() + step.abs());
+        if t0 < tn - step.abs() - fuzz {
+            out.coef = coef;
+            return Ok(false);
+        }
+        out.origin = tn;
+        out.nodes.resize(q, 0.0);
+        out.scales.resize(q, 0.0);
+        match self.kind {
+            Kind::Cvode => {
+                out.nodes.fill(0.0);
+                out.scales.fill(info[1]);
+            }
+            Kind::Ida => {
+                for (i, (x, s)) in out.nodes.iter_mut().zip(&mut out.scales).enumerate() {
+                    *x = if i == 0 { 0.0 } else { -psi[i - 1] };
+                    *s = psi[i];
+                }
+            }
+        }
+        // (the values past the last entry's are left: not cleared, nor
+        // filled again on the next step)
+        out.coef = coef;
+        out.err.resize(n, 0.0);
+        out.err.fill(0.0);
+        Ok(true)
+    }
+
     fn discrete_mut(&mut self) -> &mut [f64] {
         &mut self.prob.d
     }
 
     fn set_root_sides(&mut self, sides: &[f64]) {
         self.prob.zero_side.copy_from_slice(sides);
+    }
+
+    fn set_root_mask(&mut self, mask: &[bool]) -> bool {
+        self.prob.root_mask = mask.to_vec();
+        true
     }
 
     fn restart(&mut self, t: f64, y: &[f64]) -> Result<(), SolveError> {
@@ -1012,6 +1178,19 @@ impl Integrator for Sundials<'_> {
             unsafe { slice(self.yq, self.n_q).copy_from_slice(&q) };
         }
         let h_last = (self.t_last - self.last_step_start()).abs();
+        // the step the integrator had planned next (0 before its first
+        // step: then it chooses)
+        let mut h_next = 0.0;
+        if !self.fresh {
+            // SAFETY: `mem` is live.
+            unsafe {
+                match self.kind {
+                    Kind::Cvode => CVodeGetCurrentStep(self.mem, &mut h_next),
+                    Kind::Ida => IDAGetCurrentStep(self.mem, &mut h_next),
+                };
+            }
+        }
+        let h_next = h_next.abs();
         self.done.restarts += 1;
         // SAFETY: y is our serial vector of n values.
         unsafe { slice(self.y, self.n).copy_from_slice(y) };
@@ -1019,7 +1198,11 @@ impl Integrator for Sundials<'_> {
             Kind::Cvode => {
                 // re-check the method where the dynamics may have changed
                 let mut lmm = self.lmm;
-                if self.auto {
+                if let Some(why) = self.bdf_next.take() {
+                    // the last step asked for BDF
+                    self.notes.push(format!("switched from Adams to BDF at t = {t:.6} s ({why})"));
+                    lmm = Lmm::Bdf;
+                } else if self.auto {
                     let rho = self.spectral_radius(t);
                     let want = if self.lmm == Lmm::Bdf && h_last > 0.0 && rho * h_last < 0.2 {
                         Lmm::Adams
@@ -1052,14 +1235,79 @@ impl Integrator for Sundials<'_> {
                     self.fresh = true;
                     self.init_roots()?;
                 }
+                let h0 = if h_next > 0.0 {
+                    let pr = &mut *self.prob;
+                    let mut yp = vec![0.0; self.n];
+                    crate::init::rates(pr.model(), &pr.jac, t, y, &pr.p, &pr.d, &pr.u, &mut yp);
+                    crate::init::first_step(
+                        pr.model(),
+                        t,
+                        y,
+                        &yp,
+                        &pr.p,
+                        &pr.d,
+                        &pr.u,
+                        &InitSettings {
+                            rtol: self.opts.rtol,
+                            atol: self.opts.atol,
+                            max_iterations: 0,
+                        },
+                        &self.info.y_nominal,
+                        h_next,
+                    )
+                } else {
+                    0.0
+                };
+                // SAFETY: `mem` is live.
+                unsafe { self.check(CVodeSetInitStep(self.mem, h0), "CVodeSetInitStep", t)? };
             }
             Kind::Ida => {
                 self.done += self.counters();
                 self.t_last = t;
                 self.init_roots()?;
-                self.consistent(t)?;
+                self.consistent(t, Some(h_next))?;
             }
         }
+        Ok(())
+    }
+
+    fn resume(&mut self, t: f64) -> bool {
+        // the discrete values are the problem's already; the history stays
+        !self.fresh && t == self.t_last
+    }
+
+    fn planned_step(&self) -> f64 {
+        if self.fresh {
+            return 0.0;
+        }
+        let mut h = 0.0;
+        // SAFETY: `mem` is live.
+        unsafe {
+            match self.kind {
+                Kind::Cvode => CVodeGetCurrentStep(self.mem, &mut h),
+                Kind::Ida => IDAGetCurrentStep(self.mem, &mut h),
+            };
+        }
+        h.abs()
+    }
+
+    fn consistent_z(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError> {
+        if self.prob.layout.n_z == 0 {
+            return Ok(());
+        }
+        let pr = &*self.prob;
+        consistent_z(
+            pr.model(),
+            &self.info,
+            &pr.jac,
+            t,
+            y,
+            &pr.p,
+            d,
+            &pr.u,
+            &InitSettings { rtol: self.opts.rtol, atol: self.opts.atol, max_iterations: 50 },
+        )?;
+        self.z_solved = Some((t, y.to_vec(), d.to_vec()));
         Ok(())
     }
 

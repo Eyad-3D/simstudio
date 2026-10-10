@@ -3,7 +3,9 @@
 //! from the reference suite), time events, event iteration across chained
 //! `when` clauses, event storms, sampled blocks (one that changes nothing,
 //! one that changes its output at every tick), the 10× tighter check,
-//! parallel sweeps and the initialisation's homotopy.
+//! parallel sweeps and the initialisation's homotopy; the order contract
+//! of the compiled roots; a condition a table of time drives, not stepped
+//! over.
 
 mod common;
 
@@ -486,4 +488,601 @@ fn the_homotopy_initialises_what_newton_alone_cannot() {
     println!("{} ({out:?}), z = {}", out.describe(), y[0]);
     assert!(out.homotopy_steps > 0, "Newton alone should not have made it");
     assert!((y[0] - 3.0).abs() < 1e-8);
+}
+
+/// A `when time >= t_step` of a prepared model (the library's step) is a
+/// time event the run loop reaches exactly: the step happens at t_step,
+/// not a few ulps after it, and the output point there shows it.
+#[test]
+fn a_prepared_step_in_time_happens_exactly_at_its_time() {
+    use lsim_ir::component::build::{connect, sub};
+    use lsim_ir::expr::c;
+    let top = lsim_ir::ComponentDef {
+        name: "StepAndSpin".into(),
+        components: vec![
+            sub("step", "Signal.Step", &[("y0", c(0.0)), ("y1", c(1.0)), ("t_step", c(0.5))]),
+            sub("drive", "Rotational.ConstantTorque", &[("tau", c(2.0))]),
+            sub("rotor", "Rotational.Inertia", &[("J", c(1.0))]),
+        ],
+        connections: vec![connect("drive.flange", "rotor.a")],
+        ..Default::default()
+    };
+    let built = common::build(&common::library(), &top, false);
+    assert!(
+        built.info.time_crossings.iter().any(Option::is_some),
+        "the step's crossing is a time crossing"
+    );
+    for backend in backends() {
+        let opts = SolverOptions { backend, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.125 };
+        let run = simulate(&built.jit, &built.info, &opts, grid, &mut []).unwrap();
+        let steps: Vec<f64> = run
+            .events
+            .iter()
+            .filter(|e| matches!(e.kind, EventKind::When(_)))
+            .map(|e| e.t)
+            .collect();
+        assert_eq!(steps, [0.5], "{backend:?}: {:?}", run.events);
+        let y = run.channel("step.y").unwrap();
+        let k = run.times.iter().position(|t| *t == 0.5).expect("0.5 on the grid");
+        assert_eq!((y[k - 1], y[k]), (0.0, 1.0), "{backend:?}: the output at 0.5 is after it");
+    }
+}
+
+/// The order contract between preparation, the code generator and the run
+/// loop (DESIGN.md 5.8): the compiled `roots` evaluates
+/// `PreparedModel::zero_crossings` in their order, and the run loop indexes
+/// every per-crossing table by it (`RunInfo::time_crossings`, the modes'
+/// and the `when` clauses' crossings). A model with time crossings at
+/// distinct times between a state crossing and a mode: each compiled root
+/// that `time_crossings` says crosses at `at` must change sign there, in
+/// its direction. A code generator that reordered the roots would fail
+/// this.
+#[test]
+fn compiled_roots_follow_the_zero_crossings_order() {
+    use lsim_ir::component::build::{discrete, eq, param, state, sub, var};
+    use lsim_ir::expr::{CmpOp, cmp, der, if_, name as n};
+    use lsim_ir::{ComponentDef, Equation, EquationDecl, WhenAction};
+    let when = |condition: Expr, var: &str, label: &str| EquationDecl {
+        eq: Equation::When {
+            condition,
+            actions: vec![WhenAction::Assign { var: var.into(), value: Expr::Const(1.0) }],
+        },
+        label: Some(label.into()),
+    };
+    let clock = ComponentDef {
+        name: "Test.Clock".into(),
+        params: vec![
+            param("rate", "1/s", 1.0, ""),
+            param("t1", "s", 0.3, ""),
+            param("t2", "s", 0.7, ""),
+            param("t3", "s", 0.9, ""),
+        ],
+        vars: vec![
+            state("x", "1", 0.0, ""),
+            discrete("a", "1", 0.0, ""),
+            discrete("b", "1", 0.0, ""),
+            discrete("c", "1", 0.0, ""),
+            var("y", "1", ""),
+        ],
+        equations: vec![
+            eq(der("x"), n("rate"), "x rises"),
+            when(cmp(CmpOp::Ge, Expr::Time, n("t1")), "a", "a at t1"),
+            when(cmp(CmpOp::Ge, n("x"), Expr::Const(0.5)), "b", "b at x = 0.5"),
+            eq(
+                n("y"),
+                if_(cmp(CmpOp::Gt, Expr::Time, n("t2")), Expr::Const(1.0), Expr::Const(0.0)),
+                "y after t2",
+            ),
+            when(cmp(CmpOp::Lt, n("t3"), Expr::Time), "c", "c after t3"),
+        ],
+        ..Default::default()
+    };
+    let mut lib = common::library();
+    lib.add(clock);
+    let top = ComponentDef {
+        name: "Test.Top".into(),
+        components: vec![sub("k", "Test.Clock", &[])],
+        ..Default::default()
+    };
+    let built = common::build(&lib, &top, false);
+    let (m, info, jit) = (&built.prepared, &built.info, &built.jit);
+    let n_roots = m.zero_crossings.len();
+    assert_eq!(jit.layout().n_roots, n_roots, "one compiled root per zero crossing");
+    assert_eq!(info.time_crossings.len(), n_roots);
+    let l = *jit.layout();
+    let (mut y0, mut d0) = (vec![0.0; l.n_y()], vec![0.0; l.n_d]);
+    jit.start(&info.params, &mut y0, &mut d0);
+    let mut work = vec![0.0; l.n_work];
+    let mut vars = vec![0.0; l.n_vars];
+    let mut out = vec![0.0; n_roots];
+    let mut root = |t: f64, k: usize| {
+        let inp = EvalInput { t, y: &y0, p: &info.params, d: &d0, u: &[] };
+        jit.roots(&inp, &mut work, &mut out);
+        out[k]
+    };
+    let inp = EvalInput { t: 0.0, y: &y0, p: &info.params, d: &d0, u: &[] };
+    jit.vars(&inp, &mut vec![0.0; l.n_work], &mut vars);
+    let env = lsim_ir::eval::SliceEnv { t: 0.0, vars: &vars, ders: &[], params: &info.params };
+    let mut seen = vec![];
+    for (k, tc) in info.time_crossings.iter().enumerate() {
+        let Some(tc) = tc else {
+            // the state crossing x - 0.5: -0.5 at the start, whatever the time
+            assert_eq!(root(0.0, k), -0.5, "crossing {k}");
+            assert_eq!(root(1.0, k), -0.5, "crossing {k}");
+            continue;
+        };
+        let at = lsim_ir::eval::eval(&tc.at, &env);
+        let (before, after) = (root(at - 1e-6, k), root(at + 1e-6, k));
+        println!("crossing {k}: {} at {at}: {before:e} → {after:e}", m.zero_crossings[k].expr);
+        assert!(root(at, k).abs() < 1e-12, "crossing {k} is not zero at its time {at}");
+        if tc.rising {
+            assert!(before < 0.0 && after > 0.0, "crossing {k} does not rise at {at}");
+        } else {
+            assert!(before > 0.0 && after < 0.0, "crossing {k} does not fall at {at}");
+        }
+        seen.push((at * 10.0).round() as i64);
+    }
+    seen.sort();
+    seen.dedup();
+    assert_eq!(seen, [3, 7, 9], "the three times");
+    // the modes' and the when clauses' crossings are indices into the same
+    for md in &info.modes {
+        assert!(info.time_crossings[md.crossing].is_some(), "the mode of `time > t2`");
+    }
+}
+
+/// A condition driven by a table of time while nothing the integrator
+/// integrates moves: a target that rises from 0 to 1 between 10 and 11 s
+/// and falls back by 12 s, `when target > 0.5` latching a flag, the only
+/// state at rest (x' = 0). The integrator, seeing nothing move, takes steps
+/// of many seconds and finds the condition false at both ends of the one
+/// that spans 10–12 s: root finding sees no sign change and the event is
+/// lost (the golden comparison's Battery Electric Car in winter stood 21 s
+/// at a start: its motor's switch-on, driven by the driver's command from
+/// the cycle's target, was stepped over). The table's breakpoints are stop
+/// times (`RunInfo::time_tables`, found through the assignment that sets
+/// the position it is read at, as the library's profiles set theirs): no
+/// step spans one, and the flag latches at 10.5 s.
+#[test]
+fn a_condition_a_time_table_drives_is_not_stepped_over() {
+    use lsim_ir::component::build::{discrete, eq, state, var};
+    use lsim_ir::expr::{CmpOp, cmp, der, name as n};
+    use lsim_ir::{ComponentDef, Equation, EquationDecl, WhenAction};
+    let mut profile = lsim_ir::table::TableData::new_1d(
+        vec![0.0, 10.0, 11.0, 12.0, 30.0],
+        vec![0.0, 0.0, 1.0, 0.0, 0.0],
+    );
+    profile.axis_units[0] = "s".into();
+    let cycle = ComponentDef {
+        name: "Test.Cycle".into(),
+        params: vec![lsim_lib::table::table_param("profile", "1", profile, "the target by time")],
+        vars: vec![
+            state("x", "1", 1.0, "at rest"),
+            var("at", "s", "where it reads its profile"),
+            var("target", "1", "the target"),
+            discrete("seen", "1", 0.0, "1 once the target passed 0.5"),
+        ],
+        equations: vec![
+            eq(der("x"), Expr::Const(0.0), "nothing moves"),
+            eq(n("at"), Expr::Time, "it reads its profile at the time (as the library's do)"),
+            eq(n("target"), lsim_ir::expr::table("profile", vec![n("at")]), "the target now"),
+            EquationDecl {
+                eq: Equation::When {
+                    condition: cmp(CmpOp::Gt, n("target"), Expr::Const(0.5)),
+                    actions: vec![WhenAction::Assign {
+                        var: "seen".into(),
+                        value: Expr::Const(1.0),
+                    }],
+                },
+                label: Some("the target passes 0.5".into()),
+            },
+        ],
+        ..Default::default()
+    };
+    let mut lib = common::library();
+    lib.add(cycle);
+    let top = ComponentDef {
+        name: "Test.Top".into(),
+        components: vec![lsim_ir::component::build::sub("k", "Test.Cycle", &[])],
+        ..Default::default()
+    };
+    let built = common::build(&lib, &top, false);
+    let info = &built.info;
+    println!("time tables: {:?}", info.time_tables);
+    assert_eq!(info.time_tables.len(), 1);
+    assert_eq!(info.time_tables[0].at, [0.0, 10.0, 11.0, 12.0, 30.0]);
+    assert_eq!(info.time_tables[0].c, 1.0);
+    let seen = info.var_names.iter().position(|x| x == "k.seen").unwrap();
+    let opts = SolverOptions::default();
+    let grid = OutputGrid { t0: 0.0, t_end: 30.0, dt: 10.0 };
+    let run = simulate(&built.jit, info, &opts, grid, &mut []).unwrap();
+    let events: Vec<(String, f64)> = run.events.iter().map(|e| (e.label.clone(), e.t)).collect();
+    println!(
+        "{} steps; flag at the end {}; events {events:?}",
+        run.stats.steps, run.values[seen][3]
+    );
+    assert_eq!(run.values[seen][3], 1.0, "the excursion was stepped over");
+    assert!(events.iter().any(|(_, t)| (t - 10.5).abs() < 1e-6), "{events:?}");
+    // the condition reads time alone (through the table): its sign change
+    // is also found ahead and reached exactly, without the stops
+    assert!(
+        matches!(info.time_functions.as_slice(), [Some(lsim_solve::TimeFunction::Pure(_))]),
+        "{:?}",
+        info.time_functions
+    );
+    let mut searched = info.clone();
+    searched.time_tables.clear();
+    let run = simulate(&built.jit, &searched, &opts, grid, &mut []).unwrap();
+    let at: Vec<f64> =
+        run.events.iter().filter(|e| e.kind == EventKind::When(0)).map(|e| e.t).collect();
+    println!("searched, without the stops: {} steps; at {at:?}", run.stats.steps);
+    assert_eq!(run.values[seen][3], 1.0);
+    assert!(at.len() == 1 && (at[0] - 10.5).abs() < 1e-14, "{at:?}");
+    // without either the integrator steps over it
+    let mut bare = searched;
+    bare.time_functions.clear();
+    let run = simulate(&built.jit, &bare, &opts, grid, &mut []).unwrap();
+    println!(
+        "without the stops or the search: {} steps; flag at the end {}",
+        run.stats.steps, run.values[seen][3]
+    );
+    assert_eq!(run.values[seen][3], 0.0, "the failure this guards against");
+}
+
+/// The test cycle of [`a_condition_a_time_table_drives_is_not_stepped_over`]
+/// (a flag latched when its profile, read at the time, passes 0.5), built.
+fn cycle_model() -> common::Built {
+    use lsim_ir::component::build::{discrete, eq, state, var};
+    use lsim_ir::expr::{CmpOp, cmp, der, name as n};
+    use lsim_ir::{ComponentDef, Equation, EquationDecl, WhenAction};
+    let mut profile = lsim_ir::table::TableData::new_1d(
+        vec![0.0, 10.0, 11.0, 12.0, 30.0],
+        vec![0.0, 0.0, 1.0, 0.0, 0.0],
+    );
+    profile.axis_units[0] = "s".into();
+    let cycle = ComponentDef {
+        name: "Test.Cycle".into(),
+        params: vec![lsim_lib::table::table_param("profile", "1", profile, "the target by time")],
+        vars: vec![
+            state("x", "1", 1.0, "at rest"),
+            var("at", "s", "where it reads its profile"),
+            var("target", "1", "the target"),
+            discrete("seen", "1", 0.0, "1 once the target passed 0.5"),
+        ],
+        equations: vec![
+            eq(der("x"), Expr::Const(0.0), "nothing moves"),
+            eq(n("at"), Expr::Time, "it reads its profile at the time (as the library's do)"),
+            eq(n("target"), lsim_ir::expr::table("profile", vec![n("at")]), "the target now"),
+            EquationDecl {
+                eq: Equation::When {
+                    condition: cmp(CmpOp::Gt, n("target"), Expr::Const(0.5)),
+                    actions: vec![WhenAction::Assign {
+                        var: "seen".into(),
+                        value: Expr::Const(1.0),
+                    }],
+                },
+                label: Some("the target passes 0.5".into()),
+            },
+        ],
+        ..Default::default()
+    };
+    let mut lib = common::library();
+    lib.add(cycle);
+    let top = ComponentDef {
+        name: "Test.Top".into(),
+        components: vec![lsim_ir::component::build::sub("k", "Test.Cycle", &[])],
+        ..Default::default()
+    };
+    common::build(&lib, &top, false)
+}
+
+/// A compiled model given other table data after preparation
+/// (`JitModel::with_tables`: the cycle's pulse moved from 10–12 s to
+/// 20–22 s, the run information still the prepared one's): the run takes
+/// the tables' breakpoints from the model (`ModelFunctions::table_axes`),
+/// so its stops and its search ahead follow the new data, and the flag
+/// latches at 20.5 s. A model that does not give its breakpoints is run on
+/// the prepared ones: its stops at 10–12 s and its search, over pieces the
+/// new data do not have, step over the moved pulse; the run warns of it.
+#[test]
+fn a_model_given_other_tables_is_run_on_their_breakpoints() {
+    let built = cycle_model();
+    let info = &built.info;
+    let mut moved = lsim_ir::table::TableData::new_1d(
+        vec![0.0, 20.0, 21.0, 22.0, 30.0],
+        vec![0.0, 0.0, 1.0, 0.0, 0.0],
+    );
+    moved.axis_units[0] = "s".into();
+    let jit = built.jit.with_tables(&[moved]).expect("takes the new data");
+    assert_eq!(
+        ModelFunctions::table_axes(&jit, 0),
+        Some([vec![0.0, 20.0, 21.0, 22.0, 30.0], vec![]])
+    );
+    let seen = info.var_names.iter().position(|x| x == "k.seen").unwrap();
+    let opts = SolverOptions::default();
+    let grid = OutputGrid { t0: 0.0, t_end: 30.0, dt: 10.0 };
+    let run = simulate(&jit, info, &opts, grid, &mut []).unwrap();
+    let at: Vec<f64> =
+        run.events.iter().filter(|e| e.kind == EventKind::When(0)).map(|e| e.t).collect();
+    println!("{} steps; at {at:?}", run.stats.steps);
+    assert_eq!(run.values[seen][3], 1.0, "the moved pulse was stepped over");
+    assert!(at.len() == 1 && (at[0] - 20.5).abs() < 1e-12, "{at:?}");
+    // the same model hiding its breakpoints: the prepared ones mislead
+    struct Hidden<'a>(&'a lsim_codegen::JitModel);
+    impl ModelFunctions for Hidden<'_> {
+        fn layout(&self) -> &Layout {
+            self.0.layout()
+        }
+        fn residual(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+            self.0.residual(inp, w, out)
+        }
+        fn jvp(&self, inp: &EvalInput<'_>, v: &[f64], w: &mut [f64], out: &mut [f64]) {
+            self.0.jvp(inp, v, w, out)
+        }
+        fn roots(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+            self.0.roots(inp, w, out)
+        }
+        fn vars(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+            self.0.vars(inp, w, out)
+        }
+        fn when(&self, inp: &EvalInput<'_>, f: &[f64], w: &mut [f64], d: &mut [f64]) {
+            self.0.when(inp, f, w, d)
+        }
+        fn start(&self, p: &[f64], y0: &mut [f64], d0: &mut [f64]) {
+            self.0.start(p, y0, d0)
+        }
+        fn jacobian_dense(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+            self.0.jacobian_dense(inp, w, out)
+        }
+        fn sparsity(&self) -> Option<&lsim_ir::runtime::SparsityPattern> {
+            ModelFunctions::sparsity(self.0)
+        }
+        fn jacobian_sparse(&self, inp: &EvalInput<'_>, w: &mut [f64], v: &mut [f64]) {
+            ModelFunctions::jacobian_sparse(self.0, inp, w, v)
+        }
+        fn modes(&self, inp: &EvalInput<'_>, w: &mut [f64], d: &mut [f64]) {
+            self.0.modes(inp, w, d)
+        }
+        fn init(&self) -> Option<&dyn lsim_ir::runtime::InitFunctions> {
+            self.0.init()
+        }
+        fn table_guard_list(&self) -> &[lsim_ir::runtime::TableGuard] {
+            self.0.table_guard_list()
+        }
+        fn table_guards(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
+            self.0.table_guards(inp, w, out)
+        }
+        fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+            self.0.eval_table(k, args)
+        }
+    }
+    let run = simulate(&Hidden(&jit), info, &opts, grid, &mut []).unwrap();
+    println!("breakpoints hidden: {} steps; flag {}", run.stats.steps, run.values[seen][3]);
+    assert_eq!(run.values[seen][3], 0.0, "the failure this guards against");
+    // ... and says so, once for the table
+    let said: Vec<&String> =
+        run.report.warnings.iter().filter(|w| w.contains("ModelFunctions::table_axes")).collect();
+    println!("{said:?}");
+    assert_eq!(said.len(), 1, "{:?}", run.report.warnings);
+    // the model that gives them warns of nothing
+    let run = simulate(&jit, info, &opts, grid, &mut []).unwrap();
+    assert!(run.report.warnings.is_empty(), "{:?}", run.report.warnings);
+}
+
+/// A condition on a table read at a position that moves with time but not
+/// affinely: `profile(10 + 8 sin(ω time)) > 0.5`, the profile up and down
+/// between its breakpoints. Its sign changes are searched ahead through
+/// the table's monotone cubic pieces (the compiled interpolant's), and the
+/// time it held agrees with the crossings bisected here on the compiled
+/// table itself.
+#[test]
+fn a_condition_on_a_table_of_a_function_of_time_is_found_exactly() {
+    use lsim_ir::ComponentDef;
+    use lsim_ir::component::build::{eq, param, state, var};
+    use lsim_ir::expr::{Builtin, CmpOp, call, cmp, der, if_, name as n};
+    let w = 2.0 * std::f64::consts::PI / 10.0;
+    let mut profile = lsim_ir::table::TableData::new_1d(
+        vec![0.0, 3.0, 6.0, 9.0, 12.0, 15.0, 20.0],
+        vec![0.0, 1.0, 0.2, 0.9, 0.1, 1.0, 0.0],
+    );
+    profile.axis_units[0] = "1".into();
+    let wobble = ComponentDef {
+        name: "Test.Wobble".into(),
+        params: vec![
+            param("w", "rad/s", w, "the sine's angular frequency"),
+            lsim_lib::table::table_param("profile", "1", profile, "a level by position"),
+        ],
+        vars: vec![
+            var("at", "1", "where it reads its profile"),
+            var("level", "1", "the level there"),
+            state("x", "s", 0.0, "how long the level was above one half"),
+        ],
+        equations: vec![
+            eq(
+                n("at"),
+                Expr::Const(10.0)
+                    + Expr::Const(8.0) * call(Builtin::Sin, vec![n("w") * Expr::Time]),
+                "it sweeps its profile",
+            ),
+            eq(n("level"), lsim_ir::expr::table("profile", vec![n("at")]), "the level"),
+            eq(
+                der("x"),
+                if_(
+                    cmp(CmpOp::Gt, n("level"), Expr::Const(0.5)),
+                    Expr::Const(1.0),
+                    Expr::Const(0.0),
+                ),
+                "on while the level is above one half",
+            ),
+        ],
+        ..Default::default()
+    };
+    let mut lib = common::library();
+    lib.add(wobble);
+    let top = ComponentDef {
+        name: "Test.Top".into(),
+        components: vec![lsim_ir::component::build::sub("k", "Test.Wobble", &[])],
+        ..Default::default()
+    };
+    let built = common::build(&lib, &top, false);
+    let info = &built.info;
+    assert!(
+        info.time_functions.iter().any(|f| matches!(f, Some(lsim_solve::TimeFunction::Pure(_)))),
+        "{:?}",
+        info.time_functions
+    );
+    let t_end = 40.0;
+    let run = simulate(
+        &built.jit,
+        info,
+        &SolverOptions::default(),
+        OutputGrid { t0: 0.0, t_end, dt: 10.0 },
+        &mut [],
+    )
+    .unwrap();
+    let x = *run.channel("k.x").unwrap().last().unwrap();
+    // the crossings, bisected on the compiled table
+    let table = built.jit.table(0);
+    let h = |t: f64| table.eval([10.0 + 8.0 * (w * t).sin(), 0.0]).0 - 0.5;
+    let (mut held, mut since, mut count, n) = (0.0, None, 0, 4_000_000);
+    if h(0.0) > 0.0 {
+        since = Some(0.0);
+    }
+    for k in 0..n {
+        let (a, b) = (t_end * k as f64 / n as f64, t_end * (k + 1) as f64 / n as f64);
+        if (h(a) > 0.0) != (h(b) > 0.0) {
+            count += 1;
+            let (mut lo, mut hi) = (a, b);
+            while hi - lo > 1e-15 * hi {
+                let m = 0.5 * (lo + hi);
+                if (h(m) > 0.0) == (h(a) > 0.0) {
+                    lo = m;
+                } else {
+                    hi = m;
+                }
+            }
+            match since.take() {
+                None => since = Some(hi),
+                Some(t0) => held += hi - t0,
+            }
+        }
+    }
+    if let Some(t0) = since {
+        held += t_end - t0;
+    }
+    let modes = run.events.iter().filter(|e| matches!(e.kind, EventKind::Mode(_))).count();
+    println!(
+        "held {x:.12} s (exact {held:.12}), {count} crossings, {modes} mode events, {} steps, {:?}",
+        run.stats.steps, run.report.warnings
+    );
+    assert!(count > 8, "the profile is crossed often: {count}");
+    assert!((x - held).abs() < 1e-9 * held, "{x} against {held}");
+    assert!(run.report.warnings.is_empty());
+}
+
+/// Conditions on explicit functions of time in a prepared model, found by
+/// preparation through the assignments: `sin(ω time) > 0.95` reads time
+/// alone (its sign changes are searched ahead and reached exactly);
+/// `sin(ω time) > x` reads a state too (the run loop stops at the sine's
+/// extrema, and root finding locates the crossings). Both run with the
+/// default options, nothing integrated moving fast, and agree with the
+/// exact answers: the time each held.
+#[test]
+fn conditions_on_functions_of_time_are_found_in_a_prepared_model() {
+    use lsim_ir::ComponentDef;
+    use lsim_ir::component::build::{eq, param, state, var};
+    use lsim_ir::expr::{Builtin, CmpOp, call, cmp, der, if_, name as n};
+    let period = 10.0;
+    let w = 2.0 * std::f64::consts::PI / period;
+    let pulse = ComponentDef {
+        name: "Test.Pulses".into(),
+        params: vec![param("w", "rad/s", w, "the sine's angular frequency")],
+        vars: vec![
+            var("phase", "rad", "the sine's phase"),
+            var("wave", "1", "the sine"),
+            state("on", "s", 0.0, "how long the wave was above 0.95"),
+            state("x", "1", 1.0, "a level falling slowly"),
+            state("above", "s", 0.0, "how long the wave was above the level"),
+        ],
+        equations: vec![
+            eq(n("phase"), n("w") * Expr::Time, "the phase"),
+            eq(n("wave"), call(Builtin::Sin, vec![n("phase")]), "the sine"),
+            eq(
+                der("on"),
+                if_(
+                    cmp(CmpOp::Gt, n("wave"), Expr::Const(0.95)),
+                    Expr::Const(1.0),
+                    Expr::Const(0.0),
+                ),
+                "on while the wave is above 0.95",
+            ),
+            eq(der("x"), Expr::Const(-0.01), "the level falls"),
+            eq(
+                der("above"),
+                if_(cmp(CmpOp::Gt, n("wave"), n("x")), Expr::Const(1.0), Expr::Const(0.0)),
+                "on while the wave is above the level",
+            ),
+        ],
+        ..Default::default()
+    };
+    let mut lib = common::library();
+    lib.add(pulse);
+    let top = ComponentDef {
+        name: "Test.Top".into(),
+        components: vec![lsim_ir::component::build::sub("k", "Test.Pulses", &[])],
+        ..Default::default()
+    };
+    let built = common::build(&lib, &top, false);
+    let info = &built.info;
+    println!("time functions: {:?}", info.time_functions);
+    let pure = info
+        .time_functions
+        .iter()
+        .filter(|f| matches!(f, Some(lsim_solve::TimeFunction::Pure(_))))
+        .count();
+    let mixed = info
+        .time_functions
+        .iter()
+        .filter(|f| matches!(f, Some(lsim_solve::TimeFunction::Mixed { .. })))
+        .count();
+    assert!(pure >= 1 && mixed >= 1, "{:?}", info.time_functions);
+    let t_end = 100.0;
+    let opts = SolverOptions::default();
+    let run = simulate(&built.jit, info, &opts, OutputGrid { t0: 0.0, t_end, dt: 10.0 }, &mut [])
+        .unwrap();
+    let ch = |name: &str| *run.channel(name).unwrap().last().unwrap();
+    let exact_on = 10.0 * (std::f64::consts::PI - 2.0 * 0.95f64.asin()) / w;
+    // the time sin(w t) > 1 - 0.01 t held: its crossings, bisected
+    let h = |t: f64| (w * t).sin() - (1.0 - 0.01 * t);
+    let (mut held, mut since, n) = (0.0, None, 1_000_000);
+    for k in 0..n {
+        let (a, b) = (t_end * k as f64 / n as f64, t_end * (k + 1) as f64 / n as f64);
+        if (h(a) > 0.0) != (h(b) > 0.0) {
+            let (mut lo, mut hi) = (a, b);
+            while hi - lo > 1e-15 * hi {
+                let m = 0.5 * (lo + hi);
+                if (h(m) > 0.0) == (h(a) > 0.0) {
+                    lo = m;
+                } else {
+                    hi = m;
+                }
+            }
+            match since.take() {
+                None => since = Some(hi),
+                Some(t0) => held += hi - t0,
+            }
+        }
+    }
+    println!(
+        "on {} s (exact {exact_on}), above {} s (exact {held}), {} steps, warnings {:?}",
+        ch("k.on"),
+        ch("k.above"),
+        run.stats.steps,
+        run.report.warnings
+    );
+    // (the default tolerances: the states integrate constants exactly)
+    assert!((ch("k.on") - exact_on).abs() < 1e-9 * exact_on);
+    assert!((ch("k.above") - held).abs() < 1e-6 * held);
+    assert!(run.report.warnings.is_empty(), "{:?}", run.report.warnings);
 }

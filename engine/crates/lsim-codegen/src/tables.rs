@@ -476,6 +476,11 @@ impl Table {
         self.guard_axes.get(axis).map_or(f64::NAN, |ax| ax.guard(a))
     }
 
+    /// An axis's breakpoints.
+    pub fn points(&self, axis: usize) -> &[f64] {
+        &self.guard_axes[axis].pts
+    }
+
     /// The data range of an axis.
     pub fn range(&self, axis: usize) -> (f64, f64) {
         let ax = &self.guard_axes[axis];
@@ -596,6 +601,7 @@ mod tests {
         let mut data = TableData::new_1d(vec![0.0, 1.0, 3.0], vec![0.0, 1.0, 5.0]);
         data.outside = [Outside::Clamp, Outside::Clamp];
         let t = Table::new(&data).unwrap();
+        assert_eq!(t.points(0), &[0.0, 1.0, 3.0]);
         for (x, v) in [(0.0, 0.0), (1.0, 1.0), (3.0, 5.0)] {
             assert!((t.eval([x, 0.0]).0 - v).abs() < 1e-14);
         }

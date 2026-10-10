@@ -30,15 +30,16 @@ pub mod table;
 pub mod units;
 
 pub use component::{
-    ComponentDef, Connect, ConnectorDef, EnergyDecl, EnumLiteral, EnumType, Equation, EquationDecl,
-    Library, Modifier, ParamDecl, ParamValue, PortDecl, PortKind, PowerRule, QuantityDecl, SubDecl,
-    VarDecl, VarKind, WhenAction,
+    ComponentDef, Connect, ConnectorDef, EnergyDecl, EngagementDecl, EnumLiteral, EnumType,
+    Equation, EquationDecl, ImpulseDecl, Library, Modifier, ParamDecl, ParamValue, PortDecl,
+    PortKind, PowerRule, QuantityDecl, SubDecl, VarDecl, VarKind, WhenAction,
 };
 pub use diag::{Diagnostic, Severity};
 pub use expr::{BinaryOp, Builtin, CmpOp, Expr};
 pub use flat::{
-    FlatAssert, FlatEquation, FlatParam, FlatSystem, FlatVar, FlatWhen, Instance, InstanceEnergy,
-    InstanceId, Origin, OriginKind, ParamId, PortPower, VarId, VarRole,
+    FlatAssert, FlatEngagement, FlatEquation, FlatImpulse, FlatParam, FlatRestart, FlatSystem,
+    FlatVar, FlatWhen, Instance, InstanceEnergy, InstanceId, Origin, OriginKind, ParamId,
+    PortPower, VarId, VarRole,
 };
 pub use prepared::{
     AliasEntry, AliasTarget, Assignment, Direction, ExternalBlock, InitSystem, InverseSpec,

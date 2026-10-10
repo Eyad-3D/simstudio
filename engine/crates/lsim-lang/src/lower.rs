@@ -1443,6 +1443,85 @@ fn energy(def: &mut ComponentDef, cls: &ClassDef, errs: &mut Vec<LangError>) -> 
     span
 }
 
+/// Each `__LightSim_impulse(keep = …, active = …)` annotation: a relative
+/// velocity the component keeps through an impulse while `active` holds.
+fn impulse(def: &mut ComponentDef, cls: &ClassDef, errs: &mut Vec<LangError>) {
+    for a in &cls.annotation {
+        if a.name.join(".") != "__LightSim_impulse" {
+            continue;
+        }
+        let (mut keep, mut active) = (None, None);
+        for m in &a.mods {
+            let Some(v) = &m.value else { continue };
+            let e = match exprs::lower(v, &TextCx { def }) {
+                Ok(e) => e,
+                Err(e) => {
+                    errs.push(e);
+                    continue;
+                }
+            };
+            match m.name.join(".").as_str() {
+                "keep" => keep = Some(e),
+                "active" => active = Some(e),
+                other => errs.push(LangError::new(
+                    "IMPULSE",
+                    m.span,
+                    format!("__LightSim_impulse takes keep and active, not '{other}'"),
+                )),
+            }
+        }
+        match (keep, active) {
+            (Some(keep), Some(active)) => def.impulse.push(lsim_ir::ImpulseDecl { keep, active }),
+            _ => errs.push(LangError::new(
+                "IMPULSE",
+                a.span,
+                "__LightSim_impulse needs keep (the relative velocity it keeps) and active (while \
+                 it does)"
+                    .to_string(),
+            )),
+        }
+    }
+}
+
+/// Each `__LightSim_engagement(changes = …)` annotation: a change of
+/// `changes` at an event is a rigid engagement of the component.
+fn engagement(def: &mut ComponentDef, cls: &ClassDef, errs: &mut Vec<LangError>) {
+    for a in &cls.annotation {
+        if a.name.join(".") != "__LightSim_engagement" {
+            continue;
+        }
+        let mut changes = None;
+        for m in &a.mods {
+            let Some(v) = &m.value else { continue };
+            let e = match exprs::lower(v, &TextCx { def }) {
+                Ok(e) => e,
+                Err(e) => {
+                    errs.push(e);
+                    continue;
+                }
+            };
+            match m.name.join(".").as_str() {
+                "changes" => changes = Some(e),
+                other => errs.push(LangError::new(
+                    "ENGAGEMENT",
+                    m.span,
+                    format!("__LightSim_engagement takes changes, not '{other}'"),
+                )),
+            }
+        }
+        match changes {
+            Some(changes) => def.engagements.push(lsim_ir::EngagementDecl { changes }),
+            None => errs.push(LangError::new(
+                "ENGAGEMENT",
+                a.span,
+                "__LightSim_engagement needs changes (what takes a new value at an engagement, \
+                 such as the selected ratio)"
+                    .to_string(),
+            )),
+        }
+    }
+}
+
 /// The first name in `e` that is neither a parameter of `def` nor an
 /// enumeration option: what a parameter's value or a start value may not
 /// use.
@@ -1492,7 +1571,10 @@ fn check_component(
     for a in &cls.annotation {
         for m in &a.mods {
             if let Some(v) = &m.value
-                && a.name.join(".") == "__LightSim_energy"
+                && matches!(
+                    a.name.join(".").as_str(),
+                    "__LightSim_energy" | "__LightSim_impulse" | "__LightSim_engagement"
+                )
             {
                 refs(v, &mut names);
             }
@@ -2046,14 +2128,22 @@ pub(crate) fn lower_text(
             &mut connects,
         );
         let energy_span = energy(&mut def, c, &mut errs);
+        impulse(&mut def, c, &mut errs);
+        engagement(&mut def, c, &mut errs);
         for a in &c.annotation {
             let n = a.name.join(".");
-            if n.starts_with("__LightSim") && n != "__LightSim_energy" {
+            if n.starts_with("__LightSim")
+                && !matches!(
+                    n.as_str(),
+                    "__LightSim_energy" | "__LightSim_impulse" | "__LightSim_engagement"
+                )
+            {
                 errs.push(LangError::new(
                     "ANNOTATION",
                     a.span,
                     format!(
-                        "'{n}' is not a LightSim annotation of a model (there is __LightSim_energy)"
+                        "'{n}' is not a LightSim annotation of a model (there are \
+                         __LightSim_energy, __LightSim_impulse and __LightSim_engagement)"
                     ),
                 ));
             }

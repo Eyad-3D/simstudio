@@ -254,14 +254,11 @@ fn mech_clutch_lockup() {
 }
 
 /// The exact answer conserves angular momentum through the shift (an
-/// impulse at the gear mesh). Stating that needs `reinit` of the speeds at
-/// the shift, which preparation drops for now (DESIGN.md 5.8: `reinit`
-/// must reach `PreparedWhen`): without it the restart keeps whichever
-/// speed index reduction made a state and moves the other with the new
-/// ratio, so the kinetic energy jumps by the wrong amount (the energy
-/// books show it as energy lost at the event).
+/// impulse at the gear mesh): the run loop's impulse projection at the
+/// change of the gear's ratio moves the speed the gear ties together to
+/// keep `J2 ω2 + i2 J1 ω1`, and the kinetic energy that loses is booked as
+/// lost at the shift.
 #[test]
-#[ignore = "needs reinit at the shift, which preparation drops (DESIGN.md 5.8)"]
 fn mech_gear_change() {
     let pr = load("mech_gear_change").unwrap();
     let mut lib = lib();
@@ -301,12 +298,37 @@ fn mech_gear_change() {
     }
     // the shift's loss: the kinetic energy that vanishes at the event
     let e = res.energy.as_ref().expect("books");
+    let worst = |name: &str, key: &str| {
+        t.iter()
+            .zip(&cp[key])
+            .map(|(tt, want)| ((at(&res, name, *tt) - want) / cp[key][3]).abs())
+            .fold(0.0f64, f64::max)
+    };
+    println!(
+        "gear change: omega2 {:.1e}, omega1 {:.1e}, E_shift {:.6} J (exact {:.6} J, {:.1e}), \
+         booked to the gear {:.6} J; closure {:.1e}",
+        worst("load.w", "omega2"),
+        worst("motor.w", "omega1"),
+        e.event_loss,
+        cp["E_shift"][3],
+        (e.event_loss - cp["E_shift"][3]).abs() / cp["E_shift"][3],
+        e.parts.iter().find(|p| p.path == "gear").map(|p| p.impulse_lost).unwrap_or(f64::NAN),
+        e.relative_closure
+    );
     assert!(
         (e.event_loss - cp["E_shift"][3]).abs() < TOL * s,
         "E_shift: {} vs exact {}",
         e.event_loss,
         cp["E_shift"][3]
     );
+    // all of it lost at the shift, booked to the gear whose coupling changed
+    let gear = e.parts.iter().find(|p| p.path == "gear").expect("the gear's books");
+    assert!(
+        (gear.impulse_lost - cp["E_shift"][3]).abs() < TOL * s,
+        "booked to the gear: {}",
+        gear.impulse_lost
+    );
+    assert!((e.impulse_loss - e.event_loss).abs() < TOL * s);
     books_close(&res, 1e-7);
 }
 

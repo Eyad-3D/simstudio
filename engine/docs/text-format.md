@@ -307,6 +307,16 @@ end Rotational.LatchBrake;
   value.
 * The engine finds the moment the condition becomes true to the solver's
   precision and stops there; it does not wait for the next output step.
+  A condition on time alone (`time >= t_shift`) is reached exactly: the
+  event is at `t_shift`, and an output at that moment shows the values
+  just after it (the results keep those just before it beside them).
+* As in Modelica, a `when` acts when its condition *becomes* true while
+  the model runs. A condition already true at the start does not act
+  there (it acts once it has been false and becomes true again): what
+  must hold from the start belongs in the start values. A condition
+  exactly at its threshold is taken as written: `when x >= 0` with x
+  starting at 0 is already true; `when x > 0` is not, and acts as x
+  leaves 0.
 * `when a then … elsewhen b then … end when;` handles two conditions; if
   both become true at the same moment, the first branch wins.
 
@@ -401,6 +411,72 @@ component, gives the energy it stores (in J) and the power it turns into
 heat (in W). With them the engine checks that each part's energy balance
 closes: the energy in through its ports equals what it stores plus what it
 loses. Other Modelica tools ignore the annotation.
+
+## Rigid engagements
+
+A part whose rigid coupling changes at an event (a gear whose ratio
+changes at a shift) says so with
+`annotation(__LightSim_engagement(changes = …))`: when `changes` takes a
+new value at an event, the speeds the coupling ties together jump as an
+instantaneous, rigid engagement makes them. The engine keeps the momentum
+of everything the coupling ties together, with the masses and inertias
+the parts declare in their stored energy, and books the kinetic energy
+the engagement loses to the part. A gear-change model needs nothing more
+than its equations and this line; there is no `reinit` to write:
+
+```modelica
+model Rotational.ShiftingGear "A gear whose ratio is a signal: a turns ratio times as fast as b."
+  connector a: Flange "input side";
+  connector b: Flange "output side";
+  input Real ratio(unit = "1") "the engaged ratio a.w / b.w";
+equation
+  a.w = ratio * b.w "a turns ratio times as fast as b";
+  0 = ratio * a.tau + b.tau "the power through it is kept";
+  annotation(__LightSim_engagement(changes = ratio));
+end Rotational.ShiftingGear;
+```
+
+For the two inertias it joins, `J_in` on its input and `J_out` on its
+output, a shift to the ratio `r` gives `w_out = (J_out·w_out + r·J_in·w_in)
+/ (J_out + r²·J_in)`, the speeds before the shift on the right. Nothing
+but a declared engagement does this: a stored energy that depends on a
+discrete value is no engagement, and what a `reinit` sets at the same
+event stays as it set it.
+
+A part whose forces are bounded passes no impulse in zero time: a
+slipping clutch, and a tyre, whose force is at most its grip (μ × its
+load) inside its grip as at it. At the event what is behind it keeps its
+speed; then its relative velocity relaxes through its own law, which the
+engine integrates like everything else: a tyre passes a shift's momentum
+on to the vehicle over the time its slip takes to relax, sliding at its
+grip if the shift left it past it, and its loss is its own slip loss.
+
+A coupling the model treats as stiff and unbounded (one whose force has
+no bound, taken in its stiff limit) passes an impulse on, and says so
+with `annotation(__LightSim_impulse(keep = …, active = …))`: the
+relative velocity it keeps, which relaxes back to its value before the
+event once the engagement has happened, and while it does so, judged at
+the state the engagement leaves (a coupling that comes into its range as
+the others relax joins them). When one such coupling relaxes it books
+what that loses; when several relax together, how they share the loss
+depends on their stiffnesses, which they do not declare, so the event
+books it as a whole:
+
+```modelica
+model Rotational.StiffCoupling "A viscous coupling stiff enough to take as rigid while engaged."
+  connector a: Flange "one side";
+  connector b: Flange "the other side";
+  parameter Real d(unit = "N.m.s/rad") = 1e5 "torque per slip speed";
+  input Real engaged(unit = "1") "1 while engaged";
+  Real tau(unit = "N.m") "the torque it passes from a to b";
+equation
+  tau = engaged * d * (a.w - b.w);
+  a.tau = tau "it brakes a by tau";
+  b.tau = -tau "and drives b by it";
+  annotation(__LightSim_energy(loss = tau * (a.w - b.w)));
+  annotation(__LightSim_impulse(keep = a.w - b.w, active = engaged > 0.5));
+end Rotational.StiffCoupling;
+```
 
 ## Connector types and enumeration types
 
@@ -539,6 +615,8 @@ How the format maps to the engine's IR (`lsim-ir`):
 | `when … end when "label"` | `Equation::When`, with the label on its `EquationDecl` |
 | `assert(c, "m", AssertionLevel.warning)` | `Equation::Assert { error: false }` |
 | `annotation(__LightSim_energy(…))` | `ComponentDef::energy` |
+| `annotation(__LightSim_impulse(keep = …, active = …))` | `ComponentDef::impulse` (one `ImpulseDecl` each) |
+| `annotation(__LightSim_engagement(changes = …))` | `ComponentDef::engagements` (one `EngagementDecl` each) |
 | `annotation(__LightSim(id = "…"))` on a part | `SubDecl::ui_id` |
 
 The checks at parse time follow the same rules as the engine's unit check

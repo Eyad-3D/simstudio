@@ -20,8 +20,8 @@ use crate::energy::Integrand;
 use crate::init::{InitSettings, consistent_z};
 use crate::jac::JacStructure;
 use crate::{
-    Integrator, OutputGrid, RunInfo, SimResult, SolveError, SolverOptions, SolverStats, Step,
-    run_loop,
+    DenseOutput, Integrator, OutputGrid, RunInfo, SimResult, SolveError, SolverOptions,
+    SolverStats, Step, run_loop,
 };
 use diffsol::{
     Bdf, NalgebraContext, NalgebraLU, NalgebraMat, NalgebraVec, OdeBuilder, OdeEquationsImplicit,
@@ -35,6 +35,7 @@ use std::time::Instant;
 struct Shared {
     d: RefCell<Vec<f64>>,
     zero_side: RefCell<Vec<f64>>,
+    root_mask: RefCell<Vec<bool>>,
     work: RefCell<Vec<f64>>,
     rhs: Cell<u64>,
     jvp: Cell<u64>,
@@ -89,6 +90,7 @@ pub fn simulate(
     let shared = Shared {
         d: RefCell::new(d0),
         zero_side: RefCell::new(vec![0.0; nr + ng]),
+        root_mask: RefCell::new(vec![]),
         work: RefCell::new(vec![0.0; l.n_work]),
         rhs: Cell::new(0),
         jvp: Cell::new(0),
@@ -120,7 +122,7 @@ pub fn simulate(
         if ng > 0 {
             model.table_guards(&inp, &mut work, &mut out[nr..]);
         }
-        crate::run::apply_zero_sides(out, &shared.zero_side.borrow());
+        crate::run::apply_zero_sides(out, &shared.zero_side.borrow(), &shared.root_mask.borrow());
     };
     let builder = OdeBuilder::<NalgebraMat<f64>>::new()
         .t0(grid.t0)
@@ -207,6 +209,7 @@ where
         n,
         y,
         t: ctx.grid.t0,
+        t_y: ctx.grid.t0,
         t_a: ctx.grid.t0,
         q_a: vec![0.0; n_q],
         q_b: vec![0.0; n_q],
@@ -243,6 +246,9 @@ where
     /// y at `t` (the end of the last step, or a root inside it)
     y: Vec<f64>,
     t: f64,
+    /// the time `y` is the state at: `t`, but for a step that ended a few
+    /// ulps short of the stop time, reported at the stop time
+    t_y: f64,
     /// the last step's start and the integrals there
     t_a: f64,
     q_a: Vec<f64>,
@@ -272,7 +278,7 @@ where
 
     fn interp(&mut self, t: f64) -> Result<Vec<f64>, SolveError> {
         let ts = self.solver.state().t;
-        if t == ts || (t - ts).abs() <= 8.0 * f64::EPSILON * t.abs().max(1.0) {
+        if t == ts || crate::run::same_instant(t, ts) {
             return Ok(to_vec(self.solver.state().y));
         }
         let r = self.solver.interpolate_inplace(t, &mut self.tmp);
@@ -282,7 +288,7 @@ where
 
     fn interp_dy(&mut self, t: f64) -> Result<Vec<f64>, SolveError> {
         let ts = self.solver.state().t;
-        if t == ts || (t - ts).abs() <= 8.0 * f64::EPSILON * t.abs().max(1.0) {
+        if t == ts || crate::run::same_instant(t, ts) {
             return Ok(to_vec(self.solver.state().dy));
         }
         let r = self.solver.interpolate_dy_inplace(t, &mut self.tmp);
@@ -302,7 +308,11 @@ where
             self.model.table_guards(&inp, &mut work, &mut g[nr..]);
         }
         drop(work);
-        crate::run::apply_zero_sides(&mut g, &self.shared.zero_side.borrow());
+        crate::run::apply_zero_sides(
+            &mut g,
+            &self.shared.zero_side.borrow(),
+            &self.shared.root_mask.borrow(),
+        );
         g
     }
 
@@ -392,6 +402,7 @@ where
         *s.h = (0.1 * h_old).max(1e-12 * t.abs().max(1.0));
         self.y = y;
         self.t = t;
+        self.t_y = t;
         self.t_a = t;
         self.pending_back = None;
         Ok(())
@@ -427,6 +438,7 @@ where
         if near(t_stop, t_state) {
             self.y = to_vec(self.solver.state().y);
             self.t = t_stop;
+            self.t_y = t_state;
             self.q_b = self.q_a.clone();
             self.integrate_to_state()?;
             return Ok(Step::Stopped(t_stop));
@@ -447,6 +459,7 @@ where
             OdeSolverStopReason::InternalTimestep | OdeSolverStopReason::TstopReached => {
                 self.y = to_vec(self.solver.state().y);
                 self.t = t_n;
+                self.t_y = t_n;
                 let mut q = vec![0.0; self.q_a.len()];
                 self.integrate(t_n, &mut q)?;
                 self.q_b = q;
@@ -481,6 +494,7 @@ where
                 self.q_b = q;
                 self.y = yr;
                 self.t = t_r;
+                self.t_y = t_r;
                 self.pending_back = Some(t_r);
                 // table guards (after the model's roots) are watched both ways
                 let watched = dirs.iter().enumerate().any(|(k, d)| {
@@ -506,6 +520,64 @@ where
         Ok(())
     }
 
+    /// diffsol's BDF interpolates a step with a polynomial of degree its
+    /// order, at most 5, but does not expose its difference array: its
+    /// values at six Chebyshev points of `[t0, t]` give that polynomial in
+    /// Newton form, up to round-off. The error carried is an estimate, not
+    /// a proof: 4096 ε of the largest value, generous for the round-off of
+    /// diffsol's own interpolation, which this cannot see (diffsol 0.17.1
+    /// keeps its differences and order private). The step's end node is
+    /// the time the state is at (a step that ended a few ulps short of the
+    /// stop time is reported at the stop time).
+    fn dense_output(
+        &mut self,
+        t0: f64,
+        idx: &[usize],
+        out: &mut DenseOutput,
+    ) -> Result<bool, SolveError> {
+        let t1 = self.t_y;
+        if t0 >= t1 || t0 < self.t_a {
+            if t0 >= t1 {
+                let ys: Vec<f64> = idx.iter().map(|i| self.y[*i]).collect();
+                out.constant(t1, ys.into_iter());
+                return Ok(true);
+            }
+            return Ok(false);
+        }
+        const K: usize = 6;
+        let (c, h) = (0.5 * (t0 + t1), 0.5 * (t1 - t0));
+        let ts: [f64; K] = std::array::from_fn(|i| match i {
+            0 => t1,
+            _ if i == K - 1 => t0,
+            _ => c + h * (i as f64 * std::f64::consts::PI / (K - 1) as f64).cos(),
+        });
+        let mut f = vec![[0.0; K]; idx.len()];
+        for (i, t) in ts.iter().enumerate() {
+            let y = if i == 0 { self.y.clone() } else { self.interp(*t)? };
+            for (fm, k) in f.iter_mut().zip(idx) {
+                fm[i] = y[*k];
+            }
+        }
+        out.origin = t1;
+        out.nodes = ts[..K - 1].iter().map(|t| t - t1).collect();
+        out.scales = vec![1.0; K - 1];
+        out.coef.clear();
+        out.err.clear();
+        for fm in &f {
+            // divided differences, in place
+            let mut a = *fm;
+            for j in 1..K {
+                for i in (j..K).rev() {
+                    a[i] = (a[i] - a[i - 1]) / (ts[i] - ts[i - j]);
+                }
+            }
+            out.coef.extend_from_slice(&a);
+            let big = fm.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+            out.err.push(4096.0 * f64::EPSILON * big);
+        }
+        Ok(true)
+    }
+
     fn discrete_mut(&mut self) -> &mut [f64] {
         // SAFETY: the closures borrow `d` only while the solver evaluates
         // them, inside this integrator's own methods; the returned slice
@@ -515,6 +587,11 @@ where
 
     fn set_root_sides(&mut self, sides: &[f64]) {
         self.shared.zero_side.borrow_mut().copy_from_slice(sides);
+    }
+
+    fn set_root_mask(&mut self, mask: &[bool]) -> bool {
+        *self.shared.root_mask.borrow_mut() = mask.to_vec();
+        true
     }
 
     fn restart(&mut self, t: f64, y: &[f64]) -> Result<(), SolveError> {
@@ -529,6 +606,24 @@ where
         self.q_b = q;
         self.restarts += 1;
         Ok(())
+    }
+
+    fn consistent_z(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError> {
+        if !self.dae {
+            return Ok(());
+        }
+        consistent_z(
+            self.model,
+            self.info,
+            &self.jac,
+            t,
+            y,
+            &self.info.params,
+            d,
+            self.u,
+            &InitSettings { rtol: self.opts.rtol, atol: self.opts.atol, max_iterations: 50 },
+        )
+        .map(|_| ())
     }
 
     fn stats(&self) -> SolverStats {

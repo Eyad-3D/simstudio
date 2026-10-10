@@ -5,6 +5,8 @@
 //! use every point the integrator visited inside it (its internal steps,
 //! both sides of any event) plus the interval's ends; the mean is the
 //! trapezoidal integral over those points divided by the interval length.
+//! A grid time that falls exactly on an event takes the values just after
+//! it, and the values just before it (its left limit) are kept beside it.
 
 /// Collects channels on the output grid.
 pub struct Recorder {
@@ -21,6 +23,8 @@ pub struct Recorder {
     last_t: f64,
     last: Vec<f64>,
     interval_start: f64,
+    /// grid points at an event: (index, the values just before it)
+    left: Vec<crate::LeftLimit>,
 }
 
 impl Recorder {
@@ -40,6 +44,7 @@ impl Recorder {
             last_t: 0.0,
             last: vec![0.0; n],
             interval_start: 0.0,
+            left: vec![],
         }
     }
 
@@ -95,10 +100,20 @@ impl Recorder {
         self.reset(t, v);
     }
 
-    /// Values, min, max and mean per channel.
+    /// The next grid point falls on an event: `left` are the values just
+    /// before it, `right` those after it (the grid point's); the channels
+    /// it changed are kept.
+    pub fn left_limit(&mut self, left: &[f64], right: &[f64]) {
+        self.left.push(crate::LeftLimit::new(self.next, left, right));
+    }
+
+    /// Values, min, max and mean per channel, and the left limits at the
+    /// grid points that fall on an event.
     #[allow(clippy::type_complexity)]
-    pub fn finish(self) -> (Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<Vec<f64>>) {
-        (self.values, self.min, self.max, self.mean)
+    pub fn finish(
+        self,
+    ) -> (Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<crate::LeftLimit>) {
+        (self.values, self.min, self.max, self.mean, self.left)
     }
 }
 
@@ -112,7 +127,7 @@ mod tests {
         r.start(0.0, &[0.0]);
         r.interior(0.5, &[1.0]);
         r.grid_point(1.0, &[0.0]);
-        let (v, lo, hi, mean) = r.finish();
+        let (v, lo, hi, mean, _) = r.finish();
         assert_eq!(v[0], vec![0.0, 0.0]);
         assert_eq!(hi[0][1], 1.0);
         assert_eq!(lo[0][1], 0.0);

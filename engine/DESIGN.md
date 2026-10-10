@@ -198,12 +198,14 @@ hidden from `PATH` and `LIBCLANG_PATH` unset, a rebuild and the spike's
 tests pass, and bindgen, clang-sys, cmake and 20 other build-only crates
 left the lockfile. CI must still prove the Windows (MSVC, `/fp:precise`)
 and macOS (Xcode command-line tools, arm64 and x86-64) builds. Beside the
-SUNDIALS sources, `csrc/` holds our two small C helpers (BSD-3, like the
+SUNDIALS sources, `csrc/` holds our four small C helpers (BSD-3, like the
 code they read): the dense output of CVODES and IDAS for selected
 components only, with the same coefficients and summation order as
 `CVodeGetDky`/`IDAGetDky` (a test checks they give the full dense
 output's exact bits inside every step), so a sampled block's tick
-interpolates only what it reads.
+interpolates only what it reads; and the polynomial that dense output
+is over the last step, for selected components, as CVODES and IDAS hold
+it (no arithmetic), which the mixed conditions' check encloses.
 
 ### 3.5 Decision
 
@@ -522,6 +524,8 @@ pub trait ModelFunctions: Send + Sync {
     fn init(&self) -> Option<&dyn InitFunctions> { None }              // the compiled InitSystem
     fn table_guard_list(&self) -> &[TableGuard] { &[] }                // the table axes the run loop watches
     fn table_guards(&self, inp: &EvalInput, work: &mut [f64], out: &mut [f64]) {}  // > 0 inside the data
+    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> { None } // value, partials
+    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> { None }   // the breakpoints it interpolates
 }
 
 pub trait InitFunctions: Send + Sync {   // Newton on w, then y0
@@ -603,6 +607,138 @@ additive). What the other packages change to use them:
   parameter change makes a `ParamGuard` zero, prepare again.
 * Show `PreparedModel::warnings` in the build report and the Python
   `model.report`.
+* The `Started` wrapper in lsim-engine forwards only seven methods of
+  `ModelFunctions`; it must forward every one (above, WP3): `eval_table`,
+  `modes`, `table_guard_list` and `table_guards`, `table_axes`,
+  `jacobian_dense` (with `sparsity` and `jacobian_sparse`) and `init`
+  too.
+
+**WP3 (lsim-codegen): the order of the zero crossings.** The compiled
+`roots` evaluates `PreparedModel::zero_crossings` in their order, one
+output each (`Layout::n_roots` is their number), the table guards after
+them in `table_guard_list()` order. The run loop indexes every
+per-crossing table by that order and nothing else: `RunInfo::time_crossings`
+(a crossing it schedules as an exact time event instead of watching it),
+the root directions and sides, the modes' and the `when` clauses'
+`crossing`, the root mask it hands the integrator. A code generator that
+reorders, merges or drops crossings breaks all of them without a
+compile error; `compiled_roots_follow_the_zero_crossings_order` in
+`lsim-solve/tests/events.rs` checks the contract on a compiled model
+(time crossings at distinct times around a state crossing and a mode).
+`PreparedWhen::strict` needs nothing from the code generator: the run loop
+reads it.
+
+**WP3 (lsim-codegen): `ModelFunctions` in full.** The run loop calls every
+method of the trait, and a compiled model implements every one: `layout`,
+`residual`, `jvp`, `roots`, `vars`, `when`, `start`, `modes` (the modes
+from their relations), `init` (the compiled initialisation), `sparsity`
+and `jacobian_sparse` (the coloured Jacobian; `jacobian_dense` from them
+or from `jvp`), `table_guard_list` and `table_guards` (the watched table
+axes), `eval_table` (a table as the compiled code interpolates it, value
+and partial derivatives: the energy books, the conditions on functions of
+time, the asserts and the impulse projection evaluate flat expressions
+outside the compiled code and read the tables through it), and
+`table_axes` (the breakpoints of the data it interpolates, which the run
+loop's stops and enclosures follow when a model's tables are swapped after
+preparation). The defaults are those of a model without such things: no
+modes, no compiled initialisation, a dense Jacobian from `jvp`, no guards,
+no tables (`None`). A wrapper around a compiled model (a model started at
+other values, a sweep's set) must forward every method: left at a default,
+modes stop switching, table guards and the compiled initialisation vanish
+without an error, a run whose books, conditions, time events or impulse
+projection read a table does not start ("the model does not give its
+tables": every expression the run evaluates outside the compiled code is
+checked at the start), and a model given other table data is run on the
+prepared breakpoints (its stops and enclosures in the wrong places; the
+run warns, once per table it stops at or encloses, when the model gives a
+table's values, `eval_table`, but not its breakpoints, `table_axes`). The
+plan for the long term: one accessor, `table(k) -> Option<&dyn TableView>`
+(the values, the partial derivatives and the breakpoints together), so
+that a wrapper passes a table on whole or not at all; it replaces
+`eval_table` and `table_axes` when WP6 reworks `Started`, with a WP6 test
+that a started model gives its tables' values and breakpoints.
+
+**WP3 (lsim-codegen): compiled condition kernels.** The run loop checks
+every step of a condition that reads time and continuous variables
+(section 8.2) by interpreting it from the IR: `lsim_ir::eval` for a point,
+`interval::enclose` for an enclosure over an interval of time or a box
+of states (value, rate and second rate). On the BEV's WLTC that check
+takes 3.3 % of the run's instructions (4.8 % of its time), and its share
+grows as the compiled model gets faster. WP3 compiles it, under this
+contract (proposed by the reviews of work package 4's seventh to ninth
+rounds), before it starts on it:
+
+* **The interface**, in `lsim-ir/src/runtime.rs` (added, additively),
+  with the interpreter as the default:
+
+  ```rust
+  /// [lo, hi] of a value and of its first two rates over an interval,
+  /// rounded outwards (lsim-solve's `J2`)
+  pub struct Enclosure { pub v: [f64; 2], pub d: [f64; 2], pub dd: [f64; 2] }
+
+  pub trait ConditionKernels: Send + Sync {
+      /// whether zero-crossing function k is compiled (one the run loop
+      /// checks along steps: `RunInfo::time_functions[k]` is `Mixed`)
+      fn covers(&self, k: usize) -> bool;
+      /// the scratch `point` and `enclose` need: (values, enclosures)
+      fn scratch(&self) -> (usize, usize);
+      /// condition k (its chain of assignments, then the condition) at
+      /// a point: `inp` as for `roots`
+      fn point(&self, k: usize, inp: &EvalInput, work: &mut [f64]) -> f64;
+      /// condition k over the times `t`, each entry of y it reads given
+      /// by its enclosure there (`y[i]`, one per entry of y; the others
+      /// are not read), at the discrete values, parameters and inputs
+      fn enclose(&self, k: usize, t: [f64; 2], y: &[Enclosure], d: &[f64], p: &[f64],
+                 u: &[f64], work: &mut [Enclosure]) -> Enclosure;
+  }
+
+  // ModelFunctions gains, with the default None (the interpreter):
+  fn condition_kernels(&self) -> Option<&dyn ConditionKernels> { None }
+  ```
+
+  Conditions are indexed by their zero-crossing function (the order of
+  the zero crossings, above). The run loop gives the leaves as it does
+  the interpreter's: along a step a state's dense-output polynomial
+  (value and rates), in a certificate's box the box with its rates
+  unknown; the caller owns the scratch, so one compiled model serves
+  any number of runs.
+* **Bitwise the interpreter.** `point` is bitwise the interpreter's value
+  of the chain and the condition at the same inputs, and the model's
+  compiled `roots` output for that crossing is bitwise the same: the
+  IR's order of operations, no fused multiply-add contraction, the same
+  library functions as the interpreter calls (a libm the code generator
+  brings must pass `lsim-solve/tests/libm.rs`, on which the interval
+  code's 2-ulp widening of library results rests). `enclose` keeps the
+  IR's order too, with `interval.rs`'s rounding rules (each operation
+  rounded outwards as there, library results widened by its 2 ulps): its
+  enclosure is bitwise the interpreter's, so it holds the point values
+  and is exactly as wide.
+* **Shared subexpressions** across the conditions (a motor's limits read
+  45 and 49 assignments, most of them shared): computed once, which
+  changes no result.
+* **Tables read at run time.** The kernels read a table's values and its
+  breakpoints (the pieces of a 1-D table's enclosure, a 2-D table's
+  cells) from the model's table runtime when they run, never baked into
+  the code: a model's tables may be swapped after compilation
+  (`JitModel::with_tables`). `eval_table` and `table_axes` are
+  implemented.
+* **Declining.** A condition a kernel cannot handle is not covered
+  (`covers(k)` false) and is interpreted, with the same warnings as
+  today: what cannot be searched is still decided from the IR by the run
+  loop, not by the kernels.
+* **The zero-crossing order** is kept (above).
+* **A differential test**: at sampled points, intervals and boxes, on
+  every condition of the golden models and on random expressions,
+  `point` and `enclose` are bitwise the interpreter's, the enclosures
+  contain the point values, and `roots` is bitwise `point`.
+* **Acceptance**: the golden comparison byte-identical with the kernels
+  on and off (a switch in `SolverOptions`; off is the interpreter), with
+  identical `mixed_certified`, `mixed_scanned` and `pulses_found`; and,
+  after WP3's speed-up of the model itself, the check at most 3 % of the
+  BEV WLTC run's instructions under callgrind (`scan_mixed`'s inclusive
+  share), with its share of the run's time from lsim-project's
+  `scan_share` example (`SolverOptions::time_mixed_checks`, the median of
+  five runs) reported beside it.
 
 **WP3** keeps: its interpreted tape (`tape.rs`) is not wired in,
 `InitFunctions::guess` uses the flat start values rather than
@@ -627,7 +763,13 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    equation each, repeated to a fixed point (constants create new aliases).
    States are kept as representatives; two states are never merged (that
    is a constraint for index reduction) and a state never becomes a
-   constant. In the spike, 32 of 49 variables go.
+   constant. In the spike, 32 of 49 variables go. A kept variable takes
+   its start value (a guess) from the variables made one with it, its own
+   included, with their sign (a battery's voltage guess reaches the bus
+   its node's port carries): a fixed one first, then the guess farthest
+   from zero, then the first in the model's order, so the choice depends
+   neither on the order the parts are listed in nor on which variable is
+   kept; guesses that disagree are told (`START-ALIAS-CONFLICT`).
 4. **Matching.** Unknowns are the non-state variables and the states'
    derivatives. Stage 1: Kuhn's augmenting paths (iterative) with a greedy
    start. WP2: Hopcroft–Karp (O(E√V)) for 10⁵-equation models.
@@ -679,7 +821,11 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    as information (`REINIT-PRESCRIBED`). The gear change of
    `mech_gear_change` (a dog clutch keeping `J2 ω2 + i2 J1 ω1`) runs to
    the reference's digits (2·10⁻¹⁴) and its energy books show the exact
-   shift loss.
+   shift loss. A gear needs no `reinit` for that, though: where the
+   inertias that meet at a shift are the model's and not the gear's (the
+   library's gearbox), the run loop's impulse projection keeps the
+   momentum at any change of rigid couplings (section 8.2); a `reinit`
+   that already keeps it leaves it nothing to move.
 9. **Initialisation system** (WP2). A separate matching with the `fixed`
    start values and `initial equation`s as knowns/equations; its own BLT;
    compiled as its own functions; solved by Newton with line search, then
@@ -800,8 +946,21 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   BDF → Adams when ρ·h < 0.2 for the last step h, Adams → BDF when ρ·h >
   1.5; during a run Adams → BDF on a convergence failure or when
   nonlinear failures exceed 10 % of the steps. The report says which and
-  why. (The reference problems' RC and RL circuits and the L = 0 motor run
-  on Adams; the spike and the motor with inductance on BDF.)
+  why. A step that got through with too many failures asks for BDF, and
+  the switch is made before the next step (or at a restart, if one comes
+  first): the step stays as it ended (at a root, at the stop time), with
+  its memory and so its dense output, which the mixed conditions' check,
+  the output points, the block ticks and the books read inside it (the
+  review of the ninth round found the switch made at once, the step left
+  with its end state as a constant: an output 6.4e-5 off at rtol 1e-8). A
+  step that fails switches at once, from the last step's end, where the
+  failed attempt left the memory. The energy integrals carry over both. (The reference problems' RC and RL circuits and the L = 0 motor run
+  on Adams; the spike and the motor with inductance on BDF.) Adams' order
+  is capped at 7 (CVODE's default is 12), so the dense output a step
+  leaves is a polynomial of degree 7 at most: on smooth problems the
+  order rarely passes 5 and nothing changes; a slow cosine at rtol 1e-12,
+  which reached order 11, takes 272 steps instead of 194, with half the
+  error.
 * **diffsol** 0.17.1 (pinned, nalgebra dense LU): the same run loop; root
   directions from the root functions' signs at the step's start and at
   the root; the iteration variables made consistent by the same Newton as
@@ -851,6 +1010,314 @@ within `storm_window` (1e-3) of the run's length, at least 1 µs; the
 error names the conditions with their counts (the relay test: "101
 events within 1.1e-12 s, from 'Relay': on (101×)").
 
+**Run-loop fixes after the golden comparison (work package 4, second
+round).**
+
+* *`when` semantics.* A `when` fires when its condition changes from false
+  to true at an instant, compared with its value just before that instant:
+  with the discrete values before a sample tick set its outputs, not after
+  (a condition a tick's outputs made true never fired). Nothing fires at
+  the start, as in Modelica (`pre(c) = c` after initialisation; sampled
+  blocks' initial outputs are start values too): a condition already true
+  at the start fires once it has been false; one exactly at its threshold
+  counts as it is written: `x >= 0` holds at zero, `x > 0` does not and
+  fires as x leaves zero (`PreparedWhen::strict` keeps the difference,
+  which the shared zero crossing loses; an exact zero of a `when`'s
+  crossing counts as the side its condition holds on, at the start and
+  after events). What must hold from the start belongs in the start
+  values (the IR has no `initial()`).
+* *Iteration variables in event iteration.* Whenever a discrete value
+  changes during event iteration, the iteration variables are solved again
+  (states held, `Integrator::consistent_z`) before the `when` values, the
+  modes' relations and the conditions read them (`RunInfo::events_read_z`
+  says whether any does). The trait's default fails the run: an
+  integrator of DAEs that does not implement it cannot go on silently
+  with iteration variables that no longer hold (an integrator of ODEs
+  never sees it).
+* *Scheduled events are no storms.* What a sample tick or a time event
+  changes at its instant (a controller switching an engine's throttle from
+  one tick to the next) does not count towards `storm_events`.
+* *One instant.* A stop time within 16 ulps of the current time (a tick
+  that rounds just before the end) is that instant: the run loop does not
+  step (SUNDIALS refuses such an interval) and handles what is due there.
+  The output grid ends at `t_end` exactly. The ticks of all the blocks
+  due at one instant (inside a step or at its end, a few ulps apart
+  included) are one event: each block reads its inputs with what the
+  blocks before it set, and an output point at that instant shows the
+  values after all of them (its left limit those before them all). A
+  block that reads an iteration variable, after a block before it changed
+  a discrete value the iteration variables depend on
+  (`RunInfo::z_discretes`, through the assignments), reads it solved
+  again for the new values (`Integrator::consistent_z`, counted in
+  `SolverReport::z_solves`); a computed channel it reads is evaluated
+  with them too. (Work package 4's seventh round: B reading z = 2a after
+  A set a read z for A's old output, for a whole period: b = 0.8 against
+  1.0 at 0.5 s. A computed input read through its chain at a tick where
+  the integrator stopped read the channels as last sampled: b = 1.8
+  against 2.0.)
+* *Exact time events.* A zero-crossing function that depends on time only
+  between events (`c·time + b`, `b` of parameters and discrete values:
+  `when time >= t_shift`, a mode of `if time > t_on`) is taken out of root
+  finding (a root mask in both backends) and reached exactly as a stop
+  time, fired in its direction there, rescheduled after every discrete
+  change (`RunInfo::time_crossings`). Its modes take their values just
+  after the instant while its time, with the discrete values the event
+  iteration has set, is still the instant (a timer that re-arms itself at
+  its own instant leaves its relation false; `t_last := time` makes `time
+  > t_last` true right after). At every scheduled event, as at a root,
+  the ticks due at that instant join the event; a root located within a
+  few ulps of a scheduled time (SUNDIALS may report it instead of the stop
+  time) is that instant, and what is scheduled there joins its event.
+* *Tables read along time are stop times.* A table read at a position
+  that moves with time alone (`c · time + b`, `b` of parameters and
+  discrete values, found through the assignments: a driving cycle's
+  target speed) has its breakpoints as stop times
+  (`RunInfo::time_tables`): no step spans one, so its kinks fall on step
+  ends and a condition it drives is checked at least at every
+  breakpoint. Root finding sees a condition only by its sign at step
+  ends, and when nothing the integrator integrates moves (a car at rest)
+  its steps grow to many seconds: the golden comparison's Battery
+  Electric Car in winter once stood 21 s at a start because a step from
+  507.8 to 532.6 s spanned its motor's switch-on and switch-off (both
+  ends off). A stop is no restart: the integration goes on with its
+  history. The breakpoints are those of the data the model interpolates:
+  a compiled model's tables may be swapped after preparation
+  (`JitModel::with_tables`), so the run takes them from the model
+  (`ModelFunctions::table_axes`) where they differ from the prepared
+  ones, for these stops and for the enclosures of the conditions on
+  functions of time (`RunInfo::with_model_tables`).
+* *Conditions on explicit functions of time.* A zero-crossing function
+  that reads time beyond `c · time + b` (`sin(2π time / T) > 0.95`: a
+  heater, a PWM, a load switched by a sine) is classified by preparation
+  (`RunInfo::time_functions`), through the assignments: the computed
+  variables that read time are replaced by their definitions. One that
+  then reads only time, parameters and discrete values is taken out of
+  root finding, as a time crossing is, and its sign changes are found
+  ahead without integrating: interval arithmetic rounded outwards
+  encloses it, its rate and its second rate over a time interval (a 1-D
+  table by the compiled interpolant's cubic pieces); the search skips an
+  interval whose enclosure keeps the sign, or where it is monotone with
+  the same sign at both ends, otherwise advances by what the bound on
+  its rate allows (a function of value g and rate at most L cannot reach
+  zero within |g| / L), and bisects a bracketed change to adjacent
+  floats. The integrator stops there exactly and the crossing fires in
+  the direction the sign changes; it is searched again after it fired,
+  and when a value it reads changed. A grazing touch without a sign
+  change is passed. A function that also reads continuous variables
+  (`x > sin(ω time)`; a driver's command from a driving cycle's target
+  against the car's speed; a motor's limits from its maps at that
+  command) stays with root finding, which sees a sign change only between
+  a step's ends, and every step is checked for two inside it, a pulse:
+  the driving cycle's conditions too, whose target the breakpoint stops
+  keep linear within a step while the speed it is compared with curves.
+  The function is evaluated through the chain of the assignments it reads
+  (a variable several of them share once; the steps that do not move
+  along a step enclosed once while the discrete values keep theirs), not
+  expanded into one expression: a motor's limits read 45 and 49 of them,
+  which expanded ran to 160,000 and 250,000 characters. Both checks read
+  the integrator's dense output over the step as the polynomial it
+  interpolates with (`Integrator::dense_output`: CVODE's Nordsieck array
+  and IDA's divided differences as they hold them, through two more C
+  helpers; diffsol's interpolant through six Chebyshev points, exact for
+  its order up to a round-off carried as an error), so no pulse can hide
+  between samples. On SUNDIALS the checks are rigorous; on diffsol that
+  carried round-off, 4096 ε of the largest sample, is an estimate, not a
+  proof (diffsol 0.17.1 keeps its differences and order private, so the
+  round-off of its own interpolation cannot be bounded from outside).
+  Two checks, the cheap one first. A certificate: a time
+  window and a box of the states it reads over which its enclosure
+  excludes zero, made around the state at a step's end (the box's
+  half-width the width of the state's range over the last step for each
+  step of the window, and one more; the window doubles while certificates
+  hold, and an attempt that fails waits a few steps, up to 16, before the
+  next). A step inside the window over which each state stays inside the
+  box needs no more: first by how far the state may stray from its
+  polynomial's value at the step's end (the sizes of the basis functions
+  over the step: a few products per state, for all such functions), then,
+  where that is not enough, by its range (each basis function's range by
+  interval products); both rounded outwards. Where none holds, the step
+  along the dense output: the states and iteration variables the function
+  reads as that polynomial, in powers of the time with interval
+  coefficients rounded outwards (the value widened by the round-off of
+  evaluating it in floating point; diffsol's error carried, by Markov's
+  inequality for the rates); the whole step's enclosure first, then the
+  same search for the first sign change. One root finding did not report
+  ends the step there, at the first time the model's own root function on
+  the dense output is on the new side, as a root does
+  (`SolverReport::pulses_found`); the crossing root finding located at
+  the step's end is not one (it locates a root to 100 ε (|t| + h), a
+  little after the change found here, which is then the only change up
+  to the step's end). A 2-D table is enclosed cell by cell: each region of
+  its grid holds a polynomial (bilinear or bicubic inside the data, of
+  degree 1 along an axis past it), fitted on first use to the model's own
+  interpolant at a tensor grid of points inside the region, exactly up to
+  round-off, and checked at one more; a box across cells takes their
+  hull. A comparison whose sides' difference is strictly monotone over an
+  interval flips once at most, one way: the search treats it, and a
+  branch it selects between, as monotone. A function whose value moves
+  only where a `noEvent` comparison flips (built of values constant
+  between events, of such comparisons and functions of these: a motor's
+  "running" flag, a command other than exactly 0) is left to root
+  finding, as `noEvent` asks: no event needs locating where such a
+  comparison flips, and the comparisons a model makes events of are
+  modes, constant along a step. On the golden models the certificates
+  clear all but 6,386 of 862,704 condition-steps of the BEV's WLTC and
+  all but 677 of 1,145,426 of the hybrid's mixed cycle; the checks take
+  3.3 % of the BEV run's instructions (four conditions, two of them the
+  motor's chains, on steps a tenth as costly as the hybrid's) and 0.64 %
+  of the hybrid's; lsim-project's `scan_share` example records the
+  check's share of a run's time (the BEV's WLTC: 4.8 %, the median of
+  five runs) with those counts, so that a regression shows. What cannot
+  be searched
+  (`atan2` or a derivative that moves with time, a table whose points are
+  not known; a function not defined where its search starts; a search
+  that makes no headway) is named in a warning and left to root finding:
+  never silently. (Work package 4's sixth round: the review's `sin(2π
+  time / 10) > 0.95` while nothing integrated moved was stepped over
+  entirely, x(100) = 0 against 10.108, without a warning; now
+  10.108262410426, exact to round-off, in 34 steps. The seventh round:
+  the extremum stops then used for the mixed ones missed a pulse inside a
+  monotone stretch of the time term, `sin(time) > x` with x' = 0.3,
+  0.29 s long on the sine's rising flank: 0 of 1 fired in 5 steps,
+  without a warning; the scan along the dense output fires it, in 5
+  steps. The eighth round scans the driving cycle's conditions too: a
+  linear table of time against a state that curves, above it for 0.3 s
+  inside one step, fired 0 times with root finding and the breakpoint
+  stops alone, and fires once now, through a 1-D table and through a 2-D
+  one. The ninth round reads the integrator's polynomial instead of
+  fitting one: a state that swings by k √3 / 36 inside one step, back at
+  its value at the step's ends and middle (k s (s − ½)(s − 1)), passed
+  the check that sampled those three points with a box of half its
+  swing; its bound over the step does not.)
+* *Both sides of an event at an output time.* An output time that falls
+  exactly on an event records both sides, as Modelica tools write two
+  rows at that time to their result files: `SimResult::values` holds the
+  value just after the event (as every consumer has read it),
+  `SimResult::left_limits` the index and the values just before it of
+  the channels the event changed (the channels as they stood before the
+  first event of that instant changed anything), in order;
+  `SimResult::before(c, k)` gives either side's value of any channel.
+  The golden comparison compares today's engine, which records such a
+  point before its step, with the left limit. (Work package 4's sixth
+  round kept every channel at first: on the hybrid's UDDS, where a
+  controller tick falls on 1092 of its 1370 output points, that was
+  4.18 MB beside 5.20 MB of values. Of the 474 channels, an event changes
+  97 on average: kept as `u32` channel numbers with their values, the
+  left limits take 1.33 MB.)
+* *Restarts.* A restart hands IDA `y'` in full (`x'` from the model, `z'`
+  from `0 = g_x x' + g_z z' + g_t`), skips `IDACalcIC` (the point is
+  consistent) and the Newton solve when event iteration just did it, and
+  sizes the first step as CVODE sizes its own (`h0 = ½ √(2 / ‖x''‖)`,
+  capped by the step the integrator had planned; for CVODE too). On a
+  sample-and-hold DAE the steps per changing tick fell from 11.4 to 2.2
+  (IDA) and 2.6 to 1.9 (CVODE). The remaining steps on the hybrid resolve
+  the fast transient each torque command excites (the tyres' slip settles
+  in about 1e-4 s), which the error test on the iteration variables
+  demands. A tick whose changed outputs reach nothing the integrator
+  integrates or watches (`RunInfo::dynamic_discretes`: no state
+  derivative, residual, energy integrand, zero crossing or table argument
+  reads them) leaves the solution exactly as it is: the step stands,
+  without a restart (`SolverReport::inert_ticks` counts them;
+  `light_restarts` counts only the opt-in kind below).
+* *Light restarts are opt-in* (`SolverOptions::light_restarts`). Going
+  on with the integration's history after a slight tick (only its
+  outputs changed, no condition changed side, the jumps of `x'` over the
+  planned step and of `z` within a tenth of the error test's budget)
+  passes each step's error test, but the history carries the kink the
+  tick put into `x'` into the next steps, and for a steadily moving
+  command that error has the same sign at every tick: it accumulates to
+  about half a tick times the command's whole change. On a 10 000-tick
+  ramp at rtol 1e-6 that is 57 tolerance units against 1.6e-11 with
+  restarts; a sine command, 5.1e-6 against 3e-15 (the review's tests,
+  now in `lsim-solve/tests/run_loop.rs`). A rigorous bound would have to
+  carry the kink through the variable-order history, so the default
+  restarts.
+* *`suppress_algebraic_error` stays off.* Leaving the iteration variables
+  out of the error test takes the hybrid's first 100 s from 230 234 to
+  62 458 steps and the BEV's first 50 s of WLTC from 7 076 to 2 307; the
+  exact-answer suite still passes, but at the same tolerance the DAE
+  path's errors grow up to 8× (elec_rc_step's current 6.6e-9 → 5.2e-8,
+  motor_dc_spinup's 6.0e-10 → 4.7e-9 and its event 1.4e-10 → 1.3e-9 s).
+  Accuracy comes first: it stays an option, off by default.
+* *Rigid engagements: the impulse projection* (`lsim-solve/src/run/
+  impulse.rs`). Only a part's declared engagement starts one
+  (`EngagementDecl { changes }`: the library's gearbox and a gear whose
+  ratio is a signal declare their ratio): when `changes` takes a new value
+  at an event, the speeds the coupling ties together jump as an
+  instantaneous, rigid engagement makes them. A stored energy that merely
+  depends on a discrete value starts nothing (the review found the first
+  version undoing a model's own `reinit`: a bouncing ball fell through
+  the floor), and the states a `reinit` set at the event
+  (`FlatSystem::restarts`, the jump that changed) stay where it put them.
+  Two stages, as the physics has them in the rigid limit:
+  1. *The rigid engagement.* The states coupled to the variables the
+     engagement moved (with the states held), through the assignments,
+     move so that the momentum the stored energies weigh is kept:
+     `Bᵀ (∇E(U(x)) − ∇E(U⁻)) = 0`, `U` the variables the stored energies
+     read, `B = ∂U/∂x`. For kinetic energies that is the perfectly
+     inelastic engagement (`w_out⁺ = (J_out w_out⁻ + r J_in w_in⁻) /
+     (J_out + r² J_in)`), whichever speeds are states. Its loss, `E⁻ − E_a
+     ≥ 0`, is the engaging part's.
+  2. *Stiff, unbounded links relax.* A part whose forces are bounded
+     passes no impulse in zero time, and a tyre is one: its force is at
+     most μ N, inside its grip as at it. After stage 1 its slip relaxes
+     through its own law, inside its grip over its relaxation time (on
+     the hybrid 0.2 to 7 ms, on a 300 kg two-axle car at 20 m/s about
+     25 ms) or sliding at its grip, and the integrator follows that
+     exactly; its loss is its own slip loss, booked as it happens. So the
+     library's wheel declares no link, nor does a slipping clutch. A link
+     (`ImpulseDecl { keep, active }`) stands for a coupling a model
+     treats as stiff and unbounded: its `active` is judged at the state
+     stage 1 leaves; it relaxes back to its relative velocity before the
+     event (`keep = κ⁻`, its impulse λ), the same balance over the states
+     the active links reach; a link that comes into its range where the
+     others' relaxation leaves the states joins them and the stage is
+     solved again (the set only grows). One link books what the stage
+     loses; several share it as their stiffnesses say, which they do not
+     declare, so the event books it as a whole (and the run warns once).
+  The end state is the one projection keeping every active link would
+  give (stage 1's change is orthogonal, in the masses' metric, to what
+  stage 2 can move), so the total loss is the same. Against fully
+  resolved runs:
+  * a stiff, unbounded link (a linear tyre law with no grip limit) and no
+    projection through it: the tyre's dissipation approaches its share
+    within 1.2e-2, 1.2e-3 and 1.2e-4 as its stiffness grows from 2e4 to
+    2e6 N per m/s (`the_tyres_share_is_what_a_stiff_tyre_dissipates`);
+  * a tyre with a grip limit (the review's: F = clamp(k κ, ±4000 N), a
+    7 → 12 downshift): it slides after stage 1, and the run is the one
+    with its slip integrated at every stiffness (it was 0.196 m/s apart
+    50 ms after the shift, the motor at 737 against 611 rad/s, when the
+    grip was judged before the event and the slip relaxed at once;
+    `a_tyre_past_its_grip_after_the_rigid_stage_passes_no_impulse`);
+  * a car with a motor on each axle and the library's tyre law, against
+    the car whose gear mesh is a stiff damper and nothing is projected:
+    as the mesh stiffens tenfold the speeds over the whole transient
+    come tenfold closer (4.7e-4 m/s at c_g = 1000 N·m·s/rad), and so do
+    each tyre's and the gear's losses; relaxing the tyres at once while
+    inside their grip, as the third round did, stays 0.67 m/s and 22 J
+    apart (`a_two_axle_shift_matches_the_fully_resolved_car`).
+  Today's engine relaxes the slip of every tyre that gripped before the
+  shift at once, and books the impulse times the slip *before* the event
+  to the tyre (negative on a downshift while driving). The losses are the
+  coupled parts' stored energies before and after each stage
+  (`Engagement`), nothing else that jumps at the same instant. Derivatives
+  are exact: `B` and the links' gradients by forward-mode differentiation
+  through the assignments (`lsim-solve/src/ad.rs`; the iteration
+  variables' `∂z/∂x = −g_z⁻¹ g_x` from the compiled Jacobian), the stored
+  energies' gradients and Hessians by second-order forward
+  differentiation, and Newton's method solves the balance (one step for
+  quadratic energies and linear kinematics; a stiffening energy `½ J w² +
+  ¼ c w⁴` is kept to 1e-13). Event iteration goes on from the moved
+  states: a condition the jump crosses fires at the event, a mode it
+  crosses flips there, and an engagement it makes is projected in turn;
+  a cascade of more than `SolverOptions::max_event_iterations`
+  engagements at one instant stops the run with an event storm naming
+  the engagement and the conditions (raise the limit for one that is
+  meant: the review's 131 upshifts at one instant run exactly with it at
+  200).
+  `mech_gear_change` runs to 5e-16 with its loss exact;
+  `SolverOptions::impulses` turns the projection off.
+
 ### 8.3 Initialisation
 
 1. Start values: `fixed` ones are conditions, others guesses.
@@ -897,12 +1364,17 @@ residuals and what they solve for.
 integrator's error control by default (`energy_error_control`): without
 it they ride on the states' steps, and a fast-decaying loss came out 100×
 less accurate than the tolerance (the RC step's resistor loss at rtol
-1e-10: 1.3e-8 of the energy scale; with it 2.5e-11). The stored energy's
-change is integrated too, its rate taken along the solution by a
-fourth-order central difference of the declared stored energy in the
-direction (1, y') (exact for the quadratic energies of capacitors,
-inductors and masses), so the books close to round-off when every part's
-books agree with its equations (section 11). The integrator's own error
+1e-10: 1.3e-8 of the energy scale; with it 2.5e-11). Where the states
+are exact on long steps the integrals can be off by tens of percent (a
+constant torque on an inertia from rest: 15.55 J supplied against 9 J,
+on 1 s steps), while the closure, which compares the integrals with each
+other, stays zero: only the drift shows it. Books computed without error
+control say so (`EnergyBooks::error_controlled`, a warning, the summary)
+so that nobody reads them as exact. The stored energy's
+change is integrated too, its rate taken along the solution in the
+direction (1, y') exactly, by forward-mode differentiation of the
+declared stored energy (section 11), so the books close to round-off
+when every part's books agree with its equations. The integrator's own error
 estimate goes into the report: the largest local error of any step as a
 share of the tolerance, and per variable the local errors summed over the
 run (an upper bound of the global error that ignores damping).
@@ -1038,15 +1510,39 @@ save most of those 10 ms in every run, sequential or not (a change to
   converters) whose net intake is the energy supplied. The **closure** is
   supplied − lost − ∫ d(stored)/dt, relative to the throughput (half the
   sum of every part's ∫ |power in|): it is round-off when the books are
-  right (≤ 4e-14 on every ODE run of the suite, ≤ 3e-9 on IDA at rtol 1e-8
-  and 1.1e-7 at 1e-6 for the spike's DAE form, where y' of the iteration
-  variables comes from IDA's own formula), and the run warns above 1e-6
+  right, and the run warns above 1e-6
   and can be made to fail (`energy_tolerance`), naming the parts whose
   books close worst. Jumps of the stored energy at events, from the states
   before and after, are booked as a separate entry (energy lost at
-  events). The **drift** — stored energy from the states at the end minus
-  the books' — is the integration error of the energies, of the order of
-  rtol; it is reported, with a warning when it exceeds 100·rtol.
+  events). Each stored energy's rate `dE/dt` is exact: forward-mode
+  differentiation of the declared stored energy along `(1, y')` through
+  the assignments that compute the variables it reads
+  (`RunInfo::stored_rates`), with `y'` the model's own `x' = f(t, x, z)`
+  for the states on every backend (on IDA its `y'` would differ by the
+  residual its Newton iteration leaves) and the integrator's rate for the
+  iteration variables. The time's rate is one; a table is the model's own
+  interpolant (`ModelFunctions::eval_table`: the books' powers, losses
+  and stored energies read the tables the compiled code reads), its
+  derivatives exact (a C¹ monotone cubic); along a zero direction a rate
+  is zero, even where the function's own derivative is infinite (`sqrt`
+  at zero: no `inf · 0`). Only a stored energy that reaches a derivative
+  or a previous value through its assignments, or whose rate is not
+  finite at a point (`sqrt` at zero while moving), takes a fourth-order
+  central difference, its step moving no entry of `y` by more than 1e-3
+  of its size or of its nominal scale. (Work package 4's sixth round
+  found the books without tables: a declared stored energy or loss that
+  read one made them NaN, and the default run, its books under error
+  control, stopped at t = 0.) (Work package 4's fourth round found the
+  difference's step collapsing whenever an entry of `y` passed zero while
+  moving: its round-off grows as `|E| / step`, and a full fuel tank stores
+  some 1e9 J, so the hybrid's books closed to only 1.6e-6 on the UDDS and
+  5.4e-7 on the HWFET, by an amount that any change of the step sequence
+  reshuffled: 10.5, 1.6, −0.8 and 1.9 J on the HWFET at rtol 1, 0.999,
+  1.001 and 0.99 × 1e-6. Exact, the same runs close to 4.3e-12, 8.1e-14,
+  5.1e-12 and 2.4e-12.) The **drift** — stored energy from the states at
+  the end minus the books' — is the integration error of the energies, of
+  the order of rtol; it is reported, with a warning when it exceeds
+  100·rtol.
 * **Solver report** on every run: backend, method, tolerances, steps,
   evaluations, Jacobians, error-test and Newton failures, events (with
   times and parts), restarts, initialisation path, energy closure.
@@ -1299,6 +1795,15 @@ work end to end) or against hand-written test doubles of the interfaces.
   central differences; sparse and dense Jacobians agree; tables are C¹ and
   monotone where their data are; a 10⁴-equation model compiles in under
   100 ms; the example cars compile in under 50 ms.
+* **Compiled condition kernels** (from work package 4's ninth round):
+  the conditions that mix time and states compiled into a point and an
+  interval kernel from the same IR (`ConditionKernels` in lsim-ir, the
+  interpreter its default), bitwise the interpreter's and the compiled
+  `roots` bitwise the point kernel, sharing subexpressions, tables read at
+  run time, a condition declined falling back to the interpreter;
+  accepted on the differential test, the golden comparison byte-identical
+  with the kernels on and off, and the check at most 3 % of the BEV WLTC
+  run's instructions after WP3's speed-up (section 5.8).
 
 ### WP4 — Solver runtime
 
@@ -1321,13 +1826,69 @@ work end to end) or against hand-written test doubles of the interfaces.
   ones; energy closure ≤ 1e-6 on every example; a 10 ms Script block that
   changes nothing costs < 5 % run time; sweeps scale ≥ 3.5× on 4 cores;
   the build needs only a C compiler on Windows, macOS and Linux.
+* **Second round (from the golden comparison)**: `when` conditions made
+  true by a tick fire; what a clock schedules is no event storm; `when`
+  semantics at the start decided as Modelica's; event iteration with the
+  iteration variables solved again; ticks a few ulps before the end;
+  cheap restarts (11.4 → 2.2 steps a tick on a DAE) and light ones; exact
+  time events; the impulse projection that keeps the momentum at a gear
+  shift (section 8.2); `suppress_algebraic_error` measured and left off.
+* **Third round (from the review of the second)**: the projection starts
+  only at a declared rigid engagement and leaves what a `reinit` set; its
+  loss splits in two physical stages (the engaging part's, each link's,
+  all ≥ 0) checked against a resolved stiff tyre; exact derivatives
+  (forward-mode through the assignments, the compiled Jacobian for the
+  iteration variables) and Newton's method instead of finite
+  differences; event iteration goes on after it; light restarts opt-in
+  (an exact pass-through stays for ticks that reach nothing integrated);
+  time crossings' right limit only at their own time, and joining a root
+  at the same instant; strict `when` conditions (`PreparedWhen::strict`);
+  alias start conflicts told and decided independently of the order; the
+  zero crossings' order a stated, tested contract (section 5.8).
+* **Fourth round (from the review of the third)**: a tyre passes no
+  impulse (its force is bounded by its grip): after a shift's rigid
+  engagement its slip relaxes in time, integrated, which a fully resolved
+  two-axle car confirms and relaxing at once does not; links are judged
+  after the rigid stage, join as others relax, and several share their
+  loss as the event's; a cascade of engagements at one instant is
+  projected to its end or stops the run naming it; `consistent_z` fails
+  by default; inert ticks are counted apart from light restarts.
+* **Fifth round (from the review of the fourth)**: the energy books'
+  stored-energy rates exact (forward-mode through the assignments, the
+  model's x' on IDA), the closure back to round-off (1.5e-9 or better on
+  every golden case, from 1.6e-6); tables read along time stop the
+  integrator at their breakpoints; both sides of an event at an output
+  time recorded (`SimResult::left_limits`).
+* **Sixth round (from the final review)**: every sampled block due at an
+  instant ticks in one event (an output point there no longer shows the
+  state between two ticks); the energy books read the model's tables
+  (`ModelFunctions::eval_table`), the rates through them and through
+  the time exact; conditions on explicit functions of time found ahead
+  without integrating and reached exactly (interval enclosures,
+  `RunInfo::time_functions`), those that mix time and states stopped at
+  the extrema of their time terms, the rest named in a warning; a zero
+  direction has a zero rate; left limits of the changed channels only;
+  moving tables' breakpoints recomputed. The golden comparison is the
+  same to the last digit (none of its models has such a condition).
+* **Seventh round (from the review of the sixth)**: a block ticking at an
+  instant reads the iteration variables solved again for what the blocks
+  before it set (`RunInfo::z_discretes`, `SolverReport::z_solves`), and a
+  computed input read through its chain at a stop is evaluated there;
+  mixed conditions are checked along every step's dense output
+  (`SolverReport::pulses_found`) instead of stopping at their time terms'
+  extrema; integer powers enclosed with a proven bound and the platform's
+  libm tested; a run whose books or conditions read a table the model
+  does not give does not start (the full `ModelFunctions` contract, §5.8);
+  books without error control flagged. The golden comparison is the same
+  to the last digit again.
 * **Status (as built)**: the exact-answer suite passes on both backends,
   ODE and DAE paths (`lsim-solve/tests/reference.rs`); the backends agree
   within 4.2·rtol; events within 2.6·rtol on SUNDIALS at every tolerance,
   on diffsol within 7.2·rtol at 1e-6 and 1e-8 but up to 34·rtol at 1e-10
   (its root finding, not ours: the cross-check is held to 50·rtol);
-  energy closure ≤ 1.1e-7 everywhere tested (no example project imports
-  until WP5); the idle 10 ms block and the sweeps as measured in sections
+  energy closure ≤ 1.1e-7 everywhere tested before the example projects
+  imported, ≤ 1.5e-9 on every golden case since the stored-energy rates
+  are exact; the idle 10 ms block and the sweeps as measured in sections
   9 and 8.4 (< 5 % for models as costly as the 101-state drive, 19.5 % on
   a 100 ms model read through a computed channel; 3.44–4.09×); the build
   proven on Linux only.

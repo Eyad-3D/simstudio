@@ -99,10 +99,11 @@ fn main() {
         assert!(p.exists(), "missing SUNDIALS source {}", p.display());
         b.file(p);
     }
-    // LightSim's own additions (dense output of selected components)
+    // LightSim's own additions (dense output of selected components, and
+    // its polynomial)
     let own = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("csrc");
     println!("cargo:rerun-if-changed=csrc");
-    for f in ["lsim_cvodes_dky.c", "lsim_idas_dky.c"] {
+    for f in ["lsim_cvodes_dky.c", "lsim_idas_dky.c", "lsim_cvodes_dense.c", "lsim_idas_dense.c"] {
         b.file(own.join(f));
     }
     b.compile("lsim_sundials");

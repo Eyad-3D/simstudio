@@ -267,6 +267,11 @@ fn everything() -> ComponentDef {
         ],
         initial_equations: vec![eq(n("soc"), c(0.5), "start half full")],
         energy: EnergyDecl { stored: None, loss: Some(expr::table("loss_map", vec![n("i")])) },
+        impulse: vec![lsim_ir::ImpulseDecl {
+            keep: n("x") * n("k") - n("y"),
+            active: cmp(CmpOp::Lt, n("x"), c(0.5)),
+        }],
+        engagements: vec![lsim_ir::EngagementDecl { changes: n("gear") * n("k") }],
     }
 }
 
@@ -284,6 +289,8 @@ fn a_component_with_every_feature_round_trips() {
         "type Mode = enumeration(Manual \"the driver shifts\", Auto) \"how gears are chosen\";",
         "= table(x = {0, 0.5, 1}, y = {3.2, 3.6, 4.1}, xUnit = \"1\")",
         "values = [0.9, 0.95, 0.9; 0.85, 0.9, -0.8]",
+        "annotation(__LightSim_impulse(keep = x * k - y, active = x < 0.5));",
+        "annotation(__LightSim_engagement(changes = gear * k));",
         "interpolation = linear, outside = {linear}",
         "Real 'R1.v'(unit = \"V\", displayUnit = \"kV\", nominal = 400)",
         "mode == Mode.Auto",
