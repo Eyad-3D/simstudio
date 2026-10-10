@@ -30,6 +30,10 @@ use std::marker::PhantomData;
 use std::os::raw::{c_char, c_int, c_long};
 use std::ptr;
 
+/// The highest order CVODE's Adams method may take (the order of its
+/// dense output's polynomial).
+pub(crate) const ADAMS_MAX_ORDER: c_int = 7;
+
 /// The linear solver in use.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Lin {
@@ -674,6 +678,13 @@ impl<'m> Sundials<'m> {
                     self.check(CVodeSetJacFn(self.mem, Some(cv_jac)), "CVodeSetJacFn", t)?;
                 }
                 Lmm::Adams => {
+                    // order 7 at most (CVODE's default is 12): the dense
+                    // output is then a polynomial of degree 7 at most, which
+                    // the mixed conditions' check takes as it is. On smooth
+                    // problems the order rarely passes 5; on a slow cosine at
+                    // rtol 1e-12, which reaches 11 uncapped, the cap takes
+                    // 272 steps instead of 194, with half the error.
+                    self.check(CVodeSetMaxOrd(self.mem, ADAMS_MAX_ORDER), "CVodeSetMaxOrd", t)?;
                     if self.nls.is_null() {
                         self.nls = SUNNonlinSol_FixedPoint(self.y, 0, self.ctx);
                     }

@@ -849,7 +849,12 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   1.5; during a run Adams → BDF on a convergence failure or when
   nonlinear failures exceed 10 % of the steps. The report says which and
   why. (The reference problems' RC and RL circuits and the L = 0 motor run
-  on Adams; the spike and the motor with inductance on BDF.)
+  on Adams; the spike and the motor with inductance on BDF.) Adams' order
+  is capped at 7 (CVODE's default is 12), so the dense output a step
+  leaves is a polynomial of degree 7 at most: on smooth problems the
+  order rarely passes 5 and nothing changes; a slow cosine at rtol 1e-12,
+  which reached order 11, takes 272 steps instead of 194, with half the
+  error.
 * **diffsol** 0.17.1 (pinned, nalgebra dense LU): the same run loop; root
   directions from the root functions' signs at the step's start and at
   the root; the iteration variables made consistent by the same Newton as
