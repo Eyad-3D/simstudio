@@ -95,8 +95,8 @@ def _write(path: Path, data: bytes) -> None:
 
 
 def _print(obj: Any, as_json: bool, text: str) -> None:
-    if as_json:
-        print(json.dumps(obj, indent=2, ensure_ascii=False))
+    if as_json:  # ASCII (CO₂ as ₂): any reader decodes it, whatever its code page
+        print(json.dumps(obj, indent=2))
     else:
         print(text)
 
@@ -307,7 +307,22 @@ def parser() -> argparse.ArgumentParser:
     return p
 
 
+def _plain_streams() -> None:
+    """Never stop on a character the output cannot encode. Windows gives a
+    pipe (MATLAB's system(), a script) the ANSI code page, which has no
+    "₂": a pipe gets UTF-8, a console replaces what it cannot show."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if stream.isatty():
+                stream.reconfigure(errors="replace")  # type: ignore[union-attr]
+            else:
+                stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        except (AttributeError, ValueError, OSError):
+            pass
+
+
 def main(argv: Optional[list[str]] = None) -> int:
+    _plain_streams()
     args = parser().parse_args(argv)
     try:
         return args.func(args)

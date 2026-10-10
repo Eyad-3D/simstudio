@@ -8,6 +8,7 @@ import gzip
 import io
 import json
 import math
+import sys
 
 import pytest
 import scipy.io as sio
@@ -249,6 +250,24 @@ def test_the_command_line_runs_an_example_by_its_id(tmp_path, capsys):
     # neither a file nor an example: the file is missing
     assert cli.main(["run", "no-such-car"]) == cli.USAGE
     assert "cannot read no-such-car" in capsys.readouterr().err
+
+
+def test_the_command_line_prints_co2_through_a_windows_pipe(monkeypatch):
+    # Windows hands a pipe (MATLAB's system(), the build's smoke test) the
+    # ANSI code page, which has no "₂": printing "CO₂ emissions" stopped the
+    # engine with a UnicodeEncodeError
+    for as_json in (True, False):
+        raw = io.BytesIO()
+        pipe = io.TextIOWrapper(raw, encoding="cp1252")
+        monkeypatch.setattr(sys, "stdout", pipe)
+        cli._plain_streams()
+        cli._print({"summary": {"CO₂ emissions": 66.8}}, as_json, "CO₂ emissions: 66.8 g/km")
+        pipe.flush()
+        text = raw.getvalue().decode("utf-8")
+        if as_json:
+            assert text.isascii() and json.loads(text)["summary"] == {"CO₂ emissions": 66.8}
+        else:
+            assert "CO₂ emissions" in text
 
 
 def test_the_command_line_exit_codes(tmp_path, capsys):
