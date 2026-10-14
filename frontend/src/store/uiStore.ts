@@ -168,9 +168,12 @@ interface UIState {
   setResultsAfterRun: (on: boolean) => void;
 
   dockApi: DockviewApi | null;
-  setDockApi: (api: DockviewApi) => void;
+  /** `reopen` puts a closed panel back in its place (DockLayout knows where) */
+  setDockApi: (api: DockviewApi, reopen?: (id: string) => boolean) => void;
+  dockReopen: ((id: string) => boolean) | null;
   /** Bring a dockview panel to the front of its group (opening the bottom
-   *  tray or leaving a maximised diagram when needed). */
+   *  tray or leaving a maximised diagram when needed), first putting it back
+   *  in its place if the user closed it. */
   focusPanel: (id: string) => void;
 
   /** Layer Configurations: per-kind edge visibility on the canvas. */
@@ -266,14 +269,20 @@ export const useUIStore = create<UIState>((set, get) => ({
   },
 
   dockApi: null,
-  setDockApi: (api) => set({ dockApi: api }),
+  dockReopen: null,
+  setDockApi: (api, reopen) => set({ dockApi: api, dockReopen: reopen ?? null }),
   focusPanel: (id) => {
     // the Start page hides the workspace: a panel asked for (an error, a
     // blocked run, an empty state's button) brings the workspace back
     if (get().ribbonTab === "start") set({ ribbonTab: "home" });
     const dock = get().dockApi;
-    const panel = dock?.getPanel(id);
-    if (!dock || !panel) return;
+    if (!dock) return;
+    // a panel the user closed (its tab's X) comes back where it lives: every
+    // button that shows it would otherwise do nothing, even after a restart
+    // (the layout is saved without it)
+    if (!dock.getPanel(id)) get().dockReopen?.(id);
+    const panel = dock.getPanel(id);
+    if (!panel) return;
     const group = panel.group.api;
     // a maximised diagram would hide the other grid panels
     if (group.location.type === "grid" && dock.hasMaximizedGroup() && !group.isMaximized()) {

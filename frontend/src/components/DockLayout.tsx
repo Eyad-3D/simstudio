@@ -254,6 +254,80 @@ function clampTray(api: DockviewApi) {
   tray.setSize({ height: max });
 }
 
+// Every panel: its tab title, its narrowest width and where it lives (the
+// left, middle or right column, or the bottom tray). The default arrangement
+// is built from this, and a panel the user closed goes back to its place.
+type Column = "left" | "centre" | "right" | "tray";
+const PANELS: Record<string, { title: string; column: Column; minimumWidth?: number }> = {
+  components: { title: "Components", column: "left", minimumWidth: 160 },
+  elements: { title: "Elements", column: "left", minimumWidth: 160 },
+  topology: { title: "Topology", column: "centre", minimumWidth: 320 },
+  monitors: { title: "Monitors", column: "centre", minimumWidth: 320 },
+  properties: { title: "Properties", column: "right", minimumWidth: 200 },
+  cases: { title: "Cases", column: "right", minimumWidth: 200 },
+  messages: { title: "Messages", column: "tray" },
+  "data-checks": { title: "Problems", column: "tray" },
+  "layer-config": { title: "Layer Configurations", column: "tray" },
+  "data-bus": { title: "Data Bus Connections", column: "tray" },
+  "mini-chart": { title: "Signal Plot", column: "tray" },
+};
+const panelSpec = (id: string) => ({
+  id,
+  component: id,
+  title: PANELS[id].title,
+  minimumWidth: PANELS[id].minimumWidth,
+});
+
+const sideWidth = (column: Column, width: number) =>
+  column === "left" ? clamp(Math.round(width * 0.13), 200, 300) : clamp(Math.round(width * 0.15), 240, 360);
+
+// Bottom tray. Clicking a tab opens it; the Signal Plot opens by itself on
+// the session's first run (see DockLayout). It opens at 22 % of the dock
+// (139 px at 1366x768), so the diagram keeps 40 % of the window; its sash
+// drags it up to TRAY_MAX_SHARE.
+function addTray(api: DockviewApi, height: number) {
+  return api.addEdgeGroup("bottom", {
+    id: "tray",
+    initialSize: clamp(Math.round(height * 0.22), TRAY_MIN, 360),
+    minimumSize: TRAY_MIN,
+    collapsed: true,
+  });
+}
+
+/** Put a panel the user closed back in its place: in a group of its own
+ *  column, or, when the whole column was closed, as that column again beside
+ *  its neighbour. False for a panel that is not one of the workspace's. */
+function reopenPanel(api: DockviewApi, id: string): boolean {
+  const home = PANELS[id];
+  if (!home) return false;
+  if (api.getPanel(id)) return true;
+  if (home.column === "tray") {
+    const tray = api.getEdgeGroup("bottom") ?? addTray(api, api.height || window.innerHeight);
+    api.addPanel({ ...panelSpec(id), position: { referenceGroup: tray.id } });
+    return true;
+  }
+  const open = (column: Column) => Object.keys(PANELS).find((k) => PANELS[k].column === column && api.getPanel(k));
+  const mate = open(home.column);
+  if (mate) {
+    api.addPanel({ ...panelSpec(id), position: { referencePanel: mate, direction: "within" } });
+    return true;
+  }
+  // the whole column was closed: beside the nearest column still there
+  const order: Column[] =
+    home.column === "left" ? ["centre", "right"] : home.column === "right" ? ["centre", "left"] : ["left", "right"];
+  const near = open(order[0]);
+  const reference = near ?? open(order[1]);
+  const direction = home.column === "left" ? "left" : home.column === "right" ? "right" : near ? "right" : "left";
+  const added = api.addPanel({
+    ...panelSpec(id),
+    ...(reference ? { position: { referencePanel: reference, direction } } : {}),
+  });
+  if (home.column !== "centre" && reference) {
+    added.api.setSize({ width: sideWidth(home.column, api.width || window.innerWidth) });
+  }
+  return true;
+}
+
 // Default arrangement, built so the diagram gets most of the window at every
 // size: the library (left) and properties (right) columns take a share of the
 // width with a floor, and the log, checks, layers, data bus and signal plot
@@ -264,76 +338,26 @@ function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
   // close enough stand-in for proportioning the default layout
   const width = api.width || window.innerWidth;
   const height = api.height || window.innerHeight;
-  const leftWidth = clamp(Math.round(width * 0.13), 200, 300);
-  const rightWidth = clamp(Math.round(width * 0.15), 240, 360);
 
-  const componentsPanel = api.addPanel({
-    id: "components",
-    component: "components",
-    title: "Components",
-    minimumWidth: 160,
-  });
-  api.addPanel({
-    id: "elements",
-    component: "elements",
-    title: "Elements",
-    position: { referencePanel: "components", direction: "within" },
-    minimumWidth: 160,
-  });
-  api.addPanel({
-    id: "topology",
-    component: "topology",
-    title: "Topology",
-    position: { referencePanel: "components", direction: "right" },
-    minimumWidth: 320,
-  });
-  api.addPanel({
-    id: "monitors",
-    component: "monitors",
-    title: "Monitors",
-    position: { referencePanel: "topology", direction: "within" },
-    minimumWidth: 320,
-  });
+  const componentsPanel = api.addPanel(panelSpec("components"));
+  api.addPanel({ ...panelSpec("elements"), position: { referencePanel: "components", direction: "within" } });
+  api.addPanel({ ...panelSpec("topology"), position: { referencePanel: "components", direction: "right" } });
+  api.addPanel({ ...panelSpec("monitors"), position: { referencePanel: "topology", direction: "within" } });
   const propertiesPanel = api.addPanel({
-    id: "properties",
-    component: "properties",
-    title: "Properties",
+    ...panelSpec("properties"),
     position: { referencePanel: "topology", direction: "right" },
-    minimumWidth: 200,
   });
-  api.addPanel({
-    id: "cases",
-    component: "cases",
-    title: "Cases",
-    position: { referencePanel: "properties", direction: "within" },
-    minimumWidth: 200,
-  });
+  api.addPanel({ ...panelSpec("cases"), position: { referencePanel: "properties", direction: "within" } });
 
-  // Bottom tray. Clicking a tab opens it; the Signal Plot opens by itself on
-  // the session's first run (see DockLayout). It opens at 22 % of the dock
-  // (139 px at 1366x768), so the diagram keeps 40 % of the window; its sash
-  // drags it up to TRAY_MAX_SHARE. A failed restore can leave an (emptied)
-  // tray behind: start from a fresh one.
+  // A failed restore can leave an (emptied) tray behind: start from a fresh one.
   if (api.getEdgeGroup("bottom")) api.removeEdgeGroup("bottom");
-  api.addEdgeGroup("bottom", {
-    id: "tray",
-    initialSize: clamp(Math.round(height * 0.22), TRAY_MIN, 360),
-    minimumSize: TRAY_MIN,
-    collapsed: true,
-  });
-  const tray = [
-    ["messages", "Messages"],
-    ["data-checks", "Problems"],
-    ["layer-config", "Layer Configurations"],
-    ["data-bus", "Data Bus Connections"],
-    ["mini-chart", "Signal Plot"],
-  ];
-  for (const [id, title] of tray) {
-    api.addPanel({ id, component: id, title, position: { referenceGroup: "tray" }, inactive: true });
+  addTray(api, height);
+  for (const id of Object.keys(PANELS).filter((k) => PANELS[k].column === "tray")) {
+    api.addPanel({ ...panelSpec(id), position: { referenceGroup: "tray" }, inactive: true });
   }
 
-  componentsPanel.api.setSize({ width: leftWidth });
-  propertiesPanel.api.setSize({ width: rightWidth });
+  componentsPanel.api.setSize({ width: sideWidth("left", width) });
+  propertiesPanel.api.setSize({ width: sideWidth("right", width) });
 
   api.getPanel("components")?.api.setActive();
   api.getPanel("messages")?.api.setActive();
@@ -354,7 +378,7 @@ export function resetDockLayout() {
 
 function onReady(event: DockviewReadyEvent) {
   const api = event.api;
-  useUIStore.getState().setDockApi(api);
+  useUIStore.getState().setDockApi(api, (id) => reopenPanel(api, id));
 
   // restore the user's saved arrangement; fall back to the default on any
   // failure (missing/renamed panels, corrupt data, or a version bump).
