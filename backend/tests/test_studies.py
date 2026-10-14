@@ -83,7 +83,10 @@ def test_a_model_with_scripts_runs_in_the_pool(client):
 
 
 def test_the_live_channel_streams_points_and_stops(client):
-    p = short_bev(duration=600.0)
+    # Long enough that no point can finish in the 8 s before the cancel: a CI
+    # runner finished a 600 s point in under 8 s; 6000 s takes ten times as
+    # long (the channel says nothing when a point starts, only when it ends)
+    p = short_bev(duration=6000.0)
     with client.websocket_connect("/api/studies/run") as ws:
         ws.send_json({"type": "start", "project": p.model_dump(mode="json"),
                       "caseId": "case-city", "points": mass_points([1500, 1600, 1700, 1800]),

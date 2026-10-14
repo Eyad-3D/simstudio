@@ -158,8 +158,9 @@ jobs:
       - name: Lints (warnings are errors)
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      # every crate's tests, even after one fails, so a run shows them all
       - name: Tests
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --no-fail-fast
 
       - name: Licences of every third-party crate
         run: python scripts/licences.py

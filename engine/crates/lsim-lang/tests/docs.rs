@@ -6,7 +6,10 @@ use lsim_lang::{Report, parse_library, to_text};
 #[test]
 fn every_example_of_the_documentation_parses() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/text-format.md");
-    let doc = std::fs::read_to_string(path).expect("the documentation is there");
+    // a Windows checkout has CRLF line ends
+    let doc = std::fs::read_to_string(path)
+        .expect("the documentation is there")
+        .replace("\r\n", "\n");
     let lib = lsim_lib::library();
     let mut blocks = 0;
     let mut rest = doc.as_str();
@@ -16,6 +19,10 @@ fn every_example_of_the_documentation_parses() {
         let text = &body[..end];
         let parsed =
             parse_library(text, Some(&lib)).unwrap_or_else(|e| panic!("{}\n{text}", Report(&e)));
+        // a model written on Windows has CRLF line ends: it reads the same
+        let crlf = parse_library(&text.replace('\n', "\r\n"), Some(&lib))
+            .unwrap_or_else(|e| panic!("with CRLF line ends: {}\n{text}", Report(&e)));
+        assert_eq!(crlf.components, parsed.components, "with CRLF line ends");
         for def in parsed.components.values() {
             let again = parse_library(&to_text(def), Some(&lib)).expect("prints back");
             assert_eq!(&again.components[&def.name], def);
