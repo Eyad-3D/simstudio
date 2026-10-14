@@ -331,7 +331,7 @@ double as_asin_refine(double x, double phi){
   b64u64_u th = {.f = ph}, tl = {.f = pl}, tn;
   tn.u = (th.u&(0x7ffull<<52)) - (53ull<<52);
   tl.u &= ~0ull>>1;
-  long dn = tl.u-tn.u, de = (tn.u - tl.u)>>52;
+  int64_t dn = tl.u-tn.u, de = (tn.u - tl.u)>>52; // lsim (engine patch 2): was long
   // dn=-2 for x=0x1.c373ff4aad79bp-14 (rndn)
   // de=48 for x=0x1.da4e0e6c717a5p-2 (rndz)
   int hard = (-2<=dn && dn<=0) || (de>47);

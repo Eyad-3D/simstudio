@@ -232,7 +232,7 @@ double cr_atan(double x){
   static const double ch[] = {0x1p+0, -0x1.555555555552bp-2, 0x1.9999999069c2p-3, -0x1.248d2c8444ac6p-3};
   b64u64_u t = {.f = x};
   u64 at = t.u&(~(u64)0>>1); // at encodes |x|
-  int64_t i = (at>>51) - 2030l; // -2030 <= i <= 2065
+  int64_t i = (at>>51) - 2030ll; // -2030 <= i <= 2065 (lsim, engine patch 2: was 2030l)
   if (__builtin_expect(at < 0x3f7b21c475e6362aull, 0)) {
     // |x| < 0x1.b21c475e6362ap-8
     if(__builtin_expect(at == 0, 0)) return x; // atan(+/-0) = +/-0

@@ -35,7 +35,9 @@
 //! `mul_add` calls the C runtime's `fma` on x86-64, and `powi`'s precision
 //! is left unspecified.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::ffi::c_int;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 /// The widening, in ulps on each side, that encloses the exact value of
 /// any function of this crate given its result: 1, as every result is
@@ -392,6 +394,44 @@ fn fma_x86(a: f64, b: f64, c: f64) -> f64 {
 pub fn fma_soft(a: f64, b: f64, c: f64) -> f64 {
     // SAFETY: plain C arithmetic on doubles passed by value.
     unsafe { ffi::lsim_math_fma_soft(a, b, c) }
+}
+
+/// A result CORE-MATH could not prove correctly rounded: its rounding test
+/// failed even in its last, most accurate phase. CORE-MATH's authors know
+/// of no such input (the hard-to-round cases are known); upstream, `pow`
+/// and `atan2` print the input and end the process there. The engine's
+/// copy (engine patch 1, `core-math/README.md`) returns the rounding of
+/// the best approximation it has instead, and reports the case here.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UnexpectedCase {
+    /// the function: `"pow"` or `"atan2"`
+    pub function: &'static str,
+    /// its arguments, in order (`atan2(y, x)`: y, then x)
+    pub args: [f64; 2],
+}
+
+static UNEXPECTED: AtomicU64 = AtomicU64::new(0);
+static FIRST_UNEXPECTED: OnceLock<UnexpectedCase> = OnceLock::new();
+
+/// How many results since the process started were not proven correctly
+/// rounded ([`UnexpectedCase`]), and the first of them. `(0, None)` but
+/// for an input no one knows of.
+pub fn unexpected_cases() -> (u64, Option<UnexpectedCase>) {
+    (UNEXPECTED.load(Ordering::Relaxed), FIRST_UNEXPECTED.get().copied())
+}
+
+/// Where the vendored C code reports an [`UnexpectedCase`] (engine patch
+/// 1): `function` 1 is `pow`, 2 is `atan2`, `x` and `y` its arguments in
+/// C's order.
+#[unsafe(no_mangle)]
+pub extern "C" fn lsim_math_unexpected_case(function: c_int, x: f64, y: f64) {
+    let function = match function {
+        1 => "pow",
+        2 => "atan2",
+        _ => "unknown",
+    };
+    FIRST_UNEXPECTED.get_or_init(|| UnexpectedCase { function, args: [x, y] });
+    UNEXPECTED.fetch_add(1, Ordering::Relaxed);
 }
 
 /// `x^n` by repeated squaring, as LLVM's `powi` (compiler-rt's

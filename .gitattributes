@@ -3,3 +3,6 @@
 # fingerprints of the drive cycles (CON-04) and so the data a Windows build
 # ships.
 *.csv -text
+# The vendored CORE-MATH sources too: their SHA-256 sums are recorded
+# (engine/crates/lsim-math/core-math/SHA256SUMS).
+engine/crates/lsim-math/core-math/** -text

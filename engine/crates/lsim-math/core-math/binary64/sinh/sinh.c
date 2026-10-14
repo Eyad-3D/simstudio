@@ -110,7 +110,7 @@ static double __attribute__((noinline)) as_sinh_zero(double x){
   double y0 = fasttwosum(x, y1, &y1);
   y1 = fasttwosum(y1, y2, &y2);
   b64u64_u t = {.f = y1};
-  if(__builtin_expect(!(t.u&(~0ul>>12)), 0)){
+  if(__builtin_expect(!(t.u&(~0ull>>12)), 0)){
     b64u64_u w = {.f = y2};
     if((w.u^t.u)>>63)
       t.u--;
@@ -277,12 +277,12 @@ double cr_sinh(double x){
   b64u64_u jt = {.f = v0};
 #if defined(__x86_64__)
   __m128d v = _mm_set_sd (v0);
-  __m128i tt = {~((1<<26)-1l),0};
+  __m128i tt = {~((1<<26)-1ll),0};
   v = _mm_and_pd(v,(__m128d)tt);
   double t = v[0] - 0x1.8p26;
 #else
   b64u64_u v = {.f = v0};
-  uint64_t tt = ~((1<<26)-1l);
+  uint64_t tt = ~((1<<26)-1ll);
   v.u &= tt;
   double t = v.f - 0x1.8p26;
 #endif
@@ -352,7 +352,7 @@ double cr_sinh(double x){
       // b64u64_u uh = {.f = th};
       b64u64_u ul = {.f = tl};
       // int64_t eh = (uh.u>>52)&0x7ff, el = (ul.u>>52)&0x7ff;
-      int64_t ml = (ul.u + 8)&(~0ul>>12);
+      int64_t ml = (ul.u + 8)&(~0ull>>12);
       th += tl;
       th *= 2;
       th *= sp.f;
@@ -416,7 +416,7 @@ double cr_sinh(double x){
   // b64u64_u uh = {.f = rh};
   b64u64_u ul = {.f = rl};
   // int64_t eh = (uh.u>>52)&0x7ff, el = (ul.u>>52)&0x7ff;
-  int64_t ml = (ul.u + 8)&(~0ul>>12);
+  int64_t ml = (ul.u + 8)&(~0ull>>12);
   rh *= __builtin_copysign(1, x);
   rl *= __builtin_copysign(1, x);
   rh += rl;

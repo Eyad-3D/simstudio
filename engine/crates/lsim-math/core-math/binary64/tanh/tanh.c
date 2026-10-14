@@ -133,7 +133,7 @@ static double __attribute__((noinline)) as_tanh_zero(double x){ // |x|<0.25
     double y0 = fasttwosum(x, y1, &y1);
     y1 = fasttwosum(y1, y2, &y2);
     b64u64_u t = {.f = y1};
-    if (__builtin_expect(!(t.u & (~0ul >> 12)), 0)) {
+    if (__builtin_expect(!(t.u & (~0ull >> 12)), 0)) {
         b64u64_u w = {.f = y2};
         if ((w.u ^ t.u) >> 63)
             t.u--;
@@ -269,12 +269,12 @@ double cr_tanh(double x){
   b64u64_u jt = {.f = v0};
 #if defined(__x86_64__)
   __m128d v = _mm_set_sd (v0);
-  __m128i tt = {~((1<<27)-1l), 0};
+  __m128i tt = {~((1<<27)-1ll), 0};
   v = _mm_and_pd(v,(__m128d)tt);
   double t = v[0] - 0x1.8p25;
 #else
   b64u64_u v = {.f = v0};
-  uint64_t tt = ~((1<<27)-1l);
+  uint64_t tt = ~((1<<27)-1ll);
   v.u &= tt;
   double t = v.f - 0x1.8p25;
 #endif
@@ -382,6 +382,6 @@ double cr_tanh(double x){
   rh = fasttwosum(rh, rl, &rl);
   double res = __builtin_copysign(2,x)*rh + __builtin_copysign(2,x)*rl;
   b64u64_u lu = {.f = rl};
-  if(__builtin_expect(((lu.u+32)&(~0ul>>12))<65, 0)) return as_tanh_database(x, res);
+  if(__builtin_expect(((lu.u+32)&(~0ull>>12))<65, 0)) return as_tanh_database(x, res);
   return res;
 }

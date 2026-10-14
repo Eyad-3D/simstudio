@@ -104,7 +104,7 @@ static double __attribute__((noinline)) as_cosh_zero(double x){
   double y0 = fasttwosum(1.0, y1, &y1);
   y1 = fasttwosum(y1, y2, &y2);
   b64u64_u t = {.f = y1};
-  if(__builtin_expect(!(t.u&(~0ul>>12)), 0)){
+  if(__builtin_expect(!(t.u&(~0ull>>12)), 0)){
     b64u64_u w = {.f = y2};
     if((w.u^t.u)>>63)
       t.u--;
@@ -112,7 +112,7 @@ static double __attribute__((noinline)) as_cosh_zero(double x){
       t.u++;
     y1 = t.f;
   }
-  if(__builtin_expect((t.u&(~0ul>>12))==(~0ul>>12), 0)) return as_cosh_database(x, y0 + y1);
+  if(__builtin_expect((t.u&(~0ull>>12))==(~0ull>>12), 0)) return as_cosh_database(x, y0 + y1);
   return y0 + y1;
 }
 
@@ -241,12 +241,12 @@ double cr_cosh(double x){
   b64u64_u jt = {.f = v0};
 #if defined(__x86_64__)
   __m128d v = _mm_set_sd (v0);
-  __m128i tt = {~((1<<26)-1l),0};
+  __m128i tt = {~((1<<26)-1ll),0};
   v = _mm_and_pd(v,(__m128d)tt);
   double t = v[0] - 0x1.8p26;
 #else
   b64u64_u v = {.f = v0};
-  uint64_t tt = ~((1<<26)-1l);
+  uint64_t tt = ~((1<<26)-1ll);
   v.u &= tt;
   double t = v.f - 0x1.8p26;
 #endif
@@ -313,7 +313,7 @@ double cr_cosh(double x){
       // b64u64_u uh = {.f = th};
       b64u64_u ul = {.f = tl};
       // int64_t eh = (uh.u>>52)&0x7ff, el = (ul.u>>52)&0x7ff;
-      int64_t ml = (ul.u + 8)&(~0ul>>12);
+      int64_t ml = (ul.u + 8)&(~0ull>>12);
       th += tl;
       th *= 2;
       th *= sp.f;
@@ -377,7 +377,7 @@ double cr_cosh(double x){
   // b64u64_u uh = {.f = rh};
   b64u64_u ul = {.f = rl};
   // int64_t eh = (uh.u>>52)&0x7ff, el = (ul.u>>52)&0x7ff;
-  int64_t ml = (ul.u + 8)&(~0ul>>12);
+  int64_t ml = (ul.u + 8)&(~0ull>>12);
   rh += rl;
   // if(__builtin_expect(ml<=16 || eh-el>103,0)) return as_cosh_database(x, rh);
   // when ml<=16 is false, we never have eh-el>103
