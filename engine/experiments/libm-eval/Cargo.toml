@@ -1,0 +1,21 @@
+[package]
+name = "libm-eval"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license-file = "../../../LICENSE"
+description = "The choice of the engine's mathematical library: accuracy against correctly rounded references (CORE-MATH's hard-to-round cases, random inputs, special values) and time per call of glibc, pxfm, the libm crate and CORE-MATH (with and without FMA)"
+
+# Not a member of the engine workspace: it pulls in the candidates the
+# engine did not choose, only to measure them.
+[workspace]
+
+[dependencies]
+pxfm = "=0.1.30"
+libm = "=0.2.16"
+
+[build-dependencies]
+cc = "=1.6.0"
+
+[profile.release]
+opt-level = 3

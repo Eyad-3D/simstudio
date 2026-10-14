@@ -1007,6 +1007,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lsim-math"
+version = "0.1.0"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "lsim-prep"
 version = "0.1.0"
 dependencies = [

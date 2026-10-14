@@ -1,0 +1,19 @@
+[package]
+name = "lsim-math"
+description = "The engine's one mathematical library: CORE-MATH's correctly rounded sin, cos, tan, asin, acos, atan, atan2, sinh, cosh, tanh, exp, log and pow (vendored C, built with the cc crate for CPUs with and without FMA), the same bits on every platform and CPU"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license-file.workspace = true
+repository.workspace = true
+links = "lsim_math"
+# the vendored sources and headers are all the build reads; the reference
+# generator in tools/ is not part of the build
+include = ["/build.rs", "/src", "/core-math", "/csrc", "/include", "/tests", "/Cargo.toml"]
+
+[build-dependencies]
+cc.workspace = true
+
+[lints]
+workspace = true

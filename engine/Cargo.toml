@@ -18,6 +18,7 @@ repository = "https://github.com/Eyad-3D/simstudio"
 [workspace.dependencies]
 # the engine's own crates
 lsim-ir = { path = "crates/lsim-ir" }
+lsim-math = { path = "crates/lsim-math" }
 lsim-lang = { path = "crates/lsim-lang" }
 lsim-prep = { path = "crates/lsim-prep" }
 lsim-codegen = { path = "crates/lsim-codegen" }
