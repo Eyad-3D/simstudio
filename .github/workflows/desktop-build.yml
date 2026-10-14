@@ -362,6 +362,17 @@ jobs:
             desktop/release/*.sha256
           if-no-files-found: error
 
+      # A user's clicks (UX-26): in the packaged app, every visible button of
+      # the main views is pressed with the mouse (scripts/click-through-app.mjs).
+      # None may be covered by something else or end in an error; the log
+      # lists what each one did. After the upload, so a failure here still
+      # leaves the installers to look at.
+      - name: Click every button (Windows)
+        if: matrix.name == 'windows'
+        working-directory: desktop
+        shell: bash
+        run: node ../scripts/click-through-app.mjs release/win-unpacked/LightSim.exe --minutes 20
+
       # Only a signed and notarised Mac build gets the name the release job
       # collects; an unsigned one is kept under another name for testing.
       - uses: actions/upload-artifact@v7
