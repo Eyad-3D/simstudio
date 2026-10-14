@@ -152,6 +152,27 @@ jobs:
           rustc --version
           cargo clippy --version
 
+      # lsim-math compiles CORE-MATH with clang-cl (MSVC's cl lacks
+      # __int128): the cc crate takes Visual Studio's (VC\Tools\Llvm\x64),
+      # else one on PATH. Their versions, so that a run says which compiler
+      # built the engine's mathematical library (a diagnostic: never fails)
+      - name: C compiler of the mathematical library
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $vsclang = if ($vs) { Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang-cl.exe' }
+          if ($vsclang -and (Test-Path $vsclang)) {
+            "Visual Studio's clang-cl: $vsclang"
+            & $vsclang --version
+          } else {
+            "no clang-cl in Visual Studio ($vs)"
+          }
+          Get-Command clang-cl -All -ErrorAction SilentlyContinue | ForEach-Object {
+            "clang-cl on PATH: $($_.Source)"
+            & $_.Source --version
+          }
+          exit 0
+
       - name: Format
         run: cargo fmt --all --check
 
