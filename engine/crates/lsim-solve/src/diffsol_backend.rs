@@ -549,7 +549,7 @@ where
         let ts: [f64; K] = std::array::from_fn(|i| match i {
             0 => t1,
             _ if i == K - 1 => t0,
-            _ => c + h * (i as f64 * std::f64::consts::PI / (K - 1) as f64).cos(),
+            _ => c + h * lsim_ir::math::cos(i as f64 * std::f64::consts::PI / (K - 1) as f64),
         });
         let mut f = vec![[0.0; K]; idx.len()];
         for (i, t) in ts.iter().enumerate() {

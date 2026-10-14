@@ -761,7 +761,8 @@ impl<'m> Sundials<'m> {
         // SAFETY: y is our serial vector of n values.
         let y = unsafe { slice(self.y, n) }.to_vec();
         let inp = EvalInput { t, y: &y, p: &pr.p, d: &pr.d, u: &pr.u };
-        let mut v: Vec<f64> = (0..n).map(|i| 1.0 + 0.37 * ((i as f64) * 1.7).sin()).collect();
+        let mut v: Vec<f64> =
+            (0..n).map(|i| 1.0 + 0.37 * lsim_ir::math::sin((i as f64) * 1.7)).collect();
         let norm = |v: &[f64]| v.iter().map(|x| x * x).sum::<f64>().sqrt();
         let nv = norm(&v);
         v.iter_mut().for_each(|x| *x /= nv);

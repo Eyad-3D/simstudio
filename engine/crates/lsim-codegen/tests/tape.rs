@@ -37,7 +37,9 @@ fn points(w0: &[f64]) -> Vec<Vec<f64>> {
         out.push(
             w0.iter()
                 .enumerate()
-                .map(|(i, w)| w * (1.0 + 0.013 * k as f64) + 0.07 * ((i + k) as f64).sin())
+                .map(|(i, w)| {
+                    w * (1.0 + 0.013 * k as f64) + 0.07 * lsim_ir::math::sin((i + k) as f64)
+                })
                 .collect(),
         );
     }
@@ -121,8 +123,9 @@ fn jacobian_vector_products_from_the_jacobian_match_their_own_code() {
             let inp = EvalInput { t: 3.0, y: &y, p: &p, d: &d0, u: &u };
             via.jacobian_sparse(&inp, &mut w, &mut vals);
             for j in 0..n {
-                let v: Vec<f64> =
-                    (0..n).map(|i| if i == j { 1.0 } else { 0.1 * (i as f64).cos() }).collect();
+                let v: Vec<f64> = (0..n)
+                    .map(|i| if i == j { 1.0 } else { 0.1 * lsim_ir::math::cos(i as f64) })
+                    .collect();
                 let (mut a, mut b) = (vec![0.0; n], vec![0.0; n]);
                 via.jvp(&inp, &v, &mut w, &mut a);
                 own.jvp(&inp, &v, &mut w, &mut b);

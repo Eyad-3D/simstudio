@@ -27,11 +27,11 @@ use synth::Rng;
 fn axis(r: &mut Rng, n: usize) -> Vec<f64> {
     let mut x = r.range(-50.0, 50.0);
     let uniform = r.below(3) == 0;
-    let h = 10f64.powf(r.range(-2.0, 2.0));
+    let h = lsim_ir::math::pow(10f64, r.range(-2.0, 2.0));
     (0..n)
         .map(|_| {
             let v = x;
-            x += if uniform { h } else { h * 10f64.powf(r.range(-1.5, 1.5)) };
+            x += if uniform { h } else { h * lsim_ir::math::pow(10f64, r.range(-1.5, 1.5)) };
             v
         })
         .collect()
@@ -40,7 +40,7 @@ fn axis(r: &mut Rng, n: usize) -> Vec<f64> {
 /// Random data of `n` values: rising, falling, oscillating, with flat
 /// stretches, of a random scale.
 fn values(r: &mut Rng, n: usize) -> Vec<f64> {
-    let scale = 10f64.powf(r.range(-6.0, 6.0));
+    let scale = lsim_ir::math::pow(10f64, r.range(-6.0, 6.0));
     let kind = r.below(4);
     let mut v = r.range(-1.0, 1.0);
     (0..n)

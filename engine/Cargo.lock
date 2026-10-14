@@ -982,6 +982,7 @@ dependencies = [
 name = "lsim-ir"
 version = "0.1.0"
 dependencies = [
+ "lsim-math",
  "serde",
  "thiserror 2.0.21",
 ]

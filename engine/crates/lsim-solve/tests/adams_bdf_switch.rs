@@ -26,7 +26,7 @@ struct Stiffening {
 }
 
 fn k(t: f64) -> f64 {
-    1.0 + 5e4 * (1.0 + (10.0 * (t - 2.0)).tanh())
+    1.0 + 5e4 * (1.0 + lsim_ir::math::tanh(10.0 * (t - 2.0)))
 }
 
 impl ModelFunctions for Stiffening {
@@ -34,7 +34,7 @@ impl ModelFunctions for Stiffening {
         &self.layout
     }
     fn residual(&self, inp: &EvalInput<'_>, _: &mut [f64], out: &mut [f64]) {
-        out[0] = -k(inp.t) * (inp.y[0] - inp.t.sin());
+        out[0] = -k(inp.t) * (inp.y[0] - lsim_ir::math::sin(inp.t));
     }
     fn jvp(&self, inp: &EvalInput<'_>, v: &[f64], _: &mut [f64], out: &mut [f64]) {
         out[0] = -k(inp.t) * v[0];
@@ -252,12 +252,12 @@ fn the_integrals_carry_over_the_switch() {
     assert!(run.report.method.contains("then BDF"), "{}", run.report.method);
     let books = run.energy.as_ref().expect("books");
     let e = books.parts[0].energy_in;
-    let exact = 1.0 - T_END.cos();
+    let exact = 1.0 - lsim_ir::math::cos(T_END);
     println!("{}: {e} J against {exact}", run.report.method);
     assert!((e - exact).abs() < 1e-6 * exact.abs(), "{e} against {exact}");
     let (mut worst, mut at) = (0.0f64, 0.0);
     for (t, e) in run.times.iter().zip(&books.parts[0].energy_in_t) {
-        let d = (e - (1.0 - t.cos())).abs();
+        let d = (e - (1.0 - lsim_ir::math::cos(*t))).abs();
         if d > worst {
             (worst, at) = (d, *t);
         }

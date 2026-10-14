@@ -14,6 +14,7 @@
 //! | [`runtime`] | the compiled model's functions, as the solver sees them | lsim-codegen | lsim-solve, lsim-fast |
 //! | [`diag`] | plain-language diagnostics | everyone | the app |
 //! | [`eval`] | a reference interpreter for expressions | – | tests, constant folding |
+//! | [`math`] | the one mathematical library (lsim-math: correctly rounded, the same bits everywhere) | – | everyone who evaluates |
 //! | [`table`] | 1-D and 2-D table data and rules (runtime parameters) | lsim-lang, lsim-lib, lsim-project, lsim-prep (flatten) | lsim-prep, lsim-codegen |
 //!
 //! Changes to these types after Stage 1 are additive, or agreed between the
@@ -30,6 +31,10 @@ pub mod prepared;
 pub mod runtime;
 pub mod table;
 pub mod units;
+
+/// The engine's one mathematical library (the `lsim-math` crate): every
+/// transcendental function the engine evaluates goes through it.
+pub use lsim_math as math;
 
 pub use component::{
     ComponentDef, Connect, ConnectorDef, EnergyDecl, EngagementDecl, EnumLiteral, EnumType,

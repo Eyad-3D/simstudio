@@ -83,7 +83,7 @@ fn inertias_connected_directly_share_one_state() {
     assert_eq!(m.states.len(), 1);
     assert!(m.algebraics.is_empty());
     let run = simulate(&m, 10.0, 0.05, 1e-10);
-    let w = |t: f64| 10.0 / 0.5 * (1.0 - (-0.5 * t / 5.0).exp());
+    let w = |t: f64| 10.0 / 0.5 * (1.0 - lsim_ir::math::exp(-0.5 * t / 5.0));
     let (ea, eb) = (worst(&run, "a.w", w), worst(&run, "b.w", w));
     println!("errors: a {ea:.1e}, b {eb:.1e}");
     assert!(ea < 1e-9 && eb < 1e-9);
@@ -129,12 +129,14 @@ fn a_capacitor_across_a_source_takes_c_dv_dt() {
     assert!(m.warnings.is_empty(), "{:#?}", m.warnings);
     let w = 2.0 * std::f64::consts::PI * f;
     let run = simulate(&m, 0.05, 1e-4, 1e-10);
-    let ev = worst(&run, "cap.v", |t| v0 * (w * t).sin());
-    let ei = worst(&run, "cap.i", |t| cap * v0 * w * (w * t).cos());
+    let ev = worst(&run, "cap.v", |t| v0 * lsim_ir::math::sin(w * t));
+    let ei = worst(&run, "cap.i", |t| cap * v0 * w * lsim_ir::math::cos(w * t));
     let tau = r2 * c2;
     let wt = w * tau;
     let v2 = |t: f64| {
-        v0 / (1.0 + wt * wt) * ((w * t).sin() - wt * (w * t).cos() + wt * (-t / tau).exp())
+        v0 / (1.0 + wt * wt)
+            * (lsim_ir::math::sin(w * t) - wt * lsim_ir::math::cos(w * t)
+                + wt * lsim_ir::math::exp(-t / tau))
     };
     let e2 = worst(&run, "c2.v", v2);
     println!("errors: v {ev:.1e}, i {ei:.1e}, branch {e2:.1e}");
@@ -173,7 +175,7 @@ fn a_start_value_index_reduction_overrides_is_reported() {
     let run = simulate(&m, 0.02, 0.001, 1e-10);
     assert!(run.channel("cap.v").unwrap().iter().all(|&v| (v - 12.0).abs() < 1e-12));
     assert!(run.channel("cap.i").unwrap().iter().all(|&i| i.abs() < 1e-12));
-    let e2 = worst(&run, "c2.v", |t| 12.0 * (1.0 - (-t / 2e-3).exp()));
+    let e2 = worst(&run, "c2.v", |t| 12.0 * (1.0 - lsim_ir::math::exp(-t / 2e-3)));
     assert!(e2 < 1e-8, "{e2:e}");
 }
 
@@ -197,8 +199,8 @@ fn a_cartesian_pendulum_swings_exactly() {
     assert!(report.differentiated >= 3, "the constraint differentiated twice and more");
     let run = simulate(&m, 3.0, 0.01, 1e-10);
     let (l, g) = (1.5, 9.81);
-    let ex = worst(&run, "p.x", |t| l * pendulum_angle(theta0, g, l, t).sin());
-    let ey = worst(&run, "p.y", |t| -l * pendulum_angle(theta0, g, l, t).cos());
+    let ex = worst(&run, "p.x", |t| l * lsim_ir::math::sin(pendulum_angle(theta0, g, l, t)));
+    let ey = worst(&run, "p.y", |t| -l * lsim_ir::math::cos(pendulum_angle(theta0, g, l, t)));
     let (x, y) = (run.channel("p.x").unwrap(), run.channel("p.y").unwrap());
     let drift = x
         .iter()

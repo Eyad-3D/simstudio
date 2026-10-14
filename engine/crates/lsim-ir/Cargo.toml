@@ -9,6 +9,7 @@ license-file.workspace = true
 repository.workspace = true
 
 [dependencies]
+lsim-math.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 

@@ -782,11 +782,11 @@ impl Loop<'_> {
             1.0 / (self.opts.rtol * y[i].abs() + self.opts.atol * self.info.y_nominal[i])
         };
         let rms = |s: f64, k: usize| if k == 0 { 0.0 } else { (s / k as f64).sqrt() };
-        let dx = rms((0..n_x).map(|i| ((f1[i] - f0[i]) * w(i)).powi(2)).sum(), n_x);
+        let dx = rms((0..n_x).map(|i| lsim_ir::math::powi((f1[i] - f0[i]) * w(i), 2)).sum(), n_x);
         let dz = if self.opts.suppress_algebraic_error {
             0.0
         } else {
-            rms((n_x..n).map(|i| ((y[i] - y_old[i]) * w(i)).powi(2)).sum(), n - n_x)
+            rms((n_x..n).map(|i| lsim_ir::math::powi((y[i] - y_old[i]) * w(i), 2)).sum(), n - n_x)
         };
         if !(h * dx <= 0.1 && dz <= 0.1) {
             return Ok(false);

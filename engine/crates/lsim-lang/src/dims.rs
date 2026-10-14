@@ -112,11 +112,11 @@ pub(crate) fn dim(e: &Expr, r: &dyn Resolve) -> Result<D, Mismatch> {
                         D::Known(x) if x.is_none() => da,
                         D::Known(x) => match const_value(b) {
                             Some(n) if n.fract() == 0.0 && n.abs() < 64.0 => {
-                                D::Known(x.powi(n as i8))
+                                D::Known(x.pow(n as i8))
                             }
                             Some(n) if (2.0 * n).fract() == 0.0 && n.abs() < 32.0 => {
                                 match x.root(2) {
-                                    Some(rt) => D::Known(rt.powi((2.0 * n) as i8)),
+                                    Some(rt) => D::Known(rt.pow((2.0 * n) as i8)),
                                     None => {
                                         return Err(Mismatch(format!(
                                             "{} has no square root",

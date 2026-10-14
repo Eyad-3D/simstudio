@@ -13,6 +13,8 @@ description = "The choice of the engine's mathematical library: accuracy against
 [dependencies]
 pxfm = "=0.1.30"
 libm = "=0.2.16"
+# the engine's entry points, as the engine calls them
+lsim-math = { path = "../../crates/lsim-math" }
 
 [build-dependencies]
 cc = "=1.6.0"

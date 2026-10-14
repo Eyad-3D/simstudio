@@ -94,11 +94,11 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
                         (D::Any, _) => D::Any,
                         (D::Known(x), _) if x.is_none() => da,
                         (D::Known(x), Expr::Const(n)) if n.fract() == 0.0 => {
-                            D::Known(x.powi(*n as i8))
+                            D::Known(x.pow(*n as i8))
                         }
                         (D::Known(x), Expr::Const(n)) if (2.0 * n).fract() == 0.0 => {
                             match x.root(2) {
-                                Some(r) => D::Known(r.powi((2.0 * n) as i8)),
+                                Some(r) => D::Known(r.pow((2.0 * n) as i8)),
                                 None => {
                                     return Err(Mismatch(format!(
                                         "{} has no square root",

@@ -42,7 +42,7 @@ impl Dim {
     pub const TEMPERATURE: Dim = Dim([0, 0, 0, 0, 1, 0, 0]);
 
     /// This dimension to a whole power.
-    pub fn powi(self, n: i8) -> Dim {
+    pub fn pow(self, n: i8) -> Dim {
         Dim(self.0.map(|a| a * n))
     }
 
@@ -180,8 +180,8 @@ impl Unit {
         Unit::new(self.dim / o.dim, self.scale / o.scale)
     }
 
-    fn powi(self, n: i8) -> Unit {
-        Unit::new(self.dim.powi(n), self.scale.powi(n as i32))
+    fn pow(self, n: i8) -> Unit {
+        Unit::new(self.dim.pow(n), crate::math::powi(self.scale, n as i32))
     }
 }
 
@@ -229,7 +229,7 @@ fn plain_symbol(s: &str) -> Option<Unit> {
         "rad" => Some(Unit::ONE),
         "deg" | "°" => u(Dim::NONE, PI / 180.0),
         "rev" => u(Dim::NONE, 2.0 * PI),
-        "rpm" => u(Dim::TIME.powi(-1), 2.0 * PI / 60.0),
+        "rpm" => u(Dim::TIME.pow(-1), 2.0 * PI / 60.0),
         "m" => u(Dim::LENGTH, 1.0),
         "kg" => u(Dim::MASS, 1.0),
         "g" => u(Dim::MASS, 1e-3),
@@ -259,8 +259,8 @@ fn plain_symbol(s: &str) -> Option<Unit> {
         "T" => u(d(0, 1, -2, -1, 0), 1.0),
         "Pa" => u(d(-1, 1, -2, 0, 0), 1.0),
         "bar" => u(d(-1, 1, -2, 0, 0), 1e5),
-        "Hz" => u(Dim::TIME.powi(-1), 1.0),
-        "L" | "l" => u(Dim::LENGTH.powi(3), 1e-3),
+        "Hz" => u(Dim::TIME.pow(-1), 1.0),
+        "L" | "l" => u(Dim::LENGTH.pow(3), 1e-3),
         "gn" => u(d(1, 0, -2, 0, 0), 9.80665),
         _ => None,
     }
@@ -446,7 +446,7 @@ impl Parser<'_> {
         if u.offset != 0.0 {
             return Err(UnitError::OffsetInCompound { text: self.text.to_string() });
         }
-        Ok(u.powi(e))
+        Ok(u.pow(e))
     }
 
     /// exponent := ['^'] ['-'] digits | superscripts
@@ -535,7 +535,7 @@ mod tests {
         assert!(close(kmh.to_si(36.0), 10.0));
         assert_eq!(parse_unit("m/s2").unwrap().dim, d(1, 0, -2, 0, 0));
         assert_eq!(parse_unit("m/s^2").unwrap().dim, d(1, 0, -2, 0, 0));
-        assert_eq!(parse_unit("s-1").unwrap().dim, Dim::TIME.powi(-1));
+        assert_eq!(parse_unit("s-1").unwrap().dim, Dim::TIME.pow(-1));
         assert!(close(parse_unit("kW").unwrap().to_si(1.5), 1500.0));
         assert!(close(parse_unit("kWh").unwrap().to_si(1.0), 3.6e6));
         assert!(close(parse_unit("rev/min").unwrap().to_si(60.0), 2.0 * PI));
@@ -549,7 +549,7 @@ mod tests {
         assert!(close(parse_unit("gn").unwrap().to_si(1.0), 9.80665));
         assert_eq!(parse_unit("-").unwrap(), Unit::ONE);
         assert_eq!(parse_unit("").unwrap(), Unit::ONE);
-        assert_eq!(parse_unit("rad/s").unwrap().dim, Dim::TIME.powi(-1));
+        assert_eq!(parse_unit("rad/s").unwrap().dim, Dim::TIME.pow(-1));
         assert!(close(parse_unit("1/min").unwrap().to_si(60.0), 1.0));
     }
 

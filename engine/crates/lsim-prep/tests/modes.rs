@@ -57,9 +57,13 @@ fn an_rc_circuit_follows_a_source_that_switches_off() {
     assert_eq!(m.modes.len(), 1, "the source's switch is a mode");
     let run = simulate(&m, 1.5, 0.01, 1e-10);
     let tau = r * cap;
-    let charged = v0 * (1.0 - (-t_off / tau).exp());
+    let charged = v0 * (1.0 - lsim_ir::math::exp(-t_off / tau));
     let exact = |t: f64| {
-        if t < t_off { v0 * (1.0 - (-t / tau).exp()) } else { charged * (-(t - t_off) / tau).exp() }
+        if t < t_off {
+            v0 * (1.0 - lsim_ir::math::exp(-t / tau))
+        } else {
+            charged * lsim_ir::math::exp(-(t - t_off) / tau)
+        }
     };
     let ch = run.channel("cap.v").unwrap();
     let mut err = 0.0f64;
@@ -109,9 +113,13 @@ fn quadratic_drag_flips_its_mode_as_the_speed_passes_zero() {
     let run = simulate(&m, 5.0, 0.01, 1e-11);
     let k = (torque / drag).sqrt();
     let s = (torque * drag).sqrt() / j;
-    let t1 = (-w0 / k).atan() / s;
+    let t1 = lsim_ir::math::atan(-w0 / k) / s;
     let exact = |t: f64| {
-        if t < t1 { k * (s * (t - t1)).tan() } else { k * (s * (t - t1)).tanh() }
+        if t < t1 {
+            k * lsim_ir::math::tan(s * (t - t1))
+        } else {
+            k * lsim_ir::math::tanh(s * (t - t1))
+        }
     };
     let err = worst(&run, "fw.w", exact);
     println!("worst error {err:.1e}; the speed passes zero at {t1}, events {:?}", run.events);

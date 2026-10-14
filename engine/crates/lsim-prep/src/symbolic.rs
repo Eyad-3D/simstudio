@@ -51,7 +51,7 @@ fn rule(x: Expr) -> Expr {
                     BinaryOp::Sub => x - y,
                     BinaryOp::Mul => x * y,
                     BinaryOp::Div => x / y,
-                    BinaryOp::Pow => x.powf(*y),
+                    BinaryOp::Pow => lsim_ir::math::pow(*x, *y),
                 };
                 if v.is_finite() {
                     return Expr::Const(v);

@@ -90,8 +90,8 @@ impl Cc {
     }
 }
 
-/// A function of the mathematical library (the interpreter's own: Rust's
-/// standard library).
+/// A function of the mathematical library (the interpreter's own: the
+/// engine's, `lsim_ir::math`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Lib {
     Exp,
@@ -132,19 +132,19 @@ impl Lib {
     #[inline]
     pub(crate) fn eval(self, a: f64, b: f64) -> f64 {
         match self {
-            Lib::Exp => a.exp(),
-            Lib::Log => a.ln(),
-            Lib::Sin => a.sin(),
-            Lib::Cos => a.cos(),
-            Lib::Tan => a.tan(),
-            Lib::Asin => a.asin(),
-            Lib::Acos => a.acos(),
-            Lib::Atan => a.atan(),
-            Lib::Sinh => a.sinh(),
-            Lib::Cosh => a.cosh(),
-            Lib::Tanh => a.tanh(),
-            Lib::Pow => a.powf(b),
-            Lib::Atan2 => a.atan2(b),
+            Lib::Exp => lsim_ir::math::exp(a),
+            Lib::Log => lsim_ir::math::ln(a),
+            Lib::Sin => lsim_ir::math::sin(a),
+            Lib::Cos => lsim_ir::math::cos(a),
+            Lib::Tan => lsim_ir::math::tan(a),
+            Lib::Asin => lsim_ir::math::asin(a),
+            Lib::Acos => lsim_ir::math::acos(a),
+            Lib::Atan => lsim_ir::math::atan(a),
+            Lib::Sinh => lsim_ir::math::sinh(a),
+            Lib::Cosh => lsim_ir::math::cosh(a),
+            Lib::Tanh => lsim_ir::math::tanh(a),
+            Lib::Pow => lsim_ir::math::pow(a, b),
+            Lib::Atan2 => lsim_ir::math::atan2(a, b),
         }
     }
 

@@ -14,7 +14,7 @@ import sys
 import gmpy2
 from gmpy2 import mpfr
 
-CANDS = ["glibc", "pxfm", "libm", "coremath", "coremath_fma", "coremath_soft"]
+CANDS = ["glibc", "pxfm", "libm", "coremath", "coremath_fma", "coremath_soft", "lsim_math"]
 BIV = {"atan2", "pow"}
 HI = gmpy2.context(precision=300, emin=-100000, emax=100000)
 F = {

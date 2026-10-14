@@ -461,7 +461,7 @@ fn the_impulse_projection_leaves_a_bounce_alone() {
             exact,
             h.last().unwrap(),
             event_loss,
-            0.5 * mass * (1.0 - e * e) * (g * t1).powi(2),
+            0.5 * mass * (1.0 - e * e) * lsim_ir::math::powi(g * t1, 2),
         );
         assert!(
             h.iter().all(|x| *x > -1e-6),

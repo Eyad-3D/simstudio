@@ -481,7 +481,7 @@ fn a_restart_after_a_tick_costs_a_few_steps() {
             run.backend, run.stats.steps, run.report.block_changes
         );
         // the discrete-time solution: y_{k+1} = y_k e^-T + (1 - y_k)(1 - e^-T)
-        let e = (-0.01f64).exp();
+        let e = lsim_ir::math::exp(-0.01f64);
         let mut y = 1.0;
         for _ in 0..1000 {
             y = y * e + (1.0 - y) * (1.0 - e);
@@ -525,7 +525,7 @@ fn a_slight_change_at_a_tick_needs_no_restart() {
     assert_eq!(run.report.inert_ticks, 0, "u reaches y'");
     // y' = 0.5 - y from y(0) = 1: y = 0.5 + 0.5 e^-t
     for (k, t) in run.times.iter().enumerate() {
-        let exact = 0.5 + 0.5 * (-t).exp();
+        let exact = 0.5 + 0.5 * lsim_ir::math::exp(-t);
         assert!((run.values[0][k] - exact).abs() < 1e-7, "t = {t}: {}", run.values[0][k]);
     }
     // a changing tick makes the next tick a stop time: a step ends at each
@@ -906,7 +906,7 @@ fn a_condition_the_projection_crosses_fires_at_the_shift() {
 #[test]
 fn a_cascade_of_engagements_is_projected_to_its_end_or_stops_the_run() {
     let (jm, jw) = (1.0, 1e-3);
-    let ratio = |g: f64| 12.0 * 0.97f64.powf(g - 1.0);
+    let ratio = |g: f64| 12.0 * lsim_ir::math::pow(0.97f64, g - 1.0);
     let w0 = 101.0 / 12.0;
     let v = |k: u32| Expr::Var(VarId(k));
     let half = |c: f64, k: u32| Expr::Const(0.5 * c) * v(k) * v(k);
@@ -2034,10 +2034,10 @@ fn a_pulse_on_a_function_of_time_is_not_stepped_over() {
     for period in [10.0, 100.0] {
         // (as the expression computes it: (2π / T) · time)
         let w = 2.0 * std::f64::consts::PI / period;
-        let g = move |t: f64| (w * t).sin() - 0.95;
+        let g = move |t: f64| lsim_ir::math::sin(w * t) - 0.95;
         let (model, info) = pulse_model(Arc::new(g), sine_pulse(period, 0.95));
         let t_end = 10.0 * period;
-        let exact = 10.0 * (std::f64::consts::PI - 2.0 * 0.95f64.asin())
+        let exact = 10.0 * (std::f64::consts::PI - 2.0 * lsim_ir::math::asin(0.95f64))
             / (2.0 * std::f64::consts::PI)
             * period;
         for backend in backends() {
@@ -2091,7 +2091,7 @@ fn a_function_of_time_is_searched_again_when_a_value_it_reads_changes() {
         f: Box::new(|i, out| out[0] = i.d[0]),
         jvp: Box::new(|_, _, out| out[0] = 0.0),
         roots: Box::new(move |i, out| {
-            out[0] = (w * i.t).sin() - i.d[1];
+            out[0] = lsim_ir::math::sin(w * i.t) - i.d[1];
             out[1] = out[0];
             out[2] = i.t - 25.0;
         }),
@@ -2134,8 +2134,8 @@ fn a_function_of_time_is_searched_again_when_a_value_it_reads_changes() {
     info.time_functions =
         vec![Some(TimeFunction::Pure(g.clone())), Some(TimeFunction::Pure(g)), None];
     let pi = std::f64::consts::PI;
-    let exact = 3.0 * 10.0 * (pi - 2.0 * 0.95f64.asin()) / (2.0 * pi)
-        + 2.0 * 10.0 * (pi - 2.0 * 0.5f64.asin()) / (2.0 * pi);
+    let exact = 3.0 * 10.0 * (pi - 2.0 * lsim_ir::math::asin(0.95f64)) / (2.0 * pi)
+        + 2.0 * 10.0 * (pi - 2.0 * lsim_ir::math::asin(0.5f64)) / (2.0 * pi);
     for backend in backends() {
         let opts = SolverOptions { backend, rtol: 1e-8, atol: 1e-8, ..Default::default() };
         let run =
@@ -2158,15 +2158,15 @@ fn a_function_of_time_is_searched_again_when_a_value_it_reads_changes() {
 #[test]
 fn a_mixed_pulse_inside_a_monotone_stretch_of_its_time_term_fires() {
     let c = 0.3f64;
-    let t_star = c.acos();
-    let x_star = t_star.sin() - 0.01;
+    let t_star = lsim_ir::math::acos(c);
+    let x_star = lsim_ir::math::sin(t_star) - 0.01;
     let x0 = x_star - c * t_star;
     // y = [x]; d = [count]; channels: x, count
     let model = Hand {
         layout: layout(1, 0, 0, 1, 1, 1, 2),
         f: Box::new(move |_, out| out[0] = c),
         jvp: Box::new(|_, _, out| out[0] = 0.0),
-        roots: Box::new(|i, out| out[0] = i.t.sin() - i.y[0]),
+        roots: Box::new(|i, out| out[0] = lsim_ir::math::sin(i.t) - i.y[0]),
         vars: Box::new(|i, out| {
             out[0] = i.y[0];
             out[1] = i.d[0];
@@ -2192,7 +2192,7 @@ fn a_mixed_pulse_inside_a_monotone_stretch_of_its_time_term_fires() {
         g: Expr::Call(lsim_ir::expr::Builtin::Sin, vec![Expr::Time]) - Expr::Var(VarId(0)),
     })];
     // the exact crossings upwards of sin(t) - x(t)
-    let g = |t: f64| t.sin() - (x0 + c * t);
+    let g = |t: f64| lsim_ir::math::sin(t) - (x0 + c * t);
     let t_end = 6.0;
     let n = 600_000;
     let ups: Vec<f64> = (0..n)
@@ -2746,7 +2746,7 @@ fn searching_a_pure_function_ahead_on_a_long_run_is_cheap() {
         layout: layout(1, 0, 0, 1, 1, 1, 2),
         f: Box::new(|i, out| out[0] = i.d[0]),
         jvp: Box::new(|_, _, out| out[0] = 0.0),
-        roots: Box::new(move |i, out| out[0] = (w * i.t).sin() - 0.95),
+        roots: Box::new(move |i, out| out[0] = lsim_ir::math::sin(w * i.t) - 0.95),
         vars: Box::new(|i, out| {
             out[0] = i.y[0];
             out[1] = i.d[0];
@@ -2768,7 +2768,7 @@ fn searching_a_pure_function_ahead_on_a_long_run_is_cheap() {
     info.time_crossings = vec![None];
     info.time_functions = vec![Some(TimeFunction::Pure(sine_pulse(period, 0.95)))];
     let t_end = 1000.0 * period;
-    let exact = 1000.0 * (std::f64::consts::PI - 2.0 * 0.95f64.asin())
+    let exact = 1000.0 * (std::f64::consts::PI - 2.0 * lsim_ir::math::asin(0.95f64))
         / (2.0 * std::f64::consts::PI)
         * period;
     let mut steps = vec![];
@@ -2803,7 +2803,7 @@ fn a_pulse_narrower_than_a_step_is_found() {
     let (c, s) = (5.0, 1e-3);
     let g = move |t: f64| {
         let z = (t - c) / s;
-        (-(z * z)).exp() - 0.5
+        lsim_ir::math::exp(-(z * z)) - 0.5
     };
     let z = Expr::Binary(
         BinaryOp::Div,
@@ -2823,7 +2823,7 @@ fn a_pulse_narrower_than_a_step_is_found() {
         Box::new(Expr::Const(0.5)),
     );
     let (model, info) = pulse_model(Arc::new(g), e);
-    let exact = 2.0 * s * 2f64.ln().sqrt();
+    let exact = 2.0 * s * lsim_ir::math::ln(2f64).sqrt();
     for backend in backends() {
         let opts = SolverOptions { backend, rtol: 1e-8, atol: 1e-8, ..Default::default() };
         let run =
@@ -2854,7 +2854,7 @@ fn a_pulse_narrower_than_a_step_is_found() {
 fn a_condition_mixing_time_and_a_state_is_not_stepped_over() {
     let period = 10.0;
     let w = 2.0 * std::f64::consts::PI / period;
-    let g = move |t: f64, x: f64| (w * t).sin() - x;
+    let g = move |t: f64, x: f64| lsim_ir::math::sin(w * t) - x;
     let model = Hand {
         layout: layout(2, 0, 0, 1, 1, 0, 3),
         f: Box::new(|i, out| {
@@ -4087,7 +4087,7 @@ fn light_restarts_cost_accuracy_against_an_exact_answer() {
                 let opts = SolverOptions { rtol, atol: rtol, ..Default::default() };
                 let grid = OutputGrid { t0: 0.0, t_end, dt: 0.5 };
                 // the exact answer on the grid, from the held values
-                let u_k = |k: usize| amp * (w * k as f64 * period).sin();
+                let u_k = |k: usize| amp * lsim_ir::math::sin(w * k as f64 * period);
                 let exact = |t: f64| {
                     let mut x = 1.0;
                     let mut k = 0usize;
@@ -4099,7 +4099,7 @@ fn light_restarts_cost_accuracy_against_an_exact_answer() {
                         }
                         let h = t1 - t0;
                         x = if tau.is_finite() {
-                            u_k(k) + (x - u_k(k)) * (-h / tau).exp()
+                            u_k(k) + (x - u_k(k)) * lsim_ir::math::exp(-h / tau)
                         } else {
                             x + u_k(k) * h
                         };
@@ -4110,7 +4110,7 @@ fn light_restarts_cost_accuracy_against_an_exact_answer() {
                 for how in [Ticks::Restart, Ticks::Default, Ticks::Light] {
                     let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![Box::new(SampledBy {
                         period,
-                        law: Box::new(move |t, _, o| o[0] = amp * (w * t).sin()),
+                        law: Box::new(move |t, _, o| o[0] = amp * lsim_ir::math::sin(w * t)),
                     })];
                     let run = run_ticks(&model, &info, &opts, grid, &mut blocks, how);
                     let err = run
@@ -4265,7 +4265,7 @@ fn a_tick_that_reaches_nothing_integrated_needs_no_restart() {
     assert_eq!(run.report.light_restarts, 0);
     assert_eq!(run.stats.restarts, 0);
     for (k, t) in run.times.iter().enumerate() {
-        assert!((run.values[0][k] - (-t).exp()).abs() < 1e-7, "t = {t}");
+        assert!((run.values[0][k] - lsim_ir::math::exp(-t)).abs() < 1e-7, "t = {t}");
     }
     // the channel shows the held output: its last tick at or before t
     assert!((run.values[1].last().unwrap() - 2.0).abs() < 1e-12);

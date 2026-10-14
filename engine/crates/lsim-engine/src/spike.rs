@@ -132,7 +132,7 @@ impl Segment {
     pub fn at(&self, t: f64) -> [f64; 2] {
         let tau = t - self.t0;
         let d = [self.x0[0] - self.xeq[0], self.x0[1] - self.xeq[1]];
-        let (e1, e2) = ((self.l1 * tau).exp(), (self.l2 * tau).exp());
+        let (e1, e2) = (lsim_ir::math::exp(self.l1 * tau), lsim_ir::math::exp(self.l2 * tau));
         let q = (e1 - e2) / (self.l1 - self.l2);
         let pp = (self.l1 * e2 - self.l2 * e1) / (self.l1 - self.l2);
         let a = self.a;
@@ -165,7 +165,7 @@ impl Exact {
     /// Solves the circuit in closed form.
     pub fn new(p: &Params) -> Self {
         let before = Segment::new(p, 0.0, [0.0, 0.0], 0.0);
-        let mut t = -(1.0 - p.w_on / before.xeq[1]).ln() / (-before.l2);
+        let mut t = -lsim_ir::math::ln(1.0 - p.w_on / before.xeq[1]) / (-before.l2);
         for _ in 0..60 {
             let step = (before.at(t)[1] - p.w_on) / before.dw(t);
             t -= step;

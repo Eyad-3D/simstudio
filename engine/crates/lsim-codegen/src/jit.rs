@@ -15,14 +15,18 @@ use cranelift_module::{
     FuncId, Linkage, Module, ModuleError, ModuleReloc, ModuleRelocTarget, ModuleResult,
     default_libcall_names,
 };
+use lsim_ir::math;
 use std::collections::HashMap;
 use std::io;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+// The library functions generated code calls: the engine's own
+// (`lsim_ir::math`, correctly rounded, the same bits on every platform and
+// CPU), the very functions the interpreter calls.
 macro_rules! unary_fns {
     ($($name:ident => $f:ident),* $(,)?) => {
-        $(extern "C" fn $name(x: f64) -> f64 { x.$f() })*
+        $(extern "C" fn $name(x: f64) -> f64 { math::$f(x) })*
         fn unary() -> Vec<(&'static str, *const u8)> {
             vec![$((stringify!($name), $name as *const u8)),*]
         }
@@ -36,11 +40,11 @@ unary_fns!(
 );
 
 extern "C" fn lsim_pow(x: f64, y: f64) -> f64 {
-    x.powf(y)
+    math::pow(x, y)
 }
 
 extern "C" fn lsim_atan2(y: f64, x: f64) -> f64 {
-    y.atan2(x)
+    math::atan2(y, x)
 }
 
 /// An imported function: its id in the module and its signature.

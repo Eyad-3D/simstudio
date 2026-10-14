@@ -206,7 +206,8 @@ pub fn tab(k: u32, args: Vec<Expr>) -> Expr {
 
 /// A smooth, monotone-ish 1-D curve sampled on `n` points over [a, b].
 fn curve(n: usize, a: f64, b: f64, f: impl Fn(f64) -> f64) -> TableData {
-    let x: Vec<f64> = (0..n).map(|i| a + (b - a) * (i as f64 / (n - 1) as f64).powf(1.2)).collect();
+    let x: Vec<f64> =
+        (0..n).map(|i| a + (b - a) * lsim_ir::math::pow(i as f64 / (n - 1) as f64, 1.2)).collect();
     let y = x.iter().map(|&t| f(t)).collect();
     TableData::new_1d(x, y)
 }
@@ -239,12 +240,14 @@ fn drive_unit(b: &mut Builder, n: usize, cmd: &Expr, v_body: &Expr, amb: &Expr) 
     let soc = b.state(&s("soc"), 0.8);
     let vrc = b.state(&s("v_rc"), 0.0);
     let tbat = b.state(&s("T_bat"), 298.0);
-    let ocv_t =
-        b.table(&s("ocv"), curve(12, 0.0, 1.0, |q| 3.0 + 1.2 * q - 0.4 * (1.0 - q).powi(3)));
+    let ocv_t = b.table(
+        &s("ocv"),
+        curve(12, 0.0, 1.0, |q| 3.0 + 1.2 * q - 0.4 * lsim_ir::math::powi(1.0 - q, 3)),
+    );
     let r0_t = b.table(
         &s("r0"),
         grid(5, 6, (0.0, 1.0), (253.0, 333.0), |q, t| {
-            0.002 * (1.0 + 0.5 * (1.0 - q)) * (1.0 + 3.0 * (-(t - 253.0) / 30.0).exp())
+            0.002 * (1.0 + 0.5 * (1.0 - q)) * (1.0 + 3.0 * lsim_ir::math::exp(-(t - 253.0) / 30.0))
         }),
     );
     let cells = b.param(&s("cells"), 96.0);
@@ -268,7 +271,7 @@ fn drive_unit(b: &mut Builder, n: usize, cmd: &Expr, v_body: &Expr, amb: &Expr) 
     let fl_t = b.table(
         &s("full_load"),
         grid(3, 20, (250.0, 400.0), (0.0, 1500.0), |u, w| {
-            (300.0 * u / 350.0) * (1.0 / (1.0 + (w / 600.0).powi(2))).sqrt()
+            (300.0 * u / 350.0) * (1.0 / (1.0 + lsim_ir::math::powi(w / 600.0, 2))).sqrt()
         }),
     );
     let loss_t = b.table(
@@ -352,14 +355,18 @@ pub fn vehicle(units: usize) -> PreparedModel {
             (0..1801)
                 .map(|k| {
                     let t = k as f64;
-                    (14.0 * (t / 120.0).sin().powi(2) + 6.0 * (t / 37.0).sin().abs()).max(0.0)
+                    (14.0 * lsim_ir::math::powi(lsim_ir::math::sin(t / 120.0), 2)
+                        + 6.0 * lsim_ir::math::sin(t / 37.0).abs())
+                    .max(0.0)
                 })
                 .collect(),
         ),
     );
-    let grade_t = b.table("road.grade", curve(40, 0.0, 30_000.0, |s| 0.03 * (s / 2000.0).sin()));
-    let mut climate =
-        curve(10, -20.0, 40.0, |t| 3000.0 - 120.0 * (t + 20.0) + 2.0 * (t - 10.0).powi(2));
+    let grade_t =
+        b.table("road.grade", curve(40, 0.0, 30_000.0, |s| 0.03 * lsim_ir::math::sin(s / 2000.0)));
+    let mut climate = curve(10, -20.0, 40.0, |t| {
+        3000.0 - 120.0 * (t + 20.0) + 2.0 * lsim_ir::math::powi(t - 10.0, 2)
+    });
     climate.outside = [Outside::Linear, Outside::Clamp];
     let climate_t = b.table("climate.demand", climate);
     let vb = b.state("body.v", 0.0);
@@ -422,7 +429,8 @@ pub fn vehicle(units: usize) -> PreparedModel {
 pub fn network(n: usize, seed: u64) -> PreparedModel {
     let mut rng = Rng(seed);
     let mut b = Builder::new();
-    let src_t = b.table("source", curve(20, 0.0, 1000.0, |t| 100.0 + 50.0 * (t / 100.0).sin()));
+    let src_t =
+        b.table("source", curve(20, 0.0, 1000.0, |t| 100.0 + 50.0 * lsim_ir::math::sin(t / 100.0)));
     let g0 = b.param("g0", 0.8);
     let alpha = b.param("alpha", 0.004);
     let cap = b.param("C", 500.0);

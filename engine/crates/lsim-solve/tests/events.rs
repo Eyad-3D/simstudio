@@ -402,7 +402,7 @@ fn a_sample_and_hold_controller_matches_its_discrete_time_solution() {
         let run = simulate(&model, &info, &opts, grid, &mut blocks).unwrap();
         let mut worst: f64 = 0.0;
         for (k, t) in run.times.iter().enumerate() {
-            let exact = 0.8f64.powi((t / 0.1).round() as i32);
+            let exact = lsim_ir::math::powi(0.8f64, (t / 0.1).round() as i32);
             worst = worst.max((run.values[0][k] - exact).abs());
         }
         println!(
@@ -449,7 +449,7 @@ fn a_sweep_gives_the_same_runs_as_one_by_one() {
         let r = r.unwrap();
         assert_eq!(r.values, one.values);
         // a lighter rotor stops sooner: t_stop = (J/c) ln(1 + c w0 / T_c)
-        let exact = set[0] / set[1] * (1.0 + set[1] * 300.0 / set[2]).ln();
+        let exact = set[0] / set[1] * lsim_ir::math::ln(1.0 + set[1] * 300.0 / set[2]);
         assert!((r.events[0].t - exact).abs() < 1e-4 * exact);
     }
 }
@@ -472,8 +472,8 @@ fn the_homotopy_initialises_what_newton_alone_cannot() {
             n_vars: 1,
             n_work: 1,
         },
-        f: Box::new(|i, out| out[0] = (i.y[0] - 3.0).atan()),
-        jvp: Box::new(|i, v, out| out[0] = v[0] / (1.0 + (i.y[0] - 3.0).powi(2))),
+        f: Box::new(|i, out| out[0] = lsim_ir::math::atan(i.y[0] - 3.0)),
+        jvp: Box::new(|i, v, out| out[0] = v[0] / (1.0 + lsim_ir::math::powi(i.y[0] - 3.0, 2))),
         roots: nothing(),
         vars: Box::new(|i, out| out[0] = i.y[0]),
         when: nothing_v(),
@@ -944,7 +944,7 @@ fn a_condition_on_a_table_of_a_function_of_time_is_found_exactly() {
     let x = *run.channel("k.x").unwrap().last().unwrap();
     // the crossings, bisected on the compiled table
     let table = built.jit.table(0);
-    let h = |t: f64| table.eval([10.0 + 8.0 * (w * t).sin(), 0.0]).0 - 0.5;
+    let h = |t: f64| table.eval([10.0 + 8.0 * lsim_ir::math::sin(w * t), 0.0]).0 - 0.5;
     let (mut held, mut since, mut count, n) = (0.0, None, 0, 4_000_000);
     if h(0.0) > 0.0 {
         since = Some(0.0);
@@ -1052,9 +1052,9 @@ fn conditions_on_functions_of_time_are_found_in_a_prepared_model() {
     let run = simulate(&built.jit, info, &opts, OutputGrid { t0: 0.0, t_end, dt: 10.0 }, &mut [])
         .unwrap();
     let ch = |name: &str| *run.channel(name).unwrap().last().unwrap();
-    let exact_on = 10.0 * (std::f64::consts::PI - 2.0 * 0.95f64.asin()) / w;
+    let exact_on = 10.0 * (std::f64::consts::PI - 2.0 * lsim_ir::math::asin(0.95f64)) / w;
     // the time sin(w t) > 1 - 0.01 t held: its crossings, bisected
-    let h = |t: f64| (w * t).sin() - (1.0 - 0.01 * t);
+    let h = |t: f64| lsim_ir::math::sin(w * t) - (1.0 - 0.01 * t);
     let (mut held, mut since, n) = (0.0, None, 1_000_000);
     for k in 0..n {
         let (a, b) = (t_end * k as f64 / n as f64, t_end * (k + 1) as f64 / n as f64);

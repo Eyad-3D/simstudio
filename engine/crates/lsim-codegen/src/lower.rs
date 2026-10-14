@@ -519,7 +519,7 @@ impl<'a, E: Emit> Lw<'a, E> {
     /// without. Where x or the power lies outside [2^-960, 2^990] (where
     /// an error term could underflow or Dekker's split overflow), and
     /// where the result is not finite, the plain repeated squaring's
-    /// product, which rounds as `powf` does at an overflow or underflow.
+    /// product, which rounds as `pow` does at an overflow or underflow.
     fn powi_exact(&mut self, x: E::V, n: i32) -> E::V {
         let m = n.unsigned_abs();
         let bits = 32 - m.leading_zeros();
@@ -568,7 +568,8 @@ impl<'a, E: Emit> Lw<'a, E> {
             (h, pl)
         };
         // keep r inside the range and finite
-        let (lo, hi) = (self.cst(2f64.powi(-960)), self.cst(2f64.powi(990)));
+        let (lo, hi) =
+            (self.cst(lsim_ir::math::powi(2f64, -960)), self.cst(lsim_ir::math::powi(2f64, 990)));
         let mut ok = None;
         for v in [x, pl] {
             let a = self.e.abs(v);
@@ -639,7 +640,7 @@ impl<'a, E: Emit> Lw<'a, E> {
             (v, d)
         };
         let (v, dv) = if self.exact == Exact::Interpreter {
-            // the interpreter's `powf`, whatever n is
+            // the interpreter's `pow` (`lsim_ir::math`), whatever n is
             by_pow(self)
         } else if n == 0.0 {
             return D { v: self.cst(1.0), t: vec![] };

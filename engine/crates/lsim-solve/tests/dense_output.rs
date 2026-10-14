@@ -138,7 +138,7 @@ fn check(model: &Dae, method: Method, rtol: f64, t_end: f64, restarts: bool) -> 
 fn the_dense_output_polynomial_is_the_integrators_interpolant() {
     // a slow cosine (Adams' highest orders), an oscillator on BDF, a DAE
     // on IDA
-    let cosine = dae(1, 0, |t, _, d| d[0] = (0.001 * t).cos(), vec![0.0]);
+    let cosine = dae(1, 0, |t, _, d| d[0] = lsim_ir::math::cos(0.001 * t), vec![0.0]);
     let oscillator = dae(
         2,
         0,
@@ -153,7 +153,7 @@ fn the_dense_output_polynomial_is_the_integrators_interpolant() {
         1,
         |t, y, d| {
             d[0] = -y[0] + y[1];
-            d[1] = y[1] - (0.5 * t).sin();
+            d[1] = y[1] - lsim_ir::math::sin(0.5 * t);
         },
         vec![0.0, 0.0],
     );
@@ -188,7 +188,7 @@ fn the_dense_output_across_restarts() {
         1,
         |t, y, d| {
             d[0] = -y[0] + y[1];
-            d[1] = y[1] - (0.5 * t).sin();
+            d[1] = y[1] - lsim_ir::math::sin(0.5 * t);
         },
         vec![0.0, 0.0],
     );

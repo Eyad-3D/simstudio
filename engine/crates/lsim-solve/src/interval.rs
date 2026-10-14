@@ -599,7 +599,7 @@ mod tests {
             let j = enclose(&e, &cx, Iv::new(l, r));
             (j.v, j.d)
         };
-        let half = (PI - 2.0 * 0.95f64.asin()) / (2.0 * PI) * period;
+        let half = (PI - 2.0 * lsim_ir::math::asin(0.95f64)) / (2.0 * PI) * period;
         let mut t = 0.0;
         let mut found = vec![];
         loop {
@@ -648,7 +648,7 @@ mod tests {
             call(Builtin::Exp, vec![Expr::Neg(Box::new(bin(BinaryOp::Mul, z.clone(), z)))]),
             Expr::Const(0.5),
         );
-        let w = 1e-3 * 2f64.ln().sqrt();
+        let w = 1e-3 * lsim_ir::math::ln(2f64).sqrt();
         match run(&gauss, 0.0, 1000.0) {
             Found::Change { at, rising: true } => assert!((at - (500.0 - w)).abs() < 1e-12, "{at}"),
             other => panic!("{other:?}"),
@@ -731,7 +731,9 @@ mod table2_tests {
         let y: Vec<f64> = vec![-1.0, 0.0, 0.5, 2.0];
         let values: Vec<f64> = x
             .iter()
-            .flat_map(|a| y.iter().map(move |b| (a * 1.3).sin() * 4.0 + a * b * b - 2.0 * b))
+            .flat_map(|a| {
+                y.iter().map(move |b| lsim_ir::math::sin(a * 1.3) * 4.0 + a * b * b - 2.0 * b)
+            })
             .collect();
         let boxes = [
             ((0.2, 0.7), (0.1, 0.4)),

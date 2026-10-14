@@ -1,9 +1,11 @@
 //! A reference interpreter for flat-scope expressions: the yardstick the
 //! generated code is tested against, and constant folding's evaluator.
-//! Truth values are 1.0 and 0.0.
+//! Truth values are 1.0 and 0.0. Library functions are the engine's own
+//! ([`crate::math`]: correctly rounded, the same bits on every platform).
 
 use crate::expr::{BinaryOp, Builtin, CmpOp, Expr};
 use crate::flat::{ParamId, VarId};
+use crate::math;
 
 /// Where an expression's references get their values.
 pub trait Env {
@@ -55,7 +57,7 @@ pub fn eval(e: &Expr, env: &dyn Env) -> f64 {
                 BinaryOp::Sub => a - b,
                 BinaryOp::Mul => a * b,
                 BinaryOp::Div => a / b,
-                BinaryOp::Pow => a.powf(b),
+                BinaryOp::Pow => math::pow(a, b),
             }
         }
         Expr::Call(f, args) => {
@@ -63,18 +65,18 @@ pub fn eval(e: &Expr, env: &dyn Env) -> f64 {
             let b = || ev(&args[1]);
             match f {
                 Builtin::Der | Builtin::Pre => f64::NAN,
-                Builtin::Sin => a.sin(),
-                Builtin::Cos => a.cos(),
-                Builtin::Tan => a.tan(),
-                Builtin::Asin => a.asin(),
-                Builtin::Acos => a.acos(),
-                Builtin::Atan => a.atan(),
-                Builtin::Atan2 => a.atan2(b()),
-                Builtin::Sinh => a.sinh(),
-                Builtin::Cosh => a.cosh(),
-                Builtin::Tanh => a.tanh(),
-                Builtin::Exp => a.exp(),
-                Builtin::Log => a.ln(),
+                Builtin::Sin => math::sin(a),
+                Builtin::Cos => math::cos(a),
+                Builtin::Tan => math::tan(a),
+                Builtin::Asin => math::asin(a),
+                Builtin::Acos => math::acos(a),
+                Builtin::Atan => math::atan(a),
+                Builtin::Atan2 => math::atan2(a, b()),
+                Builtin::Sinh => math::sinh(a),
+                Builtin::Cosh => math::cosh(a),
+                Builtin::Tanh => math::tanh(a),
+                Builtin::Exp => math::exp(a),
+                Builtin::Log => math::ln(a),
                 Builtin::Sqrt => a.sqrt(),
                 Builtin::Abs => a.abs(),
                 Builtin::Sign => {

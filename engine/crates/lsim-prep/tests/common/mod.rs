@@ -262,17 +262,17 @@ pub fn ellip_sn(u: f64, m: f64) -> f64 {
     let nn = a.len() - 1;
     let mut phi = (1u64 << nn) as f64 * a[nn] * u;
     for k in (1..=nn).rev() {
-        phi = 0.5 * (phi + (cs[k] / a[k] * phi.sin()).asin());
+        phi = 0.5 * (phi + lsim_ir::math::asin(cs[k] / a[k] * lsim_ir::math::sin(phi)));
     }
-    phi.sin()
+    lsim_ir::math::sin(phi)
 }
 
 /// The exact angle of a pendulum released from rest at `theta0`.
 pub fn pendulum_angle(theta0: f64, g: f64, l: f64, t: f64) -> f64 {
-    let k = (0.5 * theta0).sin();
+    let k = lsim_ir::math::sin(0.5 * theta0);
     let m = k * k;
     let w0 = (g / l).sqrt();
-    2.0 * (k * ellip_sn(ellip_k(m) - w0 * t, m)).asin()
+    2.0 * lsim_ir::math::asin(k * ellip_sn(ellip_k(m) - w0 * t, m))
 }
 
 /// The largest difference between a channel and an exact function of

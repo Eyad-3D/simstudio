@@ -11,8 +11,9 @@
 //!   power multiplied out within one rounding of the exact power (and
 //!   `x^0.5` a square root). A mirror of the interpreter that takes the
 //!   same shortcut agrees bitwise; the shortcut itself is within 1 ulp of
-//!   `powf` (the "library call" tolerance), and closer than `powf` to the
-//!   exact power.
+//!   the library's `pow` (the "library call" tolerance; `pow` is
+//!   correctly rounded), and as close to the exact power in all but one
+//!   case in a thousand.
 //! * The shortcut computes the same bits on a CPU without fused
 //!   multiply-add (Dekker's product for each product's error) as on one
 //!   with: in the mirror over many arguments, and in the compiled models.
@@ -68,7 +69,7 @@ impl Env for Point<'_> {
 /// `product_error`).
 fn product_error(a: f64, b: f64, p: f64, fma: bool) -> f64 {
     if fma {
-        return a.mul_add(b, -p);
+        return lsim_ir::math::fma(a, b, -p);
     }
     let split = |v: f64| {
         let t = 134_217_729.0 * v;
@@ -127,7 +128,9 @@ fn powi_exact(x: f64, n: i32, fma: bool) -> f64 {
     } else {
         (h, pl)
     };
-    let inside = |v: f64| v.abs() >= 2f64.powi(-960) && v.abs() <= 2f64.powi(990);
+    let inside = |v: f64| {
+        v.abs() >= lsim_ir::math::powi(2f64, -960) && v.abs() <= lsim_ir::math::powi(2f64, 990)
+    };
     if inside(x) && inside(pl) && r.is_finite() { r } else { plain }
 }
 
@@ -151,7 +154,7 @@ fn fast_pow(x: f64, n: f64, fma: bool) -> f64 {
     } else if inline {
         powi_exact(x, n as i32, fma)
     } else {
-        x.powf(n)
+        lsim_ir::math::pow(x, n)
     }
 }
 
@@ -185,7 +188,7 @@ fn fast_eval(e: &Expr, env: &dyn Env, fma: bool) -> f64 {
                 BinaryOp::Sub => a - b,
                 BinaryOp::Mul => a * b,
                 BinaryOp::Div => a / b,
-                BinaryOp::Pow => a.powf(b),
+                BinaryOp::Pow => lsim_ir::math::pow(a, b),
             }
         }
         Expr::Call(f, args) => {
@@ -193,18 +196,18 @@ fn fast_eval(e: &Expr, env: &dyn Env, fma: bool) -> f64 {
             let b = || ev(&args[1]);
             match f {
                 Builtin::Der | Builtin::Pre => f64::NAN,
-                Builtin::Sin => a.sin(),
-                Builtin::Cos => a.cos(),
-                Builtin::Tan => a.tan(),
-                Builtin::Asin => a.asin(),
-                Builtin::Acos => a.acos(),
-                Builtin::Atan => a.atan(),
-                Builtin::Atan2 => a.atan2(b()),
-                Builtin::Sinh => a.sinh(),
-                Builtin::Cosh => a.cosh(),
-                Builtin::Tanh => a.tanh(),
-                Builtin::Exp => a.exp(),
-                Builtin::Log => a.ln(),
+                Builtin::Sin => lsim_ir::math::sin(a),
+                Builtin::Cos => lsim_ir::math::cos(a),
+                Builtin::Tan => lsim_ir::math::tan(a),
+                Builtin::Asin => lsim_ir::math::asin(a),
+                Builtin::Acos => lsim_ir::math::acos(a),
+                Builtin::Atan => lsim_ir::math::atan(a),
+                Builtin::Atan2 => lsim_ir::math::atan2(a, b()),
+                Builtin::Sinh => lsim_ir::math::sinh(a),
+                Builtin::Cosh => lsim_ir::math::cosh(a),
+                Builtin::Tanh => lsim_ir::math::tanh(a),
+                Builtin::Exp => lsim_ir::math::exp(a),
+                Builtin::Log => lsim_ir::math::ln(a),
                 Builtin::Sqrt => a.sqrt(),
                 Builtin::Abs => a.abs(),
                 Builtin::Sign => {
@@ -340,12 +343,13 @@ fn ten_thousand_random_expressions_agree_with_the_interpreter() {
     );
 }
 
-/// Each power the residual multiplies out is within 1 ulp of `powf`, and
-/// as close as `powf` to the exact power (double-double) in all but at
-/// most one case in a thousand (both are within an ulp of it), over many
-/// arguments, the special values included.
+/// Each power the residual multiplies out is within 1 ulp of the
+/// library's `pow`, and as close as it to the exact power (double-double)
+/// in all but at most one case in a thousand (`pow` is correctly rounded:
+/// the shortcut is too, but there), over many arguments, the special
+/// values included.
 #[test]
-fn multiplied_out_powers_are_within_an_ulp_of_powf() {
+fn multiplied_out_powers_are_within_an_ulp_of_the_librarys_pow() {
     let fma = native_fma();
     let ulps = |a: f64, b: f64| -> f64 {
         if a == b || (a.is_nan() && b.is_nan()) {
@@ -361,7 +365,7 @@ fn multiplied_out_powers_are_within_an_ulp_of_powf() {
         let (mut hi, mut lo) = (1.0f64, 0.0f64);
         for _ in 0..n.unsigned_abs() {
             let p = hi * x;
-            let e = hi.mul_add(x, -p) + lo * x;
+            let e = lsim_ir::math::fma(hi, x, -p) + lo * x;
             let s = p + e;
             lo = e - (s - p);
             hi = s;
@@ -370,7 +374,7 @@ fn multiplied_out_powers_are_within_an_ulp_of_powf() {
     };
     let mut r = Rng(99);
     let mut worst: f64 = 0.0;
-    let mut worse_than_powf = 0;
+    let mut worse_than_pow = 0;
     let mut n_checked = 0;
     for n in [-16, -7, -3, -2, -1, 2, 3, 4, 5, 7, 8, 9, 13, 16] {
         for k in 0..20_000 {
@@ -381,27 +385,25 @@ fn multiplied_out_powers_are_within_an_ulp_of_powf() {
                 _ => r.range(-1e5, 1e5),
             };
             let f = fast_pow(x, n as f64, fma);
-            let p = x.powf(n as f64);
+            let p = lsim_ir::math::pow(x, n as f64);
             let u = ulps(f, p);
             worst = worst.max(u);
-            assert!(u <= 1.0, "{x}^{n}: {f:e} vs powf {p:e} ({u} ulps)");
+            assert!(u <= 1.0, "{x}^{n}: {f:e} vs pow {p:e} ({u} ulps)");
             let exact = dd_pow(x, n);
             if exact.is_finite() && exact != 0.0 && ulps(f, exact) > ulps(p, exact) + 1e-9 {
-                worse_than_powf += 1;
+                worse_than_pow += 1;
             }
             n_checked += 1;
         }
     }
     for x in [0.0, -0.0, f64::INFINITY, f64::NEG_INFINITY, f64::NAN, 1e-300, 1e300, -1e300] {
         for n in [-3.0, -1.0, 0.5, 2.0, 3.0, 16.0] {
-            let (f, p) = (fast_pow(x, n, fma), x.powf(n));
+            let (f, p) = (fast_pow(x, n, fma), lsim_ir::math::pow(x, n));
             assert!(same(f, p) || ulps(f, p) <= 1.0, "{x}^{n}: {f:e} vs {p:e}");
         }
     }
-    println!(
-        "{n_checked} powers: within {worst} ulp of powf; {worse_than_powf} less exact than powf"
-    );
-    assert!(worse_than_powf * 1000 <= n_checked, "{worse_than_powf} of {n_checked}");
+    println!("{n_checked} powers: within {worst} ulp of pow; {worse_than_pow} less exact than pow");
+    assert!(worse_than_pow * 1000 <= n_checked, "{worse_than_pow} of {n_checked}");
 }
 
 /// The multiplied-out powers with a fused multiply-add and with Dekker's
@@ -412,17 +414,20 @@ fn multiplied_out_powers_are_within_an_ulp_of_powf() {
 fn multiplied_out_powers_are_the_same_with_and_without_fused_multiply_add() {
     let mut r = Rng(7);
     let mut checked = 0;
-    let edges = [2f64.powi(-960), 2f64.powi(990)];
+    let edges = [lsim_ir::math::powi(2f64, -960), lsim_ir::math::powi(2f64, 990)];
     for n in (-16..=16).filter(|n: &i32| n.abs() >= 3) {
         for k in 0..20_000 {
             let x = match k % 6 {
                 0 => r.range(-3.0, 3.0),
                 1 => r.range(-1e5, 1e5),
-                2 => 10f64.powf(r.range(-300.0, 300.0)) * if r.below(2) == 0 { 1.0 } else { -1.0 },
+                2 => {
+                    lsim_ir::math::pow(10f64, r.range(-300.0, 300.0))
+                        * if r.below(2) == 0 { 1.0 } else { -1.0 }
+                }
                 3 => {
                     // around the powers' edges
                     let e = edges[r.below(2)];
-                    e.powf(1.0 / n as f64) * r.range(0.999, 1.001)
+                    lsim_ir::math::pow(e, 1.0 / n as f64) * r.range(0.999, 1.001)
                 }
                 4 => edges[r.below(2)] * r.range(0.5, 2.0),
                 _ => r.range(0.5, 2.0),

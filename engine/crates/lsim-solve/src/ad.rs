@@ -120,19 +120,23 @@ impl Jet {
         let (x, y) = (self.v, b.v);
         if !b.varies() {
             // x^c: c x^(c-1), c (c-1) x^(c-2)
-            let f0 = x.powf(y);
-            let f1 = if y == 0.0 { 0.0 } else { y * x.powf(y - 1.0) };
-            let f2 = if y == 0.0 || y == 1.0 { 0.0 } else { y * (y - 1.0) * x.powf(y - 2.0) };
+            let f0 = lsim_ir::math::pow(x, y);
+            let f1 = if y == 0.0 { 0.0 } else { y * lsim_ir::math::pow(x, y - 1.0) };
+            let f2 = if y == 0.0 || y == 1.0 {
+                0.0
+            } else {
+                y * (y - 1.0) * lsim_ir::math::pow(x, y - 2.0)
+            };
             return self.chain(f0, f1, f2);
         }
         // x^y = exp(y ln x) (where it is zero, x = 0 and y > 0, it is zero
         // for every y: its derivatives in y are zero, not 0 · ln 0)
-        let l = x.ln();
-        let f0 = x.powf(y);
+        let l = lsim_ir::math::ln(x);
+        let f0 = lsim_ir::math::pow(x, y);
         let (fb, fbb) = if f0 == 0.0 { (0.0, 0.0) } else { (f0 * l, f0 * l * l) };
         // (at x = 0 the derivatives in x from x's own powers, not 0 / 0)
         let (fa, faa) = if x == 0.0 {
-            (y * x.powf(y - 1.0), y * (y - 1.0) * x.powf(y - 2.0))
+            (y * lsim_ir::math::pow(x, y - 1.0), y * (y - 1.0) * lsim_ir::math::pow(x, y - 2.0))
         } else {
             (y * f0 / x, y * (y - 1.0) * f0 / (x * x))
         };
@@ -250,23 +254,27 @@ pub(crate) fn eval(e: &Expr, env: &dyn JetEnv) -> Result<Jet, String> {
             let x = a.v;
             match f {
                 Builtin::Der | Builtin::Pre => k(f64::NAN),
-                Builtin::Sin => a.chain(x.sin(), x.cos(), -x.sin()),
-                Builtin::Cos => a.chain(x.cos(), -x.sin(), -x.cos()),
+                Builtin::Sin => {
+                    a.chain(lsim_ir::math::sin(x), lsim_ir::math::cos(x), -lsim_ir::math::sin(x))
+                }
+                Builtin::Cos => {
+                    a.chain(lsim_ir::math::cos(x), -lsim_ir::math::sin(x), -lsim_ir::math::cos(x))
+                }
                 Builtin::Tan => {
-                    let t = x.tan();
+                    let t = lsim_ir::math::tan(x);
                     a.chain(t, 1.0 + t * t, 2.0 * t * (1.0 + t * t))
                 }
                 Builtin::Asin => {
                     let r = 1.0 - x * x;
-                    a.chain(x.asin(), 1.0 / r.sqrt(), x / (r * r.sqrt()))
+                    a.chain(lsim_ir::math::asin(x), 1.0 / r.sqrt(), x / (r * r.sqrt()))
                 }
                 Builtin::Acos => {
                     let r = 1.0 - x * x;
-                    a.chain(x.acos(), -1.0 / r.sqrt(), -x / (r * r.sqrt()))
+                    a.chain(lsim_ir::math::acos(x), -1.0 / r.sqrt(), -x / (r * r.sqrt()))
                 }
                 Builtin::Atan => {
                     let r = 1.0 + x * x;
-                    a.chain(x.atan(), 1.0 / r, -2.0 * x / (r * r))
+                    a.chain(lsim_ir::math::atan(x), 1.0 / r, -2.0 * x / (r * r))
                 }
                 Builtin::Atan2 => {
                     // atan2(y = a, x = b)
@@ -277,7 +285,7 @@ pub(crate) fn eval(e: &Expr, env: &dyn JetEnv) -> Result<Jet, String> {
                     Jet::chain2(
                         &a,
                         &b,
-                        yv.atan2(xv),
+                        lsim_ir::math::atan2(yv, xv),
                         xv / r2,
                         -yv / r2,
                         -2.0 * xv * yv / r4,
@@ -285,17 +293,21 @@ pub(crate) fn eval(e: &Expr, env: &dyn JetEnv) -> Result<Jet, String> {
                         2.0 * xv * yv / r4,
                     )
                 }
-                Builtin::Sinh => a.chain(x.sinh(), x.cosh(), x.sinh()),
-                Builtin::Cosh => a.chain(x.cosh(), x.sinh(), x.cosh()),
+                Builtin::Sinh => {
+                    a.chain(lsim_ir::math::sinh(x), lsim_ir::math::cosh(x), lsim_ir::math::sinh(x))
+                }
+                Builtin::Cosh => {
+                    a.chain(lsim_ir::math::cosh(x), lsim_ir::math::sinh(x), lsim_ir::math::cosh(x))
+                }
                 Builtin::Tanh => {
-                    let t = x.tanh();
+                    let t = lsim_ir::math::tanh(x);
                     a.chain(t, 1.0 - t * t, -2.0 * t * (1.0 - t * t))
                 }
                 Builtin::Exp => {
-                    let ex = x.exp();
+                    let ex = lsim_ir::math::exp(x);
                     a.chain(ex, ex, ex)
                 }
-                Builtin::Log => a.chain(x.ln(), 1.0 / x, -1.0 / (x * x)),
+                Builtin::Log => a.chain(lsim_ir::math::ln(x), 1.0 / x, -1.0 / (x * x)),
                 Builtin::Sqrt => {
                     let s = x.sqrt();
                     a.chain(s, 0.5 / s, -0.25 / (x * s))
@@ -413,14 +425,15 @@ pub(crate) fn dual(e: &Expr, env: &dyn DualEnv) -> Result<Dual, ()> {
                 }
                 BinaryOp::Pow => {
                     let (x, y) = (a.v, b.v);
-                    let f0 = x.powf(y);
+                    let f0 = lsim_ir::math::pow(x, y);
                     if b.d == 0.0 {
-                        let f1 = if y == 0.0 { 0.0 } else { y * x.powf(y - 1.0) };
+                        let f1 = if y == 0.0 { 0.0 } else { y * lsim_ir::math::pow(x, y - 1.0) };
                         a.f(f0, f1)
                     } else {
                         // (zero for every y where it is zero: x = 0, y > 0)
-                        let fb = if f0 == 0.0 { 0.0 } else { f0 * x.ln() };
-                        let fa = if x == 0.0 { y * x.powf(y - 1.0) } else { y * f0 / x };
+                        let fb = if f0 == 0.0 { 0.0 } else { f0 * lsim_ir::math::ln(x) };
+                        let fa =
+                            if x == 0.0 { y * lsim_ir::math::pow(x, y - 1.0) } else { y * f0 / x };
                         Dual { v: f0, d: times(fa, a.d) + times(fb, b.d) }
                     }
                 }
@@ -451,15 +464,15 @@ pub(crate) fn dual(e: &Expr, env: &dyn DualEnv) -> Result<Dual, ()> {
             let x = a.v;
             match f {
                 Builtin::Der | Builtin::Pre => return Err(()),
-                Builtin::Sin => a.f(x.sin(), x.cos()),
-                Builtin::Cos => a.f(x.cos(), -x.sin()),
+                Builtin::Sin => a.f(lsim_ir::math::sin(x), lsim_ir::math::cos(x)),
+                Builtin::Cos => a.f(lsim_ir::math::cos(x), -lsim_ir::math::sin(x)),
                 Builtin::Tan => {
-                    let t = x.tan();
+                    let t = lsim_ir::math::tan(x);
                     a.f(t, 1.0 + t * t)
                 }
-                Builtin::Asin => a.f(x.asin(), 1.0 / (1.0 - x * x).sqrt()),
-                Builtin::Acos => a.f(x.acos(), -1.0 / (1.0 - x * x).sqrt()),
-                Builtin::Atan => a.f(x.atan(), 1.0 / (1.0 + x * x)),
+                Builtin::Asin => a.f(lsim_ir::math::asin(x), 1.0 / (1.0 - x * x).sqrt()),
+                Builtin::Acos => a.f(lsim_ir::math::acos(x), -1.0 / (1.0 - x * x).sqrt()),
+                Builtin::Atan => a.f(lsim_ir::math::atan(x), 1.0 / (1.0 + x * x)),
                 Builtin::Atan2 => {
                     let b = arg(1)?;
                     let r2 = b.v * b.v + a.v * a.v;
@@ -468,19 +481,19 @@ pub(crate) fn dual(e: &Expr, env: &dyn DualEnv) -> Result<Dual, ()> {
                     } else {
                         (times(b.v, a.d) - times(a.v, b.d)) / r2
                     };
-                    Dual { v: a.v.atan2(b.v), d }
+                    Dual { v: lsim_ir::math::atan2(a.v, b.v), d }
                 }
-                Builtin::Sinh => a.f(x.sinh(), x.cosh()),
-                Builtin::Cosh => a.f(x.cosh(), x.sinh()),
+                Builtin::Sinh => a.f(lsim_ir::math::sinh(x), lsim_ir::math::cosh(x)),
+                Builtin::Cosh => a.f(lsim_ir::math::cosh(x), lsim_ir::math::sinh(x)),
                 Builtin::Tanh => {
-                    let t = x.tanh();
+                    let t = lsim_ir::math::tanh(x);
                     a.f(t, 1.0 - t * t)
                 }
                 Builtin::Exp => {
-                    let ex = x.exp();
+                    let ex = lsim_ir::math::exp(x);
                     a.f(ex, ex)
                 }
-                Builtin::Log => a.f(x.ln(), 1.0 / x),
+                Builtin::Log => a.f(lsim_ir::math::ln(x), 1.0 / x),
                 Builtin::Sqrt => {
                     let r = x.sqrt();
                     a.f(r, 0.5 / r)

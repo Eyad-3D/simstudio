@@ -19,6 +19,7 @@
 //! edge (bilinear cells), so such a box has no second derivatives.
 
 use super::{ALL, Iv, ZERO};
+use crate::math;
 use crate::runtime::ModelFunctions;
 use std::sync::OnceLock;
 
@@ -65,7 +66,7 @@ fn region(x: &[f64], r: usize) -> (f64, f64, usize, Vec<f64>, f64) {
         (x[n - 1], x[n - 1] - x[n - 2], 1, vec![0.25, 0.75], 1.5)
     } else {
         let cheb = (0..4)
-            .map(|k| 0.5 * (1.0 - ((2 * k + 1) as f64 * std::f64::consts::PI / 8.0).cos()))
+            .map(|k| 0.5 * (1.0 - math::cos((2 * k + 1) as f64 * std::f64::consts::PI / 8.0)))
             .collect();
         (x[r - 1], x[r] - x[r - 1], 3, cheb, 0.37)
     }
@@ -78,7 +79,7 @@ fn inverse_vandermonde(u: &[f64]) -> Vec<Vec<f64>> {
     let n = u.len();
     let mut m: Vec<Vec<f64>> = (0..n)
         .map(|i| {
-            let mut row: Vec<f64> = (0..n).map(|k| u[i].powi(k as i32)).collect();
+            let mut row: Vec<f64> = (0..n).map(|k| math::powi(u[i], k as i32)).collect();
             row.extend((0..n).map(|k| if k == i { 1.0 } else { 0.0 }));
             row
         })

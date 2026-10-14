@@ -13,16 +13,16 @@
 //! Rounding: every operation's bounds are widened outwards, by an ulp for
 //! the exactly rounded ones (`+`, `−`, `×`, `÷`, `sqrt`; a product with a
 //! zero bound is exactly zero), by 2 ulps for the
-//! platform's `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`,
-//! `tanh`, `exp`, `ln` and `powf`, which assumes each is within 1 ulp of
-//! the exact value (glibc's are; lsim-solve's `tests/libm.rs` checks `sin`,
-//! `cos`, `exp` and `ln` on the platform), and relatively by n ε for
-//! `powi` (repeated squaring: up to (n − 1) ε / 2).
+//! library's `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`,
+//! `tanh`, `exp`, `ln` and `pow` (`lsim_ir::math`, correctly rounded:
+//! within half an ulp of the exact value), and relatively by n ε for
+//! integer powers (`math::powi`, repeated squaring: up to (n − 1) ε / 2).
 //!
 //! (Moved here unchanged from lsim-solve, so that the code generator's
 //! kernels can use the very same operations.)
 
 use crate::expr::{BinaryOp, Builtin, CmpOp, Expr};
+use crate::math;
 use crate::runtime::ModelFunctions;
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
@@ -151,7 +151,7 @@ impl Iv {
             // exact when the rounding error is zero (an FMA's residual)
             let (a, b) = (self.lo, o.lo);
             let p = a * b;
-            if p.is_finite() && a.mul_add(b, -p) == 0.0 {
+            if p.is_finite() && math::fma(a, b, -p) == 0.0 {
                 return Iv::point(p);
             }
         }
@@ -238,7 +238,7 @@ pub fn sin_iv(a: Iv) -> Iv {
     if !(a.lo.is_finite() && a.hi.is_finite()) || a.hi - a.lo >= TAU {
         return Iv::new(-1.0, 1.0);
     }
-    let (s0, s1) = (a.lo.sin(), a.hi.sin());
+    let (s0, s1) = (math::sin(a.lo), math::sin(a.hi));
     let mut r = Iv::wide(s0.min(s1), s0.max(s1), 2);
     if holds_phase(a, FRAC_PI_2, TAU) {
         r.hi = 1.0;
@@ -254,7 +254,7 @@ pub fn cos_iv(a: Iv) -> Iv {
     if !(a.lo.is_finite() && a.hi.is_finite()) || a.hi - a.lo >= TAU {
         return Iv::new(-1.0, 1.0);
     }
-    let (c0, c1) = (a.lo.cos(), a.hi.cos());
+    let (c0, c1) = (math::cos(a.lo), math::cos(a.hi));
     let mut r = Iv::wide(c0.min(c1), c0.max(c1), 2);
     if holds_phase(a, 0.0, TAU) {
         r.hi = 1.0;
@@ -273,7 +273,7 @@ pub fn powf_iv(a: Iv, e: f64) -> Iv {
     if e == 0.0 {
         return ONE;
     }
-    let (p0, p1) = (a.lo.powf(e), a.hi.powf(e));
+    let (p0, p1) = (math::pow(a.lo, e), math::pow(a.hi, e));
     if e > 0.0 { Iv::wide(p0, p1, 2) } else { Iv::wide(p1, p0, 2) }
 }
 
@@ -285,10 +285,11 @@ pub fn powi_iv(a: Iv, n: i32) -> Iv {
     if n < 0 {
         return powi_iv(a, -n).recip();
     }
-    // `powi` multiplies by repeated squaring (compiler-rt's __powidf2):
-    // its relative error is at most (n - 1) u (u = ε / 2), measured at 4.6
-    // ulps for n = 8, 10.3 for 16 and 44 for 64: widened by n ε relatively
-    let (p0, p1) = (a.lo.powi(n), a.hi.powi(n));
+    // `math::powi` multiplies by repeated squaring (as compiler-rt's
+    // __powidf2): its relative error is at most (n - 1) u (u = ε / 2),
+    // measured at 4.6 ulps for n = 8, 10.3 for 16 and 44 for 64: widened
+    // by n ε relatively
+    let (p0, p1) = (math::powi(a.lo, n), math::powi(a.hi, n));
     let r = n as f64 * f64::EPSILON;
     let lo_of = |x: f64| down(x - r * x.abs(), 1);
     let hi_of = |x: f64| up(x + r * x.abs(), 1);
@@ -389,19 +390,22 @@ impl J2 {
     }
 
     /// The natural logarithm.
-    pub fn ln(self) -> J2 {
+    pub fn natural_log(self) -> J2 {
         let v = self.v;
         if v.lo < 0.0 {
             return J2::all();
         }
-        let f =
-            if v.lo == 0.0 { Iv::wide(f64::NEG_INFINITY, v.hi.ln(), 2) } else { v.incr(f64::ln) };
+        let f = if v.lo == 0.0 {
+            Iv::wide(f64::NEG_INFINITY, math::ln(v.hi), 2)
+        } else {
+            v.incr(math::ln)
+        };
         self.chain(f, v.recip(), v.sqr().recip().neg())
     }
 
     /// The exponential.
-    pub fn exp(self) -> J2 {
-        let e = self.v.incr(f64::exp);
+    pub fn exponential(self) -> J2 {
+        let e = self.v.incr(math::exp);
         self.chain(e, e, e)
     }
 
@@ -434,7 +438,7 @@ impl J2 {
         if a.v.lo <= 0.0 {
             return J2::all();
         }
-        b.mul(a.ln()).exp()
+        b.mul(a.natural_log()).exponential()
     }
 }
 
@@ -643,7 +647,7 @@ pub fn call_j2(f: Builtin, args: &[J2]) -> J2 {
             if holds_phase(x, FRAC_PI_2, PI) || !(x.lo.is_finite() && x.hi.is_finite()) {
                 return J2::all();
             }
-            let t = x.incr(f64::tan);
+            let t = x.incr(math::tan);
             let s = ONE.add(t.sqr());
             a.chain(t, s, t.mul(s).scale(2.0))
         }
@@ -656,34 +660,34 @@ pub fn call_j2(f: Builtin, args: &[J2]) -> J2 {
             let f1 = rs.recip();
             let f2 = x.mul(r.mul(rs).recip());
             if f == Builtin::Asin {
-                a.chain(x.incr(f64::asin), f1, f2)
+                a.chain(x.incr(math::asin), f1, f2)
             } else {
-                a.chain(x.decr(f64::acos), f1.neg(), f2.neg())
+                a.chain(x.decr(math::acos), f1.neg(), f2.neg())
             }
         }
         Builtin::Atan => {
             let r = ONE.add(x.sqr());
-            a.chain(x.incr(f64::atan), r.recip(), x.scale(-2.0).mul(r.sqr().recip()))
+            a.chain(x.incr(math::atan), r.recip(), x.scale(-2.0).mul(r.sqr().recip()))
         }
         Builtin::Atan2 => {
             let b = arg(1);
             if a.is_const() && b.is_const() && x.is_point() && b.v.is_point() {
-                return k(x.lo.atan2(b.v.lo));
+                return k(math::atan2(x.lo, b.v.lo));
             }
             J2::all()
         }
         Builtin::Sinh => {
             let c = cosh_iv(x);
-            a.chain(x.incr(f64::sinh), c, x.incr(f64::sinh))
+            a.chain(x.incr(math::sinh), c, x.incr(math::sinh))
         }
-        Builtin::Cosh => a.chain(cosh_iv(x), x.incr(f64::sinh), cosh_iv(x)),
+        Builtin::Cosh => a.chain(cosh_iv(x), x.incr(math::sinh), cosh_iv(x)),
         Builtin::Tanh => {
-            let t = x.incr(f64::tanh);
+            let t = x.incr(math::tanh);
             let s = ONE.sub(t.sqr());
             a.chain(t, s, t.mul(s).scale(-2.0))
         }
-        Builtin::Exp => a.exp(),
-        Builtin::Log => a.ln(),
+        Builtin::Exp => a.exponential(),
+        Builtin::Log => a.natural_log(),
         Builtin::Sqrt => {
             if x.lo < 0.0 {
                 return J2::all();
@@ -805,11 +809,11 @@ pub fn sqrt_iv(x: Iv) -> Iv {
 /// `cosh` over an interval.
 pub fn cosh_iv(x: Iv) -> Iv {
     if x.lo >= 0.0 {
-        x.incr(f64::cosh)
+        x.incr(math::cosh)
     } else if x.hi <= 0.0 {
-        x.decr(f64::cosh)
+        x.decr(math::cosh)
     } else {
-        Iv::new(1.0, up(x.lo.cosh().max(x.hi.cosh()), 2))
+        Iv::new(1.0, up(math::cosh(x.lo).max(math::cosh(x.hi)), 2))
     }
 }
 
@@ -1140,7 +1144,7 @@ mod tests {
     }
     /// An integer power's enclosure holds the power however `powi`
     /// rounds (repeated squaring is off by up to 44 ulps at n = 64): the
-    /// exact power, from `powf` (within an ulp) and from the product
+    /// exact power, from `math::pow` (correctly rounded) and from the product
     /// computed in double-double, at many points.
     #[test]
     fn an_integer_power_encloses_the_exact_power() {
@@ -1149,7 +1153,7 @@ mod tests {
             let (mut hi, mut lo) = (1.0f64, 0.0f64);
             for _ in 0..n {
                 let p = hi * x;
-                let e = hi.mul_add(x, -p) + lo * x;
+                let e = math::fma(hi, x, -p) + lo * x;
                 let s = p + e;
                 lo = e - (s - p);
                 hi = s;
@@ -1158,14 +1162,17 @@ mod tests {
         }
         let mut worst = 0.0f64;
         for k in 0..20_000 {
-            let x = 0.5 + 1.5 * (k as f64 / 20_000.0) + 1e-7 * (k as f64).sin();
+            let x = 0.5 + 1.5 * (k as f64 / 20_000.0) + 1e-7 * math::sin(k as f64);
             for n in [3, 8, 16, 31, 64] {
                 let iv = powi_iv(Iv::point(x), n);
                 let exact = dd_pow(x, n);
-                let ulps = (x.powi(n) - exact).abs() / (exact.next_up() - exact);
+                let ulps = (math::powi(x, n) - exact).abs() / (exact.next_up() - exact);
                 worst = worst.max(ulps);
                 assert!(iv.lo <= exact && exact <= iv.hi, "{x}^{n}: {exact} not in {iv:?}");
-                assert!(iv.lo <= x.powf(n as f64) && x.powf(n as f64) <= iv.hi, "{x}^{n}");
+                assert!(
+                    iv.lo <= math::pow(x, n as f64) && math::pow(x, n as f64) <= iv.hi,
+                    "{x}^{n}"
+                );
                 let neg = powi_iv(Iv::point(-x), n);
                 let e = if n % 2 == 0 { exact } else { -exact };
                 assert!(neg.lo <= e && e <= neg.hi, "-{x}^{n}");

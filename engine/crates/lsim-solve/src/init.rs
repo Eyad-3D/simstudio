@@ -224,12 +224,14 @@ fn newton(sys: &mut dyn System, w: &mut [f64], shift: &[f64], s: &InitSettings) 
         for r in &mut row_scale {
             *r = if *r > 0.0 { 1.0 / *r } else { 1.0 };
         }
-        let merit = |f: &[f64]| f.iter().zip(&row_scale).map(|(a, b)| (a * b).powi(2)).sum::<f64>();
+        let merit = |f: &[f64]| {
+            f.iter().zip(&row_scale).map(|(a, b)| lsim_ir::math::powi(a * b, 2)).sum::<f64>()
+        };
         let phi0 = merit(&f);
         let neg: Vec<f64> = f.iter().map(|v| -v).collect();
         let dw = lin_solve(n, &trip, &neg)?;
         let wt = weights(w, sys);
-        let norm = (dw.iter().zip(&wt).map(|(v, k)| (v * k).powi(2)).sum::<f64>()
+        let norm = (dw.iter().zip(&wt).map(|(v, k)| lsim_ir::math::powi(v * k, 2)).sum::<f64>()
             / n.max(1) as f64)
             .sqrt();
         // an update far below the tolerance: converged
@@ -505,7 +507,7 @@ pub fn first_step(
         let mut sum = 0.0;
         for i in 0..n_x {
             let w = 1.0 / (s.rtol * y[i].abs() + s.atol * nominal[i]);
-            sum += ((f[i] - yp[i]) / hg * w).powi(2);
+            sum += lsim_ir::math::powi((f[i] - yp[i]) / hg * w, 2);
         }
         let ydd = (sum / n_x as f64).sqrt();
         if !ydd.is_finite() {

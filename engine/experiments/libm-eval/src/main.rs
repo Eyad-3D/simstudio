@@ -1,7 +1,9 @@
 //! The evidence for the engine's mathematical library (DESIGN.md §7, "The
 //! mathematical library"): accuracy against correctly rounded references
 //! and time per call, for glibc (the platform's, through `f64`), pxfm
-//! 0.1.30, the libm crate 0.2.16 and CORE-MATH built three ways (`build.rs`).
+//! 0.1.30, the libm crate 0.2.16, CORE-MATH built three ways (`build.rs`)
+//! and the engine's own entry points (`lsim_math`, which pick a build by
+//! CPU).
 //!
 //! ```text
 //! python -m venv v && v/bin/pip install gmpy2 mpmath
@@ -66,7 +68,8 @@ unsafe extern "C" {
     fn cmC_pow(x: f64, y: f64) -> f64;
 }
 
-const CANDS: &[&str] = &["glibc", "pxfm", "libm", "coremath", "coremath_fma", "coremath_soft"];
+const CANDS: &[&str] =
+    &["glibc", "pxfm", "libm", "coremath", "coremath_fma", "coremath_soft", "lsim_math"];
 const FUNCS: &[&str] = &[
     "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "tanh", "exp", "log",
     "pow",
@@ -159,6 +162,19 @@ fn eval(c: usize, f: &str) -> fn(f64, f64) -> f64 {
         ("coremath_soft", "exp") => u!(|x| unsafe { cmC_exp(x) }),
         ("coremath_soft", "log") => u!(|x| unsafe { cmC_log(x) }),
         ("coremath_soft", "pow") => b!(|x, y| unsafe { cmC_pow(x, y) }),
+        ("lsim_math", "sin") => u!(lsim_math::sin),
+        ("lsim_math", "cos") => u!(lsim_math::cos),
+        ("lsim_math", "tan") => u!(lsim_math::tan),
+        ("lsim_math", "asin") => u!(lsim_math::asin),
+        ("lsim_math", "acos") => u!(lsim_math::acos),
+        ("lsim_math", "atan") => u!(lsim_math::atan),
+        ("lsim_math", "atan2") => b!(lsim_math::atan2),
+        ("lsim_math", "sinh") => u!(lsim_math::sinh),
+        ("lsim_math", "cosh") => u!(lsim_math::cosh),
+        ("lsim_math", "tanh") => u!(lsim_math::tanh),
+        ("lsim_math", "exp") => u!(lsim_math::exp),
+        ("lsim_math", "log") => u!(lsim_math::ln),
+        ("lsim_math", "pow") => b!(lsim_math::pow),
         _ => unreachable!(),
     }
 }

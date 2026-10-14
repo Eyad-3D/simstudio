@@ -234,15 +234,39 @@ fn the_builds_agree_bit_for_bit() {
     }
 }
 
+/// `powi` multiplies by repeated squaring, the same products in the same
+/// order on every platform (Rust's own `f64::powi` does so on Linux but
+/// calls the C runtime's `pow` on Windows: 0.628681636656856^32 differs),
+/// within its bound of the exact power.
 #[test]
 fn powi_multiplies_by_repeated_squaring() {
     let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
     for _ in 0..100_000 {
         let x = rng.unif(-3.0, 3.0);
-        let n = (rng.next() % 129) as i32 - 64;
-        // Rust's `powi` is LLVM's (compiler-rt's `__powidf2`), the same steps
-        let r = std::hint::black_box(x).powi(std::hint::black_box(n));
-        assert!(same(m::powi(x, n), r), "{x}^{n}");
+        let x2 = x * x;
+        let x4 = x2 * x2;
+        assert!(same(m::powi(x, 1), x));
+        assert!(same(m::powi(x, 2), x2));
+        assert!(same(m::powi(x, 3), x * x2));
+        assert!(same(m::powi(x, 4), x4));
+        assert!(same(m::powi(x, 5), x * x4));
+        assert!(same(m::powi(x, 6), x2 * x4));
+        assert!(same(m::powi(x, 7), x * x2 * x4));
+        assert!(same(m::powi(x, 32), (x4 * x4) * (x4 * x4) * ((x4 * x4) * (x4 * x4))));
+        assert!(same(m::powi(x, -3), 1.0 / (x * x2)));
+        // within (|n| − 1) u of the exact power (double-double), n ≤ 64
+        let n = (rng.next() % 64) as i32 + 1;
+        let (mut hi, mut lo) = (1.0f64, 0.0f64);
+        for _ in 0..n {
+            let p = hi * x;
+            let e = m::fma(hi, x, -p) + lo * x;
+            let s = p + e;
+            lo = e - (s - p);
+            hi = s;
+        }
+        // (the error against hi + lo, without rounding that sum)
+        let bound = (n - 1) as f64 * f64::EPSILON / 2.0 * hi.abs() * (1.0 + 1e-12);
+        assert!(((m::powi(x, n) - hi) - lo).abs() <= bound + 1e-300, "{x}^{n}");
     }
     assert_eq!(m::powi(2.0, -1022), f64::MIN_POSITIVE);
     // (the reciprocal of a power that overflows)
