@@ -23,6 +23,11 @@
 mod bindings;
 pub use bindings::*;
 
+// SUNDIALS' C code calls the engine's mathematical library (`pow`, `exp`:
+// `csrc/lsim_sundials_math.h` maps them to lsim-math's C entry points), so
+// the crate is linked after this one's C library.
+use lsim_math as _;
+
 // LightSim's additions to the C build (`csrc/`): the dense output of
 // selected components, with the same formula and summation order as
 // `CVodeGetDky`/`IDAGetDky` at k = 0, in O(order) per component; and the

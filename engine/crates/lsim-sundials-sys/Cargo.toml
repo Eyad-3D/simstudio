@@ -12,6 +12,11 @@ links = "lsim_sundials"
 # all that the build reads; the generator tool is not part of the build
 include = ["/build.rs", "/src", "/sundials", "/csrc", "/wrapper.h", "/Cargo.toml"]
 
+[dependencies]
+# the engine's mathematical library, which SUNDIALS' C code calls instead of
+# the C runtime's (csrc/lsim_sundials_math.h)
+lsim-math.workspace = true
+
 [build-dependencies]
 cc.workspace = true
 

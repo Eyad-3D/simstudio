@@ -1070,6 +1070,7 @@ name = "lsim-sundials-sys"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "lsim-math",
 ]
 
 [[package]]

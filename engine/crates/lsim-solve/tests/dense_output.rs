@@ -102,9 +102,17 @@ fn check(model: &Dae, method: Method, rtol: f64, t_end: f64, restarts: bool) -> 
             integ.interpolate(tk, &mut full).unwrap();
             for (m, y) in full.iter().enumerate() {
                 let p = dense.at(m, tk);
-                let size: f64 = dense.coefficients(m).iter().map(|a| a.abs()).sum();
+                let a = dense.coefficients(m);
+                let size: f64 = a.iter().map(|a| a.abs()).sum();
+                // at the step's start the integrator interpolates at its own
+                // start, t_n − h as it rounds it (it clamps t there), an ulp
+                // or two from the end of the previous step: a few ulps of t
+                // times the slope, as after a restart (above)
+                let slope =
+                    if f == 0.0 && a.len() > 1 { (a[1] / dense.scales[0]).abs() } else { 0.0 };
+                let off = (p - y).abs() - 4.0 * f64::EPSILON * tk.abs() * slope;
                 assert!(
-                    (p - y).abs() <= 64.0 * f64::EPSILON * size.max(y.abs()),
+                    off <= 64.0 * f64::EPSILON * size.max(y.abs()),
                     "{method:?} entry {m} at t = {tk} (step to {t1}): {p} against {y}"
                 );
             }

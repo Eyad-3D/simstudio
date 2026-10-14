@@ -3,7 +3,8 @@
 //! (MSVC on Windows, the Xcode command-line tools on macOS, gcc or clang on
 //! Linux). The configuration header (`sundials/include/sundials/
 //! sundials_config.h`) and the Rust bindings (`src/bindings.rs`) are
-//! committed.
+//! committed. The C code's mathematical functions are the engine's own
+//! (lsim-math), mapped by a header included first into every file.
 
 use std::path::{Path, PathBuf};
 
@@ -94,6 +95,19 @@ fn main() {
         b.flag("/fp:precise");
         b.define("_CRT_SECURE_NO_WARNINGS", None);
     }
+    // SUNDIALS' calls of <math.h>'s functions go to the engine's library
+    // (lsim-math: correctly rounded, the same bits everywhere), not to the C
+    // runtime's: a header included first into every file maps them
+    // (csrc/lsim_sundials_math.h; lsim-math's own header declares them)
+    let own = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("csrc");
+    let math = std::env::var("DEP_LSIM_MATH_INCLUDE").expect("lsim-math's C header folder");
+    b.include(&math);
+    let shim = own.join("lsim_sundials_math.h");
+    if b.get_compiler().is_like_msvc() {
+        b.flag(format!("/FI{}", shim.display()));
+    } else {
+        b.flag("-include").flag(shim.display().to_string());
+    }
     for f in SOURCES {
         let p: &Path = &src.join(f);
         assert!(p.exists(), "missing SUNDIALS source {}", p.display());
@@ -101,7 +115,6 @@ fn main() {
     }
     // LightSim's own additions (dense output of selected components, and
     // its polynomial)
-    let own = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("csrc");
     println!("cargo:rerun-if-changed=csrc");
     for f in ["lsim_cvodes_dky.c", "lsim_idas_dky.c", "lsim_cvodes_dense.c", "lsim_idas_dense.c"] {
         b.file(own.join(f));
