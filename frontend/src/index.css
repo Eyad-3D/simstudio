@@ -526,3 +526,10 @@ body,
   max-height: 320px;
   background: var(--ss-panel);
 }
+
+/* The first-steps tour's dimmed overlay lets clicks through to the window
+   (tour.ts: a press outside the popover closes the tour and still acts). */
+.driver-overlay,
+.driver-overlay * {
+  pointer-events: none !important;
+}

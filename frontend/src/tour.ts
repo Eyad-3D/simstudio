@@ -171,7 +171,20 @@ export function startTour() {
   const motor = store.project?.systems[0]?.elements.find((e) => e.componentDefId === "motor.emotor");
   const node = (label: string) =>
     [...document.querySelectorAll(".react-flow__node")].find((n) => n.textContent?.includes(label)) as Element;
+  // The tour never blocks the window. driver.js makes every element but the
+  // highlighted one unclickable while it runs (body.driver-active) and turns a
+  // click on its dimmed overlay into "close the tour", so a user's first click
+  // on a button only closed the tour and every button seemed dead. Here the
+  // overlay lets clicks through (index.css) and any press outside the popover
+  // closes the tour and still reaches what was pressed.
+  const outside = (e: PointerEvent) => {
+    if (e.target instanceof Element && e.target.closest(".driver-popover")) return;
+    tour.destroy();
+  };
   const tour = driver({
+    onDestroyed: () => document.removeEventListener("pointerdown", outside, true),
+    // (driver.js marks the body at the start; keep it unmarked at every stop)
+    onHighlighted: () => document.body.classList.remove("driver-active"),
     showProgress: true,
     progressText: "{{current}} of {{total}}",
     nextBtnText: "Next",
@@ -225,6 +238,8 @@ export function startTour() {
     ],
   });
   tour.drive();
+  document.body.classList.remove("driver-active");
+  document.addEventListener("pointerdown", outside, true);
 }
 
 /** Start the tour by itself once, the first time a model is open on Home. */

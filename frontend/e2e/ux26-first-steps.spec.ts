@@ -61,3 +61,23 @@ test("UX-26: a new user gets a skippable tour, and the step bar ticks itself off
   await expect(tour).toBeVisible();
   await expect(bar).toBeVisible();
 });
+
+test("UX-26: the tour never blocks the window: a first click elsewhere closes it and still acts", async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem("seeded")) {
+      localStorage.setItem("lightsim-tour-v1", JSON.stringify({ auto: true }));
+      sessionStorage.setItem("seeded", "1");
+    }
+  });
+  await openApp(page);
+  const tour = page.locator(".driver-popover");
+  await expect(tour).toBeVisible();
+  // a new user's first click goes to the ribbon, not to the tour: it used to
+  // land on the tour's overlay, only close the tour, and leave every button dead
+  await ribbonTab(page, "Results").click({ timeout: 5_000 });
+  await expect(tour).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Clear history" })).toBeVisible();
+  // and the window is clickable from then on
+  await ribbonTab(page, "Home").click({ timeout: 5_000 });
+  await expect(page.getByRole("button", { name: "Templates" })).toBeVisible();
+});
