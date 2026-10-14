@@ -20,6 +20,13 @@
 //! forces the software build, to check that a run gives the same bytes
 //! both ways.
 //!
+//! Correct rounding depends on the C compiler's options: the build script
+//! gives it its own only, ignoring the environment's C flags and refusing
+//! an option that relaxes floating-point semantics (`c_flags.rs`), and the
+//! first call checks the build it picks on 27 hard cases
+//! ([`Build::self_check`], about 15 µs), stopping the process with the
+//! case if one is misrounded.
+//!
 //! What correct rounding guarantees, and what the interval code builds on
 //! (`lsim_ir::interval`): the result `r` of `f(x)` is the double nearest to
 //! the exact `f(x)`, so the exact value lies between `r`'s neighbours,
@@ -158,35 +165,89 @@ fn cpu_has_fma() -> bool {
     std::arch::is_x86_feature_detected!("fma") && std::arch::is_x86_feature_detected!("avx")
 }
 
-/// The build in use: 0 not chosen yet, 1 FMA, 2 software.
+/// The build in use: 0 not chosen yet, 1 FMA, 2 software, 3 native.
 static CHOSEN: AtomicU8 = AtomicU8::new(0);
 
-#[cfg(target_arch = "x86_64")]
+/// Picks the build the CPU runs, and checks it ([`Build::self_check`]) once,
+/// before any result of it is used: a build that misrounds one of the
+/// check's cases stops the process here with the case, rather than give
+/// results that are not the ones the engine promises.
 #[cold]
 fn choose() -> &'static Build {
-    let forced_soft = std::env::var_os("LSIM_MATH_NO_FMA").is_some_and(|v| v != "0");
-    let b = if cpu_has_fma() && !forced_soft { &FMA } else { &SOFT };
-    CHOSEN.store(if std::ptr::eq(b, &FMA) { 1 } else { 2 }, Ordering::Relaxed);
+    #[cfg(target_arch = "x86_64")]
+    let (b, code) = {
+        let forced_soft = std::env::var_os("LSIM_MATH_NO_FMA").is_some_and(|v| v != "0");
+        if cpu_has_fma() && !forced_soft { (&FMA, 1) } else { (&SOFT, 2) }
+    };
+    #[cfg(not(target_arch = "x86_64"))]
+    let (b, code) = (&NATIVE, 3);
+    if let Err(wrong) = b.self_check() {
+        panic!(
+            "lsim-math: its {} build is not correctly rounded ({wrong}): the C compiler, or an \
+             option it was given, has broken CORE-MATH (see lsim-math's build.rs)",
+            b.name
+        );
+    }
+    CHOSEN.store(code, Ordering::Relaxed);
     b
 }
 
-/// The build every function of the crate calls.
+/// The build every function of the crate calls: the first call picks it
+/// for the CPU and checks it.
 #[inline]
 pub fn build() -> &'static Build {
-    #[cfg(target_arch = "x86_64")]
-    {
-        match CHOSEN.load(Ordering::Relaxed) {
-            1 => &FMA,
-            2 => &SOFT,
-            _ => choose(),
-        }
-    }
-    #[cfg(not(target_arch = "x86_64"))]
-    {
-        let _ = &CHOSEN;
-        &NATIVE
+    match CHOSEN.load(Ordering::Relaxed) {
+        #[cfg(target_arch = "x86_64")]
+        1 => &FMA,
+        #[cfg(target_arch = "x86_64")]
+        2 => &SOFT,
+        #[cfg(not(target_arch = "x86_64"))]
+        3 => &NATIVE,
+        _ => choose(),
     }
 }
+
+/// The self-check's cases: function (in [`Build::self_check`]'s order),
+/// arguments and correctly rounded result, as the bits of doubles. From the
+/// references (`tests/data/hard_cases.txt`), chosen (October 2026) so that
+/// a build compiled with any of the options found to break correct
+/// rounding (gcc 13: `-ffast-math` or `-Ofast`, 2 270 of the 4 672
+/// references misrounded per build; `-funsafe-math-optimizations` or
+/// `-fassociative-math`, 2 132; `-mfpmath=387`, 948; `-ffinite-math-only`,
+/// 292; `-fno-signed-zeros`, 10) misrounds at least one case of every
+/// function the option affects; each line names the options it catches.
+/// (`-ffp-contract=fast`, `-freciprocal-math`, `-O0`, `-march=native` and
+/// `-frounding-math` misround none; clang refuses `-ffast-math` and
+/// `-mfpmath=387` on these files.)
+const SELF_CHECK: [(u8, u64, u64, u64); 27] = [
+    (0, 0x409cc61bc4de51ea, 0, 0x3fe0d485e5b84f48), // sin: fast, unsafe
+    (0, 0x3ee755f84bfd16d7, 0, 0x3ee755f84bfb0559), // sin: fast, x87
+    (1, 0x7fb4f396825e0333, 0, 0x3fef7742de035532), // cos: fast, unsafe, x87
+    (1, 0x7ff0000000000000, 0, 0xfff8000000000000), // cos(inf) = NaN: finite
+    (2, 0x7fdfff4f59503fb1, 0, 0xbff85fdbc178c0f9), // tan: fast, unsafe, x87
+    (2, 0x7ff0000000000000, 0, 0xfff8000000000000), // tan(inf) = NaN: fast, finite
+    (3, 0x3ea8b54424b0ce7e, 0, 0x3ea8b54424b0d0f3), // asin: fast, unsafe, x87
+    (3, 0x7ff0000000000000, 0, 0xfff8000000000000), // asin(inf) = NaN: finite
+    (4, 0x3f12854fe4bf0470, 0, 0x3ff921b13f049913), // acos: fast, unsafe, x87
+    (4, 0x7ff0000000000000, 0, 0xfff8000000000000), // acos(inf) = NaN: finite
+    (5, 0x3ef10ac13c976e99, 0, 0x3ef10ac13c90fcc3), // atan: fast, unsafe, x87
+    (5, 0x3ee1349e530388f9, 0, 0x3ee1349e5301e087), // atan: fast, unsafe, x87
+    (6, 0x432a468c20cecd8a, 0x432bfc92fae0bf70, 0x3fe81fc0098faaf5), // atan2: fast, unsafe, x87
+    (6, 0x4330f6c31bdf2e99, 0x433834a41566edbe, 0x3fe38f9a2f9a4fd1), // atan2: fast, unsafe, x87
+    (7, 0x3ff2675de54f6be7, 0, 0x3ff6bd2fd478f227), // sinh: fast, unsafe, x87
+    (7, 0x4033890b6d79b0fa, 0, 0x41a22ba49081b564), // sinh: fast, unsafe, x87
+    (8, 0x3f95ce51df2631ce, 0, 0x3ff000edc2280bdb), // cosh: fast, unsafe, x87
+    (8, 0x7fefffffffffffff, 0, 0x7ff0000000000000), // cosh(max) = inf: finite
+    (9, 0x3f6000b47bdb383f, 0, 0x3f6000b32658e41f), // tanh: fast, unsafe, x87
+    (9, 0x3fd1b573a7958914, 0, 0x3fd14530c725d89f), // tanh: fast, unsafe, x87
+    (10, 0x3e3ab6c3269b2ef1, 0, 0x3ff0000001ab6c33), // exp: fast, unsafe, x87
+    (10, 0xbe94df889d46109d, 0, 0x3fefffff5903bcc9), // exp: fast, unsafe, x87
+    (11, 0x3f5490a2a84f1862, 0, 0xc01ab8cd569d0422), // log: fast, unsafe, x87
+    (11, 0xfff0000000000000, 0, 0xfff8000000000000), // log(-inf) = NaN: fast, finite
+    (12, 0x431c4269c893fd34, 0x3fd4000000000000, 0x40ed79ca618b9632), // pow: fast, unsafe, x87
+    (12, 0x0587423b7c05b2be, 0x3ff1800000000000, 0x000f48f729360780), // pow: fast, finite
+    (12, 0x8000000000000000, 0x3ff0000000000000, 0x8000000000000000), // pow(-0, 1) = -0: nsz
+];
 
 /// Every build this CPU can run (for tests: they must agree bit for bit).
 pub fn builds() -> Vec<&'static Build> {
@@ -205,6 +266,50 @@ pub fn builds() -> Vec<&'static Build> {
 // tables are constant); the FMA build is only called on a CPU that has
 // the instructions it uses (`choose`, `builds`).
 impl Build {
+    /// Checks the build on a few hard cases per function, each against its
+    /// correctly rounded result: `Err` names the first it misrounds. The
+    /// library runs it once, on the build it picks, before using it
+    /// ([`build`]); cheap (27 calls), it catches a build whose C compiler
+    /// or options broke correct rounding, which the build script cannot
+    /// rule out entirely (it refuses the options known to, and ignores the
+    /// environment's C flags).
+    pub fn self_check(&self) -> Result<(), String> {
+        const NAMES: [&str; 13] = [
+            "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "tanh", "exp",
+            "log", "pow",
+        ];
+        for (f, x, y, r) in SELF_CHECK {
+            let (x, y, r) = (f64::from_bits(x), f64::from_bits(y), f64::from_bits(r));
+            let v = match f {
+                0 => self.sin(x),
+                1 => self.cos(x),
+                2 => self.tan(x),
+                3 => self.asin(x),
+                4 => self.acos(x),
+                5 => self.atan(x),
+                6 => self.atan2(x, y),
+                7 => self.sinh(x),
+                8 => self.cosh(x),
+                9 => self.tanh(x),
+                10 => self.exp(x),
+                11 => self.ln(x),
+                _ => self.pow(x, y),
+            };
+            let right = if r.is_nan() { v.is_nan() } else { v.to_bits() == r.to_bits() };
+            if !right {
+                let name = NAMES[f as usize];
+                let args =
+                    if matches!(f, 6 | 12) { format!("{x:e}, {y:e}") } else { format!("{x:e}") };
+                return Err(format!(
+                    "{name}({args}) = {v:e} ({:#018x}), not {r:e} ({:#018x})",
+                    v.to_bits(),
+                    r.to_bits()
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// sine
     #[inline]
     pub fn sin(&self, x: f64) -> f64 {
@@ -528,4 +633,56 @@ pub extern "C" fn lsim_math_pow(x: f64, y: f64) -> f64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn lsim_math_fma(x: f64, y: f64, z: f64) -> f64 {
     fma(x, y, z)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    unsafe extern "C" fn quarter1(_: f64) -> f64 {
+        0.25
+    }
+    unsafe extern "C" fn quarter2(_: f64, _: f64) -> f64 {
+        0.25
+    }
+
+    /// The self-check passes on every build this CPU runs, and fails on a
+    /// build where any one function is wrong: every function has cases.
+    #[test]
+    fn the_self_check_has_cases_for_every_function() {
+        for b in builds() {
+            assert_eq!(b.self_check(), Ok(()), "{} build", b.name);
+        }
+        let good = *build();
+        let names = [
+            "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "tanh", "exp",
+            "log", "pow",
+        ];
+        for (k, name) in names.iter().enumerate() {
+            let mut b = good;
+            match k {
+                0 => b.sin = quarter1,
+                1 => b.cos = quarter1,
+                2 => b.tan = quarter1,
+                3 => b.asin = quarter1,
+                4 => b.acos = quarter1,
+                5 => b.atan = quarter1,
+                6 => b.atan2 = quarter2,
+                7 => b.sinh = quarter1,
+                8 => b.cosh = quarter1,
+                9 => b.tanh = quarter1,
+                10 => b.exp = quarter1,
+                11 => b.log = quarter1,
+                _ => b.pow = quarter2,
+            }
+            let e = b.self_check().expect_err(name);
+            assert!(e.starts_with(&format!("{name}(")), "{e}");
+        }
+        // and it is cheap
+        let t = std::time::Instant::now();
+        for b in builds() {
+            b.self_check().unwrap();
+        }
+        println!("self-check of every build: {:?}", t.elapsed());
+    }
 }

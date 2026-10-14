@@ -53,10 +53,16 @@ new revision copied without the patches fails.
 into fused multiply-adds the source does not write) and
 `-fno-math-errno`, once with `-mfma` and once with an exact software fused
 multiply-add (`../csrc`), renaming each `cr_<f>`; on Windows with
-clang-cl (MSVC's cl lacks `__int128`). There upstream takes its
-`_MSC_VER` branches: `roundeven` (in acos, asin, exp, sin and pow) is the
-`vroundsd` instruction in the FMA build and a rounding in software in the
-other, where Linux has `__builtin_roundeven`: the same values.
+clang-cl (MSVC's cl lacks `__int128`). Those options and no others: the
+environment's C flags are ignored (`CFLAGS=-ffast-math` misrounded 2 270
+of the 4 672 references in each build) and an option that relaxes
+floating-point semantics stops the build (`../c_flags.rs`); the library
+checks the build it picks on hard cases at its first call.
+
+On Windows upstream takes its `_MSC_VER` branches: `roundeven` (in acos,
+asin, exp, sin and pow) is the `vroundsd` instruction in the FMA build
+and a rounding in software in the other, where Linux has
+`__builtin_roundeven`: the same values.
 
 ## Why this revision
 

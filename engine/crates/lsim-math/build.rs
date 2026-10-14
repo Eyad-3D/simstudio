@@ -16,8 +16,16 @@
 //! for MSVC targets it is clang-cl, from Visual Studio's "C++ Clang tools
 //! for Windows" or from LLVM (CORE-MATH uses `__int128` and GCC builtins,
 //! which MSVC's own `cl` lacks).
+//!
+//! It gets the options chosen here and no others: the environment's C
+//! flags are ignored (with a warning), and an option that changes
+//! floating-point results, wherever it comes from, stops the build
+//! (`c_flags.rs`). `src/lib.rs` checks the build it picks once more, on hard
+//! cases, at the first call.
 
 use std::path::{Path, PathBuf};
+
+include!("c_flags.rs");
 
 /// CORE-MATH's functions the engine uses (`core-math/binary64/<f>/<f>.c`).
 const FUNCTIONS: &[&str] = &[
@@ -26,8 +34,9 @@ const FUNCTIONS: &[&str] = &[
 ];
 
 fn main() {
+    ignore_environment_c_flags("lsim-math (CORE-MATH)");
     let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    for p in ["build.rs", "core-math", "csrc", "include"] {
+    for p in ["build.rs", "c_flags.rs", "core-math", "csrc", "include"] {
         println!("cargo:rerun-if-changed={p}");
     }
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
@@ -97,6 +106,7 @@ fn build(root: &Path, name: &str, fma: Fma) {
         b.include(&dir);
         b.define(&format!("cr_{f}"), Some(format!("{name}_{f}").as_str()));
     }
+    refuse_unsafe_fp_options("lsim-math (CORE-MATH)", &b.get_compiler());
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join(name);
     std::fs::create_dir_all(&out).expect("the build's object folder");
     b.out_dir(out);
