@@ -7,9 +7,8 @@ use lsim_lang::{Report, parse_library, to_text};
 fn every_example_of_the_documentation_parses() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/text-format.md");
     // a Windows checkout has CRLF line ends
-    let doc = std::fs::read_to_string(path)
-        .expect("the documentation is there")
-        .replace("\r\n", "\n");
+    let doc =
+        std::fs::read_to_string(path).expect("the documentation is there").replace("\r\n", "\n");
     let lib = lsim_lib::library();
     let mut blocks = 0;
     let mut rest = doc.as_str();
