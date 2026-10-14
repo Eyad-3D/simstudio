@@ -16,19 +16,19 @@ that falls on an event is compared on the value just before the event
 
 ## aero-bev/case-hwfet (EPA highway (HWFET))
 
-New engine: build 0.02 s, run 1.06 s (82027 steps, 17 events); today: 14.7 s at 10 ms, 145.0 s at 1 ms. Energy books: closure 1.3e-10 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.03 s, run 1.05 s (82663 steps, 17 events); today: 14.7 s at 10 ms, 145.0 s at 1 ms. Energy books: closure 8.6e-11 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
-| HV Battery Pack — final SOC | % | 86.784582 | 86.783757 | ±0.433919 | 86.783586 | -1.7101e-4 | inside |
-| HV Battery Pack — energy delivered | kWh | 2.087943 | 2.088113 | ±0.002088 | 2.088178 | 6.4631e-5 | inside |
-| HV Battery Pack — energy recuperated | kWh | 0.262118 | 0.261812 | ±6.1237e-4 | 0.261778 | -3.3680e-5 | inside |
-| HV Battery Pack — internal losses | kWh | 0.021401 | 0.021397 | ±2.1397e-5 | 0.021397 | -3.4176e-7 | inside |
-| Distance driven | km | 16.506750 | 16.506750 | ±0.082534 | 16.506749 | -6.8486e-7 | inside |
-| Consumption | kWh/100km | 11.061082 | 11.063967 | ±0.055320 | 11.064563 | 5.9604e-4 | inside |
-| Consumption at the socket (AC) | kWh/100km | 12.861724 | 12.865078 | ±0.064325 | 12.865772 | 6.9307e-4 | inside |
-| Fuel-economy equivalent (MPGe, AC) | MPGe | 162.834443 | 162.791981 | ±0.813960 | 162.783211 | -0.008770 | inside |
-| Range at this consumption | km | 466.653759 | 466.532071 | ±2.332660 | 466.506939 | -0.025132 | inside |
+| HV Battery Pack — final SOC | % | 86.784582 | 86.783757 | ±0.433919 | 86.783586 | -1.7111e-4 | inside |
+| HV Battery Pack — energy delivered | kWh | 2.087943 | 2.088113 | ±0.002088 | 2.088178 | 6.4740e-5 | inside |
+| HV Battery Pack — energy recuperated | kWh | 0.262118 | 0.261812 | ±6.1237e-4 | 0.261778 | -3.3638e-5 | inside |
+| HV Battery Pack — internal losses | kWh | 0.021401 | 0.021397 | ±2.1397e-5 | 0.021397 | -3.4745e-7 | inside |
+| Distance driven | km | 16.506750 | 16.506750 | ±0.082534 | 16.506748 | -1.7453e-6 | inside |
+| Consumption | kWh/100km | 11.061082 | 11.063967 | ±0.055320 | 11.064565 | 5.9716e-4 | inside |
+| Consumption at the socket (AC) | kWh/100km | 12.861724 | 12.865078 | ±0.064325 | 12.865773 | 6.9437e-4 | inside |
+| Fuel-economy equivalent (MPGe, AC) | MPGe | 162.834443 | 162.791981 | ±0.813960 | 162.783195 | -0.008786 | inside |
+| Range at this consumption | km | 466.653759 | 466.532071 | ±2.332660 | 466.506892 | -0.025179 | inside |
 | Simulated duration | s | 765.000000 | 765.000000 | ±3.825000 | 765.000000 | 0 | inside |
 
 Channels: 63 of 67 inside their bands (RMS of the difference to today's 1 ms run).
@@ -42,23 +42,23 @@ Channels: 63 of 67 inside their bands (RMS of the difference to today's 1 ms run
 
 ## aero-bev/case-udds (EPA city (UDDS))
 
-New engine: build 0.02 s, run 2.28 s (179312 steps, 257 events); today: 38.9 s at 10 ms, 293.9 s at 1 ms. Energy books: closure 1.3e-10 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.03 s, run 2.28 s (178021 steps, 257 events); today: 38.9 s at 10 ms, 293.9 s at 1 ms. Energy books: closure 1.1e-9 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
 | HV Battery Pack — final SOC | % | 87.977185 | 87.970747 | ±0.439854 | 87.972992 | 0.002245 | inside |
 | HV Battery Pack — energy delivered | kWh | 1.925928 | 1.927624 | ±0.003394 | 1.926114 | -0.001510 | inside |
-| HV Battery Pack — energy recuperated | kWh | 0.786852 | 0.784855 | ±0.003993 | 0.784634 | -2.2111e-4 | inside |
-| HV Battery Pack — internal losses | kWh | 0.024144 | 0.024147 | ±2.4147e-5 | 0.024147 | -1.2759e-7 | inside |
-| Distance driven | km | 11.990461 | 11.990497 | ±0.059952 | 11.990498 | 1.2092e-6 | inside |
-| Consumption | kWh/100km | 9.499849 | 9.530624 | ±0.061550 | 9.519873 | -0.010751 | inside |
-| Consumption at the socket (AC) | kWh/100km | 11.046336 | 11.082121 | ±0.071569 | 11.069619 | -0.012501 | inside |
-| Fuel-economy equivalent (MPGe, AC) | MPGe | 189.595142 | 188.982929 | ±1.224424 | 189.196353 | 0.213424 | inside |
-| Range at this consumption | km | 543.345032 | 541.590544 | ±3.508976 | 542.202178 | 0.611634 | inside |
-| Phase Bag 1 — distance | km | 5.779474 | 5.779488 | ±0.028897 | 5.779488 | 3.0284e-7 | inside |
-| Phase Bag 1 — consumption | kWh/100km | 10.311229 | 10.337901 | ±0.053344 | 10.334571 | -0.003330 | inside |
-| Phase Bag 2 — distance | km | 6.210988 | 6.211009 | ±0.031055 | 6.211010 | 9.0639e-7 | inside |
-| Phase Bag 2 — consumption | kWh/100km | 8.744840 | 8.779433 | ±0.069187 | 8.761777 | -0.017656 | inside |
+| HV Battery Pack — energy recuperated | kWh | 0.786852 | 0.784855 | ±0.003993 | 0.784634 | -2.2124e-4 | inside |
+| HV Battery Pack — internal losses | kWh | 0.024144 | 0.024147 | ±2.4147e-5 | 0.024147 | -1.1676e-7 | inside |
+| Distance driven | km | 11.990461 | 11.990497 | ±0.059952 | 11.990499 | 2.4390e-6 | inside |
+| Consumption | kWh/100km | 9.499849 | 9.530624 | ±0.061550 | 9.519874 | -0.010750 | inside |
+| Consumption at the socket (AC) | kWh/100km | 11.046336 | 11.082121 | ±0.071569 | 11.069621 | -0.012500 | inside |
+| Fuel-economy equivalent (MPGe, AC) | MPGe | 189.595142 | 188.982929 | ±1.224424 | 189.196332 | 0.213402 | inside |
+| Range at this consumption | km | 543.345032 | 541.590544 | ±3.508976 | 542.202115 | 0.611571 | inside |
+| Phase Bag 1 — distance | km | 5.779474 | 5.779488 | ±0.028897 | 5.779488 | 7.5160e-7 | inside |
+| Phase Bag 1 — consumption | kWh/100km | 10.311229 | 10.337901 | ±0.053344 | 10.334570 | -0.003331 | inside |
+| Phase Bag 2 — distance | km | 6.210988 | 6.211009 | ±0.031055 | 6.211011 | 1.6874e-6 | inside |
+| Phase Bag 2 — consumption | kWh/100km | 8.744840 | 8.779433 | ±0.069187 | 8.761780 | -0.017653 | inside |
 | Simulated duration | s | 1369.000000 | 1369.000000 | ±6.845000 | 1369.000000 | 0 | inside |
 
 Channels: 63 of 67 inside their bands (RMS of the difference to today's 1 ms run).
@@ -67,40 +67,40 @@ Channels: 63 of 67 inside their bands (RMS of the difference to today's 1 ms run
 |---|---|---:|---:|---:|---:|
 | el-diff:sig_power | kW | 10.053977 | 0.050270 | 0.190221 | 3.8 |
 | el-final-drive:sig_power | kW | 10.053977 | 0.050270 | 0.188737 | 3.8 |
-| el-diff:sig_torque_a | N·m | 211.117283 | 1.444658 | 4.258035 | 2.9 |
-| el-diff:sig_torque_b | N·m | 211.117283 | 1.444658 | 4.258035 | 2.9 |
+| el-diff:sig_torque_a | N·m | 211.117283 | 1.444658 | 4.258056 | 2.9 |
+| el-diff:sig_torque_b | N·m | 211.117283 | 1.444658 | 4.258056 | 2.9 |
 
 ## aero-bev/case-wltc (WLTC Class 3b)
 
-New engine: build 0.03 s, run 3.14 s (223735 steps, 122 events); today: 32.3 s at 10 ms, 321.7 s at 1 ms. Energy books: closure 2.5e-11 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.02 s, run 2.89 s (222969 steps, 122 events); today: 32.3 s at 10 ms, 321.7 s at 1 ms. Energy books: closure 4.6e-12 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
-| HV Battery Pack — final SOC | % | 85.113822 | 85.111126 | ±0.425556 | 85.110082 | -0.001043 | inside |
-| HV Battery Pack — energy delivered | kWh | 3.909215 | 3.908985 | ±0.003909 | 3.909385 | 3.9987e-4 | inside |
-| HV Battery Pack — energy recuperated | kWh | 1.169054 | 1.167297 | ±0.003516 | 1.167102 | -1.9456e-4 | inside |
-| HV Battery Pack — internal losses | kWh | 0.063068 | 0.063080 | ±6.3080e-5 | 0.063081 | 1.7212e-6 | inside |
-| Distance driven | km | 23.266524 | 23.266529 | ±0.116333 | 23.266528 | -1.8211e-6 | inside |
-| Consumption | kWh/100km | 11.777266 | 11.783832 | ±0.058919 | 11.786388 | 0.002556 | inside |
-| Consumption at the socket (AC) | kWh/100km | 13.694496 | 13.702130 | ±0.068511 | 13.705102 | 0.002972 | inside |
-| Fuel-economy equivalent (MPGe, AC) | MPGe | 152.932362 | 152.847151 | ±0.764236 | 152.814007 | -0.033144 | inside |
-| Range at this consumption | km | 438.276206 | 438.032004 | ±2.190160 | 437.937021 | -0.094984 | inside |
-| Phase Low — distance | km | 3.094692 | 3.094695 | ±0.015473 | 3.094695 | -2.8144e-7 | inside |
-| Phase Low — consumption | kWh/100km | 9.001340 | 8.993857 | ±0.044969 | 9.005472 | 0.011615 | inside |
-| Phase Medium — distance | km | 4.755872 | 4.755874 | ±0.023779 | 4.755873 | -1.1707e-6 | inside |
-| Phase Medium — consumption | kWh/100km | 9.391345 | 9.406341 | ±0.047032 | 9.409194 | 0.002853 | inside |
-| Phase High — distance | km | 7.161739 | 7.161739 | ±0.035809 | 7.161739 | -8.5760e-8 | inside |
-| Phase High — consumption | kWh/100km | 10.793043 | 10.802133 | ±0.054011 | 10.803626 | 0.001493 | inside |
-| Phase Extra High — distance | km | 8.254221 | 8.254221 | ±0.041271 | 8.254221 | -2.8323e-7 | inside |
-| Phase Extra High — consumption | kWh/100km | 15.046688 | 15.051474 | ±0.075257 | 15.051384 | -9.0236e-5 | inside |
+| HV Battery Pack — final SOC | % | 85.113822 | 85.111126 | ±0.425556 | 85.110081 | -0.001044 | inside |
+| HV Battery Pack — energy delivered | kWh | 3.909215 | 3.908985 | ±0.003909 | 3.909385 | 3.9968e-4 | inside |
+| HV Battery Pack — energy recuperated | kWh | 1.169054 | 1.167297 | ±0.003516 | 1.167101 | -1.9536e-4 | inside |
+| HV Battery Pack — internal losses | kWh | 0.063068 | 0.063080 | ±6.3080e-5 | 0.063081 | 1.7030e-6 | inside |
+| Distance driven | km | 23.266524 | 23.266529 | ±0.116333 | 23.266526 | -3.6473e-6 | inside |
+| Consumption | kWh/100km | 11.777266 | 11.783832 | ±0.058919 | 11.786392 | 0.002559 | inside |
+| Consumption at the socket (AC) | kWh/100km | 13.694496 | 13.702130 | ±0.068511 | 13.705106 | 0.002976 | inside |
+| Fuel-economy equivalent (MPGe, AC) | MPGe | 152.932362 | 152.847151 | ±0.764236 | 152.813961 | -0.033190 | inside |
+| Range at this consumption | km | 438.276206 | 438.032004 | ±2.190160 | 437.936888 | -0.095116 | inside |
+| Phase Low — distance | km | 3.094692 | 3.094695 | ±0.015473 | 3.094695 | -3.5229e-7 | inside |
+| Phase Low — consumption | kWh/100km | 9.001340 | 8.993857 | ±0.044969 | 9.005474 | 0.011617 | inside |
+| Phase Medium — distance | km | 4.755872 | 4.755874 | ±0.023779 | 4.755872 | -1.5128e-6 | inside |
+| Phase Medium — consumption | kWh/100km | 9.391345 | 9.406341 | ±0.047032 | 9.409197 | 0.002856 | inside |
+| Phase High — distance | km | 7.161739 | 7.161739 | ±0.035809 | 7.161738 | -1.4134e-6 | inside |
+| Phase High — consumption | kWh/100km | 10.793043 | 10.802133 | ±0.054011 | 10.803635 | 0.001502 | inside |
+| Phase Extra High — distance | km | 8.254221 | 8.254221 | ±0.041271 | 8.254221 | -3.6888e-7 | inside |
+| Phase Extra High — consumption | kWh/100km | 15.046688 | 15.051474 | ±0.075257 | 15.051384 | -9.0010e-5 | inside |
 | Simulated duration | s | 1800.000000 | 1800.000000 | ±9.000000 | 1800.000000 | 0 | inside |
 
 Channels: 63 of 67 inside their bands (RMS of the difference to today's 1 ms run).
 
 | channel outside | unit | RMS today 1 ms | band | RMS new − 1 ms | × band |
 |---|---|---:|---:|---:|---:|
-| el-diff:sig_torque_a | N·m | 183.667185 | 0.918336 | 3.587174 | 3.9 |
-| el-diff:sig_torque_b | N·m | 183.667185 | 0.918336 | 3.587174 | 3.9 |
+| el-diff:sig_torque_a | N·m | 183.667185 | 0.918336 | 3.587171 | 3.9 |
+| el-diff:sig_torque_b | N·m | 183.667185 | 0.918336 | 3.587171 | 3.9 |
 | el-diff:sig_power | kW | 13.828626 | 0.069143 | 0.238279 | 3.4 |
 | el-final-drive:sig_power | kW | 13.828626 | 0.069143 | 0.236421 | 3.4 |
 
@@ -134,7 +134,7 @@ Channels: 65 of 70 inside their bands (RMS of the difference to today's 1 ms run
 
 ## bev-car/case-city-live (City Cycle (live, 10×))
 
-New engine: build 0.03 s, run 0.07 s (3999 steps, 17 events); today: 10.7 s at 10 ms, 107.0 s at 1 ms. Energy books: closure 1.5e-9 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.02 s, run 0.09 s (3999 steps, 17 events); today: 10.7 s at 10 ms, 107.0 s at 1 ms. Energy books: closure 1.5e-9 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -162,28 +162,28 @@ Channels: 65 of 70 inside their bands (RMS of the difference to today's 1 ms run
 
 ## bev-car/case-wltc (WLTC Class 3b)
 
-New engine: build 0.02 s, run 2.80 s (215669 steps, 122 events); today: 33.8 s at 10 ms, 360.9 s at 1 ms. Energy books: closure 2.7e-10 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.02 s, run 2.92 s (214672 steps, 122 events); today: 33.8 s at 10 ms, 360.9 s at 1 ms. Energy books: closure 1.5e-11 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
-| HV Battery Pack — final SOC | % | 84.926014 | 84.920348 | ±0.424602 | 84.923353 | 0.003005 | inside |
-| HV Battery Pack — energy delivered | kWh | 4.370405 | 4.372411 | ±0.004372 | 4.371448 | -9.6305e-4 | inside |
-| HV Battery Pack — energy recuperated | kWh | 1.102472 | 1.100782 | ±0.003378 | 1.101763 | 9.8029e-4 | inside |
-| HV Battery Pack — internal losses | kWh | 0.073783 | 0.073803 | ±7.3803e-5 | 0.073776 | -2.7783e-5 | inside |
+| HV Battery Pack — final SOC | % | 84.926014 | 84.920348 | ±0.424602 | 84.923352 | 0.003005 | inside |
+| HV Battery Pack — energy delivered | kWh | 4.370405 | 4.372411 | ±0.004372 | 4.371449 | -9.6273e-4 | inside |
+| HV Battery Pack — energy recuperated | kWh | 1.102472 | 1.100782 | ±0.003378 | 1.101763 | 9.8008e-4 | inside |
+| HV Battery Pack — internal losses | kWh | 0.073783 | 0.073803 | ±7.3803e-5 | 0.073776 | -2.7777e-5 | inside |
 | Climate Control — energy used | kWh | 0 | 0 | ±1.0000e-9 | 0 | 0 | inside |
-| Distance driven | km | 23.266530 | 23.266530 | ±0.116333 | 23.266529 | -1.3291e-6 | inside |
-| Consumption | kWh/100km | 14.045642 | 14.061525 | ±0.070308 | 14.053174 | -0.008352 | inside |
-| Consumption at the socket (AC) | kWh/100km | 16.332142 | 16.350611 | ±0.081753 | 16.340900 | -0.009711 | inside |
-| Fuel-economy equivalent (MPGe, AC) | MPGe | 128.233736 | 128.088889 | ±0.640444 | 128.165012 | 0.076122 | inside |
-| Range at this consumption | km | 425.880134 | 425.399080 | ±2.126995 | 425.651892 | 0.252812 | inside |
-| Phase Low — distance | km | 3.094694 | 3.094694 | ±0.015473 | 3.094693 | -7.0678e-7 | inside |
-| Phase Low — consumption | kWh/100km | 10.593525 | 10.630016 | ±0.072983 | 10.623102 | -0.006914 | inside |
-| Phase Medium — distance | km | 4.755872 | 4.755872 | ±0.023779 | 4.755873 | 9.3822e-8 | inside |
-| Phase Medium — consumption | kWh/100km | 11.259622 | 11.285375 | ±0.056427 | 11.272496 | -0.012879 | inside |
-| Phase High — distance | km | 7.161740 | 7.161740 | ±0.035809 | 7.161739 | -4.8750e-7 | inside |
+| Distance driven | km | 23.266530 | 23.266530 | ±0.116333 | 23.266529 | -4.2355e-7 | inside |
+| Consumption | kWh/100km | 14.045642 | 14.061525 | ±0.070308 | 14.053175 | -0.008350 | inside |
+| Consumption at the socket (AC) | kWh/100km | 16.332142 | 16.350611 | ±0.081753 | 16.340902 | -0.009709 | inside |
+| Fuel-economy equivalent (MPGe, AC) | MPGe | 128.233736 | 128.088889 | ±0.640444 | 128.164996 | 0.076107 | inside |
+| Range at this consumption | km | 425.880134 | 425.399080 | ±2.126995 | 425.651839 | 0.252759 | inside |
+| Phase Low — distance | km | 3.094694 | 3.094694 | ±0.015473 | 3.094693 | -4.2280e-7 | inside |
+| Phase Low — consumption | kWh/100km | 10.593525 | 10.630016 | ±0.072983 | 10.623107 | -0.006909 | inside |
+| Phase Medium — distance | km | 4.755872 | 4.755872 | ±0.023779 | 4.755873 | 2.6894e-7 | inside |
+| Phase Medium — consumption | kWh/100km | 11.259622 | 11.285375 | ±0.056427 | 11.272501 | -0.012874 | inside |
+| Phase High — distance | km | 7.161740 | 7.161740 | ±0.035809 | 7.161740 | -8.0767e-8 | inside |
 | Phase High — consumption | kWh/100km | 12.904398 | 12.917929 | ±0.064590 | 12.910337 | -0.007592 | inside |
-| Phase Extra High — distance | km | 8.254225 | 8.254224 | ±0.041271 | 8.254224 | -2.2859e-7 | inside |
-| Phase Extra High — consumption | kWh/100km | 17.935347 | 17.939858 | ±0.089699 | 17.932917 | -0.006942 | inside |
+| Phase Extra High — distance | km | 8.254225 | 8.254224 | ±0.041271 | 8.254224 | -1.8892e-7 | inside |
+| Phase Extra High — consumption | kWh/100km | 17.935347 | 17.939858 | ±0.089699 | 17.932918 | -0.006941 | inside |
 | Simulated duration | s | 1800.000000 | 1800.000000 | ±9.000000 | 1800.000000 | 0 | inside |
 
 Channels: 65 of 70 inside their bands (RMS of the difference to today's 1 ms run).
@@ -192,33 +192,33 @@ Channels: 65 of 70 inside their bands (RMS of the difference to today's 1 ms run
 |---|---|---:|---:|---:|---:|
 | el-diff:sig_torque_a | N·m | 196.908591 | 0.984543 | 6.922137 | 7.0 |
 | el-diff:sig_torque_b | N·m | 196.908591 | 0.984543 | 6.922137 | 7.0 |
-| el-diff:sig_power | kW | 14.626556 | 0.073133 | 0.441361 | 6.0 |
+| el-diff:sig_power | kW | 14.626556 | 0.073133 | 0.441360 | 6.0 |
 | el-final-drive:sig_losses | kW | 0.297383 | 0.001487 | 0.008876 | 6.0 |
-| el-final-drive:sig_power | kW | 14.815261 | 0.074076 | 0.440466 | 5.9 |
+| el-final-drive:sig_power | kW | 14.815261 | 0.074076 | 0.440465 | 5.9 |
 
 ## bev-car/case-wltc-hvac (WLTC, heating/air-con on)
 
-New engine: build 0.03 s, run 2.73 s (214113 steps, 122 events); today: 32.9 s at 10 ms, 331.4 s at 1 ms. Energy books: closure 5.8e-11 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.02 s, run 3.12 s (215213 steps, 122 events); today: 32.9 s at 10 ms, 331.4 s at 1 ms. Energy books: closure 1.8e-10 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
-| HV Battery Pack — final SOC | % | 83.191072 | 83.185374 | ±0.415927 | 83.188393 | 0.003020 | inside |
+| HV Battery Pack — final SOC | % | 83.191072 | 83.185374 | ±0.415927 | 83.188394 | 0.003020 | inside |
 | HV Battery Pack — energy delivered | kWh | 5.254747 | 5.256799 | ±0.005257 | 5.255772 | -0.001028 | inside |
-| HV Battery Pack — energy recuperated | kWh | 0.861813 | 0.860170 | ±0.003286 | 0.861086 | 9.1530e-4 | inside |
-| HV Battery Pack — internal losses | kWh | 0.085043 | 0.085074 | ±8.5074e-5 | 0.085040 | -3.3444e-5 | inside |
+| HV Battery Pack — energy recuperated | kWh | 0.861813 | 0.860170 | ±0.003286 | 0.861086 | 9.1581e-4 | inside |
+| HV Battery Pack — internal losses | kWh | 0.085043 | 0.085074 | ±8.5074e-5 | 0.085040 | -3.3440e-5 | inside |
 | Climate Control — energy used | kWh | 0 | 0 | ±1.0000e-9 | 0 | 0 | inside |
-| Distance driven | km | 23.266530 | 23.266530 | ±0.116333 | 23.266530 | -2.5856e-7 | inside |
-| Consumption | kWh/100km | 18.880914 | 18.896797 | ±0.094484 | 18.888446 | -0.008351 | inside |
-| Consumption at the socket (AC) | kWh/100km | 21.954551 | 21.973020 | ±0.109865 | 21.963309 | -0.009711 | inside |
-| Fuel-economy equivalent (MPGe, AC) | MPGe | 95.393961 | 95.313779 | ±0.476569 | 95.355921 | 0.042142 | inside |
-| Range at this consumption | km | 316.815169 | 316.548876 | ±1.582744 | 316.688836 | 0.139960 | inside |
-| Phase Low — distance | km | 3.094694 | 3.094694 | ±0.015473 | 3.094694 | 3.6533e-8 | inside |
-| Phase Low — consumption | kWh/100km | 22.488885 | 22.525377 | ±0.112627 | 22.518458 | -0.006919 | inside |
-| Phase Medium — distance | km | 4.755872 | 4.755872 | ±0.023779 | 4.755872 | -1.3553e-8 | inside |
-| Phase Medium — consumption | kWh/100km | 16.949956 | 16.975708 | ±0.084879 | 16.962833 | -0.012875 | inside |
-| Phase High — distance | km | 7.161740 | 7.161740 | ±0.035809 | 7.161740 | -1.3526e-7 | inside |
+| Distance driven | km | 23.266530 | 23.266530 | ±0.116333 | 23.266530 | -1.2778e-7 | inside |
+| Consumption | kWh/100km | 18.880914 | 18.896797 | ±0.094484 | 18.888445 | -0.008352 | inside |
+| Consumption at the socket (AC) | kWh/100km | 21.954551 | 21.973020 | ±0.109865 | 21.963308 | -0.009712 | inside |
+| Fuel-economy equivalent (MPGe, AC) | MPGe | 95.393961 | 95.313779 | ±0.476569 | 95.355926 | 0.042147 | inside |
+| Range at this consumption | km | 316.815169 | 316.548876 | ±1.582744 | 316.688851 | 0.139975 | inside |
+| Phase Low — distance | km | 3.094694 | 3.094694 | ±0.015473 | 3.094694 | 8.3465e-9 | inside |
+| Phase Low — consumption | kWh/100km | 22.488885 | 22.525377 | ±0.112627 | 22.518459 | -0.006919 | inside |
+| Phase Medium — distance | km | 4.755872 | 4.755872 | ±0.023779 | 4.755872 | -4.7698e-8 | inside |
+| Phase Medium — consumption | kWh/100km | 16.949956 | 16.975708 | ±0.084879 | 16.962830 | -0.012878 | inside |
+| Phase High — distance | km | 7.161740 | 7.161740 | ±0.035809 | 7.161740 | 1.8785e-7 | inside |
 | Phase High — consumption | kWh/100km | 16.875151 | 16.888682 | ±0.084443 | 16.881090 | -0.007592 | inside |
-| Phase Extra High — distance | km | 8.254225 | 8.254224 | ±0.041271 | 8.254224 | -1.4628e-7 | inside |
+| Phase Extra High — distance | km | 8.254225 | 8.254224 | ±0.041271 | 8.254224 | -2.7628e-7 | inside |
 | Phase Extra High — consumption | kWh/100km | 20.381064 | 20.385576 | ±0.101928 | 20.378635 | -0.006941 | inside |
 | Simulated duration | s | 1800.000000 | 1800.000000 | ±9.000000 | 1800.000000 | 0 | inside |
 
@@ -226,89 +226,89 @@ Channels: 65 of 70 inside their bands (RMS of the difference to today's 1 ms run
 
 | channel outside | unit | RMS today 1 ms | band | RMS new − 1 ms | × band |
 |---|---|---:|---:|---:|---:|
-| el-diff:sig_torque_a | N·m | 196.908591 | 0.984543 | 6.922141 | 7.0 |
-| el-diff:sig_torque_b | N·m | 196.908591 | 0.984543 | 6.922141 | 7.0 |
+| el-diff:sig_torque_a | N·m | 196.908591 | 0.984543 | 6.922146 | 7.0 |
+| el-diff:sig_torque_b | N·m | 196.908591 | 0.984543 | 6.922146 | 7.0 |
 | el-diff:sig_power | kW | 14.626556 | 0.073133 | 0.441360 | 6.0 |
 | el-final-drive:sig_losses | kW | 0.297383 | 0.001487 | 0.008876 | 6.0 |
 | el-final-drive:sig_power | kW | 14.815261 | 0.074076 | 0.440465 | 5.9 |
 
 ## bev-car/case-wltc-summer (WLTC, hot day (35 °C, air-con on))
 
-New engine: build 0.04 s, run 3.02 s (214496 steps, 122 events); today: 33.1 s at 10 ms, 342.4 s at 1 ms. Energy books: closure 7.4e-11 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.03 s, run 3.16 s (216047 steps, 122 events); today: 33.1 s at 10 ms, 342.4 s at 1 ms. Energy books: closure 4.1e-10 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
 | HV Battery Pack — final SOC | % | 83.953418 | 83.947734 | ±0.419739 | 83.950769 | 0.003035 | inside |
 | HV Battery Pack — energy delivered | kWh | 4.852931 | 4.854950 | ±0.004855 | 4.853947 | -0.001003 | inside |
-| HV Battery Pack — energy recuperated | kWh | 0.952603 | 0.950927 | ±0.003352 | 0.951882 | 9.5426e-4 | inside |
-| HV Battery Pack — internal losses | kWh | 0.078768 | 0.078794 | ±7.8794e-5 | 0.078764 | -3.0944e-5 | inside |
+| HV Battery Pack — energy recuperated | kWh | 0.952603 | 0.950927 | ±0.003352 | 0.951882 | 9.5446e-4 | inside |
+| HV Battery Pack — internal losses | kWh | 0.078768 | 0.078794 | ±7.8794e-5 | 0.078763 | -3.0955e-5 | inside |
 | Climate Control — energy used | kWh | 0.696709 | 0.696709 | ±6.9671e-4 | 0.696709 | 1.1250e-11 | inside |
 | Climate Control — cooling delivered | kWh | 1.325000 | 1.325000 | ±0.001325 | 1.325000 | 6.4224e-12 | inside |
-| Distance driven | km | 23.266530 | 23.266530 | ±0.116333 | 23.266529 | -1.0553e-6 | inside |
-| Consumption | kWh/100km | 16.763684 | 16.779565 | ±0.083898 | 16.771155 | -0.008410 | inside |
-| Consumption at the socket (AC) | kWh/100km | 19.492656 | 19.511122 | ±0.097556 | 19.501343 | -0.009779 | inside |
-| Fuel-economy equivalent (MPGe, AC) | MPGe | 107.442084 | 107.340399 | ±0.536702 | 107.394226 | 0.053827 | inside |
-| Range at this consumption | km | 356.828480 | 356.490772 | ±1.782454 | 356.669539 | 0.178766 | inside |
-| Phase Low — distance | km | 3.094694 | 3.094694 | ±0.015473 | 3.094693 | -4.8052e-7 | inside |
-| Phase Low — consumption | kWh/100km | 17.912816 | 17.949306 | ±0.089747 | 17.942384 | -0.006922 | inside |
-| Phase Medium — distance | km | 4.755872 | 4.755872 | ±0.023779 | 4.755872 | -3.0417e-7 | inside |
-| Phase Medium — consumption | kWh/100km | 14.668104 | 14.693854 | ±0.073469 | 14.680972 | -0.012882 | inside |
-| Phase High — distance | km | 7.161740 | 7.161740 | ±0.035809 | 7.161740 | -5.1054e-8 | inside |
-| Phase High — consumption | kWh/100km | 15.129959 | 15.143486 | ±0.075717 | 15.135860 | -0.007626 | inside |
-| Phase Extra High — distance | km | 8.254225 | 8.254224 | ±0.041271 | 8.254224 | -2.1953e-7 | inside |
-| Phase Extra High — consumption | kWh/100km | 18.957763 | 18.962272 | ±0.094811 | 18.955200 | -0.007072 | inside |
+| Distance driven | km | 23.266530 | 23.266530 | ±0.116333 | 23.266530 | -3.7857e-7 | inside |
+| Consumption | kWh/100km | 16.763684 | 16.779565 | ±0.083898 | 16.771153 | -0.008411 | inside |
+| Consumption at the socket (AC) | kWh/100km | 19.492656 | 19.511122 | ±0.097556 | 19.501341 | -0.009781 | inside |
+| Fuel-economy equivalent (MPGe, AC) | MPGe | 107.442084 | 107.340399 | ±0.536702 | 107.394235 | 0.053836 | inside |
+| Range at this consumption | km | 356.828480 | 356.490772 | ±1.782454 | 356.669567 | 0.178795 | inside |
+| Phase Low — distance | km | 3.094694 | 3.094694 | ±0.015473 | 3.094694 | -1.5741e-9 | inside |
+| Phase Low — consumption | kWh/100km | 17.912816 | 17.949306 | ±0.089747 | 17.942380 | -0.006926 | inside |
+| Phase Medium — distance | km | 4.755872 | 4.755872 | ±0.023779 | 4.755872 | -7.7896e-8 | inside |
+| Phase Medium — consumption | kWh/100km | 14.668104 | 14.693854 | ±0.073469 | 14.680970 | -0.012884 | inside |
+| Phase High — distance | km | 7.161740 | 7.161740 | ±0.035809 | 7.161740 | -2.3340e-7 | inside |
+| Phase High — consumption | kWh/100km | 15.129959 | 15.143486 | ±0.075717 | 15.135861 | -0.007624 | inside |
+| Phase Extra High — distance | km | 8.254225 | 8.254224 | ±0.041271 | 8.254224 | -6.5704e-8 | inside |
+| Phase Extra High — consumption | kWh/100km | 18.957763 | 18.962272 | ±0.094811 | 18.955198 | -0.007074 | inside |
 | Simulated duration | s | 1800.000000 | 1800.000000 | ±9.000000 | 1800.000000 | 0 | inside |
 
 Channels: 65 of 70 inside their bands (RMS of the difference to today's 1 ms run).
 
 | channel outside | unit | RMS today 1 ms | band | RMS new − 1 ms | × band |
 |---|---|---:|---:|---:|---:|
-| el-diff:sig_torque_a | N·m | 196.549300 | 0.982746 | 6.921426 | 7.0 |
-| el-diff:sig_torque_b | N·m | 196.549300 | 0.982746 | 6.921426 | 7.0 |
+| el-diff:sig_torque_a | N·m | 196.549300 | 0.982746 | 6.921428 | 7.0 |
+| el-diff:sig_torque_b | N·m | 196.549300 | 0.982746 | 6.921428 | 7.0 |
 | el-diff:sig_power | kW | 14.495025 | 0.072475 | 0.441070 | 6.1 |
 | el-final-drive:sig_losses | kW | 0.294677 | 0.001473 | 0.008880 | 6.0 |
 | el-final-drive:sig_power | kW | 14.678943 | 0.073395 | 0.440148 | 6.0 |
 
 ## bev-car/case-wltc-winter (WLTC, winter day (−7 °C, heating on))
 
-New engine: build 0.03 s, run 2.81 s (215305 steps, 122 events); today: 33.2 s at 10 ms, 334.1 s at 1 ms. Energy books: closure 2.6e-11 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.03 s, run 2.79 s (213729 steps, 122 events); today: 33.2 s at 10 ms, 334.1 s at 1 ms. Energy books: closure 3.3e-10 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
-| HV Battery Pack — final SOC | % | 81.428642 | 81.422907 | ±0.407115 | 81.425906 | 0.002998 | inside |
-| HV Battery Pack — energy delivered | kWh | 6.209248 | 6.211370 | ±0.006211 | 6.210285 | -0.001085 | inside |
-| HV Battery Pack — energy recuperated | kWh | 0.682114 | 0.680538 | ±0.003151 | 0.681375 | 8.3635e-4 | inside |
-| HV Battery Pack — internal losses | kWh | 0.101782 | 0.101824 | ±1.0182e-4 | 0.101785 | -3.9180e-5 | inside |
+| HV Battery Pack — final SOC | % | 81.428642 | 81.422907 | ±0.407115 | 81.425906 | 0.002999 | inside |
+| HV Battery Pack — energy delivered | kWh | 6.209248 | 6.211370 | ±0.006211 | 6.210285 | -0.001084 | inside |
+| HV Battery Pack — energy recuperated | kWh | 0.682114 | 0.680538 | ±0.003151 | 0.681375 | 8.3680e-4 | inside |
+| HV Battery Pack — internal losses | kWh | 0.101782 | 0.101824 | ±1.0182e-4 | 0.101785 | -3.9189e-5 | inside |
 | Climate Control — energy used | kWh | 2.125000 | 2.125000 | ±0.002125 | 2.125000 | 0 | inside |
 | Climate Control — heating delivered | kWh | 2.025000 | 2.025000 | ±0.002025 | 2.025000 | 6.1612e-11 | inside |
-| Distance driven | km | 23.266530 | 23.266530 | ±0.116333 | 23.266529 | -1.0787e-6 | inside |
-| Consumption | kWh/100km | 23.755730 | 23.771621 | ±0.118858 | 23.763365 | -0.008256 | inside |
-| Consumption at the socket (AC) | kWh/100km | 27.622942 | 27.641420 | ±0.138207 | 27.631820 | -0.009600 | inside |
-| Fuel-economy equivalent (MPGe, AC) | MPGe | 75.818557 | 75.767873 | ±0.378839 | 75.794197 | 0.026324 | inside |
-| Range at this consumption | km | 251.802826 | 251.634499 | ±1.258172 | 251.721926 | 0.087426 | inside |
-| Phase Low — distance | km | 3.094694 | 3.094694 | ±0.015473 | 3.094693 | -3.5157e-7 | inside |
-| Phase Low — consumption | kWh/100km | 33.161488 | 33.197986 | ±0.165990 | 33.191084 | -0.006903 | inside |
-| Phase Medium — distance | km | 4.755872 | 4.755872 | ±0.023779 | 4.755872 | -2.7164e-7 | inside |
-| Phase Medium — consumption | kWh/100km | 22.248862 | 22.274620 | ±0.111373 | 22.261766 | -0.012854 | inside |
-| Phase High — distance | km | 7.161740 | 7.161740 | ±0.035809 | 7.161739 | -3.0127e-7 | inside |
-| Phase High — consumption | kWh/100km | 20.891758 | 20.905299 | ±0.104526 | 20.897777 | -0.007522 | inside |
-| Phase Extra High — distance | km | 8.254224 | 8.254224 | ±0.041271 | 8.254224 | -1.5421e-7 | inside |
-| Phase Extra High — consumption | kWh/100km | 23.582432 | 23.586950 | ±0.117935 | 23.580200 | -0.006751 | inside |
+| Distance driven | km | 23.266530 | 23.266530 | ±0.116333 | 23.266530 | 1.0359e-7 | inside |
+| Consumption | kWh/100km | 23.755730 | 23.771621 | ±0.118858 | 23.763363 | -0.008258 | inside |
+| Consumption at the socket (AC) | kWh/100km | 27.622942 | 27.641420 | ±0.138207 | 27.631818 | -0.009602 | inside |
+| Fuel-economy equivalent (MPGe, AC) | MPGe | 75.818557 | 75.767873 | ±0.378839 | 75.794203 | 0.026330 | inside |
+| Range at this consumption | km | 251.802826 | 251.634499 | ±1.258172 | 251.721943 | 0.087444 | inside |
+| Phase Low — distance | km | 3.094694 | 3.094694 | ±0.015473 | 3.094694 | 6.8978e-7 | inside |
+| Phase Low — consumption | kWh/100km | 33.161488 | 33.197986 | ±0.165990 | 33.191077 | -0.006909 | inside |
+| Phase Medium — distance | km | 4.755872 | 4.755872 | ±0.023779 | 4.755872 | -1.9024e-7 | inside |
+| Phase Medium — consumption | kWh/100km | 22.248862 | 22.274620 | ±0.111373 | 22.261764 | -0.012856 | inside |
+| Phase High — distance | km | 7.161740 | 7.161740 | ±0.035809 | 7.161740 | 3.1165e-8 | inside |
+| Phase High — consumption | kWh/100km | 20.891758 | 20.905299 | ±0.104526 | 20.897773 | -0.007526 | inside |
+| Phase Extra High — distance | km | 8.254224 | 8.254224 | ±0.041271 | 8.254223 | -4.2711e-7 | inside |
+| Phase Extra High — consumption | kWh/100km | 23.582432 | 23.586950 | ±0.117935 | 23.580201 | -0.006750 | inside |
 | Simulated duration | s | 1800.000000 | 1800.000000 | ±9.000000 | 1800.000000 | 0 | inside |
 
 Channels: 65 of 70 inside their bands (RMS of the difference to today's 1 ms run).
 
 | channel outside | unit | RMS today 1 ms | band | RMS new − 1 ms | × band |
 |---|---|---:|---:|---:|---:|
-| el-diff:sig_torque_a | N·m | 197.685658 | 0.988428 | 6.922650 | 7.0 |
-| el-diff:sig_torque_b | N·m | 197.685658 | 0.988428 | 6.922650 | 7.0 |
-| el-diff:sig_power | kW | 14.909467 | 0.074547 | 0.441449 | 5.9 |
+| el-diff:sig_torque_a | N·m | 197.685658 | 0.988428 | 6.922662 | 7.0 |
+| el-diff:sig_torque_b | N·m | 197.685658 | 0.988428 | 6.922662 | 7.0 |
+| el-diff:sig_power | kW | 14.909467 | 0.074547 | 0.441450 | 5.9 |
 | el-final-drive:sig_losses | kW | 0.303200 | 0.001516 | 0.008891 | 5.9 |
-| el-final-drive:sig_power | kW | 15.108183 | 0.075541 | 0.440628 | 5.8 |
+| el-final-drive:sig_power | kW | 15.108183 | 0.075541 | 0.440629 | 5.8 |
 
 ## fs-electric/case-accel-75m (Acceleration 75 m)
 
-New engine: build 0.05 s, run 0.09 s (1058 steps, 13 events); today: 0.3 s at 10 ms, 1.0 s at 1 ms. Energy books: closure 1.7e-10 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.02 s, run 0.12 s (1058 steps, 13 events); today: 0.3 s at 10 ms, 1.0 s at 1 ms. Energy books: closure 1.7e-10 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -336,35 +336,35 @@ Channels: 65 of 65 inside their bands (RMS of the difference to today's 1 ms run
 
 ## hybrid-car/case-hwfet (EPA highway (HWFET))
 
-New engine: build 0.03 s, run 56.21 s (1918254 steps, 76998 events); today: 23.9 s at 10 ms, 193.4 s at 1 ms. Energy books: closure 3.3e-12 of the throughput, 0.0002 kWh lost at events (16 gear shifts: 0.000206 kWh as the gears engaged; today's gearbox term 0.000337 kWh).
+New engine: build 0.02 s, run 61.31 s (1918788 steps, 77007 events); today: 23.9 s at 10 ms, 193.4 s at 1 ms. Energy books: closure 8.1e-12 of the throughput, 0.0002 kWh lost at events (16 gear shifts: 0.000206 kWh as the gears engaged; today's gearbox term 0.000337 kWh).
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
-| HV Battery — final SOC | % | 58.896986 | 58.887629 | ±0.294438 | 58.887343 | -2.8624e-4 | inside |
-| HV Battery — energy delivered | kWh | 0.429580 | 0.429107 | ±9.4619e-4 | 0.429046 | -6.0905e-5 | inside |
-| HV Battery — energy recuperated | kWh | 0.440069 | 0.439416 | ±0.001305 | 0.439347 | -6.8913e-5 | inside |
-| HV Battery — internal losses | kWh | 0.010856 | 0.010824 | ±6.2837e-5 | 0.010821 | -3.5413e-6 | inside |
-| Engine — fuel used | kg | 0.396916 | 0.396966 | ±0.001985 | 0.396967 | 1.4217e-6 | inside |
-| Distance driven | km | 16.506736 | 16.506736 | ±0.082534 | 16.506736 | -6.6995e-7 | inside |
-| Fuel consumption | l/100km | 3.227608 | 3.228017 | ±0.016140 | 3.228029 | 1.1691e-5 | inside |
-| CO₂ emissions | g/km | 76.224807 | 76.234459 | ±0.381172 | 76.234735 | 2.7611e-4 | inside |
+| HV Battery — final SOC | % | 58.896986 | 58.887629 | ±0.294438 | 58.887348 | -2.8156e-4 | inside |
+| HV Battery — energy delivered | kWh | 0.429580 | 0.429107 | ±9.4619e-4 | 0.429046 | -6.0902e-5 | inside |
+| HV Battery — energy recuperated | kWh | 0.440069 | 0.439416 | ±0.001305 | 0.439347 | -6.8831e-5 | inside |
+| HV Battery — internal losses | kWh | 0.010856 | 0.010824 | ±6.2837e-5 | 0.010821 | -3.5359e-6 | inside |
+| Engine — fuel used | kg | 0.396916 | 0.396966 | ±0.001985 | 0.396967 | 1.4179e-6 | inside |
+| Distance driven | km | 16.506736 | 16.506736 | ±0.082534 | 16.506736 | -4.9910e-7 | inside |
+| Fuel consumption | l/100km | 3.227608 | 3.228017 | ±0.016140 | 3.228028 | 1.1627e-5 | inside |
+| CO₂ emissions | g/km | 76.224807 | 76.234459 | ±0.381172 | 76.234734 | 2.7460e-4 | inside |
 | Simulated duration | s | 765.000000 | 765.000000 | ±3.825000 | 765.000000 | 0 | inside |
 
 Channels: 88 of 88 inside their bands (RMS of the difference to today's 1 ms run).
 
 ## hybrid-car/case-mixed (Mixed Cycle)
 
-New engine: build 0.04 s, run 25.16 s (572709 steps, 56209 events); today: 24.8 s at 10 ms, 158.3 s at 1 ms. Energy books: closure 1.2e-12 of the throughput, 0.0001 kWh lost at events (10 gear shifts: 0.000145 kWh as the gears engaged; today's gearbox term 0.000262 kWh).
+New engine: build 0.02 s, run 25.32 s (567850 steps, 56206 events); today: 24.8 s at 10 ms, 158.3 s at 1 ms. Energy books: closure 8.3e-13 of the throughput, 0.0001 kWh lost at events (10 gear shifts: 0.000145 kWh as the gears engaged; today's gearbox term 0.000262 kWh).
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
-| HV Battery — final SOC | % | 51.912115 | 51.909727 | ±0.259549 | 51.910586 | 8.5898e-4 | inside |
-| HV Battery — energy delivered | kWh | 0.207182 | 0.207153 | ±2.0715e-4 | 0.207155 | 1.9003e-6 | inside |
-| HV Battery — energy recuperated | kWh | 0.209646 | 0.209577 | ±2.0958e-4 | 0.209593 | 1.5989e-5 | inside |
-| HV Battery — internal losses | kWh | 0.003218 | 0.003216 | ±4.4973e-6 | 0.003216 | 5.2491e-7 | inside |
-| Engine — fuel used | kg | 0.204278 | 0.204282 | ±0.001021 | 0.204276 | -5.7944e-6 | inside |
-| Distance driven | km | 9.555609 | 9.555609 | ±0.047778 | 9.555610 | 1.1298e-6 | inside |
-| Fuel consumption | l/100km | 2.869508 | 2.869555 | ±0.014348 | 2.869473 | -8.1733e-5 | inside |
+| HV Battery — final SOC | % | 51.912115 | 51.909727 | ±0.259549 | 51.910586 | 8.5884e-4 | inside |
+| HV Battery — energy delivered | kWh | 0.207182 | 0.207153 | ±2.0715e-4 | 0.207155 | 1.9008e-6 | inside |
+| HV Battery — energy recuperated | kWh | 0.209646 | 0.209577 | ±2.0958e-4 | 0.209593 | 1.5990e-5 | inside |
+| HV Battery — internal losses | kWh | 0.003218 | 0.003216 | ±4.4973e-6 | 0.003216 | 5.2497e-7 | inside |
+| Engine — fuel used | kg | 0.204278 | 0.204282 | ±0.001021 | 0.204276 | -5.7938e-6 | inside |
+| Distance driven | km | 9.555609 | 9.555609 | ±0.047778 | 9.555610 | 1.1316e-6 | inside |
+| Fuel consumption | l/100km | 2.869508 | 2.869555 | ±0.014348 | 2.869473 | -8.1726e-5 | inside |
 | CO₂ emissions | g/km | 67.767726 | 67.768848 | ±0.338844 | 67.766918 | -0.001930 | inside |
 | Simulated duration | s | 600.000000 | 600.000000 | ±3.000000 | 600.000000 | 0 | inside |
 
@@ -381,17 +381,17 @@ Channels: 82 of 88 inside their bands (RMS of the difference to today's 1 ms run
 
 ## hybrid-car/case-mixed-live (Mixed Cycle (live, 10×))
 
-New engine: build 0.02 s, run 23.41 s (572709 steps, 56209 events); today: 17.4 s at 10 ms, 199.2 s at 1 ms. Energy books: closure 1.2e-12 of the throughput, 0.0001 kWh lost at events (10 gear shifts: 0.000145 kWh as the gears engaged; today's gearbox term 0.000262 kWh).
+New engine: build 0.02 s, run 25.14 s (567850 steps, 56206 events); today: 17.4 s at 10 ms, 199.2 s at 1 ms. Energy books: closure 8.3e-13 of the throughput, 0.0001 kWh lost at events (10 gear shifts: 0.000145 kWh as the gears engaged; today's gearbox term 0.000262 kWh).
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
-| HV Battery — final SOC | % | 51.912115 | 51.909727 | ±0.259549 | 51.910586 | 8.5898e-4 | inside |
-| HV Battery — energy delivered | kWh | 0.207182 | 0.207153 | ±2.0715e-4 | 0.207155 | 1.9003e-6 | inside |
-| HV Battery — energy recuperated | kWh | 0.209646 | 0.209577 | ±2.0958e-4 | 0.209593 | 1.5989e-5 | inside |
-| HV Battery — internal losses | kWh | 0.003218 | 0.003216 | ±4.4973e-6 | 0.003216 | 5.2491e-7 | inside |
-| Engine — fuel used | kg | 0.204278 | 0.204282 | ±0.001021 | 0.204276 | -5.7944e-6 | inside |
-| Distance driven | km | 9.555609 | 9.555609 | ±0.047778 | 9.555610 | 1.1298e-6 | inside |
-| Fuel consumption | l/100km | 2.869508 | 2.869555 | ±0.014348 | 2.869473 | -8.1733e-5 | inside |
+| HV Battery — final SOC | % | 51.912115 | 51.909727 | ±0.259549 | 51.910586 | 8.5884e-4 | inside |
+| HV Battery — energy delivered | kWh | 0.207182 | 0.207153 | ±2.0715e-4 | 0.207155 | 1.9008e-6 | inside |
+| HV Battery — energy recuperated | kWh | 0.209646 | 0.209577 | ±2.0958e-4 | 0.209593 | 1.5990e-5 | inside |
+| HV Battery — internal losses | kWh | 0.003218 | 0.003216 | ±4.4973e-6 | 0.003216 | 5.2497e-7 | inside |
+| Engine — fuel used | kg | 0.204278 | 0.204282 | ±0.001021 | 0.204276 | -5.7938e-6 | inside |
+| Distance driven | km | 9.555609 | 9.555609 | ±0.047778 | 9.555610 | 1.1316e-6 | inside |
+| Fuel consumption | l/100km | 2.869508 | 2.869555 | ±0.014348 | 2.869473 | -8.1726e-5 | inside |
 | CO₂ emissions | g/km | 67.767726 | 67.768848 | ±0.338844 | 67.766918 | -0.001930 | inside |
 | Simulated duration | s | 600.000000 | 600.000000 | ±3.000000 | 600.000000 | 0 | inside |
 
@@ -408,22 +408,23 @@ Channels: 82 of 88 inside their bands (RMS of the difference to today's 1 ms run
 
 ## hybrid-car/case-udds (EPA city (UDDS))
 
-New engine: build 0.03 s, run 85.14 s (3023217 steps, 118094 events); today: 40.5 s at 10 ms, 391.0 s at 1 ms. Energy books: closure 6.8e-12 of the throughput, 0.0017 kWh lost at events (104 gear shifts: 0.001663 kWh as the gears engaged; today's gearbox term 0.003503 kWh).
+New engine: build 0.02 s, run 95.80 s (3023612 steps, 118064 events); today: 40.5 s at 10 ms, 391.0 s at 1 ms. Energy books: closure 9.8e-12 of the throughput, 0.0017 kWh lost at events (104 gear shifts: 0.001663 kWh as the gears engaged; today's gearbox term 0.003503 kWh).
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
-| HV Battery — final SOC | % | 56.641435 | 56.283992 | ±0.714886 | 56.281262 | -0.002730 | inside |
-| HV Battery — energy delivered | kWh | 0.786001 | 0.788305 | ±0.004609 | 0.788696 | 3.9037e-4 | inside |
-| HV Battery — energy recuperated | kWh | 0.812926 | 0.809528 | ±0.006795 | 0.809885 | 3.5674e-4 | inside |
-| HV Battery — internal losses | kWh | 0.022152 | 0.022110 | ±8.4328e-5 | 0.022120 | 9.4293e-6 | inside |
-| Engine — fuel used | kg | 0.252556 | 0.250846 | ±0.003420 | 0.250916 | 6.9704e-5 | inside |
-| Distance driven | km | 11.990472 | 11.990471 | ±0.059952 | 11.990472 | 9.1784e-7 | inside |
-| Fuel consumption | l/100km | 2.827261 | 2.808119 | ±0.038285 | 2.808899 | 7.8009e-4 | inside |
-| CO₂ emissions | g/km | 66.770006 | 66.317932 | ±0.904149 | 66.336355 | 0.018423 | inside |
-| Phase Bag 1 — distance | km | 5.779462 | 5.779461 | ±0.028897 | 5.779462 | 6.5243e-7 | inside |
+| HV Battery — final SOC | % | 56.641435 | 56.283992 | ±0.714886 | 56.281261 | -0.002730 | inside |
+| HV Battery — energy delivered | kWh | 0.786001 | 0.788305 | ±0.004609 | 0.788696 | 3.9042e-4 | inside |
+| HV Battery — energy recuperated | kWh | 0.812926 | 0.809528 | ±0.006795 | 0.809885 | 3.5679e-4 | inside |
+| HV Battery — internal losses | kWh | 0.022152 | 0.022110 | ±8.4328e-5 | 0.022120 | 9.4333e-6 | inside |
+| Engine — fuel used | kg | 0.252556 | 0.250846 | ±0.003420 | 0.250916 | 6.9712e-5 | inside |
+| Distance driven | km | 11.990472 | 11.990471 | ±0.059952 | 11.990472 | 1.0737e-6 | inside |
+| Fuel consumption | l/100km | 2.827261 | 2.808119 | ±0.038285 | 2.808899 | 7.8014e-4 | inside |
+| CO₂ emissions | g/km | 66.770006 | 66.317932 | ±0.904149 | 66.336356 | 0.018424 | inside |
+| Phase Bag 1 — distance | km | 5.779462 | 5.779461 | ±0.028897 | 5.779462 | 7.2158e-7 | inside |
 | Phase Bag 1 — fuel consumption | l/100km | 3.182852 | 3.185066 | ±0.015925 | 3.187149 | 0.002084 | inside |
-| Phase Bag 2 — distance | km | 6.211010 | 6.211009 | ±0.031055 | 6.211009 | 2.6541e-7 | inside |
-| Phase Bag 2 — fuel consumption | l/100km | 2.496376 | 2.457362 | ±0.078028 | 2.456929 | -4.3298e-4 | inside |
+| Phase Bag 2 — distance | km | 6.211010 | 6.211009 | ±0.031055 | 6.211010 | 3.5212e-7 | inside |
+| Phase Bag 2 — fuel consumption | l/100km | 2.496376 | 2.457362 | ±0.078028 | 2.456929 | -4.3289e-4 | inside |
 | Simulated duration | s | 1369.000000 | 1369.000000 | ±6.845000 | 1369.000000 | 0 | inside |
 
 Channels: 88 of 88 inside their bands (RMS of the difference to today's 1 ms run).
+

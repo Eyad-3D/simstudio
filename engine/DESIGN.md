@@ -706,11 +706,11 @@ rounds), before it starts on it:
   of the chain and the condition at the same inputs, and the model's
   compiled `roots` output for that crossing is bitwise the same: the
   IR's order of operations, no fused multiply-add contraction, the same
-  library functions as the interpreter calls (a libm the code generator
-  brings must pass `lsim-solve/tests/libm.rs`, on which the interval
-  code's 2-ulp widening of library results rests). `enclose` keeps the
+  library functions as the interpreter calls (`lsim_ir::math`, the
+  engine's own: correctly rounded, so that the interval code's widening of
+  library results by one ulp is a proof; section 7.1). `enclose` keeps the
   IR's order too, with `interval.rs`'s rounding rules (each operation
-  rounded outwards as there, library results widened by its 2 ulps): its
+  rounded outwards as there, library results widened by its one ulp): its
   enclosure is bitwise the interpreter's, so it holds the point values
   and is exactly as wide.
 * **Shared subexpressions** across the conditions (a motor's limits read
@@ -870,8 +870,9 @@ are no branches to mispredict):
 | `when` | the discrete variables after fired `when` clauses |
 
 Parameters, discrete variables and inputs are read from memory, so a new
-parameter value never recompiles. Transcendental functions call Rust's
-standard library through registered symbols. Measured in the spike: 0.7 ms
+parameter value never recompiles. Transcendental functions call the
+engine's own library (`lsim_ir::math`: CORE-MATH's correctly rounded
+functions, section 7.1) through registered symbols. Measured in the spike: 0.7 ms
 to compile all five functions (1.8 kB of machine code); one residual call
 7 ns, one Jacobian-vector product 16 ns.
 
@@ -891,21 +892,20 @@ builds):
 * **Exactness.** The functions the run loop compares with the interpreter
   (zero crossings, `when`, modes, table guards, the condition kernels)
   are bitwise `lsim_ir::eval`: the IR's order, no fused multiply-add
-  contraction, the interpreter's library functions (`powf` for every
+  contraction, the interpreter's library functions (`pow` for every
   power), its rule for `min`/`max` at a tie of signed zeros. The residual,
   the Jacobian and the channels multiply out a constant integer power
   `x^n` (3 ≤ |n| ≤ 16) in double-double arithmetic and round once: within
-  1 ulp of the exact power, closer to it than `powf` (`tests/fuzz.rs`:
-  280 000 powers). Each product's exact rounding error comes from a fused
+  1 ulp of the exact power, and the correctly rounded power itself (the
+  library's `pow`) on all 280 000 powers of `tests/fuzz.rs`. Each product's exact rounding error comes from a fused
   multiply-add where the CPU has one and from Dekker's product where it
   has not, so CPUs with and without FMA compute the same bits (the fuzz
   test's mirror on 560 000 powers, the compiled models both ways, and the
   golden comparison lowered both ways, byte-identical); outside
   [2^-960, 2^990] the plain repeated squaring's product. The machine
-  code's results are then the same on every x86-64 CPU; the library
-  functions it calls are the platform's (glibc even picks FMA variants of
-  `exp`, `log`, `sin`… by CPU), which section 17's R12 proposes to replace
-  by one the engine ships.
+  code's results are then the same on every x86-64 CPU, and so are the
+  library functions it calls: the engine's own, correctly rounded, not the
+  platform's (section 7.1).
 * **Sparse coloured Jacobians.** Column colouring of the sparsity pattern
   (greedy, largest-first) and one forward sweep with a tangent per colour,
   filling the CSC values directly: `jacobian_sparse`. The example cars need
@@ -1027,6 +1027,184 @@ would otherwise be a way to run arbitrary code, which the IT policy
 forbids). Revisit when builds of many structurally different models
 dominate a session (a design study's variants), with the key above and
 an HMAC per installation.
+
+### 7.1 The mathematical library
+
+**Decision (October 2026): every transcendental function the engine
+evaluates comes from CORE-MATH's correctly rounded implementations,
+vendored and built in-tree (`crates/lsim-math`, re-exported as
+`lsim_ir::math`).** Before, the engine called the platform's through
+Rust's `f64` methods: glibc here, the MSVC UCRT on Windows, which differ in
+the last place between platforms and, through the FMA variants that
+glibc's `ifunc`s and the UCRT (`_set_FMA3_enable`) pick at run time,
+between CPUs. A correctly rounded function has exactly one right result
+for each input, the exact value rounded to the nearest double, so the
+engine's results no longer depend on the platform, the compiler or the
+CPU.
+
+What goes through it: the interpreter (`lsim_ir::eval`) and preparation's
+constant folding; the runtime symbols generated code calls (`lsim_exp`,
+`lsim_pow`, …) and the tapes' library calls; the interval enclosures and
+so the condition kernels; lsim-solve's dual numbers (energy books, impulse
+projection, the conditions' rates); integer powers (`math::powi`: Rust's
+own `f64::powi` multiplies by repeated squaring on Linux but calls the C
+runtime's `pow` on Windows, which Windows CI showed); and SUNDIALS' own C
+maths: `pow` in CVODE's and IDA's step-size and order selection and IDA's
+convergence rate, `exp` in KINSOL, which a header `lsim-sundials-sys`
+includes first into every SUNDIALS file maps to lsim-math's C entry
+points (every other inexact function of `<math.h>` to a name nothing
+defines, so that a new call fails to build). Keeping it so: clippy's
+`disallowed-methods` (`engine/clippy.toml`) rejects every `f64` and `f32`
+method that calls the C runtime's maths, by type, everywhere in the
+workspace (CI and `check.sh` run clippy with warnings as errors), and
+`lsim-math/tests/sources.rs` checks that list and reads the sources for
+any other way in. Not routed, on purpose: `sqrt`, which IEEE 754 rounds
+correctly and every target computes with an instruction, and the exact
+operations (`abs`, `floor`, `min`, …).
+
+**The candidates**, measured with `experiments/libm-eval` on 9.6 million
+inputs: every hard-to-round case CORE-MATH lists for the 13 functions the
+engine uses (8.4 million inputs whose exact value lies closest to a
+rounding boundary, where a library that is not correctly rounded errs),
+2.2 million random inputs over wide and typical ranges, and the special
+values, each against its correctly rounded result from MPFR (an IEEE
+binary64 context; mpmath at 4000 bits agrees wherever both apply). A cell
+gives the results that are not the correctly rounded one and, in
+brackets, the worst error in ulps of the exact value.
+
+| function | inputs (hard / random / special) | glibc 2.39 | pxfm 0.1.30 | libm crate 0.2.16 | CORE-MATH |
+|---|---|---:|---:|---:|---:|
+| sin | 1 975 927 / 170 000 / 42 | 467 681 (1.03e5) | 214 707 (0.5) | 474 139 (0.756) | 0 |
+| cos | 1 090 161 / 170 000 / 42 | 268 174 (1.37e5) | 160 234 (0.5) | 272 131 (0.752) | 0 |
+| tan | 1 077 363 / 170 000 / 42 | 268 250 (14.4) | 9 161 (0.5) | 274 144 (0.751) | 0 |
+| asin | 249 134 / 170 000 / 42 | 7 117 (0.512) | 0 | 12 759 (0.811) | 0 |
+| acos | 264 099 / 170 000 / 42 | 16 909 (0.522) | 0 | 40 475 (0.866) | 0 |
+| atan | 55 770 / 170 000 / 42 | 8 616 (0.517) | 3 165 (0.5) | 13 817 (0.813) | 0 |
+| atan2 | 28 055 / 170 000 / 2 184 | 5 758 (0.514) | 5 769 (0.5, sign of zero) | 29 542 (1.31) | 0 |
+| sinh | 290 545 / 170 000 / 42 | 51 259 (1.71) | 3 (0.5) | 51 936 (1.71) | 0 |
+| cosh | 36 692 / 170 000 / 42 | 32 990 (1.00) | 3 (0.5) | 34 938 (1.29) | 0 |
+| tanh | 31 450 / 170 000 / 42 | 25 397 (2.00) | 4 (0.5) | 23 894 (2.00) | 0 |
+| exp | 1 129 432 / 170 000 / 42 | 254 342 (0.510) | 17 535 (4.5e15) | 282 123 (0.870) | 0 |
+| log | 134 957 / 170 000 / 42 | 33 058 (0.512) | 386 (0.5) | 36 867 (0.784) | 0 |
+| pow | 1 003 111 / 190 000 / 2 184 | 81 128 (0.505) | 12 088 (special values) | 97 271 (0.836) | 0 |
+
+* **glibc 2.39** (x86-64, the FMA variants this CPU gets): 1.5 million
+  results rounded the wrong way, and beyond the last place for `sinh` (up
+  to 1.71 ulps), `tanh` (1.96 ulps on random inputs between −20 and 20)
+  and `sin` and `cos` of huge arguments whose result is near zero (up to
+  1.4e5 ulps; checked again with mpmath). The interval code widened
+  library results by 2 ulps on the assumption that the platform is within
+  1 ulp, which `lsim-solve/tests/libm.rs` checked for `sin`, `cos`, `exp`
+  and `ln` only: it did not hold for `sinh`, `tanh`, `sin` and `cos` on
+  glibc itself. (The UCRT passed that test's 543 points on Windows CI; its
+  other functions, its FMA3 choice and its agreement with glibc were never
+  measured.)
+* **pxfm 0.1.30** (pure Rust, BSD-3-Clause OR Apache-2.0; ports of
+  CORE-MATH and LLVM's libc, used by the `image` crate): correctly rounded
+  on `asin` and `acos` and almost on the hyperbolic functions, but not on
+  `sin` (one hard case in nine), `cos`, `tan`, `atan`, `atan2`, `exp`,
+  `log` and `pow`; `exp` is wrong by up to 4.5e15 ulps where its result is
+  subnormal, `atan2` loses the sign of a zero result, `pow(1, NaN)` is NaN.
+* **The libm crate 0.2.16** (pure Rust, MIT; musl's): up to 2 ulps.
+* **CORE-MATH** (MIT, C, INRIA): every result correctly rounded, in each
+  of the three builds measured (with `-mfma`; the x86-64 baseline with the
+  C runtime's `fma`; the baseline with the exact software `fma` the engine
+  ships). The Rust binding on crates.io (`core-math` 1.4 over
+  `core-math-sys`) builds all of CORE-MATH with `-march=native` by default
+  and needs the same C compiler on Windows: it brings nothing over
+  vendoring the 13 files.
+
+CORE-MATH is the only candidate that rounds correctly; the pure-Rust ones
+would build anywhere but are not. It is vendored at revision e78d268 of 13
+October 2026: the next revision, 37384b5 of 14 October, rounds three hard
+cases of `exp` the wrong way (one ulp, each within 1.6e-16 ulp of a
+rounding boundary), so the revision is pinned and an update is checked on
+all of CORE-MATH's hard cases first (`crates/lsim-math/core-math/README.md`);
+those three inputs are among the crate's test references.
+
+**Two builds, one result.** CORE-MATH's fused multiply-adds need the FMA
+instruction to be fast; without `-mfma` they become calls of the C
+runtime's `fma`. lsim-math compiles the 13 files twice: with `-mfma`, and
+for every x86-64 CPU with each fused multiply-add an exact software one
+(musl's, MIT, `csrc/lsim_math_fma.c`); the first call picks the build the
+CPU runs (FMA and AVX with the operating system's support, as Rust's
+`is_x86_feature_detected!` sees it). A fused multiply-add is exact either
+way, so the two builds compute the very same numbers at every step, not
+only the same results: tested bit for bit at random, and the golden
+comparison with `LSIM_MATH_NO_FMA=1` (which forces the software build)
+writes the same bytes for all 14 cases. Contraction of `a × b + c` is off
+in both (`-ffp-contract=off`); the C runtime keeps only exact operations
+(`floor`, `round`, `fmax`, `fmin`) and the floating-point environment.
+
+**Windows.** CORE-MATH uses `__int128` and GCC builtins, which MSVC's `cl`
+lacks. lsim-math's build takes clang-cl (the cc crate's
+`prefer_clang_cl_over_msvc`, which finds the "C++ Clang tools for Windows"
+of Visual Studio, on GitHub's Windows image) and stops with an explanation
+where there is none; SUNDIALS stays on `cl`. Windows CI built it, and
+every test passed there (run 38586622075 on `wp3/codegen` at 1bb2173),
+among them lsim-math's references (correctly rounded on every one, in
+each build the runner's CPU runs), SUNDIALS' `pow` on hard cases, and
+every evaluation path
+against the library (`lsim-codegen/tests/library.rs`). No CI change was
+needed.
+
+**Speed.** Per call, ns (`experiments/libm-eval`, the best of 15 passes
+over 65 536 inputs in the ranges models use, one thread of this 2.8 GHz
+Xeon; glibc's calls go through the PLT, CORE-MATH's through Rust's FFI,
+lsim-math's through the engine's entry points, which pick the build):
+
+| ns per call | sin | cos | tan | asin | acos | atan | atan2 | sinh | cosh | tanh | exp | log | pow |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| glibc 2.39 | 20.0 | 18.8 | 19.8 | 18.7 | 19.4 | 12.4 | 27.8 | 21.4 | 8.2 | 19.3 | 5.3 | 5.3 | 16.5 |
+| lsim-math, FMA build | 12.6 | 30.4 | 35.1 | 14.3 | 13.7 | 12.2 | 16.9 | 13.1 | 12.8 | 17.0 | 8.1 | 8.9 | 24.9 |
+| lsim-math, software FMA | 65.8 | 330.9 | 445.0 | 55.3 | 56.6 | 49.1 | 50.4 | 63.9 | 63.3 | 83.4 | 34.6 | 119.9 | 444.2 |
+| pxfm 0.1.30 | 25.6 | 24.3 | 34.7 | 117.6 | 31.9 | 10.7 | 23.2 | 31.9 | 22.2 | 38.8 | 7.7 | 9.4 | 162.2 |
+| libm crate 0.2.16 | 22.3 | 22.5 | 24.0 | 11.5 | 11.5 | 11.8 | 29.2 | 19.0 | 14.1 | 21.4 | 10.8 | 9.4 | 72.3 |
+
+The FMA build, which mainstream x86-64 CPUs since 2013 run (Intel
+Haswell, AMD Piledriver; some low-end Atom-based Celerons and Pentiums
+do not), is faster than glibc for `sin`, `asin`, `acos`, `atan2`, `sinh`
+and `tanh`, as fast for `atan`, and 1.5–1.8× slower for `cos`, `tan`,
+`cosh`, `exp`, `log` and `pow`; choosing the build costs
+nothing measurable (the engine's entry points against the FMA build
+called directly). The software build, for CPUs without FMA, is 3–28×
+slower than glibc.
+
+On the golden cases the library is about 2 % of a run's instructions
+(callgrind: the BEV's WLTC 1.9 % with glibc and 1.9 % with lsim-math; the
+hybrid's mixed cycle 1.6 % and 2.4 %, `log` and `pow` dearer and `atan`
+cheaper), and each run's instructions fell by 0.4–0.5 % with its steps
+(the BEV's WLTC 214 672 steps against 215 669, the mixed cycle 567 850
+against 572 709). Run times, the two builds alternating on a quiet
+machine, medians: the BEV's WLTC 3.06 → 2.88 s (6 pairs, single runs
+from 2.7 to 4.0 s), the hybrid's mixed cycle 24.6 → 24.5 s (3 pairs), its
+UDDS 93.1 → 98.3 s (5 pairs: +0.3 % and +1.1 % with the new build run
+first, +4 % to +8 % with it run second): within this machine's noise, but
+for perhaps a few per cent on the hybrid. The software build costs the
+BEV's WLTC 18 % and the aero BEV's 15 % (3 pairs each).
+
+**The interval code's widening is a proof now.** A correctly rounded `r`
+of `f(x)` is the double nearest the exact value, so the exact value lies
+between `r`'s neighbours: `next_down(r) ≤ f(x) ≤ next_up(r)`, at overflow
+and underflow too. `lsim_ir::interval` widens library results by
+`math::LIBRARY_ULPS` = 1 ulp on each side (2 before, on an assumption),
+and the kernels with it; `lsim-codegen/tests/library.rs` checks that the
+enclosure of a monotone function at a point is exactly that wide. It moved
+no result of the golden comparison (the enclosures only decide where a
+condition must be searched along a step).
+
+**Not routed: diffsol and the Script blocks.** diffsol's step-size
+control (its PI controller and first step) and its Newton convergence
+test call `pow` and `cbrt` through `num-traits`, which calls the C
+runtime's: its step sequences, and so its results, can differ between
+platforms (diffsol's own comments say its snapshot tests did, between
+Windows and Linux). It is the cross-check backend, not the product's
+integrator; routing it would take a patched copy of diffsol or a change
+upstream (its `Scalar` trait taking its powers from the caller). A Script
+block's Python computes with Python's `math` module, the C runtime's, so
+a model with a Script block can still differ between platforms through
+its script. faer's sparse and dense LU and its triangular solves, which
+the engine uses, call no transcendental function.
 
 ## 8. Solver layer
 
@@ -1845,6 +2023,17 @@ events name the modes that chatter.
   monotonicity (`tables.rs`), the `when` semantics (`when.rs`), tapes
   against machine code (`tape.rs`), the calling conventions
   (`conventions.rs`) and the compile budgets (`budget.rs`).
+* **The mathematical library** (section 7.1): every function correctly
+  rounded on 4 672 references (hard-to-round cases, special values, the
+  inputs where glibc errs; MPFR and mpmath agree on each), in both builds
+  and through the Rust and C entry points (`lsim-math/tests`); every
+  evaluation path, from the interpreter to the kernels' enclosures,
+  bitwise the library on them (`lsim-codegen/tests/library.rs`);
+  SUNDIALS' `pow` correctly rounded where glibc's is not and its sources
+  calling no inexact function of the C runtime
+  (`lsim-sundials-sys/tests/maths.rs`); no engine code calling the
+  platform's maths (clippy's `disallowed-methods`,
+  `lsim-math/tests/sources.rs`).
 * **Exact-answer suite**: the reference suite being built in `benchmarks/`
   gives each block's exact answers; an adapter in `lsim-engine/tests` runs
   every case on both backends (SUNDIALS and diffsol) and asserts each
@@ -1975,7 +2164,10 @@ work end to end) or against hand-written test doubles of the interfaces.
   compilation stops when it is dropped and reports how it ends; a system
   that refuses executable memory gets tapes; compiling and running set
   the default floating-point environment; the exact powers are the same
-  bits with and without FMA (section 7).
+  bits with and without FMA (section 7). Then one mathematical library for
+  the whole engine, SUNDIALS' C code included: CORE-MATH's correctly
+  rounded functions, the same bits on every platform and CPU, the
+  interval widening a proof (section 7.1).
 
 ### WP4 — Solver runtime
 
@@ -2132,9 +2324,15 @@ the vehicle body). A short integration checkpoint each week runs
 | R9 | KLU is LGPL and banned | faer sparse LU (MIT) as our SUNDIALS linear solver (WP4). **WP4:** done; dense, band and sparse LU give the same runs on every reference model (test) |
 | R10 | Parallel agents change `lsim-ir` incompatibly | additive changes only; owners agree; check.sh in every package's CI |
 | R11 | Base Modelica is a moving specification (MCP-0031) | the text format is a strict subset; import tracks the published version |
-| R12 | Windows x64 is the target and only Linux is tested here | **WP3:** generated code takes the ISA's default calling convention everywhere, checked per function and by compiling every example for `x86_64-pc-windows-msvc` in the tests; stack probes for large frames; tapes where executable memory is refused; the default floating-point environment for compiling and running; the same bits on CPUs with and without FMA. Only Windows CI can run the code there: the convention end to end, the stack probes, the refusal path on a real Arbitrary Code Guard process, and the MSVC CRT's maths functions against `lsim-solve/tests/libm.rs`. Proposed: a libm the engine ships and calls everywhere (CORE-MATH's correctly rounded functions, MIT, built by the `cc` build that builds SUNDIALS), which would make results the same on every platform and CPU and the interval widening sound by construction; the libm test should then also cover `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`, `tanh`, `pow` and `atan2`, which the interval code widens too |
+| R12 | Windows x64 is the target and only Linux is tested here | **WP3:** generated code takes the ISA's default calling convention everywhere, checked per function and by compiling every example for `x86_64-pc-windows-msvc` in the tests; stack probes for large frames; tapes where executable memory is refused; the default floating-point environment for compiling and running; the same bits on CPUs with and without FMA. Only Windows CI can run the code there: the convention end to end, the stack probes, the refusal path on a real Arbitrary Code Guard process (Windows CI now runs every engine test, green). **The mathematical library (October 2026):** the engine ships its own and calls it everywhere, SUNDIALS' C code included (`lsim-math`: CORE-MATH's correctly rounded functions, section 7.1), so results no longer depend on the C runtime or the CPU and the interval widening is a proof; built on Windows with clang-cl, proved by Windows CI. Still the platform's: diffsol's step control (the cross-check backend) and a Script block's Python |
 
 ## 18. Licences
+
+The engine's mathematical library (`crates/lsim-math`, October 2026)
+vendors 13 of CORE-MATH's C files (MIT, INRIA and contributors;
+`core-math/LICENSE` and every file's header) and musl's `fma` (MIT,
+`csrc/LICENSE-musl`): no crate added (licences.py and cargo-deny pass
+unchanged).
 
 Since work package 4 the workspace builds with 231 third-party crates,
 all permissive (licences.py and cargo-deny: "bans ok, licenses ok"):

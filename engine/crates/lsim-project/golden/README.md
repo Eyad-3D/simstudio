@@ -62,20 +62,20 @@ relaxes after a shift is in their own slip losses (below).
 
 | case | figures inside | channels inside | energy books: closure | gear shifts | as the gears engaged, kWh (today's gearbox term) | steps | events | run, s |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| aero-bev/case-hwfet | 10/10 | 63/67 | 1.3e-10 | — | — | 82027 | 17 | 0.87 |
-| aero-bev/case-udds | 14/14 | 63/67 | 1.3e-10 | — | — | 179312 | 257 | 1.96 |
-| aero-bev/case-wltc | 18/18 | 63/67 | 2.5e-11 | — | — | 223735 | 122 | 2.38 |
-| bev-car/case-city | 10/11 | 65/70 | 1.5e-09 | — | — | 3999 | 17 | 0.06 |
-| bev-car/case-city-live | 10/11 | 65/70 | 1.5e-09 | — | — | 3999 | 17 | 0.06 |
-| bev-car/case-wltc | 19/19 | 65/70 | 2.7e-10 | — | — | 215669 | 122 | 2.52 |
-| bev-car/case-wltc-hvac | 19/19 | 65/70 | 5.8e-11 | — | — | 214113 | 122 | 2.48 |
-| bev-car/case-wltc-summer | 20/20 | 65/70 | 7.4e-11 | — | — | 214496 | 122 | 2.48 |
-| bev-car/case-wltc-winter | 20/20 | 65/70 | 2.6e-11 | — | — | 215305 | 122 | 2.86 |
-| fs-electric/case-accel-75m | 19/19 | 65/65 | 1.7e-10 | — | — | 1058 | 13 | 0.09 |
-| hybrid-car/case-hwfet | 9/9 | 88/88 | 3.3e-12 | 16 | 0.0002062 (0.0003367) | 1918254 | 76998 | 51.50 |
-| hybrid-car/case-mixed | 9/9 | 82/88 | 1.2e-12 | 10 | 0.0001447 (0.0002622) | 572709 | 56209 | 21.41 |
-| hybrid-car/case-mixed-live | 9/9 | 82/88 | 1.2e-12 | 10 | 0.0001447 (0.0002622) | 572709 | 56209 | 21.52 |
-| hybrid-car/case-udds | 13/13 | 88/88 | 6.8e-12 | 104 | 0.0016634 (0.0035028) | 3023217 | 118094 | 80.89 |
+| aero-bev/case-hwfet | 10/10 | 63/67 | 8.6e-11 | — | — | 82663 | 17 | 1.05 |
+| aero-bev/case-udds | 14/14 | 63/67 | 1.1e-09 | — | — | 178021 | 257 | 2.28 |
+| aero-bev/case-wltc | 18/18 | 63/67 | 4.6e-12 | — | — | 222969 | 122 | 2.89 |
+| bev-car/case-city | 10/11 | 65/70 | 1.5e-09 | — | — | 3999 | 17 | 0.07 |
+| bev-car/case-city-live | 10/11 | 65/70 | 1.5e-09 | — | — | 3999 | 17 | 0.09 |
+| bev-car/case-wltc | 19/19 | 65/70 | 1.5e-11 | — | — | 214672 | 122 | 2.92 |
+| bev-car/case-wltc-hvac | 19/19 | 65/70 | 1.8e-10 | — | — | 215213 | 122 | 3.12 |
+| bev-car/case-wltc-summer | 20/20 | 65/70 | 4.1e-10 | — | — | 216047 | 122 | 3.16 |
+| bev-car/case-wltc-winter | 20/20 | 65/70 | 3.3e-10 | — | — | 213729 | 122 | 2.79 |
+| fs-electric/case-accel-75m | 19/19 | 65/65 | 1.7e-10 | — | — | 1058 | 13 | 0.12 |
+| hybrid-car/case-hwfet | 9/9 | 88/88 | 8.1e-12 | 16 | 0.0002062 (0.0003367) | 1918788 | 77007 | 61.31 |
+| hybrid-car/case-mixed | 9/9 | 82/88 | 8.3e-13 | 10 | 0.0001447 (0.0002622) | 567850 | 56206 | 25.32 |
+| hybrid-car/case-mixed-live | 9/9 | 82/88 | 8.3e-13 | 10 | 0.0001447 (0.0002622) | 567850 | 56206 | 25.14 |
+| hybrid-car/case-udds | 13/13 | 88/88 | 9.8e-12 | 104 | 0.0016634 (0.0035028) | 3023612 | 118064 | 95.80 |
 
 199 of the 201 figures are inside their bands (194 before work package
 4's second round, below), and 984 of 1038 channels (949 after its fourth
@@ -93,7 +93,9 @@ them, before its step (the run keeps both sides: below). The energy books
 close to 1.5e-9 of their throughput or better in every case (the
 hybrid's to about 1e-11), each stored energy's rate exact. Every figure
 moved by at most 1.5e-3 × band since the fourth round, most by less than
-5e-4, and none in the sixth or the seventh.
+5e-4, and none in the sixth or the seventh; with the engine's own
+mathematical library (October 2026, the last section) 143 moved, by at
+most 4.5e-4 × band.
 
 ## Triage
 
@@ -575,3 +577,65 @@ every 10 ms tick (137 000 on the UDDS), and most of its remaining steps
 follow the tyres' slip, which settles within about 1e-4 s after each
 change of torque the controller makes: the error test on the iteration
 variables needs them.
+
+## The engine's own mathematical library (October 2026)
+
+Every transcendental function the new engine evaluates now comes from its
+own library, CORE-MATH's correctly rounded functions (`lsim-math`,
+DESIGN.md 7.1), instead of the platform's (glibc here): the models'
+library calls in the interpreter, the generated code, the tapes, the
+kernels and the energy books, the interval enclosures (now widened by the
+one ulp correct rounding proves, 2 before), and SUNDIALS' own `pow` in
+CVODE's and IDA's step-size and order selection. The results are the same
+on every platform and CPU, and they move in the last digits where glibc's
+were not correctly rounded.
+
+Against the ninth round (627dd01), the full comparison run the same way:
+
+* **Figures**: 143 of the 201 moved, by at most 4.5e-4 × band (the aero
+  BEV's battery losses on the UDDS), the median by 4e-6 × band. None left
+  or entered its band: 199 of 201 inside, the two outside still the BEV's
+  city recuperation, whose case did not move at all.
+* **Channels**: 984 of 1038 inside, as before. The largest move is the
+  hybrid's clutch losses on the HWFET, 0.125 × band: a channel whose RMS
+  is 6e-10 kW against a band of 1e-9 kW, round-off around a loss that is
+  zero there (today's engine has 1e-15 kW); then the same channel on the
+  mixed cycle, 0.018 × band; every other channel by at most 1.6e-4 ×
+  band.
+* **Steps and events**: within 0.9 % (the aero BEV's HWFET 82 027 →
+  82 663, the hybrid's mixed cycle 572 709 → 567 850, its UDDS 3 023 217
+  → 3 023 612 steps and 118 094 → 118 064 events); the energy books still
+  close to 1.5e-9 of the throughput or better.
+* **Where the moves come from**, the change made in three steps and the
+  comparison run after each: the models' own library calls moved the
+  BEV's four WLTC cases and the hybrid's (the aero BEV, the city cycle and
+  the acceleration test call no function whose result glibc rounds
+  differently); the enclosures' one ulp moved nothing (they decide only
+  where a condition is searched along a step); SUNDIALS' `pow` moved every
+  case whose step sequence it changed, the aero BEV's included. The BEV's
+  city cycle and the acceleration test are byte-identical throughout.
+* **Without FMA**: with `LSIM_MATH_NO_FMA=1`, the library's build for CPUs
+  without the instruction, every case writes the same bytes.
+
+Run times, the ninth round's build (627dd01) against this one (1bb2173),
+release builds, one case at a time on a quiet machine, the two builds
+alternating (seconds; the steps are the same in every run of a build):
+
+| case | steps, before | steps, now | run before, s | run now, s |
+|---|---:|---:|---|---|
+| bev-car/case-wltc | 215669 | 214672 | 3.15, 3.03, 3.96, 2.90, 3.10, 2.68 (median 3.06) | 2.80, 2.71, 3.54, 2.97, 2.97, 2.67 (median 2.88) |
+| hybrid-car/case-mixed | 572709 | 567850 | 24.59, 25.36, 23.58 (median 24.59) | 24.74, 24.52, 24.34 (median 24.52) |
+| hybrid-car/case-udds | 3023217 | 3023612 | 94.60, 93.07, 97.67, 84.07, 89.47 (median 93.07) | 98.33, 100.33, 102.10, 84.97, 89.72 (median 98.33) |
+
+The UDDS's last two pairs ran the new build first (+1.1 %, +0.3 %), the
+first three ran it second (+4 % to +8 %): within this machine's noise, but
+for perhaps a few per cent. Counted in instructions (callgrind), which do
+not depend on the machine's load, the BEV's WLTC takes 0.4 % fewer
+(22.58 against 22.67 billion) and the hybrid's mixed cycle 0.5 % fewer
+(93.01 against 93.43 billion, the Script block's Python process not
+counted): fewer steps, while the library's share stays at 1.9 % on the
+BEV and goes from 1.6 % to 2.4 % on the hybrid, whose `log` and `pow`
+cost more per call than glibc's and `atan` less. The full comparison took
+226.1 s of runs (208.0 s after the ninth round's review, measured on
+another day). With the library's build for CPUs without FMA the BEV's
+WLTC takes 18 % longer and the aero BEV's 15 % (3 pairs each).
