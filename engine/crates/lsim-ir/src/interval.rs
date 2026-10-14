@@ -12,11 +12,13 @@
 //!
 //! Rounding: every operation's bounds are widened outwards, by an ulp for
 //! the exactly rounded ones (`+`, `−`, `×`, `÷`, `sqrt`; a product with a
-//! zero bound is exactly zero), by 2 ulps for the
-//! library's `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`, `cosh`,
-//! `tanh`, `exp`, `ln` and `pow` (`lsim_ir::math`, correctly rounded:
-//! within half an ulp of the exact value), and relatively by n ε for
-//! integer powers (`math::powi`, repeated squaring: up to (n − 1) ε / 2).
+//! zero bound is exactly zero) and, by [`math::LIBRARY_ULPS`] = 1 ulp, for
+//! the library's `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `sinh`,
+//! `cosh`, `tanh`, `exp`, `ln` and `pow`: they are the engine's own
+//! (`lsim_ir::math`), correctly rounded, so the exact value lies within an
+//! ulp of each result (a proof, not an assumption about a platform's
+//! libm); and relatively by n ε for integer powers (`math::powi`, repeated
+//! squaring: up to (n − 1) ε / 2).
 //!
 //! (Moved here unchanged from lsim-solve, so that the code generator's
 //! kernels can use the very same operations.)
@@ -212,14 +214,15 @@ impl Iv {
         }
     }
 
-    /// An increasing function's enclosure (`f` accurate to an ulp).
+    /// An increasing function's enclosure (`f` correctly rounded: a
+    /// library function, or `sqrt`).
     pub fn incr(self, f: fn(f64) -> f64) -> Iv {
-        Iv::wide(f(self.lo), f(self.hi), 2)
+        Iv::wide(f(self.lo), f(self.hi), math::LIBRARY_ULPS)
     }
 
-    /// A decreasing function's enclosure.
+    /// A decreasing function's enclosure (`f` correctly rounded).
     pub fn decr(self, f: fn(f64) -> f64) -> Iv {
-        Iv::wide(f(self.hi), f(self.lo), 2)
+        Iv::wide(f(self.hi), f(self.lo), math::LIBRARY_ULPS)
     }
 }
 
@@ -239,7 +242,7 @@ pub fn sin_iv(a: Iv) -> Iv {
         return Iv::new(-1.0, 1.0);
     }
     let (s0, s1) = (math::sin(a.lo), math::sin(a.hi));
-    let mut r = Iv::wide(s0.min(s1), s0.max(s1), 2);
+    let mut r = Iv::wide(s0.min(s1), s0.max(s1), math::LIBRARY_ULPS);
     if holds_phase(a, FRAC_PI_2, TAU) {
         r.hi = 1.0;
     }
@@ -255,7 +258,7 @@ pub fn cos_iv(a: Iv) -> Iv {
         return Iv::new(-1.0, 1.0);
     }
     let (c0, c1) = (math::cos(a.lo), math::cos(a.hi));
-    let mut r = Iv::wide(c0.min(c1), c0.max(c1), 2);
+    let mut r = Iv::wide(c0.min(c1), c0.max(c1), math::LIBRARY_ULPS);
     if holds_phase(a, 0.0, TAU) {
         r.hi = 1.0;
     }
@@ -274,7 +277,8 @@ pub fn powf_iv(a: Iv, e: f64) -> Iv {
         return ONE;
     }
     let (p0, p1) = (math::pow(a.lo, e), math::pow(a.hi, e));
-    if e > 0.0 { Iv::wide(p0, p1, 2) } else { Iv::wide(p1, p0, 2) }
+    let n = math::LIBRARY_ULPS;
+    if e > 0.0 { Iv::wide(p0, p1, n) } else { Iv::wide(p1, p0, n) }
 }
 
 /// `x^n` for an integer `n`.
@@ -396,7 +400,7 @@ impl J2 {
             return J2::all();
         }
         let f = if v.lo == 0.0 {
-            Iv::wide(f64::NEG_INFINITY, math::ln(v.hi), 2)
+            Iv::wide(f64::NEG_INFINITY, math::ln(v.hi), math::LIBRARY_ULPS)
         } else {
             v.incr(math::ln)
         };
@@ -813,7 +817,7 @@ pub fn cosh_iv(x: Iv) -> Iv {
     } else if x.hi <= 0.0 {
         x.decr(math::cosh)
     } else {
-        Iv::new(1.0, up(math::cosh(x.lo).max(math::cosh(x.hi)), 2))
+        Iv::new(1.0, up(math::cosh(x.lo).max(math::cosh(x.hi)), math::LIBRARY_ULPS))
     }
 }
 
