@@ -29,7 +29,7 @@ test("LRN-09: F1 opens the right page for every part in the library, offline, wi
   await page.keyboard.press("F1");
   await expect(helpTitle(page)).toHaveText("E-Motor");
   // Esc in the panel closes it
-  await page.getByRole("complementary", { name: "Help" }).getByRole("button", { name: "Back" }).focus();
+  await page.getByRole("complementary", { name: "Help" }).getByRole("button", { name: "Help front page" }).focus();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("complementary", { name: "Help" })).toHaveCount(0);
 });
@@ -74,6 +74,27 @@ test("LRN-09: the Help menu lists the help's main pages, and links out of the he
   // Open in browser hands the page shown to the browser
   const [tab] = await Promise.all([context.waitForEvent("page"), page.getByRole("button", { name: "Open in browser" }).click()]);
   await expect(tab).toHaveURL(/\/help\/known-limits\.html$/);
+});
+
+test("LRN-09: Back steps through the help's own pages and never takes the window out of the app", async ({ page }) => {
+  await openApp(page);
+  await page.getByRole("button", { name: "Help", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Documentation" }).click();
+  await expect(helpTitle(page)).toHaveText("LightSim help");
+  const back = page.getByRole("complementary", { name: "Help" }).getByRole("button", { name: "Back" });
+  // the first page has nothing before it in the help: before, "back" took
+  // the whole window back (in the desktop app, to its "Starting" page)
+  await expect(back).toBeDisabled();
+  const frame = page.frameLocator("iframe[title='Help page']");
+  await frame.locator("main a[href='tutorials/first-run.html']").first().click();
+  await expect(helpTitle(page)).not.toHaveText("LightSim help");
+  await expect(back).toBeEnabled();
+  await back.click();
+  await expect(helpTitle(page)).toHaveText("LightSim help");
+  await expect(back).toBeDisabled();
+  // the app is where it was
+  await expect(page.locator(".react-flow__node").first()).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe("/");
 });
 
 test("LRN-09: What's new shows the release notes once after an update, never on a first start", async ({ page }) => {

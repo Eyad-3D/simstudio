@@ -617,6 +617,10 @@ async function createWindow() {
     await mainWindow.loadURL(`${appOrigin}/`, {
       extraHeaders: `Authorization: Bearer ${launchToken}\n`,
     });
+    // Nothing to go back to: a "back" from the app (the help panel's frame
+    // shares the window's history) would show the "Starting LightSim" page
+    // again, with no engine behind it and no way forward.
+    mainWindow.webContents.navigationHistory.clear();
     windowReady = true;
     await refreshRecent();
     buildMenu();

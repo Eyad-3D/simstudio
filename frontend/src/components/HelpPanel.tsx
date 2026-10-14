@@ -38,12 +38,37 @@ export function HelpPanel() {
   const frame = useRef<HTMLIFrameElement>(null);
   const [width, setWidth] = useState(loadWidth);
   const [title, setTitle] = useState("Help");
+  // How many help pages Back can return to. The frame shares the window's
+  // history, so a "back" with none of its own left would take the whole
+  // window back (in the desktop app, to the "Starting LightSim" page): Back
+  // only steps through the pages followed inside the panel.
+  const [depth, setDepth] = useState(0);
+  const counted = useRef<HTMLIFrameElement | null>(null);
+  const returning = useRef(false);
 
   if (!page) return null;
+
+  // a page shown in the frame: a new one, or the one before it after Back
+  const moved = () => {
+    if (counted.current !== frame.current) {
+      // a new frame (another page asked for): nothing to go back to yet
+      counted.current = frame.current;
+      returning.current = false;
+      setDepth(0);
+    } else if (returning.current) {
+      returning.current = false;
+      setDepth((d) => Math.max(0, d - 1));
+    } else {
+      setDepth((d) => d + 1);
+    }
+  };
 
   const onLoad = () => {
     const doc = frame.current?.contentDocument;
     if (!doc) return;
+    moved();
+    // a link to a heading of the same page is a step too
+    frame.current?.contentWindow?.addEventListener("hashchange", moved);
     setTitle(doc.title.replace(/ · LightSim .*$/, "") || "Help");
     // links out of the help open in the system browser: other sites refuse
     // to show inside a frame, and the panel is for the help
@@ -103,7 +128,12 @@ export function HelpPanel() {
           className="ss-toolbtn"
           title="Back"
           aria-label="Back"
-          onClick={() => frame.current?.contentWindow?.history.back()}
+          disabled={depth === 0}
+          onClick={() => {
+            if (depth === 0) return;
+            returning.current = true;
+            frame.current?.contentWindow?.history.back();
+          }}
         >
           <ArrowLeft size={13} />
         </button>
