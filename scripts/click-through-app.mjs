@@ -127,25 +127,29 @@ async function main() {
     const all = [...document.querySelectorAll("button, [role=button], [role=tab], [role=menuitem]")];
     all.forEach((el, index) => {
       if (!(el instanceof HTMLElement) || !el.offsetParent) return;
+      // the part of the button the user sees: inside the window and every
+      // panel that clips it (a list scrolled half past it shows half a row)
       const r = el.getBoundingClientRect();
-      if (r.width < 4 || r.height < 4 || r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) return;
-      const x = Math.min(innerWidth - 1, r.left + r.width / 2), y = Math.min(innerHeight - 1, r.top + r.height / 2);
-      const top = document.elementFromPoint(x, y);
-      const name = (el.getAttribute("aria-label") || el.title || el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 70);
-      const text = (el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 70);
-      const covered = !(top && (top === el || el.contains(top)));
-      // Under an opaque layer (another view drawn over this one) the user
-      // cannot see the button at all: hidden, not a trap. Under a clear or
-      // see-through layer they see it and their click lands elsewhere.
-      let hidden = false;
-      // scrolled out of its panel: the user scrolls to it first
-      for (let p = el.parentElement; covered && p; p = p.parentElement) {
+      let L = Math.max(r.left, 0), T = Math.max(r.top, 0), R = Math.min(r.right, innerWidth), B = Math.min(r.bottom, innerHeight);
+      for (let p = el.parentElement; p; p = p.parentElement) {
         const o = getComputedStyle(p);
         if (!/(auto|scroll|hidden|clip)/.test(o.overflow + o.overflowX + o.overflowY)) continue;
         const q = p.getBoundingClientRect();
-        if (x < q.left || x > q.right || y < q.top || y > q.bottom) { hidden = true; break; }
+        L = Math.max(L, q.left); T = Math.max(T, q.top); R = Math.min(R, q.right); B = Math.min(B, q.bottom);
       }
-      for (let n = covered && !hidden ? top : null; n && !n.contains(el); n = n.parentElement) {
+      if (r.width < 4 || r.height < 4) return;
+      // scrolled out of its panel (the user scrolls to it first) or barely showing
+      const offscreen = R - L < 4 || B - T < 4;
+      const x = (L + R) / 2, y = (T + B) / 2;
+      const top = offscreen ? null : document.elementFromPoint(x, y);
+      const name = (el.getAttribute("aria-label") || el.title || el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 70);
+      const text = (el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 70);
+      const covered = !offscreen && !(top && (top === el || el.contains(top)));
+      // Under an opaque layer (another view drawn over this one) the user
+      // cannot see the button at all: hidden, not a trap. Under a clear or
+      // see-through layer they see it and their click lands elsewhere.
+      let hidden = offscreen;
+      for (let n = covered ? top : null; n && !n.contains(el); n = n.parentElement) {
         const st = getComputedStyle(n);
         const a = st.backgroundColor.match(/rgba?\(([^)]+)\)/);
         const alpha = a ? (a[1].split(",")[3] === undefined ? 1 : parseFloat(a[1].split(",")[3])) : 0;
