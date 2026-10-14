@@ -4,9 +4,14 @@
 //! Linux). The configuration header (`sundials/include/sundials/
 //! sundials_config.h`) and the Rust bindings (`src/bindings.rs`) are
 //! committed. The C code's mathematical functions are the engine's own
-//! (lsim-math), mapped by a header included first into every file.
+//! (lsim-math), mapped by a header included first into every file. The
+//! compiler gets the options chosen here and no others, as lsim-math's
+//! does (`../lsim-math/c_flags.rs`): the environment's C flags are ignored,
+//! and an option that changes floating-point results stops the build.
 
 use std::path::{Path, PathBuf};
+
+include!("../lsim-math/c_flags.rs");
 
 /// The C files, relative to `sundials/src`.
 const SOURCES: &[&str] = &[
@@ -72,9 +77,11 @@ const SOURCES: &[&str] = &[
 ];
 
 fn main() {
+    ignore_environment_c_flags("lsim-sundials-sys (SUNDIALS)");
     let root = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("sundials");
     let src = root.join("src");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=../lsim-math/c_flags.rs");
     println!("cargo:rerun-if-changed=sundials");
 
     let mut b = cc::Build::new();
@@ -119,6 +126,7 @@ fn main() {
     for f in ["lsim_cvodes_dky.c", "lsim_idas_dky.c", "lsim_cvodes_dense.c", "lsim_idas_dense.c"] {
         b.file(own.join(f));
     }
+    refuse_unsafe_fp_options("lsim-sundials-sys (SUNDIALS)", &b.get_compiler());
     b.compile("lsim_sundials");
     // where the headers are, for any dependent build script
     println!("cargo:include={}", root.join("include").display());

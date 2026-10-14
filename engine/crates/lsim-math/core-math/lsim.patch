@@ -1,0 +1,263 @@
+diff -ruN a/binary64/asin/asin.c b/binary64/asin/asin.c
+--- a/binary64/asin/asin.c
++++ b/binary64/asin/asin.c
+@@ -331,7 +331,7 @@
+   b64u64_u th = {.f = ph}, tl = {.f = pl}, tn;
+   tn.u = (th.u&(0x7ffull<<52)) - (53ull<<52);
+   tl.u &= ~0ull>>1;
+-  long dn = tl.u-tn.u, de = (tn.u - tl.u)>>52;
++  int64_t dn = tl.u-tn.u, de = (tn.u - tl.u)>>52; // lsim (engine patch 2): was long
+   // dn=-2 for x=0x1.c373ff4aad79bp-14 (rndn)
+   // de=48 for x=0x1.da4e0e6c717a5p-2 (rndz)
+   int hard = (-2<=dn && dn<=0) || (de>47);
+diff -ruN a/binary64/atan/atan.c b/binary64/atan/atan.c
+--- a/binary64/atan/atan.c
++++ b/binary64/atan/atan.c
+@@ -232,7 +232,7 @@
+   static const double ch[] = {0x1p+0, -0x1.555555555552bp-2, 0x1.9999999069c2p-3, -0x1.248d2c8444ac6p-3};
+   b64u64_u t = {.f = x};
+   u64 at = t.u&(~(u64)0>>1); // at encodes |x|
+-  int64_t i = (at>>51) - 2030l; // -2030 <= i <= 2065
++  int64_t i = (at>>51) - 2030ll; // -2030 <= i <= 2065 (lsim, engine patch 2: was 2030l)
+   if (__builtin_expect(at < 0x3f7b21c475e6362aull, 0)) {
+     // |x| < 0x1.b21c475e6362ap-8
+     if(__builtin_expect(at == 0, 0)) return x; // atan(+/-0) = +/-0
+diff -ruN a/binary64/atan2/tint.h b/binary64/atan2/tint.h
+--- a/binary64/atan2/tint.h
++++ b/binary64/atan2/tint.h
+@@ -37,6 +37,11 @@
+ 
+ #include <stdlib.h>
+ 
++/* lsim (engine patch 1): a case the code cannot round with certainty is
++   reported here (lsim-math's src/lib.rs counts it) instead of printed
++   before exit(1), which would end the host process */
++extern void lsim_math_unexpected_case (int function, double x, double y);
++
+ // the following represent (-1)^sgn*(h/2^64+m/2^128+l/2^192)*2^ex
+ // we have either h=m=l=0 to represent +0 or -0
+ // or the most significant bit of h is 1
+@@ -398,7 +403,7 @@
+     // if mid, |a| = 2^-1075
+     return (a->sgn ? -0x1p-1074 : 0x1p-1074) * (mid ? 0.5 : 0.75);
+   }
+-#define MASK53 0x1ffffffffffffful
++#define MASK53 0x1fffffffffffffull
+   uint64_t hh = a->h, mm = a->m, ll = a->l;
+   int ex = a->ex;
+   uint64_t low = hh & 0x7ff; // low 11 bits from a->h
+@@ -410,9 +415,9 @@
+     if ((mm == 0 && (low == 0 || low == 0x400) && ll < err) ||
+         (~mm == 0 && (low == 0x3ff || low == 0x7ff) && ~ll < err))
+     {
+-      printf ("Unexpected worst-case found, please report to core-math@inria.fr:\n");
+-      printf ("Worst-case of atan2 found: y,x=%la,%la\n", y, x);
+-      exit (1);
++      /* lsim (engine patch 1): count the case and round the approximation
++         at hand below, as if the test had passed */
++      lsim_math_unexpected_case (2, y, x);
+     }
+   if (ex <= -1022) // subnormal case
+   {
+diff -ruN a/binary64/cos/cos.c b/binary64/cos/cos.c
+--- a/binary64/cos/cos.c
++++ b/binary64/cos/cos.c
+@@ -398,7 +398,7 @@
+         e.f = 0x0.0000000000001p-1022;
+       }
+     } else {
+-      e.u = 1l << (a->ex + 1073);
++      e.u = 1ll << (a->ex + 1073); // lsim (engine patch 2): was 1l
+     }
+   }
+ 
+diff -ruN a/binary64/cosh/cosh.c b/binary64/cosh/cosh.c
+--- a/binary64/cosh/cosh.c
++++ b/binary64/cosh/cosh.c
+@@ -104,7 +104,7 @@
+   double y0 = fasttwosum(1.0, y1, &y1);
+   y1 = fasttwosum(y1, y2, &y2);
+   b64u64_u t = {.f = y1};
+-  if(__builtin_expect(!(t.u&(~0ul>>12)), 0)){
++  if(__builtin_expect(!(t.u&(~0ull>>12)), 0)){
+     b64u64_u w = {.f = y2};
+     if((w.u^t.u)>>63)
+       t.u--;
+@@ -112,7 +112,7 @@
+       t.u++;
+     y1 = t.f;
+   }
+-  if(__builtin_expect((t.u&(~0ul>>12))==(~0ul>>12), 0)) return as_cosh_database(x, y0 + y1);
++  if(__builtin_expect((t.u&(~0ull>>12))==(~0ull>>12), 0)) return as_cosh_database(x, y0 + y1);
+   return y0 + y1;
+ }
+ 
+@@ -241,12 +241,12 @@
+   b64u64_u jt = {.f = v0};
+ #if defined(__x86_64__)
+   __m128d v = _mm_set_sd (v0);
+-  __m128i tt = {~((1<<26)-1l),0};
++  __m128i tt = {~((1<<26)-1ll),0};
+   v = _mm_and_pd(v,(__m128d)tt);
+   double t = v[0] - 0x1.8p26;
+ #else
+   b64u64_u v = {.f = v0};
+-  uint64_t tt = ~((1<<26)-1l);
++  uint64_t tt = ~((1<<26)-1ll);
+   v.u &= tt;
+   double t = v.f - 0x1.8p26;
+ #endif
+@@ -313,7 +313,7 @@
+       // b64u64_u uh = {.f = th};
+       b64u64_u ul = {.f = tl};
+       // int64_t eh = (uh.u>>52)&0x7ff, el = (ul.u>>52)&0x7ff;
+-      int64_t ml = (ul.u + 8)&(~0ul>>12);
++      int64_t ml = (ul.u + 8)&(~0ull>>12);
+       th += tl;
+       th *= 2;
+       th *= sp.f;
+@@ -377,7 +377,7 @@
+   // b64u64_u uh = {.f = rh};
+   b64u64_u ul = {.f = rl};
+   // int64_t eh = (uh.u>>52)&0x7ff, el = (ul.u>>52)&0x7ff;
+-  int64_t ml = (ul.u + 8)&(~0ul>>12);
++  int64_t ml = (ul.u + 8)&(~0ull>>12);
+   rh += rl;
+   // if(__builtin_expect(ml<=16 || eh-el>103,0)) return as_cosh_database(x, rh);
+   // when ml<=16 is false, we never have eh-el>103
+diff -ruN a/binary64/pow/pow.c b/binary64/pow/pow.c
+--- a/binary64/pow/pow.c
++++ b/binary64/pow/pow.c
+@@ -70,6 +70,11 @@
+ 
+ #include "pow.h"
+ 
++/* lsim (engine patch 1): a case the code cannot round with certainty is
++   reported here (lsim-math's src/lib.rs counts it) instead of printed
++   before exit(1), which would end the host process */
++extern void lsim_math_unexpected_case (int function, double x, double y);
++
+ // Warning: clang also defines __GNUC__
+ #if defined(__GNUC__) && !defined(__clang__)
+ #pragma GCC diagnostic ignored "-Wunknown-pragmas"
+@@ -1957,10 +1962,12 @@
+                       in [1, 2) */
+     return (qR.sgn == 0x0) ? 1.0 + 0x1p-100 : 1.0 - 0x1p-100;
+ 
+-  printf ("Unexpected worst-case found.\n");
+-  printf ("Please report to core-math@inria.fr:\n");
+-  printf ("Worst-case of pow found: x,y=%la,%la\n", x, y);
+-  exit (1);
++  /* lsim (engine patch 1): count the case and return the rounding of
++     qZ, the best approximation at hand, as if the test had passed */
++  lsim_math_unexpected_case (1, x, y);
++  qZ.sgn = s == -1.0;
++  qZ.ll = qZ.ll & (~0ull << 10);
++  return qint_tod (&qZ);
+ 
+ #else
+   return -0.0;
+diff -ruN a/binary64/pow/pow.h b/binary64/pow/pow.h
+--- a/binary64/pow/pow.h
++++ b/binary64/pow/pow.h
+@@ -177,7 +177,7 @@
+   *lo = __builtin_fma(ah, b, s);
+ }
+ 
+-static inline long dtoi(double x) { return (long)x; }
++static inline int64_t dtoi(double x) { return (int64_t)x; } // lsim (engine patch 2): was long
+ 
+ // Returns 1 if x is an integer
+ static inline int is_int(double x) { return x == roundeven_finite (x); }
+diff -ruN a/binary64/sinh/sinh.c b/binary64/sinh/sinh.c
+--- a/binary64/sinh/sinh.c
++++ b/binary64/sinh/sinh.c
+@@ -110,7 +110,7 @@
+   double y0 = fasttwosum(x, y1, &y1);
+   y1 = fasttwosum(y1, y2, &y2);
+   b64u64_u t = {.f = y1};
+-  if(__builtin_expect(!(t.u&(~0ul>>12)), 0)){
++  if(__builtin_expect(!(t.u&(~0ull>>12)), 0)){
+     b64u64_u w = {.f = y2};
+     if((w.u^t.u)>>63)
+       t.u--;
+@@ -277,12 +277,12 @@
+   b64u64_u jt = {.f = v0};
+ #if defined(__x86_64__)
+   __m128d v = _mm_set_sd (v0);
+-  __m128i tt = {~((1<<26)-1l),0};
++  __m128i tt = {~((1<<26)-1ll),0};
+   v = _mm_and_pd(v,(__m128d)tt);
+   double t = v[0] - 0x1.8p26;
+ #else
+   b64u64_u v = {.f = v0};
+-  uint64_t tt = ~((1<<26)-1l);
++  uint64_t tt = ~((1<<26)-1ll);
+   v.u &= tt;
+   double t = v.f - 0x1.8p26;
+ #endif
+@@ -352,7 +352,7 @@
+       // b64u64_u uh = {.f = th};
+       b64u64_u ul = {.f = tl};
+       // int64_t eh = (uh.u>>52)&0x7ff, el = (ul.u>>52)&0x7ff;
+-      int64_t ml = (ul.u + 8)&(~0ul>>12);
++      int64_t ml = (ul.u + 8)&(~0ull>>12);
+       th += tl;
+       th *= 2;
+       th *= sp.f;
+@@ -416,7 +416,7 @@
+   // b64u64_u uh = {.f = rh};
+   b64u64_u ul = {.f = rl};
+   // int64_t eh = (uh.u>>52)&0x7ff, el = (ul.u>>52)&0x7ff;
+-  int64_t ml = (ul.u + 8)&(~0ul>>12);
++  int64_t ml = (ul.u + 8)&(~0ull>>12);
+   rh *= __builtin_copysign(1, x);
+   rl *= __builtin_copysign(1, x);
+   rh += rl;
+diff -ruN a/binary64/tan/tan.c b/binary64/tan/tan.c
+--- a/binary64/tan/tan.c
++++ b/binary64/tan/tan.c
+@@ -527,7 +527,7 @@
+         e.f = 0x0.0000000000001p-1022;
+       }
+     } else {
+-      e.u = 1l << (a->ex + 1073);
++      e.u = 1ll << (a->ex + 1073); // lsim (engine patch 2): was 1l
+     }
+   }
+ 
+diff -ruN a/binary64/tanh/tanh.c b/binary64/tanh/tanh.c
+--- a/binary64/tanh/tanh.c
++++ b/binary64/tanh/tanh.c
+@@ -133,7 +133,7 @@
+     double y0 = fasttwosum(x, y1, &y1);
+     y1 = fasttwosum(y1, y2, &y2);
+     b64u64_u t = {.f = y1};
+-    if (__builtin_expect(!(t.u & (~0ul >> 12)), 0)) {
++    if (__builtin_expect(!(t.u & (~0ull >> 12)), 0)) {
+         b64u64_u w = {.f = y2};
+         if ((w.u ^ t.u) >> 63)
+             t.u--;
+@@ -269,12 +269,12 @@
+   b64u64_u jt = {.f = v0};
+ #if defined(__x86_64__)
+   __m128d v = _mm_set_sd (v0);
+-  __m128i tt = {~((1<<27)-1l), 0};
++  __m128i tt = {~((1<<27)-1ll), 0};
+   v = _mm_and_pd(v,(__m128d)tt);
+   double t = v[0] - 0x1.8p25;
+ #else
+   b64u64_u v = {.f = v0};
+-  uint64_t tt = ~((1<<27)-1l);
++  uint64_t tt = ~((1<<27)-1ll);
+   v.u &= tt;
+   double t = v.f - 0x1.8p25;
+ #endif
+@@ -382,6 +382,6 @@
+   rh = fasttwosum(rh, rl, &rl);
+   double res = __builtin_copysign(2,x)*rh + __builtin_copysign(2,x)*rl;
+   b64u64_u lu = {.f = rl};
+-  if(__builtin_expect(((lu.u+32)&(~0ul>>12))<65, 0)) return as_tanh_database(x, res);
++  if(__builtin_expect(((lu.u+32)&(~0ull>>12))<65, 0)) return as_tanh_database(x, res);
+   return res;
+ }

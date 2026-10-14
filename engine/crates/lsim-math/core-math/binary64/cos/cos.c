@@ -398,7 +398,7 @@ static inline double dint_tod(dint64_t *a) {
         e.f = 0x0.0000000000001p-1022;
       }
     } else {
-      e.u = 1l << (a->ex + 1073);
+      e.u = 1ll << (a->ex + 1073); // lsim (engine patch 2): was 1l
     }
   }
 

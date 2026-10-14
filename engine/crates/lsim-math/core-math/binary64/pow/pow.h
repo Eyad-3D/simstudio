@@ -177,7 +177,7 @@ static inline void d_square(double *hi, double *lo, double ah, double al) {
   *lo = __builtin_fma(ah, b, s);
 }
 
-static inline long dtoi(double x) { return (long)x; }
+static inline int64_t dtoi(double x) { return (int64_t)x; } // lsim (engine patch 2): was long
 
 // Returns 1 if x is an integer
 static inline int is_int(double x) { return x == roundeven_finite (x); }

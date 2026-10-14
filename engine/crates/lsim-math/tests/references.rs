@@ -153,6 +153,9 @@ fn every_function_is_correctly_rounded_on_the_hard_cases() {
         wrong.len(),
         wrong.join("\n")
     );
+    // and each was proven so: none reached the engine's replacement of
+    // CORE-MATH's exit (patch 1)
+    assert_eq!(m::unexpected_cases(), (0, None));
 }
 
 #[test]

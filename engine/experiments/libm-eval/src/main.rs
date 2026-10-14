@@ -14,7 +14,14 @@
 //! cargo run --release -- check refs/special
 //! v/bin/python -I ulps.py refs/wc           # the worst error of each, in ulps
 //! cargo run --release -- bench              # ns per call
+//! clang-cl/run.sh refs                      # CORE-MATH as compiled on Windows
 //! ```
+//!
+//! On Windows the same commands run (the build compiles CORE-MATH with
+//! clang-cl, and `glibc` is then the platform's C runtime, the UCRT): copy
+//! the `refs` folder there. `clang-cl/run.sh` runs on Linux what the
+//! Windows build compiles (clang-cl's semantics, retargeted), its header
+//! says how.
 //!
 //! `check DIR` reads `DIR/<f>.bin` (x, y, correctly rounded result: u64
 //! triples), counts the results that are not the correctly rounded one and

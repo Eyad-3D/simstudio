@@ -10,7 +10,7 @@ repository.workspace = true
 links = "lsim_math"
 # the vendored sources and headers are all the build reads; the reference
 # generator in tools/ is not part of the build
-include = ["/build.rs", "/src", "/core-math", "/csrc", "/include", "/tests", "/Cargo.toml"]
+include = ["/build.rs", "/c_flags.rs", "/src", "/core-math", "/csrc", "/include", "/tests", "/Cargo.toml"]
 
 [build-dependencies]
 cc.workspace = true

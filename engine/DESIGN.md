@@ -1130,23 +1130,80 @@ for every x86-64 CPU with each fused multiply-add an exact software one
 CPU runs (FMA and AVX with the operating system's support, as Rust's
 `is_x86_feature_detected!` sees it). A fused multiply-add is exact either
 way, so the two builds compute the very same numbers at every step, not
-only the same results: tested bit for bit at random, and the golden
-comparison with `LSIM_MATH_NO_FMA=1` (which forces the software build)
-writes the same bytes for all 14 cases. Contraction of `a × b + c` is off
-in both (`-ffp-contract=off`); the C runtime keeps only exact operations
+only the same results: tested bit for bit on 6.4 million random inputs
+over every magnitude in every test run (`lsim-math/tests/builds.rs`, from
+the review; 64 million with `--ignored`), and the golden comparison with
+`LSIM_MATH_NO_FMA=1` (which forces the software build) writes the same
+bytes for all 14 cases. Contraction of `a × b + c` is off in both
+(`-ffp-contract=off`); the C runtime keeps only exact operations
 (`floor`, `round`, `fmax`, `fmin`) and the floating-point environment.
+
+**Its own options only.** Correct rounding depends on the C compiler's
+options, and the cc crate adds the environment's C flags after the
+build's own: with `CFLAGS=-ffast-math`, 2 270 of the 4 672 references
+were misrounded in each build and the build succeeded (the review of
+80c8ab0 found it). Measured with gcc 13 on the references: `-ffast-math`
+or `-Ofast` 2 270 misrounded per build, `-funsafe-math-optimizations`
+2 132, `-mfpmath=387` 948, `-ffinite-math-only` 292, `-fno-signed-zeros`
+10; `-ffp-contract=fast`, `-freciprocal-math`, `-O0`, `-march=native` and
+`-frounding-math` none; clang refuses `-ffast-math` on these files. Three
+guards (`lsim-math/c_flags.rs`, SUNDIALS' build too): the build scripts
+remove the environment's C flags (`CFLAGS` in all its forms,
+`CRATE_CC_NO_DEFAULTS`, `CL`, `_CL_`, `CCC_OVERRIDE_OPTIONS`) before the
+cc crate reads them, naming each in a warning; an option that relaxes
+IEEE semantics, contracts, flushes subnormals or computes in x87
+precision on the command line the cc crate will run (`CC` can carry
+options) stops the build; and the first call checks the build it picks
+on 27 hard cases (`Build::self_check`, about 15 µs), chosen so that each
+of the options above misrounds at least one case of every function it
+affects, and panics with the case otherwise. Each guard was seen at work
+on each of those options (the later ones with the earlier disabled by
+hand).
+
+**The engine's two patches to CORE-MATH** (`lsim-math/core-math/README.md`,
+recorded as one diff, `lsim.patch`). Where its last phase still cannot
+prove the rounding, a case no input is known to reach, upstream's `pow`
+and `atan2` print the input and call `exit(1)`, which would end the
+desktop app or the Python process: the engine's copy counts the case
+(`lsim_math::unexpected_cases`) and returns the rounding of the
+approximation it has. And `long`, 32 bits on Windows and 64 on Linux,
+becomes the 64-bit type it is on Linux wherever upstream uses it
+(`~0ul>>12` was a 20-bit mask on Windows in cosh, sinh and tanh, a shift
+`1l << (ex + 1073)` in cos and tan, `long dn` in asin…), so that Windows
+compiles the code Linux does. `core-math/SHA256SUMS` records every
+vendored file, which `lsim-math/tests/vendored.rs` checks, with no call
+of `exit` or `abort` and no `long` left (it flags every site of
+upstream's files). `core-math/upstream-report-draft.md` reports the exp
+regression of 37384b5 to CORE-MATH's authors: written, not sent. With the
+patches and the guards, the golden comparison writes the same bytes for
+all 14 cases as before them (1c02af5 against 1bb2173, Linux).
 
 **Windows.** CORE-MATH uses `__int128` and GCC builtins, which MSVC's `cl`
 lacks. lsim-math's build takes clang-cl (the cc crate's
 `prefer_clang_cl_over_msvc`, which finds the "C++ Clang tools for Windows"
 of Visual Studio, on GitHub's Windows image) and stops with an explanation
-where there is none; SUNDIALS stays on `cl`. Windows CI built it, and
-every test passed there (run 38586622075 on `wp3/codegen` at 1bb2173),
-among them lsim-math's references (correctly rounded on every one, in
-each build the runner's CPU runs), SUNDIALS' `pow` on hard cases, and
-every evaluation path
-against the library (`lsim-codegen/tests/library.rs`). No CI change was
-needed.
+where there is none; SUNDIALS stays on `cl`. There upstream takes its
+`_MSC_VER` branches (`roundeven` by the `vroundsd` instruction or in
+software, not `__builtin_roundeven`: the same values), and before the
+second patch its `long`s were 32 bits. All 9.6 million references of
+`experiments/libm-eval` (CORE-MATH's hard cases for the 13 functions,
+random inputs, special values) were run compiled as on Windows:
+`experiments/libm-eval/clang-cl/run.sh` takes the cc crate's clang-cl
+command line, emits LLVM IR for `x86_64-pc-windows-msvc` against
+stand-ins for the UCRT's headers (so with clang-cl's semantics: 32-bit
+`long`, `_MSC_VER`, MS `volatile`), retargets the IR to Linux and runs
+it: every one of the 19.2 million results (both builds) correctly
+rounded, before the patch and after (October 2026, clang 18). What that
+leaves to Windows itself, its code generation and C runtime, Windows CI
+runs: every test passed there with the patches and the guards (run
+38602668807 on `wp3/codegen`), among them lsim-math's references, the two
+builds' bit-for-bit agreement on 6.4 million random inputs, the vendored
+files' sums, SUNDIALS' `pow` on hard cases, and every evaluation path
+against the library (`lsim-codegen/tests/library.rs`). The job now prints
+the clang-cl it finds: Visual Studio 18's, clang 22.1.3, which the cc
+crate takes (LLVM 20.1.8's is also on `PATH`); the clang-cl-semantics
+run above used clang 18, so a full run of the references on Windows
+itself (the README's update steps say how) remains to be done.
 
 **Speed.** Per call, ns (`experiments/libm-eval`, the best of 15 passes
 over 65 536 inputs in the ranges models use, one thread of this 2.8 GHz
@@ -1193,18 +1250,34 @@ enclosure of a monotone function at a point is exactly that wide. It moved
 no result of the golden comparison (the enclosures only decide where a
 condition must be searched along a step).
 
-**Not routed: diffsol and the Script blocks.** diffsol's step-size
-control (its PI controller and first step) and its Newton convergence
-test call `pow` and `cbrt` through `num-traits`, which calls the C
-runtime's: its step sequences, and so its results, can differ between
-platforms (diffsol's own comments say its snapshot tests did, between
-Windows and Linux). It is the cross-check backend, not the product's
-integrator; routing it would take a patched copy of diffsol or a change
-upstream (its `Scalar` trait taking its powers from the caller). A Script
-block's Python computes with Python's `math` module, the C runtime's, so
-a model with a Script block can still differ between platforms through
-its script. faer's sparse and dense LU and its triangular solves, which
-the engine uses, call no transcendental function.
+**Not routed: diffsol and the Script blocks.** diffsol, the cross-check
+backend, still calls the C runtime's `pow` and `cbrt`: its BDF's step
+size and order (the PI controller, `pi_controller.rs`: `error.pow(-k)`),
+its first step (`state.rs`: `.pow(1 / (order + 1))`) and its Newton
+convergence rate (diffsol-nl's `convergence.rs`: `cbrt`, `pow`), all
+through `num-traits`' `Pow<f64> for f64`, which is `f64::powf`, and
+`f64::cbrt`. So **diffsol's runs remain dependent on the CPU and the
+platform**: glibc's `pow` is not correctly rounded (81 128 of the inputs
+above) and glibc picks its FMA variant by CPU, the UCRT's `pow`
+need not agree with it, a different last place changes a step size, and
+the step sequence then differs (diffsol's own comment in
+`pi_controller.rs`: stiff problems "diverge between libm
+implementations, which broke the snapshot tests on Windows while passing
+on Linux"). SUNDIALS, the product's integrator, does not: its `pow` is
+lsim-math's. Routing diffsol would take `[patch.crates-io]` copies of
+diffsol 0.17.1, diffsol-nl 0.2.0 and diffsol-la 0.2.0 (MIT, vendored
+like CORE-MATH) with about a dozen call sites changed (the PI
+controller's four powers, the first step's two, the convergence rate's
+`cbrt` and `pow`, and `Scalar for f64`'s `cbrt`, `exp`, `sin`, `cos`),
+each to lsim-math, with `cbrt` either vendored too (CORE-MATH has one)
+or taken as `pow(x, 1/3)`, and kept in step with every diffsol update;
+or a change upstream letting the caller supply the scalar's functions.
+Not done: the cross-check needs only to agree with SUNDIALS within
+tolerance, which it does on every platform. A Script block's Python
+computes with Python's `math` module, the C runtime's, so a model with a
+Script block can still differ between platforms through its script.
+faer's sparse and dense LU and its triangular solves, which the engine
+uses, call no transcendental function.
 
 ## 8. Solver layer
 
@@ -2033,7 +2106,10 @@ events name the modes that chatter.
   calling no inexact function of the C runtime
   (`lsim-sundials-sys/tests/maths.rs`); no engine code calling the
   platform's maths (clippy's `disallowed-methods`,
-  `lsim-math/tests/sources.rs`).
+  `lsim-math/tests/sources.rs`); the two builds bit for bit the same on
+  6.4 million random inputs (`builds.rs`); the vendored files the
+  recorded ones, patched (`vendored.rs`); the self-check at the first
+  call failing for any one wrong function (`src/lib.rs`).
 * **Exact-answer suite**: the reference suite being built in `benchmarks/`
   gives each block's exact answers; an adapter in `lsim-engine/tests` runs
   every case on both backends (SUNDIALS and diffsol) and asserts each
@@ -2324,7 +2400,7 @@ the vehicle body). A short integration checkpoint each week runs
 | R9 | KLU is LGPL and banned | faer sparse LU (MIT) as our SUNDIALS linear solver (WP4). **WP4:** done; dense, band and sparse LU give the same runs on every reference model (test) |
 | R10 | Parallel agents change `lsim-ir` incompatibly | additive changes only; owners agree; check.sh in every package's CI |
 | R11 | Base Modelica is a moving specification (MCP-0031) | the text format is a strict subset; import tracks the published version |
-| R12 | Windows x64 is the target and only Linux is tested here | **WP3:** generated code takes the ISA's default calling convention everywhere, checked per function and by compiling every example for `x86_64-pc-windows-msvc` in the tests; stack probes for large frames; tapes where executable memory is refused; the default floating-point environment for compiling and running; the same bits on CPUs with and without FMA. Only Windows CI can run the code there: the convention end to end, the stack probes, the refusal path on a real Arbitrary Code Guard process (Windows CI now runs every engine test, green). **The mathematical library (October 2026):** the engine ships its own and calls it everywhere, SUNDIALS' C code included (`lsim-math`: CORE-MATH's correctly rounded functions, section 7.1), so results no longer depend on the C runtime or the CPU and the interval widening is a proof; built on Windows with clang-cl, proved by Windows CI. Still the platform's: diffsol's step control (the cross-check backend) and a Script block's Python |
+| R12 | Windows x64 is the target and only Linux is tested here | **WP3:** generated code takes the ISA's default calling convention everywhere, checked per function and by compiling every example for `x86_64-pc-windows-msvc` in the tests; stack probes for large frames; tapes where executable memory is refused; the default floating-point environment for compiling and running; the same bits on CPUs with and without FMA. Only Windows CI can run the code there: the convention end to end, the stack probes, the refusal path on a real Arbitrary Code Guard process (Windows CI now runs every engine test, green). **The mathematical library (October 2026):** the engine ships its own and calls it everywhere, SUNDIALS' C code included (`lsim-math`: CORE-MATH's correctly rounded functions, section 7.1), so results no longer depend on the C runtime or the CPU and the interval widening is a proof; built on Windows with clang-cl, proved by Windows CI; after the review, CORE-MATH patched not to end the process and not to depend on the width of `long` (all references correctly rounded compiled with clang-cl's semantics), the compiler held to the build's own options and the library checked at its first call. Still the platform's: diffsol's step control (the cross-check backend: its runs remain CPU- and platform-dependent) and a Script block's Python |
 
 ## 18. Licences
 

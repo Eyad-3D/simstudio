@@ -37,6 +37,11 @@ typedef unsigned __int128 u128;
 
 #include <stdlib.h>
 
+/* lsim (engine patch 1): a case the code cannot round with certainty is
+   reported here (lsim-math's src/lib.rs counts it) instead of printed
+   before exit(1), which would end the host process */
+extern void lsim_math_unexpected_case (int function, double x, double y);
+
 // the following represent (-1)^sgn*(h/2^64+m/2^128+l/2^192)*2^ex
 // we have either h=m=l=0 to represent +0 or -0
 // or the most significant bit of h is 1
@@ -398,7 +403,7 @@ tint_tod (const tint_t *a, uint64_t err, double y, double x)
     // if mid, |a| = 2^-1075
     return (a->sgn ? -0x1p-1074 : 0x1p-1074) * (mid ? 0.5 : 0.75);
   }
-#define MASK53 0x1ffffffffffffful
+#define MASK53 0x1fffffffffffffull
   uint64_t hh = a->h, mm = a->m, ll = a->l;
   int ex = a->ex;
   uint64_t low = hh & 0x7ff; // low 11 bits from a->h
@@ -410,9 +415,9 @@ tint_tod (const tint_t *a, uint64_t err, double y, double x)
     if ((mm == 0 && (low == 0 || low == 0x400) && ll < err) ||
         (~mm == 0 && (low == 0x3ff || low == 0x7ff) && ~ll < err))
     {
-      printf ("Unexpected worst-case found, please report to core-math@inria.fr:\n");
-      printf ("Worst-case of atan2 found: y,x=%la,%la\n", y, x);
-      exit (1);
+      /* lsim (engine patch 1): count the case and round the approximation
+         at hand below, as if the test had passed */
+      lsim_math_unexpected_case (2, y, x);
     }
   if (ex <= -1022) // subnormal case
   {

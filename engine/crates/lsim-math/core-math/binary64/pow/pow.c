@@ -70,6 +70,11 @@ SOFTWARE.
 
 #include "pow.h"
 
+/* lsim (engine patch 1): a case the code cannot round with certainty is
+   reported here (lsim-math's src/lib.rs counts it) instead of printed
+   before exit(1), which would end the host process */
+extern void lsim_math_unexpected_case (int function, double x, double y);
+
 // Warning: clang also defines __GNUC__
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic ignored "-Wunknown-pragmas"
@@ -1957,10 +1962,12 @@ double cr_pow (double x, double y) {
                       in [1, 2) */
     return (qR.sgn == 0x0) ? 1.0 + 0x1p-100 : 1.0 - 0x1p-100;
 
-  printf ("Unexpected worst-case found.\n");
-  printf ("Please report to core-math@inria.fr:\n");
-  printf ("Worst-case of pow found: x,y=%la,%la\n", x, y);
-  exit (1);
+  /* lsim (engine patch 1): count the case and return the rounding of
+     qZ, the best approximation at hand, as if the test had passed */
+  lsim_math_unexpected_case (1, x, y);
+  qZ.sgn = s == -1.0;
+  qZ.ll = qZ.ll & (~0ull << 10);
+  return qint_tod (&qZ);
 
 #else
   return -0.0;
