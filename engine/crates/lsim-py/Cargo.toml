@@ -5,7 +5,9 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
-license-file.workspace = true
+# maturin refuses a licence file outside the workspace (the repository's LICENSE is one
+# level above engine/): the wheel names the licence instead
+license = "LicenseRef-LightSim-Proprietary"
 repository.workspace = true
 
 [lib]
@@ -22,8 +24,11 @@ extension-module = ["pyo3/extension-module"]
 [dependencies]
 lsim-engine.workspace = true
 lsim-ir.workspace = true
+lsim-project.workspace = true
 lsim-solve.workspace = true
+numpy.workspace = true
 pyo3.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

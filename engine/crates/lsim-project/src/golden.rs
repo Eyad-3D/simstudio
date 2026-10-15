@@ -239,6 +239,16 @@ impl DiscreteBlock for TractionHost {
     }
 }
 
+/// The sampled block's spec for a block of the model (`RunInfo::blocks`
+/// name), as the importer reported it.
+pub fn sampled_spec<'a>(rep: &'a ImportReport, block_name: &str) -> Option<&'a SampledSpec> {
+    rep.sampled.iter().find(|s| {
+        s.instance == block_name
+            || s.label == block_name
+            || block_name.contains(&format!("'{}'", s.label))
+    })
+}
+
 /// The hosts of a model's sampled blocks, in the run loop's order.
 pub fn hosts(
     model: &Model,
@@ -247,14 +257,7 @@ pub fn hosts(
 ) -> Result<Vec<Box<dyn DiscreteBlock>>, String> {
     let mut out: Vec<Box<dyn DiscreteBlock>> = vec![];
     for b in &model.info.blocks {
-        let spec = rep
-            .sampled
-            .iter()
-            .find(|s| {
-                s.instance == b.name
-                    || s.label == b.name
-                    || b.name.contains(&format!("'{}'", s.label))
-            })
+        let spec = sampled_spec(rep, &b.name)
             .ok_or_else(|| format!("no host for the sampled block {}", b.name))?;
         match &spec.kind {
             SampledKind::Script { .. } => {
@@ -345,15 +348,19 @@ struct BatteryFacts {
 }
 
 impl BatteryFacts {
-    fn of(model: &Model, inst: &str, params: &Map<String, Value>) -> Option<BatteryFacts> {
+    fn of(
+        param: &dyn Fn(&str) -> Option<f64>,
+        inst: &str,
+        params: &Map<String, Value>,
+    ) -> Option<BatteryFacts> {
         let cfg = lsim_lib::blocks::battery::BatteryConfig::from_params(
             params,
             lsim_lib::blocks::catalog::axis_outside("battery.generic", "ocv_table", 0),
         )
         .ok()?;
         Some(BatteryFacts {
-            q_ah: model.param(&format!("{inst}.Q"))? / 3600.0,
-            min_soc: model.param(&format!("{inst}.min_soc_pct"))?,
+            q_ah: param(&format!("{inst}.Q"))? / 3600.0,
+            min_soc: param(&format!("{inst}.min_soc_pct"))?,
             ocv: cfg.ocv,
         })
     }
@@ -437,6 +444,18 @@ fn cycle_phases(cycle: &str) -> Vec<(String, f64, f64)> {
 /// The summary figures by today's definitions (`core.py`, `labfig.py`,
 /// `verdict.py`), from the new engine's channels.
 pub fn figures(project: &Value, rep: &ImportReport, model: &Model, res: &SimResult) -> Vec<Figure> {
+    figures_with(project, rep, &|name| model.param(name), res)
+}
+
+/// [`figures`] for a model that is not a [`Model`] of this crate (the
+/// engine's front door): `param` gives a parameter's value, SI, by its full
+/// name, as the run used it.
+pub fn figures_with(
+    project: &Value,
+    rep: &ImportReport,
+    param: &dyn Fn(&str) -> Option<f64>,
+    res: &SimResult,
+) -> Vec<Figure> {
     let mut out = vec![];
     let mut add = |key: String, label: String, value: f64, unit: &str| {
         out.push(Figure { key, label, value, unit: unit.to_string() });
@@ -507,7 +526,7 @@ pub fn figures(project: &Value, rep: &ImportReport, model: &Model, res: &SimResu
             "kWh",
         );
         net_j += g("e_delivered") - g("e_recuperated");
-        let bf = BatteryFacts::of(model, &i, &params_of(id));
+        let bf = BatteryFacts::of(param, &i, &params_of(id));
         if let Some(bf) = &bf {
             let p = params_of(id);
             let limit_kw = lsim_lib::blocks::catalog::get(&p, "output_power_limit_kW", 0.0);

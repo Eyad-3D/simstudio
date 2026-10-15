@@ -1,0 +1,17 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "lightsim-engine"
+description = "LightSim's simulation engine for Python (the module lightsim_engine)"
+requires-python = ">=3.11"
+dependencies = ["numpy"]
+# the repository's LICENSE is outside this crate's workspace, so maturin
+# cannot bundle it; the licence is the repository's
+license = { text = "Proprietary. See the LICENSE file of the repository." }
+dynamic = ["version"]
+
+[tool.maturin]
+module-name = "lightsim_engine"
+features = ["extension-module"]
