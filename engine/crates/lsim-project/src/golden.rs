@@ -14,9 +14,10 @@
 //! records it before its first solver step, when the signals its blocks
 //! publish still read 0).
 //!
-//! Sampled blocks run in hosts here: a Script block runs today's own script
-//! runner in a Python process (the stand-in for work package 6's sandbox),
-//! the Traction Control block today's rule in Rust.
+//! Sampled blocks run in hosts here: a Script block runs on lsim-script's
+//! native runner when its code is within that runner's subset of Python
+//! (bitwise today's results), else today's own script runner in a Python
+//! process; the Traction Control block runs today's rule in Rust.
 
 use crate::import::{CaseKind, ImportOptions, ImportReport, SampledKind, SampledSpec};
 use crate::model::Model;
@@ -38,8 +39,11 @@ pub struct PythonHost {
 }
 
 const BRIDGE: &str = r#"
-import json, sys
+import json, struct, sys
 sys.path.insert(0, '.')
+# floats travel as their 64-bit patterns: NaN and infinities too
+def f64(b): return struct.unpack('<d', struct.pack('<Q', b))[0]
+def bits(x): return struct.unpack('<Q', struct.pack('<d', x))[0]
 from app.solver.scripting import compile_script, run_script
 first = json.loads(sys.stdin.readline())
 fn = compile_script(first['code'], first['label'])
@@ -49,8 +53,9 @@ sys.stdout.write('ready\n'); sys.stdout.flush()
 for line in sys.stdin:
     msg = json.loads(line)
     try:
-        res = run_script(fn, first['label'], msg['t'], msg['dt'], msg['inputs'], state, params)
-        sys.stdout.write(json.dumps(res) + '\n')
+        ins = {k: f64(v) for k, v in msg['inputs'].items()}
+        res = run_script(fn, first['label'], f64(msg['t']), f64(msg['dt']), ins, state, params)
+        sys.stdout.write(json.dumps({'out': [[k, bits(v)] for k, v in res.items()]}) + '\n')
     except Exception as e:
         sys.stdout.write(json.dumps({'__error__': str(e)}) + '\n')
     sys.stdout.flush()
@@ -108,8 +113,8 @@ impl ScriptHost {
 
     fn call(&mut self, t: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String> {
         let ins: Map<String, Value> =
-            self.inputs.iter().zip(inputs).map(|(k, v)| (k.clone(), json!(v))).collect();
-        let msg = json!({"t": t, "dt": self.period, "inputs": ins});
+            self.inputs.iter().zip(inputs).map(|(k, v)| (k.clone(), json!(v.to_bits()))).collect();
+        let msg = json!({"t": t.to_bits(), "dt": self.period.to_bits(), "inputs": ins});
         writeln!(self.stdin, "{msg}").map_err(|e| e.to_string())?;
         self.stdin.flush().map_err(|e| e.to_string())?;
         let mut line = String::new();
@@ -118,8 +123,16 @@ impl ScriptHost {
         if let Some(e) = v.get("__error__") {
             return Err(e.as_str().unwrap_or("").to_string());
         }
+        let got: Vec<(&str, f64)> = v
+            .get("out")
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("no outputs: {line}"))?
+            .iter()
+            .filter_map(|p| Some((p.get(0)?.as_str()?, f64::from_bits(p.get(1)?.as_u64()?))))
+            .collect();
         for (k, o) in self.outputs.iter().zip(outputs.iter_mut()) {
-            if let Some(x) = v.get(k).and_then(Value::as_f64) {
+            // the last value under a name, as a dict keeps it
+            if let Some(&(_, x)) = got.iter().rev().find(|(n, _)| n == k) {
                 *o = x;
             }
         }
@@ -239,29 +252,109 @@ impl DiscreteBlock for TractionHost {
     }
 }
 
-/// The hosts of a model's sampled blocks, in the run loop's order.
+/// The sampled block's spec for a block of the model (`RunInfo::blocks`
+/// name), as the importer reported it.
+pub fn sampled_spec<'a>(rep: &'a ImportReport, block_name: &str) -> Option<&'a SampledSpec> {
+    rep.sampled.iter().find(|s| {
+        s.instance == block_name
+            || s.label == block_name
+            || block_name.contains(&format!("'{}'", s.label))
+    })
+}
+
+/// Which runner a Script block gets.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ScriptRunner {
+    /// lsim-script's native runner when the script is within its subset
+    /// (results bitwise today's Python runner's), today's Python runner
+    /// otherwise
+    #[default]
+    Native,
+    /// today's Python runner always
+    Python,
+}
+
+impl ScriptRunner {
+    /// `LSIM_SCRIPTS=python` picks the Python runner; anything else, or
+    /// nothing, the native one.
+    pub fn from_env() -> ScriptRunner {
+        match std::env::var("LSIM_SCRIPTS") {
+            Ok(v) if v == "python" => ScriptRunner::Python,
+            _ => ScriptRunner::Native,
+        }
+    }
+}
+
+/// A model's sampled blocks' hosts, and for each Script block the runner
+/// it got and the flag the native runner sets when a script leaves its
+/// subset while it runs (the run must then be made again on Python).
+pub struct Hosts {
+    /// the hosts, in the run loop's order
+    pub blocks: Vec<Box<dyn DiscreteBlock>>,
+    /// each Script block's label and runner (`"native"` or `"python"`)
+    pub scripts: Vec<(String, &'static str)>,
+    /// set when a native runner met something outside its subset
+    pub outside: Vec<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+}
+
+impl Hosts {
+    /// Whether a native runner left its subset (the run must be made
+    /// again on Python).
+    pub fn left_subset(&self) -> bool {
+        self.outside.iter().any(|f| f.load(std::sync::atomic::Ordering::SeqCst))
+    }
+}
+
+/// The hosts of a model's sampled blocks, in the run loop's order: Script
+/// blocks on today's Python runner.
 pub fn hosts(
     model: &Model,
     rep: &ImportReport,
     python: Option<&PythonHost>,
 ) -> Result<Vec<Box<dyn DiscreteBlock>>, String> {
-    let mut out: Vec<Box<dyn DiscreteBlock>> = vec![];
+    hosts_with(model, rep, python, ScriptRunner::Python).map(|h| h.blocks)
+}
+
+/// The hosts of a model's sampled blocks, Script blocks on `runner`.
+pub fn hosts_with(
+    model: &Model,
+    rep: &ImportReport,
+    python: Option<&PythonHost>,
+    runner: ScriptRunner,
+) -> Result<Hosts, String> {
+    let mut out = Hosts { blocks: vec![], scripts: vec![], outside: vec![] };
     for b in &model.info.blocks {
-        let spec = rep
-            .sampled
-            .iter()
-            .find(|s| {
-                s.instance == b.name
-                    || s.label == b.name
-                    || b.name.contains(&format!("'{}'", s.label))
-            })
+        let spec = sampled_spec(rep, &b.name)
             .ok_or_else(|| format!("no host for the sampled block {}", b.name))?;
         match &spec.kind {
-            SampledKind::Script { .. } => {
-                let py = python.ok_or("Script blocks need today's Python engine")?;
-                out.push(Box::new(ScriptHost::start(spec, py)?));
+            SampledKind::Script { code } => {
+                if runner == ScriptRunner::Native {
+                    match lsim_script::ScriptBlock::new(
+                        code,
+                        &spec.label,
+                        spec.period,
+                        spec.inputs.clone(),
+                        spec.outputs.clone(),
+                        &spec.params,
+                    ) {
+                        Ok(block) => {
+                            out.outside.push(block.outside_flag());
+                            out.blocks.push(Box::new(block));
+                            out.scripts.push((spec.label.clone(), "native"));
+                            continue;
+                        }
+                        Err(lsim_script::ScriptError::Failed(m)) => return Err(m),
+                        // outside the subset: today's Python runner
+                        Err(lsim_script::ScriptError::Unsupported(_)) => {}
+                    }
+                }
+                let py = python.ok_or_else(|| {
+                    format!("Script '{}' needs today's Python engine (LSIM_PYTHON)", spec.label)
+                })?;
+                out.blocks.push(Box::new(ScriptHost::start(spec, py)?));
+                out.scripts.push((spec.label.clone(), "python"));
             }
-            SampledKind::TractionControl => out.push(Box::new(TractionHost::new(spec))),
+            SampledKind::TractionControl => out.blocks.push(Box::new(TractionHost::new(spec))),
             SampledKind::Fmu { .. } => {
                 return Err(format!("FMU '{}': co-simulation is work package 6's", spec.label));
             }
@@ -295,15 +388,31 @@ pub struct CaseRun {
     pub build_seconds: f64,
     /// wall-clock time of the run(s), s
     pub run_seconds: f64,
+    /// each Script block's label and the runner it ran on (`"native"` or
+    /// `"python"`)
+    pub scripts: Vec<(String, &'static str)>,
 }
 
 /// Imports, builds and runs a case; an acceleration test runs again to the
-/// moment it crosses the finish, where today's run ends.
+/// moment it crosses the finish, where today's run ends. Script blocks run
+/// on the runner [`ScriptRunner::from_env`] picks.
 pub fn run_case(
     project: &Value,
     case_id: &str,
     solver: &SolverOptions,
     python: Option<&PythonHost>,
+) -> Result<CaseRun, String> {
+    run_case_with(project, case_id, solver, python, ScriptRunner::from_env())
+}
+
+/// [`run_case`] with Script blocks on `runner`. A run on which a native
+/// runner leaves its subset is made again on today's Python runner.
+pub fn run_case_with(
+    project: &Value,
+    case_id: &str,
+    solver: &SolverOptions,
+    python: Option<&PythonHost>,
+    runner: ScriptRunner,
 ) -> Result<CaseRun, String> {
     let reg = crate::import::standard_registry();
     let (top, rep) =
@@ -316,10 +425,19 @@ pub fn run_case(
     let build_seconds = t0.elapsed().as_secs_f64();
     let run = &rep.run;
     let t1 = std::time::Instant::now();
+    let scripts = std::cell::RefCell::new(vec![]);
     let go = |t_end: f64| -> Result<SimResult, String> {
-        let mut blocks = hosts(&model, &rep, python)?;
         let grid = OutputGrid { t0: 0.0, t_end, dt: run.output_dt() };
-        model.run(solver, grid, &mut blocks).map_err(|e| e.to_string())
+        let mut h = hosts_with(&model, &rep, python, runner)?;
+        let r = model.run(solver, grid, &mut h.blocks);
+        if r.is_err() && h.left_subset() {
+            let mut h = hosts_with(&model, &rep, python, ScriptRunner::Python)?;
+            let r = model.run(solver, grid, &mut h.blocks).map_err(|e| e.to_string());
+            *scripts.borrow_mut() = h.scripts;
+            return r;
+        }
+        *scripts.borrow_mut() = h.scripts;
+        r.map_err(|e| e.to_string())
     };
     let mut result = go(run.duration)?;
     if let Some(tm) = &run.timing {
@@ -330,7 +448,8 @@ pub fn run_case(
     }
     let run_seconds = t1.elapsed().as_secs_f64();
     let figures = figures(project, &rep, &model, &result);
-    Ok(CaseRun { report: rep, result, figures, build_seconds, run_seconds })
+    let scripts = scripts.into_inner();
+    Ok(CaseRun { report: rep, result, figures, build_seconds, run_seconds, scripts })
 }
 
 /// What the battery figures need of a battery as the case runs it.
@@ -345,15 +464,19 @@ struct BatteryFacts {
 }
 
 impl BatteryFacts {
-    fn of(model: &Model, inst: &str, params: &Map<String, Value>) -> Option<BatteryFacts> {
+    fn of(
+        param: &dyn Fn(&str) -> Option<f64>,
+        inst: &str,
+        params: &Map<String, Value>,
+    ) -> Option<BatteryFacts> {
         let cfg = lsim_lib::blocks::battery::BatteryConfig::from_params(
             params,
             lsim_lib::blocks::catalog::axis_outside("battery.generic", "ocv_table", 0),
         )
         .ok()?;
         Some(BatteryFacts {
-            q_ah: model.param(&format!("{inst}.Q"))? / 3600.0,
-            min_soc: model.param(&format!("{inst}.min_soc_pct"))?,
+            q_ah: param(&format!("{inst}.Q"))? / 3600.0,
+            min_soc: param(&format!("{inst}.min_soc_pct"))?,
             ocv: cfg.ocv,
         })
     }
@@ -437,6 +560,18 @@ fn cycle_phases(cycle: &str) -> Vec<(String, f64, f64)> {
 /// The summary figures by today's definitions (`core.py`, `labfig.py`,
 /// `verdict.py`), from the new engine's channels.
 pub fn figures(project: &Value, rep: &ImportReport, model: &Model, res: &SimResult) -> Vec<Figure> {
+    figures_with(project, rep, &|name| model.param(name), res)
+}
+
+/// [`figures`] for a model that is not a [`Model`] of this crate (the
+/// engine's front door): `param` gives a parameter's value, SI, by its full
+/// name, as the run used it.
+pub fn figures_with(
+    project: &Value,
+    rep: &ImportReport,
+    param: &dyn Fn(&str) -> Option<f64>,
+    res: &SimResult,
+) -> Vec<Figure> {
     let mut out = vec![];
     let mut add = |key: String, label: String, value: f64, unit: &str| {
         out.push(Figure { key, label, value, unit: unit.to_string() });
@@ -507,7 +642,7 @@ pub fn figures(project: &Value, rep: &ImportReport, model: &Model, res: &SimResu
             "kWh",
         );
         net_j += g("e_delivered") - g("e_recuperated");
-        let bf = BatteryFacts::of(model, &i, &params_of(id));
+        let bf = BatteryFacts::of(param, &i, &params_of(id));
         if let Some(bf) = &bf {
             let p = params_of(id);
             let limit_kw = lsim_lib::blocks::catalog::get(&p, "output_power_limit_kW", 0.0);

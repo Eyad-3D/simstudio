@@ -349,6 +349,24 @@ These exist because a frozen build can be missing a module that every unit
 test passes without — that is exactly how a broken live-run WebSocket nearly
 shipped.
 
+### Trying the new engine
+
+The backend still runs every case on today's engine. To try the new engine
+(the Rust module `lightsim_engine`, built with maturin; see
+`engine/crates/lsim-py/README.md`), start the backend with the environment
+variable `LIGHTSIM_ENGINE=new`. The values are `today` (the default, also
+when the variable is not set) and `new`. With `new`, a drive cycle or an
+acceleration test runs on the new engine, and everything else runs on
+today's engine: lap cases, cases with FMU parts, a hybrid's charge-balanced
+case, Formula Student event cases, live runs in the app, and any case when
+the module is not installed. If the new engine fails on a case, the case
+runs on today's engine and the result carries a warning with the new
+engine's own message. The first message of every result says which engine
+ran the case and, after a fall-back, why. Script blocks keep today's checks
+(approved code only, run in the locked-down worker). The new engine's
+results do not have the energy report, part energies, duty, limits or
+references yet.
+
 ### Versioning
 
 The root `VERSION` file is the single source of truth. `scripts/sync-version.mjs`

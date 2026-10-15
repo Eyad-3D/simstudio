@@ -2042,6 +2042,45 @@ save most of those 10 ms in every run, sequential or not (a change to
   comes on top: a sandboxed Python tick costs microseconds.
   Today's Script blocks run every solver step (≤ 10 ms); they keep that
   rate by default (a `period` parameter, default 10 ms) so results match.
+* **Script blocks without Python** (`lsim-script`, WP6). A Script's code
+  runs on an interpreter of a strict subset of Python whose every
+  operation has CPython's semantics to the bit: 64-bit integers (a
+  result beyond them is outside the subset, never wrapped), IEEE floats
+  with CPython's own floor division and modulo, exact comparisons
+  between integers and floats, dicts (`1 == 1.0 == True` one key), lists,
+  tuples, `if`/`for`/`while`, functions with defaults and `global`, the
+  builtins scripts use, `clamp`, `interp` exactly as app/solver/maps.py
+  computes it, and the math module's exact functions (`sqrt`, `floor`,
+  `fabs`, `copysign`, … and the constants). The example cars'
+  controllers (the P2 hybrid's Hybrid Control Unit) are in the subset.
+  What it does not run is left to Python, so a result never differs
+  from the Python runner's: a script that uses anything else (other
+  imports, the transcendental math functions and powers of floats, which
+  CPython takes from the C runtime and so differ in their last bit
+  between platforms, string formatting, classes, exceptions,
+  comprehensions, slices, unknown names) is refused when it is read and
+  runs on Python; an operation met while running that Python supports
+  and the subset does not (an integer beyond 64 bits, a string method,
+  a search for a NaN in a container, which Python matches by identity)
+  stops the run, which is made again on Python. The same limits as the
+  Python runner (2 s a call; on top: a million items a container, calls
+  50 deep); it reaches nothing outside the script. Evidence:
+  `lsim-script/tests/parity.rs` runs today's runner (scripting.py, with
+  only the standard library) and the native one on the same calls (the
+  Hybrid Control Unit on four drives of 6000 calls, seven scripts that
+  exercise each feature, 300 random expressions over signed zeros,
+  subnormals, the largest floats, infinities and NaN): 34 221 calls
+  bitwise equal, 1703 failing on both, 102 random calls handed back to
+  Python, none different; and the hybrid's four cases give bitwise the
+  same results on both runners (`lsim-project/examples/script_parity`).
+  A Hybrid Control Unit call costs 5.8 µs natively against about 25 µs
+  in-process in Python and far more across a process boundary.
+* **Numbers in JSON** are parsed correctly rounded (serde_json's
+  `float_roundtrip`), as Python reads them: without it about one decimal
+  in eight with many digits came back one bit off (measured: 239 004 of
+  2 000 000 shortest representations), which moved the golden
+  comparison's Python Script host's outputs and any project parameter
+  written with many digits.
 * **FMUs for model exchange** (WP4, later): their states join `x`, their
   derivatives and event indicators are called from the generated code's
   slots through a C-ABI shim; Jacobians by directional derivatives where
@@ -2230,29 +2269,81 @@ against exact answers from `benchmarks/`.
 ## 13. Python API
 
 The module `lightsim_engine` (lsim-py, built by maturin into an abi3 wheel
-for Python ≥ 3.11) is wrapped by the `lightsim` package; the app server
-calls the same functions. Stage 1 exposes `version()` and `spike(rtol)`,
-which already runs the engine from Python with the GIL released.
+for Python 3.11 and later) is what the app's backend and the `lightsim`
+package call. What exists now is below; `engine/crates/lsim-py/README.md`
+says how to build and test it, and `tests/test_api.py` is its contract
+test. The Rust of the conversions is in `lsim-py/src/lib.rs`, the part that
+knows nothing of Python (import, build, run, the golden path) in
+`lsim-py/src/core.rs`.
 
 ```python
 import lightsim_engine as le
 
-model = le.build(project_json, case_id, cache_dir=…)      # prepare (or cache) + JIT
-model.report                     # sizes, prepare/compile times, structure key, diagnostics
-model.set_params({"el-battery.capacity_Ah": 210.0})      # runtime: no rebuild
-run = model.simulate(mode="full", rtol=1e-6, output_step=1.0,
-                     scripts=sandbox_callbacks, fmus=fmu_blocks,
-                     progress=callback, cancel=token)
-run.channels["el-battery:sig_soc"]        # NumPy arrays (zero-copy), today's names
-run.min, run.max, run.mean, run.events, run.energy, run.report, run.flags
-check = model.simulate(..., rtol=1e-7)    # the one-click 10x tighter run
-runs = model.sweep([{…}, {…}], threads=4) # parallel in Rust, GIL released
-fast = model.simulate(mode="fast")        # inverse model, limit flags in run.flags
-le.diagnose(project_json)                 # structural and unit checks only, for Data Checks
+model = le.build(project_json, case_id, cache_dir=None)   # import + prepare (cached) + compile
+model.report              # sizes, prepare/compile seconds, cache hit, structure key, warnings, case
+model.param_names()       # the engine's parameter names
+model.params()            # current values, SI
+model.set_params({"el_vehicle.cd": 0.30})                 # runtime, no rebuild
+run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None,
+                     native_scripts=True)
+run.times                 # NumPy float64
+run.channels["el-battery:sig_soc"]   # today's names and display units, NumPy arrays
+run.engine_channels       # the engine's own names, SI
+run.min, run.max, run.mean           # like channels, per output interval
+run.events, run.report, run.energy   # energy: the books, or None
+run.figures               # today's summary figures {key, label, value, unit}
+runs = model.sweep([{...}, {...}], threads=4)   # Runs, or the exception for a failed set
+le.diagnose(project_json, case_id)    # structural and unit checks only
+le.ModelError             # .diagnostics: [{severity, code, message, parts, hint, detail}]
 ```
 
-Errors arrive as `le.ModelError` carrying the diagnostics (code, message,
-parts, hint, detail) so the app can highlight the parts.
+* **Same run as the golden comparison.** `build` imports the case the way
+  `lsim_project::golden::run_case` does and builds it through
+  `lsim_engine::Engine`; `simulate` uses the case's output grid, the same
+  solver options (SUNDIALS IDA, rtol 1e-6, atol 1e-8, energy books on) and
+  runs an acceleration test again to the moment it crosses the finish. The
+  channels, in today's names and units, and the figures
+  (`golden::figures_with`) are bit for bit those of `run_case`; two tests
+  prove it (the BEV car's WLTC case, and the hybrid car's mixed cycle).
+* **GIL.** `build`, `simulate` and `sweep` release it while the engine
+  works; a Script function takes it back for the length of one call. A sweep
+  runs its sets on up to `threads` Rust threads over the one compiled model.
+* **Parameters** are engine names with SI values. `set_params` is all or
+  none; a name that is not a parameter, a value that is not a finite number,
+  a structural parameter (build again) or a value that breaks what
+  preparation divided by raises a plain `ValueError` with the engine's own
+  message. A sweep's sets sit on top of what `set_params` set.
+* **Sampled blocks.** The Traction Control block runs today's rule in Rust.
+  A Script block runs a Python function the caller gives
+  (`scripts={part id or label: f}`, `f(t, dt, inputs) -> dict | None`),
+  called at the start and then every period, outputs it leaves out holding
+  their value; without a function `simulate` raises a `ValueError` naming
+  the part (the function is what authorises the script, whichever runner
+  runs it). With `native_scripts=True` (the default) a script inside
+  `lsim-script`'s subset runs on that native runner instead, with the same
+  bits (§9); a script outside it runs the function, and a run that meets an
+  operation outside the subset part-way is run again from the start on the
+  functions. `run.report["scripts"]` says which runner ran. `script_host`
+  in `lib.rs` is the single place a Script block's host is chosen. FMU
+  parts raise a `ModelError` (not supported yet).
+* **The app.** With `LIGHTSIM_ENGINE=new` the backend
+  (`backend/app/solver/new_engine.py`) runs drive-cycle and acceleration
+  cases on this module and everything else on today's engine; any failure
+  of the new engine runs the case on today's engine with a warning. The
+  default is today's engine. There the Script blocks run in today's
+  locked-down worker (`native_scripts=False`) until the owner decides
+  the native runner may replace it.
+* **Errors.** A project that cannot be imported or prepared, or a run that
+  fails, raises `ModelError` (a `ValueError`) with the diagnostics (code,
+  message, parts, hint, detail) so the app can highlight the parts; a
+  failed run's code says what failed (`RUN-INTEGRATOR`, `RUN-INIT`,
+  `RUN-EVENT-STORM`, `RUN-ENERGY`, `RUN-TABLE`, `RUN-ASSERT`, `RUN-BLOCK`).
+  A panic inside the engine becomes a `ModelError` coded `ENGINE-FAULT`;
+  bad arguments are `ValueError` or `TypeError`.
+* **Not yet:** fast mode for project files (no `mode` argument, so nothing
+  silently runs something else), FMU parts, a progress callback, cancelling
+  a run, the one-click tighter run as its own call
+  (call `simulate` again with a smaller `rtol`).
 
 ## 14. Error messages
 

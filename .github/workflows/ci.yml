@@ -186,6 +186,22 @@ jobs:
       - name: Licences of every third-party crate
         run: python scripts/licences.py
 
+      # The Python module (engine/DESIGN.md section 13): built into a wheel
+      # with maturin, installed, and its tests run. Two of them run the
+      # golden comparison's path through cargo (the Rust example dump_case)
+      # and compare it bit by bit with the module's runs; the Script block
+      # tests use today's script runner, so the backend's requirements are
+      # installed too.
+      - name: Python module (build the wheel)
+        run: |
+          python -m pip install maturin numpy pytest
+          python -m pip install -r ../backend/requirements.txt
+          maturin build --release -m crates/lsim-py/Cargo.toml --out wheels
+          python -m pip install --no-index --find-links wheels lightsim-engine
+
+      - name: Python module (tests)
+        run: python -m pytest crates/lsim-py/tests/test_api.py -v
+
   # Fails when the example runs get more than 10 % slower than on the commit
   # this change starts from, timed on the same runner in alternating fresh
   # processes (backend/tests/test_performance.py). No stored timings, so a

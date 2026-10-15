@@ -31,7 +31,7 @@ from typing import Callable, Iterator, Optional
 from .. import cycles
 from ..library import unit_groups
 from ..schemas import Channel, Project, SimMessage, SimResult, SummaryValue
-from . import balance, fs_events, lapsim
+from . import balance, fs_events, lapsim, new_engine
 from .battery import SOP_PULSES, sop
 from .domains import ModelInitError, RunContext, build_slaves
 from .energy import add_lap, energy_flows
@@ -81,7 +81,20 @@ def simulate(
 ) -> SimResult:
     """Run a case: once, or, for a hybrid's charge-balanced case, until its
     battery ends where it started (balance.py, ENG-33). Every summary row
-    has a stable key (keys.py, AI-07)."""
+    has a stable key (keys.py, AI-07). With LIGHTSIM_ENGINE=new the new engine
+    runs the cases it can (new_engine.py); the default is this engine."""
+    if new_engine.wanted():
+        return new_engine.simulate(project, case_id, emit, control, simulate_today)
+    return simulate_today(project, case_id, emit, control)
+
+
+def simulate_today(
+    project: Project,
+    case_id: str,
+    emit: Optional[EmitFn] = None,
+    control: Optional[ControlFn] = None,
+) -> SimResult:
+    """Run a case on today's engine."""
     result = balance.simulate_balanced(project, case_id, emit, control, run_case)
     fill_keys(result.summary, project)
     return result
