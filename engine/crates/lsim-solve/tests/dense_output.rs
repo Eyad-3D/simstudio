@@ -205,3 +205,106 @@ fn the_dense_output_across_restarts() {
     }
     check(&lag, Method::Auto, 1e-8, 50.0, true);
 }
+
+/// A sampled block's ticks inside a step read together
+/// ([`Integrator::interpolate_select_many`]): bit for bit the values read
+/// one by one ([`Integrator::interpolate_select`]), on Adams up to its
+/// highest order, BDF and IDA, at times across the step (its ends, just
+/// outside them, batches longer than one lane chunk), right after a
+/// restart and before the first step.
+#[test]
+fn ticks_read_together_are_the_ticks_read_one_by_one() {
+    let cosine = dae(1, 0, |t, _, d| d[0] = lsim_ir::math::cos(0.001 * t), vec![0.0]);
+    let oscillator = dae(
+        2,
+        0,
+        |_, y, d| {
+            d[0] = y[1];
+            d[1] = -y[0];
+        },
+        vec![1.0, 0.0],
+    );
+    let lag = dae(
+        1,
+        1,
+        |t, y, d| {
+            d[0] = -y[0] + y[1];
+            d[1] = y[1] - lsim_ir::math::sin(0.5 * t);
+        },
+        vec![0.0, 0.0],
+    );
+    let cases: [(&Dae, Method, f64, f64); 4] = [
+        (&cosine, Method::Adams, 1e-12, 10_000.0),
+        (&oscillator, Method::Bdf, 1e-8, 50.0),
+        (&oscillator, Method::Adams, 1e-6, 50.0),
+        (&lag, Method::Auto, 1e-8, 50.0),
+    ];
+    for (model, method, rtol, t_end) in cases {
+        let n = model.layout.n_y();
+        let mut info = RunInfo::bare(n, n, vec![]);
+        info.var_sources = (0..n).map(VarSource::Y).collect();
+        let opts =
+            SolverOptions { rtol, atol: rtol, method, energy_books: false, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end, dt: t_end };
+        let mut integ = Sundials::new(model, &info, &opts, grid, &model.y0, vec![], vec![], None)
+            .expect("sets up");
+        // every entry, one entry, an entry twice and out of order
+        let sets: Vec<Vec<usize>> =
+            vec![(0..n).collect(), vec![n - 1], (0..n).rev().chain(0..1).collect()];
+        let (mut t, mut steps, mut compared) = (0.0, 0, 0usize);
+        let mut compare = |integ: &mut Sundials<'_>, ts: &[f64]| {
+            for idx in &sets {
+                let m = idx.len();
+                let mut many = vec![f64::NAN; ts.len() * m];
+                integ.interpolate_select_many(ts, idx, &mut many).expect("reads together");
+                let mut one = vec![0.0; m];
+                for (i, &tk) in ts.iter().enumerate() {
+                    integ.interpolate_select(tk, idx, &mut one).expect("reads one");
+                    for k in 0..m {
+                        assert_eq!(
+                            many[i * m + k].to_bits(),
+                            one[k].to_bits(),
+                            "{method:?} entry {} at t = {tk}: {} against {}",
+                            idx[k],
+                            many[i * m + k],
+                            one[k]
+                        );
+                        compared += 1;
+                    }
+                }
+            }
+        };
+        // before the first step: the state
+        compare(&mut integ, &[0.0, 0.0]);
+        loop {
+            let st = integ.step(t_end).expect("steps");
+            let t1 = st.time();
+            let h = t1 - t;
+            // 1, 7, 8, 9 and 19 times across the step, its ends, a few ulps
+            // outside it (clamped as one by one)
+            for k in [1usize, 7, 8, 9, 19] {
+                let mut ts: Vec<f64> = (0..k).map(|i| t + h * i as f64 / k as f64).collect();
+                if k == 9 {
+                    ts.push(t1);
+                    ts.push(t1 + 4.0 * f64::EPSILON * t1.abs());
+                    ts.push(t - 4.0 * f64::EPSILON * t.abs());
+                }
+                compare(&mut integ, &ts);
+            }
+            steps += 1;
+            t = t1;
+            if matches!(st, Step::Stopped(_)) || t >= t_end {
+                break;
+            }
+            if steps % 11 == 0 {
+                let mut y = integ.y().to_vec();
+                for v in &mut y[..model.layout.n_x] {
+                    *v *= 1.001;
+                }
+                integ.restart(t, &y).expect("restarts");
+                compare(&mut integ, &[t, t]);
+            }
+        }
+        assert!(steps > 20 && compared > 1000, "{method:?}: {steps} steps, {compared} values");
+    }
+}

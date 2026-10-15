@@ -70,7 +70,8 @@ unsafe extern "C" {
     /// `c_0 = 1`, `c_j = c_{j−1} (t − tn + ψ[j−2]) / ψ[j−1]` (`ψ[−1] = 0`),
     /// valid for `t` in `[tn − hused, tn]`; `coef[m·(k + 1) + j] =
     /// φ[j][idx[m]]` (`cap` values at most), `psi` the first `k` values of
-    /// ψ (5 at most), `info = [tn, hused]`, `kused` the order `k`
+    /// ψ (5 at most), `info = [tn, hused, hh]` (`hh` the next step, whose
+    /// sign and size set the fuzz `IDAGetDky` allows), `kused` the order `k`
     /// (`IDA_ILL_INPUT` when `n_idx·(k + 1) > cap`).
     #[allow(clippy::too_many_arguments)]
     pub fn lsim_ida_dense_select(

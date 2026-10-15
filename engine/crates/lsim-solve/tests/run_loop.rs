@@ -4271,3 +4271,179 @@ fn a_tick_that_reaches_nothing_integrated_needs_no_restart() {
     assert!((run.values[1].last().unwrap() - 2.0).abs() < 1e-12);
     assert!(run.stats.steps < 300, "{} steps", run.stats.steps);
 }
+
+/// Reading a block's inputs ahead (a computed input's chain as a tape,
+/// the inputs of a block's ticks inside a step read together, idle ticks
+/// run in a row: `SolverOptions::tick_read_ahead`) changes no result, to
+/// the bit: three blocks (one with a coinciding clock, one offset), inputs
+/// from a state, an iteration variable, a computed channel and a discrete
+/// value, outputs that restart the integrator now and then, that reach
+/// nothing integrated, or never change; on an ODE and on a DAE.
+#[test]
+fn reading_ticks_ahead_changes_no_result() {
+    use lsim_solve::InputChain;
+    // y = [x, (z)]; d = [u, v, w]; x' = -x + u + sin(t) (+ z - z);
+    // 0 = z - (x + v) on the DAE; channels [x, c = 2x + v, u, v, w, z]
+    for dae in [false, true] {
+        let n_z = usize::from(dae);
+        let model = Hand {
+            layout: layout(1, n_z, 0, 3, 0, 0, 6),
+            f: Box::new(move |i, out| {
+                out[0] = -i.y[0] + i.d[0] + lsim_ir::math::sin(i.t);
+                if dae {
+                    out[1] = i.y[1] - (i.y[0] + i.d[1]);
+                }
+            }),
+            jvp: Box::new(move |_, v, out| {
+                out[0] = -v[0];
+                if dae {
+                    out[1] = v[1] - v[0];
+                }
+            }),
+            roots: Box::new(|_, _| {}),
+            vars: Box::new(move |i, out| {
+                out[0] = i.y[0];
+                out[1] = 2.0 * i.y[0] + i.d[1];
+                out[2] = i.d[0];
+                out[3] = i.d[1];
+                out[4] = i.d[2];
+                out[5] = if dae { i.y[1] } else { i.y[0] + i.d[1] };
+            }),
+            when: nothing_v(),
+            modes: None,
+            y0: if dae { vec![0.2, 0.2] } else { vec![0.2] },
+            d0: vec![0.0, 0.0, 0.0],
+        };
+        let mut info = RunInfo::bare(1 + n_z, 6, vec![]);
+        info.var_sources = vec![
+            VarSource::Y(0),
+            VarSource::Computed,
+            VarSource::D(0),
+            VarSource::D(1),
+            VarSource::D(2),
+            if dae { VarSource::Y(1) } else { VarSource::Computed },
+        ];
+        // u moves x; v and w reach nothing integrated on the ODE (v moves
+        // z on the DAE)
+        info.dynamic_discretes = vec![true, dae, false];
+        let chain = InputChain {
+            result: (1, 1.0),
+            steps: vec![(1, false, Expr::Const(2.0) * Expr::Var(VarId(0)) + Expr::Var(VarId(3)))],
+            from_y: vec![(0, false, 0)],
+            from_d: vec![(3, 1)],
+            from_u: vec![],
+        };
+        // a: reads x, c and v; sets u where x crosses a tenth (a restart)
+        let mut a = block(vec![0, 1, 3], vec![0], 0.01);
+        a.chains = vec![None, Some(chain.clone()), None];
+        // b: reads c and z (an iteration variable on the DAE, a channel
+        // without a chain on the ODE), sets v every 0.13 s (inert on the
+        // ODE)
+        let mut b = block(vec![1, 5], vec![1], 0.02);
+        b.chains = vec![Some(chain), None];
+        // c: reads x and w, ticks between the others; never changes w
+        let mut c = block(vec![0, 4], vec![2], 0.003);
+        c.chains = vec![None, None];
+        info.blocks = vec![a, b, c];
+        // (each law reads all its inputs: a different input would show in
+        // its output, or stop the run on NaN)
+        let law_a: fn(f64, &[f64], &mut [f64]) = |_, i, o| {
+            assert!(i.iter().all(|v| v.is_finite()));
+            o[0] = (10.0 * i[0] + 1e-9 * (i[1] - 2.0 * i[0] - i[2])).floor() * 0.1;
+        };
+        let law_b: fn(f64, &[f64], &mut [f64]) = |t, i, o| {
+            assert!(i.iter().all(|v| v.is_finite()));
+            o[0] = (t / 0.13).floor() * 0.01;
+        };
+        let law_c: fn(f64, &[f64], &mut [f64]) = |_, i, o| {
+            assert!(i.iter().all(|v| v.is_finite()));
+            o[0] = 0.0;
+        };
+        for backend in backends() {
+            let run = |ahead: bool| {
+                let opts = SolverOptions {
+                    backend,
+                    rtol: 1e-8,
+                    atol: 1e-10,
+                    tick_read_ahead: ahead,
+                    ..Default::default()
+                };
+                let seen = Arc::new(std::sync::Mutex::new(vec![]));
+                let rec = |k: usize, s: Sampled| -> Box<dyn DiscreteBlock> {
+                    Box::new(Recording(k, s, seen.clone()))
+                };
+                let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![
+                    rec(0, Sampled { period: 0.01, offset: 0.0, law: law_a }),
+                    rec(1, Sampled { period: 0.02, offset: 0.0, law: law_b }),
+                    rec(2, Sampled { period: 0.003, offset: 0.0005, law: law_c }),
+                ];
+                let grid = OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.05 };
+                let r = simulate(&model, &info, &opts, grid, &mut blocks)
+                    .unwrap_or_else(|e| panic!("{backend:?}, DAE {dae}: {e}"));
+                drop(blocks);
+                let seen = Arc::try_unwrap(seen).unwrap().into_inner().unwrap();
+                (r, seen)
+            };
+            let ((on, seen_on), (off, seen_off)) = (run(true), run(false));
+            // every tick's time and inputs, to the bit
+            assert_eq!(seen_on.len(), seen_off.len());
+            for (a, b) in seen_on.iter().zip(&seen_off) {
+                assert_eq!(format!("{a:?}"), format!("{b:?}"), "{backend:?}, DAE {dae}");
+            }
+            let show = |r: &SimResult| {
+                format!(
+                    "{:?}",
+                    (
+                        &r.values,
+                        &r.min,
+                        &r.max,
+                        &r.mean,
+                        &r.left_limits,
+                        &r.events,
+                        r.stats,
+                        &r.energy,
+                        (
+                            r.report.block_ticks,
+                            r.report.block_changes,
+                            r.report.inert_ticks,
+                            r.report.light_restarts,
+                            r.report.z_solves,
+                        ),
+                    )
+                )
+            };
+            println!(
+                "{backend:?}, DAE {dae}: {} ticks, {} changed ({} inert), {} steps",
+                on.report.block_ticks,
+                on.report.block_changes,
+                on.report.inert_ticks,
+                on.stats.steps
+            );
+            assert!(on.report.block_changes > 20 && (dae || on.report.inert_ticks > 5));
+            assert_eq!(show(&on), show(&off), "{backend:?}, DAE {dae}");
+        }
+    }
+}
+
+/// A sampled block that logs each tick's block, time and inputs.
+#[allow(clippy::type_complexity)]
+struct Recording(usize, Sampled, Arc<std::sync::Mutex<Vec<(usize, f64, Vec<f64>)>>>);
+
+impl DiscreteBlock for Recording {
+    fn name(&self) -> &str {
+        self.1.name()
+    }
+    fn period(&self) -> f64 {
+        self.1.period
+    }
+    fn offset(&self) -> f64 {
+        self.1.offset
+    }
+    fn init(&mut self, t: f64, i: &[f64], o: &mut [f64]) -> Result<(), String> {
+        self.1.init(t, i, o)
+    }
+    fn tick(&mut self, t: f64, i: &[f64], o: &mut [f64]) -> Result<(), String> {
+        self.2.lock().unwrap().push((self.0, t, i.to_vec()));
+        self.1.tick(t, i, o)
+    }
+}

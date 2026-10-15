@@ -30,7 +30,10 @@ pub struct Recorder {
 impl Recorder {
     /// A recorder for `n` channels on `times`.
     pub fn new(n: usize, times: &[f64]) -> Self {
-        let col = || vec![Vec::with_capacity(times.len()); n];
+        // (each channel's own allocation of the grid's length: `vec![v;
+        // n]` clones `v`, and a clone keeps none of its spare capacity, so
+        // the channels grew by reallocation, run after run)
+        let col = || (0..n).map(|_| Vec::with_capacity(times.len())).collect::<Vec<_>>();
         Recorder {
             times: times.to_vec(),
             next: 0,
