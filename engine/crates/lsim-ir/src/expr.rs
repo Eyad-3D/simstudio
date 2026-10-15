@@ -174,12 +174,29 @@ pub enum Expr {
     /// ([`Expr::Name`]) and the rest are the abscissae; `table` is unused
     /// (0); build it with [`table`]. Flat scope: `table` is the index in
     /// [`crate::FlatSystem::tables`] and `args` are the abscissae.
+    ///
+    /// `order` reads a partial derivative of the interpolant instead of its
+    /// value: `[1, 0]` is ∂T/∂x, `[0, 2]` ∂²T/∂y². Only index reduction
+    /// makes such reads (differentiating an equation that reads a table);
+    /// models and the text format read values (`[0, 0]`). The derivative is
+    /// the interpolant's own, exact; where it is one-sided (a breakpoint of
+    /// a derivative that jumps there) it is the side of the cell the
+    /// argument lies in, as the value's rate is
+    /// ([`crate::interp::Table::eval_order`]).
     Table {
         /// the table's index in the flat system's tables (flat scope)
         table: u32,
         /// the abscissae (component scope: the table's name first)
         args: Vec<Expr>,
+        /// how often it is differentiated along each argument (`[0, 0]`:
+        /// its value; the second is 0 for a 1-D table)
+        #[serde(default, skip_serializing_if = "is_value")]
+        order: [u8; 2],
     },
+}
+
+fn is_value(order: &[u8; 2]) -> bool {
+    *order == [0, 0]
 }
 
 /// A name reference (component scope).
@@ -202,7 +219,7 @@ pub fn der(s: &str) -> Expr {
 pub fn table(table_param: &str, at: Vec<Expr>) -> Expr {
     let mut args = vec![name(table_param)];
     args.extend(at);
-    Expr::Table { table: 0, args }
+    Expr::Table { table: 0, args, order: [0, 0] }
 }
 
 /// A call of a built-in function.
@@ -271,8 +288,8 @@ impl Expr {
             Expr::Call(op, args) => {
                 Expr::Call(op, args.into_iter().map(|a| a.rewrite(f)).collect())
             }
-            Expr::Table { table, args } => {
-                Expr::Table { table, args: args.into_iter().map(|a| a.rewrite(f)).collect() }
+            Expr::Table { table, args, order } => {
+                Expr::Table { table, args: args.into_iter().map(|a| a.rewrite(f)).collect(), order }
             }
             Expr::If(c, a, b) => {
                 Expr::If(Box::new(c.rewrite(f)), Box::new(a.rewrite(f)), Box::new(b.rewrite(f)))
@@ -402,15 +419,32 @@ impl fmt::Display for Expr {
             Expr::Not(a) => write!(f, "not {}", Paren(a, p + 1)),
             Expr::If(c, a, b) => write!(f, "if {c} then {a} else {b}"),
             Expr::NoEvent(a) => write!(f, "noEvent({a})"),
-            Expr::Table { table, args } => {
+            Expr::Table { table, args, order } => {
+                // a derivative: the table's name primed, the orders per
+                // argument after it (`table2'[1, 0](x, y)`)
+                let primed = |f: &mut fmt::Formatter<'_>| -> fmt::Result {
+                    if *order == [0, 0] {
+                        return Ok(());
+                    }
+                    let n = args.len() - usize::from(matches!(args.first(), Some(Expr::Name(_))));
+                    if n >= 2 {
+                        write!(f, "'[{}, {}]", order[0], order[1])
+                    } else {
+                        write!(f, "'[{}]", order[0])
+                    }
+                };
                 let args = match args.split_first() {
                     // component scope: the table's name, then the abscissae
                     Some((Expr::Name(n), rest)) => {
-                        write!(f, "{n}(")?;
+                        write!(f, "{n}")?;
+                        primed(f)?;
+                        write!(f, "(")?;
                         rest
                     }
                     _ => {
-                        write!(f, "table{table}(")?;
+                        write!(f, "table{table}")?;
+                        primed(f)?;
+                        write!(f, "(")?;
                         &args[..]
                     }
                 };
@@ -443,8 +477,17 @@ mod tests {
     #[test]
     fn prints_tables_in_both_scopes() {
         assert_eq!(table("ocv", vec![name("soc")]).to_string(), "ocv(soc)");
-        let flat = Expr::Table { table: 2, args: vec![c(1.0), c(2.0)] };
+        let flat = Expr::Table { table: 2, args: vec![c(1.0), c(2.0)], order: [0, 0] };
         assert_eq!(flat.to_string(), "table2(1, 2)");
+        let d = Expr::Table { table: 2, args: vec![c(1.0), c(2.0)], order: [1, 0] };
+        assert_eq!(d.to_string(), "table2'[1, 0](1, 2)");
+        let d1 = Expr::Table { table: 0, args: vec![Expr::Var(VarId(3))], order: [2, 0] };
+        assert_eq!(d1.to_string(), "table0'[2](v[3])");
+        assert_eq!(
+            Expr::Table { table: 0, args: vec![name("ocv"), name("soc")], order: [1, 0] }
+                .to_string(),
+            "ocv'[1](soc)"
+        );
     }
 
     #[test]

@@ -72,7 +72,7 @@ fn every_kind_of_parameter_reaches_the_flat_system() {
         let mut tables = vec![];
         for e in flat.equations.iter().filter(|e| e.lhs == Expr::Var(v)) {
             e.rhs.walk(&mut |x| {
-                if let Expr::Table { table, args } = x {
+                if let Expr::Table { table, args, .. } = x {
                     tables.push((*table, args.len()));
                 }
             });

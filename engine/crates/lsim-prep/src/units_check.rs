@@ -47,10 +47,19 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
         Expr::Const(_) => D::Any,
         Expr::Time => D::Known(Dim::TIME),
         Expr::Name(_) => D::Any,
-        Expr::Table { table, args } => match flat.tables.get(*table as usize) {
+        Expr::Table { table, args, order } => match flat.tables.get(*table as usize) {
             Some(t) => {
+                let mut out = t.unit.dim;
                 for (k, (a, unit)) in args.iter().zip(&t.data.axis_units).enumerate() {
-                    if let (D::Known(x), Ok(u)) = (dim(a, flat)?, lsim_ir::units::parse_unit(unit))
+                    let axis = lsim_ir::units::parse_unit(unit);
+                    // a derivative: the value's unit per the axis's, per
+                    // order
+                    if let Ok(u) = &axis {
+                        for _ in 0..order[k] {
+                            out = out / u.dim;
+                        }
+                    }
+                    if let (D::Known(x), Ok(u)) = (dim(a, flat)?, axis)
                         && x != u.dim
                     {
                         return Err(Mismatch(format!(
@@ -62,7 +71,7 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
                         )));
                     }
                 }
-                D::Known(t.unit.dim)
+                D::Known(out)
             }
             None => D::Any,
         },

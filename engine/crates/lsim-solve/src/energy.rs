@@ -132,8 +132,8 @@ impl DualEnv for Along<'_> {
     fn time(&self) -> Result<Dual, ()> {
         Ok(Dual { v: self.t, d: 1.0 })
     }
-    fn table(&self, k: u32, args: &[f64]) -> Option<(f64, [f64; 2])> {
-        crate::info::table_at(self.model, k, args)
+    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> Option<(f64, [f64; 2])> {
+        crate::info::table_at(self.model, k, order, args)
     }
 }
 

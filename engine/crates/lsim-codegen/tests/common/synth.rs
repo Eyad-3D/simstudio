@@ -201,7 +201,7 @@ pub fn noev(a: Expr) -> Expr {
     Expr::NoEvent(Box::new(a))
 }
 pub fn tab(k: u32, args: Vec<Expr>) -> Expr {
-    Expr::Table { table: k, args }
+    Expr::Table { table: k, args, order: [0, 0] }
 }
 
 /// A smooth, monotone-ish 1-D curve sampled on `n` points over [a, b].

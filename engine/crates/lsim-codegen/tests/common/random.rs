@@ -29,10 +29,36 @@ pub struct Ops {
     /// smooth functions only, on their domains (no comparisons, `if`s,
     /// kinks): for derivatives by differences
     pub smooth: bool,
+    /// tables' partial derivatives too (index reduction's reads; the tables
+    /// are then monotone cubics continued linearly, C¹): up to the second
+    /// order, the first when `smooth`
+    pub derivatives: bool,
 }
 
-pub const ALL_OPS: Ops = Ops { library: true, powers: true, tables: true, smooth: false };
-pub const SMOOTH: Ops = Ops { library: true, powers: true, tables: true, smooth: true };
+pub const ALL_OPS: Ops =
+    Ops { library: true, powers: true, tables: true, smooth: false, derivatives: false };
+pub const SMOOTH: Ops =
+    Ops { library: true, powers: true, tables: true, smooth: true, derivatives: false };
+/// [`ALL_OPS`] with tables' derivatives.
+pub const DERIVATIVES: Ops = Ops { derivatives: true, ..ALL_OPS };
+/// [`SMOOTH`] with tables' first derivatives.
+pub const SMOOTH_DERIVATIVES: Ops = Ops { derivatives: true, ..SMOOTH };
+
+/// A random order for a read of a table of `dims` arguments: its value
+/// unless `ops` asks for derivatives, else up to the second order (the
+/// first when smooth).
+fn order(r: &mut Rng, dims: usize, ops: Ops) -> [u8; 2] {
+    if !ops.derivatives {
+        return [0, 0];
+    }
+    let firsts: &[[u8; 2]] = if dims == 1 { &[[1, 0]] } else { &[[1, 0], [0, 1]] };
+    let seconds: &[[u8; 2]] = if dims == 1 { &[[2, 0]] } else { &[[2, 0], [1, 1], [0, 2]] };
+    match r.below(if ops.smooth { 2 } else { 3 }) {
+        0 => [0, 0],
+        1 => firsts[r.below(firsts.len())],
+        _ => seconds[r.below(seconds.len())],
+    }
+}
 
 fn c(x: f64) -> Expr {
     Expr::Const(x)
@@ -58,10 +84,15 @@ pub fn constant(r: &mut Rng) -> f64 {
 /// its domain: a divisor, a logarithm's or a root's argument kept away
 /// from zero) of at most `depth` levels.
 pub fn smooth(r: &mut Rng, depth: usize, l: &Leaves) -> Expr {
+    smooth_with(r, depth, l, SMOOTH)
+}
+
+/// [`smooth`], with tables' derivatives when `ops` asks for them.
+fn smooth_with(r: &mut Rng, depth: usize, l: &Leaves, ops: Ops) -> Expr {
     if depth == 0 || r.below(10) < 2 {
         return leaf(r, l);
     }
-    let sub = |r: &mut Rng| smooth(r, depth - 1, l);
+    let sub = |r: &mut Rng| smooth_with(r, depth - 1, l, ops);
     // 1 + x² (at least one)
     let pos = |x: Expr| Expr::bin(BinaryOp::Add, c(1.0), Expr::bin(BinaryOp::Mul, x.clone(), x));
     match r.below(16) {
@@ -83,7 +114,8 @@ pub fn smooth(r: &mut Rng, depth: usize, l: &Leaves) -> Expr {
         13 => Expr::bin(BinaryOp::Pow, pos(sub(r)), Expr::Call(Builtin::Tanh, vec![sub(r)])),
         14 if !l.tables.is_empty() => {
             let (k, dims) = l.tables[r.below(l.tables.len())];
-            Expr::Table { table: k, args: (0..dims).map(|_| sub(r)).collect() }
+            let args = (0..dims).map(|_| sub(r)).collect();
+            Expr::Table { table: k, args, order: order(r, dims, ops) }
         }
         _ => Expr::Call(Builtin::Atan2, vec![sub(r), pos(sub(r))]),
     }
@@ -92,7 +124,7 @@ pub fn smooth(r: &mut Rng, depth: usize, l: &Leaves) -> Expr {
 /// A random expression of at most `depth` levels.
 pub fn expr(r: &mut Rng, depth: usize, l: &Leaves, ops: Ops) -> Expr {
     if ops.smooth {
-        return smooth(r, depth, l);
+        return smooth_with(r, depth, l, ops);
     }
     if depth == 0 || r.below(10) < 2 {
         return leaf(r, l);
@@ -137,7 +169,8 @@ pub fn expr(r: &mut Rng, depth: usize, l: &Leaves, ops: Ops) -> Expr {
         25 => Expr::NoEvent(Box::new(sub(r))),
         26 if ops.tables && !l.tables.is_empty() => {
             let (k, dims) = l.tables[r.below(l.tables.len())];
-            Expr::Table { table: k, args: (0..dims).map(|_| sub(r)).collect() }
+            let args = (0..dims).map(|_| sub(r)).collect();
+            Expr::Table { table: k, args, order: order(r, dims, ops) }
         }
         27 => cond(r, depth - 1, l, ops),
         _ => Expr::bin(BinaryOp::Add, sub(r), leaf(r, l)),
@@ -251,7 +284,7 @@ pub fn implicit_model(
         for i in 0..3 {
             let dims = 1 + (i % 2);
             let mut data = table(r, dims);
-            if ops.smooth {
+            if ops.smooth || ops.derivatives {
                 // C¹ inside and across the edges: cubic, linear outside
                 data.interpolation = Interpolation::MonotoneCubic;
                 data.outside = [Outside::Linear, Outside::Linear];

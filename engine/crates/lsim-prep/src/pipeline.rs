@@ -18,6 +18,7 @@ use lsim_ir::component::{ComponentDef, Library};
 use lsim_ir::eval::eval;
 use lsim_ir::expr::{CmpOp, Expr};
 use lsim_ir::flat::{FlatSystem, InstanceId, Origin, OriginKind, VarId};
+use lsim_ir::interp::Table;
 use lsim_ir::prepared::*;
 use lsim_ir::{Diagnostic, VarKind};
 use std::collections::{BTreeSet, HashMap};
@@ -174,6 +175,53 @@ fn index_diag(flat: &FlatSystem, sys: &Sys, f: IndexFault) -> Diagnostic {
                 "The parts are rigidly tied together through it; a compliance (a spring, a \
                  resistance) between them avoids the differentiation.",
             );
+            d.parts = parts_of(flat, std::iter::once(origin.instance));
+            d
+        }
+        IndexFault::TableNotSmooth { eq, table, order, continuity } => {
+            let origin = origin_of(eq);
+            let t = &flat.tables[table as usize];
+            let (where_, fix) =
+                if continuity == 0 && t.data.interpolation == lsim_ir::Interpolation::Linear {
+                    (
+                        "its linear interpolation has a kink at every breakpoint",
+                        "Interpolate it as a monotone cubic (smooth), or put a compliance (a \
+                     spring, a resistance) between the parts it ties together.",
+                    )
+                } else if continuity == 0 {
+                    (
+                        "it is held at its edge values outside its data, which makes a kink at \
+                     each edge",
+                        "Let the table continue linearly outside its data, or stop the run there \
+                     (its 'outside' setting), or put a compliance between the parts it ties \
+                     together.",
+                    )
+                } else {
+                    (
+                        "its monotone cubic interpolation has a second derivative that jumps at \
+                     every breakpoint",
+                        "Put a compliance (a spring, a resistance) between the parts it ties \
+                     together.",
+                    )
+                };
+            let times = |n: u32| match n {
+                1 => "once".to_string(),
+                2 => "twice".to_string(),
+                n => format!("{n} times"),
+            };
+            let mut d = Diagnostic::error(
+                "INDEX-TABLE-NOT-SMOOTH",
+                format!(
+                    "Solving the model needs {} differentiated in time, which differentiates \
+                     the table '{}' {}; but {where_}, so it can be differentiated only {}: \
+                     the motion would need a jump the model does not have.",
+                    equation_words(flat, &origin),
+                    t.name,
+                    times(order),
+                    times(continuity + 1)
+                ),
+            )
+            .with_hint(fix);
             d.parts = parts_of(flat, std::iter::once(origin.instance));
             d
         }
@@ -382,10 +430,31 @@ pub fn run(
     precheck(&sys, &flat, lib, &isolated, &prescribed)?;
     clock.lap("matching");
 
-    // index reduction
+    // index reduction (through tables too: their interpolants say how
+    // smooth they are)
+    let continuity: Vec<u32> =
+        flat.tables.iter().map(|t| lsim_ir::interp::continuity(&t.data)).collect();
     let differentiated =
-        index::pantelides(&mut sys).map_err(|f| vec![index_diag(&flat, &sys, f)])?;
+        index::pantelides(&mut sys, &continuity).map_err(|f| vec![index_diag(&flat, &sys, f)])?;
     report.differentiated = differentiated;
+    // the tables are read at preparation (the start, the choice of dummy
+    // derivatives) only where index reduction differentiated a table:
+    // every other model is prepared exactly as before, its tables NaN here
+    let through_tables = differentiated > 0
+        && sys.eqs.iter().any(|e| {
+            e.diff_of.is_some()
+                && e.res.any(&mut |x| matches!(x, Expr::Table { order, .. } if *order != [0, 0]))
+        });
+    let interps: Vec<Table> = if through_tables {
+        let built: Vec<Table> =
+            flat.tables.iter().filter_map(|t| Table::new(&t.data).ok()).collect();
+        // (the data were checked at flattening; should a table not build,
+        // the tables read as NaN here, as without index reduction)
+        if built.len() == flat.tables.len() { built } else { vec![] }
+    } else {
+        vec![]
+    };
+    let tables: &[Table] = &interps;
     clock.lap("index");
 
     let nn = sys.nodes.len();
@@ -527,7 +596,7 @@ pub fn run(
     // the start at preparation
     let mut vals = start_guesses(&sys, &flat);
     let solved = if needed {
-        numeric::solve(&init_sorted, &mut vals, &pvals, 0.0).map_err(Some)
+        numeric::solve(&init_sorted, &mut vals, &pvals, tables, 0.0).map_err(Some)
     } else {
         Err(None)
     };
@@ -542,7 +611,7 @@ pub fn run(
             // circuit all moving together is a circuit with no ground
             let rows: Vec<&Expr> = b.eqs.iter().map(|&k| ib.row(&sys, k)).collect();
             let mut probe = vals.clone();
-            let free = numeric::null_direction(&rows, &b.nodes, &mut probe, &pvals, 0.0);
+            let free = numeric::null_direction(&rows, &b.nodes, &mut probe, &pvals, tables, 0.0);
             let floating = free.and_then(|x| {
                 let moving: Vec<usize> = (0..x.len()).filter(|&j| x[j].abs() > 1e-6).collect();
                 let together = moving.iter().all(|&j| (x[j] - x[moving[0]]).abs() < 1e-6);
@@ -628,12 +697,18 @@ pub fn run(
     }
     let (is_state, dummy) = if differentiated > 0 {
         let point = if solved.is_ok() { vals.clone() } else { generic_values(&sys, &flat) };
-        let sel = index::dummy_derivatives(&sys, &point, &pvals, &keep_node)
+        let sel = index::dummy_derivatives(&sys, &point, &pvals, tables, &keep_node)
             .or_else(|f| {
                 if solved.is_ok() {
                     Err(f)
                 } else {
-                    index::dummy_derivatives(&sys, &generic_values(&sys, &flat), &pvals, &keep_node)
+                    index::dummy_derivatives(
+                        &sys,
+                        &generic_values(&sys, &flat),
+                        &pvals,
+                        tables,
+                        &keep_node,
+                    )
                 }
             })
             .map_err(|f| vec![index_diag(&flat, &sys, f)])?;
@@ -689,7 +764,7 @@ pub fn run(
 
     // checks at the start
     if solved.is_ok() {
-        let env = NodeEnv { t: 0.0, vals: &vals, params: &pvals };
+        let env = NodeEnv { t: 0.0, vals: &vals, params: &pvals, tables };
         for (a, k) in &sorted.variable_pivots {
             let v = eval(a, &env);
             if v == 0.0 || !v.is_finite() {
@@ -710,7 +785,7 @@ pub fn run(
             }
         }
     }
-    start_checks(&flat, &ib, &vals, &pvals, solved.is_ok(), &mut warnings);
+    start_checks(&flat, &ib, &vals, &pvals, tables, solved.is_ok(), &mut warnings);
 
     // nodes → slots
     let state_nodes: Vec<usize> = (0..nn).filter(|&n| is_state[n]).collect();
@@ -874,7 +949,7 @@ pub fn run(
                 flat.vars[v.0 as usize].start = Some(vals[n]);
             }
         }
-        let env = NodeEnv { t: 0.0, vals: &vals, params: &pvals };
+        let env = NodeEnv { t: 0.0, vals: &vals, params: &pvals, tables };
         for m in &node_modes {
             flat.vars[m.var.0 as usize].start = Some(eval(&m.relation, &env));
         }
@@ -1108,10 +1183,11 @@ fn start_checks(
     ib: &InitBuild,
     vals: &[f64],
     pvals: &[f64],
+    tables: &[Table],
     solved: bool,
     warnings: &mut Vec<Diagnostic>,
 ) {
-    let env = NodeEnv { t: 0.0, vals, params: pvals };
+    let env = NodeEnv { t: 0.0, vals, params: pvals, tables };
     for (v, n, start) in &ib.dropped {
         let s = eval(start, &env);
         let part = parts_of(flat, std::iter::once(flat.var(*v).instance));

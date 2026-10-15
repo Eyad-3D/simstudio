@@ -13,6 +13,7 @@ use crate::causal::Sorted;
 use crate::system::NodeEnv;
 use lsim_ir::eval::eval;
 use lsim_ir::expr::Expr;
+use lsim_ir::interp::Table;
 
 /// Why a block could not be solved.
 #[derive(Clone, Debug)]
@@ -33,13 +34,19 @@ const MAX_ITERATION: usize = 400;
 /// Solves `sorted` (residuals in `eqs`) for the node values in `vals`,
 /// which holds the known values (discrete, inputs) and first guesses for
 /// the iteration variables on entry.
-pub fn solve(sorted: &Sorted, vals: &mut [f64], params: &[f64], t: f64) -> Result<(), NotSolved> {
+pub fn solve(
+    sorted: &Sorted,
+    vals: &mut [f64],
+    params: &[f64],
+    tables: &[Table],
+    t: f64,
+) -> Result<(), NotSolved> {
     for (b, block) in sorted.blocks.iter().enumerate() {
         let assign = &sorted.assignments[block.assign.0..block.assign.1];
         let iter = &sorted.iteration[block.iter.0..block.iter.1];
         let resid = &sorted.residuals[block.iter.0..block.iter.1];
         if iter.is_empty() {
-            evaluate(assign, vals, params, t);
+            evaluate(assign, vals, params, tables, t);
             continue;
         }
         if iter.len() > MAX_ITERATION {
@@ -50,16 +57,22 @@ pub fn solve(sorted: &Sorted, vals: &mut [f64], params: &[f64], t: f64) -> Resul
                 singular: false,
             });
         }
-        newton(assign, iter, resid, vals, params, t, block.linear).map_err(
+        newton(assign, iter, resid, vals, params, tables, t, block.linear).map_err(
             |(worst_eq, worst, singular)| NotSolved { block: b, worst_eq, worst, singular },
         )?;
     }
     Ok(())
 }
 
-fn evaluate(assign: &[(usize, Expr, usize)], vals: &mut [f64], params: &[f64], t: f64) {
+fn evaluate(
+    assign: &[(usize, Expr, usize)],
+    vals: &mut [f64],
+    params: &[f64],
+    tables: &[Table],
+    t: f64,
+) {
     for (n, e, _) in assign {
-        let v = eval(e, &NodeEnv { t, vals, params });
+        let v = eval(e, &NodeEnv { t, vals, params, tables });
         vals[*n] = v;
     }
 }
@@ -69,12 +82,13 @@ fn residuals(
     resid: &[(Expr, usize)],
     vals: &mut [f64],
     params: &[f64],
+    tables: &[Table],
     t: f64,
     out: &mut [f64],
 ) {
-    evaluate(assign, vals, params, t);
+    evaluate(assign, vals, params, tables, t);
     for (k, (e, _)) in resid.iter().enumerate() {
-        out[k] = eval(e, &NodeEnv { t, vals, params });
+        out[k] = eval(e, &NodeEnv { t, vals, params, tables });
     }
 }
 
@@ -82,12 +96,14 @@ fn norm(x: &[f64]) -> f64 {
     x.iter().fold(0.0f64, |a, v| if v.is_nan() { f64::NAN } else { a.max(v.abs()) })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn newton(
     assign: &[(usize, Expr, usize)],
     iter: &[usize],
     resid: &[(Expr, usize)],
     vals: &mut [f64],
     params: &[f64],
+    tables: &[Table],
     t: f64,
     linear: bool,
 ) -> Result<(), (usize, f64, bool)> {
@@ -100,7 +116,7 @@ fn newton(
     let mut f = vec![0.0; n];
     let mut f2 = vec![0.0; n];
     let mut jac = vec![0.0; n * n];
-    residuals(assign, resid, vals, params, t, &mut f);
+    residuals(assign, resid, vals, params, tables, t, &mut f);
     let f_start = norm(&f);
     let worst = |f: &[f64], singular: bool| {
         let k = (0..f.len()).max_by(|&a, &b| f[a].abs().total_cmp(&f[b].abs())).unwrap_or(0);
@@ -125,7 +141,7 @@ fn newton(
             let x = vals[iter[j]];
             let h = if linear { x.abs().max(1.0) } else { 1e-7 * x.abs().max(1e-3) };
             vals[iter[j]] = x + h;
-            residuals(assign, resid, vals, params, t, &mut f2);
+            residuals(assign, resid, vals, params, tables, t, &mut f2);
             vals[iter[j]] = x;
             for i in 0..n {
                 jac[i * n + j] = (f2[i] - f[i]) / h;
@@ -148,7 +164,7 @@ fn newton(
             for j in 0..n {
                 vals[iter[j]] = x0[j] + lambda * dx[j];
             }
-            residuals(assign, resid, vals, params, t, &mut f2);
+            residuals(assign, resid, vals, params, tables, t, &mut f2);
             let fn1 = norm(&f2);
             if fn1 < (1.0 - 1e-4 * lambda) * fn0 || lambda < 1e-4 {
                 break;
@@ -161,7 +177,7 @@ fn newton(
             break;
         }
     }
-    residuals(assign, resid, vals, params, t, &mut f);
+    residuals(assign, resid, vals, params, tables, t, &mut f);
     let fin = norm(&f);
     if fin.is_finite() && fin <= 1e-8 * (1.0 + f_start) { Ok(()) } else { Err(worst(&f, false)) }
 }
@@ -176,6 +192,7 @@ pub fn null_direction(
     nodes: &[usize],
     vals: &mut [f64],
     params: &[f64],
+    tables: &[Table],
     t: f64,
 ) -> Option<Vec<f64>> {
     let (m, n) = (rows.len(), nodes.len());
@@ -187,7 +204,7 @@ pub fn null_direction(
             vals[x] = 0.0;
         }
     }
-    let f0: Vec<f64> = rows.iter().map(|e| eval(e, &NodeEnv { t, vals, params })).collect();
+    let f0: Vec<f64> = rows.iter().map(|e| eval(e, &NodeEnv { t, vals, params, tables })).collect();
     let mut a = vec![0.0; m * n];
     for j in 0..n {
         let x = vals[nodes[j]];
@@ -195,7 +212,7 @@ pub fn null_direction(
         let h = x.abs().max(1.0);
         vals[nodes[j]] = x + h;
         for i in 0..m {
-            a[i * n + j] = (eval(rows[i], &NodeEnv { t, vals, params }) - f0[i]) / h;
+            a[i * n + j] = (eval(rows[i], &NodeEnv { t, vals, params, tables }) - f0[i]) / h;
         }
         vals[nodes[j]] = x;
     }
@@ -318,10 +335,10 @@ mod tests {
         use lsim_ir::flat::VarId;
         let d = Expr::Var(VarId(0)) - Expr::Var(VarId(1)) - Expr::Const(12.0);
         let mut vals = vec![0.0, 0.0];
-        let x = null_direction(&[&d, &d], &[0, 1], &mut vals, &[], 0.0).unwrap();
+        let x = null_direction(&[&d, &d], &[0, 1], &mut vals, &[], &[], 0.0).unwrap();
         assert!((x[0] - x[1]).abs() < 1e-9 && (x[0].abs() - 1.0).abs() < 1e-12, "{x:?}");
         let e = Expr::Var(VarId(0)) + Expr::Var(VarId(1));
-        assert!(null_direction(&[&d, &e], &[0, 1], &mut vals, &[], 0.0).is_none());
+        assert!(null_direction(&[&d, &e], &[0, 1], &mut vals, &[], &[], 0.0).is_none());
     }
 
     #[test]

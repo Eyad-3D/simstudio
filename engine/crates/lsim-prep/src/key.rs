@@ -141,7 +141,13 @@ impl Feed {
                 self.tag(15);
                 self.expr(a);
             }
-            Expr::Table { table, args } => {
+            Expr::Table { table, args, order } => {
+                // (a value read hashes as it always has)
+                if *order != [0, 0] {
+                    self.tag(17);
+                    self.u32(u32::from(order[0]));
+                    self.u32(u32::from(order[1]));
+                }
                 self.tag(16);
                 self.u32(*table);
                 self.u32(args.len() as u32);

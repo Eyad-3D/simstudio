@@ -76,8 +76,8 @@ impl lsim_ir::eval::Env for PointEnv<'_> {
     fn param(&self, p: ParamId) -> f64 {
         self.params[p.0 as usize]
     }
-    fn table(&self, k: u32, args: &[f64]) -> f64 {
-        interval::table_at(self.model, k, args).map_or(f64::NAN, |(v, _)| v)
+    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+        interval::table_at(self.model, k, order, args).map_or(f64::NAN, |(v, _)| v)
     }
 }
 

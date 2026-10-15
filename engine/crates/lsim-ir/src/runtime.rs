@@ -257,6 +257,15 @@ pub trait ModelFunctions: Send + Sync {
         None
     }
 
+    /// [`Self::eval_table`] for a partial derivative of table `k` (of
+    /// `order` along each argument, as index reduction reads it, see
+    /// [`crate::expr::Expr::Table`]): that derivative and its partial
+    /// derivatives, as the compiled code computes them. The default gives
+    /// order `[0, 0]` by [`Self::eval_table`] and nothing else.
+    fn eval_table_order(&self, k: u32, order: [u8; 2], args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+        if order == [0, 0] { self.eval_table(k, args) } else { None }
+    }
+
     /// Table `k`'s breakpoints as the compiled code interpolates it: its
     /// first axis's, and its second's (empty for a 1-D table), so that the
     /// run loop's enclosures of the tables follow the data the model was

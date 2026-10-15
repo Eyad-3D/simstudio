@@ -61,9 +61,11 @@ pub fn map(e: &Expr, f: &mut impl FnMut(&Expr) -> Option<Expr>) -> Expr {
         Expr::And(x, y) => Expr::And(b(map(x, f)), b(map(y, f))),
         Expr::Or(x, y) => Expr::Or(b(map(x, f)), b(map(y, f))),
         Expr::Call(g, args) => Expr::Call(*g, args.iter().map(|a| map(a, f)).collect()),
-        Expr::Table { table, args } => {
-            Expr::Table { table: *table, args: args.iter().map(|a| map(a, f)).collect() }
-        }
+        Expr::Table { table, args, order } => Expr::Table {
+            table: *table,
+            args: args.iter().map(|a| map(a, f)).collect(),
+            order: *order,
+        },
         Expr::If(c, x, y) => Expr::If(b(map(c, f)), b(map(x, f)), b(map(y, f))),
         leaf => leaf.clone(),
     }
@@ -83,9 +85,11 @@ pub fn map_up(e: &Expr, f: &mut impl FnMut(Expr) -> Expr) -> Expr {
         Expr::And(x, y) => Expr::And(b(map_up(x, f)), b(map_up(y, f))),
         Expr::Or(x, y) => Expr::Or(b(map_up(x, f)), b(map_up(y, f))),
         Expr::Call(g, args) => Expr::Call(*g, args.iter().map(|a| map_up(a, f)).collect()),
-        Expr::Table { table, args } => {
-            Expr::Table { table: *table, args: args.iter().map(|a| map_up(a, f)).collect() }
-        }
+        Expr::Table { table, args, order } => Expr::Table {
+            table: *table,
+            args: args.iter().map(|a| map_up(a, f)).collect(),
+            order: *order,
+        },
         Expr::If(c, x, y) => Expr::If(b(map_up(c, f)), b(map_up(x, f)), b(map_up(y, f))),
         leaf => leaf.clone(),
     };

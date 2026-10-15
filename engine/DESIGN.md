@@ -317,7 +317,10 @@ Modelica's scalar set, plus two engine built-ins:
   of today's `tableOutside` as options). In component scope `args[0]` is
   the table parameter's name and the rest are the abscissae
   (`expr::table("ocv", vec![soc])`, printed `ocv(soc)`); in flat scope
-  `table` indexes `FlatSystem::tables` and `args` are the abscissae.
+  `table` indexes `FlatSystem::tables` and `args` are the abscissae. Its
+  `order` (`[0, 0]` for a value) reads a partial derivative of the
+  interpolant instead, which only index reduction makes (section 6, step
+  5; printed `table3'[1, 0](x, y)`).
 
 The text format writes `a == b` and `a <> b`; the IR holds them as
 `a >= b and a <= b` and `a < b or a > b` (no new comparison operators), and
@@ -329,7 +332,13 @@ row-major (`values[i * y.len() + j]` at `(x[i], y[j])`), `interpolation`
 (`MonotoneCubic` by default, or `Linear`), `outside` per axis (`Clamp` by
 default, `Linear`, `Error`: today's `tableOutside`) and `axis_units` (the
 axes' coherent SI unit texts). `TableData::check` says in plain words what
-is malformed.
+is malformed. The interpolant built from it (`interp.rs`, `interp::Table`:
+Steffen's 1-D cubics, the monotone bicubic, linear; moved here from
+`lsim-codegen`, which re-exports it) is the one every reader evaluates,
+with its partial derivatives of any order (`eval_order`) and how many
+times it is continuously differentiable (`continuity`); the interpreter
+reads tables through `Env::table(k, order, args)` (`eval::interpolate`
+over the interpolants).
 
 ### 5.3 Components (`component.rs`)
 
@@ -637,7 +646,9 @@ or from `jvp`), `table_guard_list` and `table_guards` (the watched table
 axes), `eval_table` (a table as the compiled code interpolates it, value
 and partial derivatives: the energy books, the conditions on functions of
 time, the asserts and the impulse projection evaluate flat expressions
-outside the compiled code and read the tables through it), and
+outside the compiled code and read the tables through it;
+`eval_table_order` the same for a partial derivative, which index
+reduction's equations read: the default gives values only), and
 `table_axes` (the breakpoints of the data it interpolates, which the run
 loop's stops and enclosures follow when a model's tables are swapped after
 preparation). The defaults are those of a model without such things: no
@@ -797,8 +808,80 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    static selection with a pivoting check on the Jacobian at
    initialisation; dynamic state selection is out of scope until a model
    needs it (risk R3). Symbolic time differentiation of equations is in
-   `symbolic.rs`'s rule set, extended with `der` of tables (the monotone
-   cubic's derivative) and of `limit`.
+   `symbolic.rs`'s rule set, with `limit` and tables.
+
+   **Through tables.** A table read differentiates by the chain rule,
+   `d/dt T(a, b) = ∂T/∂x · a' + ∂T/∂y · b'`, and `∂T/∂x` is itself a table
+   read: `Expr::Table` with an `order` per argument (printed
+   `table3'[1, 0](…)`; only index reduction makes such reads, models and
+   the text format read values). It is the interpolant's own derivative,
+   exact up to rounding: cell by cell, the derivative of the cubic (or
+   bicubic) polynomial the value is. One implementation serves every
+   reader: the interpolant (`lsim_ir::interp::Table`, moved from
+   `lsim-codegen`, which re-exports it) gives any partial derivative
+   (`eval_order`), the interpreter reads it through `Env::table`,
+   preparation through its node environment, the solver through
+   `ModelFunctions::eval_table_order`, and the generated code calls the
+   same `lsim_tab*` symbols on the table store's entry for that
+   derivative (each derivative the model reads gets one after the flat
+   tables: the same coefficients, asking for that derivative). The
+   compiled code is the interpreter's, bitwise (random expressions with
+   derivative reads up to the second order), a first derivative is
+   bitwise the rate the value comes with, and a derivative read's own
+   Jacobian entries read the next order, checked against differences.
+
+   *Where a derivative is one-sided.* A monotone cubic is C¹: its second
+   derivative jumps at every breakpoint; a linear table's first does; a
+   table held at its edge values outside its data (`Clamp`) has a kink at
+   each edge. There the engine takes the derivative of the cell the
+   argument lies in: at a breakpoint inside the data the cell to its right
+   (`x_i ≤ x < x_{i+1}`, as the value is found), at the data's last point
+   the last cell, so on the data's edges the side inside them; outside, a
+   held axis is constant (every derivative along it 0), an axis continued
+   linearly has its edge slope and nothing higher. This is right because
+   a table may be differentiated at most once more than it is
+   continuously differentiable (preparation checks it, below): then every
+   derivative below the one read is continuous, so the lower equations,
+   the states and the dummy derivatives they decide are continuous too,
+   and the equation that reads the jumping derivative holds on each side
+   of the jump; what it decides (a dummy derivative's derivative, a
+   constraint force, a capacitor's current) jumps there at an isolated
+   instant, where either side is a value the solution takes, and which
+   one is taken changes nothing that is integrated. The integrator must
+   still not step across such a jump as if it were smooth. A table read
+   along time stops the integrator at its breakpoints (section 8.2); when
+   the model reads a derivative of it that jumps there (of total order one
+   more than the table's continuity), the run stops where the cell before
+   the breakpoint still holds (some ulps before its time, more than the
+   rounding of the position and of the cell search can move it: the
+   position, growing or falling, is then still in the cell it comes from)
+   and restarts the integrator there, so that the step that reaches the
+   breakpoint reads the cell before it and no step's history spans the
+   jump (`TimeTable::kink`; measured on a gear whose ratio is a linear
+   table over time: 2·10⁻⁸ off the closed form with a plain stop at the
+   breakpoint, 4·10⁻¹¹ with this, and 1·10⁻¹¹ read backwards in time, at
+   rtol 10⁻¹⁰). Read at a state, a jump's time is not
+   known ahead: the integrator steps over it as over any piecewise-smooth
+   right-hand side, its error test shrinking the step there (the same gear
+   with the ratio a linear table of the load's speed: 7·10⁻¹¹).
+
+   *Not smooth enough* (`INDEX-TABLE-NOT-SMOOTH`): a table differentiated
+   more often than that is refused, naming the table, the equation and
+   why (a linear table's kinks at its breakpoints, a held table's at its
+   edges, a cubic's second derivative), with what would fix it (a monotone
+   cubic, continuing linearly outside the data, a compliance); the motion
+   would otherwise need an impulse the model does not have. How smooth a
+   table is comes from its interpolant (`Table::continuity`: a linear
+   table C⁰, a cubic C¹ with every varying axis continued linearly or
+   stopping the run outside, C⁰ with one held, a constant C^∞); it is
+   checked again when a compiled model's tables are swapped
+   (`with_tables`). A derivative read's unit is the value's per the
+   axis's, per order.
+
+   Preparation reads the tables (the start it solves, the pivots of the
+   choice of dummy derivatives) only in models whose index reduction
+   differentiated a table; every other model is prepared exactly as
+   before (there the tables read as NaN, and the run solves the start).
 6. **BLT.** Tarjan's algorithm orders the strongly connected blocks,
    dependencies first.
 7. **Tearing and solving.** A one-equation block affine in its unknown
@@ -1470,7 +1553,11 @@ round).**
   Electric Car in winter once stood 21 s at a start because a step from
   507.8 to 532.6 s spanned its motor's switch-on and switch-off (both
   ends off). A stop is no restart: the integration goes on with its
-  history. The breakpoints are those of the data the model interpolates:
+  history; except where the model reads a derivative of the table
+  (index reduction through it, section 6 step 5), whose jumps at the
+  breakpoints are kinks of what is integrated: there the run stops where
+  the cell before the breakpoint still holds and restarts
+  (`TimeTable::kink`, `SolverReport::kink_restarts`). The breakpoints are those of the data the model interpolates:
   a compiled model's tables may be swapped after preparation
   (`JitModel::with_tables`), so the run takes them from the model
   (`ModelFunctions::table_axes`) where they differ from the prepared
@@ -2066,11 +2153,16 @@ all. The catalogue as built (each code's model and expected parts are in
 `THERM-TEMP-CONFLICT`, `MECH-SPEED-CONFLICT`, `MECH-FLOATING`,
 `PART-UNCONNECTED`, `GEAR-NO-RATIO`, `SIGNAL-UNCONNECTED`, `SIGNAL-SOURCES`,
 `CAUSAL-LOOP` (a warning), `SINGULAR-LOOP`, `INIT-OVER`, `DER-NOT-STATE`,
-`INDEX-DIFFERENTIATE`, `STATE-SELECT-SINGULAR`, `PIVOT-ZERO-AT-START` (a
+`INDEX-TABLE-NOT-SMOOTH`, `STATE-SELECT-SINGULAR`, `PIVOT-ZERO-AT-START` (a
 warning), `PARAM-CYCLE`, `EXTERNAL-PERIOD`, `EXTERNAL-LOOP` (a warning),
 `WHEN-CONDITION`, `WHEN-CONTINUOUS`, `REINIT-NOT-STATE`, `STRUCT-OVER` and
 `STRUCT-UNDER`; `INIT-START-IGNORED` is tested with the index-reduction
-models and the `INVERSE-*` codes with fast mode's. A floating network is
+models, the `INVERSE-*` codes with fast mode's, and
+`INDEX-TABLE-NOT-SMOOTH`'s three reasons (a linear table's kinks, a held
+table's edges, a cubic's second derivative) in
+`lsim-prep/tests/index_tables.rs`. `INDEX-DIFFERENTIATE` (an equation that
+cannot be differentiated) and `INDEX-TOO-HIGH` stay as safety nets: since
+tables differentiate, no known model reaches them. A floating network is
 told apart two ways: structurally (a node balance that alias elimination
 reduces to 0 = 0 is dropped, leaving the potentials undecided) and, when
 the structure balances, numerically (a linear block singular at the start

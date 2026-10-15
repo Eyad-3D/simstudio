@@ -695,7 +695,7 @@ mod tests {
         // evaluate: the current is 14 / (2+3+4+5) = 1
         let mut vals = vec![f64::NAN; 8];
         for (n, e, _) in &s.assignments {
-            let env = crate::system::NodeEnv { t: 0.0, vals: &vals, params: &[] };
+            let env = crate::system::NodeEnv { t: 0.0, vals: &vals, params: &[], tables: &[] };
             vals[*n] = lsim_ir::eval::eval(e, &env);
         }
         for k in 0..4 {

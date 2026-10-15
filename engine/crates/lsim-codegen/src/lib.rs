@@ -626,7 +626,9 @@ impl JitModel {
         let names: Vec<String> = (0..data.len()).map(|k| format!("{k}")).collect();
         let refs: Vec<&TableData> = data.iter().collect();
         let names: Vec<&str> = names.iter().map(|s| s.as_str()).collect();
-        let store = Arc::new(TableStore::new(&refs, &names).map_err(CodegenError::Table)?);
+        let store = Arc::new(
+            TableStore::new(&refs, &names, self.tables.derived()).map_err(CodegenError::Table)?,
+        );
         let mut m = self.clone();
         m.table_tools = Arc::new(kernel::table_tools(&store));
         m.kernels = self.kernels.as_ref().map(|k| Arc::new(k.fresh()));
@@ -751,6 +753,18 @@ impl ModelFunctions for JitModel {
     fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
         let k = k as usize;
         (k < self.table_dims.len()).then(|| self.tables.get(k).eval(args))
+    }
+
+    fn eval_table_order(&self, k: u32, order: [u8; 2], args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+        if k as usize >= self.table_dims.len() {
+            return None;
+        }
+        // the derivative's own entry when the model reads it (the very
+        // interpolant the generated code calls), else built on the way
+        Some(match self.tables.entry(k, order) {
+            Some(e) => self.tables.get(e).eval(args),
+            None => self.tables.get(k as usize).eval_order(args, order),
+        })
     }
 
     fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
@@ -960,7 +974,8 @@ fn build(
     // tables (runtime data)
     let names: Vec<&str> = flat.tables.iter().map(|t| t.name.as_str()).collect();
     let data: Vec<&TableData> = flat.tables.iter().map(|t| &t.data).collect();
-    let store = Arc::new(TableStore::new(&data, &names).map_err(CodegenError::Table)?);
+    let derived = analysis::derivative_reads(model);
+    let store = Arc::new(TableStore::new(&data, &names, &derived).map_err(CodegenError::Table)?);
 
     // the systems and their Jacobian structure
     let cx = Ctx::new(model)?;

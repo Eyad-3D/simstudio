@@ -58,8 +58,8 @@ impl Env for Point<'_> {
     fn param(&self, p: ParamId) -> f64 {
         self.params[p.0 as usize]
     }
-    fn table(&self, k: u32, args: &[f64]) -> f64 {
-        lsim_ir::interval::table_at(self.model, k, args).map_or(f64::NAN, |(v, _)| v)
+    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+        lsim_ir::interval::table_at(self.model, k, order, args).map_or(f64::NAN, |(v, _)| v)
     }
 }
 
@@ -168,9 +168,9 @@ fn fast_eval(e: &Expr, env: &dyn Env, fma: bool) -> f64 {
         Expr::Const(v) => *v,
         Expr::Time => env.time(),
         Expr::Name(_) => f64::NAN,
-        Expr::Table { table, args } => {
+        Expr::Table { table, args, order } => {
             let at: Vec<f64> = args.iter().map(ev).collect();
-            env.table(*table, &at)
+            env.table(*table, *order, &at)
         }
         Expr::Var(v) => env.var(*v),
         Expr::Param(p) => env.param(*p),
@@ -254,11 +254,32 @@ fn has_power(e: &Expr) -> bool {
 
 #[test]
 fn ten_thousand_random_expressions_agree_with_the_interpreter() {
+    let (exprs, checks, with_powers) = agree_with_the_interpreter(2026, 100, random::ALL_OPS);
+    assert!(exprs >= 10_000, "{exprs} expressions");
+    println!(
+        "{exprs} random expressions ({with_powers} with a constant power), {checks} values compared"
+    );
+}
+
+/// The same with reads of tables' partial derivatives (index reduction's,
+/// up to the second order, which compile to their own interpolants): the
+/// compiled code is the interpreter's, bitwise.
+#[test]
+fn random_expressions_reading_tables_derivatives_agree_with_the_interpreter() {
+    let (exprs, checks, _) = agree_with_the_interpreter(2027, 30, random::DERIVATIVES);
+    assert!(exprs >= 3_000, "{exprs} expressions");
+    println!("{exprs} random expressions with tables' derivatives, {checks} values compared");
+}
+
+/// Random models of `ops` (seed, how many): their channels and zero
+/// crossings against the interpreter. Returns how many expressions, how
+/// many values compared, how many expressions with a constant power.
+fn agree_with_the_interpreter(seed: u64, models: usize, ops: random::Ops) -> (usize, usize, usize) {
     let fma = native_fma();
-    let mut r = Rng(2026);
+    let mut r = Rng(seed);
     let (mut exprs, mut checks, mut with_powers) = (0usize, 0usize, 0usize);
-    for model_no in 0..100 {
-        let m: PreparedModel = random::model(&mut r, 3, 100, 8, 5, random::ALL_OPS);
+    for model_no in 0..models {
+        let m: PreparedModel = random::model(&mut r, 3, 100, 8, 5, ops);
         let jit = compile(&m, &CodegenOptions::default()).expect("compiles");
         let l = *jit.layout();
         let p: Vec<f64> = m.flat.params.iter().map(|q| q.value).collect();
@@ -337,10 +358,7 @@ fn ten_thousand_random_expressions_agree_with_the_interpreter() {
             }
         }
     }
-    assert!(exprs >= 10_000, "{exprs} expressions");
-    println!(
-        "{exprs} random expressions ({with_powers} with a constant power), {checks} values compared"
-    );
+    (exprs, checks, with_powers)
 }
 
 /// Each power the residual multiplies out is within 1 ulp of the
