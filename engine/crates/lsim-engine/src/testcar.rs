@@ -374,38 +374,28 @@ pub fn components() -> Vec<ComponentDef> {
     vec![body, wheel, gear, motor, battery, aux, brake, driver, blend]
 }
 
-/// A speed trace as a component: `v_ref(t)` piecewise linear through the
-/// samples (a sum of ramps, so no events), held after the last sample.
+/// The cycle's speed as a table over time, linear between its samples, as
+/// the example cars' drive cycles are (lsim-lib's `Signal.TimeTable`).
 pub fn speed_trace(name: &str, t: &[f64], v: &[f64]) -> ComponentDef {
     assert!(t.len() >= 2 && t.len() == v.len());
-    let slope = |k: usize| (v[k + 1] - v[k]) / (t[k + 1] - t[k]);
-    let mut terms = vec![];
-    let mut prev = 0.0;
-    for k in 0..t.len() {
-        let s = if k + 1 < t.len() { slope(k) } else { 0.0 };
-        let ds = s - prev;
-        if ds != 0.0 {
-            terms.push(c(ds) * max(Expr::Time - c(t[k]), c(0.0)));
-        }
-        prev = s;
-    }
-    // a balanced sum keeps the expression shallow
-    fn sum(mut xs: Vec<Expr>) -> Expr {
-        match xs.len() {
-            0 => c(0.0),
-            1 => xs.pop().expect("one"),
-            n => {
-                let rest = xs.split_off(n / 2);
-                sum(xs) + sum(rest)
-            }
-        }
-    }
+    let data = lsim_ir::TableData {
+        interpolation: lsim_ir::Interpolation::Linear,
+        axis_units: ["s".into(), String::new()],
+        ..lsim_ir::TableData::new_1d(t.to_vec(), v.to_vec())
+    };
     ComponentDef {
         name: name.into(),
-        doc: "A cycle's speed as a function of time.".into(),
+        doc: "A cycle's speed as a table over time.".into(),
         ports: vec![output("v_ref", "m/s", "target speed")],
-        params: vec![param("per_s", "m/s2", 1.0, "unit factor")],
-        equations: vec![eq(n("v_ref"), c(v[0]) + n("per_s") * sum(terms), "the cycle's speed")],
+        params: vec![lsim_ir::component::ParamDecl {
+            default: ParamValue::Table(data),
+            ..param("speed", "m/s", 0.0, "the cycle's speed over time")
+        }],
+        vars: vec![var("t_now", "s", "the time")],
+        equations: vec![
+            eq(n("t_now"), Expr::Time, "the time"),
+            eq(n("v_ref"), lsim_ir::expr::table("speed", vec![n("t_now")]), "the cycle's speed"),
+        ],
         ..Default::default()
     }
 }

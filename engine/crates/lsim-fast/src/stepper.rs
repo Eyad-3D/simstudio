@@ -765,7 +765,7 @@ impl Recording<'_, '_> {
         if self.stats {
             let t = st.hermite_point(a, b, 0.5)?;
             st.vars_into(t, &mut self.v_mid);
-            let xdot = st.out[..nx].to_vec();
+            let st: &Stepper<'_> = st;
             track(
                 &mut self.tracker,
                 self.sites,
@@ -774,7 +774,7 @@ impl Recording<'_, '_> {
                 st,
                 t,
                 &self.v_mid,
-                &xdot,
+                &st.out[..nx],
             );
         }
         st.y[..nx].copy_from_slice(&b.x);
@@ -806,7 +806,7 @@ impl Recording<'_, '_> {
     fn restart(&mut self, st: &mut Stepper<'_>, t: f64) {
         if self.need_vars {
             st.vars_into(t, &mut self.v_start);
-            let xdot = st.out[..st.nx].to_vec();
+            let st: &Stepper<'_> = st;
             track(
                 &mut self.tracker,
                 self.sites,
@@ -815,7 +815,7 @@ impl Recording<'_, '_> {
                 st,
                 t,
                 &self.v_start,
-                &xdot,
+                &st.out[..st.nx],
             );
             self.acc.point(&self.v_start);
         }
