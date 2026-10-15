@@ -10,6 +10,7 @@ repository.workspace = true
 
 [dependencies]
 lsim-ir.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true
