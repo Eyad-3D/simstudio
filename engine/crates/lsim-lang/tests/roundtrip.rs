@@ -349,8 +349,13 @@ fn random_expr(r: &mut Rng, depth: u32) -> Expr {
         10 => if_(random_expr(r, depth - 1), random_expr(r, depth - 1), random_expr(r, depth - 1)),
         11 => Expr::NoEvent(Box::new(random_expr(r, depth - 1))),
         12 => {
-            let f = [Builtin::Sin, Builtin::Exp, Builtin::Atan2, Builtin::Max, Builtin::Limit]
-                [r.below(5) as usize];
+            use Builtin::*;
+            // every function a text can call (der and pre take a name)
+            let all = [
+                Sin, Cos, Tan, Asin, Acos, Atan, Atan2, Sinh, Cosh, Tanh, Exp, Log, Sqrt, Abs,
+                Sign, Min, Max, Limit,
+            ];
+            let f = all[r.below(all.len() as u64) as usize];
             let args = (0..f.arity()).map(|_| random_expr(r, depth - 1)).collect();
             call(f, args)
         }
@@ -382,4 +387,133 @@ fn random_expressions_print_and_parse_back_exactly() {
         assert_eq!(back, vec![def], "{text}");
     }
     println!("{rounds} random equations ({chars} characters) round-trip");
+}
+
+/// Every combination of `n` switches.
+fn switches(n: usize) -> impl Iterator<Item = Vec<bool>> {
+    (0..1u32 << n).map(move |k| (0..n).map(|b| k >> b & 1 == 1).collect())
+}
+
+/// Every vehicle block in every configuration its switches give (the
+/// library holds only the defaults; a project builds the others).
+fn every_block_variant() -> Vec<ComponentDef> {
+    use lsim_lib::blocks::{battery, driveline, electric, engine, motor, signals, vehicle};
+    let mut v = vec![];
+    for s in switches(8) {
+        let limits = s[1].then_some(battery::PackLimits {
+            i_dis: s[3],
+            i_ch: s[4],
+            v_min: s[5],
+            v_max: s[6],
+            band: s[7],
+        });
+        v.push(battery::battery(&battery::BatteryConfig {
+            rc: s[0],
+            limits,
+            limit_enforced: s[2],
+            ..Default::default()
+        }));
+    }
+    for s in switches(1) {
+        v.push(driveline::gearbox(&driveline::GearboxConfig {
+            select_wired: s[0],
+            ..Default::default()
+        }));
+        v.push(driveline::clutch(driveline::ClutchConfig { engage_wired: s[0] }));
+        v.push(driveline::brake(driveline::BrakeConfig { demand_wired: s[0] }));
+        v.push(engine::fuel_cell(&engine::FuelCellConfig { tank: s[0], ..Default::default() }));
+        v.push(engine::tank(s[0]));
+        v.push(motor::emotor(&motor::MotorConfig { windowed: s[0], ..Default::default() }));
+        v.push(vehicle::wheel(vehicle::WheelConfig { on_vehicle: s[0] }));
+    }
+    for s in switches(2) {
+        v.push(driveline::split(driveline::SplitConfig { transfer_case: s[0], locked: s[1] }));
+        v.push(electric::power_consumer(electric::LoadConfig {
+            demand_wired: s[0],
+            served_input: s[1],
+        }));
+        v.push(electric::dcdc(electric::DcDcConfig { setpoint_mode: s[0], setpoint_wired: s[1] }));
+        let task = signals::default_task();
+        v.push(signals::driving_task(&signals::ProfileConfig {
+            distance: s[0],
+            repeat: s[1],
+            ..task
+        }));
+        let road = signals::default_road();
+        v.push(signals::road_profile(&signals::ProfileConfig {
+            distance: s[0],
+            repeat: s[1],
+            ..road
+        }));
+    }
+    for s in switches(3) {
+        v.push(electric::climate(&electric::ClimateConfig {
+            heat_pump: s[0],
+            enable_wired: s[1],
+            served_input: s[2],
+            ..Default::default()
+        }));
+        v.push(vehicle::driver(vehicle::DriverConfig {
+            full_throttle: s[0],
+            speed_wired: s[1],
+            target_wired: s[2],
+        }));
+    }
+    for s in switches(4) {
+        v.push(engine::engine(&engine::EngineConfig {
+            throttle_wired: s[0],
+            enable_wired: s[1],
+            tank: s[2],
+            behind_clutch: s[3],
+            ..Default::default()
+        }));
+        v.push(vehicle::body(vehicle::BodyConfig {
+            abc: s[0],
+            two_axles: s[1],
+            single_front: s[2],
+            grade_wired: s[3],
+        }));
+    }
+    for source in [None, Some(0), Some(2)] {
+        v.push(electric::electric_node(source));
+    }
+    for (motors, consumers) in [(0, 1), (1, 0), (2, 3)] {
+        v.push(electric::bus_manager(motors, consumers));
+    }
+    v.push(signals::lookup(&signals::default_lookup()));
+    let p = &lsim_lib::blocks::catalog::param("signal.lookup", "table_2d").unwrap()["default"];
+    let d2 = lsim_lib::table::Table2::from_json(p, Default::default(), Default::default());
+    let d2 = signals::LookupConfig::D2(d2.expect("the 2-D lookup's default table"));
+    v.push(signals::lookup(&d2));
+    let ports = signals::SampledPorts {
+        inputs: vec![("sig_a".into(), "N.m".into()), ("sig_b".into(), String::new())],
+        outputs: vec![("sig_y".into(), "rad/s".into())],
+    };
+    for (base, id) in [("External.Script", "signal.script"), ("External.Fmu", "signal.fmu")] {
+        v.push(signals::sampled(base, id, &ports));
+    }
+    v.push(signals::monitor(&[
+        ("sig_in_1".into(), "V".into()),
+        ("sig_in_2".into(), String::new()),
+    ]));
+    v
+}
+
+#[test]
+fn every_vehicle_block_round_trips_in_every_configuration() {
+    let mut lib = lsim_lib::library();
+    let variants = every_block_variant();
+    for d in &variants {
+        lib.add(d.clone());
+    }
+    let mut names = std::collections::BTreeSet::new();
+    for def in &variants {
+        let text = to_text(def);
+        let back = parse(&text).unwrap_or_else(|e| panic!("{}\n{text}", Report(&e)));
+        assert_eq!(back, vec![def.clone()], "{text}");
+        let back = parse_with(&text, &lib).unwrap_or_else(|e| panic!("{}\n{text}", Report(&e)));
+        assert_eq!(back, vec![def.clone()], "{text}");
+        names.insert(def.name.clone());
+    }
+    println!("{} block configurations ({} distinct) round-trip", variants.len(), names.len());
 }

@@ -14,27 +14,33 @@ Modelica Association defines in MCP-0031) is the reference. A component in
 this format reads like Modelica, and LightSim also imports models written in
 Base Modelica by other tools ([Base Modelica import](#base-modelica-import)).
 
-This page first walks through two components, then describes every part of
-the format, then the error messages.
+This page first walks through two components and shows how to run a model,
+then describes every part of the format, then the error messages. Each
+example ends with a small model that uses it (its name starts with
+`Examples.`): copy both into a text and run the model as [Running a
+model](#running-a-model) shows. Every example on this page is read, run
+and checked by the engine's tests, so it works as written.
 
 Contents
 
 1. [An equation component: a resistor](#an-equation-component-a-resistor)
 2. [A component made of components: a battery](#a-component-made-of-components-a-battery)
-3. [Names](#names)
-4. [Ports](#ports)
-5. [Parameters](#parameters)
-6. [Variables](#variables)
-7. [Units](#units)
-8. [Parts](#parts)
-9. [Equations](#equations)
-10. [Expressions](#expressions)
-11. [Tables](#tables)
-12. [Energy books](#energy-books)
-13. [Connector types and enumeration types](#connector-types-and-enumeration-types)
-14. [Error messages](#error-messages)
-15. [Base Modelica import](#base-modelica-import)
-16. [For programmers](#for-programmers)
+3. [Running a model](#running-a-model)
+4. [Names](#names)
+5. [Ports](#ports)
+6. [Parameters](#parameters)
+7. [Variables](#variables)
+8. [Units](#units)
+9. [Parts](#parts)
+10. [Equations](#equations)
+11. [Expressions](#expressions)
+12. [Tables](#tables)
+13. [Energy books](#energy-books)
+14. [Rigid engagements: a gear change](#rigid-engagements-a-gear-change)
+15. [Connector types and enumeration types](#connector-types-and-enumeration-types)
+16. [Error messages](#error-messages)
+17. [Base Modelica import](#base-modelica-import)
+18. [For programmers](#for-programmers)
 
 ## An equation component: a resistor
 
@@ -55,6 +61,18 @@ equation
   v = R * i "Ohm's law";
   annotation(__LightSim_energy(loss = v * i));
 end Electrical.Resistor;
+
+model Examples.ResistorCircuit "A 12 V source charges a 0.25 F capacitor through a 4 ohm resistor: 3 A at first."
+  Electrical.ConstantVoltage source(V = 12) "Supply";
+  Electrical.Resistor r(R = 4) "Resistor";
+  Electrical.Capacitor c(C = 0.25) "Capacitor";
+  Electrical.Ground ground;
+equation
+  connect(source.p, r.p);
+  connect(r.n, c.p);
+  connect(c.n, source.n);
+  connect(source.n, ground.p);
+end Examples.ResistorCircuit;
 ```
 
 Line by line:
@@ -77,6 +95,12 @@ Line by line:
   states in plain words.
 * `annotation(__LightSim_energy(loss = v * i))` tells the engine's energy
   books that this part turns `v * i` watts into heat.
+* `Examples.ResistorCircuit` is a model to try it: a source, the resistor,
+  a capacitor and a ground (the point the voltages are measured from),
+  wired with `connect` ([the next
+  section](#a-component-made-of-components-a-battery) explains it). Run it
+  and `r.i`, the resistor's current, starts at 12 V / 4 Ω = 3 A and falls
+  as the capacitor charges, to 3/e = 1.104 A after RC = 1 s.
 
 The equations do not say which side is computed from which. `v = R * i`
 serves to find the current from the voltage or the voltage from the
@@ -91,17 +115,27 @@ model Rotational.Inertia "Rigid rotating mass; its speed is a state."
   connector a: Flange "one side";
   connector b: Flange "the other side";
   parameter Real J(unit = "kg.m2") = 1 "moment of inertia";
-  Real w(unit = "rad/s", start = 0, fixed = true) "speed";
+  parameter Real w0(unit = "rad/s") = 0 "the speed at the start";
+  Real w(unit = "rad/s", start = w0, fixed = true) "speed";
 equation
   w = a.w "side a turns with it";
   w = b.w "side b turns with it";
   J * der(w) = a.tau + b.tau "J dw/dt is the net torque";
   annotation(__LightSim_energy(stored = 0.5 * J * w * w));
 end Rotational.Inertia;
+
+model Examples.SpinUp "A constant 2 N.m spins up a 0.5 kg.m2 rotor: its speed grows by 4 rad/s each second."
+  Rotational.ConstantTorque drive(tau = 2) "Motor torque";
+  Rotational.Inertia rotor(J = 0.5) "Rotor";
+equation
+  connect(drive.flange, rotor.a);
+end Examples.SpinUp;
 ```
 
-`der(w)` is the time derivative of `w`, in rad/s². `start = 0, fixed =
-true` says the speed is 0 at the start of a run.
+`der(w)` is the time derivative of `w`, in rad/s². `start = w0, fixed =
+true` says the speed is `w0` at the start of a run (0 unless a part sets
+it). In `Examples.SpinUp` nothing is connected to the rotor's side `b`, so
+it carries no torque, and `rotor.w` is 8 rad/s after 2 s.
 
 ## A component made of components: a battery
 
@@ -129,6 +163,16 @@ equation
   connect(r1.n, c1.n);
   connect(r1.n, p);
 end Battery.SimpleCell;
+
+model Examples.CellOnLoad "The cell drives 40 A through a 9.94 ohm load (10 ohm in all)."
+  Battery.SimpleCell cell "HV Battery";
+  Electrical.Resistor load(R = 9.94) "Load";
+  Electrical.Ground ground;
+equation
+  connect(cell.p, load.p);
+  connect(load.n, cell.n);
+  connect(cell.n, ground.p);
+end Examples.CellOnLoad;
 ```
 
 * `Electrical.Resistor r0(R = r_series)` places a part `r0` of the type
@@ -142,7 +186,64 @@ end Battery.SimpleCell;
 
 A component made of components and one made of equations are the same
 thing to the engine: a composite may add equations of its own after the
-`connect` lines.
+`connect` lines. A model to run is a component without ports, such as
+`Examples.CellOnLoad`: once the capacitor of the RC pair has charged (in
+well under a millisecond), `load.i` is 400 V / 10 Ω = 40 A.
+
+## Running a model
+
+Today a text model runs through the engine's Rust interface (the app and
+the Python interface will read the same text). The steps: read the text
+together with the library, add its components to the library, prepare the
+model you want to run (the engine sorts and solves its equations),
+compile it and simulate it.
+
+```rust
+use lsim_lang::{Report, parse_library};
+
+let text = r#"
+model Examples.ResistorCircuit "A 12 V source charges a 0.25 F capacitor through a 4 ohm resistor: 3 A at first."
+  Electrical.ConstantVoltage source(V = 12) "Supply";
+  Electrical.Resistor r(R = 4) "Resistor";
+  Electrical.Capacitor c(C = 0.25) "Capacitor";
+  Electrical.Ground ground;
+equation
+  connect(source.p, r.p);
+  connect(r.n, c.p);
+  connect(c.n, source.n);
+  connect(source.n, ground.p);
+end Examples.ResistorCircuit;
+"#;
+// read the text, checking its parts against the library
+let mut lib = lsim_lib::library();
+let parsed = parse_library(text, Some(&lib)).unwrap_or_else(|e| panic!("{}", Report(&e)));
+// add its types and components to the library
+lib.types.extend(parsed.types);
+for def in parsed.components.into_values() {
+    lib.add(def);
+}
+// prepare, compile and run the model for 1 s, an output every 0.1 s
+let model = lib.components["Examples.ResistorCircuit"].clone();
+let prepared = lsim_prep::prepare(&lib, &model, &Default::default()).expect("prepares");
+let code = lsim_codegen::compile(&prepared, &Default::default()).expect("compiles");
+let info = lsim_solve::RunInfo::from_prepared(&prepared);
+let grid = lsim_solve::OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.1 };
+let result = lsim_solve::simulate(&code, &info, &Default::default(), grid, &mut []).expect("runs");
+// every variable is a channel, named by its path: the resistor's current
+let current = result.channel("r.i").expect("a channel");
+assert!((current[0] - 3.0).abs() < 1e-9);
+assert!((current[10] - 3.0 * (-1.0f64).exp()).abs() < 1e-4);
+```
+
+A message from `parse_library` names the line and column and says what is
+wrong ([Error messages](#error-messages)); `Report(&errors)` prints them
+all. The energy books (`result.energy`) say where the energy went
+([Energy books](#energy-books)).
+
+A model to run needs at least one state (a quantity it integrates, such
+as a capacitor's voltage or an inertia's speed): the solver does not yet
+run a model made of equations alone, and stops at its start with "too
+much accuracy requested".
 
 ## Names
 
@@ -175,6 +276,7 @@ The library's connector types:
 | `Flange` | `w`, speed, rad/s | `tau`, torque, N·m |
 | `TFlange` | `v`, velocity, m/s | `f`, force, N |
 | `HeatPort` | `T`, temperature, K | `Q`, heat flow, W |
+| `FuelPort` | `e`, the fuel's heating value, J/kg | `m_flow`, mass flow, kg/s |
 
 At a connection the across quantities are equal and the through
 quantities sum to zero. A physical port that nothing is connected to
@@ -212,6 +314,13 @@ model Gearbox.Selector "Picks the ratio by mode."
 equation
   ratio = if mode == Mode.Manual then manual_ratio else auto_ratio;
 end Gearbox.Selector;
+
+model Examples.Selection "The selector with its defaults gives the automatic ratio, 2.8; an integrator adds it up over time."
+  Gearbox.Selector selector "Gear selector";
+  Signal.Integrator sum "Sum of the ratio";
+equation
+  connect(selector.ratio, sum.u);
+end Examples.Selection;
 ```
 
 In equations an option stands for its position, counting from 1:
@@ -300,11 +409,29 @@ equation
   end when "it engages when the speed reaches w_on";
   annotation(__LightSim_energy(loss = tau_max * engaged * flange.w));
 end Rotational.LatchBrake;
+
+model Examples.BrakeTest "50 N.m spins up a 1 kg.m2 rotor until the brake engages at 300 rad/s (at 6 s); then it slows by 50 rad/s each second."
+  Rotational.ConstantTorque drive(tau = 50) "Motor torque";
+  Rotational.Inertia rotor(J = 1) "Rotor";
+  Rotational.LatchBrake brake "Brake";
+equation
+  connect(drive.flange, rotor.a);
+  connect(rotor.b, brake.flange);
+end Examples.BrakeTest;
 ```
+
+In `Examples.BrakeTest` the brake engages at 6 s, when the rotor reaches
+300 rad/s; from then on the net torque is 50 − 100 N·m, and the rotor
+turns at 200 rad/s at 8 s.
 
 * Inside `when`, `v = expression;` gives the discrete variable `v` a new
   value and `reinit(x, expression);` restarts the state `x` from a new
-  value.
+  value. `x` is a state of the component itself, the across quantity of
+  one of its ports when the port is joined directly to a state (a
+  flange's speed `b.w` where an inertia sits on it), or a variable of one
+  of its parts (`load.w`). It cannot be a port's through quantity
+  (`b.tau`), a signal input or output, a parameter or a discrete
+  variable; preparation checks that what it names is a state.
 * The engine finds the moment the condition becomes true to the solver's
   precision and stops there; it does not wait for the next output step.
   A condition on time alone (`time >= t_shift`) is reached exactly: the
@@ -341,6 +468,20 @@ equation
     i = G_off * v;
   end if;
 end Electrical.IdealDiode;
+
+model Examples.DiodeCircuit "5 V charges a 1 mF capacitor through the diode and a 1 kilo-ohm resistor: 5 mA at first."
+  Electrical.ConstantVoltage source(V = 5) "Supply";
+  Electrical.IdealDiode diode "Diode";
+  Electrical.Resistor r(R = 1000) "Resistor";
+  Electrical.Capacitor c(C = 1e-3) "Capacitor";
+  Electrical.Ground ground;
+equation
+  connect(source.p, diode.p);
+  connect(diode.n, r.p);
+  connect(r.n, c.p);
+  connect(c.n, source.n);
+  connect(source.n, ground.p);
+end Examples.DiodeCircuit;
 ```
 
 ## Expressions
@@ -386,7 +527,21 @@ equation
   v = ocv(soc) "the terminal voltage is the open-circuit voltage";
   capacity * der(soc) = -i "discharge empties it";
 end Battery.OcvCell;
+
+model Examples.CellDischarge "The cell at 90 % drives 2 A through a 2 ohm load."
+  Battery.OcvCell cell "Cell";
+  Electrical.Resistor load(R = 2) "Load";
+  Electrical.Ground ground;
+equation
+  connect(cell.p, load.p);
+  connect(load.n, cell.n);
+  connect(cell.n, ground.p);
+end Examples.CellDischarge;
 ```
+
+In `Examples.CellDischarge` the cell starts at 4.0 V (the table's value at
+0.9), so 2 A flows and the state of charge falls by 2 A / 180 000 C per
+second: about 0.899889 after 10 s.
 
 * `x` lists the points of the axis, increasing; `y` the values there, in
   the parameter's unit; `xUnit` the axis' unit (coherent SI, as declared
@@ -412,7 +567,7 @@ heat (in W). With them the engine checks that each part's energy balance
 closes: the energy in through its ports equals what it stores plus what it
 loses. Other Modelica tools ignore the annotation.
 
-## Rigid engagements
+## Rigid engagements: a gear change
 
 A part whose rigid coupling changes at an event (a gear whose ratio
 changes at a shift) says so with
@@ -422,26 +577,100 @@ instantaneous, rigid engagement makes them. The engine keeps the momentum
 of everything the coupling ties together, with the masses and inertias
 the parts declare in their stored energy, and books the kinetic energy
 the engagement loses to the part. A gear-change model needs nothing more
-than its equations and this line; there is no `reinit` to write:
+than its equations and this line. This is the library's shifting gear,
+with an efficiency, and a gear change to try it: a motor at 200 N·m
+accelerates a 135 kg·m² load (a 1500 kg car on 0.3 m wheels) in 12:1 and
+shifts to 7:1 at 4 s.
 
 ```modelica
-model Rotational.ShiftingGear "A gear whose ratio is a signal: a turns ratio times as fast as b."
+model Rotational.ShiftingGear "Gear with a ratio and an efficiency on the power through it, in the direction it flows: a turns ratio times as fast as b; driving (power into a), b gets eta of it; flowing back, a gets eta of what b gives."
   connector a: Flange "input side";
   connector b: Flange "output side";
-  input Real ratio(unit = "1") "the engaged ratio a.w / b.w";
+  input Real ratio(unit = "1") "a's speed / b's speed";
+  parameter Real eta(unit = "1") = 1 "efficiency, in the direction the power flows";
+  Real eta_dir(unit = "1", start = eta) "the torque factor for the present power direction";
 equation
   a.w = ratio * b.w "a turns ratio times as fast as b";
-  0 = ratio * a.tau + b.tau "the power through it is kept";
+  eta_dir = if a.tau * a.w >= 0 then eta else 1 / eta "the loss follows the power";
+  b.tau = -ratio * eta_dir * a.tau "the torque is multiplied by the ratio, less the loss";
+  annotation(__LightSim_energy(loss = a.tau * a.w + b.tau * b.w));
   annotation(__LightSim_engagement(changes = ratio));
 end Rotational.ShiftingGear;
+
+model Examples.GearChange "A motor at 200 N.m drives a 135 kg.m2 load through a gear that shifts from 12:1 to 7:1 at 4 s."
+  Rotational.Inertia motor(J = 0.05) "Motor rotor";
+  Rotational.Inertia load(J = 135) "Load";
+  Rotational.ConstantTorque drive(tau = 200) "Motor torque";
+  Rotational.ShiftingGear gear(eta = 1) "Gearbox";
+  Signal.Step select(y0 = 12, y1 = 7, t_step = 4) "Selected ratio";
+equation
+  connect(drive.flange, motor.a);
+  connect(motor.b, gear.a);
+  connect(gear.b, load.a);
+  connect(select.y, gear.ratio);
+end Examples.GearChange;
 ```
 
 For the two inertias it joins, `J_in` on its input and `J_out` on its
 output, a shift to the ratio `r` gives `w_out = (J_out·w_out + r·J_in·w_in)
-/ (J_out + r²·J_in)`, the speeds before the shift on the right. Nothing
-but a declared engagement does this: a stored energy that depends on a
-discrete value is no engagement, and what a `reinit` sets at the same
-event stays as it set it.
+/ (J_out + r²·J_in)`, the speeds before the shift on the right. In
+`Examples.GearChange` the load's speed jumps at 4 s from 67.511 to 68.370
+rad/s (`load.w`), `J_out·w_out + 7·J_in·w_in` is the same just before and
+just after the shift, and the 2797.77 J of kinetic energy the shift loses
+are booked to the gearbox (`gear` in the energy books). After 8 s the load
+turns at 109.112 rad/s.
+
+The same shift can be written out by hand with `reinit`, for a gear that
+is told the two inertias it joins:
+
+```modelica
+model Rotational.ReinitGear "Ideal gear that shifts from i1 to i2 at t_shift between an input inertia J_in and an output inertia J_out, restarting the output speed so that their angular momentum is kept."
+  connector a: Flange "input side";
+  connector b: Flange "output side";
+  parameter Real i1(unit = "1") = 12 "the ratio a.w / b.w before the shift";
+  parameter Real i2(unit = "1") = 7 "the ratio after it";
+  parameter Real t_shift(unit = "s") = 4 "when it shifts";
+  parameter Real J_in(unit = "kg.m2") = 0.05 "the inertia on side a";
+  parameter Real J_out(unit = "kg.m2") = 135 "the inertia on side b";
+  discrete Real ratio(unit = "1", start = i1, fixed = true) "the engaged ratio a.w / b.w";
+equation
+  a.w = ratio * b.w "a turns ratio times as fast as b";
+  0 = ratio * a.tau + b.tau "the power through it is kept";
+  when time >= t_shift then
+    ratio = i2;
+    reinit(b.w, (J_out + pre(ratio) * i2 * J_in) / (J_out + i2 * i2 * J_in) * b.w);
+  end when "it shifts, keeping J_out * b.w + i2 * J_in * a.w";
+  annotation(__LightSim_energy(loss = a.tau * a.w + b.tau * b.w));
+end Rotational.ReinitGear;
+
+model Examples.GearChangeReinit "The same gear change with the shift written out by hand (reinit)."
+  Rotational.Inertia motor(J = 0.05) "Motor rotor";
+  Rotational.Inertia load(J = 135) "Load";
+  Rotational.ConstantTorque drive(tau = 200) "Motor torque";
+  Rotational.ReinitGear gear(i1 = 12, i2 = 7, t_shift = 4, J_in = 0.05, J_out = 135) "Gearbox";
+equation
+  connect(drive.flange, motor.a);
+  connect(motor.b, gear.a);
+  connect(gear.b, load.a);
+end Examples.GearChangeReinit;
+```
+
+`reinit(b.w, …)` restarts the speed of the shaft on side `b` (the load's
+speed, a state); `pre(ratio)` is the ratio just before the shift (inside
+the `when`, `ratio` already reads its new value). This model gives the
+same speeds as `Examples.GearChange` to the last digits and loses the same
+energy at the shift, but the energy books count that loss as lost at the
+event, not as the gearbox's: a `reinit` says what a state becomes, not
+which part took the energy. It also holds only for the inertias it is
+told about. Prefer the engagement: it works for any driveline the gear
+sits in and books the loss to the gear. (Both models are in
+`engine/crates/lsim-lib/text/gear_change.mo`; a test runs them against
+the gear change built in Rust, and the engagement form gives the same
+results bit for bit.)
+
+Nothing but a declared engagement moves the speeds at an event: a stored
+energy that depends on a discrete value is no engagement, and what a
+`reinit` sets at the same event stays as it set it.
 
 A part whose forces are bounded passes no impulse in zero time: a
 slipping clutch, and a tyre, whose force is at most its grip (μ × its
@@ -476,7 +705,24 @@ equation
   annotation(__LightSim_energy(loss = tau * (a.w - b.w)));
   annotation(__LightSim_impulse(keep = a.w - b.w, active = engaged > 0.5));
 end Rotational.StiffCoupling;
+
+model Examples.CouplingEngages "A flywheel at 100 rad/s coupled to a resting one three times its inertia at 1 s: both end at 25 rad/s."
+  Rotational.Inertia flywheel(J = 1, w0 = 100) "Flywheel";
+  Rotational.Inertia load(J = 3) "Load";
+  Rotational.StiffCoupling coupling "Coupling";
+  Signal.Step engage(y0 = 0, y1 = 1, t_step = 1) "Engage at 1 s";
+equation
+  connect(flywheel.b, coupling.a);
+  connect(coupling.b, load.a);
+  connect(engage.y, coupling.engaged);
+end Examples.CouplingEngages;
 ```
+
+In `Examples.CouplingEngages` no part declares an engagement, so nothing
+jumps at 1 s: the coupling's torque brings the two to one speed within a
+fraction of a millisecond (its time constant, 0.75 kg·m² / 10⁵ N·m·s/rad,
+is 7.5 µs), keeping their momentum, 100 kg·m²/s, and turning 3750 J into
+heat in the coupling.
 
 ## Connector types and enumeration types
 
@@ -496,7 +742,18 @@ connector HeatPort "Thermal port: temperature T and heat flow Q into the compone
 end HeatPort;
 
 type DriveMode = enumeration(Eco, Normal, Sport);
+
+model Examples.ModeHeater "A heater warms a 1000 J/K mass with 500 W in Eco mode, 1000 W otherwise."
+  parameter DriveMode mode = DriveMode.Eco "the drive mode";
+  Thermal.HeatCapacitor mass(C = 1000) "Cabin air";
+  Thermal.FixedHeatFlow heater(Q_flow = if mode == DriveMode.Eco then 500 else 1000) "Heater";
+equation
+  connect(heater.port, mass.port);
+end Examples.ModeHeater;
 ```
+
+`Examples.ModeHeater` warms its mass from 293.15 K (20 °C) by 0.5 K each
+second in Eco mode: 298.15 K after 10 s.
 
 A connector has one across quantity and one `flow` (through) quantity.
 `__LightSim_power = "through"` says the through quantity is itself a power
@@ -517,6 +774,7 @@ few of them:
 | `UNIT-NOT-SI` | `the parameter 'P' is declared in 'kW', which is not an SI unit: … declare unit = "W" and displayUnit = "kW"` |
 | `NAME-CLASH` | `'r' names both a parameter and a part of 'M': give the parameter another name (for example 'r_value') …` |
 | `WHEN` | `“when x > 1 then x = 0; end when” assigns 'x' at an event, but 'x' is not discrete: declare it 'discrete Real', or restart a state with reinit(x, …)` |
+| `WHEN` | `“when time > 1 then reinit(b.tau, 0); end when” restarts 'b.tau' with reinit, but 'b.tau' is what flows into the port 'b' (Flange's through quantity), which is never a state: restart its across quantity 'b.w' instead` |
 | `TABLE` | `this table is not valid: the table has 3 grid points but 2 values` |
 | `ARRAY` | `'x' has an array subscript '[': arrays are not supported (… scalars only)` |
 
@@ -531,7 +789,7 @@ LightSim reads a Base Modelica file (written by a Modelica tool's
 flattener) into one component. Such a file is a package that holds types,
 records, functions and one model; every name is in single quotes:
 
-```text
+```basemodelica
 //! base 0.1.0
 package 'RC'
   type 'Voltage' = Real(unit = "V");
@@ -569,15 +827,17 @@ arrays, `for` loops, clocked (sampled) equations, external functions,
 functions with records, `initial()`, `sample`, `delay` or rounding functions
 (`floor`, `mod` …): each gives a message at its place.
 
-Thirteen hand-written Base Modelica models of LightSim's reference problems
-import and simulate to the problems' exact answers (the tests in
+Run the model it gives as any other (the example charges its capacitor to
+345.87 V in 0.1 s, two time constants). Thirteen hand-written Base
+Modelica models of LightSim's reference problems import and simulate to
+the problems' exact answers (the tests in
 `crates/lsim-lang/tests/basemodelica.rs`).
 
 ## For programmers
 
 The crate `lsim-lang` (`engine/crates/lsim-lang`):
 
-```rust
+```rust ignore
 // components; names, units and values checked against what the text declares
 pub fn parse(text: &str) -> Result<Vec<ComponentDef>, Vec<LangError>>;
 // also checks parts, ports and connector types against a library

@@ -1140,7 +1140,17 @@ impl<'a> Importer<'a> {
             (&def.initial_equations, init_spans, "initial equation"),
         ] {
             for (e, at) in list.iter().zip(spans) {
-                lower::check_equation(&e.eq, *at, what, &who, def, &r, self.map, &mut self.errs);
+                lower::check_equation(
+                    &e.eq,
+                    *at,
+                    what,
+                    &who,
+                    def,
+                    &r,
+                    None,
+                    self.map,
+                    &mut self.errs,
+                );
             }
         }
     }
