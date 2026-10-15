@@ -79,52 +79,220 @@ relaxes after a shift is in their own slip losses (below).
 
 199 of the 201 figures are inside their bands (194 before work package
 4's second round, below), and 984 of 1038 channels (949 after its fourth
-round, 952 before its second). The two figures outside are the Battery
-Electric Car's recuperated energy on the city cycle (city and
-city-live), at 1.0013 × band: the intended difference below, which the
-converged run puts at 1.0044 × band (the 0.99996 × of earlier rounds was
-that much integration error at rtol 1e-6, inside by chance). The next
-figure is at 0.44 × band. Every channel outside is that same intended
-difference (the differential's and the final drive's torques, power and
-losses; on the hybrid's mixed cycle the gearbox's too, below). The output
-points where an event happens, which put 22 of the hybrid's channels
-outside after the fourth round, are compared as today's engine records
-them, before its step (the run keeps both sides: below). The energy books
-close to 1.5e-9 of their throughput or better in every case (the
-hybrid's to about 1e-11), each stored energy's rate exact. Every figure
-moved by at most 1.5e-3 × band since the fourth round, most by less than
-5e-4, and none in the sixth or the seventh; with the engine's own
-mathematical library (October 2026, the last section) 143 moved, by at
-most 4.5e-4 × band.
+round, 952 before its second). The October 2026 triage below went through
+every difference outside its band, case by case: 2 figures and 54
+channels, before and after alike, because each is today's engine's error
+(class b) and none the new engine's (a) or the band's (c), so nothing was
+fixed or re-banded. They all have one cause, which shows in two ways: the
+new engine's gears lose their efficiency on the torque their teeth carry
+and report that torque; today's engine applies the efficiency to, and
+reports, the torque of the motors and clutches above the gear pushed
+through the gears, the inertias in between (a motor's rotor, the gears'
+own) not taken out. The two figures are the
+Battery Electric Car's recuperated energy on the city cycle (city and
+city-live), at 1.0013 × band, 1.0044 × converged; the next figure is at
+0.44 × band. The output points where an event happens, which put 22 of
+the hybrid's channels outside after the fourth round, are compared as
+today's engine records them, before its step (the run keeps both sides:
+below). The energy books close to 1.5e-9 of their throughput or better in
+every case (the hybrid's to about 1e-11), each stored energy's rate exact.
+Every figure moved by at most 1.5e-3 × band since the fourth round, most
+by less than 5e-4, and none in the sixth or the seventh; with the
+engine's own mathematical library (October 2026, the last section) 143
+moved, by at most 4.5e-4 × band.
 
 ## Triage
 
-### Intended: a gear's loss acts on the torque its gears carry
+### Every difference outside its band (October 2026)
 
-*bev-car city and city-live: energy recuperated, +1.0013 × band (7.898e-5
-kWh against a 7.888e-5 kWh band, 0.11 % of the figure): just outside;
-converged (rtol 1e-7, 1e-8, 1e-9: 1.0041, 1.0044, 1.0044 × band), 7.923e-5
-kWh. Earlier rounds landed at 0.99996 × band, inside by an integration
-error of 3.5e-7 kWh at rtol 1e-6. Channels of
-every electric car and of the hybrid's mixed cycle: the differential's
-torques and power, the final drive's power and losses (on the hybrid also
-the gearbox's power and losses, 1.15 × band).*
+The references were made again for this triage with today's engine as it
+is on the integration branch (`fix/engine-physics` with one change to how
+a brake's stop is booked, which moves no channel the comparison reads):
+every figure and channel of the comparison came out as before, to the
+digits `results.md` shows.
 
-Today's engine reports a differential's output torque as its sources'
-torque through the gears (`torque_above` in `domains.py`: the motor's
-torque × the ratios × the efficiency) and applies a gear's efficiency to
-that torque; the torque that accelerates the rotor and the shafts above
-the mesh is not taken out. The new engine's gears carry the torque at
-their flanges, after the inertias above them, and lose their efficiency on
-that. On the city cycle the difference of the two torques, divided by the
-car's acceleration, is constant (13.1 N·m per m/s², within ±4 % over the 57
-output points with more than 0.3 m/s²): an inertia term. The final drive
-then loses 2.1e-4 kWh less over the cycle (0.016843 against 0.017050 kWh),
-which is what the battery's energies move by together (delivered
-−1.1e-4 kWh, recuperated +7.9e-5 kWh). The new engine's torque is the
-physical one; the channels are compared as defined, so they stay outside.
-On the hybrid's mixed cycle the largest differences are at the start
-(−12.5 N·m on the differential while the car pulls away), the same term.
+**Counts.** Before: 199 of 201 figures, 984 of 1038 channels. After: the
+same. Class (a), the new engine wrong: none. Class (b), today's engine
+wrong: both figures and all 54 channels. Class (c), the band wrong: none.
+
+**The cause.** Today's engine lumps each rigid stretch of a driveline into
+one inertia and applies a gear's efficiency to the net torque its sources
+send through it (`through_gears` in `domains.py`); it reports a gear's
+power as the sources' power reaching it (`book_gears`) and a
+differential's output torque as the sources' torque through the gears
+(`torque_above`), half to each side. The torque that speeds up the rotor
+and the gears above the mesh never reaches the teeth, but today's engine
+both loses the efficiency on it and reports it as carried. The new
+engine's gears take the torque at the mesh, after the inertias before it
+(the motor's rotor and the gear's own input side), lose the efficiency on
+that (`blocks/driveline.rs`: `tau_x`) and report it; a differential's
+output torques are its half-shafts' torques. The premise is the usual one
+for a gear's efficiency (Modelica's `LossyGear` alike): the mesh's
+friction grows with the load on the teeth, and an inertia's torque never
+reaches them. A catalogue efficiency is one steady-state number, which
+also lumps in losses that do not depend on the load; under that premise
+today's rule is the less faithful one, and that is what class (b) means
+here: today's engine is wrong against the model the project describes,
+and the new engine's answers are the more accurate ones.
+
+**The evidence.**
+
+1. *Today's rule reproduces today's channels and, applied to the new
+   engine's run, brings every channel outside inside.*
+   `golden/definitions.py` rebuilds today's gear channels from a run's own
+   sources (the motors' and clutches' torque and speed, the gear in use)
+   by today's rule. On today's 1 ms runs it reproduces today's channels to
+   0.016 × band or better (to round-off on the electric cars' torques);
+   on the new engine's runs it puts each of the 54 channels at 0.002 to
+   0.17 × band (the table below): what is left is a small fraction of the
+   band, against 0.005 to 0.016 for today's own run.
+2. *The exact answer.* `lsim-project/tests/gear_loss.rs`: a motor (a
+   constant torque on its rotor) through the library's final drive (ratio
+   12.8, efficiency 0.9) to a load, from rest. Newton on the input side
+   gives the teeth's torque, T − (J_rotor + J_in)·i·α, and the loss on it;
+   the new engine's speed, teeth torque and loss rate are that exact
+   answer to 1e-8 (this shows the block does what its law says; the law
+   itself rests on the premise above). Today's rule gives another answer
+   (the speed 11.951 against 12.007 rad/s, the loss 1529.8 against 1472.0
+   J). With nothing
+   on the gear's output but its own output side, the teeth carry 0.246
+   N·m of the motor's 100 and the gear loses 89 J over 2 s; today's rule
+   would lose 32 655 J in a gear that passes almost nothing.
+3. *The wheels' momentum.* An output flange's torque must be what the
+   wheel behind it needs: the tyre's force × radius plus the wheel's and
+   the brake disc's inertia × their acceleration. Over the output points
+   that accelerate by more than 1 rad/s² without braking (the acceleration
+   from the 1 s output grid), the new engine's differential torque meets
+   it to within that estimate (least squares −0.003 kg·m² × the
+   acceleration on the BEV's WLTC, within ±0.27 at every point; +0.007 on
+   the hybrid's mixed cycle), as it must, its output torque being the
+   half-shaft's. Today's differential torque is above the new engine's by
+   4.51 kg·m² × the acceleration on the BEV's WLTC and 4.52 on its city
+   cycle (least squares): the rotor and the gears above the differential,
+   4.52 kg·m² at the wheels' speed. Against its own wheel channels today's
+   misses by 5.4 and 5.6 kg·m² × the acceleration: the extra 0.9 to 1.1,
+   about the wheel's and the disc's 0.995 kg·m², is a difference in
+   today's wheel torque channel (−0.94 and −1.08 × the acceleration
+   against the new engine's, inside that channel's band at 0.18 and 0.08
+   ×) that this triage does not explain.
+4. *With the inertias above the gears gone, everything agrees.* The BEV's
+   city cycle with the motor's rotor and the gears' inertias set to 1e-6
+   kg·m² (where the two rules coincide), on both engines: 11 of 11
+   figures and 70 of 70 channels inside, the recuperated energy at
+   −4.3e-6 kWh (0.058 × band). (The variants of this item and the next
+   are `backend/projects/bev-car.json` with those parameters changed and
+   only its city case, run through `reference.py` and the golden runner;
+   they are not kept in the repository.)
+5. *The figure's whole difference is the rule.* With the rotor's and the
+   final drive's input inertia moved to its output side (reflected through
+   the ratio: 9.031 kg·m²), the new engine's final drive takes its
+   efficiency on the motor's whole torque, as today's does; today's
+   engine, which lumps them anyway, moves by 1.5e-7 kWh (0.002 × band).
+   The new engine's recuperated energy then lands at −4.3e-6 kWh (0.054 ×
+   band; −4.1e-6 converged), the final drive's power and losses inside;
+   only the differential's torques and power stay outside, by what the
+   channel reports. So the rule moves the figure by +8.34e-5 kWh at
+   convergence (0.12 % of it), a little more than its band, 7.89e-5 kWh.
+
+**The intended difference, re-checked.** *bev-car city and city-live:
+energy recuperated, +1.0013 × band (7.898e-5 kWh against a 7.888e-5 kWh
+band); converged (rtol 1e-7, 1e-8, 1e-9: 1.0041, 1.0044, 1.0044 × band),
++7.923e-5 kWh.* By (5) the rule is the whole difference, so under the
+premise above the new engine's figure is the more accurate: braking, the
+rotor gives up its kinetic energy to the generator without passing the
+teeth, and today's engine takes the final drive's 2 % off that too, so it
+recuperates less. Over the cycle the final drive loses about 2.1e-4 kWh
+less (0.016843 against 0.017050 kWh, its loss channel integrated over the
+1 s output grid; today's own book says 0.017003 kWh, so the difference is
+known to about a quarter), which the battery's energies move by together
+(delivered −1.1e-4 kWh, recuperated +7.9e-5 kWh). (At rtol 1e-10 IDA
+stops at t = 120 s, its error test failing repeatedly at h = 3.5e-7 s;
+not investigated here.)
+
+**What else moves.** The same channels on the hybrid's HWFET and UDDS,
+the BEV's other cases and the acceleration test differ the same way but
+lie inside their bands, which today's own step error makes wider there
+(the acceleration test's differential torque at 0.46 × band, 0.03 under
+today's rule).
+
+**Every channel still outside** (× band as compared, and with today's
+rule applied to the new engine's run by `definitions.py`). "Loss" marks
+the channels the loss rule moves (the final drive's on the BEV, the
+gearbox's on the hybrid); the rest differ by what the channel reports
+(the aero BEV's and the hybrid's axle gears run at 100 %: their road-load
+coefficients hold the axle's drag).
+
+| case | channel | × band | class | cause | × band, today's rule on the new run | × band, today's rule on today's run |
+|---|---|---:|---|---|---:|---:|
+| aero-bev/case-hwfet | el-final-drive:sig_power | 3.03 | b | reports the sources' torque or power | 0.015 | 0.005 |
+| aero-bev/case-hwfet | el-diff:sig_power | 3.06 | b | reports the sources' torque or power | 0.015 | 0.005 |
+| aero-bev/case-hwfet | el-diff:sig_torque_a | 3.51 | b | reports the sources' torque or power | 0.002 | 0.000 |
+| aero-bev/case-hwfet | el-diff:sig_torque_b | 3.51 | b | reports the sources' torque or power | 0.002 | 0.000 |
+| aero-bev/case-udds | el-final-drive:sig_power | 3.75 | b | reports the sources' torque or power | 0.048 | 0.016 |
+| aero-bev/case-udds | el-diff:sig_power | 3.78 | b | reports the sources' torque or power | 0.048 | 0.016 |
+| aero-bev/case-udds | el-diff:sig_torque_a | 2.95 | b | reports the sources' torque or power | 0.054 | 0.000 |
+| aero-bev/case-udds | el-diff:sig_torque_b | 2.95 | b | reports the sources' torque or power | 0.054 | 0.000 |
+| aero-bev/case-wltc | el-final-drive:sig_power | 3.42 | b | reports the sources' torque or power | 0.025 | 0.008 |
+| aero-bev/case-wltc | el-diff:sig_power | 3.45 | b | reports the sources' torque or power | 0.025 | 0.008 |
+| aero-bev/case-wltc | el-diff:sig_torque_a | 3.91 | b | reports the sources' torque or power | 0.034 | 0.000 |
+| aero-bev/case-wltc | el-diff:sig_torque_b | 3.91 | b | reports the sources' torque or power | 0.034 | 0.000 |
+| bev-car/case-city-live | el-final-drive:sig_power | 4.66 | b | reports the sources' torque or power | 0.089 | 0.002 |
+| bev-car/case-city-live | el-final-drive:sig_losses | 4.70 | b | loss on the sources' torque | 0.090 | 0.002 |
+| bev-car/case-city-live | el-diff:sig_power | 4.76 | b | reports the sources' torque or power | 0.091 | 0.002 |
+| bev-car/case-city-live | el-diff:sig_torque_a | 5.59 | b | reports the sources' torque or power | 0.113 | 0.000 |
+| bev-car/case-city-live | el-diff:sig_torque_b | 5.59 | b | reports the sources' torque or power | 0.113 | 0.000 |
+| bev-car/case-city | el-final-drive:sig_power | 4.66 | b | reports the sources' torque or power | 0.089 | 0.002 |
+| bev-car/case-city | el-final-drive:sig_losses | 4.70 | b | loss on the sources' torque | 0.090 | 0.002 |
+| bev-car/case-city | el-diff:sig_power | 4.76 | b | reports the sources' torque or power | 0.091 | 0.002 |
+| bev-car/case-city | el-diff:sig_torque_a | 5.59 | b | reports the sources' torque or power | 0.113 | 0.000 |
+| bev-car/case-city | el-diff:sig_torque_b | 5.59 | b | reports the sources' torque or power | 0.113 | 0.000 |
+| bev-car/case-wltc-hvac | el-final-drive:sig_power | 5.95 | b | reports the sources' torque or power | 0.106 | 0.008 |
+| bev-car/case-wltc-hvac | el-final-drive:sig_losses | 5.97 | b | loss on the sources' torque | 0.107 | 0.008 |
+| bev-car/case-wltc-hvac | el-diff:sig_power | 6.04 | b | reports the sources' torque or power | 0.107 | 0.008 |
+| bev-car/case-wltc-hvac | el-diff:sig_torque_a | 7.03 | b | reports the sources' torque or power | 0.146 | 0.000 |
+| bev-car/case-wltc-hvac | el-diff:sig_torque_b | 7.03 | b | reports the sources' torque or power | 0.146 | 0.000 |
+| bev-car/case-wltc-summer | el-final-drive:sig_power | 6.00 | b | reports the sources' torque or power | 0.106 | 0.008 |
+| bev-car/case-wltc-summer | el-final-drive:sig_losses | 6.03 | b | loss on the sources' torque | 0.106 | 0.008 |
+| bev-car/case-wltc-summer | el-diff:sig_power | 6.09 | b | reports the sources' torque or power | 0.107 | 0.008 |
+| bev-car/case-wltc-summer | el-diff:sig_torque_a | 7.04 | b | reports the sources' torque or power | 0.146 | 0.000 |
+| bev-car/case-wltc-summer | el-diff:sig_torque_b | 7.04 | b | reports the sources' torque or power | 0.146 | 0.000 |
+| bev-car/case-wltc-winter | el-final-drive:sig_power | 5.83 | b | reports the sources' torque or power | 0.103 | 0.008 |
+| bev-car/case-wltc-winter | el-final-drive:sig_losses | 5.87 | b | loss on the sources' torque | 0.103 | 0.008 |
+| bev-car/case-wltc-winter | el-diff:sig_power | 5.92 | b | reports the sources' torque or power | 0.104 | 0.008 |
+| bev-car/case-wltc-winter | el-diff:sig_torque_a | 7.00 | b | reports the sources' torque or power | 0.145 | 0.000 |
+| bev-car/case-wltc-winter | el-diff:sig_torque_b | 7.00 | b | reports the sources' torque or power | 0.145 | 0.000 |
+| bev-car/case-wltc | el-final-drive:sig_power | 5.95 | b | reports the sources' torque or power | 0.106 | 0.008 |
+| bev-car/case-wltc | el-final-drive:sig_losses | 5.97 | b | loss on the sources' torque | 0.107 | 0.008 |
+| bev-car/case-wltc | el-diff:sig_power | 6.04 | b | reports the sources' torque or power | 0.107 | 0.008 |
+| bev-car/case-wltc | el-diff:sig_torque_a | 7.03 | b | reports the sources' torque or power | 0.146 | 0.000 |
+| bev-car/case-wltc | el-diff:sig_torque_b | 7.03 | b | reports the sources' torque or power | 0.146 | 0.000 |
+| hybrid-car/case-mixed-live | el-gearbox:sig_power | 1.15 | b | reports the sources' torque or power | 0.046 | 0.004 |
+| hybrid-car/case-mixed-live | el-gearbox:sig_losses | 1.16 | b | loss on the sources' torque | 0.046 | 0.004 |
+| hybrid-car/case-mixed-live | el-fd:sig_power | 1.34 | b | reports the sources' torque or power | 0.046 | 0.004 |
+| hybrid-car/case-mixed-live | el-diff:sig_power | 1.36 | b | reports the sources' torque or power | 0.046 | 0.004 |
+| hybrid-car/case-mixed-live | el-diff:sig_torque_a | 5.46 | b | reports the sources' torque or power | 0.169 | 0.005 |
+| hybrid-car/case-mixed-live | el-diff:sig_torque_b | 5.46 | b | reports the sources' torque or power | 0.169 | 0.005 |
+| hybrid-car/case-mixed | el-gearbox:sig_power | 1.15 | b | reports the sources' torque or power | 0.046 | 0.004 |
+| hybrid-car/case-mixed | el-gearbox:sig_losses | 1.16 | b | loss on the sources' torque | 0.046 | 0.004 |
+| hybrid-car/case-mixed | el-fd:sig_power | 1.34 | b | reports the sources' torque or power | 0.046 | 0.004 |
+| hybrid-car/case-mixed | el-diff:sig_power | 1.36 | b | reports the sources' torque or power | 0.046 | 0.004 |
+| hybrid-car/case-mixed | el-diff:sig_torque_a | 5.46 | b | reports the sources' torque or power | 0.169 | 0.005 |
+| hybrid-car/case-mixed | el-diff:sig_torque_b | 5.46 | b | reports the sources' torque or power | 0.169 | 0.005 |
+
+**Found on the way (work package 4's).** The exact-answer test above
+first ran its final drive on IDA (the gear's input inertia makes the model
+a DAE) and took 9 336 steps for a 2 s spin-up at rtol 1e-6, 93 000 at
+1e-8, 930 000 at 1e-10: the states grow exactly linearly, IDA stays at
+order 1, and with the energy books under error control the books'
+quadratures (whose integrals grow as t²) set the step, steps growing as
+1/√rtol, the loss's book 2.6e-4, 2.6e-5 and 2.6e-6 of itself off (as
+√rtol); without that error control the run takes 89 steps and every book is
+1.32 × too large (the stored energies' integrals included, against their
+exact change). The golden cars are not affected: with the books' error
+control off they take 0.2 to 6 % fewer steps and their books close to 1.1e-9
+or better. The test
+checks the loss's rate exactly and its book to 1e-5 at rtol 1e-10; IDA's
+order selection with quadratures is the solver's to look at.
 
 ### Resolved: an event at an output time
 

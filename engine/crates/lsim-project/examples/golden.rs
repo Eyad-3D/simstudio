@@ -85,15 +85,22 @@ fn main() {
                 continue;
             }
         };
-        // the new run's channels under today's names, in today's units
+        // the new run's channels under today's names, in today's units; at
+        // an output time that falls on an event, the value just before it,
+        // as the comparison takes them (`compare_channels`)
         let mut chans_new = serde_json::Map::new();
         for (name, c) in &run.report.channels {
-            if let Some(v) = run.result.channel(&c.var) {
-                chans_new.insert(
-                    name.clone(),
-                    json!(v.iter().map(|x| c.unit.from_si(*x)).collect::<Vec<_>>()),
-                );
+            let Some(i) = run.result.names.iter().position(|x| *x == c.var) else { continue };
+            let mut v = run.result.values[i].clone();
+            for l in &run.result.left_limits {
+                if let (Some(x), Some(left)) = (v.get_mut(l.k), l.get(i)) {
+                    *x = left;
+                }
             }
+            chans_new.insert(
+                name.clone(),
+                json!(v.iter().map(|x| c.unit.from_si(*x)).collect::<Vec<_>>()),
+            );
         }
         std::fs::write(
             out.join(format!("{project}__{case}.new.json")),
