@@ -356,13 +356,13 @@ fn remap(e: &Expr, from: &FlatSystem, to: &FlatSystem) -> Option<Expr> {
                 Expr::Param(p)
             }
         },
-        Expr::Table { table, args } => {
+        Expr::Table { table, args, order } => {
             let name = &from.tables[table as usize].name;
             match to.tables.iter().position(|t| &t.name == name) {
-                Some(k) => Expr::Table { table: k as u32, args },
+                Some(k) => Expr::Table { table: k as u32, args, order },
                 None => {
                     ok = false;
-                    Expr::Table { table, args }
+                    Expr::Table { table, args, order }
                 }
             }
         }
@@ -393,9 +393,8 @@ impl Env for RunPoint<'_> {
     fn param(&self, p: ParamId) -> f64 {
         self.p[p.0 as usize]
     }
-    fn table(&self, k: u32, args: &[f64]) -> f64 {
-        let a = [args.first().copied().unwrap_or(0.0), args.get(1).copied().unwrap_or(0.0)];
-        self.model.eval_table(k, a).map_or(f64::NAN, |(v, _)| v)
+    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+        lsim_ir::interval::table_at(self.model, k, order, args).map_or(f64::NAN, |(v, _)| v)
     }
 }
 

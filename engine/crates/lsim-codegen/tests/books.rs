@@ -60,6 +60,9 @@ impl ModelFunctions for With<'_> {
     fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
         self.m.eval_table(k, args)
     }
+    fn eval_table_order(&self, k: u32, order: [u8; 2], args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+        self.m.eval_table_order(k, order, args)
+    }
     fn books_kernel(&self, _: &BooksSpec) -> Option<Arc<dyn BooksKernel>> {
         self.books.clone().map(|b| b as Arc<dyn BooksKernel>)
     }
@@ -316,7 +319,7 @@ fn books_are_bitwise_the_interpreters_on_edge_cases() {
     let bin = Expr::bin;
     let call = |f: F, args: Vec<Expr>| Expr::Call(f, args);
     let neg = |e: Expr| Expr::Neg(Box::new(e));
-    let tab = |k: u32, args: Vec<Expr>| Expr::Table { table: k, args };
+    let tab = |k: u32, args: Vec<Expr>| Expr::Table { table: k, args, order: [0, 0] };
     // (the random model's tables: 1-D, 2-D, 1-D)
     let cases: Vec<Expr> = vec![
         bin(B::Mul, neg(t.clone()), x.clone()),
@@ -348,6 +351,9 @@ fn books_are_bitwise_the_interpreters_on_edge_cases() {
         bin(B::Mul, call(F::Cos, vec![neg(x.clone())]), neg(y.clone())),
         // declined, exact: interpreted beside the kernel
         tab(0, vec![x.clone(), y.clone(), z.clone()]),
+        // a table's derivative (from index reduction), as the condition
+        // kernels leave it to the interpreter
+        Expr::Table { table: 0, args: vec![x.clone()], order: [1, 0] },
         // (an extra argument, which the rules do not read)
         call(F::Sin, vec![x.clone(), a.clone()]),
     ];
@@ -362,7 +368,7 @@ fn books_are_bitwise_the_interpreters_on_edge_cases() {
         });
         // (the declined ones only as stored energies: `eval` stops at a
         // missing argument)
-        let ok = cases.len() - 2;
+        let ok = cases.len() - 3;
         let power = cases[(i + 1) % ok].clone();
         m.flat.port_powers.push(PortPower { instance: id, port: "p".into(), power });
         let loss = Some(cases[(i + 2) % ok].clone());
@@ -371,7 +377,7 @@ fn books_are_bitwise_the_interpreters_on_edge_cases() {
     let jit = compile(&m, &CodegenOptions::default()).expect("compiles");
     let mut b = Books::new(&m, &jit).expect("books");
     let [parts, _, _, stored, _] = b.counts;
-    assert!(stored >= parts - 2 && stored < parts, "{:?}", b.counts);
+    assert!(stored >= parts - 3 && stored < parts, "{:?}", b.counts);
     let l = *jit.layout();
     let prm: Vec<f64> = m.flat.params.iter().map(|q| q.value).collect();
     let d0: Vec<f64> = m.discretes.iter().map(|w| m.flat.var(*w).start.unwrap()).collect();

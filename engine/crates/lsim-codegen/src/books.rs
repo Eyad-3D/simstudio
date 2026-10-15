@@ -103,8 +103,11 @@ fn value_ok(e: &Expr, s: &Sizes) -> bool {
         Expr::Name(_) | Expr::Der(_) => false,
         Expr::Var(v) | Expr::Pre(v) => (v.0 as usize) < s.n_vars,
         Expr::Param(p) => (p.0 as usize) < s.n_p,
-        Expr::Table { table, args } => {
-            (*table as usize) < s.n_tables
+        // a table's derivative (index reduction) is left to the
+        // interpreter, as the condition kernels leave it
+        Expr::Table { table, args, order } => {
+            *order == [0, 0]
+                && (*table as usize) < s.n_tables
                 && (1..=2).contains(&args.len())
                 && args.iter().all(|a| value_ok(a, s))
         }
@@ -153,8 +156,9 @@ fn rate_ok(e: &Expr, cx: &RateCx<'_>, upto: usize) -> bool {
                 Some(RateSource::Computed) | None => false,
             }
         }
-        Expr::Table { table, args } => {
-            (*table as usize) < cx.s.n_tables
+        Expr::Table { table, args, order } => {
+            *order == [0, 0]
+                && (*table as usize) < cx.s.n_tables
                 && (1..=2).contains(&args.len())
                 && args.iter().all(ok)
         }
@@ -387,7 +391,8 @@ impl<'a, E: Emit> Lower<'a, E> {
             Expr::Var(v) | Expr::Pre(v) => self.load(0, v.0 as usize),
             Expr::Param(p) => self.load(1, p.0 as usize),
             Expr::Name(_) | Expr::Der(_) => unreachable!("declined"),
-            Expr::Table { table, args } => {
+            Expr::Table { order, .. } if *order != [0, 0] => unreachable!("declined"),
+            Expr::Table { table, args, .. } => {
                 let at: Vec<E::V> = args.iter().map(|a| self.value(a)).collect();
                 // (the value `eval_table` gives, `Table::eval`'s: the value
                 // alone, `Table::value`, differs where a slope overflows)
@@ -572,7 +577,8 @@ impl<'a, E: Emit> Lower<'a, E> {
             Expr::Var(v) => self.var(v.0 as usize),
             Expr::Time => (self.e.time(), R::K(1.0)),
             Expr::Name(_) | Expr::Pre(_) | Expr::Der(_) => unreachable!("declined"),
-            Expr::Table { table, args } => {
+            Expr::Table { order, .. } if *order != [0, 0] => unreachable!("declined"),
+            Expr::Table { table, args, .. } => {
                 let at: Vec<Dual<E::V>> = args.iter().map(|a| self.dual(a)).collect();
                 let vals: Vec<E::V> = at.iter().map(|a| a.0).collect();
                 let (v, g) = self.e.table(*table, &vals, true);
@@ -977,7 +983,9 @@ fn same_expr(a: &Expr, b: &Expr) -> bool {
             same_expr(x1, y1) && same_expr(x2, y2) && same_expr(x3, y3)
         }
         (E::Call(f, x), E::Call(g, y)) => f == g && all(x, y),
-        (E::Table { table: k, args: x }, E::Table { table: l, args: y }) => k == l && all(x, y),
+        (E::Table { table: k, args: x, order: o }, E::Table { table: l, args: y, order: p }) => {
+            k == l && o == p && all(x, y)
+        }
         _ => false,
     }
 }

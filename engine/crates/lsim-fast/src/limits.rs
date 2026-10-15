@@ -19,6 +19,7 @@ use crate::LimitFlag;
 use lsim_ir::eval::{Env, eval};
 use lsim_ir::expr::Expr;
 use lsim_ir::flat::{FlatSystem, ParamId, VarId};
+use lsim_ir::interval::table_at;
 use lsim_ir::prepared::{PreparedModel, Slot};
 use lsim_ir::runtime::ModelFunctions;
 
@@ -165,9 +166,8 @@ impl Env for Point<'_> {
     fn param(&self, p: ParamId) -> f64 {
         self.p.get(p.0 as usize).copied().unwrap_or(f64::NAN)
     }
-    fn table(&self, k: u32, args: &[f64]) -> f64 {
-        let a = [args.first().copied().unwrap_or(0.0), args.get(1).copied().unwrap_or(0.0)];
-        self.model.eval_table(k, a).map_or(f64::NAN, |(v, _)| v)
+    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+        table_at(self.model, k, order, args).map_or(f64::NAN, |(v, _)| v)
     }
 }
 

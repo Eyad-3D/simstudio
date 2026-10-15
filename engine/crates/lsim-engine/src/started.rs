@@ -12,8 +12,11 @@
 //! the model it wraps and compare, and check that the impl names every
 //! method the trait declares.
 
+use std::sync::Arc;
+
 use lsim_ir::runtime::{
-    ConditionKernels, EvalInput, InitFunctions, Layout, ModelFunctions, SparsityPattern, TableGuard,
+    BooksKernel, BooksSpec, ConditionKernels, EvalInput, InitFunctions, Layout, ModelFunctions,
+    SparsityPattern, TableGuard,
 };
 
 /// A model with optional start values of its own.
@@ -93,17 +96,24 @@ impl ModelFunctions for Started<'_> {
     fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
         self.m.eval_table(k, args)
     }
+    fn eval_table_order(&self, k: u32, order: [u8; 2], args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+        self.m.eval_table_order(k, order, args)
+    }
     fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
         self.m.table_axes(k)
     }
     fn condition_kernels(&self) -> Option<&dyn ConditionKernels> {
         self.m.condition_kernels()
     }
+    fn books_kernel(&self, spec: &BooksSpec) -> Option<Arc<dyn BooksKernel>> {
+        self.m.books_kernel(spec)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lsim_ir::runtime::BooksCover;
     use lsim_ir::table::Outside;
 
     /// A model whose every method gives something no default gives, so a
@@ -223,11 +233,37 @@ mod tests {
         fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
             Some((12.0 + k as f64, args))
         }
+        fn eval_table_order(
+            &self,
+            k: u32,
+            order: [u8; 2],
+            args: [f64; 2],
+        ) -> Option<(f64, [f64; 2])> {
+            Some((15.0 + k as f64 + order[0] as f64 + 2.0 * order[1] as f64, args))
+        }
         fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
             Some([vec![13.0, k as f64], vec![14.0]])
         }
         fn condition_kernels(&self) -> Option<&dyn ConditionKernels> {
             Some(&PROBE_KERNELS)
+        }
+        fn books_kernel(&self, spec: &BooksSpec) -> Option<Arc<dyn BooksKernel>> {
+            Some(Arc::new(ProbeBooks(spec.n_out)))
+        }
+    }
+
+    /// A books kernel that says which spec it was made for.
+    struct ProbeBooks(usize);
+
+    impl BooksKernel for ProbeBooks {
+        fn cover(&self, j: usize) -> BooksCover {
+            BooksCover { power: j == 0, loss: true, stored: false }
+        }
+        fn scratch(&self) -> usize {
+            16 + self.0
+        }
+        fn eval(&self, t: f64, _: &[f64], _: &[f64], _: &[f64], _: &mut [f64], out: &mut [f64]) {
+            out.fill(17.0 + t);
         }
     }
 
@@ -337,6 +373,25 @@ mod tests {
             ]
         });
         put("condition_kernels", k.unwrap_or_default());
+        let t = m.eval_table_order(2, [1, 0], [0.5, 0.75]).map(|(v, d)| vec![v, d[0], d[1]]);
+        put("eval_table_order", t.unwrap_or_default());
+        let spec = BooksSpec { parts: vec![], chain: vec![], rates: vec![], n_out: 2 };
+        let b = m.books_kernel(&spec).map(|k| {
+            let c = k.cover(0);
+            let mut out = vec![0.0; 2];
+            k.eval(1.5, &[], &[], &[], &mut [], &mut out);
+            [
+                vec![
+                    c.power as u8 as f64,
+                    c.loss as u8 as f64,
+                    c.stored as u8 as f64,
+                    k.scratch() as f64,
+                ],
+                out,
+            ]
+            .concat()
+        });
+        put("books_kernel", b.unwrap_or_default());
         o
     }
 

@@ -802,7 +802,7 @@ mod tests {
         let x = || Expr::Var(VarId(0));
         assert!(ChainTape::new(&chain(Expr::Call(Builtin::Min, vec![x()])), &[]).is_none());
         assert!(ChainTape::new(&chain(Expr::Call(Builtin::Sin, vec![])), &[]).is_none());
-        let table = Expr::Table { table: 0, args: vec![x()] };
+        let table = Expr::Table { table: 0, args: vec![x()], order: [0, 0] };
         assert!(ChainTape::new(&chain(table), &[]).is_none());
         assert!(ChainTape::new(&chain(Expr::Param(ParamId(3))), &[1.0]).is_none());
         // variable 2 read by the first step, written by the second
