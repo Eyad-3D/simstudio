@@ -2066,7 +2066,8 @@ model.report              # sizes, prepare/compile seconds, cache hit, structure
 model.param_names()       # the engine's parameter names
 model.params()            # current values, SI
 model.set_params({"el_vehicle.cd": 0.30})                 # runtime, no rebuild
-run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None)
+run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None,
+                     native_scripts=True)
 run.times                 # NumPy float64
 run.channels["el-battery:sig_soc"]   # today's names and display units, NumPy arrays
 run.engine_channels       # the engine's own names, SI
@@ -2099,9 +2100,21 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   (`scripts={part id or label: f}`, `f(t, dt, inputs) -> dict | None`),
   called at the start and then every period, outputs it leaves out holding
   their value; without a function `simulate` raises a `ValueError` naming
-  the part. `script_host` in `lib.rs` is the single place a Script block's
-  host is chosen (a native runner goes there). FMU parts raise a
-  `ModelError` (not supported yet).
+  the part (the function is what authorises the script, whichever runner
+  runs it). With `native_scripts=True` (the default) a script inside
+  `lsim-script`'s subset runs on that native runner instead, with the same
+  bits (§9); a script outside it runs the function, and a run that meets an
+  operation outside the subset part-way is run again from the start on the
+  functions. `run.report["scripts"]` says which runner ran. `script_host`
+  in `lib.rs` is the single place a Script block's host is chosen. FMU
+  parts raise a `ModelError` (not supported yet).
+* **The app.** With `LIGHTSIM_ENGINE=new` the backend
+  (`backend/app/solver/new_engine.py`) runs drive-cycle and acceleration
+  cases on this module and everything else on today's engine; any failure
+  of the new engine runs the case on today's engine with a warning. The
+  default is today's engine. There the Script blocks run in today's
+  locked-down worker (`native_scripts=False`) until the owner decides
+  the native runner may replace it.
 * **Errors.** A project that cannot be imported or prepared, or a run that
   fails, raises `ModelError` (a `ValueError`) with the diagnostics (code,
   message, parts, hint, detail) so the app can highlight the parts; a
@@ -2111,7 +2124,7 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   bad arguments are `ValueError` or `TypeError`.
 * **Not yet:** fast mode for project files (no `mode` argument, so nothing
   silently runs something else), FMU parts, a progress callback, cancelling
-  a run, a native Script runner, the one-click tighter run as its own call
+  a run, the one-click tighter run as its own call
   (call `simulate` again with a smaller `rtol`).
 
 ## 14. Error messages
