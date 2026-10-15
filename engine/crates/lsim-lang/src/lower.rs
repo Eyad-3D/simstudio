@@ -1830,7 +1830,7 @@ fn check_component(
         (&def.initial_equations, init_spans, "initial equation"),
     ] {
         for (e, at) in list.iter().zip(spans_of) {
-            check_equation(&e.eq, *at, what, &who, def, &r, map, errs);
+            check_equation(&e.eq, *at, what, &who, def, &r, Some(known), map, errs);
         }
     }
     if let Some(at) = energy_span {
@@ -1925,8 +1925,79 @@ fn eq_refs(eq: &ast::Equation, out: &mut Vec<(String, Span)>) {
     }
 }
 
+/// Why `reinit` cannot restart `var`, a name of `def` that is not one of
+/// its own variables, in words; `None` when it may (a port's across
+/// quantity, such as a flange's speed `b.w`, or a part's variable:
+/// preparation then checks that it is a state) or when the unit check
+/// already names what is wrong (a name that does not exist).
+fn reinit_elsewhere(def: &ComponentDef, var: &str, known: &Known) -> Option<String> {
+    reinit_target(def, var, var, known, 0)
+}
+
+/// [`reinit_elsewhere`] for `local`, a name in the scope of `def`, which
+/// the text writes as `full`.
+fn reinit_target(
+    def: &ComponentDef,
+    full: &str,
+    local: &str,
+    known: &Known,
+    depth: usize,
+) -> Option<String> {
+    if let Some(v) = def.vars.iter().find(|v| v.name == local) {
+        return (v.kind == VarKind::Discrete)
+            .then(|| format!("'{full}' is discrete, not a state: an event gives it a new value"));
+    }
+    if def.params.iter().any(|p| p.name == local) {
+        return Some(format!("'{full}' is a parameter: reinit restarts a state"));
+    }
+    if let Some(port) = def.ports.iter().find(|p| p.name == local) {
+        return match &port.kind {
+            // the unit check says to write one of its quantities
+            PortKind::Physical { .. } => None,
+            _ => Some(format!(
+                "'{full}' is a signal port: its value comes from what it is linked to"
+            )),
+        };
+    }
+    let (head, rest) = local.split_once('.')?;
+    if let Some(port) = def.ports.iter().find(|p| p.name == head) {
+        let PortKind::Physical { connector } = &port.kind else { return None };
+        return match known.connector(connector) {
+            Some(c) if c.through.name == rest => {
+                let port_name = &full[..full.len() - rest.len() - 1];
+                Some(format!(
+                    "'{full}' is what flows into the port '{port_name}' ({connector}'s through \
+                     quantity), which is never a state: restart its across quantity \
+                     '{port_name}.{}' instead",
+                    c.across.name
+                ))
+            }
+            // an across quantity, a connector the text does not know, or a
+            // quantity it does not have (the unit check names it)
+            _ => None,
+        };
+    }
+    if let Some(s) = def.components.iter().find(|s| s.name == head) {
+        return match known.component(&s.def) {
+            Some(sd) if depth < 32 => reinit_target(sd, full, rest, known, depth + 1),
+            _ => None,
+        };
+    }
+    // with a library the unit check names an unknown name; without one it
+    // takes dotted names on trust, but a reinit's must lead somewhere
+    (!known.strict() && depth == 0).then(|| {
+        format!(
+            "'{full}' is not one of its variables: reinit restarts a state of the component, \
+             the across quantity of one of its ports (such as a flange's speed) or a variable \
+             of one of its parts"
+        )
+    })
+}
+
 /// Checks one equation's units (and a when's targets); the message
-/// quotes the equation as written.
+/// quotes the equation as written. `known` (the text's and the library's
+/// definitions) lets a `reinit` name a port's quantity or a part's
+/// variable.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn check_equation(
     eq: &Equation,
@@ -1935,6 +2006,7 @@ pub(crate) fn check_equation(
     who: &str,
     def: &ComponentDef,
     r: &dyn Resolve,
+    known: Option<&Known>,
     map: &SourceMap,
     errs: &mut Vec<LangError>,
 ) {
@@ -1968,6 +2040,20 @@ pub(crate) fn check_equation(
                 let (WhenAction::Assign { var, value } | WhenAction::Reinit { var, value }) = a;
                 let target = def.vars.iter().find(|v| &v.name == var);
                 match (a, target) {
+                    (WhenAction::Reinit { .. }, None) if known.is_some() => {
+                        let known = known.expect("checked");
+                        if let Some(why) = reinit_elsewhere(def, var, known) {
+                            errs.push(LangError::new(
+                                "WHEN",
+                                at,
+                                format!(
+                                    "In {who}, “{}” restarts '{var}' with reinit, but {why}",
+                                    quote()
+                                ),
+                            ));
+                            continue;
+                        }
+                    }
                     (_, None) => {
                         let kind = if def.params.iter().any(|p| &p.name == var) {
                             "a parameter"
@@ -1996,6 +2082,17 @@ pub(crate) fn check_equation(
                                 "In {who}, “{}” assigns '{var}' at an event, but '{var}' is not \
                                  discrete: declare it 'discrete Real', or restart a state with \
                                  reinit({var}, …)",
+                                quote()
+                            ),
+                        ));
+                    }
+                    (WhenAction::Reinit { .. }, Some(v)) if v.kind == VarKind::Discrete => {
+                        errs.push(LangError::new(
+                            "WHEN",
+                            at,
+                            format!(
+                                "In {who}, “{}” restarts '{var}' with reinit, but '{var}' is \
+                                 discrete, not a state: give it its new value with '{var} = …;'",
                                 quote()
                             ),
                         ));

@@ -436,6 +436,46 @@ const CASES: &[Case] = &[
         "In 'M', “when x > 1 then x = 0; end when”",
     ),
     (
+        "reinit of what flows through a port",
+        "connector Flange\n  Real w(unit = \"rad/s\");\n  flow Real tau(unit = \"N.m\");\nend Flange;\nmodel M\n  connector b: Flange;\nequation\n  b.tau = 0;\n  when time > 1 then\n    reinit(b.tau, 0);\n  end when;\nend M;",
+        "WHEN",
+        9,
+        3,
+        "In 'M', “when time > 1 then reinit(b.tau, 0); end when” restarts 'b.tau' with reinit, but 'b.tau' is what flows into the port 'b' (Flange's through quantity), which is never a state: restart its across quantity 'b.w' instead",
+    ),
+    (
+        "reinit of a discrete variable",
+        "model M\n  discrete Real n(unit = \"1\", start = 0, fixed = true);\nequation\n  when time > 1 then\n    reinit(n, 1);\n  end when;\nend M;",
+        "WHEN",
+        4,
+        3,
+        "In 'M', “when time > 1 then reinit(n, 1); end when” restarts 'n' with reinit, but 'n' is discrete, not a state: give it its new value with 'n = …;'",
+    ),
+    (
+        "reinit of a parameter",
+        "model M\n  parameter Real k(unit = \"1/s\") = 1;\n  Real x(unit = \"1\", start = 0, fixed = true);\nequation\n  der(x) = k;\n  when time > 1 then\n    reinit(k, 2);\n  end when;\nend M;",
+        "WHEN",
+        6,
+        3,
+        "In 'M', “when time > 1 then reinit(k, 2); end when” restarts 'k' with reinit, but 'k' is a parameter: reinit restarts a state",
+    ),
+    (
+        "reinit of a signal input",
+        "model M\n  input Real u(unit = \"1/s\");\n  Real x(unit = \"1\", start = 0, fixed = true);\nequation\n  der(x) = u;\n  when time > 1 then\n    reinit(u, 2);\n  end when;\nend M;",
+        "WHEN",
+        6,
+        3,
+        "In 'M', “when time > 1 then reinit(u, 2); end when” restarts 'u' with reinit, but 'u' is a signal port: its value comes from what it is linked to",
+    ),
+    (
+        "reinit of a name that is neither a port's nor a part's",
+        "model M\n  Real x(unit = \"1\", start = 0, fixed = true);\nequation\n  der(x) = 1;\n  when time > 1 then\n    reinit(p.q, 2);\n  end when;\nend M;",
+        "WHEN",
+        5,
+        3,
+        "In 'M', “when time > 1 then reinit(p.q, 2); end when” restarts 'p.q' with reinit, but 'p.q' is not one of its variables: reinit restarts a state of the component, the across quantity of one of its ports",
+    ),
+    (
         "unknown attribute",
         "model M\n  Real x(unit = \"V\", colour = \"red\");\nend M;",
         "ATTRIBUTE",
@@ -615,4 +655,47 @@ fn the_library_finds_what_the_text_alone_cannot() {
         "{all}"
     );
     assert_eq!(errs.len(), 4, "{all}");
+}
+
+/// A reinit may restart a port's across quantity or a part's state; with
+/// the library at hand the parser also finds a part's parameter, discrete
+/// value or through quantity, which are never states.
+#[test]
+fn a_reinit_of_a_part_is_checked_against_the_library() {
+    let lib = lsim_lib::library();
+    let text = |target: &str| {
+        format!(
+            "model M\n  connector f: Flange;\n  Rotational.Inertia s;\n  Signal.Step t;\nequation\n  \
+             connect(f, s.a);\n  when time > 1 then\n    reinit({target}, 0);\n  end when;\nend M;"
+        )
+    };
+    for ok in ["f.w", "s.w", "s.a.w"] {
+        parse_with(&text(ok), &lib).unwrap_or_else(|e| panic!("{ok}: {e:?}"));
+    }
+    for (target, why) in [
+        ("s.J", "'s.J' is a parameter: reinit restarts a state"),
+        ("t.after", "'t.after' is discrete, not a state: an event gives it a new value"),
+        (
+            "s.a.tau",
+            "'s.a.tau' is what flows into the port 's.a' (Flange's through quantity), which is \
+             never a state: restart its across quantity 's.a.w' instead",
+        ),
+        (
+            "f.tau",
+            "'f.tau' is what flows into the port 'f' (Flange's through quantity), which is never \
+             a state: restart its across quantity 'f.w' instead",
+        ),
+    ] {
+        let errs = parse_with(&text(target), &lib).expect_err(target);
+        assert_eq!(errs.len(), 1, "{target}: {errs:?}");
+        assert_eq!(errs[0].code, "WHEN");
+        assert_eq!((errs[0].span.line, errs[0].span.col), (7, 3));
+        assert_eq!(
+            errs[0].message,
+            format!(
+                "In 'M', “when time > 1 then reinit({target}, 0); end when” restarts '{target}' \
+                 with reinit, but {why}"
+            )
+        );
+    }
 }
