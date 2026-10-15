@@ -6,7 +6,8 @@
 //! ```
 //!
 //! `LSIM_CONDITION_KERNELS=0` interprets every condition the run loop
-//! checks along its steps instead of using the model's compiled kernels.
+//! checks along its steps instead of using the model's compiled kernels;
+//! `LSIM_BOOKS_KERNELS=0` interprets the energy books' integrands.
 //!
 //! Script blocks run today's own script runner: set `LSIM_PYTHON` to the
 //! Python that runs today's engine (the repository's `backend` folder is
@@ -51,8 +52,16 @@ fn main() {
     // `LSIM_CONDITION_KERNELS=0`: every condition interpreted (the
     // kernels' acceptance compares the two)
     let kernels = std::env::var("LSIM_CONDITION_KERNELS").map_or(true, |v| v != "0");
-    let solver =
-        SolverOptions { rtol, atol: rtol * 1e-2, condition_kernels: kernels, ..Default::default() };
+    // `LSIM_BOOKS_KERNELS=0`: the energy books interpreted (their
+    // kernels' acceptance compares the two)
+    let books = std::env::var("LSIM_BOOKS_KERNELS").map_or(true, |v| v != "0");
+    let solver = SolverOptions {
+        rtol,
+        atol: rtol * 1e-2,
+        condition_kernels: kernels,
+        books_kernels: books,
+        ..Default::default()
+    };
     let mut all = vec![];
     let mut md = String::new();
     for ((project, case), path) in golden::references(&refs) {

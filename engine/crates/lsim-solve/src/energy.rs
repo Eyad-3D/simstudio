@@ -35,7 +35,9 @@
 use crate::ad::{self, Dual, DualEnv};
 use crate::info::{ChannelEnv, EnergyInfo, RunInfo, StoredRates, VarSource};
 use lsim_ir::eval::eval;
-use lsim_ir::runtime::{EvalInput, Layout, ModelFunctions};
+use lsim_ir::runtime::{
+    BooksCover, BooksKernel, BooksPart, BooksSpec, EvalInput, Layout, ModelFunctions, RateSource,
+};
 use lsim_ir::{ParamId, VarId};
 use std::sync::Arc;
 
@@ -91,6 +93,14 @@ pub struct Integrand {
     slots: Vec<Slot>,
     any_stored: bool,
     n: usize,
+    /// the model's compiled kernel of these integrands, its scratch and
+    /// what it covers per part (the rest interpreted)
+    kernel: Option<Arc<dyn BooksKernel>>,
+    kwork: Vec<f64>,
+    cover: Vec<BooksCover>,
+    /// some exact stored energy's rate is interpreted (it needs the
+    /// chain's dual numbers)
+    jets_needed: bool,
 }
 
 /// A stored energy's variables with their rates along the solution: the
@@ -167,7 +177,68 @@ impl Integrand {
             shifted: vec![0.0; l.n_y()],
             slots,
             n,
+            kernel: None,
+            kwork: vec![],
+            cover: vec![BooksCover::default(); energy.parts.len()],
+            jets_needed: true,
         }
+    }
+
+    /// The integrands as a model compiles them
+    /// ([`ModelFunctions::books_kernel`]).
+    pub fn spec(&self) -> BooksSpec {
+        let rates = self
+            .sources
+            .iter()
+            .map(|s| match *s {
+                VarSource::Y(i) => RateSource::Y(i),
+                VarSource::NegY(i) => RateSource::NegY(i),
+                VarSource::Computed => RateSource::Computed,
+                VarSource::D(_) | VarSource::NegD(_) | VarSource::U(_) | VarSource::Const(_) => {
+                    RateSource::Zero
+                }
+            })
+            .collect();
+        BooksSpec {
+            parts: self
+                .info
+                .parts
+                .iter()
+                .zip(&self.slots)
+                .zip(&self.rates.exact)
+                .map(|((p, s), exact)| BooksPart {
+                    power: p.power.clone(),
+                    loss: p.loss.clone(),
+                    stored: p.stored.clone(),
+                    exact: *exact,
+                    power_at: s.power,
+                    abs_at: s.abs,
+                    loss_at: s.loss,
+                    stored_at: s.stored,
+                })
+                .collect(),
+            chain: self.rates.chain.clone(),
+            rates,
+            n_out: self.n,
+        }
+    }
+
+    /// The integrands as the model `m` compiles them, where it does
+    /// ([`ModelFunctions::books_kernel`]: bitwise what [`Self::eval`]
+    /// interprets); the rest stay interpreted.
+    pub fn compiled_by(mut self, m: &dyn ModelFunctions) -> Self {
+        let Some(k) = m.books_kernel(&self.spec()) else { return self };
+        self.cover = (0..self.info.parts.len()).map(|j| k.cover(j)).collect();
+        self.jets_needed = self
+            .info
+            .parts
+            .iter()
+            .zip(&self.cover)
+            .zip(&self.rates.exact)
+            .any(|((p, c), exact)| p.stored.is_some() && *exact && !c.stored);
+        self.kwork = vec![0.0; k.scratch()];
+        self.kernel = Some(k);
+        self
     }
 
     /// Number of integrals.
@@ -190,12 +261,20 @@ impl Integrand {
         out: &mut [f64],
     ) {
         m.vars(inp, work, &mut self.vars);
+        // what the model's kernel computes, bitwise as interpreted below
+        if let Some(k) = &self.kernel {
+            k.eval(inp.t, &self.vars, ydot, inp.p, &mut self.kwork, out);
+        }
         let env = ChannelEnv { t: inp.t, vars: &self.vars, params: inp.p, model: m };
-        for (part, s) in self.info.parts.iter().zip(&self.slots) {
-            let p = eval(&part.power, &env);
-            out[s.power] = p;
-            out[s.abs] = p.abs();
-            if let (Some(il), Some(loss)) = (s.loss, &part.loss) {
+        for ((part, s), c) in self.info.parts.iter().zip(&self.slots).zip(&self.cover) {
+            if !c.power {
+                let p = eval(&part.power, &env);
+                out[s.power] = p;
+                out[s.abs] = p.abs();
+            }
+            if !c.loss
+                && let (Some(il), Some(loss)) = (s.loss, &part.loss)
+            {
                 out[il] = eval(loss, &env);
             }
         }
@@ -204,7 +283,7 @@ impl Integrand {
         }
         // dE/dt along (1, y'), exactly: the chain's variables, then each
         // stored energy, by forward-mode differentiation
-        for k in 0..self.rates.chain.len() {
+        for k in 0..if self.jets_needed { self.rates.chain.len() } else { 0 } {
             let env = Along {
                 t: inp.t,
                 model: m,
@@ -222,7 +301,11 @@ impl Integrand {
         for (j, (part, s)) in self.info.parts.iter().zip(&self.slots).enumerate() {
             let (Some(is), Some(e)) = (s.stored, &part.stored) else { continue };
             self.differ[j] = true;
-            if self.rates.exact[j] {
+            if self.rates.exact[j] && self.cover[j].stored {
+                // (the kernel wrote the rate; one that is not finite is
+                // left to the difference, as below)
+                self.differ[j] = !out[is].is_finite();
+            } else if self.rates.exact[j] {
                 let env = Along {
                     t: inp.t,
                     model: m,
@@ -304,6 +387,10 @@ impl Clone for Integrand {
             slots: self.slots.clone(),
             any_stored: self.any_stored,
             n: self.n,
+            kernel: self.kernel.clone(),
+            kwork: self.kwork.clone(),
+            cover: self.cover.clone(),
+            jets_needed: self.jets_needed,
         }
     }
 }
