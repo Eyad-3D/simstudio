@@ -603,6 +603,14 @@ pub struct TimeTable {
     pub c: f64,
     /// `b`
     pub b: Expr,
+    /// the model reads a derivative of the table (index reduction through
+    /// it) that jumps at its breakpoints (a linear table's slope, a
+    /// cubic's second derivative; judged by the prepared data's rules):
+    /// what the integrator integrates has a kink at each, so the run stops
+    /// where the cell before the breakpoint still holds (the step that
+    /// reaches it reads that cell) and restarts the integrator there (no
+    /// step's history spans the kink)
+    pub kink: bool,
 }
 
 /// How the energy books take each stored energy's rate, `dE/dt` along the
@@ -1111,7 +1119,7 @@ fn time_tables(m: &PreparedModel) -> Vec<TimeTable> {
     let mut out = vec![];
     let mut visit = |e: &Expr| {
         e.walk(&mut |x| {
-            let Expr::Table { table, args } = x else { return };
+            let Expr::Table { table, args, .. } = x else { return };
             for (axis, arg) in args.iter().enumerate().take(2) {
                 let Some(pos) = resolve(arg, &assigned, &discrete, &mut memo, 0) else { continue };
                 let Some((c, b)) = time_affine(&pos, &discrete) else { continue };
@@ -1123,7 +1131,7 @@ fn time_tables(m: &PreparedModel) -> Vec<TimeTable> {
                 if at.is_empty() || !seen.insert((*table, axis, format!("{c} {b}"))) {
                     continue;
                 }
-                out.push(TimeTable { table: *table, axis, at, c, b });
+                out.push(TimeTable { table: *table, axis, at, c, b, kink: false });
             }
         })
     };
@@ -1135,6 +1143,27 @@ fn time_tables(m: &PreparedModel) -> Vec<TimeTable> {
     }
     for z in &m.zero_crossings {
         visit(&z.expr);
+    }
+    // the tables a derivative is read of where it jumps: a read of total
+    // order one more than the table is continuously differentiable (a
+    // linear table's slope, a cubic's second derivative, a held table's
+    // slope at its edges); a cubic's slope is continuous and needs nothing
+    let mut kinked = BTreeSet::new();
+    for e in m.assignments.iter().map(|a| &a.expr).chain(m.residuals.iter().map(|r| &r.expr)) {
+        e.walk(&mut |x| {
+            if let Expr::Table { table, order, .. } = x
+                && *order != [0, 0]
+                && let Some(t) = m.flat.tables.get(*table as usize)
+            {
+                let r = u32::from(order[0]) + u32::from(order[1]);
+                if r > lsim_ir::interp::continuity(&t.data) {
+                    kinked.insert(*table);
+                }
+            }
+        });
+    }
+    for tt in &mut out {
+        tt.kink = kinked.contains(&tt.table);
     }
     out
 }
@@ -1906,8 +1935,8 @@ impl Env for ChannelEnv<'_> {
     fn param(&self, p: ParamId) -> f64 {
         self.params[p.0 as usize]
     }
-    fn table(&self, k: u32, args: &[f64]) -> f64 {
-        table_at(self.model, k, args).map_or(f64::NAN, |(v, _)| v)
+    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+        table_at(self.model, k, order, args).map_or(f64::NAN, |(v, _)| v)
     }
 }
 

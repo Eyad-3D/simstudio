@@ -409,6 +409,8 @@ pub struct NodeEnv<'a> {
     pub vals: &'a [f64],
     /// parameter values
     pub params: &'a [f64],
+    /// the tables' interpolants, by index (empty: tables read as NaN)
+    pub tables: &'a [lsim_ir::interp::Table],
 }
 
 impl lsim_ir::eval::Env for NodeEnv<'_> {
@@ -423,5 +425,8 @@ impl lsim_ir::eval::Env for NodeEnv<'_> {
     }
     fn param(&self, p: ParamId) -> f64 {
         self.params[p.0 as usize]
+    }
+    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+        lsim_ir::eval::interpolate(self.tables, k, order, args)
     }
 }

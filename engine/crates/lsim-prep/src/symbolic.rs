@@ -193,8 +193,40 @@ pub fn diff(e: &Expr, s: Slot) -> Expr {
                 }
             }
         }
-        Table { .. } => Const(f64::NAN),
+        Table { table, args, order } => table_chain(*table, args, *order, |a| Ok(d(a)))
+            .expect("differentiating in a variable does not fail"),
     }
+}
+
+/// The derivative of the table read `table'[order](args)` by the chain
+/// rule: `Σ_j table'[order + e_j](args) · d(args_j)`, where `d` gives each
+/// argument's derivative. A table read is differentiated as the
+/// interpolant it is (its partial derivatives are exact, one-sided where
+/// they jump; see [`Expr::Table`]); whether the table is smooth enough
+/// for that is index reduction's check.
+fn table_chain(
+    table: u32,
+    args: &[Expr],
+    order: [u8; 2],
+    mut d: impl FnMut(&Expr) -> Result<Expr, String>,
+) -> Result<Expr, String> {
+    let mut sum: Option<Expr> = None;
+    for (j, a) in args.iter().enumerate().take(2) {
+        let da = simplify(d(a)?);
+        if is_const(&da, 0.0) {
+            continue;
+        }
+        let mut o = order;
+        o[j] = o[j]
+            .checked_add(1)
+            .ok_or_else(|| "a table would be differentiated too often".to_string())?;
+        let term = Expr::Table { table, args: args.to_vec(), order: o } * da;
+        sum = Some(match sum {
+            None => term,
+            Some(s) => s + term,
+        });
+    }
+    Ok(sum.unwrap_or(Expr::Const(0.0)))
 }
 
 /// Solves `residual = 0` for `s` when the residual is affine in `s`
@@ -207,8 +239,8 @@ pub fn solve_for(residual: &Expr, s: Slot) -> Option<Expr> {
 /// derivative of variable `v` (another variable, or 0 for a piecewise
 /// constant one). Relations are piecewise constant (derivative 0), so an
 /// `if` keeps its condition; `min`, `max` and `limit` differentiate into
-/// `noEvent` choices, since they make no events themselves. Tables cannot
-/// be differentiated yet.
+/// `noEvent` choices, since they make no events themselves. A table read
+/// differentiates into reads of its partial derivatives (chain rule).
 pub fn time_derivative(e: &Expr, dvar: &mut dyn FnMut(VarId) -> Expr) -> Result<Expr, String> {
     use Expr::*;
     let b = |x: Expr| Box::new(x);
@@ -217,10 +249,8 @@ pub fn time_derivative(e: &Expr, dvar: &mut dyn FnMut(VarId) -> Expr) -> Result<
         Time => Const(1.0),
         Var(v) => dvar(*v),
         Der(_) | Name(_) => return Err(format!("cannot differentiate {e} in time here")),
-        Table { .. } => {
-            return Err("a table would have to be differentiated in time (index reduction \
-                        through a table is not supported yet)"
-                .into());
+        Table { table, args, order } => {
+            table_chain(*table, args, *order, |a| time_derivative(a, dvar))?
         }
         Neg(a) => Neg(b(time_derivative(a, dvar)?)),
         NoEvent(a) => NoEvent(b(time_derivative(a, dvar)?)),

@@ -334,18 +334,20 @@ impl<'a> Flattener<'a> {
                 }
             }
             Expr::Call(g, args) => Expr::Call(*g, args.iter().map(&mut r).collect()),
-            Expr::Table { table, args } => {
+            Expr::Table { table, args, order } => {
                 let args: Vec<Expr> = args.iter().map(&mut r).collect();
                 // component scope names the table first; flat scope indexes it
                 match args.first() {
                     Some(Expr::Param(p)) => match self.table_of.get(p) {
-                        Some(&k) => Expr::Table { table: k, args: args[1..].to_vec() },
+                        Some(&k) => {
+                            Expr::Table { table: k, args: args[1..].to_vec(), order: *order }
+                        }
                         None => {
                             not_tables.push(self.flat.params[p.0 as usize].name.clone());
                             Expr::Const(f64::NAN)
                         }
                     },
-                    _ => Expr::Table { table: *table, args },
+                    _ => Expr::Table { table: *table, args, order: *order },
                 }
             }
             leaf => leaf.clone(),
@@ -1350,7 +1352,7 @@ mod tests {
         let a_v = flat.find_var("a.v").unwrap();
         let read = flat.equations.iter().find(|e| e.lhs == Expr::Var(a_v)).unwrap();
         assert!(
-            matches!(&read.rhs, Expr::Table { table: 1, args } if args.len() == 1),
+            matches!(&read.rhs, Expr::Table { table: 1, args, .. } if args.len() == 1),
             "{:?}",
             read.rhs
         );

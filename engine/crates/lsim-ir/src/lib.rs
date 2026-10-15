@@ -26,6 +26,7 @@ pub mod eval;
 pub mod expr;
 pub mod fenv;
 pub mod flat;
+pub mod interp;
 pub mod interval;
 pub mod prepared;
 pub mod runtime;

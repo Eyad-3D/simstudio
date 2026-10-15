@@ -5,7 +5,7 @@
 mod common;
 
 use common::{library, signal};
-use lsim_ir::component::build::{connect, eq, param, port, state, sub, var};
+use lsim_ir::component::build::{connect, eq, param, state, sub, var};
 use lsim_ir::expr::{CmpOp, Expr, c, cmp, der, name as n};
 use lsim_ir::{
     ComponentDef, Diagnostic, Equation, EquationDecl, Library, ParamValue, Severity, SubDecl,
@@ -399,52 +399,39 @@ fn a_division_by_a_quantity_that_starts_at_zero() {
 }
 
 #[test]
-fn a_constraint_through_a_table_cannot_be_differentiated() {
-    let mut tv = ComponentDef {
-        name: "Faults.TableVoltage".into(),
-        ports: vec![port("p", "Pin", ""), port("n", "Pin", "")],
-        vars: vec![var("v", "V", ""), var("i", "A", "")],
+fn a_constraint_through_a_table_too_rough_for_its_differentiation() {
+    // a mass held to a position that a table gives over time, read
+    // linearly: index reduction differentiates the position twice, but
+    // its slope jumps at every breakpoint (the mass would need impulses)
+    let mut held = ComponentDef {
+        name: "Faults.TablePosition".into(),
+        params: vec![param("m", "kg", 1.0, "")],
+        vars: vec![state("x", "m", 0.0, ""), state("v", "m/s", 0.0, ""), var("f", "N", "")],
         equations: vec![
-            eq(n("v"), n("p.v") - n("n.v"), ""),
-            eq(c(0.0), n("p.i") + n("n.i"), ""),
-            eq(n("i"), n("p.i"), ""),
-            eq(n("v"), lsim_ir::expr::table("profile", vec![Expr::Time]), "it follows its profile"),
+            eq(der("x"), n("v"), ""),
+            eq(n("m") * der("v"), n("f"), ""),
+            eq(n("x"), lsim_ir::expr::table("path", vec![Expr::Time]), "it follows its path"),
         ],
         ..Default::default()
     };
-    tv.params = vec![lsim_ir::ParamDecl {
-        name: "profile".into(),
-        unit: "V".into(),
+    held.params.push(lsim_ir::ParamDecl {
+        name: "path".into(),
+        unit: "m".into(),
         display_unit: None,
-        default: ParamValue::Table1D {
-            x: vec![0.0, 1.0],
-            y: vec![0.0, 10.0],
-            axis_unit: "s".into(),
-        },
+        default: ParamValue::Table(lsim_ir::TableData {
+            interpolation: lsim_ir::Interpolation::Linear,
+            axis_units: ["s".into(), String::new()],
+            ..lsim_ir::TableData::new_1d(vec![0.0, 1.0, 2.0], vec![0.0, 0.5, 0.6])
+        }),
         min: None,
         max: None,
         structural: false,
         doc: String::new(),
-    }];
-    let lib = with(vec![tv]);
-    let top = model(
-        vec![
-            labelled(sub("src", "Faults.TableVoltage", &[]), "Profile source"),
-            sub("cap", "Electrical.Capacitor", &[("C", c(1e-3))]),
-            res("r", 10.0),
-            sub("c2", "Electrical.Capacitor", &[("C", c(1e-3))]),
-            gnd(),
-        ],
-        &[
-            ("src.p", "cap.p"),
-            ("src.n", "cap.n"),
-            ("src.p", "r.p"),
-            ("r.n", "c2.p"),
-            ("c2.n", "src.n"),
-            ("src.n", "gnd.p"),
-        ],
-    );
-    expect_in(&lib, &top, "INDEX-DIFFERENTIATE", &["src"], Severity::Error);
+    });
+    let lib = with(vec![held]);
+    let top = model(vec![labelled(sub("slide", "Faults.TablePosition", &[]), "Slide")], &[]);
+    let d = expect_in(&lib, &top, "INDEX-TABLE-NOT-SMOOTH", &["slide"], Severity::Error);
+    assert!(d.message.contains("'slide.path'") && d.message.contains("twice"), "{}", d.message);
 }
 
 #[test]

@@ -162,6 +162,9 @@ impl ModelFunctions for Timed<'_> {
     fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
         self.m.eval_table(k, args)
     }
+    fn eval_table_order(&self, k: u32, order: [u8; 2], args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+        self.m.eval_table_order(k, order, args)
+    }
     fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
         self.m.table_axes(k)
     }

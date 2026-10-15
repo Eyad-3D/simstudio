@@ -119,9 +119,10 @@ impl Ctx<'_> {
             Expr::Call(f, args) => {
                 Expr::Call(f, args.into_iter().map(|a| self.rewrite(a, origin)).collect())
             }
-            Expr::Table { table, args } => Expr::Table {
+            Expr::Table { table, args, order } => Expr::Table {
                 table,
                 args: args.into_iter().map(|a| self.rewrite(a, origin)).collect(),
+                order,
             },
             leaf => leaf,
         }

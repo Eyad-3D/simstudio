@@ -46,6 +46,18 @@ pub enum IndexFault {
         /// why
         why: String,
     },
+    /// a table would be differentiated more often than its interpolant is
+    /// smooth: a derivative below the one read jumps somewhere
+    TableNotSmooth {
+        /// the differentiated equation that reads it
+        eq: usize,
+        /// the table's index in the flat system
+        table: u32,
+        /// how often it is differentiated (in all, over its arguments)
+        order: u32,
+        /// how many times it is continuously differentiable
+        continuity: u32,
+    },
     /// no static choice of dummy derivatives is regular at the initial point
     Singular {
         /// the differentiated equations involved
@@ -59,8 +71,12 @@ pub enum IndexFault {
 const MAX_ORDER: u32 = 8;
 
 /// Pantelides' algorithm on `sys`. Returns how many equations were
-/// differentiated.
-pub fn pantelides(sys: &mut Sys) -> Result<usize, IndexFault> {
+/// differentiated. `continuity[k]` is how many times table `k`'s
+/// interpolant is continuously differentiable
+/// ([`lsim_ir::interp::Table::continuity`]): a table read may be
+/// differentiated once more than that (the highest derivative read is then
+/// piecewise continuous, one-sided where it jumps), not more.
+pub fn pantelides(sys: &mut Sys, continuity: &[u32]) -> Result<usize, IndexFault> {
     let n_eq0 = sys.eqs.len();
     let mut assign: Vec<usize> = vec![NONE; sys.nodes.len()];
     let unmatched: Vec<usize> = {
@@ -108,7 +124,9 @@ pub fn pantelides(sys: &mut Sys) -> Result<usize, IndexFault> {
                 sys.deriv_node(j);
             }
             for &l in &colored_eqs {
-                sys.differentiate(l).map_err(|why| IndexFault::Differentiate { eq: l, why })?;
+                let d =
+                    sys.differentiate(l).map_err(|why| IndexFault::Differentiate { eq: l, why })?;
+                smooth_enough(&sys.eqs[d].res, d, continuity)?;
                 differentiated += 1;
             }
             assign.resize(sys.nodes.len(), NONE);
@@ -124,6 +142,33 @@ pub fn pantelides(sys: &mut Sys) -> Result<usize, IndexFault> {
         }
     }
     Ok(differentiated)
+}
+
+/// Whether every table read of `res` (equation `eq`) is differentiated at
+/// most once more than its table is continuously differentiable.
+///
+/// Why once more is right: the equation differentiated `r` times holds on
+/// each side of a point where the table's `r`-th derivative jumps (the
+/// derivatives below it are continuous, so the lower equations, the states
+/// and the dummy derivatives they decide stay continuous); what it decides
+/// (a dummy derivative, a constraint force) may jump there, at an isolated
+/// instant, which leaves the integrated states as the original model's.
+/// Read once more still, a derivative that jumps would sit in an equation
+/// that decides a continuous quantity: the motion would need an impulse
+/// the model does not have.
+fn smooth_enough(res: &lsim_ir::Expr, eq: usize, continuity: &[u32]) -> Result<(), IndexFault> {
+    let mut bad = None;
+    res.walk(&mut |x| {
+        if let lsim_ir::Expr::Table { table, order, .. } = x {
+            let o = u32::from(order[0]) + u32::from(order[1]);
+            let c = continuity.get(*table as usize).copied().unwrap_or(0);
+            if o > c.saturating_add(1) && bad.is_none() {
+                bad =
+                    Some(IndexFault::TableNotSmooth { eq, table: *table, order: o, continuity: c });
+            }
+        }
+    });
+    bad.map_or(Ok(()), Err)
 }
 
 /// Pantelides' augmenting path from equation `i` over the highest
@@ -204,10 +249,12 @@ pub struct Selection {
 /// is not known), `params` the parameter values, `keep[n]` how strongly
 /// node `n` is kept a state when there is a choice (2: the continuous part
 /// of a state `reinit` restarts, 1: a fixed start value, 0: neither).
+/// `tables` are the tables' interpolants (empty: none read).
 pub fn dummy_derivatives(
     sys: &Sys,
     vals: &[f64],
     params: &[f64],
+    tables: &[lsim_ir::interp::Table],
     keep: &[u8],
 ) -> Result<Selection, IndexFault> {
     let n_nodes = sys.nodes.len();
@@ -226,7 +273,7 @@ pub fn dummy_derivatives(
         z.dedup();
         z
     };
-    let env = NodeEnv { t: 0.0, vals, params };
+    let env = NodeEnv { t: 0.0, vals, params, tables };
     while !g.is_empty() {
         // independent groups of equations (sharing candidate columns)
         let mut col_of = vec![NONE; n_nodes];

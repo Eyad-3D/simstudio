@@ -42,15 +42,61 @@ pub(crate) struct Ctx<'m> {
     pub u_index: HashMap<u32, usize>,
     /// each table's number of arguments
     pub table_dims: Vec<usize>,
+    /// the table store's entry of each partial derivative the model reads
+    /// (`(table, order)`; after the flat tables, in
+    /// [`derivative_reads`]' order)
+    pub derived: HashMap<(u32, [u8; 2]), u32>,
 }
 
 impl<'m> Ctx<'m> {
     pub(crate) fn new(model: &'m PreparedModel) -> Result<Self, CodegenError> {
         let d_index = model.discretes.iter().enumerate().map(|(k, v)| (v.0, k)).collect();
         let u_index = model.inputs.iter().enumerate().map(|(k, v)| (v.0, k)).collect();
-        let table_dims = model.flat.tables.iter().map(|t| t.data.dims()).collect();
-        Ok(Ctx { model, d_index, u_index, table_dims })
+        let table_dims: Vec<usize> = model.flat.tables.iter().map(|t| t.data.dims()).collect();
+        let n = table_dims.len() as u32;
+        let derived = derivative_reads(model)
+            .into_iter()
+            .enumerate()
+            .map(|(i, key)| (key, n + i as u32))
+            .collect();
+        Ok(Ctx { model, d_index, u_index, table_dims, derived })
     }
+
+    /// The table store's entry that a read of `table` of `order` calls.
+    pub(crate) fn table_entry(&self, table: u32, order: [u8; 2]) -> u32 {
+        if order == [0, 0] { table } else { self.derived[&(table, order)] }
+    }
+}
+
+/// Every partial derivative of a table the model reads (index reduction's
+/// reads through tables, see [`Expr::Table`]), as `(table, order)`,
+/// sorted: the table store gives each its own interpolant after the flat
+/// tables.
+pub(crate) fn derivative_reads(model: &PreparedModel) -> Vec<(u32, [u8; 2])> {
+    let mut out = vec![];
+    let mut scan = |e: &Expr| {
+        e.walk(&mut |x| {
+            if let Expr::Table { table, order, .. } = x
+                && *order != [0, 0]
+            {
+                out.push((*table, *order));
+            }
+        })
+    };
+    model.assignments.iter().for_each(|a| scan(&a.expr));
+    model.residuals.iter().for_each(|r| scan(&r.expr));
+    model.zero_crossings.iter().for_each(|z| scan(&z.expr));
+    model.whens.iter().flat_map(|w| &w.assign).for_each(|(_, e)| scan(e));
+    model.modes.iter().for_each(|m| scan(&m.relation));
+    let init = &model.init;
+    init.guesses.iter().chain(&init.discrete_starts).for_each(&mut scan);
+    init.assignments.iter().for_each(|a| scan(&a.expr));
+    init.residuals.iter().for_each(|r| scan(&r.expr));
+    model.limits.iter().for_each(|l| [&l.value, &l.lo, &l.hi].into_iter().for_each(&mut scan));
+    model.guards.iter().for_each(|g| scan(&g.expr));
+    out.sort_unstable();
+    out.dedup();
+    out
 }
 
 /// A system of the model: unknowns `y`, explicit assignments, output rows.
@@ -438,7 +484,7 @@ fn check_expr(cx: &Ctx<'_>, e: &Expr) -> Result<(), CodegenError> {
                     args.len()
                 )));
             }
-            Expr::Table { table, args } => match cx.table_dims.get(*table as usize) {
+            Expr::Table { table, args, .. } => match cx.table_dims.get(*table as usize) {
                 None => {
                     err = Some(CodegenError::Unsupported(format!(
                         "table {table} is used but the model has {} tables",
@@ -603,7 +649,9 @@ pub(crate) fn table_sites<'m>(model: &'m PreparedModel) -> (Vec<TableSite<'m>>, 
 }
 
 fn collect_tables<'m>(e: &'m Expr, out: &mut Vec<TableSite<'m>>) {
-    if let Expr::Table { table, args } = e {
+    // (a derivative read's arguments are its value's, which the model
+    // keeps beside it: the value's site guards them)
+    if let Expr::Table { table, args, order: [0, 0] } = e {
         out.push(TableSite { table: *table, args });
     }
     for c in e.children() {

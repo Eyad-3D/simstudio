@@ -211,7 +211,10 @@ fn expr(out: &mut String, e: &Expr, need: u8) {
             expr(out, a, 0);
             out.push(')');
         }
-        Expr::Table { table, args: list } => match list.split_first() {
+        // (a partial derivative, which only index reduction makes, prints as
+        // the expression type shows it: not text-format syntax)
+        Expr::Table { order, .. } if *order != [0, 0] => out.push_str(&e.to_string()),
+        Expr::Table { table, args: list, .. } => match list.split_first() {
             Some((Expr::Name(n), rest)) => {
                 out.push_str(&ref_name(n));
                 out.push('(');

@@ -2281,7 +2281,7 @@ fn a_model_that_does_not_give_the_tables_its_books_read_does_not_start() {
         y0: vec![0.0],
         d0: vec![],
     };
-    let table = Expr::Table { table: 0, args: vec![Expr::Var(VarId(0))] };
+    let table = Expr::Table { table: 0, args: vec![Expr::Var(VarId(0))], order: [0, 0] };
     let mut info = RunInfo::bare(1, 1, vec![]);
     info.var_sources = vec![VarSource::Y(0)];
     info.table_names = vec!["k.efficiency".into()];
@@ -2309,13 +2309,13 @@ fn a_model_that_does_not_give_the_tables_its_books_read_does_not_start() {
     let mut cond = info.clone();
     cond.time_functions = vec![Some(TimeFunction::Mixed {
         chain: vec![],
-        g: Expr::Table { table: 0, args: vec![Expr::Time] } - Expr::Var(VarId(0)),
+        g: Expr::Table { table: 0, args: vec![Expr::Time], order: [0, 0] } - Expr::Var(VarId(0)),
     })];
     let e = simulate(&model(), &cond, &opts, grid, &mut []).unwrap_err().to_string();
     assert!(e.contains("'k.efficiency'") && e.contains("function of time"), "{e}");
     // a time event's instant
     let mut timed = info.clone();
-    let at = Expr::Table { table: 0, args: vec![Expr::Const(1.0)] };
+    let at = Expr::Table { table: 0, args: vec![Expr::Const(1.0)], order: [0, 0] };
     timed.time_crossings = vec![Some(TimeCrossing { at, rising: true })];
     let e = simulate(&model(), &timed, &opts, grid, &mut []).unwrap_err().to_string();
     assert!(e.contains("'k.efficiency'") && e.contains("time event"), "{e}");
@@ -2411,10 +2411,11 @@ fn a_double_crossing_of_a_driving_cycle_condition_within_a_step_is_found() {
         at: vec![0.0, 100.0],
         c: 1.0,
         b: Expr::Const(0.0),
+        kink: false,
     }];
     info.time_functions = vec![Some(TimeFunction::Mixed {
         chain: vec![],
-        g: Expr::Table { table: 0, args: vec![Expr::Time] } - Expr::Var(VarId(0)),
+        g: Expr::Table { table: 0, args: vec![Expr::Time], order: [0, 0] } - Expr::Var(VarId(0)),
     })];
     for backend in backends() {
         let opts = SolverOptions { backend, rtol: 1e-8, atol: 1e-8, ..Default::default() };
@@ -2542,7 +2543,7 @@ fn a_double_crossing_through_a_2d_table_within_a_step_is_found() {
     info.table_axes = vec![[vec![0.0, 50.0, 100.0], vec![0.0, 50.0, 100.0]]];
     info.time_functions = vec![Some(TimeFunction::Mixed {
         chain: vec![],
-        g: Expr::Table { table: 0, args: vec![Expr::Time, Expr::Var(VarId(0))] },
+        g: Expr::Table { table: 0, args: vec![Expr::Time, Expr::Var(VarId(0))], order: [0, 0] },
     })];
     for backend in backends() {
         let opts = SolverOptions { backend, rtol: 1e-8, atol: 1e-8, ..Default::default() };
@@ -2721,7 +2722,7 @@ fn a_pure_condition_on_a_linear_table_fires_once() {
     whens(&mut info, &[(0, Direction::Rising, "'Trigger': table(time) > 0.5")]);
     info.when_strict = vec![true];
     info.time_crossings = vec![None];
-    let g = Expr::Table { table: 0, args: vec![Expr::Time] } - Expr::Const(0.5);
+    let g = Expr::Table { table: 0, args: vec![Expr::Time], order: [0, 0] } - Expr::Const(0.5);
     info.time_functions = vec![Some(TimeFunction::Pure(g))];
     info.table_breaks = vec![vec![0.0, 50.0, 50.1, 50.2, 100.0]];
     let opts = SolverOptions { rtol: 1e-8, atol: 1e-8, ..Default::default() };
@@ -3806,6 +3807,7 @@ fn the_tables_breakpoints_follow_the_data_the_model_gives() {
         at,
         c: 1.0,
         b: Expr::Const(0.0),
+        kink: false,
     };
     info.time_tables = vec![along(0, 0, vec![0.0, 1.0]), along(1, 1, vec![0.0, 2.0])];
     // none given, or the same: as prepared
@@ -3867,6 +3869,7 @@ fn a_table_whose_position_moves_keeps_no_stale_stops() {
         at: vec![0.0, 10.0, 20.0],
         c: 1.0,
         b: Expr::Neg(Box::new(Expr::Var(VarId(1)))),
+        kink: false,
     }];
     let opts = SolverOptions::default();
     let grid = OutputGrid { t0: 0.0, t_end: 30.0, dt: 10.0 };

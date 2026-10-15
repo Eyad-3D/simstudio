@@ -160,9 +160,10 @@ pub(crate) trait JetEnv {
     fn der(&self, _v: VarId) -> f64 {
         f64::NAN
     }
-    /// a table interpolated at `args`, with its partial derivatives
-    /// (`None`: there are no tables here)
-    fn table(&self, _k: u32, _args: &[f64]) -> Option<(f64, [f64; 2])> {
+    /// a table interpolated at `args`, or its partial derivative of `order`
+    /// (see [`Expr::Table`]), with its partial derivatives (`None`: there
+    /// are no tables here)
+    fn table(&self, _k: u32, _order: [u8; 2], _args: &[f64]) -> Option<(f64, [f64; 2])> {
         None
     }
 }
@@ -194,12 +195,15 @@ pub(crate) fn eval(e: &Expr, env: &dyn JetEnv) -> Result<Jet, String> {
         Expr::Der(v) => k(env.der(*v)),
         Expr::Neg(a) => ev(a)?.neg(),
         Expr::NoEvent(a) => ev(a)?,
-        Expr::Table { table, args } => {
+        Expr::Table { table, args, order } => {
             let at: Vec<Jet> = args.iter().map(ev).collect::<Result<_, _>>()?;
             let vals: Vec<f64> = at.iter().map(|j| j.v).collect();
             let varies = at.iter().any(Jet::varies);
-            let (v, d) = match env.table(*table, &vals) {
+            let (v, d) = match env.table(*table, *order, &vals) {
                 Some(x) => x,
+                None if varies && *order != [0, 0] => {
+                    return Err("a table's derivative the model does not give".into());
+                }
                 None if varies => return Err("a table whose argument moves with the states".into()),
                 None => return Ok(k(f64::NAN)),
             };
@@ -380,9 +384,10 @@ pub(crate) trait DualEnv {
     fn time(&self) -> Result<Dual, ()> {
         Err(())
     }
-    /// a table interpolated at `args`, with its partial derivatives
-    /// (`None`: there are no tables here)
-    fn table(&self, _k: u32, _args: &[f64]) -> Option<(f64, [f64; 2])> {
+    /// a table interpolated at `args`, or its partial derivative of `order`
+    /// (see [`Expr::Table`]), with its partial derivatives (`None`: there
+    /// are no tables here)
+    fn table(&self, _k: u32, _order: [u8; 2], _args: &[f64]) -> Option<(f64, [f64; 2])> {
         None
     }
 }
@@ -398,10 +403,10 @@ pub(crate) fn dual(e: &Expr, env: &dyn DualEnv) -> Result<Dual, ()> {
         Expr::Param(p) => k(env.param(*p)),
         Expr::Var(v) => env.var(*v)?,
         Expr::Time => env.time()?,
-        Expr::Table { table, args } => {
+        Expr::Table { table, args, order } => {
             let at: Vec<Dual> = args.iter().map(ev).collect::<Result<_, _>>()?;
             let vals: Vec<f64> = at.iter().map(|a| a.v).collect();
-            let (v, g) = env.table(*table, &vals).ok_or(())?;
+            let (v, g) = env.table(*table, *order, &vals).ok_or(())?;
             Dual { v, d: at.iter().zip(g).map(|(a, gj)| times(gj, a.d)).sum() }
         }
         Expr::Name(_) | Expr::Pre(_) | Expr::Der(_) => {
@@ -817,7 +822,11 @@ mod tests {
         }
         let x = || Expr::Var(VarId(0));
         let y = || Expr::Var(VarId(1));
-        let e = Expr::Table { table: 0, args: vec![bin(BinaryOp::Mul, x(), y()), Expr::Time] };
+        let e = Expr::Table {
+            table: 0,
+            args: vec![bin(BinaryOp::Mul, x(), y()), Expr::Time],
+            order: [0, 0],
+        };
         struct Along([f64; 2], [f64; 2], f64);
         impl DualEnv for Along {
             fn var(&self, v: VarId) -> Result<Dual, ()> {
@@ -830,7 +839,7 @@ mod tests {
             fn time(&self) -> Result<Dual, ()> {
                 Ok(Dual { v: self.2, d: 1.0 })
             }
-            fn table(&self, _k: u32, args: &[f64]) -> Option<(f64, [f64; 2])> {
+            fn table(&self, _k: u32, _o: [u8; 2], args: &[f64]) -> Option<(f64, [f64; 2])> {
                 f(args)
             }
         }
@@ -870,7 +879,7 @@ mod tests {
             fn param(&self, _p: ParamId) -> f64 {
                 3.0
             }
-            fn table(&self, _k: u32, args: &[f64]) -> Option<(f64, [f64; 2])> {
+            fn table(&self, _k: u32, _o: [u8; 2], args: &[f64]) -> Option<(f64, [f64; 2])> {
                 f(args)
             }
         }
@@ -880,7 +889,7 @@ mod tests {
         assert!((j.g[0] - g[0]).abs() < 1e-14 * g[0] && (j.g[1] - g[1]).abs() < 1e-14 * g[1]);
         assert!(eval(&e, &Tab(true)).is_err());
         // a table at a fixed point is a constant, to any order
-        let fixed = Expr::Table { table: 0, args: vec![Expr::Param(ParamId(0))] };
+        let fixed = Expr::Table { table: 0, args: vec![Expr::Param(ParamId(0))], order: [0, 0] };
         assert_eq!(eval(&fixed, &Tab(true)).unwrap().v, 27.0);
     }
 }

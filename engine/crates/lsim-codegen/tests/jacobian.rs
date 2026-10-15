@@ -491,11 +491,23 @@ fn compile_both(m: &PreparedModel) -> (JitModel, JitModel) {
 
 #[test]
 fn random_smooth_models_have_the_derivatives_of_their_differences() {
-    let mut r = Rng(0x5eed_1ac0b1);
+    smooth_models_against_differences(0x5eed_1ac0b1, 240, random::SMOOTH);
+}
+
+/// The same with reads of tables' first derivatives (index reduction's):
+/// their Jacobian entries read the second derivatives, the interpolants'
+/// own.
+#[test]
+fn random_models_reading_tables_derivatives_have_the_derivatives_of_their_differences() {
+    smooth_models_against_differences(0x5eed_1ac0b2, 120, random::SMOOTH_DERIVATIVES);
+}
+
+fn smooth_models_against_differences(seed: u64, cases: usize, ops: random::Ops) {
+    let mut r = Rng(seed);
     let mut total = Tally::default();
-    for case in 0..240 {
+    for case in 0..cases {
         let (n_x, n_z) = (1 + r.below(6), r.below(4));
-        let m = random::implicit_model(&mut r, n_x, n_z, 8, 0, 4, random::SMOOTH);
+        let m = random::implicit_model(&mut r, n_x, n_z, 8, 0, 4, ops);
         let (jit, own) = compile_both(&m);
         assert_eq!(jit.layout().n_z, n_z);
         let p = synth::params(&m);
@@ -513,7 +525,7 @@ fn random_smooth_models_have_the_derivatives_of_their_differences() {
         }
     }
     println!("random smooth models: {total:?}");
-    assert!(total.compared >= 20_000, "{total:?}");
+    assert!(total.compared >= cases * 250 / 3, "{total:?}");
     // smooth but for the tables' breakpoints (their second derivatives
     // jump) and a rare overflow
     assert!(total.not_compared() <= total.all() / 100, "{total:?}");

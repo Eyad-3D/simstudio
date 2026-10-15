@@ -333,7 +333,10 @@ impl Builder<'_> {
                 self.emit(out, JOp::Call(r, *f, regs, n as u8))?;
                 r
             }
-            Expr::Table { table, args } => {
+            Expr::Table { order, .. } if *order != [0, 0] => {
+                return Err("it reads a table's derivative".into());
+            }
+            Expr::Table { table, args, .. } => {
                 let mut regs = [u32::MAX; 2];
                 if args.len() > 2 {
                     return Err("a table of more than two arguments".into());

@@ -589,6 +589,9 @@ pub struct SolverReport {
     /// so slight that the integration went on with its history instead of
     /// restarting, the next step's error test checking the change
     pub light_restarts: u64,
+    /// restarts at the kinks of tables read along time that index
+    /// reduction differentiated ([`info::TimeTable::kink`])
+    pub kink_restarts: u64,
     /// impulse projections at rigid engagements (gear shifts)
     pub impulses: u64,
     /// iteration variables solved again between the ticks of one instant

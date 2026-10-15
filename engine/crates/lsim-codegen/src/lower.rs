@@ -774,7 +774,9 @@ impl<'a, E: Emit> Lw<'a, E> {
                 let t = self.select_t(cond, &a.t, &b.t);
                 D { v, t }
             }
-            Expr::Table { table, args } => self.table(*table, args)?,
+            Expr::Table { table, args, order } => {
+                self.table(self.cx.table_entry(*table, *order), args)?
+            }
         })
     }
 

@@ -44,7 +44,11 @@
 //! * **Tables read along time** ([`RunInfo::time_tables`]: a driving
 //!   cycle's target by time) stop the integrator at each breakpoint
 //!   (without a restart): a condition they drive is checked at least
-//!   there, even when nothing integrated moves and the steps grow long.
+//!   there, even when nothing integrated moves and the steps grow long. A
+//!   table whose derivative the model reads (index reduction through it)
+//!   stops the integrator where the cell before each breakpoint still
+//!   holds and restarts it there: the derivative jumps at the breakpoint,
+//!   and no step's history may span the jump.
 //! * **Conditions on explicit functions of time**
 //!   ([`RunInfo::time_functions`], [`timefn`]): one that reads time,
 //!   parameters and discrete values alone is left out of root finding;
@@ -195,6 +199,10 @@ struct Loop<'a> {
     /// (scheduled again when one changes)
     breaks_fixed: Vec<f64>,
     breaks_moving: Vec<f64>,
+    /// of those, the stops at kinks ([`crate::info::TimeTable::kink`]),
+    /// sorted: the integrator restarts there
+    kinks_fixed: Vec<f64>,
+    kinks_moving: Vec<f64>,
 }
 
 /// Whether two times are one instant to the integrators: closer than a
@@ -379,8 +387,18 @@ impl Loop<'_> {
     /// position reads no discrete value (`moving` false: once, at the
     /// start), or those whose position does (`moving`: again after every
     /// discrete change, so no stale stop is kept where a breakpoint was).
+    ///
+    /// A kink ([`crate::info::TimeTable::kink`]) is stopped at where the
+    /// cell before the breakpoint still holds: some ulps before the
+    /// breakpoint's time, more than the rounding of the position (its
+    /// terms, and the cell search over the table's extent) can move it. A
+    /// position that grows falls short of the breakpoint there (whose own
+    /// cell is the one after it); one that falls is still above it (in the
+    /// cell it comes from). Another breakpoint stop between the two joins
+    /// it.
     fn schedule_breaks(&mut self, t: f64, moving: bool) {
         let mut out = vec![];
+        let mut kinks: Vec<(f64, f64)> = vec![];
         for tt in &self.info.time_tables {
             let reads =
                 tt.b.any(&mut |x| matches!(x, lsim_ir::Expr::Var(_) | lsim_ir::Expr::Pre(_)));
@@ -394,15 +412,49 @@ impl Loop<'_> {
                 model: self.model,
             };
             let b = lsim_ir::eval::eval(&tt.b, &env);
-            out.extend(tt.at.iter().map(|x| (x - b) / tt.c).filter(|x| x.is_finite()));
+            let times = tt.at.iter().map(|x| (x - b) / tt.c).filter(|x| x.is_finite());
+            if tt.kink {
+                let extent = tt.at.iter().fold(0.0f64, |a, p| a.max(p.abs()));
+                for (x, tb) in tt.at.iter().zip(times) {
+                    let early = 64.0
+                        * f64::EPSILON
+                        * (tb.abs() + (x.abs() + b.abs() + extent) / tt.c.abs());
+                    kinks.push((tb - early, tb));
+                }
+            } else {
+                out.extend(times);
+            }
         }
+        kinks.sort_by(|a, b| a.0.total_cmp(&b.0));
+        out.retain(|&r| {
+            // the last kink stopped at or before r: does r fall in it?
+            let i = kinks.partition_point(|k| k.0 <= r);
+            i == 0 || {
+                let (_, tb) = kinks[i - 1];
+                !(r <= tb || same_instant(r, tb))
+            }
+        });
+        let mut stops: Vec<f64> = kinks.iter().map(|k| k.0).collect();
+        stops.sort_by(f64::total_cmp);
+        stops.dedup();
+        out.extend(&stops);
         out.sort_by(f64::total_cmp);
         out.dedup();
         if moving {
             self.breaks_moving = out;
+            self.kinks_moving = stops;
         } else {
             self.breaks_fixed = out;
+            self.kinks_fixed = stops;
         }
+    }
+
+    /// Whether `t` is a stop at a kink of a table read along time.
+    fn at_kink(&self, t: f64) -> bool {
+        [&self.kinks_fixed, &self.kinks_moving].iter().any(|k| {
+            let i = k.partition_point(|x| *x < t);
+            [i.wrapping_sub(1), i].iter().any(|&j| k.get(j).is_some_and(|x| same_instant(*x, t)))
+        })
     }
 
     /// The next time table breakpoint after `t` (not within a few ulps of
@@ -1238,6 +1290,8 @@ pub fn run_loop(
         tf: timefn::TimeFns::new(info.time_crossings.len().max(info.time_functions.len())),
         breaks_fixed: vec![],
         breaks_moving: vec![],
+        kinks_fixed: vec![],
+        kinks_moving: vec![],
     };
     for (k, (c, _)) in info.whens.iter().enumerate() {
         if *c < lp.when_of_root.len() && lp.mode_of_root[*c].is_none() {
@@ -1725,6 +1779,14 @@ pub fn run_loop(
         }
         t = t_new;
         lp.check_asserts(t)?;
+
+        // a kink of a table read along time (index reduction differentiated
+        // it): the integrator restarts, so that no step's history spans it
+        if (stopped || is_root) && lp.at_kink(t) {
+            integ.restart(t, &y)?;
+            y.copy_from_slice(integ.y());
+            report.kink_restarts += 1;
+        }
 
         // a mode its condition no longer agrees with (one that left zero
         // right after a restart, where root finding cannot see it)
