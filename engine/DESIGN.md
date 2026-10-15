@@ -1941,6 +1941,18 @@ used under 0.3 cores for 5 s, and their use during it read from
 | 64 sets, 21 states, best of 2 | 6644 ms | 1625 ms | 4.09× | 3.90 | 102.8 → 99.1 ms |
 | 16 sets, 101 states (600 ms runs), best of 2 | 9446 ms | 2554 ms | 3.70× | 3.72 | 583.8 → 593.8 ms |
 
+Measured again after the recorder's fix (below: each channel's storage
+now allocated once at the grid's length; `vec![v; n]` had given it to
+one channel only, the others grew by reallocation in every run), the
+work's starting code and the new one alternately, 12 rounds of a fresh
+process each, 16 sets: 3.32× → 3.54× at best, 3.23× → 3.22× as medians
+(the 4-thread sweep 490 → 458 ms at best); in one process the 4-thread
+sweep's page faults fell from 3 640 to 2 037 a run (16 sets) and from
+3 554 to 782 (64 sets), its system time from 15 to 6 ms and from 12 to
+4 ms a run. This VM's timings vary by ±15 % between repeats (the same
+64-set sequential sweep took 6.5–10.1 s), more than the effect, so the
+speed-up is resolved no better than that.
+
 So ≥ 3.5× holds once a sweep has many runs or long ones; 16 runs of
 100 ms lose about 6 % to the last runs' tail (3.75 of 4 cores used) and a
 few per cent to the kernel: a run's results (271 channels × 1801 points
@@ -1976,22 +1988,58 @@ save most of those 10 ms in every run, sequential or not (a change to
   restarted there, and the block's next tick then becomes a stop time
   until a tick changes nothing again. So a block that changes nothing
   leaves the steps and the solution exactly as without it (tested: equal
-  results and step counts). Measured (`lsim-solve/examples/r1_blocks.rs`,
-  release build, the run thread's CPU time, the period shortened to
-  0.1 ms so 18 million ticks stand well above a shared machine's noise):
-  a tick that changes nothing costs 19 ns when the block reads a discrete
-  value, 47 ns when it reads a state (one selected-component
-  interpolation) and 108 ns when it reads a computed channel (its chain
-  of assignments interpreted, here through a sine source). A 10 ms block
-  over a WLTC (180 001 ticks) so costs 3.4, 8.5 or 19.4 ms: about 3.4 /
-  8.5 / 19.5 % of the 21-state test drive, which runs at 18 000× real
-  time (100 ms); 0.6 / 1.4 / 3.2 % of the 101-state one (about 3 000×
-  real time, 600 ms); and at most 1.1 % of any model that runs at the
-  1000× target.
-  So the < 5 % criterion holds for models as costly as the 101-state
-  drive or more, not for very cheap ones read through a computed channel
-  (where the absolute cost is still under 20 ms a WLTC). The block's own
-  work comes on top: a sandboxed Python tick costs microseconds.
+  results and step counts). A tick that changes nothing is made cheap
+  (`SolverOptions::tick_read_ahead`, on by default; off gives the same
+  results and the same inputs at every tick to the bit, tested on three
+  blocks with coinciding ticks, restarts and inert changes, ODE and DAE,
+  both backends):
+  - a computed input's chain of assignments runs as a flat tape
+    (`lsim-solve/src/tape.rs`): the interpreter's operations, operands
+    and order, so its values (tested bit for bit on random expressions;
+    which NaN comes out of an operation on NaNs and the sign of `min`/
+    `max` of ±0, which Rust leaves open, are this toolchain's in both);
+    a chain the tape cannot lower keeps the interpreter;
+  - the inputs of a block's ticks inside one step are read together
+    (`Integrator::interpolate_select_many`): SUNDIALS' own dense-output
+    formula (CVODE's powers of s and its sum from the highest power down,
+    IDA's coefficients c_j; the same fuzz check and clamp) evaluated
+    across the ticks, on AVX where the CPU has it (no fused
+    multiply-adds), the tapes too; tested bit for bit against reading
+    one by one on Adams up to order 7, BDF and IDA. A later tick that
+    cannot be read ahead leaves the tick at hand to be read alone, so an
+    error comes where reading one by one raises it;
+  - a block due alone ticks in a row while nothing else (a grid point,
+    another clock, the step's end) comes before its next tick, without
+    allocating; a tick that changes an output goes through the event
+    handling as before.
+
+  Measured (`lsim-solve/examples/r1_blocks.rs`, release build, the run
+  thread's CPU time; the 21-state ladder drive over a WLTC's 1800 s,
+  100 ms a run, 7221 steps; a 10 ms block, 180 001 ticks). Instructions
+  (callgrind, exact), the run with the block against the same build
+  without one, and before → after this work:
+
+  | the block reads | 21 states | 101 states |
+  |---|---|---|
+  | a discrete value | +19.0 % → +4.4 % | +4.2 % → +1.0 % |
+  | a state | +26.5 % → +6.4 % | +5.8 % → +1.4 % |
+  | a computed channel (3 assignments) | +42.8 % → +7.6 % | +9.3 % → +1.7 % |
+
+  Time (median of 8 rounds on a quiet 4-core VM, best of 5 runs a
+  round, the period shortened to 1 ms so the ticks stand above the
+  machine's noise and their cost scaled back to 180 001 ticks): a tick
+  that changes nothing costs 9.5 / 20 / 21 ns (from 66 / 92 / 130 ns),
+  so the 10 ms block 2.0 / 3.9 / 4.4 % of the 21-state run (from 13.0 /
+  16.9 / 25.0 %). Run at the 10 ms period itself (fewer ticks to a
+  batch, and the difference between two 100 ms runs is near the noise)
+  the same medians are 4.4 / 5.1 / 4.9 %. On the 101-state drive (one
+  round): 0.5 / 2.1 / 2.8 %. So the < 5 % criterion holds for the
+  101-state drive and every costlier model, and the smallest model is
+  at it: under it in the precise measurement, at 5 % ± its noise run as
+  is. What is left is per tick: about 160 instructions of bookkeeping
+  and the block call, and for a computed input about 120 more (the
+  dense output across the ticks and the tape). The block's own work
+  comes on top: a sandboxed Python tick costs microseconds.
   Today's Script blocks run every solver step (≤ 10 ms); they keep that
   rate by default (a `period` parameter, default 10 ms) so results match.
 * **FMUs for model exchange** (WP4, later): their states join `x`, their
@@ -2510,17 +2558,32 @@ work end to end) or against hand-written test doubles of the interfaces.
   does not give does not start (the full `ModelFunctions` contract, §5.8);
   books without error control flagged. The golden comparison is the same
   to the last digit again.
+* **Tenth round (the open criteria)**: an idle sampled block's tick made
+  cheap: its inputs read ahead across the step (the dense output and a
+  computed input's chain as a tape, bit for bit), its idle ticks run in
+  a row, nothing allocated (section 9; from 19.5 % to under 5 % of the
+  smallest model's run); the recorder's channels each given their
+  grid-length storage (`vec![v; n]` had given it to one), so the runs
+  of a sweep reallocate less (section 8.4). The golden comparison is the
+  same to the last digit.
 * **Status (as built)**: the exact-answer suite passes on both backends,
   ODE and DAE paths (`lsim-solve/tests/reference.rs`); the backends agree
   within 4.2·rtol; events within 2.6·rtol on SUNDIALS at every tolerance,
   on diffsol within 7.2·rtol at 1e-6 and 1e-8 but up to 34·rtol at 1e-10
-  (its root finding, not ours: the cross-check is held to 50·rtol);
+  (its step error control, not root finding: its root finder stops
+  within about 100 ulps of t, and at 1e-10 its solution itself is 19
+  rtol off on the RC step against SUNDIALS' 2.8; closing it would mean
+  changing diffsol's error control, and diffsol is the cross-check only:
+  it is held to 50·rtol);
   energy closure ≤ 1.1e-7 everywhere tested before the example projects
   imported, ≤ 1.5e-9 on every golden case since the stored-energy rates
   are exact; the idle 10 ms block and the sweeps as measured in sections
-  9 and 8.4 (< 5 % for models as costly as the 101-state drive, 19.5 % on
-  a 100 ms model read through a computed channel; 3.44–4.09×); the build
-  proven on Linux only.
+  9 and 8.4 (the block 2.0–4.4 % of the 21-state run, at most 2.8 % of
+  the 101-state one, from 19.5 % at worst; sweeps 3.2–3.5× for 16 short
+  runs, ≥ 3.5× for many or long ones); the build needs only a C compiler
+  on Windows: CI's "Engine (Rust) on Windows" job builds SUNDIALS with
+  MSVC and runs every engine test there (green on the work's starting
+  commit, run 38620416352).
 
 ### WP5 — Component library and project import
 
@@ -2577,7 +2640,7 @@ the vehicle body). A short integration checkpoint each week runs
 
 | # | risk | mitigation |
 |---|---|---|
-| R1 | Sampled Script blocks at 10 ms force 180 000 integrator restarts on WLTC | restart only when an output changes; recommend continuous-time controllers; measure (WP4 acceptance). **WP4:** done — no restart and no extra step for a tick that changes nothing; 19–108 ns a tick, < 5 % of the run for models at or slower than ~3 000× real time (section 9) |
+| R1 | Sampled Script blocks at 10 ms force 180 000 integrator restarts on WLTC | restart only when an output changes; recommend continuous-time controllers; measure (WP4 acceptance). **WP4:** done — no restart and no extra step for a tick that changes nothing; its inputs read ahead across the step, bit for bit: 9.5–21 ns a tick, 2.0–4.4 % of the cheapest test model's run (20 000× real time), < 3 % of the 101-state one (section 9) |
 | R2 | SUNDIALS build on Windows/macOS | in-tree `cc` build with committed config header and bindings; CI on all three from the start (WP4/WP6). **WP4:** built and tested on Linux with only a C compiler; the MSVC and macOS builds are written for (config header, `/fp:precise`) but still to be proven in CI |
 | R3 | Index reduction needs dynamic state selection for some models | static dummy derivatives with an initial pivoting check cover vehicle drivelines; report the rare case clearly; dynamic selection only if a real model needs it |
 | R4 | Friction and clutch modes chatter | force-based stick/slip conditions in the components; event-storm detection naming the parts. **WP4:** storm detection done (over 100 state events within 1e-3 of the run, the error names the modes' parts; tested on a chattering mode); the force-based conditions are WP5's |

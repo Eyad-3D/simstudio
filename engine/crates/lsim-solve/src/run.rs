@@ -140,7 +140,35 @@ struct Clock {
     vals: Vec<f64>,
     ders: Vec<f64>,
     chain_y: Vec<f64>,
+    /// for each input evaluated alone: its chain as a tape and the tape's
+    /// registers (none where the chain keeps the interpreter)
+    tapes: Vec<Option<(crate::tape::ChainTape, Vec<f64>)>>,
+    /// where each input is read from
+    srcs: Vec<VarSource>,
+    /// every input can be read from the dense output, the discrete
+    /// values, the inputs or a tape: the clock's ticks inside a step can
+    /// be read together ([`Loop::read_ahead`])
+    batchable: bool,
+    /// the inputs of the clock's next ticks inside the step, read
+    /// together: the ticks `batch_k0..` at `batch_ts`, tick after tick
+    /// (`batch_in`; `batch_y` the entries `y_idx` of y), valid while the
+    /// dense output and the discrete values are those of generation
+    /// `batch_gen`
+    batch_ts: Vec<f64>,
+    batch_y: Vec<f64>,
+    batch_in: Vec<f64>,
+    batch_k0: u64,
+    batch_gen: u64,
+    /// per input with a tape: its registers, one lane per tick; and one
+    /// value per tick
+    lane_regs: Vec<Vec<f64>>,
+    lane_out: Vec<f64>,
+    /// ticks in a row that changed nothing (how many to read ahead)
+    idle_run: usize,
 }
+
+/// The most ticks of one clock whose inputs are read together.
+const TICK_BATCH: usize = crate::tape::TAPE_LANES;
 
 impl Clock {
     fn next(&self) -> f64 {
@@ -1030,6 +1058,10 @@ impl Loop<'_> {
                 VarSource::U(i) => self.u[i],
                 VarSource::Const(x) => x,
                 VarSource::Computed => match bi.chains.get(k).and_then(|x| x.as_ref()) {
+                    Some(_) if c.tapes[k].is_some() => {
+                        let (tape, regs) = c.tapes[k].as_mut().expect("a tape");
+                        tape.eval(t, &c.y_vals, &c.chain_pos[k], d, self.u, regs)
+                    }
                     Some(chain) => {
                         c.chain_y.clear();
                         c.chain_y.extend(c.chain_pos[k].iter().map(|p| c.y_vals[*p]));
@@ -1047,6 +1079,88 @@ impl Loop<'_> {
                 },
             };
         }
+    }
+
+    /// The inputs of clock `c`'s next ticks inside the step (at most
+    /// `max`, those before `t_new`), as [`Self::read_inputs_selected`]
+    /// gives them one by one, the same values: the dense output read at
+    /// all of them at once, each tape run across them.
+    fn read_ahead(
+        &self,
+        c: &mut Clock,
+        integ: &mut dyn Integrator,
+        t_new: f64,
+        d: &[f64],
+        max: usize,
+    ) -> Result<(), SolveError> {
+        c.batch_ts.clear();
+        let mut k = c.k;
+        while c.batch_ts.len() < max {
+            let x = c.offset + k as f64 * c.period;
+            // (x is finite: periods are checked)
+            if x >= t_new {
+                break;
+            }
+            c.batch_ts.push(x);
+            k += 1;
+        }
+        c.batch_k0 = c.k;
+        let n = c.batch_ts.len();
+        let m = c.y_idx.len();
+        if m > 0 {
+            c.batch_y.resize(n * m, 0.0);
+            integ.interpolate_select_many(&c.batch_ts, &c.y_idx, &mut c.batch_y)?;
+        }
+        let n_in = c.srcs.len();
+        c.batch_in.resize(n * n_in, 0.0);
+        for (k, src) in c.srcs.iter().enumerate() {
+            // (one value for every tick)
+            let same = match *src {
+                VarSource::D(i) => Some(d[i]),
+                VarSource::NegD(i) => Some(-d[i]),
+                VarSource::U(i) => Some(self.u[i]),
+                VarSource::Const(v) => Some(v),
+                _ => None,
+            };
+            if let Some(v) = same {
+                c.batch_in[k..].iter_mut().step_by(n_in).take(n).for_each(|x| *x = v);
+                continue;
+            }
+            match *src {
+                VarSource::Y(_) | VarSource::NegY(_) => {
+                    let p = c.y_pos[k].expect("a state input");
+                    let neg = matches!(src, VarSource::NegY(_));
+                    let col = c.batch_in[k..].iter_mut().step_by(n_in).take(n);
+                    for (x, y) in col.zip(&c.batch_y[p * n..][..n]) {
+                        *x = if neg { -*y } else { *y };
+                    }
+                }
+                VarSource::D(_) | VarSource::NegD(_) | VarSource::U(_) | VarSource::Const(_) => {}
+                VarSource::Computed => {
+                    let (tape, _) = c.tapes[k].as_ref().expect("a tape");
+                    // (a block's only input: straight into its rows)
+                    let out = if n_in == 1 { &mut c.batch_in[..n] } else { &mut c.lane_out[..n] };
+                    tape.eval_lanes(
+                        &c.batch_ts,
+                        &c.batch_y,
+                        n,
+                        &c.chain_pos[k],
+                        d,
+                        self.u,
+                        TICK_BATCH,
+                        &mut c.lane_regs[k],
+                        out,
+                    );
+                    if n_in > 1 {
+                        let col = c.batch_in[k..].iter_mut().step_by(n_in).take(n);
+                        for (x, v) in col.zip(&c.lane_out) {
+                            *x = *v;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Whether the discrete values `now` differ from `then` in one that
@@ -1363,6 +1477,17 @@ pub fn run_loop(
             let needs_y = !y_idx.is_empty();
             let reads_z = needs_vars || y_idx.iter().any(|&i| i >= l.n_x);
             let reads_vars = srcs.contains(&VarSource::Computed);
+            let tapes: Vec<Option<(crate::tape::ChainTape, Vec<f64>)>> = (0..srcs.len())
+                .map(|k| {
+                    chain(k)
+                        .filter(|_| opts.tick_read_ahead && srcs[k] == VarSource::Computed)
+                        .and_then(|c| crate::tape::ChainTape::new(c, &info.params))
+                        .map(|t| {
+                            let r = t.registers();
+                            (t, r)
+                        })
+                })
+                .collect();
             Clock {
                 reads_z,
                 reads_vars,
@@ -1373,6 +1498,27 @@ pub fn run_loop(
                 vals: if any_chain { vec![0.0; l.n_vars] } else { vec![] },
                 ders: if any_chain { vec![0.0; l.n_vars] } else { vec![] },
                 chain_y: vec![],
+                batch_ts: vec![],
+                batch_y: vec![],
+                batch_in: vec![],
+                batch_k0: 0,
+                batch_gen: u64::MAX,
+                lane_regs: tapes
+                    .iter()
+                    .map(|t| {
+                        t.as_ref().map(|(t, _)| t.lane_registers(TICK_BATCH)).unwrap_or_default()
+                    })
+                    .collect(),
+                lane_out: vec![0.0; TICK_BATCH],
+                idle_run: 0,
+                batchable: opts.tick_read_ahead
+                    && !needs_vars
+                    && srcs
+                        .iter()
+                        .enumerate()
+                        .all(|(k, s)| *s != VarSource::Computed || tapes[k].is_some()),
+                srcs,
+                tapes,
                 period,
                 offset,
                 k: k0,
@@ -1478,7 +1624,15 @@ pub fn run_loop(
         lp.schedule_breaks(t, false);
         lp.schedule_breaks(t, true);
     }
+    // the ticks inside a step: the clocks due at an instant, those that
+    // changed an output, the discrete values after them
+    let mut due_clocks: Vec<usize> = Vec::with_capacity(clocks.len());
+    let mut changed_blocks: Vec<usize> = Vec::with_capacity(clocks.len());
+    let mut d_tick = d.clone();
+    // the dense output's generation: a new one at every step and change
+    let mut dense_gen: u64 = 0;
     while t < t_end {
+        dense_gen += 1;
         // the time crossings' times move only when a discrete value does
         // (a time function's next sign change after one fired too)
         if d != scheduled_for {
@@ -1578,41 +1732,140 @@ pub fn run_loop(
                 (Some(g), None) => {
                     grid_point(&mut lp, &mut rec, integ, &mut ledger, g, &mut yk, &d)?;
                 }
-                (_, Some((_, tk))) => {
+                (_, Some((first, tk0))) => {
+                    let mut tk = tk0;
+                    changed_blocks.clear();
+                    let mut have_y = false;
+                    // a clock due alone that reads ahead ticks in a row
+                    // while nothing else comes before its next tick (no
+                    // grid point, no other clock, the step's end): each
+                    // tick as below, without going round this loop; one
+                    // that changes an output is handled as below
+                    let others = clocks
+                        .iter()
+                        .enumerate()
+                        .filter(|(b, _)| *b != first)
+                        .map(|(_, c)| c.next())
+                        .reduce(f64::min);
+                    let lone = |x: f64| others.is_none_or(|o| x < o && !same_instant(x, o));
+                    let c = &mut clocks[first];
+                    let ran = c.batchable && tk < t_new && c.next() == tk && lone(tk);
+                    if ran {
+                        due_clocks.clear();
+                        due_clocks.push(first);
+                        let outs = &info.blocks[first].outputs;
+                        let n_in = info.blocks[first].inputs.len();
+                        let blk = &mut blocks[first];
+                        loop {
+                            report.block_ticks += 1;
+                            if !(c.batch_gen == dense_gen
+                                && c.k >= c.batch_k0
+                                && c.k - c.batch_k0 < c.batch_ts.len() as u64)
+                            {
+                                let max = (c.idle_run + 1).min(TICK_BATCH);
+                                if lp.read_ahead(c, integ, t_new, &d, max).is_err() {
+                                    lp.read_ahead(c, integ, t_new, &d, 1)?;
+                                }
+                                c.batch_gen = dense_gen;
+                            }
+                            for k in 0..outs.len() {
+                                c.outputs[k] = d[outs[k]];
+                            }
+                            let j = (c.k - c.batch_k0) as usize;
+                            let row = &c.batch_in[j * n_in..][..n_in];
+                            if let Err(m) = blk.tick(tk, row, &mut c.outputs) {
+                                return Err(SolveError::Block {
+                                    block: blk.name().into(),
+                                    t: tk,
+                                    message: m,
+                                });
+                            }
+                            c.k += 1;
+                            let mut changed = false;
+                            for k in 0..outs.len() {
+                                changed |= d[outs[k]] != c.outputs[k];
+                            }
+                            c.stop_next = changed;
+                            if changed {
+                                c.idle_run = 0;
+                                report.block_changes += 1;
+                                d_tick.copy_from_slice(&d);
+                                for (k, &o) in outs.iter().enumerate() {
+                                    d_tick[o] = c.outputs[k];
+                                }
+                                changed_blocks.push(first);
+                                break;
+                            }
+                            c.idle_run += 1;
+                            // (the next tick's time as read ahead: the
+                            // same as `next`)
+                            let x = c.batch_ts.get(j + 1).copied().unwrap_or_else(|| c.next());
+                            if x < t_new && tg.is_none_or(|g| g >= x) && lone(x) {
+                                tk = x;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
                     // every clock due at this instant ticks in it, in order,
                     // each reading its inputs with what the ones before it
                     // set, as at an event's instant: the instant's values
                     // are those after all of them
-                    let due: Vec<usize> = (0..clocks.len())
-                        .filter(|&b| {
+                    // (buffers kept from tick to tick: an idle tick
+                    // allocates nothing)
+                    due_clocks.clear();
+                    if !ran {
+                        due_clocks.extend((0..clocks.len()).filter(|&b| {
                             let x = clocks[b].next();
                             x == tk || same_instant(x, tk)
-                        })
-                        .collect();
-                    let mut d_tick = d.clone();
-                    let mut changed_blocks: Vec<usize> = vec![];
-                    let mut have_y = false;
+                        }));
+                    }
+                    // the discrete values as the blocks before left them:
+                    // `d` itself until one changes an output
+                    let mut d_dirty = false;
                     // the state with its iteration variables solved again
                     // for what the blocks before set, when a block reads
                     // them (and the discrete values they are solved for)
                     let mut yz: Option<(Vec<f64>, Vec<f64>)> = None;
-                    for &b in &due {
+                    for &b in &due_clocks {
                         report.block_ticks += 1;
                         let c = &mut clocks[b];
-                        let mut inputs = std::mem::take(&mut c.inputs);
+                        let dt: &[f64] = if d_dirty { &d_tick } else { &d };
+                        // a clock whose ticks inside the step read what
+                        // the step and the discrete values give: its next
+                        // ticks' inputs read together (the same values),
+                        // as many as it lately ticked without a change
+                        let ahead = c.batchable && !d_dirty && tk < t_new && c.next() == tk;
+                        if ahead
+                            && !(c.batch_gen == dense_gen
+                                && c.k >= c.batch_k0
+                                && c.k - c.batch_k0 < c.batch_ts.len() as u64)
+                        {
+                            let max = (c.idle_run + 1).min(TICK_BATCH);
+                            // (a later tick that cannot be read: this one
+                            // alone, which fails where one by one would)
+                            if lp.read_ahead(c, integ, t_new, dt, max).is_err() {
+                                lp.read_ahead(c, integ, t_new, dt, 1)?;
+                            }
+                            c.batch_gen = dense_gen;
+                        }
+                        let mut inputs = if ahead { vec![] } else { std::mem::take(&mut c.inputs) };
                         let z_for = yz.as_ref().map_or(d.as_slice(), |x| x.1.as_slice());
-                        if c.reads_z && lp.moves_z(&d_tick, z_for) {
+                        // (no block changed anything yet: nothing moved)
+                        if !ahead && c.reads_z && d_dirty && lp.moves_z(dt, z_for) {
                             if !have_y {
                                 integ.interpolate(tk, &mut yk)?;
                                 have_y = true;
                             }
                             let mut yv = yz.take().map_or_else(|| yk.clone(), |x| x.0);
-                            integ.consistent_z(tk, &mut yv, &d_tick)?;
+                            integ.consistent_z(tk, &mut yv, dt)?;
                             report.z_solves += 1;
-                            yz = Some((yv, d_tick.clone()));
+                            yz = Some((yv, dt.to_vec()));
                         }
                         let fresh = c.reads_z && yz.is_some();
-                        if c.needs_vars || tk == t_new || fresh {
+                        if ahead {
+                            // (read ahead)
+                        } else if c.needs_vars || tk == t_new || fresh {
                             // the whole state (and the channels)
                             if !have_y {
                                 integ.interpolate(tk, &mut yk)?;
@@ -1623,42 +1876,60 @@ pub fn run_loop(
                                 _ => yk.as_slice(),
                             };
                             if c.reads_vars {
-                                lp.sample(tk, ys, &d_tick);
+                                lp.sample(tk, ys, dt);
                             }
-                            lp.read_inputs(b, ys, &d_tick, &mut inputs);
+                            lp.read_inputs(b, ys, dt, &mut inputs);
                         } else {
                             // only the entries of y the block reads
                             if c.needs_y {
                                 integ.interpolate_select(tk, &c.y_idx, &mut c.y_vals)?;
                             }
-                            lp.read_inputs_selected(b, tk, c, &d_tick, &mut inputs);
+                            lp.read_inputs_selected(b, tk, c, dt, &mut inputs);
                         }
                         let outs = &info.blocks[b].outputs;
                         for (k, &o) in outs.iter().enumerate() {
-                            c.outputs[k] = d_tick[o];
+                            c.outputs[k] = dt[o];
                         }
                         let blk = &mut blocks[b];
-                        blk.tick(tk, &inputs, &mut c.outputs).map_err(|m| SolveError::Block {
+                        let row: &[f64] = if ahead {
+                            let n_in = info.blocks[b].inputs.len();
+                            &c.batch_in[(c.k - c.batch_k0) as usize * n_in..][..n_in]
+                        } else {
+                            &inputs
+                        };
+                        blk.tick(tk, row, &mut c.outputs).map_err(|m| SolveError::Block {
                             block: blk.name().into(),
                             t: tk,
                             message: m,
                         })?;
-                        c.inputs = inputs;
+                        if !ahead {
+                            c.inputs = inputs;
+                        }
                         c.k += 1;
-                        let changed =
-                            outs.iter().enumerate().any(|(k, &o)| d_tick[o] != c.outputs[k]);
+                        let changed = outs.iter().enumerate().any(|(k, &o)| dt[o] != c.outputs[k]);
                         c.stop_next = changed;
+                        c.idle_run = if changed { 0 } else { c.idle_run + 1 };
                         if changed {
                             report.block_changes += 1;
+                            if !d_dirty {
+                                d_tick.copy_from_slice(&d);
+                                d_dirty = true;
+                            }
                             for (k, &o) in outs.iter().enumerate() {
                                 d_tick[o] = c.outputs[k];
                             }
                             changed_blocks.push(b);
                         }
                     }
+                    if ran {
+                        due_clocks.push(first);
+                    }
                     if changed_blocks.is_empty() {
                         continue;
                     }
+                    // (what the change does to the integrator is read
+                    // afresh)
+                    dense_gen += 1;
                     // the outputs changed: an event at the tick; the rest of
                     // the step is dropped
                     if !have_y {
@@ -1694,7 +1965,7 @@ pub fn run_loop(
                         });
                     if inert {
                         report.inert_ticks += 1;
-                        for &b in &due {
+                        for &b in &due_clocks {
                             clocks[b].stop_next = false;
                         }
                         after_event(

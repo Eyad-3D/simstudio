@@ -10,7 +10,8 @@
 //! `PERIOD` the block's period (default 0.01 s). A shorter period
 //! multiplies the ticks, so their cost stands well above the run-to-run
 //! noise of a shared machine; the cost per tick is then scaled back to the
-//! 180 001 ticks of a 10 ms block.
+//! 180 001 ticks of a 10 ms block. `ONLY` (0–3) runs one variant alone,
+//! for a profiler.
 
 #[path = "shared/models.rs"]
 mod models;
@@ -111,11 +112,15 @@ fn main() {
             info
         })
         .collect();
+    let only: Option<usize> = std::env::var("ONLY").ok().and_then(|s| s.parse().ok());
     // the variants interleaved in every round, so each sees the same load
     let mut times: Vec<Vec<f64>> = vec![vec![]; variants.len()];
     let mut last = vec![None; variants.len()];
     for _ in 0..reps {
         for (k, (_, input)) in variants.iter().enumerate() {
+            if only.is_some_and(|o| o != k) {
+                continue;
+            }
             let mut blocks: Vec<Box<dyn DiscreteBlock>> =
                 if input.is_some() { vec![Box::new(Idle(period))] } else { vec![] };
             let c0 = cpu_now();
@@ -126,6 +131,15 @@ fn main() {
             times[k].push(if c.is_finite() { c } else { wall });
             last[k] = Some((r.stats.steps, r.report.block_ticks, r.report.block_changes));
         }
+    }
+    if let Some(o) = only {
+        let (steps, ticks, changed) = last[o].unwrap();
+        println!(
+            "{}: CPU time best {:.2} ms, {steps} steps, {ticks} ticks, {changed} changed",
+            variants[o].0,
+            times[o].iter().copied().fold(f64::INFINITY, f64::min) * 1e3
+        );
+        return;
     }
     let mut results = vec![];
     for (k, (label, _)) in variants.iter().enumerate() {

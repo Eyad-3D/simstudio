@@ -393,8 +393,197 @@ pub struct Sundials<'m> {
     /// the last point whose iteration variables were solved: (t, y, d);
     /// a restart there needs no second solve
     z_solved: Option<(f64, Vec<f64>, Vec<f64>)>,
+    /// scratch of a batched selected dense output: the polynomial, the
+    /// lanes' rows
+    poly_buf: Vec<f64>,
+    lane_buf: Vec<f64>,
     _model: PhantomData<&'m dyn ModelFunctions>,
 }
+
+/// Times read together at once (the scratch's rows).
+const BLOCK: usize = 64;
+
+/// Scratch rows for the lanes: 13 (CVODE's powers or IDA's
+/// coefficients) and one of steps.
+const LANE_ROWS: usize = 14;
+
+/// `CVodeGetDky`'s value (k = 0) of each entry at each time, as
+/// `lsim_cvode_dky_select` computes it (the C shim, the same operations in
+/// the same order: `s = (t − tn) / h`, its powers one from the last, the
+/// sum from the highest power down), across the times, each first clamped
+/// to `[lo, hi]` (as one by one): `coef[m·(q + 1) + j] = zn[j][idx[m]]`,
+/// `info = [tn, h, hu]`; entry after entry, `out[m·ts.len() + i]`; `buf`
+/// holds [`LANE_ROWS`]·64 values. False (and `out` unfinished) when a time
+/// lies outside the step with `CVodeGetDky`'s fuzz.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+fn cvode_dky_lanes_body(
+    ts: &[f64],
+    (lo, hi): (f64, f64),
+    coef: &[f64],
+    n: usize,
+    q: usize,
+    info: [f64; 3],
+    out: &mut [f64],
+    buf: &mut [f64],
+) -> bool {
+    let [tn, h, hu] = info;
+    let uround = f64::EPSILON;
+    let mut tfuzz = 100.0 * uround * (tn.abs() + hu.abs());
+    if hu < 0.0 {
+        tfuzz = -tfuzz;
+    }
+    let tp = tn - hu - tfuzz;
+    let tn1 = tn + tfuzz;
+    let (l, nt) = (q + 1, ts.len());
+    for c0 in (0..nt).step_by(BLOCK) {
+        let k = (nt - c0).min(BLOCK);
+        // rows 0..=q: the powers s^j; row 13: s
+        let (pw, s) = buf.split_at_mut(13 * BLOCK);
+        let s = &mut s[..k];
+        for (s, t) in s.iter_mut().zip(&ts[c0..c0 + k]) {
+            let t = t.clamp(lo, hi);
+            if (t - tp) * (t - tn1) > 0.0 {
+                return false;
+            }
+            *s = (t - tn) / h;
+        }
+        pw[..k].fill(1.0);
+        for j in 1..=q {
+            let (done, next) = pw.split_at_mut(j * BLOCK);
+            let prev = &done[(j - 1) * BLOCK..][..k];
+            for ((p, prev), s) in next[..k].iter_mut().zip(prev).zip(&*s) {
+                *p = prev * s;
+            }
+        }
+        for m in 0..n {
+            let a = &coef[m * l..][..l];
+            let o = &mut out[m * nt + c0..][..k];
+            for (x, p) in o.iter_mut().zip(&pw[q * BLOCK..][..k]) {
+                *x = p * a[q];
+            }
+            for j in (0..q).rev() {
+                for (x, p) in o.iter_mut().zip(&pw[j * BLOCK..][..k]) {
+                    *x += p * a[j];
+                }
+            }
+        }
+    }
+    true
+}
+
+/// `IDAGetDky`'s value (k = 0) of each entry at each time, as
+/// `lsim_ida_dky_select` computes it (the same coefficients `c_j = c_{j−1}
+/// (t − tn + ψ[j−2]) / ψ[j−1]` and sum, in the same order), across the
+/// times, each first clamped to `[lo, hi]`: `coef[m·(k + 1) + j] =
+/// φ[j][idx[m]]`, `info = [tn, hused, hh]`; `out[m·ts.len() + i]`. False
+/// when a time lies outside the step with `IDAGetDky`'s fuzz.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+fn ida_dky_lanes_body(
+    ts: &[f64],
+    (lo, hi): (f64, f64),
+    coef: &[f64],
+    n: usize,
+    kused: usize,
+    psi: &[f64],
+    info: [f64; 3],
+    out: &mut [f64],
+    buf: &mut [f64],
+) -> bool {
+    let [tn, hused, hh] = info;
+    let uround = f64::EPSILON;
+    let mut tfuzz = 100.0 * uround * (tn.abs() + hh.abs());
+    if hh < 0.0 {
+        tfuzz = -tfuzz;
+    }
+    let tp = tn - hused - tfuzz;
+    let (l, nt) = (kused + 1, ts.len());
+    for c0 in (0..nt).step_by(BLOCK) {
+        let k = (nt - c0).min(BLOCK);
+        // rows 0..=kused: the coefficients c_j; row 13: t − tn
+        let (cjk, delt) = buf.split_at_mut(13 * BLOCK);
+        let delt = &mut delt[..k];
+        for (d, t) in delt.iter_mut().zip(&ts[c0..c0 + k]) {
+            let t = t.clamp(lo, hi);
+            if (t - tp) * hh < 0.0 {
+                return false;
+            }
+            *d = t - tn;
+        }
+        cjk[..k].fill(1.0);
+        let mut psij_1 = 0.0;
+        for j in 1..=kused {
+            let psij = psi[j - 1];
+            let (done, next) = cjk.split_at_mut(j * BLOCK);
+            let prev = &done[(j - 1) * BLOCK..][..k];
+            for ((c, prev), d) in next[..k].iter_mut().zip(prev).zip(&*delt) {
+                *c = (prev * (d + psij_1)) / psij;
+            }
+            psij_1 = psij;
+        }
+        for m in 0..n {
+            let a = &coef[m * l..][..l];
+            let o = &mut out[m * nt + c0..][..k];
+            for (x, c) in o.iter_mut().zip(&cjk[..k]) {
+                *x = c * a[0];
+            }
+            for (j, &aj) in a.iter().enumerate().skip(1) {
+                for (x, c) in o.iter_mut().zip(&cjk[j * BLOCK..][..k]) {
+                    *x += c * aj;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// The lanes' loops on the CPU's widest vectors: AVX where the CPU has
+/// it (four lanes an instruction, each the same IEEE multiplication,
+/// division or addition as with two: the same bits; no fused
+/// multiply-adds, which AVX alone does not have).
+macro_rules! lanes_dispatch {
+    ($name:ident, $avx:ident, $body:ident, ($($arg:ident: $ty:ty),*)) => {
+        #[allow(clippy::too_many_arguments)]
+        fn $name($($arg: $ty),*) -> bool {
+            #[cfg(target_arch = "x86_64")]
+            if std::arch::is_x86_feature_detected!("avx") {
+                // SAFETY: the CPU has AVX (checked just now).
+                return unsafe { $avx($($arg),*) };
+            }
+            $body($($arg),*)
+        }
+        #[cfg(target_arch = "x86_64")]
+        #[target_feature(enable = "avx")]
+        #[allow(clippy::too_many_arguments)]
+        fn $avx($($arg: $ty),*) -> bool {
+            $body($($arg),*)
+        }
+    };
+}
+
+lanes_dispatch!(cvode_dky_lanes, cvode_dky_lanes_avx, cvode_dky_lanes_body, (
+    ts: &[f64],
+    span: (f64, f64),
+    coef: &[f64],
+    n: usize,
+    q: usize,
+    info: [f64; 3],
+    out: &mut [f64],
+    buf: &mut [f64]
+));
+
+lanes_dispatch!(ida_dky_lanes, ida_dky_lanes_avx, ida_dky_lanes_body, (
+    ts: &[f64],
+    span: (f64, f64),
+    coef: &[f64],
+    n: usize,
+    k: usize,
+    psi: &[f64],
+    info: [f64; 3],
+    out: &mut [f64],
+    buf: &mut [f64]
+));
 
 fn flag_error(flag: c_int, what: &str, t: f64, sink: &ErrSink) -> SolveError {
     let detail = if sink.last.is_empty() { String::new() } else { format!(": {}", sink.last) };
@@ -402,6 +591,24 @@ fn flag_error(flag: c_int, what: &str, t: f64, sink: &ErrSink) -> SolveError {
 }
 
 impl<'m> Sundials<'m> {
+    /// [`Integrator::interpolate_select`] at each of `ts` (entry after
+    /// entry, as [`Integrator::interpolate_select_many`]).
+    fn select_one_by_one(
+        &mut self,
+        ts: &[f64],
+        idx: &[usize],
+        out: &mut [f64],
+    ) -> Result<(), SolveError> {
+        let mut one = vec![0.0; idx.len()];
+        for (i, &t) in ts.iter().enumerate() {
+            self.interpolate_select(t, idx, &mut one)?;
+            for (m, v) in one.iter().enumerate() {
+                out[m * ts.len() + i] = *v;
+            }
+        }
+        Ok(())
+    }
+
     fn check(&self, flag: c_int, what: &str, t: f64) -> Result<c_int, SolveError> {
         if flag < 0 { Err(flag_error(flag, what, t, &self.err)) } else { Ok(flag) }
     }
@@ -571,6 +778,8 @@ impl<'m> Sundials<'m> {
                 methods: vec![],
                 fresh: true,
                 bdf_next: None,
+                poly_buf: vec![],
+                lane_buf: vec![],
                 t_step_start: t0,
                 z_solved: None,
                 _model: PhantomData,
@@ -1068,6 +1277,77 @@ impl Integrator for Sundials<'_> {
             }
         };
         self.check(flag, "the dense output", t)?;
+        Ok(())
+    }
+
+    fn interpolate_select_many(
+        &mut self,
+        ts: &[f64],
+        idx: &[usize],
+        out: &mut [f64],
+    ) -> Result<(), SolveError> {
+        let n = idx.len();
+        debug_assert_eq!(out.len(), ts.len() * n);
+        if n == 0 {
+            return Ok(());
+        }
+        const _: () = assert!(size_of::<usize>() == size_of::<sunindextype>());
+        // (the cases interpolate_select answers without the history, one
+        // by one)
+        if self.fresh || ts.contains(&self.t_last) {
+            return self.select_one_by_one(ts, idx, out);
+        }
+        // the step's polynomial for the entries asked for, as the
+        // integrator holds it (as `dense_output` reads it)
+        const MOST: usize = 13;
+        let mut coef = std::mem::take(&mut self.poly_buf);
+        coef.resize(n * MOST, 0.0);
+        let sel = idx.as_ptr() as *const sunindextype;
+        let mut info = [0.0; 3];
+        let mut psi = [0.0; MOST];
+        let mut q: c_int = 0;
+        // SAFETY: `mem` is live; `coef` holds `n · MOST` values, `info` 3,
+        // `psi` MOST.
+        let flag = unsafe {
+            match self.kind {
+                Kind::Cvode => lsim_cvode_dense_select(
+                    self.mem,
+                    n as c_int,
+                    sel,
+                    coef.len() as c_int,
+                    coef.as_mut_ptr(),
+                    info.as_mut_ptr(),
+                    &mut q,
+                ),
+                Kind::Ida => lsim_ida_dense_select(
+                    self.mem,
+                    n as c_int,
+                    sel,
+                    coef.len() as c_int,
+                    coef.as_mut_ptr(),
+                    psi.as_mut_ptr(),
+                    info.as_mut_ptr(),
+                    &mut q,
+                ),
+            }
+        };
+        if flag < 0 {
+            self.poly_buf = coef;
+            return self.select_one_by_one(ts, idx, out);
+        }
+        let span = (self.t_step_start, self.t_last);
+        let mut buf = std::mem::take(&mut self.lane_buf);
+        buf.resize(LANE_ROWS * BLOCK, 0.0);
+        let ok = match self.kind {
+            Kind::Cvode => cvode_dky_lanes(ts, span, &coef, n, q as usize, info, out, &mut buf),
+            Kind::Ida => ida_dky_lanes(ts, span, &coef, n, q as usize, &psi, info, out, &mut buf),
+        };
+        self.poly_buf = coef;
+        self.lane_buf = buf;
+        if !ok {
+            // a time outside the step: named as interpolate_select names it
+            return self.select_one_by_one(ts, idx, out);
+        }
         Ok(())
     }
 

@@ -36,6 +36,7 @@ pub mod run;
 #[cfg(feature = "sundials")]
 pub mod sundials;
 pub mod sweep;
+mod tape;
 
 pub use accuracy::{AccuracyReport, ChannelChange, accuracy_check, compare_runs};
 pub use energy::{EnergyBooks, PartBooks};
@@ -236,6 +237,13 @@ pub struct SolverOptions {
     /// bitwise the interpreter, faster). On by default; off, they are
     /// interpreted from the IR
     pub books_kernels: bool,
+    /// read a sampled block's inputs fast: a computed input's chain run
+    /// as a flat tape instead of interpreted, and the inputs of a block's
+    /// ticks inside one step read together (the dense output and the
+    /// tapes across the ticks), its ticks that change nothing run in a
+    /// row. The same values either way, to the bit (DESIGN.md §9). On by
+    /// default; off, each tick reads its inputs alone, interpreted
+    pub tick_read_ahead: bool,
 }
 
 impl Default for SolverOptions {
@@ -260,6 +268,7 @@ impl Default for SolverOptions {
             time_mixed_checks: false,
             condition_kernels: true,
             books_kernels: true,
+            tick_read_ahead: true,
         }
     }
 }
@@ -411,6 +420,24 @@ pub trait Integrator {
         self.interpolate(t, &mut y)?;
         for (o, i) in out.iter_mut().zip(idx) {
             *o = y[*i];
+        }
+        Ok(())
+    }
+    /// [`Self::interpolate_select`] at several times, the same values,
+    /// entry after entry: `out[m·ts.len() + i] = y(ts[i])[idx[m]]` (a
+    /// sampled block's ticks inside one step, read together).
+    fn interpolate_select_many(
+        &mut self,
+        ts: &[f64],
+        idx: &[usize],
+        out: &mut [f64],
+    ) -> Result<(), SolveError> {
+        let mut one = vec![0.0; idx.len()];
+        for (i, &t) in ts.iter().enumerate() {
+            self.interpolate_select(t, idx, &mut one)?;
+            for (m, v) in one.iter().enumerate() {
+                out[m * ts.len() + i] = *v;
+            }
         }
         Ok(())
     }
