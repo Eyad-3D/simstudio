@@ -427,11 +427,11 @@ turns at 200 rad/s at 8 s.
 * Inside `when`, `v = expression;` gives the discrete variable `v` a new
   value and `reinit(x, expression);` restarts the state `x` from a new
   value. `x` is a state of the component itself, the across quantity of
-  one of its ports (a flange's speed `b.w`, a pin's voltage `p.v`: the
-  state the port is connected to), or a variable of one of its parts
-  (`load.w`). It cannot be a port's through quantity (`b.tau`), a
-  parameter or a discrete variable; preparation checks that what it
-  names is a state.
+  one of its ports when the port is joined directly to a state (a
+  flange's speed `b.w` where an inertia sits on it), or a variable of one
+  of its parts (`load.w`). It cannot be a port's through quantity
+  (`b.tau`), a signal input or output, a parameter or a discrete
+  variable; preparation checks that what it names is a state.
 * The engine finds the moment the condition becomes true to the solver's
   precision and stops there; it does not wait for the next output step.
   A condition on time alone (`time >= t_shift`) is reached exactly: the

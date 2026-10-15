@@ -418,7 +418,8 @@ is [`docs/text-format.md`](docs/text-format.md).
 Users build their own components from the basic ones in this format (the
 owner's decision), so it must say everything the library says. Tests
 hold that: every library component, every vehicle block in every
-configuration its switches give (349 configurations), every definition
+combination of its on/off switches (349 builds, 221 distinct definitions;
+the other settings at their defaults), every definition
 the example projects import, a component with every IR feature and random
 expressions over every function print and read back unchanged; every
 example on the documentation page parses, prepares, runs and gives the
@@ -2174,7 +2175,7 @@ work end to end) or against hand-written test doubles of the interfaces.
   ```
 * **Accepted when**: every `lsim-lib` component round-trips (`to_text` →
   `parse` → equal), the vehicle blocks in every configuration too; 50
-  malformed inputs each give a span and a plain message (68 today); every
+  malformed inputs each give a span and a plain message (70 today); every
   example of the format's documentation runs; 10 hand-written Base Modelica models import and simulate to
   their known answers; unit errors are caught at parse time with the
   equation quoted.

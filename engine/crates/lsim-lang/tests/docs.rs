@@ -194,13 +194,24 @@ fn every_example_of_the_documentation_parses_runs_and_gives_what_the_page_says()
         check(name, &r, wants);
         reach(&lib, &lib.components[name], &mut used);
     }
-    // the gear change: the shift's loss is the gearbox's
+    // the gear change: the load's speed just before the shift, and the
+    // shift's loss is the gearbox's
     let r = run(&lib, &lib.components["Examples.GearChange"], 8.0, 0.01);
+    let k = r.times.iter().position(|t| *t == 4.0).expect("the shift on the grid");
+    let ch = r.names.iter().position(|n| n == "load.w").unwrap() as u32;
+    let ll = r.left_limits.iter().find(|l| l.k == k).expect("both sides of the shift");
+    let before = ll.before[ll.channels.iter().position(|c| *c == ch).expect("it jumps")];
+    assert!((before - 67.51054852320675).abs() < 1e-9 * 67.5, "{before}");
     let books = r.energy.expect("books");
     let gear = books.parts.iter().find(|p| p.path == "gear").expect("the gear's books");
     assert!((gear.impulse_lost - 2797.7719709762023).abs() < 1e-9 * 2797.77, "{gear:?}");
     // and the coupling turns 3750 J into heat
     let r = run(&lib, &lib.components["Examples.CouplingEngages"], 2.0, 0.5);
+    // nothing jumps at 1 s: the flywheel's speed there is 100 on both sides
+    let k = r.times.iter().position(|t| *t == 1.0).unwrap();
+    assert_eq!(r.channel("flywheel.w").unwrap()[k], 100.0);
+    let ch = r.names.iter().position(|n| n == "flywheel.w").unwrap() as u32;
+    assert!(r.left_limits.iter().all(|l| l.k != k || !l.channels.contains(&ch)));
     let books = r.energy.expect("books");
     let c = books.parts.iter().find(|p| p.path == "coupling").expect("the coupling's books");
     assert!((c.lost - 3750.0).abs() < 1e-6 * 3750.0, "{c:?}");

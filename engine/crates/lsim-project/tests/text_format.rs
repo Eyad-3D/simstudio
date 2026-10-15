@@ -140,8 +140,10 @@ fn run_model(m: &Model) -> SimResult {
     m.run(&opts, OutputGrid { t0: 0.0, t_end: 8.0, dt: 0.01 }, &mut []).expect("runs")
 }
 
-/// Every number two runs give, bit for bit: channels, left limits, events,
-/// energy books.
+/// Two runs bit for bit: the output grid, every channel, the left limits
+/// at events, the events' times and labels, and the energy books (the
+/// prepared models are equal too, so this follows by construction; the
+/// test shows it).
 fn assert_bitwise(a: &SimResult, b: &SimResult) {
     let bits = |v: &[f64]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
     assert_eq!(a.names, b.names);

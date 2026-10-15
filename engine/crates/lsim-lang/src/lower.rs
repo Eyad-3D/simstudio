@@ -1954,10 +1954,18 @@ fn reinit_target(
         return match &port.kind {
             // the unit check says to write one of its quantities
             PortKind::Physical { .. } => None,
-            _ => Some(format!(
-                "'{full}' is a signal port: its value comes from what it is linked to"
+            PortKind::Input { .. } => Some(format!(
+                "'{full}' is a signal input: its value comes from what it is linked to"
             )),
+            PortKind::Output { .. } => {
+                Some(format!("'{full}' is a signal output: its value comes from its equations"))
+            }
         };
+    }
+    if let Some((ty, _)) = split_enum_value(local)
+        && known.enum_type(def, ty).is_some()
+    {
+        return Some(format!("'{full}' is an option of the enumeration {ty}, not a variable"));
     }
     let (head, rest) = local.split_once('.')?;
     if let Some(port) = def.ports.iter().find(|p| p.name == head) {
@@ -2096,6 +2104,7 @@ pub(crate) fn check_equation(
                                 quote()
                             ),
                         ));
+                        continue;
                     }
                     _ => {}
                 }
