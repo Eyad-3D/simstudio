@@ -50,7 +50,12 @@ fn unsupported(line: usize, what: impl Into<String>) -> Unsupported {
 
 /// The tokens of `src`.
 pub fn tokens(src: &str) -> Result<Vec<Token>, Unsupported> {
-    let chars: Vec<char> = src.chars().collect();
+    // CPython refuses source with a NUL byte
+    if src.contains('\0') {
+        return Err(unsupported(1, "a NUL character in the code"));
+    }
+    // and reads "\r\n" and a lone "\r" as "\n", inside strings too
+    let chars: Vec<char> = src.replace("\r\n", "\n").replace('\r', "\n").chars().collect();
     let mut out: Vec<Token> = vec![];
     let mut indents: Vec<usize> = vec![0];
     let mut depth = 0usize; // open brackets
@@ -106,7 +111,7 @@ pub fn tokens(src: &str) -> Result<Vec<Token>, Unsupported> {
         }
         let c = chars[i];
         match c {
-            ' ' | '\t' | '\x0c' | '\r' => i += 1,
+            ' ' | '\t' | '\x0c' => i += 1,
             '#' => {
                 while i < n && chars[i] != '\n' {
                     i += 1;

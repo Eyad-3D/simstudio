@@ -145,7 +145,7 @@ fn compare(cases: &[Case], py: &[Value]) -> Tally {
             Ok(r) => r,
             Err(ScriptError::Unsupported(m)) if case.may_leave => {
                 tally.left += case.calls.len();
-                let _ = m;
+                eprintln!("LEFT-START {}: {m}", case.label);
                 continue;
             }
             Err(e) => {
@@ -186,6 +186,7 @@ fn compare(cases: &[Case], py: &[Value]) -> Tally {
                 (Err(ScriptError::Unsupported(m)), _, _) => {
                     assert!(case.may_leave, "left the subset: {m}\n{}", ctx());
                     tally.left += 1;
+                    eprintln!("LEFT-CALL {}: {m}", case.label);
                     // a real run would go on Python from the start
                     break;
                 }
@@ -498,7 +499,7 @@ def step(t, dt, inputs, state, params):
 ];
 
 /// Scripts Python refuses when it reads them: the native runner must too.
-const REFUSED: [&str; 12] = [
+const REFUSED: [&str; 15] = [
     "def step(t, dt, inputs, state, params):\n    break\n",
     "def step(t, dt, inputs, state, params):\n    for i in range(2):\n        pass\n    else:\n        continue\n",
     "X = 1_\ndef step(t, dt, inputs, state, params):\n    return {}\n",
@@ -511,7 +512,24 @@ const REFUSED: [&str; 12] = [
     "import os\ndef step(t, dt, inputs, state, params):\n    return {}\n",
     "def step(t, dt, inputs, state, params):\n    return {'y': open('x')}\n",
     "X = 1\n",
+    "def step(t, dt, inputs, state, params):\n    y = 1.0 +\r2.0\n    return {'y': y}\n",
+    "def step(t, dt, inputs, state, params):\n    s = 'a\rb'\n    return {'y': len(s)}\n",
+    "def step(t, dt, inputs, state, params):\n    return {'y': 1.0}  # \0\n",
 ];
+
+/// A single statement that does a lot of work (comparing two lists of a
+/// million items, again and again) still stops near the time limit: the
+/// clock is read by the work done, not only between statements.
+#[test]
+fn one_heavy_statement_stops_at_the_time_limit() {
+    let code = "def step(t, dt, inputs, state, params):\n    a = list(range(999999))\n    b = list(range(999999))\n    b[-1] = 0\n    n = 0\n    while True:\n        if a == b:\n            n += 1\n";
+    let mut r = Runner::start(code, "heavy", &serde_json::Map::new()).expect("it starts");
+    let started = std::time::Instant::now();
+    let got = r.step(0.0, 0.01, &[]);
+    let took = started.elapsed().as_secs_f64();
+    assert!(matches!(got, Err(ScriptError::Unsupported(_))), "{got:?}");
+    assert!(took < lsim_script::TIME_LIMIT_S + 1.0, "stopped after {took:.1} s");
+}
 
 /// Scripts at the edges: hostile shapes (very long chains, deep nesting,
 /// containers holding themselves or shared 2^80 ways), the reviewers'
@@ -558,12 +576,17 @@ fn edge_scripts_give_pythons_results_or_go_to_python() {
         step("    a = [0.0]\n    for i in range(80):\n        a = [a, a]\n    return {'y': 1.0 if a in [1] else 0.0}\n".into()),
         step("    d = {}\n    for i in range(300000):\n        d[i] = i * 0.5\n    return {'y': d[299999]}\n".into()),
         step("    e = enumerate([1.0])\n    for i in range(100000):\n        e = enumerate(e)\n    return {'y': 1.0}\n".into()),
+        step("    return {'y': interp(params['tbl'], 12345.5)}\n".into()),
     ];
+    // a long table among the parameters (a drive cycle's, say)
+    let table: Vec<String> = (0..30000).map(|i| format!("\"{i}\": {}", i as f64 * 0.25)).collect();
+    let table = format!("{{\"tbl\": {{{}}}}}", table.join(", "));
+    let n_generated = generated.len();
     for (k, code) in generated.into_iter().enumerate() {
         cases.push(Case {
             label: format!("hostile {k}"),
             code,
-            params_text: "{}".into(),
+            params_text: if k + 1 == n_generated { table.clone() } else { "{}".into() },
             calls: inputs(&[1.0]),
             may_leave: true,
         });

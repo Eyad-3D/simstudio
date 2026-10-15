@@ -7,10 +7,13 @@
 
 use crate::ast::FuncDef;
 use crate::{Fault, Fault::*};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use std::time::Instant;
 
 /// A builtin function.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -156,20 +159,90 @@ pub struct Dict {
     /// whose JSON object the importer keeps sorted): iterating it is left
     /// to Python
     pub unordered: bool,
+    /// the positions of the entries by their keys' hash (`key_hash`), for
+    /// the first `n` entries; rebuilt after a removal
+    index: RefCell<Index>,
 }
+
+#[derive(Default)]
+struct Index {
+    /// the hash of each of the first entries, kept across removals (as
+    /// CPython keeps each entry's hash): a rebuild never hashes again
+    hashes: Vec<u64>,
+    /// how many of `hashes` are in `at`
+    n: usize,
+    at: HashMap<u64, Vec<usize>>,
+}
+
+/// Below this many entries a dict is searched entry by entry.
+const INDEX_FROM: usize = 16;
 
 impl Dict {
     /// Removes entry `k`.
     pub fn remove(&mut self, k: usize) -> (Value, Value) {
         self.keys += 1;
+        let ix = self.index.get_mut();
+        if k < ix.hashes.len() {
+            ix.hashes.remove(k);
+        }
+        ix.n = 0;
+        ix.at.clear();
         self.entries.remove(k)
     }
 
     /// Removes every entry.
     pub fn clear(&mut self) {
         self.keys += 1;
+        *self.index.get_mut() = Index::default();
         self.entries.clear();
     }
+}
+
+/// A hash of a dict key that agrees with `eq`: equal keys hash alike
+/// (`1`, `1.0`, `True`; `0`, `-0.0`, `False`; tuples item by item). Only
+/// for finding entries: which entry matches is still decided by `eq`.
+fn key_hash(k: &Value, h: &mut std::hash::DefaultHasher) -> Result<(), Fault> {
+    // a tuple key shared many ways is a large walk: charged as work
+    charge(1)?;
+    match k {
+        Value::None => 0u8.hash(h),
+        Value::Bool(b) => int_hash(*b as i64, h),
+        Value::Int(i) => int_hash(*i, h),
+        Value::Float(x) => {
+            // an integral float within 64 bits equals exactly that integer
+            if x.trunc() == *x && *x >= i64::MIN as f64 && *x < -(i64::MIN as f64) {
+                int_hash(*x as i64, h)
+            } else {
+                2u8.hash(h);
+                x.to_bits().hash(h);
+            }
+        }
+        Value::Str(s) => {
+            3u8.hash(h);
+            s.hash(h);
+        }
+        Value::Tuple(t) => {
+            4u8.hash(h);
+            t.len().hash(h);
+            for x in t.iter() {
+                key_hash(x, h)?;
+            }
+        }
+        // no other value is a key (check_key)
+        _ => 5u8.hash(h),
+    }
+    Ok(())
+}
+
+fn int_hash(i: i64, h: &mut std::hash::DefaultHasher) {
+    1u8.hash(h);
+    i.hash(h);
+}
+
+fn hash_of(k: &Value) -> Result<u64, Fault> {
+    let mut h = std::hash::DefaultHasher::new();
+    key_hash(k, &mut h)?;
+    Ok(h.finish())
 }
 
 /// A list's items. Dropped without recursion (a list nested a million
@@ -233,7 +306,36 @@ fn drop_flat(mut stack: Vec<Value>) {
                     stack.push(m.0);
                 }
             }
+            // iterators and functions hold values too: a chain through
+            // them (`x = [enumerate(x)]`, `def g(a=x)`) must not recurse
+            Value::Iter(rc) => {
+                if let Ok(cell) = Rc::try_unwrap(rc) {
+                    iter_values(cell.into_inner(), &mut stack);
+                }
+            }
+            Value::Func(rc) => {
+                if let Ok(mut c) = Rc::try_unwrap(rc) {
+                    stack.append(&mut c.defaults);
+                }
+            }
             _ => {}
+        }
+    }
+}
+
+/// Moves what `it` reads from onto `out` as values, without recursion.
+fn iter_values(it: crate::interp::Iter, out: &mut Vec<Value>) {
+    use crate::interp::Iter;
+    let mut its = vec![it];
+    while let Some(it) = its.pop() {
+        match it {
+            Iter::List(l, _) => out.push(Value::List(l)),
+            Iter::Tuple(t, _) => out.push(Value::Tuple(t)),
+            Iter::Dict(d, ..) => out.push(Value::Dict(d)),
+            Iter::Shared(rc) => out.push(Value::Iter(rc)),
+            Iter::Enumerate(inner, _) => its.push(*inner),
+            Iter::Zip(inner) => its.extend(inner),
+            Iter::Range(..) | Iter::Chars(..) | Iter::Done => {}
         }
     }
 }
@@ -241,6 +343,14 @@ fn drop_flat(mut stack: Vec<Value>) {
 impl Drop for ListCell {
     fn drop(&mut self) {
         drop_flat(self.0.take());
+    }
+}
+
+/// A function's defaults are dropped flat too: a chain of functions each
+/// the default of the next (`def g(a=g)` in a loop) must not recurse.
+impl Drop for Closure {
+    fn drop(&mut self) {
+        drop_flat(std::mem::take(&mut self.defaults));
     }
 }
 
@@ -313,6 +423,40 @@ const MAX_NESTING: usize = 100;
 /// work to Python.
 const MAX_VISITS: usize = 1_000_000;
 
+/// How much work passes between two readings of the clock.
+const CLOCK_WORK: u64 = 4096;
+
+thread_local! {
+    /// the work done in the current call, and the call's deadline
+    static WORK: Cell<u64> = const { Cell::new(0) };
+    static DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
+}
+
+/// Starts the clock of a call into the script: work charged after
+/// `deadline` ends the call with [`Fault::Limit`] (None: no limit).
+pub fn start_meter(deadline: Option<Instant>) {
+    WORK.with(|w| w.set(0));
+    DEADLINE.with(|d| d.set(deadline));
+}
+
+/// Charges `n` units of work (an item visited, a key compared or copied),
+/// reading the clock every [`CLOCK_WORK`] units: one operation over a large
+/// container stops at the time limit too, not only between statements.
+pub fn charge(n: u64) -> Result<(), Fault> {
+    let before = WORK.with(|w| {
+        let b = w.get();
+        w.set(b.saturating_add(n));
+        b
+    });
+    if before.saturating_add(n) / CLOCK_WORK != before / CLOCK_WORK
+        && let Some(d) = DEADLINE.with(|d| d.get())
+        && Instant::now() > d
+    {
+        return Err(Limit);
+    }
+    Ok(())
+}
+
 /// The budget of one recursive operation.
 pub struct Walk {
     left: usize,
@@ -333,7 +477,7 @@ impl Walk {
             return Err(Outside("comparing or searching containers this large".into()));
         }
         self.left -= 1;
-        Ok(())
+        charge(1)
     }
 }
 
@@ -591,6 +735,7 @@ fn ptr(v: &Value) -> Option<*const ()> {
         Value::Dict(d) | Value::View(d, _) => Some(Rc::as_ptr(d) as *const ()),
         Value::Iter(i) => Some(Rc::as_ptr(i) as *const ()),
         Value::Method(m) => Some(Rc::as_ptr(m) as *const ()),
+        Value::Func(f) => Some(Rc::as_ptr(f) as *const ()),
         _ => None,
     }
 }
@@ -609,6 +754,7 @@ fn children(v: &Value, out: &mut Vec<Value>) {
         }
         Value::Method(m) => out.push(m.0.clone()),
         Value::Iter(i) => i.borrow().sources(out),
+        Value::Func(f) => out.extend(f.defaults.iter().cloned()),
         _ => {}
     }
 }
@@ -656,12 +802,18 @@ pub fn searchable(x: &Value) -> Result<(), Fault> {
 /// that holds itself; Python allows it, its comparisons and printing then
 /// recurse until they fail): left to Python.
 pub fn insertable(container: &Value, item: &Value) -> Result<(), Fault> {
+    insertable_all(container, std::slice::from_ref(item))
+}
+
+/// [`insertable`] for each of `items`, each container among them looked
+/// into once (`l.extend(items)`, `l += items`).
+pub fn insertable_all(container: &Value, items: &[Value]) -> Result<(), Fault> {
     let Some(target) = ptr(container) else { return Ok(()) };
-    if ptr(item).is_none() {
+    let mut stack: Vec<Value> = items.iter().filter(|x| ptr(x).is_some()).cloned().collect();
+    if stack.is_empty() {
         return Ok(());
     }
     let mut seen = std::collections::HashSet::new();
-    let mut stack = vec![item.clone()];
     let mut walk = Walk::default();
     while let Some(x) = stack.pop() {
         walk.step(0)?;
@@ -856,9 +1008,34 @@ fn check_key_w(k: &Value, w: &mut Walk, depth: usize) -> Result<(), Fault> {
 
 /// The entry of key `k` in `d`, if any.
 fn find(d: &Dict, k: &Value) -> Result<Option<usize>, Fault> {
-    for (i, (k2, _)) in d.entries.iter().enumerate() {
-        if eq(k, k2)? {
-            return Ok(Some(i));
+    if d.entries.len() < INDEX_FROM {
+        for (i, (k2, _)) in d.entries.iter().enumerate() {
+            charge(1)?;
+            if eq(k, k2)? {
+                return Ok(Some(i));
+            }
+        }
+        return Ok(None);
+    }
+    let mut ix = d.index.borrow_mut();
+    while ix.hashes.len() < d.entries.len() {
+        let h = hash_of(&d.entries[ix.hashes.len()].0)?;
+        ix.hashes.push(h);
+    }
+    while ix.n < d.entries.len() {
+        charge(1)?;
+        let n = ix.n;
+        let h = ix.hashes[n];
+        ix.at.entry(h).or_default().push(n);
+        ix.n += 1;
+    }
+    let want = hash_of(k)?;
+    if let Some(cands) = ix.at.get(&want) {
+        for &i in cands {
+            charge(1)?;
+            if eq(k, &d.entries[i].0)? {
+                return Ok(Some(i));
+            }
         }
     }
     Ok(None)

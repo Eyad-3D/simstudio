@@ -292,8 +292,13 @@ impl Runner {
                 )));
             }
         };
+        // reading the parameters is timed as a call is
+        value::start_meter(Some(
+            std::time::Instant::now() + std::time::Duration::from_secs_f64(TIME_LIMIT_S),
+        ));
         let params = from_json(&serde_json::Value::Object(params.clone()))
             .map_err(|f| failed(label, None, f))?;
+        value::start_meter(None);
         Ok(Runner {
             module,
             machine,
@@ -314,6 +319,8 @@ impl Runner {
         inputs: &[(&str, f64)],
     ) -> Result<Vec<(String, f64)>, ScriptError> {
         let _ = &self.module;
+        // no deadline left over from another call (the call sets its own)
+        value::start_meter(None);
         let label = self.label.clone();
         let fail = |f| failed(&label, Some(t), f);
         let ins =
@@ -342,7 +349,7 @@ impl Runner {
             };
             match value::to_float(&v) {
                 Ok(x) => res.push((key.to_string(), x)),
-                Err(Fault::Outside(w)) => return Err(fail(Fault::Outside(w))),
+                Err(f @ (Fault::Outside(_) | Fault::Limit)) => return Err(fail(f)),
                 Err(_) => {
                     return Err(ScriptError::Failed(format!(
                         "Script '{label}' output '{key}' is not numeric ({}).",

@@ -11,8 +11,8 @@
 use crate::ast::{BinOp, CmpOp, Expr, FuncDef, Module, Name, Stmt, StmtKind, Target};
 use crate::value::{
     self, Builtin, Closure, DictCell, ListCell, MathFn, TupleCell, Value, binary, contains,
-    dict_find, dict_get, dict_set, eq, index, insertable, order, range_len, set_index, to_float,
-    to_int,
+    dict_find, dict_get, dict_set, eq, index, insertable, insertable_all, order, range_len,
+    set_index, to_float, to_int,
 };
 use crate::{Fault, Fault::*, MAX_ITEMS};
 use std::cell::RefCell;
@@ -52,11 +52,25 @@ pub enum Iter {
     Zip(Vec<Iter>),
     /// an iterator object shared with everything that iterates it
     Shared(Rc<RefCell<Iter>>),
+    /// a list, tuple, dict or string iterator that has run out: as
+    /// CPython's, it lets go of what it read and stays empty, whatever
+    /// is added to that afterwards
+    Done,
 }
 
 impl Iter {
     /// The next item, if any.
     pub fn next(&mut self) -> Result<Option<Value>, Fault> {
+        let v = self.step()?;
+        if v.is_none()
+            && matches!(self, Iter::List(..) | Iter::Tuple(..) | Iter::Dict(..) | Iter::Chars(..))
+        {
+            *self = Iter::Done;
+        }
+        Ok(v)
+    }
+
+    fn step(&mut self) -> Result<Option<Value>, Fault> {
         Ok(match self {
             Iter::List(l, k) => {
                 let l = l.borrow();
@@ -120,6 +134,7 @@ impl Iter {
                 if out.is_empty() { None } else { Some(Value::tuple(out)) }
             }
             Iter::Shared(rc) => rc.borrow_mut().next()?,
+            Iter::Done => None,
         })
     }
 
@@ -132,7 +147,7 @@ impl Iter {
             Iter::Enumerate(it, _) => it.sources(out),
             Iter::Zip(its) => its.iter().for_each(|i| i.sources(out)),
             Iter::Shared(rc) => out.push(Value::Iter(rc.clone())),
-            Iter::Range(..) | Iter::Chars(..) => {}
+            Iter::Range(..) | Iter::Chars(..) | Iter::Done => {}
         }
     }
 }
@@ -305,6 +320,7 @@ impl Machine {
     fn start_clock(&mut self) {
         self.deadline = Instant::now() + std::time::Duration::from_secs_f64(self.limit_s);
         self.ops = 0;
+        crate::value::start_meter(Some(self.deadline));
     }
 
     fn tick(&mut self) -> R<()> {
@@ -448,9 +464,7 @@ impl Machine {
             && let Value::List(l) = old
         {
             let items = collect(v)?;
-            for x in &items {
-                insertable(old, x)?;
-            }
+            insertable_all(old, &items)?;
             let mut lm = l.borrow_mut();
             if lm.len() + items.len() > MAX_ITEMS {
                 return Err(Outside("a list this long".into()));
@@ -1139,9 +1153,7 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
             "extend" => {
                 arity(1, 1)?;
                 let items = collect(&args[0])?;
-                for x in &items {
-                    insertable(obj, x)?;
-                }
+                insertable_all(obj, &items)?;
                 let mut lm = l.borrow_mut();
                 if lm.len() + items.len() > MAX_ITEMS {
                     return Err(Outside("a list this long".into()));
@@ -1326,16 +1338,17 @@ fn parse_1d(raw: &Value) -> R<Vec<(f64, f64)>> {
     }
     let mut pts = Vec::with_capacity(entries.len());
     for (k, v) in &entries {
-        match (to_float(k), to_float(v)) {
-            (Ok(x), Ok(y)) => pts.push((x, y)),
-            _ => {
-                return Err(table_error(format!(
-                    "table1d entry '{}: {}' is not numeric",
-                    k.repr(),
-                    v.repr()
-                )));
+        // in Python's order; only what Python raises becomes the table's
+        // error, an operation outside the subset stays one
+        let not_numeric = |e: Fault| match e {
+            Fault::Raise(_) => {
+                table_error(format!("table1d entry '{}: {}' is not numeric", k.repr(), v.repr()))
             }
-        }
+            other => other,
+        };
+        let x = to_float(k).map_err(not_numeric)?;
+        let y = to_float(v).map_err(not_numeric)?;
+        pts.push((x, y));
     }
     if pts.iter().any(|p| p.0.is_nan()) {
         return Err(Outside("a table key that is not a number".into()));
@@ -1361,8 +1374,12 @@ fn parse_2d(raw: &Value) -> R<Sheets> {
     }
     let mut sheets = Vec::with_capacity(entries.len());
     for (k, inner) in &entries {
-        let x = to_float(k)
-            .map_err(|_| table_error(format!("table2d outer key '{}' is not numeric", k.repr())))?;
+        let x = to_float(k).map_err(|e| match e {
+            Fault::Raise(_) => {
+                table_error(format!("table2d outer key '{}' is not numeric", k.repr()))
+            }
+            other => other,
+        })?;
         sheets.push((x, parse_1d(inner)?));
     }
     if sheets.iter().any(|s| s.0.is_nan()) {

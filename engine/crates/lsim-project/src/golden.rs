@@ -39,8 +39,11 @@ pub struct PythonHost {
 }
 
 const BRIDGE: &str = r#"
-import json, sys
+import json, struct, sys
 sys.path.insert(0, '.')
+# floats travel as their 64-bit patterns: NaN and infinities too
+def f64(b): return struct.unpack('<d', struct.pack('<Q', b))[0]
+def bits(x): return struct.unpack('<Q', struct.pack('<d', x))[0]
 from app.solver.scripting import compile_script, run_script
 first = json.loads(sys.stdin.readline())
 fn = compile_script(first['code'], first['label'])
@@ -50,8 +53,9 @@ sys.stdout.write('ready\n'); sys.stdout.flush()
 for line in sys.stdin:
     msg = json.loads(line)
     try:
-        res = run_script(fn, first['label'], msg['t'], msg['dt'], msg['inputs'], state, params)
-        sys.stdout.write(json.dumps(res) + '\n')
+        ins = {k: f64(v) for k, v in msg['inputs'].items()}
+        res = run_script(fn, first['label'], f64(msg['t']), f64(msg['dt']), ins, state, params)
+        sys.stdout.write(json.dumps({'out': [[k, bits(v)] for k, v in res.items()]}) + '\n')
     except Exception as e:
         sys.stdout.write(json.dumps({'__error__': str(e)}) + '\n')
     sys.stdout.flush()
@@ -109,8 +113,8 @@ impl ScriptHost {
 
     fn call(&mut self, t: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String> {
         let ins: Map<String, Value> =
-            self.inputs.iter().zip(inputs).map(|(k, v)| (k.clone(), json!(v))).collect();
-        let msg = json!({"t": t, "dt": self.period, "inputs": ins});
+            self.inputs.iter().zip(inputs).map(|(k, v)| (k.clone(), json!(v.to_bits()))).collect();
+        let msg = json!({"t": t.to_bits(), "dt": self.period.to_bits(), "inputs": ins});
         writeln!(self.stdin, "{msg}").map_err(|e| e.to_string())?;
         self.stdin.flush().map_err(|e| e.to_string())?;
         let mut line = String::new();
@@ -119,8 +123,16 @@ impl ScriptHost {
         if let Some(e) = v.get("__error__") {
             return Err(e.as_str().unwrap_or("").to_string());
         }
+        let got: Vec<(&str, f64)> = v
+            .get("out")
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("no outputs: {line}"))?
+            .iter()
+            .filter_map(|p| Some((p.get(0)?.as_str()?, f64::from_bits(p.get(1)?.as_u64()?))))
+            .collect();
         for (k, o) in self.outputs.iter().zip(outputs.iter_mut()) {
-            if let Some(x) = v.get(k).and_then(Value::as_f64) {
+            // the last value under a name, as a dict keeps it
+            if let Some(&(_, x)) = got.iter().rev().find(|(n, _)| n == k) {
                 *o = x;
             }
         }
