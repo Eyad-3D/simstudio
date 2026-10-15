@@ -98,6 +98,10 @@ pub fn refresh(m: &mut PreparedModel, fresh: &FlatSystem) {
             v.start = *s;
         }
     }
+    // preparation hands a kept variable the start guess of the variables
+    // made one with it (a bus voltage the battery's terminal guesses): the
+    // fresh flattening does not have that yet, so carry them again
+    lsim_prep::alias::carry_starts(&mut m.flat, &mut [], &m.aliases);
     // a sampled block's period is its `period` parameter's value
     for b in &mut m.external {
         let path = &m.flat.instance(b.instance).path;
@@ -146,6 +150,20 @@ impl DiskCache {
 mod tests {
     use super::*;
     use crate::spike::{Params, battery_drive};
+
+    /// The cache stores the model as JSON: a number must come back with
+    /// the same bits, or a cached model is not the model (serde_json's
+    /// default parser is off by one unit in the last place for some
+    /// numbers; the workspace turns on its `float_roundtrip`). The
+    /// Python module's cache test runs a cached car and finds it bitwise
+    /// the car built without the cache.
+    #[test]
+    fn numbers_come_back_from_the_cache_with_the_same_bits() {
+        for x in [0.37065600000000004f64, 1.0 / 3.0, 0.1 + 0.2, 5e-324, 1.7976931348623157e308] {
+            let back: f64 = serde_json::from_str(&serde_json::to_string(&x).unwrap()).unwrap();
+            assert_eq!(back.to_bits(), x.to_bits(), "{x:e}");
+        }
+    }
 
     #[test]
     fn runtime_values_are_not_in_the_key() {

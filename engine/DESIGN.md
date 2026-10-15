@@ -2051,29 +2051,68 @@ against exact answers from `benchmarks/`.
 ## 13. Python API
 
 The module `lightsim_engine` (lsim-py, built by maturin into an abi3 wheel
-for Python ≥ 3.11) is wrapped by the `lightsim` package; the app server
-calls the same functions. Stage 1 exposes `version()` and `spike(rtol)`,
-which already runs the engine from Python with the GIL released.
+for Python 3.11 and later) is what the app's backend and the `lightsim`
+package call. What exists now is below; `engine/crates/lsim-py/README.md`
+says how to build and test it, and `tests/test_api.py` is its contract
+test. The Rust of the conversions is in `lsim-py/src/lib.rs`, the part that
+knows nothing of Python (import, build, run, the golden path) in
+`lsim-py/src/core.rs`.
 
 ```python
 import lightsim_engine as le
 
-model = le.build(project_json, case_id, cache_dir=…)      # prepare (or cache) + JIT
-model.report                     # sizes, prepare/compile times, structure key, diagnostics
-model.set_params({"el-battery.capacity_Ah": 210.0})      # runtime: no rebuild
-run = model.simulate(mode="full", rtol=1e-6, output_step=1.0,
-                     scripts=sandbox_callbacks, fmus=fmu_blocks,
-                     progress=callback, cancel=token)
-run.channels["el-battery:sig_soc"]        # NumPy arrays (zero-copy), today's names
-run.min, run.max, run.mean, run.events, run.energy, run.report, run.flags
-check = model.simulate(..., rtol=1e-7)    # the one-click 10x tighter run
-runs = model.sweep([{…}, {…}], threads=4) # parallel in Rust, GIL released
-fast = model.simulate(mode="fast")        # inverse model, limit flags in run.flags
-le.diagnose(project_json)                 # structural and unit checks only, for Data Checks
+model = le.build(project_json, case_id, cache_dir=None)   # import + prepare (cached) + compile
+model.report              # sizes, prepare/compile seconds, cache hit, structure key, warnings, case
+model.param_names()       # the engine's parameter names
+model.params()            # current values, SI
+model.set_params({"el_vehicle.cd": 0.30})                 # runtime, no rebuild
+run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None)
+run.times                 # NumPy float64
+run.channels["el-battery:sig_soc"]   # today's names and display units, NumPy arrays
+run.engine_channels       # the engine's own names, SI
+run.min, run.max, run.mean           # like channels, per output interval
+run.events, run.report, run.energy   # energy: the books, or None
+run.figures               # today's summary figures {key, label, value, unit}
+runs = model.sweep([{...}, {...}], threads=4)   # Runs, or the exception for a failed set
+le.diagnose(project_json, case_id)    # structural and unit checks only
+le.ModelError             # .diagnostics: [{severity, code, message, parts, hint, detail}]
 ```
 
-Errors arrive as `le.ModelError` carrying the diagnostics (code, message,
-parts, hint, detail) so the app can highlight the parts.
+* **Same run as the golden comparison.** `build` imports the case the way
+  `lsim_project::golden::run_case` does and builds it through
+  `lsim_engine::Engine`; `simulate` uses the case's output grid, the same
+  solver options (SUNDIALS IDA, rtol 1e-6, atol 1e-8, energy books on) and
+  runs an acceleration test again to the moment it crosses the finish. The
+  channels, in today's names and units, and the figures
+  (`golden::figures_with`) are bit for bit those of `run_case`; two tests
+  prove it (the BEV car's WLTC case, and the hybrid car's mixed cycle).
+* **GIL.** `build`, `simulate` and `sweep` release it while the engine
+  works; a Script function takes it back for the length of one call. A sweep
+  runs its sets on up to `threads` Rust threads over the one compiled model.
+* **Parameters** are engine names with SI values. `set_params` is all or
+  none; a name that is not a parameter, a value that is not a finite number,
+  a structural parameter (build again) or a value that breaks what
+  preparation divided by raises a plain `ValueError` with the engine's own
+  message. A sweep's sets sit on top of what `set_params` set.
+* **Sampled blocks.** The Traction Control block runs today's rule in Rust.
+  A Script block runs a Python function the caller gives
+  (`scripts={part id or label: f}`, `f(t, dt, inputs) -> dict | None`),
+  called at the start and then every period, outputs it leaves out holding
+  their value; without a function `simulate` raises a `ValueError` naming
+  the part. `script_host` in `lib.rs` is the single place a Script block's
+  host is chosen (a native runner goes there). FMU parts raise a
+  `ModelError` (not supported yet).
+* **Errors.** A project that cannot be imported or prepared, or a run that
+  fails, raises `ModelError` (a `ValueError`) with the diagnostics (code,
+  message, parts, hint, detail) so the app can highlight the parts; a
+  failed run's code says what failed (`RUN-INTEGRATOR`, `RUN-INIT`,
+  `RUN-EVENT-STORM`, `RUN-ENERGY`, `RUN-TABLE`, `RUN-ASSERT`, `RUN-BLOCK`).
+  A panic inside the engine becomes a `ModelError` coded `ENGINE-FAULT`;
+  bad arguments are `ValueError` or `TypeError`.
+* **Not yet:** fast mode for project files (no `mode` argument, so nothing
+  silently runs something else), FMU parts, a progress callback, cancelling
+  a run, a native Script runner, the one-click tighter run as its own call
+  (call `simulate` again with a smaller `rtol`).
 
 ## 14. Error messages
 
