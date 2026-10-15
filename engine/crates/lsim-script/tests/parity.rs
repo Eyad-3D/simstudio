@@ -173,8 +173,11 @@ fn compare(cases: &[Case], py: &[Value]) -> Tally {
                             (pair[0].as_str().expect("a name"), pair[1].as_u64().expect("bits"));
                         let pv = f64::from_bits(pb);
                         assert_eq!(name, pn, "output order differs\n{}", ctx());
+                        // two NaNs count as equal: IEEE 754 leaves the sign
+                        // and payload of an operation's NaN open, and
+                        // compilers differ (CPython's own build included)
                         assert!(
-                            v.to_bits() == pb,
+                            v.to_bits() == pb || (v.is_nan() && pv.is_nan()),
                             "output '{name}': native {v:e} ({:#x}), Python {pv:e} ({pb:#x})\n{}",
                             v.to_bits(),
                             ctx()
