@@ -15,7 +15,9 @@
 //! * `u`: inputs, in [`crate::PreparedModel::inputs`] order;
 //! * residual output `[x'; g]`: the state derivatives, then the residuals.
 
+use crate::expr::Expr;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// The sparsity of `∂[x'; g]/∂y`, column-compressed: the rows of column
 /// `j` are `row_idx[col_ptr[j]..col_ptr[j + 1]]`, increasing. Produced by
@@ -283,6 +285,16 @@ pub trait ModelFunctions: Send + Sync {
     fn condition_kernels(&self) -> Option<&dyn ConditionKernels> {
         None
     }
+
+    /// The energy books' integrands of `spec` compiled ([`BooksKernel`]),
+    /// if the model compiles them. `None` (the default): the run
+    /// interprets them. A wrapper around a compiled model forwards this
+    /// together with [`Self::eval_table`] and [`Self::table_axes`] or none
+    /// of them (the kernel reads the tables of the model that compiled it).
+    fn books_kernel(&self, spec: &BooksSpec) -> Option<Arc<dyn BooksKernel>> {
+        let _ = spec;
+        None
+    }
 }
 
 /// `[lo, hi]` of a value and of its first two rates over an interval of
@@ -335,4 +347,104 @@ pub trait ConditionKernels: Send + Sync {
         u: &[f64],
         work: &mut [Enclosure],
     ) -> Enclosure;
+}
+
+/// Where a flat variable's rate along the solution comes from, for the
+/// energy books' stored-energy rates (lsim-solve's `VarSource`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RateSource {
+    /// `y'[i]` (a state or an iteration variable)
+    Y(usize),
+    /// `-y'[i]`
+    NegY(usize),
+    /// constant between events (a discrete variable, an input, a
+    /// constant): rate zero
+    Zero,
+    /// computed by the model's assignments: a rate only through the
+    /// chain ([`BooksSpec::chain`])
+    Computed,
+}
+
+/// One part's integrands, in flat scope, and where they go.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BooksPart {
+    /// the power into it through its ports, W
+    pub power: Expr,
+    /// the power it turns into heat, W
+    pub loss: Option<Expr>,
+    /// the energy it stores, J
+    pub stored: Option<Expr>,
+    /// its stored energy's rate is taken by forward-mode differentiation
+    /// (otherwise the caller takes a difference)
+    pub exact: bool,
+    /// where ∫ power in goes in the integrands' vector
+    pub power_at: usize,
+    /// where ∫ |power in| goes
+    pub abs_at: usize,
+    /// where ∫ loss goes
+    pub loss_at: Option<usize>,
+    /// where ∫ d(stored)/dt goes
+    pub stored_at: Option<usize>,
+}
+
+/// The energy books' integrands as the run evaluates them (lsim-solve's
+/// `energy::Integrand`): each part's power in, its absolute value and its
+/// loss from the channels by `lsim_ir::eval`, and each stored energy's
+/// rate along `(1, y')` by forward-mode differentiation (dual numbers)
+/// through the chain of assignments it reads.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BooksSpec {
+    /// the parts
+    pub parts: Vec<BooksPart>,
+    /// (variable, its expression) in evaluation order: the assignments
+    /// the stored energies' rates go through (each variable's value and
+    /// rate there are the step's, not its channel's)
+    pub chain: Vec<(usize, Expr)>,
+    /// per flat variable: where its rate comes from
+    pub rates: Vec<RateSource>,
+    /// the length of the integrands' vector
+    pub n_out: usize,
+}
+
+/// What a [`BooksKernel`] computes of one part (the rest the caller
+/// interprets).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BooksCover {
+    /// its power in and its absolute value
+    pub power: bool,
+    /// its loss
+    pub loss: bool,
+    /// its stored energy's rate (exact parts only; a rate that is not
+    /// finite is left for the caller to take by a difference, as the
+    /// interpreter's is)
+    pub stored: bool,
+}
+
+/// The energy books' integrands compiled from a [`BooksSpec`]
+/// ([`ModelFunctions::books_kernel`]): bitwise what the run's interpreter
+/// computes for the entries it covers (a NaN as a NaN, its sign and
+/// payload not defined), the IR's order of operations, no
+/// fused multiply-add contraction, the same library functions
+/// (`lsim_ir::math`) and the model's own tables. The caller owns the
+/// scratch, so one kernel serves any number of runs at once.
+pub trait BooksKernel: Send + Sync {
+    /// What it computes of part `j` of the spec.
+    fn cover(&self, j: usize) -> BooksCover;
+
+    /// The scratch values [`Self::eval`] needs.
+    fn scratch(&self) -> usize;
+
+    /// The covered integrands at time `t`: `vars` every flat variable's
+    /// value (the model's channels), `ydot` the rate of each entry of y,
+    /// `p` the parameters; writes the covered entries of `out` (of
+    /// [`BooksSpec::n_out`] values) and leaves the others alone.
+    fn eval(
+        &self,
+        t: f64,
+        vars: &[f64],
+        ydot: &[f64],
+        p: &[f64],
+        work: &mut [f64],
+        out: &mut [f64],
+    );
 }

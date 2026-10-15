@@ -38,6 +38,7 @@
 
 mod analysis;
 mod backend;
+mod books;
 mod emit;
 mod jit;
 mod kernel;
@@ -45,6 +46,7 @@ mod lower;
 pub mod tables;
 mod tape;
 
+pub use books::CompiledBooks;
 pub use jit::MATH_SYMBOLS;
 
 use analysis::{Ctx, Row, System, colour, contains, csc_positions, pattern_from_rows};
@@ -55,8 +57,8 @@ use lower::TanLayout;
 use lsim_ir::fenv::DefaultFloatEnv;
 use lsim_ir::prepared::{AliasTarget, PreparedModel, Slot};
 use lsim_ir::runtime::{
-    ConditionKernels, Enclosure, EvalInput, InitFunctions, Layout, ModelFunctions, SparsityPattern,
-    TableGuard,
+    BooksKernel, BooksSpec, ConditionKernels, Enclosure, EvalInput, InitFunctions, Layout,
+    ModelFunctions, SparsityPattern, TableGuard,
 };
 use lsim_ir::table::TableData;
 use std::collections::HashMap;
@@ -475,6 +477,11 @@ pub struct JitModel {
     upgrade: Option<Arc<Upgrade>>,
     /// stops its compilation when the last clone goes away
     _cancel: Option<Arc<CancelOnDrop>>,
+    /// the energy books it compiled, by spec (its clones share them; a
+    /// copy with other tables has its own)
+    books: Arc<books::Cache>,
+    /// how its books compile
+    books_settings: books::Settings,
 }
 
 /// The compiled initialisation problem.
@@ -632,6 +639,7 @@ impl JitModel {
         let mut m = self.clone();
         m.table_tools = Arc::new(kernel::table_tools(&store));
         m.kernels = self.kernels.as_ref().map(|k| Arc::new(k.fresh()));
+        m.books = Arc::default();
         m.tables = store.clone();
         if let Some(i) = &mut m.init {
             i.tables = store;
@@ -642,6 +650,35 @@ impl JitModel {
     /// A table as the generated code evaluates it.
     pub fn table(&self, k: usize) -> &Table {
         self.tables.get(k)
+    }
+
+    /// The energy books' integrands of `spec` compiled for this model
+    /// (DESIGN.md §11): on a tape at once, as machine code once another
+    /// thread has compiled it; bitwise the run's interpreter for what
+    /// they cover. `None` when nothing of them can be compiled. Kept: the
+    /// same spec asked for again (another run of the model) gets the same
+    /// kernel.
+    pub fn compile_books(&self, spec: &BooksSpec) -> Option<Arc<CompiledBooks>> {
+        // (constants folded as the run computes: the default environment)
+        let _env = DefaultFloatEnv::enter();
+        let mut cache = self.books.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((_, k)) = cache.iter().find(|(s, _)| books::same_spec(s, spec)) {
+            return k.clone();
+        }
+        let l = &self.layout;
+        let sizes = books::Sizes {
+            n_vars: l.n_vars,
+            n_p: l.n_p,
+            n_y: l.n_y(),
+            n_tables: self.table_dims.len().min(self.tables.len()),
+        };
+        let mut settings = self.books_settings;
+        if self.report.on_tapes.is_some() {
+            settings.machine_code = false;
+        }
+        let k = CompiledBooks::new(spec, sizes, self.tables.clone(), settings).map(Arc::new);
+        cache.push((spec.clone(), k.clone()));
+        k
     }
 }
 
@@ -778,6 +815,10 @@ impl ModelFunctions for JitModel {
 
     fn condition_kernels(&self) -> Option<&dyn ConditionKernels> {
         self.kernels.as_ref().is_some_and(|k| k.any()).then_some(self as &dyn ConditionKernels)
+    }
+
+    fn books_kernel(&self, spec: &BooksSpec) -> Option<Arc<dyn BooksKernel>> {
+        self.compile_books(spec).map(|k| k as Arc<dyn BooksKernel>)
     }
 }
 
@@ -1337,6 +1378,12 @@ fn build(
         _memory: memory,
         upgrade: None,
         _cancel: None,
+        books: Arc::default(),
+        books_settings: books::Settings {
+            machine_code: !matches!(how, How::Tapes),
+            deny_executable_memory: opts.deny_executable_memory,
+            fast_above: opts.auto_fast_above,
+        },
     };
     if tiered {
         upgrade(&mut jm, model, opts, started);

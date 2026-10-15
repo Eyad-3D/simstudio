@@ -379,9 +379,112 @@ pub(super) struct StepScratch {
     exact: bool,
     y1: Vec<f64>,
     span: Vec<[f64; 2]>,
+    /// every condition's certificate at once, while none changes (`ok`:
+    /// built from the certificates as they are)
+    all: AllCerts,
+    all_ok: bool,
+}
+
+/// The certificates of every mixed condition together: a step lies inside
+/// all of them when it lies inside the latest `from` and the earliest
+/// `until`, the channels they hold constant keep their bits, and each
+/// state is inside the intersection of the boxes of the conditions that
+/// read it (a NaN bound in any of them makes the intersection fail every
+/// state, as it fails its own condition's check).
+#[derive(Default)]
+struct AllCerts {
+    from: f64,
+    until: f64,
+    /// per entry of the dense output (`mixed_y`): the intersected box
+    lo: Vec<f64>,
+    hi: Vec<f64>,
+    /// (channel, the bits each certificate holds it at)
+    consts: Vec<(usize, u64)>,
+}
+
+/// The larger of `a` and `b`, NaN when either is.
+fn max_nan(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else if b > a {
+        b
+    } else {
+        a
+    }
+}
+
+/// The smaller of `a` and `b`, NaN when either is.
+fn min_nan(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else if b < a {
+        b
+    } else {
+        a
+    }
+}
+
+impl AllCerts {
+    /// Of the conditions `mixed` (their states at `ypos` among the
+    /// `n` entries of the dense output), when every one has a certificate
+    /// (`false`: one has none).
+    fn set(&mut self, mixed: &[Mixed<'_>], ypos: &[usize], n: usize) -> bool {
+        let a = self;
+        a.from = f64::NEG_INFINITY;
+        a.until = f64::INFINITY;
+        a.lo.clear();
+        a.lo.resize(n, f64::NEG_INFINITY);
+        a.hi.clear();
+        a.hi.resize(n, f64::INFINITY);
+        a.consts.clear();
+        for m in mixed {
+            let Some(c) = m.cert.as_ref() else { return false };
+            a.from = max_nan(a.from, c.from);
+            a.until = min_nan(a.until, c.until);
+            for ((&i, lo), hi) in m.y_idx.iter().zip(&c.lo).zip(&c.hi) {
+                let q = ypos[i];
+                a.lo[q] = max_nan(a.lo[q], *lo);
+                a.hi[q] = min_nan(a.hi[q], *hi);
+            }
+            a.consts.extend(m.consts.iter().zip(&c.consts).map(|(k, v)| (*k, v.to_bits())));
+        }
+        true
+    }
 }
 
 impl StepScratch {
+    /// Whether every condition's certificate holds for the step (`near`
+    /// in place for the entries `idx` of y, `vars` the channels): exactly
+    /// when the check of each in turn would find each holding by the
+    /// states' first bound (`inside_box` of `near`); `false` says nothing
+    /// (each is then checked in turn).
+    fn all_certified(
+        &mut self,
+        mixed: &[Mixed<'_>],
+        idx: &[usize],
+        ypos: &[usize],
+        vars: &[f64],
+    ) -> bool {
+        if mixed.is_empty() {
+            return false;
+        }
+        if !self.all_ok {
+            self.all_ok = self.all.set(mixed, ypos, idx.len());
+            if !self.all_ok {
+                return false;
+            }
+        }
+        let a = &self.all;
+        let (t0, t1) = self.step;
+        t0 >= a.from
+            && t1 <= a.until
+            && a.consts.iter().all(|(k, b)| vars[*k].to_bits() == *b)
+            && idx.iter().zip(a.lo.iter().zip(&a.hi)).all(|(&i, (lo, hi))| {
+                let [x, y] = self.near[i];
+                x >= *lo && y <= *hi
+            })
+    }
+
     /// The step `[t0, t1]`, its dense output in place for the entries
     /// `idx` of y (of `ny`): the sizes of its basis functions over the
     /// step, and where each entry may stray (the basis itself, the states
@@ -670,6 +773,16 @@ impl<'a> Loop<'a> {
         d: &[f64],
         sc: &mut StepScratch,
     ) -> Result<Option<(f64, Vec<i32>)>, SolveError> {
+        // every certificate holds: each condition is cleared as the loop
+        // below would clear it, in one pass over the states they read
+        if sc.all_certified(&self.tf.mixed, &self.tf.mixed_y, &self.tf.ypos, &self.vars) {
+            for m in &mut self.tf.mixed {
+                m.certified += 1;
+            }
+            return Ok(None);
+        }
+        // (the loop may change the certificates)
+        sc.all_ok = false;
         let mut best: Option<(f64, usize, bool)> = None;
         let mut jscratch: Vec<J2> = vec![];
         let mut fscratch: Vec<f64> = vec![];

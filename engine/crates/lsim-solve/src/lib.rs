@@ -231,6 +231,11 @@ pub struct SolverOptions {
     /// interpreter, faster). On by default; off, every condition is
     /// interpreted from the IR
     pub condition_kernels: bool,
+    /// evaluate the energy books' integrands with the model's compiled
+    /// kernel where it has one ([`lsim_ir::ModelFunctions::books_kernel`]:
+    /// bitwise the interpreter, faster). On by default; off, they are
+    /// interpreted from the IR
+    pub books_kernels: bool,
 }
 
 impl Default for SolverOptions {
@@ -254,6 +259,7 @@ impl Default for SolverOptions {
             light_restarts: false,
             time_mixed_checks: false,
             condition_kernels: true,
+            books_kernels: true,
         }
     }
 }
@@ -766,10 +772,10 @@ fn run_backend(
 ) -> Result<SimResult, SolveError> {
     let l = *model.layout();
     let quad = if opts.energy_books {
-        info.energy
-            .as_ref()
-            .filter(|e| !e.parts.is_empty())
-            .map(|e| energy::Integrand::new(e, info, &l))
+        info.energy.as_ref().filter(|e| !e.parts.is_empty()).map(|e| {
+            let q = energy::Integrand::new(e, info, &l);
+            if opts.books_kernels { q.compiled_by(model) } else { q }
+        })
     } else {
         None
     };

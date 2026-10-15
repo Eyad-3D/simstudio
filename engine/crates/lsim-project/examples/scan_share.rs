@@ -8,7 +8,8 @@
 //! ```
 //!
 //! By default the BEV's WLTC, five runs, with the model's compiled
-//! condition kernels (`LSIM_CONDITION_KERNELS=0`: interpreted). Each run times the check with two
+//! condition kernels (`LSIM_CONDITION_KERNELS=0`: interpreted) and energy
+//! books' kernels (`LSIM_BOOKS_KERNELS=0`: interpreted). Each run times the check with two
 //! clock readings a step (`SolverOptions::time_mixed_checks`, which costs
 //! well under 1 % of the run); the share is the check's time over the
 //! run's. The last line per case is JSON: the median and the least share
@@ -41,11 +42,14 @@ fn main() {
     // the golden comparison's tolerances
     // `LSIM_CONDITION_KERNELS=0`: every condition interpreted
     let kernels = std::env::var("LSIM_CONDITION_KERNELS").map_or(true, |v| v != "0");
+    // `LSIM_BOOKS_KERNELS=0`: the energy books' integrands interpreted
+    let books = std::env::var("LSIM_BOOKS_KERNELS").map_or(true, |v| v != "0");
     let solver = SolverOptions {
         rtol: 1e-6,
         atol: 1e-8,
         time_mixed_checks: true,
         condition_kernels: kernels,
+        books_kernels: books,
         ..Default::default()
     };
     for case in &args {

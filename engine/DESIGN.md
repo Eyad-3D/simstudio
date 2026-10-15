@@ -770,6 +770,56 @@ rounds), before it starts on it:
   `scan_share` example (`SolverOptions::time_mixed_checks`, the median of
   five runs) reported beside it.
 
+**WP3 (lsim-codegen): compiled energy books.** The books' integrands
+(lsim-solve's `energy::Integrand`: each part's power in and its absolute
+value, its loss, its stored energy's rate along `(1, y')`) are compiled
+under the contract of the condition kernels:
+
+* **The interface**, in `lsim-ir/src/runtime.rs` (additive): the run
+  describes its integrands as a `BooksSpec` (the parts' expressions,
+  where each integrand goes, the chain of assignments the rates go
+  through, each variable's `RateSource`) and asks
+  `ModelFunctions::books_kernel(spec)` for a `BooksKernel` (default
+  `None`: interpreted). `BooksKernel::cover(j)` says what it computes of
+  part `j`; the run interprets the rest. `SolverOptions::books_kernels`
+  (on by default) switches it; `LSIM_BOOKS_KERNELS=0` in the golden and
+  `scan_share` runners.
+* **Bitwise the interpreter.** `lsim-codegen/src/books.rs` lowers the
+  values by `lsim_ir::eval`'s rules and the rates by `ad::dual`'s (which
+  differ where they must: `min`/`max`/`limit` pick by `<` and `>`, a zero
+  direction has a zero rate, a power whose exponent does not move takes
+  the constant-exponent rule, a table's rate is `Iterator::sum` of its
+  partial derivatives times the arguments' rates), in the IR's order, the
+  engine's library, the model's own tables; rates known to be constant
+  (zero, time's one) are folded with the same IEEE operations. A NaN is a
+  NaN on both sides (its sign and payload are not defined: the optimiser
+  may drop the negations around a product). An integrand that reads what
+  the interpreter's dual numbers give up on (a derivative, a previous
+  value, a name, a variable with no rate, a table read with other than
+  one or two arguments, a call with other than its arguments) is declined
+  and interpreted, wherever in it that sits.
+* **Tiers.** The model compiles a spec when a run asks, keeps it (by
+  spec, compared to the bit) for the next run, and returns it on a tape
+  at once; another thread compiles its machine code, to which it switches
+  (bitwise the same; tapes for good where executable memory is refused).
+  The default floating-point environment while compiling and running.
+* **Tests** (`lsim-codegen/tests/books.rs`): every example project's
+  books at the operating points of a 120 s drive, 80 random models with
+  random books (3 200 points of values and rates with zeros of both
+  signs, infinities and NaNs), directed edge cases (constant rates,
+  signed zeros, powers at zero, `atan2` with one rate constant, ties and
+  NaNs in `min`/`max`/`limit`, a 2-D table read with one argument, exact
+  rates declined beside compiled ones) and the kernels kept per spec to
+  the bit; on the tape and as machine code against the interpreter. Of the
+  example cars' books every power and every stored energy's exact rate
+  compiles (the test holds them to it).
+* **Acceptance.** The golden comparison byte-identical with the books
+  compiled and interpreted, and with the code before them (all 14 cases:
+  199 of 201 figures, 984 of 1038 channels, closures unchanged, 1.5e-9 at
+  worst). The BEV's WLTC, release, one machine, five runs each: 4.2–4.8 s
+  before, 3.3–3.8 s after (medians 4.4 and 3.4 s; about 410× and 525×
+  real time); the hybrid's cycles 11–16 % shorter in the golden runs.
+
 **WP3** keeps: `InitFunctions::guess` uses the flat start values rather
 than `InitSystem::guesses`, and asserts have no compiled function yet.
 Its tapes are wired in: the initialisation, the point kernels and tiered
@@ -779,12 +829,14 @@ models run on them (section 7).
 not come from them.** On the BEV's WLTC (215 669 steps), the compiled
 model's functions take 28 % of the run's instructions (residual 9.9 %,
 channels 8.8 %, zero crossings 6.8 %, tables 9.4 % within them). The
-energy books' integrands take 22 %: `lsim-solve` interprets their flat
+energy books' integrands took 22 %: `lsim-solve` interpreted their flat
 expressions (`lsim_ir::eval`, dual numbers for the rates) at every
-quadrature call; compiling them as the condition kernels are compiled
-would remove most of that and is the largest single saving left. SUNDIALS
-(Newton iterations, dense LU, vector operations, root checks) takes most
-of the rest, the condition check 3.5 %. The hybrid's UDDS (about 92 s
+quadrature call. They are now compiled (below, *compiled energy books*):
+the run takes 18.76 billion instructions instead of 22.41 (−16 %), the
+books 7.5 % of it, of which the channels they read (`vars`) 5.3 % and the
+compiled integrands 0.9 %. SUNDIALS (Newton iterations, dense LU, vector
+operations, root checks) takes most of the rest, the condition check
+3.6 %. The hybrid's UDDS (about 92 s
 here) spends about two fifths of its time waiting on its Script
 controller's Python host (stack samples), and makes 3.0 million steps
 and 118 000 events: the controller's outputs change 114 000 times, each
@@ -2038,7 +2090,9 @@ save most of those 10 ms in every run, sequential or not (a change to
   5.1e-12 and 2.4e-12.) The **drift** — stored energy from the states at
   the end minus the books' — is the integration error of the energies, of
   the order of rtol; it is reported, with a warning when it exceeds
-  100·rtol.
+  100·rtol. The integrands are compiled by the model where it can
+  (section 5.8, *compiled energy books*), bitwise what the run would
+  interpret; what it cannot compile stays interpreted.
 * **Solver report** on every run: backend, method, tolerances, steps,
   evaluations, Jacobians, error-test and Newton failures, events (with
   times and parts), restarts, initialisation path, energy closure.
@@ -2341,7 +2395,7 @@ work end to end) or against hand-written test doubles of the interfaces.
   cached (measured, section 7). The condition kernels: bitwise the
   interpreter (`kernels.rs`), the golden comparison byte-identical with
   them on and off with the same counters (BEV WLTC: 856 318 certified,
-  6 386 scanned, no pulses); the check takes 3.5 % of the BEV WLTC run's
+  6 386 scanned, no pulses); the check took 3.5 % of the BEV WLTC run's
   instructions (3.39 % at the start, the rest of the run having become
   cheaper), not 3 %: the kernels' enclosures are 0.95 % (217 million
   instructions against the interpreter's 240 million: the interval
@@ -2355,7 +2409,29 @@ work end to end) or against hand-written test doubles of the interfaces.
   bits with and without FMA (section 7). Then one mathematical library for
   the whole engine, SUNDIALS' C code included: CORE-MATH's correctly
   rounded functions, the same bits on every platform and CPU, the
-  interval widening a proof (section 7.1).
+  interval widening a proof (section 7.1). Then the energy books
+  compiled (section 5.8, *compiled energy books*): the BEV WLTC run 16 %
+  fewer instructions, 22 % less time. The condition check after it,
+  measured with callgrind on the BEV WLTC (`scan_share`, its
+  `scan_mixed`): 674 million instructions of 18.76 billion, **3.6 %**
+  (it was 773 million of 22.41 billion, 3.45 %: the run around it got
+  cheaper). A step on which every condition's certificate holds (852 430
+  of 858 716 condition-steps) is now cleared in one pass over the states
+  they read, against the intersection of their boxes, exactly when the
+  check of each in turn would clear each (the same counters, the golden
+  comparison byte-identical): 99 million instructions fewer. **3 % is not
+  reached, and not without changing what the check does.** What is left
+  is its substance: the integrator's polynomial over each step and the
+  bound on how far each state strays over it (1.2 %, every step, the only
+  rigorous bound the certificate can use), the one-pass test (0.36 %), the
+  compiled interval kernels' enclosures (1.1 %, of which 2-D and 1-D table
+  enclosures 0.76 %: the interval arithmetic that must stay bitwise the
+  interpreter's) and the polynomials of the steps searched (0.5 %). The
+  floor of this check is therefore about 3.5 %; lower would need fewer
+  enclosures or a bound over several steps at once, which changes the
+  decisions (counters, windows) and needs its own review. Share of the
+  run's time (`scan_share`, five runs): 5.5 % median (0.19 s of 3.4 s;
+  the timer's own cost included).
 
 ### WP4 — Solver runtime
 
