@@ -1074,31 +1074,36 @@ impl Loop<'_> {
                 c.batch_in[k..].iter_mut().step_by(n_in).take(n).for_each(|x| *x = v);
                 continue;
             }
-            let col = c.batch_in[k..].iter_mut().step_by(n_in).take(n);
             match *src {
                 VarSource::Y(_) | VarSource::NegY(_) => {
                     let p = c.y_pos[k].expect("a state input");
                     let neg = matches!(src, VarSource::NegY(_));
-                    for (x, y) in col.zip(c.batch_y.iter().skip(p).step_by(m)) {
+                    let col = c.batch_in[k..].iter_mut().step_by(n_in).take(n);
+                    for (x, y) in col.zip(&c.batch_y[p * n..][..n]) {
                         *x = if neg { -*y } else { *y };
                     }
                 }
                 VarSource::D(_) | VarSource::NegD(_) | VarSource::U(_) | VarSource::Const(_) => {}
                 VarSource::Computed => {
                     let (tape, _) = c.tapes[k].as_ref().expect("a tape");
+                    // (a block's only input: straight into its rows)
+                    let out = if n_in == 1 { &mut c.batch_in[..n] } else { &mut c.lane_out[..n] };
                     tape.eval_lanes(
                         &c.batch_ts,
                         &c.batch_y,
-                        m,
+                        n,
                         &c.chain_pos[k],
                         d,
                         self.u,
                         TICK_BATCH,
                         &mut c.lane_regs[k],
-                        &mut c.lane_out[..n],
+                        out,
                     );
-                    for (x, v) in col.zip(&c.lane_out) {
-                        *x = *v;
+                    if n_in > 1 {
+                        let col = c.batch_in[k..].iter_mut().step_by(n_in).take(n);
+                        for (x, v) in col.zip(&c.lane_out) {
+                            *x = *v;
+                        }
                     }
                 }
             }

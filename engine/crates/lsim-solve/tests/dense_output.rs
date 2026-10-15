@@ -262,11 +262,11 @@ fn ticks_read_together_are_the_ticks_read_one_by_one() {
                     integ.interpolate_select(tk, idx, &mut one).expect("reads one");
                     for k in 0..m {
                         assert_eq!(
-                            many[i * m + k].to_bits(),
+                            many[k * ts.len() + i].to_bits(),
                             one[k].to_bits(),
                             "{method:?} entry {} at t = {tk}: {} against {}",
                             idx[k],
-                            many[i * m + k],
+                            many[k * ts.len() + i],
                             one[k]
                         );
                         compared += 1;
@@ -280,9 +280,9 @@ fn ticks_read_together_are_the_ticks_read_one_by_one() {
             let st = integ.step(t_end).expect("steps");
             let t1 = st.time();
             let h = t1 - t;
-            // 1, 7, 8, 9 and 19 times across the step, its ends, a few ulps
-            // outside it (clamped as one by one)
-            for k in [1usize, 7, 8, 9, 19] {
+            // 1 to 70 times across the step (more than one block of 64), its
+            // ends, a few ulps outside it (clamped as one by one)
+            for k in [1usize, 7, 8, 9, 19, 70] {
                 let mut ts: Vec<f64> = (0..k).map(|i| t + h * i as f64 / k as f64).collect();
                 if k == 9 {
                     ts.push(t1);

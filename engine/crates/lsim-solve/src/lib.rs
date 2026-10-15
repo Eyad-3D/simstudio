@@ -417,21 +417,21 @@ pub trait Integrator {
         }
         Ok(())
     }
-    /// [`Self::interpolate_select`] at several times, the same values:
-    /// `out[i·idx.len() + m] = y(ts[i])[idx[m]]` (a sampled block's ticks
-    /// inside one step, read together).
+    /// [`Self::interpolate_select`] at several times, the same values,
+    /// entry after entry: `out[m·ts.len() + i] = y(ts[i])[idx[m]]` (a
+    /// sampled block's ticks inside one step, read together).
     fn interpolate_select_many(
         &mut self,
         ts: &[f64],
         idx: &[usize],
         out: &mut [f64],
     ) -> Result<(), SolveError> {
-        let n = idx.len();
-        if n == 0 {
-            return Ok(());
-        }
-        for (&t, o) in ts.iter().zip(out.chunks_mut(n)) {
-            self.interpolate_select(t, idx, o)?;
+        let mut one = vec![0.0; idx.len()];
+        for (i, &t) in ts.iter().enumerate() {
+            self.interpolate_select(t, idx, &mut one)?;
+            for (m, v) in one.iter().enumerate() {
+                out[m * ts.len() + i] = *v;
+            }
         }
         Ok(())
     }

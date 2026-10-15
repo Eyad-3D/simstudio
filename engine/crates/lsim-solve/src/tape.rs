@@ -253,6 +253,32 @@ impl Rows {
     }
 }
 
+/// The destination's row (`n` lanes) and two operands' rows, when the
+/// destination is neither operand.
+fn split(
+    r: &mut [f64],
+    lanes: usize,
+    n: usize,
+    o: u32,
+    a: u32,
+    b: u32,
+) -> Option<(&mut [f64], &[f64], &[f64])> {
+    if o == a || o == b {
+        return None;
+    }
+    let (lo, rest) = r.split_at_mut(o as usize * lanes);
+    let (dst, hi) = rest.split_at_mut(lanes);
+    let (lo, hi): (&[f64], &[f64]) = (lo, hi);
+    let at = |k: u32| -> &[f64] {
+        if k < o {
+            &lo[k as usize * lanes..][..n]
+        } else {
+            &hi[(k - o - 1) as usize * lanes..][..n]
+        }
+    };
+    Some((&mut dst[..n], at(a), at(b)))
+}
+
 /// A short row copied in line (no call of `memcpy` for a few values).
 fn copy(out: &mut [f64], a: &[f64]) {
     for (x, a) in out.iter_mut().zip(a) {
@@ -402,12 +428,14 @@ impl ChainTape {
 
     /// Scratch registers for [`Self::eval_lanes`] with `lanes` lanes.
     pub(crate) fn lane_registers(&self, lanes: usize) -> Vec<f64> {
-        self.init.iter().flat_map(|&v| std::iter::repeat_n(v, lanes)).collect()
+        // (and a row of scratch)
+        let rows = self.init.iter().chain(std::iter::once(&0.0));
+        rows.flat_map(|&v| std::iter::repeat_n(v, lanes)).collect()
     }
 
     /// [`Self::eval`] at several times at once, the same bits in each
-    /// lane: `out[i]` at `ts[i]` with `yv[i·stride + pos[k]]` the entry of
-    /// y `from_y[k]` reads there; `r` from [`Self::lane_registers`] with
+    /// lane: `out[i]` at `ts[i]` with `yv[pos[k]·col + i]` the entry of y
+    /// `from_y[k]` reads there (entry after entry, `col` values each); `r` from [`Self::lane_registers`] with
     /// `lanes` lanes, `ts.len() ≤ lanes ≤` [`TAPE_LANES`]. The discrete values and inputs are the
     /// same for every lane.
     #[allow(clippy::too_many_arguments)]
@@ -415,7 +443,7 @@ impl ChainTape {
         &self,
         ts: &[f64],
         yv: &[f64],
-        stride: usize,
+        col: usize,
         pos: &[usize],
         d: &[f64],
         u: &[f64],
@@ -427,9 +455,7 @@ impl ChainTape {
         let row = |k: u32| k as usize * lanes;
         copy(&mut r[row(self.time)..][..n], ts);
         for (&k, &p) in self.from_y.iter().zip(pos) {
-            for (x, y) in r[row(k)..][..n].iter_mut().zip(yv.iter().skip(p).step_by(stride)) {
-                *x = *y;
-            }
+            copy(&mut r[row(k)..][..n], &yv[p * col..][..n]);
         }
         for &(k, i) in &self.from_d {
             r[row(k)..][..n].fill(d[i]);
@@ -439,7 +465,8 @@ impl ChainTape {
         }
         // each operation into `tmp` from its operands' rows, then into its
         // destination's row (lane by lane the interpreter's operation)
-        let mut tmp = [0.0; TAPE_LANES];
+        // (the last row: scratch)
+        let (r, tmp) = r.split_at_mut(r.len() - lanes);
         let tmp = &mut tmp[..n];
         let rows = Rows { lanes, n };
         for op in &self.ops {
@@ -452,22 +479,50 @@ impl ChainTape {
                     un(tmp, rows.at(r, a), |a| -a);
                     o
                 }
-                Op::Add(o, a, b) => {
-                    bin(tmp, rows.at(r, a), rows.at(r, b), |a, b| a + b);
-                    o
-                }
-                Op::Sub(o, a, b) => {
-                    bin(tmp, rows.at(r, a), rows.at(r, b), |a, b| a - b);
-                    o
-                }
-                Op::Mul(o, a, b) => {
-                    bin(tmp, rows.at(r, a), rows.at(r, b), |a, b| a * b);
-                    o
-                }
-                Op::Div(o, a, b) => {
-                    bin(tmp, rows.at(r, a), rows.at(r, b), |a, b| a / b);
-                    o
-                }
+                Op::Add(o, a, b) => match split(r, lanes, n, o, a, b) {
+                    // (straight into the destination's row)
+                    Some((x, a, b)) => {
+                        bin(x, a, b, |a, b| a + b);
+                        continue;
+                    }
+                    None => {
+                        bin(tmp, rows.at(r, a), rows.at(r, b), |a, b| a + b);
+                        o
+                    }
+                },
+                Op::Sub(o, a, b) => match split(r, lanes, n, o, a, b) {
+                    // (straight into the destination's row)
+                    Some((x, a, b)) => {
+                        bin(x, a, b, |a, b| a - b);
+                        continue;
+                    }
+                    None => {
+                        bin(tmp, rows.at(r, a), rows.at(r, b), |a, b| a - b);
+                        o
+                    }
+                },
+                Op::Mul(o, a, b) => match split(r, lanes, n, o, a, b) {
+                    // (straight into the destination's row)
+                    Some((x, a, b)) => {
+                        bin(x, a, b, |a, b| a * b);
+                        continue;
+                    }
+                    None => {
+                        bin(tmp, rows.at(r, a), rows.at(r, b), |a, b| a * b);
+                        o
+                    }
+                },
+                Op::Div(o, a, b) => match split(r, lanes, n, o, a, b) {
+                    // (straight into the destination's row)
+                    Some((x, a, b)) => {
+                        bin(x, a, b, |a, b| a / b);
+                        continue;
+                    }
+                    None => {
+                        bin(tmp, rows.at(r, a), rows.at(r, b), |a, b| a / b);
+                        o
+                    }
+                },
                 Op::Pow(o, a, b) => {
                     bin(tmp, rows.at(r, a), rows.at(r, b), math::pow);
                     o
@@ -707,15 +762,17 @@ mod tests {
             let (mut vals, mut ders_s) = (vec![0.0; n_vars], vec![0.0; n_vars]);
             let lanes = 1 + g.below(TAPE_LANES);
             let ts: Vec<f64> = (0..lanes).map(|_| g.value()).collect();
+            // entry after entry
             let ys: Vec<f64> = (0..lanes * 4).map(|_| g.value()).collect();
             let d = [g.value(), g.value()];
             let u = [g.value()];
             let pos = [0, 1, 2, 3];
             let mut lane_regs = tape.lane_registers(TAPE_LANES);
             let mut out = vec![0.0; lanes];
-            tape.eval_lanes(&ts, &ys, 4, &pos, &d, &u, TAPE_LANES, &mut lane_regs, &mut out);
+            tape.eval_lanes(&ts, &ys, lanes, &pos, &d, &u, TAPE_LANES, &mut lane_regs, &mut out);
             for i in 0..lanes {
-                let yv = &ys[i * 4..][..4];
+                let yv: Vec<f64> = (0..4).map(|p| ys[p * lanes + i]).collect();
+                let yv = &yv[..];
                 let want = chain.eval(ts[i], yv, &d, &u, &params, &mut vals, &mut ders_s);
                 let one = tape.eval(ts[i], yv, &pos, &d, &u, &mut regs);
                 assert_eq!(one.to_bits(), want.to_bits(), "case {case} lane {i}: {one} vs {want}");
