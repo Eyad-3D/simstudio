@@ -14,6 +14,7 @@ lsim-lib.workspace = true
 lsim-prep.workspace = true
 lsim-codegen.workspace = true
 lsim-solve.workspace = true
+lsim-script.workspace = true
 serde_json.workspace = true
 
 [lints]

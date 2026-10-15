@@ -1,0 +1,1406 @@
+//! Values, and the operations on them with CPython's exact semantics:
+//! integer arithmetic (64 bits here: a result beyond them is outside the
+//! subset, never wrapped), floats as IEEE doubles with CPython's own
+//! floor division and modulo, exact comparisons between integers and
+//! floats, `1 == 1.0 == True` as dict keys, and the errors Python raises
+//! (division by zero, a missing key, an operation between the wrong types).
+
+use crate::ast::FuncDef;
+use crate::{Fault, Fault::*};
+use std::cell::RefCell;
+use std::cmp::Ordering;
+use std::fmt;
+use std::rc::Rc;
+
+/// A builtin function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Builtin {
+    /// `abs`
+    Abs,
+    /// `min`
+    Min,
+    /// `max`
+    Max,
+    /// `float`
+    Float,
+    /// `int`
+    Int,
+    /// `bool`
+    Bool,
+    /// `len`
+    Len,
+    /// `range`
+    Range,
+    /// `round` (one argument)
+    Round,
+    /// `enumerate`
+    Enumerate,
+    /// `zip`
+    Zip,
+    /// `list`
+    List,
+    /// `tuple`
+    Tuple,
+    /// `dict`
+    Dict,
+    /// `any`
+    Any,
+    /// `all`
+    All,
+    /// `print` (output is not shown: it changes no result)
+    Print,
+    /// the scripts' `clamp(x, lo, hi)`
+    Clamp,
+    /// the scripts' `interp(table, x[, y])`
+    Interp,
+    /// a function of the math module
+    Math(MathFn),
+}
+
+/// The math module's functions in the subset.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MathFn {
+    /// `math.sqrt`
+    Sqrt,
+    /// `math.fabs`
+    Fabs,
+    /// `math.floor`
+    Floor,
+    /// `math.ceil`
+    Ceil,
+    /// `math.trunc`
+    Trunc,
+    /// `math.copysign`
+    Copysign,
+    /// `math.isnan`
+    IsNan,
+    /// `math.isinf`
+    IsInf,
+    /// `math.isfinite`
+    IsFinite,
+    /// `math.radians`
+    Radians,
+    /// `math.degrees`
+    Degrees,
+}
+
+impl Builtin {
+    /// The builtin of a name, if a script may use it.
+    pub fn of(name: &str) -> Option<Builtin> {
+        Some(match name {
+            "abs" => Builtin::Abs,
+            "min" => Builtin::Min,
+            "max" => Builtin::Max,
+            "float" => Builtin::Float,
+            "int" => Builtin::Int,
+            "bool" => Builtin::Bool,
+            "len" => Builtin::Len,
+            "range" => Builtin::Range,
+            "round" => Builtin::Round,
+            "enumerate" => Builtin::Enumerate,
+            "zip" => Builtin::Zip,
+            "list" => Builtin::List,
+            "tuple" => Builtin::Tuple,
+            "dict" => Builtin::Dict,
+            "any" => Builtin::Any,
+            "all" => Builtin::All,
+            "print" => Builtin::Print,
+            "clamp" => Builtin::Clamp,
+            "interp" => Builtin::Interp,
+            _ => return None,
+        })
+    }
+
+    /// A math module attribute: a function or a constant.
+    pub fn math(name: &str) -> Option<Value> {
+        Some(match name {
+            "pi" => Value::Float(std::f64::consts::PI),
+            "e" => Value::Float(std::f64::consts::E),
+            "tau" => Value::Float(std::f64::consts::TAU),
+            "inf" => Value::Float(f64::INFINITY),
+            "nan" => Value::Float(f64::NAN),
+            "sqrt" => Value::Builtin(Builtin::Math(MathFn::Sqrt)),
+            "fabs" => Value::Builtin(Builtin::Math(MathFn::Fabs)),
+            "floor" => Value::Builtin(Builtin::Math(MathFn::Floor)),
+            "ceil" => Value::Builtin(Builtin::Math(MathFn::Ceil)),
+            "trunc" => Value::Builtin(Builtin::Math(MathFn::Trunc)),
+            "copysign" => Value::Builtin(Builtin::Math(MathFn::Copysign)),
+            "isnan" => Value::Builtin(Builtin::Math(MathFn::IsNan)),
+            "isinf" => Value::Builtin(Builtin::Math(MathFn::IsInf)),
+            "isfinite" => Value::Builtin(Builtin::Math(MathFn::IsFinite)),
+            "radians" => Value::Builtin(Builtin::Math(MathFn::Radians)),
+            "degrees" => Value::Builtin(Builtin::Math(MathFn::Degrees)),
+            _ => return None,
+        })
+    }
+}
+
+/// A function with its defaults.
+pub struct Closure {
+    /// the definition
+    pub def: Rc<FuncDef>,
+    /// the defaults of its last parameters, evaluated where it was defined
+    pub defaults: Vec<Value>,
+}
+
+/// A dict: insertion-ordered entries, keys compared as Python compares
+/// them (`1`, `1.0` and `True` are one key; the first key object stays).
+#[derive(Default)]
+pub struct Dict {
+    /// (key, value) in insertion order
+    pub entries: Vec<(Value, Value)>,
+    /// bumped when a key is added or removed (not when a value changes):
+    /// an iteration over the dict notices its keys changing
+    pub keys: u64,
+    /// its order is not the one Python would have (a Script's parameters,
+    /// whose JSON object the importer keeps sorted): iterating it is left
+    /// to Python
+    pub unordered: bool,
+}
+
+impl Dict {
+    /// Removes entry `k`.
+    pub fn remove(&mut self, k: usize) -> (Value, Value) {
+        self.keys += 1;
+        self.entries.remove(k)
+    }
+
+    /// Removes every entry.
+    pub fn clear(&mut self) {
+        self.keys += 1;
+        self.entries.clear();
+    }
+}
+
+/// A list's items. Dropped without recursion (a list nested a million
+/// deep must not overflow the stack when it goes).
+#[derive(Default)]
+pub struct ListCell(RefCell<Vec<Value>>);
+
+/// A tuple's items (dropped without recursion).
+pub struct TupleCell(Vec<Value>);
+
+/// A dict (dropped without recursion).
+#[derive(Default)]
+pub struct DictCell(RefCell<Dict>);
+
+impl std::ops::Deref for ListCell {
+    type Target = RefCell<Vec<Value>>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for TupleCell {
+    type Target = Vec<Value>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for DictCell {
+    type Target = RefCell<Dict>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// Drops `stack`'s values, and every container only they hold, one at a
+/// time instead of recursively.
+fn drop_flat(mut stack: Vec<Value>) {
+    while let Some(v) = stack.pop() {
+        match v {
+            Value::List(rc) => {
+                if let Ok(cell) = Rc::try_unwrap(rc) {
+                    stack.append(&mut cell.0.take());
+                }
+            }
+            Value::Tuple(rc) => {
+                if let Ok(mut cell) = Rc::try_unwrap(rc) {
+                    stack.append(&mut cell.0);
+                }
+            }
+            Value::Dict(rc) | Value::View(rc, _) => {
+                if let Ok(cell) = Rc::try_unwrap(rc) {
+                    for (k, v) in cell.0.take().entries {
+                        stack.push(k);
+                        stack.push(v);
+                    }
+                }
+            }
+            Value::Method(rc) => {
+                if let Ok(m) = Rc::try_unwrap(rc) {
+                    stack.push(m.0);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl Drop for ListCell {
+    fn drop(&mut self) {
+        drop_flat(self.0.take());
+    }
+}
+
+impl Drop for TupleCell {
+    fn drop(&mut self) {
+        drop_flat(std::mem::take(&mut self.0));
+    }
+}
+
+impl Drop for DictCell {
+    fn drop(&mut self) {
+        let entries = std::mem::take(&mut self.0.get_mut().entries);
+        drop_flat(entries.into_iter().flat_map(|(k, v)| [k, v]).collect());
+    }
+}
+
+/// A value.
+#[derive(Clone)]
+pub enum Value {
+    /// `None`
+    None,
+    /// `True`, `False`
+    Bool(bool),
+    /// an integer (within 64 bits)
+    Int(i64),
+    /// a float
+    Float(f64),
+    /// a string
+    Str(Rc<str>),
+    /// a tuple
+    Tuple(Rc<TupleCell>),
+    /// a list
+    List(Rc<ListCell>),
+    /// a dict
+    Dict(Rc<DictCell>),
+    /// `range(start, stop, step)`
+    Range(i64, i64, i64),
+    /// a script's function
+    Func(Rc<Closure>),
+    /// a builtin function
+    Builtin(Builtin),
+    /// a method bound to its object
+    Method(Rc<(Value, Rc<str>)>),
+    /// the math module
+    Math,
+    /// a dict's keys (0), values (1) or items (2), read live
+    View(Rc<DictCell>, u8),
+    /// an iterator object (what `enumerate` and `zip` give), shared by
+    /// everything that iterates it
+    Iter(Rc<RefCell<crate::interp::Iter>>),
+}
+
+impl fmt::Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.repr())
+    }
+}
+
+/// 2^63 as a float: the first magnitude beyond every 64-bit integer.
+const TWO_63: f64 = 9_223_372_036_854_775_808u64 as f64;
+
+/// 2^53: integers up to this magnitude convert to floats exactly.
+const EXACT: u64 = 1 << 53;
+
+/// How deeply the recursive operations (comparisons, searches, keys) go
+/// into nested containers before leaving the work to Python.
+const MAX_NESTING: usize = 100;
+
+/// How many items one recursive operation may visit before leaving the
+/// work to Python.
+const MAX_VISITS: usize = 1_000_000;
+
+/// The budget of one recursive operation.
+pub struct Walk {
+    left: usize,
+}
+
+impl Default for Walk {
+    fn default() -> Self {
+        Walk { left: MAX_VISITS }
+    }
+}
+
+impl Walk {
+    fn step(&mut self, depth: usize) -> Result<(), Fault> {
+        if depth > MAX_NESTING {
+            return Err(Outside("containers nested this deeply".into()));
+        }
+        if self.left == 0 {
+            return Err(Outside("comparing or searching containers this large".into()));
+        }
+        self.left -= 1;
+        Ok(())
+    }
+}
+
+impl Value {
+    /// A new list.
+    pub fn list(v: Vec<Value>) -> Value {
+        Value::List(Rc::new(ListCell(RefCell::new(v))))
+    }
+
+    /// A new tuple.
+    pub fn tuple(v: Vec<Value>) -> Value {
+        Value::Tuple(Rc::new(TupleCell(v)))
+    }
+
+    /// A new, empty dict.
+    pub fn new_dict() -> Rc<DictCell> {
+        Rc::new(DictCell::default())
+    }
+
+    /// A new dict (keys checked; values may be anything).
+    pub fn dict(entries: Vec<(Value, Value)>) -> Result<Value, Fault> {
+        let d = Value::new_dict();
+        for (k, v) in entries {
+            dict_insert(&d, k, v)?;
+        }
+        Ok(Value::Dict(d))
+    }
+
+    /// A string.
+    pub fn str(s: &str) -> Value {
+        Value::Str(Rc::from(s))
+    }
+
+    /// Python's type name.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Value::None => "NoneType",
+            Value::Bool(_) => "bool",
+            Value::Int(_) => "int",
+            Value::Float(_) => "float",
+            Value::Str(_) => "str",
+            Value::Tuple(_) => "tuple",
+            Value::List(_) => "list",
+            Value::Dict(_) => "dict",
+            Value::Range(..) => "range",
+            Value::Func(_) => "function",
+            Value::Builtin(_) | Value::Method(_) => "builtin_function_or_method",
+            Value::Math => "module",
+            Value::View(_, 0) => "dict_keys",
+            Value::View(_, 1) => "dict_values",
+            Value::View(..) => "dict_items",
+            Value::Iter(_) => "iterator",
+        }
+    }
+
+    /// A readable form, for messages (close to Python's repr; deep or long
+    /// containers shortened).
+    pub fn repr(&self) -> String {
+        let mut out = String::new();
+        repr_into(self, &mut out, 0);
+        out
+    }
+
+    /// Python's truth value.
+    pub fn truthy(&self) -> bool {
+        match self {
+            Value::None => false,
+            Value::Bool(b) => *b,
+            Value::Int(i) => *i != 0,
+            // NaN is true, as in Python
+            Value::Float(x) => *x != 0.0,
+            Value::Str(s) => !s.is_empty(),
+            Value::Tuple(t) => !t.is_empty(),
+            Value::List(l) => !l.borrow().is_empty(),
+            Value::Dict(d) | Value::View(d, _) => !d.borrow().entries.is_empty(),
+            Value::Range(a, b, s) => range_len(*a, *b, *s) > 0,
+            _ => true,
+        }
+    }
+
+    /// The value as an integer, if it is one (bools are).
+    pub fn as_int(&self) -> Option<i64> {
+        match self {
+            Value::Bool(b) => Some(*b as i64),
+            Value::Int(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    /// The value as a float, if it is a number (Python's int-to-float
+    /// conversion: correctly rounded, ties to even, as Rust's `as`).
+    pub fn as_float(&self) -> Option<f64> {
+        match self {
+            Value::Bool(b) => Some(*b as i64 as f64),
+            Value::Int(i) => Some(*i as f64),
+            Value::Float(x) => Some(*x),
+            _ => None,
+        }
+    }
+
+    fn is_number(&self) -> bool {
+        matches!(self, Value::Bool(_) | Value::Int(_) | Value::Float(_))
+    }
+}
+
+fn repr_into(v: &Value, out: &mut String, depth: usize) {
+    if out.len() > 400 || depth > 8 {
+        out.push_str("...");
+        return;
+    }
+    match v {
+        Value::None => out.push_str("None"),
+        Value::Bool(b) => out.push_str(if *b { "True" } else { "False" }),
+        Value::Int(i) => out.push_str(&i.to_string()),
+        Value::Float(x) => out.push_str(&if x.is_nan() {
+            "nan".to_string()
+        } else if x.is_infinite() {
+            if *x > 0.0 { "inf" } else { "-inf" }.to_string()
+        } else if x.fract() == 0.0 && x.abs() < 1e16 {
+            format!("{x:.1}")
+        } else {
+            format!("{x}")
+        }),
+        Value::Str(s) => {
+            out.push('\'');
+            out.extend(s.chars().take(200));
+            out.push('\'');
+        }
+        Value::Tuple(t) => {
+            out.push('(');
+            for (k, x) in t.iter().enumerate() {
+                if k > 0 {
+                    out.push_str(", ");
+                }
+                repr_into(x, out, depth + 1);
+                if out.len() > 400 {
+                    break;
+                }
+            }
+            if t.len() == 1 {
+                out.push(',');
+            }
+            out.push(')');
+        }
+        Value::List(l) => {
+            out.push('[');
+            for (k, x) in l.borrow().iter().enumerate() {
+                if k > 0 {
+                    out.push_str(", ");
+                }
+                repr_into(x, out, depth + 1);
+                if out.len() > 400 {
+                    break;
+                }
+            }
+            out.push(']');
+        }
+        Value::Dict(d) => {
+            out.push('{');
+            for (k, (key, x)) in d.borrow().entries.iter().enumerate() {
+                if k > 0 {
+                    out.push_str(", ");
+                }
+                repr_into(key, out, depth + 1);
+                out.push_str(": ");
+                repr_into(x, out, depth + 1);
+                if out.len() > 400 {
+                    break;
+                }
+            }
+            out.push('}');
+        }
+        Value::Range(a, b, s) => out.push_str(&format!("range({a}, {b}, {s})")),
+        Value::Func(c) => out.push_str(&format!("<function {}>", c.def.name)),
+        Value::Builtin(b) => out.push_str(&format!("<built-in function {b:?}>")),
+        Value::Method(m) => out.push_str(&format!("<built-in method {}>", m.1)),
+        Value::Math => out.push_str("<module 'math'>"),
+        Value::View(..) | Value::Iter(_) => out.push_str(&format!("<{}>", v.type_name())),
+    }
+}
+
+/// The number of items of `range(a, b, s)`, exactly.
+pub fn range_len(a: i64, b: i64, s: i64) -> i128 {
+    let (a, b, s) = (a as i128, b as i128, s as i128);
+    if s > 0 && a < b {
+        (b - a - 1) / s + 1
+    } else if s < 0 && a > b {
+        (a - b - 1) / (-s) + 1
+    } else {
+        0
+    }
+}
+
+fn type_error(what: String) -> Fault {
+    Raise(what)
+}
+
+fn overflow() -> Fault {
+    Outside("an integer beyond 64 bits".into())
+}
+
+/// An integer and a float compared exactly (as Python does).
+fn cmp_int_float(i: i64, x: f64) -> Option<Ordering> {
+    if x.is_nan() {
+        return None;
+    }
+    if x.is_infinite() {
+        return Some(if x > 0.0 { Ordering::Less } else { Ordering::Greater });
+    }
+    if i.unsigned_abs() <= EXACT {
+        return (i as f64).partial_cmp(&x);
+    }
+    // |i| > 2^53: compare with x's integral part exactly
+    let xf = x.trunc();
+    if xf >= TWO_63 {
+        return Some(Ordering::Less);
+    }
+    if xf < -TWO_63 {
+        return Some(Ordering::Greater);
+    }
+    // -2^63 <= xf < 2^63: an exact 64-bit integer
+    let xi = xf as i64;
+    match i.cmp(&xi) {
+        Ordering::Equal => {
+            let frac = x - xf;
+            Some(if frac > 0.0 {
+                Ordering::Less
+            } else if frac < 0.0 {
+                Ordering::Greater
+            } else {
+                Ordering::Equal
+            })
+        }
+        o => Some(o),
+    }
+}
+
+/// Two numbers compared (None when a NaN is involved).
+fn cmp_num(a: &Value, b: &Value) -> Option<Ordering> {
+    match (a, b) {
+        (Value::Float(x), Value::Float(y)) => x.partial_cmp(y),
+        (Value::Float(x), _) => {
+            cmp_int_float(b.as_int().expect("a number"), *x).map(Ordering::reverse)
+        }
+        (_, Value::Float(y)) => cmp_int_float(a.as_int().expect("a number"), *y),
+        _ => Some(a.as_int().expect("a number").cmp(&b.as_int().expect("a number"))),
+    }
+}
+
+/// A container's identity (for the visited sets).
+fn ptr(v: &Value) -> Option<*const ()> {
+    match v {
+        Value::Tuple(t) => Some(Rc::as_ptr(t) as *const ()),
+        Value::List(l) => Some(Rc::as_ptr(l) as *const ()),
+        Value::Dict(d) | Value::View(d, _) => Some(Rc::as_ptr(d) as *const ()),
+        Value::Iter(i) => Some(Rc::as_ptr(i) as *const ()),
+        Value::Method(m) => Some(Rc::as_ptr(m) as *const ()),
+        _ => None,
+    }
+}
+
+/// Every value `v` holds directly (a container's items, a dict's keys and
+/// values, a method's object, an iterator's sources).
+fn children(v: &Value, out: &mut Vec<Value>) {
+    match v {
+        Value::Tuple(t) => out.extend(t.iter().cloned()),
+        Value::List(l) => out.extend(l.borrow().iter().cloned()),
+        Value::Dict(d) | Value::View(d, _) => {
+            for (k, x) in &d.borrow().entries {
+                out.push(k.clone());
+                out.push(x.clone());
+            }
+        }
+        Value::Method(m) => out.push(m.0.clone()),
+        Value::Iter(i) => i.borrow().sources(out),
+        _ => {}
+    }
+}
+
+/// Whether `v` is or holds a NaN. Python finds an item of a container by
+/// identity before equality (`x is y or x == y`), so the very same NaN is
+/// found while another NaN equals nothing: values here have no identity,
+/// so such a search is left to Python. Each container is looked into once.
+pub fn has_nan(v: &Value) -> Result<bool, Fault> {
+    let mut seen = std::collections::HashSet::new();
+    let mut stack = vec![v.clone()];
+    let mut walk = Walk::default();
+    while let Some(x) = stack.pop() {
+        walk.step(0)?;
+        match &x {
+            Value::Float(f) if f.is_nan() => return Ok(true),
+            Value::Tuple(_) | Value::List(_) | Value::Dict(_) => {
+                if seen.insert(ptr(&x)) {
+                    match &x {
+                        Value::Dict(d) => {
+                            stack.extend(d.borrow().entries.iter().map(|(_, v)| v.clone()))
+                        }
+                        _ => children(&x, &mut stack),
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(false)
+}
+
+/// Checks that a search for `x` among a container's items is decided by
+/// equality alone (see [`has_nan`]).
+pub fn searchable(x: &Value) -> Result<(), Fault> {
+    if has_nan(x)? {
+        return Err(Outside(
+            "looking for a NaN in a container (Python matches it by identity)".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Checks that putting `item` into `container` makes no cycle (a container
+/// that holds itself; Python allows it, its comparisons and printing then
+/// recurse until they fail): left to Python.
+pub fn insertable(container: &Value, item: &Value) -> Result<(), Fault> {
+    let Some(target) = ptr(container) else { return Ok(()) };
+    if ptr(item).is_none() {
+        return Ok(());
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut stack = vec![item.clone()];
+    let mut walk = Walk::default();
+    while let Some(x) = stack.pop() {
+        walk.step(0)?;
+        let Some(p) = ptr(&x) else { continue };
+        if p == target {
+            return Err(Outside("a container that holds itself".into()));
+        }
+        if seen.insert(p) {
+            children(&x, &mut stack);
+        }
+    }
+    Ok(())
+}
+
+/// `a == b`.
+pub fn eq(a: &Value, b: &Value) -> Result<bool, Fault> {
+    eq_w(a, b, &mut Walk::default(), 0)
+}
+
+fn eq_w(a: &Value, b: &Value, w: &mut Walk, depth: usize) -> Result<bool, Fault> {
+    w.step(depth)?;
+    Ok(match (a, b) {
+        _ if a.is_number() && b.is_number() => cmp_num(a, b) == Some(Ordering::Equal),
+        (Value::None, Value::None) => true,
+        (Value::Str(x), Value::Str(y)) => x == y,
+        (Value::Tuple(x), Value::Tuple(y)) => {
+            if Rc::ptr_eq(x, y) {
+                return Ok(true);
+            }
+            if x.len() != y.len() {
+                return Ok(false);
+            }
+            for (p, q) in x.iter().zip(y.iter()) {
+                if !eq_w(p, q, w, depth + 1)? {
+                    return Ok(false);
+                }
+            }
+            true
+        }
+        (Value::List(x), Value::List(y)) => {
+            if Rc::ptr_eq(x, y) {
+                return Ok(true);
+            }
+            let (x, y) = (x.borrow().clone(), y.borrow().clone());
+            if x.len() != y.len() {
+                return Ok(false);
+            }
+            for (p, q) in x.iter().zip(y.iter()) {
+                if !eq_w(p, q, w, depth + 1)? {
+                    return Ok(false);
+                }
+            }
+            true
+        }
+        (Value::Dict(x), Value::Dict(y)) => {
+            if Rc::ptr_eq(x, y) {
+                return Ok(true);
+            }
+            let (dx, dy) = (x.borrow().entries.clone(), y.borrow().entries.clone());
+            if dx.len() != dy.len() {
+                return Ok(false);
+            }
+            for (k, v) in &dx {
+                let mut found = None;
+                for (k2, v2) in &dy {
+                    if eq_w(k, k2, w, depth + 1)? {
+                        found = Some(v2);
+                        break;
+                    }
+                }
+                match found {
+                    Some(v2) if eq_w(v, v2, w, depth + 1)? => {}
+                    _ => return Ok(false),
+                }
+            }
+            true
+        }
+        (Value::Range(a1, b1, s1), Value::Range(a2, b2, s2)) => {
+            let (n1, n2) = (range_len(*a1, *b1, *s1), range_len(*a2, *b2, *s2));
+            n1 == n2 && (n1 == 0 || (a1 == a2 && (n1 == 1 || s1 == s2)))
+        }
+        (Value::Builtin(x), Value::Builtin(y)) => x == y,
+        (Value::Func(x), Value::Func(y)) => Rc::ptr_eq(x, y),
+        (Value::Iter(x), Value::Iter(y)) => Rc::ptr_eq(x, y),
+        (Value::Math, Value::Math) => true,
+        (Value::Method(x), Value::Method(y)) => {
+            // bound methods are equal when bound to the same object
+            let same = match (&x.0, &y.0) {
+                (Value::Dict(p), Value::Dict(q)) => Rc::ptr_eq(p, q),
+                (Value::List(p), Value::List(q)) => Rc::ptr_eq(p, q),
+                _ => return Err(Outside("comparing methods of tuples".into())),
+            };
+            same && x.1 == y.1
+        }
+        (Value::View(..), _) | (_, Value::View(..)) => {
+            return Err(Outside("comparing a dict view".into()));
+        }
+        _ => false,
+    })
+}
+
+/// `a is b`, for the values where Python's identity is predictable
+/// (`None`, `True`, `False`, and the same container).
+pub fn is(a: &Value, b: &Value) -> Result<bool, Fault> {
+    Ok(match (a, b) {
+        (Value::None, Value::None) => true,
+        (Value::Bool(x), Value::Bool(y)) => x == y,
+        (Value::None | Value::Bool(_), _) | (_, Value::None | Value::Bool(_)) => false,
+        (Value::List(x), Value::List(y)) => Rc::ptr_eq(x, y),
+        (Value::Dict(x), Value::Dict(y)) => Rc::ptr_eq(x, y),
+        (Value::Func(x), Value::Func(y)) => Rc::ptr_eq(x, y),
+        (Value::Iter(x), Value::Iter(y)) => Rc::ptr_eq(x, y),
+        _ => return Err(Outside("'is' between numbers, strings or tuples".into())),
+    })
+}
+
+/// `a < b` and the like: the ordering of two values, or Python's
+/// TypeError.
+pub fn order(a: &Value, b: &Value, op: &str) -> Result<Option<Ordering>, Fault> {
+    order_w(a, b, op, &mut Walk::default(), 0)
+}
+
+fn order_w(
+    a: &Value,
+    b: &Value,
+    op: &str,
+    w: &mut Walk,
+    depth: usize,
+) -> Result<Option<Ordering>, Fault> {
+    w.step(depth)?;
+    if a.is_number() && b.is_number() {
+        return Ok(cmp_num(a, b));
+    }
+    match (a, b) {
+        (Value::Str(x), Value::Str(y)) => Ok(Some(x.as_ref().cmp(y.as_ref()))),
+        (Value::Tuple(x), Value::Tuple(y)) => seq_order(x, y, op, w, depth),
+        (Value::List(x), Value::List(y)) => {
+            let (x, y) = (x.borrow().clone(), y.borrow().clone());
+            seq_order(&x, &y, op, w, depth)
+        }
+        _ => Err(type_error(format!(
+            "'{op}' not supported between instances of '{}' and '{}'",
+            a.type_name(),
+            b.type_name()
+        ))),
+    }
+}
+
+fn seq_order(
+    x: &[Value],
+    y: &[Value],
+    op: &str,
+    w: &mut Walk,
+    depth: usize,
+) -> Result<Option<Ordering>, Fault> {
+    for v in x.iter().chain(y) {
+        if has_nan(v)? {
+            return Err(Outside("ordering sequences that hold a NaN".into()));
+        }
+    }
+    for (p, q) in x.iter().zip(y) {
+        if !eq_w(p, q, w, depth + 1)? {
+            return order_w(p, q, op, w, depth + 1);
+        }
+    }
+    Ok(Some(x.len().cmp(&y.len())))
+}
+
+/// Checks that `k` can be a dict key here.
+pub fn check_key(k: &Value) -> Result<(), Fault> {
+    check_key_w(k, &mut Walk::default(), 0)
+}
+
+fn check_key_w(k: &Value, w: &mut Walk, depth: usize) -> Result<(), Fault> {
+    w.step(depth)?;
+    match k {
+        Value::List(_) | Value::Dict(_) => {
+            Err(type_error(format!("unhashable type: '{}'", k.type_name())))
+        }
+        Value::View(..)
+        | Value::Iter(_)
+        | Value::Func(_)
+        | Value::Builtin(_)
+        | Value::Method(_)
+        | Value::Math
+        | Value::Range(..) => Err(Outside(format!("a {} as a dict key", k.type_name()))),
+        Value::Float(x) if x.is_nan() => Err(Outside("a NaN as a dict key".into())),
+        Value::Tuple(t) => t.iter().try_for_each(|x| check_key_w(x, w, depth + 1)),
+        _ => Ok(()),
+    }
+}
+
+/// The entry of key `k` in `d`, if any.
+fn find(d: &Dict, k: &Value) -> Result<Option<usize>, Fault> {
+    for (i, (k2, _)) in d.entries.iter().enumerate() {
+        if eq(k, k2)? {
+            return Ok(Some(i));
+        }
+    }
+    Ok(None)
+}
+
+/// `d[k]`, if present.
+pub fn dict_get(d: &Rc<DictCell>, k: &Value) -> Result<Option<Value>, Fault> {
+    check_key(k)?;
+    let dm = d.borrow();
+    Ok(find(&dm, k)?.map(|i| dm.entries[i].1.clone()))
+}
+
+/// The position of key `k` in `d`.
+pub fn dict_find(d: &Rc<DictCell>, k: &Value) -> Result<Option<usize>, Fault> {
+    check_key(k)?;
+    find(&d.borrow(), k)
+}
+
+/// `d[k] = v`, where `v` cannot hold `d` (a dict being built).
+fn dict_insert(d: &Rc<DictCell>, k: Value, v: Value) -> Result<(), Fault> {
+    check_key(&k)?;
+    let at = find(&d.borrow(), &k)?;
+    let mut dm = d.borrow_mut();
+    match at {
+        Some(i) => dm.entries[i].1 = v,
+        None => {
+            if dm.entries.len() >= crate::MAX_ITEMS {
+                return Err(Outside("a dict this large".into()));
+            }
+            dm.keys += 1;
+            dm.entries.push((k, v));
+        }
+    }
+    Ok(())
+}
+
+/// `d[k] = v`.
+pub fn dict_set(d: &Rc<DictCell>, k: Value, v: Value) -> Result<(), Fault> {
+    insertable(&Value::Dict(d.clone()), &v)?;
+    dict_insert(d, k, v)
+}
+
+/// `-a`.
+pub fn neg(a: &Value) -> Result<Value, Fault> {
+    match a {
+        Value::Float(x) => Ok(Value::Float(-x)),
+        _ => match a.as_int() {
+            Some(i) => i.checked_neg().map(Value::Int).ok_or_else(overflow),
+            None => Err(type_error(format!("bad operand type for unary -: '{}'", a.type_name()))),
+        },
+    }
+}
+
+/// `+a`.
+pub fn pos(a: &Value) -> Result<Value, Fault> {
+    match a {
+        Value::Float(x) => Ok(Value::Float(*x)),
+        _ => match a.as_int() {
+            Some(i) => Ok(Value::Int(i)),
+            None => Err(type_error(format!("bad operand type for unary +: '{}'", a.type_name()))),
+        },
+    }
+}
+
+fn unsupported_operands(op: &str, a: &Value, b: &Value) -> Fault {
+    type_error(format!(
+        "unsupported operand type(s) for {op}: '{}' and '{}'",
+        a.type_name(),
+        b.type_name()
+    ))
+}
+
+/// CPython's float floor division and modulo (`_float_div_mod`).
+fn float_div_mod(vx: f64, wx: f64) -> (f64, f64) {
+    let mut m = vx % wx; // fmod: exact
+    let mut div = (vx - m) / wx;
+    if m != 0.0 {
+        if (wx < 0.0) != (m < 0.0) {
+            m += wx;
+            div -= 1.0;
+        }
+    } else {
+        m = 0.0f64.copysign(wx);
+    }
+    let floordiv = if div != 0.0 {
+        let mut f = div.floor();
+        if div - f > 0.5 {
+            f += 1.0;
+        }
+        f
+    } else {
+        0.0f64.copysign(vx / wx)
+    };
+    (floordiv, m)
+}
+
+/// CPython's float modulo (`float_rem`).
+fn float_rem(vx: f64, wx: f64) -> f64 {
+    let mut m = vx % wx;
+    if m != 0.0 {
+        if (wx < 0.0) != (m < 0.0) {
+            m += wx;
+        }
+    } else {
+        m = 0.0f64.copysign(wx);
+    }
+    m
+}
+
+fn concat_len(a: usize, b: usize) -> Result<usize, Fault> {
+    let n = a + b;
+    if n > crate::MAX_ITEMS {
+        return Err(Outside("a sequence this long".into()));
+    }
+    Ok(n)
+}
+
+/// `a op b` for `+ - * / // % **`.
+pub fn binary(op: crate::ast::BinOp, a: &Value, b: &Value) -> Result<Value, Fault> {
+    use crate::ast::BinOp::*;
+    let sym = match op {
+        Add => "+",
+        Sub => "-",
+        Mul => "*",
+        Div => "/",
+        FloorDiv => "//",
+        Mod => "%",
+        Pow => "** or pow()",
+    };
+    // integers (bools are integers)
+    if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
+        return match op {
+            Add => x.checked_add(y).map(Value::Int).ok_or_else(overflow),
+            Sub => x.checked_sub(y).map(Value::Int).ok_or_else(overflow),
+            Mul => x.checked_mul(y).map(Value::Int).ok_or_else(overflow),
+            Div => {
+                if y == 0 {
+                    return Err(Raise("division by zero".into()));
+                }
+                if x.unsigned_abs() > EXACT || y.unsigned_abs() > EXACT {
+                    return Err(Outside("dividing integers beyond 2**53".into()));
+                }
+                // both exact as floats: IEEE division is Python's correctly
+                // rounded true division
+                Ok(Value::Float(x as f64 / y as f64))
+            }
+            FloorDiv | Mod => {
+                if y == 0 {
+                    return Err(Raise("integer division or modulo by zero".into()));
+                }
+                let q = x.checked_div(y).ok_or_else(overflow)?;
+                let r = x - q * y;
+                let (q, r) = if r != 0 && ((r < 0) != (y < 0)) { (q - 1, r + y) } else { (q, r) };
+                Ok(Value::Int(if op == FloorDiv { q } else { r }))
+            }
+            Pow => {
+                if y < 0 {
+                    return Err(Outside("a negative integer power".into()));
+                }
+                let e = u32::try_from(y).map_err(|_| overflow())?;
+                x.checked_pow(e).map(Value::Int).ok_or_else(overflow)
+            }
+        };
+    }
+    // floats, with an integer converted
+    if let (Some(x), Some(y)) = (a.as_float(), b.as_float()) {
+        return match op {
+            Add => Ok(Value::Float(x + y)),
+            Sub => Ok(Value::Float(x - y)),
+            Mul => Ok(Value::Float(x * y)),
+            Div => {
+                if y == 0.0 {
+                    return Err(Raise("float division by zero".into()));
+                }
+                Ok(Value::Float(x / y))
+            }
+            FloorDiv => {
+                if y == 0.0 {
+                    return Err(Raise("float floor division by zero".into()));
+                }
+                Ok(Value::Float(float_div_mod(x, y).0))
+            }
+            Mod => {
+                if y == 0.0 {
+                    return Err(Raise("float modulo by zero".into()));
+                }
+                Ok(Value::Float(float_rem(x, y)))
+            }
+            // CPython calls the C runtime's pow: not the same bits everywhere
+            Pow => Err(Outside("powers of floats".into())),
+        };
+    }
+    // sequences
+    match (op, a, b) {
+        (Add, Value::Str(x), Value::Str(y)) => {
+            concat_len(x.len(), y.len())?;
+            Ok(Value::Str(Rc::from(format!("{x}{y}").as_str())))
+        }
+        (Add, Value::Tuple(x), Value::Tuple(y)) => {
+            concat_len(x.len(), y.len())?;
+            Ok(Value::tuple(x.iter().chain(y.iter()).cloned().collect()))
+        }
+        (Add, Value::List(x), Value::List(y)) => {
+            let v: Vec<Value> = x.borrow().iter().chain(y.borrow().iter()).cloned().collect();
+            concat_len(v.len(), 0)?;
+            Ok(Value::list(v))
+        }
+        (Mod, Value::Str(_), _) => Err(Outside("string formatting with '%'".into())),
+        (Mul, Value::Str(_) | Value::Tuple(_) | Value::List(_), _)
+        | (Mul, _, Value::Str(_) | Value::Tuple(_) | Value::List(_)) => {
+            Err(Outside("repeating a sequence with '*'".into()))
+        }
+        _ => Err(unsupported_operands(sym, a, b)),
+    }
+}
+
+/// `x in c`.
+pub fn contains(c: &Value, x: &Value) -> Result<bool, Fault> {
+    match c {
+        Value::Dict(d) => Ok(dict_get(d, x)?.is_some()),
+        Value::List(_) | Value::Tuple(_) => {
+            searchable(x)?;
+            let items: Vec<Value> = match c {
+                Value::List(l) => l.borrow().clone(),
+                Value::Tuple(t) => t.to_vec(),
+                _ => unreachable!("a sequence"),
+            };
+            let mut w = Walk::default();
+            for v in &items {
+                if eq_w(v, x, &mut w, 0)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        Value::Str(s) => match x {
+            Value::Str(sub) => Ok(s.contains(sub.as_ref())),
+            _ => Err(type_error(format!(
+                "'in <string>' requires string as left operand, not {}",
+                x.type_name()
+            ))),
+        },
+        Value::Range(a, b, st) => match x.as_int() {
+            Some(i) => {
+                let n = range_len(*a, *b, *st);
+                let off = i as i128 - *a as i128;
+                Ok(n > 0 && off % *st as i128 == 0 && {
+                    let k = off / *st as i128;
+                    k >= 0 && k < n
+                })
+            }
+            None => match x {
+                Value::Float(_) => Err(Outside("a float 'in' a range".into())),
+                _ => Ok(false),
+            },
+        },
+        _ => Err(type_error(format!("argument of type '{}' is not iterable", c.type_name()))),
+    }
+}
+
+/// A sequence index `i` of a sequence of `n` items (negative from the end).
+fn seq_index(n: i128, i: &Value, what: &str) -> Result<i128, Fault> {
+    let Some(k) = i.as_int() else {
+        return Err(type_error(format!(
+            "{what} indices must be integers or slices, not {}",
+            i.type_name()
+        )));
+    };
+    let k = k as i128;
+    let k = if k < 0 { k + n } else { k };
+    if k < 0 || k >= n {
+        return Err(Raise(format!("{what} index out of range")));
+    }
+    Ok(k)
+}
+
+/// `c[i]`.
+pub fn index(c: &Value, i: &Value) -> Result<Value, Fault> {
+    match c {
+        Value::Dict(d) => match dict_get(d, i)? {
+            Some(v) => Ok(v),
+            None => Err(Raise(i.repr())),
+        },
+        Value::Tuple(t) => Ok(t[seq_index(t.len() as i128, i, "tuple")? as usize].clone()),
+        Value::List(l) => {
+            let l = l.borrow();
+            Ok(l[seq_index(l.len() as i128, i, "list")? as usize].clone())
+        }
+        Value::Str(s) => {
+            let chars: Vec<char> = s.chars().collect();
+            let k = seq_index(chars.len() as i128, i, "string")?;
+            Ok(Value::str(&chars[k as usize].to_string()))
+        }
+        Value::Range(a, b, st) => {
+            let k = seq_index(range_len(*a, *b, *st), i, "range object")?;
+            // inside the range: a 64-bit integer
+            Ok(Value::Int((*a as i128 + *st as i128 * k) as i64))
+        }
+        _ => Err(type_error(format!("'{}' object is not subscriptable", c.type_name()))),
+    }
+}
+
+/// `c[i] = v`.
+pub fn set_index(c: &Value, i: Value, v: Value) -> Result<(), Fault> {
+    match c {
+        Value::Dict(d) => dict_set(d, i, v),
+        Value::List(l) => {
+            insertable(c, &v)?;
+            let mut l = l.borrow_mut();
+            let k = match seq_index(l.len() as i128, &i, "list") {
+                Ok(k) => k,
+                Err(Raise(m)) if m.ends_with("index out of range") => {
+                    return Err(Raise("list assignment index out of range".into()));
+                }
+                Err(e) => return Err(e),
+            };
+            l[k as usize] = v;
+            Ok(())
+        }
+        _ => {
+            Err(type_error(format!("'{}' object does not support item assignment", c.type_name())))
+        }
+    }
+}
+
+/// `float(x)` as Python converts.
+pub fn to_float(x: &Value) -> Result<f64, Fault> {
+    match x {
+        Value::Str(s) => {
+            if !plain_ascii(s) {
+                return Err(Outside("a number written with other than plain ASCII".into()));
+            }
+            parse_float(s).ok_or_else(|| Raise(format!("could not convert string to float: '{s}'")))
+        }
+        _ => x.as_float().ok_or_else(|| {
+            type_error(format!(
+                "float() argument must be a string or a real number, not '{}'",
+                x.type_name()
+            ))
+        }),
+    }
+}
+
+/// Python's `float(str)` of an ASCII string: surrounding whitespace, a
+/// sign, digits with single underscores between them, an exponent, `inf`,
+/// `infinity`, `nan` (the sign kept, as Python keeps it).
+pub fn parse_float(s: &str) -> Option<f64> {
+    let t = s.trim_matches(|c: char| c.is_ascii_whitespace());
+    let (sign, body) = match t.as_bytes().first() {
+        Some(b'+') => (1.0, &t[1..]),
+        Some(b'-') => (-1.0, &t[1..]),
+        _ => (1.0, t),
+    };
+    let lower = body.to_ascii_lowercase();
+    match lower.as_str() {
+        "inf" | "infinity" => return Some(sign * f64::INFINITY),
+        "nan" => return Some(f64::NAN.copysign(sign)),
+        _ => {}
+    }
+    // digits, '.', 'e', sign after 'e', underscores only between digits
+    let b = body.as_bytes();
+    let mut clean = String::with_capacity(b.len());
+    for (k, &ch) in b.iter().enumerate() {
+        match ch {
+            b'0'..=b'9' | b'.' | b'e' | b'E' => clean.push(ch as char),
+            b'+' | b'-' if k > 0 && matches!(b[k - 1], b'e' | b'E') => clean.push(ch as char),
+            b'_' if k > 0
+                && k + 1 < b.len()
+                && b[k - 1].is_ascii_digit()
+                && b[k + 1].is_ascii_digit() => {}
+            _ => return None,
+        }
+    }
+    if !clean.bytes().any(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    // a mantissa needs a digit before an exponent (".e1" is not a number)
+    let mant = clean.split(['e', 'E']).next().unwrap_or("");
+    if !mant.bytes().any(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    clean.parse::<f64>().ok().map(|v| sign * v)
+}
+
+/// `int(x)` as Python converts (towards zero).
+pub fn to_int(x: &Value) -> Result<i64, Fault> {
+    match x {
+        Value::Float(f) => {
+            if f.is_nan() {
+                return Err(Raise("cannot convert float NaN to integer".into()));
+            }
+            if f.is_infinite() {
+                return Err(Raise("cannot convert float infinity to integer".into()));
+            }
+            let t = f.trunc();
+            if !(-TWO_63..TWO_63).contains(&t) {
+                return Err(overflow());
+            }
+            Ok(t as i64)
+        }
+        Value::Str(s) => {
+            if !plain_ascii(s) {
+                return Err(Outside("a number written with other than plain ASCII".into()));
+            }
+            let bad = || Raise(format!("invalid literal for int() with base 10: '{s}'"));
+            let t = s.trim_matches(|c: char| c.is_ascii_whitespace());
+            let (neg, body) = match t.as_bytes().first() {
+                Some(b'+') => (false, &t[1..]),
+                Some(b'-') => (true, &t[1..]),
+                _ => (false, t),
+            };
+            // digits with single underscores between them
+            let b = body.as_bytes();
+            if b.is_empty()
+                || !b.iter().all(|c| c.is_ascii_digit() || *c == b'_')
+                || b[0] == b'_'
+                || b[b.len() - 1] == b'_'
+                || body.contains("__")
+            {
+                return Err(bad());
+            }
+            let digits: String = body.chars().filter(|c| *c != '_').collect();
+            let v: i128 = digits.parse().map_err(|_| overflow())?;
+            let v = if neg { -v } else { v };
+            i64::try_from(v).map_err(|_| overflow())
+        }
+        _ => x.as_int().ok_or_else(|| {
+            type_error(format!(
+                "int() argument must be a string, a bytes-like object or a real number, not '{}'",
+                x.type_name()
+            ))
+        }),
+    }
+}
+
+/// ASCII without the control characters Python counts as white space and
+/// Rust does not (vertical tab, the separators 0x1c to 0x1f).
+fn plain_ascii(s: &str) -> bool {
+    s.is_ascii() && !s.bytes().any(|b| b == 0x0b || (0x1c..=0x1f).contains(&b))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::BinOp;
+
+    fn f(x: f64) -> Value {
+        Value::Float(x)
+    }
+
+    fn fl(v: Result<Value, Fault>) -> f64 {
+        match v.unwrap() {
+            Value::Float(x) => x,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn float_floor_division_and_modulo_are_cpythons() {
+        // values checked against CPython 3.13
+        assert_eq!(fl(binary(BinOp::FloorDiv, &f(7.5), &f(2.0))), 3.0);
+        assert_eq!(fl(binary(BinOp::FloorDiv, &f(-7.5), &f(2.0))), -4.0);
+        assert_eq!(fl(binary(BinOp::Mod, &f(-7.5), &f(2.0))), 0.5);
+        assert_eq!(fl(binary(BinOp::Mod, &f(7.5), &f(-2.0))), -0.5);
+        let z = fl(binary(BinOp::Mod, &f(4.0), &f(-2.0)));
+        assert!(z == 0.0 && z.is_sign_negative());
+        let z = fl(binary(BinOp::FloorDiv, &f(-0.0), &f(5.0)));
+        assert!(z == 0.0 && z.is_sign_negative());
+        assert_eq!(fl(binary(BinOp::FloorDiv, &f(1.0), &f(0.1))), 9.0);
+        assert_eq!(fl(binary(BinOp::Mod, &f(1.0), &f(0.1))), 0.09999999999999995);
+        assert!(binary(BinOp::Div, &f(1.0), &f(0.0)).is_err());
+        assert!(binary(BinOp::Div, &Value::Int(1), &Value::Int(0)).is_err());
+    }
+
+    #[test]
+    fn integers_follow_python() {
+        let i = Value::Int;
+        assert!(matches!(binary(BinOp::FloorDiv, &i(-7), &i(2)), Ok(Value::Int(-4))));
+        assert!(matches!(binary(BinOp::Mod, &i(-7), &i(2)), Ok(Value::Int(1))));
+        assert!(matches!(binary(BinOp::Mod, &i(7), &i(-2)), Ok(Value::Int(-1))));
+        assert!(matches!(binary(BinOp::Add, &Value::Bool(true), &i(1)), Ok(Value::Int(2))));
+        assert_eq!(fl(binary(BinOp::Div, &i(1), &i(3))), 1.0 / 3.0);
+        assert!(matches!(binary(BinOp::Mul, &i(i64::MAX), &i(2)), Err(Outside(_))));
+        assert!(matches!(binary(BinOp::Pow, &f(2.0), &i(2)), Err(Outside(_))));
+        assert!(matches!(binary(BinOp::Pow, &i(2), &i(10)), Ok(Value::Int(1024))));
+    }
+
+    #[test]
+    fn comparisons_between_ints_and_floats_are_exact() {
+        let big = (1i64 << 53) + 1;
+        assert!(!eq(&Value::Int(big), &f(big as f64)).unwrap(), "2^53 + 1 is not the float 2^53");
+        assert!(eq(&Value::Int(3), &f(3.0)).unwrap());
+        assert!(eq(&Value::Int(i64::MIN), &f(-TWO_63)).unwrap());
+        assert!(eq(&Value::Bool(true), &Value::Int(1)).unwrap());
+        assert_eq!(order(&Value::Int(big), &f(big as f64), "<").unwrap(), Some(Ordering::Greater));
+        assert_eq!(order(&f(f64::NAN), &Value::Int(1), "<").unwrap(), None);
+        assert!(order(&Value::str("a"), &Value::Int(1), "<").is_err());
+        let d = Value::dict(vec![(Value::Int(1), Value::str("x"))]).unwrap();
+        let Value::Dict(d) = d else { panic!() };
+        assert!(dict_get(&d, &f(1.0)).unwrap().is_some(), "1.0 finds the key 1");
+        assert!(dict_get(&d, &Value::Bool(true)).unwrap().is_some());
+    }
+
+    #[test]
+    fn deep_and_shared_containers_neither_crash_nor_hang() {
+        // a million deep: dropped without recursion
+        let mut x = Value::list(vec![]);
+        for _ in 0..1_000_000 {
+            x = Value::list(vec![x]);
+        }
+        assert!(matches!(eq(&x, &x.clone()), Ok(true)));
+        let y = Value::list(vec![Value::list(vec![])]);
+        assert!(matches!(eq(&x, &y), Err(Outside(_)) | Ok(false)));
+        drop(x);
+        // shared 2^80 ways: each container looked into once
+        let mut a = Value::list(vec![Value::Float(0.0)]);
+        for _ in 0..80 {
+            a = Value::list(vec![a.clone(), a]);
+        }
+        assert!(!has_nan(&a).unwrap());
+        // a container that would hold itself
+        let l = Value::list(vec![]);
+        assert!(matches!(insertable(&l, &Value::list(vec![l.clone()])), Err(Outside(_))));
+    }
+
+    #[test]
+    fn conversions_follow_python() {
+        assert_eq!(parse_float(" 1_000.5 "), Some(1000.5));
+        assert_eq!(parse_float("-Infinity"), Some(f64::NEG_INFINITY));
+        assert_eq!(parse_float("1__0"), None);
+        assert_eq!(parse_float("_1"), None);
+        assert_eq!(parse_float(".e1"), None);
+        assert_eq!(parse_float("5."), Some(5.0));
+        assert_eq!(to_int(&f(-2.9)).unwrap(), -2);
+        assert!(to_int(&f(f64::NAN)).is_err());
+        assert_eq!(to_int(&Value::str(" 42 ")).unwrap(), 42);
+        assert!(to_int(&Value::str("+_1")).is_err());
+        assert!(matches!(to_int(&Value::str("\u{661}")), Err(Outside(_))));
+        assert!(parse_float("-nan").unwrap().is_sign_negative());
+        assert_eq!(
+            range_len(-5_000_000_000_000_000_000, 5_000_000_000_000_000_000, 1),
+            10_000_000_000_000_000_000
+        );
+    }
+}

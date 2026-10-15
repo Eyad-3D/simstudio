@@ -1038,6 +1038,7 @@ dependencies = [
  "lsim-lang",
  "lsim-lib",
  "lsim-prep",
+ "lsim-script",
  "lsim-solve",
  "serde_json",
 ]
@@ -1050,6 +1051,14 @@ dependencies = [
  "lsim-ir",
  "lsim-solve",
  "pyo3",
+]
+
+[[package]]
+name = "lsim-script"
+version = "0.1.0"
+dependencies = [
+ "lsim-ir",
+ "serde_json",
 ]
 
 [[package]]

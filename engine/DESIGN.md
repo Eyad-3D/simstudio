@@ -1836,6 +1836,45 @@ save most of those 10 ms in every run, sequential or not (a change to
   work comes on top: a sandboxed Python tick costs microseconds.
   Today's Script blocks run every solver step (≤ 10 ms); they keep that
   rate by default (a `period` parameter, default 10 ms) so results match.
+* **Script blocks without Python** (`lsim-script`, WP6). A Script's code
+  runs on an interpreter of a strict subset of Python whose every
+  operation has CPython's semantics to the bit: 64-bit integers (a
+  result beyond them is outside the subset, never wrapped), IEEE floats
+  with CPython's own floor division and modulo, exact comparisons
+  between integers and floats, dicts (`1 == 1.0 == True` one key), lists,
+  tuples, `if`/`for`/`while`, functions with defaults and `global`, the
+  builtins scripts use, `clamp`, `interp` exactly as app/solver/maps.py
+  computes it, and the math module's exact functions (`sqrt`, `floor`,
+  `fabs`, `copysign`, … and the constants). The example cars'
+  controllers (the P2 hybrid's Hybrid Control Unit) are in the subset.
+  What it does not run is left to Python, so a result never differs
+  from the Python runner's: a script that uses anything else (other
+  imports, the transcendental math functions and powers of floats, which
+  CPython takes from the C runtime and so differ in their last bit
+  between platforms, string formatting, classes, exceptions,
+  comprehensions, slices, unknown names) is refused when it is read and
+  runs on Python; an operation met while running that Python supports
+  and the subset does not (an integer beyond 64 bits, a string method,
+  a search for a NaN in a container, which Python matches by identity)
+  stops the run, which is made again on Python. The same limits as the
+  Python runner (2 s a call; on top: a million items a container, calls
+  50 deep); it reaches nothing outside the script. Evidence:
+  `lsim-script/tests/parity.rs` runs today's runner (scripting.py, with
+  only the standard library) and the native one on the same calls (the
+  Hybrid Control Unit on four drives of 6000 calls, seven scripts that
+  exercise each feature, 300 random expressions over signed zeros,
+  subnormals, the largest floats, infinities and NaN): 34 221 calls
+  bitwise equal, 1703 failing on both, 102 random calls handed back to
+  Python, none different; and the hybrid's four cases give bitwise the
+  same results on both runners (`lsim-project/examples/script_parity`).
+  A Hybrid Control Unit call costs 5.8 µs natively against about 25 µs
+  in-process in Python and far more across a process boundary.
+* **Numbers in JSON** are parsed correctly rounded (serde_json's
+  `float_roundtrip`), as Python reads them: without it about one decimal
+  in eight with many digits came back one bit off (measured: 239 004 of
+  2 000 000 shortest representations), which moved the golden
+  comparison's Python Script host's outputs and any project parameter
+  written with many digits.
 * **FMUs for model exchange** (WP4, later): their states join `x`, their
   derivatives and event indicators are called from the generated code's
   slots through a C-ABI shim; Jacobians by directional derivatives where

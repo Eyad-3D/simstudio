@@ -27,11 +27,16 @@ lsim-fast = { path = "crates/lsim-fast" }
 lsim-lib = { path = "crates/lsim-lib" }
 lsim-project = { path = "crates/lsim-project" }
 lsim-engine = { path = "crates/lsim-engine" }
+lsim-script = { path = "crates/lsim-script" }
 lsim-sundials-sys = { path = "crates/lsim-sundials-sys" }
 
 # third-party, exact versions (every licence is checked by scripts/licences.py)
 serde = { version = "=1.0.229", features = ["derive"] }
-serde_json = "=1.0.151"
+# float_roundtrip: every number parsed correctly rounded, as Python (and so
+# today's engine) reads it; without it about one decimal in eight with
+# many digits comes back one bit off (a project's parameters, a Script
+# host's outputs)
+serde_json = { version = "=1.0.151", features = ["float_roundtrip"] }
 thiserror = "=2.0.21"
 sha2 = "=0.11.0"
 cranelift-codegen = "=0.134.4"

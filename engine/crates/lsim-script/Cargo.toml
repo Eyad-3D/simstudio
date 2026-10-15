@@ -1,0 +1,16 @@
+[package]
+name = "lsim-script"
+description = "Script blocks without the Python interpreter: a strict subset of Python, evaluated with Python's own semantics so results are bitwise the Python runner's; anything outside it is left to Python"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license-file.workspace = true
+repository.workspace = true
+
+[dependencies]
+lsim-ir.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
