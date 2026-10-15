@@ -155,8 +155,11 @@ def _rows(text: str) -> list[list[str]]:
         top = max(set(counts), key=counts.count) if counts else 1
         return counts.count(top) if top > 1 else 0
 
-    delim = max((";", "\t", ","), key=score)
-    return [r for r in csv.reader(io.StringIO(text), delimiter=delim)]
+    try:
+        delim = max((";", "\t", ","), key=score)
+        return [r for r in csv.reader(io.StringIO(text), delimiter=delim)]
+    except csv.Error as e:  # a field longer than the csv module's limit
+        raise LapLogError(f"The file cannot be read as a table ({e}).") from e
 
 
 def _table(text: str) -> tuple[list[str], dict[str, str], list[list[Optional[float]]]]:

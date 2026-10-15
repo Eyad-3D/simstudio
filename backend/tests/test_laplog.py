@@ -111,6 +111,8 @@ def test_what_cannot_be_read_says_why():
         laplog.read_lap("1,2\n3,4\n5,6", "Generic")
     with pytest.raises(laplog.LapLogError, match="backwards"):
         laplog.read_lap("time,speed\n0,10\n2,10\n1,10", "Generic")
+    with pytest.raises(laplog.LapLogError, match="as a table"):
+        laplog.read_lap("time,speed\n" + "1" * 200_000, "Generic")  # beyond csv's field limit
 
 
 def test_a_lap_repeated_to_an_endurance_with_a_driver_change():
