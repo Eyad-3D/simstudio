@@ -1980,7 +1980,7 @@ against exact answers from `benchmarks/`.
 | `electric.voltage_source`, `electric.constant_drive`, `electric.climate` | constant voltage; power consumers (i = P/v with a guard); climate load model |
 | `electric.node`, `mech.node` | composite whose own ports are all connected together (one connection set: equal across, through sums to zero) |
 | `boundary.ground` | ground with three pins |
-| `mech.shaft`, `mech.final_drive`, `mech.gearbox`, `mech.differential`, `mech.transfer_case` | inertia, ideal gear with efficiency (loss in the power direction as a mode), selected ratio (gearbox: discrete gear from the signal, shift as an event), open differential (torque split, speed sum) |
+| `mech.shaft`, `mech.final_drive`, `mech.gearbox`, `mech.differential`, `mech.transfer_case` | inertia, ideal gear with efficiency on the torque the teeth carry, after the inertias before them (loss in the power direction, blended within `p_dir` of no power), selected ratio (gearbox: discrete gear from the signal, shift as a rigid engagement), open differential (torque split, speed sum) |
 | `mech.clutch` | stick/slip friction with engagement signal: modes and events, no chattering |
 | `mech.brake` | friction torque against rotation, holding at standstill (stick mode) |
 | `propulsion.wheel` | rolling radius, slip-based tyre force (today's model), rolling resistance; translational port to the body |
@@ -2004,7 +2004,17 @@ against exact answers from `benchmarks/`.
   10× smaller step; the band is the larger of 2× that difference and a
   floor (0.1 % for energies, 0.5 % for times); the new engine must fall
   within the band of today's fine-step result. Each difference outside is
-  investigated and either fixed or documented as an intended correction.
+  investigated and classed: the new engine wrong (fixed), today's engine
+  wrong (shown by an exact answer, a fully resolved model, a converged
+  reference or a conservation law, and documented; today's engine is not
+  changed for it), or the band wrong for that channel (the comparison
+  changed only for a documented, sound reason, never widened to pass).
+  The October 2026 triage found every remaining difference in the second
+  class, with one cause: today's engine applies a gear's efficiency to,
+  and reports as the gear's, the torque of the sources above it, the
+  inertias between them not taken out; the library's gears lose their
+  efficiency on, and report, the torque their teeth carry, after the
+  inertias before the mesh (`lsim-project/golden/README.md`).
 * **Same result schema**: the Python layer converts `SimResult` into
   today's `SimResult` JSON (channels with min/max/mean, summary, energy,
   messages), so the app needs no change to show new runs.
