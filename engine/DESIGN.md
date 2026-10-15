@@ -415,6 +415,24 @@ Modelica tools ignore. Labels are the strings after equations. The
 format's user documentation, with every declaration and error message,
 is [`docs/text-format.md`](docs/text-format.md).
 
+Users build their own components from the basic ones in this format (the
+owner's decision), so it must say everything the library says. Tests
+hold that: every library component, every vehicle block in every
+configuration its switches give (349 configurations), every definition
+the example projects import, a component with every IR feature and random
+expressions over every function print and read back unchanged; every
+example on the documentation page parses, prepares, runs and gives the
+numbers the page states (its Rust example is a doctest). `reinit` names a
+state of the component, the across quantity of one of its ports
+(`reinit(b.w, …)`: the state the port is joined to) or a variable of one
+of its parts, as preparation resolves them; a through quantity, a
+parameter or a discrete value is refused at parse time. The gear change
+of `mech_gear_change` is written in the format
+(`crates/lsim-lib/text/gear_change.mo`): the library's shifting gear as
+text is the same definition as `lossy_gear` and runs bit for bit as the
+model built in Rust; the same shift written with `reinit` matches it to
+round-off, its loss counted as the event's, not the gearbox's.
+
 ### 5.5 The flat system (`flat.rs`)
 
 Every variable, parameter and equation with its `Origin`: the instance
@@ -2155,8 +2173,9 @@ work end to end) or against hand-written test doubles of the interfaces.
   pub mod basemodelica { pub fn import(text: &str) -> Result<ComponentDef, Vec<LangError>>; }
   ```
 * **Accepted when**: every `lsim-lib` component round-trips (`to_text` →
-  `parse` → equal); 50 malformed inputs each give a span and a plain
-  message; 10 hand-written Base Modelica models import and simulate to
+  `parse` → equal), the vehicle blocks in every configuration too; 50
+  malformed inputs each give a span and a plain message (68 today); every
+  example of the format's documentation runs; 10 hand-written Base Modelica models import and simulate to
   their known answers; unit errors are caught at parse time with the
   equation quoted.
 

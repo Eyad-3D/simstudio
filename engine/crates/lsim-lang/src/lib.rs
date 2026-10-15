@@ -49,6 +49,12 @@
 
 pub mod basemodelica;
 
+/// The user documentation of the text format, whose Rust example (*Running
+/// a model*) is compiled and run as a doctest.
+#[cfg(doctest)]
+#[doc = include_str!("../../../docs/text-format.md")]
+pub struct TextFormatDocs;
+
 mod ast;
 mod dims;
 mod exprs;
