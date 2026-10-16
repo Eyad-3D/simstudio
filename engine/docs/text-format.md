@@ -241,10 +241,11 @@ all. The energy books (`result.energy`) say where the energy went
 ([Energy books](#energy-books)).
 
 A model made of equations alone, with no state (no quantity it
-integrates, such as a capacitor's voltage or an inertia's speed), runs as
-any other: nothing is integrated, each output is the model's value at its
-time, and its events, sampled blocks and energy books work as they do
-with states. Here `r1.i` is 2 A and `r2.v` 4 V from the start:
+integrates, such as a capacitor's voltage or an inertia's speed) and no
+equation that must be solved by iteration, runs as any other: nothing is
+integrated, each output is the model's value at its time, and its
+events, sampled blocks and energy books work as they do with states.
+Here `r1.i` is 2 A and `r2.v` 4 V from the start:
 
 ```modelica
 model Examples.Divider "A 12 V source across two resistors in series: no state, 2 A throughout."
@@ -259,6 +260,14 @@ equation
   connect(source.n, ground.p);
 end Examples.Divider;
 ```
+
+A model with no state whose equations include one solved by iteration
+(`x ^ 3 + x = time`, which no rearrangement solves for `x`) runs on the
+DAE integrator instead, which integrates its iteration variables: their
+values carry the integration's error, as a state's do, within the
+tolerance rather than exact (`x` 1.8e-5 off the exact root at rtol 1e-4,
+2.3e-11 at 1e-10: the outside judge's `count-implicit-nostate-1.0`,
+`engine/judge`).
 
 ## Names
 

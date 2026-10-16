@@ -24,9 +24,10 @@
 //! 1e-12 and 2e-14 off (`lsim-solve/tests/ida_order.rs`, which a copy
 //! without the patch fails). It changes more than that case: on LLNL's own
 //! IDAS examples with quadratures (`engine/judge`, `judge.py sundials`)
-//! the steps differ from the shipped outputs, which unpatched builds of
-//! 7.1.1 and 7.9.0 reproduce to the last digit, and the quadrature comes
-//! out closer to an independent reference (DESIGN.md 8.1); a patch for
+//! the steps differ from the shipped outputs, which an unpatched build of
+//! 7.9.0 reproduces to the last digit (one of 7.1.1 too, but for the 12th
+//! digit of the slider-crank's quadrature), and the quadrature comes out
+//! closer to an independent reference (DESIGN.md 8.1); a patch for
 //! the zero case alone does not mend the engine's, whose states' errors
 //! are often round-off rather than zero. `build.rs` compiles them with the
 //! `cc` crate.

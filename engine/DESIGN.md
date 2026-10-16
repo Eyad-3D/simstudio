@@ -1556,7 +1556,14 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   difference), the step's `when` at its time, the level's within an ulp
   (searched ahead, section 8.2), the phase counter's 1.4e-15 and 1.1e-14
   s after the exact times, the books 1e-16 and 1e-15 of themselves off,
-  78 steps over 2 s at rtol 1e-8 (it failed at its start before).
+  78 steps over 2 s at rtol 1e-8 (it failed at its start before). A
+  model with no state but an equation solved by iteration (`x³ + x =
+  time`) is not this one: it runs on IDA, whose only entries of y are
+  its iteration variables, and its outputs carry the integration's error
+  (x 1.8e-5 off the exact root at rtol 1e-4, 2.3e-11 at 1e-10: the
+  outside judge's `count-implicit-nostate-1.0`); solving them by Newton
+  at every point instead, on `Stateless`, would make them exact, and is
+  not done.
 * **IDA's order with the energy books under error control.** SUNDIALS
   7.1.1's IDAS decides an order decrease on the states' errors alone
   (`IDATestError`), and its quadratures' test (`IDAQuadTestError`) did
@@ -1591,10 +1598,15 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   before, 121.4 s after, one run each on the same machine).
   Judged from outside (section 15, `judge.py sundials`) on SUNDIALS' own
   IDAS examples with quadratures under error control, `idasSlCrank_dns`
-  and `idasAkzoNob_dns`: built from the 7.1.1 release, IDAS reproduces
-  LLNL's shipped outputs to the last digit (steps, error-test failures,
-  the quadrature G), and 7.9.0 the same; the engine's copy is that
-  release with the patch, file for file. With the patch IDAS does not
+  and `idasAkzoNob_dns`: built from the 7.9.0 release, IDAS reproduces
+  both of LLNL's shipped 7.9.0 outputs to the last digit (steps,
+  residual and Jacobian evaluations, error-test and convergence
+  failures, the quadrature G); built from 7.1.1, it reproduces its 7.1.1
+  outputs to the last digit but for the slider-crank's G in its 12th
+  digit (3.3366160662909388 against the `.out`'s 3.3366160662934146,
+  2.5e-12 apart; the build prints the 7.9.0 `.out`'s G, every count the
+  same). The engine's copy is the 7.1.1 release with the patch, file for
+  file. With the patch IDAS does not
   reproduce them: the patch changes the order decision wherever the
   quadratures' errors are the larger, not only where the states' are
   zero. At the shipped tolerances the slider-crank takes 312 steps
@@ -1907,7 +1919,31 @@ round).**
   (`atan2` or a derivative that moves with time, a table whose points are
   not known; a function not defined where its search starts; a search
   that makes no headway) is named in a warning and left to root finding:
-  never silently. (Work package 4's sixth round: the review's `sin(2π
+  never silently. **A known limit:** a condition that reads continuous
+  variables but not time (a speed against a shift threshold, a clutch's
+  slip, `x > 0.5` with x a function of the states) is not checked along
+  the step at all, and without a warning: root finding sees it by its
+  sign at a step's ends, and two crossings inside one step go unseen, as
+  with every integrator that locates events by root finding. The outside
+  judge shows it (`count-explicit-pulse`: `x = z − z³/4` with z = t is
+  above 0.5 from 0.539 to 1.675 s, inside one of the 8 to 11 steps the
+  integrator takes, and the `when` on it is missed at four of the seven
+  tolerances; a harmonic oscillator's nine peaks above 0.9999 over 62 s
+  were counted 9, 0, 1, 1, 6, 4 and 4 times at rtol 1e-4 … 1e-10,
+  OpenModelica 1.27.1's 0, 0, 2, 8, 4, 9 and 9). Checking such conditions
+  as the mixed ones are checked was tried (the same certificate and scan
+  for every condition that reads continuous variables): it finds the
+  pulse and the nine peaks at every tolerance, but on the golden models
+  it is no switch to throw. The hybrid's clutch stick conditions, so
+  checked, meet sign changes root finding steps over and its HWFET run
+  stops as an event storm at 14.6 s (101 events within 0.74 s); its
+  mixed cycle fires 19 more events and moves 81 of its figures and
+  channels; and with these conditions interpreted (the compiled condition
+  kernels cover only conditions that read time) its runs take 12 to 13
+  times as long (the UDDS 566 s against 44 s). It waits for the clutch's
+  switching to be looked at (the driver and anti-windup work, D) and for
+  kernels for these conditions; until then the limit stands, recorded
+  in STATUS.md. (Work package 4's sixth round: the review's `sin(2π
   time / 10) > 0.95` while nothing integrated moved was stepped over
   entirely, x(100) = 0 against 10.108, without a warning; now
   10.108262410426, exact to round-off, in 34 steps. The seventh round:
@@ -2763,14 +2799,39 @@ events name the modes that chatter.
   at 1e-7 against their 3.5–5.4) in 8 to 20 times their steps; the car
   axis 1.6 to 5.8, Akzo Nobel 1.9 to 7.4; the pendulum released at
   0.4 rad to 2.5e-9 m at 1e-10. Its failures are static state
-  selection's (risk R3). Released at every 0.01 rad from 0.01 to 3.14 rad
-  (`judge.py cases --sweep`), the index-3 pendulum is right (within 1000
-  × rtol over 10 s) up to 1.47 rad at every tolerance; from 1.48 rad on
-  (the IFToMM problem, released level with its pivot, among them), and
-  looping, no run is: at rtol 1e-4 … 1e-6 two thirds end wrong without a
-  message (the position 1 cm to 2 m off), the rest stop; at 1e-7 … 1e-10
-  nearly all stop, at the bottom of the swing or where the rod passes
-  the horizontal. The four-bar does not prepare.
+  selection's (risk R3). A run of a case with a closed form is right
+  when its error is within 100 rtol of the reference over the whole run
+  (1e-8 at rtol 1e-10, as the brief asks of dynamic state selection; 1
+  cm at 1e-4), a criterion `judge.py` fixes before it scores (the first
+  verdict's "within 1000 × rtol" was chosen after the runs, and the
+  judge did not apply it). Released at every 0.01 rad from 0.01 to 3.14
+  rad (`judge.py cases --sweep`), the index-3 pendulum is right at every
+  tolerance only up to 0.71 rad, and its error grows with the angle: at
+  most 17 to 69 rtol up to 0.70 rad, up to 266 rtol from 0.71 to 1.00
+  rad and 360 to 1.30 rad, 786 at 1.31 … 1.40 and 868 at 1.45 rad
+  (rtol 1e-10). Up to 1.47 rad no run stops and 103 of 1029 are wrong
+  without a message: 35 of the 147 angles at rtol 1e-10 (8.7e-8 m at
+  1.45 rad), 1.1e-2 m at 1.40 rad and rtol 1e-4. How much of that is the
+  problem's own sensitivity (its period grows with the angle) and how
+  much the conditioning of the states chosen at the start, the work on
+  state selection (C) is to separate, beside OpenModelica's dynamic
+  selection at the same angles; it is not to take the range up to 1.47
+  rad as right. From 1.48 rad on (the IFToMM problem, released level
+  with its pivot, among them), and looping, no run is right: at rtol
+  1e-4 … 1e-6, 326 of the 501 runs end wrong without a message (the
+  position 0.3 to 2 m off), the rest stop; at 1e-7 … 1e-10, 665 of 668
+  stop, at the bottom of the swing or where the rod passes the
+  horizontal. The four-bar does not prepare. The second verdict (work
+  package 4's twelfth round: conditions on iteration variables held on
+  their side, section 8.2; the judge scoring by time and by its fixed
+  criterion): a `when` on a variable solved from an implicit equation fires
+  once per crossing (it fired twice or three times in 8 of the 28 runs
+  of the four `count-implicit` cases; OpenModelica once in all), and a
+  condition on a state alone is still missed where one step holds both
+  its crossings (`count-explicit-pulse` at four tolerances of seven,
+  `count-oscillator-peaks` at six; section 8.2, a known limit; on the
+  oscillator OpenModelica misses at five); every other case is the
+  same, steps, error and events, as before the round.
 * **Performance gates**: not built yet. When they are, they compare build
   time (prepare + compile) and run time for each example car in both modes
   with the base commit (as the backend's performance job does) and with
@@ -3018,6 +3079,19 @@ work end to end) or against hand-written test doubles of the interfaces.
   the variable (section 8.1; no golden run takes either path). With the
   order the golden comparison moves by about the tolerance, every figure
   and channel on the side of its band it was (section 8.1).
+* **Twelfth round (the outside judge's checks, 16 October 2026)**: a
+  condition on a variable solved from an implicit equation is held on
+  the side it crossed to where solving the iteration variables again at
+  its event put it back a little short of zero, so its `when` fires
+  once per crossing, and a mode that its relation set back there
+  restarts the integrator, which meets the crossing again (section 8.2:
+  before, two or three firings, a mode off until the next step end).
+  The judge scores by time, not by row, with a criterion fixed before
+  scoring (section 15), and counts crossings with exact answers. A
+  condition on the states alone, not on time, is still left to root
+  finding: a known limit (section 8.2). The golden comparison: one mode
+  of the formula student car met 1.7e-7 s earlier, its figures moving by
+  at most 6e-4 of their bands; the rest the same to the last digit.
 * **Status (as built)**: the exact-answer suite passes on both backends,
   ODE and DAE paths (`lsim-solve/tests/reference.rs`); the backends agree
   within 4.2·rtol; events within 2.6·rtol on SUNDIALS at every tolerance,
@@ -3100,7 +3174,7 @@ the vehicle body). A short integration checkpoint each week runs
 |---|---|---|
 | R1 | Sampled Script blocks at 10 ms force 180 000 integrator restarts on WLTC | restart only when an output changes; recommend continuous-time controllers; measure (WP4 acceptance). **WP4:** done — no restart and no extra step for a tick that changes nothing; its inputs read ahead across the step, bit for bit: 9.5–21 ns a tick, 2.0–4.4 % of the cheapest test model's run (20 000× real time), < 3 % of the 101-state one (section 9) |
 | R2 | SUNDIALS build on Windows/macOS | in-tree `cc` build with committed config header and bindings; CI on all three from the start (WP4/WP6). **WP4:** built and tested on Linux with only a C compiler; the MSVC build is proven by CI's "Engine (Rust) on Windows" job (run 38620416352 on a619ab4; the merged tree from dd8feb0); macOS is not built (Windows only for now) |
-| R3 | Index reduction needs dynamic state selection for some models | static dummy derivatives with an initial pivoting check cover vehicle drivelines; report the rare case clearly; dynamic selection only if a real model needs it. **The outside judge (16 October 2026, section 15):** the rare case is neither rare nor reported clearly. The index-3 pendulum released at 1.48 rad or more (the IFToMM planar pendulum among them), or looping, keeps the states chosen at the start through the point where they degenerate: at rtol 1e-4 … 1e-6 two thirds of the runs end without a message and wrong (the position 1 cm to 2 m off on a 1 m rod, the energy up to 29 J), the rest stop there (SUNDIALS flag −4, or no step passes), and at 1e-7 … 1e-10 nearly all stop; the IFToMM multiple four-bar does not prepare (SINGULAR-LOOP at its start values); released exactly level (y = 0) the pendulum is refused (STATE-SELECT-SINGULAR), 6e-17 m below it prepares. OpenModelica 1.27 (DASSL) with its dynamic state selection runs every pendulum (to 9e-8 … 6e-4 m at rtol 1e-10); with static dummy derivatives it fails as the engine does, mostly worse (results of NaN reported as a success); neither of its selections runs the four-bar (it fails at its start, or does not build). Detection, then dynamic selection, are the solver work's next parts |
+| R3 | Index reduction needs dynamic state selection for some models | static dummy derivatives with an initial pivoting check cover vehicle drivelines; report the rare case clearly; dynamic selection only if a real model needs it. **The outside judge (16 October 2026, section 15):** the rare case is neither rare nor reported clearly. The index-3 pendulum released at 1.48 rad or more (the IFToMM planar pendulum among them), or looping, keeps the states chosen at the start through the point where they degenerate: at rtol 1e-4 … 1e-6 two thirds of the runs end without a message and wrong (the position 0.3 to 2 m off on a 1 m rod, the energy up to 29 J), the rest stop there (SUNDIALS flag −4, or no step passes), and at 1e-7 … 1e-10 nearly all stop; the IFToMM multiple four-bar does not prepare (SINGULAR-LOOP at its start values); released exactly level (y = 0) the pendulum is refused (STATE-SELECT-SINGULAR), 6e-17 m below it prepares. Below 1.48 rad the runs end, but 103 of the 1029 up to 1.47 rad without a message more than 100 rtol off the closed form (section 15). OpenModelica 1.27 (DASSL) with its dynamic state selection runs every pendulum (at rtol 1e-10 to 1.3e-9 m released at 0.40 rad, 9.8e-8 and 6.6e-8 m at 1.50 and 1.55 rad, 8.6e-8 m on the IFToMM problem, 6.4e-7 … 2.0e-5 m looping, 1.3e-5 and 6.4e-4 m at 3.00 and 3.13 rad); with static dummy derivatives it fails as the engine does, mostly worse (results of NaN reported as a success); neither of its selections runs the four-bar (it fails at its start, or does not build). Detection, then dynamic selection, are the solver work's next parts |
 | R4 | Friction and clutch modes chatter | force-based stick/slip conditions in the components; event-storm detection naming the parts. **WP4:** storm detection done (over 100 state events within 1e-3 of the run, the error names the modes' parts; tested on a chattering mode); the force-based conditions are WP5's |
 | R5 | Golden comparisons show differences that are today's numerical error | measured bands from today's own fine-step runs; differences triaged and documented |
 | R6 | Fast-mode speed (now: faster than the average of comparable tools, section 2) | Rosenbrock-W with Jacobian reuse; explicit backward evaluation of the sorted inverse model; measured early in WP6 |
