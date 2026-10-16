@@ -2101,7 +2101,7 @@ save most of those 10 ms in every run, sequential or not (a change to
   100); a script of more than 1 MiB is not read. `tests/memory.rs` checks
   it with an allocator that counts every block: each kind of value counts
   exactly what it holds, and scripts that outgrow the cap in each kind of
-  value stop before the process holds 531 MB. Past either limit the
+  value stop before the process holds about 530 MB. Past either limit the
   script is left to Python, whose own limits decide. They are
   not measured the same way: Python is slower and its values larger, so
   a call close to either limit can be stopped by the app's worker and

@@ -83,11 +83,12 @@ fn script(top: &str, body: &str) -> String {
 /// Scripts whose values keep growing, each in another kind of value: the
 /// top-level code, or every call adding to `state`.
 const GROWING: [(&str, &str, &str); 9] = [
-    // the checker's case: a zip object over 200 iterators is 10 KB
+    // the checker's case: a zip object over 200 iterators is 10 KB (each
+    // kind a few tenths of a second a call, well within the time limit)
     (
         "zip objects",
         "",
-        "    r = range(1)\n    l = []\n    for i in range(60000):\n        l.append(zip(r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r))\n    state[len(state)] = l\n    return {'y': len(state)}\n",
+        "    r = range(1)\n    l = []\n    for i in range(5000):\n        l.append(zip(r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r, r))\n    state[len(state)] = l\n    return {'y': len(state)}\n",
     ),
     (
         "enumerate objects",
@@ -96,14 +97,15 @@ const GROWING: [(&str, &str, &str); 9] = [
     ),
     // a dict's index (its hashes and slots) besides its entries
     (
-        "dicts of a million integers",
+        "dicts of integers",
         "",
-        "    d = {}\n    for i in range(1000000):\n        d[i] = i\n    x = d.get(5)\n    state[len(state)] = d\n    return {'y': len(state)}\n",
+        "    d = {}\n    for i in range(250000):\n        d[i] = i\n    x = d.get(5)\n    state[len(state)] = d\n    return {'y': len(state)}\n",
     ),
-    // (a function is defined at the top level only)
+    // (a function is defined at the top level only: lists of 436 MB first,
+    // then the functions that take it past the cap)
     (
         "functions with defaults",
-        "K = [[]]\nfor i in range(3000000):\n    def g(a=i, b=i, c=i, d=i, e=i, f=i, h=i, j=i):\n        return a\n    if len(K[-1]) == 500000:\n        K.append([])\n    K[-1].append(g)\n",
+        "B = []\nfor k in range(13):\n    B.append(list(range(1000000)))\nK = [[]]\nfor i in range(3000000):\n    def g(a=i, b=i, c=i, d=i, e=i, f=i, h=i, j=i):\n        return a\n    if len(K[-1]) == 500000:\n        K.append([])\n    K[-1].append(g)\n",
         "    return {'y': len(K)}\n",
     ),
     (
@@ -153,9 +155,13 @@ fn values_that_outgrow_the_cap_stop_before_the_memory_does() {
             }
             Err(e) => panic!("{what}: {e}"),
         };
+        let mut slowest = 0.0f64;
         for k in 1..60 {
             let Some(r) = r.as_mut() else { break };
-            match r.step(k as f64 * 0.01, 0.01, &[]) {
+            let started = std::time::Instant::now();
+            let got = r.step(k as f64 * 0.01, 0.01, &[]);
+            slowest = slowest.max(started.elapsed().as_secs_f64());
+            match got {
                 Ok(_) => {}
                 Err(ScriptError::Unsupported(m)) => {
                     assert!(m.contains("512 MB"), "{what}: {m}");
@@ -168,7 +174,10 @@ fn values_that_outgrow_the_cap_stop_before_the_memory_does() {
             assert!(held < 600, "{what}: {held} MB held after call {k}, and no stop");
         }
         let peak = (PEAK.load(Relaxed) - base) / MB;
-        eprintln!("{what}: left to Python at call {stopped:?}, at most {peak} MB held");
+        eprintln!(
+            "{what}: left to Python at call {stopped:?}, at most {peak} MB held, calls of up to \
+             {slowest:.2} s"
+        );
         assert!(stopped.is_some(), "{what}: never stopped");
         assert!(peak < 600, "{what}: {peak} MB held at the most");
         drop(r);
@@ -255,6 +264,23 @@ fn every_value_counts_the_memory_it_holds() {
         assert!(real <= mine, "{what}: holds {real} bytes, counts {mine}");
         assert!(mine <= real + real / 8, "{what}: holds {real} bytes, counts {mine}");
     }
+    // functions, made by the top-level code only: two scripts of the same
+    // length, one making 20 000 of them
+    let start = |n: &str| {
+        let top = format!(
+            "K = []\nfor i in range({n}):\n    def g(a=i, b=i, c=i):\n        return a\n    K.append(g)\n"
+        );
+        let held = HELD.load(Relaxed);
+        let r =
+            Runner::start(&script(&top, "    return {'y': 1}\n"), "probe", &serde_json::Map::new())
+                .expect("it starts");
+        (HELD.load(Relaxed) - held, r.memory(), r)
+    };
+    let (held0, counted0, _r0) = start("0 * 20000");
+    let (held1, counted1, _r1) = start("1 * 20000");
+    let (real, mine) = (held1 - held0, counted1 - counted0);
+    eprintln!("functions: hold {real} bytes, count {mine}");
+    assert!(real > MB && real <= mine && mine <= real + real / 8, "functions: {real}, {mine}");
 }
 
 /// The syntax tree of a script counts too, as more than it holds at the
