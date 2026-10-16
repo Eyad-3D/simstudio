@@ -65,20 +65,20 @@ relaxes after a shift is in their own slip losses (below).
 
 | case | figures inside | channels inside | energy books: closure | gear shifts | as the gears engaged, kWh (today's gearbox term) | steps | events | run, s |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| aero-bev/case-hwfet | 10/10 | 63/67 | 6.4e-12 | — | — | 81983 | 17 | 0.77 |
-| aero-bev/case-udds | 14/14 | 63/67 | 4.1e-10 | — | — | 174670 | 257 | 1.63 |
-| aero-bev/case-wltc | 18/18 | 63/67 | 3.1e-11 | — | — | 224108 | 122 | 2.03 |
-| bev-car/case-city | 10/11 | 65/70 | 6.6e-10 | — | — | 4047 | 17 | 0.07 |
-| bev-car/case-city-live | 10/11 | 65/70 | 6.6e-10 | — | — | 4047 | 17 | 0.06 |
-| bev-car/case-wltc | 19/19 | 65/70 | 2.8e-10 | — | — | 213215 | 122 | 2.22 |
-| bev-car/case-wltc-hvac | 19/19 | 65/70 | 2.0e-11 | — | — | 213911 | 122 | 2.32 |
-| bev-car/case-wltc-summer | 20/20 | 65/70 | 1.1e-11 | — | — | 212949 | 122 | 2.07 |
-| bev-car/case-wltc-winter | 20/20 | 65/70 | 6.5e-11 | — | — | 213829 | 122 | 2.28 |
-| fs-electric/case-accel-75m | 19/19 | 65/65 | 2.5e-10 | — | — | 1037 | 13 | 0.07 |
-| hybrid-car/case-hwfet | 9/9 | 88/88 | 1.8e-12 | 16 | 0.0002062 (0.0003367) | 1918237 | 77005 | 28.02 |
-| hybrid-car/case-mixed | 9/9 | 82/88 | 7.2e-13 | 10 | 0.0001447 (0.0002622) | 571511 | 56218 | 10.23 |
-| hybrid-car/case-mixed-live | 9/9 | 82/88 | 7.2e-13 | 10 | 0.0001447 (0.0002622) | 571511 | 56218 | 10.23 |
-| hybrid-car/case-udds | 13/13 | 88/88 | 1.1e-11 | 104 | 0.0016634 (0.0035028) | 3022879 | 118074 | 43.55 |
+| aero-bev/case-hwfet | 10/10 | 63/67 | 6.4e-12 | — | — | 81983 | 17 | 0.78 |
+| aero-bev/case-udds | 14/14 | 63/67 | 4.1e-10 | — | — | 174670 | 257 | 1.67 |
+| aero-bev/case-wltc | 18/18 | 63/67 | 3.1e-11 | — | — | 224108 | 122 | 2.21 |
+| bev-car/case-city | 10/11 | 65/70 | 6.6e-10 | — | — | 4047 | 17 | 0.06 |
+| bev-car/case-city-live | 10/11 | 65/70 | 6.6e-10 | — | — | 4047 | 17 | 0.07 |
+| bev-car/case-wltc | 19/19 | 65/70 | 2.8e-10 | — | — | 213215 | 122 | 2.16 |
+| bev-car/case-wltc-hvac | 19/19 | 65/70 | 2.0e-11 | — | — | 213911 | 122 | 2.07 |
+| bev-car/case-wltc-summer | 20/20 | 65/70 | 1.1e-11 | — | — | 212949 | 122 | 2.03 |
+| bev-car/case-wltc-winter | 20/20 | 65/70 | 6.5e-11 | — | — | 213829 | 122 | 2.19 |
+| fs-electric/case-accel-75m | 19/19 | 65/65 | 8.0e-11 | — | — | 1062 | 14 | 0.06 |
+| hybrid-car/case-hwfet | 9/9 | 88/88 | 1.8e-12 | 16 | 0.0002062 (0.0003367) | 1918237 | 77005 | 28.03 |
+| hybrid-car/case-mixed | 9/9 | 82/88 | 7.2e-13 | 10 | 0.0001447 (0.0002622) | 571511 | 56218 | 9.56 |
+| hybrid-car/case-mixed-live | 9/9 | 82/88 | 7.2e-13 | 10 | 0.0001447 (0.0002622) | 571511 | 56218 | 10.24 |
+| hybrid-car/case-udds | 13/13 | 88/88 | 1.1e-11 | 104 | 0.0016634 (0.0035028) | 3022879 | 118074 | 43.99 |
 
 199 of the 201 figures are inside their bands (194 before work package
 4's second round, below), and 984 of 1038 channels (949 after its fourth
@@ -100,7 +100,12 @@ the hybrid's channels outside after the fourth round, are compared as
 today's engine records them, before its step (the run keeps both sides:
 below). The energy books close to 6.6e-10 of their throughput or better
 in every case (1.5e-9 before IDAS's order fix; the hybrid's to about
-1e-11), each stored energy's rate exact.
+1e-11), each stored energy's rate exact. Since work package 4's twelfth
+round (16 October) the formula student car's accumulator, held at its
+output power limit, switches 1.7e-7 s earlier (a mode on an iteration
+variable, met again where the integrator located it a little early:
+DESIGN.md 8.2), its figures moved by at most 6e-4 × band, every other
+case the same to the last digit.
 Every figure moved by at most 1.5e-3 × band since the fourth round, most
 by less than 5e-4, and none in the sixth or the seventh; with the
 engine's own mathematical library (October 2026, the last section) 143
