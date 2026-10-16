@@ -77,6 +77,7 @@ const EXPECT: &[Expect] = &[
     ),
     ("Examples.ModeHeater", 10.0, 1.0, &[("mass.T", 10.0, 298.15, 1e-9)]),
     ("RC", 0.2, 0.05, &[("vC", 0.1, 345.8658867053549, 1e-6)]),
+    ("Examples.Divider", 1.0, 0.5, &[("r1.i", 0.0, 2.0, 1e-15), ("r2.v", 1.0, 4.0, 1e-15)]),
 ];
 
 /// The page, with Windows line ends made Unix ones.

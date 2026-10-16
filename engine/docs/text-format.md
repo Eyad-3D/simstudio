@@ -240,10 +240,25 @@ wrong ([Error messages](#error-messages)); `Report(&errors)` prints them
 all. The energy books (`result.energy`) say where the energy went
 ([Energy books](#energy-books)).
 
-A model to run needs at least one state (a quantity it integrates, such
-as a capacitor's voltage or an inertia's speed): the solver does not yet
-run a model made of equations alone, and stops at its start with "too
-much accuracy requested".
+A model made of equations alone, with no state (no quantity it
+integrates, such as a capacitor's voltage or an inertia's speed), runs as
+any other: nothing is integrated, each output is the model's value at its
+time, and its events, sampled blocks and energy books work as they do
+with states. Here `r1.i` is 2 A and `r2.v` 4 V from the start:
+
+```modelica
+model Examples.Divider "A 12 V source across two resistors in series: no state, 2 A throughout."
+  Electrical.ConstantVoltage source(V = 12) "Supply";
+  Electrical.Resistor r1(R = 4) "Upper resistor";
+  Electrical.Resistor r2(R = 2) "Lower resistor";
+  Electrical.Ground ground;
+equation
+  connect(source.p, r1.p);
+  connect(r1.n, r2.p);
+  connect(r2.n, source.n);
+  connect(source.n, ground.p);
+end Examples.Divider;
+```
 
 ## Names
 

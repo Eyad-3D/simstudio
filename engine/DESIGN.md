@@ -1524,6 +1524,36 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   IDA's path; the energy integrals by three-point Gauss–Legendre on its
   dense output; its smallest step lowered to 1e-20 (section 3.2); a stop
   time it reaches a few ulps short counts as reached.
+* **A model with no state** (no state and no iteration variable: every
+  variable a function of time, the parameters, the inputs and the
+  discrete values) has nothing to integrate, and CVODE given none stopped
+  at its start ("too much accuracy requested"). It runs on
+  `stateless::Stateless`, whichever backend is chosen, an `Integrator`
+  that integrates nothing but the energy books, so the run loop handles
+  it as any model (outputs on the grid, events and `when`s on time and
+  on algebraic conditions, sampled blocks, the books) and the result has
+  the same shape. Its steps go to the stop time, halved until they follow
+  the channels as an integrator's steps follow its states: the
+  polynomial of degree 4 through every channel at a step's ends and
+  quarter points gives the channel at an eighth of the step from either
+  end to the run's tolerance (the recorder's min, max and mean read the
+  steps' ends, as for any model; the outputs are the model's own values
+  at their times). The zero crossings the run loop does not schedule
+  itself are checked at each step's end and a sign change is located by
+  bisection on the model's own functions, exact at any time (there is no
+  interpolant), to SUNDIALS' tolerance, `100 ε (|t| + |h|)`, the step
+  ending just past it, as there. The books are integrated by adaptive
+  Gauss–Kronrod (7 and 15 points; each piece until the two rules agree to
+  `rtol` of its integrand's magnitude and its share of `atol`), or one
+  15-point rule per step without their error control. Against exact
+  answers (`lsim-solve/tests/stateless.rs`: a sine source across a
+  resistor whose resistance steps, a level sensor on the source, a phase
+  counter only root finding can find, a sampled block holding a current
+  as a second source's voltage), on both backends: the outputs exact (0
+  difference), the step's `when` at its time, the level's within an ulp
+  (searched ahead, section 8.2), the phase counter's 1.4e-15 and 1.1e-14
+  s after the exact times, the books 1e-16 and 1e-15 of themselves off,
+  78 steps over 2 s at rtol 1e-8 (it failed at its start before).
 
 ### 8.2 Events
 
@@ -2799,6 +2829,10 @@ work end to end) or against hand-written test doubles of the interfaces.
   grid-length storage (`vec![v; n]` had given it to one), so the runs
   of a sweep reallocate less (section 8.4). The golden comparison is the
   same to the last digit.
+* **Eleventh round (solver fundamentals, 16 October 2026)**: a model with
+  no state runs, on an integrator of nothing but its books
+  (`stateless`, section 8.1). The golden comparison is the same to the
+  last digit (none of its models is without a state).
 * **Status (as built)**: the exact-answer suite passes on both backends,
   ODE and DAE paths (`lsim-solve/tests/reference.rs`); the backends agree
   within 4.2·rtol; events within 2.6·rtol on SUNDIALS at every tolerance,

@@ -7,7 +7,9 @@
 //!   BDF or Adams, chosen automatically) and IDAS (index-1 DAEs) in
 //!   [`sundials`], built in-tree by `lsim-sundials-sys` with dense, band or
 //!   sparse (faer, [`faer_ls`]) LU; diffsol (pure Rust, feature `diffsol`)
-//!   as the independent second backend for cross-checks.
+//!   as the independent second backend for cross-checks. A model with no
+//!   state (nothing to integrate) runs on [`stateless`] whichever backend
+//!   is chosen.
 //! * [`simulate`] — the run loop ([`run`]): consistent initialisation
 //!   (Newton, then homotopy: [`init`]), stepping, `when` clauses and modes
 //!   at located zero crossings with event iteration, time events, sampled
@@ -33,6 +35,7 @@ mod interval;
 pub mod jac;
 mod recorder;
 pub mod run;
+pub mod stateless;
 #[cfg(feature = "sundials")]
 pub mod sundials;
 pub mod sweep;
@@ -764,9 +767,10 @@ impl SimResult {
 }
 
 /// Runs `model` over `grid` with the backend of `opts` — CVODES when the
-/// model has no iteration variables, IDAS otherwise (or diffsol) —
-/// driving the sampled `blocks` (one per [`RunInfo::blocks`] entry, in
-/// order).
+/// model has no iteration variables, IDAS otherwise (or diffsol); a model
+/// with no state and no iteration variable on [`stateless::Stateless`],
+/// which integrates nothing but its energy books — driving the sampled
+/// `blocks` (one per [`RunInfo::blocks`] entry, in order).
 pub fn simulate(
     model: &dyn ModelFunctions,
     info: &RunInfo,
@@ -827,6 +831,12 @@ fn run_backend(
     } else {
         None
     };
+    if l.n_y() == 0 {
+        // nothing to integrate: no backend is needed
+        let _ = y0;
+        let mut integ = stateless::Stateless::new(model, info, opts, grid, d0, u.clone(), quad);
+        return run_loop(model, info, opts, grid, &mut integ, &u, blocks, started);
+    }
     match opts.backend {
         Backend::Sundials => {
             #[cfg(feature = "sundials")]
