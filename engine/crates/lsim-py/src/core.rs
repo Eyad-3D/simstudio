@@ -504,18 +504,30 @@ pub fn script_parts(built: &Built) -> Vec<&SampledSpec> {
 }
 
 /// Whether each of `keys` (of the caller's `scripts`) is the id or the
-/// label of a Script part: a function given for no part would be set
-/// aside unsaid.
+/// label of a Script part, and no part is named by two of them (its id and
+/// its label): a function given for no part, or the second for a part,
+/// would be set aside unsaid.
 pub fn check_script_keys<'a>(
     built: &Built,
     keys: impl Iterator<Item = &'a String>,
 ) -> Result<(), Failure> {
     let parts = script_parts(built);
+    let keys: Vec<&String> = keys.collect();
     let mut unknown: Vec<String> = keys
-        .filter(|k| !parts.iter().any(|p| p.element == **k || p.label == **k))
+        .iter()
+        .filter(|k| !parts.iter().any(|p| p.element == ***k || p.label == ***k))
         .map(|k| format!("'{k}'"))
         .collect();
     if unknown.is_empty() {
+        for p in &parts {
+            if p.element != p.label && keys.contains(&&p.element) && keys.contains(&&p.label) {
+                return Err(Failure::Value(format!(
+                    "scripts: '{}' and '{}' name the Script part '{}' ({}) twice, by its id and \
+                     by its label; give it one function, under one of them.",
+                    p.element, p.label, p.element, p.label
+                )));
+            }
+        }
         return Ok(());
     }
     unknown.sort();

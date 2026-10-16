@@ -20,7 +20,8 @@
 //!
 //! A Script part runs the Python function the caller gives for it
 //! (`scripts={part id or label: f}`), always; a key that names no Script
-//! part is a `ValueError`. A part given none runs its
+//! part, or a part named by two keys (its id and its label), is a
+//! `ValueError`. A part given none runs its
 //! own code on the engine's runner of a subset of Python (lsim-script:
 //! bitwise the app's Script runner's results, reaching nothing outside
 //! the script) when `native_scripts=True`, the default; a part whose code
@@ -632,8 +633,9 @@ impl Model {
     /// for it; with `native_scripts` (the default) a part given none runs
     /// its own code on the engine's runner of a subset of Python, and fails
     /// plainly when the code is outside it. `run.report["scripts"]` says
-    /// which ran; a key of `scripts` that names no Script part is a
-    /// ValueError. A grid of more than 1e7 output points, or whose results
+    /// which ran; a key of `scripts` that names no Script part, or a part
+    /// named by two keys (its id and its label), is a ValueError. A grid of
+    /// more than 1e7 output points, or whose results
     /// would take more than 4 GB, is refused; results read without the
     /// memory left for them raise MemoryError.
     #[pyo3(signature = (rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true))]
@@ -663,8 +665,9 @@ impl Model {
     /// SI values, on top of what `set_params` set), in parallel on up to
     /// `threads` threads with the GIL released. Returns a list with a Run,
     /// or the exception it would have raised, for each set. Script parts
-    /// run as in `simulate` (a key of `scripts` that names no Script part
-    /// is a ValueError); a Script function is shared by all the runs: give
+    /// run as in `simulate` (a key of `scripts` that names no Script part,
+    /// or a part named twice, is a ValueError); a Script function is shared
+    /// by all the runs: give
     /// a sweep stateless functions.
     #[pyo3(signature = (sets, threads=4, rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true))]
     #[allow(clippy::too_many_arguments)]

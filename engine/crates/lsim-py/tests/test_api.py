@@ -511,7 +511,8 @@ def test_a_function_for_no_script_part_is_refused():
     part of the case (a misspelt id, the engine's own naming of the part,
     a label with other capitals) raises a ValueError that names it and the
     parts there are, in simulate and sweep, with native_scripts=True (the
-    default) too: a function given is never set aside unsaid."""
+    default) too; so do two keys that name one part (its id and its
+    label): a function given is never set aside unsaid."""
     model = le.build(HYBRID, "case-mixed")
     calls = []
 
@@ -528,6 +529,21 @@ def test_a_function_for_no_script_part_is_refused():
                 assert type(e.value) is ValueError, e.value
                 text = str(e.value)
                 assert f"'{key}'" in text and "'el-hcu'" in text and "Hybrid Control Unit" in text, text
+    assert not calls
+
+    def other(t, dt, inputs):
+        calls.append(-t)
+        return {}
+
+    for scripts in ({"el-hcu": mine, "Hybrid Control Unit": other},
+                    {"Hybrid Control Unit": other, "el-hcu": mine}):
+        for call in (lambda: model.simulate(t_end=5.0, scripts=scripts),
+                     lambda: model.sweep([{}], scripts=scripts)):
+            with pytest.raises(ValueError) as e:
+                call()
+            assert type(e.value) is ValueError, e.value
+            text = str(e.value)
+            assert "'el-hcu'" in text and "'Hybrid Control Unit'" in text and "twice" in text, text
     assert not calls
     with pytest.raises(ValueError, match="no Script parts"):
         le.build(BEV, WLTC).simulate(t_end=5.0, scripts={"el-hcu": mine})

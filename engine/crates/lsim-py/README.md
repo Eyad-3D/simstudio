@@ -78,7 +78,8 @@ one: `scripts={"el-hcu": f}`, keyed by the part's id or its label, with
 `f(t, dt, inputs: dict[str, float]) -> dict[str, float] | None`. A key that
 is neither (a misspelt id, `"el_hcu"`, the label with other capitals) makes
 `simulate` and `sweep` raise a `ValueError` that names it and the case's
-Script parts, so a function is never left out unsaid. It is
+Script parts, and so do two keys that name one part (its id and its
+label), so a function is never left out unsaid. It is
 called once at the start and then every period; outputs it does not return
 keep their last value. A function given to a `sweep` is shared by all its
 runs, so it should keep no state of its own.

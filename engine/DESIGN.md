@@ -2397,7 +2397,8 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   period, outputs it leaves out holding their value: a replacement
   controller is never set aside for the project's code, and a key that is
   neither the id nor the label of a Script part of the case is a
-  `ValueError` naming it and the parts (in `simulate` and `sweep`). A part given none runs its own code on `lsim-script`'s
+  `ValueError` naming it and the parts (in `simulate` and `sweep`), as
+  are two keys naming one part (its id and its label). A part given none runs its own code on `lsim-script`'s
   native runner (§9: the app's results to the bit, nothing outside the
   script reached) with `native_scripts=True`, the default, which is the
   caller's consent to it; when that code is outside the subset, read or
