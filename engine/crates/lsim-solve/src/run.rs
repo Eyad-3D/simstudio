@@ -93,6 +93,11 @@
 //! * **Modes checked after every step**: a mode whose condition left zero
 //!   right after a restart (root finding cannot see a crossing that starts
 //!   exactly at zero) is caught at the step's end and flipped there.
+//! * **Steps that no longer move the time** (shorter than its resolution:
+//!   no longer step passes the error test, at a jump the model declares
+//!   no event for) stop the run after ten in a row, naming the variable
+//!   with the largest local error; the integrators would take them
+//!   without end.
 //! * **Energy books** ([`crate::energy`]): quadratures read at every grid
 //!   point, stored energy before and after every event, the closure at the
 //!   end.
@@ -238,6 +243,42 @@ struct Loop<'a> {
 /// than 2 ulps: "tout too close to t0").
 pub(crate) fn same_instant(a: f64, b: f64) -> bool {
     (a - b).abs() <= 16.0 * f64::EPSILON * a.abs().max(b.abs())
+}
+
+/// Steps in a row that leave the time where it was before the run stops
+/// (CVODE warns of the first ten, "t + h = t on the next step", and goes
+/// on; IDA says nothing).
+const STUCK_STEPS: usize = 10;
+
+/// The error for steps that no longer move the time at `t`, naming the
+/// variable with the largest local error (as a share of its tolerance) in
+/// the last of them.
+fn no_progress(
+    integ: &mut dyn Integrator,
+    info: &RunInfo,
+    t: f64,
+    local: &mut [f64],
+) -> SolveError {
+    let worst = if integ.local_error(local) {
+        local
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .and_then(|(i, _)| info.y_names.get(i))
+            .map(|v| format!(" (the largest local error: {v})"))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    SolveError::Integrator {
+        t,
+        message: format!(
+            "{} made no progress: no step longer than the time's resolution passes its error \
+             test here{worst}, a jump the model declares no event for (in a `noEvent` relation, \
+             or a function that is not smooth)?",
+            integ.name()
+        ),
+    }
 }
 
 /// Maps an exact zero of a root function to the side it counts as, so a
@@ -1628,6 +1669,7 @@ pub fn run_loop(
         next_time_event += 1;
     }
     let mut local = vec![0.0; n];
+    let mut stuck = 0;
     let mut acc = vec![0.0; n];
     let mut ymax: Vec<f64> = y.iter().map(|v| v.abs()).collect();
     let mut yk = vec![0.0; n];
@@ -1677,6 +1719,18 @@ pub fn run_loop(
         // does not move across it
         let same = same_instant(t, t_stop);
         let mut st = if same { Step::Stopped(t_stop) } else { integ.step(t_stop)? };
+        // steps that leave the time where it was (shorter than its
+        // resolution here, which the integrators take for steps all the
+        // same): no step longer passes the error test, at a jump the model
+        // declares no event for, and the run would go on without end
+        if matches!(st, Step::Internal(_)) && st.time() <= t {
+            stuck += 1;
+            if stuck >= STUCK_STEPS {
+                return Err(no_progress(integ, info, t, &mut local));
+            }
+        } else {
+            stuck = 0;
+        }
         // a mixed condition's sign change inside the step that root
         // finding did not see (two inside one step: a pulse): the step
         // ends there, as at a root; the state there from the dense output

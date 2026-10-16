@@ -208,9 +208,12 @@ recuperates less. Over the cycle the final drive loses about 2.1e-4 kWh
 less (0.016843 against 0.017050 kWh, its loss channel integrated over the
 1 s output grid; today's own book says 0.017003 kWh, so the difference is
 known to about a quarter), which the battery's energies move by together
-(delivered −1.1e-4 kWh, recuperated +7.9e-5 kWh). (At rtol 1e-10 IDA
-stops at t = 120 s, its error test failing repeatedly at h = 3.5e-7 s;
-not investigated here.)
+(delivered −1.1e-4 kWh, recuperated +7.9e-5 kWh). (At rtol 1e-10 IDA's
+error test failed ten times at t = 120 s, a breakpoint of the cycle,
+where the iteration variable `der(el_final_drive.w_out)` changes its
+slope; the run restarts IDA there now, and stops at 300.125 s, where no
+step passes the error test on `el_hvbus.t3.i`: DESIGN.md 8.1, not
+investigated further here.)
 
 **What else moves.** The same channels on the hybrid's HWFET and UDDS,
 the BEV's other cases and the acceleration test differ the same way but

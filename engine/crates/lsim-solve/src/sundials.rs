@@ -387,6 +387,11 @@ pub struct Sundials<'m> {
     /// (at its start, or at a restart), so that the step just taken keeps
     /// its memory and with it its dense output; why
     bdf_next: Option<&'static str>,
+    /// the points where the error test failed repeatedly and the step
+    /// was taken again from a restart there, and the last of them (once
+    /// per point)
+    error_restarts: u64,
+    retried_at: Option<f64>,
     /// the last step's start (the dense output is valid from here to
     /// `t_last`)
     t_step_start: f64,
@@ -778,6 +783,8 @@ impl<'m> Sundials<'m> {
                 methods: vec![],
                 fresh: true,
                 bdf_next: None,
+                error_restarts: 0,
+                retried_at: None,
                 poly_buf: vec![],
                 lane_buf: vec![],
                 t_step_start: t0,
@@ -1188,6 +1195,27 @@ impl Integrator for Sundials<'_> {
             // its state, its integrals)
             if self.kind == Kind::Cvode && self.lmm == Lmm::Adams && self.auto {
                 self.switch_to_bdf(self.t_last, "the fixed-point iteration failed")?;
+                return self.step(t_stop);
+            }
+            // the error test failing repeatedly (ten times, the step cut
+            // by four from the second on): what lies ahead is a kink the
+            // history (its order, its differences) cannot cross, such as a
+            // breakpoint of a table read along time that the run stops at
+            // without a restart, where an iteration variable that is a
+            // derivative (`der(fd.w_out)`, from index reduction) changes
+            // its slope after a long steady stretch. A fresh start from the
+            // last step's end, its rates from the model, crosses it
+            // (`tests/error_test.rs`). Once per point: a second failure
+            // there is the model's
+            let error_test = match self.kind {
+                Kind::Cvode => flag == CV_ERR_FAILURE,
+                Kind::Ida => flag == IDA_ERR_FAIL,
+            };
+            if error_test && !self.fresh && self.retried_at != Some(self.t_last) {
+                self.retried_at = Some(self.t_last);
+                self.error_restarts += 1;
+                let y = self.y().to_vec();
+                self.restart(self.t_last, &y)?;
                 return self.step(t_stop);
             }
             let what = match self.kind {
@@ -1670,6 +1698,14 @@ impl Integrator for Sundials<'_> {
 
     fn setup_notes(&self) -> Vec<String> {
         let mut n = self.notes.clone();
+        if self.error_restarts > 0 {
+            n.push(format!(
+                "the error test failed repeatedly at {} point{}: the integrator restarted at the \
+                 last step's end each time and went on (a kink its history could not cross)",
+                self.error_restarts,
+                if self.error_restarts == 1 { "" } else { "s" }
+            ));
+        }
         if self.prob.lin == Lin::Sparse {
             // SAFETY: `ls` is our faer solver.
             let st = unsafe { crate::faer_ls::stats(self.ls) };

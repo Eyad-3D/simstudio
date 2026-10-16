@@ -1587,6 +1587,34 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   the run times within one run's noise of each other (all 14: 130.4 s
   before, 121.4 s after, one run each on the same machine).
 
+* **Where the error test cannot pass.** Ten failures of the error test
+  at one step (the step cut by four from the second on) stop SUNDIALS.
+  Where that is a kink the integration's history cannot cross, the run
+  now restarts the integrator at the last step's end, once at each
+  point, and goes on: a fresh start, its rates from the model, crosses
+  it (the report's notes say at how many points). It is met at a
+  breakpoint of a table read along time, which the run stops at without
+  a restart (section 8.2), where an iteration variable that is a
+  derivative (`der(fd.w_out)`, from index reduction) changes its slope
+  after a long steady stretch: a gear driven by a torque that starts a
+  ramp at 1 s stopped there ("IDA failed (SUNDIALS flag -3)", h = 3.7e-6
+  s) at rtol 1e-8 and 1e-10, and now runs to 1e-15 of the exact answer
+  with one restart (`lsim-solve/tests/error_test.rs`). The Battery
+  Electric Car's city cycle stopped the same way at its breakpoint at
+  120 s, at rtol 1e-10 before the patch above and at 1e-9 with it
+  (`lsim-project/tests/golden.rs`); one restart there now. Where no step
+  passes at all, at a jump the model declares no event for (in a
+  `noEvent` relation, a function that is not smooth), the integrators
+  took steps shorter than the time's resolution, which leave it where it
+  is, without end (CVODE warns of the first ten and goes on, IDA says
+  nothing); ten in a row now stop the run there, naming the variable with
+  the largest
+  local error: the same gear with its torque jumping under `noEvent`
+  stops at 1 s naming `der(fd.w_out)`, and the city cycle at 1e-10
+  stops at 300.125 s, where no step passes the error test on
+  `el_hvbus.t3.i` (not investigated further). Neither path is taken in
+  the golden comparison, which is the same to the last digit.
+
 ### 8.2 Events
 
 * Zero crossings are located by SUNDIALS' root finding (Illinois method on
@@ -2866,9 +2894,12 @@ work end to end) or against hand-written test doubles of the interfaces.
   (`stateless`, section 8.1); IDAS decides an order decrease on the
   states' and the books' errors together (the vendored copy patched,
   section 8.1: a spin-up whose states are exactly linear stayed at order
-  1, its books setting the step). With the second the golden comparison
-  moves by about the tolerance, every figure and channel on the side of
-  its band it was (section 8.1).
+  1, its books setting the step); where the error test fails ten times
+  at a kink the history cannot cross, the integrator restarts there and
+  goes on, and steps that no longer move the time stop the run, naming
+  the variable (section 8.1; no golden run takes either path). With the
+  order the golden comparison moves by about the tolerance, every figure
+  and channel on the side of its band it was (section 8.1).
 * **Status (as built)**: the exact-answer suite passes on both backends,
   ODE and DAE paths (`lsim-solve/tests/reference.rs`); the backends agree
   within 4.2·rtol; events within 2.6·rtol on SUNDIALS at every tolerance,
