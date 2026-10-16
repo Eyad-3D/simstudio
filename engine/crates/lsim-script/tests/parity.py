@@ -9,10 +9,12 @@ stdin: one JSON document, a list of cases:
 stdout: one JSON document, per case either {"compile_error": str} or
   {"results": [{"ok": [[name, bits], ...]} | {"err": str}]}
 """
+import faulthandler
 import importlib
 import json
 import struct
 import sys
+import threading
 import types
 
 
@@ -30,7 +32,8 @@ def main():
     pkg.__path__ = [solver_dir]
     sys.modules["lsim_parity_solver"] = pkg
     scripting = importlib.import_module("lsim_parity_solver.scripting")
-    cases = json.load(sys.stdin)
+    # the bytes as sent (UTF-8), not decoded as the locale says (Windows)
+    cases = json.loads(sys.stdin.buffer.read())
     # what scripts print goes to stderr: stdout carries the results
     results_out = sys.stdout
     sys.stdout = sys.stderr
@@ -57,4 +60,26 @@ def main():
     json.dump(out, results_out)
 
 
-main()
+
+# A fatal error (a C stack overflow, say) tells where on stderr.
+faulthandler.enable()
+# The cases run on a thread with a stack of the same size on every platform:
+# the hostile ones (100 000 nested enumerates, say) recurse in C as they are
+# freed, deeper than python.exe's 2 MB main thread allows on Windows (Linux
+# gives its main thread 8 MB).
+threading.stack_size(64 * 1024 * 1024)
+failed = []
+
+
+def run():
+    try:
+        main()
+    except BaseException:
+        failed.append(True)
+        raise
+
+
+worker = threading.Thread(target=run)
+worker.start()
+worker.join()
+sys.exit(1 if failed else 0)

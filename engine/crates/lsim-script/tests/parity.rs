@@ -98,7 +98,9 @@ fn on_python(cases: &[Case]) -> Vec<Value> {
         })
         .collect();
     let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // `-X utf8`: what scripts print is written as UTF-8 on every platform
     let mut child = Command::new(python())
+        .args(["-X", "utf8"])
         .arg(here.join("tests/parity.py"))
         .arg(repo().join("backend/app/solver"))
         .stdin(Stdio::piped())
@@ -113,7 +115,8 @@ fn on_python(cases: &[Case]) -> Vec<Value> {
     writer.join().expect("the writer").expect("written");
     assert!(
         out.status.success(),
-        "the Python side failed: {}",
+        "the Python side failed ({}): {}",
+        out.status,
         String::from_utf8_lossy(&out.stderr)
     );
     serde_json::from_slice::<Vec<Value>>(&out.stdout).expect("Python's results")

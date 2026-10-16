@@ -6,3 +6,6 @@
 # The vendored CORE-MATH sources too: their SHA-256 sums are recorded
 # (engine/crates/lsim-math/core-math/SHA256SUMS).
 engine/crates/lsim-math/core-math/** -text
+# The Script runner's edge cases: some hold carriage returns on purpose, and
+# both runners must read them as written.
+engine/crates/lsim-script/tests/cases/** -text

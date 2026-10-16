@@ -446,10 +446,11 @@ mod tests {
 
     #[test]
     fn the_wrapper_names_every_method_of_the_trait() {
-        let trait_src = include_str!("../../lsim-ir/src/runtime.rs");
-        let methods = trait_methods(trait_src, "pub trait ModelFunctions");
+        // the sources as checked out: CRLF on Windows
+        let trait_src = include_str!("../../lsim-ir/src/runtime.rs").replace("\r\n", "\n");
+        let methods = trait_methods(&trait_src, "pub trait ModelFunctions");
         assert!(methods.len() >= 17, "found only {methods:?}");
-        let own = include_str!("started.rs");
+        let own = include_str!("started.rs").replace("\r\n", "\n");
         let imp = &own[own.find("impl ModelFunctions for Started").expect("the impl")..];
         let imp = &imp[..imp.find("\n}\n").expect("its end")];
         for m in &methods {
