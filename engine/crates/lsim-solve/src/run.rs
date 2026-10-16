@@ -95,9 +95,9 @@
 //!   exactly at zero) is caught at the step's end and flipped there.
 //! * **Steps that no longer move the time** (shorter than its resolution:
 //!   no longer step passes the error test, at a jump the model declares
-//!   no event for) stop the run after ten in a row, naming the variable
-//!   with the largest local error; the integrators would take them
-//!   without end.
+//!   no event for or where the model turns singular) stop the run after
+//!   ten in a row, naming the variable with the largest local error; the
+//!   integrators would take them without end.
 //! * **Energy books** ([`crate::energy`]): quadratures read at every grid
 //!   point, stored energy before and after every event, the closure at the
 //!   end.
@@ -274,8 +274,10 @@ fn no_progress(
         t,
         message: format!(
             "{} made no progress: no step longer than the time's resolution passes its error \
-             test here{worst}, a jump the model declares no event for (in a `noEvent` relation, \
-             or a function that is not smooth)?",
+             test here{worst}. The model is not smooth here (a jump it declares no event for, \
+             in a `noEvent` relation or a function that is not smooth) or singular (the states \
+             it integrates no longer determine the others: states that index reduction chose \
+             for a constraint degenerate, or an algebraic loop turns singular)",
             integ.name()
         ),
     }

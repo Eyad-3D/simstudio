@@ -1643,7 +1643,16 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   stops at 1 s naming `der(fd.w_out)`, and the city cycle at 1e-10
   stops at 300.125 s, where no step passes the error test on
   `el_hvbus.t3.i` (not investigated further). Neither path is taken in
-  the golden comparison, which is the same to the last digit.
+  the golden comparison, which is the same to the last digit. No step
+  passes either where the model turns singular, and the outside judge
+  (section 15) meets that far more often than a jump: the index-3
+  pendulum whose states index reduction chose at the start (y and its
+  speed, released level with its pivot) stops at the bottom of its swing
+  at rtol 1e-7 and tighter (before, "IDA failed (SUNDIALS flag -9)",
+  repeated recoverable residual errors, or no answer at all), so the
+  message names both causes, a jump with no event or a singular model
+  (`error_test.rs`); naming the constraint whose chosen states degenerate
+  is section 6's to come (dynamic state selection).
 
 ### 8.2 Events
 
