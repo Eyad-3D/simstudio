@@ -112,6 +112,13 @@ pub enum SolveError {
         /// what it said
         message: String,
     },
+    /// The results asked for do not fit in memory (an output grid of
+    /// that many points): refused before the run instead of aborting it.
+    #[error("the results do not fit in memory: {message}")]
+    Memory {
+        /// what was asked for
+        message: String,
+    },
     /// No integrator backend is compiled in.
     #[error("no integrator backend is built into this engine")]
     NoBackend,
@@ -536,18 +543,32 @@ pub struct OutputGrid {
 
 impl OutputGrid {
     /// The grid's times: from `t0` every `dt`, the last one `t_end`
-    /// exactly (also when `n·dt` rounds a few ulps short of it).
-    pub fn times(&self) -> Vec<f64> {
+    /// exactly (also when `n·dt` rounds a few ulps short of it). A grid
+    /// whose times do not fit in memory is an error, not an abort.
+    pub fn times(&self) -> Result<Vec<f64>, SolveError> {
         let n = ((self.t_end - self.t0) / self.dt - 1e-9).ceil().max(0.0) as usize;
-        let mut t: Vec<f64> =
-            (0..=n)
-                .map(|k| {
-                    if k == n { self.t_end } else { (self.t0 + k as f64 * self.dt).min(self.t_end) }
-                })
-                .collect();
+        let mut t = Vec::new();
+        try_room(&mut t, n.saturating_add(1), || {
+            format!(
+                "an output grid every {} s from {} s to {} s has {n} intervals",
+                self.dt, self.t0, self.t_end
+            )
+        })?;
+        t.extend((0..=n).map(|k| {
+            if k == n { self.t_end } else { (self.t0 + k as f64 * self.dt).min(self.t_end) }
+        }));
         t.dedup();
-        t
+        Ok(t)
     }
+}
+
+/// Makes room in `v` for `n` items, or says what did not fit.
+pub(crate) fn try_room<T>(
+    v: &mut Vec<T>,
+    n: usize,
+    what: impl FnOnce() -> String,
+) -> Result<(), SolveError> {
+    v.try_reserve_exact(n).map_err(|e| SolveError::Memory { message: format!("{} ({e})", what()) })
 }
 
 /// What made an event.

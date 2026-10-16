@@ -10,12 +10,22 @@
 //! model = le.build(project_json, case_id, cache_dir=None)   # import + prepare (cached) + compile
 //! model.report                                              # sizes, times, cache hit, warnings
 //! model.set_params({"el-battery.Q": 756000.0})              # runtime, no rebuild
-//! run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None)
+//! run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None,
+//!                      native_scripts=True)
 //! run.times, run.channels["el-battery:sig_soc"]             # NumPy arrays, today's names
 //! run.min / run.max / run.mean / run.events / run.report / run.energy / run.figures
 //! runs = model.sweep([{…}, {…}], threads=4)                 # parallel, GIL released
 //! le.diagnose(project_json, case_id)                        # structural and unit checks
 //! ```
+//!
+//! A Script part runs the Python function the caller gives for it
+//! (`scripts={part id or label: f}`), always. A part given none runs its
+//! own code on the engine's runner of a subset of Python (lsim-script:
+//! bitwise the app's Script runner's results, reaching nothing outside
+//! the script) when `native_scripts=True`, the default; a part whose code
+//! that runner does not run fails the call with a `ModelError` saying so.
+//! With `native_scripts=False` a part without a function is a
+//! `ValueError`. `run.report["scripts"]` says which ran.
 //!
 //! The work itself is in [`core`] (no Python in it); this file is the
 //! conversion to and from Python objects. The GIL is released while the
@@ -179,40 +189,47 @@ impl DiscreteBlock for PyScriptHost {
     }
 }
 
-/// The host of a Script block: the one place it is chosen. A part runs
-/// only when the caller gives its Python function (`scripts`, by the
-/// part's id or label: the caller decides which scripts may run). With
-/// `native`, a script whose code is within lsim-script's subset of Python
-/// runs on that runner (bitwise the Python runner's results, without the
-/// interpreter); otherwise, and for the rest, the caller's function runs.
+/// The host of a Script block: the one place it is chosen. The caller's
+/// Python function for the part (`scripts`, by the part's id or label) is
+/// what runs, when it gives one. A part given none runs its own code on
+/// lsim-script's runner of a subset of Python with `native` (the caller's
+/// choice: that runner reaches nothing outside the script; its results
+/// are bitwise the app's Script runner's), and fails plainly when its code
+/// is outside that subset; without `native` it is a plain error.
 fn script_host(
     spec: &SampledSpec,
     scripts: &Scripts,
     native: bool,
 ) -> Result<core::ScriptHost, Failure> {
     let Some(f) = scripts.get(&spec.element).or_else(|| scripts.get(&spec.label)) else {
+        if native && let SampledKind::Script { code } = &spec.kind {
+            return match lsim_script::ScriptBlock::new(
+                code,
+                &spec.label,
+                spec.period,
+                spec.inputs.clone(),
+                spec.outputs.clone(),
+                &spec.params,
+            ) {
+                Ok(block) => {
+                    let flag = block.outside_flag();
+                    Ok((Box::new(block), "native", Some(flag)))
+                }
+                Err(lsim_script::ScriptError::Unsupported(m)) => {
+                    Err(core::script_outside(&spec.element, m))
+                }
+                Err(lsim_script::ScriptError::Failed(m)) => {
+                    Err(core::script_failed(&spec.element, m))
+                }
+            };
+        }
         return Err(Failure::Value(format!(
             "The Script part '{}' (id '{}') needs a Python function: pass \
-             scripts={{'{}': f}} to simulate (f(t, dt, inputs) returns a dict of outputs or None).",
+             scripts={{'{}': f}} to simulate (f(t, dt, inputs) returns a dict of outputs or None), \
+             or native_scripts=True to run its own code on the engine's runner.",
             spec.label, spec.element, spec.element
         )));
     };
-    if native && let SampledKind::Script { code } = &spec.kind {
-        // anything the native runner does not take (or fails at the
-        // start) goes to the caller's function, which gives Python's own
-        // result or message
-        if let Ok(block) = lsim_script::ScriptBlock::new(
-            code,
-            &spec.label,
-            spec.period,
-            spec.inputs.clone(),
-            spec.outputs.clone(),
-            &spec.params,
-        ) {
-            let flag = block.outside_flag();
-            return Ok((Box::new(block), "native", Some(flag)));
-        }
-    }
     let host = PyScriptHost {
         name: spec.label.clone(),
         period: spec.period,
@@ -587,7 +604,11 @@ impl Model {
 
     /// Runs the case and returns a Run. The GIL is released while the
     /// engine runs. `scripts` maps a Script part's id (or label) to a
-    /// function `f(t, dt, inputs: dict) -> dict | None`.
+    /// function `f(t, dt, inputs: dict) -> dict | None`, which is what runs
+    /// for it; with `native_scripts` (the default) a part given none runs
+    /// its own code on the engine's runner of a subset of Python, and fails
+    /// plainly when the code is outside it. `run.report["scripts"]` says
+    /// which ran. A grid of more than 1e7 output points is refused.
     #[pyo3(signature = (rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true))]
     #[allow(clippy::too_many_arguments)]
     fn simulate(
@@ -612,9 +633,9 @@ impl Model {
     /// Runs the case for several parameter sets (dicts of engine names →
     /// SI values, on top of what `set_params` set), in parallel on up to
     /// `threads` threads with the GIL released. Returns a list with a Run,
-    /// or the exception it would have raised, for each set. A Script
-    /// function is shared by all the runs: give a sweep stateless
-    /// functions.
+    /// or the exception it would have raised, for each set. Script parts
+    /// run as in `simulate`; a Script function is shared by all the runs:
+    /// give a sweep stateless functions.
     #[pyo3(signature = (sets, threads=4, rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true))]
     #[allow(clippy::too_many_arguments)]
     fn sweep(

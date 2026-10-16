@@ -51,6 +51,7 @@ fn solve_failure(e: &SolveError) -> Failure {
         SolveError::TableOutside { .. } => ("RUN-TABLE", vec![]),
         SolveError::Assert { .. } => ("RUN-ASSERT", vec![]),
         SolveError::Block { block, .. } => ("RUN-BLOCK", vec![block.clone()]),
+        SolveError::Memory { .. } => ("RUN-MEMORY", vec![]),
         SolveError::NoBackend => ("RUN-NO-BACKEND", vec![]),
     };
     let mut d = Diagnostic::error(code, e.to_string());
@@ -64,6 +65,25 @@ fn run_failure(e: RunError) -> Failure {
         RunError::Solve(e) => solve_failure(&e),
         RunError::Fast(e) => Failure::Value(e.to_string()),
     }
+}
+
+/// A Script part whose own code the engine's runner does not run (outside
+/// its subset of Python, when it is read or part-way through the run):
+/// the caller's function is what would run it.
+pub fn script_outside(element: &str, message: String) -> Failure {
+    let mut d = Diagnostic::error("RUN-SCRIPT", message).with_hint(format!(
+        "give the part a Python function to run it: scripts={{'{element}': f}}, \
+         f(t, dt, inputs) returning a dict of outputs or None"
+    ));
+    d.parts = vec![element.to_string()];
+    Failure::Model(vec![d])
+}
+
+/// A Script part whose code fails when it is read, as it would on Python.
+pub fn script_failed(element: &str, message: String) -> Failure {
+    let mut d = Diagnostic::error("RUN-SCRIPT", message);
+    d.parts = vec![element.to_string()];
+    Failure::Model(vec![d])
 }
 
 /// Runs `f`, turning a panic inside the engine into a plain failure (a
@@ -186,10 +206,16 @@ pub struct RunOptions {
     pub output_step: Option<f64>,
     /// end time, s; `None`: the case's duration
     pub t_end: Option<f64>,
-    /// run Script blocks on the engine's own runner where their code is
-    /// within its subset of Python (bitwise the Python runner's results)
+    /// a Script part the caller gives no function runs its own code on the
+    /// engine's runner of a subset of Python (bitwise the app's Script
+    /// runner's results); a part given a function always runs that
     pub native_scripts: bool,
 }
+
+/// The most output points a run records: past it a run would ask for more
+/// memory than a machine has (each point holds every channel's value, min,
+/// max and mean), and is refused before it starts.
+pub const MAX_OUTPUT_POINTS: f64 = 1e7;
 
 impl Default for RunOptions {
     fn default() -> Self {
@@ -217,6 +243,20 @@ impl RunOptions {
         }
         Ok(())
     }
+
+    /// Whether the output grid from 0 to `t_end` every `output_step` (the
+    /// caller's or the case's own) has at most [`MAX_OUTPUT_POINTS`].
+    pub fn check_grid(t_end: f64, output_step: f64) -> Result<(), Failure> {
+        let points = (t_end / output_step).ceil() + 1.0;
+        if points.is_nan() || points > MAX_OUTPUT_POINTS {
+            return Err(Failure::Value(format!(
+                "An output every {output_step} s up to {t_end} s makes {points:.3e} output points; \
+                 a run records at most {MAX_OUTPUT_POINTS:.0e}: give a larger output_step or a \
+                 shorter t_end."
+            )));
+        }
+        Ok(())
+    }
 }
 
 /// One finished run.
@@ -235,9 +275,9 @@ pub struct RunOutput {
     pub t_end: f64,
     /// the output spacing, s
     pub output_step: f64,
-    /// each Script part's label and the runner it ran on (`"native"`, the
-    /// engine's own runner of the Python subset, or `"python"`, the
-    /// caller's function)
+    /// each Script part's label and the runner it ran on (`"native"`, its
+    /// own code on the engine's runner of the Python subset, or
+    /// `"python"`, the caller's function)
     pub scripts: Vec<(String, &'static str)>,
 }
 
@@ -247,9 +287,9 @@ pub struct Hosts {
     pub blocks: Vec<Box<dyn DiscreteBlock>>,
     /// each Script part's label and runner
     pub scripts: Vec<(String, &'static str)>,
-    /// set when a native runner met something outside its subset: the run
-    /// is made again with the caller's functions
-    pub outside: Vec<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// for each part on the native runner, its id and the flag it sets when
+    /// it meets something outside its subset
+    pub outside: Vec<(String, std::sync::Arc<std::sync::atomic::AtomicBool>)>,
 }
 
 /// A Script block's host, its runner, and its native runner's flag.
@@ -282,7 +322,7 @@ pub fn block_hosts(
                 let (host, runner, flag) = script(spec, native)?;
                 out.blocks.push(host);
                 out.scripts.push((spec.label.clone(), runner));
-                out.outside.extend(flag);
+                out.outside.extend(flag.map(|f| (spec.element.clone(), f)));
             }
             SampledKind::TractionControl => out.blocks.push(Box::new(TractionHost::new(spec))),
             SampledKind::Fmu { .. } => {
@@ -302,7 +342,10 @@ pub fn block_hosts(
 /// Runs the case with the parameter values `params` (the whole vector, as
 /// [`lsim_engine::Model::params_with`] gives it): the output grid is the
 /// case's, and an acceleration test runs again to the moment it crosses
-/// the finish, where today's run ends (as `golden::run_case`).
+/// the finish, where today's run ends (as `golden::run_case`). A Script
+/// part on the native runner that meets what the runner does not run
+/// fails the run plainly ([`script_outside`]): it has no function to run
+/// on instead.
 pub fn run(
     built: &Built,
     params: &[f64],
@@ -314,22 +357,21 @@ pub fn run(
         let run = &built.rep.run;
         let t_end = o.t_end.unwrap_or(run.duration);
         let output_step = o.output_step.unwrap_or_else(|| run.output_dt());
+        RunOptions::check_grid(t_end, output_step)?;
         let opts = SolverOptions { rtol: o.rtol, atol: o.atol, ..Default::default() };
         let scripts = std::cell::RefCell::new(vec![]);
         let go = |t_end: f64| -> Result<SimResult, Failure> {
             let grid = OutputGrid { t0: 0.0, t_end, dt: output_step };
             let mut h = hosts(built, o.native_scripts)?;
             let r = built.model.simulate_with(params, &opts, grid, &mut h.blocks);
-            let left = h.outside.iter().any(|f| f.load(std::sync::atomic::Ordering::SeqCst));
-            let (r, h) = if r.is_err() && left {
-                // a native runner met what only Python runs: again on Python
-                let mut h = hosts(built, false)?;
-                (built.model.simulate_with(params, &opts, grid, &mut h.blocks), h)
-            } else {
-                (r, h)
-            };
             *scripts.borrow_mut() = h.scripts;
-            r.map_err(run_failure)
+            let left = h.outside.iter().find(|(_, f)| f.load(std::sync::atomic::Ordering::SeqCst));
+            match (r, left) {
+                (Err(RunError::Solve(SolveError::Block { message, .. })), Some((element, _))) => {
+                    Err(script_outside(element, message))
+                }
+                (r, _) => r.map_err(run_failure),
+            }
         };
         let started = Instant::now();
         let mut result = go(t_end)?;

@@ -586,6 +586,19 @@ impl<'m> Ledger<'m> {
         }
     }
 
+    /// Makes room for each part's series at `points` grid points: an
+    /// error, not an abort, when they do not fit in memory.
+    pub fn reserve(&mut self, points: usize) -> Result<(), crate::SolveError> {
+        let parts = self.books.len();
+        let what = || format!("the energy books of {parts} parts at {points} output times");
+        for b in &mut self.books {
+            crate::try_room(&mut b.energy_in_t, points, what)?;
+            crate::try_room(&mut b.lost_t, points, what)?;
+            crate::try_room(&mut b.stored_t, points, what)?;
+        }
+        Ok(())
+    }
+
     /// At the start (the first grid point).
     pub fn start(&mut self, t: f64, vars: &[f64], params: &[f64]) {
         self.stored(t, vars, params);
