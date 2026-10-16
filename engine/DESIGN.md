@@ -65,8 +65,8 @@ Contents
 
 | Goal | Target | How it is checked |
 |---|---|---|
-| Full dynamic speed | ≥ 1000× real time on the example cars (WLTC: 1800 s in ≤ 1.8 s) | criterion benchmarks per example car, CI gate |
-| Fast mode speed | ≈ 10⁶× real time on WLTC (≈ 2 ms) | same |
+| Full dynamic speed | faster than the average of comparable tools on the same drive cycles (the owner's decision, 15 October 2026: LightSim need not be the fastest, but it must count among the fast ones; the earlier fixed target, 1000× real time, is dropped) | a benchmark of the example cars against published and measured times of comparable tools, kept with its sources |
+| Fast mode speed | faster than the average of comparable quasi-static tools (same decision; the earlier ≈ 10⁶× real time is dropped) | same |
 | Accuracy | every block within its tolerance of an exact answer; global error tracks rtol | the exact-answer suite in `benchmarks/` (built by another agent), tolerance-convergence tests |
 | Energy | the energy balance from port powers closes to ≤ 1e-6 of the energy throughput | per-run check, reported |
 | Events | located to the integrator's root-finding precision (7e-10 s at rtol 1e-10 in the spike) | event-time tests against closed forms |
@@ -2720,9 +2720,11 @@ work end to end) or against hand-written test doubles of the interfaces.
   impl FastSolver for RosenbrockW { fn run(&self, m: &dyn ModelFunctions, p: &[f64], inputs: &[Trace], o: &FastOptions) -> Result<FastResult, FastError>; }
   impl Model { pub fn fast(&self, traces: &[Trace], o: &FastOptions) -> Result<FastResult, FastError>; }
   ```
-* **Accepted when**: fast mode runs WLTC on every example car at ≥ 10⁶×
-  real time and its flags coincide with the forward run's limit hits;
-  full dynamic runs each example car at ≥ 1000× real time; pytest covers
+* **Accepted when**: fast mode runs WLTC on every example car faster
+  than the average of comparable quasi-static tools and its flags
+  coincide with the forward run's limit hits; full dynamic runs each
+  example car faster than the average of comparable tools (section 2;
+  the fixed 10⁶× and 1000× targets were dropped on 15 October 2026); pytest covers
   build/run/sweep/errors; a backend feature flag lets the app run a case
   on the new engine and show it like any run.
 
@@ -2746,7 +2748,7 @@ the vehicle body). A short integration checkpoint each week runs
 | R3 | Index reduction needs dynamic state selection for some models | static dummy derivatives with an initial pivoting check cover vehicle drivelines; report the rare case clearly; dynamic selection only if a real model needs it |
 | R4 | Friction and clutch modes chatter | force-based stick/slip conditions in the components; event-storm detection naming the parts. **WP4:** storm detection done (over 100 state events within 1e-3 of the run, the error names the modes' parts; tested on a chattering mode); the force-based conditions are WP5's |
 | R5 | Golden comparisons show differences that are today's numerical error | measured bands from today's own fine-step runs; differences triaged and documented |
-| R6 | Fast-mode target of 10⁶× real time | Rosenbrock-W with Jacobian reuse; explicit backward evaluation of the sorted inverse model; measured early in WP6 |
+| R6 | Fast-mode speed (now: faster than the average of comparable tools, section 2) | Rosenbrock-W with Jacobian reuse; explicit backward evaluation of the sorted inverse model; measured early in WP6 |
 | R7 | diffsol API churn | pinned exact version; it is the second backend, not the product's |
 | R8 | Cranelift code quality on very large models | chunking; measure; LLVM is not an option (licence-clean but heavy to ship); our models are straight-line arithmetic where Cranelift does well. **WP3:** compile time, not code quality, was the limit (about a microsecond per IR instruction): models above 20 000 expression nodes run on tapes while their machine code compiles (10⁴ equations ready in under 50 ms) |
 | R9 | KLU is LGPL and banned | faer sparse LU (MIT) as our SUNDIALS linear solver (WP4). **WP4:** done; dense, band and sparse LU give the same runs on every reference model (test) |
