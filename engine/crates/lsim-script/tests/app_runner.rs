@@ -511,7 +511,7 @@ fn calls_of_every_shape_stop_at_the_time_limit() {
         format!("{def}{}", forever(&format!("k += h({})", vec!["0"; 20_000].join(", ")))),
         format!("def h({}):\n    return 1\n{}", keywords.join(", "), forever("k += h()")),
         forever(&format!("y = ({})", vec!["0"; 200_000].join(", "))),
-        forever(&format!("print({})", vec!["0"; 200_000].join(", "))),
+        forever(&format!("k += max({})", vec!["0"; 200_000].join(", "))),
         forever(&format!("{} = x", names.join(", "))),
         forever(&format!("y = {}", tree(17))),
         forever(&format!("for y in zip({}):\n            pass", vec!["x"; 200_000].join(", "))),
@@ -533,6 +533,67 @@ fn calls_of_every_shape_stop_at_the_time_limit() {
         }
     }
     assert!(late.is_empty(), "{}", late.join("\n"));
+}
+
+/// print shows nothing here, but CPython writes what it prints, in C and
+/// past any time limit: the review's case, 400 000 lines of 524 288
+/// characters, returned here in 0.05 s where the app's worker stops at
+/// the time limit. A call that prints more than CPython writes in a few
+/// milliseconds (in writes, or in bytes), or text whose writing depends
+/// on the worker's standard output (other than ASCII: Python on Windows
+/// encodes it in the ANSI code page), is left to Python, quickly; each
+/// call may print as much again.
+#[test]
+fn what_cpython_would_not_print_quickly_is_left_to_python() {
+    // `s` is 524 288 characters, `k` 4096
+    let long = "    s = 'x'\n    for i in range(19):\n        s = s + s\n";
+    let kib = "    k = 'x'\n    for i in range(12):\n        k = k + k\n";
+    let bodies = [
+        format!(
+            "{long}    n = 0\n    for i in range(400000):\n        print(s)\n        n += 1\n    return {{'y': n}}\n"
+        ),
+        format!("{long}    print(s)\n    return {{'y': 1}}\n"),
+        format!("{kib}    for i in range(400000):\n        print(k)\n    return {{'y': 1}}\n"),
+        format!("{kib}    for i in range(16):\n        print(k)\n    return {{'y': 1}}\n"),
+        "    for i in range(400000):\n        print('x')\n    return {'y': 1}\n".into(),
+        "    for i in range(513):\n        print(i)\n    return {'y': 1}\n".into(),
+        "    for i in range(400000):\n        print()\n    return {'y': 1}\n".into(),
+        "    for i in range(400000):\n        print(1.5, 2, None, True)\n    return {'y': 1}\n"
+            .into(),
+        format!("    print({})\n    return {{'y': 1}}\n", vec!["0"; 600].join(", ")),
+        format!("    print({})\n    return {{'y': 1}}\n", vec!["0"; 200_000].join(", ")),
+        "    print('a', '\u{394}')\n    return {'y': 1}\n".into(),
+        "    print('\u{e9}')\n    return {'y': 1}\n".into(),
+    ];
+    for body in &bodies {
+        let mut r = start(body, "{}").unwrap();
+        let started = Instant::now();
+        let got = r.step(0.0, 0.01, &[]);
+        let took = started.elapsed().as_secs_f64();
+        let shown = &body[body.len().saturating_sub(60)..];
+        assert!(
+            matches!(&got, Err(ScriptError::Unsupported(m))
+                if m.contains("print") && m.contains("outside what runs without Python")),
+            "{got:?}\n{shown}"
+        );
+        assert!(took < 0.5, "left to Python after {took:.2} s: {shown}");
+    }
+    let code = "for i in range(1000):\n    print('x')\ndef step(t, dt, inputs, state, params):\n    return {}\n";
+    assert!(is_outside(&Runner::start(code, "probe", &Default::default())));
+    // 1024 writes (a print writes each argument, the separator before it
+    // and the end of the line) and 64 KiB a call, a number counted as the
+    // longest (24 bytes), in every call
+    let mut r = start(
+        &format!(
+            "{kib}    for i in range(500):\n        print(i)\n    print({}, -1.5e-300)\n    return {{'y': 1.0}}\n",
+            ["k"; 11].join(", ")
+        ),
+        "{}",
+    )
+    .unwrap();
+    for _ in 0..100 {
+        assert_eq!(outputs(r.step(0.0, 0.01, &[])), vec![("y".into(), 1f64.to_bits())]);
+    }
 }
 
 /// Keywords bind to their parameters by name in any order, a function of

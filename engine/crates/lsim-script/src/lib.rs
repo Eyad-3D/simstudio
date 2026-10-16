@@ -49,9 +49,14 @@
 //! So are an evaluation order or a cost that CPython's compiler and C code
 //! decide: an unhashable key in a dict display of more than 15 pairs
 //! (CPython 3.11 builds up to 15 from all their keys and values evaluated
-//! first, as here, and longer ones in runs), and `x in range(n)` of an x
+//! first, as here, and longer ones in runs), `x in range(n)` of an x
 //! that is no integer over more than a million items (CPython compares
-//! it with each, past any time limit). The worker's frames give the
+//! it with each, past any time limit), and what a call prints
+//! beyond 1024 writes or 64 KiB (nothing is printed here; CPython writes
+//! each argument, the separator before it and the end of the line, past
+//! any time limit) or other than numbers and strings of ASCII characters
+//! (Python writes text in its standard output's encoding, on Windows the
+//! ANSI code page, which may not have them). The worker's frames give the
 //! number of inputs and outputs of a call and the length of each output
 //! key in 16 bits: more than 65 535 of them, or a key of more than 65 535
 //! bytes, stop the worker and fail the app's run, and are left to Python

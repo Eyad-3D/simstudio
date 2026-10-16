@@ -2095,8 +2095,15 @@ save most of those 10 ms in every run, sequential or not (a change to
   builds up to 15 from all their keys and values evaluated first, as
   here, and longer ones in runs of pair by pair), `x in range(n)` of an
   x that is no integer over more than a million items (CPython compares
-  it with each, in C, past any time limit), and an if/elif chain of
-  more than about 100 branches: each `elif` is a level of nesting, as in
+  it with each, in C, past any time limit), what a call prints beyond
+  1024 writes or 64 KiB, a few milliseconds of CPython's time (nothing is
+  printed here, while CPython writes each argument, the separator before
+  it and the end of the line, in C, past any time limit: the review's
+  400 000 lines of 512 KiB returned here in 0.05 s and were stopped at
+  the limit there) or other than numbers and strings of ASCII characters
+  (Python writes text in its standard output's encoding, on Windows the
+  ANSI code page, which may not have them), and an if/elif chain of more
+  than about 100 branches: each `elif` is a level of nesting, as in
   Python's tree, where CPython refuses some 990 in a row. What CPython
   refuses to compile is refused here when the script is read (a
   module-level `global` of a name already assigned or used among them).

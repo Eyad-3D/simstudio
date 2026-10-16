@@ -27,6 +27,21 @@ const MAX_CALL_DEPTH: usize = 50;
 /// statement, loop round or call: one statement is no longer than its code).
 const CLOCK_EVERY: u64 = 1024;
 
+/// The most a call may print here, in writes and in bytes. A print costs
+/// nothing here, but CPython writes each argument, the separator before
+/// it and the end of the line, a write each (a system call each to the
+/// app's pipe when standard output is unbuffered, as the desktop shell
+/// starts the engine), in C where no time limit stops it: these are a few
+/// milliseconds of CPython's time (through a pipe on Linux some 2 µs a
+/// write and 1.2 ns a byte, so about 2 ms). A call that prints more is
+/// left to Python, whose time limit decides.
+const MAX_PRINT_WRITES: u64 = 1024;
+const MAX_PRINT_BYTES: u64 = 64 * 1024;
+
+/// The bytes a number, None or a bool is counted as printing: the longest
+/// of their texts (a float's repr, as `-2.2250738585072014e-308`).
+const PRINTED_NUMBER_BYTES: u64 = 24;
+
 enum Flow {
     Normal,
     Return(Value),
@@ -219,6 +234,8 @@ pub struct Machine {
     ops: u64,
     /// the count of `ops` at which the clock is read next
     next_clock: u64,
+    /// what the current call has printed: writes and bytes
+    printed: (u64, u64),
     depth: usize,
     limit_s: f64,
     cache: Vec<CacheEntry>,
@@ -255,6 +272,7 @@ impl Machine {
             deadline: Instant::now(),
             ops: 0,
             next_clock: CLOCK_EVERY,
+            printed: (0, 0),
             depth: 0,
             limit_s,
             cache: vec![],
@@ -337,6 +355,7 @@ impl Machine {
         self.deadline = Instant::now() + std::time::Duration::from_secs_f64(self.limit_s);
         self.ops = 0;
         self.next_clock = CLOCK_EVERY;
+        self.printed = (0, 0);
         crate::value::start_meter(Some(self.deadline));
     }
 
@@ -1094,20 +1113,41 @@ impl Machine {
                 }
                 Value::Bool(found)
             }
-            // print shows nothing here and changes no result; what it would
-            // print must not fail on Python either (a number, a string)
+            // print shows nothing here and changes no result, so what it
+            // would print must neither fail on Python nor take it long: a
+            // number, or a string of ASCII characters (Python writes other
+            // text in the encoding of its standard output, on Windows the
+            // ANSI code page, which may not have them), and no more in a
+            // call than CPython writes quickly
             Builtin::Print => {
-                if args.iter().any(|a| {
-                    !matches!(
-                        a,
-                        Value::None
-                            | Value::Bool(_)
-                            | Value::Int(_)
-                            | Value::Float(_)
-                            | Value::Str(_)
-                    )
-                }) {
-                    return Err(Outside("print() of a container or an object".into()));
+                let mut bytes = n.max(1) as u64;
+                for a in &args {
+                    bytes += match a {
+                        Value::None | Value::Bool(_) | Value::Int(_) | Value::Float(_) => {
+                            PRINTED_NUMBER_BYTES
+                        }
+                        Value::Str(s) => s.len() as u64,
+                        _ => return Err(Outside("print() of a container or an object".into())),
+                    };
+                }
+                let writes = (2 * n).max(1) as u64;
+                let (w, b) = (self.printed.0 + writes, self.printed.1 + bytes);
+                if w > MAX_PRINT_WRITES || b > MAX_PRINT_BYTES {
+                    return Err(Outside(format!(
+                        "print() of more than {MAX_PRINT_WRITES} writes or {} KiB in a call",
+                        MAX_PRINT_BYTES / 1024
+                    )));
+                }
+                self.printed = (w, b);
+                for a in &args {
+                    if let Value::Str(s) = a {
+                        charge(s.len() as u64)?;
+                        if !s.is_ascii() {
+                            return Err(Outside(
+                                "print() of a string of other than ASCII characters".into(),
+                            ));
+                        }
+                    }
                 }
                 Value::None
             }
