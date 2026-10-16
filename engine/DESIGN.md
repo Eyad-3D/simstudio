@@ -2053,28 +2053,62 @@ save most of those 10 ms in every run, sequential or not (a change to
   computes it, and the math module's exact functions (`sqrt`, `floor`,
   `fabs`, `copysign`, … and the constants). The example cars'
   controllers (the P2 hybrid's Hybrid Control Unit) are in the subset.
-  What it does not run is left to Python, so a result never differs
-  from the Python runner's: a script that uses anything else (other
-  imports, the transcendental math functions and powers of floats, which
-  CPython takes from the C runtime and so differ in their last bit
-  between platforms, string formatting, classes, exceptions,
-  comprehensions, slices, unknown names) is refused when it is read and
-  runs on Python; an operation met while running that Python supports
-  and the subset does not (an integer beyond 64 bits, a string method,
-  a search for a NaN in a container, which Python matches by identity)
-  stops the run, which is made again on Python. The same limits as the
-  Python runner (2 s a call; on top: a million items a container, calls
-  50 deep); it reaches nothing outside the script. Evidence:
-  `lsim-script/tests/parity.rs` runs today's runner (scripting.py, with
-  only the standard library) and the native one on the same calls (the
-  Hybrid Control Unit on four drives of 6000 calls, seven scripts that
-  exercise each feature, 300 random expressions over signed zeros,
-  subnormals, the largest floats, infinities and NaN): 34 221 calls
-  bitwise equal, 1703 failing on both, 102 random calls handed back to
-  Python, none different; and the hybrid's four cases give bitwise the
-  same results on both runners (`lsim-project/examples/script_parity`).
-  A Hybrid Control Unit call costs 5.8 µs natively against about 25 µs
-  in-process in Python and far more across a process boundary.
+  **The reference is the app's own Script runner** as the app calls it:
+  the locked-down worker's call of `step()` (`sandbox_worker._run_step`,
+  CPython 3.11), the parameters typed by the project model (schemas.py's
+  `ParamValue`: a table's values are floats, whatever the file writes),
+  a fresh shallow copy of them each call, and an input of -0.0 passed as
+  +0.0 (sandbox.py's `float(x or 0.0)`). What it does not run is left to
+  Python, so a result never differs from the app's: a script that uses
+  anything else (other imports, the transcendental math functions and
+  powers of floats, which CPython takes from the C runtime and so differ
+  in their last bit between platforms, string formatting, classes,
+  exceptions, comprehensions, slices, unknown names) is refused when it
+  is read and runs on Python, and so is one whose parameters the app
+  reads otherwise or refuses (a null, a list, a table holding other than
+  numbers) or JSON cannot tell apart (`-0`, Python's integer 0, from
+  `-0.0`); an operation met while running that Python supports and the
+  subset does not (an integer beyond 64 bits, a string method, a search
+  for a NaN in a container, which Python matches by identity, copying
+  the sign of a NaN, which CPython's own specialised and plain additions
+  give differently, a builtin subscripted, which is a generic alias in
+  Python, `int()` of more than 640 digits, Python's lowest digit limit)
+  stops the run, which is made again on Python. A NaN result is a NaN;
+  its sign and payload are not part of the promise (IEEE 754 leaves them
+  open). An exception Python raises is raised with CPython 3.11's
+  message. **Limits**, those of the app's worker in size: a call stops
+  after 2 s (the clock is read every 1024 statements, loop rounds and
+  calls, and as every operation whose work grows with the size of what
+  it handles goes: concatenation, copies, comparisons and searches of
+  containers, indexing and converting text, reading the outputs; so a
+  single statement over large containers stops too), and a runner's
+  values may hold 512 MB (each string, list, tuple and dict counts its
+  size when it is made or grows and gives it back when it goes); past
+  either the script is left to Python, whose own limits decide. They are
+  not measured the same way: Python is slower and its values larger, so
+  a call close to either limit can be stopped by the app's worker and
+  return here. On top, outside the subset: a million items a container,
+  calls 50 deep, and nesting deeper than half a MiB of the caller's stack
+  allows. That is measured where the interpreter nests (its expressions,
+  blocks and calls, the parser, the walks through nested data), so no
+  script overflows a caller's thread of 1 MiB in any build: tested on
+  1 MiB and 2 MiB threads in the test, unoptimised and release profiles
+  (`lsim-script/tests/stack.rs`; an unoptimised build's frames are larger,
+  so it leaves more deeply nested scripts to Python). It reaches nothing
+  outside the script. Evidence: `lsim-script/tests/parity.rs` runs the
+  app's runner (`tests/parity.py`, needing pydantic as the backend does)
+  and the native one on the same calls (the Hybrid Control Unit on four
+  drives of 6000 calls, fifteen scripts that exercise each feature, 300
+  random expressions over signed zeros, subnormals, the largest floats,
+  infinities and NaN): 35 681 calls bitwise equal, 2725 failing on both
+  with the same message, 121 random calls handed back to Python, none
+  different; `tests/app_runner.rs` checks the cases a review found and
+  the limits; and the hybrid's four cases give bitwise the same results
+  on both runners (`lsim-project/examples/script_parity`).
+  A Hybrid Control Unit call costs 6.5–7.1 µs natively (release build,
+  `lsim-script/examples/hcu_speed`, on a 4-core VM where the runner
+  before the limits took 7.3–7.9 µs) against about 25 µs in-process in
+  Python and far more across a process boundary.
 * **Numbers in JSON** are parsed correctly rounded (serde_json's
   `float_roundtrip`), as Python reads them: without it about one decimal
   in eight with many digits came back one bit off (measured: 239 004 of
@@ -2314,30 +2348,40 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   preparation divided by raises a plain `ValueError` with the engine's own
   message. A sweep's sets sit on top of what `set_params` set.
 * **Sampled blocks.** The Traction Control block runs today's rule in Rust.
-  A Script block runs a Python function the caller gives
-  (`scripts={part id or label: f}`, `f(t, dt, inputs) -> dict | None`),
-  called at the start and then every period, outputs it leaves out holding
-  their value; without a function `simulate` raises a `ValueError` naming
-  the part (the function is what authorises the script, whichever runner
-  runs it). With `native_scripts=True` (the default) a script inside
-  `lsim-script`'s subset runs on that native runner instead, with the same
-  bits (§9); a script outside it runs the function, and a run that meets an
-  operation outside the subset part-way is run again from the start on the
-  functions. `run.report["scripts"]` says which runner ran. `script_host`
-  in `lib.rs` is the single place a Script block's host is chosen. FMU
-  parts raise a `ModelError` (not supported yet).
+  A Script part runs the Python function the caller gives for it, whenever
+  one is given (`scripts={part id or label: f}`,
+  `f(t, dt, inputs) -> dict | None`), called at the start and then every
+  period, outputs it leaves out holding their value: a replacement
+  controller is never set aside for the project's code. A part given none runs its own code on `lsim-script`'s
+  native runner (§9: the app's results to the bit, nothing outside the
+  script reached) with `native_scripts=True`, the default, which is the
+  caller's consent to it; when that code is outside the subset, read or
+  met part-way, the call raises a `ModelError` coded `RUN-SCRIPT` that
+  names the part, its hint to give the part a function. With
+  `native_scripts=False` a part without a function is a `ValueError`
+  naming it. `run.report["scripts"]` says which ran each part
+  (`"python"` or `"native"`). `script_host` in `lib.rs` is the single
+  place a Script block's host is chosen. FMU parts raise a `ModelError`
+  (not supported yet).
+* **Output grid.** A grid of more than 10⁷ points (from `t_end` and
+  `output_step`, the caller's or the case's own) is a `ValueError` before
+  the run: each point holds every channel's value, min, max and mean.
+  Below it the grid, the recorder and the energy books reserve their room
+  with `try_reserve` and fail with `RUN-MEMORY` instead of aborting.
 * **The app.** With `LIGHTSIM_ENGINE=new` the backend
   (`backend/app/solver/new_engine.py`) runs drive-cycle and acceleration
   cases on this module and everything else on today's engine; any failure
   of the new engine runs the case on today's engine with a warning. The
   default is today's engine. There the Script blocks run in today's
-  locked-down worker (`native_scripts=False`) until the owner decides
-  the native runner may replace it.
+  locked-down worker (each part is given a function that calls it, and
+  `native_scripts=False`) until the owner decides the native runner may
+  replace it.
 * **Errors.** A project that cannot be imported or prepared, or a run that
   fails, raises `ModelError` (a `ValueError`) with the diagnostics (code,
   message, parts, hint, detail) so the app can highlight the parts; a
   failed run's code says what failed (`RUN-INTEGRATOR`, `RUN-INIT`,
-  `RUN-EVENT-STORM`, `RUN-ENERGY`, `RUN-TABLE`, `RUN-ASSERT`, `RUN-BLOCK`).
+  `RUN-EVENT-STORM`, `RUN-ENERGY`, `RUN-TABLE`, `RUN-ASSERT`, `RUN-BLOCK`,
+  `RUN-SCRIPT`, `RUN-MEMORY`).
   A panic inside the engine becomes a `ModelError` coded `ENGINE-FAULT`;
   bad arguments are `ValueError` or `TypeError`.
 * **Not yet:** fast mode for project files (no `mode` argument, so nothing
