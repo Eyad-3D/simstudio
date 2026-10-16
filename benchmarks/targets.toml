@@ -21,13 +21,11 @@ energy_rtol = 1e-4
 closure_rtol = 1e-6
 
 [speed]
-# Full dynamic simulation (every state integrated, events located), wall
-# clock, median of 5 warm runs on one core: at least this many times
-# faster than real time on every example case below.
-dynamic_min_x_realtime = 1000.0
-# A fast mode (quasi-static, for sweeps and optimisation) on the WLTC:
-# about a million times real time.
-fast_wltc_x_realtime = 1.0e6
+# Wall clock, median of warm runs on one core, of full dynamic simulation
+# (every state integrated, events located) on every example case below.
+# There is no fixed x-real-time target (the owner's decision of 15
+# October 2026, engine/DESIGN.md section 2): the goal is to be faster than
+# the average of comparable tools, measured against them.
 repeats = 5
 
 # The example cars' main cases (backend/projects/*.json).

@@ -22,8 +22,9 @@
 //!
 //! Parameters, discrete variables, inputs and table data are read from
 //! memory at every call, so changing them never recompiles. Transcendental
-//! functions call the Rust standard library (the reference interpreter's
-//! own functions); tables call the [`tables`] runtime (monotone cubic,
+//! functions call the engine's own correctly rounded library (`lsim_ir::
+//! math`, the `lsim-math` crate: CORE-MATH, DESIGN.md 7.1), as the
+//! reference interpreter does; tables call the [`tables`] runtime (monotone cubic,
 //! C¹). The functions the run loop compares with the interpreter (zero
 //! crossings, modes, `when` clauses, table guards) are bitwise
 //! `lsim_ir::eval`; the residual, the Jacobian and the channels may

@@ -35,8 +35,9 @@ Contents
   pairs), parameters, variables and equations; connecting ports generates
   the conservation equations. Models are flattened, aliases removed,
   equations matched, sorted, torn and index-reduced into a semi-explicit
-  index-1 DAE, compiled to machine code with **Cranelift** in about a
-  millisecond, and integrated by **SUNDIALS CVODE/IDA**.
+  index-1 DAE, compiled to machine code with **Cranelift** in milliseconds (0.7 ms
+  for the spike, 23–32 ms of one thread for the example cars), and
+  integrated by **SUNDIALS CVODE/IDA**.
 * **Solver: SUNDIALS, with diffsol as the pure-Rust second backend.** On a
   stiff battery–motor–brake DAE with an exact answer both reach
   tolerance-proportional accuracy at the same speed; CVODE re-factorised
@@ -196,8 +197,9 @@ build profile or on fused multiply-add hardware. Measured on Linux: the C
 part builds in about 20 s at `-j 2`; with CMake, clang, LLVM and bindgen
 hidden from `PATH` and `LIBCLANG_PATH` unset, a rebuild and the spike's
 tests pass, and bindgen, clang-sys, cmake and 20 other build-only crates
-left the lockfile. CI must still prove the Windows (MSVC, `/fp:precise`)
-and macOS (Xcode command-line tools, arm64 and x86-64) builds. Beside the
+left the lockfile. The Windows build (MSVC, `/fp:precise`) is proven by
+CI's "Engine (Rust) on Windows" job, which builds SUNDIALS and runs every
+engine test; macOS is not built (Windows only for now, section 2). Beside the
 SUNDIALS sources, `csrc/` holds our four small C helpers (BSD-3, like the
 code they read): the dense output of CVODES and IDAS for selected
 components only, with the same coefficients and summation order as
@@ -274,7 +276,9 @@ same trait.**
 | `lsim-fast` | fast mode: the inverse-model stepper and limit flags | WP6 |
 | `lsim-engine` | the front door: build (with cache), set parameters, simulate, fast mode, sweep | WP6 |
 | `lsim-py` | the Python module `lightsim_engine` (PyO3, maturin) | WP6 |
-| `experiments/` | one-off measurements outside the workspace (the solver evaluation) | – |
+| `lsim-math` | the engine's mathematical library: CORE-MATH's correctly rounded functions, vendored and built for CPUs with and without FMA; the only transcendental functions the engine calls (section 7.1) | WP3 |
+| `lsim-script` | the native runner of Script blocks: a strict subset of Python, its results the app's runner's bit for bit or left to Python (section 9) | WP6 |
+| `experiments/` | one-off measurements outside the workspace (`solver-eval`, `libm-eval`) | – |
 
 ## 5. The IR
 
@@ -553,7 +557,11 @@ pub trait ModelFunctions: Send + Sync {
     fn table_guard_list(&self) -> &[TableGuard] { &[] }                // the table axes the run loop watches
     fn table_guards(&self, inp: &EvalInput, work: &mut [f64], out: &mut [f64]) {}  // > 0 inside the data
     fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> { None } // value, partials
+    fn eval_table_order(&self, k: u32, order: [u8; 2], args: [f64; 2]) -> Option<(f64, [f64; 2])>
+        { /* order [0, 0] by eval_table, else None */ }               // a partial derivative index reduction reads
     fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> { None }   // the breakpoints it interpolates
+    fn condition_kernels(&self) -> Option<&dyn ConditionKernels> { None }  // compiled condition checks
+    fn books_kernel(&self, spec: &BooksSpec) -> Option<Arc<dyn BooksKernel>> { None }  // compiled books
 }
 
 pub trait InitFunctions: Send + Sync {   // Newton on w, then y0
@@ -635,11 +643,10 @@ additive). What the other packages change to use them:
   parameter change makes a `ParamGuard` zero, prepare again.
 * Show `PreparedModel::warnings` in the build report and the Python
   `model.report`.
-* The `Started` wrapper in lsim-engine forwards only seven methods of
-  `ModelFunctions`; it must forward every one (above, WP3): `eval_table`,
-  `modes`, `table_guard_list` and `table_guards`, `table_axes`,
-  `jacobian_dense` (with `sparsity` and `jacobian_sparse`) and `init`
-  too.
+* Done: the `Started` wrapper in lsim-engine forwards every method of
+  `ModelFunctions` (WP6, and `eval_table_order` and `books_kernel` at the
+  merge); `started.rs`'s test fails if the trait gains one it does not
+  name.
 
 **WP3 (lsim-codegen): the order of the zero crossings.** The compiled
 `roots` evaluates `PreparedModel::zero_crossings` in their order, one
@@ -796,7 +803,9 @@ under the contract of the condition kernels:
   may drop the negations around a product). An integrand that reads what
   the interpreter's dual numbers give up on (a derivative, a previous
   value, a name, a variable with no rate, a table read with other than
-  one or two arguments, a call with other than its arguments) is declined
+  one or two arguments, a read of a table's partial derivative (order
+  other than `[0, 0]`, as the condition kernels decline it), a call with
+  other than its arguments) is declined
   and interpreted, wherever in it that sits.
 * **Tiers.** The model compiles a spec when a run asks, keeps it (by
   spec, compared to the bit) for the next run, and returns it on a tape
@@ -836,8 +845,8 @@ the run takes 18.76 billion instructions instead of 22.41 (−16 %), the
 books 7.5 % of it, of which the channels they read (`vars`) 5.3 % and the
 compiled integrands 0.9 %. SUNDIALS (Newton iterations, dense LU, vector
 operations, root checks) takes most of the rest, the condition check
-3.6 %. The hybrid's UDDS (about 92 s
-here) spends about two fifths of its time waiting on its Script
+3.6 %. Before the native Script runner (WP6), the hybrid's UDDS (about 92 s
+here) spent about two fifths of its time waiting on its Script
 controller's Python host (stack samples), and makes 3.0 million steps
 and 118 000 events: the controller's outputs change 114 000 times, each
 change restarting the integrator.
@@ -1153,10 +1162,14 @@ Jacobian 1.01–1.04 µs, `jvp` from it 1.14–1.16 µs (at the start of WP3:
 0.76–0.81 µs). A tiered model's tapes cost ten times its machine code's
 residual and five times its Jacobian until the machine code is in.
 
-**Cache.** Keyed by SHA-256 of the model's inputs (top component, every
-library definition it reaches, connectors, options, engine version); the
-value is the `PreparedModel` as JSON (`lsim-engine/src/cache.rs`). A hit
-skips flattening and structural analysis; machine code is regenerated.
+**Cache.** Keyed by SHA-256 of the model's inputs (top component with its
+parameter values, every library definition it reaches, connectors,
+options, mode, engine version); the value is the `PreparedModel` as JSON
+(`lsim-engine/src/cache.rs`). A hit skips flattening and structural
+analysis; machine code is regenerated. Parameter values are in the key
+because preparation chooses by them (index reduction picks the states by
+pivoting at the start; the start checks warn at the start values): a
+study at other values sets them on one built model instead.
 **Decision (WP3, measured with `lsim-codegen`'s `cache_bench`): machine
 code is not cached.** On the example cars, preparing takes 2.7–3.7 ms and
 reading the prepared model back 1.7–2.6 ms; compiling it then takes
@@ -1710,12 +1723,15 @@ round).**
   comparison flips, and the comparisons a model makes events of are
   modes, constant along a step. On the golden models the certificates
   clear all but 6,386 of 862,704 condition-steps of the BEV's WLTC and
-  all but 677 of 1,145,426 of the hybrid's mixed cycle; the checks take
+  all but 677 of 1,145,426 of the hybrid's mixed cycle; the checks took
   3.3 % of the BEV run's instructions (four conditions, two of them the
   motor's chains, on steps a tenth as costly as the hybrid's) and 0.64 %
   of the hybrid's; lsim-project's `scan_share` example records the
   check's share of a run's time (the BEV's WLTC: 4.8 %, the median of
-  five runs) with those counts, so that a regression shows. What cannot
+  five runs) with those counts, so that a regression shows. After WP3's
+  compiled books and one-pass check the checks take 3.6 % of the BEV
+  run's instructions (674 M of 18.76 G) and 5.5 % of its time (section
+  16, WP3). What cannot
   be searched
   (`atan2` or a derivative that moves with time, a table whose points are
   not known; a function not defined where its search starts; a search
@@ -2113,9 +2129,11 @@ save most of those 10 ms in every run, sequential or not (a change to
   its band (`LimitFlag`: start, end, which part, worst excess). Fast mode
   never falls back to forward simulation; it answers "what would it take"
   and says where the vehicle could not have followed.
-* Budget: 1800 steps in ≈ 2 ms means ≈ 1 µs per step: a few residual calls
-  (tens of ns each for a vehicle) plus a small dense LU refreshed only when
-  the Jacobian drifts. Verified against forward runs: where no flag is
+* Cost: a few residual calls a step (tens of ns each for a vehicle) plus a
+  small dense LU refreshed only when the Jacobian drifts; measured, 1800
+  steps of the test car in about 6.0 ms (3.0·10⁵× real time, STATUS WP6).
+  The speed goal is section 2's: faster than the average of comparable
+  tools, measured against them. Verified against forward runs: where no flag is
   raised, fast and full dynamic agree on energy within the trace's
   discretisation (a documented band).
 
@@ -2126,8 +2144,9 @@ save most of those 10 ms in every run, sequential or not (a change to
   (`el-battery:sig_soc`), so the app and the Python package read results
   as today.
 * **Summary rows, duty, limits, references**: computed by today's Python
-  code from the channels at first (the app's KPIs keep their keys); moved
-  into Rust only where speed requires (WP6).
+  code from the channels at first (the app's KPIs keep their keys; not yet
+  wired for new-engine runs, section 12.3); moved into Rust only where
+  speed requires (WP6).
 * **Energy books**: for every primitive, `energyIn − energyOut − losses −
   stored = 0` from its port powers (across × through), its loss expression
   and its stored-energy expression — today's `partEnergy`. A part's books
@@ -2263,8 +2282,11 @@ against exact answers from `benchmarks/`.
   efficiency on, and report, the torque their teeth carry, after the
   inertias before the mesh (`lsim-project/golden/README.md`).
 * **Same result schema**: the Python layer converts `SimResult` into
-  today's `SimResult` JSON (channels with min/max/mean, summary, energy,
-  messages), so the app needs no change to show new runs.
+  today's `SimResult` JSON, so the app needs no change to show new runs.
+  Done: channels with min/max/mean, the summary figures and messages. Not
+  yet: the energy report, part energies, duty, limits, references and
+  today's run verdict (a cycle not followed, data run past: `notValid`,
+  `limit`, `passed`), STATUS WP6.
 
 ## 13. Python API
 
@@ -2328,8 +2350,12 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   parts raise a `ModelError` (not supported yet).
 * **The app.** With `LIGHTSIM_ENGINE=new` the backend
   (`backend/app/solver/new_engine.py`) runs drive-cycle and acceleration
-  cases on this module and everything else on today's engine; any failure
-  of the new engine runs the case on today's engine with a warning. The
+  cases on this module and everything else on today's engine (live runs,
+  FMU parts, Formula Student events and hybrid charge-balance cases too);
+  any failure of the new engine runs the case on today's engine with a
+  warning. The result has channels with min/max/mean, the summary figures
+  and messages, but no energy report, part energies, duty, limits,
+  references or run verdict yet (section 12.3). The
   default is today's engine. There the Script blocks run in today's
   locked-down worker (`native_scripts=False`) until the owner decides
   the native runner may replace it.
@@ -2425,8 +2451,8 @@ events name the modes that chatter.
   recorded ones, patched (`vendored.rs`); the self-check at the first
   call failing for any one wrong function (`src/lib.rs`).
 * **Exact-answer suite**: the reference suite being built in `benchmarks/`
-  gives each block's exact answers; an adapter in `lsim-engine/tests` runs
-  every case on both backends (SUNDIALS and diffsol) and asserts each
+  gives each block's exact answers; `lsim-solve/tests/reference.rs` (and
+  `lsim-project/tests/exact.rs` for the library's blocks) runs every case on both backends (SUNDIALS and diffsol) and asserts each
   within its stated tolerance and the two backends within tolerance of
   each other. Event times are checked separately.
 * **Convergence tests**: every exact case at three tolerances; the error
@@ -2434,14 +2460,17 @@ events name the modes that chatter.
 * **Energy closure** on every test run and every example car.
 * **Golden comparisons** with today's engine (section 12.3), in CI on the
   example projects; a report of every KPI with its band.
-* **Performance gates** (criterion, CI): build time (prepare + compile) and
-  run time for each example car in both modes, against the targets of
-  section 2 with headroom; a regression of more than 10 % fails.
+* **Performance gates**: not built yet. When they are, they compare build
+  time (prepare + compile) and run time for each example car in both modes
+  with the base commit (as the backend's performance job does) and with
+  the comparable-tools benchmark of section 2; a regression of more than
+  10 % fails.
 * **Structural-fault corpus**: each pattern of section 14 has a model and
   an expected code and named parts (like today's broken-models corpus).
 * **Python tests** (pytest) of the module once WP6 adds the API.
 * `./check.sh` runs rustfmt, clippy (warnings are errors), all tests and
-  the licence check; CI runs it on Windows (the target) and Linux.
+  the licence check; CI runs its steps on Windows (the target); Linux is
+  the development platform and not in CI.
 
 ## 16. Work breakdown
 
@@ -2503,7 +2532,7 @@ work end to end) or against hand-written test doubles of the interfaces.
 
 ### WP3 — Code generation
 
-* **Owns**: `crates/lsim-codegen`.
+* **Owns**: `crates/lsim-codegen`, `crates/lsim-math`.
 * **Builds**: coloured sparse Jacobians (`jacobian_sparse`); the table
   runtime (monotone cubic 1-D, 2-D) with values and derivatives; modes;
   chunking of large models; the initialisation functions; a compile-time
@@ -2602,8 +2631,8 @@ work end to end) or against hand-written test doubles of the interfaces.
   backends agree within tolerance; event times within 10·rtol of exact
   ones; energy closure ≤ 1e-6 on every example; a 10 ms Script block that
   changes nothing costs < 5 % run time; sweeps scale ≥ 3.5× on 4 cores;
-  the build needs only a C compiler on Windows (MSVC); macOS and Linux
-  later.
+  SUNDIALS builds with only a C compiler on Windows (MSVC; lsim-math's
+  CORE-MATH needs clang-cl as well, section 7.1); macOS and Linux later.
 * **Second round (from the golden comparison)**: `when` conditions made
   true by a tick fire; what a clock schedules is no event storm; `when`
   semantics at the start decided as Modelica's; event iteration with the
@@ -2680,11 +2709,13 @@ work end to end) or against hand-written test doubles of the interfaces.
   imported, ≤ 1.5e-9 on every golden case since the stored-energy rates
   are exact; the idle 10 ms block and the sweeps as measured in sections
   9 and 8.4 (the block 2.0–4.4 % of the 21-state run, at most 2.8 % of
-  the 101-state one, from 19.5 % at worst; sweeps 3.2–3.5× for 16 short
-  runs, ≥ 3.5× for many or long ones); the build needs only a C compiler
-  on Windows: CI's "Engine (Rust) on Windows" job builds SUNDIALS with
-  MSVC and runs every engine test there (green on the work's starting
-  commit, run 38620416352).
+  the 101-state one, from 19.5 % at worst in the earlier measurement (25.0 %
+  in section 9's); sweeps 3.2–3.5× for 16 short
+  runs, ≥ 3.5× for many or long ones); SUNDIALS builds with only a C
+  compiler on Windows: CI's "Engine (Rust) on Windows" job builds it with
+  MSVC (and lsim-math with clang-cl) and runs every engine test there
+  (green on the work's starting commit, run 38620416352, and on the merged
+  tree from dd8feb0, run 38840409543).
 
 ### WP5 — Component library and project import
 
@@ -2708,13 +2739,14 @@ work end to end) or against hand-written test doubles of the interfaces.
 ### WP6 — Fast mode, the front door, Python and integration
 
 * **Owns**: `crates/lsim-fast`, `crates/lsim-engine`, `crates/lsim-py`,
+  `crates/lsim-script`,
   `engine/check.sh`, CI, notes for `backend/`.
 * **Builds**: the Rosenbrock-W inverse stepper with limit flags; the
-  facade (build, simulate, fast, sweep, cache without runtime parameters in
-  the key); the Python API of section 13 with NumPy arrays and GIL release;
+  facade (build, simulate, fast, sweep, a cache keyed on every input:
+  preparation chooses by the parameter values, section 7); the Python API of section 13 with NumPy arrays and GIL release;
   the `DiscreteBlock` implementations for Script blocks and FMUs over
-  today's sandboxes; the conversion to today's result JSON; criterion
-  benchmarks and CI performance gates; a Windows wheel (macOS and Linux later).
+  today's sandboxes; the conversion to today's result JSON; performance
+  gates (not built yet, section 15); a Windows wheel (macOS and Linux later).
 * **Interface**:
   ```rust
   impl FastSolver for RosenbrockW { fn run(&self, m: &dyn ModelFunctions, p: &[f64], inputs: &[Trace], o: &FastOptions) -> Result<FastResult, FastError>; }
@@ -2744,7 +2776,7 @@ the vehicle body). A short integration checkpoint each week runs
 | # | risk | mitigation |
 |---|---|---|
 | R1 | Sampled Script blocks at 10 ms force 180 000 integrator restarts on WLTC | restart only when an output changes; recommend continuous-time controllers; measure (WP4 acceptance). **WP4:** done — no restart and no extra step for a tick that changes nothing; its inputs read ahead across the step, bit for bit: 9.5–21 ns a tick, 2.0–4.4 % of the cheapest test model's run (20 000× real time), < 3 % of the 101-state one (section 9) |
-| R2 | SUNDIALS build on Windows/macOS | in-tree `cc` build with committed config header and bindings; CI on all three from the start (WP4/WP6). **WP4:** built and tested on Linux with only a C compiler; the MSVC and macOS builds are written for (config header, `/fp:precise`) but still to be proven in CI |
+| R2 | SUNDIALS build on Windows/macOS | in-tree `cc` build with committed config header and bindings; CI on all three from the start (WP4/WP6). **WP4:** built and tested on Linux with only a C compiler; the MSVC build is proven by CI's "Engine (Rust) on Windows" job (run 38620416352 on a619ab4; the merged tree from dd8feb0); macOS is not built (Windows only for now) |
 | R3 | Index reduction needs dynamic state selection for some models | static dummy derivatives with an initial pivoting check cover vehicle drivelines; report the rare case clearly; dynamic selection only if a real model needs it |
 | R4 | Friction and clutch modes chatter | force-based stick/slip conditions in the components; event-storm detection naming the parts. **WP4:** storm detection done (over 100 state events within 1e-3 of the run, the error names the modes' parts; tested on a chattering mode); the force-based conditions are WP5's |
 | R5 | Golden comparisons show differences that are today's numerical error | measured bands from today's own fine-step runs; differences triaged and documented |
@@ -2764,7 +2796,8 @@ vendors 13 of CORE-MATH's C files (MIT, INRIA and contributors;
 `csrc/LICENSE-musl`): no crate added (licences.py and cargo-deny pass
 unchanged).
 
-Since work package 4 the workspace builds with 231 third-party crates,
+Since the merge of the six work packages the workspace builds with 234
+third-party crates (the count `scripts/licences.py` prints),
 all permissive (licences.py and cargo-deny: "bans ok, licenses ok"):
 sundials-sys, bindgen, clang-sys, libloading and cmake are gone; in came
 `cc` with `jobserver` and `getrandom` (MIT OR Apache-2.0; `r-efi` taken
@@ -2778,7 +2811,7 @@ requires every third-party crate's SPDX expression to be satisfiable with
 MIT, MIT-0, Apache-2.0 (also WITH LLVM-exception), BSD-2/3-Clause, ISC,
 Zlib, 0BSD, BSL-1.0, CC0-1.0 or Unicode-3.0; GPL, LGPL, AGPL, EUPL and SSPL
 never pass. cargo-deny 0.20.2 (`deny.toml`, same policy) agrees: "bans ok,
-licenses ok". The engine workspace builds with 113 third-party crates, all
+licenses ok". Stage 1 (historical) built with 113 third-party crates, all
 permissive: the main ones are Cranelift 0.134.4 and regalloc2 (Apache-2.0
 WITH LLVM-exception), sundials-sys 0.6.2 and the vendored SUNDIALS 7.1.1
 (BSD-3-Clause; no KLU, no GPL code), bindgen (BSD-3-Clause, build only),
@@ -2847,4 +2880,5 @@ cargo run --release -p lsim-engine --example spike --manifest-path engine/Cargo.
 ```
 
 Python integration of the app (`backend/`) is unchanged in Stage 1; WP6
-adds the engine behind a case-level switch once the example cars run.
+adds the engine behind a process-wide switch (`LIGHTSIM_ENGINE=new`) once
+the example cars run.

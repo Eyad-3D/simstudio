@@ -41,7 +41,9 @@
 //! constant within it (the constant acceleration the standard
 //! backward-facing method assumes) and the second is zero.
 //!
-//! Target: about 10⁶ × real time on WLTC (1800 s in about 2 ms).
+//! Measured: the test car's WLTC (1800 steps) in about 6.0 ms, 3.0·10⁵ ×
+//! real time (STATUS.md, WP6). There is no fixed target: the goal is to be
+//! faster than the average of comparable tools (DESIGN.md section 2).
 
 pub mod limits;
 pub mod lu;

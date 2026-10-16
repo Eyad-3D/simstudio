@@ -778,7 +778,7 @@ few of them:
 | `TABLE` | `this table is not valid: the table has 3 grid points but 2 values` |
 | `ARRAY` | `'x' has an array subscript '[': arrays are not supported (… scalars only)` |
 
-Reading a text with the library at hand (as the app does) also checks the
+Reading a text with the library at hand (as the app will) also checks the
 parts: that each part's type exists, that the parameters given to it exist
 and have the right units, and that connected ports carry the same
 quantity.

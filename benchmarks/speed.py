@@ -151,9 +151,7 @@ def run(repeats: int | None = None, labels: list[str] | None = None,
     spec = targets()["speed"]
     repeats = repeats or int(spec.get("repeats", 5))
     report = SpeedReport(machine=machine(), targets={
-        "dynamic_min_x_realtime": spec["dynamic_min_x_realtime"],
-        "fast_wltc_x_realtime": spec["fast_wltc_x_realtime"], "repeats": repeats,
-        "engine": lightsim_py.version()})
+        "repeats": repeats, "engine": lightsim_py.version()})
     for c in spec["cases"]:
         if labels and c["label"] not in labels:
             continue

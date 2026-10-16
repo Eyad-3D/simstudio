@@ -38,8 +38,11 @@ difference between today's two runs, at least 0.5 % of the channel's RMS.
 prepared, compiled and run at rtol 1e-6 (atol 1e-8) on IDA with the energy
 books on; the figures are computed from its channels by today's
 definitions (`core.py`, `labfig.py`, `verdict.py`). A Script block runs
-today's own script runner in a Python process (the stand-in for work
-package 6's sandbox), the Traction Control block today's rule in Rust. A
+on lsim-script's native runner when its code is in the runner's subset
+(the app's runner's results bit for bit, DESIGN.md §9), otherwise on
+today's own script runner in a Python process; `LSIM_SCRIPTS=python`
+forces Python (`LSIM_PYTHON` runs today's figures, and the fall-back).
+The Traction Control block runs today's rule in Rust. A
 gear shift, which the gearbox declares a rigid engagement, keeps the
 momentum of everything the gears tie together (the run loop's impulse
 projection, DESIGN.md 8.2), and that loss is the gearbox's; the tyres,
@@ -740,8 +743,9 @@ placed at the state's own time; a warning where a model gives a table's
 values but not its breakpoints): each case's output is again the same
 byte for byte, and no run warns. The full comparison took 208.0 s.
 
-The hybrid's run includes the Script block's round trip to Python at
-every 10 ms tick (137 000 on the UDDS), and most of its remaining steps
+Measured with the Python host (before the native runner), the hybrid's
+run included the Script block's round trip to Python at every 10 ms tick
+(137 000 on the UDDS), and most of its remaining steps
 follow the tyres' slip, which settles within about 1e-4 s after each
 change of torque the controller makes: the error test on the iteration
 variables needs them.

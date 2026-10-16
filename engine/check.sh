@@ -5,7 +5,9 @@
 #   CARGO_BUILD_JOBS=4 ...     # more parallel jobs (default 2)
 #
 # Needs: Rust 1.94+ (rustfmt, clippy), a C compiler (the vendored SUNDIALS,
-# built by lsim-sundials-sys with the cc crate: no CMake, no libclang),
+# built by lsim-sundials-sys with the cc crate: no CMake, no libclang; on
+# Windows MSVC, and clang-cl for lsim-math's CORE-MATH: Visual Studio's
+# "C++ Clang tools for Windows" or LLVM),
 # Python 3 (for the licence check). cargo-deny is used too when installed.
 set -euo pipefail
 cd "$(dirname "$0")"

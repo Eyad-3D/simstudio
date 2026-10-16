@@ -92,7 +92,7 @@ def _fmt(x: float | None, digits: int = 2) -> str:
 # ---- the report ------------------------------------------------------------------------------
 
 def markdown(meta: dict, ref: list[dict], spd: speed.SpeedReport | None) -> str:
-    acc, sp = targets()["accuracy"], targets()["speed"]
+    acc = targets()["accuracy"]
     L = [f"# LightSim yardstick: {meta['engine']['engine']} ({meta['date']})", "",
          f"Engine **{meta['engine']['engine']}** {meta['engine']['version']} (its code as of "
          f"commit `{meta['engine'].get('engine_commit', '?')}`; benchmarks run from "
@@ -103,9 +103,9 @@ def markdown(meta: dict, ref: list[dict], spd: speed.SpeedReport | None) -> str:
          "Targets (benchmarks/targets.toml): a signal within "
          f"{acc['signal_rtol']:g} of its scale, an event within {acc['event_atol_s'] * 1000:g} ms "
          f"+ {acc['event_rtol']:g} of its time, an energy term within {acc['energy_rtol']:g} and "
-         f"the energy balance within {acc['closure_rtol']:g} of the energy scale; at least "
-         f"{sp['dynamic_min_x_realtime']:g}x real time in full dynamic simulation and about "
-         f"{sp['fast_wltc_x_realtime']:.0e}x on the WLTC in a fast mode.", ""]
+         f"the energy balance within {acc['closure_rtol']:g} of the energy scale. Speed has "
+         "no fixed target: the goal is to be faster than the average of comparable tools "
+         "(engine/DESIGN.md section 2).", ""]
     if ref:
         L += ["## Reference problems", "",
               "Errors are shares of each quantity's scale (see benchmarks/README.md). "
@@ -174,20 +174,12 @@ def markdown(meta: dict, ref: list[dict], spd: speed.SpeedReport | None) -> str:
               "are the solver's (master) steps of one run; *Load* is the machine's one-minute "
               "load average around the case (other jobs included).", "",
               "| Case | Kind | Simulated, s | Median wall, s | x real time | Steps | Steps/s | "
-              f"CPU share | Load before -> after | >= {spd.targets['dynamic_min_x_realtime']:g}x |",
-              "|---|---|---|---|---|---|---|---|---|---|"]
+              "CPU share | Load before -> after |",
+              "|---|---|---|---|---|---|---|---|---|"]
         for c in spd.cases:
-            ok = "yes" if c.x_realtime >= spd.targets["dynamic_min_x_realtime"] else "no"
             L.append(f"| {c.label} | {c.kind} | {c.simulated_s:g} | {c.wall_s:.3f} | "
                      f"{c.x_realtime:.1f} | {c.steps} | {c.steps_per_s:.0f} | {c.cpu_share:.2f} | "
-                     f"{c.load_before[0]:.2f} -> {c.load_after[0]:.2f} | {ok} |")
-        wltc = [c for c in spd.cases if c.fast_target]
-        if wltc:
-            L += ["", f"Fast mode target (about {spd.targets['fast_wltc_x_realtime']:.0e}x real "
-                  f"time on the WLTC): today's engine has no fast mode for drive cycles; its full "
-                  f"run of {wltc[0].label} is {wltc[0].x_realtime:.1f}x, "
-                  f"{spd.targets['fast_wltc_x_realtime'] / wltc[0].x_realtime:,.0f} times short "
-                  f"of it."]
+                     f"{c.load_before[0]:.2f} -> {c.load_after[0]:.2f} |")
     return "\n".join(L) + "\n"
 
 

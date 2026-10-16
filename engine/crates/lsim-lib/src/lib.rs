@@ -15,9 +15,8 @@
 //! and, connection by connection, for any model built from them. Tests in
 //! `lsim-project` check this by simulation for every component.
 //!
-//! Stand-ins (until work packages 1–4 deliver them): tables are expanded
-//! into expressions ([`table`]); relations in equations are meant to become
-//! modes (work package 2) and `when` conditions are single comparisons.
+//! Tables are runtime tables (`ParamValue::Table`, [`table`]): their data
+//! change without a rebuild.
 
 pub mod blocks;
 pub mod connectors;
