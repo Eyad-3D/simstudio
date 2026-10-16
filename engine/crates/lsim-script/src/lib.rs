@@ -49,16 +49,21 @@
 //! and are left to Python here.
 //!
 //! **Limits.** As the app's worker: a call that does not return within two
-//! seconds stops (the clock is read every 1024 statements, loop rounds and
-//! calls, and as every operation whose work grows with the size of what
-//! it handles goes: concatenation, copies, comparisons and searches of
-//! containers, indexing and converting text, reading the outputs), and a
-//! runner may hold at most 512 MB: every heap block its values make counts,
-//! as the heap keeps it, from before it is made (strings, lists, tuples,
-//! dicts and their indexes, iterator objects and what they keep of their
-//! sources, bound methods, functions and their defaults, `interp`'s parsed
-//! tables), and the syntax tree 128 bytes for each byte of code (it holds
-//! at most about 100); a script of more than 1 MiB is not read. Past
+//! seconds stops (timed from its inputs and its copy of the parameters
+//! made to its outputs read, as the worker is from the request to its
+//! reply; the clock is read every 1024 statements, loop rounds, calls and
+//! operations of expressions, and as every operation whose work grows with
+//! the size of what it handles goes: a call's arguments, keywords and
+//! frame, displays, unpacking, concatenation, copies, comparisons and
+//! searches of containers, an item of a `zip`, indexing and converting
+//! text, reading the outputs), and a runner may hold at most 512 MB: every
+//! heap block its values make counts, as the heap keeps it, from before it
+//! is made (strings, lists, tuples, dicts and their indexes, iterator
+//! objects and what they keep of their sources, bound methods, functions
+//! and their defaults, `interp`'s parsed tables, a call's frame while it
+//! runs), and the syntax tree 128 bytes for each byte of code (it holds
+//! at most about 100); a script of more than 1 MiB is not read, and
+//! reading one costs about its length (a MiB in about 0.2 s). Past
 //! either limit the script is left to Python, whose own limit then
 //! decides. They are the worker's limits in size, not in how they are
 //! measured (Python is slower and its values larger): a call close to
@@ -502,8 +507,10 @@ impl Script {
         inputs: &[(&str, f64)],
     ) -> Result<Vec<(String, f64)>, ScriptError> {
         let _ = &self.module;
-        // no deadline left over from another call (the call sets its own)
-        value::start_meter(None);
+        // the call's clock: the app's worker is timed from the request it is
+        // sent to its reply, the inputs and the parameters' copy made, the
+        // outputs read and sent
+        self.machine.start_call();
         let label = self.label.clone();
         let fail = |f| failed(&label, Some(t), f);
         if inputs.len() > MAX_FRAME_FIELD {
@@ -630,9 +637,20 @@ impl ScriptBlock {
             self.inputs.iter().map(String::as_str).zip(inputs.iter().copied()).collect();
         match self.runner.step(t, self.period, &ins) {
             Ok(res) => {
+                // each of the block's outputs by its key (among many, through
+                // a map: a call's cost is not the outputs times the returned)
+                let mut by_key = std::collections::HashMap::new();
+                if res.len() > 8 {
+                    by_key = res.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+                }
                 for (k, o) in self.outputs.iter().zip(outputs.iter_mut()) {
-                    if let Some((_, v)) = res.iter().find(|(rk, _)| rk == k) {
-                        *o = *v;
+                    let v = if by_key.is_empty() {
+                        res.iter().find(|(rk, _)| rk == k).map(|(_, v)| *v)
+                    } else {
+                        by_key.get(k.as_str()).copied()
+                    };
+                    if let Some(v) = v {
+                        *o = v;
                     }
                 }
                 Ok(())
@@ -705,6 +723,31 @@ mod tests {
                 }
                 _ => assert!(matches!(r, Err(ScriptError::Unsupported(_))), "{code}"),
             }
+        }
+    }
+
+    #[test]
+    fn a_block_takes_its_outputs_by_their_keys() {
+        use lsim_ir::runtime::DiscreteBlock;
+        for n in [3, 40] {
+            let more: Vec<String> = (0..n).map(|k| format!("'k{k}': {k}")).collect();
+            let code = format!(
+                "def step(t, dt, inputs, state, params):\n    return {{'b': inputs['a'] * 2, {}}}\n",
+                more.join(", ")
+            );
+            let outputs: Vec<String> = ["k2", "b", "missing"].map(String::from).to_vec();
+            let mut b = super::ScriptBlock::new(
+                &code,
+                "Block",
+                0.01,
+                vec!["a".into()],
+                outputs,
+                &Default::default(),
+            )
+            .unwrap();
+            let mut out = [9.0; 3];
+            b.init(0.0, &[1.5], &mut out).unwrap();
+            assert_eq!(out, [2.0, 3.0, 9.0], "{n} outputs returned");
         }
     }
 

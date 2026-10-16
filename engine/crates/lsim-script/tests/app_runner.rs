@@ -485,3 +485,108 @@ fn state_that_keeps_growing_stops_at_the_memory_cap() {
         assert!(r.step(k as f64, 0.01, &[]).is_ok(), "call {k}");
     }
 }
+
+/// Every call's work is counted as it goes, whatever its shape: a call
+/// with many arguments (by keyword, by position, or taken from many
+/// defaults), a display of many items, an assignment that unpacks many,
+/// and one statement of many operations each stop at the time limit as
+/// a loop of small statements does (the review's case, 20 000 keywords
+/// in a loop, ran 77 s).
+#[test]
+fn calls_of_every_shape_stop_at_the_time_limit() {
+    let names: Vec<String> = (0..20_000).map(|i| format!("a{i}")).collect();
+    let def = format!("def h({}):\n    return 1\n", names.join(", "));
+    let keywords: Vec<String> = names.iter().map(|n| format!("{n}=0")).collect();
+    let forever = |stmt: &str| {
+        format!(
+            "def step(t, dt, inputs, state, params):\n    k = 0\n    x = list(range(20000))\n    while True:\n        {stmt}\n"
+        )
+    };
+    // ((0 + 0) + (0 + 0)) + ..., 2**17 leaves
+    fn tree(depth: usize) -> String {
+        if depth == 0 { "0".into() } else { format!("({} + {})", tree(depth - 1), tree(depth - 1)) }
+    }
+    let cases = [
+        format!("{def}{}", forever(&format!("k += h({})", keywords.join(", ")))),
+        format!("{def}{}", forever(&format!("k += h({})", vec!["0"; 20_000].join(", ")))),
+        format!("def h({}):\n    return 1\n{}", keywords.join(", "), forever("k += h()")),
+        forever(&format!("y = ({})", vec!["0"; 200_000].join(", "))),
+        forever(&format!("print({})", vec!["0"; 200_000].join(", "))),
+        forever(&format!("{} = x", names.join(", "))),
+        forever(&format!("y = {}", tree(17))),
+        forever(&format!("for y in zip({}):\n            pass", vec!["x"; 200_000].join(", "))),
+    ];
+    let mut late = vec![];
+    for code in cases {
+        let mut r = Runner::start(&code, "probe", &Default::default()).unwrap();
+        let started = Instant::now();
+        let got = r.step(0.0, 0.01, &[]);
+        let took = started.elapsed().as_secs_f64();
+        let shown = &code[code.len().saturating_sub(80)..];
+        assert!(
+            matches!(&got, Err(ScriptError::Unsupported(m)) if m.contains("took longer than 2 s")),
+            "{got:?}\n{shown}"
+        );
+        eprintln!("stopped after {took:.2} s: ...{}", &shown[shown.len().saturating_sub(40)..]);
+        if took >= lsim_script::TIME_LIMIT_S + 0.5 {
+            late.push(format!("stopped after {took:.2} s: ...{shown}"));
+        }
+    }
+    assert!(late.is_empty(), "{}", late.join("\n"));
+}
+
+/// Keywords bind to their parameters by name in any order, a function of
+/// many parameters as one of few.
+#[test]
+fn keywords_bind_by_name() {
+    let mut r = start(
+        "    return {'y': f(c=3, a=1, b=2), 'z': f(4, c=6, b=5)}\ndef f(a, b, c):\n    return a * 100 + b * 10 + c\n",
+        "{}",
+    )
+    .unwrap();
+    assert_eq!(
+        outputs(r.step(0.0, 0.01, &[])),
+        vec![("y".into(), 123f64.to_bits()), ("z".into(), 456f64.to_bits())]
+    );
+    let names: Vec<String> = (0..5000).map(|i| format!("p{i}")).collect();
+    let keywords: Vec<String> =
+        names.iter().enumerate().rev().map(|(i, n)| format!("{n}={i}")).collect();
+    let code = format!(
+        "def h({}):\n    return p4999 * 10 - p0 + p17\ndef step(t, dt, inputs, state, params):\n    return {{'y': h({})}}\n",
+        names.join(", "),
+        keywords.join(", ")
+    );
+    let mut r = Runner::start(&code, "probe", &Default::default()).unwrap();
+    assert_eq!(outputs(r.step(0.0, 0.01, &[])), vec![("y".into(), 50007f64.to_bits())]);
+    let code = code.replace("p17=17", "p17=17, p5000=1");
+    let mut r = Runner::start(&code, "probe", &Default::default()).unwrap();
+    let m = failed_with(r.step(0.0, 0.01, &[]));
+    assert!(m.ends_with("h() got an unexpected keyword argument 'p5000'"), "{m}");
+}
+
+/// Reading a script costs about as much as its length, whatever its
+/// shape: a function of a hundred thousand parameters, or a call of as
+/// many keywords, is read in a fraction of the time a call has (it took
+/// 15 s; CPython compiles it in about 1 s).
+#[test]
+fn a_script_of_many_names_is_read_quickly() {
+    let names: Vec<String> = (0..100_000).map(|i| format!("a{i}")).collect();
+    let keywords: Vec<String> = names.iter().map(|n| format!("{n}=0")).collect();
+    for code in [
+        format!(
+            "def h({}):\n    return 1\ndef step(t, dt, inputs, state, params):\n    return {{}}\n",
+            names.join(", ")
+        ),
+        format!(
+            "def h():\n    return 1\ndef step(t, dt, inputs, state, params):\n    return {{'y': h({})}}\n",
+            keywords.join(", ")
+        ),
+    ] {
+        let started = Instant::now();
+        let r = Runner::start(&code, "probe", &Default::default());
+        let took = started.elapsed().as_secs_f64();
+        eprintln!("{} bytes read in {took:.3} s", code.len());
+        assert!(r.is_ok(), "{:?}", r.err());
+        assert!(took < 1.0, "read in {took:.2} s");
+    }
+}

@@ -22,7 +22,9 @@ use std::time::Instant;
 /// How deeply script functions may call each other here.
 const MAX_CALL_DEPTH: usize = 50;
 
-/// Statements, loop rounds and calls between looks at the clock.
+/// Statements, loop rounds, calls and operations between looks at the
+/// clock (operations are counted as they go and the clock read at the next
+/// statement, loop round or call: one statement is no longer than its code).
 const CLOCK_EVERY: u64 = 1024;
 
 enum Flow {
@@ -122,6 +124,8 @@ impl Iter {
                 None => None,
             },
             Iter::Zip(its) => {
+                // an item of each: work as long as there are iterables
+                charge(its.len() as u64)?;
                 let mut out = Vec::with_capacity(its.len());
                 for it in its.iter_mut() {
                     match it.next()? {
@@ -213,6 +217,8 @@ pub struct Machine {
     names: Vec<Rc<str>>,
     deadline: Instant,
     ops: u64,
+    /// the count of `ops` at which the clock is read next
+    next_clock: u64,
     depth: usize,
     limit_s: f64,
     cache: Vec<CacheEntry>,
@@ -248,6 +254,7 @@ impl Machine {
             names: m.globals.clone(),
             deadline: Instant::now(),
             ops: 0,
+            next_clock: CLOCK_EVERY,
             depth: 0,
             limit_s,
             cache: vec![],
@@ -329,13 +336,17 @@ impl Machine {
     fn start_clock(&mut self) {
         self.deadline = Instant::now() + std::time::Duration::from_secs_f64(self.limit_s);
         self.ops = 0;
+        self.next_clock = CLOCK_EVERY;
         crate::value::start_meter(Some(self.deadline));
     }
 
     fn tick(&mut self) -> R<()> {
         self.ops += 1;
-        if self.ops.is_multiple_of(CLOCK_EVERY) && Instant::now() > self.deadline {
-            return Err(Limit);
+        if self.ops >= self.next_clock {
+            self.next_clock = self.ops + CLOCK_EVERY;
+            if Instant::now() > self.deadline {
+                return Err(Limit);
+            }
         }
         value::memory_check()
     }
@@ -350,10 +361,15 @@ impl Machine {
         }
     }
 
-    /// Calls `f` with positional arguments (a call from the host: the clock
-    /// starts now).
-    pub fn call_top(&mut self, f: &Value, args: Vec<Value>) -> R<Value> {
+    /// Starts the clock of a call from the host: what it does from here on
+    /// is timed (the arguments made for it, the call, its outputs read).
+    pub fn start_call(&mut self) {
         self.start_clock();
+    }
+
+    /// Calls `f` with positional arguments (a call from the host, on the
+    /// clock [`Machine::start_call`] started).
+    pub fn call_top(&mut self, f: &Value, args: Vec<Value>) -> R<Value> {
         self.call(f, args, vec![])
     }
 
@@ -515,6 +531,7 @@ impl Machine {
         defaults: &[Expr],
         frame: &mut Vec<Option<Value>>,
     ) -> R<Flow> {
+        charge(defaults.len() as u64)?;
         let mut ds = Vec::with_capacity(defaults.len());
         for d in defaults {
             ds.push(self.eval(d, frame)?);
@@ -587,6 +604,7 @@ impl Machine {
                 set_index(&c, i, v)
             }
             Target::Tuple(ts) => {
+                charge(ts.len() as u64)?;
                 let mut it = match iter_of(&v) {
                     Err(Raise(_)) => {
                         return Err(Raise(format!(
@@ -625,8 +643,13 @@ impl Machine {
         match e {
             Expr::Const(v) => return Ok(v.clone()),
             Expr::Name(n) => return self.load(n, frame),
-            // what nests stays within the stack the interpreter may use
-            _ => stack_check()?,
+            // what nests stays within the stack the interpreter may use,
+            // and each operation counts towards the clock (a statement of
+            // many is long)
+            _ => {
+                stack_check()?;
+                self.ops += 1;
+            }
         }
         match e {
             Expr::Const(_) | Expr::Name(_) => unreachable!("a leaf"),
@@ -648,6 +671,7 @@ impl Machine {
     }
 
     fn sequence(&mut self, xs: &[Expr], list: bool, frame: &mut Vec<Option<Value>>) -> R<Value> {
+        charge(xs.len() as u64)?;
         let mut v = Vec::with_capacity(xs.len());
         for x in xs {
             v.push(self.eval(x, frame)?);
@@ -656,6 +680,7 @@ impl Machine {
     }
 
     fn dict_display(&mut self, kv: &[(Expr, Expr)], frame: &mut Vec<Option<Value>>) -> R<Value> {
+        charge(kv.len() as u64)?;
         let d = Value::new_dict();
         for (k, v) in kv {
             let k = self.eval(k, frame)?;
@@ -720,6 +745,8 @@ impl Machine {
         frame: &mut Vec<Option<Value>>,
     ) -> R<Value> {
         let f = self.eval(f, frame)?;
+        // each argument is work: evaluated, passed and bound
+        charge((args.len() + kwargs.len()) as u64)?;
         let mut a = Vec::with_capacity(args.len());
         for x in args {
             a.push(self.eval(x, frame)?);
@@ -761,14 +788,29 @@ impl Machine {
         let def: &FuncDef = &c.def;
         let np = def.params.len();
         let given = args.len();
+        // the frame is work as long as it is (its slots made, the
+        // defaults put in, the missing looked for), and memory while the
+        // call runs
+        let slots = def.n_locals.max(np);
+        charge(slots as u64)?;
+        let held = value::heap(slots * std::mem::size_of::<Option<Value>>());
+        value::fits(held)?;
+        let _held = value::Held::new(held);
         // in CPython's order: the positional arguments there is room for,
         // the keywords, then too many or too few
-        let mut frame: Vec<Option<Value>> = vec![None; def.n_locals.max(np)];
+        let mut frame: Vec<Option<Value>> = vec![None; slots];
         for (k, a) in args.into_iter().take(np).enumerate() {
             frame[k] = Some(a);
         }
         for (k, v) in kwargs {
-            let Some(slot) = def.params.iter().position(|p| *p == k) else {
+            // (a name is work as long as it is: hashed or compared)
+            charge(k.len() as u64)?;
+            let slot = if def.by_name.is_empty() {
+                def.params.iter().position(|p| *p == k)
+            } else {
+                def.by_name.get(&k).copied()
+            };
+            let Some(slot) = slot else {
                 return Err(type_error(format!(
                     "{}() got an unexpected keyword argument '{k}'",
                     def.name

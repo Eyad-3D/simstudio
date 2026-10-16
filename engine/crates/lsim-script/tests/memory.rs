@@ -283,6 +283,70 @@ fn every_value_counts_the_memory_it_holds() {
     assert!(real > MB && real <= mine && mine <= real + real / 8, "functions: {real}, {mine}");
 }
 
+/// A call's frame counts towards the cap while the call runs: a function
+/// of 70 000 locals called 45 deep (some 100 MB of frames) on top of 13
+/// lists of a million integers stops at the cap, and the frames are given
+/// back when the calls return.
+#[test]
+fn frames_count_while_their_calls_run() {
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let names: Vec<String> = short_names(70_000)
+        .into_iter()
+        .filter(|n| !matches!(n.as_str(), "f" | "n" | "k" | "B") && !n.starts_with("__"))
+        .collect();
+    let code = |lists: usize| {
+        script(
+            &format!(
+                "B = []\nfor k in range({lists}):\n    B.append(list(range(1000000)))\ndef f(n):\n    if n:\n        return f(n - 1)\n    {} = range({})\n    return 0\n",
+                names.join(","),
+                names.len()
+            ),
+            "    return {'y': f(45)}\n",
+        )
+    };
+    let base = HELD.load(Relaxed);
+    PEAK.store(base, Relaxed);
+    let mut r = Runner::start(&code(13), "probe", &serde_json::Map::new()).expect("it starts");
+    let started = r.memory() / MB;
+    let got = r.step(0.0, 0.01, &[]);
+    let peak = (PEAK.load(Relaxed) - base) / MB;
+    eprintln!("frames: {started} MB counted before the call, at most {peak} MB held: {got:?}");
+    assert!(
+        matches!(&got, Err(ScriptError::Unsupported(m)) if m.contains("512 MB")),
+        "{got:?} ({started} MB before the call, at most {peak} MB held)"
+    );
+    assert!(peak < 600, "{peak} MB held at the most");
+    drop(r);
+    let mut r = Runner::start(&code(1), "probe", &serde_json::Map::new()).expect("it starts");
+    let before = r.memory();
+    for k in 0..3 {
+        assert_eq!(r.step(0.0, 0.01, &[]).expect("it runs"), vec![("y".to_string(), 0.0)]);
+        assert_eq!(r.memory(), before, "after call {k}");
+    }
+}
+
+/// `n` different names, the shortest first (`a`, ..., `_`, `aa`, ...).
+fn short_names(n: usize) -> Vec<String> {
+    let first: Vec<char> = ('a'..='z').chain('A'..='Z').chain(['_']).collect();
+    let rest: Vec<char> = first.iter().copied().chain('0'..='9').collect();
+    let mut names: Vec<String> = first.iter().map(|c| c.to_string()).collect();
+    let mut k = 0;
+    while names.len() < n {
+        let stem = names[k].clone();
+        names.extend(rest.iter().map(|c| format!("{stem}{c}")));
+        k += 1;
+    }
+    names.truncate(n);
+    // none of Python's keywords (`as`, `if`, `in`, `is`, `or`, `and`, ...)
+    names.retain(|w| {
+        !matches!(
+            w.as_str(),
+            "as" | "if" | "in" | "is" | "or" | "and" | "def" | "del" | "for" | "not" | "try"
+        )
+    });
+    names
+}
+
 /// The syntax tree of a script counts too, as more than it holds at the
 /// most (every kind of statement and expression, one after the other);
 /// reading it takes at most 300 bytes for each byte of code for a moment,
@@ -307,6 +371,14 @@ fn the_code_counts_more_than_its_tree_takes() {
         ("loops", format!("x=[]\n{}", lines("for i in x:i\n", 20000))),
         ("passes", lines("pass\n", 30000)),
         ("functions", (0..10000).map(|i| format!("def f{i}(a=1):\n    return a\n")).collect()),
+        ("parameters", format!("def h({}):\n    return 1\n", short_names(20000).join(","))),
+        (
+            "keywords",
+            format!(
+                "def h():\n    return 1\ndef g():\n    return h({})\n",
+                short_names(20000).iter().map(|n| format!("{n}=1")).collect::<Vec<_>>().join(",")
+            ),
+        ),
         (
             "calls",
             format!("x=[1]\n{}", lines("x.append((max(1, 2), (3, 4), [5], {6: 7}))\n", 5000)),

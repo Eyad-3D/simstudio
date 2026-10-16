@@ -777,6 +777,24 @@ pub fn memory_leave(outer: usize) -> usize {
     LIVE.with(|l| l.replace(outer))
 }
 
+/// Bytes counted towards the runner's memory while it lives (a call's
+/// frame while the call runs).
+pub struct Held(usize);
+
+impl Held {
+    /// Counts `n` bytes until it is dropped.
+    pub fn new(n: usize) -> Held {
+        memory_add(n);
+        Held(n)
+    }
+}
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        memory_sub(self.0);
+    }
+}
+
 /// Whether the runner's values hold no more than [`MAX_LIVE_BYTES`].
 pub fn memory_check() -> Result<(), Fault> {
     fits(0)

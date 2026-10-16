@@ -2088,17 +2088,24 @@ save most of those 10 ms in every run, sequential or not (a change to
   scripts and symbols whose printing Python 3.11 decides by Unicode 14,
   or a value nested or long beyond what is quoted here.
   **Limits**, those of the app's worker in size: a call stops
-  after 2 s (the clock is read every 1024 statements, loop rounds and
-  calls, and as every operation whose work grows with the size of what
-  it handles goes: concatenation, copies, comparisons and searches of
-  containers, indexing and converting text, reading the outputs; so a
-  single statement over large containers stops too), and a runner may
-  hold 512 MB: every heap block its values make counts as the heap keeps
-  it, from before it is made (strings, lists, tuples, dicts and their
-  indexes, iterator objects and what they keep of their sources, bound
-  methods, functions and their defaults, `interp`'s parsed tables), and
-  the syntax tree 128 bytes for each byte of code (it holds at most about
-  100); a script of more than 1 MiB is not read. `tests/memory.rs` checks
+  after 2 s, timed from its inputs and its copy of the parameters made
+  to its outputs read (as the worker is from the request to its reply):
+  the clock is read every 1024 statements, loop rounds, calls and
+  operations of expressions, and as every operation whose work grows
+  with the size of what it handles goes (a call's arguments, keywords
+  and frame, displays, unpacking, concatenation, copies, comparisons and
+  searches of containers, an item of a `zip`, indexing and converting
+  text, reading the outputs), so no call's work goes unmetered: a single
+  statement over large containers, a call of 20 000 keywords or one
+  expression of 2¹⁷ operations stops at 2.0 s too. Reading a script
+  costs about its length (a MiB in about 0.2 s, whatever its shape). A
+  runner may hold 512 MB: every heap block its values make counts as the
+  heap keeps it, from before it is made (strings, lists, tuples, dicts
+  and their indexes, iterator objects and what they keep of their
+  sources, bound methods, functions and their defaults, `interp`'s
+  parsed tables, a call's frame while it runs), and the syntax tree 128
+  bytes for each byte of code (it holds at most about 100); a script of
+  more than 1 MiB is not read. `tests/memory.rs` checks
   it with an allocator that counts every block: each kind of value counts
   exactly what it holds, and scripts that outgrow the cap in each kind of
   value stop before the process holds about 530 MB. Past either limit the
@@ -2127,7 +2134,10 @@ save most of those 10 ms in every run, sequential or not (a change to
   A Hybrid Control Unit call costs 6.5–7.1 µs natively (release build,
   `lsim-script/examples/hcu_speed`, on a 4-core VM where the runner
   before the limits took 7.3–7.9 µs) against about 25 µs in-process in
-  Python and far more across a process boundary.
+  Python and far more across a process boundary. Counting every
+  operation and argument on the clock changed nothing measurable: 12
+  runs alternated with the build before it on a noisier VM gave 6.8–10.0
+  against 7.0–10.3 µs, both medians 7.5 µs.
 * **Numbers in JSON** are parsed correctly rounded (serde_json's
   `float_roundtrip`), as Python reads them: without it about one decimal
   in eight with many digits came back one bit off (measured: 239 004 of

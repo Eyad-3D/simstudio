@@ -15,6 +15,11 @@ use std::rc::Rc;
 /// against [`crate::STACK_BUDGET`]).
 const MAX_DEPTH: usize = 100;
 
+/// A function of more parameters than this binds keywords through a map
+/// of its parameters' names (the cost of a call is then the number of its
+/// arguments, not that times the parameters).
+const KEYWORDS_BY_MAP: usize = 8;
+
 /// The attributes a script may read: the math module's (the functions
 /// whose results are exact, or correctly rounded alike in every C runtime
 /// Python is built with) and the methods of dicts and lists.
@@ -283,6 +288,7 @@ impl Parser {
                 let name = self.name()?;
                 self.expect_op("(")?;
                 let mut params: Vec<Rc<str>> = vec![];
+                let mut named: Names = HashSet::new();
                 let mut defaults = vec![];
                 while !self.is_op(")") {
                     if self.is_op("*") || self.is_op("**") || self.is_op("/") {
@@ -300,7 +306,7 @@ impl Parser {
                             "a parameter without a default after one with",
                         ));
                     }
-                    if params.contains(&p) {
+                    if !named.insert(p.clone()) {
                         return Err(unsupported(line, "a parameter named twice"));
                     }
                     params.push(p);
@@ -313,6 +319,7 @@ impl Parser {
                     return Err(unsupported(line, "annotations"));
                 }
                 self.expect_op(":")?;
+                drop(named);
                 self.func = Some((params.iter().cloned().collect(), HashSet::new()));
                 self.seen = params.iter().cloned().collect();
                 let loops = std::mem::replace(&mut self.loops, 0);
@@ -342,10 +349,15 @@ impl Parser {
                 for s in &mut body {
                     resolve_stmt(s, Some(&slots));
                 }
+                let mut by_name = HashMap::new();
+                if params.len() > KEYWORDS_BY_MAP {
+                    by_name = params.iter().cloned().zip(0..).collect();
+                }
                 let def = FuncDef {
                     name: name.clone(),
                     n_defaults: defaults.len(),
                     params,
+                    by_name,
                     n_locals: slots.len(),
                     body,
                 };
@@ -768,6 +780,7 @@ impl Parser {
             if self.eat_op("(") {
                 let mut args = vec![];
                 let mut kwargs: Vec<(Rc<str>, Expr)> = vec![];
+                let mut named: Names = HashSet::new();
                 while !self.is_op(")") {
                     if self.is_op("*") || self.is_op("**") {
                         return Err(unsupported(line, "*args and **kwargs in a call"));
@@ -781,10 +794,11 @@ impl Parser {
                         self.next();
                         self.next();
                         let v = self.test()?;
-                        if kwargs.iter().any(|(k, _)| **k == *n) {
+                        let k: Rc<str> = Rc::from(n.as_str());
+                        if !named.insert(k.clone()) {
                             return Err(unsupported(line, "a keyword argument given twice"));
                         }
-                        kwargs.push((Rc::from(n.as_str()), v));
+                        kwargs.push((k, v));
                     } else {
                         if !kwargs.is_empty() {
                             return Err(unsupported(
