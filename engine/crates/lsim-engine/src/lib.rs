@@ -565,6 +565,17 @@ impl Model {
         if params.len() != self.info.params.len() {
             return Err(RunError::Param("wrong number of parameter values".into()));
         }
+        // a sampled block runs only with its host: without one its outputs
+        // would hold their start values for the whole run (a full dynamic
+        // run refuses the same, lsim-solve)
+        if blocks.len() != self.info.blocks.len() {
+            return Err(RunError::Mode(format!(
+                "the model has {} sampled block(s) (Script, FMU or Traction Control parts) and \
+                 {} given: run them with their hosts",
+                self.info.blocks.len(),
+                blocks.len()
+            )));
+        }
         let (y0, d0) = self.fast_start(params, traces, o)?;
         let m = Started::with_start(&self.jit, y0, d0);
         let prob = FastProblem {

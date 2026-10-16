@@ -136,3 +136,28 @@ fn parameters_change_without_rebuilding() {
     assert_eq!(first(runs[1].as_ref().unwrap()), 0.7);
     assert!(fwd.params_with(&[("no.such".into(), 1.0)]).is_err());
 }
+
+/// A car with a sampled block (a Script part here) runs it only with its
+/// host: fast mode without one is refused, as a full dynamic run is,
+/// instead of holding the block's outputs at their start values.
+#[test]
+fn fast_mode_without_the_hosts_of_the_cars_sampled_blocks_is_refused() {
+    let (t, v) = testcar::wltc();
+    let mut lib = library(speed_trace("TestCar.Trace", &t, &v));
+    for d in lsim_lib::blocks::signals::defaults() {
+        if d.name == "External.Script" {
+            lib.add(d);
+        }
+    }
+    let engine = Engine::new(lib);
+    let mut top = car("TestCar.Trace");
+    top.components.push(lsim_ir::component::build::sub("controller", "External.Script", &[]));
+    let inv = engine.build_inverse(&top, &inverse_spec(), &BuildOptions::default()).unwrap();
+    assert_eq!(inv.info.blocks.len(), 1);
+    let traces = [Trace::new(t.clone(), v.clone()).unwrap()];
+    let e = inv.fast(&traces, &FastOptions::default()).unwrap_err().to_string();
+    assert!(e.contains("1 sampled block") && e.contains("0 given"), "{e}");
+    let sets = vec![vec![]];
+    let swept = inv.fast_sweep(&sets, &traces, &FastOptions::default(), None, 1);
+    assert!(swept[0].as_ref().is_err_and(|e| e.to_string().contains("sampled block")));
+}
