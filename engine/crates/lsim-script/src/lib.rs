@@ -50,8 +50,8 @@
 //! decide: an unhashable key in a dict display of more than 15 pairs
 //! (CPython 3.11 builds up to 15 from all their keys and values evaluated
 //! first, as here, and longer ones in runs), `x in range(n)` of an x
-//! that is no integer over more than a million items (CPython compares
-//! it with each, past any time limit), and what a call prints
+//! that is no integer over more than a million items in a call (CPython
+//! compares it with each, past any time limit), and what a call prints
 //! beyond 1024 writes or 64 KiB (nothing is printed here; CPython writes
 //! each argument, the separator before it and the end of the line, past
 //! any time limit) or other than numbers and strings of ASCII characters

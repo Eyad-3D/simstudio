@@ -730,6 +730,41 @@ fn membership_of_other_than_an_integer_in_a_long_range_is_left_to_python() {
     );
 }
 
+/// The scans of ranges by values that are no integer add up: a call that
+/// makes them over more than a million items in all (CPython compares
+/// each, some 20 ms a million: the first case returned here at once and
+/// is stopped by the app's worker at the time limit) is left to Python,
+/// as one scan of more is; each call may scan as many again.
+#[test]
+fn scans_of_ranges_in_a_call_add_up() {
+    for body in [
+        "    for i in range(200):\n        y = None in range(1000000)\n    return {'y': y}\n",
+        "    for i in range(3):\n        y = 'a' in range(400000)\n    return {'y': y}\n",
+        "    y = None in range(600000)\n    return {'y': y, 'z': [1] not in range(400001)}\n",
+    ] {
+        let mut r = start(body, "{}").unwrap();
+        let started = Instant::now();
+        let got = r.step(0.0, 0.01, &[]);
+        assert!(
+            matches!(&got, Err(ScriptError::Unsupported(m))
+                if m.contains("'in' ranges") && m.contains("outside what runs without Python")),
+            "{body}: {got:?}"
+        );
+        assert!(started.elapsed().as_secs_f64() < 1.0, "{body}");
+    }
+    let mut r = start(
+        "    y = None in range(600000)\n    return {'y': y, 'z': [1] not in range(400000)}\n",
+        "{}",
+    )
+    .unwrap();
+    for _ in 0..3 {
+        assert_eq!(
+            outputs(r.step(0.0, 0.01, &[])),
+            vec![("y".into(), 0f64.to_bits()), ("z".into(), 1f64.to_bits())]
+        );
+    }
+}
+
 /// The parameters (and their tables) are in the importer's order, not the
 /// project's: returning them as the outputs, whose order is the returned
 /// dict's, is left to Python.

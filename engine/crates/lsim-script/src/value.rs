@@ -719,6 +719,9 @@ thread_local! {
     /// the work done in the current call, and the call's deadline
     static WORK: Cell<u64> = const { Cell::new(0) };
     static DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
+    /// the items of ranges the current call has had CPython compare with
+    /// a value that is no integer (see [`contains`])
+    static SCANNED: Cell<u64> = const { Cell::new(0) };
     /// the bytes held by the values of the runner being called
     static LIVE: Cell<usize> = const { Cell::new(0) };
     /// where on the stack the current call into the interpreter started
@@ -730,6 +733,7 @@ thread_local! {
 /// stack the call may use is measured from here.
 pub fn start_meter(deadline: Option<Instant>) {
     WORK.with(|w| w.set(0));
+    SCANNED.with(|s| s.set(0));
     DEADLINE.with(|d| d.set(deadline));
     STACK_BASE.with(|b| b.set(stack_here()));
 }
@@ -1982,6 +1986,17 @@ fn binary_op(op: crate::ast::BinOp, a: &Value, b: &Value, inplace: bool) -> Resu
     }
 }
 
+/// Counts `n` more items of ranges the current call has CPython compare
+/// with a value that is no integer: whether they are a million or fewer in
+/// all.
+fn scanned(n: u64) -> bool {
+    SCANNED.with(|s| {
+        let all = s.get().saturating_add(n);
+        s.set(all);
+        all <= crate::MAX_ITEMS as u64
+    })
+}
+
 /// `x in c`.
 pub fn contains(c: &Value, x: &Value) -> Result<bool, Fault> {
     match c {
@@ -2023,17 +2038,18 @@ pub fn contains(c: &Value, x: &Value) -> Result<bool, Fault> {
                 })
             }
             // CPython compares any other value with every item (in C, which
-            // no time limit stops): no item equals it, but a long range is
-            // left to Python
+            // no time limit stops, some 20 ms a million) where nothing is
+            // done here: no item equals it, but ranges of more than a
+            // million items in all in a call are left to Python
             None => match x {
                 Value::Float(_) => Err(Outside("a float 'in' a range".into())),
                 _ => match u64::try_from(range_len(*a, *b, *st)) {
-                    Ok(n) if n <= crate::MAX_ITEMS as u64 => {
+                    Ok(n) if scanned(n) => {
                         charge(n)?;
                         Ok(false)
                     }
                     _ => Err(Outside(format!(
-                        "a {} 'in' a range of more than a million items",
+                        "a {} 'in' ranges of more than a million items in a call",
                         x.type_name()
                     ))),
                 },
