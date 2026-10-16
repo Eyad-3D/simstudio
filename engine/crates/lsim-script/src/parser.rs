@@ -12,7 +12,9 @@ use std::rc::Rc;
 
 /// How deeply expressions and blocks may nest (a recursive parser must not
 /// run out of stack on hostile input; the stack it uses is measured too,
-/// against [`crate::STACK_BUDGET`]).
+/// against [`crate::STACK_BUDGET`]). Each `elif` of a chain counts as a
+/// level, as in Python's tree (where it is the `else` of the branch
+/// before): CPython refuses some 990 of them in a row, far beyond this.
 const MAX_DEPTH: usize = 100;
 
 /// A function of more parameters than this binds keywords through a map
@@ -62,7 +64,9 @@ struct Parser {
     depth: usize,
     /// inside a function: the names it assigns, and those it declares global
     func: Option<(Names, Names)>,
-    /// inside a function: every name it has read or written so far
+    /// every name the current scope (the function, or the top level) has
+    /// read, written or bound so far: a later `global` of one is Python's
+    /// SyntaxError
     seen: Names,
     /// loops around the current statement (in this function)
     loops: usize,
@@ -162,8 +166,14 @@ impl Parser {
     }
 
     fn assigned(&mut self, n: &Rc<str>) {
-        if let Some((a, _)) = &mut self.func {
-            a.insert(n.clone());
+        match &mut self.func {
+            Some((a, _)) => {
+                a.insert(n.clone());
+            }
+            // (a top-level import or def binds it in the module's scope)
+            None => {
+                self.seen.insert(n.clone());
+            }
         }
     }
 
@@ -233,8 +243,12 @@ impl Parser {
                 self.expect_op(":")?;
                 branches.push((cond, self.block()?));
                 let mut orelse = vec![];
+                let mut elifs = 0;
                 loop {
                     if self.eat_kw("elif") {
+                        // nested in the branch before, as in Python's tree
+                        self.enter()?;
+                        elifs += 1;
                         let c = self.test()?;
                         self.expect_op(":")?;
                         branches.push((c, self.block()?));
@@ -246,6 +260,7 @@ impl Parser {
                         break;
                     }
                 }
+                self.leave_n(elifs);
                 branches.shrink_to_fit();
                 StmtKind::If(branches, orelse)
             }
@@ -321,11 +336,12 @@ impl Parser {
                 self.expect_op(":")?;
                 drop(named);
                 self.func = Some((params.iter().cloned().collect(), HashSet::new()));
-                self.seen = params.iter().cloned().collect();
+                // the function's own scope; the top level's comes back after
+                let outer = std::mem::replace(&mut self.seen, params.iter().cloned().collect());
                 let loops = std::mem::replace(&mut self.loops, 0);
                 let body = self.block();
                 self.loops = loops;
-                self.seen.clear();
+                self.seen = outer;
                 let (assigned, globals) = self.func.take().expect("inside the function");
                 let mut body = body?;
                 // frame slots: the parameters, then the other local names in
@@ -417,13 +433,13 @@ impl Parser {
         } else if self.eat_kw("global") {
             loop {
                 let n = self.name()?;
-                if let Some((assigned, globals)) = &mut self.func {
-                    if assigned.contains(&n) || self.seen.contains(&n) {
-                        return Err(unsupported(
-                            line,
-                            "a name used before its 'global' declaration",
-                        ));
-                    }
+                // a name the scope has bound or used before (at the top
+                // level as in a function)
+                let bound = self.func.as_ref().is_some_and(|(assigned, _)| assigned.contains(&n));
+                if bound || self.seen.contains(&n) {
+                    return Err(unsupported(line, "a name used before its 'global' declaration"));
+                }
+                if let Some((_, globals)) = &mut self.func {
                     globals.insert(n);
                 }
                 if !self.eat_op(",") {
@@ -857,9 +873,7 @@ impl Parser {
                 w if is_keyword(w) => Err(unsupported(line, format!("'{w}' here"))),
                 w if w.starts_with("__") => Err(unsupported(line, format!("the name '{w}'"))),
                 w => {
-                    if self.func.is_some() {
-                        self.seen.insert(Rc::from(w));
-                    }
+                    self.seen.insert(Rc::from(w));
                     Ok(Expr::Name(raw(w)))
                 }
             },
@@ -1178,9 +1192,27 @@ mod tests {
             "del x\n",
             "with a:\n    pass\n",
             "x = (yield)\n",
+            // a module-level `global` after its name is bound or used
+            "X = 1\nglobal X\n",
+            "Y = 2\nX = Y\nglobal Y\n",
+            "for X in []:\n    pass\nglobal X\n",
+            "def X():\n    pass\nglobal X\n",
         ] {
             assert!(parse(src).is_err(), "accepted: {src}");
         }
+        for src in ["global X\nX = 1\n", "def f():\n    return X\nglobal X\n"] {
+            assert!(parse(src).is_ok(), "refused: {src}");
+        }
+        // each elif is a level of nesting, as in Python's tree
+        let elifs = |n: usize| {
+            let mut s = String::from("if x:\n    pass\n");
+            for _ in 0..n {
+                s += "elif x:\n    pass\n";
+            }
+            s
+        };
+        assert!(parse(&elifs(MAX_DEPTH - 2)).is_ok());
+        assert!(parse(&elifs(MAX_DEPTH)).is_err());
         let deep = format!("x = {}1{}\n", "(".repeat(500), ")".repeat(500));
         assert!(parse(&deep).is_err());
     }

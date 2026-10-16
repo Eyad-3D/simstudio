@@ -590,3 +590,210 @@ fn a_script_of_many_names_is_read_quickly() {
         assert!(took < 1.0, "read in {took:.2} s");
     }
 }
+
+/// CPython refuses a module-level `global` of a name the module has
+/// already assigned or used (as it does inside a function); a name an
+/// import bound is refused here too, though CPython allows it.
+#[test]
+fn a_global_after_its_name_is_bound_is_refused_as_python_refuses_it() {
+    let tail = "def step(t, dt, inputs, state, params):\n    return {'y': X}\n";
+    for head in [
+        "X = 1\nglobal X\n",
+        "Y = 2\nX = Y\nglobal Y\nY = 1\n",
+        "for X in [1]:\n    pass\nglobal X\n",
+        "def X():\n    return 1\nglobal X\nX = 1\n",
+        "if 1:\n    X = 1\nglobal X\n",
+        "import math as X\nglobal X\nX = 1\n",
+        "def g(a=X):\n    return a\nglobal X\nX = 1\n",
+    ] {
+        let r = Runner::start(&format!("{head}{tail}"), "probe", &Default::default());
+        assert!(is_outside(&r), "{head}: {:?}", r.as_ref().err());
+    }
+    // a declaration before the name is bound, or of a name only a
+    // function uses, is no error
+    for head in
+        ["global X\nX = 1\n", "def g():\n    return X\nglobal X\nX = 1\n", "global X, X\nX = 1\n"]
+    {
+        let mut r = Runner::start(&format!("{head}{tail}"), "probe", &Default::default())
+            .unwrap_or_else(|e| panic!("{head}: {e}"));
+        assert_eq!(outputs(r.step(0.0, 0.01, &[])), vec![("y".into(), 1f64.to_bits())], "{head}");
+    }
+}
+
+/// CPython nests each `elif` in the previous branch and refuses about
+/// 990 of them in a row as nested too deeply: a chain counts each branch
+/// as a level of nesting here, and a long one is left to Python.
+#[test]
+fn a_long_elif_chain_is_left_to_python() {
+    let chain = |n: usize| {
+        let mut s = String::from("    x = inputs['a']\n    if x == -1:\n        y = -1\n");
+        for k in 0..n {
+            s += &format!("    elif x == {k}:\n        y = {k}\n");
+        }
+        s + "    else:\n        y = 0.5\n    return {'y': y}\n"
+    };
+    let mut r = start(&chain(40), "{}").unwrap();
+    assert_eq!(outputs(r.step(0.0, 0.01, &[("a", 39.0)])), vec![("y".into(), 39f64.to_bits())]);
+    for n in [120, 1000, 20_000] {
+        assert!(is_outside(&start(&chain(n), "{}")), "{n} elifs");
+    }
+}
+
+/// `x in range(n)` of an x that is no integer: CPython compares it with
+/// every item of the range (in C, past any time limit for a long one).
+/// It is False after a scan of a short range and left to Python for a
+/// long one.
+#[test]
+fn membership_of_other_than_an_integer_in_a_long_range_is_left_to_python() {
+    for e in ["None in range(10 ** 15)", "'a' not in range(10 ** 15)", "[1] in range(-1, 10 ** 12)"]
+    {
+        let mut r = start(&format!("    return {{'y': {e}}}\n"), "{}").unwrap();
+        let started = Instant::now();
+        let got = r.step(0.0, 0.01, &[]);
+        assert!(is_outside(&got), "{e}: {got:?}");
+        assert!(started.elapsed().as_secs_f64() < 0.5);
+    }
+    let mut r = start(
+        "    return {'a': None in range(10), 'b': 'x' not in range(1000), 'c': (1,) in range(5), 'd': True in range(2)}\n",
+        "{}",
+    )
+    .unwrap();
+    assert_eq!(
+        outputs(r.step(0.0, 0.01, &[])),
+        vec![
+            ("a".into(), 0f64.to_bits()),
+            ("b".into(), 1f64.to_bits()),
+            ("c".into(), 0f64.to_bits()),
+            ("d".into(), 1f64.to_bits())
+        ]
+    );
+}
+
+/// The parameters (and their tables) are in the importer's order, not the
+/// project's: returning them as the outputs, whose order is the returned
+/// dict's, is left to Python.
+#[test]
+fn the_parameters_returned_as_the_outputs_are_left_to_python() {
+    for (body, p) in [
+        ("    return params\n", r#"{"b": 2, "a": 1.5}"#),
+        ("    return params\n", r#"{"b": "x", "a": "y"}"#),
+        ("    return dict(params)\n", r#"{"b": 2, "a": 1.5}"#),
+        ("    return params.copy()\n", r#"{"b": 2, "a": 1.5}"#),
+        ("    out = {}\n    out.update(params)\n    return out\n", r#"{"b": 2, "a": 1.5}"#),
+        ("    return params['t']\n", r#"{"t": {"1": 2, "0": 1}}"#),
+    ] {
+        let mut r = start(body, p).unwrap();
+        let got = r.step(0.0, 0.01, &[]);
+        assert!(is_outside(&got), "{body} {p}: {got:?}");
+    }
+    // one entry has one order
+    let mut r = start("    return params\n", r#"{"b": 2}"#).unwrap();
+    assert_eq!(outputs(r.step(0.0, 0.01, &[])), vec![("b".into(), 2f64.to_bits())]);
+    let mut r = start("    return {'b': params['b'], 'a': params['a']}\n", r#"{"b": 2, "a": 1.5}"#)
+        .unwrap();
+    assert_eq!(
+        outputs(r.step(0.0, 0.01, &[])),
+        vec![("b".into(), 2f64.to_bits()), ("a".into(), 1.5f64.to_bits())]
+    );
+}
+
+/// A table parameter with the keys 0 and -0: which one maps.py names as
+/// the duplicate depends on the project's order, which the importer does
+/// not keep. Left to Python; a script's own table keeps its order.
+#[test]
+fn a_table_parameter_with_both_zeros_is_left_to_python() {
+    for (e, p) in [
+        ("interp(params['t'], 0.5)", r#"{"t": {"0": 1.0, "-0": 2.0}}"#),
+        ("interp(params['t'], 0.5)", r#"{"t": {"0.0": 1.0, "1": 3.0, "-0.0": 2.0}}"#),
+        ("interp(params['m'], 0.5, 1)", r#"{"m": {"0": {"0": 1}, "-0": {"0": 2}}}"#),
+        ("interp(params['m'], 0.5, 1)", r#"{"m": {"0": {"0": 1, "-0": 2}, "1": {"0": 3}}}"#),
+    ] {
+        let mut r = start(&format!("    return {{'y': {e}}}\n"), p).unwrap();
+        let got = r.step(0.0, 0.01, &[]);
+        assert!(is_outside(&got), "{e} {p}: {got:?}");
+    }
+    for (e, p, want) in [
+        ("interp({'0': 1.0, '-0': 2.0}, 0.5)", "{}", "table1d has duplicate key 0"),
+        ("interp({'-0': 1.0, '0': 2.0}, 0.5)", "{}", "table1d has duplicate key -0"),
+        // zeros of one sign have one name
+        (
+            "interp(params['t'], 0.5)",
+            r#"{"t": {"0": 1.0, "0.0": 2.0}}"#,
+            "table1d has duplicate key 0",
+        ),
+        (
+            "interp(params['t'], 0.5)",
+            r#"{"t": {"1": 1.0, "1.0": 2.0}}"#,
+            "table1d has duplicate key 1",
+        ),
+    ] {
+        let mut r = start(&format!("    return {{'y': {e}}}\n"), p).unwrap();
+        let m = failed_with(r.step(0.0, 0.01, &[]));
+        assert!(m.ends_with(want), "{e} {p}: {m}");
+    }
+}
+
+/// CPython 3.11 builds a dict display of up to 15 pairs from its keys and
+/// values evaluated first (BUILD_MAP), so an error evaluating a later one
+/// comes before an unhashable earlier key; a longer display is built pair
+/// by pair in runs (MAP_ADD), and such an unhashable key is left to Python.
+#[test]
+fn dict_displays_are_built_as_cpython_311_builds_them() {
+    for (body, want) in [
+        ("    return {'y': len({[]: 1, 'b': 1 / inputs['a']})}\n", "float division by zero"),
+        ("    l = []\n    return {'y': {l: 1, 'k': l[5]}}\n", "list index out of range"),
+        ("    return {'y': {(1, []): 1, 'k': {}[2]}}\n", "2"),
+        ("    return {'y': {'a': 1, []: 2}}\n", "unhashable type: 'list'"),
+    ] {
+        let mut r = start(body, "{}").unwrap();
+        let m = failed_with(r.step(0.0, 0.01, &[("a", 0.0)]));
+        assert!(m.ends_with(want), "{body}: {m}");
+    }
+    let pairs = |n: usize| (0..n).map(|k| format!("'k{k}': {k}")).collect::<Vec<_>>();
+    let mut fifteen = pairs(14);
+    fifteen.insert(0, "[]: 0".into());
+    fifteen.push("'z': 1 / 0".into());
+    let mut r =
+        start(&format!("    return {{'y': {{{}}}}}\n", fifteen[1..].join(", ")), "{}").unwrap();
+    assert!(failed_with(r.step(0.0, 0.01, &[])).ends_with("division by zero"));
+    let mut r =
+        start(&format!("    return {{'y': len({{{}}})}}\n", fifteen[..15].join(", ")), "{}")
+            .unwrap();
+    assert!(failed_with(r.step(0.0, 0.01, &[])).ends_with("unhashable type: 'list'"));
+    let mut r = start(&format!("    return {{'y': {{{}}}}}\n", fifteen.join(", ")), "{}").unwrap();
+    assert!(is_outside(&r.step(0.0, 0.01, &[])));
+    // a long display without errors is the same dict either way
+    let mut r = start(
+        &format!(
+            "    d = {{{}, 'k3': 'x'}}\n    return {{'y': len(d), 'z': d['k19']}}\n",
+            pairs(40).join(", ")
+        ),
+        "{}",
+    )
+    .unwrap();
+    assert_eq!(
+        outputs(r.step(0.0, 0.01, &[])),
+        vec![("y".into(), 40f64.to_bits()), ("z".into(), 19f64.to_bits())]
+    );
+}
+
+/// CPython converts enumerate's start, and list.pop's index, before it
+/// looks at the iterable or the list.
+#[test]
+fn arguments_are_checked_in_cpythons_order() {
+    for (e, want) in [
+        ("enumerate(-3, 2.5)", "'float' object cannot be interpreted as an integer"),
+        ("enumerate(None, 'x')", "'str' object cannot be interpreted as an integer"),
+        ("enumerate(-3, start=None)", "'NoneType' object cannot be interpreted as an integer"),
+        ("enumerate(-3, 1)", "'int' object is not iterable"),
+        ("[].pop('a')", "'str' object cannot be interpreted as an integer"),
+        ("[].pop(1.5)", "'float' object cannot be interpreted as an integer"),
+        ("[].pop(None)", "'NoneType' object cannot be interpreted as an integer"),
+        ("[].pop(0)", "pop from empty list"),
+        ("[1].pop(1)", "pop index out of range"),
+    ] {
+        let mut r = start(&format!("    return {{'y': {e}}}\n"), "{}").unwrap();
+        let m = failed_with(r.step(0.0, 0.01, &[]));
+        assert!(m.ends_with(want), "{e}: {m}");
+    }
+}

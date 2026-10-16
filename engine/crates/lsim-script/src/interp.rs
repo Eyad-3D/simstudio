@@ -679,13 +679,37 @@ impl Machine {
         Ok(if list { Value::list(v) } else { Value::tuple(v) })
     }
 
+    /// `{k: v, ...}` as CPython 3.11 compiles it: up to 15 pairs, every
+    /// key and value evaluated and then inserted in order (BUILD_MAP); more
+    /// in runs of 17 pairs, each inserted as it is evaluated, and the rest
+    /// as before (compiler_dict). The two orders differ only when a key
+    /// cannot be inserted: in a longer display that is left to Python.
     fn dict_display(&mut self, kv: &[(Expr, Expr)], frame: &mut Vec<Option<Value>>) -> R<Value> {
         charge(kv.len() as u64)?;
         let d = Value::new_dict();
+        if kv.len() <= 15 {
+            let mut pairs = Vec::with_capacity(kv.len());
+            for (k, v) in kv {
+                let k = self.eval(k, frame)?;
+                pairs.push((k, self.eval(v, frame)?));
+            }
+            for (k, v) in pairs {
+                dict_set(&d, k, v)?;
+            }
+            return Ok(Value::Dict(d));
+        }
         for (k, v) in kv {
             let k = self.eval(k, frame)?;
             let v = self.eval(v, frame)?;
-            dict_set(&d, k, v)?;
+            match dict_set(&d, k, v) {
+                Err(Raise(_)) => {
+                    return Err(Outside(
+                        "a key that cannot be inserted in a dict display of more than 15 pairs"
+                            .into(),
+                    ));
+                }
+                r => r?,
+            }
         }
         Ok(Value::Dict(d))
     }
@@ -974,17 +998,7 @@ impl Machine {
                 })
             }
             Builtin::Range => {
-                let ints: Vec<i64> = args
-                    .iter()
-                    .map(|a| {
-                        a.as_int().ok_or_else(|| {
-                            type_error(format!(
-                                "'{}' object cannot be interpreted as an integer",
-                                a.type_name()
-                            ))
-                        })
-                    })
-                    .collect::<R<_>>()?;
+                let ints: Vec<i64> = args.iter().map(index_int).collect::<R<_>>()?;
                 let (a, z, s) = match ints.as_slice() {
                     [z] => (0, *z, 1),
                     [a, z] => (*a, *z, 1),
@@ -1022,25 +1036,19 @@ impl Machine {
                 }
             }
             Builtin::Enumerate => {
-                let mut start = 0i64;
-                for (k, v) in &kwargs {
-                    if &**k == "start" {
-                        start = v.as_int().ok_or_else(|| Outside("a non-integer start".into()))?;
-                    } else {
-                        return Err(Outside("enumerate()'s other keywords".into()));
-                    }
-                }
-                if matches!(args.first(), Some(Value::Iter(_))) {
-                    return Err(Outside("enumerate() of an iterator object".into()));
-                }
-                let (it, start) = match n {
-                    1 => (iter_of(&args[0])?, start),
-                    2 if kwargs.is_empty() => (
-                        iter_of(&args[0])?,
-                        args[1].as_int().ok_or_else(|| Outside("a non-integer start".into()))?,
-                    ),
+                // in CPython's order: the start made an integer, then the
+                // iterable's iterator
+                let start = match (n, kwargs.as_slice()) {
+                    (1, []) => 0,
+                    (1, [(k, v)]) if &**k == "start" => index_int(v)?,
+                    (2, []) => index_int(&args[1])?,
+                    (1, [_]) => return Err(Outside("enumerate()'s other keywords".into())),
                     _ => return Err(args_error("enumerate", "takes 1 or 2 arguments")),
                 };
+                if matches!(args[0], Value::Iter(_)) {
+                    return Err(Outside("enumerate() of an iterator object".into()));
+                }
+                let it = iter_of(&args[0])?;
                 Value::iterator(Iter::Enumerate(Box::new(it), start), "enumerate")
             }
             Builtin::Zip => {
@@ -1356,12 +1364,7 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
             }
             "insert" => {
                 arity(2, 2)?;
-                let i = args[0].as_int().ok_or_else(|| {
-                    type_error(format!(
-                        "'{}' object cannot be interpreted as an integer",
-                        args[0].type_name()
-                    ))
-                })?;
+                let i = index_int(&args[0])?;
                 insertable(obj, &args[1])?;
                 let mut lm = l.borrow_mut();
                 if lm.len() >= MAX_ITEMS {
@@ -1378,20 +1381,15 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
             }
             "pop" => {
                 arity(0, 1)?;
+                // in CPython's order: the index made an integer, then the
+                // list looked at
+                let i = args.first().map(index_int).transpose()?;
                 let mut lm = l.borrow_mut();
                 if lm.is_empty() {
                     return Err(Raise("pop from empty list".into()));
                 }
                 let len = lm.len() as i64;
-                let i = match args.first() {
-                    Some(v) => v.as_int().ok_or_else(|| {
-                        type_error(format!(
-                            "'{}' object cannot be interpreted as an integer",
-                            v.type_name()
-                        ))
-                    })?,
-                    None => len - 1,
-                };
+                let i = i.unwrap_or(len - 1);
                 let k = if i < 0 { i + len } else { i };
                 if k < 0 || k >= len {
                     return Err(Raise("pop index out of range".into()));
@@ -1469,6 +1467,14 @@ fn matches(items: &[Value], x: &Value, first: bool) -> R<Vec<usize>> {
         }
     }
     Ok(out)
+}
+
+/// `operator.index(x)` for what takes an integer (`range`, `enumerate`'s
+/// start, a list's index): an int or a bool, else Python's TypeError.
+fn index_int(x: &Value) -> R<i64> {
+    x.as_int().ok_or_else(|| {
+        type_error(format!("'{}' object cannot be interpreted as an integer", x.type_name()))
+    })
 }
 
 /// A number for the math module (`TypeError` otherwise).
@@ -1557,6 +1563,26 @@ fn order_unknown() -> Fault {
     Outside("a table parameter with entries that are no number (Python reads them in the project's order)".into())
 }
 
+/// Whether `keys` hold a zero of each sign.
+fn both_zeros(keys: impl Iterator<Item = f64>) -> bool {
+    let (mut plus, mut minus) = (false, false);
+    for k in keys.filter(|k| *k == 0.0) {
+        plus |= k.is_sign_positive();
+        minus |= k.is_sign_negative();
+    }
+    plus && minus
+}
+
+/// The duplicate keys 0 and -0 of a table whose order is not Python's (a
+/// parameter's): maps.py names the first of them in the project's order,
+/// which is not known here.
+fn zeros_order_unknown() -> Fault {
+    Outside(
+        "a table parameter with the keys 0 and -0 (Python names the first in the project's order)"
+            .into(),
+    )
+}
+
 /// maps.py's `parse_table1d`.
 fn parse_1d(raw: &Value) -> R<Vec<(f64, f64)>> {
     let Value::Dict(d) = raw else {
@@ -1597,6 +1623,9 @@ fn parse_1d(raw: &Value) -> R<Vec<(f64, f64)>> {
     pts.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("no NaN"));
     for w in pts.windows(2) {
         if w[0].0 == w[1].0 {
+            if w[0].0 == 0.0 && dm.unordered && both_zeros(pts.iter().map(|p| p.0)) {
+                return Err(zeros_order_unknown());
+            }
             return Err(table_error(format!("table1d has duplicate key {}", crate::fmt_g(w[0].0))));
         }
     }
@@ -1645,6 +1674,9 @@ fn parse_2d(raw: &Value) -> R<Sheets> {
     sheets.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("no NaN"));
     for w in sheets.windows(2) {
         if w[0].0 == w[1].0 {
+            if w[0].0 == 0.0 && dm.unordered && both_zeros(sheets.iter().map(|s| s.0)) {
+                return Err(zeros_order_unknown());
+            }
             return Err(table_error(format!(
                 "table2d has duplicate outer key {}",
                 crate::fmt_g(w[0].0)

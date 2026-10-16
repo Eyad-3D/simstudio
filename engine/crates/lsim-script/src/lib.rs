@@ -42,11 +42,20 @@
 //! address (a function, a bound method, an iterator object, the scripts'
 //! `clamp` and `interp`), the parameters in the project's order (the
 //! importer keeps them sorted), a character beyond the common scripts and
-//! symbols, or a value nested or long beyond what is quoted here. The
-//! worker's frames give the number of inputs and outputs of a call and the
-//! length of each output key in 16 bits: more than 65 535 of them, or a
-//! key of more than 65 535 bytes, stop the worker and fail the app's run,
-//! and are left to Python here.
+//! symbols, or a value nested or long beyond what is quoted here. So is
+//! what that order decides otherwise: outputs returned in the parameters'
+//! order (the parameters, or a copy of them or of a table among them),
+//! and which of a table parameter's keys 0 and -0 is named the duplicate.
+//! So are an evaluation order or a cost that CPython's compiler and C code
+//! decide: an unhashable key in a dict display of more than 15 pairs
+//! (CPython 3.11 builds up to 15 from all their keys and values evaluated
+//! first, as here, and longer ones in runs), and `x in range(n)` of an x
+//! that is no integer over more than a million items (CPython compares
+//! it with each, past any time limit). The worker's frames give the
+//! number of inputs and outputs of a call and the length of each output
+//! key in 16 bits: more than 65 535 of them, or a key of more than 65 535
+//! bytes, stop the worker and fail the app's run, and are left to Python
+//! here.
 //!
 //! **Limits.** As the app's worker: a call that does not return within two
 //! seconds stops (timed from its inputs and its copy of the parameters
@@ -68,8 +77,10 @@
 //! decides. They are the worker's limits in size, not in how they are
 //! measured (Python is slower and its values larger): a call close to
 //! either can be stopped by the worker and return here. On top: containers
-//! of at most a million items, calls nested at most 50 deep, and code and
-//! data nested no deeper than [`STACK_BUDGET`] of the caller's stack allows
+//! of at most a million items, calls nested at most 50 deep, code nested
+//! at most 100 deep (each `elif` of a chain a level, as in Python's tree:
+//! CPython refuses some 990 in a row), and code and data nested no deeper
+//! than [`STACK_BUDGET`] of the caller's stack allows
 //! (measured where the interpreter nests, so such a script is left to
 //! Python instead of overflowing a thread of 1 MiB or more, in every
 //! build) are outside the subset; Python may go on. The interpreter
@@ -550,6 +561,15 @@ impl Script {
                     return Err(fail(Fault::Outside(format!(
                         "more than {MAX_FRAME_FIELD} outputs (the app's worker cannot send them)"
                     ))));
+                }
+                // the outputs are in the returned dict's order: the
+                // parameters' (or a copy's) is the importer's
+                if d.unordered && d.entries.len() > 1 {
+                    return Err(fail(Fault::Outside(
+                        "outputs in the parameters' order (Python keeps the project's, the import \
+                         does not)"
+                            .into(),
+                    )));
                 }
                 value::charge(d.entries.len() as u64).map_err(fail)?;
                 d.entries.clone()

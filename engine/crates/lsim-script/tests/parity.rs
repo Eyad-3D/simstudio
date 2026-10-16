@@ -543,7 +543,7 @@ def step(t, dt, inputs, state, params):
 ];
 
 /// Scripts Python refuses when it reads them: the native runner must too.
-const REFUSED: [&str; 15] = [
+const REFUSED: [&str; 20] = [
     "def step(t, dt, inputs, state, params):\n    break\n",
     "def step(t, dt, inputs, state, params):\n    for i in range(2):\n        pass\n    else:\n        continue\n",
     "X = 1_\ndef step(t, dt, inputs, state, params):\n    return {}\n",
@@ -559,12 +559,18 @@ const REFUSED: [&str; 15] = [
     "def step(t, dt, inputs, state, params):\n    y = 1.0 +\r2.0\n    return {'y': y}\n",
     "def step(t, dt, inputs, state, params):\n    s = 'a\rb'\n    return {'y': len(s)}\n",
     "def step(t, dt, inputs, state, params):\n    return {'y': 1.0}  # \0\n",
+    // a module-level `global` of a name already assigned or used
+    "X = 1\nglobal X\ndef step(t, dt, inputs, state, params):\n    return {'y': X}\n",
+    "Y = 2\nX = Y\nglobal Y\ndef step(t, dt, inputs, state, params):\n    return {'y': X}\n",
+    "for X in [1]:\n    pass\nglobal X\ndef step(t, dt, inputs, state, params):\n    return {'y': X}\n",
+    "def X():\n    return 1\nglobal X\ndef step(t, dt, inputs, state, params):\n    return {'y': X()}\n",
+    "def g(a=X):\n    return a\nglobal X\nX = 1\ndef step(t, dt, inputs, state, params):\n    return {'y': X}\n",
 ];
 
 /// Errors scripts meet (the reviews' cases among them): the native
 /// runner must fail with CPython 3.11's message or leave the call to
 /// Python. A line of its own is a statement, else an expression returned.
-const MESSAGES: [&str; 112] = [
+const MESSAGES: [&str; 129] = [
     "'a' + 1",
     "[1] + 1",
     "(1,) + 1",
@@ -677,6 +683,23 @@ const MESSAGES: [&str; 112] = [
     "return {'y': [1e16, 1e-5, 0.1, -0.0, float('nan'), float('inf'), 10**18]}",
     "return {'y': ((1,), [], {}, '', None, True)}",
     "return {'y': {'a': 1}.keys(), 'z': 'q'}",
+    "{[]: 1, 'b': 1 / 0}",
+    "len({[]: 1, 'k': [][5]})",
+    "{(1, []): 1, 'k': {}[2]}",
+    "{'a': 1, []: 2}",
+    "{[]: 0, 'k0': 0, 'k1': 1, 'k2': 2, 'k3': 3, 'k4': 4, 'k5': 5, 'k6': 6, 'k7': 7, 'k8': 8, 'k9': 9, 'k10': 10, 'k11': 11, 'k12': 12, 'z': 1 / 0}",
+    "{[]: 0, 'k0': 0, 'k1': 1, 'k2': 2, 'k3': 3, 'k4': 4, 'k5': 5, 'k6': 6, 'k7': 7, 'k8': 8, 'k9': 9, 'k10': 10, 'k11': 11, 'k12': 12, 'k13': 13, 'k14': 14, 'z': 1 / 0}",
+    "{'k0': 0, 'k1': 1, 'k2': 2, 'k3': 3, 'k4': 4, 'k5': 5, 'k6': 6, 'k7': 7, 'k8': 8, 'k9': 9, 'k10': 10, 'k11': 11, 'k12': 12, 'k13': 13, 'k14': 14, 'k15': 15, 'k16': 16, []: 0, 'z': 1 / 0}",
+    "enumerate(-3, 2.5)",
+    "enumerate(None, 'x')",
+    "enumerate(-3, start=None)",
+    "enumerate(-3, 1)",
+    "[].pop('a')",
+    "[].pop(1.5)",
+    "[].pop(None)",
+    "[1].pop(1.5)",
+    "None in range(10)",
+    "'a' not in range(3)",
 ];
 
 /// A single statement that does a lot of work (comparing two lists of a
@@ -772,6 +795,23 @@ fn edge_scripts_give_pythons_results_or_go_to_python() {
         (step3("    hint = list[float]\n    return {'y': 1.0}\n"), "{}"),
         (step3("    hint = dict[int, float]\n    return {'y': 1.0}\n"), "{}"),
         (step3("    hint = float[int]\n    return {'y': 1.0}\n"), "{}"),
+        // the parameters as the outputs: in the importer's order
+        (step3("    return params\n"), r#"{"b": "x", "a": "y"}"#),
+        (step3("    return dict(params)\n"), r#"{"b": 2, "a": 1.5}"#),
+        (step3("    return params['t']\n"), r#"{"t": {"1": 2, "0": 1}}"#),
+        // which of 0 and -0 is the duplicate depends on that order too
+        (
+            step3("    return {'y': interp(params['t'], inputs['a'])}\n"),
+            r#"{"t": {"0": 1.0, "-0": 2.0}}"#,
+        ),
+        (
+            step3("    return {'y': interp(params['m'], inputs['a'], 1)}\n"),
+            r#"{"m": {"0": {"0": 1}, "-0": {"0": 2}}}"#,
+        ),
+        (
+            step3("    return {'y': interp(params['m'], inputs['a'], 1)}\n"),
+            r#"{"m": {"0": {"0": 1, "-0": 2}, "1": {"0": 3}}}"#,
+        ),
         // more digits than int() converts
         (
             step3(
@@ -807,10 +847,21 @@ fn edge_scripts_give_pythons_results_or_go_to_python() {
         });
     }
     let refused_from = cases.len();
-    for (k, code) in REFUSED.iter().enumerate() {
+    // CPython nests each elif in the branch before: about 990 are too
+    // deep for it
+    let elifs = |n: usize| {
+        let branches: String =
+            (0..n).map(|k| format!("    elif t == {k}:\n        y = {k}\n")).collect();
+        step(format!(
+            "    y = 0.5\n    if t < 0:\n        y = -1\n{branches}    return {{'y': y}}\n"
+        ))
+    };
+    let refused: Vec<String> =
+        REFUSED.iter().map(|c| c.to_string()).chain([elifs(1000), elifs(5000)]).collect();
+    for (k, code) in refused.into_iter().enumerate() {
         cases.push(Case {
             label: format!("refused {k}"),
-            code: code.to_string(),
+            code,
             params_text: "{}".into(),
             calls: inputs(&[1.0]),
             may_leave: true,

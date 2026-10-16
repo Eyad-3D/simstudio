@@ -2086,7 +2086,20 @@ save most of those 10 ms in every run, sequential or not (a change to
   the scripts' `clamp` and `interp`), the parameters in the project's
   order (the importer keeps them sorted), a character beyond the common
   scripts and symbols whose printing Python 3.11 decides by Unicode 14,
-  or a value nested or long beyond what is quoted here.
+  or a value nested or long beyond what is quoted here. So is what the
+  parameters' order decides otherwise (outputs returned in it, the
+  parameters or a copy of them or of a table among them; which of a
+  table parameter's keys 0 and -0 maps.py names the duplicate), and
+  what CPython's compiler or C code decides rather than the language:
+  an unhashable key in a dict display of more than 15 pairs (3.11
+  builds up to 15 from all their keys and values evaluated first, as
+  here, and longer ones in runs of pair by pair), `x in range(n)` of an
+  x that is no integer over more than a million items (CPython compares
+  it with each, in C, past any time limit), and an if/elif chain of
+  more than about 100 branches: each `elif` is a level of nesting, as in
+  Python's tree, where CPython refuses some 990 in a row. What CPython
+  refuses to compile is refused here when the script is read (a
+  module-level `global` of a name already assigned or used among them).
   **Limits**, those of the app's worker in size: a call stops
   after 2 s, timed from its inputs and its copy of the parameters made
   to its outputs read (as the worker is from the request to its reply):
@@ -2127,8 +2140,9 @@ save most of those 10 ms in every run, sequential or not (a change to
   random expressions over signed zeros, subnormals, the largest floats,
   infinities and NaN): 35 681 calls bitwise equal, 2725 failing on both
   with the same message, 121 random calls handed back to Python, none
-  different; its edge cases add 112 errors scripts meet, each failing
-  with CPython's message or left to Python; `tests/app_runner.rs` checks
+  different; its edge cases add 129 errors scripts meet, each failing
+  with CPython's message or left to Python, and 22 scripts CPython
+  refuses to compile, each refused here too; `tests/app_runner.rs` checks
   the cases the reviews found and the limits; and the hybrid's four cases give bitwise the same results
   on both runners (`lsim-project/examples/script_parity`).
   A Hybrid Control Unit call costs 6.5–7.1 µs natively (release build,

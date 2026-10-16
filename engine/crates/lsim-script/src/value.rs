@@ -2022,9 +2022,21 @@ pub fn contains(c: &Value, x: &Value) -> Result<bool, Fault> {
                     k >= 0 && k < n
                 })
             }
+            // CPython compares any other value with every item (in C, which
+            // no time limit stops): no item equals it, but a long range is
+            // left to Python
             None => match x {
                 Value::Float(_) => Err(Outside("a float 'in' a range".into())),
-                _ => Ok(false),
+                _ => match u64::try_from(range_len(*a, *b, *st)) {
+                    Ok(n) if n <= crate::MAX_ITEMS as u64 => {
+                        charge(n)?;
+                        Ok(false)
+                    }
+                    _ => Err(Outside(format!(
+                        "a {} 'in' a range of more than a million items",
+                        x.type_name()
+                    ))),
+                },
             },
         },
         _ => Err(type_error(format!("argument of type '{}' is not iterable", c.type_name()))),
