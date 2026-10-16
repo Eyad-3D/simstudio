@@ -9,7 +9,9 @@
 //! checks along its steps instead of using the model's compiled kernels;
 //! `LSIM_BOOKS_KERNELS=0` interprets the energy books' integrands.
 //!
-//! Script blocks run today's own script runner: set `LSIM_PYTHON` to the
+//! Script blocks run on lsim-script's native runner where their code is
+//! within its subset, else (and with `LSIM_SCRIPTS=python` always) on the
+//! app's own Script runner in a Python process: set `LSIM_PYTHON` to the
 //! Python that runs today's engine (the repository's `backend` folder is
 //! found from this crate). Writes `OUT_DIR/golden.json` and
 //! `OUT_DIR/golden.md`.
