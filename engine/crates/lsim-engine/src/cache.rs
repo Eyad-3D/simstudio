@@ -1,52 +1,29 @@
 //! The on-disk cache of prepared models.
 //!
-//! Key: SHA-256 of the model's inputs — the top component, every library
-//! definition it reaches, the connectors, the preparation options, the mode
-//! (full dynamic, or fast mode with its [`InverseSpec`]) and the engine
-//! version — **without the values of runtime parameters**: a top-level
-//! part's numeric parameter value (a modifier) and the top component's own
-//! numeric parameter defaults are left out of the key unless the parameter
-//! is structural. So a parameter study, or the same car with another
-//! battery capacity, shares one entry. Value: the [`PreparedModel`] as JSON.
-//!
-//! A hit skips everything after flattening: the model is flattened again
-//! (cheap, linear in its size) only to read the parameters' values and the
-//! start values that follow from them, which [`refresh`] copies into the
-//! cached model before it is compiled. Machine code is regenerated
+//! Key: SHA-256 of the model's inputs — the top component with its
+//! parameter values, every library definition it reaches, the connectors,
+//! the preparation options, the mode (full dynamic, or fast mode with its
+//! [`InverseSpec`]) and the engine version. Value: the [`PreparedModel`] as
+//! JSON. A hit is the model preparation would give, so it skips
+//! flattening and structural analysis; machine code is regenerated
 //! (milliseconds).
+//!
+//! Parameter values are in the key because preparation makes choices that
+//! depend on them: index reduction picks the states by pivoting at the
+//! start point (a pendulum released at 0.4 rad keeps `x`, one released
+//! horizontally must keep `y`), and the start checks warn at the start
+//! values. A model prepared at other values is not the model. A study at
+//! other values sets them on one built model (`Model::params_with`), which
+//! checks what the preparation divided by.
 
-use lsim_ir::component::{ComponentDef, Library, ParamValue};
-use lsim_ir::expr::Expr;
-use lsim_ir::flat::FlatSystem;
+use lsim_ir::component::{ComponentDef, Library};
 use lsim_ir::{InverseSpec, PreparedModel};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Bumped when what is cached, or how it is keyed, changes.
-const FORMAT: &str = "prepared-v2";
-
-/// The top component with its runtime parameter values left out.
-pub fn masked_top(lib: &Library, top: &ComponentDef) -> ComponentDef {
-    let runtime = Expr::Name("<runtime value>".into());
-    let mut t = top.clone();
-    for s in &mut t.components {
-        let Some(def) = lib.components.get(&s.def) else { continue };
-        for m in &mut s.modifiers {
-            let structural =
-                def.params.iter().find(|p| p.name == m.param).is_none_or(|p| p.structural);
-            if !structural && matches!(m.value, ParamValue::Real(Expr::Const(_))) {
-                m.value = ParamValue::Real(runtime.clone());
-            }
-        }
-    }
-    for p in &mut t.params {
-        if !p.structural && matches!(p.default, ParamValue::Real(Expr::Const(_))) {
-            p.default = ParamValue::Real(runtime.clone());
-        }
-    }
-    t
-}
+const FORMAT: &str = "prepared-v3";
 
 /// The cache key of a model's inputs; `inverse` is fast mode's
 /// specification (`None` for full dynamic).
@@ -70,7 +47,7 @@ pub fn input_key(
     let text = serde_json::to_string(&(
         FORMAT,
         env!("CARGO_PKG_VERSION"),
-        masked_top(lib, top),
+        top,
         used,
         &lib.connectors,
         force_implicit,
@@ -78,38 +55,6 @@ pub fn input_key(
     ))
     .expect("the IR serialises");
     Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// Copies the parameter values and start values of a fresh flattening of
-/// the same model (same key, other runtime values) into a cached prepared
-/// model, by name.
-pub fn refresh(m: &mut PreparedModel, fresh: &FlatSystem) {
-    let params: HashMap<&str, f64> =
-        fresh.params.iter().map(|p| (p.name.as_str(), p.value)).collect();
-    for p in &mut m.flat.params {
-        if let Some(v) = params.get(p.name.as_str()) {
-            p.value = *v;
-        }
-    }
-    let starts: HashMap<&str, Option<f64>> =
-        fresh.vars.iter().map(|v| (v.name.as_str(), v.start)).collect();
-    for v in &mut m.flat.vars {
-        if let Some(s) = starts.get(v.name.as_str()) {
-            v.start = *s;
-        }
-    }
-    // preparation hands a kept variable the start guess of the variables
-    // made one with it (a bus voltage the battery's terminal guesses): the
-    // fresh flattening does not have that yet, so carry them again
-    lsim_prep::alias::carry_starts(&mut m.flat, &mut [], &m.aliases);
-    // a sampled block's period is its `period` parameter's value
-    for b in &mut m.external {
-        let path = &m.flat.instance(b.instance).path;
-        let name = if path.is_empty() { "period".to_string() } else { format!("{path}.period") };
-        if let Some(v) = params.get(name.as_str()) {
-            b.period = *v;
-        }
-    }
 }
 
 /// A directory of prepared models.
@@ -166,23 +111,18 @@ mod tests {
     }
 
     #[test]
-    fn runtime_values_are_not_in_the_key() {
+    fn every_input_is_in_the_key() {
         let lib = lsim_lib::library();
         let a = battery_drive(&Params::default());
         let b = battery_drive(&Params { ocv: 450.0, j: 7.0, ..Params::default() });
-        assert_eq!(input_key(&lib, &a, false, None), input_key(&lib, &b, false, None));
-        // the options, the mode and the structure are
+        assert_eq!(input_key(&lib, &a, false, None), input_key(&lib, &a.clone(), false, None));
+        // parameter values, the options, the mode and the structure
+        assert_ne!(input_key(&lib, &a, false, None), input_key(&lib, &b, false, None));
         assert_ne!(input_key(&lib, &a, false, None), input_key(&lib, &a, true, None));
         let spec = InverseSpec { prescribed: vec!["inertia.w".into()], freed: vec![] };
         assert_ne!(input_key(&lib, &a, false, None), input_key(&lib, &a, false, Some(&spec)));
         let mut c = a.clone();
         c.connections.pop();
         assert_ne!(input_key(&lib, &a, false, None), input_key(&lib, &c, false, None));
-        // a structural parameter's value is
-        let mut lib2 = lib.clone();
-        let mut res = lib2.components["Rotational.Inertia"].clone();
-        res.params[0].structural = true;
-        lib2.add(res);
-        assert_ne!(input_key(&lib2, &a, false, None), input_key(&lib2, &b, false, None));
     }
 }

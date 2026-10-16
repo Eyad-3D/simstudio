@@ -12,7 +12,7 @@
 //! ```
 //!
 //! * **Build.** The prepared model is looked up in the [`cache`] by a key
-//!   of its inputs *without* runtime parameter values, prepared on a miss
+//!   of all its inputs, parameter values included, prepared on a miss
 //!   (`lsim_prep::prepare`, or `prepare_inverse` for fast mode), then
 //!   compiled to machine code. Preparation's warnings are in the
 //!   [`BuildReport`].
@@ -22,8 +22,10 @@
 //!   are worked out by the model's initialisation at the start of each
 //!   run. A change that makes a divisor preparation relied on zero (a
 //!   `ParamGuard`) is refused with the reason: such a model must be
-//!   prepared again ([`Engine::build`]); a cache hit whose values do so is
-//!   prepared again by itself.
+//!   prepared again ([`Engine::build`]). Index reduction's choice of
+//!   states is made at the values the model was prepared at; a change at
+//!   which that choice is singular is not detected yet (the run fails in
+//!   the integrator): build the model again at such values.
 //! * **Fast mode**: [`Engine::build_inverse`] prepares the inverse model
 //!   of an [`InverseSpec`], and [`Model::fast`] steps it ([`lsim_fast`]),
 //!   flagging every limit preparation passed through (it never changes the
@@ -81,7 +83,7 @@ pub struct BuildReport {
     pub prepare_seconds: f64,
     /// whether the prepared model came from the cache
     pub cache_hit: bool,
-    /// the cache key (inputs without runtime parameter values)
+    /// the cache key (a digest of every input)
     pub cache_key: String,
     /// compilation to machine code, s
     pub compile_seconds: f64,
@@ -235,16 +237,9 @@ impl Engine {
             None => lsim_prep::prepare(&self.lib, top, &popts),
             Some(spec) => lsim_prep::prepare_inverse(&self.lib, top, spec, &popts),
         };
-        let hit = match cache.as_ref().and_then(|c| c.get(&key)) {
-            Some(mut m) => {
-                let fresh = lsim_prep::flatten::flatten(&self.lib, top)?;
-                cache::refresh(&mut m, &fresh);
-                let p: Vec<f64> = m.flat.params.iter().map(|p| p.value).collect();
-                // values the cached preparation cannot serve: prepare afresh
-                broken_guard(&m, &p).is_none().then_some(m)
-            }
-            None => None,
-        };
+        // the key holds every input, parameter values included: a hit is
+        // the model preparation would give (cache.rs)
+        let hit = cache.as_ref().and_then(|c| c.get(&key));
         let cache_hit = hit.is_some();
         let prepared = match hit {
             Some(m) => m,

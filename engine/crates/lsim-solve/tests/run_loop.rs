@@ -2355,6 +2355,39 @@ fn a_model_that_does_not_give_the_tables_its_books_read_does_not_start() {
         let off = SolverOptions { impulses: false, ..books_off.clone() };
         assert!(simulate(&model(), run, &off, grid, &mut []).is_ok(), "{what}");
     }
+    // a model that gives its tables but not their partial derivatives
+    // (`eval_table_order` left at its default) while the books read a
+    // derivative index reduction wrote: the run does not start either
+    let slope = Expr::Table { table: 0, args: vec![Expr::Var(VarId(0))], order: [1, 0] };
+    let given = || WithTable(model(), |x| (2.0 * x, 2.0), vec![0.0, 10.0]);
+    let mut books = books.clone();
+    books.energy = Some(Arc::new(EnergyInfo {
+        parts: vec![EnergyPart {
+            path: "k".into(),
+            name: "'k'".into(),
+            power: Expr::Const(1.0),
+            loss: Some(slope),
+            stored: None,
+        }],
+    }));
+    let e = simulate(&given(), &books, &opts, grid, &mut []).unwrap_err().to_string();
+    assert!(
+        e.contains("partial derivative [1, 0] of the table 'k.efficiency'")
+            && e.contains("eval_table_order"),
+        "{e}"
+    );
+    // its value read alone starts
+    let mut value = books.clone();
+    value.energy = Some(Arc::new(EnergyInfo {
+        parts: vec![EnergyPart {
+            path: "k".into(),
+            name: "'k'".into(),
+            power: Expr::Const(1.0),
+            loss: Some(table.clone()),
+            stored: None,
+        }],
+    }));
+    assert!(simulate(&given(), &value, &opts, grid, &mut []).is_ok());
 }
 
 /// A driving-cycle-style condition: `when target(time) > x`, the target a

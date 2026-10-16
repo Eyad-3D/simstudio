@@ -1192,9 +1192,10 @@ impl Loop<'_> {
 /// events' instants and the positions of the tables read along time, the
 /// impulse projection; a sampled block's computed input reads no table:
 /// it is read from the channels then) is one the model gives
-/// ([`ModelFunctions::eval_table`]): without it they would read NaN
-/// (books NaN, a run that fails or a search that stalls), so the run does
-/// not start.
+/// ([`ModelFunctions::eval_table`], and for a read of a table's partial
+/// derivative, which index reduction writes, [`ModelFunctions::
+/// eval_table_order`]): without it they would read NaN (books NaN, a run
+/// that fails or a search that stalls), so the run does not start.
 fn tables_given(
     model: &dyn ModelFunctions,
     info: &RunInfo,
@@ -1202,13 +1203,13 @@ fn tables_given(
     t0: f64,
 ) -> Result<(), SolveError> {
     use crate::TimeFunction;
-    let mut read: Vec<(u32, &str)> = vec![];
+    let mut read: Vec<(u32, [u8; 2], &str)> = vec![];
     let mut visit = |e: &lsim_ir::Expr, what: &'static str| {
         e.walk(&mut |x| {
-            if let lsim_ir::Expr::Table { table, .. } = x
-                && !read.iter().any(|(k, _)| k == table)
+            if let lsim_ir::Expr::Table { table, order, .. } = x
+                && !read.iter().any(|(k, o, _)| k == table && o == order)
             {
-                read.push((*table, what));
+                read.push((*table, *order, what));
             }
         })
     };
@@ -1273,15 +1274,23 @@ fn tables_given(
             }
         }
     }
-    for (k, what) in read {
-        if model.eval_table(k, [0.0, 0.0]).is_none() {
+    for (k, order, what) in read {
+        if model.eval_table_order(k, order, [0.0, 0.0]).is_none() {
             let name = info.table_names.get(k as usize).cloned().unwrap_or_else(|| format!("{k}"));
+            let (which, method) = if order == [0, 0] {
+                (format!("the table '{name}'"), "eval_table")
+            } else {
+                (
+                    format!("the partial derivative {order:?} of the table '{name}'"),
+                    "eval_table_order",
+                )
+            };
             return Err(SolveError::Initialisation {
                 t: t0,
                 message: format!(
-                    "{what} read the table '{name}' outside the compiled code, and the model does \
-                     not give its tables (ModelFunctions::eval_table): a wrapper around a compiled \
-                     model must pass it on"
+                    "{what} read {which} outside the compiled code, and the model does not give \
+                     it (ModelFunctions::{method}): a wrapper around a compiled model must pass it \
+                     on"
                 ),
             });
         }

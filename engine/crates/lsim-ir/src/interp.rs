@@ -591,16 +591,18 @@ impl Table {
 
     /// The partial derivative of order `o` (not `[0, 0]`) at `args`.
     fn partial(&self, args: [f64; 2], o: [u8; 2]) -> f64 {
-        let args1 = &args[..self.dims];
-        if args1.iter().any(|a| a.is_nan()) {
-            return f64::NAN;
-        }
+        let nan = args[..self.dims].iter().any(|a| a.is_nan());
         if self.dims == 1 && o[1] > 0 {
-            return 0.0;
+            return if nan { f64::NAN } else { 0.0 };
         }
-        // first derivatives: the rates of the value, the same code
+        // first derivatives: the rates of the value, the same code (also
+        // where an argument is NaN: a rate along an axis with one point is
+        // 0 whatever the other argument is)
         if o[0] + o[1] == 1 {
             return self.eval0(args).1[usize::from(o[1] == 1)];
+        }
+        if nan {
+            return f64::NAN;
         }
         match self.ax.len() {
             0 => 0.0,
@@ -970,6 +972,10 @@ mod tests {
             data.outside = [outs[case % 3], outs[(case / 3) % 3]];
             out.push(data);
         }
+        // an axis with a single point: constant along it
+        out.push(TableData::new_2d(vec![1.0], vec![0.0, 1.0, 2.0], vec![0.0, 1.0, 4.0]));
+        out.push(TableData::new_2d(vec![0.0, 1.0, 2.0], vec![1.0], vec![0.0, 1.0, 4.0]));
+        out.push(TableData::new_2d(vec![1.0], vec![2.0], vec![3.0]));
         out
     }
 
@@ -1040,6 +1046,7 @@ mod tests {
                 pts.push([x, if t.dims() == 2 { t.points(1)[0] } else { 0.0 }]);
             }
             pts.push([f64::NAN, 0.5]);
+            pts.push([0.5, f64::NAN]);
             for at in pts {
                 let (_, g) = t.eval(at);
                 for (j, o) in [[1u8, 0u8], [0, 1]].into_iter().enumerate().take(t.dims()) {

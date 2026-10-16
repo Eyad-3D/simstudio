@@ -27,8 +27,9 @@ runs = model.sweep([{"el_vehicle.cd": 0.25}, {"el_vehicle.cd": 0.35}], threads=4
 
 * `build(project_json, case_id, cache_dir=None, cycles_dir=None)` returns a
   `Model`. With `cache_dir`, the prepared model is cached on disk (a second
-  build of the same car, even with other parameter values, skips
-  preparation). `cycles_dir` is the folder of the bundled drive cycles
+  build of the same car with the same values skips preparation; other
+  values are prepared again, since preparation chooses by them: set them
+  on the built model instead, `set_params` or `sweep`). `cycles_dir` is the folder of the bundled drive cycles
   (`backend/app/cycles` of the repository is the default). The GIL is
   released while it works.
 * `model.report`: sizes, import/prepare/compile seconds, whether the cache

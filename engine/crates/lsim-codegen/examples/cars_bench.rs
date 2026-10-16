@@ -171,6 +171,12 @@ impl ModelFunctions for Timed<'_> {
     fn condition_kernels(&self) -> Option<&dyn lsim_ir::ConditionKernels> {
         self.m.condition_kernels()
     }
+    fn books_kernel(
+        &self,
+        spec: &lsim_ir::runtime::BooksSpec,
+    ) -> Option<std::sync::Arc<dyn lsim_ir::runtime::BooksKernel>> {
+        self.m.books_kernel(spec)
+    }
 }
 
 /// Counts of what a model's assignments compute (`STATS=1`).
