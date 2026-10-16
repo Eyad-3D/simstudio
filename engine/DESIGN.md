@@ -1554,6 +1554,38 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   (searched ahead, section 8.2), the phase counter's 1.4e-15 and 1.1e-14
   s after the exact times, the books 1e-16 and 1e-15 of themselves off,
   78 steps over 2 s at rtol 1e-8 (it failed at its start before).
+* **IDA's order with the energy books under error control.** SUNDIALS
+  7.1.1's IDAS decides an order decrease on the states' errors alone
+  (`IDATestError`), and its quadratures' test (`IDAQuadTestError`) did
+  not revisit a decrease decided there, although its error test and its
+  order increase take the states' and the quadratures' errors together.
+  On states exactly polynomial in time (a constant torque spinning a
+  load up through the library's final drive, a DAE) the states' errors
+  at orders k and k−1 are both zero, `0 ≤ ½ · 0` lowered the order at
+  every order 2, and the books' quadratures (integrals growing as t²)
+  then set the step at order 1: 6 406, 63 715 and 636 288 steps at rtol
+  1e-6, 1e-8 and 1e-10 for a 2 s spin-up, growing as 1/√rtol, the gear's
+  loss 0.26·√rtol off. Neither the run loop's restarts nor its options
+  had a part in it (the run has no event). The vendored IDAS is patched
+  (`lsim-sundials-sys/sundials/lsim.patch`): whenever the quadratures'
+  errors are the larger, the decrease is decided on the two together.
+  Now 96, 116 and 184 steps, most of them in the first nanosecond (where
+  the gear's efficiency blends through zero power), the loss 2.4e-10,
+  1.1e-12 and 2.2e-14 of itself off (`lsim-solve/tests/ida_order.rs`,
+  which IDAS without the patch fails; the final drive's exact-answer test
+  holds its books to 1e-10 now, from 1e-5). CVODES decides on both
+  already (the same spin-up without the gear's inertias, an ODE: 8, 9
+  and 11 steps). Every golden case is a DAE with books, and each takes a
+  slightly different sequence of steps: the figures and channels move by
+  about the tolerance (the largest, 0.16 × band, the hybrid's clutch
+  losses on the HWFET: 6.9e-10 → 5.3e-10 kW against a band of 1e-9;
+  every other below 0.003 × band), each on the side of its band it was
+  (199 of 201 figures, 984 of 1038 channels), the hybrid's shifts and
+  their losses the same (to 1e-12 kWh), its controller's output changes
+  within 9 of 10⁵, the books closed to 6.6e-10 or better (1.5e-9 before);
+  the steps from 2 % fewer to 1.2 % more per case (0.06 % fewer in all),
+  the run times within one run's noise of each other (all 14: 130.4 s
+  before, 121.4 s after, one run each on the same machine).
 
 ### 8.2 Events
 
@@ -2831,8 +2863,12 @@ work end to end) or against hand-written test doubles of the interfaces.
   same to the last digit.
 * **Eleventh round (solver fundamentals, 16 October 2026)**: a model with
   no state runs, on an integrator of nothing but its books
-  (`stateless`, section 8.1). The golden comparison is the same to the
-  last digit (none of its models is without a state).
+  (`stateless`, section 8.1); IDAS decides an order decrease on the
+  states' and the books' errors together (the vendored copy patched,
+  section 8.1: a spin-up whose states are exactly linear stayed at order
+  1, its books setting the step). With the second the golden comparison
+  moves by about the tolerance, every figure and channel on the side of
+  its band it was (section 8.1).
 * **Status (as built)**: the exact-answer suite passes on both backends,
   ODE and DAE paths (`lsim-solve/tests/reference.rs`); the backends agree
   within 4.2·rtol; events within 2.6·rtol on SUNDIALS at every tolerance,
@@ -2844,7 +2880,8 @@ work end to end) or against hand-written test doubles of the interfaces.
   it is held to 50·rtol);
   energy closure ≤ 1.1e-7 everywhere tested before the example projects
   imported, ≤ 1.5e-9 on every golden case since the stored-energy rates
-  are exact; the idle 10 ms block and the sweeps as measured in sections
+  are exact, ≤ 6.6e-10 since IDAS decides its order on the books' errors
+  too (section 8.1); the idle 10 ms block and the sweeps as measured in sections
   9 and 8.4 (the block 2.0–4.4 % of the 21-state run, at most 2.8 % of
   the 101-state one, from 19.5 % at worst in the earlier measurement (25.0 %
   in section 9's); sweeps 3.2–3.5× for 16 short

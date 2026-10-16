@@ -9,7 +9,20 @@
 //! sparse LU of its own (faer, MIT) as a `SUNLinearSolver`.
 //!
 //! The C sources are the ones vendored in the `sundials-sys` 0.6.2 crate,
-//! trimmed to what is built; `build.rs` compiles them with the `cc` crate.
+//! trimmed to what is built, with one patch of the engine's
+//! (`sundials/lsim.patch`, every changed line; `patch -p1 < lsim.patch` in
+//! `sundials/` of upstream's copy reproduces this one): IDAS decides an
+//! order decrease on the errors of the states and the quadratures together
+//! whenever the quadratures' are the larger (`IDAQuadTestError`), as its
+//! error test and its order increase do. Upstream kept a decrease the
+//! states' errors alone had decided: on states exactly polynomial in time
+//! (a constant torque spinning up a driveline) their errors at orders k and
+//! k−1 are both zero, `0 <= 0.5 · 0` lowered the order at every order 2,
+//! and the energy books' quadratures then set the step at order 1: 6 406,
+//! 63 715 and 636 288 steps at rtol 1e-6, 1e-8 and 1e-10, the books
+//! 0.26·√rtol off; with the patch 96, 116 and 184 steps, the books 2e-10,
+//! 1e-12 and 2e-14 off (`lsim-solve/tests/ida_order.rs`, which a copy
+//! without the patch fails). `build.rs` compiles them with the `cc` crate.
 //! Nothing else is needed at build time: the configuration header is
 //! written by hand once (`sundials/include/sundials/sundials_config.h`,
 //! the same on every platform) and the bindings below are committed,

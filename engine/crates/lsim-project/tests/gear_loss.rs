@@ -94,10 +94,14 @@ fn a_gear_loses_its_efficiency_on_the_torque_its_teeth_carry() {
             let got = res.channel("fd.tau_x").unwrap()[k];
             assert!((got - tau).abs() < 1e-8 * T, "the teeth's torque at {t}: {got}");
         }
-        // its books: IDA integrates them alongside at the first order its
-        // states (here linear in time) need, so only to about 0.26·√rtol of
-        // the loss (golden/README.md: found on the way)
-        assert!((lost - loss).abs() < 1e-5 * loss.max(1e-3), "loss {lost} against {loss}");
+        // its books: IDA integrates them alongside, at order 2 once the
+        // states (here linear in time) settle, so the loss (an integral of
+        // t) to round-off; before IDAS's order decrease was decided on the
+        // states' and the books' errors together (lsim-sundials-sys), the
+        // books' quadratures held it at order 1 and only 0.26·√rtol of the
+        // loss came right (golden/README.md: found on the way)
+        println!("the loss's book {:.1e} off", (lost - loss).abs() / loss.max(1e-3));
+        assert!((lost - loss).abs() < 1e-10 * loss.max(1e-3), "loss {lost} against {loss}");
         // today's rule is a different answer, by the inertia term
         assert!((loss_l - loss).abs() > 1e-3 * loss_l);
         books_close(&res, 1e-9);

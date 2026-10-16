@@ -282,20 +282,25 @@ coefficients hold the axle's drag).
 | hybrid-car/case-mixed | el-diff:sig_torque_a | 5.46 | b | reports the sources' torque or power | 0.169 | 0.005 |
 | hybrid-car/case-mixed | el-diff:sig_torque_b | 5.46 | b | reports the sources' torque or power | 0.169 | 0.005 |
 
-**Found on the way (work package 4's).** The exact-answer test above
-first ran its final drive on IDA (the gear's input inertia makes the model
-a DAE) and took 9 336 steps for a 2 s spin-up at rtol 1e-6, 93 000 at
-1e-8, 930 000 at 1e-10: the states grow exactly linearly, IDA stays at
-order 1, and with the energy books under error control the books'
-quadratures (whose integrals grow as t²) set the step, steps growing as
-1/√rtol, the loss's book 2.6e-4, 2.6e-5 and 2.6e-6 of itself off (as
-√rtol); without that error control the run takes 89 steps and every book is
-1.32 × too large (the stored energies' integrals included, against their
-exact change). The golden cars are not affected: with the books' error
-control off they take 0.2 to 6 % fewer steps and their books close to 1.1e-9
-or better. The test
-checks the loss's rate exactly and its book to 1e-5 at rtol 1e-10; IDA's
-order selection with quadratures is the solver's to look at.
+**Found on the way (work package 4's), and fixed there.** The
+exact-answer test above first ran its final drive on IDA (the gear's input
+inertia makes the model a DAE) and took 9 336 steps for a 2 s spin-up at
+rtol 1e-6, 93 000 at 1e-8, 930 000 at 1e-10: the states grow exactly
+linearly, IDA stayed at order 1, and with the energy books under error
+control the books' quadratures (whose integrals grow as t²) set the step,
+steps growing as 1/√rtol, the loss's book 2.6e-4, 2.6e-5 and 2.6e-6 of
+itself off (as √rtol); without that error control the run took 89 steps
+and every book was 1.32 × too large (the stored energies' integrals
+included, against their exact change). The cause was IDAS's order
+selection: it decided an order decrease on the states' errors alone, both
+zero on states exactly polynomial in time (`0 <= 0.5 · 0`), and its
+quadratures' test kept that decision although their errors said
+otherwise. The vendored IDAS decides it on the two together now
+(`lsim-sundials-sys`, DESIGN.md 8.1): the test holds the loss's rate
+exactly and its book to 1e-10 at rtol 1e-10 (it is 6e-15 off). With the
+fix every golden case moves by about the tolerance, each figure and
+channel on the side of its band it was (DESIGN.md 8.1); the tables here
+are of the run before it.
 
 ### Resolved: an event at an output time
 

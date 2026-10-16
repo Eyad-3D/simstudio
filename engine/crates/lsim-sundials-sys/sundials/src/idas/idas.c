@@ -6796,24 +6796,35 @@ static int IDAQuadTestError(IDAMem IDA_mem, sunrealtype ck, sunrealtype* err_k,
     }
     terr_km1 = IDA_mem->ida_kk * (*err_km1);
 
-    /* Has an order decrease already been decided in IDATestError? */
-    if (IDA_mem->ida_knew != IDA_mem->ida_kk)
+    /* lsim (engine patch): the order decrease is decided on the errors of
+       the states and the quadratures together (the norms the error test and
+       the order increase use) whenever the quadratures' are the larger, also
+       where IDATestError decided one on the states' alone. Upstream kept
+       that decision: on states exactly polynomial in time their errors at
+       orders k and k-1 are both zero, `0 <= 0.5 * 0` decided a decrease at
+       every order 2, and the quadratures' larger error at order 1 then set
+       the step (lsim-solve's tests/ida_order.rs). */
+    terr_km2 = ZERO;
+    if (IDA_mem->ida_kk > 2)
     {
-      check_for_reduction = SUNFALSE;
+      /* Update error at order k-2 */
+      N_VLinearSum(ONE, IDA_mem->ida_phiQ[IDA_mem->ida_kk - 1], ONE, tempv,
+                   tempv);
+      errQ_km2 = IDA_mem->ida_sigma[IDA_mem->ida_kk - 2] *
+                 N_VWrmsNorm(tempv, IDA_mem->ida_ewtQ);
+      if (errQ_km2 > *err_km2)
+      {
+        *err_km2            = errQ_km2;
+        check_for_reduction = SUNTRUE;
+      }
+      terr_km2 = (IDA_mem->ida_kk - 1) * (*err_km2);
     }
 
     if (check_for_reduction)
     {
+      IDA_mem->ida_knew = IDA_mem->ida_kk;
       if (IDA_mem->ida_kk > 2)
       {
-        /* Update error at order k-2 */
-        N_VLinearSum(ONE, IDA_mem->ida_phiQ[IDA_mem->ida_kk - 1], ONE, tempv,
-                     tempv);
-        errQ_km2 = IDA_mem->ida_sigma[IDA_mem->ida_kk - 2] *
-                   N_VWrmsNorm(tempv, IDA_mem->ida_ewtQ);
-        if (errQ_km2 > *err_km2) { *err_km2 = errQ_km2; }
-        terr_km2 = (IDA_mem->ida_kk - 1) * (*err_km2);
-
         /* Decrease order if errors are reduced */
         if (SUNMAX(terr_km1, terr_km2) <= terr_k)
         {
