@@ -887,7 +887,10 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    derivatives (Mattsson–Söderlind) choose which states to demote, by
    static selection with a pivoting check on the Jacobian at
    initialisation; dynamic state selection is out of scope until a model
-   needs it (risk R3). Symbolic time differentiation of equations is in
+   needs it (risk R3). The outside judge (section 15) shows models that
+   need it: the index-3 pendulum released at 1.48 rad from the vertical or
+   more, or given the speed to loop, and the IFToMM multiple four-bar
+   (R3). Symbolic time differentiation of equations is in
    `symbolic.rs`'s rule set, with `limit` and tables.
 
    **Through tables.** A table read differentiates by the chain rule,
@@ -1586,6 +1589,33 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   the steps from 2 % fewer to 1.2 % more per case (0.06 % fewer in all),
   the run times within one run's noise of each other (all 14: 130.4 s
   before, 121.4 s after, one run each on the same machine).
+  Judged from outside (section 15, `judge.py sundials`) on SUNDIALS' own
+  IDAS examples with quadratures under error control, `idasSlCrank_dns`
+  and `idasAkzoNob_dns`: built from the 7.1.1 release, IDAS reproduces
+  LLNL's shipped outputs to the last digit (steps, error-test failures,
+  the quadrature G), and 7.9.0 the same; the engine's copy is that
+  release with the patch, file for file. With the patch IDAS does not
+  reproduce them: the patch changes the order decision wherever the
+  quadratures' errors are the larger, not only where the states' are
+  zero. At the shipped tolerances the slider-crank takes 312 steps
+  instead of 251 and the Akzo Nobel problem 473 instead of 500, and G
+  comes out closer to G computed independently (the slider-crank in its
+  one minimal coordinate at 34 digits; the Akzo Nobel problem by Radau
+  IIA at rtol 1e-13, whose y1(180) is 9e-15 from the test set's
+  reference): 7.8e-7 off instead of 2.8e-6, 1.0e-10 instead of 2.5e-9.
+  Over rtol 1e-4 … 1e-10 it changes the slider-crank at 1e-6 alone, and
+  the Akzo Nobel problem at every tolerance: G closer at six of seven
+  (at 1e-9, 2.6e-10 off instead of 9.9e-11), 22 % fewer to 45 % more
+  steps, and as accurate for the same work or less (1.0e-10 in 473 steps
+  where upstream needs 740 for 9.9e-11). A patch confined to the zero
+  case (a decrease decided on the states' errors that are all zero
+  decided again on the quadratures') leaves LLNL's examples bit for bit
+  but does not mend the engine's: the spin-up then takes 136, 220 and
+  303 steps, its book 3.3e-9, 6.3e-10 and 1.9e-11 off, and the gear ramp
+  of `error_test.rs` 206 170 steps at rtol 1e-10, where the states'
+  errors are round-off rather than zero; so the patch stays as it is.
+  The slider-crank fails at rtol 1e-8 and tighter on every IDAS, patched
+  or not (its corrector, at t = 4e-9 s).
 
 * **Where the error test cannot pass.** Ten failures of the error test
   at one step (the step cut by four from the second on) stop SUNDIALS.
@@ -2653,6 +2683,43 @@ events name the modes that chatter.
 * **Energy closure** on every test run and every example car.
 * **Golden comparisons** with today's engine (section 12.3), in CI on the
   example projects; a report of every KPI with its band.
+* **The outside judge** (`engine/judge`, October 2026): published
+  problems with their own reference solutions, so the solver is not
+  judged by its own probes. The Bari IVP Test Set's Andrews mechanism
+  (index 3), car axis (index 3) and Akzo Nobel problem against the
+  test set's reference solutions, scored as the test set scores its
+  solvers (significant correct digits, scd); the IFToMM planar pendulum
+  and multiple four-bar (5 × 5 loops through singular positions) against
+  the pendulum's closed form (Jacobi elliptic functions, mpmath) and the
+  grid's minimal coordinates integrated at 40 digits, with the
+  benchmarks' own energy-drift limits; the same pendulum released from
+  any angle, or looping; the Reference FMUs' Stair (no state) and
+  BouncingBall against their `_out.csv` and the exact bounces; SUNDIALS'
+  own IDAS examples with quadratures under error control, built against
+  the engine's patched IDAS and upstream's (section 8.1); and
+  OpenModelica 1.27 on the same models, with its dynamic state selection
+  and with static dummy derivatives (for checking only, never shipped).
+  `judge.py` downloads the sources into a cache checked by SHA-256 (the
+  test set and IFToMM are free for research only: none of their data is
+  in the repository), writes the models in the text format, runs them at
+  rtol 1e-4 … 1e-10 through `lsim-project`'s `judge` example and scores
+  error, scd, steps, error-test failures, events and wall time, beside an
+  earlier build's (`--before`). First verdict (16 October 2026, the
+  solver work's first round): Stair exact at every tolerance (it failed
+  at its start before); BouncingBall's 11 bounces to 5e-11 s at 1e-10,
+  the error falling with the tolerance; Andrews 3.6 to 9.0 scd over the
+  range, more than the test set's five solvers at the same tolerance (6.6
+  at 1e-7 against their 3.5–5.4) in 8 to 20 times their steps; the car
+  axis 1.6 to 5.8, Akzo Nobel 1.9 to 7.4; the pendulum released at
+  0.4 rad to 2.5e-9 m at 1e-10. Its failures are static state
+  selection's (risk R3). Released at every 0.01 rad from 0.01 to 3.14 rad
+  (`judge.py cases --sweep`), the index-3 pendulum is right (within 1000
+  × rtol over 10 s) up to 1.47 rad at every tolerance; from 1.48 rad on
+  (the IFToMM problem, released level with its pivot, among them), and
+  looping, no run is: at rtol 1e-4 … 1e-6 two thirds end wrong without a
+  message (the position 1 cm to 2 m off), the rest stop; at 1e-7 … 1e-10
+  nearly all stop, at the bottom of the swing or where the rod passes
+  the horizontal. The four-bar does not prepare.
 * **Performance gates**: not built yet. When they are, they compare build
   time (prepare + compile) and run time for each example car in both modes
   with the base commit (as the backend's performance job does) and with
@@ -2982,7 +3049,7 @@ the vehicle body). A short integration checkpoint each week runs
 |---|---|---|
 | R1 | Sampled Script blocks at 10 ms force 180 000 integrator restarts on WLTC | restart only when an output changes; recommend continuous-time controllers; measure (WP4 acceptance). **WP4:** done — no restart and no extra step for a tick that changes nothing; its inputs read ahead across the step, bit for bit: 9.5–21 ns a tick, 2.0–4.4 % of the cheapest test model's run (20 000× real time), < 3 % of the 101-state one (section 9) |
 | R2 | SUNDIALS build on Windows/macOS | in-tree `cc` build with committed config header and bindings; CI on all three from the start (WP4/WP6). **WP4:** built and tested on Linux with only a C compiler; the MSVC build is proven by CI's "Engine (Rust) on Windows" job (run 38620416352 on a619ab4; the merged tree from dd8feb0); macOS is not built (Windows only for now) |
-| R3 | Index reduction needs dynamic state selection for some models | static dummy derivatives with an initial pivoting check cover vehicle drivelines; report the rare case clearly; dynamic selection only if a real model needs it |
+| R3 | Index reduction needs dynamic state selection for some models | static dummy derivatives with an initial pivoting check cover vehicle drivelines; report the rare case clearly; dynamic selection only if a real model needs it. **The outside judge (16 October 2026, section 15):** the rare case is neither rare nor reported clearly. The index-3 pendulum released at 1.48 rad or more (the IFToMM planar pendulum among them), or looping, keeps the states chosen at the start through the point where they degenerate: at rtol 1e-4 … 1e-6 two thirds of the runs end without a message and wrong (the position 1 cm to 2 m off on a 1 m rod, the energy up to 29 J), the rest stop there (SUNDIALS flag −4, or no step passes), and at 1e-7 … 1e-10 nearly all stop; the IFToMM multiple four-bar does not prepare (SINGULAR-LOOP at its start values); released exactly level (y = 0) the pendulum is refused (STATE-SELECT-SINGULAR), 6e-17 m below it prepares. OpenModelica 1.27 (DASSL) with its dynamic state selection runs every pendulum (to 9e-8 … 6e-4 m at rtol 1e-10); with static dummy derivatives it fails as the engine does, mostly worse (results of NaN reported as a success); neither of its selections runs the four-bar (it fails at its start, or does not build). Detection, then dynamic selection, are the solver work's next parts |
 | R4 | Friction and clutch modes chatter | force-based stick/slip conditions in the components; event-storm detection naming the parts. **WP4:** storm detection done (over 100 state events within 1e-3 of the run, the error names the modes' parts; tested on a chattering mode); the force-based conditions are WP5's |
 | R5 | Golden comparisons show differences that are today's numerical error | measured bands from today's own fine-step runs; differences triaged and documented |
 | R6 | Fast-mode speed (now: faster than the average of comparable tools, section 2) | Rosenbrock-W with Jacobian reuse; explicit backward evaluation of the sorted inverse model; measured early in WP6 |

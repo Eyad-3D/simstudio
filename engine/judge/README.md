@@ -1,0 +1,77 @@
+# The outside judge
+
+The engine's solver is judged on published problems with their own
+reference solutions, not on its own probes. `judge.py` downloads the
+problems' sources, writes each problem as a model in the text format,
+runs it at rtol 1e-4 … 1e-10 and scores the results the way the problems'
+sources score solvers: the error against the reference, significant
+correct digits (scd), steps, error-test failures, events and wall time.
+OpenModelica runs the same models for a second tool's answer.
+
+```text
+python3 engine/judge/judge.py fetch    CACHE                  # sources, checked by SHA-256
+python3 engine/judge/judge.py cases    CACHE CASES [--sweep]  # models, runs, reference solutions
+cargo build --release -p lsim-project --example judge         # the runner (engine/)
+python3 engine/judge/judge.py run      CASES RESULTS          # the engine on every case
+python3 engine/judge/judge.py score    CACHE CASES RESULTS [--before RESULTS0] [--out FILE]
+python3 engine/judge/judge.py sundials CACHE WORK             # SUNDIALS' own IDAS examples
+python3 engine/judge/judge.py omc      CASES RESULTS          # OpenModelica, if omc is on the PATH
+```
+
+CACHE, CASES, RESULTS and WORK are folders outside the repository. For
+`omc`, OpenModelica's compiler and runtime suffice: conda-forge's
+`openmodelica` 1.27.1 package with the libraries `omc` loads (`libgcc`,
+`libgfortran5`, `libopenblas`, `liblapack`, `libblas`, `libiconv`)
+unpacked into one folder, 230 MB, its `bin/omc` on the PATH; the judge
+sets `OPENMODELICAHOME` and the library path from it. The judge needs
+Python 3.10+ with mpmath and scipy (the reference solutions), and for
+`sundials` a C compiler, CMake and `patch`. `run` takes the runner
+from `CARGO_TARGET_DIR` (or `--runner`); `score --before` puts an earlier
+build's results beside the current ones. `cases --sweep` adds the pendulum
+released at every 0.01 rad from 0.01 to 3.14 rad.
+
+## The judges
+
+| case | what it judges | reference | source and terms |
+|---|---|---|---|
+| `testset-andrews` | Andrews' squeezing mechanism: 7 bodies, index 3, 27 unknowns, t ≤ 0.03 s | the test set's reference solution at the end (PSIDE, rtol = atol = 1e-14); scd over the 7 angles, mescd over all 27, as the test set counts them | Bari IVP Test Set, problem 13: F. Mazzia, C. Magherini, *Test Set for Initial Value Problem Solvers*, release 2.4, University of Bari, 2008; E. Hairer, G. Wanner, *Solving ODEs II*, 1996, pp. 530–536. Free download, no licence stated: the equations are transcribed here with this citation; its code and reference values are not copied |
+| `testset-caraxis` | the car axis: index 3, a time-dependent constraint, t ≤ 3 s | the test set's reference (quadruple-precision GAMD, 1e-24) at the end, all 10 components | Bari IVP Test Set, problem 17 (S. Schneider, PhD thesis, Geneva 1994); as above |
+| `testset-chemakzo` | the chemical Akzo Nobel problem: stiff, index 1, t ≤ 180 s | the test set's reference (PSIDE, 1e-19) at the end | Bari IVP Test Set, problem 3; as above. SUNDIALS' `idasAkzoNob_dns` is the same problem |
+| `iftomm-pendulum` | the planar simple pendulum, released horizontally, in x and y (index 3), 10 s | the closed form (Jacobi elliptic functions, mpmath at 34 digits); the benchmark's own measure, the energy drift, against its limit of 5e-5 J | IFToMM Library of Computational Benchmark Problems: R. Masoudi, T. Uchida, D. Vilela, A. Luaces, J. Cuadrado, J. McPhee, *A library of computational benchmark problems for the multibody dynamics community*, ECCOMAS Multibody Dynamics 2013. Research use only: its descriptions and the results other groups submitted stay in the cache |
+| `iftomm-fourbar` | the multiple four-bar mechanism: 5 × 5 four-bar loops, 55 bars, 60 coordinates, 55 constraints, 5 degrees of freedom, through singular positions (a row's bars in line), 10 s | its minimal coordinates (each row's angle; the parallelograms keep their shape) integrated by Gragg–Bulirsch–Stoer extrapolation at 40 digits to an estimated 1e-28 (energy kept to 4e-27; DOP853 at rtol 1e-13 agrees to 6e-11); the benchmark's energy-drift limit of 1 J | IFToMM (A. Callejo); as above. The two submitted results agree with the reference to 3e-7 (Callejo) and 6e-6 (Burkhardt) rad up to 2 s, and drift apart later with their energy errors (0.75 and 0.06 J) |
+| `pendulum-swing-θ0`, `pendulum-loop-m` | the same pendulum released at rest from θ0 (swinging), or given the speed at the bottom that makes m = 4gL/v0² < 1 (looping) | the closed form, as above | mathematics (mpmath, BSD-3-Clause) |
+| `fmu-stair` | a model with no continuous state: a counter raised by a time event each second | `Stair_out.csv`, point for point; the events at whole seconds exactly | Reference FMUs v0.0.41 (Modelica Association, BSD-2-Clause), `Stair/model.c` |
+| `fmu-bouncingball` | state events and `reinit`: a ball that bounces until it rests | the bounces in closed form (each one's time and speed); `BouncingBall_out.csv` beside it, which fmusim wrote with forward Euler at 1 ms, so it agrees only to about 1e-3 | Reference FMUs v0.0.41, `BouncingBall/model.c` |
+| `sundials` | the engine's patched IDAS (`lsim-sundials-sys/sundials/lsim.patch`) on SUNDIALS' own examples with quadratures under error control, against upstream 7.1.1 (the release the engine vendors) and 7.9.0 | the examples' shipped `.out` files (LLNL's runs) and G computed independently: the slider-crank in its minimal coordinate at 34 digits, the Akzo Nobel problem by Radau IIA at rtol 1e-13 (its y1(180) is 9e-15 off the test set's reference) | SUNDIALS (LLNL, BSD-3-Clause): `examples/idas/serial/idasSlCrank_dns.c`, `idasAkzoNob_dns.c` |
+| `omc` | a second tool on the same models: OpenModelica with its dynamic state selection and with static dummy derivatives | the references above | OpenModelica (AGPL-3.0 or OSMC-PL): for checking only, never shipped or linked; the conda-forge build of `omc` with the runtime libraries it needs |
+
+Each model is written by `judge.py` from the problem's statement, so the
+repository holds no third party's data; the reference values are read from
+the cached files or computed when the cases are written. A wrong
+transcription would not go unnoticed: each test set model's error falls
+with the tolerance onto the published reference (Andrews' to 9.0
+significant digits at rtol 1e-10, the car axis' to 5.8, Akzo Nobel's to
+7.4; OpenModelica's alike), and the four-bar's text, which neither the
+engine nor OpenModelica runs, is checked against its mechanics when the
+cases are written: the accelerations and bar forces at the start, solved
+from the bars' mass matrices, weights and length constraints, zero every
+one of its equations (to 1e-14; one weight changed shows as 4.9).
+
+## Measures
+
+* **error, scd**: for the test set's problems, the largest relative error
+  at the end time over the components the test set counts, and
+  scd = −log10 of it; mescd = −log10(max |error| / (atol/rtol + |reference|))
+  over all components. For the pendulums and the four-bar, the largest
+  error of the positions (m; the angles, rad) over the output grid, and
+  scd = −log10 of it (the length is 1 m). For Stair, the largest
+  difference of the counter from `Stair_out.csv`; for BouncingBall, the
+  largest error of a bounce's time.
+* **steps, ETF, events**: the integrator's steps, error-test failures and
+  the events the run handled.
+* **wall time**: the run's alone (initialisation and integration, not
+  preparation or compilation), the median of three, release build.
+
+Every run either matches its reference or stops with the engine's own
+message, which the table quotes; a run that returns a wrong answer without
+a message is the worst result and is marked by its error.
