@@ -46,10 +46,15 @@ runs = model.sweep([{"el_vehicle.cd": 0.25}, {"el_vehicle.cd": 0.35}], threads=4
   comparison's run (`lsim_project::golden::run_case`): the same solver and
   tolerances, the energy books on, and an acceleration test runs again to
   the moment it crosses the finish. The results are bit for bit the same.
-  An output grid of more than ten million points (`t_end / output_step`,
-  the caller's or the case's own) is refused with a `ValueError`: its
-  results would not fit in memory. `scripts` and `native_scripts` are
-  below, under Script blocks.
+  An output grid (`t_end / output_step`, the caller's or the case's own)
+  of more than ten million points, or whose results would take more than
+  4 GB (every recorded variable's value, min, max and mean at each output
+  time), is refused with a `ValueError` before the run. A run whose results
+  do not fit in the memory left fails with a `ModelError` coded
+  `RUN-MEMORY`, and reading results into Python (`times`, `channels`, …,
+  which copies them) without the memory for it raises `MemoryError`:
+  neither ends the interpreter. `scripts` and `native_scripts` are below,
+  under Script blocks.
 * `Run`: `times`, `channels`, `min`, `max`, `mean` (today's names and units,
   NumPy arrays; `min`/`max`/`mean` are per output interval),
   `engine_channels` (the engine's own names, SI), `events`, `report`,
@@ -70,7 +75,10 @@ runs = model.sweep([{"el_vehicle.cd": 0.25}, {"el_vehicle.cd": 0.35}], threads=4
 
 A Script part runs the Python function you give for it, whenever you give
 one: `scripts={"el-hcu": f}`, keyed by the part's id or its label, with
-`f(t, dt, inputs: dict[str, float]) -> dict[str, float] | None`. It is
+`f(t, dt, inputs: dict[str, float]) -> dict[str, float] | None`. A key that
+is neither (a misspelt id, `"el_hcu"`, the label with other capitals) makes
+`simulate` and `sweep` raise a `ValueError` that names it and the case's
+Script parts, so a function is never left out unsaid. It is
 called once at the start and then every period; outputs it does not return
 keep their last value. A function given to a `sweep` is shared by all its
 runs, so it should keep no state of its own.
@@ -79,8 +87,9 @@ A part you give no function runs its own code (the project's Script) on
 the engine's own runner of a subset of Python, `lsim-script`, when
 `native_scripts=True`, the default. That runner gives the app's Script
 runner's results bit for bit and reaches nothing outside the script (no
-files, processes or network; a call has two seconds and 512 MB of values,
-as in the app's worker). A script it does not run (other imports, the
+files, processes or network; a call has two seconds and 512 MB, as in the
+app's worker, counting every block its values and its code hold). A script
+it does not run (other imports, the
 transcendental math functions, classes, … or an operation part-way through
 the run that only Python has) makes `simulate` raise a `ModelError` coded
 `RUN-SCRIPT` that names the part; give the part a function to run it on

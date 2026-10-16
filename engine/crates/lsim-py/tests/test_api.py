@@ -333,6 +333,59 @@ def test_an_output_grid_too_large_is_refused():
     assert "output points" in lines[0] and lines[3] == "11"
 
 
+def test_results_too_large_for_memory_never_abort_the_interpreter():
+    """A grid whose results would take more than a run records (4 GB: every
+    variable's value, min, max and mean at each output time) is a
+    ValueError before the run, however few points it has; a run whose
+    results do not fit fails with RUN-MEMORY, and results read into Python
+    without the room for them raise MemoryError: nothing aborts the
+    interpreter. Run in a process of its own whose memory is then capped a
+    little above what it holds (`resource`), as a small Windows commit
+    limit would be."""
+    resource = pytest.importorskip("resource")
+    del resource
+    if not Path("/proc/self/statm").exists():
+        pytest.skip("needs /proc to cap the memory a little above what is held")
+    code = (
+        "import resource, sys, lightsim_engine as le\n"
+        "model = le.build(open(sys.argv[1], encoding='utf-8').read(), 'case-wltc')\n"
+        "run = model.simulate(t_end=20.0, output_step=4e-4)\n"
+        "held = int(open('/proc/self/statm').read().split()[0]) * resource.getpagesize()\n"
+        "resource.setrlimit(resource.RLIMIT_AS, (held + 100_000_000, resource.RLIM_INFINITY))\n"
+        "# a million points: under the point cap, past the bytes a run records\n"
+        "try:\n"
+        "    model.simulate(t_end=20.0, output_step=2e-5)\n"
+        "    print('ran')\n"
+        "except le.ModelError as e:\n"
+        "    print('model', e.diagnostics[0]['code'])\n"
+        "except ValueError as e:\n"
+        "    print('refused', 'GB' in str(e))\n"
+        "# 50 001 points: no room for their results now\n"
+        "try:\n"
+        "    model.simulate(t_end=20.0, output_step=4e-4)\n"
+        "    print('ran')\n"
+        "except le.ModelError as e:\n"
+        "    print('model', e.diagnostics[0]['code'])\n"
+        "except MemoryError:\n"
+        "    print('memory')\n"
+        "# and the first run's results read with too little room for them\n"
+        "for name in ('times', 'channels', 'min', 'max', 'mean', 'engine_channels', 'energy'):\n"
+        "    try:\n"
+        "        getattr(run, name)\n"
+        "        print('read', name)\n"
+        "    except MemoryError:\n"
+        "        print('memory', name)\n"
+        "print('done')\n")
+    done = subprocess.run([sys.executable, "-c", code, str(BACKEND / "projects" / "bev-car.json")],
+                          capture_output=True, text=True, timeout=600)
+    assert done.returncode == 0, (done.returncode, done.stdout, done.stderr[-2000:])
+    lines = done.stdout.splitlines()
+    assert lines[:2] in (["refused True", "model RUN-MEMORY"], ["refused True", "memory"]), done.stdout
+    assert lines[-1] == "done" and len(lines) == 10, done.stdout
+    assert all(x.split()[0] in ("read", "memory") for x in lines[2:-1]), done.stdout
+    assert any(x.startswith("memory") for x in lines[2:-1]), done.stdout
+
+
 def test_no_panics_for_plain_mistakes(bev):
     with pytest.raises(TypeError):
         bev.simulate(scripts=42)
@@ -451,6 +504,33 @@ def test_a_script_part_the_native_runner_does_not_run_says_so():
         assert d["code"] == "RUN-SCRIPT" and d["parts"] == ["el-hcu"], d
         assert "Hybrid Control Unit" in d["message"], d
         assert "scripts={'el-hcu': f}" in d["hint"], d
+
+
+def test_a_function_for_no_script_part_is_refused():
+    """A key of `scripts` that is neither the id nor the label of a Script
+    part of the case (a misspelt id, the engine's own naming of the part,
+    a label with other capitals) raises a ValueError that names it and the
+    parts there are, in simulate and sweep, with native_scripts=True (the
+    default) too: a function given is never set aside unsaid."""
+    model = le.build(HYBRID, "case-mixed")
+    calls = []
+
+    def mine(t, dt, inputs):
+        calls.append(t)
+        return {}
+
+    for key in ("el_hcu", "Hybrid control unit", "HCU"):
+        for scripts in ({key: mine}, {"el-hcu": mine, key: mine}):
+            for call in (lambda: model.simulate(t_end=5.0, scripts=scripts),
+                         lambda: model.sweep([{}], scripts=scripts)):
+                with pytest.raises(ValueError) as e:
+                    call()
+                assert type(e.value) is ValueError, e.value
+                text = str(e.value)
+                assert f"'{key}'" in text and "'el-hcu'" in text and "Hybrid Control Unit" in text, text
+    assert not calls
+    with pytest.raises(ValueError, match="no Script parts"):
+        le.build(BEV, WLTC).simulate(t_end=5.0, scripts={"el-hcu": mine})
 
 
 def test_script_block_without_a_callable_is_a_plain_error():

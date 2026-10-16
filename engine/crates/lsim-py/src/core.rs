@@ -212,10 +212,15 @@ pub struct RunOptions {
     pub native_scripts: bool,
 }
 
-/// The most output points a run records: past it a run would ask for more
-/// memory than a machine has (each point holds every channel's value, min,
-/// max and mean), and is refused before it starts.
+/// The most output points a run records.
 pub const MAX_OUTPUT_POINTS: f64 = 1e7;
+
+/// The most bytes a run's recorded results may take, every recorded
+/// variable's value, min, max and mean at each output time: a grid that
+/// would take more is refused before the run. (Reading them into Python
+/// copies at most as much again; the copies are made with the room
+/// asked for first, so too little room is a `MemoryError`.)
+pub const MAX_RESULT_BYTES: f64 = 4e9;
 
 impl Default for RunOptions {
     fn default() -> Self {
@@ -245,14 +250,20 @@ impl RunOptions {
     }
 
     /// Whether the output grid from 0 to `t_end` every `output_step` (the
-    /// caller's or the case's own) has at most [`MAX_OUTPUT_POINTS`].
-    pub fn check_grid(t_end: f64, output_step: f64) -> Result<(), Failure> {
+    /// caller's or the case's own) has at most [`MAX_OUTPUT_POINTS`] and
+    /// its results for `variables` recorded variables take at most
+    /// [`MAX_RESULT_BYTES`].
+    pub fn check_grid(t_end: f64, output_step: f64, variables: usize) -> Result<(), Failure> {
         let points = (t_end / output_step).ceil() + 1.0;
-        if points.is_nan() || points > MAX_OUTPUT_POINTS {
+        let bytes = points * variables as f64 * 4.0 * 8.0;
+        if points.is_nan() || points > MAX_OUTPUT_POINTS || bytes > MAX_RESULT_BYTES {
             return Err(Failure::Value(format!(
-                "An output every {output_step} s up to {t_end} s makes {points:.3e} output points; \
-                 a run records at most {MAX_OUTPUT_POINTS:.0e}: give a larger output_step or a \
-                 shorter t_end."
+                "An output every {output_step} s up to {t_end} s makes {points:.3e} output points, \
+                 whose results ({variables} variables' value, min, max and mean at each) would \
+                 take {:.3} GB; a run records at most {MAX_OUTPUT_POINTS:.0e} points and {:.0} GB: \
+                 give a larger output_step or a shorter t_end.",
+                bytes / 1e9,
+                MAX_RESULT_BYTES / 1e9
             )));
         }
         Ok(())
@@ -357,7 +368,7 @@ pub fn run(
         let run = &built.rep.run;
         let t_end = o.t_end.unwrap_or(run.duration);
         let output_step = o.output_step.unwrap_or_else(|| run.output_dt());
-        RunOptions::check_grid(t_end, output_step)?;
+        RunOptions::check_grid(t_end, output_step, built.model.info.var_names.len())?;
         let opts = SolverOptions { rtol: o.rtol, atol: o.atol, ..Default::default() };
         let scripts = std::cell::RefCell::new(vec![]);
         let go = |t_end: f64| -> Result<SimResult, Failure> {
@@ -374,16 +385,21 @@ pub fn run(
             }
         };
         let started = Instant::now();
-        let mut result = go(t_end)?;
-        let mut reran = false;
-        if let Some(tm) = &run.timing {
-            let t_fin =
-                result.channel(&tm.t_finish).and_then(|c| c.last().copied()).unwrap_or(-1.0);
-            if t_fin > 0.0 && t_fin < t_end {
-                result = go(t_fin)?;
-                reran = true;
+        let first = go(t_end)?;
+        let t_fin = run.timing.as_ref().and_then(|tm| {
+            first
+                .channel(&tm.t_finish)
+                .and_then(|c| c.last().copied())
+                .filter(|t| *t > 0.0 && *t < t_end)
+        });
+        let (result, reran) = match t_fin {
+            // (the first run's results go before the second's are made)
+            Some(t_fin) => {
+                drop(first);
+                (go(t_fin)?, true)
             }
-        }
+            None => (first, false),
+        };
         let wall_seconds = started.elapsed().as_secs_f64();
         let flat = &built.model.prepared.flat;
         let param =
@@ -432,9 +448,31 @@ pub fn par_map<T: Send>(n: usize, threads: usize, f: impl Fn(usize) -> T + Sync)
         .collect()
 }
 
+/// Results that do not fit in the memory left: what was being copied.
+#[derive(Debug)]
+pub struct NoRoom(pub String);
+
+/// `f` of each of `v`, in room asked for first: [`NoRoom`] instead of an
+/// abort when there is not enough left.
+pub fn copied(
+    v: &[f64],
+    f: impl Fn(f64) -> f64,
+    what: impl FnOnce() -> String,
+) -> Result<Vec<f64>, NoRoom> {
+    let mut out = Vec::new();
+    out.try_reserve_exact(v.len())
+        .map_err(|e| NoRoom(format!("no memory left for {} ({} values): {e}", what(), v.len())))?;
+    out.extend(v.iter().map(|x| f(*x)));
+    Ok(out)
+}
+
 /// A channel as today's app has it: the engine's variable and the display
-/// unit's conversion.
-pub fn today_channels(built: &Built, res: &SimResult, which: Series) -> Vec<(String, Vec<f64>)> {
+/// unit's conversion (each a copy made in room asked for first).
+pub fn today_channels(
+    built: &Built,
+    res: &SimResult,
+    which: Series,
+) -> Result<Vec<(String, Vec<f64>)>, NoRoom> {
     let mut out = vec![];
     for (name, c) in &built.rep.channels {
         let Some(i) = res.names.iter().position(|n| *n == c.var) else { continue };
@@ -444,9 +482,54 @@ pub fn today_channels(built: &Built, res: &SimResult, which: Series) -> Vec<(Str
             Series::Max => &res.max[i],
             Series::Mean => &res.mean[i],
         };
-        out.push((name.clone(), v.iter().map(|x| c.unit.from_si(*x)).collect()));
+        out.push((
+            name.clone(),
+            copied(v, |x| c.unit.from_si(x), || format!("the channel {name}"))?,
+        ));
     }
-    out
+    Ok(out)
+}
+
+/// The Script parts of the run (each block the run's loop drives that is a
+/// Script), in its order.
+pub fn script_parts(built: &Built) -> Vec<&SampledSpec> {
+    built
+        .model
+        .info
+        .blocks
+        .iter()
+        .filter_map(|b| sampled_spec(&built.rep, &b.name))
+        .filter(|s| matches!(s.kind, SampledKind::Script { .. }))
+        .collect()
+}
+
+/// Whether each of `keys` (of the caller's `scripts`) is the id or the
+/// label of a Script part: a function given for no part would be set
+/// aside unsaid.
+pub fn check_script_keys<'a>(
+    built: &Built,
+    keys: impl Iterator<Item = &'a String>,
+) -> Result<(), Failure> {
+    let parts = script_parts(built);
+    let mut unknown: Vec<String> = keys
+        .filter(|k| !parts.iter().any(|p| p.element == **k || p.label == **k))
+        .map(|k| format!("'{k}'"))
+        .collect();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    unknown.sort();
+    let there = if parts.is_empty() {
+        "the case has no Script parts".to_string()
+    } else {
+        let parts: Vec<String> =
+            parts.iter().map(|p| format!("'{}' ({})", p.element, p.label)).collect();
+        format!("its Script parts are {}", parts.join(", "))
+    };
+    Err(Failure::Value(format!(
+        "scripts: {} names no Script part of the case (by its id or label); {there}.",
+        unknown.join(", ")
+    )))
 }
 
 /// Which series of a run.

@@ -2371,7 +2371,9 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   one is given (`scripts={part id or label: f}`,
   `f(t, dt, inputs) -> dict | None`), called at the start and then every
   period, outputs it leaves out holding their value: a replacement
-  controller is never set aside for the project's code. A part given none runs its own code on `lsim-script`'s
+  controller is never set aside for the project's code, and a key that is
+  neither the id nor the label of a Script part of the case is a
+  `ValueError` naming it and the parts (in `simulate` and `sweep`). A part given none runs its own code on `lsim-script`'s
   native runner (§9: the app's results to the bit, nothing outside the
   script reached) with `native_scripts=True`, the default, which is the
   caller's consent to it; when that code is outside the subset, read or
@@ -2382,11 +2384,16 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   (`"python"` or `"native"`). `script_host` in `lib.rs` is the single
   place a Script block's host is chosen. FMU parts raise a `ModelError`
   (not supported yet).
-* **Output grid.** A grid of more than 10⁷ points (from `t_end` and
-  `output_step`, the caller's or the case's own) is a `ValueError` before
-  the run: each point holds every channel's value, min, max and mean.
-  Below it the grid, the recorder and the energy books reserve their room
-  with `try_reserve` and fail with `RUN-MEMORY` instead of aborting.
+* **Output grid.** A grid (from `t_end` and `output_step`, the caller's or
+  the case's own) of more than 10⁷ points, or whose results would take
+  more than 4 GB (each point holds every recorded variable's value, min,
+  max and mean), is a `ValueError` before the run. Below it the grid, the
+  recorder and the energy books reserve their room with `try_reserve` and
+  fail with `RUN-MEMORY` instead of aborting, and the copies the `Run`
+  makes for Python (times, channels, min, max, mean, engine channels, the
+  books' series) ask for their room first and raise `MemoryError`; an
+  acceleration test's first run lets go of its results before it runs
+  again to the finish.
 * **The app.** With `LIGHTSIM_ENGINE=new` the backend
   (`backend/app/solver/new_engine.py`) runs drive-cycle and acceleration
   cases on this module and everything else on today's engine; any failure
