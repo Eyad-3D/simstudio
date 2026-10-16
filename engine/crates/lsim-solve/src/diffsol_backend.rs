@@ -35,6 +35,7 @@ use std::time::Instant;
 struct Shared {
     d: RefCell<Vec<f64>>,
     zero_side: RefCell<Vec<f64>>,
+    zero_hold: RefCell<Vec<f64>>,
     root_mask: RefCell<Vec<bool>>,
     work: RefCell<Vec<f64>>,
     rhs: Cell<u64>,
@@ -90,6 +91,7 @@ pub fn simulate(
     let shared = Shared {
         d: RefCell::new(d0),
         zero_side: RefCell::new(vec![0.0; nr + ng]),
+        zero_hold: RefCell::new(vec![0.0; nr + ng]),
         root_mask: RefCell::new(vec![]),
         work: RefCell::new(vec![0.0; l.n_work]),
         rhs: Cell::new(0),
@@ -122,7 +124,12 @@ pub fn simulate(
         if ng > 0 {
             model.table_guards(&inp, &mut work, &mut out[nr..]);
         }
-        crate::run::apply_zero_sides(out, &shared.zero_side.borrow(), &shared.root_mask.borrow());
+        crate::run::apply_zero_sides(
+            out,
+            &shared.zero_side.borrow(),
+            &shared.zero_hold.borrow(),
+            &shared.root_mask.borrow(),
+        );
     };
     let builder = OdeBuilder::<NalgebraMat<f64>>::new()
         .t0(grid.t0)
@@ -311,6 +318,7 @@ where
         crate::run::apply_zero_sides(
             &mut g,
             &self.shared.zero_side.borrow(),
+            &self.shared.zero_hold.borrow(),
             &self.shared.root_mask.borrow(),
         );
         g
@@ -585,8 +593,9 @@ where
         unsafe { (*self.shared.d.as_ptr()).as_mut_slice() }
     }
 
-    fn set_root_sides(&mut self, sides: &[f64]) {
+    fn set_root_sides(&mut self, sides: &[f64], holds: &[f64]) {
         self.shared.zero_side.borrow_mut().copy_from_slice(sides);
+        self.shared.zero_hold.borrow_mut().copy_from_slice(holds);
     }
 
     fn set_root_mask(&mut self, mask: &[bool]) -> bool {

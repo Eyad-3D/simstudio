@@ -1684,7 +1684,10 @@ given the side an exact zero counts as (the side it is on, else its mode's
 value, else the direction it crossed in): a function that rests at zero
 after its crossing — the spike's speed is exactly 300.0 for the first
 steps after the brake engages — no longer fires again (IDA reported the
-brake five times without this). After every accepted step the modes are
+brake five times without this), and one that the iteration variables,
+solved again at the event, put back a little short of zero is held on
+the side it crossed to (below, *Conditions on iteration variables*).
+After every accepted step the modes are
 checked against their relations, catching a crossing that started exactly
 at zero right after a restart, where root finding cannot see it. Table
 guards (`table_guard_list`) are watched as extra root functions: an
@@ -1720,6 +1723,45 @@ round).**
   integrator of DAEs that does not implement it cannot go on silently
   with iteration variables that no longer hold (an integrator of ODEs
   never sees it).
+* *Conditions on iteration variables* (`Loop::update_sides`). The
+  integrator locates a crossing on its interpolant of everything it
+  integrates, the iteration variables too, which agree with their
+  equations only to its tolerance; where the event solves them again
+  from the states, a condition on one of them (`x > 0.5` with `x³ + x =
+  z`) can come out a little short of zero, on the side it crossed from
+  (2.5e-8 at rtol 1e-7, the crossing located 4e-8 s early). The
+  integrator, restarted there, saw it cross again a moment later: a
+  `when` fired twice for one crossing, three times for `x³ + x = 2.3 time`
+  with no state at rtol 1e-10 (43 of 140 runs over seven tolerances and
+  ten rates, with and without the state; so already before the eleventh
+  round), and a mode whose relation set it back, where then nothing else
+  changed, stayed off until the integrator's next step end (its integral
+  1.6e-2 short at rtol 1e-5). OpenModelica 1.27.1 counts one crossing at
+  every tolerance: it evaluates a condition with its iteration variables
+  solved, and holds a relation on its side by 1e-4 rtol of its operands'
+  size (`relationhysteresis`). Here such a function is held on the side
+  the integrator saw it on until it reaches that side itself (checked at
+  step ends) or goes back past zero by more than its hold: four times
+  what the iteration variables' tolerances allow in it, its change as
+  each is moved by its tolerance, summed. The inconsistency measured up
+  to 0.56 of that; an event that moves the condition itself (a `reinit`,
+  a discrete value the iteration variable is solved with) moved it 5e5
+  times that and more, and is not held, nor is anything where the event
+  moved a state (an engagement) or where the new discrete values alone
+  move the function at the point the integrator had. The backends map a
+  held value to its side as they map an exact zero
+  (`Integrator::set_root_sides` takes the holds). A mode is not held: its
+  relation decides at the event, and where that sets it back, the
+  integrator restarts there and sees the crossing again (`Loop::undone`).
+  Every one of the 140 runs counts one crossing now, a falling `when` and
+  an oscillation read through `x³ + x = z` too, and the mode's integral
+  is within 0.13 rtol of its exact 1.375 at rtol 1e-4 … 1e-10
+  (`lsim-solve/tests/implicit_conditions.rs`, which failed before on all
+  four). On the golden models nothing is held; one mode set back (the
+  formula student car's accumulator held at its output power limit) is
+  now met again 1.4e-14 s after its first crossing instead of at the
+  integrator's next step end 1.7e-7 s later, the case's figures moved by
+  at most 6e-4 of their bands.
 * *Scheduled events are no storms.* What a sample tick or a time event
   changes at its instant (a controller switching an engine's throttle from
   one tick to the next) does not count towards `storm_events`.

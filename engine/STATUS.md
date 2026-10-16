@@ -118,3 +118,13 @@ also run on Linux, but only Windows CI proves what ships.
   without error control are flagged.
 - The breakpoints of a table whose position moves are recomputed after
   a discrete change (no stale stops).
+- A `when` on a variable solved from an implicit equation (`x > 0.5` with
+  `x³ + x = z`) fires once per crossing: where solving the iteration
+  variables again at the event put the condition back a little short of
+  zero, the restarted integrator saw it cross again and the `when` fired
+  two or three times (43 of 140 runs; OpenModelica: one at every
+  tolerance); the condition is now held on its side until it gets there.
+  A mode on one, which its relation set back at the event, stayed off
+  until the integrator's next step end (its integral 1.6e-2 short at
+  rtol 1e-5); the integrator now restarts there and meets the crossing
+  again (DESIGN.md 8.2, *Conditions on iteration variables*).

@@ -124,6 +124,7 @@ pub struct Stateless<'m> {
     g_try: Vec<f64>,
     root_dirs: Vec<i32>,
     zero_side: Vec<f64>,
+    zero_hold: Vec<f64>,
     root_mask: Vec<bool>,
     /// the energy integrand, and the integrals at the step's start, at its
     /// end and at the last point read inside it
@@ -182,6 +183,7 @@ impl<'m> Stateless<'m> {
                 .take(n_roots)
                 .collect(),
             zero_side: vec![0.0; n_roots],
+            zero_hold: vec![0.0; n_roots],
             root_mask: vec![false; n_roots],
             quad,
             q0: vec![0.0; n_q],
@@ -215,7 +217,12 @@ impl<'m> Stateless<'m> {
         if self.g_try.len() > nr {
             self.model.table_guards(&inp, &mut self.work, &mut self.g_try[nr..]);
         }
-        crate::run::apply_zero_sides(&mut self.g_try, &self.zero_side, &self.root_mask);
+        crate::run::apply_zero_sides(
+            &mut self.g_try,
+            &self.zero_side,
+            &self.zero_hold,
+            &self.root_mask,
+        );
     }
 
     /// The direction root function `i` crossed in from `a` to `b` (0: it
@@ -502,8 +509,9 @@ impl Integrator for Stateless<'_> {
         Ok(())
     }
 
-    fn set_root_sides(&mut self, sides: &[f64]) {
+    fn set_root_sides(&mut self, sides: &[f64], holds: &[f64]) {
         self.zero_side.copy_from_slice(sides);
+        self.zero_hold.copy_from_slice(holds);
         // (the signs at the step's end as the new sides map them)
         if !self.fresh {
             let t = self.t;

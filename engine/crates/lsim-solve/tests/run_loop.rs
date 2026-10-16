@@ -3707,8 +3707,8 @@ impl Integrator for NoResume<'_> {
     fn local_error(&mut self, out: &mut [f64]) -> bool {
         self.0.local_error(out)
     }
-    fn set_root_sides(&mut self, sides: &[f64]) {
-        self.0.set_root_sides(sides)
+    fn set_root_sides(&mut self, sides: &[f64], holds: &[f64]) {
+        self.0.set_root_sides(sides, holds)
     }
     fn set_root_mask(&mut self, mask: &[bool]) -> bool {
         self.0.set_root_mask(mask)
@@ -3767,8 +3767,8 @@ impl Integrator for Stops<'_> {
     fn local_error(&mut self, out: &mut [f64]) -> bool {
         self.0.local_error(out)
     }
-    fn set_root_sides(&mut self, sides: &[f64]) {
-        self.0.set_root_sides(sides)
+    fn set_root_sides(&mut self, sides: &[f64], holds: &[f64]) {
+        self.0.set_root_sides(sides, holds)
     }
     fn set_root_mask(&mut self, mask: &[bool]) -> bool {
         self.0.set_root_mask(mask)
@@ -3958,8 +3958,8 @@ impl Integrator for NoConsistentZ<'_> {
     fn stats(&self) -> SolverStats {
         self.0.stats()
     }
-    fn set_root_sides(&mut self, sides: &[f64]) {
-        self.0.set_root_sides(sides)
+    fn set_root_sides(&mut self, sides: &[f64], holds: &[f64]) {
+        self.0.set_root_sides(sides, holds)
     }
 }
 

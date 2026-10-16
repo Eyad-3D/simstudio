@@ -62,6 +62,8 @@ struct Problem {
     /// 0: none), so a function resting at zero after its event does not
     /// fire again
     zero_side: Vec<f64>,
+    /// per root function: its hold (`Integrator::set_root_sides`)
+    zero_hold: Vec<f64>,
     /// root functions not watched (time events the run loop schedules)
     root_mask: Vec<bool>,
     /// table guards watched after the model's own root functions
@@ -200,7 +202,7 @@ unsafe extern "C" fn cv_root(t: f64, y: N_Vector, g: *mut f64, ud: *mut c_void) 
         if pr.n_guards > 0 {
             m.table_guards(&inp, &mut pr.work, &mut g[nr..]);
         }
-        crate::run::apply_zero_sides(g, &pr.zero_side, &pr.root_mask);
+        crate::run::apply_zero_sides(g, &pr.zero_side, &pr.zero_hold, &pr.root_mask);
     }
     0
 }
@@ -697,6 +699,7 @@ impl<'m> Sundials<'m> {
             lin,
             quad,
             zero_side: vec![0.0; layout.n_roots + model.table_guard_list().len()],
+            zero_hold: vec![0.0; layout.n_roots + model.table_guard_list().len()],
             root_mask: vec![],
             n_guards: model.table_guard_list().len(),
         });
@@ -1469,8 +1472,9 @@ impl Integrator for Sundials<'_> {
         &mut self.prob.d
     }
 
-    fn set_root_sides(&mut self, sides: &[f64]) {
+    fn set_root_sides(&mut self, sides: &[f64], holds: &[f64]) {
         self.prob.zero_side.copy_from_slice(sides);
+        self.prob.zero_hold.copy_from_slice(holds);
     }
 
     fn set_root_mask(&mut self, mask: &[bool]) -> bool {

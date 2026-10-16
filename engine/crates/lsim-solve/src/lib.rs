@@ -514,8 +514,12 @@ pub trait Integrator {
     }
     /// For each root function, the side an exact zero counts as (+1 or -1;
     /// 0: none): the run loop sets it after every event so a function that
-    /// rests at zero after its crossing (a held value) does not fire again.
-    fn set_root_sides(&mut self, _sides: &[f64]) {}
+    /// rests at zero after its crossing (a held value) does not fire again;
+    /// and how far on the other side it still counts as on that side (its
+    /// hold, 0: not at all): a crossing that re-solving the iteration
+    /// variables put back a little short of zero does not fire again
+    /// either (`crate::run::apply_zero_sides` maps both).
+    fn set_root_sides(&mut self, _sides: &[f64], _holds: &[f64]) {}
     /// The root functions the integrator must not watch (true): the run
     /// loop schedules them itself as exact time events. A backend that
     /// watches every root function must say so (false).
