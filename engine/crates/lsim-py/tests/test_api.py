@@ -310,6 +310,82 @@ def test_bad_run_arguments(bev):
             bev.simulate(**kw)
 
 
+def test_an_output_grid_too_large_is_refused():
+    """More output points than a run records (1e7), from the caller's grid
+    or the case's own, is a ValueError, not an abort of the interpreter
+    (run in a process of its own: the abort would end the tests)."""
+    code = (
+        "import sys, lightsim_engine as le\n"
+        "model = le.build(open(sys.argv[1], encoding='utf-8').read(), 'case-wltc')\n"
+        "for kw in ({'output_step': 1e-7, 't_end': 5.0}, {'output_step': 1e-9},\n"
+        "           {'t_end': 1e8}):\n"
+        "    try:\n"
+        "        model.simulate(**kw)\n"
+        "        print('ran', kw)\n"
+        "    except ValueError as e:\n"
+        "        print('refused', kw, e)\n"
+        "print(len(model.simulate(output_step=0.5, t_end=5.0).times))\n")
+    done = subprocess.run([sys.executable, "-c", code, str(BACKEND / "projects" / "bev-car.json")],
+                          capture_output=True, text=True, timeout=600)
+    assert done.returncode == 0, done.stderr[-2000:]
+    lines = done.stdout.splitlines()
+    assert len(lines) == 4 and all(x.startswith("refused") for x in lines[:3]), done.stdout
+    assert "output points" in lines[0] and lines[3] == "11"
+
+
+def test_results_too_large_for_memory_never_abort_the_interpreter():
+    """A grid whose results would take more than a run records (4 GB: every
+    variable's value, min, max and mean at each output time) is a
+    ValueError before the run, however few points it has; a run whose
+    results do not fit fails with RUN-MEMORY, and results read into Python
+    without the room for them raise MemoryError: nothing aborts the
+    interpreter. Run in a process of its own whose memory is then capped a
+    little above what it holds (`resource`), as a small Windows commit
+    limit would be."""
+    resource = pytest.importorskip("resource")
+    del resource
+    if not Path("/proc/self/statm").exists():
+        pytest.skip("needs /proc to cap the memory a little above what is held")
+    code = (
+        "import resource, sys, lightsim_engine as le\n"
+        "model = le.build(open(sys.argv[1], encoding='utf-8').read(), 'case-wltc')\n"
+        "run = model.simulate(t_end=20.0, output_step=4e-4)\n"
+        "held = int(open('/proc/self/statm').read().split()[0]) * resource.getpagesize()\n"
+        "resource.setrlimit(resource.RLIMIT_AS, (held + 100_000_000, resource.RLIM_INFINITY))\n"
+        "# a million points: under the point cap, past the bytes a run records\n"
+        "try:\n"
+        "    model.simulate(t_end=20.0, output_step=2e-5)\n"
+        "    print('ran')\n"
+        "except le.ModelError as e:\n"
+        "    print('model', e.diagnostics[0]['code'])\n"
+        "except ValueError as e:\n"
+        "    print('refused', 'GB' in str(e))\n"
+        "# 50 001 points: no room for their results now\n"
+        "try:\n"
+        "    model.simulate(t_end=20.0, output_step=4e-4)\n"
+        "    print('ran')\n"
+        "except le.ModelError as e:\n"
+        "    print('model', e.diagnostics[0]['code'])\n"
+        "except MemoryError:\n"
+        "    print('memory')\n"
+        "# and the first run's results read with too little room for them\n"
+        "for name in ('times', 'channels', 'min', 'max', 'mean', 'engine_channels', 'energy'):\n"
+        "    try:\n"
+        "        getattr(run, name)\n"
+        "        print('read', name)\n"
+        "    except MemoryError:\n"
+        "        print('memory', name)\n"
+        "print('done')\n")
+    done = subprocess.run([sys.executable, "-c", code, str(BACKEND / "projects" / "bev-car.json")],
+                          capture_output=True, text=True, timeout=600)
+    assert done.returncode == 0, (done.returncode, done.stdout, done.stderr[-2000:])
+    lines = done.stdout.splitlines()
+    assert lines[:2] in (["refused True", "model RUN-MEMORY"], ["refused True", "memory"]), done.stdout
+    assert lines[-1] == "done" and len(lines) == 10, done.stdout
+    assert all(x.split()[0] in ("read", "memory") for x in lines[2:-1]), done.stdout
+    assert any(x.startswith("memory") for x in lines[2:-1]), done.stdout
+
+
 def test_no_panics_for_plain_mistakes(bev):
     with pytest.raises(TypeError):
         bev.simulate(scripts=42)
@@ -322,28 +398,43 @@ def test_no_panics_for_plain_mistakes(bev):
 # ---- Script blocks ---------------------------------------------------------
 
 def _compiled_hcu():
-    """The hybrid car's Hybrid Control Unit as a callable f(t, dt, inputs), built
-    from today's script runner (backend/app/solver/scripting.py)."""
+    """The hybrid car's Hybrid Control Unit as a callable f(t, dt, inputs), run
+    as the app runs it: its Script worker's call of step()
+    (backend/app/solver/sandbox_worker.py's `_run_step`, a fresh copy of the
+    parameters each call) with the inputs as the engine passes them
+    (`float(x or 0.0)`)."""
     sys.path.insert(0, str(BACKEND))
     try:
-        from app.solver.scripting import compile_script, run_script
+        from app.solver import sandbox_worker, scripting
     except Exception as e:  # pragma: no cover - the backend's requirements are missing
         pytest.skip(f"today's script runner is not importable: {e}")
     finally:
         sys.path.remove(str(BACKEND))
-    code = next(
-        el["parameterOverrides"]["code"]
-        for s in json.loads(HYBRID)["systems"] for el in s["elements"] if el["id"] == "el-hcu")
-    fn = compile_script(code, "Hybrid Control Unit")
-    state: dict = {}
+    el = next(el for s in json.loads(HYBRID)["systems"] for el in s["elements"]
+              if el["id"] == "el-hcu")
+    spec = {"label": "Hybrid Control Unit", "code": el["parameterOverrides"]["code"],
+            "input_keys": [], "params": {}}
+    script, err = sandbox_worker._compile(scripting, spec, False)
+    assert script is not None, err
     calls = []
 
     def step(t, dt, inputs):
         calls.append(t)
-        return run_script(fn, "Hybrid Control Unit", t, dt, inputs, state, {})
+        ins = {k: float(v or 0.0) for k, v in inputs.items()}
+        return sandbox_worker._run_step(scripting, script, t, dt, ins)
 
     step.calls = calls
     return step
+
+
+def _hybrid_with_hcu(code):
+    """The hybrid car with other code in its Hybrid Control Unit."""
+    project = json.loads(HYBRID)
+    for s in project["systems"]:
+        for el in s["elements"]:
+            if el["id"] == "el-hcu":
+                el["parameterOverrides"]["code"] = code
+    return json.dumps(project)
 
 
 def test_script_block_runs_a_python_callable():
@@ -367,27 +458,103 @@ def test_script_block_runs_a_python_callable():
     assert _same_bits(run.channels["el-vehicle:sig_speed"], run2.channels["el-vehicle:sig_speed"])
 
 
-def test_script_block_on_the_native_runner_gives_the_callables_bits():
-    """By default a Script whose code is within the native runner's subset
-    of Python runs there (the callable authorises it and is not called);
-    every channel is bitwise the callable's run."""
+def test_a_function_given_for_a_script_part_is_what_runs():
+    """A function the caller gives is what runs, with native_scripts on
+    (the default) too: a replacement controller is never set aside for
+    the project's own code."""
     model = le.build(HYBRID, "case-mixed")
-    step = _compiled_hcu()
-    native = model.simulate(t_end=60.0, scripts={"el-hcu": step})
+    calls = []
+
+    def mine(t, dt, inputs):
+        calls.append(t)
+        return {}
+
+    for kw in ({}, {"native_scripts": True}, {"native_scripts": False}):
+        calls.clear()
+        run = model.simulate(t_end=5.0, scripts={"el-hcu": mine}, **kw)
+        assert run.report["scripts"] == {"Hybrid Control Unit": "python"}, kw
+        assert calls and calls[0] == 0.0, kw
+
+
+def test_a_script_part_without_a_function_runs_its_own_code_natively():
+    """With native_scripts (the default), a part given no function runs its
+    own code on the engine's runner; every channel is bitwise the run of
+    the app's Script runner."""
+    model = le.build(HYBRID, "case-mixed")
+    native = model.simulate(t_end=60.0)
     assert native.report["scripts"] == {"Hybrid Control Unit": "native"}
-    assert step.calls == []
-    python = model.simulate(t_end=60.0, scripts={"el-hcu": _compiled_hcu()}, native_scripts=False)
-    assert python.report["scripts"] == {"Hybrid Control Unit": "python"}
+    step = _compiled_hcu()
+    python = model.simulate(t_end=60.0, scripts={"el-hcu": step})
+    assert python.report["scripts"] == {"Hybrid Control Unit": "python"} and step.calls
     differ = [k for k in python.channels if not _same_bits(native.channels[k], python.channels[k])]
     assert not differ, differ[:10]
+
+
+def test_a_script_part_the_native_runner_does_not_run_says_so():
+    """A part without a function whose code is outside the native runner's
+    subset, when it is read or part-way through the run, fails plainly,
+    naming the part and what to do."""
+    head = "import math\ndef step(t, dt, inputs, state, params):\n"
+    for code in (head + "    return {'x': math.sin(t)}\n",
+                 head + "    return {'x': math.copysign(1.0, float('nan')) if t > 1.0 else 0.0}\n"):
+        model = le.build(_hybrid_with_hcu(code), "case-mixed")
+        with pytest.raises(le.ModelError) as e:
+            model.simulate(t_end=5.0)
+        d = e.value.diagnostics[0]
+        assert d["code"] == "RUN-SCRIPT" and d["parts"] == ["el-hcu"], d
+        assert "Hybrid Control Unit" in d["message"], d
+        assert "scripts={'el-hcu': f}" in d["hint"], d
+
+
+def test_a_function_for_no_script_part_is_refused():
+    """A key of `scripts` that is neither the id nor the label of a Script
+    part of the case (a misspelt id, the engine's own naming of the part,
+    a label with other capitals) raises a ValueError that names it and the
+    parts there are, in simulate and sweep, with native_scripts=True (the
+    default) too; so do two keys that name one part (its id and its
+    label): a function given is never set aside unsaid."""
+    model = le.build(HYBRID, "case-mixed")
+    calls = []
+
+    def mine(t, dt, inputs):
+        calls.append(t)
+        return {}
+
+    for key in ("el_hcu", "Hybrid control unit", "HCU"):
+        for scripts in ({key: mine}, {"el-hcu": mine, key: mine}):
+            for call in (lambda: model.simulate(t_end=5.0, scripts=scripts),
+                         lambda: model.sweep([{}], scripts=scripts)):
+                with pytest.raises(ValueError) as e:
+                    call()
+                assert type(e.value) is ValueError, e.value
+                text = str(e.value)
+                assert f"'{key}'" in text and "'el-hcu'" in text and "Hybrid Control Unit" in text, text
+    assert not calls
+
+    def other(t, dt, inputs):
+        calls.append(-t)
+        return {}
+
+    for scripts in ({"el-hcu": mine, "Hybrid Control Unit": other},
+                    {"Hybrid Control Unit": other, "el-hcu": mine}):
+        for call in (lambda: model.simulate(t_end=5.0, scripts=scripts),
+                     lambda: model.sweep([{}], scripts=scripts)):
+            with pytest.raises(ValueError) as e:
+                call()
+            assert type(e.value) is ValueError, e.value
+            text = str(e.value)
+            assert "'el-hcu'" in text and "'Hybrid Control Unit'" in text and "twice" in text, text
+    assert not calls
+    with pytest.raises(ValueError, match="no Script parts"):
+        le.build(BEV, WLTC).simulate(t_end=5.0, scripts={"el-hcu": mine})
 
 
 def test_script_block_without_a_callable_is_a_plain_error():
     model = le.build(HYBRID, "case-mixed")
     with pytest.raises(ValueError, match="Hybrid Control Unit"):
-        model.simulate(t_end=5.0)
+        model.simulate(t_end=5.0, native_scripts=False)
     with pytest.raises(ValueError, match="el-hcu"):
-        model.simulate(t_end=5.0, scripts={"other": lambda t, dt, i: None})
+        model.simulate(t_end=5.0, scripts={"other": lambda t, dt, i: None}, native_scripts=False)
 
 
 def test_script_that_fails_names_the_part_and_time():
@@ -426,7 +593,7 @@ def _outputs(model):
 
 def test_hybrid_mixed_cycle_is_bitwise_the_golden_path(tmp_path):
     """The whole mixed cycle with the callable against golden::run_case with
-    today's script runner in a Python process, and on the native runner
+    the app's Script runner in a Python process, and on the native runner
     against golden::run_case on it."""
     project = BACKEND / "projects" / "hybrid-car.json"
     model = le.build(HYBRID, "case-mixed")
@@ -434,7 +601,8 @@ def test_hybrid_mixed_cycle_is_bitwise_the_golden_path(tmp_path):
     run = model.simulate(scripts={"el-hcu": _compiled_hcu()}, native_scripts=False)
     _assert_golden(run, head, times, channels)
     head, times, channels = _dump_case(tmp_path, project, "case-mixed", sys.executable, "native")
-    run = model.simulate(scripts={"el-hcu": _compiled_hcu()})
+    run = model.simulate()
+    assert run.report["scripts"] == {"Hybrid Control Unit": "native"}
     _assert_golden(run, head, times, channels)
 
 

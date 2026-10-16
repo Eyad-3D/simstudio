@@ -5,6 +5,7 @@
 //! builtins, as Python does.
 
 use crate::value::Value;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 /// A binary operator.
@@ -154,6 +155,9 @@ pub struct FuncDef {
     pub name: Rc<str>,
     /// its parameters (slots 0..n of its frame)
     pub params: Vec<Rc<str>>,
+    /// the parameters' slots by name, for binding keywords, when there are
+    /// more than a few (fewer are looked through in order)
+    pub by_name: HashMap<Rc<str>, usize>,
     /// how many parameters have defaults (the last ones)
     pub n_defaults: usize,
     /// the size of its frame

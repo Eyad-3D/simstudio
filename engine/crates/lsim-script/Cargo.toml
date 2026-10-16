@@ -1,6 +1,6 @@
 [package]
 name = "lsim-script"
-description = "Script blocks without the Python interpreter: a strict subset of Python, evaluated with Python's own semantics so results are bitwise the Python runner's; anything outside it is left to Python"
+description = "Script blocks without the Python interpreter: a strict subset of Python, evaluated with Python's own semantics so results are bitwise the app's Script runner's; anything outside it is left to Python"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

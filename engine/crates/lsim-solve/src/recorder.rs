@@ -28,19 +28,33 @@ pub struct Recorder {
 }
 
 impl Recorder {
-    /// A recorder for `n` channels on `times`.
-    pub fn new(n: usize, times: &[f64]) -> Self {
+    /// A recorder for `n` channels on `times`: an error, not an abort,
+    /// when they do not fit in memory.
+    pub fn new(n: usize, times: &[f64]) -> Result<Self, crate::SolveError> {
+        let what = || format!("{n} channels at {} output times", times.len());
         // (each channel's own allocation of the grid's length: `vec![v;
         // n]` clones `v`, and a clone keeps none of its spare capacity, so
         // the channels grew by reallocation, run after run)
-        let col = || (0..n).map(|_| Vec::with_capacity(times.len())).collect::<Vec<_>>();
-        Recorder {
-            times: times.to_vec(),
+        let col = || -> Result<Vec<Vec<f64>>, crate::SolveError> {
+            let mut out = Vec::new();
+            crate::try_room(&mut out, n, what)?;
+            for _ in 0..n {
+                let mut c = Vec::new();
+                crate::try_room(&mut c, times.len(), what)?;
+                out.push(c);
+            }
+            Ok(out)
+        };
+        let mut own = Vec::new();
+        crate::try_room(&mut own, times.len(), what)?;
+        own.extend_from_slice(times);
+        Ok(Recorder {
+            times: own,
             next: 0,
-            values: col(),
-            min: col(),
-            max: col(),
-            mean: col(),
+            values: col()?,
+            min: col()?,
+            max: col()?,
+            mean: col()?,
             lo: vec![f64::INFINITY; n],
             hi: vec![f64::NEG_INFINITY; n],
             integral: vec![0.0; n],
@@ -48,7 +62,7 @@ impl Recorder {
             last: vec![0.0; n],
             interval_start: 0.0,
             left: vec![],
-        }
+        })
     }
 
     /// The next grid time still to record.
@@ -126,7 +140,7 @@ mod tests {
 
     #[test]
     fn mean_is_the_trapezoid_integral() {
-        let mut r = Recorder::new(1, &[0.0, 1.0]);
+        let mut r = Recorder::new(1, &[0.0, 1.0]).unwrap();
         r.start(0.0, &[0.0]);
         r.interior(0.5, &[1.0]);
         r.grid_point(1.0, &[0.0]);
@@ -135,5 +149,13 @@ mod tests {
         assert_eq!(hi[0][1], 1.0);
         assert_eq!(lo[0][1], 0.0);
         assert!((mean[0][1] - 0.5).abs() < 1e-15);
+    }
+
+    /// Channels that do not fit in memory are an error the caller gets, not
+    /// an abort of the process.
+    #[test]
+    fn channels_that_do_not_fit_are_an_error() {
+        let e = Recorder::new(1 << 40, &[0.0, 1.0]).err().expect("no room");
+        assert!(e.to_string().contains("do not fit in memory"), "{e}");
     }
 }

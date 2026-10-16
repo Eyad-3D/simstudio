@@ -51,6 +51,7 @@ fn solve_failure(e: &SolveError) -> Failure {
         SolveError::TableOutside { .. } => ("RUN-TABLE", vec![]),
         SolveError::Assert { .. } => ("RUN-ASSERT", vec![]),
         SolveError::Block { block, .. } => ("RUN-BLOCK", vec![block.clone()]),
+        SolveError::Memory { .. } => ("RUN-MEMORY", vec![]),
         SolveError::NoBackend => ("RUN-NO-BACKEND", vec![]),
     };
     let mut d = Diagnostic::error(code, e.to_string());
@@ -64,6 +65,25 @@ fn run_failure(e: RunError) -> Failure {
         RunError::Solve(e) => solve_failure(&e),
         RunError::Fast(e) => Failure::Value(e.to_string()),
     }
+}
+
+/// A Script part whose own code the engine's runner does not run (outside
+/// its subset of Python, when it is read or part-way through the run):
+/// the caller's function is what would run it.
+pub fn script_outside(element: &str, message: String) -> Failure {
+    let mut d = Diagnostic::error("RUN-SCRIPT", message).with_hint(format!(
+        "give the part a Python function to run it: scripts={{'{element}': f}}, \
+         f(t, dt, inputs) returning a dict of outputs or None"
+    ));
+    d.parts = vec![element.to_string()];
+    Failure::Model(vec![d])
+}
+
+/// A Script part whose code fails when it is read, as it would on Python.
+pub fn script_failed(element: &str, message: String) -> Failure {
+    let mut d = Diagnostic::error("RUN-SCRIPT", message);
+    d.parts = vec![element.to_string()];
+    Failure::Model(vec![d])
 }
 
 /// Runs `f`, turning a panic inside the engine into a plain failure (a
@@ -186,10 +206,21 @@ pub struct RunOptions {
     pub output_step: Option<f64>,
     /// end time, s; `None`: the case's duration
     pub t_end: Option<f64>,
-    /// run Script blocks on the engine's own runner where their code is
-    /// within its subset of Python (bitwise the Python runner's results)
+    /// a Script part the caller gives no function runs its own code on the
+    /// engine's runner of a subset of Python (bitwise the app's Script
+    /// runner's results); a part given a function always runs that
     pub native_scripts: bool,
 }
+
+/// The most output points a run records.
+pub const MAX_OUTPUT_POINTS: f64 = 1e7;
+
+/// The most bytes a run's recorded results may take, every recorded
+/// variable's value, min, max and mean at each output time: a grid that
+/// would take more is refused before the run. (Reading them into Python
+/// copies at most as much again; the copies are made with the room
+/// asked for first, so too little room is a `MemoryError`.)
+pub const MAX_RESULT_BYTES: f64 = 4e9;
 
 impl Default for RunOptions {
     fn default() -> Self {
@@ -217,6 +248,26 @@ impl RunOptions {
         }
         Ok(())
     }
+
+    /// Whether the output grid from 0 to `t_end` every `output_step` (the
+    /// caller's or the case's own) has at most [`MAX_OUTPUT_POINTS`] and
+    /// its results for `variables` recorded variables take at most
+    /// [`MAX_RESULT_BYTES`].
+    pub fn check_grid(t_end: f64, output_step: f64, variables: usize) -> Result<(), Failure> {
+        let points = (t_end / output_step).ceil() + 1.0;
+        let bytes = points * variables as f64 * 4.0 * 8.0;
+        if points.is_nan() || points > MAX_OUTPUT_POINTS || bytes > MAX_RESULT_BYTES {
+            return Err(Failure::Value(format!(
+                "An output every {output_step} s up to {t_end} s makes {points:.3e} output points, \
+                 whose results ({variables} variables' value, min, max and mean at each) would \
+                 take {:.3} GB; a run records at most {MAX_OUTPUT_POINTS:.0e} points and {:.0} GB: \
+                 give a larger output_step or a shorter t_end.",
+                bytes / 1e9,
+                MAX_RESULT_BYTES / 1e9
+            )));
+        }
+        Ok(())
+    }
 }
 
 /// One finished run.
@@ -235,9 +286,9 @@ pub struct RunOutput {
     pub t_end: f64,
     /// the output spacing, s
     pub output_step: f64,
-    /// each Script part's label and the runner it ran on (`"native"`, the
-    /// engine's own runner of the Python subset, or `"python"`, the
-    /// caller's function)
+    /// each Script part's label and the runner it ran on (`"native"`, its
+    /// own code on the engine's runner of the Python subset, or
+    /// `"python"`, the caller's function)
     pub scripts: Vec<(String, &'static str)>,
 }
 
@@ -247,9 +298,9 @@ pub struct Hosts {
     pub blocks: Vec<Box<dyn DiscreteBlock>>,
     /// each Script part's label and runner
     pub scripts: Vec<(String, &'static str)>,
-    /// set when a native runner met something outside its subset: the run
-    /// is made again with the caller's functions
-    pub outside: Vec<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// for each part on the native runner, its id and the flag it sets when
+    /// it meets something outside its subset
+    pub outside: Vec<(String, std::sync::Arc<std::sync::atomic::AtomicBool>)>,
 }
 
 /// A Script block's host, its runner, and its native runner's flag.
@@ -282,7 +333,7 @@ pub fn block_hosts(
                 let (host, runner, flag) = script(spec, native)?;
                 out.blocks.push(host);
                 out.scripts.push((spec.label.clone(), runner));
-                out.outside.extend(flag);
+                out.outside.extend(flag.map(|f| (spec.element.clone(), f)));
             }
             SampledKind::TractionControl => out.blocks.push(Box::new(TractionHost::new(spec))),
             SampledKind::Fmu { .. } => {
@@ -302,7 +353,10 @@ pub fn block_hosts(
 /// Runs the case with the parameter values `params` (the whole vector, as
 /// [`lsim_engine::Model::params_with`] gives it): the output grid is the
 /// case's, and an acceleration test runs again to the moment it crosses
-/// the finish, where today's run ends (as `golden::run_case`).
+/// the finish, where today's run ends (as `golden::run_case`). A Script
+/// part on the native runner that meets what the runner does not run
+/// fails the run plainly ([`script_outside`]): it has no function to run
+/// on instead.
 pub fn run(
     built: &Built,
     params: &[f64],
@@ -314,34 +368,38 @@ pub fn run(
         let run = &built.rep.run;
         let t_end = o.t_end.unwrap_or(run.duration);
         let output_step = o.output_step.unwrap_or_else(|| run.output_dt());
+        RunOptions::check_grid(t_end, output_step, built.model.info.var_names.len())?;
         let opts = SolverOptions { rtol: o.rtol, atol: o.atol, ..Default::default() };
         let scripts = std::cell::RefCell::new(vec![]);
         let go = |t_end: f64| -> Result<SimResult, Failure> {
             let grid = OutputGrid { t0: 0.0, t_end, dt: output_step };
             let mut h = hosts(built, o.native_scripts)?;
             let r = built.model.simulate_with(params, &opts, grid, &mut h.blocks);
-            let left = h.outside.iter().any(|f| f.load(std::sync::atomic::Ordering::SeqCst));
-            let (r, h) = if r.is_err() && left {
-                // a native runner met what only Python runs: again on Python
-                let mut h = hosts(built, false)?;
-                (built.model.simulate_with(params, &opts, grid, &mut h.blocks), h)
-            } else {
-                (r, h)
-            };
             *scripts.borrow_mut() = h.scripts;
-            r.map_err(run_failure)
+            let left = h.outside.iter().find(|(_, f)| f.load(std::sync::atomic::Ordering::SeqCst));
+            match (r, left) {
+                (Err(RunError::Solve(SolveError::Block { message, .. })), Some((element, _))) => {
+                    Err(script_outside(element, message))
+                }
+                (r, _) => r.map_err(run_failure),
+            }
         };
         let started = Instant::now();
-        let mut result = go(t_end)?;
-        let mut reran = false;
-        if let Some(tm) = &run.timing {
-            let t_fin =
-                result.channel(&tm.t_finish).and_then(|c| c.last().copied()).unwrap_or(-1.0);
-            if t_fin > 0.0 && t_fin < t_end {
-                result = go(t_fin)?;
-                reran = true;
+        let first = go(t_end)?;
+        let t_fin = run.timing.as_ref().and_then(|tm| {
+            first
+                .channel(&tm.t_finish)
+                .and_then(|c| c.last().copied())
+                .filter(|t| *t > 0.0 && *t < t_end)
+        });
+        let (result, reran) = match t_fin {
+            // (the first run's results go before the second's are made)
+            Some(t_fin) => {
+                drop(first);
+                (go(t_fin)?, true)
             }
-        }
+            None => (first, false),
+        };
         let wall_seconds = started.elapsed().as_secs_f64();
         let flat = &built.model.prepared.flat;
         let param =
@@ -390,9 +448,31 @@ pub fn par_map<T: Send>(n: usize, threads: usize, f: impl Fn(usize) -> T + Sync)
         .collect()
 }
 
+/// Results that do not fit in the memory left: what was being copied.
+#[derive(Debug)]
+pub struct NoRoom(pub String);
+
+/// `f` of each of `v`, in room asked for first: [`NoRoom`] instead of an
+/// abort when there is not enough left.
+pub fn copied(
+    v: &[f64],
+    f: impl Fn(f64) -> f64,
+    what: impl FnOnce() -> String,
+) -> Result<Vec<f64>, NoRoom> {
+    let mut out = Vec::new();
+    out.try_reserve_exact(v.len())
+        .map_err(|e| NoRoom(format!("no memory left for {} ({} values): {e}", what(), v.len())))?;
+    out.extend(v.iter().map(|x| f(*x)));
+    Ok(out)
+}
+
 /// A channel as today's app has it: the engine's variable and the display
-/// unit's conversion.
-pub fn today_channels(built: &Built, res: &SimResult, which: Series) -> Vec<(String, Vec<f64>)> {
+/// unit's conversion (each a copy made in room asked for first).
+pub fn today_channels(
+    built: &Built,
+    res: &SimResult,
+    which: Series,
+) -> Result<Vec<(String, Vec<f64>)>, NoRoom> {
     let mut out = vec![];
     for (name, c) in &built.rep.channels {
         let Some(i) = res.names.iter().position(|n| *n == c.var) else { continue };
@@ -402,9 +482,66 @@ pub fn today_channels(built: &Built, res: &SimResult, which: Series) -> Vec<(Str
             Series::Max => &res.max[i],
             Series::Mean => &res.mean[i],
         };
-        out.push((name.clone(), v.iter().map(|x| c.unit.from_si(*x)).collect()));
+        out.push((
+            name.clone(),
+            copied(v, |x| c.unit.from_si(x), || format!("the channel {name}"))?,
+        ));
     }
-    out
+    Ok(out)
+}
+
+/// The Script parts of the run (each block the run's loop drives that is a
+/// Script), in its order.
+pub fn script_parts(built: &Built) -> Vec<&SampledSpec> {
+    built
+        .model
+        .info
+        .blocks
+        .iter()
+        .filter_map(|b| sampled_spec(&built.rep, &b.name))
+        .filter(|s| matches!(s.kind, SampledKind::Script { .. }))
+        .collect()
+}
+
+/// Whether each of `keys` (of the caller's `scripts`) is the id or the
+/// label of a Script part, and no part is named by two of them (its id and
+/// its label): a function given for no part, or the second for a part,
+/// would be set aside unsaid.
+pub fn check_script_keys<'a>(
+    built: &Built,
+    keys: impl Iterator<Item = &'a String>,
+) -> Result<(), Failure> {
+    let parts = script_parts(built);
+    let keys: Vec<&String> = keys.collect();
+    let mut unknown: Vec<String> = keys
+        .iter()
+        .filter(|k| !parts.iter().any(|p| p.element == ***k || p.label == ***k))
+        .map(|k| format!("'{k}'"))
+        .collect();
+    if unknown.is_empty() {
+        for p in &parts {
+            if p.element != p.label && keys.contains(&&p.element) && keys.contains(&&p.label) {
+                return Err(Failure::Value(format!(
+                    "scripts: '{}' and '{}' name the Script part '{}' ({}) twice, by its id and \
+                     by its label; give it one function, under one of them.",
+                    p.element, p.label, p.element, p.label
+                )));
+            }
+        }
+        return Ok(());
+    }
+    unknown.sort();
+    let there = if parts.is_empty() {
+        "the case has no Script parts".to_string()
+    } else {
+        let parts: Vec<String> =
+            parts.iter().map(|p| format!("'{}' ({})", p.element, p.label)).collect();
+        format!("its Script parts are {}", parts.join(", "))
+    };
+    Err(Failure::Value(format!(
+        "scripts: {} names no Script part of the case (by its id or label); {there}.",
+        unknown.join(", ")
+    )))
 }
 
 /// Which series of a run.

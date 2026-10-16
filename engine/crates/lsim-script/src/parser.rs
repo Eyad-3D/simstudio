@@ -11,8 +11,16 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 /// How deeply expressions and blocks may nest (a recursive parser must not
-/// run out of stack on hostile input).
+/// run out of stack on hostile input; the stack it uses is measured too,
+/// against [`crate::STACK_BUDGET`]). Each `elif` of a chain counts as a
+/// level, as in Python's tree (where it is the `else` of the branch
+/// before): CPython refuses some 990 of them in a row, far beyond this.
 const MAX_DEPTH: usize = 100;
+
+/// A function of more parameters than this binds keywords through a map
+/// of its parameters' names (the cost of a call is then the number of its
+/// arguments, not that times the parameters).
+const KEYWORDS_BY_MAP: usize = 8;
 
 /// The attributes a script may read: the math module's (the functions
 /// whose results are exact, or correctly rounded alike in every C runtime
@@ -56,10 +64,14 @@ struct Parser {
     depth: usize,
     /// inside a function: the names it assigns, and those it declares global
     func: Option<(Names, Names)>,
-    /// inside a function: every name it has read or written so far
+    /// every name the current scope (the function, or the top level) has
+    /// read, written or bound so far: a later `global` of one is Python's
+    /// SyntaxError
     seen: Names,
     /// loops around the current statement (in this function)
     loops: usize,
+    /// where on the stack parsing started
+    stack_base: usize,
 }
 
 type R<T> = Result<T, Unsupported>;
@@ -141,7 +153,9 @@ impl Parser {
 
     fn enter(&mut self) -> R<()> {
         self.depth += 1;
-        if self.depth > MAX_DEPTH {
+        if self.depth > MAX_DEPTH
+            || self.stack_base.abs_diff(crate::value::stack_here()) > crate::STACK_BUDGET
+        {
             return Err(unsupported(self.line(), "code nested this deeply"));
         }
         Ok(())
@@ -152,8 +166,14 @@ impl Parser {
     }
 
     fn assigned(&mut self, n: &Rc<str>) {
-        if let Some((a, _)) = &mut self.func {
-            a.insert(n.clone());
+        match &mut self.func {
+            Some((a, _)) => {
+                a.insert(n.clone());
+            }
+            // (a top-level import or def binds it in the module's scope)
+            None => {
+                self.seen.insert(n.clone());
+            }
         }
     }
 
@@ -176,7 +196,7 @@ impl Parser {
 
     fn block(&mut self) -> R<Vec<Stmt>> {
         self.enter()?;
-        let out = if matches!(self.peek(), Tok::Newline) {
+        let mut out = if matches!(self.peek(), Tok::Newline) {
             self.next();
             if !matches!(self.peek(), Tok::Indent) {
                 return Err(unsupported(self.line(), "a block without an indented body"));
@@ -193,6 +213,8 @@ impl Parser {
         } else {
             self.simple_line()?
         };
+        // (the tree is held all the run: no spare room in it)
+        out.shrink_to_fit();
         self.leave();
         Ok(out)
     }
@@ -221,8 +243,12 @@ impl Parser {
                 self.expect_op(":")?;
                 branches.push((cond, self.block()?));
                 let mut orelse = vec![];
+                let mut elifs = 0;
                 loop {
                     if self.eat_kw("elif") {
+                        // nested in the branch before, as in Python's tree
+                        self.enter()?;
+                        elifs += 1;
                         let c = self.test()?;
                         self.expect_op(":")?;
                         branches.push((c, self.block()?));
@@ -234,6 +260,8 @@ impl Parser {
                         break;
                     }
                 }
+                self.leave_n(elifs);
+                branches.shrink_to_fit();
                 StmtKind::If(branches, orelse)
             }
             "while" => {
@@ -275,6 +303,7 @@ impl Parser {
                 let name = self.name()?;
                 self.expect_op("(")?;
                 let mut params: Vec<Rc<str>> = vec![];
+                let mut named: Names = HashSet::new();
                 let mut defaults = vec![];
                 while !self.is_op(")") {
                     if self.is_op("*") || self.is_op("**") || self.is_op("/") {
@@ -292,7 +321,7 @@ impl Parser {
                             "a parameter without a default after one with",
                         ));
                     }
-                    if params.contains(&p) {
+                    if !named.insert(p.clone()) {
                         return Err(unsupported(line, "a parameter named twice"));
                     }
                     params.push(p);
@@ -305,12 +334,14 @@ impl Parser {
                     return Err(unsupported(line, "annotations"));
                 }
                 self.expect_op(":")?;
+                drop(named);
                 self.func = Some((params.iter().cloned().collect(), HashSet::new()));
-                self.seen = params.iter().cloned().collect();
+                // the function's own scope; the top level's comes back after
+                let outer = std::mem::replace(&mut self.seen, params.iter().cloned().collect());
                 let loops = std::mem::replace(&mut self.loops, 0);
                 let body = self.block();
                 self.loops = loops;
-                self.seen.clear();
+                self.seen = outer;
                 let (assigned, globals) = self.func.take().expect("inside the function");
                 let mut body = body?;
                 // frame slots: the parameters, then the other local names in
@@ -334,10 +365,15 @@ impl Parser {
                 for s in &mut body {
                     resolve_stmt(s, Some(&slots));
                 }
+                let mut by_name = HashMap::new();
+                if params.len() > KEYWORDS_BY_MAP {
+                    by_name = params.iter().cloned().zip(0..).collect();
+                }
                 let def = FuncDef {
                     name: name.clone(),
                     n_defaults: defaults.len(),
                     params,
+                    by_name,
                     n_locals: slots.len(),
                     body,
                 };
@@ -397,13 +433,13 @@ impl Parser {
         } else if self.eat_kw("global") {
             loop {
                 let n = self.name()?;
-                if let Some((assigned, globals)) = &mut self.func {
-                    if assigned.contains(&n) || self.seen.contains(&n) {
-                        return Err(unsupported(
-                            line,
-                            "a name used before its 'global' declaration",
-                        ));
-                    }
+                // a name the scope has bound or used before (at the top
+                // level as in a function)
+                let bound = self.func.as_ref().is_some_and(|(assigned, _)| assigned.contains(&n));
+                if bound || self.seen.contains(&n) {
+                    return Err(unsupported(line, "a name used before its 'global' declaration"));
+                }
+                if let Some((_, globals)) = &mut self.func {
                     globals.insert(n);
                 }
                 if !self.eat_op(",") {
@@ -760,6 +796,7 @@ impl Parser {
             if self.eat_op("(") {
                 let mut args = vec![];
                 let mut kwargs: Vec<(Rc<str>, Expr)> = vec![];
+                let mut named: Names = HashSet::new();
                 while !self.is_op(")") {
                     if self.is_op("*") || self.is_op("**") {
                         return Err(unsupported(line, "*args and **kwargs in a call"));
@@ -773,10 +810,11 @@ impl Parser {
                         self.next();
                         self.next();
                         let v = self.test()?;
-                        if kwargs.iter().any(|(k, _)| **k == *n) {
+                        let k: Rc<str> = Rc::from(n.as_str());
+                        if !named.insert(k.clone()) {
                             return Err(unsupported(line, "a keyword argument given twice"));
                         }
-                        kwargs.push((Rc::from(n.as_str()), v));
+                        kwargs.push((k, v));
                     } else {
                         if !kwargs.is_empty() {
                             return Err(unsupported(
@@ -827,7 +865,7 @@ impl Parser {
         match self.next() {
             Tok::Int(v) => Ok(Expr::Const(Value::Int(v))),
             Tok::Float(v) => Ok(Expr::Const(Value::Float(v))),
-            Tok::Str(s) => Ok(Expr::Const(Value::Str(Rc::from(s.as_str())))),
+            Tok::Str(s) => Ok(Expr::Const(Value::string(s))),
             Tok::Name(n) => match n.as_str() {
                 "True" => Ok(Expr::Const(Value::Bool(true))),
                 "False" => Ok(Expr::Const(Value::Bool(false))),
@@ -835,9 +873,7 @@ impl Parser {
                 w if is_keyword(w) => Err(unsupported(line, format!("'{w}' here"))),
                 w if w.starts_with("__") => Err(unsupported(line, format!("the name '{w}'"))),
                 w => {
-                    if self.func.is_some() {
-                        self.seen.insert(Rc::from(w));
-                    }
+                    self.seen.insert(Rc::from(w));
                     Ok(Expr::Name(raw(w)))
                 }
             },
@@ -1091,7 +1127,15 @@ pub fn parse(src: &str) -> Result<Module, Unsupported> {
     let toks = tokens(src)?;
     GLOBALS.with(|g| *g.borrow_mut() = Some(Globals { names: vec![], index: HashMap::new() }));
     let result = (|| {
-        let mut p = Parser { toks, pos: 0, depth: 0, func: None, seen: Names::new(), loops: 0 };
+        let mut p = Parser {
+            toks,
+            pos: 0,
+            depth: 0,
+            func: None,
+            seen: Names::new(),
+            loops: 0,
+            stack_base: crate::value::stack_here(),
+        };
         let mut body = vec![];
         while !matches!(p.peek(), Tok::End) {
             if matches!(p.peek(), Tok::Indent) {
@@ -1103,6 +1147,7 @@ pub fn parse(src: &str) -> Result<Module, Unsupported> {
             }
             body.extend(p.statement()?);
         }
+        body.shrink_to_fit();
         resolve_block(&mut body, None);
         Ok(body)
     })();
@@ -1147,9 +1192,27 @@ mod tests {
             "del x\n",
             "with a:\n    pass\n",
             "x = (yield)\n",
+            // a module-level `global` after its name is bound or used
+            "X = 1\nglobal X\n",
+            "Y = 2\nX = Y\nglobal Y\n",
+            "for X in []:\n    pass\nglobal X\n",
+            "def X():\n    pass\nglobal X\n",
         ] {
             assert!(parse(src).is_err(), "accepted: {src}");
         }
+        for src in ["global X\nX = 1\n", "def f():\n    return X\nglobal X\n"] {
+            assert!(parse(src).is_ok(), "refused: {src}");
+        }
+        // each elif is a level of nesting, as in Python's tree
+        let elifs = |n: usize| {
+            let mut s = String::from("if x:\n    pass\n");
+            for _ in 0..n {
+                s += "elif x:\n    pass\n";
+            }
+            s
+        };
+        assert!(parse(&elifs(MAX_DEPTH - 2)).is_ok());
+        assert!(parse(&elifs(MAX_DEPTH)).is_err());
         let deep = format!("x = {}1{}\n", "(".repeat(500), ")".repeat(500));
         assert!(parse(&deep).is_err());
     }

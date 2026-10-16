@@ -16,8 +16,9 @@
 //!
 //! Sampled blocks run in hosts here: a Script block runs on lsim-script's
 //! native runner when its code is within that runner's subset of Python
-//! (bitwise today's results), else today's own script runner in a Python
-//! process; the Traction Control block runs today's rule in Rust.
+//! (bitwise the app's results), else the app's own Script runner in a
+//! Python process, called as the app calls it; the Traction Control block
+//! runs today's rule in Rust.
 
 use crate::import::{CaseKind, ImportOptions, ImportReport, SampledKind, SampledSpec};
 use crate::model::Model;
@@ -38,37 +39,49 @@ pub struct PythonHost {
     pub backend: PathBuf,
 }
 
+/// The app's Script runner as the app calls it: the worker's `_compile`
+/// and `_run_step` (app/solver/sandbox_worker.py), the parameters typed by
+/// the project model and sent to the worker as JSON (sandbox.py), each
+/// call a fresh shallow copy of them (`_run_step`), the inputs passed as
+/// `float(x or 0.0)` (sandbox.py: -0.0 as +0.0).
 const BRIDGE: &str = r#"
 import json, struct, sys
 sys.path.insert(0, '.')
 # floats travel as their 64-bit patterns: NaN and infinities too
 def f64(b): return struct.unpack('<d', struct.pack('<Q', b))[0]
 def bits(x): return struct.unpack('<Q', struct.pack('<d', x))[0]
-from app.solver.scripting import compile_script, run_script
+from pydantic import TypeAdapter
+from app.schemas import ParamValue
+from app.solver import sandbox_worker, scripting
 first = json.loads(sys.stdin.readline())
-fn = compile_script(first['code'], first['label'])
-state = {}
-params = first['params']
+params = json.loads(json.dumps(TypeAdapter(dict[str, ParamValue]).validate_python(first['params'])))
+spec = {'label': first['label'], 'code': first['code'], 'input_keys': first['inputs'],
+        'params': params}
+script, err = sandbox_worker._compile(scripting, spec, False)
+if script is None:
+    sys.stdout.write(json.dumps({'__error__': err}) + '\n'); sys.stdout.flush()
+    sys.exit(0)
 sys.stdout.write('ready\n'); sys.stdout.flush()
 for line in sys.stdin:
     msg = json.loads(line)
     try:
-        ins = {k: f64(v) for k, v in msg['inputs'].items()}
-        res = run_script(fn, first['label'], f64(msg['t']), f64(msg['dt']), ins, state, params)
+        values = [float(f64(v) or 0.0) for v in msg['inputs']]
+        ins = dict(zip(script.input_keys, values))
+        res = sandbox_worker._run_step(scripting, script, f64(msg['t']), f64(msg['dt']), ins)
         sys.stdout.write(json.dumps({'out': [[k, bits(v)] for k, v in res.items()]}) + '\n')
     except Exception as e:
         sys.stdout.write(json.dumps({'__error__': str(e)}) + '\n')
     sys.stdout.flush()
 "#;
 
-/// A Script block run by today's own script runner in a Python process:
-/// `step(t, dt, inputs, state, params)` every period, its inputs and
-/// outputs in today's display numbers (the importer's conversions see to
-/// that), outputs it does not return holding their last value.
+/// A Script block run by the app's own Script runner in a Python process
+/// (`BRIDGE`): `step(t, dt, inputs, state, params)` every period, its
+/// inputs and outputs in today's display numbers (the importer's
+/// conversions see to that), outputs it does not return holding their
+/// last value.
 pub struct ScriptHost {
     name: String,
     period: f64,
-    inputs: Vec<String>,
     outputs: Vec<String>,
     child: Child,
     stdin: ChildStdin,
@@ -92,7 +105,12 @@ impl ScriptHost {
             .map_err(|e| format!("starting {}: {e}", host.python.display()))?;
         let mut stdin = child.stdin.take().ok_or("no stdin")?;
         let mut stdout = BufReader::new(child.stdout.take().ok_or("no stdout")?);
-        let first = json!({"code": code, "label": spec.label, "params": Value::Object(spec.params.clone())});
+        let first = json!({
+            "code": code,
+            "label": spec.label,
+            "inputs": spec.inputs,
+            "params": Value::Object(spec.params.clone()),
+        });
         writeln!(stdin, "{first}").map_err(|e| e.to_string())?;
         stdin.flush().map_err(|e| e.to_string())?;
         let mut line = String::new();
@@ -103,7 +121,6 @@ impl ScriptHost {
         Ok(ScriptHost {
             name: spec.label.clone(),
             period: spec.period,
-            inputs: spec.inputs.clone(),
             outputs: spec.outputs.clone(),
             child,
             stdin,
@@ -112,8 +129,8 @@ impl ScriptHost {
     }
 
     fn call(&mut self, t: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String> {
-        let ins: Map<String, Value> =
-            self.inputs.iter().zip(inputs).map(|(k, v)| (k.clone(), json!(v.to_bits()))).collect();
+        // in the order of the names `BRIDGE` was given
+        let ins: Vec<u64> = inputs.iter().map(|v| v.to_bits()).collect();
         let msg = json!({"t": t.to_bits(), "dt": self.period.to_bits(), "inputs": ins});
         writeln!(self.stdin, "{msg}").map_err(|e| e.to_string())?;
         self.stdin.flush().map_err(|e| e.to_string())?;

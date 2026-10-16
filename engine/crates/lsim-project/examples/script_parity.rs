@@ -1,4 +1,5 @@
-//! Script blocks on the native runner against today's Python runner: each
+//! Script blocks on the native runner against the app's own Script runner
+//! (the golden host's Python process, called as the app calls it): each
 //! case runs twice and every channel, interval statistic, event and count
 //! must be bitwise the same.
 //!

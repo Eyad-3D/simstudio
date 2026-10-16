@@ -10,12 +10,11 @@
 
 use crate::ast::{BinOp, CmpOp, Expr, FuncDef, Module, Name, Stmt, StmtKind, Target};
 use crate::value::{
-    self, Builtin, Closure, DictCell, ListCell, MathFn, TupleCell, Value, binary, contains,
-    dict_find, dict_get, dict_set, eq, index, insertable, insertable_all, order, range_len,
-    set_index, to_float, to_int,
+    self, Builtin, Closure, DictCell, IterCell, ListCell, MathFn, Text, TupleCell, Value, binary,
+    charge, contains, dict_find, dict_get, dict_set, eq, index, insertable, insertable_all, order,
+    range_len, set_index, stack_check, to_float, to_int,
 };
 use crate::{Fault, Fault::*, MAX_ITEMS};
-use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
 use std::time::Instant;
@@ -23,8 +22,25 @@ use std::time::Instant;
 /// How deeply script functions may call each other here.
 const MAX_CALL_DEPTH: usize = 50;
 
-/// Statements, loop rounds and calls between looks at the clock.
+/// Statements, loop rounds, calls and operations between looks at the
+/// clock (operations are counted as they go and the clock read at the next
+/// statement, loop round or call: one statement is no longer than its code).
 const CLOCK_EVERY: u64 = 1024;
+
+/// The most a call may print here, in writes and in bytes. A print costs
+/// nothing here, but CPython writes each argument, the separator before
+/// it and the end of the line, a write each (a system call each to the
+/// app's pipe when standard output is unbuffered, as the desktop shell
+/// starts the engine), in C where no time limit stops it: these are a few
+/// milliseconds of CPython's time (through a pipe on Linux some 2 µs a
+/// write and 1.2 ns a byte, so about 2 ms). A call that prints more is
+/// left to Python, whose time limit decides.
+const MAX_PRINT_WRITES: u64 = 1024;
+const MAX_PRINT_BYTES: u64 = 64 * 1024;
+
+/// The bytes a number, None or a bool is counted as printing: the longest
+/// of their texts (a float's repr, as `-2.2250738585072014e-308`).
+const PRINTED_NUMBER_BYTES: u64 = 24;
 
 enum Flow {
     Normal,
@@ -44,14 +60,14 @@ pub enum Iter {
     /// a dict's keys, values or items (0, 1, 2): the next entry, and its
     /// size and key set at the start
     Dict(Rc<DictCell>, usize, usize, u64, u8),
-    /// a string's characters
-    Chars(Vec<char>, usize),
+    /// a string's characters: the string and where the next one starts
+    Chars(Rc<Text>, usize),
     /// `enumerate`
     Enumerate(Box<Iter>, i64),
     /// `zip`
     Zip(Vec<Iter>),
     /// an iterator object shared with everything that iterates it
-    Shared(Rc<RefCell<Iter>>),
+    Shared(Rc<IterCell>),
     /// a list, tuple, dict or string iterator that has run out: as
     /// CPython's, it lets go of what it read and stays empty, whatever
     /// is added to that afterwards
@@ -109,11 +125,10 @@ impl Iter {
                 *k += 1;
                 v
             }
-            Iter::Chars(c, k) => {
-                let v = c.get(*k).map(|ch| Value::str(&ch.to_string()));
-                *k += 1;
-                v
-            }
+            Iter::Chars(s, k) => s[*k..].chars().next().map(|ch| {
+                *k += ch.len_utf8();
+                Value::str(ch.encode_utf8(&mut [0; 4]))
+            }),
             Iter::Enumerate(it, n) => match it.next()? {
                 Some(v) => {
                     let i = *n;
@@ -124,6 +139,8 @@ impl Iter {
                 None => None,
             },
             Iter::Zip(its) => {
+                // an item of each: work as long as there are iterables
+                charge(its.len() as u64)?;
                 let mut out = Vec::with_capacity(its.len());
                 for it in its.iter_mut() {
                     match it.next()? {
@@ -152,6 +169,19 @@ impl Iter {
     }
 }
 
+/// The heap an iterator's state holds of its own (`enumerate`'s box, the
+/// sources `zip` keeps), as the memory it counts.
+pub fn iter_heap(it: &Iter) -> usize {
+    let size = std::mem::size_of::<Iter>();
+    match it {
+        Iter::Enumerate(inner, _) => value::heap(size) + iter_heap(inner),
+        Iter::Zip(its) => {
+            value::heap(its.capacity() * size) + its.iter().map(iter_heap).sum::<usize>()
+        }
+        _ => 0,
+    }
+}
+
 fn dict_iter(d: &Rc<DictCell>, kind: u8) -> Result<Iter, Fault> {
     let dm = d.borrow();
     if dm.unordered {
@@ -170,7 +200,7 @@ fn iter_of(v: &Value) -> Result<Iter, Fault> {
         Value::Tuple(t) => Iter::Tuple(t.clone(), 0),
         Value::Range(a, b, s) => Iter::Range(*a, *s, range_len(*a, *b, *s) as u64),
         Value::Dict(d) => dict_iter(d, 0)?,
-        Value::Str(s) => Iter::Chars(s.chars().collect(), 0),
+        Value::Str(s) => Iter::Chars(s.clone(), 0),
         Value::View(d, kind) => dict_iter(d, *kind)?,
         // an iterator object: iterating it goes on from where it is
         Value::Iter(it) => Iter::Shared(it.clone()),
@@ -180,7 +210,8 @@ fn iter_of(v: &Value) -> Result<Iter, Fault> {
     })
 }
 
-/// Every item of `v`, at most [`MAX_ITEMS`].
+/// Every item of `v`, at most [`MAX_ITEMS`], each charged as work (and
+/// the room they take within the memory allowed).
 fn collect(v: &Value) -> Result<Vec<Value>, Fault> {
     let mut it = iter_of(v)?;
     let mut out = vec![];
@@ -188,6 +219,8 @@ fn collect(v: &Value) -> Result<Vec<Value>, Fault> {
         if out.len() >= MAX_ITEMS {
             return Err(Outside("a sequence this long".into()));
         }
+        charge(1)?;
+        value::room(&out, 1)?;
         out.push(x);
     }
     Ok(out)
@@ -199,6 +232,10 @@ pub struct Machine {
     names: Vec<Rc<str>>,
     deadline: Instant,
     ops: u64,
+    /// the count of `ops` at which the clock is read next
+    next_clock: u64,
+    /// what the current call has printed: writes and bytes
+    printed: (u64, u64),
     depth: usize,
     limit_s: f64,
     cache: Vec<CacheEntry>,
@@ -234,6 +271,8 @@ impl Machine {
             names: m.globals.clone(),
             deadline: Instant::now(),
             ops: 0,
+            next_clock: CLOCK_EVERY,
+            printed: (0, 0),
             depth: 0,
             limit_s,
             cache: vec![],
@@ -277,12 +316,7 @@ impl Machine {
                         if self.cache.len() >= INTERP_CACHE_SIZE {
                             self.cache.clear();
                         }
-                        let entry = CacheEntry {
-                            table: d.clone(),
-                            two,
-                            copy: table_copy(d, two)?,
-                            parsed: p.clone(),
-                        };
+                        let entry = CacheEntry::new(d.clone(), two, table_copy(d, two)?, p.clone());
                         match self
                             .cache
                             .iter()
@@ -303,10 +337,10 @@ impl Machine {
                 }));
             }
         };
-        let xv = lookup_arg(x)?;
+        let xv = lookup_arg(x, two)?;
         Ok(Value::Float(match (&*parsed, y) {
             (Parsed::One(p), None) => interp1(p, xv),
-            (Parsed::Two(s), Some(y)) => interp2(s, xv, lookup_arg(y)?),
+            (Parsed::Two(s), Some(y)) => interp2(s, xv, lookup_arg(y, false)?),
             _ => unreachable!("parsed for the lookup asked"),
         }))
     }
@@ -320,15 +354,20 @@ impl Machine {
     fn start_clock(&mut self) {
         self.deadline = Instant::now() + std::time::Duration::from_secs_f64(self.limit_s);
         self.ops = 0;
+        self.next_clock = CLOCK_EVERY;
+        self.printed = (0, 0);
         crate::value::start_meter(Some(self.deadline));
     }
 
     fn tick(&mut self) -> R<()> {
         self.ops += 1;
-        if self.ops.is_multiple_of(CLOCK_EVERY) && Instant::now() > self.deadline {
-            return Err(Limit);
+        if self.ops >= self.next_clock {
+            self.next_clock = self.ops + CLOCK_EVERY;
+            if Instant::now() > self.deadline {
+                return Err(Limit);
+            }
         }
-        Ok(())
+        value::memory_check()
     }
 
     /// Runs the top-level code.
@@ -341,14 +380,20 @@ impl Machine {
         }
     }
 
-    /// Calls `f` with positional arguments (a call from the host: the clock
-    /// starts now).
-    pub fn call_top(&mut self, f: &Value, args: Vec<Value>) -> R<Value> {
+    /// Starts the clock of a call from the host: what it does from here on
+    /// is timed (the arguments made for it, the call, its outputs read).
+    pub fn start_call(&mut self) {
         self.start_clock();
+    }
+
+    /// Calls `f` with positional arguments (a call from the host, on the
+    /// clock [`Machine::start_call`] started).
+    pub fn call_top(&mut self, f: &Value, args: Vec<Value>) -> R<Value> {
         self.call(f, args, vec![])
     }
 
     fn block(&mut self, b: &[Stmt], frame: &mut Vec<Option<Value>>) -> R<Flow> {
+        stack_check()?;
         for s in b {
             match self.stmt(s, frame) {
                 Ok(Flow::Normal) => {}
@@ -363,99 +408,163 @@ impl Machine {
         Ok(Flow::Normal)
     }
 
+    // Each kind of statement and expression that holds others is a function
+    // of its own, so that a level of nesting holds only the frame of its
+    // own kind (an unoptimised build's frame of one function with them all
+    // is several KB, and the nesting the stack allows shrinks with it).
+
     fn stmt(&mut self, s: &Stmt, frame: &mut Vec<Option<Value>>) -> R<Flow> {
         self.tick()?;
         match &s.kind {
-            StmtKind::Expr(e) => {
-                self.eval(e, frame)?;
-            }
-            StmtKind::Assign(targets, value) => {
-                let v = self.eval(value, frame)?;
-                for t in targets {
-                    self.assign(t, v.clone(), frame)?;
-                }
-            }
-            StmtKind::AugAssign(t, op, value) => match t {
-                Target::Name(n) => {
-                    let old = self.load(n, frame)?;
-                    let v = self.eval(value, frame)?;
-                    let new = self.inplace(*op, &old, &v)?;
-                    self.store(n, new, frame);
-                }
-                Target::Index(c, i) => {
-                    let c = self.eval(c, frame)?;
-                    let i = self.eval(i, frame)?;
-                    let old = index(&c, &i)?;
-                    let v = self.eval(value, frame)?;
-                    let new = self.inplace(*op, &old, &v)?;
-                    set_index(&c, i, new)?;
-                }
-                Target::Tuple(_) => {
-                    return Err(Outside("augmented assignment to several names".into()));
-                }
-            },
-            StmtKind::If(branches, orelse) => {
-                for (c, body) in branches {
-                    if self.eval(c, frame)?.truthy() {
-                        return self.block(body, frame);
-                    }
-                }
-                return self.block(orelse, frame);
-            }
-            StmtKind::While(c, body, orelse) => loop {
-                self.tick()?;
-                if !self.eval(c, frame)?.truthy() {
-                    return self.block(orelse, frame);
-                }
-                match self.block(body, frame)? {
-                    Flow::Break => break,
-                    Flow::Return(v) => return Ok(Flow::Return(v)),
-                    Flow::Normal | Flow::Continue => {}
-                }
-            },
-            StmtKind::For(t, it, body, orelse) => {
-                let v = self.eval(it, frame)?;
-                let mut it = iter_of(&v)?;
-                loop {
-                    self.tick()?;
-                    let Some(x) = it.next()? else {
-                        return self.block(orelse, frame);
-                    };
-                    self.assign(t, x, frame)?;
-                    match self.block(body, frame)? {
-                        Flow::Break => break,
-                        Flow::Return(v) => return Ok(Flow::Return(v)),
-                        Flow::Normal | Flow::Continue => {}
-                    }
-                }
-            }
-            StmtKind::Def(n, def, defaults) => {
-                let mut ds = Vec::with_capacity(defaults.len());
-                for d in defaults {
-                    ds.push(self.eval(d, frame)?);
-                }
-                let f = Value::Func(Rc::new(Closure { def: def.clone(), defaults: ds }));
-                self.store(n, f, frame);
-            }
-            StmtKind::Return(e) => {
-                let v = match e {
-                    Some(e) => self.eval(e, frame)?,
-                    None => Value::None,
-                };
-                return Ok(Flow::Return(v));
-            }
-            StmtKind::Pass => {}
-            StmtKind::Break => return Ok(Flow::Break),
-            StmtKind::Continue => return Ok(Flow::Continue),
+            StmtKind::Expr(e) => self.expr_stmt(e, frame),
+            StmtKind::Assign(targets, value) => self.assign_stmt(targets, value, frame),
+            StmtKind::AugAssign(t, op, value) => self.aug_assign(t, *op, value, frame),
+            StmtKind::If(branches, orelse) => self.if_stmt(branches, orelse, frame),
+            StmtKind::While(c, body, orelse) => self.while_stmt(c, body, orelse, frame),
+            StmtKind::For(t, it, body, orelse) => self.for_stmt(t, it, body, orelse, frame),
+            StmtKind::Def(n, def, defaults) => self.def_stmt(n, def, defaults, frame),
+            StmtKind::Return(e) => self.return_stmt(e.as_ref(), frame),
+            StmtKind::Pass => Ok(Flow::Normal),
+            StmtKind::Break => Ok(Flow::Break),
+            StmtKind::Continue => Ok(Flow::Continue),
             StmtKind::Import(n, attr) => {
                 let v = match attr {
                     None => Value::Math,
                     Some(a) => Builtin::math(a).ok_or_else(|| Outside(format!("math.{a}")))?,
                 };
                 self.store(n, v, frame);
+                Ok(Flow::Normal)
+            }
+        }
+    }
+
+    fn expr_stmt(&mut self, e: &Expr, frame: &mut Vec<Option<Value>>) -> R<Flow> {
+        self.eval(e, frame)?;
+        Ok(Flow::Normal)
+    }
+
+    fn assign_stmt(
+        &mut self,
+        targets: &[Target],
+        value: &Expr,
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Flow> {
+        let v = self.eval(value, frame)?;
+        for t in targets {
+            self.assign(t, v.clone(), frame)?;
+        }
+        Ok(Flow::Normal)
+    }
+
+    fn aug_assign(
+        &mut self,
+        t: &Target,
+        op: BinOp,
+        value: &Expr,
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Flow> {
+        match t {
+            Target::Name(n) => {
+                let old = self.load(n, frame)?;
+                let v = self.eval(value, frame)?;
+                let new = self.inplace(op, &old, &v)?;
+                self.store(n, new, frame);
+            }
+            Target::Index(c, i) => {
+                let c = self.eval(c, frame)?;
+                let i = self.eval(i, frame)?;
+                let old = index(&c, &i)?;
+                let v = self.eval(value, frame)?;
+                let new = self.inplace(op, &old, &v)?;
+                set_index(&c, i, new)?;
+            }
+            Target::Tuple(_) => {
+                return Err(Outside("augmented assignment to several names".into()));
             }
         }
         Ok(Flow::Normal)
+    }
+
+    fn if_stmt(
+        &mut self,
+        branches: &[(Expr, Vec<Stmt>)],
+        orelse: &[Stmt],
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Flow> {
+        for (c, body) in branches {
+            if self.eval(c, frame)?.truthy() {
+                return self.block(body, frame);
+            }
+        }
+        self.block(orelse, frame)
+    }
+
+    fn while_stmt(
+        &mut self,
+        c: &Expr,
+        body: &[Stmt],
+        orelse: &[Stmt],
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Flow> {
+        loop {
+            self.tick()?;
+            if !self.eval(c, frame)?.truthy() {
+                return self.block(orelse, frame);
+            }
+            match self.block(body, frame)? {
+                Flow::Break => return Ok(Flow::Normal),
+                Flow::Return(v) => return Ok(Flow::Return(v)),
+                Flow::Normal | Flow::Continue => {}
+            }
+        }
+    }
+
+    fn for_stmt(
+        &mut self,
+        t: &Target,
+        it: &Expr,
+        body: &[Stmt],
+        orelse: &[Stmt],
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Flow> {
+        let v = self.eval(it, frame)?;
+        let mut it = iter_of(&v)?;
+        loop {
+            self.tick()?;
+            let Some(x) = it.next()? else {
+                return self.block(orelse, frame);
+            };
+            self.assign(t, x, frame)?;
+            match self.block(body, frame)? {
+                Flow::Break => return Ok(Flow::Normal),
+                Flow::Return(v) => return Ok(Flow::Return(v)),
+                Flow::Normal | Flow::Continue => {}
+            }
+        }
+    }
+
+    fn def_stmt(
+        &mut self,
+        n: &Name,
+        def: &Rc<FuncDef>,
+        defaults: &[Expr],
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Flow> {
+        charge(defaults.len() as u64)?;
+        let mut ds = Vec::with_capacity(defaults.len());
+        for d in defaults {
+            ds.push(self.eval(d, frame)?);
+        }
+        let f = Value::func(def.clone(), ds);
+        self.store(n, f, frame);
+        Ok(Flow::Normal)
+    }
+
+    fn return_stmt(&mut self, e: Option<&Expr>, frame: &mut Vec<Option<Value>>) -> R<Flow> {
+        Ok(Flow::Return(match e {
+            Some(e) => self.eval(e, frame)?,
+            None => Value::None,
+        }))
     }
 
     /// `old op= v`: a list's `+=` extends it in place (the same object).
@@ -465,14 +574,10 @@ impl Machine {
         {
             let items = collect(v)?;
             insertable_all(old, &items)?;
-            let mut lm = l.borrow_mut();
-            if lm.len() + items.len() > MAX_ITEMS {
-                return Err(Outside("a list this long".into()));
-            }
-            lm.extend(items);
+            extend(l, items)?;
             return Ok(old.clone());
         }
-        binary(op, old, v)
+        value::binary_inplace(op, old, v)
     }
 
     fn load(&self, n: &Name, frame: &[Option<Value>]) -> R<Value> {
@@ -518,7 +623,16 @@ impl Machine {
                 set_index(&c, i, v)
             }
             Target::Tuple(ts) => {
-                let mut it = iter_of(&v)?;
+                charge(ts.len() as u64)?;
+                let mut it = match iter_of(&v) {
+                    Err(Raise(_)) => {
+                        return Err(Raise(format!(
+                            "cannot unpack non-iterable {} object",
+                            v.type_name()
+                        )));
+                    }
+                    it => it?,
+                };
                 let mut vals = Vec::with_capacity(ts.len());
                 while let Some(x) = it.next()? {
                     if vals.len() == ts.len() {
@@ -545,88 +659,157 @@ impl Machine {
     }
 
     fn eval(&mut self, e: &Expr, frame: &mut Vec<Option<Value>>) -> R<Value> {
-        Ok(match e {
-            Expr::Const(v) => v.clone(),
-            Expr::Name(n) => self.load(n, frame)?,
-            Expr::Tuple(xs) => {
-                let mut v = Vec::with_capacity(xs.len());
-                for x in xs {
-                    v.push(self.eval(x, frame)?);
+        match e {
+            Expr::Const(v) => return Ok(v.clone()),
+            Expr::Name(n) => return self.load(n, frame),
+            // what nests stays within the stack the interpreter may use,
+            // and each operation counts towards the clock (a statement of
+            // many is long)
+            _ => {
+                stack_check()?;
+                self.ops += 1;
+            }
+        }
+        match e {
+            Expr::Const(_) | Expr::Name(_) => unreachable!("a leaf"),
+            Expr::Tuple(xs) => self.sequence(xs, false, frame),
+            Expr::List(xs) => self.sequence(xs, true, frame),
+            Expr::Dict(kv) => self.dict_display(kv, frame),
+            Expr::Neg(a) => self.unary(e, a, frame),
+            Expr::Pos(a) => self.unary(e, a, frame),
+            Expr::Not(a) => self.unary(e, a, frame),
+            Expr::Bin(op, a, b) => self.bin(*op, a, b, frame),
+            Expr::And(a, b) => self.and_or(true, a, b, frame),
+            Expr::Or(a, b) => self.and_or(false, a, b, frame),
+            Expr::Compare(first, rest) => self.comparison(first, rest, frame),
+            Expr::IfExp(c, a, b) => self.if_exp(c, a, b, frame),
+            Expr::Call(f, args, kwargs) => self.call_expr(f, args, kwargs, frame),
+            Expr::Attr(a, name) => self.attr_expr(a, name, frame),
+            Expr::Index(c, i) => self.index_expr(c, i, frame),
+        }
+    }
+
+    fn sequence(&mut self, xs: &[Expr], list: bool, frame: &mut Vec<Option<Value>>) -> R<Value> {
+        charge(xs.len() as u64)?;
+        let mut v = Vec::with_capacity(xs.len());
+        for x in xs {
+            v.push(self.eval(x, frame)?);
+        }
+        Ok(if list { Value::list(v) } else { Value::tuple(v) })
+    }
+
+    /// `{k: v, ...}` as CPython 3.11 compiles it: up to 15 pairs, every
+    /// key and value evaluated and then inserted in order (BUILD_MAP); more
+    /// in runs of 17 pairs, each inserted as it is evaluated, and the rest
+    /// as before (compiler_dict). The two orders differ only when a key
+    /// cannot be inserted: in a longer display that is left to Python.
+    fn dict_display(&mut self, kv: &[(Expr, Expr)], frame: &mut Vec<Option<Value>>) -> R<Value> {
+        charge(kv.len() as u64)?;
+        let d = Value::new_dict();
+        if kv.len() <= 15 {
+            let mut pairs = Vec::with_capacity(kv.len());
+            for (k, v) in kv {
+                let k = self.eval(k, frame)?;
+                pairs.push((k, self.eval(v, frame)?));
+            }
+            for (k, v) in pairs {
+                dict_set(&d, k, v)?;
+            }
+            return Ok(Value::Dict(d));
+        }
+        for (k, v) in kv {
+            let k = self.eval(k, frame)?;
+            let v = self.eval(v, frame)?;
+            match dict_set(&d, k, v) {
+                Err(Raise(_)) => {
+                    return Err(Outside(
+                        "a key that cannot be inserted in a dict display of more than 15 pairs"
+                            .into(),
+                    ));
                 }
-                Value::tuple(v)
+                r => r?,
             }
-            Expr::List(xs) => {
-                let mut v = Vec::with_capacity(xs.len());
-                for x in xs {
-                    v.push(self.eval(x, frame)?);
-                }
-                Value::list(v)
+        }
+        Ok(Value::Dict(d))
+    }
+
+    fn unary(&mut self, e: &Expr, a: &Expr, frame: &mut Vec<Option<Value>>) -> R<Value> {
+        let a = self.eval(a, frame)?;
+        match e {
+            Expr::Neg(_) => value::neg(&a),
+            Expr::Pos(_) => value::pos(&a),
+            _ => Ok(Value::Bool(!a.truthy())),
+        }
+    }
+
+    fn bin(&mut self, op: BinOp, a: &Expr, b: &Expr, frame: &mut Vec<Option<Value>>) -> R<Value> {
+        let a = self.eval(a, frame)?;
+        let b = self.eval(b, frame)?;
+        binary(op, &a, &b)
+    }
+
+    fn and_or(
+        &mut self,
+        and: bool,
+        a: &Expr,
+        b: &Expr,
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Value> {
+        let a = self.eval(a, frame)?;
+        if a.truthy() != and { Ok(a) } else { self.eval(b, frame) }
+    }
+
+    fn comparison(
+        &mut self,
+        first: &Expr,
+        rest: &[(CmpOp, Expr)],
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Value> {
+        let mut left = self.eval(first, frame)?;
+        for (op, right) in rest {
+            let right = self.eval(right, frame)?;
+            if !compare(*op, &left, &right)? {
+                return Ok(Value::Bool(false));
             }
-            Expr::Dict(kv) => {
-                let d = Value::new_dict();
-                for (k, v) in kv {
-                    let k = self.eval(k, frame)?;
-                    let v = self.eval(v, frame)?;
-                    dict_set(&d, k, v)?;
-                }
-                Value::Dict(d)
-            }
-            Expr::Neg(a) => value::neg(&self.eval(a, frame)?)?,
-            Expr::Pos(a) => value::pos(&self.eval(a, frame)?)?,
-            Expr::Not(a) => Value::Bool(!self.eval(a, frame)?.truthy()),
-            Expr::Bin(op, a, b) => {
-                let a = self.eval(a, frame)?;
-                let b = self.eval(b, frame)?;
-                binary(*op, &a, &b)?
-            }
-            Expr::And(a, b) => {
-                let a = self.eval(a, frame)?;
-                if !a.truthy() { a } else { self.eval(b, frame)? }
-            }
-            Expr::Or(a, b) => {
-                let a = self.eval(a, frame)?;
-                if a.truthy() { a } else { self.eval(b, frame)? }
-            }
-            Expr::Compare(first, rest) => {
-                let mut left = self.eval(first, frame)?;
-                for (op, right) in rest {
-                    let right = self.eval(right, frame)?;
-                    if !compare(*op, &left, &right)? {
-                        return Ok(Value::Bool(false));
-                    }
-                    left = right;
-                }
-                Value::Bool(true)
-            }
-            Expr::IfExp(c, a, b) => {
-                if self.eval(c, frame)?.truthy() {
-                    self.eval(a, frame)?
-                } else {
-                    self.eval(b, frame)?
-                }
-            }
-            Expr::Call(f, args, kwargs) => {
-                let f = self.eval(f, frame)?;
-                let mut a = Vec::with_capacity(args.len());
-                for x in args {
-                    a.push(self.eval(x, frame)?);
-                }
-                let mut kw = Vec::with_capacity(kwargs.len());
-                for (k, x) in kwargs {
-                    kw.push((k.clone(), self.eval(x, frame)?));
-                }
-                self.call(&f, a, kw)?
-            }
-            Expr::Attr(a, name) => {
-                let a = self.eval(a, frame)?;
-                attribute(&a, name)?
-            }
-            Expr::Index(c, i) => {
-                let c = self.eval(c, frame)?;
-                let i = self.eval(i, frame)?;
-                index_view(&c, &i)?
-            }
-        })
+            left = right;
+        }
+        Ok(Value::Bool(true))
+    }
+
+    fn if_exp(&mut self, c: &Expr, a: &Expr, b: &Expr, frame: &mut Vec<Option<Value>>) -> R<Value> {
+        if self.eval(c, frame)?.truthy() { self.eval(a, frame) } else { self.eval(b, frame) }
+    }
+
+    fn call_expr(
+        &mut self,
+        f: &Expr,
+        args: &[Expr],
+        kwargs: &[(Rc<str>, Expr)],
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Value> {
+        let f = self.eval(f, frame)?;
+        // each argument is work: evaluated, passed and bound
+        charge((args.len() + kwargs.len()) as u64)?;
+        let mut a = Vec::with_capacity(args.len());
+        for x in args {
+            a.push(self.eval(x, frame)?);
+        }
+        let mut kw = Vec::with_capacity(kwargs.len());
+        for (k, x) in kwargs {
+            kw.push((k.clone(), self.eval(x, frame)?));
+        }
+        self.call(&f, a, kw)
+    }
+
+    fn attr_expr(&mut self, a: &Expr, name: &Rc<str>, frame: &mut Vec<Option<Value>>) -> R<Value> {
+        let a = self.eval(a, frame)?;
+        attribute(&a, name)
+    }
+
+    fn index_expr(&mut self, c: &Expr, i: &Expr, frame: &mut Vec<Option<Value>>) -> R<Value> {
+        let c = self.eval(c, frame)?;
+        let i = self.eval(i, frame)?;
+        index_view(&c, &i)
     }
 
     fn call(&mut self, f: &Value, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value)>) -> R<Value> {
@@ -647,20 +830,30 @@ impl Machine {
     ) -> R<Value> {
         let def: &FuncDef = &c.def;
         let np = def.params.len();
-        if args.len() > np {
-            return Err(type_error(format!(
-                "{}() takes {} positional arguments but {} were given",
-                def.name,
-                np,
-                args.len()
-            )));
-        }
-        let mut frame: Vec<Option<Value>> = vec![None; def.n_locals.max(np)];
-        for (k, a) in args.into_iter().enumerate() {
+        let given = args.len();
+        // the frame is work as long as it is (its slots made, the
+        // defaults put in, the missing looked for), and memory while the
+        // call runs
+        let slots = def.n_locals.max(np);
+        charge(slots as u64)?;
+        let held = value::heap(slots * std::mem::size_of::<Option<Value>>());
+        value::fits(held)?;
+        let _held = value::Held::new(held);
+        // in CPython's order: the positional arguments there is room for,
+        // the keywords, then too many or too few
+        let mut frame: Vec<Option<Value>> = vec![None; slots];
+        for (k, a) in args.into_iter().take(np).enumerate() {
             frame[k] = Some(a);
         }
         for (k, v) in kwargs {
-            let Some(slot) = def.params.iter().position(|p| *p == k) else {
+            // (a name is work as long as it is: hashed or compared)
+            charge(k.len() as u64)?;
+            let slot = if def.by_name.is_empty() {
+                def.params.iter().position(|p| *p == k)
+            } else {
+                def.by_name.get(&k).copied()
+            };
+            let Some(slot) = slot else {
                 return Err(type_error(format!(
                     "{}() got an unexpected keyword argument '{k}'",
                     def.name
@@ -675,21 +868,44 @@ impl Machine {
             frame[slot] = Some(v);
         }
         let first_default = np - def.n_defaults;
-        for (k, slot) in frame.iter_mut().enumerate().take(np) {
+        if given > np {
+            let (takes, s) = match def.n_defaults {
+                0 => (np.to_string(), if np == 1 { "" } else { "s" }),
+                _ => (format!("from {first_default} to {np}"), "s"),
+            };
+            let were = if given == 1 { "was" } else { "were" };
+            return Err(type_error(format!(
+                "{}() takes {takes} positional argument{s} but {given} {were} given",
+                def.name
+            )));
+        }
+        let missing: Vec<String> = (0..first_default)
+            .filter(|k| frame[*k].is_none())
+            .map(|k| format!("'{}'", def.params[k]))
+            .collect();
+        if !missing.is_empty() {
+            let names = match missing.as_slice() {
+                [one] => one.clone(),
+                [a, b] => format!("{a} and {b}"),
+                [first @ .., a, b] => format!("{}, {a}, and {b}", first.join(", ")),
+                [] => unreachable!("some missing"),
+            };
+            return Err(type_error(format!(
+                "{}() missing {} required positional argument{}: {names}",
+                def.name,
+                missing.len(),
+                if missing.len() == 1 { "" } else { "s" }
+            )));
+        }
+        for (k, slot) in frame.iter_mut().enumerate().take(np).skip(first_default) {
             if slot.is_none() {
-                if k >= first_default {
-                    *slot = Some(c.defaults[k - first_default].clone());
-                } else {
-                    return Err(type_error(format!(
-                        "{}() missing a required argument: '{}'",
-                        def.name, def.params[k]
-                    )));
-                }
+                *slot = Some(c.defaults[k - first_default].clone());
             }
         }
         if self.depth >= MAX_CALL_DEPTH {
             return Err(Outside("functions calling each other this deeply".into()));
         }
+        stack_check()?;
         self.depth += 1;
         let r = self.block(&def.body, &mut frame);
         self.depth -= 1;
@@ -742,7 +958,7 @@ impl Machine {
                 };
                 let mut it = items.into_iter();
                 let Some(mut best) = it.next() else {
-                    return Err(Raise(format!("{name}() iterable argument is empty")));
+                    return Err(Raise(format!("{name}() arg is an empty sequence")));
                 };
                 let want = if b == Builtin::Min { Ordering::Less } else { Ordering::Greater };
                 let op = if b == Builtin::Min { "<" } else { ">" };
@@ -783,7 +999,10 @@ impl Machine {
             Builtin::Len => {
                 let x = one("len")?;
                 Value::Int(match &x {
-                    Value::Str(s) => s.chars().count() as i64,
+                    Value::Str(s) => {
+                        charge(s.len() as u64)?;
+                        s.chars().count() as i64
+                    }
                     Value::Tuple(t) => t.len() as i64,
                     Value::List(l) => l.borrow().len() as i64,
                     Value::Dict(d) | Value::View(d, _) => d.borrow().entries.len() as i64,
@@ -798,17 +1017,7 @@ impl Machine {
                 })
             }
             Builtin::Range => {
-                let ints: Vec<i64> = args
-                    .iter()
-                    .map(|a| {
-                        a.as_int().ok_or_else(|| {
-                            type_error(format!(
-                                "'{}' object cannot be interpreted as an integer",
-                                a.type_name()
-                            ))
-                        })
-                    })
-                    .collect::<R<_>>()?;
+                let ints: Vec<i64> = args.iter().map(index_int).collect::<R<_>>()?;
                 let (a, z, s) = match ints.as_slice() {
                     [z] => (0, *z, 1),
                     [a, z] => (*a, *z, 1),
@@ -846,33 +1055,27 @@ impl Machine {
                 }
             }
             Builtin::Enumerate => {
-                let mut start = 0i64;
-                for (k, v) in &kwargs {
-                    if &**k == "start" {
-                        start = v.as_int().ok_or_else(|| Outside("a non-integer start".into()))?;
-                    } else {
-                        return Err(Outside("enumerate()'s other keywords".into()));
-                    }
-                }
-                if matches!(args.first(), Some(Value::Iter(_))) {
-                    return Err(Outside("enumerate() of an iterator object".into()));
-                }
-                let (it, start) = match n {
-                    1 => (iter_of(&args[0])?, start),
-                    2 if kwargs.is_empty() => (
-                        iter_of(&args[0])?,
-                        args[1].as_int().ok_or_else(|| Outside("a non-integer start".into()))?,
-                    ),
+                // in CPython's order: the start made an integer, then the
+                // iterable's iterator
+                let start = match (n, kwargs.as_slice()) {
+                    (1, []) => 0,
+                    (1, [(k, v)]) if &**k == "start" => index_int(v)?,
+                    (2, []) => index_int(&args[1])?,
+                    (1, [_]) => return Err(Outside("enumerate()'s other keywords".into())),
                     _ => return Err(args_error("enumerate", "takes 1 or 2 arguments")),
                 };
-                Value::Iter(Rc::new(RefCell::new(Iter::Enumerate(Box::new(it), start))))
+                if matches!(args[0], Value::Iter(_)) {
+                    return Err(Outside("enumerate() of an iterator object".into()));
+                }
+                let it = iter_of(&args[0])?;
+                Value::iterator(Iter::Enumerate(Box::new(it), start), "enumerate")
             }
             Builtin::Zip => {
                 if args.iter().any(|a| matches!(a, Value::Iter(_))) {
                     return Err(Outside("zip() of an iterator object".into()));
                 }
                 let its = args.iter().map(iter_of).collect::<R<Vec<_>>>()?;
-                Value::Iter(Rc::new(RefCell::new(Iter::Zip(its))))
+                Value::iterator(Iter::Zip(its), "zip")
             }
             Builtin::List => match n {
                 0 => Value::list(vec![]),
@@ -892,7 +1095,7 @@ impl Machine {
                     _ => return Err(args_error("dict", "expected at most 1 argument")),
                 }
                 for (k, v) in kwargs {
-                    dict_set(&d, Value::Str(k), v)?;
+                    dict_set(&d, Value::str(&k), v)?;
                 }
                 Value::Dict(d)
             }
@@ -910,20 +1113,41 @@ impl Machine {
                 }
                 Value::Bool(found)
             }
-            // print shows nothing here and changes no result; what it would
-            // print must not fail on Python either (a number, a string)
+            // print shows nothing here and changes no result, so what it
+            // would print must neither fail on Python nor take it long: a
+            // number, or a string of ASCII characters (Python writes other
+            // text in the encoding of its standard output, on Windows the
+            // ANSI code page, which may not have them), and no more in a
+            // call than CPython writes quickly
             Builtin::Print => {
-                if args.iter().any(|a| {
-                    !matches!(
-                        a,
-                        Value::None
-                            | Value::Bool(_)
-                            | Value::Int(_)
-                            | Value::Float(_)
-                            | Value::Str(_)
-                    )
-                }) {
-                    return Err(Outside("print() of a container or an object".into()));
+                let mut bytes = n.max(1) as u64;
+                for a in &args {
+                    bytes += match a {
+                        Value::None | Value::Bool(_) | Value::Int(_) | Value::Float(_) => {
+                            PRINTED_NUMBER_BYTES
+                        }
+                        Value::Str(s) => s.len() as u64,
+                        _ => return Err(Outside("print() of a container or an object".into())),
+                    };
+                }
+                let writes = (2 * n).max(1) as u64;
+                let (w, b) = (self.printed.0 + writes, self.printed.1 + bytes);
+                if w > MAX_PRINT_WRITES || b > MAX_PRINT_BYTES {
+                    return Err(Outside(format!(
+                        "print() of more than {MAX_PRINT_WRITES} writes or {} KiB in a call",
+                        MAX_PRINT_BYTES / 1024
+                    )));
+                }
+                self.printed = (w, b);
+                for a in &args {
+                    if let Value::Str(s) = a {
+                        charge(s.len() as u64)?;
+                        if !s.is_ascii() {
+                            return Err(Outside(
+                                "print() of a string of other than ASCII characters".into(),
+                            ));
+                        }
+                    }
                 }
                 Value::None
             }
@@ -998,7 +1222,7 @@ fn attribute(a: &Value, name: &Rc<str>) -> R<Value> {
                     | "clear"
             ) =>
         {
-            Ok(Value::Method(Rc::new((a.clone(), name.clone()))))
+            Ok(Value::method(a, name))
         }
         Value::List(_)
             if matches!(
@@ -1014,14 +1238,26 @@ fn attribute(a: &Value, name: &Rc<str>) -> R<Value> {
                     | "clear"
             ) =>
         {
-            Ok(Value::Method(Rc::new((a.clone(), name.clone()))))
+            Ok(Value::method(a, name))
         }
-        Value::Tuple(_) if matches!(&**name, "index" | "count") => {
-            Ok(Value::Method(Rc::new((a.clone(), name.clone()))))
-        }
+        Value::Tuple(_) if matches!(&**name, "index" | "count") => Ok(Value::method(a, name)),
         // Python may have it (a str method, a float's): let Python run it
         _ => Err(Outside(format!("'.{name}' on a {}", a.type_name()))),
     }
+}
+
+/// `l.extend(items)` (`items` checked to make no cycle).
+fn extend(l: &ListCell, items: Vec<Value>) -> R<()> {
+    let mut lm = l.borrow_mut();
+    if lm.len() + items.len() > MAX_ITEMS {
+        return Err(Outside("a list this long".into()));
+    }
+    charge(items.len() as u64)?;
+    value::room(&lm, items.len())?;
+    lm.extend(items);
+    drop(lm);
+    l.account();
+    Ok(())
 }
 
 /// `d.update(x)`'s and `dict(x)`'s argument: a dict, or pairs.
@@ -1030,6 +1266,7 @@ fn update_from(d: &Rc<DictCell>, x: &Value) -> R<()> {
         Value::Dict(src) => {
             let (entries, unordered) = {
                 let s = src.borrow();
+                charge(s.entries.len() as u64)?;
                 (s.entries.clone(), s.unordered)
             };
             // inserted in the source's order: unknown if that is
@@ -1040,11 +1277,18 @@ fn update_from(d: &Rc<DictCell>, x: &Value) -> R<()> {
             Ok(())
         }
         Value::List(_) | Value::Tuple(_) => {
-            for pair in collect(x)? {
-                let kv = collect(&pair)?;
+            for (n, pair) in collect(x)?.into_iter().enumerate() {
+                let kv = match collect(&pair) {
+                    Err(Raise(_)) => {
+                        return Err(Raise(format!(
+                            "cannot convert dictionary update sequence element #{n} to a sequence"
+                        )));
+                    }
+                    kv => kv?,
+                };
                 if kv.len() != 2 {
                     return Err(Raise(format!(
-                        "dictionary update sequence element has length {}; 2 is required",
+                        "dictionary update sequence element #{n} has length {}; 2 is required",
                         kv.len()
                     )));
                 }
@@ -1083,7 +1327,7 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
                     update_from(d, x)?;
                 }
                 for (k, v) in kwargs {
-                    dict_set(d, Value::Str(k), v)?;
+                    dict_set(d, Value::str(&k), v)?;
                 }
                 Ok(Value::None)
             }
@@ -1113,28 +1357,26 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
             "pop" => {
                 arity(1, 2)?;
                 match dict_find(d, &args[0])? {
-                    Some(k) => Ok(d.borrow_mut().remove(k).1),
+                    Some(k) => {
+                        charge(d.borrow().entries.len() as u64)?;
+                        let v = d.borrow_mut().remove(k).1;
+                        d.account();
+                        Ok(v)
+                    }
                     None => match args.get(1) {
                         Some(v) => Ok(v.clone()),
-                        None => Err(Raise(args[0].repr())),
+                        None => Err(Raise(args[0].repr()?)),
                     },
                 }
             }
             "copy" => {
                 arity(0, 0)?;
-                let (entries, unordered) = {
-                    let dm = d.borrow();
-                    (dm.entries.clone(), dm.unordered)
-                };
-                let c = Value::dict(entries)?;
-                if let Value::Dict(cd) = &c {
-                    cd.borrow_mut().unordered = unordered;
-                }
-                Ok(c)
+                Value::dict_copy(d)
             }
             "clear" => {
                 arity(0, 0)?;
                 d.borrow_mut().clear();
+                d.account();
                 Ok(Value::None)
             }
             _ => Err(Outside(format!("dict.{name}"))),
@@ -1147,28 +1389,22 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
                 if lm.len() >= MAX_ITEMS {
                     return Err(Outside("a list this long".into()));
                 }
+                value::room(&lm, 1)?;
                 lm.push(args[0].clone());
+                drop(lm);
+                l.account();
                 Ok(Value::None)
             }
             "extend" => {
                 arity(1, 1)?;
                 let items = collect(&args[0])?;
                 insertable_all(obj, &items)?;
-                let mut lm = l.borrow_mut();
-                if lm.len() + items.len() > MAX_ITEMS {
-                    return Err(Outside("a list this long".into()));
-                }
-                lm.extend(items);
+                extend(l, items)?;
                 Ok(Value::None)
             }
             "insert" => {
                 arity(2, 2)?;
-                let i = args[0].as_int().ok_or_else(|| {
-                    type_error(format!(
-                        "'{}' object cannot be interpreted as an integer",
-                        args[0].type_name()
-                    ))
-                })?;
+                let i = index_int(&args[0])?;
                 insertable(obj, &args[1])?;
                 let mut lm = l.borrow_mut();
                 if lm.len() >= MAX_ITEMS {
@@ -1176,44 +1412,45 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
                 }
                 let len = lm.len() as i64;
                 let k = if i < 0 { (i + len).max(0) } else { i.min(len) };
+                charge(len as u64)?;
+                value::room(&lm, 1)?;
                 lm.insert(k as usize, args[1].clone());
+                drop(lm);
+                l.account();
                 Ok(Value::None)
             }
             "pop" => {
                 arity(0, 1)?;
+                // in CPython's order: the index made an integer, then the
+                // list looked at
+                let i = args.first().map(index_int).transpose()?;
                 let mut lm = l.borrow_mut();
                 if lm.is_empty() {
                     return Err(Raise("pop from empty list".into()));
                 }
                 let len = lm.len() as i64;
-                let i = match args.first() {
-                    Some(v) => v.as_int().ok_or_else(|| {
-                        type_error(format!(
-                            "'{}' object cannot be interpreted as an integer",
-                            v.type_name()
-                        ))
-                    })?,
-                    None => len - 1,
-                };
+                let i = i.unwrap_or(len - 1);
                 let k = if i < 0 { i + len } else { i };
                 if k < 0 || k >= len {
                     return Err(Raise("pop index out of range".into()));
                 }
+                charge((len - k) as u64)?;
                 Ok(lm.remove(k as usize))
             }
             "index" | "count" | "remove" => {
                 arity(1, 1)?;
                 value::searchable(&args[0])?;
-                let items = l.borrow().clone();
-                let hits = matches(&items, &args[0], name != "count")?;
+                let hits = matches(&l.borrow(), &args[0], name != "count")?;
                 let pos = hits.first().copied();
                 match name {
                     "count" => Ok(Value::Int(hits.len() as i64)),
-                    "index" => pos
-                        .map(|k| Value::Int(k as i64))
-                        .ok_or_else(|| Raise(format!("{} is not in list", args[0].repr()))),
+                    "index" => match pos {
+                        Some(k) => Ok(Value::Int(k as i64)),
+                        None => Err(Raise(format!("{} is not in list", args[0].repr()?))),
+                    },
                     _ => match pos {
                         Some(k) => {
+                            charge(l.borrow().len() as u64)?;
                             l.borrow_mut().remove(k);
                             Ok(Value::None)
                         }
@@ -1223,11 +1460,17 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
             }
             "copy" => {
                 arity(0, 0)?;
-                Ok(Value::list(l.borrow().clone()))
+                let items = l.borrow();
+                charge(items.len() as u64)?;
+                value::fits(value::heap(items.len() * value::VALUE))?;
+                Ok(Value::list(items.clone()))
             }
             "clear" => {
                 arity(0, 0)?;
-                l.borrow_mut().clear();
+                // its room goes too, as in Python
+                let items = std::mem::take(&mut *l.borrow_mut());
+                l.account();
+                drop(items);
                 Ok(Value::None)
             }
             _ => Err(Outside(format!("list.{name}"))),
@@ -1266,6 +1509,14 @@ fn matches(items: &[Value], x: &Value, first: bool) -> R<Vec<usize>> {
     Ok(out)
 }
 
+/// `operator.index(x)` for what takes an integer (`range`, `enumerate`'s
+/// start, a list's index): an int or a bool, else Python's TypeError.
+fn index_int(x: &Value) -> R<i64> {
+    x.as_int().ok_or_else(|| {
+        type_error(format!("'{}' object cannot be interpreted as an integer", x.type_name()))
+    })
+}
+
 /// A number for the math module (`TypeError` otherwise).
 fn real(x: &Value) -> R<f64> {
     x.as_float().ok_or_else(|| type_error(format!("must be real number, not {}", x.type_name())))
@@ -1278,7 +1529,10 @@ fn math(m: MathFn, args: &[Value]) -> R<Value> {
         _ => 1,
     };
     if args.len() != want {
-        return Err(type_error(format!("math function takes {want} argument(s)")));
+        return Err(type_error(match m {
+            MathFn::Copysign => format!("copysign expected 2 arguments, got {}", args.len()),
+            _ => format!("math.{}() takes exactly one argument ({} given)", m.name(), args.len()),
+        }));
     }
     let to_int_result = |f: f64| -> R<Value> {
         if f.is_nan() {
@@ -1303,6 +1557,13 @@ fn math(m: MathFn, args: &[Value]) -> R<Value> {
             if let Some(i) = args[0].as_int() {
                 return Ok(Value::Int(i));
             }
+            // trunc looks for the method, floor and ceil for a float
+            if m == MathFn::Trunc && args[0].as_float().is_none() {
+                return Err(type_error(format!(
+                    "type {} doesn't define __trunc__ method",
+                    args[0].type_name()
+                )));
+            }
             let x = real(&args[0])?;
             to_int_result(match m {
                 MathFn::Floor => x.floor(),
@@ -1310,7 +1571,15 @@ fn math(m: MathFn, args: &[Value]) -> R<Value> {
                 _ => x.trunc(),
             })?
         }
-        MathFn::Copysign => Value::Float(real(&args[0])?.copysign(real(&args[1])?)),
+        MathFn::Copysign => {
+            let (x, sign) = (real(&args[0])?, real(&args[1])?);
+            // a NaN's sign is not part of the promise: CPython's own
+            // differs between its plain and its specialised additions
+            if sign.is_nan() {
+                return Err(Outside("the sign of a NaN".into()));
+            }
+            Value::Float(x.copysign(sign))
+        }
         MathFn::IsNan => Value::Bool(real(&args[0])?.is_nan()),
         MathFn::IsInf => Value::Bool(real(&args[0])?.is_infinite()),
         MathFn::IsFinite => Value::Bool(real(&args[0])?.is_finite()),
@@ -1327,28 +1596,65 @@ fn table_error(what: String) -> Fault {
 /// A 2-D table: sheets `(x, [(y, v)])` sorted by x.
 type Sheets = Vec<(f64, Vec<(f64, f64)>)>;
 
+/// An entry of a table whose order is not Python's (a parameter's) that
+/// is no number, when another one is no number either: which one Python
+/// meets first is not known here.
+fn order_unknown() -> Fault {
+    Outside("a table parameter with entries that are no number (Python reads them in the project's order)".into())
+}
+
+/// Whether `keys` hold a zero of each sign.
+fn both_zeros(keys: impl Iterator<Item = f64>) -> bool {
+    let (mut plus, mut minus) = (false, false);
+    for k in keys.filter(|k| *k == 0.0) {
+        plus |= k.is_sign_positive();
+        minus |= k.is_sign_negative();
+    }
+    plus && minus
+}
+
+/// The duplicate keys 0 and -0 of a table whose order is not Python's (a
+/// parameter's): maps.py names the first of them in the project's order,
+/// which is not known here.
+fn zeros_order_unknown() -> Fault {
+    Outside(
+        "a table parameter with the keys 0 and -0 (Python names the first in the project's order)"
+            .into(),
+    )
+}
+
 /// maps.py's `parse_table1d`.
 fn parse_1d(raw: &Value) -> R<Vec<(f64, f64)>> {
     let Value::Dict(d) = raw else {
         return Err(table_error("table1d data must be a non-empty {x: value} mapping".into()));
     };
-    let entries = d.borrow().entries.clone();
-    if entries.is_empty() {
+    let dm = d.borrow();
+    if dm.entries.is_empty() {
         return Err(table_error("table1d data must be a non-empty {x: value} mapping".into()));
     }
-    let mut pts = Vec::with_capacity(entries.len());
-    for (k, v) in &entries {
-        // in Python's order; only what Python raises becomes the table's
-        // error, an operation outside the subset stays one
-        let not_numeric = |e: Fault| match e {
-            Fault::Raise(_) => {
-                table_error(format!("table1d entry '{}: {}' is not numeric", k.repr(), v.repr()))
+    charge(sort_work(dm.entries.len()))?;
+    value::fits(value::heap(dm.entries.len() * 16))?;
+    // in Python's order (`float(k)`, then `float(v)`)
+    let point = |(k, v): &(Value, Value)| -> R<(f64, f64)> { Ok((to_float(k)?, to_float(v)?)) };
+    let mut pts = Vec::with_capacity(dm.entries.len());
+    for (n, entry) in dm.entries.iter().enumerate() {
+        match point(entry) {
+            Ok(p) => pts.push(p),
+            // only what Python raises becomes the table's error, an
+            // operation outside the subset stays one
+            Err(Fault::Raise(_)) => {
+                if dm.unordered && dm.entries[n + 1..].iter().any(|e| point(e).is_err()) {
+                    return Err(order_unknown());
+                }
+                let (k, v) = entry;
+                return Err(table_error(format!(
+                    "table1d entry '{}: {}' is not numeric",
+                    k.text()?,
+                    v.text()?
+                )));
             }
-            other => other,
-        };
-        let x = to_float(k).map_err(not_numeric)?;
-        let y = to_float(v).map_err(not_numeric)?;
-        pts.push((x, y));
+            Err(other) => return Err(other),
+        }
     }
     if pts.iter().any(|p| p.0.is_nan()) {
         return Err(Outside("a table key that is not a number".into()));
@@ -1357,7 +1663,10 @@ fn parse_1d(raw: &Value) -> R<Vec<(f64, f64)>> {
     pts.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("no NaN"));
     for w in pts.windows(2) {
         if w[0].0 == w[1].0 {
-            return Err(table_error(format!("table1d has duplicate key {}", w[0].0)));
+            if w[0].0 == 0.0 && dm.unordered && both_zeros(pts.iter().map(|p| p.0)) {
+                return Err(zeros_order_unknown());
+            }
+            return Err(table_error(format!("table1d has duplicate key {}", crate::fmt_g(w[0].0))));
         }
     }
     Ok(pts)
@@ -1368,19 +1677,36 @@ fn parse_2d(raw: &Value) -> R<Sheets> {
     let Value::Dict(d) = raw else {
         return Err(table_error("table2d data must be a non-empty {x: {y: value}} mapping".into()));
     };
-    let entries = d.borrow().entries.clone();
-    if entries.is_empty() {
+    let dm = d.borrow();
+    if dm.entries.is_empty() {
         return Err(table_error("table2d data must be a non-empty {x: {y: value}} mapping".into()));
     }
-    let mut sheets = Vec::with_capacity(entries.len());
-    for (k, inner) in &entries {
-        let x = to_float(k).map_err(|e| match e {
-            Fault::Raise(_) => {
-                table_error(format!("table2d outer key '{}' is not numeric", k.repr()))
+    charge(sort_work(dm.entries.len()))?;
+    let sheet = |(k, inner): &(Value, Value)| -> R<(f64, Vec<(f64, f64)>)> {
+        let x = match to_float(k) {
+            Ok(x) => x,
+            Err(Fault::Raise(_)) => {
+                return Err(table_error(format!(
+                    "table2d outer key '{}' is not numeric",
+                    k.text()?
+                )));
             }
-            other => other,
-        })?;
-        sheets.push((x, parse_1d(inner)?));
+            Err(other) => return Err(other),
+        };
+        Ok((x, parse_1d(inner)?))
+    };
+    let mut sheets = Vec::with_capacity(dm.entries.len());
+    for (n, entry) in dm.entries.iter().enumerate() {
+        match sheet(entry) {
+            Ok(s) => sheets.push(s),
+            Err(Fault::Raise(m)) => {
+                if dm.unordered && dm.entries[n + 1..].iter().any(|e| sheet(e).is_err()) {
+                    return Err(order_unknown());
+                }
+                return Err(Raise(m));
+            }
+            Err(other) => return Err(other),
+        }
     }
     if sheets.iter().any(|s| s.0.is_nan()) {
         return Err(Outside("a table key that is not a number".into()));
@@ -1388,10 +1714,21 @@ fn parse_2d(raw: &Value) -> R<Sheets> {
     sheets.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("no NaN"));
     for w in sheets.windows(2) {
         if w[0].0 == w[1].0 {
-            return Err(table_error(format!("table2d has duplicate outer key {}", w[0].0)));
+            if w[0].0 == 0.0 && dm.unordered && both_zeros(sheets.iter().map(|s| s.0)) {
+                return Err(zeros_order_unknown());
+            }
+            return Err(table_error(format!(
+                "table2d has duplicate outer key {}",
+                crate::fmt_g(w[0].0)
+            )));
         }
     }
     Ok(sheets)
+}
+
+/// The work of reading and sorting `n` entries: n log2 n.
+fn sort_work(n: usize) -> u64 {
+    n as u64 * (usize::BITS - n.leading_zeros()) as u64
 }
 
 /// A table as `interp` reads it (app/solver/maps.py).
@@ -1410,6 +1747,30 @@ pub struct CacheEntry {
     two: bool,
     copy: Value,
     parsed: Rc<Parsed>,
+    /// the memory the parse counts
+    charged: usize,
+}
+
+impl CacheEntry {
+    fn new(table: Rc<DictCell>, two: bool, copy: Value, parsed: Rc<Parsed>) -> CacheEntry {
+        let points = |p: &Vec<(f64, f64)>| value::heap(p.capacity() * 16);
+        let charged = value::rc_block::<Parsed>()
+            + match &*parsed {
+                Parsed::One(p) => points(p),
+                Parsed::Two(s) => {
+                    value::heap(s.capacity() * std::mem::size_of::<(f64, Vec<(f64, f64)>)>())
+                        + s.iter().map(|(_, p)| points(p)).sum::<usize>()
+                }
+            };
+        value::memory_add(charged);
+        CacheEntry { table, two, copy, parsed, charged }
+    }
+}
+
+impl Drop for CacheEntry {
+    fn drop(&mut self) {
+        value::memory_sub(self.charged);
+    }
 }
 
 /// The tables one script's `interp` keeps parsed (maps.py's
@@ -1418,11 +1779,15 @@ const INTERP_CACHE_SIZE: usize = 32;
 
 /// `dict(table)`, or `{k: dict(v) for k, v in table.items()}` for 2-D.
 fn table_copy(d: &Rc<DictCell>, two: bool) -> R<Value> {
+    if !two {
+        return Value::dict_copy(d);
+    }
     let entries = d.borrow().entries.clone();
+    charge(entries.len() as u64)?;
     let mut out = Vec::with_capacity(entries.len());
     for (k, v) in entries {
-        let v = match (&v, two) {
-            (Value::Dict(inner), true) => Value::dict(inner.borrow().entries.clone())?,
+        let v = match &v {
+            Value::Dict(inner) => Value::dict_copy(inner)?,
             _ => v,
         };
         out.push((k, v));
@@ -1444,13 +1809,20 @@ fn bisect_left<T>(pts: &[(f64, T)], x: f64) -> usize {
     lo
 }
 
-/// A lookup argument: compared exactly as given, used as a float.
-fn lookup_arg(x: &Value) -> R<f64> {
+/// A lookup argument: compared exactly as given, used as a float. What
+/// cannot be compared fails as Python's first comparison of it does:
+/// `sheets[0][0] < x` for a 2-D table's `outer` axis, `x <= points[0][0]`
+/// for the others.
+fn lookup_arg(x: &Value, outer: bool) -> R<f64> {
     match x {
         Value::Float(f) => Ok(*f),
         _ => match x.as_int() {
             Some(i) if i.unsigned_abs() <= 1 << 53 => Ok(i as f64),
             Some(_) => Err(Outside("a table looked up at an integer beyond 2**53".into())),
+            None if outer => Err(type_error(format!(
+                "'<' not supported between instances of 'float' and '{}'",
+                x.type_name()
+            ))),
             None => Err(type_error(format!(
                 "'<=' not supported between instances of '{}' and 'float'",
                 x.type_name()

@@ -1,18 +1,21 @@
-//! The native runner against today's Python runner, bit for bit.
+//! The native runner against the app's own Script runner, bit for bit.
 //!
-//! The same scripts get the same calls on both: today's own runner
-//! (backend/app/solver/scripting.py, run by `tests/parity.py` with only the
-//! standard library) and lsim-script. Every output must have the same 64
+//! The same scripts get the same calls on both: the app's runner as the app
+//! calls it (backend/app/solver/sandbox_worker.py's `_run_step`, the
+//! parameters typed by the app's project model and copied afresh each
+//! call, the inputs passed as the engine passes them; run by
+//! `tests/parity.py`) and lsim-script. Every output must have the same 64
 //! bits (two NaNs count as equal), every call that raises on Python must
-//! fail here too, and no call of these scripts may leave the subset. The
-//! scripts: the P2 hybrid's Hybrid Control Unit from
+//! fail here too with Python's message, and no call of these scripts may
+//! leave the subset. The scripts: the P2 hybrid's Hybrid Control Unit from
 //! backend/projects/hybrid-car.json on long drives of realistic inputs,
 //! hand-written scripts that exercise each feature of the subset, and a
 //! few hundred random expressions over special values (signed zeros,
 //! subnormals, the largest floats, infinities, NaN).
 //!
-//! Needs Python 3.11 or newer (`LSIM_PYTHON`, else `python3` or `python`
-//! on the PATH), as engine/check.sh does.
+//! Needs Python 3.11 or newer with pydantic, the backend's requirement
+//! (`LSIM_PYTHON`, else `python3` or `python` on the PATH), as
+//! engine/check.sh does.
 
 use lsim_script::{Runner, ScriptError};
 use serde_json::{Value, json};
@@ -34,7 +37,8 @@ fn python() -> String {
         }
     }
     panic!(
-        "the parity test needs Python 3.11 or newer: set LSIM_PYTHON or put python3 on the PATH"
+        "the parity test needs Python 3.11 or newer with the backend's requirements: set \
+         LSIM_PYTHON or put python3 on the PATH"
     );
 }
 
@@ -92,7 +96,7 @@ fn on_python(cases: &[Case]) -> Vec<Value> {
                 "calls": c.calls.iter().map(|k| json!({
                     "t": bits(k.t),
                     "dt": bits(k.dt),
-                    "inputs": k.inputs.iter().map(|(n, v)| (n.clone(), json!(bits(*v)))).collect::<serde_json::Map<_, _>>(),
+                    "inputs": k.inputs.iter().map(|(n, v)| json!([n, bits(*v)])).collect::<Vec<_>>(),
                 })).collect::<Vec<_>>(),
             })
         })
@@ -112,13 +116,16 @@ fn on_python(cases: &[Case]) -> Vec<Value> {
     let mut stdin = child.stdin.take().expect("stdin");
     let writer = std::thread::spawn(move || stdin.write_all(text.as_bytes()));
     let out = child.wait_with_output().expect("Python finishes");
-    writer.join().expect("the writer").expect("written");
+    let written = writer.join().expect("the writer");
+    // Python's own words first: a Python that stops early (without the
+    // backend's packages, say) also breaks the pipe the cases go through
     assert!(
         out.status.success(),
         "the Python side failed ({}): {}",
         out.status,
         String::from_utf8_lossy(&out.stderr)
     );
+    written.expect("written");
     serde_json::from_slice::<Vec<Value>>(&out.stdout).expect("Python's results")
 }
 
@@ -188,7 +195,10 @@ fn compare(cases: &[Case], py: &[Value]) -> Tally {
                     }
                     tally.equal += 1;
                 }
-                (Err(ScriptError::Failed(_)), None, Some(_)) => tally.both_failed += 1,
+                (Err(ScriptError::Failed(m)), None, Some(e)) => {
+                    assert_eq!(m, e.as_str().expect("a message"), "messages differ\n{}", ctx());
+                    tally.both_failed += 1;
+                }
                 (Err(ScriptError::Unsupported(m)), _, _) => {
                     assert!(case.may_leave, "left the subset: {m}\n{}", ctx());
                     tally.left += 1;
@@ -303,7 +313,7 @@ fn special_calls(r: &mut Rng, names: &[&str], n: usize) -> Vec<Call> {
 }
 
 /// Hand-written scripts, one per group of features.
-const FEATURES: [&str; 12] = [
+const FEATURES: [&str; 15] = [
     // arithmetic, floor division and modulo of floats and ints, comparisons
     r#"
 def step(t, dt, inputs, state, params):
@@ -402,7 +412,8 @@ import math
 from math import floor as fl
 def step(t, dt, inputs, state, params):
     a = inputs['a']
-    r = {'pi': math.pi * a, 'fabs': math.fabs(a), 'cs': math.copysign(2.0, a),
+    r = {'pi': math.pi * a, 'fabs': math.fabs(a), 'cs': math.copysign(2.0, a) if a == a else 0.0,
+         'csn': math.copysign(a, -1.0),
          'isn': math.isnan(a) + 2 * math.isinf(a) + 4 * math.isfinite(a),
          'rad': math.radians(a), 'deg': math.degrees(a), 'tau': math.tau, 'e': math.e}
     if math.isfinite(a) and abs(a) < 1e15:
@@ -502,10 +513,40 @@ def step(t, dt, inputs, state, params):
         r['j'] = l.index(5.0)
     return r
 "#,
+    // tables among the parameters: the app reads their values as floats,
+    // integers written in the file included
+    r#"
+import math
+def step(t, dt, inputs, state, params):
+    a = inputs['a']
+    v = params['t']['0']; w = params['m']['1']['2']
+    r = {'neg': -v, 'mul': v * -2, 'sign': math.copysign(1.0, -v), 'w': w / 3,
+         'big': params['t']['b'] - 9007199254740992, 'g': params['gain'] * a,
+         'lk': interp(params['t'], a), 'lk2': interp(params['m'], a, 2)}
+    if a == a and abs(a) < 1e9:
+        r['n'] = len(range(int(params['t']['1'])))
+    return r
+"#,
+    // each call gets a fresh shallow copy of the parameters: a key it sets
+    // is gone at the next call, a table it changes stays changed
+    r#"
+def step(t, dt, inputs, state, params):
+    params['n'] = params.get('n', 0) + 1
+    params['b']['x'] = params['b']['x'] + 1.0
+    return {'n': params['n'], 'x': params['b']['x'], 'k': len(params)}
+"#,
+    // an input of -0.0 arrives as +0.0
+    r#"
+import math
+def step(t, dt, inputs, state, params):
+    a = inputs['a']; b = inputs['b']
+    return {'a': a, 's': math.copysign(1.0, a) if a == a else 0.0, 'm': max(a, 0.0),
+            'n': min(b, -0.0), 'p': a * b, 'q': -a}
+"#,
 ];
 
 /// Scripts Python refuses when it reads them: the native runner must too.
-const REFUSED: [&str; 15] = [
+const REFUSED: [&str; 20] = [
     "def step(t, dt, inputs, state, params):\n    break\n",
     "def step(t, dt, inputs, state, params):\n    for i in range(2):\n        pass\n    else:\n        continue\n",
     "X = 1_\ndef step(t, dt, inputs, state, params):\n    return {}\n",
@@ -521,6 +562,147 @@ const REFUSED: [&str; 15] = [
     "def step(t, dt, inputs, state, params):\n    y = 1.0 +\r2.0\n    return {'y': y}\n",
     "def step(t, dt, inputs, state, params):\n    s = 'a\rb'\n    return {'y': len(s)}\n",
     "def step(t, dt, inputs, state, params):\n    return {'y': 1.0}  # \0\n",
+    // a module-level `global` of a name already assigned or used
+    "X = 1\nglobal X\ndef step(t, dt, inputs, state, params):\n    return {'y': X}\n",
+    "Y = 2\nX = Y\nglobal Y\ndef step(t, dt, inputs, state, params):\n    return {'y': X}\n",
+    "for X in [1]:\n    pass\nglobal X\ndef step(t, dt, inputs, state, params):\n    return {'y': X}\n",
+    "def X():\n    return 1\nglobal X\ndef step(t, dt, inputs, state, params):\n    return {'y': X()}\n",
+    "def g(a=X):\n    return a\nglobal X\nX = 1\ndef step(t, dt, inputs, state, params):\n    return {'y': X}\n",
+];
+
+/// Errors scripts meet (the reviews' cases among them): the native
+/// runner must fail with CPython 3.11's message or leave the call to
+/// Python. A line of its own is a statement, else an expression returned.
+const MESSAGES: [&str; 129] = [
+    "'a' + 1",
+    "[1] + 1",
+    "(1,) + 1",
+    "'a' + [1]",
+    "[1] + (1,)",
+    "(1,) + [1]",
+    "1 + 'a'",
+    "None + 1",
+    "'a' - 1",
+    "{} + 1",
+    "{}.keys() + 1",
+    "'a' + enumerate([])",
+    "x = 1\n    x -= 'a'",
+    "x = 1\n    x += None",
+    "x = 'a'\n    x += 1",
+    "x = (1,)\n    x += [1]",
+    "x = [1]\n    x += 1",
+    "x = {}\n    x += {}",
+    "x = 1\n    x **= 'a'",
+    "x = None\n    x //= 1",
+    "x = {'k': 'a'}\n    x['k'] -= 1",
+    "min([])",
+    "max(())",
+    "min('')",
+    "min(range(0))",
+    "min()",
+    "min(1, 'a')",
+    "max('a', 1)",
+    "math.trunc('a')",
+    "math.trunc(None)",
+    "math.floor('a')",
+    "math.ceil([])",
+    "math.sqrt(None)",
+    "math.sqrt(-1)",
+    "math.sqrt()",
+    "math.fabs(1, 2)",
+    "math.copysign(1)",
+    "math.floor(float('nan'))",
+    "f(1, 2, 3, 4)",
+    "f()",
+    "g()",
+    "g(1)",
+    "g(1, 2, 3)",
+    "z(1)",
+    "f(1, 2, 3, 4, a=5)",
+    "f(1, 2, 3, 4, d=5)",
+    "f(b=1)",
+    "g(1, a=2)",
+    "f(1, d=2, e=3)",
+    "len(enumerate([]))",
+    "len(zip())",
+    "enumerate([])[0]",
+    "zip()[0]",
+    "abs",
+    "float",
+    "math.sqrt",
+    "math",
+    "{}.keys()",
+    "{1: 2}.items()",
+    "{'a': (1, 'b')}.values()",
+    "[int, bool, range, enumerate, zip, list, tuple, dict]",
+    "(len, print, round, any, all, min, max)",
+    "{1: math.floor}",
+    "clamp",
+    "interp",
+    "f",
+    "[].append",
+    "enumerate([])",
+    "zip()",
+    "range(1, 9, 2)",
+    "params",
+    "params['t']",
+    "params['u']",
+    "[1].index(abs)",
+    "[1].index(f)",
+    "[1].index('a')",
+    "{}['a']",
+    "{}[(1, 'a', None, 1.5, -0.0)]",
+    "{}['\u{e9}\u{2013}\u{4e00}']",
+    "{}['\u{378}\u{ad}\u{a0}\u{2028}']",
+    "{}['\u{1f600}']",
+    "{}['a\\'b']",
+    "{}['a\"b\\'c']",
+    "'a'['a']",
+    "'abc'[None]",
+    "range(3)['a']",
+    "range(3)[5]",
+    "[1][1.5]",
+    "a, b = 1",
+    "a, b = None",
+    "a, b = [1, 2, 3]",
+    "for a, b in [1]:\n        pass",
+    "dict([1])",
+    "dict([(1, 2), (1, 2, 3)])",
+    "dict([[1]])",
+    "x = {}\n    x.update([(1, 2), 5])",
+    "interp({'0': {'0': 1}}, 'x', 0)",
+    "interp({'0': {'0': 1}}, 0, 'y')",
+    "interp({'0': {'0': 1}, '1': {'0': 2}}, 0.5, [1])",
+    "interp({'1': 2, '3': 4}, None)",
+    "interp({'1': [abs]}, 1)",
+    "interp({'1': [zip()]}, 1)",
+    "interp({'1': {'a': 1.5}}, 1)",
+    "interp({'a': {'0': 1}}, 0, 1)",
+    "interp(params['t'], 0.5)",
+    "interp(params['u'], 0.5)",
+    "return 5",
+    "return enumerate([])",
+    "return abs",
+    "return {'y': [1e16, 1e-5, 0.1, -0.0, float('nan'), float('inf'), 10**18]}",
+    "return {'y': ((1,), [], {}, '', None, True)}",
+    "return {'y': {'a': 1}.keys(), 'z': 'q'}",
+    "{[]: 1, 'b': 1 / 0}",
+    "len({[]: 1, 'k': [][5]})",
+    "{(1, []): 1, 'k': {}[2]}",
+    "{'a': 1, []: 2}",
+    "{[]: 0, 'k0': 0, 'k1': 1, 'k2': 2, 'k3': 3, 'k4': 4, 'k5': 5, 'k6': 6, 'k7': 7, 'k8': 8, 'k9': 9, 'k10': 10, 'k11': 11, 'k12': 12, 'z': 1 / 0}",
+    "{[]: 0, 'k0': 0, 'k1': 1, 'k2': 2, 'k3': 3, 'k4': 4, 'k5': 5, 'k6': 6, 'k7': 7, 'k8': 8, 'k9': 9, 'k10': 10, 'k11': 11, 'k12': 12, 'k13': 13, 'k14': 14, 'z': 1 / 0}",
+    "{'k0': 0, 'k1': 1, 'k2': 2, 'k3': 3, 'k4': 4, 'k5': 5, 'k6': 6, 'k7': 7, 'k8': 8, 'k9': 9, 'k10': 10, 'k11': 11, 'k12': 12, 'k13': 13, 'k14': 14, 'k15': 15, 'k16': 16, []: 0, 'z': 1 / 0}",
+    "enumerate(-3, 2.5)",
+    "enumerate(None, 'x')",
+    "enumerate(-3, start=None)",
+    "enumerate(-3, 1)",
+    "[].pop('a')",
+    "[].pop(1.5)",
+    "[].pop(None)",
+    "[1].pop(1.5)",
+    "None in range(10)",
+    "'a' not in range(3)",
 ];
 
 /// A single statement that does a lot of work (comparing two lists of a
@@ -597,11 +779,92 @@ fn edge_scripts_give_pythons_results_or_go_to_python() {
             may_leave: true,
         });
     }
+    // the review's cases: what the app reads otherwise or Python decides
+    let step3 = |body: &str| format!("import math\n{}", step(body.into()));
+    let reviewed = [
+        // the sign of a NaN (CPython's own depends on its specialisation)
+        (step3("    a = inputs['a']\n    return {'y': math.copysign(1.0, -a + a)}\n"), "{}"),
+        // `-0` is Python's integer 0
+        (
+            step3("    k = params['k']\n    return {'y': k * 1, 's': math.copysign(1.0, k)}\n"),
+            r#"{"k": -0}"#,
+        ),
+        (step3("    return {'y': params['t']['0'] * 1}\n"), r#"{"t": {"0": true}}"#),
+        (step3("    return {'y': params['t']['0'] * 1}\n"), r#"{"t": {"0": "1.5"}}"#),
+        // what the app refuses
+        (step3("    return {'y': 1.0}\n"), r#"{"x": [1, 2]}"#),
+        (step3("    return {'y': 1.0}\n"), r#"{"x": null}"#),
+        // a generic alias
+        (step3("    hint = list[float]\n    return {'y': 1.0}\n"), "{}"),
+        (step3("    hint = dict[int, float]\n    return {'y': 1.0}\n"), "{}"),
+        (step3("    hint = float[int]\n    return {'y': 1.0}\n"), "{}"),
+        // the parameters as the outputs: in the importer's order
+        (step3("    return params\n"), r#"{"b": "x", "a": "y"}"#),
+        (step3("    return dict(params)\n"), r#"{"b": 2, "a": 1.5}"#),
+        (step3("    return params['t']\n"), r#"{"t": {"1": 2, "0": 1}}"#),
+        // which of 0 and -0 is the duplicate depends on that order too
+        (
+            step3("    return {'y': interp(params['t'], inputs['a'])}\n"),
+            r#"{"t": {"0": 1.0, "-0": 2.0}}"#,
+        ),
+        (
+            step3("    return {'y': interp(params['m'], inputs['a'], 1)}\n"),
+            r#"{"m": {"0": {"0": 1}, "-0": {"0": 2}}}"#,
+        ),
+        (
+            step3("    return {'y': interp(params['m'], inputs['a'], 1)}\n"),
+            r#"{"m": {"0": {"0": 1, "-0": 2}, "1": {"0": 3}}}"#,
+        ),
+        // more digits than int() converts
+        (
+            step3(
+                "    s = '0'\n    for i in range(13):\n        s = s + s\n    return {'y': int(s + '7')}\n",
+            ),
+            "{}",
+        ),
+    ];
+    for (k, (code, params_text)) in reviewed.into_iter().enumerate() {
+        cases.push(Case {
+            label: format!("reviewed {k}"),
+            code,
+            params_text: params_text.into(),
+            calls: inputs(&[f64::NAN, 1.0]),
+            may_leave: true,
+        });
+    }
+    // the errors scripts meet, each with CPython 3.11's message or left to
+    // Python (an address, or words the native runner does not know)
+    let defs = "import math\ndef f(a, b=2, c=3):\n    return a\ndef g(a, b):\n    return a\ndef z():\n    return 1\n";
+    for (k, e) in MESSAGES.iter().enumerate() {
+        let body = if e.contains("\n") || e.starts_with("return") {
+            format!("    {e}\n    return {{'y': 1.0}}\n")
+        } else {
+            format!("    return {{'y': {e}}}\n")
+        };
+        cases.push(Case {
+            label: format!("message {k}"),
+            code: format!("{defs}{}", step(body)),
+            params_text: r#"{"t": {"zz": 1.5, "aa": 5}, "u": {"zz": 1}, "b": 1, "a": 2}"#.into(),
+            calls: inputs(&[0.5]),
+            may_leave: true,
+        });
+    }
     let refused_from = cases.len();
-    for (k, code) in REFUSED.iter().enumerate() {
+    // CPython nests each elif in the branch before: about 990 are too
+    // deep for it
+    let elifs = |n: usize| {
+        let branches: String =
+            (0..n).map(|k| format!("    elif t == {k}:\n        y = {k}\n")).collect();
+        step(format!(
+            "    y = 0.5\n    if t < 0:\n        y = -1\n{branches}    return {{'y': y}}\n"
+        ))
+    };
+    let refused: Vec<String> =
+        REFUSED.iter().map(|c| c.to_string()).chain([elifs(1000), elifs(5000)]).collect();
+    for (k, code) in refused.into_iter().enumerate() {
         cases.push(Case {
             label: format!("refused {k}"),
-            code: code.to_string(),
+            code,
             params_text: "{}".into(),
             calls: inputs(&[1.0]),
             may_leave: true,
@@ -675,7 +938,9 @@ fn the_native_runner_gives_pythons_bits() {
         cases.push(Case {
             label: format!("features {k}"),
             code: code.to_string(),
-            params_text: r#"{"gain": 2.5, "a": [1, 2.5], "b": {"x": 1}}"#.into(),
+            params_text: r#"{"gain": 2.5, "a": {"0": 1, "1": 2.5}, "b": {"x": 1},
+                "t": {"0": 0, "1": 5, "b": 9007199254740993}, "m": {"1": {"2": 3}, "0": {"0": -1.5}}}"#
+                .into(),
             calls: special_calls(&mut r, &["a", "b", "c"], 400),
             may_leave: false,
         });

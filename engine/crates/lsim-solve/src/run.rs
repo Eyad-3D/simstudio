@@ -1358,7 +1358,7 @@ pub fn run_loop(
     let _env = lsim_ir::fenv::DefaultFloatEnv::enter();
     let l = *model.layout();
     let n = l.n_y();
-    let times = grid.times();
+    let times = grid.times()?;
     let t_end = grid.t_end;
     // the tables' breakpoints as the model interpolates them (said where
     // the model gives a table's values but not its breakpoints)
@@ -1367,7 +1367,7 @@ pub fn run_loop(
     let info = given.as_ref().unwrap_or(info);
     tables_given(model, info, opts, grid.t0)?;
     let span = (t_end - grid.t0).abs();
-    let mut rec = Recorder::new(l.n_vars, &times);
+    let mut rec = Recorder::new(l.n_vars, &times)?;
     let mut lp = Loop {
         model,
         info,
@@ -1429,6 +1429,9 @@ pub fn run_loop(
     } else {
         None
     };
+    if let Some(lg) = ledger.as_mut() {
+        lg.reserve(times.len())?;
+    }
     let mut report = SolverReport { rtol: opts.rtol, atol: opts.atol, ..Default::default() };
 
     // sampled blocks: their clocks

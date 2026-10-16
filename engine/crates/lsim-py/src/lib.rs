@@ -10,12 +10,24 @@
 //! model = le.build(project_json, case_id, cache_dir=None)   # import + prepare (cached) + compile
 //! model.report                                              # sizes, times, cache hit, warnings
 //! model.set_params({"el-battery.Q": 756000.0})              # runtime, no rebuild
-//! run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None)
+//! run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None,
+//!                      native_scripts=True)
 //! run.times, run.channels["el-battery:sig_soc"]             # NumPy arrays, today's names
 //! run.min / run.max / run.mean / run.events / run.report / run.energy / run.figures
 //! runs = model.sweep([{…}, {…}], threads=4)                 # parallel, GIL released
 //! le.diagnose(project_json, case_id)                        # structural and unit checks
 //! ```
+//!
+//! A Script part runs the Python function the caller gives for it
+//! (`scripts={part id or label: f}`), always; a key that names no Script
+//! part, or a part named by two keys (its id and its label), is a
+//! `ValueError`. A part given none runs its
+//! own code on the engine's runner of a subset of Python (lsim-script:
+//! bitwise the app's Script runner's results, reaching nothing outside
+//! the script) when `native_scripts=True`, the default; a part whose code
+//! that runner does not run fails the call with a `ModelError` saying so.
+//! With `native_scripts=False` a part without a function is a
+//! `ValueError`. `run.report["scripts"]` says which ran.
 //!
 //! The work itself is in [`core`] (no Python in it); this file is the
 //! conversion to and from Python objects. The GIL is released while the
@@ -35,7 +47,7 @@ use lsim_project::golden::Figure;
 use lsim_project::import::{SampledKind, SampledSpec};
 use lsim_solve::{EnergyBooks, OutputGrid, SolverOptions};
 use numpy::PyArray1;
-use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyMemoryError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{PyDict, PyList};
@@ -179,40 +191,47 @@ impl DiscreteBlock for PyScriptHost {
     }
 }
 
-/// The host of a Script block: the one place it is chosen. A part runs
-/// only when the caller gives its Python function (`scripts`, by the
-/// part's id or label: the caller decides which scripts may run). With
-/// `native`, a script whose code is within lsim-script's subset of Python
-/// runs on that runner (bitwise the Python runner's results, without the
-/// interpreter); otherwise, and for the rest, the caller's function runs.
+/// The host of a Script block: the one place it is chosen. The caller's
+/// Python function for the part (`scripts`, by the part's id or label) is
+/// what runs, when it gives one. A part given none runs its own code on
+/// lsim-script's runner of a subset of Python with `native` (the caller's
+/// choice: that runner reaches nothing outside the script; its results
+/// are bitwise the app's Script runner's), and fails plainly when its code
+/// is outside that subset; without `native` it is a plain error.
 fn script_host(
     spec: &SampledSpec,
     scripts: &Scripts,
     native: bool,
 ) -> Result<core::ScriptHost, Failure> {
     let Some(f) = scripts.get(&spec.element).or_else(|| scripts.get(&spec.label)) else {
+        if native && let SampledKind::Script { code } = &spec.kind {
+            return match lsim_script::ScriptBlock::new(
+                code,
+                &spec.label,
+                spec.period,
+                spec.inputs.clone(),
+                spec.outputs.clone(),
+                &spec.params,
+            ) {
+                Ok(block) => {
+                    let flag = block.outside_flag();
+                    Ok((Box::new(block), "native", Some(flag)))
+                }
+                Err(lsim_script::ScriptError::Unsupported(m)) => {
+                    Err(core::script_outside(&spec.element, m))
+                }
+                Err(lsim_script::ScriptError::Failed(m)) => {
+                    Err(core::script_failed(&spec.element, m))
+                }
+            };
+        }
         return Err(Failure::Value(format!(
             "The Script part '{}' (id '{}') needs a Python function: pass \
-             scripts={{'{}': f}} to simulate (f(t, dt, inputs) returns a dict of outputs or None).",
+             scripts={{'{}': f}} to simulate (f(t, dt, inputs) returns a dict of outputs or None), \
+             or native_scripts=True to run its own code on the engine's runner.",
             spec.label, spec.element, spec.element
         )));
     };
-    if native && let SampledKind::Script { code } = &spec.kind {
-        // anything the native runner does not take (or fails at the
-        // start) goes to the caller's function, which gives Python's own
-        // result or message
-        if let Ok(block) = lsim_script::ScriptBlock::new(
-            code,
-            &spec.label,
-            spec.period,
-            spec.inputs.clone(),
-            spec.outputs.clone(),
-            &spec.params,
-        ) {
-            let flag = block.outside_flag();
-            return Ok((Box::new(block), "native", Some(flag)));
-        }
-    }
     let host = PyScriptHost {
         name: spec.label.clone(),
         period: spec.period,
@@ -233,6 +252,20 @@ fn host_factory(
 
 fn array<'py>(py: Python<'py>, v: Vec<f64>) -> Bound<'py, PyAny> {
     PyArray1::from_vec(py, v).into_any()
+}
+
+/// A copy of a run's series as a NumPy array: a `MemoryError` when the
+/// memory left does not hold it.
+fn copy<'py>(
+    py: Python<'py>,
+    v: &[f64],
+    what: impl FnOnce() -> String,
+) -> PyResult<Bound<'py, PyAny>> {
+    Ok(array(py, core::copied(v, |x| x, what).map_err(no_room)?))
+}
+
+fn no_room(e: core::NoRoom) -> PyErr {
+    PyMemoryError::new_err(e.0)
 }
 
 fn arrays<'py>(py: Python<'py>, items: Vec<(String, Vec<f64>)>) -> PyResult<Bound<'py, PyDict>> {
@@ -274,9 +307,10 @@ fn energy_dict<'py>(py: Python<'py>, e: &EnergyBooks) -> PyResult<Bound<'py, PyD
         q.set_item("impulse_lost_J", p.impulse_lost)?;
         q.set_item("closure_J", p.closure)?;
         q.set_item("drift_J", p.drift)?;
-        q.set_item("energy_in_t", array(py, p.energy_in_t.clone()))?;
-        q.set_item("lost_t", array(py, p.lost_t.clone()))?;
-        q.set_item("stored_t", array(py, p.stored_t.clone()))?;
+        let series = |what: &str| format!("{}'s {what}", p.path);
+        q.set_item("energy_in_t", copy(py, &p.energy_in_t, || series("energy in"))?)?;
+        q.set_item("lost_t", copy(py, &p.lost_t, || series("losses"))?)?;
+        q.set_item("stored_t", copy(py, &p.stored_t, || series("stored energy"))?)?;
         parts.append(q)?;
     }
     d.set_item("parts", parts)?;
@@ -319,7 +353,9 @@ impl Run {
         if let Some(d) = cell.get(py) {
             return Ok(d.clone_ref(py));
         }
-        let d = arrays(py, core::today_channels(&self.built, &self.out.result, which))?.unbind();
+        let channels =
+            core::today_channels(&self.built, &self.out.result, which).map_err(no_room)?;
+        let d = arrays(py, channels)?.unbind();
         // another thread may have filled it meanwhile: keep that one
         let _ = cell.set(py, d.clone_ref(py));
         Ok(cell.get(py).map_or(d, |d| d.clone_ref(py)))
@@ -330,10 +366,13 @@ impl Run {
 impl Run {
     /// The output times, s (NumPy float64 array).
     #[getter]
-    fn times(&self, py: Python<'_>) -> Py<PyAny> {
-        self.times
-            .get_or_init(py, || array(py, self.out.result.times.clone()).unbind())
-            .clone_ref(py)
+    fn times(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        if let Some(t) = self.times.get(py) {
+            return Ok(t.clone_ref(py));
+        }
+        let t = copy(py, &self.out.result.times, || "the output times".into())?.unbind();
+        let _ = self.times.set(py, t.clone_ref(py));
+        Ok(self.times.get(py).map_or(t, |t| t.clone_ref(py)))
     }
 
     /// Today's channels (`element:port`) in today's display units, as
@@ -350,8 +389,11 @@ impl Run {
             return Ok(d.clone_ref(py));
         }
         let r = &self.out.result;
-        let items = r.names.iter().cloned().zip(r.values.iter().cloned()).collect();
-        let d = arrays(py, items)?.unbind();
+        let d = PyDict::new(py);
+        for (name, v) in r.names.iter().zip(&r.values) {
+            d.set_item(name, copy(py, v, || format!("the variable {name}"))?)?;
+        }
+        let d = d.unbind();
         let _ = self.engine_channels.set(py, d.clone_ref(py));
         Ok(self.engine_channels.get(py).map_or(d, |d| d.clone_ref(py)))
     }
@@ -587,7 +629,15 @@ impl Model {
 
     /// Runs the case and returns a Run. The GIL is released while the
     /// engine runs. `scripts` maps a Script part's id (or label) to a
-    /// function `f(t, dt, inputs: dict) -> dict | None`.
+    /// function `f(t, dt, inputs: dict) -> dict | None`, which is what runs
+    /// for it; with `native_scripts` (the default) a part given none runs
+    /// its own code on the engine's runner of a subset of Python, and fails
+    /// plainly when the code is outside it. `run.report["scripts"]` says
+    /// which ran; a key of `scripts` that names no Script part, or a part
+    /// named by two keys (its id and its label), is a ValueError. A grid of
+    /// more than 1e7 output points, or whose results
+    /// would take more than 4 GB, is refused; results read without the
+    /// memory left for them raise MemoryError.
     #[pyo3(signature = (rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true))]
     #[allow(clippy::too_many_arguments)]
     fn simulate(
@@ -600,7 +650,9 @@ impl Model {
         scripts: Option<&Bound<'_, PyAny>>,
         native_scripts: bool,
     ) -> PyResult<Run> {
-        let factory = host_factory(scripts_of(scripts)?);
+        let scripts = scripts_of(scripts)?;
+        core::check_script_keys(&self.built, scripts.keys()).map_err(|f| to_err(py, f))?;
+        let factory = host_factory(scripts);
         let params = self.state().values.clone();
         let built = Arc::clone(&self.built);
         let opts = run_options(rtol, atol, output_step, t_end, native_scripts);
@@ -612,9 +664,11 @@ impl Model {
     /// Runs the case for several parameter sets (dicts of engine names →
     /// SI values, on top of what `set_params` set), in parallel on up to
     /// `threads` threads with the GIL released. Returns a list with a Run,
-    /// or the exception it would have raised, for each set. A Script
-    /// function is shared by all the runs: give a sweep stateless
-    /// functions.
+    /// or the exception it would have raised, for each set. Script parts
+    /// run as in `simulate` (a key of `scripts` that names no Script part,
+    /// or a part named twice, is a ValueError); a Script function is shared
+    /// by all the runs: give
+    /// a sweep stateless functions.
     #[pyo3(signature = (sets, threads=4, rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true))]
     #[allow(clippy::too_many_arguments)]
     fn sweep(
@@ -636,7 +690,9 @@ impl Model {
         for item in sets.try_iter()? {
             parsed.push(changes_of(&item?)?);
         }
-        let factory = host_factory(scripts_of(scripts)?);
+        let scripts = scripts_of(scripts)?;
+        core::check_script_keys(&self.built, scripts.keys()).map_err(|f| to_err(py, f))?;
+        let factory = host_factory(scripts);
         let current: Vec<(String, f64)> =
             self.state().set.iter().map(|(k, v)| (k.clone(), *v)).collect();
         let built = Arc::clone(&self.built);

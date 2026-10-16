@@ -4483,3 +4483,15 @@ impl DiscreteBlock for Recording {
         self.1.tick(t, i, o)
     }
 }
+
+/// An output grid too large for memory is an error the caller gets, not an
+/// abort of the process (a grid every nanosecond over a WLTC asks for 14 TB;
+/// a step too small to count overflows).
+#[test]
+fn an_output_grid_too_large_for_memory_is_an_error() {
+    for dt in [1e-9, 1e-300] {
+        let e = OutputGrid { t0: 0.0, t_end: 1800.0, dt }.times().expect_err("no room");
+        assert!(matches!(e, SolveError::Memory { .. }), "{e}");
+    }
+    assert_eq!(OutputGrid { t0: 0.0, t_end: 5.0, dt: 0.5 }.times().expect("room").len(), 11);
+}

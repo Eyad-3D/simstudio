@@ -1,15 +1,23 @@
 //! # lsim-script: Script blocks without the Python interpreter
 //!
 //! A Script block's code (`def step(t, dt, inputs, state, params)`,
-//! returning a dict of outputs; backend/app/solver/scripting.py) is run
-//! here by an interpreter of a strict subset of Python whose every
-//! operation has CPython's semantics to the bit: integers, IEEE floats
-//! with CPython's floor division and modulo, exact comparisons between
-//! integers and floats, dicts, lists, tuples, the builtins scripts use,
-//! `clamp`, and `interp` as app/solver/maps.py computes it. The example
-//! cars' controllers (the P2 hybrid's Hybrid Control Unit) are in the
-//! subset, so they run without the interpreter in the loop and give the
-//! same numbers as the Python runner.
+//! returning a dict of outputs) is run here by an interpreter of a strict
+//! subset of Python whose every operation has CPython's semantics to the
+//! bit: integers, IEEE floats with CPython's floor division and modulo,
+//! exact comparisons between integers and floats, dicts, lists, tuples,
+//! the builtins scripts use, `clamp`, and `interp` as app/solver/maps.py
+//! computes it. The example cars' controllers (the P2 hybrid's Hybrid
+//! Control Unit) are in the subset, so they run without the interpreter in
+//! the loop and give the same numbers as the app.
+//!
+//! **The reference** is the app's own Script runner: the locked-down
+//! worker (backend/app/solver/sandbox_worker.py's `_run_step`, on CPython
+//! 3.11) called as the app calls it. Its parameters are typed as the
+//! app's project model types them (schemas.py's `ParamValue`: a table's
+//! values are floats, whatever the file writes) and each call gets a fresh
+//! shallow copy of them; an input of -0.0 is passed as +0.0. A NaN result
+//! is a NaN, but its sign and payload are not part of the promise (IEEE
+//! 754 leaves them open, and CPython's own vary).
 //!
 //! **What is left to Python.** A script is refused when it is first read
 //! ([`check`]: [`Unsupported`], with the line and what it is) if it uses
@@ -19,19 +27,70 @@
 //! correctly rounded library and so would not match the Python runner),
 //! powers of floats (the C runtime's `pow`), string formatting, classes,
 //! exceptions, comprehensions, slices, closures, and any name that is not
-//! the script's own or one of the builtins here. While it runs, an
-//! operation Python supports but the subset does not (an integer beyond
-//! 64 bits, a method of a string) stops it with [`Fault::Outside`], so the
-//! caller can run the case again on Python: a result never differs from
-//! the Python runner's. An exception Python would raise (division by zero,
-//! a missing key) is [`Fault::Raise`] with Python's message.
+//! the script's own or one of the builtins here. So are parameters the app
+//! would read otherwise or refuse (a null, a list, a table holding other
+//! than numbers) or that JSON cannot tell apart (a number written `-0`,
+//! Python's integer 0, from `-0.0`). While it runs, an operation Python
+//! supports but the subset does not (an integer beyond 64 bits, a method
+//! of a string, copying the sign of a NaN, a builtin subscripted, `int()`
+//! of more than 640 digits) stops it with [`Fault::Outside`], so the caller
+//! can run the case again on Python: a result never differs from the app's
+//! runner's. An exception Python would raise (division by zero, a missing
+//! key) is [`Fault::Raise`] with CPython 3.11's message, the values it
+//! quotes whole as Python's repr shows them; a message whose words are not
+//! known here is left to Python instead: one that would quote an object's
+//! address (a function, a bound method, an iterator object, the scripts'
+//! `clamp` and `interp`), the parameters in the project's order (the
+//! importer keeps them sorted), a character beyond the common scripts and
+//! symbols, or a value nested or long beyond what is quoted here. So is
+//! what that order decides otherwise: outputs returned in the parameters'
+//! order (the parameters, or a copy of them or of a table among them),
+//! and which of a table parameter's keys 0 and -0 is named the duplicate.
+//! So are an evaluation order or a cost that CPython's compiler and C code
+//! decide: an unhashable key in a dict display of more than 15 pairs
+//! (CPython 3.11 builds up to 15 from all their keys and values evaluated
+//! first, as here, and longer ones in runs), `x in range(n)` of an x
+//! that is no integer over more than a million items in a call (CPython
+//! compares it with each, past any time limit), and what a call prints
+//! beyond 1024 writes or 64 KiB (nothing is printed here; CPython writes
+//! each argument, the separator before it and the end of the line, past
+//! any time limit) or other than numbers and strings of ASCII characters
+//! (Python writes text in its standard output's encoding, on Windows the
+//! ANSI code page, which may not have them). The worker's frames give the
+//! number of inputs and outputs of a call and the length of each output
+//! key in 16 bits: more than 65 535 of them, or a key of more than 65 535
+//! bytes, stop the worker and fail the app's run, and are left to Python
+//! here.
 //!
-//! **Limits.** As the Python runner: a call that does not return within
-//! two seconds stops the run (the clock is read every 1024 statements,
-//! loop rounds and calls). Beyond it: containers of at most a million
-//! items and calls nested at most 50 deep are outside the subset (the
-//! Python runner may go on). The interpreter reaches nothing outside the
-//! script: no files, processes, network or the host's memory.
+//! **Limits.** As the app's worker: a call that does not return within two
+//! seconds stops (timed from its inputs and its copy of the parameters
+//! made to its outputs read, as the worker is from the request to its
+//! reply; the clock is read every 1024 statements, loop rounds, calls and
+//! operations of expressions, and as every operation whose work grows with
+//! the size of what it handles goes: a call's arguments, keywords and
+//! frame, displays, unpacking, concatenation, copies, comparisons and
+//! searches of containers, an item of a `zip`, indexing and converting
+//! text, reading the outputs), and a runner may hold at most 512 MB: every
+//! heap block its values make counts, as the heap keeps it, from before it
+//! is made (strings, lists, tuples, dicts and their indexes, iterator
+//! objects and what they keep of their sources, bound methods, functions
+//! and their defaults, `interp`'s parsed tables, a call's frame while it
+//! runs), and the syntax tree 128 bytes for each byte of code (it holds
+//! at most about 100); a script of more than 1 MiB is not read, and
+//! reading one costs about its length (a MiB in about 0.2 s). Past
+//! either limit the script is left to Python, whose own limit then
+//! decides. They are the worker's limits in size, not in how they are
+//! measured (Python is slower and its values larger): a call close to
+//! either can be stopped by the worker and return here. On top: containers
+//! of at most a million items, calls nested at most 50 deep, code nested
+//! at most 100 deep (each `elif` of a chain a level, as in Python's tree:
+//! CPython refuses some 990 in a row), and code and data nested no deeper
+//! than [`STACK_BUDGET`] of the caller's stack allows
+//! (measured where the interpreter nests, so such a script is left to
+//! Python instead of overflowing a thread of 1 MiB or more, in every
+//! build) are outside the subset; Python may go on. The interpreter
+//! reaches nothing outside the script: no files, processes, network or
+//! memory but its own values.
 
 mod ast;
 mod interp;
@@ -43,12 +102,50 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use value::{Builtin, Value};
 
+pub use value::{MAX_LIVE_BYTES, STACK_BUDGET};
+
 /// The most items a list, tuple, dict or string may hold here.
 pub const MAX_ITEMS: usize = 1_000_000;
+
+/// The longest script read here, bytes (reading one takes up to some 300
+/// bytes for each byte of code for a moment).
+pub const MAX_CODE_BYTES: usize = 1 << 20;
+
+/// What a script's syntax tree, held all the run, counts towards its
+/// runner's memory for each byte of its code: more than it holds of
+/// every kind of statement and expression (about 100 at the most,
+/// `tests/memory.rs`).
+const TREE_BYTES_PER_BYTE: usize = 128;
 
 /// The wall-clock budget of one call into the script, s (the Python
 /// runner's).
 pub const TIME_LIMIT_S: f64 = 2.0;
+
+/// The budget runners take: [`TIME_LIMIT_S`] (0 here), or what the
+/// engine's own tests of the other limits set ([`set_time_limit_for_tests`]).
+static TIME_LIMIT_SET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn time_limit() -> f64 {
+    match TIME_LIMIT_SET.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => TIME_LIMIT_S,
+        bits => f64::from_bits(bits),
+    }
+}
+
+/// For the engine's own tests of the memory and depth limits only: runners
+/// started after it get `seconds` a call instead of [`TIME_LIMIT_S`], so
+/// that a slow machine (a debug build on a CI runner) meets the limit
+/// under test before the clock. Nothing else calls it.
+#[doc(hidden)]
+pub fn set_time_limit_for_tests(seconds: f64) {
+    TIME_LIMIT_SET.store(seconds.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The most inputs and outputs of one call, and the longest output key in
+/// UTF-8 bytes, that the app's Script worker sends: its frames give each
+/// in 16 bits (sandbox_worker.py's `_pack_step` and `_pack_outputs`), and
+/// past them the worker stops and the app's run fails.
+pub const MAX_FRAME_FIELD: usize = 65_535;
 
 /// Why a script is outside the subset, found when it is read.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -161,53 +258,117 @@ fn names_check(m: &ast::Module) -> Result<(), Unsupported> {
     Ok(())
 }
 
-/// A JSON value as Python's `json.loads` gives it.
-fn from_json(v: &serde_json::Value) -> Result<Value, Fault> {
-    Ok(match v {
-        serde_json::Value::Null => Value::None,
-        serde_json::Value::Bool(b) => Value::Bool(*b),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Value::Int(i)
-            } else if n.is_u64() {
-                return Err(Fault::Outside("an integer parameter beyond 64 bits".into()));
-            } else {
-                let x = n.as_f64().ok_or_else(|| Fault::Outside("a number".into()))?;
-                // an integer written beyond 64 bits arrives here as a float
-                // (Python reads it as an integer)
-                if x.fract() == 0.0 && x.abs() >= 9_007_199_254_740_992.0 {
-                    return Err(Fault::Outside("a whole-number parameter beyond 2**53".into()));
-                }
-                Value::Float(x)
-            }
-        }
-        serde_json::Value::String(s) => Value::str(s),
-        serde_json::Value::Array(a) => {
-            Value::list(a.iter().map(from_json).collect::<Result<Vec<_>, _>>()?)
-        }
-        serde_json::Value::Object(o) => {
-            let d = Value::dict(
-                o.iter()
-                    .map(|(k, v)| Ok((Value::str(k), from_json(v)?)))
-                    .collect::<Result<Vec<_>, Fault>>()?,
-            )?;
-            // the importer's map is sorted, Python keeps the project's order
-            if let Value::Dict(cell) = &d {
-                cell.borrow_mut().unordered = true;
-            }
-            d
-        }
-    })
+/// A number that is zero with its sign set: JSON's `-0` (Python's
+/// integer 0) or `-0.0` (a float), which serde_json cannot tell apart.
+fn minus_zero(x: f64) -> Result<f64, Fault> {
+    if x == 0.0 && x.is_sign_negative() {
+        return Err(Fault::Outside(
+            "a parameter written -0 or -0.0 (Python reads the one as an integer)".into(),
+        ));
+    }
+    Ok(x)
 }
 
-/// A running script: `step` and its `state` and `params` between calls.
+/// A scalar parameter's number, as Python's `json.loads` reads it.
+fn number(n: &serde_json::Number) -> Result<Value, Fault> {
+    if let Some(i) = n.as_i64() {
+        return Ok(Value::Int(i));
+    }
+    if n.is_u64() {
+        return Err(Fault::Outside("an integer parameter beyond 64 bits".into()));
+    }
+    let x = minus_zero(n.as_f64().ok_or_else(|| Fault::Outside("a number".into()))?)?;
+    // an integer written beyond 64 bits arrives here as a float (Python
+    // reads it as an integer)
+    if x.fract() == 0.0 && x.abs() >= 9_007_199_254_740_992.0 {
+        return Err(Fault::Outside("a whole-number parameter beyond 2**53".into()));
+    }
+    Ok(Value::Float(x))
+}
+
+/// A table of `{key: number}` with its values as floats (Rust's `as`
+/// rounds an integer as Python's `float()` does), in the importer's order.
+fn float_table<'a>(
+    t: impl Iterator<Item = (&'a String, &'a serde_json::Value)>,
+    value: impl Fn(&'a serde_json::Value) -> Result<Value, Fault>,
+) -> Result<Value, Fault> {
+    let d = Value::dict(t.map(|(k, v)| Ok((Value::str(k), value(v)?))).collect::<Result<_, _>>()?)?;
+    unordered(&d);
+    Ok(d)
+}
+
+/// The importer's map is sorted, Python keeps the project's order:
+/// iterating such a dict is left to Python.
+fn unordered(d: &Value) {
+    if let Value::Dict(cell) = d {
+        cell.borrow_mut().unordered = true;
+    }
+}
+
+/// A Script block's parameters as the app hands them to it: the JSON
+/// object read as Python's `json.loads` reads it, each value typed as the
+/// app's project model types a parameter (schemas.py's `ParamValue`: a
+/// bool, int, float or string, or a table of floats, `{x: value}` or
+/// `{x: {y: value}}`). What the app would read otherwise or refuse is
+/// left to Python.
+fn params_of(o: &serde_json::Map<String, serde_json::Value>) -> Result<Value, Fault> {
+    use serde_json::Value as J;
+    let leaf = |v: &J| match v {
+        J::Number(n) => Ok(Value::Float(minus_zero(n.as_f64().unwrap_or(f64::NAN))?)),
+        _ => unreachable!("a table of numbers"),
+    };
+    let numbers = |t: &serde_json::Map<String, J>| t.values().all(J::is_number);
+    let mut entries = Vec::with_capacity(o.len());
+    for (k, v) in o {
+        let v = match v {
+            J::Bool(b) => Value::Bool(*b),
+            J::String(s) => Value::str(s),
+            J::Number(n) => number(n)?,
+            J::Object(t) if numbers(t) => float_table(t.iter(), leaf)?,
+            J::Object(t) if t.values().all(|x| x.as_object().is_some_and(numbers)) => {
+                float_table(t.iter(), |x| {
+                    float_table(x.as_object().expect("a table").iter(), leaf)
+                })?
+            }
+            // pydantic makes a table's booleans and numeric text floats
+            // and refuses the rest
+            J::Object(_) => {
+                return Err(Fault::Outside(format!(
+                    "the table parameter '{k}' holding other than numbers"
+                )));
+            }
+            J::Null | J::Array(_) => {
+                return Err(Fault::Outside(format!(
+                    "the parameter '{k}', which the app does not read (a null or a list)"
+                )));
+            }
+        };
+        entries.push((Value::str(k), v));
+    }
+    let d = Value::dict(entries)?;
+    unordered(&d);
+    Ok(d)
+}
+
+/// A running script: its values between calls, and the memory they hold
+/// (counted while it is called, see [`MAX_LIVE_BYTES`]).
 pub struct Runner {
+    script: Option<Script>,
+    live: usize,
+}
+
+/// `step` and its `state` and `params` between calls.
+struct Script {
+    /// what its syntax tree counts (see [`TREE_BYTES_PER_BYTE`])
+    tree: usize,
     module: ast::Module,
     machine: interp::Machine,
     step: Value,
     state: Value,
     params: Value,
     label: String,
+    /// the names of the inputs of the last call, as values
+    keys: Vec<(String, Value)>,
 }
 
 // SAFETY: a Runner owns every reference-counted value it can reach: it
@@ -217,7 +378,8 @@ pub struct Runner {
 // `String`s and `f64`s; errors are owned `String`s). No `Rc` is ever
 // shared with anything outside it, so moving the whole Runner to another
 // thread moves every count with it, and nothing on the old thread can
-// touch them.
+// touch them. The memory its values hold travels with it too (`live`,
+// put in place on whatever thread calls it).
 unsafe impl Send for Runner {}
 
 /// Python's `format(x, "g")`: six significant digits, fixed or with an
@@ -270,19 +432,81 @@ fn failed(label: &str, t: Option<f64>, f: Fault) -> ScriptError {
 }
 
 impl Runner {
-    /// Reads `code` and runs its top-level code, as the Python runner does
+    /// Reads `code` and runs its top-level code, as the app's runner does
     /// at the start of a run; `params` is the block's parameters (a JSON
-    /// object, as Python's `json.loads` reads it).
+    /// object, typed as the app types them).
     pub fn start(
         code: &str,
         label: &str,
         params: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<Runner, ScriptError> {
+        let outer = value::memory_enter(0);
+        let script = Script::start(code, label, params);
+        // (what a failed start made is gone again)
+        let live = value::memory_leave(outer);
+        Ok(Runner { script: Some(script?), live })
+    }
+
+    /// One call `step(t, dt, inputs, state, params)`: the outputs it
+    /// returns, as the app's runner converts them (`float(value)` under
+    /// the key's text), in the order of the returned dict.
+    pub fn step(
+        &mut self,
+        t: f64,
+        dt: f64,
+        inputs: &[(&str, f64)],
+    ) -> Result<Vec<(String, f64)>, ScriptError> {
+        let outer = value::memory_enter(self.live);
+        let out = self.script.as_mut().expect("a started script").step(t, dt, inputs);
+        self.live = value::memory_leave(outer);
+        out
+    }
+}
+
+impl Runner {
+    /// The bytes its values are counted as holding: what
+    /// [`MAX_LIVE_BYTES`] caps.
+    pub fn memory(&self) -> usize {
+        self.live
+    }
+}
+
+impl Drop for Runner {
+    fn drop(&mut self) {
+        // its values give their memory back to its own count
+        let outer = value::memory_enter(self.live);
+        self.script = None;
+        value::memory_leave(outer);
+    }
+}
+
+impl Drop for Script {
+    fn drop(&mut self) {
+        value::memory_sub(self.tree);
+    }
+}
+
+impl Script {
+    fn start(
+        code: &str,
+        label: &str,
+        params: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Script, ScriptError> {
+        if code.len() > MAX_CODE_BYTES {
+            return Err(ScriptError::Unsupported(format!(
+                "Script '{label}': a script of more than {} MiB is outside what runs without Python",
+                MAX_CODE_BYTES >> 20
+            )));
+        }
+        // the tree counts from before it is read (a failed start gives
+        // back all it counted)
+        let tree = code.len() * TREE_BYTES_PER_BYTE;
+        value::memory_add(tree);
         let module = parser::parse(code)
             .map_err(|u| ScriptError::Unsupported(format!("Script '{label}', {u}")))?;
         names_check(&module)
             .map_err(|u| ScriptError::Unsupported(format!("Script '{label}': {}", u.what)))?;
-        let mut machine = interp::Machine::new(&module, TIME_LIMIT_S);
+        let mut machine = interp::Machine::new(&module, time_limit());
         machine.run_module(&module).map_err(|f| failed(label, None, f))?;
         let step = match machine.global("step") {
             Some(f @ Value::Func(_)) => f,
@@ -294,44 +518,87 @@ impl Runner {
         };
         // reading the parameters is timed as a call is
         value::start_meter(Some(
-            std::time::Instant::now() + std::time::Duration::from_secs_f64(TIME_LIMIT_S),
+            std::time::Instant::now() + std::time::Duration::from_secs_f64(time_limit()),
         ));
-        let params = from_json(&serde_json::Value::Object(params.clone()))
+        let params = params_of(params)
+            .and_then(|p| value::memory_check().map(|_| p))
             .map_err(|f| failed(label, None, f))?;
         value::start_meter(None);
-        Ok(Runner {
+        Ok(Script {
+            tree,
             module,
             machine,
             step,
             state: Value::dict(vec![]).expect("an empty dict"),
             params,
             label: label.to_string(),
+            keys: vec![],
         })
     }
 
-    /// One call `step(t, dt, inputs, state, params)`: the outputs it
-    /// returns, as the Python runner converts them (`float(value)` under
-    /// the key's text), in the order of the returned dict.
-    pub fn step(
+    fn step(
         &mut self,
         t: f64,
         dt: f64,
         inputs: &[(&str, f64)],
     ) -> Result<Vec<(String, f64)>, ScriptError> {
         let _ = &self.module;
-        // no deadline left over from another call (the call sets its own)
-        value::start_meter(None);
+        // the call's clock: the app's worker is timed from the request it is
+        // sent to its reply, the inputs and the parameters' copy made, the
+        // outputs read and sent
+        self.machine.start_call();
         let label = self.label.clone();
         let fail = |f| failed(&label, Some(t), f);
-        let ins =
-            Value::dict(inputs.iter().map(|(k, v)| (Value::str(k), Value::Float(*v))).collect())
-                .map_err(fail)?;
-        let args =
-            vec![Value::Float(t), Value::Float(dt), ins, self.state.clone(), self.params.clone()];
+        if inputs.len() > MAX_FRAME_FIELD {
+            return Err(fail(Fault::Outside(format!(
+                "more than {MAX_FRAME_FIELD} inputs (the app's worker cannot be sent them)"
+            ))));
+        }
+        if self.keys.len() != inputs.len()
+            || self.keys.iter().zip(inputs).any(|((k, _), (name, _))| k != name)
+        {
+            self.keys = inputs.iter().map(|(k, _)| (k.to_string(), Value::str(k))).collect();
+        }
+        // as the app passes them: an input of -0.0 as +0.0 (sandbox.py's
+        // `float(x or 0.0)`), a NaN as it is
+        let ins = Value::dict(
+            self.keys
+                .iter()
+                .zip(inputs)
+                .map(|((_, k), (_, v))| (k.clone(), Value::Float(if *v == 0.0 { 0.0 } else { *v })))
+                .collect(),
+        )
+        .map_err(fail)?;
+        // and a fresh shallow copy of the parameters every call
+        // (sandbox_worker.py's `dict(script.params)`): a key a call sets is
+        // gone at the next, a table changed in place stays changed
+        let Value::Dict(params) = &self.params else { unreachable!("the parameters' dict") };
+        let params = Value::dict_copy(params).map_err(fail)?;
+        let args = vec![Value::Float(t), Value::Float(dt), ins, self.state.clone(), params];
         let out = self.machine.call_top(&self.step, args).map_err(fail)?;
+        // reading the outputs is part of the call: timed, and the values
+        // it leaves held within the memory allowed
         let entries = match out {
-            Value::None => return Ok(vec![]),
-            Value::Dict(d) => d.borrow().entries.clone(),
+            Value::None => return value::memory_check().map(|_| vec![]).map_err(fail),
+            Value::Dict(d) => {
+                let d = d.borrow();
+                if d.entries.len() > MAX_FRAME_FIELD {
+                    return Err(fail(Fault::Outside(format!(
+                        "more than {MAX_FRAME_FIELD} outputs (the app's worker cannot send them)"
+                    ))));
+                }
+                // the outputs are in the returned dict's order: the
+                // parameters' (or a copy's) is the importer's
+                if d.unordered && d.entries.len() > 1 {
+                    return Err(fail(Fault::Outside(
+                        "outputs in the parameters' order (Python keeps the project's, the import \
+                         does not)"
+                            .into(),
+                    )));
+                }
+                value::charge(d.entries.len() as u64).map_err(fail)?;
+                d.entries.clone()
+            }
             other => {
                 return Err(ScriptError::Failed(format!(
                     "Script '{label}' must return a dict of output values, got {}.",
@@ -347,25 +614,33 @@ impl Runner {
                      without Python"
                 )));
             };
+            value::charge(key.len() as u64).map_err(fail)?;
+            if key.len() > MAX_FRAME_FIELD {
+                return Err(fail(Fault::Outside(format!(
+                    "an output key of more than {MAX_FRAME_FIELD} bytes (the app's worker cannot send it)"
+                ))));
+            }
             match value::to_float(&v) {
-                Ok(x) => res.push((key.to_string(), x)),
+                Ok(x) => res.push((key.as_str().to_string(), x)),
                 Err(f @ (Fault::Outside(_) | Fault::Limit)) => return Err(fail(f)),
                 Err(_) => {
+                    let shown = v.repr().map_err(fail)?;
                     return Err(ScriptError::Failed(format!(
-                        "Script '{label}' output '{key}' is not numeric ({}).",
-                        v.repr()
+                        "Script '{label}' output '{}' is not numeric ({shown}).",
+                        key.as_str()
                     )));
                 }
             }
         }
+        value::memory_check().map_err(fail)?;
         Ok(res)
     }
 }
 
-/// A Script block run here, as a sampled block of the run loop: today's
-/// semantics (backend/app/solver/scripting.py, and the golden comparison's
-/// host): `step` runs at the start and then every period, with `dt` the
-/// period; an output the script does not return holds its value.
+/// A Script block run here, as a sampled block of the run loop, as the
+/// app runs one (and the golden comparison's host): `step` runs at the
+/// start and then every period, with `dt` the period; an output the
+/// script does not return holds its value.
 pub struct ScriptBlock {
     runner: Runner,
     name: String,
@@ -407,9 +682,20 @@ impl ScriptBlock {
             self.inputs.iter().map(String::as_str).zip(inputs.iter().copied()).collect();
         match self.runner.step(t, self.period, &ins) {
             Ok(res) => {
+                // each of the block's outputs by its key (among many, through
+                // a map: a call's cost is not the outputs times the returned)
+                let mut by_key = std::collections::HashMap::new();
+                if res.len() > 8 {
+                    by_key = res.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+                }
                 for (k, o) in self.outputs.iter().zip(outputs.iter_mut()) {
-                    if let Some((_, v)) = res.iter().find(|(rk, _)| rk == k) {
-                        *o = *v;
+                    let v = if by_key.is_empty() {
+                        res.iter().find(|(rk, _)| rk == k).map(|(_, v)| *v)
+                    } else {
+                        by_key.get(k.as_str()).copied()
+                    };
+                    if let Some(v) = v {
+                        *o = v;
                     }
                 }
                 Ok(())
@@ -482,6 +768,31 @@ mod tests {
                 }
                 _ => assert!(matches!(r, Err(ScriptError::Unsupported(_))), "{code}"),
             }
+        }
+    }
+
+    #[test]
+    fn a_block_takes_its_outputs_by_their_keys() {
+        use lsim_ir::runtime::DiscreteBlock;
+        for n in [3, 40] {
+            let more: Vec<String> = (0..n).map(|k| format!("'k{k}': {k}")).collect();
+            let code = format!(
+                "def step(t, dt, inputs, state, params):\n    return {{'b': inputs['a'] * 2, {}}}\n",
+                more.join(", ")
+            );
+            let outputs: Vec<String> = ["k2", "b", "missing"].map(String::from).to_vec();
+            let mut b = super::ScriptBlock::new(
+                &code,
+                "Block",
+                0.01,
+                vec!["a".into()],
+                outputs,
+                &Default::default(),
+            )
+            .unwrap();
+            let mut out = [9.0; 3];
+            b.init(0.0, &[1.5], &mut out).unwrap();
+            assert_eq!(out, [2.0, 3.0, 9.0], "{n} outputs returned");
         }
     }
 
