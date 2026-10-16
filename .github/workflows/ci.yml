@@ -414,6 +414,9 @@ jobs:
       - uses: actions/setup-node@v7
         with: { node-version: "22" }
       - run: node scripts/sync-version.mjs --check
+      # a name Windows refuses stops every Windows job at its checkout
+      - name: Every file name valid on Windows
+        run: node scripts/check-paths.mjs
 
   licences:
     name: Third-party licences
