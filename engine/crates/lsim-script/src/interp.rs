@@ -10,9 +10,9 @@
 
 use crate::ast::{BinOp, CmpOp, Expr, FuncDef, Module, Name, Stmt, StmtKind, Target};
 use crate::value::{
-    self, Builtin, Closure, DictCell, ListCell, MathFn, TupleCell, Value, binary, contains,
-    dict_find, dict_get, dict_set, eq, index, insertable, insertable_all, order, range_len,
-    set_index, to_float, to_int,
+    self, Builtin, Closure, DictCell, ListCell, MathFn, Text, TupleCell, Value, binary, charge,
+    contains, dict_find, dict_get, dict_set, eq, index, insertable, insertable_all, order,
+    range_len, set_index, stack_check, to_float, to_int,
 };
 use crate::{Fault, Fault::*, MAX_ITEMS};
 use std::cell::RefCell;
@@ -44,8 +44,8 @@ pub enum Iter {
     /// a dict's keys, values or items (0, 1, 2): the next entry, and its
     /// size and key set at the start
     Dict(Rc<DictCell>, usize, usize, u64, u8),
-    /// a string's characters
-    Chars(Vec<char>, usize),
+    /// a string's characters: the string and where the next one starts
+    Chars(Rc<Text>, usize),
     /// `enumerate`
     Enumerate(Box<Iter>, i64),
     /// `zip`
@@ -109,11 +109,10 @@ impl Iter {
                 *k += 1;
                 v
             }
-            Iter::Chars(c, k) => {
-                let v = c.get(*k).map(|ch| Value::str(&ch.to_string()));
-                *k += 1;
-                v
-            }
+            Iter::Chars(s, k) => s[*k..].chars().next().map(|ch| {
+                *k += ch.len_utf8();
+                Value::str(ch.encode_utf8(&mut [0; 4]))
+            }),
             Iter::Enumerate(it, n) => match it.next()? {
                 Some(v) => {
                     let i = *n;
@@ -170,7 +169,7 @@ fn iter_of(v: &Value) -> Result<Iter, Fault> {
         Value::Tuple(t) => Iter::Tuple(t.clone(), 0),
         Value::Range(a, b, s) => Iter::Range(*a, *s, range_len(*a, *b, *s) as u64),
         Value::Dict(d) => dict_iter(d, 0)?,
-        Value::Str(s) => Iter::Chars(s.chars().collect(), 0),
+        Value::Str(s) => Iter::Chars(s.clone(), 0),
         Value::View(d, kind) => dict_iter(d, *kind)?,
         // an iterator object: iterating it goes on from where it is
         Value::Iter(it) => Iter::Shared(it.clone()),
@@ -180,7 +179,7 @@ fn iter_of(v: &Value) -> Result<Iter, Fault> {
     })
 }
 
-/// Every item of `v`, at most [`MAX_ITEMS`].
+/// Every item of `v`, at most [`MAX_ITEMS`], each charged as work.
 fn collect(v: &Value) -> Result<Vec<Value>, Fault> {
     let mut it = iter_of(v)?;
     let mut out = vec![];
@@ -188,6 +187,7 @@ fn collect(v: &Value) -> Result<Vec<Value>, Fault> {
         if out.len() >= MAX_ITEMS {
             return Err(Outside("a sequence this long".into()));
         }
+        charge(1)?;
         out.push(x);
     }
     Ok(out)
@@ -328,7 +328,7 @@ impl Machine {
         if self.ops.is_multiple_of(CLOCK_EVERY) && Instant::now() > self.deadline {
             return Err(Limit);
         }
-        Ok(())
+        value::memory_check()
     }
 
     /// Runs the top-level code.
@@ -349,6 +349,7 @@ impl Machine {
     }
 
     fn block(&mut self, b: &[Stmt], frame: &mut Vec<Option<Value>>) -> R<Flow> {
+        stack_check()?;
         for s in b {
             match self.stmt(s, frame) {
                 Ok(Flow::Normal) => {}
@@ -363,99 +364,162 @@ impl Machine {
         Ok(Flow::Normal)
     }
 
+    // Each kind of statement and expression that holds others is a function
+    // of its own, so that a level of nesting holds only the frame of its
+    // own kind (an unoptimised build's frame of one function with them all
+    // is several KB, and the nesting the stack allows shrinks with it).
+
     fn stmt(&mut self, s: &Stmt, frame: &mut Vec<Option<Value>>) -> R<Flow> {
         self.tick()?;
         match &s.kind {
-            StmtKind::Expr(e) => {
-                self.eval(e, frame)?;
-            }
-            StmtKind::Assign(targets, value) => {
-                let v = self.eval(value, frame)?;
-                for t in targets {
-                    self.assign(t, v.clone(), frame)?;
-                }
-            }
-            StmtKind::AugAssign(t, op, value) => match t {
-                Target::Name(n) => {
-                    let old = self.load(n, frame)?;
-                    let v = self.eval(value, frame)?;
-                    let new = self.inplace(*op, &old, &v)?;
-                    self.store(n, new, frame);
-                }
-                Target::Index(c, i) => {
-                    let c = self.eval(c, frame)?;
-                    let i = self.eval(i, frame)?;
-                    let old = index(&c, &i)?;
-                    let v = self.eval(value, frame)?;
-                    let new = self.inplace(*op, &old, &v)?;
-                    set_index(&c, i, new)?;
-                }
-                Target::Tuple(_) => {
-                    return Err(Outside("augmented assignment to several names".into()));
-                }
-            },
-            StmtKind::If(branches, orelse) => {
-                for (c, body) in branches {
-                    if self.eval(c, frame)?.truthy() {
-                        return self.block(body, frame);
-                    }
-                }
-                return self.block(orelse, frame);
-            }
-            StmtKind::While(c, body, orelse) => loop {
-                self.tick()?;
-                if !self.eval(c, frame)?.truthy() {
-                    return self.block(orelse, frame);
-                }
-                match self.block(body, frame)? {
-                    Flow::Break => break,
-                    Flow::Return(v) => return Ok(Flow::Return(v)),
-                    Flow::Normal | Flow::Continue => {}
-                }
-            },
-            StmtKind::For(t, it, body, orelse) => {
-                let v = self.eval(it, frame)?;
-                let mut it = iter_of(&v)?;
-                loop {
-                    self.tick()?;
-                    let Some(x) = it.next()? else {
-                        return self.block(orelse, frame);
-                    };
-                    self.assign(t, x, frame)?;
-                    match self.block(body, frame)? {
-                        Flow::Break => break,
-                        Flow::Return(v) => return Ok(Flow::Return(v)),
-                        Flow::Normal | Flow::Continue => {}
-                    }
-                }
-            }
-            StmtKind::Def(n, def, defaults) => {
-                let mut ds = Vec::with_capacity(defaults.len());
-                for d in defaults {
-                    ds.push(self.eval(d, frame)?);
-                }
-                let f = Value::Func(Rc::new(Closure { def: def.clone(), defaults: ds }));
-                self.store(n, f, frame);
-            }
-            StmtKind::Return(e) => {
-                let v = match e {
-                    Some(e) => self.eval(e, frame)?,
-                    None => Value::None,
-                };
-                return Ok(Flow::Return(v));
-            }
-            StmtKind::Pass => {}
-            StmtKind::Break => return Ok(Flow::Break),
-            StmtKind::Continue => return Ok(Flow::Continue),
+            StmtKind::Expr(e) => self.expr_stmt(e, frame),
+            StmtKind::Assign(targets, value) => self.assign_stmt(targets, value, frame),
+            StmtKind::AugAssign(t, op, value) => self.aug_assign(t, *op, value, frame),
+            StmtKind::If(branches, orelse) => self.if_stmt(branches, orelse, frame),
+            StmtKind::While(c, body, orelse) => self.while_stmt(c, body, orelse, frame),
+            StmtKind::For(t, it, body, orelse) => self.for_stmt(t, it, body, orelse, frame),
+            StmtKind::Def(n, def, defaults) => self.def_stmt(n, def, defaults, frame),
+            StmtKind::Return(e) => self.return_stmt(e.as_ref(), frame),
+            StmtKind::Pass => Ok(Flow::Normal),
+            StmtKind::Break => Ok(Flow::Break),
+            StmtKind::Continue => Ok(Flow::Continue),
             StmtKind::Import(n, attr) => {
                 let v = match attr {
                     None => Value::Math,
                     Some(a) => Builtin::math(a).ok_or_else(|| Outside(format!("math.{a}")))?,
                 };
                 self.store(n, v, frame);
+                Ok(Flow::Normal)
+            }
+        }
+    }
+
+    fn expr_stmt(&mut self, e: &Expr, frame: &mut Vec<Option<Value>>) -> R<Flow> {
+        self.eval(e, frame)?;
+        Ok(Flow::Normal)
+    }
+
+    fn assign_stmt(
+        &mut self,
+        targets: &[Target],
+        value: &Expr,
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Flow> {
+        let v = self.eval(value, frame)?;
+        for t in targets {
+            self.assign(t, v.clone(), frame)?;
+        }
+        Ok(Flow::Normal)
+    }
+
+    fn aug_assign(
+        &mut self,
+        t: &Target,
+        op: BinOp,
+        value: &Expr,
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Flow> {
+        match t {
+            Target::Name(n) => {
+                let old = self.load(n, frame)?;
+                let v = self.eval(value, frame)?;
+                let new = self.inplace(op, &old, &v)?;
+                self.store(n, new, frame);
+            }
+            Target::Index(c, i) => {
+                let c = self.eval(c, frame)?;
+                let i = self.eval(i, frame)?;
+                let old = index(&c, &i)?;
+                let v = self.eval(value, frame)?;
+                let new = self.inplace(op, &old, &v)?;
+                set_index(&c, i, new)?;
+            }
+            Target::Tuple(_) => {
+                return Err(Outside("augmented assignment to several names".into()));
             }
         }
         Ok(Flow::Normal)
+    }
+
+    fn if_stmt(
+        &mut self,
+        branches: &[(Expr, Vec<Stmt>)],
+        orelse: &[Stmt],
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Flow> {
+        for (c, body) in branches {
+            if self.eval(c, frame)?.truthy() {
+                return self.block(body, frame);
+            }
+        }
+        self.block(orelse, frame)
+    }
+
+    fn while_stmt(
+        &mut self,
+        c: &Expr,
+        body: &[Stmt],
+        orelse: &[Stmt],
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Flow> {
+        loop {
+            self.tick()?;
+            if !self.eval(c, frame)?.truthy() {
+                return self.block(orelse, frame);
+            }
+            match self.block(body, frame)? {
+                Flow::Break => return Ok(Flow::Normal),
+                Flow::Return(v) => return Ok(Flow::Return(v)),
+                Flow::Normal | Flow::Continue => {}
+            }
+        }
+    }
+
+    fn for_stmt(
+        &mut self,
+        t: &Target,
+        it: &Expr,
+        body: &[Stmt],
+        orelse: &[Stmt],
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Flow> {
+        let v = self.eval(it, frame)?;
+        let mut it = iter_of(&v)?;
+        loop {
+            self.tick()?;
+            let Some(x) = it.next()? else {
+                return self.block(orelse, frame);
+            };
+            self.assign(t, x, frame)?;
+            match self.block(body, frame)? {
+                Flow::Break => return Ok(Flow::Normal),
+                Flow::Return(v) => return Ok(Flow::Return(v)),
+                Flow::Normal | Flow::Continue => {}
+            }
+        }
+    }
+
+    fn def_stmt(
+        &mut self,
+        n: &Name,
+        def: &Rc<FuncDef>,
+        defaults: &[Expr],
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Flow> {
+        let mut ds = Vec::with_capacity(defaults.len());
+        for d in defaults {
+            ds.push(self.eval(d, frame)?);
+        }
+        let f = Value::Func(Rc::new(Closure { def: def.clone(), defaults: ds }));
+        self.store(n, f, frame);
+        Ok(Flow::Normal)
+    }
+
+    fn return_stmt(&mut self, e: Option<&Expr>, frame: &mut Vec<Option<Value>>) -> R<Flow> {
+        Ok(Flow::Return(match e {
+            Some(e) => self.eval(e, frame)?,
+            None => Value::None,
+        }))
     }
 
     /// `old op= v`: a list's `+=` extends it in place (the same object).
@@ -465,11 +529,7 @@ impl Machine {
         {
             let items = collect(v)?;
             insertable_all(old, &items)?;
-            let mut lm = l.borrow_mut();
-            if lm.len() + items.len() > MAX_ITEMS {
-                return Err(Outside("a list this long".into()));
-            }
-            lm.extend(items);
+            extend(l, items)?;
             return Ok(old.clone());
         }
         binary(op, old, v)
@@ -545,88 +605,124 @@ impl Machine {
     }
 
     fn eval(&mut self, e: &Expr, frame: &mut Vec<Option<Value>>) -> R<Value> {
-        Ok(match e {
-            Expr::Const(v) => v.clone(),
-            Expr::Name(n) => self.load(n, frame)?,
-            Expr::Tuple(xs) => {
-                let mut v = Vec::with_capacity(xs.len());
-                for x in xs {
-                    v.push(self.eval(x, frame)?);
-                }
-                Value::tuple(v)
+        match e {
+            Expr::Const(v) => return Ok(v.clone()),
+            Expr::Name(n) => return self.load(n, frame),
+            // what nests stays within the stack the interpreter may use
+            _ => stack_check()?,
+        }
+        match e {
+            Expr::Const(_) | Expr::Name(_) => unreachable!("a leaf"),
+            Expr::Tuple(xs) => self.sequence(xs, false, frame),
+            Expr::List(xs) => self.sequence(xs, true, frame),
+            Expr::Dict(kv) => self.dict_display(kv, frame),
+            Expr::Neg(a) => self.unary(e, a, frame),
+            Expr::Pos(a) => self.unary(e, a, frame),
+            Expr::Not(a) => self.unary(e, a, frame),
+            Expr::Bin(op, a, b) => self.bin(*op, a, b, frame),
+            Expr::And(a, b) => self.and_or(true, a, b, frame),
+            Expr::Or(a, b) => self.and_or(false, a, b, frame),
+            Expr::Compare(first, rest) => self.comparison(first, rest, frame),
+            Expr::IfExp(c, a, b) => self.if_exp(c, a, b, frame),
+            Expr::Call(f, args, kwargs) => self.call_expr(f, args, kwargs, frame),
+            Expr::Attr(a, name) => self.attr_expr(a, name, frame),
+            Expr::Index(c, i) => self.index_expr(c, i, frame),
+        }
+    }
+
+    fn sequence(&mut self, xs: &[Expr], list: bool, frame: &mut Vec<Option<Value>>) -> R<Value> {
+        let mut v = Vec::with_capacity(xs.len());
+        for x in xs {
+            v.push(self.eval(x, frame)?);
+        }
+        Ok(if list { Value::list(v) } else { Value::tuple(v) })
+    }
+
+    fn dict_display(&mut self, kv: &[(Expr, Expr)], frame: &mut Vec<Option<Value>>) -> R<Value> {
+        let d = Value::new_dict();
+        for (k, v) in kv {
+            let k = self.eval(k, frame)?;
+            let v = self.eval(v, frame)?;
+            dict_set(&d, k, v)?;
+        }
+        Ok(Value::Dict(d))
+    }
+
+    fn unary(&mut self, e: &Expr, a: &Expr, frame: &mut Vec<Option<Value>>) -> R<Value> {
+        let a = self.eval(a, frame)?;
+        match e {
+            Expr::Neg(_) => value::neg(&a),
+            Expr::Pos(_) => value::pos(&a),
+            _ => Ok(Value::Bool(!a.truthy())),
+        }
+    }
+
+    fn bin(&mut self, op: BinOp, a: &Expr, b: &Expr, frame: &mut Vec<Option<Value>>) -> R<Value> {
+        let a = self.eval(a, frame)?;
+        let b = self.eval(b, frame)?;
+        binary(op, &a, &b)
+    }
+
+    fn and_or(
+        &mut self,
+        and: bool,
+        a: &Expr,
+        b: &Expr,
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Value> {
+        let a = self.eval(a, frame)?;
+        if a.truthy() != and { Ok(a) } else { self.eval(b, frame) }
+    }
+
+    fn comparison(
+        &mut self,
+        first: &Expr,
+        rest: &[(CmpOp, Expr)],
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Value> {
+        let mut left = self.eval(first, frame)?;
+        for (op, right) in rest {
+            let right = self.eval(right, frame)?;
+            if !compare(*op, &left, &right)? {
+                return Ok(Value::Bool(false));
             }
-            Expr::List(xs) => {
-                let mut v = Vec::with_capacity(xs.len());
-                for x in xs {
-                    v.push(self.eval(x, frame)?);
-                }
-                Value::list(v)
-            }
-            Expr::Dict(kv) => {
-                let d = Value::new_dict();
-                for (k, v) in kv {
-                    let k = self.eval(k, frame)?;
-                    let v = self.eval(v, frame)?;
-                    dict_set(&d, k, v)?;
-                }
-                Value::Dict(d)
-            }
-            Expr::Neg(a) => value::neg(&self.eval(a, frame)?)?,
-            Expr::Pos(a) => value::pos(&self.eval(a, frame)?)?,
-            Expr::Not(a) => Value::Bool(!self.eval(a, frame)?.truthy()),
-            Expr::Bin(op, a, b) => {
-                let a = self.eval(a, frame)?;
-                let b = self.eval(b, frame)?;
-                binary(*op, &a, &b)?
-            }
-            Expr::And(a, b) => {
-                let a = self.eval(a, frame)?;
-                if !a.truthy() { a } else { self.eval(b, frame)? }
-            }
-            Expr::Or(a, b) => {
-                let a = self.eval(a, frame)?;
-                if a.truthy() { a } else { self.eval(b, frame)? }
-            }
-            Expr::Compare(first, rest) => {
-                let mut left = self.eval(first, frame)?;
-                for (op, right) in rest {
-                    let right = self.eval(right, frame)?;
-                    if !compare(*op, &left, &right)? {
-                        return Ok(Value::Bool(false));
-                    }
-                    left = right;
-                }
-                Value::Bool(true)
-            }
-            Expr::IfExp(c, a, b) => {
-                if self.eval(c, frame)?.truthy() {
-                    self.eval(a, frame)?
-                } else {
-                    self.eval(b, frame)?
-                }
-            }
-            Expr::Call(f, args, kwargs) => {
-                let f = self.eval(f, frame)?;
-                let mut a = Vec::with_capacity(args.len());
-                for x in args {
-                    a.push(self.eval(x, frame)?);
-                }
-                let mut kw = Vec::with_capacity(kwargs.len());
-                for (k, x) in kwargs {
-                    kw.push((k.clone(), self.eval(x, frame)?));
-                }
-                self.call(&f, a, kw)?
-            }
-            Expr::Attr(a, name) => {
-                let a = self.eval(a, frame)?;
-                attribute(&a, name)?
-            }
-            Expr::Index(c, i) => {
-                let c = self.eval(c, frame)?;
-                let i = self.eval(i, frame)?;
-                index_view(&c, &i)?
-            }
-        })
+            left = right;
+        }
+        Ok(Value::Bool(true))
+    }
+
+    fn if_exp(&mut self, c: &Expr, a: &Expr, b: &Expr, frame: &mut Vec<Option<Value>>) -> R<Value> {
+        if self.eval(c, frame)?.truthy() { self.eval(a, frame) } else { self.eval(b, frame) }
+    }
+
+    fn call_expr(
+        &mut self,
+        f: &Expr,
+        args: &[Expr],
+        kwargs: &[(Rc<str>, Expr)],
+        frame: &mut Vec<Option<Value>>,
+    ) -> R<Value> {
+        let f = self.eval(f, frame)?;
+        let mut a = Vec::with_capacity(args.len());
+        for x in args {
+            a.push(self.eval(x, frame)?);
+        }
+        let mut kw = Vec::with_capacity(kwargs.len());
+        for (k, x) in kwargs {
+            kw.push((k.clone(), self.eval(x, frame)?));
+        }
+        self.call(&f, a, kw)
+    }
+
+    fn attr_expr(&mut self, a: &Expr, name: &Rc<str>, frame: &mut Vec<Option<Value>>) -> R<Value> {
+        let a = self.eval(a, frame)?;
+        attribute(&a, name)
+    }
+
+    fn index_expr(&mut self, c: &Expr, i: &Expr, frame: &mut Vec<Option<Value>>) -> R<Value> {
+        let c = self.eval(c, frame)?;
+        let i = self.eval(i, frame)?;
+        index_view(&c, &i)
     }
 
     fn call(&mut self, f: &Value, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value)>) -> R<Value> {
@@ -690,6 +786,7 @@ impl Machine {
         if self.depth >= MAX_CALL_DEPTH {
             return Err(Outside("functions calling each other this deeply".into()));
         }
+        stack_check()?;
         self.depth += 1;
         let r = self.block(&def.body, &mut frame);
         self.depth -= 1;
@@ -783,7 +880,10 @@ impl Machine {
             Builtin::Len => {
                 let x = one("len")?;
                 Value::Int(match &x {
-                    Value::Str(s) => s.chars().count() as i64,
+                    Value::Str(s) => {
+                        charge(s.len() as u64)?;
+                        s.chars().count() as i64
+                    }
                     Value::Tuple(t) => t.len() as i64,
                     Value::List(l) => l.borrow().len() as i64,
                     Value::Dict(d) | Value::View(d, _) => d.borrow().entries.len() as i64,
@@ -892,7 +992,7 @@ impl Machine {
                     _ => return Err(args_error("dict", "expected at most 1 argument")),
                 }
                 for (k, v) in kwargs {
-                    dict_set(&d, Value::Str(k), v)?;
+                    dict_set(&d, Value::str(&k), v)?;
                 }
                 Value::Dict(d)
             }
@@ -1024,12 +1124,26 @@ fn attribute(a: &Value, name: &Rc<str>) -> R<Value> {
     }
 }
 
+/// `l.extend(items)` (`items` checked to make no cycle).
+fn extend(l: &ListCell, items: Vec<Value>) -> R<()> {
+    let mut lm = l.borrow_mut();
+    if lm.len() + items.len() > MAX_ITEMS {
+        return Err(Outside("a list this long".into()));
+    }
+    charge(items.len() as u64)?;
+    lm.extend(items);
+    drop(lm);
+    l.account();
+    Ok(())
+}
+
 /// `d.update(x)`'s and `dict(x)`'s argument: a dict, or pairs.
 fn update_from(d: &Rc<DictCell>, x: &Value) -> R<()> {
     match x {
         Value::Dict(src) => {
             let (entries, unordered) = {
                 let s = src.borrow();
+                charge(s.entries.len() as u64)?;
                 (s.entries.clone(), s.unordered)
             };
             // inserted in the source's order: unknown if that is
@@ -1083,7 +1197,7 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
                     update_from(d, x)?;
                 }
                 for (k, v) in kwargs {
-                    dict_set(d, Value::Str(k), v)?;
+                    dict_set(d, Value::str(&k), v)?;
                 }
                 Ok(Value::None)
             }
@@ -1113,7 +1227,12 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
             "pop" => {
                 arity(1, 2)?;
                 match dict_find(d, &args[0])? {
-                    Some(k) => Ok(d.borrow_mut().remove(k).1),
+                    Some(k) => {
+                        charge(d.borrow().entries.len() as u64)?;
+                        let v = d.borrow_mut().remove(k).1;
+                        d.account();
+                        Ok(v)
+                    }
                     None => match args.get(1) {
                         Some(v) => Ok(v.clone()),
                         None => Err(Raise(args[0].repr())),
@@ -1122,19 +1241,12 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
             }
             "copy" => {
                 arity(0, 0)?;
-                let (entries, unordered) = {
-                    let dm = d.borrow();
-                    (dm.entries.clone(), dm.unordered)
-                };
-                let c = Value::dict(entries)?;
-                if let Value::Dict(cd) = &c {
-                    cd.borrow_mut().unordered = unordered;
-                }
-                Ok(c)
+                Value::dict_copy(d)
             }
             "clear" => {
                 arity(0, 0)?;
                 d.borrow_mut().clear();
+                d.account();
                 Ok(Value::None)
             }
             _ => Err(Outside(format!("dict.{name}"))),
@@ -1148,17 +1260,15 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
                     return Err(Outside("a list this long".into()));
                 }
                 lm.push(args[0].clone());
+                drop(lm);
+                l.account();
                 Ok(Value::None)
             }
             "extend" => {
                 arity(1, 1)?;
                 let items = collect(&args[0])?;
                 insertable_all(obj, &items)?;
-                let mut lm = l.borrow_mut();
-                if lm.len() + items.len() > MAX_ITEMS {
-                    return Err(Outside("a list this long".into()));
-                }
-                lm.extend(items);
+                extend(l, items)?;
                 Ok(Value::None)
             }
             "insert" => {
@@ -1176,7 +1286,10 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
                 }
                 let len = lm.len() as i64;
                 let k = if i < 0 { (i + len).max(0) } else { i.min(len) };
+                charge(len as u64)?;
                 lm.insert(k as usize, args[1].clone());
+                drop(lm);
+                l.account();
                 Ok(Value::None)
             }
             "pop" => {
@@ -1199,13 +1312,13 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
                 if k < 0 || k >= len {
                     return Err(Raise("pop index out of range".into()));
                 }
+                charge((len - k) as u64)?;
                 Ok(lm.remove(k as usize))
             }
             "index" | "count" | "remove" => {
                 arity(1, 1)?;
                 value::searchable(&args[0])?;
-                let items = l.borrow().clone();
-                let hits = matches(&items, &args[0], name != "count")?;
+                let hits = matches(&l.borrow(), &args[0], name != "count")?;
                 let pos = hits.first().copied();
                 match name {
                     "count" => Ok(Value::Int(hits.len() as i64)),
@@ -1214,6 +1327,7 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
                         .ok_or_else(|| Raise(format!("{} is not in list", args[0].repr()))),
                     _ => match pos {
                         Some(k) => {
+                            charge(l.borrow().len() as u64)?;
                             l.borrow_mut().remove(k);
                             Ok(Value::None)
                         }
@@ -1223,11 +1337,16 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
             }
             "copy" => {
                 arity(0, 0)?;
-                Ok(Value::list(l.borrow().clone()))
+                let items = l.borrow();
+                charge(items.len() as u64)?;
+                Ok(Value::list(items.clone()))
             }
             "clear" => {
                 arity(0, 0)?;
-                l.borrow_mut().clear();
+                // its room goes too, as in Python
+                let items = std::mem::take(&mut *l.borrow_mut());
+                l.account();
+                drop(items);
                 Ok(Value::None)
             }
             _ => Err(Outside(format!("list.{name}"))),
@@ -1310,7 +1429,15 @@ fn math(m: MathFn, args: &[Value]) -> R<Value> {
                 _ => x.trunc(),
             })?
         }
-        MathFn::Copysign => Value::Float(real(&args[0])?.copysign(real(&args[1])?)),
+        MathFn::Copysign => {
+            let (x, sign) = (real(&args[0])?, real(&args[1])?);
+            // a NaN's sign is not part of the promise: CPython's own
+            // differs between its plain and its specialised additions
+            if sign.is_nan() {
+                return Err(Outside("the sign of a NaN".into()));
+            }
+            Value::Float(x.copysign(sign))
+        }
         MathFn::IsNan => Value::Bool(real(&args[0])?.is_nan()),
         MathFn::IsInf => Value::Bool(real(&args[0])?.is_infinite()),
         MathFn::IsFinite => Value::Bool(real(&args[0])?.is_finite()),
@@ -1336,13 +1463,14 @@ fn parse_1d(raw: &Value) -> R<Vec<(f64, f64)>> {
     if entries.is_empty() {
         return Err(table_error("table1d data must be a non-empty {x: value} mapping".into()));
     }
+    charge(sort_work(entries.len()))?;
     let mut pts = Vec::with_capacity(entries.len());
     for (k, v) in &entries {
         // in Python's order; only what Python raises becomes the table's
         // error, an operation outside the subset stays one
         let not_numeric = |e: Fault| match e {
             Fault::Raise(_) => {
-                table_error(format!("table1d entry '{}: {}' is not numeric", k.repr(), v.repr()))
+                table_error(format!("table1d entry '{}: {}' is not numeric", k.text(), v.text()))
             }
             other => other,
         };
@@ -1357,7 +1485,7 @@ fn parse_1d(raw: &Value) -> R<Vec<(f64, f64)>> {
     pts.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("no NaN"));
     for w in pts.windows(2) {
         if w[0].0 == w[1].0 {
-            return Err(table_error(format!("table1d has duplicate key {}", w[0].0)));
+            return Err(table_error(format!("table1d has duplicate key {}", crate::fmt_g(w[0].0))));
         }
     }
     Ok(pts)
@@ -1372,11 +1500,12 @@ fn parse_2d(raw: &Value) -> R<Sheets> {
     if entries.is_empty() {
         return Err(table_error("table2d data must be a non-empty {x: {y: value}} mapping".into()));
     }
+    charge(sort_work(entries.len()))?;
     let mut sheets = Vec::with_capacity(entries.len());
     for (k, inner) in &entries {
         let x = to_float(k).map_err(|e| match e {
             Fault::Raise(_) => {
-                table_error(format!("table2d outer key '{}' is not numeric", k.repr()))
+                table_error(format!("table2d outer key '{}' is not numeric", k.text()))
             }
             other => other,
         })?;
@@ -1388,10 +1517,18 @@ fn parse_2d(raw: &Value) -> R<Sheets> {
     sheets.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("no NaN"));
     for w in sheets.windows(2) {
         if w[0].0 == w[1].0 {
-            return Err(table_error(format!("table2d has duplicate outer key {}", w[0].0)));
+            return Err(table_error(format!(
+                "table2d has duplicate outer key {}",
+                crate::fmt_g(w[0].0)
+            )));
         }
     }
     Ok(sheets)
+}
+
+/// The work of reading and sorting `n` entries: n log2 n.
+fn sort_work(n: usize) -> u64 {
+    n as u64 * (usize::BITS - n.leading_zeros()) as u64
 }
 
 /// A table as `interp` reads it (app/solver/maps.py).
@@ -1418,11 +1555,15 @@ const INTERP_CACHE_SIZE: usize = 32;
 
 /// `dict(table)`, or `{k: dict(v) for k, v in table.items()}` for 2-D.
 fn table_copy(d: &Rc<DictCell>, two: bool) -> R<Value> {
+    if !two {
+        return Value::dict_copy(d);
+    }
     let entries = d.borrow().entries.clone();
+    charge(entries.len() as u64)?;
     let mut out = Vec::with_capacity(entries.len());
     for (k, v) in entries {
-        let v = match (&v, two) {
-            (Value::Dict(inner), true) => Value::dict(inner.borrow().entries.clone())?,
+        let v = match &v {
+            Value::Dict(inner) => Value::dict_copy(inner)?,
             _ => v,
         };
         out.push((k, v));

@@ -11,7 +11,8 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 /// How deeply expressions and blocks may nest (a recursive parser must not
-/// run out of stack on hostile input).
+/// run out of stack on hostile input; the stack it uses is measured too,
+/// against [`crate::STACK_BUDGET`]).
 const MAX_DEPTH: usize = 100;
 
 /// The attributes a script may read: the math module's (the functions
@@ -60,6 +61,8 @@ struct Parser {
     seen: Names,
     /// loops around the current statement (in this function)
     loops: usize,
+    /// where on the stack parsing started
+    stack_base: usize,
 }
 
 type R<T> = Result<T, Unsupported>;
@@ -141,7 +144,9 @@ impl Parser {
 
     fn enter(&mut self) -> R<()> {
         self.depth += 1;
-        if self.depth > MAX_DEPTH {
+        if self.depth > MAX_DEPTH
+            || self.stack_base.abs_diff(crate::value::stack_here()) > crate::STACK_BUDGET
+        {
             return Err(unsupported(self.line(), "code nested this deeply"));
         }
         Ok(())
@@ -827,7 +832,7 @@ impl Parser {
         match self.next() {
             Tok::Int(v) => Ok(Expr::Const(Value::Int(v))),
             Tok::Float(v) => Ok(Expr::Const(Value::Float(v))),
-            Tok::Str(s) => Ok(Expr::Const(Value::Str(Rc::from(s.as_str())))),
+            Tok::Str(s) => Ok(Expr::Const(Value::string(s))),
             Tok::Name(n) => match n.as_str() {
                 "True" => Ok(Expr::Const(Value::Bool(true))),
                 "False" => Ok(Expr::Const(Value::Bool(false))),
@@ -1091,7 +1096,15 @@ pub fn parse(src: &str) -> Result<Module, Unsupported> {
     let toks = tokens(src)?;
     GLOBALS.with(|g| *g.borrow_mut() = Some(Globals { names: vec![], index: HashMap::new() }));
     let result = (|| {
-        let mut p = Parser { toks, pos: 0, depth: 0, func: None, seen: Names::new(), loops: 0 };
+        let mut p = Parser {
+            toks,
+            pos: 0,
+            depth: 0,
+            func: None,
+            seen: Names::new(),
+            loops: 0,
+            stack_base: crate::value::stack_here(),
+        };
         let mut body = vec![];
         while !matches!(p.peek(), Tok::End) {
             if matches!(p.peek(), Tok::Indent) {

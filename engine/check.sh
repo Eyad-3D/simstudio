@@ -6,7 +6,9 @@
 #
 # Needs: Rust 1.94+ (rustfmt, clippy), a C compiler (the vendored SUNDIALS,
 # built by lsim-sundials-sys with the cc crate: no CMake, no libclang),
-# Python 3 (for the licence check). cargo-deny is used too when installed.
+# Python 3 (for the licence check) and Python 3.11+ with the backend's
+# requirements for the Script parity test (`LSIM_PYTHON`, else python3).
+# cargo-deny is used too when installed.
 set -euo pipefail
 cd "$(dirname "$0")"
 jobs="${CARGO_BUILD_JOBS:-2}"

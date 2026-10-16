@@ -1,18 +1,21 @@
-//! The native runner against today's Python runner, bit for bit.
+//! The native runner against the app's own Script runner, bit for bit.
 //!
-//! The same scripts get the same calls on both: today's own runner
-//! (backend/app/solver/scripting.py, run by `tests/parity.py` with only the
-//! standard library) and lsim-script. Every output must have the same 64
+//! The same scripts get the same calls on both: the app's runner as the app
+//! calls it (backend/app/solver/sandbox_worker.py's `_run_step`, the
+//! parameters typed by the app's project model and copied afresh each
+//! call, the inputs passed as the engine passes them; run by
+//! `tests/parity.py`) and lsim-script. Every output must have the same 64
 //! bits (two NaNs count as equal), every call that raises on Python must
-//! fail here too, and no call of these scripts may leave the subset. The
-//! scripts: the P2 hybrid's Hybrid Control Unit from
+//! fail here too with Python's message, and no call of these scripts may
+//! leave the subset. The scripts: the P2 hybrid's Hybrid Control Unit from
 //! backend/projects/hybrid-car.json on long drives of realistic inputs,
 //! hand-written scripts that exercise each feature of the subset, and a
 //! few hundred random expressions over special values (signed zeros,
 //! subnormals, the largest floats, infinities, NaN).
 //!
-//! Needs Python 3.11 or newer (`LSIM_PYTHON`, else `python3` or `python`
-//! on the PATH), as engine/check.sh does.
+//! Needs Python 3.11 or newer with pydantic, the backend's requirement
+//! (`LSIM_PYTHON`, else `python3` or `python` on the PATH), as
+//! engine/check.sh does.
 
 use lsim_script::{Runner, ScriptError};
 use serde_json::{Value, json};
@@ -34,7 +37,8 @@ fn python() -> String {
         }
     }
     panic!(
-        "the parity test needs Python 3.11 or newer: set LSIM_PYTHON or put python3 on the PATH"
+        "the parity test needs Python 3.11 or newer with the backend's requirements: set \
+         LSIM_PYTHON or put python3 on the PATH"
     );
 }
 
@@ -92,7 +96,7 @@ fn on_python(cases: &[Case]) -> Vec<Value> {
                 "calls": c.calls.iter().map(|k| json!({
                     "t": bits(k.t),
                     "dt": bits(k.dt),
-                    "inputs": k.inputs.iter().map(|(n, v)| (n.clone(), json!(bits(*v)))).collect::<serde_json::Map<_, _>>(),
+                    "inputs": k.inputs.iter().map(|(n, v)| json!([n, bits(*v)])).collect::<Vec<_>>(),
                 })).collect::<Vec<_>>(),
             })
         })
@@ -188,7 +192,10 @@ fn compare(cases: &[Case], py: &[Value]) -> Tally {
                     }
                     tally.equal += 1;
                 }
-                (Err(ScriptError::Failed(_)), None, Some(_)) => tally.both_failed += 1,
+                (Err(ScriptError::Failed(m)), None, Some(e)) => {
+                    assert_eq!(m, e.as_str().expect("a message"), "messages differ\n{}", ctx());
+                    tally.both_failed += 1;
+                }
                 (Err(ScriptError::Unsupported(m)), _, _) => {
                     assert!(case.may_leave, "left the subset: {m}\n{}", ctx());
                     tally.left += 1;
@@ -303,7 +310,7 @@ fn special_calls(r: &mut Rng, names: &[&str], n: usize) -> Vec<Call> {
 }
 
 /// Hand-written scripts, one per group of features.
-const FEATURES: [&str; 12] = [
+const FEATURES: [&str; 15] = [
     // arithmetic, floor division and modulo of floats and ints, comparisons
     r#"
 def step(t, dt, inputs, state, params):
@@ -402,7 +409,8 @@ import math
 from math import floor as fl
 def step(t, dt, inputs, state, params):
     a = inputs['a']
-    r = {'pi': math.pi * a, 'fabs': math.fabs(a), 'cs': math.copysign(2.0, a),
+    r = {'pi': math.pi * a, 'fabs': math.fabs(a), 'cs': math.copysign(2.0, a) if a == a else 0.0,
+         'csn': math.copysign(a, -1.0),
          'isn': math.isnan(a) + 2 * math.isinf(a) + 4 * math.isfinite(a),
          'rad': math.radians(a), 'deg': math.degrees(a), 'tau': math.tau, 'e': math.e}
     if math.isfinite(a) and abs(a) < 1e15:
@@ -502,6 +510,36 @@ def step(t, dt, inputs, state, params):
         r['j'] = l.index(5.0)
     return r
 "#,
+    // tables among the parameters: the app reads their values as floats,
+    // integers written in the file included
+    r#"
+import math
+def step(t, dt, inputs, state, params):
+    a = inputs['a']
+    v = params['t']['0']; w = params['m']['1']['2']
+    r = {'neg': -v, 'mul': v * -2, 'sign': math.copysign(1.0, -v), 'w': w / 3,
+         'big': params['t']['b'] - 9007199254740992, 'g': params['gain'] * a,
+         'lk': interp(params['t'], a), 'lk2': interp(params['m'], a, 2)}
+    if a == a and abs(a) < 1e9:
+        r['n'] = len(range(int(params['t']['1'])))
+    return r
+"#,
+    // each call gets a fresh shallow copy of the parameters: a key it sets
+    // is gone at the next call, a table it changes stays changed
+    r#"
+def step(t, dt, inputs, state, params):
+    params['n'] = params.get('n', 0) + 1
+    params['b']['x'] = params['b']['x'] + 1.0
+    return {'n': params['n'], 'x': params['b']['x'], 'k': len(params)}
+"#,
+    // an input of -0.0 arrives as +0.0
+    r#"
+import math
+def step(t, dt, inputs, state, params):
+    a = inputs['a']; b = inputs['b']
+    return {'a': a, 's': math.copysign(1.0, a) if a == a else 0.0, 'm': max(a, 0.0),
+            'n': min(b, -0.0), 'p': a * b, 'q': -a}
+"#,
 ];
 
 /// Scripts Python refuses when it reads them: the native runner must too.
@@ -597,6 +635,42 @@ fn edge_scripts_give_pythons_results_or_go_to_python() {
             may_leave: true,
         });
     }
+    // the review's cases: what the app reads otherwise or Python decides
+    let step3 = |body: &str| format!("import math\n{}", step(body.into()));
+    let reviewed = [
+        // the sign of a NaN (CPython's own depends on its specialisation)
+        (step3("    a = inputs['a']\n    return {'y': math.copysign(1.0, -a + a)}\n"), "{}"),
+        // `-0` is Python's integer 0
+        (
+            step3("    k = params['k']\n    return {'y': k * 1, 's': math.copysign(1.0, k)}\n"),
+            r#"{"k": -0}"#,
+        ),
+        (step3("    return {'y': params['t']['0'] * 1}\n"), r#"{"t": {"0": true}}"#),
+        (step3("    return {'y': params['t']['0'] * 1}\n"), r#"{"t": {"0": "1.5"}}"#),
+        // what the app refuses
+        (step3("    return {'y': 1.0}\n"), r#"{"x": [1, 2]}"#),
+        (step3("    return {'y': 1.0}\n"), r#"{"x": null}"#),
+        // a generic alias
+        (step3("    hint = list[float]\n    return {'y': 1.0}\n"), "{}"),
+        (step3("    hint = dict[int, float]\n    return {'y': 1.0}\n"), "{}"),
+        (step3("    hint = float[int]\n    return {'y': 1.0}\n"), "{}"),
+        // more digits than int() converts
+        (
+            step3(
+                "    s = '0'\n    for i in range(13):\n        s = s + s\n    return {'y': int(s + '7')}\n",
+            ),
+            "{}",
+        ),
+    ];
+    for (k, (code, params_text)) in reviewed.into_iter().enumerate() {
+        cases.push(Case {
+            label: format!("reviewed {k}"),
+            code,
+            params_text: params_text.into(),
+            calls: inputs(&[f64::NAN, 1.0]),
+            may_leave: true,
+        });
+    }
     let refused_from = cases.len();
     for (k, code) in REFUSED.iter().enumerate() {
         cases.push(Case {
@@ -675,7 +749,9 @@ fn the_native_runner_gives_pythons_bits() {
         cases.push(Case {
             label: format!("features {k}"),
             code: code.to_string(),
-            params_text: r#"{"gain": 2.5, "a": [1, 2.5], "b": {"x": 1}}"#.into(),
+            params_text: r#"{"gain": 2.5, "a": {"0": 1, "1": 2.5}, "b": {"x": 1},
+                "t": {"0": 0, "1": 5, "b": 9007199254740993}, "m": {"1": {"2": 3}, "0": {"0": -1.5}}}"#
+                .into(),
             calls: special_calls(&mut r, &["a", "b", "c"], 400),
             may_leave: false,
         });

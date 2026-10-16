@@ -4,6 +4,13 @@
 //! floor division and modulo, exact comparisons between integers and
 //! floats, `1 == 1.0 == True` as dict keys, and the errors Python raises
 //! (division by zero, a missing key, an operation between the wrong types).
+//!
+//! What a call may use is metered here too: the work it does (every
+//! operation whose work grows with the size of what it handles is charged
+//! as it goes, so the time limit holds inside one statement), the memory
+//! its values hold (each string, list, tuple and dict counts its size when
+//! it is made or grows and gives it back when it goes) and the stack it
+//! nests into.
 
 use crate::ast::FuncDef;
 use crate::{Fault, Fault::*};
@@ -88,6 +95,24 @@ pub enum MathFn {
 }
 
 impl Builtin {
+    /// Python's name of its type: the types (`float`, `list`, …) are
+    /// `type`, the scripts' `clamp` and `interp` Python functions.
+    fn type_name(self) -> &'static str {
+        match self {
+            Builtin::Float
+            | Builtin::Int
+            | Builtin::Bool
+            | Builtin::Range
+            | Builtin::Enumerate
+            | Builtin::Zip
+            | Builtin::List
+            | Builtin::Tuple
+            | Builtin::Dict => "type",
+            Builtin::Clamp | Builtin::Interp => "function",
+            _ => "builtin_function_or_method",
+        }
+    }
+
     /// The builtin of a name, if a script may use it.
     pub fn of(name: &str) -> Option<Builtin> {
         Some(match name {
@@ -164,7 +189,7 @@ pub struct Dict {
     index: RefCell<Index>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Index {
     /// the hash of each of the first entries, kept across removals (as
     /// CPython keeps each entry's hash): a rebuild never hashes again
@@ -178,6 +203,17 @@ struct Index {
 const INDEX_FROM: usize = 16;
 
 impl Dict {
+    /// A shallow copy (`dict(d)`): the same keys and values in the same
+    /// order, its index copied with it.
+    fn copy(&self) -> Dict {
+        Dict {
+            entries: self.entries.clone(),
+            keys: 0,
+            unordered: self.unordered,
+            index: RefCell::new(self.index.borrow().clone()),
+        }
+    }
+
     /// Removes entry `k`.
     pub fn remove(&mut self, k: usize) -> (Value, Value) {
         self.keys += 1;
@@ -190,11 +226,13 @@ impl Dict {
         self.entries.remove(k)
     }
 
-    /// Removes every entry.
+    /// Removes every entry (and lets go of their room, as Python does).
     pub fn clear(&mut self) {
         self.keys += 1;
         *self.index.get_mut() = Index::default();
-        self.entries.clear();
+        drop_flat(
+            std::mem::take(&mut self.entries).into_iter().flat_map(|(k, v)| [k, v]).collect(),
+        );
     }
 }
 
@@ -218,10 +256,12 @@ fn key_hash(k: &Value, h: &mut std::hash::DefaultHasher) -> Result<(), Fault> {
             }
         }
         Value::Str(s) => {
+            charge(s.len() as u64)?;
             3u8.hash(h);
-            s.hash(h);
+            s.as_str().hash(h);
         }
         Value::Tuple(t) => {
+            stack_check()?;
             4u8.hash(h);
             t.len().hash(h);
             for x in t.iter() {
@@ -245,36 +285,112 @@ fn hash_of(k: &Value) -> Result<u64, Fault> {
     Ok(h.finish())
 }
 
+/// A string's text. Its bytes count towards the runner's memory while it
+/// lives.
+pub struct Text(Box<str>);
+
+impl Text {
+    fn new(s: Box<str>) -> Text {
+        memory_add(s.len() + HEADER);
+        Text(s)
+    }
+
+    /// The text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for Text {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Drop for Text {
+    fn drop(&mut self) {
+        memory_sub(self.0.len() + HEADER);
+    }
+}
+
 /// A list's items. Dropped without recursion (a list nested a million
-/// deep must not overflow the stack when it goes).
-#[derive(Default)]
-pub struct ListCell(RefCell<Vec<Value>>);
+/// deep must not overflow the stack when it goes). Its room counts
+/// towards the runner's memory: [`ListCell::account`] after it grows.
+pub struct ListCell {
+    items: RefCell<Vec<Value>>,
+    charged: Cell<usize>,
+}
 
 /// A tuple's items (dropped without recursion).
-pub struct TupleCell(Vec<Value>);
+pub struct TupleCell {
+    items: Vec<Value>,
+    charged: usize,
+}
 
-/// A dict (dropped without recursion).
-#[derive(Default)]
-pub struct DictCell(RefCell<Dict>);
+/// A dict (dropped without recursion); [`DictCell::account`] after it
+/// grows.
+pub struct DictCell {
+    dict: RefCell<Dict>,
+    charged: Cell<usize>,
+}
+
+/// Charges or gives back the difference between what a container has
+/// charged and its size `now`.
+fn recharge(charged: &Cell<usize>, now: usize) {
+    let was = charged.replace(now);
+    if now >= was {
+        memory_add(now - was);
+    } else {
+        memory_sub(was - now);
+    }
+}
+
+impl ListCell {
+    fn new(items: Vec<Value>) -> ListCell {
+        let cell = ListCell { items: RefCell::new(items), charged: Cell::new(0) };
+        cell.account();
+        cell
+    }
+
+    /// Brings the memory the list counts up to date with its room (after
+    /// it grew or shrank; not while it is borrowed mutably).
+    pub fn account(&self) {
+        recharge(&self.charged, HEADER + self.items.borrow().capacity() * VALUE);
+    }
+}
+
+impl DictCell {
+    fn new(dict: Dict) -> DictCell {
+        let cell = DictCell { dict: RefCell::new(dict), charged: Cell::new(0) };
+        cell.account();
+        cell
+    }
+
+    /// Brings the memory the dict counts up to date with its room.
+    pub fn account(&self) {
+        recharge(&self.charged, HEADER + self.dict.borrow().entries.capacity() * ENTRY);
+    }
+}
 
 impl std::ops::Deref for ListCell {
     type Target = RefCell<Vec<Value>>;
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.items
     }
 }
 
 impl std::ops::Deref for TupleCell {
     type Target = Vec<Value>;
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.items
     }
 }
 
 impl std::ops::Deref for DictCell {
     type Target = RefCell<Dict>;
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.dict
     }
 }
 
@@ -285,17 +401,17 @@ fn drop_flat(mut stack: Vec<Value>) {
         match v {
             Value::List(rc) => {
                 if let Ok(cell) = Rc::try_unwrap(rc) {
-                    stack.append(&mut cell.0.take());
+                    stack.append(&mut cell.items.take());
                 }
             }
             Value::Tuple(rc) => {
                 if let Ok(mut cell) = Rc::try_unwrap(rc) {
-                    stack.append(&mut cell.0);
+                    stack.append(&mut cell.items);
                 }
             }
             Value::Dict(rc) | Value::View(rc, _) => {
                 if let Ok(cell) = Rc::try_unwrap(rc) {
-                    for (k, v) in cell.0.take().entries {
+                    for (k, v) in std::mem::take(&mut cell.dict.borrow_mut().entries) {
                         stack.push(k);
                         stack.push(v);
                     }
@@ -342,7 +458,8 @@ fn iter_values(it: crate::interp::Iter, out: &mut Vec<Value>) {
 
 impl Drop for ListCell {
     fn drop(&mut self) {
-        drop_flat(self.0.take());
+        memory_sub(self.charged.get());
+        drop_flat(self.items.take());
     }
 }
 
@@ -356,13 +473,15 @@ impl Drop for Closure {
 
 impl Drop for TupleCell {
     fn drop(&mut self) {
-        drop_flat(std::mem::take(&mut self.0));
+        memory_sub(self.charged);
+        drop_flat(std::mem::take(&mut self.items));
     }
 }
 
 impl Drop for DictCell {
     fn drop(&mut self) {
-        let entries = std::mem::take(&mut self.0.get_mut().entries);
+        memory_sub(self.charged.get());
+        let entries = std::mem::take(&mut self.dict.get_mut().entries);
         drop_flat(entries.into_iter().flat_map(|(k, v)| [k, v]).collect());
     }
 }
@@ -379,7 +498,7 @@ pub enum Value {
     /// a float
     Float(f64),
     /// a string
-    Str(Rc<str>),
+    Str(Rc<Text>),
     /// a tuple
     Tuple(Rc<TupleCell>),
     /// a list
@@ -423,36 +542,120 @@ const MAX_NESTING: usize = 100;
 /// work to Python.
 const MAX_VISITS: usize = 1_000_000;
 
-/// How much work passes between two readings of the clock.
+/// How much work passes between two readings of the clock (and of the
+/// memory the values hold).
 const CLOCK_WORK: u64 = 4096;
+
+/// The most memory a runner's values may hold, bytes: what the app's
+/// Script worker allows its whole process (sandbox_worker.py's
+/// `DEFAULT_MEM_BYTES`). Beyond it the script is left to Python, whose
+/// own limit then decides.
+pub const MAX_LIVE_BYTES: usize = 512 * 1024 * 1024;
+
+/// How much of the stack one call into the interpreter may use below the
+/// point where it started, bytes: about half of the smallest caller
+/// thread it is made for (1 MiB), the rest left to the caller's frames
+/// and to the leaf calls below the last check. Measured where the
+/// interpreter nests (expressions, blocks, calls, the parser, the walks
+/// through nested data), so a script nested too deeply for it is left to
+/// Python whatever the build's frames are, instead of overflowing.
+pub const STACK_BUDGET: usize = 512 * 1024;
+
+/// Bytes counted for a container or a string besides its items (the
+/// reference counts, the cell, the vector).
+const HEADER: usize = 48;
+
+/// Bytes counted for an item of a list or tuple.
+const VALUE: usize = std::mem::size_of::<Value>();
+
+/// Bytes counted for a dict's entry: its key, its value and its place in
+/// the index.
+const ENTRY: usize = 2 * VALUE + 32;
 
 thread_local! {
     /// the work done in the current call, and the call's deadline
     static WORK: Cell<u64> = const { Cell::new(0) };
     static DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
+    /// the bytes held by the values of the runner being called
+    static LIVE: Cell<usize> = const { Cell::new(0) };
+    /// where on the stack the current call into the interpreter started
+    static STACK_BASE: Cell<usize> = const { Cell::new(0) };
 }
 
 /// Starts the clock of a call into the script: work charged after
-/// `deadline` ends the call with [`Fault::Limit`] (None: no limit).
+/// `deadline` ends the call with [`Fault::Limit`] (None: no limit). The
+/// stack the call may use is measured from here.
 pub fn start_meter(deadline: Option<Instant>) {
     WORK.with(|w| w.set(0));
     DEADLINE.with(|d| d.set(deadline));
+    STACK_BASE.with(|b| b.set(stack_here()));
 }
 
-/// Charges `n` units of work (an item visited, a key compared or copied),
-/// reading the clock every [`CLOCK_WORK`] units: one operation over a large
-/// container stops at the time limit too, not only between statements.
+/// Charges `n` units of work (an item visited, a key compared or copied, a
+/// byte of text), reading the clock and the memory every [`CLOCK_WORK`]
+/// units: one operation over a large container stops at the time limit
+/// too, not only between statements.
 pub fn charge(n: u64) -> Result<(), Fault> {
     let before = WORK.with(|w| {
         let b = w.get();
         w.set(b.saturating_add(n));
         b
     });
-    if before.saturating_add(n) / CLOCK_WORK != before / CLOCK_WORK
-        && let Some(d) = DEADLINE.with(|d| d.get())
-        && Instant::now() > d
-    {
-        return Err(Limit);
+    if before.saturating_add(n) / CLOCK_WORK != before / CLOCK_WORK {
+        if let Some(d) = DEADLINE.with(|d| d.get())
+            && Instant::now() > d
+        {
+            return Err(Limit);
+        }
+        memory_check()?;
+    }
+    Ok(())
+}
+
+fn memory_add(n: usize) {
+    LIVE.with(|l| l.set(l.get().saturating_add(n)));
+}
+
+fn memory_sub(n: usize) {
+    LIVE.with(|l| l.set(l.get().saturating_sub(n)));
+}
+
+/// Makes `live` the bytes counted while a runner is called, until
+/// [`memory_leave`]; returns what was counted before (another runner's).
+pub fn memory_enter(live: usize) -> usize {
+    LIVE.with(|l| l.replace(live))
+}
+
+/// Ends [`memory_enter`]: puts `outer` back and returns the bytes the
+/// runner's values hold now.
+pub fn memory_leave(outer: usize) -> usize {
+    LIVE.with(|l| l.replace(outer))
+}
+
+/// Whether the runner's values hold no more than [`MAX_LIVE_BYTES`].
+pub fn memory_check() -> Result<(), Fault> {
+    if LIVE.with(Cell::get) > MAX_LIVE_BYTES {
+        return Err(Outside(format!(
+            "values holding more than {} MB (what the app's Script worker allows)",
+            MAX_LIVE_BYTES >> 20
+        )));
+    }
+    Ok(())
+}
+
+/// Where on the stack this is (the address of a local).
+#[inline(always)]
+pub fn stack_here() -> usize {
+    let probe = 0u8;
+    std::hint::black_box(&probe) as *const u8 as usize
+}
+
+/// Whether the current call into the interpreter has used no more than
+/// [`STACK_BUDGET`] of the stack (outside a call nothing is checked).
+pub fn stack_check() -> Result<(), Fault> {
+    let base = STACK_BASE.with(Cell::get);
+    if base != 0 && base.abs_diff(stack_here()) > STACK_BUDGET {
+        return Err(Outside("code or data nested this deeply on the native runner's stack".into()));
     }
     Ok(())
 }
@@ -473,6 +676,9 @@ impl Walk {
         if depth > MAX_NESTING {
             return Err(Outside("containers nested this deeply".into()));
         }
+        if depth > 0 {
+            stack_check()?;
+        }
         if self.left == 0 {
             return Err(Outside("comparing or searching containers this large".into()));
         }
@@ -484,17 +690,26 @@ impl Walk {
 impl Value {
     /// A new list.
     pub fn list(v: Vec<Value>) -> Value {
-        Value::List(Rc::new(ListCell(RefCell::new(v))))
+        Value::List(Rc::new(ListCell::new(v)))
     }
 
     /// A new tuple.
     pub fn tuple(v: Vec<Value>) -> Value {
-        Value::Tuple(Rc::new(TupleCell(v)))
+        let charged = HEADER + v.capacity() * VALUE;
+        memory_add(charged);
+        Value::Tuple(Rc::new(TupleCell { items: v, charged }))
     }
 
     /// A new, empty dict.
     pub fn new_dict() -> Rc<DictCell> {
-        Rc::new(DictCell::default())
+        Rc::new(DictCell::new(Dict::default()))
+    }
+
+    /// `dict(d)`: a shallow copy, in `d`'s order.
+    pub fn dict_copy(d: &DictCell) -> Result<Value, Fault> {
+        let dm = d.borrow();
+        charge(dm.entries.len() as u64)?;
+        Ok(Value::Dict(Rc::new(DictCell::new(dm.copy()))))
     }
 
     /// A new dict (keys checked; values may be anything).
@@ -508,7 +723,12 @@ impl Value {
 
     /// A string.
     pub fn str(s: &str) -> Value {
-        Value::Str(Rc::from(s))
+        Value::Str(Rc::new(Text::new(s.into())))
+    }
+
+    /// A string made from `s`.
+    pub fn string(s: String) -> Value {
+        Value::Str(Rc::new(Text::new(s.into_boxed_str())))
     }
 
     /// Python's type name.
@@ -524,7 +744,8 @@ impl Value {
             Value::Dict(_) => "dict",
             Value::Range(..) => "range",
             Value::Func(_) => "function",
-            Value::Builtin(_) | Value::Method(_) => "builtin_function_or_method",
+            Value::Builtin(b) => b.type_name(),
+            Value::Method(_) => "builtin_function_or_method",
             Value::Math => "module",
             Value::View(_, 0) => "dict_keys",
             Value::View(_, 1) => "dict_values",
@@ -533,12 +754,20 @@ impl Value {
         }
     }
 
-    /// A readable form, for messages (close to Python's repr; deep or long
-    /// containers shortened).
+    /// Python's `repr()`, for messages (a long or deeply nested container
+    /// shortened).
     pub fn repr(&self) -> String {
         let mut out = String::new();
         repr_into(self, &mut out, 0);
         out
+    }
+
+    /// Python's `str()`, for messages: a string's own text, else its repr.
+    pub fn text(&self) -> String {
+        match self {
+            Value::Str(s) => s.as_str().to_string(),
+            _ => self.repr(),
+        }
     }
 
     /// Python's truth value.
@@ -592,20 +821,8 @@ fn repr_into(v: &Value, out: &mut String, depth: usize) {
         Value::None => out.push_str("None"),
         Value::Bool(b) => out.push_str(if *b { "True" } else { "False" }),
         Value::Int(i) => out.push_str(&i.to_string()),
-        Value::Float(x) => out.push_str(&if x.is_nan() {
-            "nan".to_string()
-        } else if x.is_infinite() {
-            if *x > 0.0 { "inf" } else { "-inf" }.to_string()
-        } else if x.fract() == 0.0 && x.abs() < 1e16 {
-            format!("{x:.1}")
-        } else {
-            format!("{x}")
-        }),
-        Value::Str(s) => {
-            out.push('\'');
-            out.extend(s.chars().take(200));
-            out.push('\'');
-        }
+        Value::Float(x) => out.push_str(&float_repr(*x)),
+        Value::Str(s) => str_repr(s, out),
         Value::Tuple(t) => {
             out.push('(');
             for (k, x) in t.iter().enumerate() {
@@ -650,6 +867,7 @@ fn repr_into(v: &Value, out: &mut String, depth: usize) {
             }
             out.push('}');
         }
+        Value::Range(a, b, 1) => out.push_str(&format!("range({a}, {b})")),
         Value::Range(a, b, s) => out.push_str(&format!("range({a}, {b}, {s})")),
         Value::Func(c) => out.push_str(&format!("<function {}>", c.def.name)),
         Value::Builtin(b) => out.push_str(&format!("<built-in function {b:?}>")),
@@ -657,6 +875,92 @@ fn repr_into(v: &Value, out: &mut String, depth: usize) {
         Value::Math => out.push_str("<module 'math'>"),
         Value::View(..) | Value::Iter(_) => out.push_str(&format!("<{}>", v.type_name())),
     }
+}
+
+/// Python's `repr()` of a float: the shortest digits that read back as
+/// `x`, written with an exponent below 1e-4 and from 1e16 on.
+pub fn float_repr(x: f64) -> String {
+    if x.is_nan() {
+        return "nan".into();
+    }
+    if x.is_infinite() {
+        return if x > 0.0 { "inf" } else { "-inf" }.into();
+    }
+    if x == 0.0 {
+        return if x.is_sign_negative() { "-0.0" } else { "0.0" }.into();
+    }
+    // Rust's shortest digits are Python's (both the shortest that read
+    // back, the nearer of two)
+    let sci = format!("{:e}", x.abs());
+    let (mant, exp) = sci.split_once('e').expect("an exponent");
+    let exp: i32 = exp.parse().expect("an integer exponent");
+    let digits: String = mant.chars().filter(|c| *c != '.').collect();
+    let (n, point) = (digits.len() as i32, exp + 1);
+    let body = if !(-4 < point && point <= 16) {
+        let rest = &digits[1..];
+        let dot = if rest.is_empty() { "" } else { "." };
+        let sign = if exp < 0 { '-' } else { '+' };
+        format!("{}{dot}{rest}e{sign}{:02}", &digits[..1], exp.abs())
+    } else if point <= 0 {
+        format!("0.{}{digits}", "0".repeat((-point) as usize))
+    } else if point >= n {
+        format!("{digits}{}.0", "0".repeat((point - n) as usize))
+    } else {
+        format!("{}.{}", &digits[..point as usize], &digits[point as usize..])
+    };
+    format!("{}{body}", if x < 0.0 { "-" } else { "" })
+}
+
+/// Python's `repr()` of a string: in single quotes unless it holds one and
+/// no double quote, with backslash escapes for the quote, the backslash
+/// and the characters Python does not print.
+fn str_repr(s: &str, out: &mut String) {
+    let quote = if s.contains('\'') && !s.contains('"') { '"' } else { '\'' };
+    out.push(quote);
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            c if c == quote => {
+                out.push('\\');
+                out.push(c);
+            }
+            ' '..='~' => out.push(c),
+            c if c.is_ascii() || (c as u32) < 0x100 && !printable(c) => {
+                out.push_str(&format!("\\x{:02x}", c as u32))
+            }
+            c if printable(c) => out.push(c),
+            c if (c as u32) < 0x10000 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push_str(&format!("\\U{:08x}", c as u32)),
+        }
+    }
+    out.push(quote);
+}
+
+/// Whether Python prints a character outside ASCII as it is in a repr
+/// (not a control, separator, format or private-use character).
+fn printable(c: char) -> bool {
+    !(c.is_control()
+        || c.is_whitespace()
+        || matches!(
+            c as u32,
+            0xa0 | 0xad
+                | 0x600..=0x605
+                | 0x61c
+                | 0x6dd
+                | 0x70f
+                | 0x180e
+                | 0x200b..=0x200f
+                | 0x202a..=0x202e
+                | 0x2060..=0x206f
+                | 0xd800..=0xf8ff
+                | 0xfeff
+                | 0xfff9..=0xfffb
+                | 0xe0001..=0xe007f
+                | 0xf0000..
+        ))
 }
 
 /// The number of items of `range(a, b, s)`, exactly.
@@ -738,6 +1042,16 @@ fn ptr(v: &Value) -> Option<*const ()> {
         Value::Func(f) => Some(Rc::as_ptr(f) as *const ()),
         _ => None,
     }
+}
+
+/// Every container `v` holds directly (see [`children`]), each item
+/// looked at charged as work.
+fn containers_in(v: &Value, out: &mut Vec<Value>) -> Result<(), Fault> {
+    let mut all = vec![];
+    children(v, &mut all);
+    charge(all.len() as u64)?;
+    out.extend(all.into_iter().filter(|x| ptr(x).is_some()));
+    Ok(())
 }
 
 /// Every value `v` holds directly (a container's items, a dict's keys and
@@ -822,7 +1136,7 @@ pub fn insertable_all(container: &Value, items: &[Value]) -> Result<(), Fault> {
             return Err(Outside("a container that holds itself".into()));
         }
         if seen.insert(p) {
-            children(&x, &mut stack);
+            containers_in(&x, &mut stack)?;
         }
     }
     Ok(())
@@ -838,7 +1152,10 @@ fn eq_w(a: &Value, b: &Value, w: &mut Walk, depth: usize) -> Result<bool, Fault>
     Ok(match (a, b) {
         _ if a.is_number() && b.is_number() => cmp_num(a, b) == Some(Ordering::Equal),
         (Value::None, Value::None) => true,
-        (Value::Str(x), Value::Str(y)) => x == y,
+        (Value::Str(x), Value::Str(y)) => {
+            charge(x.len().min(y.len()) as u64)?;
+            x.as_str() == y.as_str()
+        }
         (Value::Tuple(x), Value::Tuple(y)) => {
             if Rc::ptr_eq(x, y) {
                 return Ok(true);
@@ -857,7 +1174,8 @@ fn eq_w(a: &Value, b: &Value, w: &mut Walk, depth: usize) -> Result<bool, Fault>
             if Rc::ptr_eq(x, y) {
                 return Ok(true);
             }
-            let (x, y) = (x.borrow().clone(), y.borrow().clone());
+            // nothing a comparison does changes a list
+            let (x, y) = (x.borrow(), y.borrow());
             if x.len() != y.len() {
                 return Ok(false);
             }
@@ -872,13 +1190,13 @@ fn eq_w(a: &Value, b: &Value, w: &mut Walk, depth: usize) -> Result<bool, Fault>
             if Rc::ptr_eq(x, y) {
                 return Ok(true);
             }
-            let (dx, dy) = (x.borrow().entries.clone(), y.borrow().entries.clone());
-            if dx.len() != dy.len() {
+            let (dx, dy) = (x.borrow(), y.borrow());
+            if dx.entries.len() != dy.entries.len() {
                 return Ok(false);
             }
-            for (k, v) in &dx {
+            for (k, v) in &dx.entries {
                 let mut found = None;
-                for (k2, v2) in &dy {
+                for (k2, v2) in &dy.entries {
                     if eq_w(k, k2, w, depth + 1)? {
                         found = Some(v2);
                         break;
@@ -948,10 +1266,13 @@ fn order_w(
         return Ok(cmp_num(a, b));
     }
     match (a, b) {
-        (Value::Str(x), Value::Str(y)) => Ok(Some(x.as_ref().cmp(y.as_ref()))),
+        (Value::Str(x), Value::Str(y)) => {
+            charge(x.len().min(y.len()) as u64)?;
+            Ok(Some(x.as_str().cmp(y.as_str())))
+        }
         (Value::Tuple(x), Value::Tuple(y)) => seq_order(x, y, op, w, depth),
         (Value::List(x), Value::List(y)) => {
-            let (x, y) = (x.borrow().clone(), y.borrow().clone());
+            let (x, y) = (x.borrow(), y.borrow());
             seq_order(&x, &y, op, w, depth)
         }
         _ => Err(type_error(format!(
@@ -1067,6 +1388,8 @@ fn dict_insert(d: &Rc<DictCell>, k: Value, v: Value) -> Result<(), Fault> {
             }
             dm.keys += 1;
             dm.entries.push((k, v));
+            drop(dm);
+            d.account();
         }
     }
     Ok(())
@@ -1184,7 +1507,14 @@ pub fn binary(op: crate::ast::BinOp, a: &Value, b: &Value) -> Result<Value, Faul
             }
             FloorDiv | Mod => {
                 if y == 0 {
-                    return Err(Raise("integer division or modulo by zero".into()));
+                    return Err(Raise(
+                        if op == Mod {
+                            "integer modulo by zero"
+                        } else {
+                            "integer division or modulo by zero"
+                        }
+                        .into(),
+                    ));
                 }
                 let q = x.checked_div(y).ok_or_else(overflow)?;
                 let r = x - q * y;
@@ -1220,7 +1550,8 @@ pub fn binary(op: crate::ast::BinOp, a: &Value, b: &Value) -> Result<Value, Faul
             }
             Mod => {
                 if y == 0.0 {
-                    return Err(Raise("float modulo by zero".into()));
+                    // CPython 3.11's words (3.12 added "by zero")
+                    return Err(Raise("float modulo".into()));
                 }
                 Ok(Value::Float(float_rem(x, y)))
             }
@@ -1231,17 +1562,23 @@ pub fn binary(op: crate::ast::BinOp, a: &Value, b: &Value) -> Result<Value, Faul
     // sequences
     match (op, a, b) {
         (Add, Value::Str(x), Value::Str(y)) => {
-            concat_len(x.len(), y.len())?;
-            Ok(Value::Str(Rc::from(format!("{x}{y}").as_str())))
+            let n = concat_len(x.len(), y.len())?;
+            charge(n as u64)?;
+            let mut s = String::with_capacity(n);
+            s.push_str(x);
+            s.push_str(y);
+            Ok(Value::string(s))
         }
         (Add, Value::Tuple(x), Value::Tuple(y)) => {
-            concat_len(x.len(), y.len())?;
+            let n = concat_len(x.len(), y.len())?;
+            charge(n as u64)?;
             Ok(Value::tuple(x.iter().chain(y.iter()).cloned().collect()))
         }
         (Add, Value::List(x), Value::List(y)) => {
-            let v: Vec<Value> = x.borrow().iter().chain(y.borrow().iter()).cloned().collect();
-            concat_len(v.len(), 0)?;
-            Ok(Value::list(v))
+            let (x, y) = (x.borrow(), y.borrow());
+            let n = concat_len(x.len(), y.len())?;
+            charge(n as u64)?;
+            Ok(Value::list(x.iter().chain(y.iter()).cloned().collect()))
         }
         (Mod, Value::Str(_), _) => Err(Outside("string formatting with '%'".into())),
         (Mul, Value::Str(_) | Value::Tuple(_) | Value::List(_), _)
@@ -1258,21 +1595,26 @@ pub fn contains(c: &Value, x: &Value) -> Result<bool, Fault> {
         Value::Dict(d) => Ok(dict_get(d, x)?.is_some()),
         Value::List(_) | Value::Tuple(_) => {
             searchable(x)?;
-            let items: Vec<Value> = match c {
-                Value::List(l) => l.borrow().clone(),
-                Value::Tuple(t) => t.to_vec(),
-                _ => unreachable!("a sequence"),
-            };
-            let mut w = Walk::default();
-            for v in &items {
-                if eq_w(v, x, &mut w, 0)? {
-                    return Ok(true);
+            let found = |items: &[Value]| -> Result<bool, Fault> {
+                let mut w = Walk::default();
+                for v in items {
+                    if eq_w(v, x, &mut w, 0)? {
+                        return Ok(true);
+                    }
                 }
+                Ok(false)
+            };
+            match c {
+                Value::List(l) => found(&l.borrow()),
+                Value::Tuple(t) => found(t),
+                _ => unreachable!("a sequence"),
             }
-            Ok(false)
         }
         Value::Str(s) => match x {
-            Value::Str(sub) => Ok(s.contains(sub.as_ref())),
+            Value::Str(sub) => {
+                charge((s.len() + sub.len()) as u64)?;
+                Ok(s.contains(sub.as_str()))
+            }
             _ => Err(type_error(format!(
                 "'in <string>' requires string as left operand, not {}",
                 x.type_name()
@@ -1325,15 +1667,19 @@ pub fn index(c: &Value, i: &Value) -> Result<Value, Fault> {
             Ok(l[seq_index(l.len() as i128, i, "list")? as usize].clone())
         }
         Value::Str(s) => {
-            let chars: Vec<char> = s.chars().collect();
-            let k = seq_index(chars.len() as i128, i, "string")?;
-            Ok(Value::str(&chars[k as usize].to_string()))
+            charge(s.len() as u64)?;
+            let k = seq_index(s.chars().count() as i128, i, "string")?;
+            let c = s.chars().nth(k as usize).expect("an index inside the string");
+            Ok(Value::str(c.encode_utf8(&mut [0; 4])))
         }
         Value::Range(a, b, st) => {
             let k = seq_index(range_len(*a, *b, *st), i, "range object")?;
             // inside the range: a 64-bit integer
             Ok(Value::Int((*a as i128 + *st as i128 * k) as i64))
         }
+        // `list[float]` is a generic alias, `float[int]` Python's own
+        // TypeError: left to Python
+        Value::Builtin(_) => Err(Outside("subscripting a builtin".into())),
         _ => Err(type_error(format!("'{}' object is not subscriptable", c.type_name()))),
     }
 }
@@ -1365,10 +1711,12 @@ pub fn set_index(c: &Value, i: Value, v: Value) -> Result<(), Fault> {
 pub fn to_float(x: &Value) -> Result<f64, Fault> {
     match x {
         Value::Str(s) => {
+            charge(s.len() as u64)?;
             if !plain_ascii(s) {
                 return Err(Outside("a number written with other than plain ASCII".into()));
             }
-            parse_float(s).ok_or_else(|| Raise(format!("could not convert string to float: '{s}'")))
+            parse_float(s)
+                .ok_or_else(|| Raise(format!("could not convert string to float: {}", x.repr())))
         }
         _ => x.as_float().ok_or_else(|| {
             type_error(format!(
@@ -1437,10 +1785,15 @@ pub fn to_int(x: &Value) -> Result<i64, Fault> {
             Ok(t as i64)
         }
         Value::Str(s) => {
+            charge(s.len() as u64)?;
             if !plain_ascii(s) {
                 return Err(Outside("a number written with other than plain ASCII".into()));
             }
-            let bad = || Raise(format!("invalid literal for int() with base 10: '{s}'"));
+            // (CPython shows at most 200 characters of the repr)
+            let bad = || {
+                let r: String = x.repr().chars().take(200).collect();
+                Raise(format!("invalid literal for int() with base 10: {r}"))
+            };
             let t = s.trim_matches(|c: char| c.is_ascii_whitespace());
             let (neg, body) = match t.as_bytes().first() {
                 Some(b'+') => (false, &t[1..]),
@@ -1458,6 +1811,11 @@ pub fn to_int(x: &Value) -> Result<i64, Fault> {
                 return Err(bad());
             }
             let digits: String = body.chars().filter(|c| *c != '_').collect();
+            // Python refuses more digits than sys.get_int_max_str_digits()
+            // (4300 unless set, never below 640)
+            if digits.len() > MAX_SURE_DIGITS {
+                return Err(Outside("int() of more than 640 digits".into()));
+            }
             let v: i128 = digits.parse().map_err(|_| overflow())?;
             let v = if neg { -v } else { v };
             i64::try_from(v).map_err(|_| overflow())
@@ -1470,6 +1828,10 @@ pub fn to_int(x: &Value) -> Result<i64, Fault> {
         }),
     }
 }
+
+/// The most digits `int(str)` converts on every configuration of Python
+/// (the lowest limit `sys.set_int_max_str_digits` takes).
+const MAX_SURE_DIGITS: usize = 640;
 
 /// ASCII without the control characters Python counts as white space and
 /// Rust does not (vertical tab, the separators 0x1c to 0x1f).
