@@ -2058,7 +2058,11 @@ save most of those 10 ms in every run, sequential or not (a change to
   CPython 3.11), the parameters typed by the project model (schemas.py's
   `ParamValue`: a table's values are floats, whatever the file writes),
   a fresh shallow copy of them each call, and an input of -0.0 passed as
-  +0.0 (sandbox.py's `float(x or 0.0)`). What it does not run is left to
+  +0.0 (sandbox.py's `float(x or 0.0)`); its protocol too: the worker's
+  frames give a call's number of inputs and outputs and each output key's
+  length in UTF-8 bytes in 16 bits (`_pack_step`, `_pack_outputs`), and
+  past 65 535 the worker stops and the app's run fails, so such a call is
+  left to Python. What it does not run is left to
   Python, so a result never differs from the app's: a script that uses
   anything else (other imports, the transcendental math functions and
   powers of floats, which CPython takes from the C runtime and so differ
@@ -2076,15 +2080,29 @@ save most of those 10 ms in every run, sequential or not (a change to
   stops the run, which is made again on Python. A NaN result is a NaN;
   its sign and payload are not part of the promise (IEEE 754 leaves them
   open). An exception Python raises is raised with CPython 3.11's
-  message. **Limits**, those of the app's worker in size: a call stops
+  message, quoting values whole as Python's repr shows them; a message
+  whose words are not known here is left to Python: one that would quote
+  an object's address (a function, a bound method, an iterator object,
+  the scripts' `clamp` and `interp`), the parameters in the project's
+  order (the importer keeps them sorted), a character beyond the common
+  scripts and symbols whose printing Python 3.11 decides by Unicode 14,
+  or a value nested or long beyond what is quoted here.
+  **Limits**, those of the app's worker in size: a call stops
   after 2 s (the clock is read every 1024 statements, loop rounds and
   calls, and as every operation whose work grows with the size of what
   it handles goes: concatenation, copies, comparisons and searches of
   containers, indexing and converting text, reading the outputs; so a
-  single statement over large containers stops too), and a runner's
-  values may hold 512 MB (each string, list, tuple and dict counts its
-  size when it is made or grows and gives it back when it goes); past
-  either the script is left to Python, whose own limits decide. They are
+  single statement over large containers stops too), and a runner may
+  hold 512 MB: every heap block its values make counts as the heap keeps
+  it, from before it is made (strings, lists, tuples, dicts and their
+  indexes, iterator objects and what they keep of their sources, bound
+  methods, functions and their defaults, `interp`'s parsed tables), and
+  the syntax tree 128 bytes for each byte of code (it holds at most about
+  100); a script of more than 1 MiB is not read. `tests/memory.rs` checks
+  it with an allocator that counts every block: each kind of value counts
+  exactly what it holds, and scripts that outgrow the cap in each kind of
+  value stop before the process holds 531 MB. Past either limit the
+  script is left to Python, whose own limits decide. They are
   not measured the same way: Python is slower and its values larger, so
   a call close to either limit can be stopped by the app's worker and
   return here. On top, outside the subset: a million items a container,
@@ -2102,8 +2120,9 @@ save most of those 10 ms in every run, sequential or not (a change to
   random expressions over signed zeros, subnormals, the largest floats,
   infinities and NaN): 35 681 calls bitwise equal, 2725 failing on both
   with the same message, 121 random calls handed back to Python, none
-  different; `tests/app_runner.rs` checks the cases a review found and
-  the limits; and the hybrid's four cases give bitwise the same results
+  different; its edge cases add 112 errors scripts meet, each failing
+  with CPython's message or left to Python; `tests/app_runner.rs` checks
+  the cases the reviews found and the limits; and the hybrid's four cases give bitwise the same results
   on both runners (`lsim-project/examples/script_parity`).
   A Hybrid Control Unit call costs 6.5–7.1 µs natively (release build,
   `lsim-script/examples/hcu_speed`, on a 4-core VM where the runner

@@ -178,10 +178,11 @@ fn int_of_a_long_digit_string_is_left_to_python() {
     }
 }
 
-/// CPython 3.11's words for the errors scripts meet most.
+/// CPython 3.11's words for the errors scripts meet, the values they
+/// quote as Python's repr shows them.
 #[test]
 fn messages_are_cpython_311s() {
-    let cases: [(&str, &str, &str); 7] = [
+    let cases: Vec<(&str, &str, &str)> = vec![
         ("    return {'y': 7 % 0}\n", "{}", "integer modulo by zero"),
         ("    return {'y': 7 // 0}\n", "{}", "integer division or modulo by zero"),
         ("    return {'y': 1.0 % 0.0}\n", "{}", "float modulo"),
@@ -201,11 +202,129 @@ fn messages_are_cpython_311s() {
             "{}",
             "table1d entry '1e+16: x' is not numeric",
         ),
+        // a sequence's own concatenation, and the operator of an
+        // augmented assignment
+        ("    return {'y': 'a' + 1}\n", "{}", "can only concatenate str (not \"int\") to str"),
+        (
+            "    return {'y': [1] + (1,)}\n",
+            "{}",
+            "can only concatenate list (not \"tuple\") to list",
+        ),
+        (
+            "    x = (1,)\n    x += [1]\n",
+            "{}",
+            "can only concatenate tuple (not \"list\") to tuple",
+        ),
+        ("    x = 1\n    x -= 'a'\n", "{}", "unsupported operand type(s) for -=: 'int' and 'str'"),
+        (
+            "    x = 2\n    x **= 'a'\n",
+            "{}",
+            "unsupported operand type(s) for **=: 'int' and 'str'",
+        ),
+        (
+            "    x = None\n    x //= 1\n",
+            "{}",
+            "unsupported operand type(s) for //=: 'NoneType' and 'int'",
+        ),
+        ("    return {'y': min([])}\n", "{}", "min() arg is an empty sequence"),
+        ("    return {'y': max(())}\n", "{}", "max() arg is an empty sequence"),
+        ("    return {'y': math.trunc('a')}\n", "{}", "type str doesn't define __trunc__ method"),
+        (
+            "    return {'y': math.sqrt()}\n",
+            "{}",
+            "math.sqrt() takes exactly one argument (0 given)",
+        ),
+        ("    return {'y': math.copysign(1)}\n", "{}", "copysign expected 2 arguments, got 1"),
+        // a call's arguments, checked in CPython's order
+        (
+            "    return {'y': f(1, 2, 3, 4)}\n",
+            "{}",
+            "f() takes from 1 to 3 positional arguments but 4 were given",
+        ),
+        ("    return {'y': h(1, 2)}\n", "{}", "h() takes 1 positional argument but 2 were given"),
+        ("    return {'y': z(1)}\n", "{}", "z() takes 0 positional arguments but 1 was given"),
+        (
+            "    return {'y': g()}\n",
+            "{}",
+            "g() missing 2 required positional arguments: 'a' and 'b'",
+        ),
+        ("    return {'y': f(b=1)}\n", "{}", "f() missing 1 required positional argument: 'a'"),
+        (
+            "    return {'y': f(1, 2, 3, 4, a=5)}\n",
+            "{}",
+            "f() got multiple values for argument 'a'",
+        ),
+        (
+            "    return {'y': f(1, 2, 3, 4, d=5)}\n",
+            "{}",
+            "f() got an unexpected keyword argument 'd'",
+        ),
+        // the types of iterator objects
+        ("    return {'y': len(enumerate([]))}\n", "{}", "object of type 'enumerate' has no len()"),
+        ("    return {'y': zip()[0]}\n", "{}", "'zip' object is not subscriptable"),
+        ("    return enumerate([])\n", "{}", "must return a dict of output values, got enumerate."),
+        // what is quoted: builtins, types, the module, views
+        ("    return {'y': abs}\n", "{}", "output 'y' is not numeric (<built-in function abs>)."),
+        (
+            "    return {'y': [float, math.sqrt, math]}\n",
+            "{}",
+            "output 'y' is not numeric ([<class 'float'>, <built-in function sqrt>, <module 'math' (built-in)>]).",
+        ),
+        (
+            "    return {'y': {1: 'a'}.items()}\n",
+            "{}",
+            "output 'y' is not numeric (dict_items([(1, 'a')])).",
+        ),
+        ("    return {'y': [1].index(len)}\n", "{}", "<built-in function len> is not in list"),
+        // a character Python does not print (unassigned in Unicode 14)
+        ("    return {'y': {}['\u{378}']}\n", "{}", "'\\u0378'"),
+        ("    return {'y': {}['\u{e9}\u{2013}\u{4e00}']}\n", "{}", "'\u{e9}\u{2013}\u{4e00}'"),
+        // the comparison Python makes first in a 2-D lookup
+        (
+            "    return {'y': interp({'0': {'0': 1}}, 'x', 0)}\n",
+            "{}",
+            "'<' not supported between instances of 'float' and 'str'",
+        ),
+        (
+            "    return {'y': interp({'0': {'0': 1}}, 0, 'y')}\n",
+            "{}",
+            "'<=' not supported between instances of 'str' and 'float'",
+        ),
+        // indexing, unpacking and dict()
+        ("    return {'y': 'abc'['a']}\n", "{}", "string indices must be integers, not 'str'"),
+        (
+            "    return {'y': range(3)['a']}\n",
+            "{}",
+            "range indices must be integers or slices, not str",
+        ),
+        ("    return {'y': range(3)[5]}\n", "{}", "range object index out of range"),
+        ("    a, b = 1\n", "{}", "cannot unpack non-iterable int object"),
+        (
+            "    return {'y': dict([1])}\n",
+            "{}",
+            "cannot convert dictionary update sequence element #0 to a sequence",
+        ),
+        (
+            "    return {'y': dict([(1, 2), (1, 2, 3)])}\n",
+            "{}",
+            "dictionary update sequence element #1 has length 3; 2 is required",
+        ),
+        // a parameter table with one entry that is no number: its order
+        // does not matter
+        (
+            "    return {'y': interp(params['t'], 0.5)}\n",
+            r#"{"t": {"zz": 1}}"#,
+            "table1d entry 'zz: 1.0' is not numeric",
+        ),
     ];
+    let defs = "def f(a, b=2, c=3):\n    return a\ndef g(a, b):\n    return a\ndef h(a):\n    return a\ndef z():\n    return 1\n";
     for (body, p, want) in cases {
-        let mut r = start(body, p).unwrap();
+        let code = format!("import math\n{defs}def step(t, dt, inputs, state, params):\n{body}");
+        let mut r = Runner::start(&code, "probe", &params(p)).unwrap();
         let m = failed_with(r.step(0.5, 0.01, &[]));
-        assert_eq!(m, format!("Script 'probe' raised at t = 0.5 s: {want}"), "{body}");
+        let raised = format!("Script 'probe' raised at t = 0.5 s: {want}");
+        let other = format!("Script 'probe' {want}");
+        assert!(m == raised || m == other, "{body}:\n  {m}\nnot\n  {raised}");
     }
     let mut r = start("    return {'y': interp({0: {0: 1.0}, '0.0': {1: 2.0}}, 1.0, 2.0)}\n", "{}")
         .unwrap();
@@ -214,6 +333,84 @@ fn messages_are_cpython_311s() {
     let mut r = start("    return {'y': interp({'q': {0: 1.0}}, 1.0, 2.0)}\n", "{}").unwrap();
     let m = failed_with(r.step(0.5, 0.01, &[]));
     assert!(m.ends_with("table2d outer key 'q' is not numeric"), "{m}");
+}
+
+/// A message whose words the native runner cannot know is left to
+/// Python: what quotes an object's address (a function, a bound method,
+/// an iterator object, the scripts' own `clamp` and `interp`), the
+/// parameters' order (the importer's is not the project's) or a
+/// character beyond the scripts Python's table is known here for.
+#[test]
+fn messages_python_words_otherwise_are_left_to_python() {
+    for (body, p) in [
+        ("    return {'y': step}\n", "{}"),
+        ("    return {'y': enumerate([])}\n", "{}"),
+        ("    return {'y': [[].append]}\n", "{}"),
+        ("    return {'y': (clamp, 1)}\n", "{}"),
+        ("    return {'y': interp}\n", "{}"),
+        ("    return {'y': [1].index(step)}\n", "{}"),
+        ("    return {'y': interp({'1': [zip()]}, 1)}\n", "{}"),
+        // the first entry that is no number, in the project's order
+        ("    return {'y': interp(params['t'], 0.5)}\n", r#"{"t": {"zz": 1, "aa": 5}}"#),
+        (
+            "    return {'y': interp(params['m'], 0.5, 1)}\n",
+            r#"{"m": {"zz": {"0": 1}, "aa": {"0": 5}}}"#,
+        ),
+        ("    return {'y': params}\n", r#"{"b": 1, "a": 2}"#),
+        ("    return {'y': params['t'].keys()}\n", r#"{"t": {"1": 1, "0": 5}}"#),
+        // a character beyond the common scripts
+        ("    return {'y': {}['\u{1f600}']}\n", "{}"),
+        ("    return {'y': {}['\u{e0001}']}\n", "{}"),
+    ] {
+        let mut r = start(body, p).unwrap();
+        let got = r.step(0.0, 0.01, &[]);
+        assert!(is_outside(&got), "{body}: {got:?}");
+    }
+}
+
+/// The app's worker sends a call's outputs in one frame that gives their
+/// number and each key's length in UTF-8 bytes in 16 bits
+/// (sandbox_worker.py's `_pack_outputs`): past them the worker stops and
+/// the app's run fails. Such outputs are left to Python, as are more than
+/// 65 535 inputs (the frame of a call).
+#[test]
+fn outputs_the_apps_worker_cannot_send_are_left_to_python() {
+    // `s` is 65 535 bytes, `e` 32 768 two-byte characters
+    let long =
+        "    s = ''\n    p = 'k'\n    for i in range(16):\n        s = s + p\n        p = p + p\n";
+    let wide = "    e = '\u{e9}'\n    for i in range(15):\n        e = e + e\n";
+    let mut r = start(&format!("{long}    return {{'y': 1.0, s: 2.0}}\n"), "{}").unwrap();
+    let got = r.step(0.0, 0.01, &[]).expect("a key of 65 535 bytes is sent");
+    assert_eq!((got[1].0.len(), got[1].1), (65_535, 2.0));
+    for body in [
+        format!("{long}    return {{'y': 1.0, s + 'k': 2.0}}\n"),
+        format!("{wide}    return {{e: 1.0}}\n"),
+    ] {
+        let mut r = start(&body, "{}").unwrap();
+        let got = r.step(0.0, 0.01, &[]);
+        assert!(is_outside(&got), "{got:?}");
+    }
+    // 16**4 = 65 536 outputs, and one fewer
+    let many = "    out = {}\n    for a in 'abcdefghijklmnop':\n        for b in 'abcdefghijklmnop':\n            for c in 'abcdefghijklmnop':\n                for d in 'abcdefghijklmnop':\n";
+    let mut r = start(
+        &format!("{many}                    out[a + b + c + d] = 1.0\n    return out\n"),
+        "{}",
+    )
+    .unwrap();
+    assert!(is_outside(&r.step(0.0, 0.01, &[])));
+    let mut r = start(
+        &format!(
+            "{many}                    if a + b + c + d != 'pppp':\n                        out[a + b + c + d] = 1.0\n    return out\n"
+        ),
+        "{}",
+    )
+    .unwrap();
+    assert_eq!(r.step(0.0, 0.01, &[]).expect("65 535 outputs are sent").len(), 65_535);
+    let names: Vec<String> = (0..65_536).map(|k| format!("u{k}")).collect();
+    let ins: Vec<(&str, f64)> = names.iter().map(|n| (n.as_str(), 1.0)).collect();
+    let mut r = start("    return {'y': len(inputs)}\n", "{}").unwrap();
+    assert!(is_outside(&r.step(0.0, 0.01, &ins)));
+    assert_eq!(outputs(r.step(0.0, 0.01, &ins[1..])), vec![("y".into(), 65_535f64.to_bits())]);
 }
 
 /// One statement of a lot of work still stops at the time limit: every

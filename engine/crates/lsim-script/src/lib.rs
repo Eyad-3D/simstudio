@@ -36,18 +36,30 @@
 //! of more than 640 digits) stops it with [`Fault::Outside`], so the caller
 //! can run the case again on Python: a result never differs from the app's
 //! runner's. An exception Python would raise (division by zero, a missing
-//! key) is [`Fault::Raise`] with CPython 3.11's message (the values it
-//! quotes as Python's repr shows them, a long or deeply nested container
-//! shortened).
+//! key) is [`Fault::Raise`] with CPython 3.11's message, the values it
+//! quotes whole as Python's repr shows them; a message whose words are not
+//! known here is left to Python instead: one that would quote an object's
+//! address (a function, a bound method, an iterator object, the scripts'
+//! `clamp` and `interp`), the parameters in the project's order (the
+//! importer keeps them sorted), a character beyond the common scripts and
+//! symbols, or a value nested or long beyond what is quoted here. The
+//! worker's frames give the number of inputs and outputs of a call and the
+//! length of each output key in 16 bits: more than 65 535 of them, or a
+//! key of more than 65 535 bytes, stop the worker and fail the app's run,
+//! and are left to Python here.
 //!
 //! **Limits.** As the app's worker: a call that does not return within two
 //! seconds stops (the clock is read every 1024 statements, loop rounds and
 //! calls, and as every operation whose work grows with the size of what
 //! it handles goes: concatenation, copies, comparisons and searches of
 //! containers, indexing and converting text, reading the outputs), and a
-//! runner's values may hold at most 512 MB (each string, list, tuple and
-//! dict counts its size when it is made or grows and gives it back when it
-//! goes); past either the script is left to Python, whose own limit then
+//! runner may hold at most 512 MB: every heap block its values make counts,
+//! as the heap keeps it, from before it is made (strings, lists, tuples,
+//! dicts and their indexes, iterator objects and what they keep of their
+//! sources, bound methods, functions and their defaults, `interp`'s parsed
+//! tables), and the syntax tree 128 bytes for each byte of code (it holds
+//! at most about 100); a script of more than 1 MiB is not read. Past
+//! either limit the script is left to Python, whose own limit then
 //! decides. They are the worker's limits in size, not in how they are
 //! measured (Python is slower and its values larger): a call close to
 //! either can be stopped by the worker and return here. On top: containers
@@ -74,9 +86,25 @@ pub use value::{MAX_LIVE_BYTES, STACK_BUDGET};
 /// The most items a list, tuple, dict or string may hold here.
 pub const MAX_ITEMS: usize = 1_000_000;
 
+/// The longest script read here, bytes (reading one takes up to some 300
+/// bytes for each byte of code for a moment).
+pub const MAX_CODE_BYTES: usize = 1 << 20;
+
+/// What a script's syntax tree, held all the run, counts towards its
+/// runner's memory for each byte of its code: more than it holds of
+/// every kind of statement and expression (about 100 at the most,
+/// `tests/memory.rs`).
+const TREE_BYTES_PER_BYTE: usize = 128;
+
 /// The wall-clock budget of one call into the script, s (the Python
 /// runner's).
 pub const TIME_LIMIT_S: f64 = 2.0;
+
+/// The most inputs and outputs of one call, and the longest output key in
+/// UTF-8 bytes, that the app's Script worker sends: its frames give each
+/// in 16 bits (sandbox_worker.py's `_pack_step` and `_pack_outputs`), and
+/// past them the worker stops and the app's run fails.
+pub const MAX_FRAME_FIELD: usize = 65_535;
 
 /// Why a script is outside the subset, found when it is read.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -290,6 +318,8 @@ pub struct Runner {
 
 /// `step` and its `state` and `params` between calls.
 struct Script {
+    /// what its syntax tree counts (see [`TREE_BYTES_PER_BYTE`])
+    tree: usize,
     module: ast::Module,
     machine: interp::Machine,
     step: Value,
@@ -392,6 +422,14 @@ impl Runner {
     }
 }
 
+impl Runner {
+    /// The bytes its values are counted as holding: what
+    /// [`MAX_LIVE_BYTES`] caps.
+    pub fn memory(&self) -> usize {
+        self.live
+    }
+}
+
 impl Drop for Runner {
     fn drop(&mut self) {
         // its values give their memory back to its own count
@@ -401,12 +439,28 @@ impl Drop for Runner {
     }
 }
 
+impl Drop for Script {
+    fn drop(&mut self) {
+        value::memory_sub(self.tree);
+    }
+}
+
 impl Script {
     fn start(
         code: &str,
         label: &str,
         params: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<Script, ScriptError> {
+        if code.len() > MAX_CODE_BYTES {
+            return Err(ScriptError::Unsupported(format!(
+                "Script '{label}': a script of more than {} MiB is outside what runs without Python",
+                MAX_CODE_BYTES >> 20
+            )));
+        }
+        // the tree counts from before it is read (a failed start gives
+        // back all it counted)
+        let tree = code.len() * TREE_BYTES_PER_BYTE;
+        value::memory_add(tree);
         let module = parser::parse(code)
             .map_err(|u| ScriptError::Unsupported(format!("Script '{label}', {u}")))?;
         names_check(&module)
@@ -430,6 +484,7 @@ impl Script {
             .map_err(|f| failed(label, None, f))?;
         value::start_meter(None);
         Ok(Script {
+            tree,
             module,
             machine,
             step,
@@ -451,6 +506,11 @@ impl Script {
         value::start_meter(None);
         let label = self.label.clone();
         let fail = |f| failed(&label, Some(t), f);
+        if inputs.len() > MAX_FRAME_FIELD {
+            return Err(fail(Fault::Outside(format!(
+                "more than {MAX_FRAME_FIELD} inputs (the app's worker cannot be sent them)"
+            ))));
+        }
         if self.keys.len() != inputs.len()
             || self.keys.iter().zip(inputs).any(|((k, _), (name, _))| k != name)
         {
@@ -479,6 +539,11 @@ impl Script {
             Value::None => return value::memory_check().map(|_| vec![]).map_err(fail),
             Value::Dict(d) => {
                 let d = d.borrow();
+                if d.entries.len() > MAX_FRAME_FIELD {
+                    return Err(fail(Fault::Outside(format!(
+                        "more than {MAX_FRAME_FIELD} outputs (the app's worker cannot send them)"
+                    ))));
+                }
                 value::charge(d.entries.len() as u64).map_err(fail)?;
                 d.entries.clone()
             }
@@ -498,14 +563,19 @@ impl Script {
                 )));
             };
             value::charge(key.len() as u64).map_err(fail)?;
+            if key.len() > MAX_FRAME_FIELD {
+                return Err(fail(Fault::Outside(format!(
+                    "an output key of more than {MAX_FRAME_FIELD} bytes (the app's worker cannot send it)"
+                ))));
+            }
             match value::to_float(&v) {
                 Ok(x) => res.push((key.as_str().to_string(), x)),
                 Err(f @ (Fault::Outside(_) | Fault::Limit)) => return Err(fail(f)),
                 Err(_) => {
+                    let shown = v.repr().map_err(fail)?;
                     return Err(ScriptError::Failed(format!(
-                        "Script '{label}' output '{}' is not numeric ({}).",
-                        key.as_str(),
-                        v.repr()
+                        "Script '{label}' output '{}' is not numeric ({shown}).",
+                        key.as_str()
                     )));
                 }
             }

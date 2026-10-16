@@ -181,7 +181,7 @@ impl Parser {
 
     fn block(&mut self) -> R<Vec<Stmt>> {
         self.enter()?;
-        let out = if matches!(self.peek(), Tok::Newline) {
+        let mut out = if matches!(self.peek(), Tok::Newline) {
             self.next();
             if !matches!(self.peek(), Tok::Indent) {
                 return Err(unsupported(self.line(), "a block without an indented body"));
@@ -198,6 +198,8 @@ impl Parser {
         } else {
             self.simple_line()?
         };
+        // (the tree is held all the run: no spare room in it)
+        out.shrink_to_fit();
         self.leave();
         Ok(out)
     }
@@ -239,6 +241,7 @@ impl Parser {
                         break;
                     }
                 }
+                branches.shrink_to_fit();
                 StmtKind::If(branches, orelse)
             }
             "while" => {
@@ -1116,6 +1119,7 @@ pub fn parse(src: &str) -> Result<Module, Unsupported> {
             }
             body.extend(p.statement()?);
         }
+        body.shrink_to_fit();
         resolve_block(&mut body, None);
         Ok(body)
     })();

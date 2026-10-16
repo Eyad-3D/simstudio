@@ -10,12 +10,11 @@
 
 use crate::ast::{BinOp, CmpOp, Expr, FuncDef, Module, Name, Stmt, StmtKind, Target};
 use crate::value::{
-    self, Builtin, Closure, DictCell, ListCell, MathFn, Text, TupleCell, Value, binary, charge,
-    contains, dict_find, dict_get, dict_set, eq, index, insertable, insertable_all, order,
+    self, Builtin, Closure, DictCell, IterCell, ListCell, MathFn, Text, TupleCell, Value, binary,
+    charge, contains, dict_find, dict_get, dict_set, eq, index, insertable, insertable_all, order,
     range_len, set_index, stack_check, to_float, to_int,
 };
 use crate::{Fault, Fault::*, MAX_ITEMS};
-use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::rc::Rc;
 use std::time::Instant;
@@ -51,7 +50,7 @@ pub enum Iter {
     /// `zip`
     Zip(Vec<Iter>),
     /// an iterator object shared with everything that iterates it
-    Shared(Rc<RefCell<Iter>>),
+    Shared(Rc<IterCell>),
     /// a list, tuple, dict or string iterator that has run out: as
     /// CPython's, it lets go of what it read and stays empty, whatever
     /// is added to that afterwards
@@ -151,6 +150,19 @@ impl Iter {
     }
 }
 
+/// The heap an iterator's state holds of its own (`enumerate`'s box, the
+/// sources `zip` keeps), as the memory it counts.
+pub fn iter_heap(it: &Iter) -> usize {
+    let size = std::mem::size_of::<Iter>();
+    match it {
+        Iter::Enumerate(inner, _) => value::heap(size) + iter_heap(inner),
+        Iter::Zip(its) => {
+            value::heap(its.capacity() * size) + its.iter().map(iter_heap).sum::<usize>()
+        }
+        _ => 0,
+    }
+}
+
 fn dict_iter(d: &Rc<DictCell>, kind: u8) -> Result<Iter, Fault> {
     let dm = d.borrow();
     if dm.unordered {
@@ -179,7 +191,8 @@ fn iter_of(v: &Value) -> Result<Iter, Fault> {
     })
 }
 
-/// Every item of `v`, at most [`MAX_ITEMS`], each charged as work.
+/// Every item of `v`, at most [`MAX_ITEMS`], each charged as work (and
+/// the room they take within the memory allowed).
 fn collect(v: &Value) -> Result<Vec<Value>, Fault> {
     let mut it = iter_of(v)?;
     let mut out = vec![];
@@ -188,6 +201,7 @@ fn collect(v: &Value) -> Result<Vec<Value>, Fault> {
             return Err(Outside("a sequence this long".into()));
         }
         charge(1)?;
+        value::room(&out, 1)?;
         out.push(x);
     }
     Ok(out)
@@ -277,12 +291,7 @@ impl Machine {
                         if self.cache.len() >= INTERP_CACHE_SIZE {
                             self.cache.clear();
                         }
-                        let entry = CacheEntry {
-                            table: d.clone(),
-                            two,
-                            copy: table_copy(d, two)?,
-                            parsed: p.clone(),
-                        };
+                        let entry = CacheEntry::new(d.clone(), two, table_copy(d, two)?, p.clone());
                         match self
                             .cache
                             .iter()
@@ -303,10 +312,10 @@ impl Machine {
                 }));
             }
         };
-        let xv = lookup_arg(x)?;
+        let xv = lookup_arg(x, two)?;
         Ok(Value::Float(match (&*parsed, y) {
             (Parsed::One(p), None) => interp1(p, xv),
-            (Parsed::Two(s), Some(y)) => interp2(s, xv, lookup_arg(y)?),
+            (Parsed::Two(s), Some(y)) => interp2(s, xv, lookup_arg(y, false)?),
             _ => unreachable!("parsed for the lookup asked"),
         }))
     }
@@ -510,7 +519,7 @@ impl Machine {
         for d in defaults {
             ds.push(self.eval(d, frame)?);
         }
-        let f = Value::Func(Rc::new(Closure { def: def.clone(), defaults: ds }));
+        let f = Value::func(def.clone(), ds);
         self.store(n, f, frame);
         Ok(Flow::Normal)
     }
@@ -532,7 +541,7 @@ impl Machine {
             extend(l, items)?;
             return Ok(old.clone());
         }
-        binary(op, old, v)
+        value::binary_inplace(op, old, v)
     }
 
     fn load(&self, n: &Name, frame: &[Option<Value>]) -> R<Value> {
@@ -578,7 +587,15 @@ impl Machine {
                 set_index(&c, i, v)
             }
             Target::Tuple(ts) => {
-                let mut it = iter_of(&v)?;
+                let mut it = match iter_of(&v) {
+                    Err(Raise(_)) => {
+                        return Err(Raise(format!(
+                            "cannot unpack non-iterable {} object",
+                            v.type_name()
+                        )));
+                    }
+                    it => it?,
+                };
                 let mut vals = Vec::with_capacity(ts.len());
                 while let Some(x) = it.next()? {
                     if vals.len() == ts.len() {
@@ -743,16 +760,11 @@ impl Machine {
     ) -> R<Value> {
         let def: &FuncDef = &c.def;
         let np = def.params.len();
-        if args.len() > np {
-            return Err(type_error(format!(
-                "{}() takes {} positional arguments but {} were given",
-                def.name,
-                np,
-                args.len()
-            )));
-        }
+        let given = args.len();
+        // in CPython's order: the positional arguments there is room for,
+        // the keywords, then too many or too few
         let mut frame: Vec<Option<Value>> = vec![None; def.n_locals.max(np)];
-        for (k, a) in args.into_iter().enumerate() {
+        for (k, a) in args.into_iter().take(np).enumerate() {
             frame[k] = Some(a);
         }
         for (k, v) in kwargs {
@@ -771,16 +783,38 @@ impl Machine {
             frame[slot] = Some(v);
         }
         let first_default = np - def.n_defaults;
-        for (k, slot) in frame.iter_mut().enumerate().take(np) {
+        if given > np {
+            let (takes, s) = match def.n_defaults {
+                0 => (np.to_string(), if np == 1 { "" } else { "s" }),
+                _ => (format!("from {first_default} to {np}"), "s"),
+            };
+            let were = if given == 1 { "was" } else { "were" };
+            return Err(type_error(format!(
+                "{}() takes {takes} positional argument{s} but {given} {were} given",
+                def.name
+            )));
+        }
+        let missing: Vec<String> = (0..first_default)
+            .filter(|k| frame[*k].is_none())
+            .map(|k| format!("'{}'", def.params[k]))
+            .collect();
+        if !missing.is_empty() {
+            let names = match missing.as_slice() {
+                [one] => one.clone(),
+                [a, b] => format!("{a} and {b}"),
+                [first @ .., a, b] => format!("{}, {a}, and {b}", first.join(", ")),
+                [] => unreachable!("some missing"),
+            };
+            return Err(type_error(format!(
+                "{}() missing {} required positional argument{}: {names}",
+                def.name,
+                missing.len(),
+                if missing.len() == 1 { "" } else { "s" }
+            )));
+        }
+        for (k, slot) in frame.iter_mut().enumerate().take(np).skip(first_default) {
             if slot.is_none() {
-                if k >= first_default {
-                    *slot = Some(c.defaults[k - first_default].clone());
-                } else {
-                    return Err(type_error(format!(
-                        "{}() missing a required argument: '{}'",
-                        def.name, def.params[k]
-                    )));
-                }
+                *slot = Some(c.defaults[k - first_default].clone());
             }
         }
         if self.depth >= MAX_CALL_DEPTH {
@@ -839,7 +873,7 @@ impl Machine {
                 };
                 let mut it = items.into_iter();
                 let Some(mut best) = it.next() else {
-                    return Err(Raise(format!("{name}() iterable argument is empty")));
+                    return Err(Raise(format!("{name}() arg is an empty sequence")));
                 };
                 let want = if b == Builtin::Min { Ordering::Less } else { Ordering::Greater };
                 let op = if b == Builtin::Min { "<" } else { ">" };
@@ -965,14 +999,14 @@ impl Machine {
                     ),
                     _ => return Err(args_error("enumerate", "takes 1 or 2 arguments")),
                 };
-                Value::Iter(Rc::new(RefCell::new(Iter::Enumerate(Box::new(it), start))))
+                Value::iterator(Iter::Enumerate(Box::new(it), start), "enumerate")
             }
             Builtin::Zip => {
                 if args.iter().any(|a| matches!(a, Value::Iter(_))) {
                     return Err(Outside("zip() of an iterator object".into()));
                 }
                 let its = args.iter().map(iter_of).collect::<R<Vec<_>>>()?;
-                Value::Iter(Rc::new(RefCell::new(Iter::Zip(its))))
+                Value::iterator(Iter::Zip(its), "zip")
             }
             Builtin::List => match n {
                 0 => Value::list(vec![]),
@@ -1098,7 +1132,7 @@ fn attribute(a: &Value, name: &Rc<str>) -> R<Value> {
                     | "clear"
             ) =>
         {
-            Ok(Value::Method(Rc::new((a.clone(), name.clone()))))
+            Ok(Value::method(a, name))
         }
         Value::List(_)
             if matches!(
@@ -1114,11 +1148,9 @@ fn attribute(a: &Value, name: &Rc<str>) -> R<Value> {
                     | "clear"
             ) =>
         {
-            Ok(Value::Method(Rc::new((a.clone(), name.clone()))))
+            Ok(Value::method(a, name))
         }
-        Value::Tuple(_) if matches!(&**name, "index" | "count") => {
-            Ok(Value::Method(Rc::new((a.clone(), name.clone()))))
-        }
+        Value::Tuple(_) if matches!(&**name, "index" | "count") => Ok(Value::method(a, name)),
         // Python may have it (a str method, a float's): let Python run it
         _ => Err(Outside(format!("'.{name}' on a {}", a.type_name()))),
     }
@@ -1131,6 +1163,7 @@ fn extend(l: &ListCell, items: Vec<Value>) -> R<()> {
         return Err(Outside("a list this long".into()));
     }
     charge(items.len() as u64)?;
+    value::room(&lm, items.len())?;
     lm.extend(items);
     drop(lm);
     l.account();
@@ -1154,11 +1187,18 @@ fn update_from(d: &Rc<DictCell>, x: &Value) -> R<()> {
             Ok(())
         }
         Value::List(_) | Value::Tuple(_) => {
-            for pair in collect(x)? {
-                let kv = collect(&pair)?;
+            for (n, pair) in collect(x)?.into_iter().enumerate() {
+                let kv = match collect(&pair) {
+                    Err(Raise(_)) => {
+                        return Err(Raise(format!(
+                            "cannot convert dictionary update sequence element #{n} to a sequence"
+                        )));
+                    }
+                    kv => kv?,
+                };
                 if kv.len() != 2 {
                     return Err(Raise(format!(
-                        "dictionary update sequence element has length {}; 2 is required",
+                        "dictionary update sequence element #{n} has length {}; 2 is required",
                         kv.len()
                     )));
                 }
@@ -1235,7 +1275,7 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
                     }
                     None => match args.get(1) {
                         Some(v) => Ok(v.clone()),
-                        None => Err(Raise(args[0].repr())),
+                        None => Err(Raise(args[0].repr()?)),
                     },
                 }
             }
@@ -1259,6 +1299,7 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
                 if lm.len() >= MAX_ITEMS {
                     return Err(Outside("a list this long".into()));
                 }
+                value::room(&lm, 1)?;
                 lm.push(args[0].clone());
                 drop(lm);
                 l.account();
@@ -1287,6 +1328,7 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
                 let len = lm.len() as i64;
                 let k = if i < 0 { (i + len).max(0) } else { i.min(len) };
                 charge(len as u64)?;
+                value::room(&lm, 1)?;
                 lm.insert(k as usize, args[1].clone());
                 drop(lm);
                 l.account();
@@ -1322,9 +1364,10 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
                 let pos = hits.first().copied();
                 match name {
                     "count" => Ok(Value::Int(hits.len() as i64)),
-                    "index" => pos
-                        .map(|k| Value::Int(k as i64))
-                        .ok_or_else(|| Raise(format!("{} is not in list", args[0].repr()))),
+                    "index" => match pos {
+                        Some(k) => Ok(Value::Int(k as i64)),
+                        None => Err(Raise(format!("{} is not in list", args[0].repr()?))),
+                    },
                     _ => match pos {
                         Some(k) => {
                             charge(l.borrow().len() as u64)?;
@@ -1339,6 +1382,7 @@ fn method(obj: &Value, name: &str, args: Vec<Value>, kwargs: Vec<(Rc<str>, Value
                 arity(0, 0)?;
                 let items = l.borrow();
                 charge(items.len() as u64)?;
+                value::fits(value::heap(items.len() * value::VALUE))?;
                 Ok(Value::list(items.clone()))
             }
             "clear" => {
@@ -1397,7 +1441,10 @@ fn math(m: MathFn, args: &[Value]) -> R<Value> {
         _ => 1,
     };
     if args.len() != want {
-        return Err(type_error(format!("math function takes {want} argument(s)")));
+        return Err(type_error(match m {
+            MathFn::Copysign => format!("copysign expected 2 arguments, got {}", args.len()),
+            _ => format!("math.{}() takes exactly one argument ({} given)", m.name(), args.len()),
+        }));
     }
     let to_int_result = |f: f64| -> R<Value> {
         if f.is_nan() {
@@ -1421,6 +1468,13 @@ fn math(m: MathFn, args: &[Value]) -> R<Value> {
         MathFn::Floor | MathFn::Ceil | MathFn::Trunc => {
             if let Some(i) = args[0].as_int() {
                 return Ok(Value::Int(i));
+            }
+            // trunc looks for the method, floor and ceil for a float
+            if m == MathFn::Trunc && args[0].as_float().is_none() {
+                return Err(type_error(format!(
+                    "type {} doesn't define __trunc__ method",
+                    args[0].type_name()
+                )));
             }
             let x = real(&args[0])?;
             to_int_result(match m {
@@ -1454,29 +1508,45 @@ fn table_error(what: String) -> Fault {
 /// A 2-D table: sheets `(x, [(y, v)])` sorted by x.
 type Sheets = Vec<(f64, Vec<(f64, f64)>)>;
 
+/// An entry of a table whose order is not Python's (a parameter's) that
+/// is no number, when another one is no number either: which one Python
+/// meets first is not known here.
+fn order_unknown() -> Fault {
+    Outside("a table parameter with entries that are no number (Python reads them in the project's order)".into())
+}
+
 /// maps.py's `parse_table1d`.
 fn parse_1d(raw: &Value) -> R<Vec<(f64, f64)>> {
     let Value::Dict(d) = raw else {
         return Err(table_error("table1d data must be a non-empty {x: value} mapping".into()));
     };
-    let entries = d.borrow().entries.clone();
-    if entries.is_empty() {
+    let dm = d.borrow();
+    if dm.entries.is_empty() {
         return Err(table_error("table1d data must be a non-empty {x: value} mapping".into()));
     }
-    charge(sort_work(entries.len()))?;
-    let mut pts = Vec::with_capacity(entries.len());
-    for (k, v) in &entries {
-        // in Python's order; only what Python raises becomes the table's
-        // error, an operation outside the subset stays one
-        let not_numeric = |e: Fault| match e {
-            Fault::Raise(_) => {
-                table_error(format!("table1d entry '{}: {}' is not numeric", k.text(), v.text()))
+    charge(sort_work(dm.entries.len()))?;
+    value::fits(value::heap(dm.entries.len() * 16))?;
+    // in Python's order (`float(k)`, then `float(v)`)
+    let point = |(k, v): &(Value, Value)| -> R<(f64, f64)> { Ok((to_float(k)?, to_float(v)?)) };
+    let mut pts = Vec::with_capacity(dm.entries.len());
+    for (n, entry) in dm.entries.iter().enumerate() {
+        match point(entry) {
+            Ok(p) => pts.push(p),
+            // only what Python raises becomes the table's error, an
+            // operation outside the subset stays one
+            Err(Fault::Raise(_)) => {
+                if dm.unordered && dm.entries[n + 1..].iter().any(|e| point(e).is_err()) {
+                    return Err(order_unknown());
+                }
+                let (k, v) = entry;
+                return Err(table_error(format!(
+                    "table1d entry '{}: {}' is not numeric",
+                    k.text()?,
+                    v.text()?
+                )));
             }
-            other => other,
-        };
-        let x = to_float(k).map_err(not_numeric)?;
-        let y = to_float(v).map_err(not_numeric)?;
-        pts.push((x, y));
+            Err(other) => return Err(other),
+        }
     }
     if pts.iter().any(|p| p.0.is_nan()) {
         return Err(Outside("a table key that is not a number".into()));
@@ -1496,20 +1566,36 @@ fn parse_2d(raw: &Value) -> R<Sheets> {
     let Value::Dict(d) = raw else {
         return Err(table_error("table2d data must be a non-empty {x: {y: value}} mapping".into()));
     };
-    let entries = d.borrow().entries.clone();
-    if entries.is_empty() {
+    let dm = d.borrow();
+    if dm.entries.is_empty() {
         return Err(table_error("table2d data must be a non-empty {x: {y: value}} mapping".into()));
     }
-    charge(sort_work(entries.len()))?;
-    let mut sheets = Vec::with_capacity(entries.len());
-    for (k, inner) in &entries {
-        let x = to_float(k).map_err(|e| match e {
-            Fault::Raise(_) => {
-                table_error(format!("table2d outer key '{}' is not numeric", k.text()))
+    charge(sort_work(dm.entries.len()))?;
+    let sheet = |(k, inner): &(Value, Value)| -> R<(f64, Vec<(f64, f64)>)> {
+        let x = match to_float(k) {
+            Ok(x) => x,
+            Err(Fault::Raise(_)) => {
+                return Err(table_error(format!(
+                    "table2d outer key '{}' is not numeric",
+                    k.text()?
+                )));
             }
-            other => other,
-        })?;
-        sheets.push((x, parse_1d(inner)?));
+            Err(other) => return Err(other),
+        };
+        Ok((x, parse_1d(inner)?))
+    };
+    let mut sheets = Vec::with_capacity(dm.entries.len());
+    for (n, entry) in dm.entries.iter().enumerate() {
+        match sheet(entry) {
+            Ok(s) => sheets.push(s),
+            Err(Fault::Raise(m)) => {
+                if dm.unordered && dm.entries[n + 1..].iter().any(|e| sheet(e).is_err()) {
+                    return Err(order_unknown());
+                }
+                return Err(Raise(m));
+            }
+            Err(other) => return Err(other),
+        }
     }
     if sheets.iter().any(|s| s.0.is_nan()) {
         return Err(Outside("a table key that is not a number".into()));
@@ -1547,6 +1633,30 @@ pub struct CacheEntry {
     two: bool,
     copy: Value,
     parsed: Rc<Parsed>,
+    /// the memory the parse counts
+    charged: usize,
+}
+
+impl CacheEntry {
+    fn new(table: Rc<DictCell>, two: bool, copy: Value, parsed: Rc<Parsed>) -> CacheEntry {
+        let points = |p: &Vec<(f64, f64)>| value::heap(p.capacity() * 16);
+        let charged = value::rc_block::<Parsed>()
+            + match &*parsed {
+                Parsed::One(p) => points(p),
+                Parsed::Two(s) => {
+                    value::heap(s.capacity() * std::mem::size_of::<(f64, Vec<(f64, f64)>)>())
+                        + s.iter().map(|(_, p)| points(p)).sum::<usize>()
+                }
+            };
+        value::memory_add(charged);
+        CacheEntry { table, two, copy, parsed, charged }
+    }
+}
+
+impl Drop for CacheEntry {
+    fn drop(&mut self) {
+        value::memory_sub(self.charged);
+    }
 }
 
 /// The tables one script's `interp` keeps parsed (maps.py's
@@ -1585,13 +1695,20 @@ fn bisect_left<T>(pts: &[(f64, T)], x: f64) -> usize {
     lo
 }
 
-/// A lookup argument: compared exactly as given, used as a float.
-fn lookup_arg(x: &Value) -> R<f64> {
+/// A lookup argument: compared exactly as given, used as a float. What
+/// cannot be compared fails as Python's first comparison of it does:
+/// `sheets[0][0] < x` for a 2-D table's `outer` axis, `x <= points[0][0]`
+/// for the others.
+fn lookup_arg(x: &Value, outer: bool) -> R<f64> {
     match x {
         Value::Float(f) => Ok(*f),
         _ => match x.as_int() {
             Some(i) if i.unsigned_abs() <= 1 << 53 => Ok(i as f64),
             Some(_) => Err(Outside("a table looked up at an integer beyond 2**53".into())),
+            None if outer => Err(type_error(format!(
+                "'<' not supported between instances of 'float' and '{}'",
+                x.type_name()
+            ))),
             None => Err(type_error(format!(
                 "'<=' not supported between instances of '{}' and 'float'",
                 x.type_name()
