@@ -18,6 +18,8 @@ python3 engine/judge/judge.py sundials CACHE WORK             # SUNDIALS' own ID
 python3 engine/judge/judge.py omc      CASES RESULTS          # OpenModelica, if omc is on the PATH
 ```
 
+`test_judge.py` checks the scoring itself on made-up series whose right
+scores are known (standard library only; `engine/check.sh` runs it).
 CACHE, CASES, RESULTS and WORK are folders outside the repository. For
 `omc`, OpenModelica's compiler and runtime suffice: conda-forge's
 `openmodelica` 1.27.1 package with the libraries `omc` loads (`libgcc`,
@@ -41,7 +43,8 @@ released at every 0.01 rad from 0.01 to 3.14 rad.
 | `iftomm-fourbar` | the multiple four-bar mechanism: 5 × 5 four-bar loops, 55 bars, 60 coordinates, 55 constraints, 5 degrees of freedom, through singular positions (a row's bars in line), 10 s | its minimal coordinates (each row's angle; the parallelograms keep their shape) integrated by Gragg–Bulirsch–Stoer extrapolation at 40 digits to an estimated 1e-28 (energy kept to 4e-27; DOP853 at rtol 1e-13 agrees to 6e-11); the benchmark's energy-drift limit of 1 J | IFToMM (A. Callejo); as above. The two submitted results agree with the reference to 3e-7 (Callejo) and 6e-6 (Burkhardt) rad up to 2 s, and drift apart later with their energy errors (0.75 and 0.06 J) |
 | `pendulum-swing-θ0`, `pendulum-loop-m` | the same pendulum released at rest from θ0 (swinging), or given the speed at the bottom that makes m = 4gL/v0² < 1 (looping) | the closed form, as above | mathematics (mpmath, BSD-3-Clause) |
 | `fmu-stair` | a model with no continuous state: a counter raised by a time event each second | `Stair_out.csv`, point for point; the events at whole seconds exactly | Reference FMUs v0.0.41 (Modelica Association, BSD-2-Clause), `Stair/model.c` |
-| `fmu-bouncingball` | state events and `reinit`: a ball that bounces until it rests | the bounces in closed form (each one's time and speed); `BouncingBall_out.csv` beside it, which fmusim wrote with forward Euler at 1 ms, so it agrees only to about 1e-3 | Reference FMUs v0.0.41, `BouncingBall/model.c` |
+| `fmu-bouncingball` | state events and `reinit`: a ball that bounces until it rests | the bounces in closed form (each one's time and speed); `BouncingBall_out.csv` beside it, which fmusim wrote with forward Euler at 1 ms: its h is up to 2.4e-2 m off the exact bounces (median 3.4e-3 m), and it bounces 12 times against the exact 11 | Reference FMUs v0.0.41, `BouncingBall/model.c` |
+| `count-implicit-a`, `count-implicit-nostate-a`, `count-explicit-pulse` | a `when` on a variable solved from an implicit equation (`x^3 + x = z`, z = a t, with and without the state), and on an explicit function of a state (`x = z - z^3/4`) above its threshold from 0.539 to 1.675 s, inside one of the integrator's steps: each must fire once, at its crossing | the exact crossing times (`x^3 + x = 0.625`; the root of `t^3 - 4 t + 2`); OpenModelica's counts beside them | none published: the exact answers (an independent check's probes of the solver work's first round) |
 | `sundials` | the engine's patched IDAS (`lsim-sundials-sys/sundials/lsim.patch`) on SUNDIALS' own examples with quadratures under error control, against upstream 7.1.1 (the release the engine vendors) and 7.9.0 | the examples' shipped `.out` files (LLNL's runs) and G computed independently: the slider-crank in its minimal coordinate at 34 digits, the Akzo Nobel problem by Radau IIA at rtol 1e-13 (its y1(180) is 9e-15 off the test set's reference) | SUNDIALS (LLNL, BSD-3-Clause): `examples/idas/serial/idasSlCrank_dns.c`, `idasAkzoNob_dns.c` |
 | `omc` | a second tool on the same models: OpenModelica with its dynamic state selection and with static dummy derivatives | the references above | OpenModelica (AGPL-3.0 or OSMC-PL): for checking only, never shipped or linked; the conda-forge build of `omc` with the runtime libraries it needs |
 
@@ -65,8 +68,35 @@ one of its equations (to 1e-14; one weight changed shows as 4.9).
   over all components. For the pendulums and the four-bar, the largest
   error of the positions (m; the angles, rad) over the output grid, and
   scd = −log10 of it (the length is 1 m). For Stair, the largest
-  difference of the counter from `Stair_out.csv`; for BouncingBall, the
-  largest error of a bounce's time.
+  difference of the counter from `Stair_out.csv` at the CSV's times (the
+  value after an event at a whole second); for BouncingBall, the largest
+  error of a bounce's time; for the counts, the largest distance of a
+  firing from its crossing, infinite where the `when` fired too often or
+  too seldom.
+* **right or wrong**: a run of a case with a closed form (the pendulums,
+  the four-bar) is right when its error is within 100 rtol of the
+  reference over the whole grid: 1e-8 at rtol 1e-10, which the brief
+  asks of dynamic state selection, and 1 cm on a 1 m rod at rtol 1e-4; a
+  count is right when its `when` fired once per crossing (where it
+  fired, its error, depends on how steeply the condition crosses: near
+  an oscillator's peak, 70 times the error in its state). Otherwise,
+  without a message, it is a wrong answer, marked "wrong, no message". The criterion is fixed here, before the runs are
+  scored; `score` applies it to every run, and with the release-angle
+  sweep (`cases --sweep`) tabulates the runs right, wrong and stopped per
+  tolerance, the angle up to which every run is right, and the largest
+  error per 0.1 rad in units of rtol.
+* **by time, not by row**: a run's points are matched to the reference's
+  grid by their times (to 1e-12, relative): a row a tool writes off the
+  grid (OpenModelica's rows at an event 1e-10 s after a whole second) is
+  no grid point, two rows at one grid time are an event there (the later
+  is the value after it), and a grid time a tool wrote no row at is
+  missing, counted and left out. Stair is scored only where the run has
+  every one of the CSV's times. The brief named csv-compare's tubes for
+  OpenModelica's and the CSVs' series; they are not used: a tube forgives
+  an event shifted within its width, and here the shift is measured
+  instead (the event-time error beside the error). OpenModelica's Stair,
+  its events 1e-10 s late, shows the counter's full step at the whole
+  seconds as its error, its event times as 1e-10 s off.
 * **steps, ETF, events**: the integrator's steps, error-test failures and
   the events the run handled.
 * **wall time**: the run's alone (initialisation and integration, not

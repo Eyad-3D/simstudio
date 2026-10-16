@@ -39,6 +39,14 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ENGINE = HERE.parent
 RTOLS = [1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10]
+# A run of a closed-form case (the pendulums, the four-bar) is right when
+# its error is within RIGHT * rtol of the reference over the whole grid:
+# 1e-8 at rtol 1e-10, as the brief accepts dynamic state selection, and
+# 1 cm on a 1 m rod at rtol 1e-4. Anything more, without a message, is a
+# wrong answer.
+RIGHT = 100.0
+# how close a time must be to a grid time to be that grid time
+GRID_TOL = 1e-12
 
 # ---------------------------------------------------------------------------
 # Sources: where each comes from, its terms, and the SHA-256 of the file the
@@ -535,6 +543,56 @@ end Judge.BouncingBall;
     return text, case
 
 
+def crossings() -> dict[str, tuple[str, dict]]:
+    """Conditions whose crossings are known exactly, on a variable solved
+    from an implicit equation (x^3 + x = z: x = 0.5 where z = 0.625), on
+    an explicit function of a state that crosses twice inside one of the
+    integrator's steps (x = z - z^3/4 > 0.5 from t = 0.53919, the root of
+    t^3 - 4 t + 2, to 1.67513), and on an oscillator's peaks: each `when`
+    must fire once per crossing, at its time. No published problem holds
+    these; the exact answers are the reference, and OpenModelica's counts
+    sit beside them."""
+    out = {}
+
+    def counting(name, doc, decl, eqs, cond, exact, t_end=2.0, dt=0.1, x="x"):
+        text = (f'model Judge.{name} "{doc}"\n{decl}'
+                '  discrete Real n(start = 0, fixed = true) "the crossings counted";\n'
+                f'equation\n{eqs}  when {cond} then\n    n = pre(n) + 1;\n'
+                f'  end when "it counts";\nend Judge.{name};\n')
+        case = {"model": f"Judge.{name}", "t_end": t_end, "dt": dt, "atol_factor": 1e-2,
+                "record": [x, "n"],
+                "judge": {"kind": "count", "exact": exact}}
+        return text, case
+
+    for a in (1.0, 2.3):
+        out[f"count-implicit-{a}"] = counting(
+            "ImplicitRamp", "x solved from x^3 + x = z, z = a t: x > 0.5 once, at 0.625 / a",
+            f'  parameter Real a(unit = "1/s") = {a!r};\n'
+            '  Real z(start = 0, fixed = true);\n  Real x(start = 0);\n',
+            "  der(z) = a;\n  x ^ 3 + x = z;\n", "x > 0.5", [0.625 / a])
+        out[f"count-implicit-nostate-{a}"] = counting(
+            "ImplicitTime", "no state: x solved from x^3 + x = a time; x > 0.5 once, at 0.625 / a",
+            f'  parameter Real a(unit = "1/s") = {a!r};\n  Real x(start = 0);\n',
+            "  x ^ 3 + x = a * time;\n", "x > 0.5", [0.625 / a])
+    # t^3 - 4 t + 2 = 0: the crossing up (the one down, 1.675, fires nothing)
+    import mpmath as mp
+    t_up = float(mp.findroot(lambda t: t ** 3 - 4 * t + 2, 0.54))
+    out["count-explicit-pulse"] = counting(
+        "ExplicitPulse", "x = z - z^3/4 with z = t: above 0.5 from 0.539 to 1.675 s, inside one step",
+        '  Real z(start = 0, fixed = true);\n  Real x;\n',
+        "  der(z) = 1;\n  x = z - z ^ 3 / 4;\n", "x > 0.5", [t_up])
+    # z = cos t above 0.9999 for 0.028 s around each peak 2 pi k: nine in 62 s
+    # (the one at the start does not fire), from 2 pi k - acos(0.9999)
+    rise = float(mp.acos(mp.mpf("0.9999")))
+    out["count-oscillator-peaks"] = counting(
+        "OscillatorPeaks", "z = cos t: above 0.9999 for 0.028 s around each of its peaks",
+        '  parameter Real w(unit = "rad/s") = 1;\n  Real z(start = 1, fixed = true);\n'
+        '  Real v(unit = "1/s", start = 0, fixed = true);\n',
+        "  der(z) = v;\n  der(v) = -w * w * z;\n", "z > 0.9999",
+        [float(2 * mp.pi * k) - rise for k in range(1, 10)], t_end=62.0, dt=0.5, x="z")
+    return out
+
+
 def all_cases(sweep: bool) -> dict[str, tuple[str, dict]]:
     out = {
         "testset-andrews": andrews(),
@@ -545,6 +603,7 @@ def all_cases(sweep: bool) -> dict[str, tuple[str, dict]]:
         "iftomm-fourbar": fourbar(),
         "fmu-stair": stair(),
         "fmu-bouncingball": bouncing_ball(),
+        **crossings(),
     }
     # the pendulum's closed form: released at rest from theta0 (swinging),
     # and given the speed v0 at the bottom so that m = 4 g L / v0^2 < 1
@@ -840,7 +899,7 @@ def cases(cache: Path, out: Path, sweep: bool) -> None:
             r = bouncing_ball_reference(j)
         elif j["kind"] == "testset":
             r = {"y": testset_reference(cached(cache, j["file"]))}
-        elif j["kind"] == "stair":
+        elif j["kind"] in ("stair", "count"):
             r = {}
         else:
             raise ValueError(j["kind"])
@@ -901,6 +960,25 @@ def run(cases_dir: Path, results: Path, runner: Path, timeout: float, only: list
 # Scoring
 # ---------------------------------------------------------------------------
 
+def grid_index(t: float, dt: float, t0: float = 0.0) -> int | None:
+    """The grid time `t` is (t0 + k dt to GRID_TOL relative), or None."""
+    k = round((t - t0) / dt)
+    return k if abs(t - (t0 + k * dt)) <= GRID_TOL * max(1.0, abs(t)) else None
+
+
+def on_grid(times: list[float], dt: float, n: int, t0: float = 0.0) -> list[tuple[int, int]]:
+    """The points of a series (`times`) at the grid's first `n` times, by
+    time, not by position: (index in the series, index on the grid). A
+    point off the grid (an event's row) is left out; where two are at one
+    grid time, the last (the value after an event there)."""
+    at: dict[int, int] = {}
+    for i, t in enumerate(times):
+        k = grid_index(t, dt, t0)
+        if k is not None and 0 <= k < n:
+            at[k] = i
+    return sorted((i, k) for k, i in at.items())
+
+
 def log_digits(err: float) -> float | None:
     """Significant correct digits from a relative error: -log10(err)."""
     if err is None or not math.isfinite(err):
@@ -934,15 +1012,19 @@ def energy_pendulum(j, x, y, vx, vy):
 def score_pendulum(case: dict, ref: dict, r: dict) -> dict:
     j = case["judge"]
     s = r["series"]["channels"]
-    n = min(len(s["x"]), len(ref["x"]))
-    pos = max(max(abs(s["x"][k] - ref["x"][k]), abs(s["y"][k] - ref["y"][k])) for k in range(n))
-    vel = max(max(abs(s["vx"][k] - ref["vx"][k]), abs(s["vy"][k] - ref["vy"][k])) for k in range(n))
-    e = [energy_pendulum(j, s["x"][k], s["y"][k], s["vx"][k], s["vy"][k]) for k in range(n)]
+    pairs = on_grid(r["series"]["times"], case["dt"], len(ref["x"]), case.get("t0", 0.0))
+    if not pairs:
+        raise ValueError("no point of the run is on the reference's grid")
+    pos = max(max(abs(s["x"][i] - ref["x"][k]), abs(s["y"][i] - ref["y"][k])) for i, k in pairs)
+    vel = max(max(abs(s["vx"][i] - ref["vx"][k]), abs(s["vy"][i] - ref["vy"][k]))
+              for i, k in pairs)
+    e = [energy_pendulum(j, s["x"][i], s["y"][i], s["vx"][i], s["vy"][i]) for i, _ in pairs]
     drift = max(abs(v - e[0]) for v in e)
-    c0 = max(abs(s["x"][k] ** 2 + s["y"][k] ** 2 - j["L"] ** 2) for k in range(n))
-    c1 = max(abs(s["x"][k] * s["vx"][k] + s["y"][k] * s["vy"][k]) for k in range(n))
+    c0 = max(abs(s["x"][i] ** 2 + s["y"][i] ** 2 - j["L"] ** 2) for i, _ in pairs)
+    c1 = max(abs(s["x"][i] * s["vx"][i] + s["y"][i] * s["vy"][i]) for i, _ in pairs)
     out = {"error": pos / j["L"], "scd": log_digits(pos / j["L"]), "vel_error": vel,
-           "energy_drift": drift, "constraint": c0, "constraint_v": c1}
+           "energy_drift": drift, "constraint": c0, "constraint_v": c1,
+           "missing": len(ref["x"]) - len(pairs)}
     if j.get("iftomm"):
         out["iftomm_pass"] = drift < 5e-5  # the benchmark's own limit, J
     return out
@@ -952,7 +1034,9 @@ def score_fourbar(case: dict, ref: dict, r: dict) -> dict:
     j = case["judge"]
     n = j["n"]
     s = r["series"]["channels"]
-    nt = min(len(s["y_1_0"]), len(ref["phi"]))
+    pairs = on_grid(r["series"]["times"], case["dt"], len(ref["phi"]), case.get("t0", 0.0))
+    if not pairs:
+        raise ValueError("no point of the run is on the reference's grid")
 
     def P(c, k, jj, t):
         if k == 0:
@@ -966,15 +1050,15 @@ def score_fourbar(case: dict, ref: dict, r: dict) -> dict:
     err_a = 0.0
     drift = 0.0
     e0 = None
-    for t in range(nt):
+    for t, tr in pairs:
         for k in range(1, n + 1):
             dy = P("y", k, 0, t) - P("y", k - 1, 0, t)
             dz = P("z", k, 0, t) - P("z", k - 1, 0, t)
             phi = math.atan2(-dz, -dy)
-            d = (phi - ref["phi"][t][k - 1] + math.pi) % (2 * math.pi) - math.pi
+            d = (phi - ref["phi"][tr][k - 1] + math.pi) % (2 * math.pi) - math.pi
             err = max(err, abs(d))
-        ay = sum(-math.cos(p) for p in ref["phi"][t])
-        az = sum(-math.sin(p) for p in ref["phi"][t])
+        ay = sum(-math.cos(p) for p in ref["phi"][tr])
+        az = sum(-math.sin(p) for p in ref["phi"][tr])
         err_a = max(err_a, math.hypot(P("y", n, 0, t) - ay, P("z", n, 0, t) - az))
         # the energy from the nodes: each uniform bar m/6 (|va|^2 + va.vb + |vb|^2)
         T = U = 0.0
@@ -993,7 +1077,7 @@ def score_fourbar(case: dict, ref: dict, r: dict) -> dict:
             e0 = e
         drift = max(drift, abs(e - e0))
     return {"error": err, "scd": log_digits(err), "error_A": err_a, "energy_drift": drift,
-            "energy0": e0, "iftomm_pass": drift < 1.0}
+            "energy0": e0, "iftomm_pass": drift < 1.0, "missing": len(ref["phi"]) - len(pairs)}
 
 
 def read_csv(path: Path) -> tuple[list[str], list[list[float]]]:
@@ -1003,17 +1087,26 @@ def read_csv(path: Path) -> tuple[list[str], list[list[float]]]:
 
 
 def score_stair(case: dict, cache: Path, r: dict) -> dict:
+    """The counter at each of `Stair_out.csv`'s times (the value after the
+    event at a whole second), matched by time: a run that lacks one of
+    them is not scored."""
     _, rows = read_csv(cached(cache, case["judge"]["csv"]))
     s = r["series"]
     got = s["channels"]["counter"]
-    times = s["times"]
-    n = min(len(rows), len(got))
-    err = max(abs(got[k] - rows[k][1]) for k in range(n))
-    dt = max(abs(times[k] - rows[k][0]) for k in range(n))
+    csv_at = {grid_index(row[0], case["dt"]): row[1] for row in rows}
+    if None in csv_at:
+        raise ValueError("Stair_out.csv has a row off the output grid")
+    pairs = on_grid(s["times"], case["dt"], len(rows))
+    have = {k for _, k in pairs}
+    lacking = sorted(set(csv_at) - have)
+    if lacking:
+        raise ValueError(f"the run lacks {len(lacking)} of the CSV's times "
+                         f"(the first at {lacking[0] * case['dt']:g} s)")
+    err = max(abs(got[i] - csv_at[k]) for i, k in pairs)
     ev = r["event_times"]
     ev_err = max((abs(t - (i + 1)) for i, t in enumerate(ev)), default=0.0)
-    return {"error": err, "scd": 16.0 if err == 0 else None, "points": n, "csv_points": len(rows),
-            "grid_offset": dt, "event_time_error": ev_err, "events_expected": 9}
+    return {"error": err, "scd": 16.0 if err == 0 else None, "points": len(pairs),
+            "csv_points": len(rows), "event_time_error": ev_err, "events_expected": 9}
 
 
 def score_bouncingball(case: dict, cache: Path, ref: dict, r: dict) -> dict:
@@ -1030,15 +1123,39 @@ def score_bouncingball(case: dict, cache: Path, ref: dict, r: dict) -> dict:
         h, v = bouncing_ball_at(ref, t)
         herr, verr = max(herr, abs(hs[k] - h)), max(verr, abs(vs[k] - v))
     _, rows = read_csv(cached(cache, case["judge"]["csv"]))
-    csv_dev = max(abs(hs[k] - rows[k][1]) for k in range(min(len(rows), len(hs))))
+    csv_at = {grid_index(row[0], case["dt"]): row[1] for row in rows}
+    csv_dev = max(abs(hs[i] - csv_at[k])
+                  for i, k in on_grid(s["times"], case["dt"], len(rows)) if k in csv_at)
     csv_bounces = sum(1 for a, b in zip(rows, rows[1:]) if a[2] < 0 and b[2] >= 0)
     return {"error": terr, "scd": log_digits(terr / exact[-1]), "h_error": herr, "v_error": verr,
             "bounces": len(ev), "bounces_exact": len(exact), "csv_bounces": csv_bounces,
             "csv_max_dev": csv_dev}
 
 
+def score_count(case: dict, r: dict) -> dict:
+    """The `when`'s count against the exact crossings, and where it fired:
+    the error is the largest distance of a firing from its crossing, or
+    infinite where it fired too often or too seldom."""
+    exact = case["judge"]["exact"]
+    n = r["final"].get("n")
+    if "changes" in r:
+        # OpenModelica's: where its result file's n changes
+        fired = r["changes"].get("n", [])
+    else:
+        fired = [t for t, label in zip(r["event_times"], r.get("event_labels") or [])
+                 if label.endswith("it counts")]
+    if n != len(exact) or len(fired) != len(exact):
+        return {"error": math.inf, "scd": None, "count": n, "count_exact": len(exact),
+                "fired_at": fired}
+    err = max(abs(t - e) for t, e in zip(fired, exact))
+    return {"error": err, "scd": log_digits(err / case["t_end"]), "count": n,
+            "count_exact": len(exact), "fired_at": fired}
+
+
 def score_run(case: dict, ref: dict, cache: Path, r: dict) -> dict:
     kind = case["judge"]["kind"]
+    if kind == "count":
+        return score_count(case, r)
     if kind == "testset":
         return score_testset(case, ref, r)
     if kind == "pendulum":
@@ -1072,8 +1189,9 @@ def scored(cases_dir: Path, results: Path, cache: Path) -> dict:
             if r["ok"] and not all(math.isfinite(v) for v in values):
                 # the run said it finished, its results are not numbers
                 r = dict(r, ok=False, error="finished without a message, its results NaN")
-            n_grid = round((case["t_end"] - case.get("t0", 0.0)) / case["dt"]) + 1
-            if r["ok"] and len(r.get("series", {}).get("times", [])) < n_grid:
+            times = r.get("series", {}).get("times", [])
+            if r["ok"] and (not times or grid_index(times[-1], case["dt"], case.get("t0", 0.0))
+                            != round((case["t_end"] - case.get("t0", 0.0)) / case["dt"])):
                 r = dict(r, ok=False, error="finished without a message, its results end early")
             row = {"rtol": r["rtol"], "ok": r["ok"], "wall_ms": 1e3 * r.get("wall_s", float("nan"))}
             if r["ok"]:
@@ -1110,8 +1228,83 @@ def failure_text(row) -> str:
     return f"fails{where}: {short[:300]}"
 
 
+def verdict(case: dict, row: dict) -> str | None:
+    """A closed-form case's run: "right" within RIGHT rtol of the reference
+    over the whole grid (a count: firing once per crossing), "wrong"
+    (without a message) beyond it, "stopped" (with the engine's message);
+    None for the other cases."""
+    if case["judge"]["kind"] not in ("pendulum", "fourbar", "count"):
+        return None
+    if not row.get("ok"):
+        return "stopped"
+    if row.get("error") is None:
+        return "wrong"
+    if case["judge"]["kind"] == "count":
+        # once per crossing (where it fires, the error, depends on how
+        # steeply the condition crosses: near a peak, steeply on the state)
+        return "right" if math.isfinite(row["error"]) else "wrong"
+    return "right" if row["error"] <= RIGHT * row["rtol"] else "wrong"
+
+
+def sweep_summary(cases_dir: Path, after: dict) -> str:
+    """The pendulums released at rest, by release angle: each tolerance's
+    runs right, wrong without a message and stopped; the angle up to which
+    every run is right; per 0.1 rad, the largest error of the runs that
+    finish, in rtol, and how many are wrong or stop."""
+    swings = {}
+    for name, a in after.items():
+        m = re.fullmatch(r"pendulum-swing-([0-9.]+)", name)
+        if m:
+            swings[float(m.group(1))] = (json.loads((cases_dir / f"{name}.json").read_text()), a)
+    if len(swings) < 10:
+        return ""
+    md = [f"### The pendulum released at rest, {len(swings)} angles "
+          f"({min(swings):.2f} … {max(swings):.2f} rad)\n",
+          f"A run is right within {RIGHT:g} rtol of the closed form over the whole grid.\n",
+          "| rtol | right | wrong, no message | stopped |", "|---|---|---|---|"]
+    by_rtol: dict[float, dict[str, int]] = {}
+    first_bad = None
+    for th in sorted(swings):
+        case, a = swings[th]
+        for r in a["rows"]:
+            v = verdict(case, r)
+            by_rtol.setdefault(r["rtol"], {"right": 0, "wrong": 0, "stopped": 0})[v] += 1
+            if v != "right" and first_bad is None:
+                first_bad = (th, r)
+    for rtol in sorted(by_rtol, reverse=True):
+        c = by_rtol[rtol]
+        md.append(f"| {rtol:.0e} | {c['right']} | {c['wrong']} | {c['stopped']} |")
+    md.append("")
+    if first_bad:
+        th, r = first_bad
+        ok_below = [t for t in sorted(swings) if t < th]
+        what = (f"error {fmt(r.get('error'))} m = {r['error'] / r['rtol']:.0f} rtol"
+                if r.get("ok") else failure_text(r))
+        md.append(f"Every run is right up to {ok_below[-1]:.2f} rad; the first that is not: "
+                  f"{th:.2f} rad at rtol {r['rtol']:.0e} ({what}).\n" if ok_below else
+                  f"No angle is right at every tolerance.\n")
+    md += ["| θ0 rad | worst error of the runs that finish, in rtol | wrong | stopped |",
+           "|---|---|---|---|"]
+    bins: dict[int, list] = {}
+    for th in sorted(swings):
+        case, a = swings[th]
+        b = bins.setdefault(math.ceil(round(th * 10, 6)) - 1, [0.0, 0, 0, th, th])
+        b[4] = th
+        for r in a["rows"]:
+            v = verdict(case, r)
+            if v != "stopped" and r.get("error") is not None:
+                b[0] = max(b[0], r["error"] / r["rtol"])
+            b[1] += v == "wrong"
+            b[2] += v == "stopped"
+    for _, (worst, wrong, stopped, lo, hi) in sorted(bins.items()):
+        size = f"{worst:.0f}" if worst < 1e4 else f"{worst:.1e}"
+        md.append(f"| {lo:.2f} … {hi:.2f} | {size} | {wrong} | {stopped} |")
+    md.append("")
+    return "\n".join(md)
+
+
 def report(cases_dir: Path, cache: Path, after: dict, before: dict | None) -> str:
-    md = []
+    md = [sweep_summary(cases_dir, after)]
     for name, a in after.items():
         case = json.loads((cases_dir / f"{name}.json").read_text())
         md.append(f"### {name}\n")
@@ -1120,7 +1313,8 @@ def report(cases_dir: Path, cache: Path, after: dict, before: dict | None) -> st
                  "fourbar": ("energy_drift", "energy drift J"),
                  "testset": ("mescd", "mescd"),
                  "bouncingball": ("h_error", "h error m"),
-                 "stair": ("event_time_error", "event time error s")}[case["judge"]["kind"]]
+                 "stair": ("event_time_error", "event time error s"),
+                 "count": ("count", "count")}[case["judge"]["kind"]]
         cols = ["rtol", "error", "scd", extra[1], "steps", "ETF", "events", "wall ms"]
         b_rows = {r["rtol"]: r for r in (before or {}).get(name, {}).get("rows", [])}
         md.append("| " + " | ".join(cols) + " |")
@@ -1146,11 +1340,14 @@ def report(cases_dir: Path, cache: Path, after: dict, before: dict | None) -> st
                           + " |" * (len(cols) - 2))
                 continue
             error = cell("error")
-            if case["judge"]["kind"] in ("pendulum", "fourbar") and (r.get("error") or 0) >= 1e-2:
-                # a position 1 cm or more off on 1 m bars, and the run said nothing
+            if verdict(case, r) == "wrong":
+                # more than RIGHT rtol off the closed form, and the run said nothing
                 error += " **wrong, no message**"
+            if r.get("missing"):
+                error += f" ({r['missing']} grid points missing)"
             md.append("| " + " | ".join([
-                f"{r['rtol']:.0e}", error, cell("scd", ".2f"), cell(extra[0]),
+                f"{r['rtol']:.0e}", error, cell("scd", ".2f"),
+                cell(extra[0], ".0f" if extra[0] == "count" else ".1e"),
                 cell("steps", "d"), cell("err_test_fails", "d"), cell("events", "d"),
                 cell("wall_ms", ".2f")]) + " |")
         md.append("")
@@ -1443,15 +1640,18 @@ def omc_env() -> tuple[str, dict]:
 
 
 def omc_csv(path: Path, record: list[str], dt: float) -> dict:
-    """OpenModelica's result file as the runner's series: the output grid,
-    with the values before and after an event at a grid time, and the
-    events' instants (OpenModelica writes a row on each side of an event)."""
+    """OpenModelica's result file as the runner's series: its rows at the
+    output grid's times (to GRID_TOL: an event's rows a little after a grid
+    time, OpenModelica's event 1e-10 s late, are not grid points), with the
+    values before and after an event at a grid time, and the events'
+    instants (OpenModelica writes a row on each side of an event). A grid
+    time it wrote no row at is missing from the series, not filled."""
     with open(path, newline="") as f:
         table = list(csv.reader(f))
     head = table[0]
     rows = [[float(x) for x in row] for row in table[1:]]
     col = {h: i for i, h in enumerate(head)}
-    times, after, before, events = [], [], {}, []
+    times, after, before, events, ks = [], [], {}, [], []
     for i, row in enumerate(rows):
         t = row[0]
         # an event: a row on each side of an instant, the values changed
@@ -1460,20 +1660,26 @@ def omc_csv(path: Path, record: list[str], dt: float) -> dict:
         if (i > 0 and t == rows[i - 1][0] and row != rows[i - 1]
                 and (not events or t - events[-1] > 1e-9 * max(1.0, abs(t)))):
             events.append(t)
-        on_grid = abs(t / dt - round(t / dt)) < 1e-9
-        if not on_grid:
+        k = grid_index(t, dt)
+        if k is None:
             continue
-        if times and t == times[-1]:
+        if ks and k == ks[-1]:
+            # another row at that grid time: an event there
             before.setdefault(len(times) - 1, after[-1])
             after[-1] = row
         else:
-            times.append(t)
+            ks.append(k)
+            times.append(k * dt)
             after.append(row)
     chans = {n: [r[col[n]] for r in after] for n in record if n in col}
+    # where each recorded channel changes, row to row (a counter's events)
+    changes = {n: [b[0] for a, b in zip(rows, rows[1:]) if b[col[n]] != a[col[n]]]
+               for n in record if n in col}
     left = {n: [(k, b[col[n]]) for k, b in before.items() if b[col[n]] != after[k][col[n]]]
             for n in record if n in col}
     return {"times": times, "channels": chans, "before": {n: v for n, v in left.items() if v},
-            "final": {h: rows[-1][i] for h, i in col.items()}, "event_times": events}
+            "final": {h: rows[-1][i] for h, i in col.items()}, "event_times": events,
+            "changes": changes}
 
 
 def omc_stats(log: str) -> dict:
@@ -1537,6 +1743,7 @@ def omc(cases_dir: Path, results: Path, only: list[str]) -> None:
                         data = omc_csv(res, case["record"], case["dt"])
                         run["final"] = data.pop("final")
                         run["event_times"] = data.pop("event_times")
+                        run["changes"] = data.pop("changes")
                         run["series"] = data
                     else:
                         errors = [ln for ln in log.splitlines() if "error" in ln.lower()]

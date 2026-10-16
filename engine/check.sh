@@ -29,6 +29,9 @@ cargo test --workspace --locked -j "$jobs"
 step "licences of every third-party crate"
 python3 scripts/licences.py
 
+step "the outside judge's own scoring (engine/judge)"
+python3 judge/test_judge.py
+
 if command -v cargo-deny >/dev/null 2>&1; then
     step "cargo-deny (licences, bans)"
     cargo deny --locked check licenses bans
