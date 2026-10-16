@@ -121,6 +121,26 @@ const TREE_BYTES_PER_BYTE: usize = 128;
 /// runner's).
 pub const TIME_LIMIT_S: f64 = 2.0;
 
+/// The budget runners take: [`TIME_LIMIT_S`] (0 here), or what the
+/// engine's own tests of the other limits set ([`set_time_limit_for_tests`]).
+static TIME_LIMIT_SET: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn time_limit() -> f64 {
+    match TIME_LIMIT_SET.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => TIME_LIMIT_S,
+        bits => f64::from_bits(bits),
+    }
+}
+
+/// For the engine's own tests of the memory and depth limits only: runners
+/// started after it get `seconds` a call instead of [`TIME_LIMIT_S`], so
+/// that a slow machine (a debug build on a CI runner) meets the limit
+/// under test before the clock. Nothing else calls it.
+#[doc(hidden)]
+pub fn set_time_limit_for_tests(seconds: f64) {
+    TIME_LIMIT_SET.store(seconds.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
 /// The most inputs and outputs of one call, and the longest output key in
 /// UTF-8 bytes, that the app's Script worker sends: its frames give each
 /// in 16 bits (sandbox_worker.py's `_pack_step` and `_pack_outputs`), and
@@ -486,7 +506,7 @@ impl Script {
             .map_err(|u| ScriptError::Unsupported(format!("Script '{label}', {u}")))?;
         names_check(&module)
             .map_err(|u| ScriptError::Unsupported(format!("Script '{label}': {}", u.what)))?;
-        let mut machine = interp::Machine::new(&module, TIME_LIMIT_S);
+        let mut machine = interp::Machine::new(&module, time_limit());
         machine.run_module(&module).map_err(|f| failed(label, None, f))?;
         let step = match machine.global("step") {
             Some(f @ Value::Func(_)) => f,
@@ -498,7 +518,7 @@ impl Script {
         };
         // reading the parameters is timed as a call is
         value::start_meter(Some(
-            std::time::Instant::now() + std::time::Duration::from_secs_f64(TIME_LIMIT_S),
+            std::time::Instant::now() + std::time::Duration::from_secs_f64(time_limit()),
         ));
         let params = params_of(params)
             .and_then(|p| value::memory_check().map(|_| p))

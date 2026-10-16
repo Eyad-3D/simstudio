@@ -25,6 +25,15 @@ static HELD: AtomicUsize = AtomicUsize::new(0);
 static PEAK: AtomicUsize = AtomicUsize::new(0);
 static TURN: Mutex<()> = Mutex::new(());
 
+/// One test at a time (they read the process's heap), and the memory cap
+/// met before the clock however slow the machine (a debug build on a CI
+/// runner builds these values in seconds).
+fn turn() -> std::sync::MutexGuard<'static, ()> {
+    let turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    lsim_script::set_time_limit_for_tests(120.0);
+    turn
+}
+
 /// The bytes the heap takes for a block of `size`.
 fn block(size: usize) -> usize {
     (size + 16 + 15) & !15
@@ -141,7 +150,7 @@ const GROWING: [(&str, &str, &str); 9] = [
 /// growth), whatever kind of value it keeps.
 #[test]
 fn values_that_outgrow_the_cap_stop_before_the_memory_does() {
-    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let _turn = turn();
     for (what, top, body) in GROWING {
         let base = HELD.load(Relaxed);
         PEAK.store(base, Relaxed);
@@ -246,7 +255,7 @@ const SHAPES: [(&str, &str); 12] = [
 /// app's worker runs is not left to Python much earlier).
 #[test]
 fn every_value_counts_the_memory_it_holds() {
-    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let _turn = turn();
     for (what, body) in SHAPES {
         let mut r = Runner::start(
             &script("", &format!("{body}    return {{'y': len(state)}}\n")),
@@ -289,7 +298,7 @@ fn every_value_counts_the_memory_it_holds() {
 /// back when the calls return.
 #[test]
 fn frames_count_while_their_calls_run() {
-    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let _turn = turn();
     let names: Vec<String> = short_names(70_000)
         .into_iter()
         .filter(|n| !matches!(n.as_str(), "f" | "n" | "k" | "B") && !n.starts_with("__"))
@@ -353,7 +362,7 @@ fn short_names(n: usize) -> Vec<String> {
 /// and a script of more than a MiB is left to Python before it is read.
 #[test]
 fn the_code_counts_more_than_its_tree_takes() {
-    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let _turn = turn();
     let lines = |line: &str, n: usize| -> String { line.repeat(n) };
     for (what, top) in [
         (

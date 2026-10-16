@@ -116,13 +116,16 @@ fn on_python(cases: &[Case]) -> Vec<Value> {
     let mut stdin = child.stdin.take().expect("stdin");
     let writer = std::thread::spawn(move || stdin.write_all(text.as_bytes()));
     let out = child.wait_with_output().expect("Python finishes");
-    writer.join().expect("the writer").expect("written");
+    let written = writer.join().expect("the writer");
+    // Python's own words first: a Python that stops early (without the
+    // backend's packages, say) also breaks the pipe the cases go through
     assert!(
         out.status.success(),
         "the Python side failed ({}): {}",
         out.status,
         String::from_utf8_lossy(&out.stderr)
     );
+    written.expect("written");
     serde_json::from_slice::<Vec<Value>>(&out.stdout).expect("Python's results")
 }
 
