@@ -209,6 +209,7 @@ LightSim replaces any named commercial tool.
 The one claim the reference suite supports today, in this form only:
 *"LightSim reproduces the EPA unadjusted city (UDDS) and highway (HWFET)
 energy at the wall of 4 production electric cars of model year 2022 within
-±9 % (mean 4.5 %), blind: no input tuned to those results"*, with a link to
+8 % (the largest gap 7.5 %, the mean 4.1 %), blind: no input tuned to those
+results"*, with a link to
 this page. It says nothing about any other figure, and "accurate" or
 "validated" without that context stays off limits.

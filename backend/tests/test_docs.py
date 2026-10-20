@@ -406,9 +406,10 @@ def test_the_validation_pages_table_is_what_the_suite_measures():
 
 
 def test_the_validation_pages_summary_lines_agree_with_its_table():
-    """The one-line summary, the mean and the largest gap, the tolerance and
-    the figures the suite also checks (coast-down, halving the step, the exact
-    answers) are what the suite measures."""
+    """The one-line summary, the one claim the page lets others quote, the
+    mean and the largest gap, the tolerance and the figures the suite also
+    checks (coast-down, halving the step, the exact answers) are what the
+    suite measures."""
     text = re.sub(r"\s+", " ", VALIDATION.read_text(encoding="utf-8"))
     gaps = [abs(r.gap_pct) for _, _, r in _measured()]
     mean, largest = f"{sum(gaps) / len(gaps):.1f}", f"{max(gaps):.1f}"
@@ -418,6 +419,15 @@ def test_the_validation_pages_summary_lines_agree_with_its_table():
                 f"to them): LightSim is within {_whole_percent_within()} % on all {NUMBERS[len(gaps)]} "
                 f"figures (the largest gap is {largest} %, the mean {mean} %)")
     assert one_line in text, f"the page's one line is not: {one_line}"
+    # the one claim the page lets others quote, in the form it gives it
+    years = {c["name"].split()[0] for c in SUITE_CASES}
+    assert len(years) == 1
+    assert all(c["target"]["what"].startswith("EPA unadjusted energy at the wall") for c in SUITE_CASES)
+    claim = (f"*\"LightSim reproduces the EPA unadjusted city (UDDS) and highway (HWFET) energy at the "
+             f"wall of {cars} production electric cars of model year {years.pop()} within "
+             f"{_whole_percent_within()} % (the largest gap {largest} %, the mean {mean} %), blind: no "
+             f"input tuned to those results\"*")
+    assert claim in text, f"the claim the page lets others quote is not: {claim}"
     tolerance = {c["tolerance_pct"] for c in SUITE_CASES}
     assert len(tolerance) == 1
     assert (f"Mean of the gaps' sizes {mean} %, largest {largest} %, against a tolerance of "
