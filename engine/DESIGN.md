@@ -1710,6 +1710,16 @@ events (crossings and modes; sample ticks and time events do not count)
 within `storm_window` (1e-3) of the run's length, at least 1 µs; the
 error names the conditions with their counts (the relay test: "101
 events within 1.1e-12 s, from 'Relay': on (101×)").
+A mode whose two sides both drive the state back onto its boundary is
+such a storm: the trajectory slides along the boundary (Filippov
+sliding), and the run loop, which knows only the two sides, switches at
+every instant. It does not slide; it stops and names the mode. The
+library's Driver did this until 20 October: its integral, frozen while
+the command was held at a limit it pushed against, made a heavy car that
+fell behind and caught up slide along full throttle (the Battery Electric
+Car at 6000 kg on the WLTC, stopped at 961.83 s). Its anti-windup is now
+`LimPID`'s back-calculation, which has no mode (section 12.2,
+`blocks/vehicle.rs`).
 
 **Run-loop fixes after the golden comparison (work package 4, second
 round).**
@@ -1941,7 +1951,8 @@ round).**
   channels; and with these conditions interpreted (the compiled condition
   kernels cover only conditions that read time) its runs take 12 to 13
   times as long (the UDDS 566 s against 44 s). It waits for the clutch's
-  switching to be looked at (the driver and anti-windup work, D) and for
+  switching to be looked at (the Driver's anti-windup, the solver work's
+  item D, is no mode since 20 October; the storm is the clutch's) and for
   kernels for these conditions; until then the limit stands, recorded
   in STATUS.md. (Work package 4's sixth round: the review's `sin(2π
   time / 10) > 0.95` while nothing integrated moved was stepped over
@@ -2544,7 +2555,7 @@ against exact answers from `benchmarks/`.
 | `propulsion.wheel` | rolling radius, slip-based tyre force (today's model), rolling resistance; translational port to the body |
 | `propulsion.propeller` | torque ∝ ω² load |
 | `vehicle.body` | mass, road load (Cd·A or A/B/C), grade, load transfer (exact, no longer one step behind), downforce; translational port |
-| `driver.driver` | continuous PI speed controller with feed-forward, accelerator/brake split, `limit`s |
+| `driver.driver` | continuous PI speed controller with `LimPID`'s back-calculation anti-windup (no mode), accelerator/brake split, recuperation blending |
 | `signal.driving_task`, `signal.road_profile`, `signal.lookup`, `signal.constant`, `control.pid`, `control.traction` | causal signal blocks (tables as monotone cubic or linear as today) |
 | `signal.script`, `signal.fmu` | sampled `DiscreteBlock`s, section 9 |
 | `signal.monitor`, `container.system` | no physics: channel selection; sub-system composite |

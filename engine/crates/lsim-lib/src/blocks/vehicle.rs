@@ -28,9 +28,20 @@
 //! slip loss (today's engine relaxes the slip of a tyre that gripped
 //! before the shift at once).
 //!
-//! **Driver** (driver.driver): today's PI speed controller with its
-//! conditional-integration anti-windup and recuperation blending, in
-//! continuous time.
+//! **Driver** (driver.driver): today's PI speed controller and its
+//! recuperation blending, in continuous time, with the anti-windup of
+//! Modelica's `LimPID`: back-calculation, which needs no mode. While the
+//! command is held at a limit, its excess pulls the integral back,
+//! der(I) = err + (cmd − cmd_u)/(ki·Tt), with the tracking time Tt =
+//! Ni·Ti and Ti = kp/ki, so ki·Tt = Ni·kp (Ni = 0.9, `LimPID`'s default;
+//! without a P Gain, Ti is taken as 1 ms). Inside the limits that is
+//! today's equation, der(I) = err. Today's engine freezes the integral
+//! instead while the command pushes against its limit (conditional
+//! integration). In continuous time that freeze is a mode, and a car held
+//! at full throttle that fell behind and catches up slides along the
+//! mode's boundary (its command at 1, the mode switching at every
+//! instant: Filippov sliding), which the run loop stopped as an event
+//! storm.
 
 use super::*;
 use lsim_ir::EnergyDecl;
@@ -506,6 +517,19 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
     ));
     params.push(p("unit_Nm", "N.m", 1.0, "unit carrier"));
     params.push(p("unit_ms", "m/s", 1.0, "unit carrier"));
+    params.push(p(
+        "Ni",
+        "1",
+        0.9,
+        "LimPID's Ni: the anti-windup tracks with the time Ni·Ti, Ti = P Gain / I Gain",
+    ));
+    params.push(p(
+        "Ti_min",
+        "s",
+        1e-3,
+        "the shortest Ti the tracking takes (without a P Gain, LimPID's Ti is 0)",
+    ));
+    params.push(p("I_start", "m", 0.0, "the speed error's integral at the start"));
     let target = if cfg.target_wired { n("sig_target_in") } else { c(0.0) * n("unit_ms") };
     let fb = if cfg.speed_wired { n("sig_speed_in") } else { n("v_vehicle") };
     let w = clamp(n("regen_weight_pct"), c(0.0), c(1.0));
@@ -514,18 +538,20 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
         eq(n("err"), target - fb, "the speed error"),
         eq(n("cmd_u"), n("driver_kp") * n("err") + n("driver_ki") * n("I"), "the PI command"),
         eq(n("cmd"), clamp(n("cmd_u"), c(-1.0), c(1.0)), "held to full brake … full throttle"),
+        // LimPID's back-calculation: der(I) = err + (cmd − cmd_u)/(ki·Tt),
+        // Tt = Ni·Ti, Ti = kp/ki, so ki·Tt = Ni·kp; without a P Gain, Ti is
+        // Ti_min (with neither gain the command and its excess are 0, and
+        // the floor keeps 0/0 out). Inside the limits cmd = cmd_u exactly.
         eq(
             der("I"),
-            ite(
-                // the error's sign needs no event: der(I) = err is 0 there
-                or(
-                    and(gt(n("cmd_u"), c(1.0)), noev(ge(n("err"), c(0.0)))),
-                    and(lt(n("cmd_u"), c(-1.0)), noev(le(n("err"), c(0.0)))),
-                ),
-                c(0.0) * n("unit_ms"),
-                n("err"),
-            ),
-            "the error's integral, frozen while the command is held at a limit it pushes against",
+            n("err")
+                + (n("cmd") - n("cmd_u"))
+                    / (n("Ni")
+                        * max(
+                            max(n("driver_kp"), n("driver_ki") * n("Ti_min")),
+                            c(1e-12) / n("unit_ms"),
+                        )),
+            "the error's integral, pulled back while the command is held at a limit",
         ),
         eq(
             n("avail"),
@@ -575,7 +601,10 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
         ports,
         params,
         vars: vec![
-            state("I", "m", 0.0, "the speed error's integral"),
+            lsim_ir::VarDecl {
+                start: Some(n("I_start")),
+                ..state("I", "m", 0.0, "the speed error's integral")
+            },
             var("err", "m/s", "speed error"),
             var("cmd_u", "1", "the command before its limits"),
             var("cmd", "1", "the pedal command"),
