@@ -57,7 +57,9 @@ def test_launcher_without_lightsim_says_where_to_get_it():
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "lightsim_setup"}}])
     assert out[0]["result"]["serverInfo"]["name"] == "lightsim"
-    assert "releases/latest" in out[1]["result"]["content"][0]["text"]
+    text = out[1]["result"]["content"][0]["text"]
+    # no release exists yet (docs/RELEASE-NOTES.md), so it points at the README's build steps
+    assert "#building-the-app-from-source" in text and "releases" not in text
 
 
 @needs_node

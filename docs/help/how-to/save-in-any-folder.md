@@ -21,8 +21,7 @@ own, and the runs stay with the original.
 
 - Choose **File → Open…** (Ctrl+O), or **Home → Open → Open file…**, and
   pick the file.
-- Or double-click the `.lightsim` file in your file manager (Windows, and
-  Linux with the .deb package).
+- Or double-click the `.lightsim` file in your file manager.
 - Or drag the file onto the LightSim window.
 
 **Home → Open** and the *Start* page list the files you opened lately under

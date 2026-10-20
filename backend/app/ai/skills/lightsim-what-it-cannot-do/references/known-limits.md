@@ -116,7 +116,6 @@ Point 0 of every run is the initial state at t = 0.
 - **The .mat export is checked with SciPy and GNU Octave, not with MATLAB
   itself yet.** The tests read every exported channel back through SciPy's `loadmat` with the same values and units, and the files load in Octave 8.4.
 - **No Parquet from the app, no HDF5.** The Python package writes Parquet when pyarrow is installed (`Result.to_parquet`, `lightsim run -o x.parquet`); the app and its engine write .mat, CSV and the run card (JSON), because pyarrow is not bundled.
-- **`lightsim_run.m` inside the AppImage.** The installers put it in `resources/matlab`, next to the engine it runs.
 - **The table import reads values, not formulas or formats.** From an `.xlsx` file it takes the value Excel saved with each formula; a workbook saved by a program that does not store those values (some scripts that write Excel files) gives empty cells.
 - **A unit LightSim does not know is refused.** The import converts the common units of speed, rotational speed, torque, power, energy, voltage, current, charge, mass, mass flow, distance, time, temperature, force, pressure, curvature and resistance.
 - **The parameter sheet does not hold scripts, case values or when a value
@@ -143,14 +142,14 @@ Point 0 of every run is the initial state at t = 0.
 - **US label estimate from two cycles only.** *Simulations → US label* uses EPA's derived two-cycle method.
 - **27 standard drive cycles; cycles of your own have no phases.** The Driving Task's *Drive Cycle* list has the WLTC (classes 1 to 3b, their city cycles and phases), NEDC, the EPA cycles, two motorcycle cycles and a long-haul truck route.
 - **Few starting points.** The *Start* page offers the examples that come with LightSim and a blank project.
-- **Project files outside the projects folder: what is missing.** `.lightsim` files open from anywhere, but: - The AppImage does not register the file type, so a double-click does not open LightSim there; use **File → Open…**, or the .deb package.
+- **Project files outside the projects folder: what is missing.** `.lightsim` files open from anywhere, but: - Runs next to a `.lightsim` file count against the 500 MB per-project budget but not the 2 GB total: delete runs you no longer need.
 - **Attached files are kept, not used yet.** A project can carry files (Project → Attached): they are copied into its resources folder, travel with Save As, **Export** (a `.lightsim.zip`) and **Import**, and Data Checks report one that is missing or changed.
 - **The trust question for attached files protects runs in the app only.** Before the first run of a project with attached FMUs, AI models or programs, LightSim asks whether you trust it, and remembers the answer by a fingerprint of those files as they are on disk (a file changed since it was attached, by a teammate or a git pull, a…
 - **Study tables are keyed by the figure's name.** A study's results table names each column by the summary figure's label; a figure renamed in a later version starts a new column.
 - **Scripting LightSim from Python or a terminal: early version.** The `lightsim` Python package and command-line tool (see *Python API* and *Command-line tool* in the help) run from the `backend/` folder of the repository, as the desktop engine's `lightsim-backend run …`, or as a wheel you build with `scripts/build-wheel.py…
 - **A few AI access settings are on the command line only.** *Connect AI → AI access* turns AI access on and off, removes allowed folders (and adds one with the desktop app's folder dialog), shows or hides the examples, untrusts projects, sets the run time cap and lists the latest calls.
 - **Unsigned installers, until the owner buys a certificate.** The build can sign every Windows file, but only once the owner has a code-signing certificate.
-- **No macOS version yet.** The build makes and tests a Mac version for Apple silicon, but it is published only once it can be signed and notarised by Apple, which needs the owner's paid Apple Developer account.
+- **No Linux or macOS version yet.** LightSim is built and tested for Windows 10/11 (x64) only for now (the owner's decision of 10 October 2026): the installer build makes the Windows installers only.
 - **Updates need a yes, and some installs only point to the download.** LightSim checks for updates only after you agree (it asks the first time it opens).
 - **The policy file has no Group Policy template.** IT fixes settings with a `policy.json` file (how), not through Group Policy's administrative templates (ADMX) or the registry.
 - **The help is a first draft.** F1, or the **?** menu at the top right, opens LightSim's help in a panel inside the app, served from your computer.

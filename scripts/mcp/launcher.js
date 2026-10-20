@@ -3,14 +3,16 @@
 // its own: this finds the LightSim installed on this computer and runs its
 // MCP server (`lightsim-backend mcp`), passing stdin and stdout straight
 // through. If LightSim is not installed, it answers as a tiny MCP server
-// whose one tool says where to download it.
+// whose one tool says how to get it.
 "use strict";
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const DOWNLOAD = "https://github.com/Eyad-3D/simstudio/releases/latest";
+// LightSim has no public release yet, so this points at the README's steps to
+// build it from source (and should point at the download once there is one).
+const GET_LIGHTSIM = "https://github.com/Eyad-3D/simstudio#building-the-app-from-source";
 const exe = process.platform === "win32" ? "lightsim-backend.exe" : "lightsim-backend";
 
 function candidates() {
@@ -55,7 +57,7 @@ if (engine) {
 function notInstalled() {
   const text =
     `LightSim is not installed on this computer, so the AI assistant cannot use it. ` +
-    `Download and install LightSim from ${DOWNLOAD}, then restart this AI app.`;
+    `LightSim has no public release to download yet. Build and install it as described at ${GET_LIGHTSIM}, then restart this AI app.`;
   process.stderr.write(text + "\n");
   const send = (msg) => process.stdout.write(JSON.stringify(msg) + "\n");
   let buffer = "";

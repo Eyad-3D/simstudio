@@ -924,7 +924,7 @@ sections.
   fill in. (STD-36)
 - Projects can live in any folder as `.lightsim` files: **File → Open…**,
   **File → Open Recent**, **Save As…** (also on the Home tab), a
-  double-click on the file (Windows, Linux .deb) or a drop on the window.
+  double-click on the file (Windows) or a drop on the window.
   Runs, backups and attached files sit next to the file, the runs and
   backups in folders git ignores. *Recent files* is listed in **Home →
   Open** and on the *Start* page. LightSim looks at the open file every

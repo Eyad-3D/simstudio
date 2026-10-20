@@ -877,10 +877,6 @@ minimum or an average, for example from the CSV export, or put the
   Parquet when pyarrow is installed (`Result.to_parquet`, `lightsim run -o
   x.parquet`); the app and its engine write .mat, CSV and the run card
   (JSON), because pyarrow is not bundled. *Roadmap:* STD-09.
-- **`lightsim_run.m` inside the AppImage.** The installers put it in
-  `resources/matlab`, next to the engine it runs. In the AppImage it sits
-  inside the image: extract it with `--appimage-extract`. *Roadmap:*
-  STD-09, AI-02.
 - **The table import reads values, not formulas or formats.** From an
   `.xlsx` file it takes the value Excel saved with each formula; a
   workbook saved by a program that does not store those values (some
@@ -1076,9 +1072,6 @@ minimum or an average, for example from the CSV export, or put the
   your car and change it. *Roadmap:* CON-18, PLT-32.
 - **Project files outside the projects folder: what is missing.**
   `.lightsim` files open from anywhere, but:
-  - The AppImage does not register the file type, so a double-click does
-    not open LightSim there; use **File → Open…**, or the .deb package. No
-    macOS version yet.
   - Runs next to a `.lightsim` file count against the 500 MB per-project
     budget but not the 2 GB total: delete runs you no longer need.
   - LightSim notices a change on disk by looking every 4 s while its window
@@ -1133,14 +1126,15 @@ minimum or an average, for example from the CSV export, or put the
   engine (`lightsim-backend.exe`) with suspicion, and IT cannot allow
   LightSim by its publisher. Each build is scanned with Microsoft Defender,
   which finds nothing. *Roadmap:* PLT-32.
-- **No macOS version yet.** The build makes and tests a Mac version for
-  Apple silicon, but it is published only once it can be signed and
-  notarised by Apple, which needs the owner's paid Apple Developer account.
-  Until then there are builds for Windows 10/11 (x64) and Linux (x64) only.
-  There is no build for Intel Macs. *Roadmap:* PLT-13.
+- **No Linux or macOS version yet.** LightSim is built and tested for
+  Windows 10/11 (x64) only for now (the owner's decision of 10 October
+  2026): the installer build makes the Windows installers only. A Mac
+  version for Apple silicon would be published only once it can be signed
+  and notarised by Apple, which needs the owner's paid Apple Developer
+  account; there would be none for Intel Macs. *Roadmap:* PLT-13.
 - **Updates need a yes, and some installs only point to the download.**
   LightSim checks for updates only after you agree (it asks the first time
-  it opens). The .deb package, MSI installs and unsigned Windows builds do
+  it opens). MSI installs and unsigned Windows builds do
   not install updates themselves: they open the download page. There is
   one update channel (no beta) and no way back to an older version from the
   app. *Roadmap:* PLT-18, PLT-31.
@@ -1201,8 +1195,7 @@ minimum or an average, for example from the CSV export, or put the
   and a save from the app over it is refused as a conflict (the earlier
   version stays in *Restore…*). Connect AI writes the AI apps' settings
   files where those apps kept them in 2026; an app that moves its file
-  needs an update to LightSim. On the Linux AppImage the AI app can start
-  LightSim only while LightSim is open (install the .deb instead). The
+  needs an update to LightSim. The
   skill pack has not yet been measured with an AI benchmark. *Roadmap:*
   AI-01 (settings, trusted projects), AI-04 (edits in an open window),
   AI-16 (benchmark).

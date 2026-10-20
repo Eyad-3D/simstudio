@@ -62,8 +62,6 @@ folder of the app, next to the engine:
 |---|---|
 | Windows, for you only | `%LOCALAPPDATA%\Programs\LightSim\resources\matlab` |
 | Windows, for all users (or the MSI) | `C:\Program Files\LightSim\resources\matlab` |
-| Linux `.deb` | `/opt/LightSim/resources/matlab` |
-| Linux AppImage | inside the AppImage: run it with `--appimage-extract` and use `squashfs-root/resources/matlab` |
 
 Add that folder to your MATLAB path (`addpath`, or **Set Path** in MATLAB),
 or copy the file to a folder on it. It is also in the `matlab` folder of
@@ -88,8 +86,7 @@ with no window and no network.
 installed with LightSim always runs that LightSim's engine. A copy
 elsewhere looks for an installed LightSim (Windows:
 `%LOCALAPPDATA%\Programs\LightSim\resources\backend\lightsim-backend.exe`
-or the same under `C:\Program Files`; Linux `.deb`:
-`/opt/LightSim/resources/backend/lightsim-backend`). For a LightSim
+or the same under `C:\Program Files`). For a LightSim
 installed elsewhere, give the engine's path:
 `lightsim_run(project, case, 'Engine', 'C:\...\lightsim-backend.exe')`, or
 set the environment variable `LIGHTSIM_ENGINE` to it.

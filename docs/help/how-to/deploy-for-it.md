@@ -5,11 +5,17 @@ administrator or company IT. It covers installing without questions for all
 users, the MSI package, the policy file that fixes settings for everyone,
 and what LightSim does on the network.
 
-## Check the download
+## Get the installers and check them
 
-Each file on the [Releases page](https://github.com/Eyad-3D/simstudio/releases)
-has a `.sha256` file next to it with its SHA-256 checksum (a fingerprint of
-the file). On Windows, compare it with:
+LightSim has no public release yet (see the
+[release notes](../../RELEASE-NOTES.md)), so there is nothing to download:
+you build the installers from the source, as the
+[README](https://github.com/Eyad-3D/simstudio#building-the-app-from-source)
+explains. The
+build leaves them in `desktop\release\`. A build published for download
+will have a `.sha256` file next to each installer, with its SHA-256 checksum
+(a fingerprint of the file); to check a file you copied to another PC
+against the checksum you made when you built it, on Windows run:
 
 ```
 certutil -hashfile LightSim-Setup-<version>.exe SHA256
@@ -70,11 +76,8 @@ PC: use the setup program or the MSI. An MSI install never updates itself
 
 ## Linux and macOS
 
-- Linux: `sudo apt install ./LightSim-<version>-amd64.deb` installs for
-  all users; the AppImage needs no install.
-- macOS (Apple silicon): the `.dmg` holds the app; copy it to
-  `/Applications`. A Mac build is published only once it is signed and
-  notarised by Apple; until then there is none.
+There is no installer for either. LightSim is built and tested for Windows
+10/11 (64-bit) only for now; Linux and macOS may come later.
 
 ## Where LightSim keeps its files
 
@@ -150,14 +153,12 @@ An example for a teaching lab:
 
 ## Updates
 
-- Setup program, AppImage and macOS installs can update themselves once a
-  user agrees to update checks, or when the policy says `auto`. LightSim
-  always asks before it installs. See
-  [Turn update checks on or off](check-for-updates.md).
+- The setup program can update itself once a user agrees to update checks,
+  or when the policy says `auto`. LightSim always asks before it installs.
+  See [Turn update checks on or off](check-for-updates.md).
 - MSI installs cannot update themselves: update checks are off unless the
   policy says `notify` or `auto`, and then they only point to the
   download. Deploy each new MSI yourself.
-- The `.deb` package only says that a new version exists.
 - Each release lists what changes in the results in its
   [release notes](../../RELEASE-NOTES.md). Read it before you roll a new
   version out to a class mid-term.

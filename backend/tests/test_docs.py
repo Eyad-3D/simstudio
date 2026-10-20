@@ -537,3 +537,61 @@ def test_everything_that_says_how_far_lightsim_is_validated_gives_the_suites_fig
     found = [p.relative_to(ROOT).as_posix() for p in scanned
              if blanket.search(re.sub(r"\s+", " ", p.read_text(encoding="utf-8")))]
     assert not found, f"these still say that nothing is validated: {found}"
+
+
+# ---- the install steps ----------------------------------------------------------
+WORKFLOW = (ROOT / ".github" / "workflows" / "desktop-build.yml").read_text(encoding="utf-8")
+BUILDER = (ROOT / "desktop" / "electron-builder.yml").read_text(encoding="utf-8").replace("\r\n", "\n")
+RELEASE_NOTES = (ROOT / "docs" / "RELEASE-NOTES.md").read_text(encoding="utf-8")
+#: the installer file types of the platforms the build does not make today
+OTHER_INSTALLERS = {"linux": ["AppImage", ".deb", "apt install"], "macos": [".dmg"]}
+#: pages that tell a reader how to get LightSim (the release notes are history)
+INSTALL_PAGES = ([ROOT / "README.md", ROOT / "CONTRIBUTING.md", ROOT / "SECURITY.md",
+                  ROOT / "scripts" / "mcp" / "launcher.js"]
+                 + sorted((ROOT / "docs").glob("*.md")) + sorted((ROOT / "docs" / "help").rglob("*.md"))
+                 + sorted((ROOT / "docs" / "user-panel").glob("*.md")))
+
+
+def _built_platforms() -> set[str]:
+    matrix = WORKFLOW.split("matrix:", 1)[1].split("runs-on:", 1)[0]
+    return set(re.findall(r"^\s+name: (\w+)\s*$", matrix, re.M))
+
+
+def test_the_install_steps_are_for_the_platforms_the_build_makes():
+    """The build makes the Windows installers only (x64), so the README says
+    Windows 10/11 (64-bit) and no page offers a Linux or macOS installer."""
+    assert _built_platforms() == {"windows"}, "the build makes other installers: update the install steps"
+    win = BUILDER.split("\nwin:\n", 1)[1].split("\nnsis:", 1)[0]
+    assert re.findall(r"arch: \[(\w+)\]", win) == ["x64", "x64"], "Windows installers for other CPUs"
+    intro = README.split("## Quick start", 1)[0]
+    assert "desktop app for Windows 10/11 (64-bit)" in re.sub(r"\s+", " ", intro)
+    assert "Linux" not in intro
+    steps = README.split("## Quick start", 1)[1].split("3. **Run the example.**", 1)[0]
+    assert "Windows 10/11 (64-bit)" in re.sub(r"\s+", " ", steps)
+    install = README.split("## Install the desktop app", 1)[1].split("### Where your work is saved", 1)[0]
+    assert "LightSim-Setup-<version>.exe" in install and ".msi" in install
+    offered = {}
+    for page in INSTALL_PAGES:
+        text = page.read_text(encoding="utf-8")
+        for platform, words in OTHER_INSTALLERS.items():
+            for word in words:
+                if platform not in _built_platforms() and word in text:
+                    offered.setdefault(page.relative_to(ROOT).as_posix(), []).append(word)
+    assert not offered, f"these pages offer installers the build does not make: {offered}"
+
+
+def test_no_page_links_to_a_release_while_none_is_published():
+    """The newest release in the release notes is not released yet, so a
+    link to the releases page leads nowhere: the README says so and sends
+    the reader to what works (building from source)."""
+    newest = re.search(r"^## (\d+\.\d+\.\d+) .*$", RELEASE_NOTES, re.M).group(0)
+    quick = README.split("## Quick start", 1)[1].split("3. **Run the example.**", 1)[0]
+    install = README.split("## Install the desktop app", 1)[1].split("### Where your work is saved", 1)[0]
+    if "not released yet" in newest:
+        links = {p.relative_to(ROOT).as_posix() for p in INSTALL_PAGES
+                 if re.search(r"simstudio/releases", p.read_text(encoding="utf-8"))}
+        assert not links, f"{newest!r}: these still link to a release that does not exist: {sorted(links)}"
+        for part in (quick, install):
+            flat = re.sub(r"\s+", " ", part)
+            assert "no public release yet" in flat and "#building-the-app-from-source" in part
+    assert "## Building the app from source" in README

@@ -34,9 +34,8 @@ users in steps, so it can reach you a few days after it is published.
 
 ## Installs that cannot update themselves
 
-- The Linux **.deb** package, unsigned Windows builds and the Windows
-  **MSI** say that a new version exists and offer its download page
-  instead (**Download page**).
+- Unsigned Windows builds and the Windows **MSI** say that a new version
+  exists and offer its download page instead (**Download page**).
 - MSI installs check only when your organisation turns checks on. If
   your organisation manages the setting, the menu shows *(managed by your
   organisation)* and you cannot change it. See

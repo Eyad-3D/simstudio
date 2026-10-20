@@ -73,8 +73,8 @@ Ask before the first session; keep the answers with the seat code only.
 3. Which simulation tools do you use today, and for what?
 4. Which question did you last answer with simulation? How long did it
    take?
-5. Your computer: Windows or Linux, and can you install software
-   yourself, or does IT do it?
+5. Your computer: Windows 10 or 11 (the only system LightSim runs on
+   for now), and can you install software yourself, or does IT do it?
 6. FS only: electric or combustion? Which competitions this season?
 7. Can you join a 45-minute video call about every [two] months for at
    least three releases?

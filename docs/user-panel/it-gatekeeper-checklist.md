@@ -21,5 +21,5 @@
 | 12 | Privacy statement: what data is collected? | None collected; not written down as a statement | BIZ-12 | |
 | 13 | Who supports it, and for how long? | One owner; no support promise | BIZ-32 | |
 | 14 | How do we buy (order form, supplier registration, invoice)? | Not yet | BIZ-24 | |
-| 15 | Supported systems and requirements? | Windows 10/11 x64, Linux x64; no macOS | PLT-30, PLT-13 | |
+| 15 | Supported systems and requirements? | Windows 10/11 x64 only; no Linux or macOS installer | PLT-30, PLT-13 | |
 | 16 | Your company's own questions | | | |
