@@ -81,9 +81,10 @@ lightsim check my-car.json && lightsim run my-car.json --all-cases --out "out/{c
 
 AI assistants reach your projects only under rules you set. They start
 **off**. Two things read these settings: the connection for AI apps
-(`lightsim-backend mcp`, the MCP server) before every request, and Python
-code that goes through `lightsim.ai_access.AgentSession`. Other Python code
-(`import lightsim`, `lightsim run`) does not read them.
+(`lightsim-backend mcp`, the MCP server) before every tool call, and Python
+code that goes through `lightsim.ai_access.AgentSession`, when it starts a
+session. Other Python code (`import lightsim`, `lightsim run`) does not
+read them.
 
 | Command | Does |
 |---|---|
@@ -127,7 +128,7 @@ quoted data, not as instructions. Each tool call an AI app makes, done or
 not, is written to `.ai/audit.jsonl` in your projects folder, except a
 call that brings back your no, a run sent as a task (a long run the AI app
 checks on) that LightSim asks about or refuses before it starts, and a
-call of a tool LightSim does not have. Every call through `AgentSession`
-goes to `ai-audit.jsonl` next to the settings file (`ai-access.json` in
-`%APPDATA%\LightSim` on Windows, `~/.config/LightSim` on Linux). The logs
-never leave your computer.
+call LightSim cannot read, such as one of a tool it does not have. Every
+call through `AgentSession` goes to `ai-audit.jsonl` next to the settings
+file (`ai-access.json` in `%APPDATA%\LightSim` on Windows,
+`~/.config/LightSim` on Linux). The logs never leave your computer.

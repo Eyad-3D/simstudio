@@ -23,9 +23,9 @@ it did (AI-01's intent, built for AI-03).
 - Each tool call that reaches :class:`~app.ai.tools.Tools` goes into a local
   audit log, JSON lines in ``.ai/audit.jsonl`` next to the user's projects,
   done or not. A call that brings back the user's no, a run sent as a task
-  that is asked about or refused before it starts, and a call of an unknown
-  tool stop in the MCP server first and are not logged. It is never
-  uploaded.
+  that is asked about or refused before it starts, and a call the server
+  cannot read (an unknown tool, arguments that are not an object) stop in
+  the MCP server first and are not logged. It is never uploaded.
 """
 from __future__ import annotations
 

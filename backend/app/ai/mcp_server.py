@@ -527,7 +527,7 @@ def _elicit_params(message: str) -> dict:
     return {"mode": "form", "message": message, "requestedSchema": {
         "type": "object",
         "properties": {"confirm": {"type": "boolean", "title": "Allow this",
-                                   "description": "Tick to let the assistant do this once.",
+                                   "description": "Tick to let the assistant do this.",
                                    "default": False}},
         "required": ["confirm"]}}
 

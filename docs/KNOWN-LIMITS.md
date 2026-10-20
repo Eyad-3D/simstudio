@@ -1141,8 +1141,9 @@ minimum or an average, for example from the CSV export, or put the
   you choose **Run scripts** there. `lightsim ai log` lists only the calls
   made through `AgentSession`; an AI app's calls are in `.ai/audit.jsonl`
   in your projects folder, and the *AI access* tab shows both. That log
-  leaves out a call that brings back your no, and a run sent as a task
-  that LightSim asks about or refuses before it starts. *Roadmap:* AI-01.
+  leaves out a call that brings back your no, a run sent as a task that
+  LightSim asks about or refuses before it starts, and a call LightSim
+  cannot read, such as one of a tool it does not have. *Roadmap:* AI-01.
 - **A few AI access settings are on the command line only.** *Connect AI →
   AI access* turns AI access on and off, removes allowed folders (and adds
   one with the desktop app's folder dialog), shows or hides the examples,

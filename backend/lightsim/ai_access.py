@@ -1,10 +1,11 @@
 """What AI assistants may see and do in LightSim (AI-01).
 
 Two things read these settings. Python code that goes through
-:class:`AgentSession` is held to every rule below. The MCP server for AI
-apps (``app/ai``) reads the settings file too, before every request, for
-the switch, the folders, the examples, the run time cap and the
-organisation's policy, and keeps a project marked "noAi" out of sight; it
+:class:`AgentSession` is held to every rule below, as the settings were
+when the session started. The MCP server for AI apps (``app/ai``) reads
+the settings file too, before every tool call, for the switch, the
+folders, the examples, the run time cap and the organisation's policy,
+and keeps a project marked "noAi" out of sight; it
 does **not** read the trust list (``trustedScripts``). It asks the user,
 through the AI app, before it saves an edit and before it runs a project
 with Script blocks (and on Windows runs one only when started with

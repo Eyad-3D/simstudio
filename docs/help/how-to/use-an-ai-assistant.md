@@ -96,26 +96,30 @@ refuse every change.
 - LightSim writes each tool call an assistant makes, done or not, to a log
   on this computer, `.ai/audit.jsonl` in your projects folder. It leaves
   out a call that brings back your no, a long run (an MCP task) that
-  LightSim asks about or refuses before it starts, and a call of a tool
-  LightSim does not have. The log is never uploaded.
+  LightSim asks about or refuses before it starts, and a call LightSim
+  cannot read, such as one of a tool it does not have. The log is never
+  uploaded.
 - On a computer your organisation manages, its policy file can turn AI
   access off (`"ai": "off"`, see [Install LightSim for a lab or
   a company](deploy-for-it.md)). The window then says so and cannot add
-  LightSim to an AI app, and an assistant already connected gets nothing.
+  LightSim to an AI app, and an assistant already connected can use none of
+  LightSim's tools.
 
 ### Set what AI tools may see and do
 
 The **AI access** tab of the *Connect AI* window shows the settings AI
-tools work under. An AI app you connected reads them before every request,
-and so does Python code that goes through `lightsim.ai_access.AgentSession`.
-Other Python code (`import lightsim`, `lightsim run`) does not read them.
-They are the same settings as the `lightsim ai …` commands
+tools work under. An AI app you connected reads them before every tool
+call, and Python code that goes through `lightsim.ai_access.AgentSession`
+reads them when it starts a session. Other Python code (`import lightsim`,
+`lightsim run`) does not read them. They are the same settings as the
+`lightsim ai …` commands
 ([Command-line tool](../reference/command-line.md#ai-access)), kept in
 `ai-access.json` in LightSim's settings folder:
 
 - **Let AI tools use LightSim**: AI access is off until you tick this or
-  add LightSim to an AI app. Off, every request from an AI tool is
-  refused.
+  add LightSim to an AI app. Off, every tool call from an AI tool is
+  refused; a connected AI app can still read the skill pack and the part
+  library that come with LightSim.
 - **Folders AI tools may see**: an AI tool can list and open the projects
   in these folders. Adding LightSim to an AI app allows your projects
   folder. **Add folder…** opens the system's folder dialog (in the desktop

@@ -518,6 +518,9 @@ def test_a_yes_sent_again_repeats_a_run_or_saves_another_copy_without_a_new_ques
     server = make_server(folder, platform="linux")
     args = {"project": str(path), "case": "case-udds"}
     ask = tool(server, "run_case", args)
+    question = ask["inputRequests"]["confirm"]["params"]
+    shown = question["message"] + question["requestedSchema"]["properties"]["confirm"]["description"]
+    assert "once" not in shown, "the question must not promise a yes counts once"
     first = tool(server, "run_case", args, **_yes(ask))
     again = tool(server, "run_case", args, **_yes(ask))
     assert first["structuredContent"]["status"] == again["structuredContent"]["status"] == "success"
@@ -654,7 +657,7 @@ def test_a_task_can_be_cancelled(folder):
     assert result["structuredContent"]["status"] == "cancelled"
 
 
-def test_every_call_goes_into_the_local_audit_log(folder):
+def test_each_tool_call_goes_into_the_local_audit_log(folder):
     server = make_server(folder)
     tool(server, "lightsim_list_projects", {})
     tool(server, "run_checks", {"project": "example:bev-car"})
@@ -669,8 +672,8 @@ def test_what_the_audit_log_leaves_out(folder):
     # What the help says about .ai/audit.jsonl (AI-01): a call that reaches a
     # tool is a line, done or not (a question asked, a refusal); a call that
     # brings back the user's no, a run sent as a task that is asked about or
-    # refused before it starts, and a call of a tool LightSim does not have
-    # are not lines.
+    # refused before it starts, and a call LightSim cannot read (a tool it
+    # does not have, arguments that are not an object) are not lines.
     path = _hybrid_copy(folder, "logged.json")
     server = make_server(folder, platform="linux")
     args = {"project": str(path), "case": "case-udds"}
@@ -695,6 +698,9 @@ def test_what_the_audit_log_leaves_out(folder):
     reply = server.handle({"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {
         "name": "no_such_tool", "arguments": {}, "_meta": META}})
     assert "error" in reply and lines() == 1, "a tool LightSim does not have"
+    reply = server.handle({"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": {
+        "name": "run_case", "arguments": [str(path)], "_meta": META}})
+    assert "error" in reply and lines() == 1, "arguments that are not an object: a call it cannot read"
 
     win = make_server(folder, platform="win32")
     refused = tool(win, "run_case", args)
@@ -787,18 +793,34 @@ def test_the_server_opens_no_network_port(folder, monkeypatch):
     assert opened == []
 
 
-def test_nothing_is_answered_while_ai_access_is_off(tmp_path, monkeypatch):
+def test_every_tool_call_is_refused_while_ai_access_is_off(tmp_path, monkeypatch):
     # AI-01: off until the user turns it on; 'lightsim ai off' stops a
-    # connected assistant at once
+    # connected assistant at once. What the page, the help and the IT page
+    # say about "off": every tool call is refused, but an AI app can still
+    # read the skill pack and the part library that come with LightSim
+    # (they hold nothing of the user's).
     monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(tmp_path / "projects"))
     server = make_server(tmp_path / "projects")
+
+    def still_served() -> None:
+        assert len(call(server, "tools/list")["tools"]) == len(TOOLS)
+        skill = call(server, "resources/read", {"uri": "lightsim://skills/lightsim-write-a-script-block/SKILL.md"})
+        assert "Script" in skill["contents"][0]["text"]
+        assert "motor" in call(server, "resources/read", {"uri": "lightsim://components"})["contents"][0]["text"]
+
     for name, args in (("lightsim_list_projects", {}), ("lightsim_overview", {"project": "example:bev-car"})):
         answer = tool(server, name, args)
         assert answer["isError"] and "AI access to LightSim is off" in answer["content"][0]["text"]
+    still_served()
     allow_ai(tmp_path / "projects")
     assert not tool(server, "lightsim_list_projects", {})["isError"]
     allow_ai(tmp_path / "projects", examples=False)  # the user hid the examples
     assert tool(server, "lightsim_overview", {"project": "example:bev-car"})["isError"]
+
+    monkeypatch.setenv("LIGHTSIM_POLICY", json.dumps({"ai": "off"}))  # the organisation's policy
+    answer = tool(server, "lightsim_list_projects", {})
+    assert answer["isError"] and "organisation's policy" in answer["content"][0]["text"]
+    still_served()
 
 
 def test_connecting_an_ai_app_turns_access_on_for_the_projects_folder(tmp_path, monkeypatch):

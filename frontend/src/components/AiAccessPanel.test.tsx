@@ -71,7 +71,10 @@ it("cannot turn AI access on when the organisation's policy keeps it off", async
   );
   expect(box("Let AI tools use LightSim").disabled).toBe(true);
   expect(box("Let AI tools use LightSim").checked).toBe(false);
-  expect(host.textContent).toContain("AI access is off");
+  // off refuses every tool call, but the connection still serves its skill pack and part library
+  expect(host.querySelector("[data-testid=ai-access-state]")!.textContent).toBe(
+    "AI access is off: every tool call from an AI tool is refused, though a connected AI app can still read the skill pack and the part library that come with LightSim.",
+  );
 });
 
 it("adds a folder with the desktop app's folder dialog", async () => {
@@ -103,6 +106,8 @@ it("shows a refusal and the settings as they are", async () => {
 it("says what the connection for AI apps does today", async () => {
   await render(base);
   const text = (host.textContent ?? "").replace(/\s+/g, " ");
+  expect(text).toContain("An AI app you connected reads these settings before every tool call.");
+  expect(text).toContain("Python code that uses lightsim.ai_access.AgentSession reads them when it starts a session.");
   expect(text).toContain(
     "Reading, checking and comparing models, and running a project without Script blocks: no question.",
   );
@@ -131,4 +136,5 @@ it("says what the connection for AI apps does today", async () => {
   expect(text).not.toContain("each time");
   expect(text).not.toContain("before each run");
   expect(text).not.toContain("cannot ask you cannot save");
+  expect(text).not.toContain("before every request");
 });

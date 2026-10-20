@@ -1008,14 +1008,15 @@ sections.
   explain a message and edit a model. Answers stay under 20 KB. It follows
   the MCP revision of 28 July 2026 (stateless, long runs as Tasks,
   confirmations as `input_required`) and still answers apps that use the
-  older handshake. It is read-only unless you confirm in the AI app:
-  saving an edit (the version it replaces is kept as a backup, beside a
-  file in an allowed folder in `<file>-backups`) and running a project
-  with Script blocks ask first (on
+  older handshake. Saving an edit (the version it replaces is kept as a
+  backup, beside a file in an allowed folder in `<file>-backups`) and
+  running a project with Script blocks ask you first, in the AI app (on
   Windows, Script projects do not run unless you allowed it when
-  connecting); a project file with `"noAI": true` stays hidden; an
-  assistant's run stops after 5 minutes; every request goes into a local
-  log, `.ai/audit.jsonl` in the projects folder. (AI-03)
+  connecting); LightSim cannot tell who answered, and an answer the AI app
+  sends again is not asked about again (see *Known issues*); a project
+  file with `"noAI": true` stays hidden; an assistant's run stops after 5
+  minutes; its tool calls go into a local log, `.ai/audit.jsonl` in the
+  projects folder (*Known issues* lists the calls it leaves out). (AI-03)
 - **A skill pack for AI assistants**: nine short guides in the open Agent
   Skills format (build a BEV, build a P2 hybrid, wiring rules, units and
   parameters, Script blocks, verifying a model, *not valid* flags, what

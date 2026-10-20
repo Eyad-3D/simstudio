@@ -10,7 +10,9 @@ const message = (e: unknown) => String((e as Error).message ?? e).replace(/^Erro
 /** Connect AI → AI access (AI-01): the settings `lightsim ai …` changes,
  *  kept in the same file. The connection for AI apps (the MCP server) reads
  *  the switch, the folders, the examples and the run time cap before every
- *  request, and keeps a project marked "noAi" out of sight. It asks the user,
+ *  tool call (AgentSession when a session starts), and keeps a project marked
+ *  "noAi" out of sight. While access is off it refuses every tool call but
+ *  still serves its skill pack and part library. It asks the user,
  *  through the AI app, before it saves an edit and before it runs a project
  *  with Script blocks, but it cannot tell who answers: an answer the app sends
  *  again repeats a run, or saves another copy of an edited example or new
@@ -88,10 +90,10 @@ export function AiAccessPanel() {
   return (
     <div data-testid="ai-access">
       <p className="text-[color:var(--ss-text-dim)]">
-        An AI app you connected reads these settings before every request, and so does Python code that uses{" "}
-        <code>lightsim.ai_access.AgentSession</code>. Other Python code (<code>import lightsim</code>,{" "}
-        <code>lightsim run</code>) does not read them. They are the same settings as <code>lightsim ai …</code> on the
-        command line.
+        An AI app you connected reads these settings before every tool call. Python code that uses{" "}
+        <code>lightsim.ai_access.AgentSession</code> reads them when it starts a session. Other Python code (
+        <code>import lightsim</code>, <code>lightsim run</code>) does not read them. They are the same settings as{" "}
+        <code>lightsim ai …</code> on the command line.
       </p>
       {state.managed && (
         <p className="mt-2 text-amber-600" data-testid="ai-access-managed">
@@ -110,7 +112,7 @@ export function AiAccessPanel() {
       <p className="text-[color:var(--ss-text-dim)]" data-testid="ai-access-state">
         {state.on
           ? "AI access is on: AI tools may open the projects below and the examples you let them see."
-          : "AI access is off: every call from an AI tool is refused."}
+          : "AI access is off: every tool call from an AI tool is refused, though a connected AI app can still read the skill pack and the part library that come with LightSim."}
       </p>
 
       <div className={heading}>Folders AI tools may see</div>

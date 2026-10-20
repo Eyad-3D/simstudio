@@ -104,7 +104,8 @@ export function AiConnectDialog() {
               <p className="text-[color:var(--ss-text-dim)]">
                 An AI assistant on this computer can open your LightSim projects, run their checks and simulations, and
                 read the results. It starts LightSim itself and talks to it directly, with no network connection. It asks
-                you before it saves a change or runs a project that contains Script blocks.
+                you, in the AI app, before it saves a change or runs a project that contains Script blocks. LightSim cannot
+                tell who answered, and an answer the AI app sends again is not asked about again: see <b>AI access</b>.
               </p>
               {state?.warning && <p className="text-amber-600">{state.warning}</p>}
               {state?.managed && (
