@@ -8,14 +8,18 @@ and what LightSim does on the network.
 ## Get the installers and check them
 
 LightSim has no public release yet (see the
-[release notes](../../RELEASE-NOTES.md)), so there is nothing to download:
-you build the installers from the source, as the
+[release notes](../../RELEASE-NOTES.md)). What works for everyone is
+building the installers from the source, as the
 [README](https://github.com/Eyad-3D/simstudio#building-the-app-from-source)
-explains. The
-build leaves them in `desktop\release\`. A build published for download
-will have a `.sha256` file next to each installer, with its SHA-256 checksum
-(a fingerprint of the file); to check a file you copied to another PC
-against the checksum you made when you built it, on Windows run:
+explains; the build leaves them in `desktop\release\`. Signed in to
+GitHub, you can instead download a test build of `main` (the
+`lightsim-windows` artifact of the *Build desktop app* workflow, see the
+[README](https://github.com/Eyad-3D/simstudio#install-the-desktop-app)):
+it is not a release, and it expires 90 days after it was made. A test
+build has a `.sha256` file next to each installer, with its SHA-256
+checksum (a fingerprint of the file). To check an installer against it,
+or a file you copied to another PC against the checksum you made when you
+built it, on Windows run:
 
 ```
 certutil -hashfile LightSim-Setup-<version>.exe SHA256

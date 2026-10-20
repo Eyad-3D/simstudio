@@ -608,6 +608,41 @@ def test_no_page_links_to_a_release_while_none_is_published():
     assert "## Building the app from source" in README
 
 
+def test_the_install_pages_do_not_say_there_is_nothing_to_download():
+    """Each push to main builds the Windows installers and keeps them as a
+    workflow artifact anyone signed in to GitHub can download, so no page
+    says there is nothing to download; the README and the IT page name that
+    artifact and how long GitHub keeps it (90 days unless the workflow sets
+    retention-days)."""
+    assert re.search(r"^  push:\n    branches: \[main\]", WORKFLOW, re.M)
+    upload = WORKFLOW.split("uses: actions/upload-artifact", 1)[1].split("\n      - ", 1)[0]
+    assert "name: lightsim-${{ matrix.name }}" in upload and "*.sha256" in upload
+    assert "retention-days" not in WORKFLOW
+    said = {p.relative_to(ROOT).as_posix() for p in INSTALL_PAGES
+            if re.search(r"nothing to download|no installer to download",
+                         re.sub(r"\s+", " ", p.read_text(encoding="utf-8")))}
+    assert not said, f"these say there is nothing to download: {sorted(said)}"
+    for text in (README.split("## Install the desktop app", 1)[1].split("### Where your work is saved", 1)[0],
+                 (HELP / "how-to" / "deploy-for-it.md").read_text(encoding="utf-8")):
+        flat = re.sub(r"\s+", " ", text)
+        assert "`lightsim-windows` artifact" in flat and "expires 90 days after it was made" in flat
+
+
+def test_the_readme_says_which_installer_definitions_the_build_uses():
+    """electron-builder.yml keeps its Linux and macOS targets (only the
+    workflow's matrix leaves them out), so the README's file tree does not
+    call them switched off."""
+    tree = next(line for line in README.splitlines() if "electron-builder.yml " in line)
+    kept = [platform for platform in ("linux", "mac")
+            if (section := re.search(rf"^{platform}:\n((?:[ #].*\n|\n)*)", BUILDER, re.M))
+            and re.search(r"^  target:", section.group(1), re.M)]
+    if kept == ["linux", "mac"]:
+        assert "switched off" not in tree and "Linux and macOS targets stay" in tree, tree
+    else:
+        assert "targets stay" not in tree, tree
+    assert "CI builds Windows only" in tree and _built_platforms() == {"windows"}
+
+
 # ---- Formula Student lesson 2: the lap import ---------------------------------
 def test_lesson_2_describes_the_lap_import_the_app_has():
     """The lesson used to say that LightSim cannot read a logger's or lap

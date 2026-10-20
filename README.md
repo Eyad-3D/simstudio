@@ -28,11 +28,12 @@ tests check every number its tutorials and lessons quote against the app
 ## Quick start
 
 1. **Build the installer.** LightSim has no public release yet (the first,
-   0.3.0, is not out), so there is nothing to download. On Windows
-   10/11 (64-bit), build it from this repository with one command: see
+   0.3.0, is not out). What works for everyone is building it from this
+   repository, on Windows 10/11 (64-bit), with one command: see
    [Building the app from source](https://github.com/Eyad-3D/simstudio#building-the-app-from-source).
    Nothing else is needed afterwards: the simulation engine is inside the
-   installer.
+   installer. Signed in to GitHub, you can instead download a test build
+   (see [Install the desktop app](https://github.com/Eyad-3D/simstudio#install-the-desktop-app)).
 2. **Install and open it.** Run the `LightSim-Setup-<version>.exe` the build
    leaves in `desktop\release\`. A build you make yourself is unsigned, so
    Windows may warn that it does not know the publisher: choose
@@ -101,9 +102,9 @@ Differential).
 ## Install the desktop app
 
 **There is no public release yet.** The first, 0.3.0, is not out (see the
-[release notes](docs/RELEASE-NOTES.md)), so there is no installer to
-download. What works today is building the installer yourself from this
-repository, on Windows 10/11 (64-bit): see
+[release notes](docs/RELEASE-NOTES.md)). What works for everyone is
+building the installer yourself from this repository, on Windows 10/11
+(64-bit): see
 [Building the app from source](https://github.com/Eyad-3D/simstudio#building-the-app-from-source).
 Python and Node are needed for the build, not to run the app: the simulation
 engine is bundled inside the installer.
@@ -130,11 +131,13 @@ questions, and to fix settings for everyone with a policy file, see
 > Windows SmartScreen warns on first launch: choose *More info → Run
 > anyway*. A signed release says so in its release notes.
 
-Builds of changes not released yet come from the **Build desktop app**
-workflow: on the repository's **Actions** tab, open the latest successful
-*Build desktop app* run on `main` and download the `lightsim-windows`
-artifact (a zip with the installers and their checksums; you
-need to be signed in to GitHub, and artifacts expire after 90 days).
+The other way, if you are signed in to GitHub, is a test build: the
+**Build desktop app** workflow builds the installers for each change
+pushed to `main`. On the repository's **Actions** tab, open the latest
+successful *Build desktop app* run on `main` and download its
+`lightsim-windows` artifact (a zip with the installers and their
+checksums). A test build is not a release: it has no release notes, and
+it expires 90 days after it was made.
 
 ### Where your work is saved
 
@@ -494,7 +497,7 @@ desktop/   Electron shell
   │                                /api/health, then opens the window
   ├─ src/loading.html              splash shown while the engine starts
   ├─ src/old-projects.js           first launch: copies the projects saved under the old name
-  └─ electron-builder.yml          installer definitions (NSIS and MSI; Linux and macOS ones are switched off)
+  └─ electron-builder.yml          installer definitions (NSIS and MSI; its Linux and macOS targets stay, but CI builds Windows only)
 ```
 
 In the packaged app the backend serves the built UI as well as the API, so the
