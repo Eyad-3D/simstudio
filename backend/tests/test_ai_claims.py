@@ -247,6 +247,8 @@ OLD_CLAIMS = [
     "untrust a project's script blocks",
     "trusting a project's script blocks (`lightsim ai trust <file>`) and hiding",
     "let ai tools run this project's script blocks (after you confirm)",
+    "rules every ai tool works under",
+    "the trusted script projects",
 ]
 #: what the code does not do: ask before *each* run whatever the app sends,
 #: refuse every app that cannot ask, log every call
@@ -272,7 +274,7 @@ def _places():
     """Every file that could repeat the claim: the docs, the help, the README,
     the page and the engine's and the package's own words (not the tests)."""
     roots = [ROOT / "docs", ROOT / "backend" / "app", ROOT / "backend" / "lightsim",
-             ROOT / "frontend" / "src", ROOT / "desktop" / "src"]
+             ROOT / "frontend" / "src", ROOT / "frontend" / "e2e", ROOT / "desktop" / "src"]
     files = [ROOT / "README.md", ROOT / "CONTRIBUTING.md", ROOT / "SECURITY.md"]
     for root in roots:
         for pattern in ("*.md", "*.py", "*.ts", "*.tsx", "*.js"):
@@ -282,17 +284,34 @@ def _places():
     return sorted({f for f in files if f.is_file()})
 
 
+#: a comment marker at the start of a line (``//``, ``#``, ``/**``, `` * ``)
+_MARKER = re.compile(r"^[ \t]*(?://+|#+|/\*+|\*/|\*(?=\s))[ \t]?", re.M)
+
+
+def flat(f: Path) -> str:
+    """A file's words as one line: comment markers at line starts gone and
+    every run of white space one space, so a sentence is found across the
+    lines of a comment too."""
+    return _flat(f.read_text(encoding="utf-8"))
+
+
+def _flat(raw: str) -> str:
+    return re.sub(r"\s+", " ", _MARKER.sub("", raw))
+
+
 def test_the_places_to_check_are_found():
     names = {f.name for f in _places()}
+    assert _flat("// the rules every AI tool\n// works under") == "the rules every AI tool works under"
+    assert _flat("/** Trust:\n *  only here */") == "Trust: only here */"
     assert {"AiAccessPanel.tsx", "use-an-ai-assistant.md", "command-line.md", "KNOWN-LIMITS.md",
-            "README.md", "ai_access.py", "mcp_server.py", "SKILL.md",
+            "README.md", "ai_access.py", "mcp_server.py", "ai01-access.spec.ts", "SKILL.md",
             "known-limits.md", "tools.py"} <= names
 
 
 def test_no_place_repeats_the_old_claim():
     found = []
     for f in _places():
-        page = re.sub(r"\s+", " ", f.read_text(encoding="utf-8")).lower()
+        page = flat(f).lower()
         found += [f"{f.relative_to(ROOT)}: {claim}" for claim in OLD_CLAIMS if claim in page]
     assert not found, "these still say the trust list governs AI apps:\n" + "\n".join(found)
 
@@ -300,7 +319,7 @@ def test_no_place_repeats_the_old_claim():
 def test_no_place_says_more_than_the_connection_does():
     found = []
     for f in _places():
-        page = re.sub(r"\s+", " ", f.read_text(encoding="utf-8")).lower()
+        page = flat(f).lower()
         found += [f"{f.relative_to(ROOT)}: {claim}" for claim in OVERSTATED if claim in page]
     assert not found, "these say more than the AI connection does:\n" + "\n".join(found)
 
@@ -308,7 +327,7 @@ def test_no_place_says_more_than_the_connection_does():
 def test_every_mention_of_the_trust_command_says_who_reads_the_list():
     lonely = []
     for f in _places():
-        page = re.sub(r"\s+", " ", f.read_text(encoding="utf-8"))
+        page = flat(f)
         for m in re.finditer(r"lightsim ai trust", page):
             near = page[max(0, m.start() - 500): m.end() + 500]
             if not any(w in near for w in WHO_READS):
