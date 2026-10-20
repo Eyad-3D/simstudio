@@ -420,6 +420,138 @@ def test_script_projects_run_only_after_a_yes(folder):
                                       "case": "case-udds"})["resultType"] == "input_required"
 
 
+# -- what the connection asks you, and what it does not read -----------------
+# The AI access page and the help say this (AI-01); tests/test_ai_claims.py
+# holds their words against the same facts.
+
+
+def _yes(ask: dict) -> dict:
+    """What an AI app sends back once the user said yes: the question's own
+    state and an accepted form. LightSim checks the state, not who sent it."""
+    return {"requestState": ask["requestState"],
+            "inputResponses": {"confirm": {"action": "accept", "content": {"confirm": True}}}}
+
+
+def _hybrid_copy(where: Path, name: str, *, changed_code: bool = False) -> Path:
+    """The hybrid example with a 5 s case, so a run takes a moment, saved as
+    ``where/name``. With ``changed_code`` its script is code nobody approved."""
+    project = json.loads((BACKEND / "projects" / "hybrid-car.json").read_text(encoding="utf-8"))
+    project["id"] = Path(name).stem
+    project["cases"] = [{**project["cases"][0], "duration": 5, "realtimeFactor": 0}]
+    if changed_code:
+        script = next(e for s in project["systems"] for e in s["elements"]
+                      if e["componentDefId"] == "signal.script")
+        script["parameterOverrides"]["code"] += "\n# changed by someone else\n"
+    where.mkdir(parents=True, exist_ok=True)
+    path = where / name
+    path.write_text(json.dumps(project), encoding="utf-8")
+    return path
+
+
+class _NobodyLooks(dict):
+    """A trust list that fails the test when anything looks at it."""
+
+    def _look(self, *args, **kwargs):
+        raise AssertionError("the MCP server looked at the trust list")
+
+    __getitem__ = __contains__ = __iter__ = __len__ = get = items = keys = values = _look
+
+
+def test_reading_asks_the_user_nothing(folder):
+    server = make_server(folder)
+    for name, args in (("lightsim_list_projects", {}),
+                       ("lightsim_overview", {"project": "example:bev-car"}),
+                       ("run_checks", {"project": "example:bev-car"}),
+                       ("element_read", {"project": "example:bev-car", "element": "Vehicle"})):
+        answer = tool(server, name, args)
+        assert "resultType" not in answer or answer["resultType"] == "complete", name
+        assert answer["isError"] is False, (name, answer)
+
+
+def test_every_script_run_asks_and_the_trust_list_is_not_read(folder, monkeypatch):
+    import lightsim as ls
+    from lightsim import ai_access
+
+    on_list = _hybrid_copy(folder, "on-the-list.json")
+    off_list = _hybrid_copy(folder, "not-on-the-list.json")
+    policy = ai_access.Policy.load()
+    policy.trusted[str(on_list.resolve())] = ai_access.script_fingerprint(ls.load(on_list))
+    policy.save()
+    assert ai_access.Policy.load().trusted_scripts(ls.load(on_list))  # it is on the list
+    assert not ai_access.Policy.load().trusted_scripts(ls.load(off_list))  # the other is not
+
+    # from here on, anything in the server that looks at the list fails the test
+    real_load = ai_access.Policy.load.__func__
+
+    def load(cls, path=None):
+        loaded = real_load(cls, path)
+        loaded.trusted = _NobodyLooks()
+        return loaded
+
+    def boom(*args, **kwargs):
+        raise AssertionError("the MCP server used the trust list")
+
+    monkeypatch.setattr(ai_access.Policy, "load", classmethod(load))
+    monkeypatch.setattr(ai_access.Policy, "trusted_scripts", boom)
+    monkeypatch.setattr(ai_access.Policy, "require_run", boom)
+
+    server = make_server(folder, platform="linux")
+    for project in (on_list, off_list):  # on the list or not, the run is the same
+        args = {"project": str(project), "case": "case-udds"}
+        ask = tool(server, "run_case", args)
+        assert ask["resultType"] == "input_required", project.name
+        ran = tool(server, "run_case", args, **_yes(ask))
+        assert ran["isError"] is False and ran["structuredContent"]["status"] == "success", ran
+        again = tool(server, "run_case", args)  # a new call without a yes asks again
+        assert again["resultType"] == "input_required", project.name
+    example = tool(server, "run_case", {"project": "example:hybrid-car", "case": "case-udds"})
+    assert example["resultType"] == "input_required", "the examples' scripts ask too"
+
+
+def test_an_app_that_cannot_ask_gets_a_refusal_for_a_script_run(folder):
+    server = make_server(folder)
+    server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "x", "version": "1"}}})
+    reply = server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+        "name": "run_case", "arguments": {"project": "example:hybrid-car", "case": "case-udds"}}})
+    assert reply["result"]["isError"] and "cannot ask" in reply["result"]["content"][0]["text"]
+
+
+def test_script_code_nobody_approved_fails_the_run_even_after_a_yes(folder, tmp_path, monkeypatch):
+    from app import script_trust
+
+    own = tmp_path / "userdata"  # this user's own LightSim folder, where approvals are kept
+    own.mkdir()
+    (own / ".script-trust-migrated").write_text("done", encoding="utf-8")
+    monkeypatch.setenv("LIGHTSIM_DATA_DIR", str(own))
+    monkeypatch.delenv("LIGHTSIM_SCRIPT_TRUST", raising=False)  # the check as an install has it
+    script_trust._reset_for_tests()
+    try:
+        shared = tmp_path / "shared"
+        path = _hybrid_copy(shared, "from-someone.json", changed_code=True)
+        allow_ai(folder, shared)
+        server = make_server(folder, platform="linux")
+        args = {"project": str(path), "case": "case-udds"}
+
+        ask = tool(server, "run_case", args)
+        message = ask["inputRequests"]["confirm"]["params"]["message"]
+        assert "P2 Hybrid Car" in message and "EPA city (UDDS)" in message
+        assert "changed by someone else" not in message, "the question does not show the code"
+
+        refused = tool(server, "run_case", args, **_yes(ask))
+        result = refused["structuredContent"]
+        assert result["status"] == "failed"
+        assert "has not been approved to run" in json.dumps(result["messages"])
+
+        code = next(s["code"] for s in script_trust.project_scripts(json.loads(path.read_text("utf-8"))))
+        script_trust.approve([code])  # the user chose Run scripts in the app
+        again = tool(server, "run_case", args)
+        ran = tool(server, "run_case", args, **_yes(again))
+        assert ran["structuredContent"]["status"] == "success", ran
+    finally:
+        script_trust._reset_for_tests()
+
+
 def test_older_apps_without_elicitation_are_refused_confirmations(folder):
     server = make_server(folder)
     server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
