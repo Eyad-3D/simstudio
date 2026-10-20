@@ -65,20 +65,20 @@ relaxes after a shift is in their own slip losses (below).
 
 | case | figures inside | channels inside | energy books: closure | gear shifts | as the gears engaged, kWh (today's gearbox term) | steps | events | run, s |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| aero-bev/case-hwfet | 10/10 | 63/67 | 6.4e-12 | — | — | 81983 | 17 | 0.78 |
+| aero-bev/case-hwfet | 10/10 | 63/67 | 6.4e-12 | — | — | 81983 | 17 | 0.91 |
 | aero-bev/case-udds | 14/14 | 63/67 | 4.1e-10 | — | — | 174670 | 257 | 1.67 |
-| aero-bev/case-wltc | 18/18 | 63/67 | 3.1e-11 | — | — | 224108 | 122 | 2.21 |
+| aero-bev/case-wltc | 18/18 | 63/67 | 3.1e-11 | — | — | 224108 | 122 | 1.98 |
 | bev-car/case-city | 10/11 | 65/70 | 6.6e-10 | — | — | 4047 | 17 | 0.06 |
 | bev-car/case-city-live | 10/11 | 65/70 | 6.6e-10 | — | — | 4047 | 17 | 0.07 |
-| bev-car/case-wltc | 19/19 | 65/70 | 2.8e-10 | — | — | 213215 | 122 | 2.16 |
-| bev-car/case-wltc-hvac | 19/19 | 65/70 | 2.0e-11 | — | — | 213911 | 122 | 2.07 |
-| bev-car/case-wltc-summer | 20/20 | 65/70 | 1.1e-11 | — | — | 212949 | 122 | 2.03 |
-| bev-car/case-wltc-winter | 20/20 | 65/70 | 6.5e-11 | — | — | 213829 | 122 | 2.19 |
+| bev-car/case-wltc | 19/19 | 65/70 | 2.8e-10 | — | — | 213215 | 122 | 2.11 |
+| bev-car/case-wltc-hvac | 19/19 | 65/70 | 2.0e-11 | — | — | 213911 | 122 | 2.10 |
+| bev-car/case-wltc-summer | 20/20 | 65/70 | 1.1e-11 | — | — | 212949 | 122 | 2.19 |
+| bev-car/case-wltc-winter | 20/20 | 65/70 | 6.5e-11 | — | — | 213829 | 122 | 2.06 |
 | fs-electric/case-accel-75m | 19/19 | 65/65 | 8.0e-11 | — | — | 1062 | 14 | 0.06 |
-| hybrid-car/case-hwfet | 9/9 | 88/88 | 1.8e-12 | 16 | 0.0002062 (0.0003367) | 1918237 | 77005 | 28.03 |
-| hybrid-car/case-mixed | 9/9 | 82/88 | 7.2e-13 | 10 | 0.0001447 (0.0002622) | 571511 | 56218 | 9.56 |
-| hybrid-car/case-mixed-live | 9/9 | 82/88 | 7.2e-13 | 10 | 0.0001447 (0.0002622) | 571511 | 56218 | 10.24 |
-| hybrid-car/case-udds | 13/13 | 88/88 | 1.1e-11 | 104 | 0.0016634 (0.0035028) | 3022879 | 118074 | 43.99 |
+| hybrid-car/case-hwfet | 9/9 | 88/88 | 1.8e-12 | 16 | 0.0002062 (0.0003367) | 1918237 | 77005 | 26.95 |
+| hybrid-car/case-mixed | 9/9 | 82/88 | 7.2e-13 | 10 | 0.0001447 (0.0002622) | 571511 | 56218 | 9.69 |
+| hybrid-car/case-mixed-live | 9/9 | 82/88 | 7.2e-13 | 10 | 0.0001447 (0.0002622) | 571511 | 56218 | 9.70 |
+| hybrid-car/case-udds | 13/13 | 88/88 | 1.2e-11 | 104 | 0.0016634 (0.0035028) | 3022291 | 118072 | 42.28 |
 
 199 of the 201 figures are inside their bands (194 before work package
 4's second round, below), and 984 of 1038 channels (949 after its fourth
@@ -105,7 +105,10 @@ round (16 October) the formula student car's accumulator, held at its
 output power limit, switches 1.7e-7 s earlier (a mode on an iteration
 variable, met again where the integrator located it a little early:
 DESIGN.md 8.2), its figures moved by at most 6e-4 × band, every other
-case the same to the last digit.
+case the same to the last digit. Since the Driver's anti-windup became
+back-calculation (20 October, the last section) the hybrid's UDDS has
+moved by at most 1.6e-5 × band, every other case the same to the last
+digit.
 Every figure moved by at most 1.5e-3 × band since the fourth round, most
 by less than 5e-4, and none in the sixth or the seventh; with the
 engine's own mathematical library (October 2026, the last section) 143
@@ -826,3 +829,37 @@ cost more per call than glibc's and `atan` less. The full comparison took
 226.1 s of runs (208.0 s after the ninth round's review, measured on
 another day). With the library's build for CPUs without FMA the BEV's
 WLTC takes 18 % longer and the aero BEV's 15 % (3 pairs each).
+
+## The Driver's anti-windup (20 October 2026)
+
+The library Driver's integral is no longer frozen while its command is
+held at a limit (a mode a heavy car slid along, stopping its run as an
+event storm); it is pulled back by the command's excess, as `LimPID`'s
+back-calculation does (DESIGN.md 12.2, `blocks/vehicle.rs`). The E-Motor
+no longer solves its supply's share while its inverter is off. Against
+the record before (cb76842):
+
+* **No golden car is held at its Driver's limit.** A build with the
+  frozen integral's mode taken out and nothing put in its place (der(I) =
+  err) gives every case to the last digit. Inside the limits the new
+  equation's term is exactly 0, so the residuals are the same to the bit.
+* **One case moved: the hybrid's UDDS**, 12 of its 13 figures and 73 of
+  its 88 channels, by at most 1.6e-5 × band (its bag 1 fuel
+  consumption), none across its band; steps 3 022 879 → 3 022 291, events
+  118 074 → 118 072, the books closed to 1.2e-11. Its first difference is
+  a clutch event 2.7e-10 s earlier at 163.05 s. The integral's equation
+  now reads the command before and after its limits, and through them the
+  integral itself: the Newton matrix has entries it did not have, and its
+  solves round differently, which the hybrid's 118 000 events carry on
+  (the same term written as a dead zone, which reads only the command
+  before its limits, gives the same bits as written). Every other case is
+  the same to the last digit; the E-Motor's change moves none.
+* **Against today's engine**: 199 of 201 figures and 984 of 1038
+  channels inside their bands, as before, each on its side.
+
+Run times, the record's build (cb76842) and this one, release builds, the
+whole comparison twice, the two builds alternating, CPU time (the machine
+shared with another build): 103.0 and 102.7 s before, 101.0 and 102.7 s
+now; the hybrid's UDDS 44.11 and 43.59 s before, 42.28 and 42.41 s now
+(its fewer steps).
+
