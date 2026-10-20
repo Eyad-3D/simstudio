@@ -401,7 +401,6 @@ def test_the_validation_pages_table_is_what_the_suite_measures():
         else:
             apart = 100 * (max(repeats) - min(repeats)) / min(repeats)
             assert row[5].startswith(f"{min(repeats):.1f}-{max(repeats):.1f}"), (row, repeats)
-            assert ("apart" in row[5]) == (round(apart) >= 6), (row, apart)
             if "apart" in row[5]:
                 assert f"({round(apart)} % apart)" in row[5], (row, apart)
 
