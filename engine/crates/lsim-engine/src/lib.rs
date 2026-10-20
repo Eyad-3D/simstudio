@@ -48,7 +48,9 @@ pub use started::Started;
 
 use lsim_codegen::{CodegenOptions, JitModel};
 use lsim_fast::limits::{DerSrc, FlagTracker, LimitSite, Term};
-use lsim_fast::{FastError, FastOptions, FastProblem, FastResult, LimitFlag, Trace, WhenInfo};
+use lsim_fast::{
+    FastError, FastOptions, FastProblem, FastResult, LimitFlag, ModeInfo, Trace, WhenInfo,
+};
 use lsim_ir::component::{ComponentDef, Library};
 use lsim_ir::eval::{Env, eval};
 use lsim_ir::expr::Expr;
@@ -121,6 +123,8 @@ pub struct Model {
     ders: Vec<Option<DerSrc>>,
     /// its `when` clauses, for fast mode
     pub whens: Vec<WhenInfo>,
+    /// its modes, for fast mode's check of them after every step
+    pub modes: Vec<ModeInfo>,
     /// for each input (an inverse model's): the trace that fills it and
     /// which derivative of it
     pub inputs: Vec<(usize, u8)>,
@@ -267,6 +271,15 @@ impl Engine {
                 label: l.clone(),
             })
             .collect();
+        let modes = info
+            .modes
+            .iter()
+            .map(|m| ModeInfo {
+                crossing: m.crossing,
+                discrete: m.discrete,
+                label: m.label.clone(),
+            })
+            .collect();
         let inputs = match inverse {
             Some(spec) => input_map(&prepared, spec)?,
             None => vec![],
@@ -299,6 +312,7 @@ impl Engine {
             limits,
             ders,
             whens,
+            modes,
             inputs,
         })
     }
@@ -529,7 +543,8 @@ impl Model {
                 ))));
             };
             tr.check()?;
-            let (v, s) = tr.on_segment(tr.segment(t0), t0);
+            // as the stepper reads the trace (the line of its piece)
+            let (v, s) = tr.at(t0);
             u[j] = match order {
                 0 => v,
                 1 => s,
@@ -590,6 +605,7 @@ impl Model {
             ders: &self.ders,
             inputs: &self.inputs,
             whens: &self.whens,
+            modes: &self.modes,
         };
         Ok(lsim_fast::run(&prob, blocks)?)
     }

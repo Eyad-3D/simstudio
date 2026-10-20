@@ -37,9 +37,18 @@
 //! `PreparedModel::input_names()` order: `body.v`, `der(body.v)`, and
 //! `der(der(body.v))` where a second derivative is read); fast mode fills
 //! them from one [`Trace`] per prescribed variable ([`FastProblem::inputs`]).
-//! Each step lies on one segment of every trace, so the first derivative is
-//! constant within it (the constant acceleration the standard
+//! Each step lies on one piece of every trace (between two of its
+//! breakpoints, the samples where its slope changes), so the first
+//! derivative is constant within it (the constant acceleration the standard
 //! backward-facing method assumes) and the second is zero.
+//!
+//! **Input events.** At a breakpoint the slope jumps, and so does every
+//! input that is a derivative; at a sampled block's tick its outputs may
+//! jump. The stepper treats each as FMI 3.0 treats an input with a
+//! discontinuity: event mode, in which the `when` clauses whose crossings
+//! changed sign across the jump fire and the modes are set from their
+//! relations, before it steps on; it also checks every mode against its
+//! crossing after each step ([`FastProblem::modes`], DESIGN.md 5.6).
 //!
 //! Measured: the test car's WLTC (1800 steps) in about 6.0 ms, 3.0·10⁵ ×
 //! real time (STATUS.md, WP6). There is no fixed target: the goal is to be
@@ -274,6 +283,18 @@ pub struct WhenInfo {
     pub label: String,
 }
 
+/// A mode as fast mode sees it (DESIGN.md 5.6, *Modes*): a relation held
+/// as a discrete value, which must agree with the sign of its crossing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModeInfo {
+    /// its zero-crossing function: positive where the relation holds
+    pub crossing: usize,
+    /// its discrete variable (1 true, 0 false)
+    pub discrete: usize,
+    /// what it is, in words
+    pub label: String,
+}
+
 /// A sampled block and where it sits in the model.
 pub struct BoundBlock {
     /// the block
@@ -311,6 +332,9 @@ pub struct FastProblem<'a> {
     pub inputs: &'a [(usize, u8)],
     /// the `when` clauses
     pub whens: &'a [WhenInfo],
+    /// the modes, checked against their relations after every step
+    /// (empty: only their `when` clauses keep them right)
+    pub modes: &'a [ModeInfo],
 }
 
 impl<'a> FastProblem<'a> {
@@ -334,6 +358,7 @@ impl<'a> FastProblem<'a> {
             ders: &[],
             inputs: &[],
             whens: &[],
+            modes: &[],
         }
     }
 }

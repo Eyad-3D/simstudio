@@ -23,9 +23,10 @@
 //! inverse model's time dependence, so the prediction follows the trace
 //! between stages and across the jumps of its slope.
 //!
-//! **Steps.** Each step `[t_n, t_{n+1}]` lies on one segment of every
-//! trace (the uniform grid is split at every trace sample inside a step),
-//! so the prescribed speed is linear and its derivative constant within it.
+//! **Steps.** Each step `[t_n, t_{n+1}]` lies on one piece of every
+//! trace (the uniform grid is split at every breakpoint inside a step:
+//! every sample where a trace's slope changes, [`Trace::breakpoints`]), so
+//! the prescribed speed is linear and its derivative constant within it.
 //! The recorded value at `t_{n+1}` is the left limit (the end of the step,
 //! with the step's own acceleration); each output interval's minimum,
 //! maximum and mean come from the start, the middle (cubic Hermite
@@ -38,6 +39,23 @@
 //! actions run, and stepping goes on from there. **Sampled blocks**
 //! ([`lsim_ir::DiscreteBlock`]) tick at the start of the first step at or
 //! after each of their tick times.
+//!
+//! **Input events** (FMI 3.0: a continuous input with a discontinuity).
+//! At a breakpoint the inputs' slopes jump, and with them the inputs that
+//! are a trace's derivatives (an inverse model's `der(body.v)`); a block's
+//! tick that changes its outputs jumps discrete values. A condition that
+//! reads them jumps too, between two steps, where no root is to be found.
+//! There the stepper enters event mode: it takes the roots just before the
+//! jump (the last step's end) and just after it, fires each `when` whose
+//! crossing changed sign in its direction, runs the actions, sets every
+//! mode from its relation, and repeats until nothing changes (each round's
+//! roots compared with the last), before stepping on. A located event's
+//! actions are followed by the same iteration. After every step it also
+//! checks each mode against the sign of its crossing, as the forward run
+//! loop does: a mode whose crossing left zero at the step's start
+//! (crossing tests cannot see a sign change from 0) is set at the start
+//! and the step redone; one wrong for any other reason is set at the
+//! step's end, in event mode.
 
 #![allow(clippy::needless_range_loop)] // index loops read like the formulas
 
@@ -46,7 +64,7 @@ use crate::lu::Lu;
 use crate::ros::Tableau;
 use crate::{
     BoundBlock, FastError, FastEvent, FastOptions, FastProblem, FastReport, FastResult,
-    FixedMethod, Trace,
+    FixedMethod, Trace, WhenInfo,
 };
 use lsim_ir::prepared::Direction;
 use lsim_ir::runtime::{EvalInput, ModelFunctions};
@@ -89,6 +107,8 @@ struct Stepper<'a> {
     out: Vec<f64>,
     y: Vec<f64>,
     seg: Vec<usize>,
+    /// each trace's breakpoints (the ends of its pieces)
+    bps: Vec<Vec<usize>>,
     /// for each input: its trace and derivative order
     inmap: Vec<(usize, u8)>,
     // derivatives
@@ -129,7 +149,7 @@ struct Stepper<'a> {
 impl<'a> Stepper<'a> {
     fn set_inputs(&mut self, t: f64) {
         for (j, &(i, order)) in self.inmap.iter().enumerate() {
-            let (v, s) = self.traces[i].on_segment(self.seg[i], t);
+            let (v, s) = self.traces[i].on_piece(&self.bps[i], self.seg[i], t);
             self.u[j] = match order {
                 0 => v,
                 1 => s,
@@ -715,6 +735,85 @@ fn crosses(r0: f64, r1: f64, dir: Direction) -> bool {
     }
 }
 
+/// A mode its crossing no longer agrees with (as the forward run loop
+/// tests it: at zero either value agrees).
+fn stale(g: f64, d: f64) -> bool {
+    (g > 0.0 && d == 0.0) || (g < 0.0 && d != 0.0)
+}
+
+/// The buffers of event mode.
+struct EventBuffers {
+    /// the roots after each round
+    r_now: Vec<f64>,
+    /// which `when` clauses fire
+    fired: Vec<f64>,
+    /// the discrete values the actions set
+    d_new: Vec<f64>,
+    /// the discrete values before a round
+    d_before: Vec<f64>,
+}
+
+/// Event mode at `t` (FMI 3.0's, after an input event or a located
+/// event's actions): fires each `when` whose crossing changed sign from
+/// `r_pre` in its direction, runs the actions, sets the modes from their
+/// relations (the iteration variables solved again), and repeats, each
+/// round's roots against the last, until no discrete value changes. On
+/// return `r_pre` holds the roots after the event; the result says
+/// whether a discrete value changed.
+fn event_mode(
+    st: &mut Stepper<'_>,
+    whens: &[WhenInfo],
+    t: f64,
+    r_pre: &mut [f64],
+    buf: &mut EventBuffers,
+    events: &mut Vec<FastEvent>,
+) -> Result<bool, FastError> {
+    let mut changed = false;
+    for _ in 0..MAX_EVENTS_PER_STEP {
+        if !r_pre.is_empty() {
+            st.roots_into(t, &mut buf.r_now);
+        }
+        buf.d_before.copy_from_slice(&st.d);
+        let mut any = false;
+        for (k, wi) in whens.iter().enumerate() {
+            let f = crosses(r_pre[wi.crossing], buf.r_now[wi.crossing], wi.direction);
+            buf.fired[k] = if f { 1.0 } else { 0.0 };
+            any |= f;
+        }
+        if any {
+            buf.d_new.copy_from_slice(&st.d);
+            {
+                let inp = EvalInput { t, y: &st.y, p: st.p, d: &st.d, u: &st.u };
+                st.m.when(&inp, &buf.fired, &mut st.work, &mut buf.d_new);
+            }
+            for (k, f) in buf.fired.iter().enumerate() {
+                if *f != 0.0 {
+                    events.push(FastEvent { t, when: k, label: whens[k].label.clone() });
+                }
+            }
+            st.rep.events += 1;
+            if buf.d_new != st.d {
+                st.d.copy_from_slice(&buf.d_new);
+                st.gz_valid = false;
+                st.solve_z(t)?;
+            }
+        }
+        st.settle_modes(t)?;
+        r_pre.copy_from_slice(&buf.r_now);
+        if st.d == buf.d_before {
+            return Ok(changed);
+        }
+        changed = true;
+    }
+    Err(FastError::NoConvergence {
+        t,
+        what: format!(
+            "events keep firing (more than {MAX_EVENTS_PER_STEP} rounds of event iteration at \
+             one instant)"
+        ),
+    })
+}
+
 /// Each recorded channel's running minimum, maximum and integral over the
 /// current output interval.
 struct Accumulator<'r> {
@@ -953,13 +1052,14 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
         FixedMethod::LinearImplicitEuler => Tableau::linear_implicit_euler(),
     };
 
-    // the step grid: uniform, split at every trace sample inside a step
+    // the step grid: uniform, split at every breakpoint inside a step
+    let bps: Vec<Vec<usize>> = prob.traces.iter().map(|t| t.breakpoints()).collect();
     let n_out = ((t_end - t_start) / o.step - 1e-9).ceil().max(1.0) as usize;
     let grid: Vec<f64> = (0..=n_out).map(|k| (t_start + k as f64 * o.step).min(t_end)).collect();
     let mut bounds: Vec<(f64, bool)> = grid.iter().map(|t| (*t, true)).collect();
     let eps = 1e-9 * o.step;
-    for tr in prob.traces {
-        for &tk in &tr.t {
+    for (tr, bp) in prob.traces.iter().zip(&bps) {
+        for tk in bp.iter().map(|&k| tr.t[k]) {
             if tk > t_start + eps && tk < t_end - eps {
                 let k = ((tk - t_start) / o.step).floor() as usize;
                 let near = grid.get(k).is_some_and(|g| (g - tk).abs() <= eps)
@@ -1001,6 +1101,7 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
         out: vec![0.0; ny],
         y: y0,
         seg: prob.traces.iter().map(|_| 0).collect(),
+        bps,
         inmap,
         jac: vec![0.0; ny * ny],
         schur: vec![0.0; nx * nx],
@@ -1074,17 +1175,38 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
     let mut r_end = vec![0.0; nr];
     let mut r_tmp = vec![0.0; nr];
     let mut fired = vec![0.0; l.n_whens];
-    let mut d_new = vec![0.0; l.n_d];
+    let mut buf = EventBuffers {
+        r_now: vec![0.0; nr],
+        fired: vec![0.0; l.n_whens],
+        d_new: vec![0.0; l.n_d],
+        d_before: vec![0.0; l.n_d],
+    };
     let mut next_tick: Vec<f64> = blocks.iter().map(|b| t_start + b.block.offset()).collect();
     let mut a = Point::new(nx, nz, nu);
     let mut b = Point::new(nx, nz, nu);
     let mut e = Point::new(nx, nz, nu);
-    let seg_of = |tr: &Trace, ta: f64, tb: f64| tr.segment(0.5 * (ta + tb));
+    let seg_of = |tr: &Trace, bp: &[usize], ta: f64, tb: f64| tr.piece(bp, 0.5 * (ta + tb));
+    // each mode's `when` clauses (rising on its crossing sets it, falling
+    // on the copy after it clears it: DESIGN.md 5.6), for its events
+    let mode_whens: Vec<(usize, usize)> = prob
+        .modes
+        .iter()
+        .map(|md| {
+            let find = |c: usize, dir: Direction| {
+                prob.whens.iter().position(|w| w.crossing == c && w.direction == dir)
+            };
+            (
+                find(md.crossing, Direction::Rising).unwrap_or(usize::MAX),
+                find(md.crossing + 1, Direction::Falling).unwrap_or(usize::MAX),
+            )
+        })
+        .collect();
+    let check_modes = nr > 0 && !prob.modes.is_empty();
 
     // the first point: consistent at the start, the blocks' initial outputs
     let b1 = bounds.get(1).map(|x| x.0).unwrap_or(t_end);
     for (i, tr) in prob.traces.iter().enumerate() {
-        st.seg[i] = seg_of(tr, t_start, b1);
+        st.seg[i] = seg_of(tr, &st.bps[i], t_start, b1);
     }
     st.set_inputs(t_start);
     st.solve_z(t_start)?;
@@ -1093,6 +1215,8 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
         st.vars_into(t_start, &mut out.v_start);
         if tick(&mut st, blocks, &mut next_tick, t_start, true, &out.v_start, o.step)? {
             st.solve_z(t_start)?;
+            // no `when` fires at the start; the modes follow the outputs
+            st.settle_modes(t_start)?;
         }
     }
     st.refresh_jacobian(t_start)?;
@@ -1111,13 +1235,15 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
     }
     out.acc.reset(t_start);
 
+    // a mode found wrong at the end of the last step, to set there
+    let mut stale_pending = false;
     for w in 0..bounds.len() - 1 {
         let (ta, tb) = (bounds[w].0, bounds[w + 1].0);
         let is_output = bounds[w + 1].1;
         // a new slope makes a new start point
         let mut new_seg = false;
         for (i, tr) in prob.traces.iter().enumerate() {
-            let k = seg_of(tr, ta, tb);
+            let k = seg_of(tr, &st.bps[i], ta, tb);
             if k != st.seg[i] {
                 st.seg[i] = k;
                 new_seg = true;
@@ -1125,8 +1251,12 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
         }
         let due =
             blocks.iter().enumerate().any(|(bi, _)| ta >= next_tick[bi] - 1e-9 * o.step.max(1.0));
-        if new_seg || due {
+        if new_seg || due || stale_pending {
+            stale_pending = false;
+            // r_start holds the roots just before: the last step's end
             st.y[..nx].copy_from_slice(&a.x);
+            st.y[nx..].copy_from_slice(&a.z);
+            st.u.copy_from_slice(&a.u);
             st.set_inputs(ta);
             st.predict(&a);
             st.solve_z_or_from(ta, &a)?;
@@ -1137,11 +1267,10 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
                     st.solve_z(ta)?;
                 }
             }
+            // the input event: the conditions across the jump
+            event_mode(&mut st, prob.whens, ta, &mut r_start, &mut buf, &mut events)?;
             st.capture(ta, &mut a);
             out.restart(&mut st, ta);
-            if nr > 0 {
-                st.roots_into(ta, &mut r_start);
-            }
         }
 
         // the step, split at events
@@ -1151,8 +1280,10 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
         loop {
             st.advance(&a, tb, &mut b)?;
             let mut te_found: Option<f64> = None;
-            if nr > 0 && !prob.whens.is_empty() {
+            if nr > 0 && (check_modes || !prob.whens.is_empty()) {
                 st.roots_into(tb, &mut r_end);
+            }
+            if nr > 0 && !prob.whens.is_empty() {
                 let mut best: Option<f64> = None;
                 for wi in prob.whens {
                     let (r0, r1) = (r_start[wi.crossing], r_end[wi.crossing]);
@@ -1176,6 +1307,51 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
                 }
             }
             let Some(te) = te_found else {
+                // the modes against their crossings at the step's end: one
+                // whose crossing left zero at the start is set there and
+                // the step redone; one wrong for another reason is set at
+                // the end (event mode at the next step's start)
+                let mut from_zero = false;
+                if check_modes {
+                    for (mi, md) in prob.modes.iter().enumerate() {
+                        let (g0, g1) = (r_start[md.crossing], r_end[md.crossing]);
+                        if !stale(g1, st.d[md.discrete]) {
+                            continue;
+                        }
+                        if g0 == 0.0 {
+                            let on = g1 > 0.0;
+                            st.d[md.discrete] = if on { 1.0 } else { 0.0 };
+                            let k = if on { mode_whens[mi].0 } else { mode_whens[mi].1 };
+                            let label =
+                                prob.whens.get(k).map_or(md.label.clone(), |w| w.label.clone());
+                            events.push(FastEvent { t: a.t, when: k, label });
+                            from_zero = true;
+                        } else {
+                            stale_pending = true;
+                        }
+                    }
+                }
+                if from_zero {
+                    n_events += 1;
+                    if n_events > MAX_EVENTS_PER_STEP {
+                        return Err(FastError::NoConvergence {
+                            t: a.t,
+                            what: "events keep firing (more than 64 in one step)".into(),
+                        });
+                    }
+                    st.rep.events += 1;
+                    stale_pending = false;
+                    let ta = a.t;
+                    st.y[..nx].copy_from_slice(&a.x);
+                    st.y[nx..].copy_from_slice(&a.z);
+                    st.u.copy_from_slice(&a.u);
+                    st.gz_valid = false;
+                    st.solve_z(ta)?;
+                    st.capture(ta, &mut a);
+                    out.restart(&mut st, ta);
+                    st.roots_into(ta, &mut r_start);
+                    continue;
+                }
                 out.step(&mut st, &a, &b)?;
                 std::mem::swap(&mut a, &mut b);
                 if nr > 0 {
@@ -1202,12 +1378,14 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
             st.y[..nx].copy_from_slice(&e.x);
             st.y[nx..].copy_from_slice(&e.z);
             st.u.copy_from_slice(&e.u);
-            d_new.copy_from_slice(&st.d);
+            // the conditions as they stand at the event, before its actions
+            st.roots_into(te, &mut r_start);
+            buf.d_new.copy_from_slice(&st.d);
             {
                 let inp = EvalInput { t: te, y: &st.y, p: st.p, d: &st.d, u: &st.u };
-                st.m.when(&inp, &fired, &mut st.work, &mut d_new);
+                st.m.when(&inp, &fired, &mut st.work, &mut buf.d_new);
             }
-            st.d.copy_from_slice(&d_new);
+            st.d.copy_from_slice(&buf.d_new);
             for (k, f) in fired.iter().enumerate() {
                 if *f != 0.0 {
                     events.push(FastEvent { t: te, when: k, label: prob.whens[k].label.clone() });
@@ -1216,10 +1394,11 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
             st.rep.events += 1;
             st.gz_valid = false;
             st.solve_z(te)?;
-            st.settle_modes(te)?;
+            // the event iteration from there (the modes settled, a `when`
+            // the actions make true fired)
+            event_mode(&mut st, prob.whens, te, &mut r_start, &mut buf, &mut events)?;
             st.capture(te, &mut a);
             out.restart(&mut st, te);
-            st.roots_into(te, &mut r_start);
             if at_end {
                 left = Some(out.v_end.clone());
                 break;

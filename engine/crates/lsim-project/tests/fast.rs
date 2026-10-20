@@ -74,3 +74,53 @@ fn fast_mode_refuses_what_it_cannot_invert() {
     let e = inverse("hybrid-car", "case-udds").err().expect("refused");
     assert!(e.contains("FAST-SAMPLED-CONTROL") && e.contains("Hybrid Control Unit"), "{e}");
 }
+
+/// Fast mode against the full dynamic run of the same car on the same
+/// cycle, which raises no flag: the charge used agrees within 1 % (DESIGN.md
+/// section 10). The UDDS stops the car 17 times; each start from rest sets
+/// the rolling resistance's direction, a mode on the acceleration, at the
+/// cycle's sample where the car drives off (it stayed off, and the charge
+/// used was 48 % short, before fast mode treated a sample as an input
+/// event).
+#[test]
+fn fast_mode_and_the_full_dynamic_run_agree_on_the_charge_used() {
+    for (name, case) in [("aero-bev", "case-udds"), ("bev-car", "case-city")] {
+        let (m, rep) = inverse(name, case).unwrap();
+        let r = fast(&m, &rep);
+        let soc = r.channel("el_battery.soc").unwrap();
+        let used_fast = soc[0] - soc[soc.len() - 1];
+        let (top, frep) = import_case(
+            &project(name),
+            Some(case),
+            &standard_registry(),
+            &ImportOptions::default(),
+        )
+        .unwrap();
+        let fwd = lsim_project::model::Model::build(&frep.library(), &top).unwrap();
+        let grid = lsim_solve::OutputGrid { t0: 0.0, t_end: frep.run.duration, dt: 1.0 };
+        let opts = lsim_solve::SolverOptions { rtol: 1e-6, atol: 1e-8, ..Default::default() };
+        let run = fwd.run(&opts, grid, &mut []).unwrap();
+        let soc = run.channel("el_battery.soc").unwrap();
+        let used_full = soc[0] - soc[soc.len() - 1];
+        let d = (used_fast - used_full) / used_full;
+        println!(
+            "{name}/{case}: charge used fast {used_fast:.6}, full dynamic {used_full:.6} ({d:+.2e})"
+        );
+        assert!(r.flags.is_empty());
+        assert!(d.abs() < 0.01, "{name}/{case}: fast {used_fast}, full dynamic {used_full}");
+        // every start from rest is an event at the sample it starts at
+        let pr = rep.inverse.as_ref().unwrap();
+        let starts = (1..pr.t.len() - 1)
+            .filter(|&k| pr.v[k] == 0.0 && pr.v[k + 1] > 0.0 && pr.t[k] < rep.run.duration)
+            .count();
+        let at_samples = r
+            .events
+            .iter()
+            .filter(|e| pr.t.binary_search_by(|t| t.total_cmp(&e.t)).is_ok())
+            .count();
+        assert!(
+            at_samples >= starts,
+            "{name}/{case}: {at_samples} events at samples, {starts} starts"
+        );
+    }
+}

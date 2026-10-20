@@ -518,7 +518,16 @@ a discontinuity. The contract:
   zero, and iterates events until nothing changes;
 * preparation also adds two `when` clauses per mode — rising on `crossing`
   sets 1, falling on its copy at `crossing + 1` sets 0 — so a run loop
-  that knows only `when` clauses keeps every mode right between events.
+  that knows only `when` clauses keeps every mode right between events
+  while the inputs are continuous. Where an input jumps (a prescribed
+  speed's slope at a sample of its trace, so its derivative; a sampled
+  block's output at its tick), a crossing that reads it jumps between two
+  steps, where no root is to be found, and a crossing that is exactly 0
+  as it starts to move shows no sign change at all: the run loop must
+  then enter event mode at the jump (fire the clauses whose crossings
+  changed sign across it, set the modes, iterate) and check every mode
+  against its crossing after each step, as the forward run loop does and
+  fast mode does (section 10).
 
 **Initialisation** (`InitSystem { unknowns, guesses, assignments,
 residuals, discrete_starts }`): the equations at the start time (the
@@ -2426,9 +2435,45 @@ save most of those 10 ms in every run, sequential or not (a change to
   small dense LU refreshed only when the Jacobian drifts; measured, 1800
   steps of the test car in about 6.0 ms (3.0·10⁵× real time, STATUS WP6).
   The speed goal is section 2's: faster than the average of comparable
-  tools, measured against them. Verified against forward runs: where no flag is
-  raised, fast and full dynamic agree on energy within the trace's
-  discretisation (a documented band).
+  tools, measured against them.
+* **Input events.** A trace is a function of time: its breakpoints are the
+  samples where its slope changes (a sample on the line through its
+  neighbours, to four units of round-off, is none), steps are split only
+  there, and each piece is read as the line through its ends, so samples
+  added on a trace's lines change nothing beyond round-off (a property
+  test, `lsim-fast/tests/input_events.rs`). At a breakpoint the inputs
+  that are derivatives (`der(body.v)`) jump, and at a block's tick its
+  outputs may: an input event (FMI 3.0: an input with a discontinuity).
+  The stepper enters event mode there: with the roots just before the
+  jump (the last step's end) and just after it, it fires each `when`
+  whose crossing changed sign in its direction, runs the actions, sets
+  every mode from its relation and repeats, each round's roots against
+  the last, until nothing changes (a located event's actions are followed
+  by the same iteration). After each step it checks every mode against
+  its crossing, as the forward run loop does: a mode whose crossing left
+  exactly 0 at the step's start (no crossing test sees that) is set
+  there and the step redone; one wrong for another reason is set at the
+  step's end. Before this, a mode on the acceleration kept its value
+  across every sample where the acceleration changed sign (the review's
+  probe, x' = d with d = [der(v) > 0] on 0 → 1 → 0 m/s: x(4) = 4 instead
+  of 2), and the inverse body's rolling resistance stayed off after the
+  first start from rest: the example cars' charge used came out 25 to
+  48 % short on 7 of their 9 cycles, without a flag.
+* **Verified against forward runs and against FASTSim** (`engine/judge/
+  fast.py`, 20 October 2026): where no flag is raised, fast mode's charge
+  used must be within 1 % of the full dynamic run's (rtol 1e-6) on the
+  same cycle (the band, fixed before scoring). Every drive-cycle case of
+  the two battery-electric example cars (9) is inside: −0.07 … +0.25 %
+  (the UDDS, with its 17 stops, the largest), and −0.02 … +0.40 % on the
+  speed the full dynamic run drove, every 0.1 s, which takes the driver's
+  tracking out (what is left: stiction and the slip below 0.5 m/s, which
+  the inverse model has not). On EPA's four reference cars (UDDS, HWFET),
+  fast mode's energy at the wall is within 0.03 … 0.17 % of the full
+  dynamic run's and within 1.3 % of FASTSim 3.1.0's given the same cars
+  (mean 0.92 %; today's engine is within 1.3 % too, `benchmarks/fastsim`);
+  before the input events, 25 … 47 % short of both. Fast mode takes
+  18 … 68 ms a cycle on these cars (0.05 … 2.5 s for their full dynamic
+  runs).
 * **The example projects' cars** (`lsim-project`, `ImportOptions::inverse`):
   a drive-cycle case is imported as its inverse model. The vehicle body's
   speed is prescribed from the cycle its Driver follows (the Driving
