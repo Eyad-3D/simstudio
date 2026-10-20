@@ -233,6 +233,17 @@ class SpeedTrace(unittest.TestCase):
             t["accel"][k] = 0.99
         self.assertEqual(judged(t)["verdict"], "driver")
 
+    def test_standing_at_full_throttle_is_told_apart(self):
+        t = trace(300)
+        for k in range(50, 300):  # behind at full throttle, standing from 10 s
+            t["accel"][k] = 1.0
+            t["speed"][k] = max(0.0, 50.0 - 5.0 * (k - 50))
+        j = judged(t)
+        self.assertEqual(j["verdict"], "stood")
+        self.assertAlmostEqual(j["stood_s"], 24.0, delta=1e-9)
+        t["speed"][150:] = [0.6] * 150  # crawling, not standing
+        self.assertEqual(judged(t)["verdict"], "pass")
+
     def test_too_fast_at_full_brake_is_the_cars(self):
         t = trace(100)
         for k in range(10, 60):

@@ -121,8 +121,11 @@ one of its equations (to 1e-14; one weight changed shows as 4.9).
   at the same tolerance (`--beside`), which falls with the tolerance where
   both are right.
 * **the speed-trace rule** (`driver.py`): each run of the map is a cell:
-  ✓ inside 40 CFR 1066.425(b) with its allowances; b outside only on
-  occasions where the car was too fast with the brake pedal fully down
+  ✓ inside 40 CFR 1066.425(b) with its allowances; e inside, but only by
+  the allowance for a car at its maximum available power, the car having
+  stood still at full throttle for more than 10 s while the schedule
+  moved (a battery that emptied: a test would end there); b outside only
+  on occasions where the car was too fast with the brake pedal fully down
   throughout; ✗ outside on an occasion the Driver could have helped; S, F,
   P or E where the run stopped (an event storm, a bare SUNDIALS flag, no
   progress, another stop). An occasion is a run of output points outside

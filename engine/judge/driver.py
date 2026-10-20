@@ -50,6 +50,8 @@ TOL_KMH = 2.0 * MPH  # (b)(1), (b)(2)
 WINDOW_S = 1.0  # (b)(1), (b)(2): within 1.0 s of the given time
 ALLOWED_S = 2.0  # (b)(4)(i)
 FULL = 1.0 - 1e-9  # a pedal fully down
+STILL_KMH = 0.5  # standing still
+STOOD_S = 10.0  # standing at full throttle that long, the car has given out
 RULE = ["cfr/CFR-2024-title40-vol37-sec1066-425.xml", "cfr/CFR-2024-title40-vol37-sec1066-415.xml"]
 CYCLES = judge.ENGINE.parent / "backend" / "app" / "cycles"
 
@@ -75,10 +77,13 @@ def score_trace(dt: float, speed: list[float], target: list[float], accel: list[
     (each a run of output points, its length the points times dt), which
     count (longer than 2.0 s, not excused), the time excused at full
     throttle, and the verdict: "pass", "brakes" (only occasions too fast at
-    full brake count) or "driver"."""
+    full brake count) or "driver"; "stood" for a pass that relied on the
+    allowance for a car at its maximum available power while it stood
+    still at full throttle for more than STOOD_S with the schedule moving
+    (its battery empty: a test would end there)."""
     lo, hi = limits(target, dt)
     occasions, cur = [], None
-    excused = 0.0
+    excused = stood = 0.0
     worst_under = worst_over = 0.0
     for k, v in enumerate(speed):
         side = None
@@ -86,6 +91,8 @@ def score_trace(dt: float, speed: list[float], target: list[float], accel: list[
             worst_under = max(worst_under, lo[k] - v)
             if accel[k] >= FULL:
                 excused += dt  # (b)(4)(ii): behind at maximum available power
+                if abs(v) < STILL_KMH and target[k] > TOL_KMH:
+                    stood += dt
             else:
                 side = "under"
         elif v > hi[k]:
@@ -105,13 +112,14 @@ def score_trace(dt: float, speed: list[float], target: list[float], accel: list[
             counted.append({"side": o["side"], "t_start": o["start"] * dt, "length_s": length,
                             "kind": "brakes" if o["at_limit"] else "driver"})
     if not counted:
-        verdict = "pass"
+        verdict = "stood" if stood > STOOD_S else "pass"
     elif all(c["kind"] == "brakes" for c in counted):
         verdict = "brakes"
     else:
         verdict = "driver"
     return {"verdict": verdict, "counted": counted, "occasions": len(occasions),
-            "excused_s": excused, "worst_under_kmh": worst_under, "worst_over_kmh": worst_over}
+            "excused_s": excused, "stood_s": stood, "worst_under_kmh": worst_under,
+            "worst_over_kmh": worst_over}
 
 
 def schedule_check(run: dict, cycles: Path) -> float | None:
@@ -149,7 +157,7 @@ def outcome(run: dict, cycles: Path) -> dict:
     return out
 
 
-SYMBOL = {"pass": "✓", "brakes": "b", "driver": "✗", "storm": "S", "flag": "F",
+SYMBOL = {"pass": "✓", "stood": "e", "brakes": "b", "driver": "✗", "storm": "S", "flag": "F",
           "no progress": "P", "stop": "E", None: " "}
 
 
@@ -198,7 +206,10 @@ def score(cache: Path, runs: list[Path], before: list[Path], today: list[Path],
     cycles = sorted({c for c, _ in after}, key=lambda c: (c == "own", c))
     masses = sorted({m for _, m in after})
     md = ["## The Driver's map: the car at every mass on every cycle\n",
-          "✓ inside 40 CFR 1066.425(b) with its allowances; b outside only where the car "
+          "✓ inside 40 CFR 1066.425(b) with its allowances; e inside, but only by its "
+          "allowance for a car at maximum available power, having stood still at full "
+          "throttle for more than 10 s while the schedule moved (its battery empty); "
+          "b outside only where the car "
           "was too fast with the brake pedal fully down (it cannot brake as the schedule "
           "asks); ✗ outside where the Driver did not push a pedal to its limit; S the run "
           "stopped with an event storm; F with a bare SUNDIALS flag; P made no progress; "
