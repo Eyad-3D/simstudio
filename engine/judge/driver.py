@@ -8,6 +8,7 @@ whether it ends with a named diagnostic.
     driver.py score CACHE RUNS.jsonl [...] [--before RUNS0.jsonl ...] [--today TODAY.jsonl ...]
                     [--out FILE]
     driver.py today PROJECT CASE OUT.jsonl --masses m1,m2 --cycles c1,c2 [--dt 0.1]
+                    [--substep 0.001] [--back-calculation]
 
 RUNS are what the engine's `driver_map` example writes (one JSON line a
 run, with its driven trace: `cargo run --release -p lsim-project --example
@@ -282,10 +283,30 @@ def score(cache: Path, runs: list[Path], before: list[Path], today: list[Path],
         print(text)
 
 
+def back_calculation(domains) -> None:
+    """Today's Driver with its frozen integral replaced by LimPID's
+    back-calculation (Ni = 0.9), in this process only: a check of how much
+    of a difference between the engines is the anti-windup. Today's engine
+    itself is not changed."""
+    import inspect
+    import textwrap
+    src = textwrap.dedent(inspect.getsource(domains.DriverSlave.do_step))
+    old = ("    if cmd == cmd_unsat or err * cmd_unsat < 0:\n"
+           "        ctx.driver_integral += err * dt\n")
+    if src.count(old) != 1:
+        sys.exit("today's Driver has changed: its anti-windup is not where it was")
+    src = src.replace(old, "    ctx.driver_integral += (err + (cmd - cmd_unsat) / (0.9 * kp)) * dt\n")
+    ns: dict = {}
+    exec(compile(src, "DriverSlave.do_step (back-calculation)", "exec"), domains.__dict__, ns)
+    domains.DriverSlave.do_step = ns["do_step"]
+
+
 def today(project: Path, case_id: str, out: Path, masses: list[float], cycles: list[str],
-          dt: float) -> None:
-    """The same runs on today's engine (its 10 ms step), its trace on the
-    same grid: run with the backend's Python, from anywhere."""
+          dt: float, substep: float = 0.01, backcalc: bool = False) -> None:
+    """The same runs on today's engine (its 10 ms step, or `substep`: the
+    golden comparison's fine run takes 1 ms), its trace on the same grid:
+    run with the backend's Python, from anywhere. `backcalc`: its Driver
+    with back-calculation instead of its frozen integral."""
     import copy
     import time
     backend = judge.ENGINE.parent / "backend"
@@ -293,6 +314,9 @@ def today(project: Path, case_id: str, out: Path, masses: list[float], cycles: l
     from app.schemas import Project  # noqa: E402
     from app.solver import core  # noqa: E402
     from app.solver.keys import fill_keys  # noqa: E402
+    if backcalc:
+        from app.solver import domains  # noqa: E402
+        back_calculation(domains)
 
     raw = json.loads(project.read_text())
     ids = {}
@@ -314,12 +338,17 @@ def today(project: Path, case_id: str, out: Path, masses: list[float], cycles: l
                 case["timeStep"] = dt
                 case["realtimeFactor"] = 0
                 started = time.process_time()
-                res = core.run_case(Project.model_validate(data), case_id)
+                saved, core.MAX_SUBSTEP = core.MAX_SUBSTEP, substep
+                try:
+                    res = core.run_case(Project.model_validate(data), case_id)
+                finally:
+                    core.MAX_SUBSTEP = saved
                 cpu = time.process_time() - started
                 fill_keys(res.summary, Project.model_validate(data))
                 ch = {f"{c.elementId}:{c.portId}": [p["value"] for p in c.timeSeries]
                       for c in res.channels}
-                line = {"cycle": cycle, "mass_kg": mass, "engine": "today", "dt": dt,
+                line = {"cycle": cycle, "mass_kg": mass, "dt": dt, "substep": substep,
+                        "engine": "today, back-calculation" if backcalc else "today",
                         "cpu_s": cpu, "ok": res.status != "failed",
                         "messages": [m.text for m in res.messages],
                         "figures": {s.key: s.value for s in res.summary if s.key},
@@ -353,6 +382,10 @@ def main() -> None:
     p.add_argument("--masses", required=True)
     p.add_argument("--cycles", required=True)
     p.add_argument("--dt", type=float, default=0.1)
+    p.add_argument("--substep", type=float, default=0.01,
+                   help="today's solver step, s (the golden comparison's fine run: 0.001)")
+    p.add_argument("--back-calculation", action="store_true",
+                   help="today's Driver with LimPID's back-calculation, for checking only")
     a = ap.parse_args()
     if a.cmd == "score":
         score(a.cache, a.runs, a.before, a.today, a.out)
@@ -360,7 +393,7 @@ def main() -> None:
         cells(a.cache, a.runs, a.out)
     else:
         today(a.project, a.case, a.out, [float(m) for m in a.masses.split(",")],
-              a.cycles.split(","), a.dt)
+              a.cycles.split(","), a.dt, a.substep, a.back_calculation)
 
 
 if __name__ == "__main__":

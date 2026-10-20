@@ -21,7 +21,8 @@ python3 engine/judge/judge.py omc      CASES RESULTS [--cache CACHE]  # OpenMode
 cargo build --release -p lsim-project --example driver_map    # (engine/)
 driver_map PROJECT CASE RUNS.jsonl --masses 1000,2000 --cycles wltc-3b,own
 python3 engine/judge/driver.py cells CACHE RUNS.jsonl --out CELLS.jsonl
-python3 engine/judge/driver.py today PROJECT CASE TODAY.jsonl --masses ... --cycles ...  # backend's Python
+python3 engine/judge/driver.py today PROJECT CASE TODAY.jsonl --masses ... --cycles ... \
+    [--substep 0.001] [--back-calculation]                     # today's engine: the backend's Python
 python3 engine/judge/driver.py score CACHE CELLS.jsonl [--before CELLS0.jsonl] [--today TODAY.jsonl] [--out FILE]
 ```
 
@@ -30,6 +31,12 @@ scores are known, the speed-trace rule's included (standard library only;
 `engine/check.sh` runs it). `score --beside` puts another tool's runs of
 the same cases beside the engine's, run against run at each tolerance
 (OpenModelica's of the original model, for `msl-pid-controller`).
+`driver.py today` runs the map's cases on today's engine, at its 10 ms
+step or at 1 ms (`--substep`, the golden comparison's fine run), and
+with `--back-calculation` with its Driver's frozen integral replaced by
+`LimPID`'s back-calculation in that process only: a check of how much of
+a difference between the engines is the anti-windup (today's engine
+itself is not changed).
 CACHE, CASES, RESULTS and WORK are folders outside the repository. For
 `omc`, OpenModelica's compiler and runtime suffice: conda-forge's
 `openmodelica` 1.27.1 package with the libraries `omc` loads (`libgcc`,
