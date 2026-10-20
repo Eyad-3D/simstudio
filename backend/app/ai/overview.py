@@ -7,7 +7,7 @@ an assistant connected over MCP read the same text.
 It holds the model outline (parts and how they connect), every value that
 differs from the library default (with units), the cases, the last run's
 key results with their *not valid* notes, the Data Check messages, the
-LightSim version, and a line saying the results are not validated. It aims
+LightSim version, and a line saying how far the results are validated. It aims
 to stay under :data:`TARGET_BYTES`; past that it cuts the longest lists and
 says so.
 
@@ -29,6 +29,16 @@ from ..version import VERSION
 TARGET_BYTES = 8 * 1024
 #: Where readers find what the results cannot be trusted for.
 KNOWN_LIMITS_URL = "https://github.com/Eyad-3D/simstudio/blob/main/docs/KNOWN-LIMITS.md"
+
+#: How far LightSim is validated, as the AI is told (the MCP server's
+#: instructions and the MCP Bundle's description say it too). It is the
+#: validation page's one line (docs/VALIDATION-STATUS.md); backend/tests/
+#: test_docs.py checks its figure against the reference suite.
+VALIDATION_NOTE = (
+    "Only the energy use of four electric cars on EPA's two test cycles has been compared "
+    "with official results (within 8 %, with no tuning); LightSim's other results are not "
+    "validated against measured vehicles."
+)
 HIDDEN = "[hidden]"
 
 _NUMBER = re.compile(r"(?<![A-Za-z_])[-+]?\d[\d,]*(?:\.\d+)?(?:[eE][-+]?\d+)?")
@@ -239,8 +249,8 @@ def model_overview(
         ] or ["No errors or warnings (only notes)."]
 
     tail = ["", "---",
-            "LightSim's results are not validated against measured vehicles. Before relying "
-            f"on a number, read what the app cannot do: {KNOWN_LIMITS_URL}"]
+            f"{VALIDATION_NOTE} Before relying on a number, read what the app "
+            f"cannot do: {KNOWN_LIMITS_URL}"]
 
     def assemble(cut: dict[str, int]) -> str:
         def part(title: str, lines: list[str], key: str) -> list[str]:

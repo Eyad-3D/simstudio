@@ -22,6 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
 
+from app.ai.overview import VALIDATION_NOTE  # noqa: E402
 from app.ai.skillpack import SKILLS_DIR  # noqa: E402
 from app.ai.tools import TOOLS  # noqa: E402
 
@@ -37,8 +38,7 @@ def manifest(version: str) -> dict:
             "Lets your AI assistant list your LightSim projects, outline a model, run its Data "
             "Checks and simulations, and read back the key results. It runs the LightSim installed "
             "on this computer, with no network connection, and asks you before it saves a change "
-            "or runs a project that contains Script blocks. LightSim's results are not validated "
-            "against measured vehicles."
+            "or runs a project that contains Script blocks. " + VALIDATION_NOTE
         ),
         "author": {"name": "Eyad Abualkhair", "url": "https://github.com/Eyad-3D/simstudio"},
         "homepage": "https://github.com/Eyad-3D/simstudio",

@@ -15,6 +15,7 @@ const crypto = require("node:crypto");
 const net = require("node:net");
 const path = require("node:path");
 const fs = require("node:fs");
+const about = require("./about");
 const { copyOldProjects } = require("./old-projects");
 const { EngineFiles, isProjectFile, projectFilesIn, suggestedName, withSuffix } = require("./project-files");
 const { readPolicy, expandPath, engineEnv } = require("./policy");
@@ -440,20 +441,12 @@ function buildMenu() {
               type: "info",
               title: "About LightSim",
               message: `LightSim ${app.getVersion()}`,
-              detail:
-                "A desktop app for simulating vehicle energy use, range and powertrains.\n\n" +
-                "This is an early version: the physics are simplified, nothing is " +
-                "validated against measured vehicles yet, and some results are known " +
-                "to be wrong. Read Known Limits before relying on a number.\n\n" +
-                `Projects folder:\n${projects}\n\n` +
-                "Copyright © 2026 Eyad Abualkhair. All rights reserved.\n" +
-                "Free for non-commercial use; commercial use needs a licence (see EULA.txt).\n" +
-                "Includes open-source software and data under their own licences (Help → Third-Party Notices).",
-              buttons: ["OK", "Known Limits"],
+              detail: about.detail(projects),
+              buttons: about.BUTTONS,
               defaultId: 0,
               cancelId: 0,
             });
-            if (response === 1) helpPage("known-limits.html");
+            if (response === 1) helpPage(about.VALIDATION_PAGE);
           },
         },
       ],

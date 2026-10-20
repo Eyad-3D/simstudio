@@ -40,6 +40,7 @@ Do these in order. Stop and fix at the first step that fails.
 - Give each number with its unit, the case it came from, and the run's
   status.
 - Copy any *not valid* note next to the number.
-- Say that LightSim's results are not validated against measured vehicles
+- Say that, apart from four electric cars' energy on EPA's two test cycles,
+  LightSim's results are not validated against measured vehicles
   and are best used to compare variants of one model
   (`lightsim-what-it-cannot-do`).

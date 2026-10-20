@@ -11,7 +11,8 @@ from LightSim by itself.
    summary on the clipboard (under 8 KB): the parts and how they are
    wired, every value you changed from the library defaults, the cases,
    the last run's key results with any *not valid* notes, the Data Check
-   messages, and a line saying the results are not validated.
+   messages, and a line saying how far the results are validated (only
+   four electric cars' energy on EPA's two test cycles is).
 3. Paste it into the chatbot, then ask your question.
 
 To keep your numbers private, tick **Hide values** before you click:

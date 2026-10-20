@@ -36,4 +36,5 @@ metadata:
 - Quote any *not valid* note and the run's status
   (`lightsim-read-not-valid-flags`).
 - End with what the model cannot tell (`lightsim-what-it-cannot-do`),
-  above all that the results are not validated against measured vehicles.
+  above all that, apart from four electric cars' energy on EPA's two test
+  cycles, the results are not validated against measured vehicles.

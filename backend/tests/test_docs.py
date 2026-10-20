@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import copy
 import datetime
+import importlib.util
 import json
 import math
 import re
@@ -480,3 +481,59 @@ def test_the_validation_pages_dates_agree_with_each_other_and_with_the_suite():
     # the version the page is for is the one the release notes are writing
     notes = (ROOT / "docs" / "RELEASE-NOTES.md").read_text(encoding="utf-8")
     assert said.group(2) == re.search(r"^## (\d+\.\d+\.\d+)", notes, re.M).group(1)
+
+
+# ---- every place that says how far LightSim is validated ----------------------
+def _joined(js: str) -> str:
+    """JavaScript text with its "a" + "b" string pieces joined, line breaks as spaces."""
+    return re.sub(r"\s+", " ", re.sub(r'"\s*\+\s*"', "", js))
+
+
+def test_everything_that_says_how_far_lightsim_is_validated_gives_the_suites_figure():
+    """The README, the About box, the validation page, the text the AI tools
+    send and the AI skills say the same: the energy of four electric cars on
+    EPA's two cycles, within the percent the suite measures. The false blanket
+    claim (nothing is validated) is nowhere."""
+    from app.ai import mcp_server, overview
+
+    within = f"within {_whole_percent_within()} %"
+    readme = re.sub(r"\s+", " ", re.sub(r"^> ?", "", README, flags=re.M))
+    assert (f"only the energy use of four electric cars on EPA's two test cycles has been compared "
+            f"with official results ({within}, with no tuning)") in readme
+    about = _joined((ROOT / "desktop" / "src" / "about.js").read_text(encoding="utf-8"))
+    assert f"only the energy use of four electric cars on EPA's two test cycles has been compared " \
+           f"with official results ({within}, with no tuning; nothing else is validated)" in about
+    note = overview.VALIDATION_NOTE
+    assert note.startswith("Only the energy use of four electric cars on EPA's two test cycles has "
+                           f"been compared with official results ({within}, with no tuning);")
+    assert note in mcp_server.INSTRUCTIONS
+    assert note in overview.model_overview(load_example("bev-car"))
+    spec = importlib.util.spec_from_file_location("build_mcpb", ROOT / "scripts" / "mcp" / "build-mcpb.py")
+    builder = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(builder)
+    assert note in builder.manifest("0.0.0")["long_description"]
+    skill = _joined((ROOT / "backend" / "app" / "ai" / "skills" / "lightsim-what-it-cannot-do"
+                     / "SKILL.md").read_text(encoding="utf-8"))
+    assert f"Only one thing in LightSim has been validated against measurements: the energy four " \
+           f"production electric cars use on EPA's city and highway test cycles, {within} with no tuning." in skill
+
+    # the 0.3.0 release notes quote the suite too
+    gaps = [abs(r.gap_pct) for _, _, r in _measured()]
+    coast = max(suite.measured_coastdown(c["id"])["worst_pct"] for c in SUITE_CASES)
+    exact = max(abs(suite.measured_exact(e["id"])["gap_pct"]) for e in suite.EXACT["cases"])
+    notes = re.sub(r"\s+", " ", (ROOT / "docs" / "RELEASE-NOTES.md").read_text(encoding="utf-8"))
+    assert (f"Their energy at the wall is {within} of EPA's unadjusted figures on all {NUMBERS[len(gaps)]} "
+            f"({sum(gaps) / len(gaps):.1f} % on average); a virtual coast-down gives back EPA's road load "
+            f"within {coast:.2f} %, and an exact-answer tier of {NUMBERS[len(suite.EXACT['cases'])]} "
+            f"coast-downs is within {exact:.3f} %.") in notes
+
+    blanket = re.compile(r"\bnothing (is|in lightsim has been) validated|nothing in lightsim has been validated",
+                         re.I)
+    scanned = [ROOT / "README.md", ROOT / "desktop" / "src" / "about.js", ROOT / "desktop" / "src" / "main.js",
+               ROOT / "scripts" / "mcp" / "build-mcpb.py"]
+    scanned += sorted((ROOT / "docs").glob("*.md")) + sorted((ROOT / "docs" / "help").rglob("*.md"))
+    scanned += sorted((ROOT / "backend" / "app" / "ai").rglob("*.md")) + sorted((ROOT / "backend" / "app" / "ai").rglob("*.py"))
+    scanned += [p for p in sorted((ROOT / "frontend" / "src").rglob("*.ts*")) if ".test." not in p.name]
+    found = [p.relative_to(ROOT).as_posix() for p in scanned
+             if blanket.search(re.sub(r"\s+", " ", p.read_text(encoding="utf-8")))]
+    assert not found, f"these still say that nothing is validated: {found}"

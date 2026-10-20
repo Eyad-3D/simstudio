@@ -1,6 +1,6 @@
 ---
 name: lightsim-what-it-cannot-do
-description: What LightSim does not model and which results can be wrong today (no thermal model, longitudinal drive cycles only, one battery per bus, not validated against measurements). Use before answering any question about absolute numbers, and when a user asks whether LightSim can model something.
+description: What LightSim does not model and which results can be wrong today (no thermal model, longitudinal drive cycles only, one battery per bus, validated only for four electric cars' energy on EPA's test cycles). Use before answering any question about absolute numbers, and when a user asks whether LightSim can model something.
 license: See README.md of the LightSim skill pack
 metadata:
   version: "0.3.0"
@@ -9,7 +9,9 @@ metadata:
 
 # What LightSim cannot do
 
-**Nothing in LightSim has been validated against measured vehicles yet.**
+**Only one thing in LightSim has been validated against measurements: the
+energy four production electric cars use on EPA's city and highway test
+cycles, within 8 % with no tuning. Nothing else has.**
 Use it to learn the workflow and to compare variants of one model with
 each other. Do not present its absolute numbers (consumption, range, top
 speed, acceleration) as facts about a real vehicle.

@@ -1365,8 +1365,9 @@ The app is renamed from SimStudio to LightSim; your projects come along
 
 This release is about trust: results that no longer depend on hidden
 settings, a run status you can rely on, and example cars that behave like
-real ones. It is still an early version: nothing is validated against
-measured vehicles yet (see [What is validated](VALIDATION-STATUS.md)), and
+real ones. It is still an early version: nothing in 0.2.0 was validated
+against measured vehicles (0.3.0 adds a first comparison, see
+[What is validated](VALIDATION-STATUS.md)), and
 [Known issues and limits](KNOWN-LIMITS.md) lists what is still wrong.
 
 ### Your results will change — here is why
