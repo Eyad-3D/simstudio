@@ -28,8 +28,11 @@ test("the About box gives the figure the validation page gives", () => {
   assert.match(about.detail("x"), new RegExp(`within ${said[1]} %`));
 });
 
-test("the box keeps the owner's copyright and licence lines as they were", () => {
+test("the box keeps the owner's caution, copyright and licence lines as they were", () => {
   const text = about.detail("D:\\LightSim");
+  assert.ok(text.startsWith("A desktop app for simulating vehicle energy use, range and powertrains.\n\n"));
+  assert.ok(text.includes("This is an early version: the physics are simplified, "));
+  assert.ok(text.includes(", and some results are known to be wrong. Read Known Limits before relying on a number.\n\n"));
   assert.ok(text.includes("Projects folder:\nD:\\LightSim\n\n"));
   assert.ok(text.includes("Copyright © 2026 Eyad Abualkhair. All rights reserved.\n"));
   assert.ok(text.includes("Free for non-commercial use; commercial use needs a licence (see EULA.txt).\n"));

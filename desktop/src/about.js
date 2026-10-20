@@ -15,8 +15,9 @@ const BUTTONS = ["OK", "What Is Validated"];
 
 /**
  * The box's text under the version. `projects` is the projects folder.
- * Only the first paragraph says what is validated; the copyright and licence
- * lines are the owner's wording and stay as they are.
+ * Only the claim about validation in the second paragraph is new; the rest
+ * of that paragraph and the copyright and licence lines are the owner's
+ * wording and stay as they are.
  */
 function detail(projects) {
   return (
@@ -24,8 +25,8 @@ function detail(projects) {
     "This is an early version: the physics are simplified, only the energy use " +
     "of four electric cars on EPA's two test cycles has been compared with " +
     "official results (within 8 %, with no tuning; nothing else is validated), " +
-    "and some results are known to be wrong. Read Known Limits and What Is " +
-    "Validated (both in the Help menu) before relying on a number.\n\n" +
+    "and some results are known to be wrong. Read Known Limits before " +
+    "relying on a number.\n\n" +
     `Projects folder:\n${projects}\n\n` +
     "Copyright © 2026 Eyad Abualkhair. All rights reserved.\n" +
     "Free for non-commercial use; commercial use needs a licence (see EULA.txt).\n" +
