@@ -352,6 +352,46 @@ fn a_zero_crossing_is_located_and_its_clause_runs() {
     assert_eq!(dmin[3], 0.0);
 }
 
+#[test]
+fn an_event_at_a_steps_end_ends_the_step() {
+    // x' = d, d = 1 while v > 0: v falls from 2 m/s to 0 at t = 2 s, a
+    // step's end, and stays there; the clause clears d at 2 s exactly
+    // (the crossing lands on the step's end: no step of no length follows,
+    // which stopped the run with a singular step matrix)
+    let mut m = Doubled::new(
+        1,
+        0,
+        2,
+        2,
+        Box::new(|i, out| out[0] = i.d[0]),
+        Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+        }),
+    );
+    m.layout.n_d = 1;
+    m.layout.n_roots = 1;
+    m.layout.n_whens = 1;
+    m.d0 = vec![1.0];
+    m.roots = Box::new(|i, out| out[0] = i.u[0]);
+    m.when = Some(Box::new(|_, fired, d| {
+        if fired[0] != 0.0 {
+            d[0] = 0.0;
+        }
+    }));
+    let traces = [Trace::new(vec![0.0, 2.0, 3.0], vec![2.0, 0.0, 0.0]).unwrap()];
+    let o = FastOptions::default();
+    let whens = [WhenInfo { crossing: 0, direction: Direction::Falling, label: "stops".into() }];
+    let mut p = FastProblem::new(&m, &[], &traces, &o);
+    p.whens = &whens;
+    let r = run(&p, &mut []).unwrap();
+    assert_eq!(r.events.len(), 1, "{:?}", r.events);
+    assert_eq!(r.events[0].t, 2.0, "{:?}", r.events);
+    assert!((last(&r, 0) - 2.0).abs() < 1e-12, "x(3) = {}", last(&r, 0));
+    // the value recorded at 2 s is the one just before the event there
+    assert_eq!(r.channel("v[1]").unwrap(), [1.0, 1.0, 1.0, 0.0]);
+}
+
 /// Samples its input and holds it.
 struct Hold {
     ticks: usize,

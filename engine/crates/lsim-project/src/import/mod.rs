@@ -241,6 +241,23 @@ pub struct ImportReport {
     pub run: RunSettings,
     /// element id → instance name
     pub instances: BTreeMap<String, String>,
+    /// fast mode's inverse model ([`ImportOptions::inverse`]): what it
+    /// prescribes and frees, and the cycle
+    pub inverse: Option<Prescribed>,
+}
+
+/// What fast mode's inverse model of a drive-cycle case prescribes and
+/// frees, and the speed it prescribes.
+#[derive(Clone, Debug, Default)]
+pub struct Prescribed {
+    /// the vehicle's speed prescribed, the Driver's pedal command freed
+    pub spec: lsim_ir::InverseSpec,
+    /// the cycle's times, s: the Driving Task's profile points, held at
+    /// its first and last value from 0 s to the case's end
+    pub t: Vec<f64>,
+    /// the speeds there, m/s (the profile scaled as the Driving Task
+    /// scales it)
+    pub v: Vec<f64>,
 }
 
 impl ImportReport {
@@ -262,6 +279,13 @@ pub struct ImportOptions {
     /// `speed_kmh`[, `grade_pct`]); `None`: the repository's
     /// `backend/app/cycles`
     pub cycles_dir: Option<PathBuf>,
+    /// fast mode's inverse model (DESIGN.md section 10): the vehicle's
+    /// speed follows the cycle its Driver is given, the Driver keeps only
+    /// its pedal map, the pedal command freed for the inverse model to
+    /// solve for, and the parts with friction that holds a car at rest act
+    /// against the prescribed motion ([`ImportReport::inverse`] says what
+    /// is prescribed and freed, and gives the cycle as a trace)
+    pub inverse: bool,
 }
 
 /// The repository's folder of bundled drive cycles.
@@ -388,6 +412,14 @@ pub fn import_case(
     let mut facts = facts::read(project, case, &cycles)
         .map_err(|e| e.into_iter().map(|m| err("PROJECT", m)).collect::<Vec<_>>())?;
     facts.full_throttle = run.kind == CaseKind::Acceleration;
+    facts.inverse = opts.inverse;
+    if opts.inverse && facts.full_throttle {
+        return Err(vec![err(
+            "FAST-NO-CYCLE",
+            "Fast mode prescribes a drive cycle's speed; an acceleration test has none (its \
+             speed is what it measures): run it in full dynamic mode.",
+        )]);
+    }
     let mut b = Builder::new(project, &facts, run);
     b.parts(registry);
     if b.errors.is_empty() {
@@ -395,6 +427,7 @@ pub fn import_case(
         b.links();
         b.vehicle();
         b.driver();
+        b.prescription();
         b.electrical();
         b.fuel();
         b.profiles();
@@ -795,6 +828,110 @@ impl<'a> Builder<'a> {
             s.modifiers
                 .push(Modifier { param: "fr_cap".into(), value: ParamValue::Real(c(fr_cap)) });
         }
+        // fast mode: the pedal command's source, which the inverse model
+        // removes (its command is then solved for)
+        if facts.inverse {
+            let h = self.helper("pedal", lsim_lib::signal::constant("1"), &[("k", 0.0)]);
+            self.link(format!("{h}.y"), format!("{di}.sig_cmd_in"));
+        }
+    }
+
+    /// Fast mode's inverse model: the vehicle's speed follows the Driving
+    /// Task its Driver is given, the Driver's pedal command is freed.
+    fn prescription(&mut self) {
+        let facts = self.facts;
+        if !facts.inverse {
+            return;
+        }
+        let fail = |b: &mut Self, m: String| b.errors.push(err("FAST-NO-CYCLE", m));
+        let (Some(d), Some(veh)) = (facts.driver.clone(), facts.vehicle.clone()) else {
+            return fail(
+                self,
+                "Fast mode prescribes the Vehicle's speed from the cycle its Driver follows; \
+                 the project needs a Vehicle and a Driver."
+                    .into(),
+            );
+        };
+        let driver = facts.el(&d).label.clone();
+        let task = facts
+            .links
+            .iter()
+            .find(|(_, to)| to.0 == d && to.1 == "sig_target_in")
+            .map(|(from, _)| from.0.clone())
+            .filter(|t| facts.el(t).kind == "signal.driving_task");
+        let Some(task) = task else {
+            return fail(
+                self,
+                format!(
+                    "Fast mode prescribes the speed of the Driving Task '{driver}' follows, but \
+                     its Target Speed is not linked to a Driving Task."
+                ),
+            );
+        };
+        // the pedal must reach the drive through the equations: a sampled
+        // block (a Script, an FMU, a Traction Control) that reads it acts
+        // only at its ticks, on what it read then, so no pedal computed
+        // back from the motion now moves the car now
+        let sampled =
+            facts.links.iter().filter(|(from, _)| from.0 == d).map(|(_, to)| facts.el(&to.0)).find(
+                |e| matches!(e.kind.as_str(), "signal.script" | "signal.fmu" | "control.traction"),
+            );
+        if let Some(e) = sampled {
+            let mut diag = err(
+                "FAST-SAMPLED-CONTROL",
+                format!(
+                    "Fast mode solves the pedal of '{driver}' from the drive cycle, but '{}' reads \
+                     it: a sampled block acts only at its ticks, on what it read then, so the \
+                     pedal cannot be worked out back from the motion. Run this case in full \
+                     dynamic mode.",
+                    e.label
+                ),
+            );
+            diag.parts = vec![self.inst(&e.id)];
+            self.errors.push(diag);
+            return;
+        }
+        let el = facts.el(&task);
+        let label = el.label.clone();
+        let table = Table1::from_profile(text(el, "profile", "")).scaled(1.0, 1.0 / 3.6);
+        let (_, steps) = table.split_steps();
+        let why = if text(el, "mode", "time") == "distance" {
+            Some("it reads its profile along the distance driven, not along time")
+        } else if catalog::flag(&el.params, "repeat", false) {
+            Some("it repeats its profile")
+        } else if !steps.is_empty() {
+            Some("its profile jumps (a speed step needs an infinite force)")
+        } else if table.x.len() < 2 {
+            Some("its profile has fewer than two points")
+        } else {
+            None
+        };
+        if let Some(why) = why {
+            return fail(
+                self,
+                format!(
+                    "Fast mode cannot prescribe the speed of the Driving Task '{label}': {why}."
+                ),
+            );
+        }
+        let scale = el.num("scale_pct", 100.0) / 100.0;
+        let mut t = table.x.clone();
+        let mut v: Vec<f64> = table.y.iter().map(|y| y * scale).collect();
+        // held at its ends, as the Driving Task holds them
+        let end = self.report.run.duration;
+        if t[0] > 0.0 {
+            t.insert(0, 0.0);
+            v.insert(0, v[0]);
+        }
+        if end > t[t.len() - 1] {
+            t.push(end);
+            v.push(v[v.len() - 1]);
+        }
+        let spec = lsim_ir::InverseSpec {
+            prescribed: vec![format!("{}.v", self.inst(&veh))],
+            freed: vec![format!("{}.sig_cmd_in", self.inst(&d))],
+        };
+        self.report.inverse = Some(Prescribed { spec, t, v });
     }
 
     fn electrical(&mut self) {
@@ -1208,11 +1345,12 @@ pub fn standard_registry() -> Registry {
         Ok(Mapped::of(battery::battery(&cfg)).with(cfg.values()?))
     });
     add!("motor.emotor", |el: &Element, f: &Facts| {
-        let cfg = motor::MotorConfig::from_params(
+        let mut cfg = motor::MotorConfig::from_params(
             &el.params,
             &|k, a| el.outside(k, a),
             f.windowed(&el.id),
         )?;
+        cfg.inverse = f.inverse;
         Ok(Mapped::of(motor::emotor(&cfg)).with(cfg.values()?).with(w0(el, f, "shaft", "w0")))
     });
     add!("vehicle.body", |el: &Element, f: &Facts| {
@@ -1223,6 +1361,7 @@ pub fn standard_registry() -> Registry {
             two_axles: front && rear,
             single_front: !rear,
             grade_wired: wired(el, f, "sig_grade_in"),
+            prescribed: f.inverse,
         };
         let share =
             |fr: bool| f.wheels.values().filter(|w| w.front == fr).map(|w| w.share).sum::<f64>();
@@ -1242,13 +1381,18 @@ pub fn standard_registry() -> Registry {
                 ("fz_static".into(), ParamValue::Real(c(s.share * mass * vehicle::GRAVITY))),
             ]);
         }
-        Ok(Mapped::of(vehicle::wheel(vehicle::WheelConfig { on_vehicle })).with(values))
+        Ok(Mapped::of(vehicle::wheel(vehicle::WheelConfig {
+            on_vehicle,
+            prescribed: f.inverse && on_vehicle,
+        }))
+        .with(values))
     });
     add!("driver.driver", |el: &Element, f: &Facts| {
         Ok(Mapped::of(vehicle::driver(vehicle::DriverConfig {
             full_throttle: f.full_throttle,
             speed_wired: wired(el, f, "sig_speed_in"),
             target_wired: wired(el, f, "sig_target_in"),
+            inverse: f.inverse,
         })))
     });
     add!("boundary.ambient", |_: &Element, _: &Facts| Ok(Mapped::of(vehicle::ambient())));
@@ -1291,6 +1435,7 @@ pub fn standard_registry() -> Registry {
     add!("mech.brake", |el: &Element, f: &Facts| {
         Ok(Mapped::of(driveline::brake(driveline::BrakeConfig {
             demand_wired: wired(el, f, "sig_demand_in"),
+            prescribed: f.inverse,
         }))
         .with(w0(el, f, "flange", "s0")))
     });

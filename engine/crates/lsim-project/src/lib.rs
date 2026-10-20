@@ -31,8 +31,8 @@ pub mod reference;
 use lsim_ir::units::parse_unit;
 
 pub use import::{
-    BlockMapping, Channel, ImportOptions, ImportReport, Mapped, Registry, RunSettings, SampledSpec,
-    import, import_case, standard_registry,
+    BlockMapping, Channel, ImportOptions, ImportReport, Mapped, Prescribed, Registry, RunSettings,
+    SampledSpec, import, import_case, standard_registry,
 };
 
 /// The app's display unit text as the engine's unit parser reads it. Two

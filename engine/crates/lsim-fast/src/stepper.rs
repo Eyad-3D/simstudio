@@ -391,6 +391,26 @@ impl<'a> Stepper<'a> {
         })
     }
 
+    /// [`Self::solve_z`] from the prediction, else again from the iteration
+    /// variables of the consistent point `r`, with fresh derivatives: the
+    /// prediction's derivatives were taken at another point, and where the
+    /// equations switch branches between there and here (the pedal from
+    /// throttle to recuperation, a share that fades with the speed) they
+    /// can put the first iterate far off, where Newton's method does not
+    /// come back from.
+    fn solve_z_or_from(&mut self, t: f64, r: &Point) -> Result<(), FastError> {
+        match self.solve_z(t) {
+            Ok(()) => Ok(()),
+            Err(first) if self.nz > 0 => {
+                self.y[self.nx..].copy_from_slice(&r.z);
+                self.gz_valid = false;
+                self.rep.newton_restarts += 1;
+                self.solve_z(t).map_err(|_| first)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     /// Refreshes every derivative at the current, consistent point: the
     /// Jacobian, `∂g/∂u` by differences in the inputs, the inverse of
     /// `∂g/∂z`, `G`, `G_u` and the state-space Jacobian `S`.
@@ -539,7 +559,7 @@ impl<'a> Stepper<'a> {
                     let ti = t0 + self.tab.alpha[i] * h;
                     self.set_inputs(ti);
                     self.predict_near(a, i, ti);
-                    self.solve_z(ti)?;
+                    self.solve_z_or_from(ti, a)?;
                     {
                         let mut sp = std::mem::take(&mut self.stage_pts[i]);
                         self.capture(ti, &mut sp);
@@ -610,7 +630,7 @@ impl<'a> Stepper<'a> {
             self.y[..nx].copy_from_slice(&self.x1);
             self.predict(a);
         }
-        self.solve_z(t1)?;
+        self.solve_z_or_from(t1, a)?;
         self.capture(t1, b);
         Ok(())
     }
@@ -635,7 +655,8 @@ impl<'a> Stepper<'a> {
                 if self.stage_pts.first().is_some_and(|_| self.nx > 0) { self.tab.s } else { 1 };
             self.predict_near(a, n, t);
         }
-        self.solve_z(t)?;
+        let near_b = (b.t - t).abs() < (t - a.t).abs();
+        self.solve_z_or_from(t, if near_b { b } else { a })?;
         Ok(t)
     }
 
@@ -654,6 +675,9 @@ impl<'a> Stepper<'a> {
         let (mut lo, mut flo, mut hi, mut fhi) = (0.0f64, r0, 1.0f64, r1);
         let mut side = 0i32;
         let h = b.t - a.t;
+        // past the crossing: the function has left the start's sign (0 is
+        // past it: a crossing that reaches 0 at the step's end is there)
+        let past = |f: f64| if r0 > 0.0 { f <= 0.0 } else { f >= 0.0 };
         for _ in 0..100 {
             if (hi - lo) * h <= 1e-12 * b.t.abs().max(1.0) {
                 break;
@@ -663,7 +687,7 @@ impl<'a> Stepper<'a> {
             let t = self.hermite_point(a, b, th)?;
             self.roots_into(t, r);
             let ft = r[c];
-            if (ft < 0.0) == (fhi < 0.0) || ft == 0.0 && fhi == 0.0 {
+            if past(ft) {
                 hi = th;
                 fhi = ft;
                 if side == 1 {
@@ -1105,7 +1129,7 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
             st.y[..nx].copy_from_slice(&a.x);
             st.set_inputs(ta);
             st.predict(&a);
-            st.solve_z(ta)?;
+            st.solve_z_or_from(ta, &a)?;
             if due {
                 st.vars_into(ta, &mut out.v_start);
                 if tick(&mut st, blocks, &mut next_tick, ta, false, &out.v_start, o.step)? {
@@ -1122,6 +1146,8 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
 
         // the step, split at events
         let mut n_events = 0;
+        // the values just before an event at the step's end (recorded there)
+        let mut left: Option<Vec<f64>> = None;
         loop {
             st.advance(&a, tb, &mut b)?;
             let mut te_found: Option<f64> = None;
@@ -1165,6 +1191,10 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
                     what: "events keep firing (more than 64 in one step)".into(),
                 });
             }
+            // an event at the step's end ends the step there (no step of
+            // no length after it)
+            let at_end = tb - te <= 1e-12 * tb.abs().max(1.0);
+            let te = if at_end { tb } else { te };
             // redo the step up to the event and record it
             st.advance(&a, te, &mut e)?;
             out.step(&mut st, &a, &e)?;
@@ -1190,13 +1220,18 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
             st.capture(te, &mut a);
             out.restart(&mut st, te);
             st.roots_into(te, &mut r_start);
+            if at_end {
+                left = Some(out.v_end.clone());
+                break;
+            }
         }
         st.rep.steps += 1;
         if is_output {
             times.push(tb);
             let len = tb - out.acc.t0;
+            let at_tb = left.as_deref().unwrap_or(&out.v_start);
             for (j, &i) in rec.iter().enumerate() {
-                let v = out.v_start[i];
+                let v = at_tb[i];
                 values.push(v);
                 vmin.push(out.acc.lo[j]);
                 vmax.push(out.acc.hi[j]);

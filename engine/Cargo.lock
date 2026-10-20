@@ -1034,6 +1034,8 @@ name = "lsim-project"
 version = "0.1.0"
 dependencies = [
  "lsim-codegen",
+ "lsim-engine",
+ "lsim-fast",
  "lsim-ir",
  "lsim-lang",
  "lsim-lib",

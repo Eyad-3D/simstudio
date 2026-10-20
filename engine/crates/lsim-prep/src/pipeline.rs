@@ -439,12 +439,19 @@ pub fn run(
     report.differentiated = differentiated;
     // the tables are read at preparation (the start, the choice of dummy
     // derivatives) only where index reduction differentiated a table:
-    // every other model is prepared exactly as before, its tables NaN here
+    // every other forward model is prepared exactly as before, its tables
+    // NaN here
     let through_tables = differentiated > 0
         && sys.eqs.iter().any(|e| {
             e.diff_of.is_some()
                 && e.res.any(&mut |x| matches!(x, Expr::Table { order, .. } if *order != [0, 0]))
         });
+    // an inverse model reads them too: which speeds stay states is chosen
+    // at its start, which its tables decide (a battery's open-circuit
+    // voltage, a motor's full-load map); with them NaN the start is not
+    // solved, and the spread of values used instead can put a part on a
+    // branch no choice of states is regular on
+    let through_tables = through_tables || (spec.is_some() && differentiated > 0);
     let interps: Vec<Table> = if through_tables {
         let built: Vec<Table> =
             flat.tables.iter().filter_map(|t| Table::new(&t.data).ok()).collect();

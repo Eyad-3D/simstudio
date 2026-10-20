@@ -431,8 +431,9 @@ is [`docs/text-format.md`](docs/text-format.md).
 Users build their own components from the basic ones in this format (the
 owner's decision), so it must say everything the library says. Tests
 hold that: every library component, every vehicle block in every
-combination of its on/off switches (349 builds, 221 distinct definitions;
-the other settings at their defaults), every definition
+combination of its on/off switches and in fast mode's inverse variants
+(375 builds, 247 distinct definitions; the other settings at their
+defaults), every definition
 the example projects import, a component with every IR feature and random
 expressions over every function print and read back unchanged; every
 example on the documentation page parses, prepares, runs and gives the
@@ -2428,6 +2429,50 @@ save most of those 10 ms in every run, sequential or not (a change to
   tools, measured against them. Verified against forward runs: where no flag is
   raised, fast and full dynamic agree on energy within the trace's
   discretisation (a documented band).
+* **The example projects' cars** (`lsim-project`, `ImportOptions::inverse`):
+  a drive-cycle case is imported as its inverse model. The vehicle body's
+  speed is prescribed from the cycle its Driver follows (the Driving
+  Task's profile, scaled as it scales it; `ImportReport::inverse` gives
+  the trace and the `InverseSpec`), and the parts whose forward models
+  cannot be run backwards take their inverse variants (lsim-lib, the
+  `prescribed`/`inverse` switch of their configuration; the forward
+  import is unchanged, so are the golden figures): the **Driver** keeps
+  only its pedal map, its pedal command an input the inverse model solves
+  for (`limit`ed to full brake … full throttle, so a cycle the car cannot
+  follow is flagged), its PI controller and the command's source removed;
+  the **vehicle body**'s rolling resistance acts against the prescribed
+  motion, or the acceleration that starts it forwards from rest (no
+  stiction: at rest nothing pushes, and a pedal that holds a car at rest
+  is not determined by its motion); the **wheels** turn with the
+  prescribed speed, their slip the force over slip stiffness × load and
+  its loss the extra torque `F·r·slip` (the same power, to first order in
+  the slip, above 0.5 m/s): a slip that follows the cycle's steps of
+  acceleration would need an impulse, which no inverse model of a
+  compliant tyre avoids, and without the slip's loss fast mode is 2.6 %
+  short on the aero BEV's UDDS (its tyres' slip losses); the force is
+  flagged beyond the tyre's grip; the **brakes** act against forward
+  rotation (a wheel's slip turns it back a little at the last moment of a
+  stop, which must not turn a brake into a drive); the **e-motor**'s
+  inverter runs at a command of 0 too (an instant in a forward run, the
+  state of a standing car in fast mode, where its torque would otherwise
+  not depend on the command the inverse model solves for). Preparation
+  reads an inverse model's tables when it chooses the states (a battery's
+  open-circuit voltage decides its start; without it the start is not
+  solved and the spread of values used instead puts the tyres at their
+  grip, where no choice of states is regular). Refused, with the reason:
+  an acceleration test (`FAST-NO-CYCLE`: its speed is what it measures),
+  a profile along distance, repeated or with steps, and a Driver whose
+  pedal a sampled block reads (`FAST-SAMPLED-CONTROL`: the hybrid's
+  supervisory controller, a Script, acts at its ticks on what it read
+  then, so no pedal worked out back from the motion moves the car now).
+  The stepper restarts Newton's method from the last consistent point
+  when the prediction across a change of branch (throttle to
+  recuperation, a share that fades with the speed) put it out of reach,
+  and an event located at a step's end ends the step there (a crossing
+  that reaches exactly 0 at a cycle's stop was lost, and a step of no
+  length after it stopped the run). `engine/judge/fast.py` is the outside
+  judge of these runs (its README: the full dynamic run of each case and
+  FASTSim on EPA's reference cars).
 
 ## 11. Outputs, energy books and accuracy reports
 

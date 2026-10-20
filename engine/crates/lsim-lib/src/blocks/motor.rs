@@ -47,6 +47,11 @@ pub struct MotorConfig {
     pub scales: [f64; 3],
     /// its bus hands it a supply window
     pub windowed: bool,
+    /// fast mode's inverse model: its inverter runs at a command of 0 too
+    /// (an instant in a forward run, but where a car stands in fast mode,
+    /// whose inverse model solves for the command; off there, the torque
+    /// would not depend on it)
+    pub inverse: bool,
 }
 
 fn scale_pct(p: &serde_json::Map<String, serde_json::Value>, key: &str) -> f64 {
@@ -89,6 +94,7 @@ impl MotorConfig {
             drag: drag.scaled(kn * RPM, kt / kn),
             scales: [kt, kn, kv],
             windowed,
+            inverse: false,
         })
     }
 }
@@ -262,8 +268,13 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             n("alive"),
             ite(
                 and(
-                    // a command of exactly 0 is an instant (no event)
-                    and(gt(n("v"), c(1.0) * n("unit_V")), noev(gt(abs(n("dem")), c(0.0)))),
+                    // a command of exactly 0 is an instant (no event); in
+                    // fast mode the inverter runs at 0 too
+                    if cfg.inverse {
+                        gt(n("v"), c(1.0) * n("unit_V"))
+                    } else {
+                        and(gt(n("v"), c(1.0) * n("unit_V")), noev(gt(abs(n("dem")), c(0.0))))
+                    },
                     le(n("wa"), wmax.clone() * c(1.0 + 1e-9)),
                 ),
                 c(1.0),
@@ -376,7 +387,11 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
     let mut all = uc2.into_params();
     all.extend(params);
     ComponentDef {
-        name: variant("Blocks.EMotor", !cfg.windowed, [cfg.windowed as u8 as f64]),
+        name: variant(
+            "Blocks.EMotor",
+            !cfg.windowed && !cfg.inverse,
+            [cfg.windowed as u8 as f64].into_iter().chain(cfg.inverse.then_some(1.0)),
+        ),
         doc: doc(id),
         ports,
         params: all,

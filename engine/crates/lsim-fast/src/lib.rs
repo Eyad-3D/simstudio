@@ -173,6 +173,9 @@ pub struct FastReport {
     pub gz_refreshes: u64,
     /// steps redone with a fresh Jacobian
     pub step_redos: u64,
+    /// solves of the iteration variables started again from a consistent
+    /// point's, their prediction too far off
+    pub newton_restarts: u64,
     /// events
     pub events: u64,
     /// sampled-block ticks that changed an output
