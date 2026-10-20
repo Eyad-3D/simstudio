@@ -232,10 +232,12 @@ figure the same without the part (`rule_check_current_ev_2_2_2_a` for
 
 ## Exports
 
-The app's *Results* tab exports a run as CSV. The command-line tool and
-the Python package (`Result.to_csv`, `to_mat`, `to_json`) write three
-formats, and the Python package a fourth, Parquet, when pyarrow is
-installed (`Result.to_parquet`, `lightsim run -o result.parquet`).
+The app's *Results* tab exports a run as CSV (the ticked channels) and,
+with its **MATLAB** button, as a MAT-file of another layout (below). The
+command-line tool and the Python package (`Result.to_csv`, `to_mat`,
+`to_json`) write three formats, and the Python package a fourth, Parquet,
+when pyarrow is installed (`Result.to_parquet`,
+`lightsim run -o result.parquet`).
 
 ### CSV
 
@@ -258,6 +260,16 @@ Octave and `scipy.io.loadmat` read:
 | `kpis` | a struct: summary key (with `.` and other signs as `_`) → value |
 | `kpi_units` | a struct: the same names → unit |
 | `info` | a struct: `project`, `case`, `case_id`, `status` |
+
+### MAT, from the app
+
+The **MATLAB** button on the *Results* tab, `lightsim-backend run --out
+result.mat` and `lightsim-backend export` write a MAT-file in a second
+layout: one struct per part, holding `t` (s) and a column for each of its
+channels (NaN for a gap), and a struct `meta` with the units of every
+column, the run's details and the run card as JSON text. It is the layout
+`lightsim_run.m` reads. The variables are listed in
+[Use results in MATLAB and Python](../help/how-to/use-results-in-matlab-and-python.md).
 
 ### Parquet
 

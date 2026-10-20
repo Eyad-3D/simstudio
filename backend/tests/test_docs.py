@@ -635,3 +635,70 @@ def test_lesson_2_describes_the_lap_import_the_app_has():
     assert "../how-to/import-a-lap.md" in (HELP / "lessons" / "fs-2-endurance.md").read_text(encoding="utf-8")
     for name in laplog.PRESETS:
         assert f"*{name}*" in howto, f"the how-to does not name the layout {name!r}"
+
+
+# ---- what docs/FORMATS.md says ------------------------------------------------
+FORMATS = ROOT / "docs" / "FORMATS.md"
+
+
+def _formats_text() -> str:
+    return re.sub(r"\s+", " ", FORMATS.read_text(encoding="utf-8"))
+
+
+def _code(*folders: str, suffixes=(".py", ".ts", ".tsx", ".js")) -> dict[str, str]:
+    """The source files under these folders of the repository, by path."""
+    return {p.relative_to(ROOT).as_posix(): p.read_text(encoding="utf-8")
+            for folder in folders for p in sorted((ROOT / folder).rglob("*"))
+            if p.suffix in suffixes and "node_modules" not in p.parts and "__pycache__" not in p.parts
+            and ".test." not in p.name and not p.name.startswith("test_")}
+
+
+def test_the_formats_page_names_what_the_code_reads_and_writes():
+    """Every file type a file picker of the app accepts, every file type the
+    command line writes and every layout the lap import reads is named on the
+    page; the number of bundled drive cycles and the version are the code's."""
+    from app import cycles, laplog
+    from lightsim import cli
+
+    page = _formats_text()
+    accepted = set()
+    for path, text in _code("frontend/src").items():
+        for literal in re.findall(r'accept="([^"]*)"', text):
+            accepted |= {t for t in literal.split(",") if t.startswith(".")}
+    assert {".csv", ".tsv", ".xlsx", ".xlsm", ".fmu", ".lightsim", ".json", ".zip"} <= accepted
+    missing = sorted(t for t in accepted if t not in page)
+    assert not missing, f"the app accepts files the page does not name: {missing}"
+    with pytest.raises(cli.UsageError) as bad:
+        cli._write_outputs(type("R", (), {"case_name": "x", "case_id": "x"})(), ["x.nope"])
+    written = re.findall(r"\.\w+", str(bad.value).split("give a", 1)[1])
+    assert set(written) == {".csv", ".mat", ".json", ".parquet"}
+    assert not [t for t in written if t not in page], "the command line writes files the page does not name"
+    for name in laplog.PRESETS:
+        assert name.replace(" CSV", "").lower() in page.lower(), f"the page does not name the lap layout {name!r}"
+    assert f"The {len(cycles.CYCLES)} standard drive cycles" in page
+    newest = re.search(r"^## (\d+\.\d+\.\d+)", RELEASE_NOTES, re.M).group(1)
+    assert f"Last updated for version {newest}." in page
+
+
+def test_what_the_formats_page_calls_planned_is_not_in_the_code():
+    """Planned means no code yet: when a format below is built, this fails
+    until the page lists it as working."""
+    page = _formats_text().lower()
+    planned = page.split("## planned", 1)[1].split("## on request only", 1)[0]
+    on_request = page.split("## on request only", 1)[1].split("## the licence rule", 1)[0]
+    sources = _code("backend/app", "backend/lightsim", "frontend/src", "desktop/src", "scripts/mcp")
+    sources = {p: t for p, t in sources.items() if "/skills/" not in p}
+    for word, where in (("gpx", planned), ("mdf4", planned), ("reqif", planned), ("opendrive", on_request),
+                        ("sysml", on_request)):
+        assert word in where, f"the page no longer lists {word}"
+        hits = [p for p, t in sources.items() if word in t.lower()]
+        assert not hits, f"{word} is in the code ({hits}) but the page calls it planned"
+    plot = sources["frontend/src/components/panels/Plot.tsx"]
+    results = sources["frontend/src/components/panels/ResultsPanel.tsx"]
+    assert "image/png" in plot and "image/svg+xml" not in plot, "charts as SVG are not built"
+    assert "image/svg+xml" in sources["frontend/src/components/panels/EnergyView.tsx"]
+    assert 'type="file"' not in results and "accept=" not in results, "the Results tab takes no file"
+    assert "measured signals from a csv file, plotted beside a run's results" in planned
+    assert not [p for p, t in sources.items() if p.startswith("backend/app") and "import pyarrow" in t], (
+        "the app writes Parquet, but the page says only the Python package does")
+    assert "to_parquet" in sources["backend/lightsim/result.py"]
