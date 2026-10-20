@@ -16,6 +16,7 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 from app import cycles
@@ -199,6 +200,27 @@ def run_cycle(case: dict, cycle_id: str, step: float = 1.0, every: int = 1) -> C
         cycle=cycle_id, wh_per_km=chemical / i.charger, wh_per_km_battery=terminal,
         target=mpge_to_wh_per_km(case["target"][f"{cycle_id}_mpge"]), status=result.status,
         messages=[m.text for m in result.messages if m.level != "info"])
+
+
+@lru_cache(maxsize=None)
+def measured(case_id: str, cycle_id: str, step: float = 1.0, every: int = 1) -> CycleResult:
+    """:func:`run_cycle` for a case by its id, once for each process. The
+    tests that read the results (test_reference_suite.py, and test_docs.py
+    for the numbers docs/VALIDATION-STATUS.md quotes) share these runs, each
+    of which takes about 15 s."""
+    return run_cycle(next(c for c in load_cases() if c["id"] == case_id), cycle_id, step, every)
+
+
+@lru_cache(maxsize=None)
+def measured_coastdown(case_id: str) -> dict:
+    """:func:`coastdown` for a case by its id, once for each process."""
+    return coastdown(next(c for c in load_cases() if c["id"] == case_id))
+
+
+@lru_cache(maxsize=None)
+def measured_exact(exact_id: str) -> dict:
+    """:func:`run_exact` for an exact-answer case by its id, once for each process."""
+    return run_exact(next(e for e in EXACT["cases"] if e["id"] == exact_id))
 
 
 def coastdown(case: dict) -> dict:

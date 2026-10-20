@@ -7,7 +7,9 @@ matches the app, when a tutorial's *Check:* or an exercise's *Answer:*
 quotes nothing that is checked, when a Script recipe stops doing what its
 page says, or when a fact the README states about the code (the files in
 its architecture tree, its API routes, the drive cycles, the examples) is
-no longer true.
+no longer true. The validation page's reference-suite figures and dates, and
+every place that says how far LightSim is validated, are checked against
+the suite's own runs (backend/validation/).
 
 To change a page's numbers, change the page and its entry in checks.json
 together; the failure message prints the value the app gives now.
@@ -15,7 +17,9 @@ together; the failure message prints the value the app gives now.
 from __future__ import annotations
 
 import copy
+import datetime
 import json
+import math
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -30,6 +34,7 @@ from app.solver import simulate
 from app.solver.scripting import compile_script, run_script
 from app.storage import load_example
 from app.validation import validate_project
+from validation import suite
 
 ROOT = Path(__file__).resolve().parents[2]
 HELP = ROOT / "docs" / "help"
@@ -330,3 +335,148 @@ def test_every_component_is_in_the_library_page_count():
     for text in (README, (HELP / "index.md").read_text(encoding="utf-8")):
         for said in re.findall(r"\b(\d+) (?:parts|components) in the library", text):
             assert int(said) == n, f"a page says {said} parts in the library; there are {n}"
+
+
+# ---- what the validation page says about the reference suite ------------------
+VALIDATION = ROOT / "docs" / "VALIDATION-STATUS.md"
+MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August",
+          "September", "October", "November", "December"]
+MINUS = "\u2212"
+NUMBERS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+CYCLES = ("udds", "hwfet")
+SUITE_CASES = suite.load_cases()
+
+
+def _measured():
+    """The suite's eight runs, in the order of the page's table: (case, cycle, result)."""
+    return [(c, cyc, suite.measured(c["id"], cyc)) for c in SUITE_CASES for cyc in CYCLES]
+
+
+def _gap_text(gap: float) -> str:
+    """A gap as the page writes it: +5.0 %, a true minus for -1.4 %, 0.0 %."""
+    shown = f"{abs(gap):.1f}"
+    sign = "+" if gap > 0 else MINUS
+    return "0.0 %" if shown == "0.0" else f"{sign}{shown} %"
+
+
+def _span(values, digits: int) -> str:
+    """The smallest and largest of `values`, as the page writes a range."""
+    lo, hi = (f"{f(values):.{digits}f}" for f in (min, max))
+    return lo if lo == hi else f"{lo}-{hi}"
+
+
+def _page_date(text: str) -> datetime.date:
+    m = re.fullmatch(r"(\d{1,2}) (\w+) (\d{4})", text.strip())
+    assert m and m.group(2) in MONTHS, f"not a date written as '20 October 2026': {text!r}"
+    return datetime.date(int(m.group(3)), MONTHS.index(m.group(2)) + 1, int(m.group(1)))
+
+
+def _whole_percent_within() -> int:
+    """How far the reference suite's worst figure is from EPA's, rounded up
+    to a whole percent: the "within 8 %" the README, the About box and the
+    AI texts say."""
+    return math.ceil(max(abs(r.gap_pct) for _, _, r in _measured()))
+
+
+def test_the_validation_pages_table_is_what_the_suite_measures():
+    """Each row of the page's table (EPA's figure, LightSim's, the gap, EPA's
+    repeat tests) is what the reference suite gives, to the digits shown."""
+    text = VALIDATION.read_text(encoding="utf-8")
+    table = text.split("Measured on ", 1)[1].split("Mean of the gaps", 1)[0]
+    rows = [[c.strip() for c in line.strip().strip("|").split("|")]
+            for line in table.splitlines() if line.startswith("| ") and not line.startswith(("| Car", "|---"))]
+    runs = _measured()
+    assert len(rows) == len(runs) == 8, f"the page has {len(rows)} rows, the suite {len(runs)} runs"
+    car = ""
+    for row, (case, cyc, r) in zip(rows, runs):
+        car = row[0] or car
+        assert case["name"].startswith(car), f"{row}: the suite's car is {case['name']!r}"
+        assert row[1] == cyc.upper(), row
+        repeats = [suite.mpge_to_wh_per_km(mpge) for _, mpge in case["target"]["repeat_tests"][cyc]]
+        want = [f"{r.target:.1f}", f"{r.wh_per_km:.1f}", _gap_text(r.gap_pct)]
+        assert row[2:5] == want, f"{case['name']} {cyc.upper()}: the page says {row[2:5]}, the suite gives {want}"
+        if len(repeats) == 1:
+            assert row[5] == "one test", row
+        else:
+            apart = 100 * (max(repeats) - min(repeats)) / min(repeats)
+            assert row[5].startswith(f"{min(repeats):.1f}-{max(repeats):.1f}"), (row, repeats)
+            assert ("apart" in row[5]) == (round(apart) >= 6), (row, apart)
+            if "apart" in row[5]:
+                assert f"({round(apart)} % apart)" in row[5], (row, apart)
+
+
+def test_the_validation_pages_summary_lines_agree_with_its_table():
+    """The one-line summary, the mean and the largest gap, the tolerance and
+    the figures the suite also checks (coast-down, halving the step, the exact
+    answers) are what the suite measures."""
+    text = re.sub(r"\s+", " ", VALIDATION.read_text(encoding="utf-8"))
+    gaps = [abs(r.gap_pct) for _, _, r in _measured()]
+    mean, largest = f"{sum(gaps) / len(gaps):.1f}", f"{max(gaps):.1f}"
+    cars = len(SUITE_CASES)
+    one_line = (f"the energy {NUMBERS[cars]} production electric cars use on EPA's city and highway "
+                f"test cycles has been compared with EPA's official results, blind (no input tuned "
+                f"to them): LightSim is within {_whole_percent_within()} % on all {NUMBERS[len(gaps)]} "
+                f"figures (the largest gap is {largest} %, the mean {mean} %)")
+    assert one_line in text, f"the page's one line is not: {one_line}"
+    tolerance = {c["tolerance_pct"] for c in SUITE_CASES}
+    assert len(tolerance) == 1
+    assert (f"Mean of the gaps' sizes {mean} %, largest {largest} %, against a tolerance of "
+            f"{tolerance.pop():g} % (blind)") in text
+    assert all(c["mode"] == "blind" for c in SUITE_CASES)
+
+    coast = _span([suite.measured_coastdown(c["id"])["worst_pct"] for c in SUITE_CASES], 2)
+    halving = _span([abs(100 * (suite.measured(c["id"], "udds").wh_per_km - fine.wh_per_km) / fine.wh_per_km)
+                     for c in SUITE_CASES for fine in [suite.measured(c["id"], "udds", 0.005, 200)]], 2)
+    exact = [suite.measured_exact(e["id"]) for e in suite.EXACT["cases"]]
+    rows = {
+        "A virtual coast-down from 130 km/h gives back EPA's road load, 20-120 km/h":
+            (suite.RULES["coastdown_pct"], coast),
+        "Halving the solver step (10 to 5 ms) moves the city energy":
+            (suite.RULES["step_halving_pct"], halving),
+        f"Exact-answer tier: {NUMBERS[len(exact)]} coast-downs with closed-form answers":
+            (suite.EXACT["tolerance_pct"], _span([abs(e["gap_pct"]) for e in exact], 3)),
+    }
+    for what, (tol, got) in rows.items():
+        assert f"| {what} | {tol:g} % | {got} % |" in text, f"{what}: the suite gives {got} % (tolerance {tol:g} %)"
+
+
+def test_what_the_validation_page_says_about_the_suites_cars_is_true():
+    text = re.sub(r"\s+", " ", VALIDATION.read_text(encoding="utf-8"))
+    runs = _measured()
+    # "The highway figures are higher than EPA's for three cars of four."
+    higher = sum(r.gap_pct > 0 for _, cyc, r in runs if cyc == "hwfet")
+    assert f"higher than EPA's for {NUMBERS[higher]} cars of {NUMBERS[len(SUITE_CASES)]}" in text
+    # "EPA's own repeat tests of one car differ by up to 6 % (the Bolt EUV's city tests)."
+    spreads = {}
+    for case in SUITE_CASES:
+        for cyc in CYCLES:
+            v = [suite.mpge_to_wh_per_km(m) for _, m in case["target"]["repeat_tests"][cyc]]
+            spreads[(case["name"], cyc)] = 100 * (max(v) - min(v)) / min(v)
+    (worst_car, worst_cycle), worst = max(spreads.items(), key=lambda kv: kv[1])
+    assert f"differ by up to {round(worst)} % (the Bolt EUV's city tests)" in text
+    assert "Bolt EUV" in worst_car and worst_cycle == "udds"
+    # the Model 3's motor power is EPA's rated 257 hp (192 kW)
+    model3 = next(c for c in SUITE_CASES if "model3" in c["id"])
+    assert f"EPA's rated {model3['epa']['rated_hp']} hp ({round(model3['epa']['rated_hp'] * suite.HP_KW)} kW)" in text
+    assert f"(case version {model3['version']}, suite {suite.SUITE['version']}, " in text
+    assert "a charger efficiency of 0.86" in text and suite.RULES["wall_energy"].count("0.86") == 1
+
+
+def test_the_validation_pages_dates_agree_with_each_other_and_with_the_suite():
+    """The date the figures were measured is one date; it is not before the
+    suite's own version, nor after the day the tests run."""
+    text = VALIDATION.read_text(encoding="utf-8")
+    head = re.sub(r"\s+", " ", text.split("**In one line:**", 1)[0])
+    said = re.search(r"Reference-suite figures measured on (\d+ \w+ \d{4}), for version ([\d.]+)\.", head)
+    assert said, "the page's first lines no longer say when the figures were measured"
+    table = re.search(r"Measured on (\d+ \w+ \d{4}), with reference suite ([\d.]+):", text)
+    assert table, "the table no longer says when it was measured"
+    assert said.group(1) == table.group(1), "the page gives two dates for one measurement"
+    measured = _page_date(table.group(1))
+    assert table.group(2) == suite.SUITE["version"], "the table is for another suite version"
+    assert measured >= datetime.date.fromisoformat(suite.SUITE["version_date"]), (
+        "figures dated before the suite version that made them")
+    assert measured <= datetime.date.today(), "figures dated in the future"
+    # the version the page is for is the one the release notes are writing
+    notes = (ROOT / "docs" / "RELEASE-NOTES.md").read_text(encoding="utf-8")
+    assert said.group(2) == re.search(r"^## (\d+\.\d+\.\d+)", notes, re.M).group(1)

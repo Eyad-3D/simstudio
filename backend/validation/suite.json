@@ -1,6 +1,7 @@
 {
   "name": "LightSim reference suite",
   "version": "1.1",
+  "version_date": "2026-10-08",
   "about": "Real vehicles with official test results, run through LightSim and compared automatically (VAL-05). README.md explains the rules; backend/tests/test_reference_suite.py runs it in CI.",
   "exact": "exact.json",
   "cases": [

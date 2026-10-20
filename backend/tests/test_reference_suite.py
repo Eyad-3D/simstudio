@@ -5,11 +5,9 @@ Each case of backend/validation/ runs the EPA city (UDDS) and highway
 unadjusted energy at the wall; a virtual coast-down must give back EPA's
 road load within 2 %; the exact-answer tier must be within 0.5 %; and
 halving the solver step must move the city energy by less than 0.5 %
-(checked on one car here, on all four for docs/VALIDATION-STATUS.md).
-The measured gaps are in docs/VALIDATION-STATUS.md."""
+(checked on one car here, on all four by test_docs.py, which also checks
+that the numbers in docs/VALIDATION-STATUS.md are the ones measured here)."""
 from __future__ import annotations
-
-from functools import lru_cache
 
 import pytest
 
@@ -18,9 +16,9 @@ from validation import suite
 CASES = {c["id"]: c for c in suite.load_cases()}
 
 
-@lru_cache(maxsize=None)
 def _run(case_id: str, cycle: str):
-    return suite.run_cycle(CASES[case_id], cycle)
+    # shared with test_docs.py, which checks the numbers the validation page quotes
+    return suite.measured(case_id, cycle)
 
 
 def test_the_suite_lists_its_files_and_every_case_states_its_basis():
@@ -57,20 +55,20 @@ def test_energy_at_the_wall_is_within_the_case_tolerance_of_epa(case_id, cycle):
 
 @pytest.mark.parametrize("case_id", CASES)
 def test_a_virtual_coast_down_gives_back_epa_road_load(case_id):
-    result = suite.coastdown(CASES[case_id])
+    result = suite.measured_coastdown(case_id)
     assert result["points"] > 50
     assert result["worst_pct"] <= suite.RULES["coastdown_pct"]
 
 
 @pytest.mark.parametrize("ex", suite.EXACT["cases"], ids=lambda e: e["id"])
 def test_exact_answer_tier(ex):
-    r = suite.run_exact(ex)
+    r = suite.measured_exact(ex["id"])
     assert abs(r["gap_pct"]) <= suite.EXACT["tolerance_pct"], r
 
 
 def test_halving_the_solver_step_moves_the_city_energy_by_less_than_half_a_percent():
     case = CASES["epa-2022-tesla-model3-rwd"]
-    fine = suite.run_cycle(case, "udds", step=0.005, every=200)
+    fine = suite.measured(case["id"], "udds", 0.005, 200)
     coarse = _run(case["id"], "udds")
     change = 100 * (coarse.wh_per_km - fine.wh_per_km) / fine.wh_per_km
     assert abs(change) <= suite.RULES["step_halving_pct"]
