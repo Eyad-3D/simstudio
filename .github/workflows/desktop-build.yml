@@ -18,8 +18,9 @@
 #   macOS (PLT-13)    MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD (Developer ID
 #                     certificate), APPLE_API_KEY, APPLE_API_KEY_ID,
 #                     APPLE_API_ISSUER (App Store Connect API key, notarisation)
-# Without them Windows and Linux build unsigned as before, and the Mac build
-# is made and tested but never published.
+# Without them the Windows installers are unsigned. (With the Linux and macOS
+# entries back, the Linux build would be unsigned too, and the Mac build made
+# and tested but never published.)
 name: Build desktop app
 
 on:
