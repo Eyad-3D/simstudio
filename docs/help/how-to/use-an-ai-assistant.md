@@ -82,8 +82,10 @@ refuse every change.
   **Run scripts** before the assistant runs it.
 - The question is LightSim's, but your AI app shows it and sends your
   answer back. LightSim cannot tell whether you or the assistant answered,
-  so connect only an AI app that shows you the question. If an AI app
-  cannot ask you, nothing is saved or run.
+  and an app that sends your answer again repeats a run, or saves another
+  copy of an edited example, without asking you, so connect only an AI app
+  that shows you each question. If an AI app cannot ask you, nothing is
+  saved or run.
 - A run started by an assistant stops after 5 minutes, or sooner if you
   set a shorter cap under **AI access**. Its runs are kept apart from yours
   (the newest 20 per project).

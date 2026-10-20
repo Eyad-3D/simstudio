@@ -1126,14 +1126,17 @@ minimum or an average, for example from the CSV export, or put the
   `lightsim.ai_access.AgentSession` reads the trust list, and `lightsim
   run` and the `lightsim` package read no AI access setting at all.
   LightSim cannot tell who answered a question, because the AI app shows
-  it and sends the answer back, and the question for a run names the
-  project and the case, not the script's code. LightSim's check of script
-  code (the scripts entry above) applies to an AI app's run as to yours:
-  code you have not approved in the app, such as a script the assistant
-  wrote, makes the run fail until you choose **Run scripts** there.
-  `lightsim ai log` lists only the calls made through `AgentSession`; an AI
-  app's calls are in `.ai/audit.jsonl` in your projects folder, and the *AI
-  access* tab shows both. *Roadmap:* AI-01.
+  it and sends the answer back, and an app that sends the answer to a
+  run's question again repeats that run, and one that sends the answer to
+  an edit of an example again saves another copy, without a new question.
+  The question for a run names the project and the case, not the script's
+  code. LightSim's check of script code (the scripts entry above) applies
+  to an AI app's run as to yours: code you have not approved in the app,
+  such as a script the assistant wrote, makes the run fail until you
+  choose **Run scripts** there. `lightsim ai log` lists only the calls
+  made through `AgentSession`; an AI app's calls are in `.ai/audit.jsonl`
+  in your projects folder, and the *AI access* tab shows both.
+  *Roadmap:* AI-01.
 - **A few AI access settings are on the command line only.** *Connect AI
   → AI access* turns AI access on and off, removes allowed folders (and
   adds one with the desktop app's folder dialog), shows or hides the

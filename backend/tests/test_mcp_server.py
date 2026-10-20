@@ -508,6 +508,37 @@ def test_every_script_run_asks_and_the_trust_list_is_not_read(folder, monkeypatc
     assert example["resultType"] == "input_required", "the examples' scripts ask too"
 
 
+def test_a_yes_sent_again_repeats_a_run_or_an_example_edit_without_a_new_question(folder):
+    # On the 2026-07-28 protocol the answer's state is the server's seal of
+    # exactly that action, not a one-time token (Known issues says so). The
+    # seal of a run, or of an edit of an example, stays good; the seal of an
+    # edit of a saved project holds its revision, which the save changed.
+    path = _hybrid_copy(folder, "again.json")
+    server = make_server(folder, platform="linux")
+    args = {"project": str(path), "case": "case-udds"}
+    ask = tool(server, "run_case", args)
+    first = tool(server, "run_case", args, **_yes(ask))
+    again = tool(server, "run_case", args, **_yes(ask))
+    assert first["structuredContent"]["status"] == again["structuredContent"]["status"] == "success"
+    assert first["structuredContent"]["run"] != again["structuredContent"]["run"]
+    other = _hybrid_copy(folder, "other.json")
+    swapped = tool(server, "run_case", {"project": str(other), "case": "case-udds"}, **_yes(ask))
+    assert swapped["resultType"] == "input_required", "a yes to one run does not cover another"
+
+    edit = {"project": "example:bev-car", "dry_run": False,
+            "operations": [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 2100}]}
+    ask = tool(server, "model_edit", edit)
+    one = tool(server, "model_edit", edit, **_yes(ask))["structuredContent"]
+    two = tool(server, "model_edit", edit, **_yes(ask))["structuredContent"]
+    assert one["applied"] and two["applied"] and one["project"] != two["project"]
+
+    saved = {"project": one["project"], "dry_run": False,
+             "operations": [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 1800}]}
+    ask = tool(server, "model_edit", saved)
+    assert tool(server, "model_edit", saved, **_yes(ask))["structuredContent"]["applied"]
+    assert tool(server, "model_edit", saved, **_yes(ask))["resultType"] == "input_required"
+
+
 def test_an_app_that_cannot_ask_gets_a_refusal_for_a_script_run(folder):
     server = make_server(folder)
     server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
