@@ -294,18 +294,23 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             "with no room even for its spin losses, the inverter is off",
         ));
         let p_of = n("frac") * n("t_cmd") * n("w") + loss_at(noev(abs(n("frac") * n("t_cmd"))));
+        // off, the share is not used and is held at 1: its equation need
+        // have no root then (with no room for the spin losses, a share
+        // whose power fits is a generator torque that grows as the rotor
+        // slows, and below some speed there is none)
         eqs.push(eq(
             c(0.0),
             ite(
-                noev(gt(n("p_req"), n("p_hi"))),
+                and(gt(n("on"), c(0.5)), noev(gt(n("p_req"), n("p_hi")))),
                 p_of.clone() - n("p_hi"),
                 ite(
-                    noev(lt(n("p_req"), n("p_lo"))),
+                    and(gt(n("on"), c(0.5)), noev(lt(n("p_req"), n("p_lo")))),
                     p_of - n("p_lo"),
                     (n("frac") - c(1.0)) * n("unit_W"),
                 ),
             ),
-            "the torque is cut to the largest share of the command whose power fits its supply",
+            "the torque is cut to the largest share of the command whose power fits its supply \
+             (off, the whole command: it is not used)",
         ));
         eqs.push(eq(
             n("T"),
