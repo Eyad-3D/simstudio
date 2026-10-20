@@ -16,12 +16,14 @@ together; the failure message prints the value the app gives now.
 """
 from __future__ import annotations
 
+import argparse
 import copy
 import datetime
 import importlib.util
 import json
 import math
 import re
+import typing
 from functools import lru_cache
 from pathlib import Path
 
@@ -687,6 +689,95 @@ def test_the_formats_page_names_what_the_code_reads_and_writes():
     assert f"The {len(cycles.CYCLES)} standard drive cycles" in page
     newest = re.search(r"^## (\d+\.\d+\.\d+)", RELEASE_NOTES, re.M).group(1)
     assert f"Last updated for version {newest}." in page
+
+
+def _works_rows() -> list[list[str]]:
+    """The rows of the page's *Works today* table, as their cells."""
+    works = FORMATS.read_text(encoding="utf-8").split("## Works today", 1)[1].split("\n## ", 1)[0]
+    return [[c.strip() for c in line.strip().strip("|").split("|")] for line in works.splitlines()
+            if line.startswith("| ") and not line.startswith(("| Format", "|---"))]
+
+
+def _subcommands(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
+    return next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction)).choices
+
+
+def _options(parser: argparse.ArgumentParser) -> dict[str, argparse.Action]:
+    return {o: a for a in parser._actions for o in a.option_strings}
+
+
+def test_each_command_the_formats_page_names_does_what_its_row_says():
+    """Each `lightsim …` and `lightsim-backend …` command in the table is a
+    command of the parser that runs it, with the options and choices the page
+    gives it; a command named for a format that is written takes the file to
+    write, and the parameter sheet's row names a command that exports it and
+    one that imports it. (`lightsim params` only prints a project's values.)"""
+    from app.dataio import cli as backend_cli
+    from lightsim import cli
+
+    # run_backend.py sends these to app/dataio/cli.py; app/server.py sends mcp
+    # to app/ai/cli.py, and the rest to the Python package's command line
+    routed = re.search(r"sys\.argv\[1\] in \(([^)]*)\)",
+                       (ROOT / "backend" / "run_backend.py").read_text(encoding="utf-8"))
+    routed = set(re.findall(r'"([\w-]+)"', routed.group(1)))
+    assert routed == set(_subcommands(backend_cli.parser()))
+    ai_cli = (ROOT / "backend" / "app" / "ai" / "cli.py").read_text(encoding="utf-8")
+    named = 0
+    for fmt, _reads, writes, where, _test in _works_rows():
+        words_named = set()
+        for command in re.findall(r"`(lightsim(?:-backend)? [^`]+)`", where):
+            tool, name, *rest = command.split()
+            named += 1
+            if tool == "lightsim-backend" and name == "mcp":
+                assert not rest or f'("{rest[0]}", ' in ai_cli, f"{fmt}: no command `{command}`"
+                continue
+            parser = backend_cli.parser() if tool == "lightsim-backend" and name in routed else cli.parser()
+            subs = _subcommands(parser)
+            assert name in subs, f"{fmt}: {tool} has no command {name!r}"
+            sub, options = subs[name], _options(subs[name])
+            choices = [a.choices for a in sub._actions if not a.option_strings and a.choices]
+            words = iter(rest)
+            for word in words:
+                if word.startswith("-"):
+                    assert word in options, f"{fmt}: `{tool} {name}` has no option {word}"
+                    action = options[word]
+                    if action.nargs != 0:
+                        value = next(words)
+                        assert not action.choices or value in action.choices, f"{fmt}: `{command}`"
+                elif choices:
+                    assert word in choices[0], f"{fmt}: `{tool} {name}` has no {word!r}"
+                    words_named.add(word)
+            if writes == "yes":
+                assert {"--out", "-o"} & set(options), f"{fmt}: `{command}` writes no file"
+        if fmt.startswith("Parameter sheet"):
+            assert {"export", "import"} <= words_named, f"{fmt}: name the commands that export and import it"
+    assert named >= 10
+
+
+def test_the_formats_page_names_every_file_the_engine_and_the_desktop_app_write_or_read():
+    """Each --format of `lightsim-backend run` and `export`, and of the
+    engine's export route, has a row naming it; so does the policy file the
+    desktop app reads when it starts."""
+    from app.dataio import api
+    from app.dataio import cli as backend_cli
+
+    rows = _works_rows()
+    kinds = {"mat": "MAT-file", "csv": "CSV", "json": "JSON"}
+    for name, sub in _subcommands(backend_cli.parser()).items():
+        if "--format" not in _options(sub):
+            continue
+        for choice in _options(sub)["--format"].choices:
+            assert [r for r in rows if kinds[choice] in r[0] and f"`lightsim-backend {name}" in r[3]], (
+                f"`lightsim-backend {name} --format {choice}` writes a file no row names")
+    for choice in typing.get_args(api.ExportFormat):
+        if choice != "mat":  # the app's MATLAB button is that route
+            assert [r for r in rows if kinds[choice] in r[0] and f"`export?format={choice}` route" in r[3]], (
+                f"the engine's export?format={choice} route writes a file no row names")
+    assert any("MAT-file" in r[0] and "the app (**MATLAB**" in r[3] for r in rows)
+    policy = (ROOT / "desktop" / "src" / "policy.js").read_text(encoding="utf-8")
+    assert 'path.win32.join(base, "LightSim", "policy.json")' in policy
+    row = next((r for r in rows if "\\ProgramData\\LightSim\\policy.json" in r[0]), None)
+    assert row and row[1:3] == ["yes", "—"], "the page has no row for the policy file the app reads"
 
 
 def test_what_the_formats_page_calls_planned_is_not_in_the_code():

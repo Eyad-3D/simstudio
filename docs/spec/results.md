@@ -246,6 +246,15 @@ per channel headed `label [unit]` (the app's export puts the x axis of its
 chart first instead). An empty cell is a gap. Numbers use a dot as the
 decimal sign, text is UTF-8.
 
+### CSV, from the engine
+
+`lightsim-backend run --out result.csv`, `lightsim-backend export --format
+csv` and the engine's `export?format=csv` route write CSV in a third
+layout: the first column is `t [s]`, then one column per channel headed
+`Part · Channel [unit]`, as the app names the channel. An empty cell is a
+gap. The file is UTF-8 with a byte-order mark, so that Excel opens it as
+written.
+
 ### MAT
 
 A MATLAB Level 5 MAT-file (what `save -v6` writes), which MATLAB, GNU
