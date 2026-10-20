@@ -128,3 +128,42 @@ also run on Linux, but only Windows CI proves what ships.
   until the integrator's next step end (its integral 1.6e-2 short at
   rtol 1e-5); the integrator now restarts there and meets the crossing
   again (DESIGN.md 8.2, *Conditions on iteration variables*).
+
+## The vendored IDAS against SUNDIALS 7.9.0 (20 October 2026)
+
+The engine's IDAS is 7.1.1 with `sundials/lsim.patch` (an order decrease is
+decided on the states' and the books' errors together, DESIGN.md 8.1). It
+was checked against the 7.9.0 release; the vendored copy stays at 7.1.1
+(moving it moves every result, and is a separate decision).
+
+- The bug is still there: `IDAQuadTestError` is the same text in 7.1.1 and
+  7.9.0, its guard (`knew != kk`) included, and the changelog from 7.2.0 to
+  7.9.0 does not mention it. The patch applies to the 7.9.0 release as it
+  is (160 lines further down).
+- A short C program (IDAS, `y' = 1`, the quadrature `z' = y²` under error
+  control) takes 1 422 steps at rtol 1e-4 and 361 976 at 1e-10 on both
+  releases, never above order 2, with z off by 1.0e-3 and 1.1e-6; with the
+  patch it takes 42 or 43 steps at every tolerance and z is off by 9e-15 at
+  most. The program and a draft issue for LLNL are with the owner; nothing
+  is filed.
+- SUNDIALS' own `idasSlCrank_dns` and `idasAkzoNob_dns`, built from each
+  release: as released they reproduce the shipped outputs to the last
+  digit, but for 7.1.1's slider-crank G in its 12th digit (the build prints
+  3.3366160662909388, the value 7.9.0's `.out` has, against the shipped
+  3.3366160662934146). With the patch, on either release, they take other
+  steps (312 instead of 251, 473 instead of 500); every printed solution
+  digit of Akzo Nobel is the shipped one, 70 of the slider-crank's 78 are
+  (the rest one unit of the last digit away), and G is closer to its
+  independent value in both. A patch for the zero case alone (the decrease
+  is revisited only where the states' errors are all exactly zero) leaves
+  both outputs byte for byte and mends the program above, but not the
+  engine's cases whose states' errors are round-off rather than zero (8.1,
+  measured earlier), nor the same program with `y = t²`, whose states'
+  errors are round-off: as released and with that patch it never goes
+  above order 4 and takes 1 140 steps at rtol 1e-10, with the patch 93.
+- From 7.1.1 to 7.9.0 the order and error-test code of IDAS and CVODES is
+  unchanged, and the two releases agree on the steps and solutions of the
+  eight of SUNDIALS' examples we ran. Three changes can still move a
+  number: the quadrature's first derivative is set after `IDACalcIC` (7.8.0),
+  `TOO_CLOSE` is returned at more first calls (7.6.0), and the linear
+  solver's counters are reset at a restart (7.6.0; statistics only).
