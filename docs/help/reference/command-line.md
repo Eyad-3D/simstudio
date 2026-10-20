@@ -79,8 +79,11 @@ lightsim check my-car.json && lightsim run my-car.json --all-cases --out "out/{c
 
 ## AI access
 
-AI assistants (through LightSim's MCP server) reach your projects only
-under rules you set. They start **off**.
+AI assistants reach your projects only under rules you set. They start
+**off**. Two things read these settings: the connection for AI apps
+(`lightsim-backend mcp`, the MCP server) before every request, and Python
+code that goes through `lightsim.ai_access.AgentSession`. Other Python code
+(`import lightsim`, `lightsim run`) does not read them.
 
 | Command | Does |
 |---|---|
@@ -88,21 +91,35 @@ under rules you set. They start **off**.
 | `lightsim ai on`, `lightsim ai off` | Turns AI access on or off |
 | `lightsim ai allow FOLDER`, `… disallow FOLDER` | Lets AI tools see the projects in a folder, or stops it. They see nothing else (the examples excepted) |
 | `lightsim ai block PROJECT`, `… unblock PROJECT` | Hides one project from AI tools, whatever folder it is in (sets `"noAi": true` in the file) |
-| `lightsim ai trust PROJECT`, `… untrust PROJECT` | Lets AI tools run this project's Script blocks. Changing a script, or a value of a Script block, takes the trust away, also when only one case sets it |
-| `lightsim ai log [-n N]` | The last calls AI tools made |
+| `lightsim ai trust PROJECT`, `… untrust PROJECT` | Puts this project on, or takes it off, the trust list that `AgentSession` reads before it runs the project's Script blocks. The connection for AI apps does not read the list. Changing a script, or a value of a Script block, takes the trust away, also when only one case sets it |
+| `lightsim ai log [-n N]` | The last calls made through `AgentSession`. An AI app's calls are in `.ai/audit.jsonl` in your projects folder; the AI access tab of *Connect AI* lists both |
 
-What an AI tool can do once access is on:
+What an AI app can do once access is on:
 
-- **Read** an allowed project, check it, and read its results.
+- **Read** an allowed project, check it, and read its results. LightSim
+  asks you nothing.
 - **Run** a case. A run stops after 300 s. A project with Script blocks
-  (Python code that runs on your computer) runs only after you trust it,
-  and each run asks you first. On Windows the Script sandbox is weaker
-  (see [Known issues](../../KNOWN-LIMITS.md)), so trust only scripts you
-  have read.
+  (Python code that runs on your computer) makes LightSim ask you before
+  each run, in the AI app; the question does not show the code. On Windows
+  the Script sandbox is weaker (see [Known issues](../../KNOWN-LIMITS.md)),
+  so such a project does not run unless the connection was started with
+  `--trust-scripts`, and you are asked before each run then too. The trust
+  list above plays no part. LightSim's check of script code applies as in
+  the app: code you have not approved there makes the run fail.
 - **Change** a project only after you confirm each change.
 
+Your AI app shows these questions and sends your answer back; LightSim
+cannot tell who answered. If an AI app cannot ask you, nothing is saved or
+run.
+
+Python code that goes through `AgentSession` sees the same folders, the
+same `"noAi"` mark and the same time cap. It runs a project with Script
+blocks only if you trusted the project with `lightsim ai trust`, and each
+run needs `confirmed=True`.
+
 Labels, descriptions and script text from your projects reach the AI as
-quoted data, not as instructions. Every call, allowed or refused, is
-written to `ai-audit.jsonl` next to the settings file (`ai-access.json`
-in `%APPDATA%\LightSim` on Windows, `~/.config/LightSim` on Linux). The
-log never leaves your computer.
+quoted data, not as instructions. Every tool call an AI app makes, allowed
+or refused, is written to `.ai/audit.jsonl` in your projects folder; every
+call through `AgentSession` goes to `ai-audit.jsonl` next to the settings
+file (`ai-access.json` in `%APPDATA%\LightSim` on Windows,
+`~/.config/LightSim` on Linux). The logs never leave your computer.

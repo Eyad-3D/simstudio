@@ -10,8 +10,11 @@ it did (AI-01's intent, built for AI-03).
   annotations it publishes are only hints to the AI app.
 - On Windows the Script sandbox is much weaker, so an assistant never runs a
   project with Script blocks there unless the user started the connection
-  with ``--trust-scripts``. (AI-01 replaces this with a per-project
-  "trusted" mark set in LightSim.)
+  with ``--trust-scripts`` (one switch for the whole connection), and then
+  each run still asks. The per-project trust list that ``lightsim ai trust``
+  keeps (``lightsim/ai_access.py``) is **not** read here: only
+  ``AgentSession`` reads it. The engine's own approval of Script code
+  (``app/script_trust.py``) applies to every run, as in the app.
 - Every tool call goes into a local audit log, JSON lines in
   ``.ai/audit.jsonl`` next to the user's projects. It is never uploaded.
 """

@@ -821,8 +821,9 @@ class AiAccessFolder(BaseModel):
 
 
 class AiTrustedProject(BaseModel):
-    """A project file whose Script blocks AI tools may run (after the user
-    confirms each run)."""
+    """A project on the trust list (`lightsim ai trust`): Python code that
+    uses AgentSession may run its Script blocks, after a yes to each run.
+    The connection for AI apps (the MCP server) does not read the list."""
 
     path: str
     exists: bool
@@ -862,7 +863,8 @@ class AiAccess(BaseModel):
 class AiAccessChange(BaseModel):
     """Change the AI access settings. Folders and trusted projects can only
     be taken off here: a folder is added by the desktop app's folder picker
-    (POST /api/ai/access/folders), a project trusted with `lightsim ai trust`."""
+    (POST /api/ai/access/folders), a project put on the trust list with
+    `lightsim ai trust` (a list only AgentSession reads, not the MCP server)."""
 
     enabled: Optional[bool] = None
     examples: Optional[bool] = None

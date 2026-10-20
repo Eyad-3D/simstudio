@@ -1153,9 +1153,10 @@ def ai_disconnect(client: str) -> AiConnection:
 # The page in Connect AI → AI access reads and writes the same settings file
 # as `lightsim ai …` (lightsim/ai_access.py). Here a folder or a trusted
 # project can only be taken off its list: a folder is added by the desktop
-# app's folder picker (the page never names paths, PLT-33), and a project's
-# Script blocks are trusted with `lightsim ai trust`. The organisation's
-# policy file (PLT-36) can keep access off; then it cannot be turned on.
+# app's folder picker (the page never names paths, PLT-33), and a project is
+# put on the trust list with `lightsim ai trust` (only AgentSession reads that
+# list, not the MCP server). The organisation's policy file (PLT-36) can keep
+# access off; then it cannot be turned on.
 
 _AUDIT_SHOWN = 30
 

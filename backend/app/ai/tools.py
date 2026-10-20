@@ -139,7 +139,9 @@ TOOLS: list[dict] = [
         "description": "Simulate one case of a model (Data Checks first) and return its status, "
                        "key results (with 'not valid' notes) and messages. Runs take seconds to "
                        "a few minutes; AI apps that support MCP Tasks get a task to poll. A project "
-                       "with Script blocks runs only after the user confirms. The run is kept for "
+                       "with Script blocks runs only after the user confirms each run, and only "
+                       "with Script code the user has approved in LightSim (a script you wrote "
+                       "or changed fails with 'has not been approved'). The run is kept for "
                        "results_query and compare_runs; it does not change the project.",
         "inputSchema": {"type": "object", "properties": {
             "project": _project_arg(),

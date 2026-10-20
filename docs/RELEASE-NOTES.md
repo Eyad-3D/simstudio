@@ -982,8 +982,10 @@ sections.
   (AI-07)
 - AI access rules for the coming AI assistant connection: off by default;
   only projects in folders you allow, and not marked `"noAi"`; changes
-  need your confirmation; a project with Script blocks runs only after
-  you trust it, and each run asks first; runs stop after 300 s; every call
+  need your confirmation; a project with Script blocks asks you before
+  each run an AI app starts (Python code that uses `AgentSession` also
+  needs the project on the trust list, `lightsim ai trust`; the connection
+  for AI apps does not read that list); runs stop after 300 s; every call
   is logged on your computer. Set with `lightsim ai …`. (AI-01)
 - *What LightSim reads and writes* (Help → *Reference*) lists the file
   formats that work today, each with the test that checks it, those
@@ -1115,8 +1117,9 @@ sections.
   reason; one Undo takes them all back. (UX-15)
 - *Connect AI* has an *AI access* tab: turn AI access on or off, see and
   remove the folders AI tools may see (add one with the folder dialog in
-  the desktop app), show or hide the examples, untrust a project's Script
-  blocks, set the run time cap, and see the latest calls AI tools made.
+  the desktop app), show or hide the examples, take a project off the
+  trust list that Python code using `AgentSession` reads, set the run time
+  cap, and see the latest calls AI tools made.
   When your organisation's policy turns AI access off, the tab says so and
   access cannot be turned on. The run time cap now also stops runs of AI
   apps connected to LightSim. (AI-01)

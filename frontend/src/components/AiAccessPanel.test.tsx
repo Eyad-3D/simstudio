@@ -54,7 +54,7 @@ it("shows the settings and takes trust and folders away", async () => {
   api.changeAiAccess.mockResolvedValue({ ...base, trusted: [] });
   await click(button("Untrust Hybrid"));
   expect(api.changeAiAccess).toHaveBeenCalledWith({ untrust: ["/home/me/LightSim/hybrid.json"] });
-  expect(host.textContent).toContain("Projects whose Script blocks AI tools may runNone.");
+  expect(host.textContent).toContain("Trusted projects (Python package only)None.");
 
   api.changeAiAccess.mockResolvedValue({ ...base, folders: [] });
   await click(button("Remove /home/me/LightSim"));
@@ -92,4 +92,27 @@ it("shows a refusal and the settings as they are", async () => {
   await click(box("Let AI tools use LightSim"));
   expect(host.textContent).toContain("403 Your organisation's policy turns AI access off.");
   expect(box("Let AI tools use LightSim").checked).toBe(false); // read again after the refusal
+});
+
+// The page says what the connection does today (AI-01, step 6): it asks before
+// an edit and before a Script run, it does not read the trust list, and the
+// trust list belongs to the Python package. backend/tests/test_ai_claims.py
+// holds the same facts against the code and the help pages.
+it("says what the connection for AI apps does today", async () => {
+  await render(base);
+  const text = (host.textContent ?? "").replace(/\s+/g, " ");
+  expect(text).toContain("Saving an edit: LightSim asks you each time.");
+  expect(text).toContain("Running a project with Script blocks (Python code): LightSim asks you before each run");
+  expect(text).toContain("the question does not show the code");
+  expect(text).toContain(
+    "On Windows such a project does not run at all unless the connection was started with --trust-scripts",
+  );
+  expect(text).toContain("LightSim also refuses Script code you have not approved there (Run scripts)");
+  expect(text).toContain("LightSim cannot tell who answered");
+  expect(text).toContain("Only Python code that uses lightsim.ai_access.AgentSession reads it");
+  expect(text).toContain("The connection for AI apps does not read this list.");
+  // the claims it used to make
+  expect(text).not.toContain("only once you trust it");
+  expect(text).not.toContain("enforced by the engine");
+  expect(text).not.toContain("hold for every AI tool");
 });
