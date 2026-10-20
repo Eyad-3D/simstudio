@@ -8,11 +8,14 @@ correct digits, steps, error-test failures, events, wall time).
     judge.py cases    CACHE CASES [--sweep]  write the models (text format), the
                                              runs and their reference solutions
     judge.py run      CASES RESULTS [--runner EXE] [--timeout S] [case ...]
-    judge.py score    CASES RESULTS [--before RESULTS0] [--out FILE]
+    judge.py score    CACHE CASES RESULTS [--before RESULTS0] [--beside RESULTS2] [--out FILE]
     judge.py sundials CACHE WORK             SUNDIALS' own IDAS examples, built
                                              against the engine's IDAS and upstream's
-    judge.py omc      CASES RESULTS          the same models in OpenModelica, if `omc`
-                                             is on the PATH
+    judge.py omc      CASES RESULTS [--cache CACHE]
+                                             the same models in OpenModelica, if `omc`
+                                             is on the PATH (a case written on the
+                                             engine's own library: the original model,
+                                             from the library in CACHE)
 
 `run` takes the runner built by `cargo build --release -p lsim-project
 --example judge`. CACHE, CASES and RESULTS are folders outside the
@@ -23,6 +26,7 @@ the reference solutions) and, for `sundials`, a C compiler and CMake.
 from __future__ import annotations
 
 import argparse
+import bisect
 import csv
 import hashlib
 import json
@@ -58,6 +62,10 @@ IFTOMM = "https://www.iftomm-multibody.org/media"
 RFMU = "https://raw.githubusercontent.com/modelica/Reference-FMUs/v0.0.41"
 SUNDIALS = "https://raw.githubusercontent.com/LLNL/sundials"
 SUNDIALS_REL = "https://github.com/LLNL/sundials/releases/download"
+MSL = "https://github.com/modelica/ModelicaStandardLibrary"
+MSL_REF = ("https://raw.githubusercontent.com/modelica/MAP-LIB_ReferenceResults/"
+           "dac67829004dd99d00778c995a00363df6088de1/Modelica/Blocks/Examples/PID_Controller")
+CFR = "https://www.govinfo.gov/content/pkg/CFR-2024-title40-vol37/xml"
 
 SOURCES = [
     # The Bari IVP Test Set (F. Mazzia, C. Magherini, release 2.4, 2008): free
@@ -129,6 +137,27 @@ SOURCES = [
      "845429ae5ed59d5d36f43ba1d6d928f7b6f92f98aa9616d3e81531ffd6780e05"),
     ("sundials/v7.9.0/idasAkzoNob_dns.out", f"{SUNDIALS}/v7.9.0/examples/idas/serial/idasAkzoNob_dns.out",
      "dd69bfec8d242eca7dbc7cde8571d6963e2778ed2b7ebe1a0d63c35ff1074f58"),
+    # The Modelica Standard Library 4.1.0 (Modelica Association, BSD-3-Clause):
+    # Blocks.Examples.PID_Controller and the LimPID it demonstrates, for
+    # OpenModelica's run of the original; the reference result Dymola 2020x
+    # computed (DASSL, tolerance 1e-6) for the library's regression tests,
+    # with the signals they compare and how it was made
+    ("msl/ModelicaStandardLibrary_v4.1.0.zip", f"{MSL}/releases/download/v4.1.0/ModelicaStandardLibrary_v4.1.0.zip",
+     "5409cfa17797c52d866dc9d2675badc1378b4bbf88066e60899a489cb1cb8a2d"),
+    ("msl/PID_Controller/PID_Controller.csv", f"{MSL_REF}/PID_Controller.csv",
+     "5a2d8f6fb2379eef5a0cd788491cac85ac58199b6347519f6be674c0952729f6"),
+    ("msl/PID_Controller/comparisonSignals.txt", f"{MSL_REF}/comparisonSignals.txt",
+     "a25dbc053e05d537367f03e804ddc11a6674c950d15cbff8e7d887418f1ff092"),
+    ("msl/PID_Controller/creation.txt", f"{MSL_REF}/creation.txt",
+     "f2d9b7651487671d6f63c5b0baf39c3199be364ca4fa15c1964bc46edb188ea4"),
+    # The US EPA's speed-trace rule for chassis-dynamometer tests, 40 CFR
+    # 1066.425(b), and the instruction it points to for cars that cannot
+    # keep up, 1066.415(e)(5): the annual edition of 1 July 2024 (public
+    # domain), for the Driver's map (driver.py)
+    ("cfr/CFR-2024-title40-vol37-sec1066-425.xml", f"{CFR}/CFR-2024-title40-vol37-sec1066-425.xml",
+     "90187363ce0f181d03a23ab79ad566d5d66781bcfe5675549986e2d23473de5a"),
+    ("cfr/CFR-2024-title40-vol37-sec1066-415.xml", f"{CFR}/CFR-2024-title40-vol37-sec1066-415.xml",
+     "3eb114f4512849e8fdcab734da8af90bf892cfb0f6be38ab84a8501377b8a4f7"),
 ]
 
 
@@ -593,6 +622,104 @@ def crossings() -> dict[str, tuple[str, dict]]:
     return out
 
 
+def pid_controller() -> tuple[str, dict]:
+    """The Modelica Standard Library's Blocks.Examples.PID_Controller (MSL
+    4.1.0): a motor inertia (J = 1) drives a load inertia (J = 2) through a
+    spring-damper (c = 1e4 N·m/rad, d = 100 N·m·s/rad); a constant 10 N·m
+    acts on the load; a LimPID (PI, k = 100, Ti = 0.1 s, yMax = 12 N·m,
+    Ni = 0.1) makes the motor follow a reference speed, the integral of a
+    KinematicPTP's acceleration (1 rad/s² for 1 s from 0.5 s, then none,
+    then -1 rad/s² for 1 s: the motor moves pi/2 rad). Decelerating, the
+    controller is held at -12 N·m and the speed falls behind: the
+    anti-windup's test. Here the library's Driver is the controller, its
+    command times yMax the torque (k = kp·r·yMax, k/Ti = ki·r·yMax, r =
+    1 m per rad, as its speeds are m/s), started in the steady state the
+    example asks for (its integral holding the 10 N·m: I = -0.01 m)."""
+    k, ti, y_max, ni, tau_load = 100.0, 0.1, 12.0, 0.1, 10.0
+    # KinematicPTP (deltaq = driveAngle, qd_max = qdd_max = 1, startTime
+    # 0.5), as MSL computes its phases
+    deltaq, qd_max, qdd_max, start = 1.570796326794897, 1.0, 1.0, 0.5
+    sd_max, sdd_max = qd_max / deltaq, qdd_max / deltaq
+    ta1, ta2 = math.sqrt(1 / sdd_max), sd_max / sdd_max
+    no_w = ta2 >= ta1
+    tv = ta1 if no_w else 1 / sd_max
+    te = ta1 + ta1 if no_w else tv + ta2
+    if no_w:
+        a_ref = (f"if time < {num(start)} then 0 else if time < {num(ta1 + start)} then qdd "
+                 f"else if time < {num(te + start)} then -qdd else 0")
+    else:
+        a_ref = (f"if time < {num(start)} then 0 else if time < {num(ta2 + start)} then qdd "
+                 f"else if time < {num(tv + start)} then 0 else if time < {num(te + start)} "
+                 "then -qdd else 0")
+    text = f'''model Judge.PIDDrive "The drive of MSL's PID_Controller: a motor inertia, a spring-damper and a load inertia under a constant torque, and the reference speed; it hands the Driver its speed less the reference, so the Driver's own target (0) less that is the speed error."
+  parameter Real J1(unit = "kg.m2") = 1 "inertia1";
+  parameter Real J2(unit = "kg.m2") = 2 "inertia2";
+  parameter Real c(unit = "N.m") = 1e4 "the spring's stiffness (per rad)";
+  parameter Real d(unit = "N.m.s") = 100 "its damping (per rad/s)";
+  parameter Real tau_load(unit = "N.m") = {num(tau_load)} "the constant torque on inertia2";
+  parameter Real y_max(unit = "N.m") = {num(y_max)} "LimPID's yMax: the torque at a full command";
+  parameter Real r(unit = "m") = 1 "the Driver's speeds are in m/s: 1 m per rad";
+  parameter Real qdd(unit = "rad/s2") = {num(deltaq * sdd_max)} "KinematicPTP's acceleration, deltaq sdd_max";
+  input Real acc(unit = "1") "the Driver's accelerator pedal";
+  input Real brk(unit = "1") "the Driver's brake pedal";
+  output Real v_rel(unit = "m/s") "the speed less the reference, r (w1 - w_ref)";
+  output Real cap(unit = "N.m") "no recuperation";
+  Real phi1(unit = "rad", start = 0, fixed = true) "inertia1.phi";
+  Real w1(unit = "rad/s", start = 0, fixed = true) "inertia1.w";
+  Real phi_rel(unit = "rad", start = tau_load / c, fixed = true) "spring.phi_rel, in steady state";
+  Real w_rel(unit = "rad/s", start = 0, fixed = true) "spring.w_rel";
+  Real w_ref(unit = "rad/s", start = 0, fixed = true) "integrator.y: the reference speed";
+  Real a_ref(unit = "rad/s2") "kinematicPTP.y: the reference acceleration";
+  Real tau(unit = "N.m") "the controller's torque";
+  Real tau_s(unit = "N.m") "the spring-damper's torque";
+equation
+  a_ref = {a_ref};
+  der(w_ref) = a_ref;
+  tau = y_max * (acc - brk);
+  tau_s = c * phi_rel + d * w_rel;
+  der(phi1) = w1;
+  J1 * der(w1) = tau + tau_s;
+  der(phi_rel) = w_rel;
+  J2 * (der(w1) + der(w_rel)) = tau_load - tau_s;
+  v_rel = r * (w1 - w_ref);
+  cap = 0 * tau_load;
+end Judge.PIDDrive;
+
+model Judge.PIDController "MSL's Blocks.Examples.PID_Controller with the library's Driver as its LimPID (PI, k = 100, Ti = 0.1 s, yMax = 12 N.m, Ni = 0.1), started in steady state."
+  parameter Real k(unit = "N.m.s") = {num(k)} "LimPID's gain (N.m per rad/s)";
+  parameter Real Ti(unit = "s") = {num(ti)} "LimPID's Ti";
+  parameter Real Ni_pid = {num(ni)} "LimPID's Ni";
+  parameter Real y_max(unit = "N.m") = {num(y_max)} "LimPID's yMax";
+  parameter Real tau_load(unit = "N.m") = {num(tau_load)} "the load's torque";
+  parameter Real r(unit = "m") = 1 "1 m per rad";
+  Judge.PIDDrive drive(tau_load = tau_load, y_max = y_max, r = r) "the drive";
+  Blocks.Driver pi(driver_kp = k / (r * y_max), driver_ki = k / (Ti * r * y_max), Ni = Ni_pid, regen_weight_pct = 0, I_start = -tau_load * Ti * r / k) "PI";
+equation
+  connect(drive.v_rel, pi.v_vehicle);
+  connect(drive.cap, pi.regen_cap);
+  connect(pi.sig_accel_pedal, drive.acc);
+  connect(pi.sig_brake_pedal, drive.brk);
+end Judge.PIDController;
+'''
+    signals = {"PI.I.y": ["pi.I", 1 / ti], "inertia1.phi": ["drive.phi1", 1.0],
+               "inertia1.w": ["drive.w1", 1.0], "integrator.y": ["drive.w_ref", 1.0],
+               "spring.phi_rel": ["drive.phi_rel", 1.0], "spring.w_rel": ["drive.w_rel", 1.0]}
+    # the reference's output grid: (stopTime - startTime) / 5000
+    case = {"model": "Judge.PIDController", "t_end": 4.0, "dt": 0.0008, "atol_factor": 1e-2,
+            "record": [v[0] for v in signals.values()] + ["pi.cmd_u"],
+            "judge": {"kind": "msl", "csv": "msl/PID_Controller/PID_Controller.csv",
+                      "signals": signals,
+                      # the limiter's input against its lower limit: the
+                      # Driver's command against -1, LimPID's against -yMax
+                      "limit": {"pi.cmd_u": -1.0, "PI.limiter.u": -y_max},
+                      "time_events": [start, ta2 + start, tv + start, te + start, 4.0]},
+            # OpenModelica runs the example itself, from the MSL in the cache
+            "omc": {"model": "Modelica.Blocks.Examples.PID_Controller",
+                    "library": "msl/ModelicaStandardLibrary_v4.1.0.zip",
+                    "record": list(signals) + ["PI.limiter.u"]}}
+    return text, case
+
+
 def all_cases(sweep: bool) -> dict[str, tuple[str, dict]]:
     out = {
         "testset-andrews": andrews(),
@@ -603,6 +730,7 @@ def all_cases(sweep: bool) -> dict[str, tuple[str, dict]]:
         "iftomm-fourbar": fourbar(),
         "fmu-stair": stair(),
         "fmu-bouncingball": bouncing_ball(),
+        "msl-pid-controller": pid_controller(),
         **crossings(),
     }
     # the pendulum's closed form: released at rest from theta0 (swinging),
@@ -899,7 +1027,7 @@ def cases(cache: Path, out: Path, sweep: bool) -> None:
             r = bouncing_ball_reference(j)
         elif j["kind"] == "testset":
             r = {"y": testset_reference(cached(cache, j["file"]))}
-        elif j["kind"] in ("stair", "count"):
+        elif j["kind"] in ("stair", "count", "msl"):
             r = {}
         else:
             raise ValueError(j["kind"])
@@ -1152,8 +1280,103 @@ def score_count(case: dict, r: dict) -> dict:
             "count_exact": len(exact), "fired_at": fired}
 
 
+def crossings_of(times: list[float], xs: list[float], level: float) -> list[float]:
+    """Where a series crosses a level, interpolated linearly between its
+    points."""
+    out = []
+    for (ta, a), (tb, b) in zip(zip(times, xs), zip(times[1:], xs[1:])):
+        if (a - level) * (b - level) < 0:
+            out.append(ta + (level - a) / (b - a) * (tb - ta))
+    return out
+
+
+def msl_series(case: dict, r: dict) -> dict:
+    """A run's comparison signals by their names in the library's example:
+    the engine's run of the case (its channels times the factor), or
+    OpenModelica's run of the original (the names themselves)."""
+    s = r["series"]["channels"]
+    out = {}
+    for msl_name, (ours, factor) in case["judge"]["signals"].items():
+        if ours in s:
+            out[msl_name] = [factor * x for x in s[ours]]
+        elif msl_name in s:
+            out[msl_name] = s[msl_name]
+        else:
+            raise KeyError(f"no channel {ours} or {msl_name}")
+    return out
+
+
+def msl_limit_times(case: dict, r: dict) -> list[float]:
+    """The instants the controller's output reaches and leaves its limit:
+    where the limiter's input crosses it, between the output points."""
+    s = r["series"]
+    name, level = next((n, v) for n, v in case["judge"]["limit"].items() if n in s["channels"])
+    return crossings_of(s["times"], s["channels"][name], level)
+
+
+def score_msl(case: dict, cache: Path, r: dict) -> dict:
+    """The run against the library's reference result at each of its
+    comparison signals: the largest difference over the run, relative to
+    the signal's largest value (at the reference's own times: a row every
+    0.8 ms, the run's output grid), and the worst over the signals; and
+    the instants the controller's output reaches and leaves its limit,
+    against the reference's two state events there (its rows on both
+    sides of an instant that is none of the profile's time events)."""
+    j = case["judge"]
+    head, rows = read_csv(cached(cache, j["csv"]))
+    head = [h.strip('"') for h in head]
+    t_ref = [row[0] for row in rows]
+    times = r["series"]["times"]
+    out, worst = {}, 0.0
+    for msl_name, got in msl_series(case, r).items():
+        col = head.index(msl_name)
+        ref = [row[col] for row in rows]
+        peak = max(abs(x) for x in ref)
+        err, matched = 0.0, 0
+        for t, x in zip(times, got):
+            # the reference's row at t (the last, after an event there)
+            i = bisect.bisect_right(t_ref, t * (1 + GRID_TOL) + GRID_TOL) - 1
+            if i >= 0 and abs(t_ref[i] - t) <= GRID_TOL * max(1.0, abs(t)):
+                err, matched = max(err, abs(x - ref[i])), matched + 1
+        if matched < len(times):
+            raise ValueError(f"{len(times) - matched} of the run's times are not the reference's")
+        out[msl_name] = err / peak
+        worst = max(worst, err / peak)
+    timed = j["time_events"]
+    ref_events = sorted({a[0] for a, b in zip(rows, rows[1:]) if a[0] == b[0]
+                         and all(abs(a[0] - t) > 1e-9 for t in timed)})
+    got_events = msl_limit_times(case, r)
+    ev_err = (max(abs(a - b) for a, b in zip(got_events, ref_events))
+              if len(got_events) == len(ref_events) else math.inf)
+    return {"error": worst, "scd": log_digits(worst), "signals": out, "peaks": {
+                h: max(abs(row[head.index(h)]) for row in rows) for h in out},
+            "limit_times": got_events, "limit_times_reference": ref_events,
+            "limit_time_error": ev_err}
+
+
+def beside_msl(case: dict, cache: Path, a: dict, b: dict) -> dict:
+    """Two runs of the case against each other (the engine's and
+    OpenModelica's of the original, at one tolerance): the largest
+    difference of each comparison signal at the output times both have,
+    relative to the reference's largest value of it, and of the limit's
+    instants."""
+    peaks = score_msl(case, cache, a)["peaks"]
+    sa, sb = msl_series(case, a), msl_series(case, b)
+    ib = {round(t / case["dt"]): k for k, t in enumerate(b["series"]["times"])}
+    common = [(k, ib[round(t / case["dt"])]) for k, t in enumerate(a["series"]["times"])
+              if round(t / case["dt"]) in ib]
+    diff = {name: max(abs(sa[name][i] - sb[name][j]) for i, j in common) / peaks[name]
+            for name in sa}
+    la, lb = msl_limit_times(case, a), msl_limit_times(case, b)
+    return {"points": len(common), "signals": diff, "worst": max(diff.values()),
+            "limit_times": [la, lb], "limit_time_difference":
+                max(abs(x - y) for x, y in zip(la, lb)) if len(la) == len(lb) else math.inf}
+
+
 def score_run(case: dict, ref: dict, cache: Path, r: dict) -> dict:
     kind = case["judge"]["kind"]
+    if kind == "msl":
+        return score_msl(case, cache, r)
     if kind == "count":
         return score_count(case, r)
     if kind == "testset":
@@ -1303,7 +1526,39 @@ def sweep_summary(cases_dir: Path, after: dict) -> str:
     return "\n".join(md)
 
 
-def report(cases_dir: Path, cache: Path, after: dict, before: dict | None) -> str:
+def runs_by_rtol(results: Path, name: str) -> dict:
+    f = results / f"{name}.json"
+    if not f.exists():
+        return {}
+    return {r["rtol"]: r for r in json.loads(f.read_text()).get("runs", []) if r.get("ok")}
+
+
+def beside_table(cases_dir: Path, cache: Path, name: str, results: Path, beside: Path) -> list[str]:
+    """A case's runs beside another tool's runs of the same case at the same
+    tolerances (OpenModelica's of the original model): their largest
+    difference, signal by signal."""
+    case = json.loads((cases_dir / f"{name}.json").read_text())
+    if case["judge"]["kind"] != "msl":
+        return []
+    ours, theirs = runs_by_rtol(results, name), runs_by_rtol(beside, name)
+    rows = []
+    for rtol in sorted(set(ours) & set(theirs), reverse=True):
+        p = beside_msl(case, cache, ours[rtol], theirs[rtol])
+        sig = max(p["signals"], key=p["signals"].get)
+        rows.append(f"| {rtol:.0e} | {p['worst']:.1e} ({sig}) | "
+                    + " | ".join(f"{p['signals'][k]:.1e}" for k in p["signals"])
+                    + f" | {fmt(p['limit_time_difference'])} | {p['points']} |")
+    if not rows:
+        return []
+    names = list(case["judge"]["signals"])
+    return [f"Beside `{beside.name}` at the same tolerance (each signal's largest difference "
+            "relative to the reference's largest value of it; the limit's instants):\n",
+            "| rtol | largest | " + " | ".join(names) + " | limit's times s | points |",
+            "|" + "---|" * (len(names) + 4), *rows, ""]
+
+
+def report(cases_dir: Path, cache: Path, after: dict, before: dict | None,
+           results: Path | None = None, beside: Path | None = None) -> str:
     md = [sweep_summary(cases_dir, after)]
     for name, a in after.items():
         case = json.loads((cases_dir / f"{name}.json").read_text())
@@ -1314,7 +1569,8 @@ def report(cases_dir: Path, cache: Path, after: dict, before: dict | None) -> st
                  "testset": ("mescd", "mescd"),
                  "bouncingball": ("h_error", "h error m"),
                  "stair": ("event_time_error", "event time error s"),
-                 "count": ("count", "count")}[case["judge"]["kind"]]
+                 "count": ("count", "count"),
+                 "msl": ("limit_time_error", "limit's times error s")}[case["judge"]["kind"]]
         cols = ["rtol", "error", "scd", extra[1], "steps", "ETF", "events", "wall ms"]
         b_rows = {r["rtol"]: r for r in (before or {}).get(name, {}).get("rows", [])}
         md.append("| " + " | ".join(cols) + " |")
@@ -1351,13 +1607,16 @@ def report(cases_dir: Path, cache: Path, after: dict, before: dict | None) -> st
                 cell("steps", "d"), cell("err_test_fails", "d"), cell("events", "d"),
                 cell("wall_ms", ".2f")]) + " |")
         md.append("")
+        if beside:
+            md += beside_table(cases_dir, cache, name, results, beside)
     return "\n".join(md)
 
 
-def score(cases_dir: Path, cache: Path, results: Path, before: Path | None, out: Path | None) -> None:
+def score(cases_dir: Path, cache: Path, results: Path, before: Path | None, out: Path | None,
+          beside: Path | None = None) -> None:
     a = scored(cases_dir, results, cache)
     b = scored(cases_dir, before, cache) if before else None
-    md = report(cases_dir, cache, a, b)
+    md = report(cases_dir, cache, a, b, results, beside)
     if out:
         out.write_text(md)
         out.with_suffix(".json").write_text(json.dumps({"after": a, "before": b}, indent=1))
@@ -1693,7 +1952,23 @@ def omc_stats(log: str) -> dict:
             "wall_s": float(wall.group(1)) if wall else None}
 
 
-def omc(cases_dir: Path, results: Path, only: list[str]) -> None:
+def omc_library(cache: Path, zip_rel: str, lib: Path) -> Path:
+    """A Modelica library's release zip (the MSL's: `Modelica 4.1.0/`,
+    `ModelicaServices 4.1.0/`, `Complex.mo`) unpacked once for OpenModelica:
+    its Modelica text only."""
+    if not (lib / "done").exists():
+        import zipfile
+        with zipfile.ZipFile(cached(cache, zip_rel)) as z:
+            for n in z.namelist():
+                if n.endswith((".mo", "package.order")) and not n.startswith("ModelicaReference"):
+                    target = lib / n
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(z.read(n))
+        (lib / "done").write_text("")
+    return lib
+
+
+def omc(cases_dir: Path, results: Path, only: list[str], cache: Path | None = None) -> None:
     exe, env = omc_env()
     names = json.loads((cases_dir / "index.json").read_text())
     for name in names:
@@ -1702,6 +1977,18 @@ def omc(cases_dir: Path, results: Path, only: list[str]) -> None:
         case = json.loads((cases_dir / f"{name}.json").read_text())
         model = case["model"].replace("Judge.", "")
         text = (cases_dir / case["text"]).read_text().replace("Judge.", "")
+        load = f'loadFile("{model}.mo"); getErrorString();\n'
+        if "omc" in case:
+            # a case whose text uses the engine's own library: OpenModelica
+            # runs the original model from its library instead
+            if cache is None:
+                print(f"{name}: needs --cache (its library)", file=sys.stderr)
+                continue
+            lib = omc_library(cache, case["omc"]["library"], (results / "lib").resolve())
+            model = case["omc"]["model"]
+            case["record"] = case["omc"]["record"]
+            load = (f'setModelicaPath("{lib}"); loadModel(Modelica, {{"4.1.0"}}); '
+                    'getErrorString();\n')
         for method in OMC_METHODS:
             work = results / "work" / name / method
             shutil.rmtree(work, ignore_errors=True)
@@ -1709,8 +1996,7 @@ def omc(cases_dir: Path, results: Path, only: list[str]) -> None:
             (work / f"{model}.mo").write_text(text)
             n = round(case["t_end"] / case["dt"])
             (work / "build.mos").write_text(
-                'setCompiler("cc"); setCXXCompiler("c++");\n'
-                f'loadFile("{model}.mo"); getErrorString();\n'
+                'setCompiler("cc"); setCXXCompiler("c++");\n' + load +
                 f'setCommandLineOptions("--indexReductionMethod={method}"); getErrorString();\n'
                 f'buildModel({model}, startTime=0, stopTime={case["t_end"]!r}, '
                 f'numberOfIntervals={n}, outputFormat="csv"); getErrorString();\n')
@@ -1778,6 +2064,8 @@ def main() -> None:
     p.add_argument("cases", type=Path)
     p.add_argument("results", type=Path)
     p.add_argument("--before", type=Path)
+    p.add_argument("--beside", type=Path,
+                   help="another tool's results of the same cases (OpenModelica's), run beside run")
     p.add_argument("--out", type=Path)
     p = sub.add_parser("sundials")
     p.add_argument("cache", type=Path)
@@ -1786,6 +2074,8 @@ def main() -> None:
     p.add_argument("cases", type=Path)
     p.add_argument("results", type=Path)
     p.add_argument("only", nargs="*")
+    p.add_argument("--cache", type=Path, default=None,
+                   help="the sources: the library of a case that runs the original model")
     a = ap.parse_args()
     if a.cmd == "fetch":
         fetch(a.cache)
@@ -1794,11 +2084,11 @@ def main() -> None:
     elif a.cmd == "run":
         run(a.cases, a.results, a.runner or default_runner(), a.timeout, a.only)
     elif a.cmd == "score":
-        score(a.cases, a.cache, a.results, a.before, a.out)
+        score(a.cases, a.cache, a.results, a.before, a.out, a.beside)
     elif a.cmd == "sundials":
         sundials(a.cache, a.work)
     elif a.cmd == "omc":
-        omc(a.cases, a.results, a.only)
+        omc(a.cases, a.results, a.only, a.cache)
 
 
 if __name__ == "__main__":

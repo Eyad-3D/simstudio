@@ -9,7 +9,12 @@
 * a pendulum is compared with its reference by time, a missing point
   counted, not shifting the rest;
 * a closed-form run is right within RIGHT rtol, a count when it fired
-  once per crossing.
+  once per crossing;
+* MSL's reference result is compared at its own times, and a limit's
+  instants are found between the output points;
+* a driven trace is judged by 40 CFR 1066.425(b): its band from the
+  schedule within 1 s, 2 s outside allowed, a shortfall at full throttle
+  excused, too fast at full brake the car's.
 """
 from __future__ import annotations
 
@@ -20,6 +25,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import driver  # noqa: E402
 import judge  # noqa: E402
 
 DT = 0.2
@@ -148,6 +154,92 @@ class Verdict(unittest.TestCase):
         self.assertEqual(judge.verdict(case, dict(a, ok=True, rtol=1e-7)), "right")
         b = judge.score_count(case, twice)
         self.assertEqual(judge.verdict(case, dict(b, ok=True, rtol=1e-7)), "wrong")
+
+
+class MslReference(unittest.TestCase):
+    def test_compared_at_its_own_times(self):
+        # the reference: x = t at every 0.1 s, and an event row at 0.25 s
+        lines = ['"time","x"'] + [f"{0.1 * k!r},{0.1 * k!r}" for k in range(3)]
+        lines += ["0.25,0.25", "0.25,0.25"] + [f"{0.1 * k!r},{0.1 * k!r}" for k in range(3, 5)]
+        case = {"dt": 0.1, "judge": {"csv": "ref.csv", "signals": {"x": ["m.x", 2.0]},
+                                     "limit": {"m.u": 0.5, "u": 0.5}, "time_events": []}}
+        r = {"series": {"times": [0.1 * k for k in range(5)],
+                        "channels": {"m.x": [0.05 * k for k in range(4)] + [0.21],
+                                     "m.u": [0.0, 0.2, 0.4, 0.6, 0.8]}}}
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(judge, "cached", lambda cache, rel: Path(d) / rel):
+            (Path(d) / "ref.csv").write_text("\n".join(lines) + "\n")
+            s = judge.score_msl(case, Path(d), r)
+            # 2 · 0.21 = 0.42 against 0.4: 0.02 of the peak 0.4
+            self.assertAlmostEqual(s["error"], 0.05, delta=1e-12)
+            # u crosses 0.5 halfway between 0.2 and 0.3 s; the reference's
+            # event row at 0.25 s is its one state event
+            self.assertAlmostEqual(s["limit_times"][0], 0.25, delta=1e-12)
+            self.assertEqual(s["limit_times_reference"], [0.25])
+            # another tool's run of the original, by the original's names:
+            # x off by 0.01 at 0.1 s, u crossing 0.02 s later
+            other = {"series": {"times": [0.1 * k for k in range(5)],
+                                "channels": {"x": [0.0, 0.11, 0.2, 0.3, 0.42],
+                                             "u": [0.0, 0.2, 0.3, 0.6, 0.8]}}}
+            p = judge.beside_msl(case, Path(d), r, other)
+            self.assertEqual(p["points"], 5)
+            self.assertAlmostEqual(p["signals"]["x"], 0.01 / 0.4, delta=1e-12)
+            self.assertAlmostEqual(p["limit_time_difference"], 0.0166666666667, delta=1e-9)
+            r["series"]["times"][2] = 0.21  # not one of the reference's times
+            with self.assertRaises(ValueError):
+                judge.score_msl(case, Path(d), r)
+
+
+def trace(n, dt=0.1, v=50.0):
+    return {"speed": [v] * n, "target": [v] * n, "accel": [0.3] * n, "brake": [0.0] * n}
+
+
+def judged(t, dt=0.1):
+    return driver.score_trace(dt, t["speed"], t["target"], t["accel"], t["brake"])
+
+
+class SpeedTrace(unittest.TestCase):
+    def test_on_the_schedule_and_within_its_band(self):
+        t = trace(100)
+        self.assertEqual(judged(t)["verdict"], "pass")
+        # 2 mi/h = 3.218688 km/h: just inside, and lagging a ramp by 1 s
+        t["speed"] = [50.0 - 3.2186] * 100
+        self.assertEqual(judged(t)["verdict"], "pass")
+        t = trace(100)
+        t["target"] = [10.0 + 0.1 * k for k in range(100)]  # 1 km/h each second
+        t["speed"] = [10.0 + 0.1 * max(k - 10, 0) - 3.2 for k in range(100)]
+        self.assertEqual(judged(t)["occasions"], 0)
+
+    def test_two_seconds_outside_allowed_and_no_more(self):
+        t = trace(100)
+        for k in range(20, 40):  # 20 points: 2.0 s
+            t["speed"][k] = 45.0
+        self.assertEqual(judged(t)["verdict"], "pass")
+        t["speed"][40] = 45.0  # 2.1 s
+        j = judged(t)
+        self.assertEqual(j["verdict"], "driver")
+        self.assertEqual(j["counted"], [{"side": "under", "t_start": 2.0, "length_s": 2.1,
+                                         "kind": "driver"}])
+
+    def test_behind_at_full_throttle_is_excused(self):
+        t = trace(200)
+        for k in range(20, 150):
+            t["speed"][k], t["accel"][k] = 30.0, 1.0
+        j = judged(t)
+        self.assertEqual(j["verdict"], "pass")
+        self.assertAlmostEqual(j["excused_s"], 13.0, delta=1e-9)
+        # the pedal lifted before the car reached the schedule
+        for k in range(100, 150):
+            t["accel"][k] = 0.99
+        self.assertEqual(judged(t)["verdict"], "driver")
+
+    def test_too_fast_at_full_brake_is_the_cars(self):
+        t = trace(100)
+        for k in range(10, 60):
+            t["speed"][k], t["brake"][k] = 55.0, 1.0
+        self.assertEqual(judged(t)["verdict"], "brakes")
+        t["brake"][30] = 0.5
+        self.assertEqual(judged(t)["verdict"], "driver")
 
 
 if __name__ == "__main__":

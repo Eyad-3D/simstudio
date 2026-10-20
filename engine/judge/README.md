@@ -13,13 +13,23 @@ python3 engine/judge/judge.py fetch    CACHE                  # sources, checked
 python3 engine/judge/judge.py cases    CACHE CASES [--sweep]  # models, runs, reference solutions
 cargo build --release -p lsim-project --example judge         # the runner (engine/)
 python3 engine/judge/judge.py run      CASES RESULTS          # the engine on every case
-python3 engine/judge/judge.py score    CACHE CASES RESULTS [--before RESULTS0] [--out FILE]
+python3 engine/judge/judge.py score    CACHE CASES RESULTS [--before RESULTS0] [--beside RESULTS2] [--out FILE]
 python3 engine/judge/judge.py sundials CACHE WORK             # SUNDIALS' own IDAS examples
-python3 engine/judge/judge.py omc      CASES RESULTS          # OpenModelica, if omc is on the PATH
+python3 engine/judge/judge.py omc      CASES RESULTS [--cache CACHE]  # OpenModelica, if omc is on the PATH
+
+# the library Driver's map: a car at every mass on every driving cycle
+cargo build --release -p lsim-project --example driver_map    # (engine/)
+driver_map PROJECT CASE RUNS.jsonl --masses 1000,2000 --cycles wltc-3b,own
+python3 engine/judge/driver.py cells CACHE RUNS.jsonl --out CELLS.jsonl
+python3 engine/judge/driver.py today PROJECT CASE TODAY.jsonl --masses ... --cycles ...  # backend's Python
+python3 engine/judge/driver.py score CACHE CELLS.jsonl [--before CELLS0.jsonl] [--today TODAY.jsonl] [--out FILE]
 ```
 
 `test_judge.py` checks the scoring itself on made-up series whose right
-scores are known (standard library only; `engine/check.sh` runs it).
+scores are known, the speed-trace rule's included (standard library only;
+`engine/check.sh` runs it). `score --beside` puts another tool's runs of
+the same cases beside the engine's, run against run at each tolerance
+(OpenModelica's of the original model, for `msl-pid-controller`).
 CACHE, CASES, RESULTS and WORK are folders outside the repository. For
 `omc`, OpenModelica's compiler and runtime suffice: conda-forge's
 `openmodelica` 1.27.1 package with the libraries `omc` loads (`libgcc`,
@@ -45,6 +55,8 @@ released at every 0.01 rad from 0.01 to 3.14 rad.
 | `fmu-stair` | a model with no continuous state: a counter raised by a time event each second | `Stair_out.csv`, point for point; the events at whole seconds exactly | Reference FMUs v0.0.41 (Modelica Association, BSD-2-Clause), `Stair/model.c` |
 | `fmu-bouncingball` | state events and `reinit`: a ball that bounces until it rests | the bounces in closed form (each one's time and speed); `BouncingBall_out.csv` beside it, which fmusim wrote with forward Euler at 1 ms: its h is up to 2.4e-2 m off the exact bounces (median 3.4e-3 m), and it bounces 12 times against the exact 11 | Reference FMUs v0.0.41, `BouncingBall/model.c` |
 | `count-implicit-a`, `count-implicit-nostate-a`, `count-explicit-pulse` | a `when` on a variable solved from an implicit equation (`x^3 + x = z`, z = a t, with and without the state), and on an explicit function of a state (`x = z - z^3/4`) above its threshold from 0.539 to 1.675 s, inside one of the integrator's steps: each must fire once, at its crossing | the exact crossing times (`x^3 + x = 0.625`; the root of `t^3 - 4 t + 2`); OpenModelica's counts beside them | none published: the exact answers (an independent check's probes of the solver work's first round) |
+| `msl-pid-controller` | the library Driver as `LimPID`, in the Modelica Standard Library's `Blocks.Examples.PID_Controller`: a PI controller (k = 100, Ti = 0.1 s, yMax = 12 N·m, Ni = 0.1) makes a motor inertia follow a reference speed through a spring-damper to a load under 10 N·m; decelerating, it is held at its limit and its anti-windup decides how it comes off. The drive is written in the text format, the Driver's command times yMax its torque, started in the steady state the example asks for | the reference result Dymola 2020x computed for the library's regression tests (DASSL, tolerance 1e-6, a row every 0.8 ms) at its six comparison signals, each relative to its largest value; the instants the command reaches and leaves its limit against the reference's two state events there; OpenModelica's run of the original example beside it (`score --beside`) | Modelica Standard Library 4.1.0 and MAP-LIB_ReferenceResults (Modelica Association, BSD-3-Clause): `Modelica/Blocks/Examples/PID_Controller`, its `PID_Controller.csv`, `comparisonSignals.txt` and `creation.txt`, in the cache; the model is written here from the example's statement |
+| `driver.py` | the library Driver on a car at every mass on every driving cycle: whether each run ends, and whether its driven trace follows the cycle as a test-lab driver must | 40 CFR 1066.425(b): the speed within 2.0 mi/h of the schedule's highest and lowest points within 1.0 s, excursions of up to 2.0 s allowed, a shortfall at maximum available power (the accelerator fully down; 1066.415(e)(5)) not counted; a trace outside only where the car was too fast with the brake pedal fully down is told apart (the car's brakes, not the driver); the same cases on today's engine beside the new one | the US Code of Federal Regulations, title 40, §§ 1066.425 and 1066.415, the annual edition of 1 July 2024 (govinfo.gov, public domain), in the cache; the cars and cycles are the repository's own |
 | `sundials` | the engine's patched IDAS (`lsim-sundials-sys/sundials/lsim.patch`) on SUNDIALS' own examples with quadratures under error control, against upstream 7.1.1 (the release the engine vendors) and 7.9.0 | the examples' shipped `.out` files (LLNL's runs) and G computed independently: the slider-crank in its minimal coordinate at 34 digits, the Akzo Nobel problem by Radau IIA at rtol 1e-13 (its y1(180) is 9e-15 off the test set's reference) | SUNDIALS (LLNL, BSD-3-Clause): `examples/idas/serial/idasSlCrank_dns.c`, `idasAkzoNob_dns.c` |
 | `omc` | a second tool on the same models: OpenModelica with its dynamic state selection and with static dummy derivatives | the references above | OpenModelica (AGPL-3.0 or OSMC-PL): for checking only, never shipped or linked; the conda-forge build of `omc` with the runtime libraries it needs |
 
@@ -97,6 +109,27 @@ one of its equations (to 1e-14; one weight changed shows as 4.9).
   instead (the event-time error beside the error). OpenModelica's Stair,
   its events 1e-10 s late, shows the counter's full step at the whole
   seconds as its error, its event times as 1e-10 s off.
+* **the library's reference result** (`msl-pid-controller`): each
+  comparison signal's largest difference from the reference over the run,
+  at the reference's own rows (every 0.8 ms, the run's output grid; after
+  an event, its later row), relative to the signal's largest value, and
+  the worst of the six; the instants the controller's command reaches and
+  leaves its limit (where the limiter's input crosses it, between the
+  output points) against the reference's two state events there. The
+  reference is Dymola's at tolerance 1e-6: a run tighter than that is
+  judged by its distance from OpenModelica's run of the original example
+  at the same tolerance (`--beside`), which falls with the tolerance where
+  both are right.
+* **the speed-trace rule** (`driver.py`): each run of the map is a cell:
+  ✓ inside 40 CFR 1066.425(b) with its allowances; b outside only on
+  occasions where the car was too fast with the brake pedal fully down
+  throughout; ✗ outside on an occasion the Driver could have helped; S, F,
+  P or E where the run stopped (an event storm, a bare SUNDIALS flag, no
+  progress, another stop). An occasion is a run of output points outside
+  the band (every 0.1 s; 1 s on the 83 042 s `long-haul` cycle), counted
+  when longer than 2.0 s; a point below the band with the accelerator
+  fully down is excused. The target is checked against the cycle's
+  published points.
 * **steps, ETF, events**: the integrator's steps, error-test failures and
   the events the run handled.
 * **wall time**: the run's alone (initialisation and integration, not
