@@ -595,3 +595,43 @@ def test_no_page_links_to_a_release_while_none_is_published():
             flat = re.sub(r"\s+", " ", part)
             assert "no public release yet" in flat and "#building-the-app-from-source" in part
     assert "## Building the app from source" in README
+
+
+# ---- Formula Student lesson 2: the lap import ---------------------------------
+def test_lesson_2_describes_the_lap_import_the_app_has():
+    """The lesson used to say that LightSim cannot read a logger's or lap
+    simulator's file. The app has Import lap; the lesson's clicks, defaults and
+    the layouts its how-to names are what the app and the engine have."""
+    from app import laplog
+
+    lesson = _text("lessons/fs-2-endurance.md")
+    assert "cannot read" not in lesson and "STD-35" not in lesson
+    assert "cannot read a lap trace" not in (ROOT / "docs" / "KNOWN-LIMITS.md").read_text(encoding="utf-8")
+    ribbon = (ROOT / "frontend" / "src" / "components" / "Ribbon.tsx").read_text(encoding="utf-8")
+    dialog = re.sub(r"\s+", " ", (ROOT / "frontend" / "src" / "components"
+                                   / "LapImportDialog.tsx").read_text(encoding="utf-8"))
+    store = (ROOT / "frontend" / "src" / "store" / "projectStore.ts").read_text(encoding="utf-8")
+    # the buttons are on the Simulations tab, with the labels the lesson uses
+    assert '{ id: "simulations", label: "Simulations" }' in ribbon
+    tab = ribbon.split("function SimulationsTab()", 1)[1].split("\nfunction ", 1)[0]
+    assert 'label="Import lap"' in tab and 'label="Calibrate lap"' in tab
+    for words in ("On the *Simulations* tab of the ribbon, click **Import lap**", "**Calibrate lap**",
+                  "**Layout**", "**Repeat to a 22 km endurance**", "**Add as case**"):
+        assert words in lesson, words
+    for label in ("Layout", "Repeat to a 22 km endurance", "Add as case"):
+        assert label in dialog, label
+    # the endurance is 22 km with a driver change stop of 180 s, as the dialog sets it
+    assert laplog.ENDURANCE_M == 22_000 and "useState(180)" in dialog
+    assert "with a stop for the driver change at half distance (180 s unless you change it)" in lesson
+    # the case is a Cycle case, and a car with a Driver but no Driving Task gets one, named so
+    assert 'kind: "cycle"' in store and 'label: "Imported lap"' in store
+    fs = load_example("fs-electric")
+    parts = {e.componentDefId for s in fs.systems for e in s.elements}
+    assert "driver.driver" in parts and "signal.driving_task" not in parts
+    assert "The FS example has a Driver but no Driving Task" in lesson and "named *Imported lap*" in lesson
+    assert "set({ activeCaseId: caseId })" in store and "is now the active one" in lesson
+    # the how-to the lesson links names the layouts the engine reads
+    howto = _text("how-to/import-a-lap.md")
+    assert "../how-to/import-a-lap.md" in (HELP / "lessons" / "fs-2-endurance.md").read_text(encoding="utf-8")
+    for name in laplog.PRESETS:
+        assert f"*{name}*" in howto, f"the how-to does not name the layout {name!r}"

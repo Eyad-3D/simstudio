@@ -72,19 +72,36 @@ by its power limit than by its tyres in the corners.
 
 ## 5. With your team's own speed trace
 
-LightSim cannot read a lap simulator's or logger's file yet (roadmap
-STD-35). Until then, two ways get close:
+The lap above works out its own speed from the car's grip and power. If
+your team has a speed trace instead, from your data logger or from a lap
+simulator, LightSim can drive that trace and give the energy and the loads
+for it:
+
+1. On the *Simulations* tab of the ribbon, click **Import lap**.
+2. In **Layout**, pick the tool that wrote your CSV file, then choose the
+   file. It stays on your computer.
+   [Import a lap](../how-to/import-a-lap.md) lists the layouts and the
+   other fields.
+3. Tick **Repeat to a 22 km endurance** to repeat the lap to about 22 km,
+   with a stop for the driver change at half distance (180 s unless you
+   change it).
+4. Name the case and click **Add as case**. The new *Cycle* case drives the
+   speed in your file. The FS example has a Driver but no Driving Task, so
+   LightSim adds one, named *Imported lap*, and wires it to the Driver.
+5. The new case is now the active one in the list next to **Run**. Press
+   **Run** and read the energy as in section 2.
+
+The speed comes from your file: LightSim does not work out the cornering
+speed for it (a *Lap* case does that). A speed trace driven as a cycle can
+give other energy figures than lap mode;
+[Known issues](../../KNOWN-LIMITS.md) says why.
+
+Two more ways to bring your event in:
 
 - Change the Race Track to your event: its *Layout* is set per case in
   the *Cases* tab; *Custom* reads your own curvature table.
-- Drive your logged speed as a drive cycle: add a **Driving Task** from
-  the library, give it a *Profile* of `time:speed` pairs (paste them from
-  a spreadsheet into the profile table), link its *Target Speed* to the
-  Driver's *Target Speed* in *Data Bus Connections*, and add a case of
-  kind *Cycle* as long as your trace. The
-  [how-to](../how-to/pick-a-drive-cycle.md) says more about profiles. A speed trace driven
-  as a cycle gives somewhat different energy from lap mode;
-  [Known issues](../../KNOWN-LIMITS.md) says why.
+- To make the lap simulation itself match a logged lap, use **Calibrate
+  lap** ([how](../how-to/calibrate-lap-mode.md)).
 
 ## What you learnt
 
@@ -94,5 +111,6 @@ STD-35). Until then, two ways get close:
   lap* times the laps.
 - *RMS battery power* and the time at the power limit tell you how hard
   the cells work.
+- **Import lap** drives your own speed trace as a *Cycle* case.
 
 Next: [Formula Student 3: size the accumulator](fs-3-accumulator.md).

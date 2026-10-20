@@ -1151,9 +1151,8 @@ minimum or an average, for example from the CSV export, or put the
   against the app by the automatic tests; the words around them and the
   click paths are not, and there are no pictures of the app beyond the
   quick start's. The help is not online yet. The Formula Student lessons
-  cannot read a lap trace from your logger or lap simulator (roadmap
-  STD-35) and cannot export a design-review pack (RES-14); they say what
-  to do instead. *Roadmap:* LRN-04 (follow-up: online), LRN-12 (replaying
+  cannot export a design-review pack (RES-14); they say what to do
+  instead. *Roadmap:* LRN-04 (follow-up: online), LRN-12 (replaying
   the tutorials' clicks in the browser tests).
 - **The first-steps tour is short.** It points at the screen's main parts
   only; it does not walk you through a run, and its steps are not checked
