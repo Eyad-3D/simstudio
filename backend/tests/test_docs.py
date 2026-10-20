@@ -754,6 +754,27 @@ def test_each_command_the_formats_page_names_does_what_its_row_says():
     assert named >= 10
 
 
+def test_the_command_line_page_names_the_commands_the_engine_program_runs_its_own_way():
+    """The installed engine program (run_backend.py) sends some commands to
+    its own command line (app/dataio/cli.py), whose options differ from the
+    Python package's; the page names each of them and does not say the
+    engine program takes the same commands without that."""
+    from app.dataio import cli as backend_cli
+
+    routed = re.search(r"sys\.argv\[1\] in \(([^)]*)\)",
+                       (ROOT / "backend" / "run_backend.py").read_text(encoding="utf-8"))
+    routed = re.findall(r'"([\w-]+)"', routed.group(1))
+    assert set(routed) == set(_subcommands(backend_cli.parser()))
+    spec = (ROOT / "backend" / "lightsim-backend.spec").read_text(encoding="utf-8")
+    assert re.search(r'Analysis\(\s*\["run_backend\.py"\]', spec), "the engine program starts elsewhere"
+    page = _text("reference/command-line.md")
+    where = page.split("**In the desktop app**", 1)[1].split("## Commands", 1)[0]
+    assert f"takes the same commands except {NUMBERS[len(routed)]}," in where
+    for name in routed:
+        assert f"`{name}`" in where, f"the page does not say that `lightsim-backend {name}` is the engine's own"
+    assert "the engine program takes the same commands." not in page
+
+
 def test_the_formats_page_names_every_file_the_engine_and_the_desktop_app_write_or_read():
     """Each --format of `lightsim-backend run` and `export`, and of the
     engine's export route, has a row naming it; so does the policy file the

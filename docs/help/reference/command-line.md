@@ -10,13 +10,19 @@ same from Python.
 
 - **From the repository**: in `backend/`, with Python 3.11 or newer and
   `pip install -r requirements.txt`, run `python -m lightsim …`.
-- **In the desktop app**: the engine program takes the same commands.
-  On Windows it is `resources\backend\lightsim-backend.exe`
-  in the folder LightSim is installed in; on Linux,
-  `resources/backend/lightsim-backend` inside the
-  installed app. Run it as `lightsim-backend run …`.
+- **In the desktop app**: the engine program,
+  `resources\backend\lightsim-backend.exe` in the folder LightSim is
+  installed in, takes the same commands except four, which are the
+  engine's own and take other options: `run` and `export` write the
+  app's MAT-file or the engine's CSV (and `export` the run card), `params`
+  exports and imports the parameter sheet, and `import-table` reads a
+  table from a file (see
+  [Use results in MATLAB and Python](../how-to/use-results-in-matlab-and-python.md#the-same-from-the-command-line),
+  and `lightsim-backend run --help`). Run the others as
+  `lightsim-backend check …`.
 
-The examples below write `lightsim`; use whichever of these you have.
+The examples below write `lightsim`; use whichever of these you have
+(with the engine program, for every command but those four).
 
 ## Commands
 
