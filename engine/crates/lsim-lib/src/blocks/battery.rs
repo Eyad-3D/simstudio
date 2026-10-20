@@ -58,6 +58,10 @@ pub struct BatteryConfig {
     pub limits: Option<PackLimits>,
     /// the Output Power Limit holds the power (else it is only checked)
     pub limit_enforced: bool,
+    /// fast mode's inverse model: its state of charge is flagged below the
+    /// minimum SOC and above full (a car whose motors no window limits
+    /// would drive on, its battery empty, without a word)
+    pub inverse: bool,
 }
 
 impl Default for BatteryConfig {
@@ -70,6 +74,7 @@ impl Default for BatteryConfig {
             rc: false,
             limits: None,
             limit_enforced: true,
+            inverse: false,
         }
     }
 }
@@ -101,6 +106,7 @@ impl BatteryConfig {
                 band: limits[4],
             }),
             limit_enforced: flag(p, "power_limit_enforced", true),
+            inverse: false,
         })
     }
 }
@@ -124,7 +130,10 @@ impl BatteryConfig {
     /// The structural choices, for the definition's name.
     fn is_default_structure(&self) -> bool {
         let d = BatteryConfig::default();
-        self.rc == d.rc && self.limits == d.limits && self.limit_enforced == d.limit_enforced
+        self.rc == d.rc
+            && self.limits == d.limits
+            && self.limit_enforced == d.limit_enforced
+            && self.inverse == d.inverse
     }
 }
 
@@ -384,6 +393,15 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
         ),
         "it takes up to its Max Charge Power and charge limits, until full",
     ));
+    if cfg.inverse {
+        vars.push(var("soc_in", "1", "its state of charge, within its minimum SOC … full"));
+        eqs.push(eq(
+            n("soc_in"),
+            limit(n("soc"), n("min_soc_pct"), c(1.0)),
+            "its state of charge, from its minimum SOC to full (fast mode flags it beyond: \
+             the car could not have driven on)",
+        ));
+    }
     let mut all = uc.into_params();
     all.extend(params);
     let params = all;
@@ -397,6 +415,9 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
             l.v_max as u8 as f64,
             l.band as u8 as f64,
         ]);
+    }
+    if cfg.inverse {
+        fp.push(1.0);
     }
     ComponentDef {
         name: variant("Blocks.Battery", cfg.is_default_structure(), fp),

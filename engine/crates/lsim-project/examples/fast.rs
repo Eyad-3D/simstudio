@@ -11,9 +11,12 @@
 //! model (`ImportOptions::inverse`: the vehicle's speed follows the cycle
 //! its Driver is given) and run over that cycle at 1 s steps; with
 //! `--forward` the case also runs in full dynamic mode (rtol 1e-6, the
-//! golden comparison's setting), and with `--replay DT` fast mode runs
-//! again on the speed that run drove, sampled every `DT` s (which takes
-//! the driver's tracking out of the comparison). Script blocks run on
+//! golden comparison's setting), with `--replay DT` fast mode runs again
+//! on the speed that run drove, sampled every `DT` s (which takes the
+//! driver's tracking out of the comparison), and with `--perturb REL` it
+//! runs again on the cycle with every speed off by `REL` of itself, up or
+//! down by turns (a change at round-off level, which must change nothing
+//! but round-off: no flag, no event). Script blocks run on
 //! lsim-script's native runner where their code is within its subset, else
 //! on today's Python runner (`LSIM_PYTHON`, as for the golden comparison).
 //!
@@ -78,6 +81,9 @@ fn fast_figures(r: &FastResult, wall: f64, samples: &[f64]) -> Value {
             .collect::<Vec<_>>()
     );
     v["newton_restarts"] = json!(r.report.newton_restarts);
+    v["newton_iterations"] = json!(r.report.newton_iterations);
+    v["residual_evals"] = json!(r.report.residual_evals);
+    v["step_redos"] = json!(r.report.step_redos);
     v["max_error"] = json!(r.report.max_error);
     v["run_s"] = json!(wall);
     v
@@ -103,8 +109,13 @@ fn main() {
         replay = Some(args[i + 1].parse().expect("--replay DT"));
         args.drain(i..i + 2);
     }
+    let mut perturb: Option<f64> = None;
+    if let Some(i) = args.iter().position(|a| a == "--perturb") {
+        perturb = Some(args[i + 1].parse().expect("--perturb REL"));
+        args.drain(i..i + 2);
+    }
     if args.is_empty() {
-        eprintln!("usage: fast [--forward] [--replay DT] PROJECT/CASE ...");
+        eprintln!("usage: fast [--forward] [--replay DT] [--perturb REL] PROJECT/CASE ...");
         std::process::exit(2);
     }
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
@@ -168,6 +179,18 @@ fn main() {
         match run_fast(&trace, &o) {
             Ok((r, wall)) => out["fast"] = fast_figures(&r, wall, &trace.t),
             Err(e) => out["fast"] = json!({"error": e}),
+        }
+        if let Some(rel) = perturb {
+            let v: Vec<f64> =
+                pr.v.iter()
+                    .enumerate()
+                    .map(|(k, v)| v * (1.0 + if k % 2 == 0 { rel } else { -rel }))
+                    .collect();
+            let shaken = Trace::new(pr.t.clone(), v).expect("the cycle, perturbed");
+            match run_fast(&shaken, &o) {
+                Ok((r, wall)) => out["perturbed"] = fast_figures(&r, wall, &shaken.t),
+                Err(e) => out["perturbed"] = json!({"error": e}),
+            }
         }
         if forward || replay.is_some() {
             let fwd = import_case(&pj, Some(case), &reg, &ImportOptions::default())

@@ -448,6 +448,37 @@ fn a_sampled_block_ticks_and_holds() {
     assert_eq!(r.report.block_changes, 2, "{:?}", r.report);
 }
 
+/// Where `∂g/∂z` is singular, the stop names what the equations leave
+/// free: the iteration variable they do not determine, or the ones of
+/// which they determine only a combination (it named nothing before).
+#[test]
+fn a_singular_jacobian_names_what_the_equations_leave_free() {
+    let names: Vec<String> = ["x", "a", "b"].iter().map(|s| s.to_string()).collect();
+    let trace = Trace::new(vec![0.0, 2.0], vec![1.0, 1.0]).unwrap();
+    let o = FastOptions::default();
+    let stop = |g: Fun| {
+        let model = Doubled::new(1, 2, 2, 1, g, Box::new(|i, out| out[0] = i.y[0]));
+        let mut p = FastProblem::new(&model, &[], std::slice::from_ref(&trace), &o);
+        p.y_names = &names;
+        run(&p, &mut []).unwrap_err().to_string()
+    };
+    // a + b = v twice over: only their sum is determined
+    let e = stop(Box::new(|i, out| {
+        out[0] = 0.0;
+        out[1] = i.y[1] + i.y[2] - i.u[0];
+        out[2] = 2.0 * (i.y[1] + i.y[2] - i.u[0]);
+    }));
+    let want = "is singular: the equations determine only a combination of a, b there";
+    assert!(e.ends_with(want), "{e}");
+    // b in no equation
+    let e = stop(Box::new(|i, out| {
+        out[0] = 0.0;
+        out[1] = i.y[1] - i.u[0];
+        out[2] = 3.0 * (i.y[1] - i.u[0]);
+    }));
+    assert!(e.ends_with("is singular: the equations do not determine b there"), "{e}");
+}
+
 #[test]
 fn mismatched_inputs_are_refused() {
     let model = relaxation(1.0);

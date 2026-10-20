@@ -41,6 +41,11 @@
 //! holds nothing), and the brakes act against forward rotation (the
 //! cycles drive forwards; a wheel's slip makes it turn back a little at the
 //! last moment of a stop, which must not turn its brake into a drive).
+//! What the pedal drives keeps following it, beyond full throttle and full
+//! brake too (motor.rs, driveline.rs), so the pedal command is determined
+//! wherever the inverse model is solved, and the solve has one root: a
+//! saturation there would leave the command free (the Jacobian singular)
+//! or give Newton's method a second, unphysical root.
 
 use super::*;
 use lsim_ir::EnergyDecl;
@@ -335,10 +340,11 @@ pub struct WheelConfig {
     /// fast mode's inverse model: it turns with the prescribed speed, as
     /// the quasi-static method has it (a slip that must follow a step in
     /// the cycle's acceleration would need an impulse); its slip is the
-    /// force over its slip stiffness and load, and the slip's loss the
-    /// extra torque `F·r·slip` it takes at that speed (the same power, to
-    /// first order in the slip, above `v_eps`); the force is whatever its
-    /// torques leave, flagged beyond its grip
+    /// force over its slip stiffness and load (at most the slip at its
+    /// grip), and the slip's loss the extra torque `F·r·slip` it takes at
+    /// that speed (the same power, to first order in the slip, above
+    /// `v_eps`); the force is whatever its torques leave, flagged beyond
+    /// its grip
     pub prescribed: bool,
 }
 
@@ -439,8 +445,16 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
             (
                 eq(
                     n("slip"),
-                    n("F") / (n("c_slip") * max(n("N"), n("unit_N"))),
-                    "slip: the force over slip stiffness × load",
+                    // held to the slip at grip: F·(1 + slip) then grows
+                    // with F (for a slip stiffness above twice μ), so the
+                    // torque balance has one root, not a second one near
+                    // a slip of −1 that Newton's method could land on
+                    clamp(
+                        n("F") / (n("c_slip") * max(n("N"), n("unit_N"))),
+                        -n("mu_eff") / n("c_slip"),
+                        n("mu_eff") / n("c_slip"),
+                    ),
+                    "slip: the force over slip stiffness × load, up to the slip at grip",
                 ),
                 eq(
                     n("F_grip"),
@@ -553,7 +567,10 @@ pub struct DriverConfig {
     pub target_wired: bool,
     /// fast mode's inverse model: only the pedal map, its pedal command
     /// the input `sig_cmd_in` (which the inverse model solves for); the
-    /// Target and Actual Speed inputs, where wired, are read by nothing
+    /// Target and Actual Speed inputs, where wired, are read by nothing.
+    /// Beyond full brake (flagged) its brakes keep following the pedal
+    /// (the friction brakes past their capacity, recuperation where there
+    /// are none), so the command stays determined
     pub inverse: bool,
 }
 
@@ -658,7 +675,19 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
             max(-n("cmd"), c(0.0)) * (n("fr_cap") + w.clone() * n("avail")),
             "the braking torque asked for",
         ),
-        eq(n("t_rg"), min(w * n("avail"), n("t_req")), "recuperation first, up to its weight"),
+        if cfg.inverse {
+            // fast mode: beyond full brake (flagged) the brakes keep
+            // following the pedal, the friction brakes past their
+            // capacity, recuperation where there are none: the command
+            // stays determined
+            eq(
+                n("t_rg"),
+                ite(gt(n("fr_cap"), c(0.0)), min(w * n("avail"), n("t_req")), n("t_req")),
+                "recuperation first, up to its weight (all of it without friction brakes)",
+            )
+        } else {
+            eq(n("t_rg"), min(w * n("avail"), n("t_req")), "recuperation first, up to its weight")
+        },
         eq(
             n("share"),
             ite(
@@ -668,11 +697,19 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
             ),
             "the share of full recuperation asked of the motors",
         ),
-        eq(
-            n("t_fr"),
-            min(n("fr_cap"), max(n("t_req") - n("t_rg"), c(0.0) * n("unit_Nm"))),
-            "the friction brakes do the rest",
-        ),
+        if cfg.inverse {
+            eq(
+                n("t_fr"),
+                max(n("t_req") - n("t_rg"), c(0.0) * n("unit_Nm")),
+                "the friction brakes do the rest",
+            )
+        } else {
+            eq(
+                n("t_fr"),
+                min(n("fr_cap"), max(n("t_req") - n("t_rg"), c(0.0) * n("unit_Nm"))),
+                "the friction brakes do the rest",
+            )
+        },
         eq(
             n("sig_traction_cmd"),
             ite(noev(ge(n("cmd"), c(0.0))), n("cmd"), -n("share")),

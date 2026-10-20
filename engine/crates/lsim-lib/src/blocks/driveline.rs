@@ -468,7 +468,8 @@ pub struct BrakeConfig {
     /// fast mode's inverse model, its speed prescribed forwards: its
     /// torque acts against forward rotation (a wheel's slip turns it back
     /// a little at the last moment of a stop; braking must not then drive
-    /// it, which no command could follow)
+    /// it, which no command could follow), and it follows a command beyond
+    /// 1 (the driver's pedal beyond full brake, which fast mode flags)
     pub prescribed: bool,
 }
 
@@ -489,7 +490,13 @@ impl Default for BrakeConfig {
 /// rotation, holding below 0.5 rad/s by a one-step rule).
 pub fn brake(cfg: BrakeConfig) -> ComponentDef {
     let id = "mech.brake";
-    let cmd = if cfg.demand_wired { clamp(n("sig_demand_in"), c(0.0), c(1.0)) } else { c(0.0) };
+    // fast mode: beyond a full command (where the driver's pedal is beyond
+    // full brake, which fast mode flags) its torque keeps following it
+    let cmd = match (cfg.demand_wired, cfg.prescribed) {
+        (true, false) => clamp(n("sig_demand_in"), c(0.0), c(1.0)),
+        (true, true) => max(n("sig_demand_in"), c(0.0)),
+        (false, _) => c(0.0),
+    };
     let mut ports = vec![phys(id, "flange", "Flange")];
     if cfg.demand_wired {
         ports.push(inp(id, "sig_demand_in"));

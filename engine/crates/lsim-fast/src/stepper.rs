@@ -21,7 +21,17 @@
 //! within the tolerance (the step is then applied and `x'` corrected to
 //! first order instead of evaluating the model again). The inputs carry an
 //! inverse model's time dependence, so the prediction follows the trace
-//! between stages and across the jumps of its slope.
+//! between stages and across the jumps of its slope. Every solve keeps to
+//! the root that continues from its consistent reference point (the
+//! equations may have others: a battery's power has two currents, one
+//! with the bus voltage near 0): a prediction farther from that point
+//! than twice the variables' size so far (their largest magnitudes at
+//! consistent points) is dropped for the point itself, its derivatives
+//! stale (they are refreshed at the next step); a solution that far is
+//! checked by a solve from the point itself, and the root nearer it kept;
+//! a failed solve is tried again from there with fresh derivatives; a
+//! solution off by ten orders of magnitude is no root. A singular
+//! `∂g/∂z` names the iteration variables it leaves free.
 //!
 //! **Steps.** Each step `[t_n, t_{n+1}]` lies on one piece of every
 //! trace (the uniform grid is split at every breakpoint inside a step:
@@ -75,6 +85,13 @@ use std::time::Instant;
 
 const MAX_NEWTON: usize = 30;
 const MAX_EVENTS_PER_STEP: usize = 64;
+/// An iteration variable this many times its size so far (its largest
+/// magnitude at a consistent point, at least its nominal) has run away:
+/// its solve fails there instead of calling a step small beside such a
+/// value converged. Ten orders of magnitude: a machine of megawatts that
+/// starts at rest stays below it, a pedal at 10¹⁵ (the FTP-75's, before)
+/// does not.
+const RUNAWAY: f64 = 1e10;
 
 /// A consistent point the stepper predicts from.
 #[derive(Clone, Debug, Default)]
@@ -98,6 +115,7 @@ struct Stepper<'a> {
     p: &'a [f64],
     traces: &'a [Trace],
     o: &'a FastOptions,
+    y_names: &'a [String],
     tab: Tableau,
     nx: usize,
     nz: usize,
@@ -128,6 +146,12 @@ struct Stepper<'a> {
     gu: Vec<f64>,
     /// the Newton iteration's contraction rate, carried between solves
     theta: f64,
+    /// each iteration variable's largest magnitude at a consistent point
+    /// so far (at least its nominal): the size a change is judged against
+    zmag: Vec<f64>,
+    /// a prediction went far off: `G` and `G_u` are stale, refresh them at
+    /// the next step's start
+    stale_g: bool,
     /// modes held at their values just after the current instant (their
     /// crossings are exactly 0 here, and leave it): (discrete, value)
     held: Vec<(usize, f64)>,
@@ -209,19 +233,46 @@ impl<'a> Stepper<'a> {
         self.m.roots(&inp, &mut self.work, out);
     }
 
-    fn singular(t: f64) -> FastError {
-        FastError::Singular {
-            t,
-            what: "the algebraic equations' Jacobian with respect to the iteration variables"
-                .into(),
-        }
+    fn y_name(&self, i: usize) -> String {
+        self.y_names.get(i).cloned().unwrap_or_else(|| format!("y[{i}]"))
+    }
+
+    /// The error for a singular `∂g/∂z`, naming the iteration variables the
+    /// equations leave free there: the column the factorisation stopped at
+    /// and those it is a combination of.
+    fn singular(&self, t: f64, lu: &Lu, block: &[f64], k: usize) -> FastError {
+        let nz = self.nz;
+        let what = "the algebraic equations' Jacobian with respect to the iteration variables";
+        let free = if block.iter().all(|v| v.is_finite()) {
+            let v = lu.null_vector(k);
+            let big = v.iter().fold(0.0f64, |m, x| m.max(x.abs()));
+            (0..nz)
+                .filter(|&j| v[j].abs() > 1e-9 * big)
+                .map(|j| self.y_name(self.nx + j))
+                .collect::<Vec<_>>()
+        } else {
+            vec![]
+        };
+        let detail = match free.as_slice() {
+            [] => format!(
+                ": it holds a value that is not a number (in the column of {})",
+                self.y_name(self.nx + k)
+            ),
+            [one] => format!(": the equations do not determine {one} there"),
+            many => {
+                format!(": the equations determine only a combination of {} there", many.join(", "))
+            }
+        };
+        FastError::Singular { t, what: what.into(), detail }
     }
 
     /// The explicit inverse of `∂g/∂z` from its block (column-major).
     fn set_inverse(&mut self, block: &[f64], t: f64) -> Result<(), FastError> {
         let nz = self.nz;
         let mut lu = Lu::new(nz);
-        lu.factor(block).map_err(|_| Self::singular(t))?;
+        if let Err(crate::lu::Singular(k)) = lu.factor(block) {
+            return Err(self.singular(t, &lu, block, k));
+        }
         for c in 0..nz {
             let col = &mut self.hinv[c * nz..(c + 1) * nz];
             col.iter_mut().for_each(|v| *v = 0.0);
@@ -355,12 +406,16 @@ impl<'a> Stepper<'a> {
             }
             self.newton_step();
             let mut norm = 0.0f64;
+            // a variable gone off by RUNAWAY: no root here, though the
+            // relative test would call a step small beside such a value
+            let mut away = false;
             for k in 0..nz {
-                let scale = self.y[nx + k].abs().max(self.nom[nx + k]);
-                norm = norm.max(self.dz[k].abs() / scale);
+                let a = self.y[nx + k].abs();
+                away |= a > RUNAWAY * self.zmag[k];
+                norm = norm.max(self.dz[k].abs() / a.max(self.nom[nx + k]));
             }
             if norm <= tol {
-                return Ok(());
+                return if away { Err(self.ran_away(t)) } else { Ok(()) };
             }
             let theta = match prev {
                 Some(p) => {
@@ -389,7 +444,7 @@ impl<'a> Stepper<'a> {
                         }
                     }
                 }
-                return Ok(());
+                return if away { Err(self.ran_away(t)) } else { Ok(()) };
             }
             // apply, halving the step while the residual is not finite
             self.g_old.copy_from_slice(&self.out[nx..]);
@@ -413,32 +468,109 @@ impl<'a> Stepper<'a> {
             self.broyden();
             prev = Some(norm);
         }
+        // the variable whose last step was the largest beside its size
+        let k = (0..nz)
+            .max_by(|&i, &j| {
+                let r = |k: usize| self.dz[k].abs() / self.y[nx + k].abs().max(self.nom[nx + k]);
+                r(i).total_cmp(&r(j))
+            })
+            .unwrap_or(0);
         Err(FastError::NoConvergence {
             t,
             what: format!(
-                "the algebraic equations did not converge in {MAX_NEWTON} Newton iterations"
+                "the algebraic equations did not converge in {MAX_NEWTON} Newton iterations \
+                 ({} the slowest, at {:e})",
+                self.y_name(nx + k),
+                self.y[nx + k]
             ),
         })
     }
 
-    /// [`Self::solve_z`] from the prediction, else again from the iteration
-    /// variables of the consistent point `r`, with fresh derivatives: the
-    /// prediction's derivatives were taken at another point, and where the
-    /// equations switch branches between there and here (the pedal from
-    /// throttle to recuperation, a share that fades with the speed) they
-    /// can put the first iterate far off, where Newton's method does not
-    /// come back from.
+    /// The error for a solve whose iteration variables have run away
+    /// (gone off by [`RUNAWAY`]), naming the first that has.
+    fn ran_away(&self, t: f64) -> FastError {
+        let nx = self.nx;
+        let k = (0..self.nz).find(|&k| self.y[nx + k].abs() > RUNAWAY * self.zmag[k]).unwrap_or(0);
+        FastError::NoConvergence {
+            t,
+            what: format!(
+                "the algebraic equations' Newton iteration ran away ({} reached {:e})",
+                self.y_name(nx + k),
+                self.y[nx + k]
+            ),
+        }
+    }
+
+    /// [`Self::solve_z`] from the prediction, kept to the root that
+    /// continues from the consistent point `r`: the prediction's
+    /// derivatives were taken at another point, and where the equations
+    /// switch branches between there and here (the pedal from throttle to
+    /// recuperation, a share that fades with the speed) they can put the
+    /// first iterate far off, where Newton's method does not come back
+    /// from or finds another root. A prediction farther from `r` than twice
+    /// the variables' size is dropped for `r`'s own iteration variables; a
+    /// solution that far is checked by a solve from them, with fresh
+    /// derivatives, and the root nearer `r` kept; a failed solve is tried
+    /// again from them, with fresh derivatives.
     fn solve_z_or_from(&mut self, t: f64, r: &Point) -> Result<(), FastError> {
+        if self.nz == 0 {
+            return self.solve_z(t);
+        }
+        // a prediction farther from the consistent point than twice the
+        // variables' size: its derivatives are stale (taken where the
+        // equations behaved otherwise); start from the point itself
+        let pred_far = self.far(&r.z);
+        if pred_far {
+            self.y[self.nx..].copy_from_slice(&r.z);
+            self.stale_g = true;
+        }
         match self.solve_z(t) {
+            Ok(()) if !pred_far && self.far(&r.z) => {
+                // a solution that far from the consistent point may be
+                // another root of the equations (a battery's power has two
+                // currents): solve again from the point itself, with fresh
+                // derivatives, and keep the root that continues from it
+                let (z1, out1) = (self.y[self.nx..].to_vec(), self.out.clone());
+                self.y[self.nx..].copy_from_slice(&r.z);
+                self.gz_valid = false;
+                self.rep.newton_restarts += 1;
+                let again = self.solve_z(t).is_ok();
+                if !again || self.distance(&r.z) > dist(&z1, &r.z, &self.zmag) {
+                    self.y[self.nx..].copy_from_slice(&z1);
+                    self.out.copy_from_slice(&out1);
+                    self.gz_valid = false;
+                } else if dist(&z1, &self.y[self.nx..], &self.zmag) > 1e-6 {
+                    self.stale_g = true;
+                }
+                Ok(())
+            }
             Ok(()) => Ok(()),
-            Err(first) if self.nz > 0 => {
+            Err(first) => {
                 self.y[self.nx..].copy_from_slice(&r.z);
                 self.gz_valid = false;
                 self.rep.newton_restarts += 1;
                 self.solve_z(t).map_err(|_| first)
             }
-            Err(e) => Err(e),
         }
+    }
+
+    /// Whether the iteration variables are farther from `z` than twice
+    /// their size: more than any swing within the range they have had so
+    /// far (a pedal from full throttle to full brake is 2). Every solve
+    /// asks, so it divides nothing.
+    fn far(&self, z: &[f64]) -> bool {
+        let y = &self.y[self.nx..];
+        let (z, m) = (&z[..y.len()], &self.zmag[..y.len()]);
+        let mut f = false;
+        for k in 0..y.len() {
+            f |= (y[k] - z[k]).abs() > 2.0 * m[k];
+        }
+        f
+    }
+
+    /// The iteration variables' distance from `z`, each against its size.
+    fn distance(&self, z: &[f64]) -> f64 {
+        dist(&self.y[self.nx..], z, &self.zmag)
     }
 
     /// Refreshes every derivative at the current, consistent point: the
@@ -527,6 +659,7 @@ impl<'a> Stepper<'a> {
         lu.factor(&self.wbuf).map_err(|_| FastError::Singular {
             t,
             what: "the step matrix (I/(γh) - J) of the states".into(),
+            detail: String::new(),
         })?;
         self.rep.lu_factorisations += 1;
         if self.wlu.len() >= 4 {
@@ -550,8 +683,13 @@ impl<'a> Stepper<'a> {
         (s / n as f64).sqrt()
     }
 
-    /// Makes the current point consistent at `t` and stores it in `pt`.
+    /// Stores the current (consistent) point at `t` in `pt`.
     fn capture(&mut self, t: f64, pt: &mut Point) {
+        let z = &self.y[self.nx..];
+        let m = &mut self.zmag[..z.len()];
+        for k in 0..z.len() {
+            m[k] = if z[k].abs() > m[k] { z[k].abs() } else { m[k] };
+        }
         pt.t = t;
         pt.x.copy_from_slice(&self.y[..self.nx]);
         pt.z.copy_from_slice(&self.y[self.nx..]);
@@ -567,7 +705,10 @@ impl<'a> Stepper<'a> {
         let h = t1 - t0;
         let mut redone = false;
         loop {
-            if self.o.max_jacobian_age > 0 && self.jac_age >= self.o.max_jacobian_age {
+            if self.stale_g
+                || (self.o.max_jacobian_age > 0 && self.jac_age >= self.o.max_jacobian_age)
+            {
+                self.stale_g = false;
                 self.y[..nx].copy_from_slice(&a.x);
                 self.y[nx..].copy_from_slice(&a.z);
                 self.u.copy_from_slice(&a.u);
@@ -748,6 +889,11 @@ impl<'a> Stepper<'a> {
         }
         Ok(hi)
     }
+}
+
+/// The largest distance between `a` and `b`, each entry against `size`.
+fn dist(a: &[f64], b: &[f64], size: &[f64]) -> f64 {
+    a.iter().zip(b).zip(size).map(|((x, y), m)| (x - y).abs() / m).fold(0.0, f64::max)
 }
 
 /// Whether `when` clause `w`'s condition holds where its crossing is `g`
@@ -1128,6 +1274,7 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
 
     let nom: Vec<f64> =
         (0..ny).map(|i| prob.y_nominal.get(i).copied().unwrap_or(1.0).abs().max(1e-300)).collect();
+    let zmag = nom[nx..].to_vec();
     let mut y0 = vec![0.0; ny];
     let mut d0 = vec![0.0; l.n_d];
     m.start(prob.params, &mut y0, &mut d0);
@@ -1137,6 +1284,7 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
         p: prob.params,
         traces: prob.traces,
         o,
+        y_names: prob.y_names,
         tab,
         nx,
         nz,
@@ -1159,6 +1307,8 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
         gmat: vec![0.0; nz * nx],
         gu: vec![0.0; nz * nu],
         theta: 0.5,
+        zmag,
+        stale_g: false,
         held: vec![],
         gz_valid: false,
         wlu: vec![],
@@ -1342,7 +1492,8 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
             // after the instant), then the step again
             side.clear();
             st.held.clear();
-            if nr > 0 {
+            // (most steps have no crossing exactly at zero: one pass to see)
+            if r_start.iter().fold(false, |z, &g| z | (g == 0.0)) {
                 let leave = |c: usize, up: bool, side: &mut Vec<(usize, f64)>| {
                     if !side.iter().any(|s| s.0 == c) {
                         side.push((c, if up { f64::MIN_POSITIVE } else { -f64::MIN_POSITIVE }));

@@ -414,6 +414,8 @@ fn every_block_variant() -> Vec<ComponentDef> {
             ..Default::default()
         }));
     }
+    // fast mode's inverse model
+    v.push(battery::battery(&battery::BatteryConfig { inverse: true, ..Default::default() }));
     for s in switches(1) {
         v.push(driveline::gearbox(&driveline::GearboxConfig {
             select_wired: s[0],

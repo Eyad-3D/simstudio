@@ -432,7 +432,7 @@ Users build their own components from the basic ones in this format (the
 owner's decision), so it must say everything the library says. Tests
 hold that: every library component, every vehicle block in every
 combination of its on/off switches and in fast mode's inverse variants
-(375 builds, 247 distinct definitions; the other settings at their
+(376 builds, 248 distinct definitions; the other settings at their
 defaults), every definition
 the example projects import, a component with every IR feature and random
 expressions over every function print and read back unchanged; every
@@ -2480,18 +2480,37 @@ save most of those 10 ms in every run, sequential or not (a change to
 * **Verified against forward runs and against FASTSim** (`engine/judge/
   fast.py`, 20 October 2026): where no flag is raised, fast mode's charge
   used must be within 1 % of the full dynamic run's (rtol 1e-6) on the
-  same cycle (the band, fixed before scoring). Every drive-cycle case of
-  the two battery-electric example cars (9) is inside: −0.07 … +0.25 %
-  (the UDDS, with its 17 stops, the largest), and −0.02 … +0.40 % on the
-  speed the full dynamic run drove, every 0.1 s, which takes the driver's
-  tracking out (what is left: stiction and the slip below 0.5 m/s, which
-  the inverse model has not). On EPA's four reference cars (UDDS, HWFET),
-  fast mode's energy at the wall is within 0.03 … 0.17 % of the full
-  dynamic run's and within 1.3 % of FASTSim 3.1.0's given the same cars
-  (mean 0.92 %; today's engine is within 1.3 % too, `benchmarks/fastsim`);
-  before the input events, 25 … 47 % short of both. Fast mode takes
-  18 … 68 ms a cycle on these cars (0.05 … 2.5 s for their full dynamic
-  runs).
+  same cycle (the band, fixed before scoring), and the cycle changed at
+  round-off level (every speed 1e-9 of itself up or down by turns) must
+  give the same flags and a charge used within a millionth of it. Inside,
+  all 61: the two battery-electric example cars' 9 drive-cycle cases
+  (−0.20 … −0.04 %) and the same two cars on each of the 27 bundled
+  cycles but the long-haul (52: −0.76 … +0.02 %, New York's city cycle
+  the largest, 2.1 to 4.1 significant digits); on the speed the full
+  dynamic run drove, every 0.1 s, which takes the driver's tracking out,
+  −0.05 … +0.07 %; perturbed, at most 1.5e-7 apart, no flag either way.
+  The long-haul cycle (805 km) empties both batteries: fast mode flags
+  them from the second they reach their minimum SOC, and the full
+  dynamic runs stop about 200 s later on a bare SUNDIALS flag −4 (the
+  forward run's, outside fast mode). On EPA's four reference cars (UDDS,
+  HWFET), fast mode's energy at the wall is within 0.02 … 0.17 % of the
+  full dynamic run's and within 1.3 % of FASTSim 3.1.0's given the same
+  cars (mean 0.92 %; today's engine is within 1.3 % too,
+  `benchmarks/fastsim`); before the input events, 25 … 47 % short of
+  both. Before the fixes below (the same judge): of the 54 standard
+  cycles, 9 stopped on a singular Jacobian that named nothing (7 of them
+  where the full dynamic run finishes), 2 raised flags the car never
+  reached, and New York's city cycle was 1.43 % over (1.80 % on the
+  driven speed), outside the band without a flag; on the driven speed
+  the 9 example cases were −0.02 … +0.40 %, the inverter's no-load loss
+  charged while standing. Fast mode takes 10 … 260 ms a cycle on these
+  cars on a shared, loaded machine (the 805 km cycle 2.0 … 2.8 s; their
+  full dynamic runs 0.06 … 7.0 s), and 1 or 2 solves a run are tried
+  again (up to 2 472 before). Counted by callgrind, a fast run of the
+  aero BEV's UDDS takes 7 % fewer instructions than before (fewer solves
+  tried again), the test car's 2.2 % more for the same work per step
+  (12.88 residuals, 11.50 Newton iterations: the checks of every solve
+  against its reference point).
 * **The example projects' cars** (`lsim-project`, `ImportOptions::inverse`):
   a drive-cycle case is imported as its inverse model. The vehicle body's
   speed is prescribed from the cycle its Driver follows (the Driving
@@ -2502,23 +2521,57 @@ save most of those 10 ms in every run, sequential or not (a change to
   import is unchanged, so are the golden figures): the **Driver** keeps
   only its pedal map, its pedal command an input the inverse model solves
   for (`limit`ed to full brake … full throttle, so a cycle the car cannot
-  follow is flagged), its PI controller and the command's source removed;
+  follow is flagged), its PI controller and the command's source removed,
+  and beyond full brake its brakes keep following the pedal (the friction
+  brakes past their capacity, recuperation where there are none);
   the **vehicle body**'s rolling resistance acts against the prescribed
   motion, or the acceleration that starts it forwards from rest (no
   stiction: at rest nothing pushes, and a pedal that holds a car at rest
   is not determined by its motion); the **wheels** turn with the
-  prescribed speed, their slip the force over slip stiffness × load and
-  its loss the extra torque `F·r·slip` (the same power, to first order in
-  the slip, above 0.5 m/s): a slip that follows the cycle's steps of
-  acceleration would need an impulse, which no inverse model of a
+  prescribed speed, their slip the force over slip stiffness × load (at
+  most the slip at the tyre's grip: so the torque balance `F·(1 + slip)`
+  grows with the force and has one root, not a second one near a slip of
+  −1) and its loss the extra torque `F·r·slip` (the same power, to first
+  order in the slip, above 0.5 m/s): a slip that follows the cycle's steps
+  of acceleration would need an impulse, which no inverse model of a
   compliant tyre avoids, and without the slip's loss fast mode is 2.6 %
   short on the aero BEV's UDDS (its tyres' slip losses); the force is
   flagged beyond the tyre's grip; the **brakes** act against forward
   rotation (a wheel's slip turns it back a little at the last moment of a
-  stop, which must not turn a brake into a drive); the **e-motor**'s
+  stop, which must not turn a brake into a drive) and follow a command
+  beyond 1; the **e-motor**'s torque follows its command everywhere, so
+  the command the inverse model solves for is always determined: the
   inverter runs at a command of 0 too (an instant in a forward run, the
-  state of a standing car in fast mode, where its torque would otherwise
-  not depend on the command the inverse model solves for). Preparation
+  state of a standing car in fast mode) but draws nothing while its shaft
+  stands and its command is 0 to round-off (a car standing with nothing
+  to drive, whose full dynamic run holds it with the friction brakes, its
+  command 0 and the inverter off: charging the loss map's 77 W there put
+  fast mode 1.4 % over the full dynamic run on New York's city cycle,
+  which stands a third of its time, without a flag; a car stands only
+  on whole pieces of a cycle, so the switch falls on a step's ends); the
+  command is not held to −1 … 1 (it leaves that range only where the
+  pedal is beyond full throttle, which is flagged); and a supply window
+  does not cut the torque: beyond what the supply gives the electrical
+  power is flagged, and of recuperation beyond
+  what it takes the supply takes what it can and the rest is lost in the
+  inverter (in a full dynamic run the driver brakes harder and the
+  friction brakes take it: the battery's energy is the same, the pedal
+  smaller; no bundled cycle reaches it); the **battery**'s state of
+  charge is flagged below its minimum SOC and above full (a car that
+  drives its battery empty could not have driven on: the 805 km
+  long-haul cycle takes both cars' states of charge on down to −1.17 and
+  −1.26, what it would take, and each battery is flagged from the second
+  it reaches its minimum SOC; the e-motor's flag of its supply window
+  sees only what the motor draws, not a standing car's other loads). A
+  saturation anywhere the pedal drives would leave the pedal free where
+  Newton's method strays into it (the Jacobian singular), and a second
+  root lets it settle there: 7 of
+  the 54 standard cycles of the two cars stopped on a singular Jacobian,
+  named by nothing, and two (the FTP-75, WLTC class 3's extra high
+  phase) flagged the pedal and two tyres' grip at points inside a step
+  where the pedal stood at 3.7·10¹⁵ and the tyres on their second root;
+  the FTP-75's first 1369 s, which differ from the UDDS by 61 samples
+  within 8·10⁻⁴ km/h of its lines, raised them, the UDDS not. Preparation
   reads an inverse model's tables when it chooses the states (a battery's
   open-circuit voltage decides its start; without it the start is not
   solved and the spread of values used instead puts the tyres at their
@@ -2528,14 +2581,27 @@ save most of those 10 ms in every run, sequential or not (a change to
   pedal a sampled block reads (`FAST-SAMPLED-CONTROL`: the hybrid's
   supervisory controller, a Script, acts at its ticks on what it read
   then, so no pedal worked out back from the motion moves the car now).
-  The stepper restarts Newton's method from the last consistent point
-  when the prediction across a change of branch (throttle to
-  recuperation, a share that fades with the speed) put it out of reach,
-  and an event located at a step's end ends the step there (a crossing
-  that reaches exactly 0 at a cycle's stop was lost, and a step of no
-  length after it stopped the run). `engine/judge/fast.py` is the outside
-  judge of these runs (its README: the full dynamic run of each case and
-  FASTSim on EPA's reference cars).
+  The stepper keeps every solve to the root that continues from its
+  consistent reference point: a prediction farther from it than the
+  iteration variables' size so far (their largest magnitudes at
+  consistent points) is dropped for the point itself (its derivatives are
+  stale, taken where the equations behaved otherwise: with the inverse
+  variants regular but without this, Newton's method went from such
+  predictions to the battery's other current, its voltage near 0, where
+  the torque does not depend on the pedal, and 6 of the 54 cycles still
+  stopped there, the BEV's HWFET at 136 s among them), a solution that
+  far is checked by a solve from the point and the root nearer it kept,
+  a failed solve is tried again from the point with fresh derivatives,
+  a solution off by ten orders of magnitude is no root (a step small
+  beside a value of 10¹⁵ passed the relative test), a singular
+  `∂g/∂z` names the iteration variables it leaves free (`the equations
+  do not determine el_driver.cmd there`) and a solve that does not
+  converge the slowest one; an event located at a step's end ends the
+  step there (a crossing that reaches exactly 0 at a cycle's stop was
+  lost, and a step of no length after it stopped the run).
+  `engine/judge/fast.py` is the outside judge of these runs (its README:
+  the full dynamic run of each case, the battery-electric cars on every
+  bundled cycle, and FASTSim on EPA's reference cars).
 
 ## 11. Outputs, energy books and accuracy reports
 

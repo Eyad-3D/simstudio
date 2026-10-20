@@ -601,6 +601,7 @@ impl Model {
             opts: o,
             y_nominal: &self.info.y_nominal,
             names: &self.info.var_names,
+            y_names: &self.info.y_names,
             record,
             limits: &self.limits,
             ders: &self.ders,

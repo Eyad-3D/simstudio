@@ -256,12 +256,15 @@ pub enum FastError {
         what: String,
     },
     /// a matrix was singular
-    #[error("fast mode stopped at t = {t} s: {what} is singular")]
+    #[error("fast mode stopped at t = {t} s: {what} is singular{detail}")]
     Singular {
         /// where
         t: f64,
         /// which matrix
         what: String,
+        /// why, in words (empty, or starting with ": "): the unknowns the
+        /// equations leave free there
+        detail: String,
     },
     /// a sampled block failed
     #[error("fast mode: block '{name}' failed: {message}")]
@@ -325,6 +328,9 @@ pub struct FastProblem<'a> {
     pub y_nominal: &'a [f64],
     /// the model's variable names (empty: `v[i]`)
     pub names: &'a [String],
+    /// each entry of `y` by name, states then iteration variables (empty:
+    /// `y[i]`), for the diagnostics
+    pub y_names: &'a [String],
     /// which variables to record (`None`: all)
     pub record: Option<&'a [usize]>,
     /// the limits to flag
@@ -358,6 +364,7 @@ impl<'a> FastProblem<'a> {
             opts,
             y_nominal: &[],
             names: &[],
+            y_names: &[],
             record: None,
             limits: &[],
             ders: &[],

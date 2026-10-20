@@ -1337,11 +1337,12 @@ pub fn standard_registry() -> Registry {
             setpoint_wired: wired(el, f, "sig_setpoint_in"),
         })))
     });
-    add!("battery.generic", |el: &Element, _: &Facts| {
+    add!("battery.generic", |el: &Element, f: &Facts| {
         if text(el, "pack_model", "Pack values") != "Pack values" {
             return Err("a battery defined by its cells is not imported yet".into());
         }
-        let cfg = battery::BatteryConfig::from_params(&el.params, el.outside("ocv_table", 0))?;
+        let mut cfg = battery::BatteryConfig::from_params(&el.params, el.outside("ocv_table", 0))?;
+        cfg.inverse = f.inverse;
         Ok(Mapped::of(battery::battery(&cfg)).with(cfg.values()?))
     });
     add!("motor.emotor", |el: &Element, f: &Facts| {

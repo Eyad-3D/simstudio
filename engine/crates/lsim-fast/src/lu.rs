@@ -5,7 +5,9 @@
 //! column-major Doolittle factorisation is the fastest choice and needs no
 //! dependency.
 
-/// The matrix is singular (to working precision) at this column.
+/// The matrix is singular (to working precision) at this column: it is
+/// a combination of the columns before it ([`Lu::null_vector`]), or it
+/// holds a value that is not a number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Singular(pub usize);
 
@@ -75,6 +77,27 @@ impl Lu {
         Ok(())
     }
 
+    /// After [`Lu::factor`] failed with `Singular(k)` on a finite matrix:
+    /// a vector `v` with `A v = 0`, `v[k] = 1` and `v[j] = 0` past `k`
+    /// (column `k` is the combination `-Σ v[j] a_j` of the columns before
+    /// it). Its entries name the unknowns the equations do not determine
+    /// apart: only that combination of them.
+    pub fn null_vector(&self, k: usize) -> Vec<f64> {
+        let n = self.n;
+        let a = &self.a;
+        let mut v = vec![0.0; n];
+        v[k] = 1.0;
+        // U[..k, ..k] v[..k] = -U[..k, k], by back substitution
+        for i in (0..k).rev() {
+            let mut s = a[k * n + i];
+            for j in i + 1..k {
+                s += a[j * n + i] * v[j];
+            }
+            v[i] = -s / a[i * n + i];
+        }
+        v
+    }
+
     /// Solves `A x = b` in place.
     pub fn solve(&self, b: &mut [f64]) {
         let n = self.n;
@@ -135,5 +158,23 @@ mod tests {
         let mut lu = Lu::new(2);
         assert_eq!(lu.factor(&[1.0, 2.0, 2.0, 4.0]), Err(Singular(1)));
         assert!(lu.factor(&[1.0, f64::NAN, 0.0, 1.0]).is_err());
+    }
+
+    #[test]
+    fn names_the_combination_a_singular_matrix_leaves_free() {
+        // rows [[2, 0, 4], [1, 1, 3], [0, 3, 3]]: column 2 = 2·column 0 + column 1
+        let rows = [[2.0, 0.0, 4.0], [1.0, 1.0, 3.0], [0.0, 3.0, 3.0]];
+        let mut m = vec![0.0; 9];
+        for (i, r) in rows.iter().enumerate() {
+            for (j, v) in r.iter().enumerate() {
+                m[j * 3 + i] = *v;
+            }
+        }
+        let mut lu = Lu::new(3);
+        assert_eq!(lu.factor(&m), Err(Singular(2)));
+        let v = lu.null_vector(2);
+        for (got, want) in v.iter().zip([-2.0, -1.0, 1.0]) {
+            assert!((got - want).abs() < 1e-14, "{v:?}");
+        }
     }
 }
