@@ -508,11 +508,12 @@ def test_every_script_run_asks_and_the_trust_list_is_not_read(folder, monkeypatc
     assert example["resultType"] == "input_required", "the examples' scripts ask too"
 
 
-def test_a_yes_sent_again_repeats_a_run_or_an_example_edit_without_a_new_question(folder):
+def test_a_yes_sent_again_repeats_a_run_or_saves_another_copy_without_a_new_question(folder):
     # On the 2026-07-28 protocol the answer's state is the server's seal of
-    # exactly that action, not a one-time token (Known issues says so). The
-    # seal of a run, or of an edit of an example, stays good; the seal of an
-    # edit of a saved project holds its revision, which the save changed.
+    # exactly that action, not a one-time token (the page, the help, the
+    # skill pack and Known issues say so). The seal of a run, of an edit of
+    # an example and of a new project stays good; the seal of an edit of a
+    # saved project holds its revision, which the save changed.
     path = _hybrid_copy(folder, "again.json")
     server = make_server(folder, platform="linux")
     args = {"project": str(path), "case": "case-udds"}
@@ -532,11 +533,42 @@ def test_a_yes_sent_again_repeats_a_run_or_an_example_edit_without_a_new_questio
     two = tool(server, "model_edit", edit, **_yes(ask))["structuredContent"]
     assert one["applied"] and two["applied"] and one["project"] != two["project"]
 
+    new = {"project": "new:Probe car", "dry_run": False,
+           "operations": [{"op": "add", "type": "vehicle.body", "label": "Body"}]}
+    ask = tool(server, "model_edit", new)
+    made = [tool(server, "model_edit", new, **_yes(ask))["structuredContent"] for _ in range(2)]
+    assert made[0]["applied"] and made[1]["applied"]
+    assert made[0]["project"] != made[1]["project"], "the same yes saved a second new project"
+
     saved = {"project": one["project"], "dry_run": False,
              "operations": [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 1800}]}
     ask = tool(server, "model_edit", saved)
     assert tool(server, "model_edit", saved, **_yes(ask))["structuredContent"]["applied"]
     assert tool(server, "model_edit", saved, **_yes(ask))["resultType"] == "input_required"
+
+
+def test_whether_an_app_can_ask_is_checked_only_on_the_older_handshake(folder):
+    # What the page and the help say about an AI app that cannot ask you.
+    # Older handshake without elicitation: what needs a yes is refused (the
+    # tests below), but a project without Script blocks needs none and runs.
+    old = make_server(folder)
+    old.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "x", "version": "1"}}})
+    reply = old.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+        "name": "run_case", "arguments": {"project": "example:bev-car", "case": "case-city"}}})
+    assert reply["result"]["isError"] is False
+    assert reply["result"]["structuredContent"]["status"] == "success"
+
+    # 2026-07-28: an app that says it cannot ask (no elicitation) still gets
+    # the question, and the answer it sends back itself saves the edit
+    server = make_server(folder)
+    mute = {"_meta": {"io.modelcontextprotocol/clientCapabilities": {}}}
+    edit = {"project": "example:bev-car", "dry_run": False,
+            "operations": [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 1777}]}
+    ask = tool(server, "model_edit", edit, **mute)
+    assert ask["resultType"] == "input_required"
+    saved = tool(server, "model_edit", edit, **mute, **_yes(ask))
+    assert saved["isError"] is False and saved["structuredContent"]["applied"] is True
 
 
 def test_an_app_that_cannot_ask_gets_a_refusal_for_a_script_run(folder):
@@ -631,6 +663,43 @@ def test_every_call_goes_into_the_local_audit_log(folder):
     assert entry["client"] == "pytest" and entry["ok"] is True
     lines = (folder / ".ai" / "audit.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2
+
+
+def test_what_the_audit_log_leaves_out(folder):
+    # What the help says about .ai/audit.jsonl (AI-01): a call that reaches a
+    # tool is a line, done or not (a question asked, a refusal); a call that
+    # brings back the user's no, a run sent as a task that is asked about or
+    # refused before it starts, and a call of a tool LightSim does not have
+    # are not lines.
+    path = _hybrid_copy(folder, "logged.json")
+    server = make_server(folder, platform="linux")
+    args = {"project": str(path), "case": "case-udds"}
+    log = folder / ".ai" / "audit.jsonl"
+
+    def lines() -> int:
+        return len(log.read_text(encoding="utf-8").splitlines()) if log.exists() else 0
+
+    ask = tool(server, "run_case", args)
+    assert ask["resultType"] == "input_required"
+    assert lines() == 1 and last_audit_entry(folder)["ok"] is False, "a question is a line, not done"
+    no = tool(server, "run_case", args, requestState=ask["requestState"],
+              inputResponses={"confirm": {"action": "decline"}})
+    assert no["isError"] and "did not confirm" in no["content"][0]["text"]
+    assert lines() == 1, "the user's no is not a line"
+
+    as_task = {"_meta": {"io.modelcontextprotocol/tasks": {"ttl": 60000}}}
+    asked = tool(server, "run_case", args, **as_task)
+    assert asked["resultType"] == "input_required" and lines() == 1, "a task run asked about first"
+    hidden = tool(server, "run_case", {"project": "../../etc/passwd", "case": "x"}, **as_task)
+    assert hidden["isError"] and lines() == 1, "a task run refused before it starts"
+    reply = server.handle({"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {
+        "name": "no_such_tool", "arguments": {}, "_meta": META}})
+    assert "error" in reply and lines() == 1, "a tool LightSim does not have"
+
+    win = make_server(folder, platform="win32")
+    refused = tool(win, "run_case", args)
+    assert refused["isError"] and "--trust-scripts" in refused["content"][0]["text"]
+    assert lines() == 2 and last_audit_entry(folder)["ok"] is False, "a refusal is a line"
 
 
 def test_project_text_is_quoted_as_data(folder):

@@ -235,4 +235,6 @@ you want kept to the rules you set with `lightsim ai` goes through
 `lightsim.ai_access.AgentSession` instead. The LightSim MCP server for AI
 assistants reads the same settings but does not use `AgentSession`: it asks
 you in the AI app before it saves an edit or runs a project with Script
-blocks. See [AI access](command-line.md#ai-access).
+blocks, and an AI app that sends your answer again repeats a run, or saves
+another copy of an edited example or new project, without asking you. See
+[AI access](command-line.md#ai-access).

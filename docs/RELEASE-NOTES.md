@@ -982,11 +982,12 @@ sections.
   (AI-07)
 - AI access rules for the coming AI assistant connection: off by default;
   only projects in folders you allow, and not marked `"noAi"`; changes
-  need your confirmation; a project with Script blocks asks you before
-  each run an AI app starts (Python code that uses `AgentSession` also
-  needs the project on the trust list, `lightsim ai trust`; the connection
-  for AI apps does not read that list); runs stop after 300 s; every call
-  is logged on your computer. Set with `lightsim ai …`. (AI-01)
+  need your confirmation; a project with Script blocks asks you before an
+  AI app runs it (Python code that uses `AgentSession` also needs the
+  project on the trust list, `lightsim ai trust`; the connection for AI
+  apps does not read that list), but an AI app that sends your answer
+  again repeats the run without a new question; runs stop after 300 s; the
+  calls are logged on your computer. Set with `lightsim ai …`. (AI-01)
 - *What LightSim reads and writes* (Help → *Reference*) lists the file
   formats that work today, each with the test that checks it, those
   planned and those built only on request. (STD-34)

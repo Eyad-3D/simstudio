@@ -95,15 +95,28 @@ it("shows a refusal and the settings as they are", async () => {
 });
 
 // The page says what the connection does today (AI-01, step 6): it asks before
-// an edit and before a Script run, it does not read the trust list, and the
-// trust list belongs to the Python package. backend/tests/test_ai_claims.py
-// holds the same facts against the code and the help pages.
+// an edit and before a Script run, but an answer sent again is not asked about
+// again and an app on the newer protocol may answer for you; it does not read
+// the trust list, and the trust list belongs to the Python package.
+// backend/tests/test_ai_claims.py holds the same facts against the code and
+// the help pages.
 it("says what the connection for AI apps does today", async () => {
   await render(base);
   const text = (host.textContent ?? "").replace(/\s+/g, " ");
-  expect(text).toContain("Saving an edit: LightSim asks you each time.");
-  expect(text).toContain("Running a project with Script blocks (Python code): LightSim asks you before each run");
+  expect(text).toContain(
+    "Reading, checking and comparing models, and running a project without Script blocks: no question.",
+  );
+  expect(text).toContain("Saving an edit: LightSim asks you first.");
+  expect(text).toContain("Running a project with Script blocks (Python code): LightSim asks you first");
   expect(text).toContain("the question does not show the code");
+  expect(text).toContain(
+    "An app that sends your answer again repeats a run, or saves another copy of an edited example or new project, without asking you.",
+  );
+  expect(text).toContain("An AI app on MCP's older handshake that cannot ask you is refused anything that needs your yes");
+  expect(text).toContain(
+    "LightSim does not check whether the app can ask, so an app that answers for you can save edits and run Script projects.",
+  );
+  expect(text).toContain("Connect only an AI app that shows you each question.");
   expect(text).toContain(
     "On Windows such a project does not run at all unless the connection was started with --trust-scripts",
   );
@@ -115,4 +128,7 @@ it("says what the connection for AI apps does today", async () => {
   expect(text).not.toContain("only once you trust it");
   expect(text).not.toContain("enforced by the engine");
   expect(text).not.toContain("hold for every AI tool");
+  expect(text).not.toContain("each time");
+  expect(text).not.toContain("before each run");
+  expect(text).not.toContain("cannot ask you cannot save");
 });

@@ -60,19 +60,20 @@ refuse every change.
 - It sees your saved projects and the examples, and the folders you
   allowed. A project file that contains `"noAi": true` stays hidden, and
   so does a link in an allowed folder to a file outside them.
-- It can read, check and compare models with no question to you. It can
-  propose changes as a dry run; to save one, LightSim asks you each time,
-  and you answer **Allow this** in the AI app. An example is never
+- It can read, check and compare models, and run a project without Script
+  blocks, with no question to you. It can propose changes as a dry run; to
+  save one, LightSim asks you first, and you answer **Allow this** in the
+  AI app. An example is never
   changed: the edit is saved as a new project. LightSim keeps the previous
   version of a project as a backup, as for every save. For a file in a
   folder you allowed, the backups are kept beside it, in a folder named
   after it (`car.json-backups`, which git ignores).
 - A project with Script blocks (Python code) makes LightSim ask you before
-  each run, in the AI app. The question names the project and the case; it
+  it runs, in the AI app. The question names the project and the case; it
   does not show the code, so read the code in LightSim before you say yes.
   On Windows, where LightSim's script sandbox is weak, such a project does
   not run at all unless you added `--trust-scripts` to the connection, and
-  then you are asked before each run as well.
+  then you are asked as well.
 - LightSim's check of script code applies to an assistant's run as to yours.
   Code that is not code you approved in LightSim makes the run fail and
   say so. Approved code is the code of the examples, code you typed into a
@@ -83,14 +84,20 @@ refuse every change.
 - The question is LightSim's, but your AI app shows it and sends your
   answer back. LightSim cannot tell whether you or the assistant answered,
   and an app that sends your answer again repeats a run, or saves another
-  copy of an edited example, without asking you, so connect only an AI app
-  that shows you each question. If an AI app cannot ask you, nothing is
-  saved or run.
+  copy of an edited example or new project, without asking you. An AI app
+  on MCP's older handshake that cannot ask you is refused anything that
+  needs your yes. On MCP's 28 July 2026 revision LightSim does not check
+  whether the app can ask, so an app that answers for you can save edits
+  and run Script projects. Connect only an AI app that shows you each
+  question.
 - A run started by an assistant stops after 5 minutes, or sooner if you
   set a shorter cap under **AI access**. Its runs are kept apart from yours
   (the newest 20 per project).
-- Every request is written to a log on this computer,
-  `.ai/audit.jsonl` in your projects folder. It is never uploaded.
+- LightSim writes each tool call an assistant makes, done or not, to a log
+  on this computer, `.ai/audit.jsonl` in your projects folder. It leaves
+  out a call that brings back your no, a long run (an MCP task) that
+  LightSim asks about or refuses before it starts, and a call of a tool
+  LightSim does not have. The log is never uploaded.
 - On a computer your organisation manages, its policy file can turn AI
   access off (`"ai": "off"`, see [Install LightSim for a lab or
   a company](deploy-for-it.md)). The window then says so and cannot add
@@ -125,7 +132,8 @@ They are the same settings as the `lightsim ai …` commands
 - **Stop an AI tool's run after** a number of seconds (5 minutes unless you
   change it).
 - **Latest calls from AI tools**: what they asked, when, and whether it
-  was done, from the logs kept on this computer: the AI apps' log
+  was done (not the calls the log leaves out, above), from the logs kept
+  on this computer: the AI apps' log
   (`.ai/audit.jsonl` in your projects folder) and the Python package's
   (`ai-audit.jsonl` beside `ai-access.json`).
 

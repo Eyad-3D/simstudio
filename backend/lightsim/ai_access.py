@@ -8,10 +8,12 @@ organisation's policy, and keeps a project marked "noAi" out of sight; it
 does **not** read the trust list (``trustedScripts``). It asks the user,
 through the AI app, before it saves an edit and before it runs a project
 with Script blocks (and on Windows runs one only when started with
-``--trust-scripts``). Plain ``import lightsim`` and ``lightsim run`` read
-none of it. The read-only and destructive hints an AI app shows are only
-hints. What the app's *Connect AI → AI access* page and the help say about
-this is held by ``tests/test_ai_claims.py``.
+``--trust-scripts``), but cannot tell who answered, and an answer the app
+sends again repeats a run, or saves another copy of an edited example or
+new project (docs/KNOWN-LIMITS.md). Plain ``import lightsim`` and
+``lightsim run`` read none of it. The read-only and destructive hints an AI
+app shows are only hints. What the app's *Connect AI → AI access* page and
+the help say about this is held by ``tests/test_ai_claims.py``.
 
 - **Off by default.** Until the user turns AI access on, every call is
   refused.

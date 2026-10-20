@@ -8,7 +8,10 @@ use the older handshake:
   carrying its protocol version in ``_meta``; ``server/discover`` names the
   versions, capabilities and instructions; a confirmation is an
   ``input_required`` result the AI app answers by asking the user and
-  sending the request again; long runs are Tasks (the
+  sending the request again, with the question's state (the action's seal,
+  not a one-time token: sent again it repeats a run, or saves another copy
+  of an edited example or new project) and the answer; whether the app can
+  ask is not checked; long runs are Tasks (the
   ``io.modelcontextprotocol/tasks`` extension), polled with ``tasks/get``.
   Sampling, Roots and Logging, which that revision deprecates, are not used.
 - 2024-11-05 to 2025-11-25: the ``initialize`` handshake; a confirmation is

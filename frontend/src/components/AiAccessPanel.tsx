@@ -12,9 +12,12 @@ const message = (e: unknown) => String((e as Error).message ?? e).replace(/^Erro
  *  the switch, the folders, the examples and the run time cap before every
  *  request, and keeps a project marked "noAi" out of sight. It asks the user,
  *  through the AI app, before it saves an edit and before it runs a project
- *  with Script blocks; it does not read the trust list shown here, which only
- *  Python code that uses `lightsim.ai_access.AgentSession` reads. Folders and
- *  trust can only be taken away here: a folder is added in the desktop app's
+ *  with Script blocks, but it cannot tell who answers: an answer the app sends
+ *  again repeats a run, or saves another copy of an edited example or new
+ *  project, and on the 2026-07-28 protocol an app that cannot ask may answer
+ *  itself. It does not read the trust list shown here, which only Python code
+ *  that uses `lightsim.ai_access.AgentSession` reads. Folders and trust can
+ *  only be taken away here: a folder is added in the desktop app's
  *  folder dialog, a project trusted with `lightsim ai trust`. When the
  *  organisation's policy turns AI access off, it cannot be turned on here.
  *  Every sentence about what AI tools do is held by
@@ -174,19 +177,21 @@ export function AiAccessPanel() {
 
       <div className={heading}>When an AI app has to ask you</div>
       <ul aria-label="Questions to you" className="list-disc pl-5">
-        <li>Reading, checking and comparing models: no question.</li>
+        <li>Reading, checking and comparing models, and running a project without Script blocks: no question.</li>
+        <li>Saving an edit: LightSim asks you first.</li>
         <li>
-          Saving an edit: LightSim asks you each time. An AI app that cannot ask you cannot save.
-        </li>
-        <li>
-          Running a project with Script blocks (Python code): LightSim asks you before each run, and the question does
-          not show the code. On Windows such a project does not run at all unless the connection was started with{" "}
+          Running a project with Script blocks (Python code): LightSim asks you first, and the question does not show
+          the code. On Windows such a project does not run at all unless the connection was started with{" "}
           <code>--trust-scripts</code>. As in the app, LightSim also refuses Script code you have not approved there (
           <b>Run scripts</b>).
         </li>
       </ul>
       <p className="text-[color:var(--ss-text-dim)]">
-        Your AI app shows the question and sends the answer back, and LightSim cannot tell who answered.
+        Your AI app shows the question and sends the answer back, and LightSim cannot tell who answered. An app that
+        sends your answer again repeats a run, or saves another copy of an edited example or new project, without asking
+        you. An AI app on MCP's older handshake that cannot ask you is refused anything that needs your yes. On MCP's 28
+        July 2026 revision LightSim does not check whether the app can ask, so an app that answers for you can save
+        edits and run Script projects. Connect only an AI app that shows you each question.
       </p>
 
       <div className={heading}>Trusted projects (Python package only)</div>

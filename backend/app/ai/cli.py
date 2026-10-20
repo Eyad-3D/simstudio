@@ -113,7 +113,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--read-only", action="store_true", help="refuse every edit")
     parser.add_argument("--trust-scripts", action="store_true",
                         help="let the assistant run projects with Script blocks on Windows "
-                             "(after you confirm each run)")
+                             "(LightSim still asks you before it runs one)")
     parser.add_argument("--max-run-seconds", type=float, default=300.0,
                         help="stop an assistant's run after this long (default 300)")
     sub = parser.add_subparsers(dest="command")

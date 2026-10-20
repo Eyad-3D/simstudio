@@ -4,9 +4,15 @@ Connect AI → AI access, the help (*Use an AI assistant*, *Command-line tool*,
 *Python API*), Known issues, the README and the skill pack all say what an
 AI app can do through LightSim's MCP server today:
 
-- it reads, checks and compares with no question;
+- it reads, checks and compares, and runs a project without Script blocks,
+  with no question;
 - it asks the user, through the AI app, before it saves an edit and before
-  it runs a project with Script blocks, each time;
+  it runs a project with Script blocks; but the answer the app sends back
+  is not single-use: sent again, it repeats a run, or saves another copy of
+  an edited example or new project, with no new question;
+- an app on the older handshake that cannot ask is refused what needs a
+  yes; on the 2026-07-28 protocol the server does not check whether the app
+  can ask, so an app that answers itself can save and run;
 - on Windows it runs such a project only when the connection was started
   with ``--trust-scripts``;
 - it does NOT read the trust list that ``lightsim ai trust`` keeps: only
@@ -16,17 +22,27 @@ AI app can do through LightSim's MCP server today:
 - LightSim's own approval of Script code (app/script_trust.py) applies to an
   AI app's run, so code nobody approved in the app fails the run;
 - LightSim cannot tell who answered a question, and the question for a run
-  does not show the code.
+  does not show the code;
+- the AI apps' audit log has a line for each call that reaches a tool, but
+  not for a call that brings back the user's no, a run sent as a task that
+  is asked about or refused before it starts, or a call of a tool LightSim
+  does not have.
 
 The behaviour is held in test_mcp_server.py (``test_reading_asks_the_user_
 nothing``, ``test_every_script_run_asks_and_the_trust_list_is_not_read``,
+``test_a_yes_sent_again_repeats_a_run_or_saves_another_copy_without_a_new_question``,
+``test_whether_an_app_can_ask_is_checked_only_on_the_older_handshake``,
 ``test_an_app_that_cannot_ask_gets_a_refusal_for_a_script_run``,
-``test_script_code_nobody_approved_fails_the_run_even_after_a_yes``, and the
-Windows rule in ``test_script_projects_run_only_after_a_yes``) and in
+``test_script_code_nobody_approved_fails_the_run_even_after_a_yes``,
+``test_what_the_audit_log_leaves_out``, and the Windows rule in
+``test_script_projects_run_only_after_a_yes``) and in
 test_ai_access.py (what ``AgentSession`` does with the list). This file holds
 the rest of the facts about the Python side, and the words: the page, the
-help and the other places that repeat the claim must say it, and must not
-say the old claim again (that the trust list governs AI apps).
+help and the other places that repeat the claim must say it, must not
+say the old claim again (that the trust list governs AI apps), and must not
+say more than the code does (that LightSim asks before *each* run, that
+nothing is saved or run for an app that cannot ask, that every call is
+logged).
 
 When the behaviour changes, change these tests with the page and the help.
 """
@@ -93,8 +109,11 @@ def test_lightsim_ai_log_lists_only_the_calls_through_agentsession(tmp_path, mon
 
 def test_the_run_case_tool_tells_an_agent_what_it_will_meet():
     description = next(t for t in TOOLS if t["name"] == "run_case")["description"]
-    assert "confirms each run" in description
+    assert "says yes to LightSim's question" in description
+    assert "sent again it repeats the run without asking the user" in description
     assert "has not been approved" in description
+    edit = next(t for t in TOOLS if t["name"] == "model_edit")["description"]
+    assert "a yes sent again saves another copy" in edit
 
 
 # -- the words -------------------------------------------------------------------
@@ -107,27 +126,42 @@ def text(rel: str) -> str:
     return re.sub(r"\s+", " ", raw)
 
 
+#: what an answer sent again does (the page, the help, Known issues)
+AGAIN = ("app that sends your answer again repeats a run, or saves another copy of an edited "
+         "example or new project, without asking you")
+#: what an app that cannot ask can do (the page, the help, Known issues)
+OLDER = "that cannot ask you is refused anything that needs your yes"
+NEWER = ("LightSim does not check whether the app can ask, so an app that answers for you can "
+         "save edits and run Script projects")
+#: what the AI apps' log leaves out (the help, Known issues)
+UNLOGGED = "a call that brings back your no"
+
 #: sentences each place must keep saying (after text())
 MUST_SAY = {
     PANEL: [
         "<code>--trust-scripts</code>",
-        "Saving an edit: LightSim asks you each time.",
-        "LightSim asks you before each run, and the question does not show the code.",
+        "running a project without Script blocks: no question.",
+        "Saving an edit: LightSim asks you first.",
+        "LightSim asks you first, and the question does not show the code.",
         "LightSim cannot tell who answered.",
+        AGAIN, OLDER, NEWER,
+        "Connect only an AI app that shows you each question.",
         "Trusted projects (Python package only)",
         "Only Python code that uses <code>lightsim.ai_access.AgentSession</code> reads it",
         "The connection for AI apps does not read this list.",
         "refuses Script code you have not approved there",
     ],
     HOWTO: [
-        "LightSim asks you each time",
-        "makes LightSim ask you before each run, in the AI app",
+        "and run a project without Script blocks, with no question to you",
+        "to save one, LightSim asks you first",
+        "makes LightSim ask you before it runs, in the AI app",
         "it does not show the code",
         "does not run at all unless you added `--trust-scripts` to the connection",
         "Code that is not code you approved in LightSim makes the run fail",
         "LightSim cannot tell whether you or the assistant answered",
-        "an app that sends your answer again repeats a run, or saves another copy of an edited example, without asking you",
-        "If an AI app cannot ask you, nothing is saved or run",
+        AGAIN, OLDER, NEWER, UNLOGGED,
+        "that LightSim asks about or refuses before it starts",
+        "(not the calls the log leaves out, above)",
         "**Trusted projects (Python package only)**",
         "Only Python code that uses `AgentSession` reads this list",
         "The connection for AI apps does not read it",
@@ -135,24 +169,32 @@ MUST_SAY = {
     COMMAND_LINE: [
         "Two things read these settings",
         "The connection for AI apps does not read the list.",
-        "makes LightSim ask you before each run, in the AI app",
+        "makes LightSim ask you before it runs, in the AI app",
         "The trust list above plays no part.",
         "code you have not approved there makes the run fail",
-        "LightSim cannot tell who answered. If an AI app cannot ask you, nothing is saved or run.",
+        "only after you say yes to the change in the AI app",
+        "LightSim cannot tell who answered, and an " + AGAIN,
+        OLDER, NEWER, UNLOGGED,
+        "that LightSim asks about or refuses before it starts, and a call of a tool LightSim does not have",
         "The last calls made through `AgentSession`",
         "It runs a project with Script blocks only if you trusted the project",
     ],
     PYTHON_API: [
         "the `lightsim` package does not read the AI access settings",
         "reads the same settings but does not use `AgentSession`",
+        AGAIN,
     ],
     KNOWN_LIMITS: [
-        "**AI apps are asked first; the trust list is not used.**",
-        "and it does not read the trust list (`lightsim ai trust`)",
+        "**AI apps pass on LightSim's questions; the trust list is not used.**",
+        "does not read the trust list (`lightsim ai trust`), and its questions before an edit or a run "
+        "of a project with Script blocks go through the AI app, which can answer for you or send your "
+        "answer again.",
+        AGAIN, "(an edit of a saved project asks again)", OLDER, NEWER,
         "(for the whole connection, not per project), and then it still asks",
         "`lightsim run` and the `lightsim` package read no AI access setting at all",
         "LightSim cannot tell who answered a question",
-        "an app that sends the answer to a run's question again repeats that run, and one that sends the answer to an edit of an example again saves another copy, without a new question",
+        "That log leaves out " + UNLOGGED + ", and a run sent as a task that LightSim asks about or "
+        "refuses before it starts.",
         "not the script's code",
         "makes the run fail until you choose **Run scripts** there",
         "`lightsim ai log` lists only the calls made through `AgentSession`",
@@ -168,10 +210,15 @@ MUST_SAY = {
         "The `lightsim ai trust` list plays no part.",
         "the run ends *failed* with \"has not been approved to run\"",
         "tell the user to open the project in LightSim and choose **Run scripts**",
+        "an answer sent again repeats the run, or saves another copy of an edited example or new "
+        "project, without asking the user",
+        "Only the user answers LightSim's questions.",
     ],
-    SKILL_LIMITS: [
-        "**AI apps are asked first; the trust list is not used.**",
-        "it does not read the trust list (`lightsim ai trust`)",
+    SKILL_LIMITS: [  # only the first sentence of the entry reaches the skill pack
+        "**AI apps pass on LightSim's questions; the trust list is not used.**",
+        "does not read the trust list (`lightsim ai trust`), and its questions before an edit or a run "
+        "of a project with Script blocks go through the AI app, which can answer for you or send your "
+        "answer again.",
     ],
 }
 
@@ -201,6 +248,22 @@ OLD_CLAIMS = [
     "trusting a project's script blocks (`lightsim ai trust <file>`) and hiding",
     "let ai tools run this project's script blocks (after you confirm)",
 ]
+#: what the code does not do: ask before *each* run whatever the app sends,
+#: refuse every app that cannot ask, log every call
+OVERSTATED = [
+    "asks you each time",
+    "script blocks, each time",
+    "before each run",
+    "confirms each run",
+    "confirm each run",
+    "confirm each change",
+    "nothing is saved or run",
+    "cannot ask you cannot save",
+    "every tool call an ai app makes, allowed or refused",
+    "every request is written to a log",
+    "every tool call goes into a local audit log",
+    "every call is logged",
+]
 #: a mention of the trust command must say, near it, who reads the list
 WHO_READS = ("AgentSession", "does not read", "is not read", "plays no part", "not used")
 
@@ -222,7 +285,8 @@ def _places():
 def test_the_places_to_check_are_found():
     names = {f.name for f in _places()}
     assert {"AiAccessPanel.tsx", "use-an-ai-assistant.md", "command-line.md", "KNOWN-LIMITS.md",
-            "README.md", "ai_access.py", "mcp_server.py"} <= names
+            "README.md", "ai_access.py", "mcp_server.py", "SKILL.md",
+            "known-limits.md", "tools.py"} <= names
 
 
 def test_no_place_repeats_the_old_claim():
@@ -231,6 +295,14 @@ def test_no_place_repeats_the_old_claim():
         page = re.sub(r"\s+", " ", f.read_text(encoding="utf-8")).lower()
         found += [f"{f.relative_to(ROOT)}: {claim}" for claim in OLD_CLAIMS if claim in page]
     assert not found, "these still say the trust list governs AI apps:\n" + "\n".join(found)
+
+
+def test_no_place_says_more_than_the_connection_does():
+    found = []
+    for f in _places():
+        page = re.sub(r"\s+", " ", f.read_text(encoding="utf-8")).lower()
+        found += [f"{f.relative_to(ROOT)}: {claim}" for claim in OVERSTATED if claim in page]
+    assert not found, "these say more than the AI connection does:\n" + "\n".join(found)
 
 
 def test_every_mention_of_the_trust_command_says_who_reads_the_list():

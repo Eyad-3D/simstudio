@@ -100,17 +100,22 @@ What an AI app can do once access is on:
   asks you nothing.
 - **Run** a case. A run stops after 300 s. A project with Script blocks
   (Python code that runs on your computer) makes LightSim ask you before
-  each run, in the AI app; the question does not show the code. On Windows
+  it runs, in the AI app; the question does not show the code. On Windows
   the Script sandbox is weaker (see [Known issues](../../KNOWN-LIMITS.md)),
   so such a project does not run unless the connection was started with
-  `--trust-scripts`, and you are asked before each run then too. The trust
-  list above plays no part. LightSim's check of script code applies as in
-  the app: code you have not approved there makes the run fail.
-- **Change** a project only after you confirm each change.
+  `--trust-scripts`, and you are asked then too. The trust list above
+  plays no part. LightSim's check of script code applies as in the app:
+  code you have not approved there makes the run fail.
+- **Change** a project only after you say yes to the change in the AI app.
 
 Your AI app shows these questions and sends your answer back; LightSim
-cannot tell who answered. If an AI app cannot ask you, nothing is saved or
-run.
+cannot tell who answered, and an app that sends your answer again repeats
+a run, or saves another copy of an edited example or new project, without
+asking you. An AI app on MCP's older handshake that cannot ask you is
+refused anything that needs your yes. On MCP's 28 July 2026 revision
+LightSim does not check whether the app can ask, so an app that answers
+for you can save edits and run Script projects. Connect only an AI app
+that shows you each question.
 
 Python code that goes through `AgentSession` sees the same folders, the
 same `"noAi"` mark and the same time cap. It runs a project with Script
@@ -118,8 +123,11 @@ blocks only if you trusted the project with `lightsim ai trust`, and each
 run needs `confirmed=True`.
 
 Labels, descriptions and script text from your projects reach the AI as
-quoted data, not as instructions. Every tool call an AI app makes, allowed
-or refused, is written to `.ai/audit.jsonl` in your projects folder; every
-call through `AgentSession` goes to `ai-audit.jsonl` next to the settings
-file (`ai-access.json` in `%APPDATA%\LightSim` on Windows,
-`~/.config/LightSim` on Linux). The logs never leave your computer.
+quoted data, not as instructions. Each tool call an AI app makes, done or
+not, is written to `.ai/audit.jsonl` in your projects folder, except a
+call that brings back your no, a run sent as a task (a long run the AI app
+checks on) that LightSim asks about or refuses before it starts, and a
+call of a tool LightSim does not have. Every call through `AgentSession`
+goes to `ai-audit.jsonl` next to the settings file (`ai-access.json` in
+`%APPDATA%\LightSim` on Windows, `~/.config/LightSim` on Linux). The logs
+never leave your computer.

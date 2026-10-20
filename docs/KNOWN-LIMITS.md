@@ -1116,37 +1116,44 @@ minimum or an average, for example from the CSV export, or put the
   repository, as the desktop engine's `lightsim-backend run …`, or as a
   wheel you build with `scripts/build-wheel.py`; it is not on PyPI yet.
   *Roadmap:* AI-02, AI-07.
-- **AI apps are asked first; the trust list is not used.** The connection
-  for AI apps (the MCP server) makes LightSim ask you, through the AI app,
-  before it saves an edit and before it runs a project with Script blocks,
-  each time, and it does not read the trust list (`lightsim ai trust`).
-  On Windows it runs such a project only if it was started with
+- **AI apps pass on LightSim's questions; the trust list is not used.**
+  The connection for AI apps (the MCP server) does not read the trust list
+  (`lightsim ai trust`), and its questions before an edit or a run of a
+  project with Script blocks go through the AI app, which can answer for
+  you or send your answer again. It asks you before it saves an edit and
+  before it runs a project with Script blocks, but LightSim cannot tell
+  who answered a question, because the AI app shows it and sends the
+  answer back. An app that sends your answer again repeats a run, or saves
+  another copy of an edited example or new project, without asking you (an
+  edit of a saved project asks again). An AI app on MCP's older handshake
+  that cannot ask you is refused anything that needs your yes. On MCP's 28
+  July 2026 revision LightSim does not check whether the app can ask, so
+  an app that answers for you can save edits and run Script projects. On
+  Windows the connection runs such a project only if it was started with
   `--trust-scripts` (for the whole connection, not per project), and then
   it still asks. Only Python code that goes through
-  `lightsim.ai_access.AgentSession` reads the trust list, and `lightsim
-  run` and the `lightsim` package read no AI access setting at all.
-  LightSim cannot tell who answered a question, because the AI app shows
-  it and sends the answer back, and an app that sends the answer to a
-  run's question again repeats that run, and one that sends the answer to
-  an edit of an example again saves another copy, without a new question.
-  The question for a run names the project and the case, not the script's
-  code. LightSim's check of script code (the scripts entry above) applies
-  to an AI app's run as to yours: code you have not approved in the app,
-  such as a script the assistant wrote, makes the run fail until you
-  choose **Run scripts** there. `lightsim ai log` lists only the calls
+  `lightsim.ai_access.AgentSession` reads the trust list, and
+  `lightsim run` and the `lightsim` package read no AI access setting at
+  all. The question for a run names the project and the case, not the
+  script's code. LightSim's check of script code (the scripts entry above)
+  applies to an AI app's run as to yours: code you have not approved in
+  the app, such as a script the assistant wrote, makes the run fail until
+  you choose **Run scripts** there. `lightsim ai log` lists only the calls
   made through `AgentSession`; an AI app's calls are in `.ai/audit.jsonl`
-  in your projects folder, and the *AI access* tab shows both.
+  in your projects folder, and the *AI access* tab shows both. That log
+  leaves out a call that brings back your no, and a run sent as a task
+  that LightSim asks about or refuses before it starts. *Roadmap:* AI-01.
+- **A few AI access settings are on the command line only.** *Connect AI →
+  AI access* turns AI access on and off, removes allowed folders (and adds
+  one with the desktop app's folder dialog), shows or hides the examples,
+  takes projects off the trust list, sets the run time cap and lists the
+  latest calls. Putting a project on the trust list
+  (`lightsim ai trust <file>`, the list only `AgentSession` reads) and
+  hiding one project from AI tools (`lightsim ai block <file>`) are done
+  on the command line. On Windows, a run of a project with Script blocks
+  opens a private connection on 127.0.0.1 between the engine and its
+  script process for a moment; on Linux it uses no network at all.
   *Roadmap:* AI-01.
-- **A few AI access settings are on the command line only.** *Connect AI
-  → AI access* turns AI access on and off, removes allowed folders (and
-  adds one with the desktop app's folder dialog), shows or hides the
-  examples, takes projects off the trust list, sets the run time cap and
-  lists the latest calls. Putting a project on the trust list
-  (`lightsim ai trust <file>`) and hiding one project from AI tools
-  (`lightsim ai block <file>`) are done on the command line. On Windows, a
-  run of a project with Script blocks opens a private connection on
-  127.0.0.1 between the engine and its script process for a moment; on
-  Linux it uses no network at all. *Roadmap:* AI-01.
 - **Unsigned installers, until the owner buys a certificate.** The build
   can sign every Windows file, but only once the owner has a code-signing
   certificate. Until then Windows SmartScreen warns on first launch (choose
