@@ -524,8 +524,8 @@ a discontinuity. The contract:
   block's output at its tick), a crossing that reads it jumps between two
   steps, where no root is to be found, and a crossing that is exactly 0
   as it starts to move shows no sign change at all: the run loop must
-  then enter event mode at the jump (fire the clauses whose crossings
-  changed sign across it, set the modes, iterate) and check every mode
+  then enter event mode at the jump (fire the clauses whose conditions
+  became true across it, set the modes, iterate) and check every mode
   against its crossing after each step, as the forward run loop does and
   fast mode does (section 10).
 
@@ -2446,19 +2446,37 @@ save most of those 10 ms in every run, sequential or not (a change to
   outputs may: an input event (FMI 3.0: an input with a discontinuity).
   The stepper enters event mode there: with the roots just before the
   jump (the last step's end) and just after it, it fires each `when`
-  whose crossing changed sign in its direction, runs the actions, sets
+  whose condition became true (Modelica's semantics, as the forward run
+  loop has them: `x >= 0` holds at zero, a strict `x > 0` does not, so a
+  strict `when` fires as its crossing leaves zero upwards and not as it
+  reaches zero from below; `WhenInfo::strict`), runs the actions, sets
   every mode from its relation and repeats, each round's roots against
   the last, until nothing changes (a located event's actions are followed
-  by the same iteration). After each step it checks every mode against
-  its crossing, as the forward run loop does: a mode whose crossing left
-  exactly 0 at the step's start (no crossing test sees that) is set
-  there and the step redone; one wrong for another reason is set at the
-  step's end. Before this, a mode on the acceleration kept its value
-  across every sample where the acceleration changed sign (the review's
-  probe, x' = d with d = [der(v) > 0] on 0 → 1 → 0 m/s: x(4) = 4 instead
-  of 2), and the inverse body's rolling resistance stayed off after the
-  first start from rest: the example cars' charge used came out 25 to
-  48 % short on 7 of their 9 cycles, without a flag.
+  by the same iteration). After each step it checks the conditions whose
+  crossings were exactly 0 at the step's start and left it within the
+  step, which no crossing test sees: a mode whose relation that changes,
+  a strict `when` that becomes true. They change at the step's start:
+  event mode there, those crossings taken on the side they leave to (as
+  just after the instant; the mode held there, not set again from its
+  relation, which at zero says the opposite), so the modes and clauses
+  that depend on them follow at once; then the step again. A mode wrong
+  for another reason is set at the step's end. Before this, a mode on
+  the acceleration kept its value across every sample where the
+  acceleration changed sign (the review's probe, x' = d with d =
+  [der(v) > 0] on 0 → 1 → 0 m/s: x(4) = 4 instead of 2), and the inverse
+  body's rolling resistance stayed off after the first start from rest:
+  the example cars' charge used came out 25 to 48 % short on 7 of their
+  9 cycles, without a flag; a strict `when der(v) > 0` counted the stops
+  of a trace, not its starts (OpenModelica: 2 starts, at 2 and 8 s; fast
+  mode 1, at the stop at 6 s); and a mode on a mode set where its
+  crossing left zero followed one step late (d0 = [v > 0], d1 =
+  [d0 > 0.5], x' = d1, a car that stands until 2 s and drives off:
+  x(4) = 1; OpenModelica gives 2 to 4e-10, fast mode now 2 to round-off).
+  A property test drives traces that stand at exactly 0, start, stop and
+  start again at random, and checks the time a mode on the speed holds,
+  the same for a mode on that mode, and a strict counter of the starts
+  against their exact values, with samples added on the lines too
+  (`lsim-fast/tests/input_events.rs`).
 * **Verified against forward runs and against FASTSim** (`engine/judge/
   fast.py`, 20 October 2026): where no flag is raised, fast mode's charge
   used must be within 1 % of the full dynamic run's (rtol 1e-6) on the

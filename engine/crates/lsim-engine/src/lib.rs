@@ -268,6 +268,7 @@ impl Engine {
             .map(|(w, l)| WhenInfo {
                 crossing: w.crossing,
                 direction: w.direction,
+                strict: w.strict,
                 label: l.clone(),
             })
             .collect();

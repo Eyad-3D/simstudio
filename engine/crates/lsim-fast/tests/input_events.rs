@@ -67,11 +67,13 @@ impl Moded {
                     WhenInfo {
                         crossing: 2 * k,
                         direction: Direction::Rising,
+                        strict: false,
                         label: format!("on {k}"),
                     },
                     WhenInfo {
                         crossing: 2 * k + 1,
                         direction: Direction::Falling,
+                        strict: false,
                         label: format!("off {k}"),
                     },
                 ]
@@ -203,6 +205,104 @@ fn a_mode_leaving_zero_at_a_bend_is_set_where_it_leaves() {
     let x = r.channel("v[0]").unwrap();
     assert!((x[4] - 2.0).abs() < 1e-12, "x(4) = {}", x[4]);
     assert_eq!(r.events.iter().map(|e| (e.t, e.when)).collect::<Vec<_>>(), [(2.0, 0)]);
+}
+
+/// A mode set where its crossing leaves zero changes, at that instant, the
+/// crossing of a mode on it, which must follow there (event mode: the
+/// modes settle and iterate): d0 = [v > 0], d1 = [d0 − 0.5 > 0], x' = d1,
+/// the car standing until 2 s and then driving off, so d0 and d1 hold from
+/// 2 s and x(4) = 2 (OpenModelica: 1.9999999996; d1 followed one step
+/// late, and x(4) was 1, before).
+#[test]
+fn a_mode_set_where_its_crossing_leaves_zero_settles_the_modes_on_it() {
+    let m = Moded::new(
+        1,
+        2,
+        2,
+        3,
+        Box::new(|i, out| out[0] = i.d[1]),
+        Box::new(|i, out| {
+            out[0] = i.u[0];
+            out[1] = i.u[0];
+            out[2] = i.d[0] - 0.5;
+            out[3] = i.d[0] - 0.5;
+        }),
+        Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+            out[2] = i.d[1];
+        }),
+    );
+    let traces = [Trace::new(vec![0.0, 2.0, 4.0], vec![0.0, 0.0, 2.0]).unwrap()];
+    let r = fast(&m, &traces, &FastOptions::default(), &mut []);
+    let (x, d1) = (r.channel("v[0]").unwrap(), r.channel("v[2]").unwrap());
+    assert!((x[4] - 2.0).abs() < 1e-12, "x(4) = {}", x[4]);
+    assert_eq!(d1, [0.0, 0.0, 0.0, 1.0, 1.0], "d1 at 0 … 4 s (left limits)");
+    assert_eq!(r.events.iter().map(|e| (e.t, e.when)).collect::<Vec<_>>(), [(2.0, 0), (2.0, 2)]);
+}
+
+/// `when der(v) > 0 then n = pre(n) + 1`, not a mode: a counter of a
+/// trace's starts from rest. Its condition is strict: false where der(v)
+/// is 0, so it fires where der(v) leaves 0 upwards (the starts at 2 s and
+/// 8 s) and not where it reaches 0 from below (the stop at 6 s), as in
+/// Modelica and the forward run loop (OpenModelica: n = 2, at 2 and 8 s;
+/// fast mode counted 1, at 6 s, before).
+#[test]
+fn a_strict_when_fires_where_its_crossing_leaves_zero() {
+    struct Counter(Layout);
+    impl ModelFunctions for Counter {
+        fn layout(&self) -> &Layout {
+            &self.0
+        }
+        fn residual(&self, _inp: &EvalInput<'_>, _w: &mut [f64], out: &mut [f64]) {
+            out[0] = 0.0;
+        }
+        fn jvp(&self, _inp: &EvalInput<'_>, _v: &[f64], _w: &mut [f64], out: &mut [f64]) {
+            out[0] = 0.0;
+        }
+        fn roots(&self, inp: &EvalInput<'_>, _w: &mut [f64], out: &mut [f64]) {
+            out[0] = inp.u[1];
+        }
+        fn vars(&self, inp: &EvalInput<'_>, _w: &mut [f64], out: &mut [f64]) {
+            out[0] = inp.d[0];
+        }
+        fn when(&self, inp: &EvalInput<'_>, fired: &[f64], _w: &mut [f64], d_out: &mut [f64]) {
+            if fired[0] != 0.0 {
+                d_out[0] = inp.d[0] + 1.0;
+            }
+        }
+        fn start(&self, _p: &[f64], y0: &mut [f64], d0: &mut [f64]) {
+            y0[0] = 0.0;
+            d0[0] = 0.0;
+        }
+    }
+    let m = Counter(Layout {
+        n_x: 1,
+        n_u: 2,
+        n_d: 1,
+        n_roots: 1,
+        n_whens: 1,
+        n_vars: 1,
+        n_work: 1,
+        ..Default::default()
+    });
+    let whens = [WhenInfo {
+        crossing: 0,
+        direction: Direction::Rising,
+        strict: true,
+        label: "starts".into(),
+    }];
+    let traces = [Trace::new(
+        vec![0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0],
+        vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0],
+    )
+    .unwrap()];
+    let o = FastOptions::default();
+    let mut p = FastProblem::new(&m, &[], &traces, &o);
+    p.whens = &whens;
+    let r = run(&p, &mut []).unwrap();
+    assert_eq!(r.events.iter().map(|e| e.t).collect::<Vec<_>>(), [2.0, 8.0]);
+    assert_eq!(*r.channel("v[0]").unwrap().last().unwrap(), 2.0);
 }
 
 /// A `when` clause on the acceleration fires at every sample where the
@@ -367,6 +467,152 @@ proptest! {
         for ((wa, ta), (wb, tb)) in ea.iter().zip(&eb) {
             prop_assert_eq!(wa, wb);
             prop_assert!((ta - tb).abs() <= 1e-12 * (1.0 + ta.abs()));
+        }
+    }
+}
+
+/// The model of the starts test: the mode d0 = [v > 0], the mode on it
+/// d1 = [d0 > 0.5], x0' = d0, x1' = d1, and `when der(v) > 0 then n =
+/// pre(n) + 1` (strict, not a mode) counting the trace's starts; channels
+/// x0, x1, n.
+struct Starts(Layout);
+
+impl Starts {
+    fn new() -> Self {
+        Starts(Layout {
+            n_x: 2,
+            n_u: 2,
+            n_d: 3,
+            n_roots: 5,
+            n_whens: 5,
+            n_vars: 3,
+            n_work: 1,
+            ..Default::default()
+        })
+    }
+}
+
+impl ModelFunctions for Starts {
+    fn layout(&self) -> &Layout {
+        &self.0
+    }
+    fn residual(&self, inp: &EvalInput<'_>, _w: &mut [f64], out: &mut [f64]) {
+        out[0] = inp.d[0];
+        out[1] = inp.d[1];
+    }
+    fn jvp(&self, _inp: &EvalInput<'_>, _v: &[f64], _w: &mut [f64], out: &mut [f64]) {
+        out.iter_mut().for_each(|o| *o = 0.0);
+    }
+    fn roots(&self, inp: &EvalInput<'_>, _w: &mut [f64], out: &mut [f64]) {
+        out[0] = inp.u[0];
+        out[1] = inp.u[0];
+        out[2] = inp.d[0] - 0.5;
+        out[3] = inp.d[0] - 0.5;
+        out[4] = inp.u[1];
+    }
+    fn vars(&self, inp: &EvalInput<'_>, _w: &mut [f64], out: &mut [f64]) {
+        out[0] = inp.y[0];
+        out[1] = inp.y[1];
+        out[2] = inp.d[2];
+    }
+    fn when(&self, inp: &EvalInput<'_>, fired: &[f64], _w: &mut [f64], d_out: &mut [f64]) {
+        for (k, (i, v)) in [(0, 1.0), (0, 0.0), (1, 1.0), (1, 0.0)].into_iter().enumerate() {
+            if fired[k] != 0.0 {
+                d_out[i] = v;
+            }
+        }
+        if fired[4] != 0.0 {
+            d_out[2] = inp.d[2] + 1.0;
+        }
+    }
+    fn modes(&self, inp: &EvalInput<'_>, _w: &mut [f64], d_out: &mut [f64]) {
+        d_out[0] = if inp.u[0] > 0.0 { 1.0 } else { 0.0 };
+        d_out[1] = if inp.d[0] - 0.5 > 0.0 { 1.0 } else { 0.0 };
+    }
+    fn start(&self, _p: &[f64], y0: &mut [f64], d0: &mut [f64]) {
+        y0.iter_mut().for_each(|v| *v = 0.0);
+        d0.iter_mut().for_each(|v| *v = 0.0);
+    }
+}
+
+fn starts(traces: &[Trace]) -> FastResult {
+    let m = Starts::new();
+    let w = |crossing, direction, strict, label: &str| WhenInfo {
+        crossing,
+        direction,
+        strict,
+        label: label.into(),
+    };
+    let whens = [
+        w(0, Direction::Rising, false, "on 0"),
+        w(1, Direction::Falling, false, "off 0"),
+        w(2, Direction::Rising, false, "on 1"),
+        w(3, Direction::Falling, false, "off 1"),
+        w(4, Direction::Rising, true, "starts"),
+    ];
+    let modes = [
+        ModeInfo { crossing: 0, discrete: 0, label: "moving".into() },
+        ModeInfo { crossing: 2, discrete: 1, label: "moving, again".into() },
+    ];
+    let o = FastOptions::default();
+    let mut p = FastProblem::new(&m, &[], traces, &o);
+    p.whens = &whens;
+    p.modes = &modes;
+    run(&p, &mut []).unwrap_or_else(|e| panic!("{e}"))
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 64, ..ProptestConfig::default() })]
+
+    /// A trace that stands at exactly 0 m/s, starts, stops and starts
+    /// again, at random: the time it moves, counted by the mode and by the
+    /// mode on that mode, is exactly the time of its pieces that are not
+    /// both ends at rest, at every output; the strict `when` counts each
+    /// sample where its slope turns from not rising to rising; and samples
+    /// added on its lines change none of it. (The mode on the mode lagged
+    /// a step behind at every start from rest, and the count saw the stops
+    /// instead of the starts, before.)
+    #[test]
+    fn standing_starting_and_a_mode_on_a_mode_are_exact(
+        knots in prop::collection::vec((0.3f64..2.5, prop_oneof![Just(0.0), 0.2f64..3.0]), 2..10),
+        v0 in prop_oneof![Just(0.0), 0.2f64..3.0],
+        cuts in prop::collection::vec((0usize..10, 0.05f64..0.95), 0..8),
+    ) {
+        let mut t = vec![0.0];
+        let mut v = vec![v0];
+        for &(dt, vk) in &knots {
+            t.push(t[t.len() - 1] + dt);
+            v.push(vk);
+        }
+        // the exact answers: moving time up to each instant, and the starts
+        let moving = |at: f64| -> f64 {
+            (0..t.len() - 1)
+                .filter(|&k| !(v[k] == 0.0 && v[k + 1] == 0.0))
+                .map(|k| (at.min(t[k + 1]) - t[k]).max(0.0))
+                .sum()
+        };
+        let slope = |k: usize| (v[k + 1] - v[k]) / (t[k + 1] - t[k]);
+        let n_starts = (1..t.len() - 1).filter(|&k| slope(k - 1) <= 0.0 && slope(k) > 0.0).count();
+        let mut t2 = t.clone();
+        let mut v2 = v.clone();
+        for &(k, f) in &cuts {
+            let k = k % (t.len() - 1);
+            t2.push(t[k] + (t[k + 1] - t[k]) * f);
+            v2.push(v[k] + (v[k + 1] - v[k]) * f);
+        }
+        let mut pts: Vec<(f64, f64)> = t2.into_iter().zip(v2).collect();
+        pts.sort_by(|a, b| a.0.total_cmp(&b.0));
+        pts.dedup_by(|b, a| b.0 == a.0);
+        let (t2, v2): (Vec<f64>, Vec<f64>) = pts.into_iter().unzip();
+        for (tt, vv) in [(t.clone(), v.clone()), (t2, v2)] {
+            let r = starts(&[Trace::new(tt, vv).unwrap()]);
+            let (x0, x1, n) =
+                (r.channel("v[0]").unwrap(), r.channel("v[1]").unwrap(), r.channel("v[2]").unwrap());
+            for (k, at) in r.times.iter().enumerate() {
+                prop_assert!((x0[k] - moving(*at)).abs() <= 1e-9, "x0({}) = {} not {}", at, x0[k], moving(*at));
+                prop_assert!((x1[k] - x0[k]).abs() <= 1e-12, "x1({}) = {} not {}", at, x1[k], x0[k]);
+            }
+            prop_assert_eq!(*n.last().unwrap(), n_starts as f64, "{:?}", r.events);
         }
     }
 }

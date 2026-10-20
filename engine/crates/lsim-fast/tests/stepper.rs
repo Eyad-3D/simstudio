@@ -337,8 +337,12 @@ fn a_zero_crossing_is_located_and_its_clause_runs() {
     }));
     let traces = [Trace::new(vec![0.0, 4.0], vec![0.0, 0.0]).unwrap()];
     let o = FastOptions::default();
-    let whens =
-        [WhenInfo { crossing: 0, direction: Direction::Rising, label: "'Brake': engages".into() }];
+    let whens = [WhenInfo {
+        crossing: 0,
+        direction: Direction::Rising,
+        strict: false,
+        label: "'Brake': engages".into(),
+    }];
     let mut p = FastProblem::new(&m, &[], &traces, &o);
     p.whens = &whens;
     let r = run(&p, &mut []).unwrap();
@@ -381,7 +385,12 @@ fn an_event_at_a_steps_end_ends_the_step() {
     }));
     let traces = [Trace::new(vec![0.0, 2.0, 3.0], vec![2.0, 0.0, 0.0]).unwrap()];
     let o = FastOptions::default();
-    let whens = [WhenInfo { crossing: 0, direction: Direction::Falling, label: "stops".into() }];
+    let whens = [WhenInfo {
+        crossing: 0,
+        direction: Direction::Falling,
+        strict: false,
+        label: "stops".into(),
+    }];
     let mut p = FastProblem::new(&m, &[], &traces, &o);
     p.whens = &whens;
     let r = run(&p, &mut []).unwrap();

@@ -45,8 +45,9 @@
 //! **Input events.** At a breakpoint the slope jumps, and so does every
 //! input that is a derivative; at a sampled block's tick its outputs may
 //! jump. The stepper treats each as FMI 3.0 treats an input with a
-//! discontinuity: event mode, in which the `when` clauses whose crossings
-//! changed sign across the jump fire and the modes are set from their
+//! discontinuity: event mode, in which the `when` clauses whose conditions
+//! became true across the jump fire (strict ones as the forward run loop
+//! fires them: [`WhenInfo::strict`]) and the modes are set from their
 //! relations, before it steps on; it also checks every mode against its
 //! crossing after each step ([`FastProblem::modes`], DESIGN.md 5.6).
 //!
@@ -279,6 +280,10 @@ pub struct WhenInfo {
     pub crossing: usize,
     /// which way it must cross
     pub direction: Direction,
+    /// its condition is strict (`x > 0`, `x < 0`: it does not hold at
+    /// zero, and fires as its crossing leaves zero); otherwise (`x >= 0`,
+    /// `x <= 0`) it holds at zero (`PreparedWhen::strict`)
+    pub strict: bool,
     /// what it is, in words
     pub label: String,
 }
