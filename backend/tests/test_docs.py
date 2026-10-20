@@ -830,6 +830,11 @@ def test_the_formats_page_names_every_file_the_engine_and_the_desktop_app_write_
             assert [r for r in rows if kinds[choice] in r[0] and f"`export?format={choice}` route" in r[3]], (
                 f"the engine's export?format={choice} route writes a file no row names")
     assert any("MAT-file" in r[0] and "the app (**MATLAB**" in r[3] for r in rows)
+    # `lightsim-backend run --out x.csv` also writes the run card next to the CSV
+    run = (ROOT / "backend" / "app" / "dataio" / "cli.py").read_text(encoding="utf-8")
+    assert 'out_path.with_suffix(".runcard.json")' in run
+    assert any(r[0].startswith("Run card") and "`lightsim-backend run --out x.csv`" in r[3]
+               and "`x.runcard.json`" in r[3] for r in rows), "the page does not say where the run card goes"
     policy = (ROOT / "desktop" / "src" / "policy.js").read_text(encoding="utf-8")
     assert 'path.win32.join(base, "LightSim", "policy.json")' in policy
     row = next((r for r in rows if "\\ProgramData\\LightSim\\policy.json" in r[0]), None)
