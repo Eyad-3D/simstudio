@@ -1719,7 +1719,10 @@ the command was held at a limit it pushed against, made a heavy car that
 fell behind and caught up slide along full throttle (the Battery Electric
 Car at 6000 kg on the WLTC, stopped at 961.83 s). Its anti-windup is now
 `LimPID`'s back-calculation, which has no mode (section 12.2,
-`blocks/vehicle.rs`).
+`blocks/vehicle.rs`). One such storm is left on that car's map (section
+15): its battery at its minimum SOC, whose delivering mode switched 93
+times in 2.1 s as the car, coasting at its empty battery, began to
+recuperate (the long-haul cycle at 11 t).
 
 **Run-loop fixes after the golden comparison (work package 4, second
 round).**
@@ -2542,7 +2545,7 @@ against exact answers from `benchmarks/`.
 | today | new composition (sketch) |
 |---|---|
 | `battery.generic` | OCV(SOC, T) table source + R0(SOC, T) + up to two RC pairs + SOC integrator (∫i dt / capacity) + cell-limit outputs; thermal port |
-| `motor.emotor` | ideal machine (torque = demand × available torque at speed and voltage, `limit` on full-load curve) + loss map table → electrical power = mechanical + loss |
+| `motor.emotor` | ideal machine (torque = demand × available torque at speed and voltage, `limit` on full-load curve) + loss map table → electrical power = mechanical + loss; with its bus's supply window, the torque cut to the share of the command whose power fits, the inverter off where not even the spin losses fit (its torque the drag; the share is then not solved: at an empty battery it would have none, and IDA stopped with flag -4) |
 | `engine.combustion` | torque source with full-load and fuel maps (tables), fuel port, idle/on logic as modes |
 | `fuelcell.stack`, `fuel.h2_tank`, `fuel.tank` | polarisation table source; tanks as fuel-port reservoirs (mass state) |
 | `controller.dcdc` | average-model converter with efficiency, power conserved minus loss |
@@ -2843,6 +2846,34 @@ events name the modes that chatter.
   `count-oscillator-peaks` at six; section 8.2, a known limit; on the
   oscillator OpenModelica misses at five); every other case is the
   same, steps, error and events, as before the round.
+  The third verdict (20 October 2026, the solver work's item D: the
+  library Driver's anti-windup, section 12.2): the Modelica Standard
+  Library's `Blocks.Examples.PID_Controller` with the Driver as its
+  `LimPID` (`msl-pid-controller`), against the library's reference
+  result, was 1.6 off (relative to each signal's largest value) with the
+  frozen integral at every tolerance, and is 1.2e-4 off with
+  back-calculation at rtol 1e-7 … 1e-10, as OpenModelica's run of the
+  original example is (the reference's own accuracy, Dymola at 1e-6);
+  beside that run the engine's differs by 1.6e-7 at 1e-10 and the
+  instants the command reaches and leaves its limit by 2.9e-10 s, both
+  falling with the tolerance. The Battery Electric Car at 1 to 25 t on
+  the 27 bundled cycles and its own city cycle (`driver.py`, 701 runs,
+  each driven trace judged by 40 CFR 1066.425(b)): before, 504 runs
+  stopped as event storms of the frozen integral and 5 with a bare
+  SUNDIALS flag, 191 were inside the rule; after, 588 are inside, 75
+  outside only where the car was too fast with its brakes fully applied
+  (on 11 of the 28 columns: from 10 t on the LA92, 15 t on the US06, 18
+  to 23 t on the other nine), 37 inside only by the rule's allowance for
+  a car at its maximum available power, standing at its empty battery on
+  the two long-haul cycles (they stopped with a bare flag -4 until the
+  E-Motor's fix, section 12.2), and one stops with an event storm the
+  run loop names (the battery's minimum-SOC mode, long-haul at 11 t).
+  None is outside where the Driver could have helped. On the heavy cars
+  today's engine differs from the new one by up to 2 % in consumption,
+  and by 0.13 % or less once its frozen integral is replaced by
+  back-calculation at its 1 ms step (`driver.py today
+  --back-calculation`, a check only): the difference is the
+  anti-windup (STATUS.md).
 * **Performance gates**: not built yet. When they are, they compare build
   time (prepare + compile) and run time for each example car in both modes
   with the base commit (as the backend's performance job does) and with

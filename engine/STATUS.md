@@ -167,3 +167,113 @@ was checked against the 7.9.0 release; the vendored copy stays at 7.1.1
   number: the quadrature's first derivative is set after `IDACalcIC` (7.8.0),
   `TOO_CLOSE` is returned at more first calls (7.6.0), and the linear
   solver's counters are reset at a restart (7.6.0; statistics only).
+
+## The library Driver's anti-windup (20 October 2026)
+
+The solver work's item D (the merge review's finding 37), judged from
+outside (`engine/judge`: `msl-pid-controller` and `driver.py`).
+
+- **The cause.** The Driver froze its integral while its command was held
+  at a limit it pushed against (conditional integration, as today's
+  engine does), written as a mode. A car held at full throttle that fell
+  behind and caught up met the mode's boundary with both sides driving it
+  back: frozen, the command falls below its limit; integrating, the
+  integral pushes it above. It slid along the boundary (Filippov sliding),
+  and the run loop, which switches a mode only at an event, stopped it as
+  an event storm (DESIGN.md 8.2): the Battery Electric Car at 6000 kg on
+  the WLTC at 961.83 s, at 19 270 kg on its city cycle at 2.64 s.
+- **The fix.** The anti-windup is Modelica `LimPID`'s back-calculation,
+  which has no mode: der(I) = err + (cmd − cmd_u)/(ki·Tt), Tt = Ni·Ti,
+  Ti = kp/ki, Ni = 0.9 (`blocks/vehicle.rs`). Inside the limits it is the
+  old equation. `lsim-project/tests/driver.rs`: a point car held at full
+  throttle follows back-calculation's closed form (speed and integral to
+  5e-9 and 8e-8 at rtol 1e-8; it stopped as a storm at 92 s before); the
+  review's two cars run to their ends, inside the speed-trace rule's band
+  wherever no pedal is fully down (both stopped as storms before).
+- **MSL's `PID_Controller`** with the Driver as its `LimPID`, against the
+  library's reference result (six signals, each relative to its largest
+  value): with the frozen integral 1.6 off at every tolerance, the limit
+  left 6.5e-2 s late; now 5.1e-3 at rtol 1e-4, 8.9e-5 at 1e-6 and 1.2e-4
+  at 1e-7 … 1e-10, where OpenModelica's run of the original example is
+  too: the reference's own accuracy (Dymola at tolerance 1e-6; its limit's
+  instants are 1.2e-6 s off both). Beside OpenModelica's run at the same
+  tolerance the engine's differs by 4.0e-3 at 1e-5, 1.3e-5 at 1e-8 and
+  1.6e-7 at 1e-10 (the spring's relative speed, the most sensitive signal;
+  the controller's integral by 5.3e-9), the limit's instants by 2.9e-10 s.
+- **The map** (`driver.py`): the Battery Electric Car at 1 to 25 t on the
+  27 bundled cycles and its own city cycle (19 270 kg too), 701 runs, each
+  driven trace judged by 40 CFR 1066.425(b) with its allowances. Before:
+  191 inside, 1 outside only where the car was too fast with its brakes
+  fully applied, 504 stopped as event storms of the frozen integral (the
+  first at 4 t, on the LA92 and the US06), 5 with a bare SUNDIALS flag
+  (long-haul at 1 to 5 t). After: 588 inside; 75 outside only at full
+  brake, the car unable to brake as the schedule asks (on 11 of the 28
+  columns, from 10 t on the LA92, 15 t on the US06, 18 to 23 t on the
+  other nine); 37 inside only by the rule's allowance for a car at its
+  maximum available power, standing at its empty battery on the two
+  long-haul cycles; 1 stopped with an event storm the run loop names (the
+  battery's minimum-SOC mode, 93 switches in 2.1 s as the car, coasting at
+  its empty battery, began to recuperate: long-haul at 11 t). None is
+  outside where the Driver could have helped, and none ends on a bare
+  flag. The 192 runs that ran before and after: 22 437 127 → 22 484 196
+  steps, 2 842 885 → 2 867 306 error-test failures, 20 927 → 20 033
+  events, 285 → 281 s of CPU.
+- **Found on the way and fixed**: the E-Motor at an empty battery. Its
+  supply's share was still solved while the inverter was off, and with
+  no room for the spin losses the share whose power fits is a generator
+  torque that grows as the rotor slows; below about 4 rad/s there is
+  none, and IDA stopped with a bare flag -4 (corrector convergence). With
+  the Driver's fix alone, 37 runs stopped so (long-haul at 24 of its 25
+  masses, long-haul-100km from 13 t) and one with the run loop's "no
+  progress" naming the share (long-haul at 11 t). The share is not solved
+  while the inverter is off now (DESIGN.md 12.2,
+  `lsim-project/tests/motor.rs`), and those 38 runs are the 37 and the 1
+  above.
+- **Today's engine beside the new one** on the heavy cars (6, 12 and 25 t
+  on the 26 bundled cycles but long-haul, and 6, 12, 19.27 and 25 t on the
+  city cycle; 82 runs, today at 10 ms): the same verdict in 78; in 4 (the
+  FTP-75, its motorcycle version, the UDDS and the US06 at 25 t) today's
+  engine has occasions the rule counts against its Driver where the new
+  engine's are all at full brake: on the same occasions its Driver lets
+  the brake up (to 0.94 … 0.99) for the last 0.1 to 0.3 s, the car still
+  0.2 to 0.7 km/h too fast. A frozen integral lets the command off its
+  limit while the error is still large; back-calculation pulls the
+  integral toward cmd_u = −1 + Ni·kp·err, beyond the limit until the
+  error is nearly gone. The consumptions differ by up to 1.4 % at 6 t,
+  1.6 % at 12 t (both the NYCC) and 2.0 % at 25 t. Some of that is
+  today's 10 ms step (at 1 ms today's engine moves by 0.03 to 0.8 %, most
+  on the NYCC); the rest is the anti-windup. Today's engine at 1 ms with
+  back-calculation in place of its frozen integral (`driver.py today
+  --back-calculation`: a check in one process, today's engine itself not
+  changed) agrees with the new engine in the five cases checked (the NYCC
+  at 6 and 12 t; the WLTC's medium phase, its city part and the US06 at
+  25 t) to 0.05 % in the energy its battery delivers, 0.13 % in
+  consumption and 0.03 % in distance, the recuperated energy to 0.54 %;
+  at 25 t its speed to 0.11 km/h and its pedal to 0.018, where the frozen
+  integral's pedal is up to 0.76 away; and its US06 at 25 t is then
+  outside only at full brake too. On the review's WLTC car at 6 t the new
+  engine's consumption is 0.02 % from today's at 1 ms.
+- **The golden comparison** (14 cases): one moved, the hybrid's UDDS, by
+  at most 1.6e-5 of a band (12 figures, 73 channels, none across its
+  band; steps 3 022 879 → 3 022 291, events 118 074 → 118 072). No
+  golden car is held at its Driver's limit (a build with the mode taken
+  out and nothing in its place reproduces every case to the last digit);
+  the integral's equation now reads the command before and after its
+  limits, which is the same to the bit inside them, but the Newton
+  matrix is not (the integral reads itself through the command), and in
+  the hybrid's 118 000 events the rounding of its solves moves a clutch
+  event 2.7e-10 s at 163.05 s. Every other case is the same to the last
+  digit, the books closed to 6.6e-10; the E-Motor's fix moves none. Not
+  slower: the whole comparison took 101.0 and 102.7 s of CPU against
+  103.0 and 102.7 s for cb76842's build, the two alternating
+  (`lsim-project/golden/README.md`).
+- **Left**: the battery's minimum-SOC storm above (the battery's, not the
+  Driver's); the 75 runs at full brake are the car's (its brakes sized
+  for 1.9 t), not the Driver's. The library's PID block (`control.pid`)
+  keeps today's conditional integration as a mode (the app documents
+  that its sum stops growing at a limit), so a loop that slides along
+  its limit stops there as a named storm. Only the Battery Electric Car
+  was mapped. The rule is read on a 0.1 s output grid (an occasion's
+  length known to a step; 1 s on the 83 042 s long-haul cycle). SAE
+  J2951's drive-quality metrics, which 1066.425(j) asks for, are not
+  computed: the standard is paid for.
