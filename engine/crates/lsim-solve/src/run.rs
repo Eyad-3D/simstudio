@@ -2036,9 +2036,10 @@ fn run_watched(
             }
         }
         // the point the step starts from (where a failure of the
-        // integrator is told), and the choice of states there, where
-        // something happened since it was last checked
-        watch.begin(t, &d, lp.events.len());
+        // integrator is told), and the choice of states there, where an
+        // event came since it was last checked: the next stretch starts
+        // here
+        watch.begin(info, model, t, &y, &d, u, lp.events.len())?;
         // a stop time a few ulps away (a tick that falls just before the
         // end, two clocks' ticks that round apart) is this instant: the
         // integrators cannot step so short an interval, and the solution
@@ -2329,6 +2330,10 @@ fn run_watched(
                     }
                     lp.sample(tk, &yk, &d);
                     rec.interior(tk, &lp.vars);
+                    // the choice of states up to the tick, before it
+                    // changes anything (the step's dense output holds the
+                    // stretch since the last point checked)
+                    watch_step(watch, model, info, integ, tk, &lp.vars, &d, u, lp.events.len())?;
                     let before = ledger.as_mut().map(|lg| lg.before_event(tk, &lp.vars, p));
                     let before_vars = lp.vars.clone();
                     let d_pre = d.clone();
@@ -2374,6 +2379,9 @@ fn run_watched(
                             &d,
                             None,
                         )?;
+                        // (nothing the choice of states reads changed: its
+                        // stretch goes on)
+                        watch.carry(lp.events.len());
                         if tk == t_new {
                             resumed = Some(yk.clone());
                         }
@@ -2404,6 +2412,8 @@ fn run_watched(
                             &d,
                             None,
                         )?;
+                        // (the choice of states from the point after it)
+                        watch.resume(info, model, tk, &lp.vars, &d, lp.events.len())?;
                         resumed = Some(yk.clone());
                         continue;
                     }
@@ -2445,23 +2455,7 @@ fn run_watched(
         }
         t = t_new;
         lp.check_asserts(t)?;
-        if watch.active() {
-            // (inside the step, the channels from its dense output)
-            let mut y_in = vec![];
-            let mut work_in = vec![];
-            let mut inside = |tau: f64, vars: &mut Vec<f64>| {
-                y_in.resize(n, 0.0);
-                work_in.resize(l.n_work, 0.0);
-                vars.resize(l.n_vars, 0.0);
-                if integ.interpolate(tau, &mut y_in).is_err() {
-                    return false;
-                }
-                let inp = EvalInput { t: tau, y: &y_in, p: &info.params, d: &d, u };
-                model.vars(&inp, &mut work_in, vars);
-                true
-            };
-            watch.end(info, model, t, &lp.vars, &d, lp.events.len(), &mut inside)?;
-        }
+        watch_step(watch, model, info, integ, t, &lp.vars, &d, u, lp.events.len())?;
         // the holds of functions that reached their side, or left it
         if !event_now && lp.release_holds(t, &y, &d) {
             lp.push_sides(integ);
@@ -2803,6 +2797,44 @@ fn grid_point(
         lg.grid_point(t, &lp.vars, &lp.info.params);
     }
     Ok(())
+}
+
+/// The watch on index reduction's choice of states at `t`, a point the
+/// step just taken reached (its end, or a tick inside it before the tick
+/// changes anything): the channels `vars` there and the discrete values
+/// `d` the step was taken with, the run having recorded `events` events;
+/// the points inside the step from its dense output.
+#[allow(clippy::too_many_arguments)]
+fn watch_step(
+    watch: &mut crate::states::Watch,
+    model: &dyn ModelFunctions,
+    info: &RunInfo,
+    integ: &mut dyn Integrator,
+    t: f64,
+    vars: &[f64],
+    d: &[f64],
+    u: &[f64],
+    events: usize,
+) -> Result<(), SolveError> {
+    if !watch.active() {
+        return Ok(());
+    }
+    let l = *model.layout();
+    // (allocated only where the step's inside is read)
+    let mut y_in = vec![];
+    let mut work_in = vec![];
+    let mut inside = |tau: f64, v: &mut Vec<f64>| {
+        y_in.resize(l.n_y(), 0.0);
+        work_in.resize(l.n_work, 0.0);
+        v.resize(l.n_vars, 0.0);
+        if integ.interpolate(tau, &mut y_in).is_err() {
+            return false;
+        }
+        let inp = EvalInput { t: tau, y: &y_in, p: &info.params, d, u };
+        model.vars(&inp, &mut work_in, v);
+        true
+    };
+    watch.end(info, model, t, vars, d, events, &mut inside)
 }
 
 /// After a restart at an event: the right limit is recorded (and a grid

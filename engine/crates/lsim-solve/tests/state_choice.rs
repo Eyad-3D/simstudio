@@ -6,10 +6,11 @@
 
 mod common;
 
-use lsim_ir::component::build::{eq, param, state, var};
-use lsim_ir::expr::{Builtin, Expr, call, der, name as n};
-use lsim_ir::{ComponentDef, Severity, StateSelect, VarDecl};
-use lsim_solve::{OutputGrid, SolveError, SolverOptions, simulate};
+use lsim_ir::component::build::{discrete, eq, param, state, var};
+use lsim_ir::expr::{Builtin, CmpOp, Expr, c, call, cmp, der, name as n};
+use lsim_ir::runtime::DiscreteBlock;
+use lsim_ir::{ComponentDef, Equation, EquationDecl, Severity, StateSelect, VarDecl, WhenAction};
+use lsim_solve::{BlockInfo, OutputGrid, RunInfo, SolveError, SolverOptions, VarSource, simulate};
 
 /// The IFToMM planar simple pendulum's equations: a point mass on a rod of
 /// length `L`, in x and y, released at rest at `theta0` from the downward
@@ -88,19 +89,37 @@ fn time_from_bottom(w0: f64, theta: f64) -> f64 {
 /// from the closed form) within 100 rtol seconds (the solution's own error
 /// moves the point it reaches the limit at); the stop times, by tolerance.
 fn stops_at(built: &common::Built, t_end: f64, decided: &str, state: &str, want: f64) -> Vec<f64> {
+    let at = stop_times(built, &built.info, &Vec::new, t_end, decided, state);
+    for (rtol, t) in RTOLS.into_iter().zip(&at) {
+        println!("rtol {rtol:e}: {:+.2e} s from {want}", t - want);
+        assert!((t - want).abs() < 100.0 * rtol, "rtol {rtol:e}: stops at {t}, not at {want}");
+    }
+    at
+}
+
+/// Runs `built` with the run information `info` (the model's, with
+/// sampled blocks), the blocks made afresh for each run by `blocks`, to
+/// `t_end` at every tolerance: each run stops, naming the rod deciding
+/// `decided` in place of `state`; the stop times, by tolerance.
+fn stop_times(
+    built: &common::Built,
+    info: &RunInfo,
+    blocks: &dyn Fn() -> Vec<Box<dyn DiscreteBlock>>,
+    t_end: f64,
+    decided: &str,
+    state: &str,
+) -> Vec<f64> {
     let mut at = vec![];
     for rtol in RTOLS {
         let opts = SolverOptions { rtol, atol: rtol * 1e-2, ..Default::default() };
         let grid = OutputGrid { t0: 0.0, t_end, dt: 0.01 };
-        let err = simulate(&built.jit, &built.info, &opts, grid, &mut []).map(|_| ()).unwrap_err();
+        let err = match simulate(&built.jit, info, &opts, grid, &mut blocks()) {
+            Ok(r) => panic!("rtol {rtol:e}: ran to the end ({} events)", r.events.len()),
+            Err(e) => e,
+        };
         let SolveError::StateSelection { t, message, .. } = &err else {
             panic!("rtol {rtol:e}: {err}")
         };
-        println!("rtol {rtol:e}: {:+.2e} s from {want}: {err}", t - want);
-        assert!(
-            (t - want).abs() < 100.0 * rtol,
-            "rtol {rtol:e}: stops at {t}, not at {want}: {err}"
-        );
         assert!(
             message.contains(&format!("(the rod keeps its length) decides {decided}")),
             "{err}"
@@ -156,6 +175,182 @@ fn a_looping_pendulum_stops_where_its_states_degenerate_at_every_tolerance() {
     let want = time_from_bottom(v0, std::f64::consts::FRAC_PI_2 - lsim_ir::math::atan(0.01));
     // (8.2e-6 s off at 1e-4, 1.6e-10 at 1e-10)
     stops_at(&built, 10.0, "y", "x", want);
+}
+
+/// The quarter period of the pendulum (L = 1 m, g = 9.81 m/s²) released at
+/// rest at `theta0`: K(sin²(θ0/2)) / √(g/L), K by the arithmetic-geometric
+/// mean, K(k) = π / (2 agm(1, √(1 − k²))) (exact to round-off).
+fn quarter(theta0: f64) -> f64 {
+    let (mut a, mut b) = (1.0f64, lsim_ir::math::cos(0.5 * theta0));
+    for _ in 0..60 {
+        let (a1, b1) = (0.5 * (a + b), (a * b).sqrt());
+        if a1 == a && b1 == b {
+            break;
+        }
+        (a, b) = (a1, b1);
+    }
+    std::f64::consts::PI / (2.0 * a) / 9.81f64.sqrt()
+}
+
+/// Released at rest at 2.8 rad (above the pivot's level), the choice keeps
+/// x and vx (y moves least there), which no longer decide y where the rod
+/// passes the horizontal on the way down: the model, the time the run
+/// should stop at (where y first moves a hundred times as much as x, θ =
+/// π/2 + atan(0.01)) and the time the rod is level (θ = π/2), from the
+/// closed form.
+fn high_release() -> (common::Built, f64, f64) {
+    let theta0 = 2.8;
+    let built = common::build(&common::library(), &pendulum(theta0, StateSelect::Default), false);
+    assert_eq!(states(&built), ["x", "vx"], "the states chosen at the start");
+    let w0 = (2.0 * 9.81 * (1.0 - lsim_ir::math::cos(theta0))).sqrt();
+    let at = |theta: f64| quarter(theta0) - time_from_bottom(w0, theta);
+    let half_pi = std::f64::consts::FRAC_PI_2;
+    (built, at(half_pi + lsim_ir::math::atan(0.01)), at(half_pi))
+}
+
+/// The pendulum `def` with a `when` on `cond` that sets to 1 a discrete
+/// value nothing reads, starting at `start` (1: the assignment changes
+/// nothing).
+fn with_when(mut def: ComponentDef, cond: Expr, start: f64) -> ComponentDef {
+    def.vars.push(discrete("hit", "1", start, "set once, read by nothing"));
+    def.equations.push(EquationDecl {
+        eq: Equation::When {
+            condition: cond,
+            actions: vec![WhenAction::Assign { var: "hit".into(), value: c(1.0) }],
+        },
+        label: Some("a crossing".into()),
+    });
+    def
+}
+
+/// Each run of `at` (stop times by tolerance) stops after the event at
+/// `event` and before the rod is level (at `level`, where y changes sign):
+/// on the branch the run started on, the states still deciding y.
+fn before_level(at: &[f64], event: f64, level: f64) {
+    for (rtol, t) in RTOLS.into_iter().zip(at) {
+        println!("rtol {rtol:e}: stops {:.2e} s before the rod is level", level - t);
+        assert!(*t > event && *t < level, "rtol {rtol:e}: stops at {t}, the rod level at {level}");
+    }
+}
+
+/// An event a little before the states degenerate leaves the stop where it
+/// is, at every tolerance: a `when` on y as the rod nears the horizontal
+/// (2.3 ms before), or on time (2 ms before), whose assignment changes
+/// nothing (the integration goes on: the stop is the plain run's), or that
+/// sets a value nothing reads (the integrator restarts there: the stop is
+/// on the same branch, before the rod is level; restarted that close to
+/// the point the solution itself is off by up to a few hundred rtol).
+/// Before, the step after any event went unwatched (its sign was compared
+/// with nothing): at rtol 1e-4 the step after the `when` on y crossed the
+/// horizontal and ended with the factor back below 100, and the run went on
+/// with y on the wrong branch and returned 2.45e-2 m off at 1.28 s without
+/// a word.
+#[test]
+fn an_event_just_before_the_states_degenerate_leaves_the_stop_where_it_is() {
+    let (plain, want, level) = high_release();
+    let alone = stops_at(&plain, 1.28, "y", "x", want);
+    let lib = common::library();
+    // (a root changes no step; a time event ends one at its time, which
+    // moves the stop within the tolerance)
+    let on_y = cmp(CmpOp::Lt, n("y"), c(0.02));
+    let on_time = cmp(CmpOp::Gt, Expr::Time, c(want - 0.002));
+    for (cond, exact) in [(on_y, true), (on_time, false)] {
+        let def = |start| with_when(pendulum(2.8, StateSelect::Default), cond.clone(), start);
+        let same = common::build(&lib, &def(1.0), false);
+        assert_eq!(states(&same), ["x", "vx"]);
+        let at = stops_at(&same, 1.28, "y", "x", want);
+        if exact {
+            assert_eq!(at, alone, "a root that changes nothing moves the stop");
+        }
+        let set = common::build(&lib, &def(0.0), false);
+        before_level(&stop_times(&set, &set.info, &Vec::new, 1.28, "y", "x"), want - 0.0025, level);
+    }
+}
+
+/// A sampled block that shows x (its output reaches nothing the integrator
+/// integrates: the step stands across its ticks).
+struct Display(f64);
+
+impl DiscreteBlock for Display {
+    fn name(&self) -> &str {
+        "'Display'"
+    }
+    fn period(&self) -> f64 {
+        self.0
+    }
+    fn init(&mut self, _: f64, _: &[f64], _: &mut [f64]) -> Result<(), String> {
+        Ok(())
+    }
+    fn tick(&mut self, _: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String> {
+        outputs[0] = inputs[0];
+        Ok(())
+    }
+}
+
+/// The run information of `built` with a [`Display`] of period `period`
+/// sampling x into the discrete value `shown`.
+fn sampling(built: &common::Built, shown: &str, period: f64) -> RunInfo {
+    let mut info = built.info.clone();
+    let ix = info.var_names.iter().position(|v| v == "x").expect("x");
+    let is = info.var_names.iter().position(|v| v == shown).expect(shown);
+    let VarSource::D(id) = info.var_sources[is] else { panic!("{:?}", info.var_sources[is]) };
+    info.blocks = vec![BlockInfo {
+        name: "'Display'".into(),
+        inputs: vec![ix],
+        outputs: vec![id],
+        period,
+        chains: vec![None],
+    }];
+    info
+}
+
+/// A sampled block ticking through the point where the states degenerate
+/// leaves the stop where it is, at every tolerance: one whose output
+/// reaches nothing the integrator integrates (each tick an event inside a
+/// step that stands: the stop is the run's without the block, to the last
+/// bit), and one whose output drives a lag of its own (each tick an event
+/// that restarts the integrator: the stop is on the same branch, before the
+/// rod is level). Before, a step with a tick inside went unwatched: at rtol
+/// 1e-4 the run went on past the horizontal and returned 2.45e-2 m off
+/// without a word (every period from 3 to 10 ms), and at 1e-5 it stopped
+/// 1.6e-3 s late (period 5 ms).
+#[test]
+fn a_sampled_block_ticking_through_the_point_leaves_the_stop_where_it_is() {
+    let (plain, want, level) = high_release();
+    let alone = stops_at(&plain, 1.28, "y", "x", want);
+    let lib = common::library();
+    let display = |period: f64| move || vec![Box::new(Display(period)) as Box<dyn DiscreteBlock>];
+    // shown: x as the display last showed it
+    let shown = with_sampled(pendulum(2.8, StateSelect::Default), "shown");
+    let built = common::build(&lib, &shown, false);
+    assert_eq!(states(&built), ["x", "vx"]);
+    for period in [0.003, 0.005, 0.007, 0.01] {
+        let info = sampling(&built, "shown", period);
+        let at = stop_times(&built, &info, &display(period), 1.28, "y", "x");
+        assert_eq!(at, alone, "a display every {period} s moves the stop");
+    }
+    // held: x sampled and held, which a lag follows (z' = (held − z) / τ)
+    let mut lag = with_sampled(pendulum(2.8, StateSelect::Default), "held");
+    lag.params.push(param("tau", "s", 0.05, "the lag's time constant"));
+    lag.vars.push(state("z", "m", 0.0, "a lag on the held x"));
+    lag.equations.push(eq(der("z"), (n("held") - n("z")) / n("tau"), "z follows the held x"));
+    let built = common::build(&lib, &lag, false);
+    let info = sampling(&built, "held", 0.005);
+    before_level(&stop_times(&built, &info, &display(0.005), 1.28, "y", "x"), want - 0.005, level);
+}
+
+/// The pendulum `def` with a discrete value `name` that a sampled block
+/// sets (a `when` that never fires makes it one of the model's).
+fn with_sampled(mut def: ComponentDef, name: &str) -> ComponentDef {
+    def.vars.push(discrete(name, "m", 0.0, "x as a sampled block last read it"));
+    def.equations.push(EquationDecl {
+        eq: Equation::When {
+            condition: cmp(CmpOp::Gt, Expr::Time, c(1000.0)),
+            actions: vec![WhenAction::Assign { var: name.into(), value: c(0.0) }],
+        },
+        label: Some("never".into()),
+    });
+    def
 }
 
 /// Released at 1 rad the choice keeps x and vx, and y never comes near
@@ -246,6 +441,41 @@ fn state_select_prefer_keeps_the_variable_the_model_marks() {
         states(&common::build(&lib, &pendulum(0.4, StateSelect::Default), false)),
         ["x", "vx"]
     );
+}
+
+/// A choice the marks ask for is taken only where it starts well inside
+/// the run's limit, at half of it (a decided variable moving at most 50
+/// times as much as a state): released at atan 45 the pendulum with x
+/// marked `prefer` keeps x and vx (y moves 45 times as much as x at the
+/// release, the swing's turning point) and runs to its end at every
+/// tolerance; at atan 99, inside the run's limit of 100 but outside the
+/// margin, the mark is refused and told (STATE-SELECT-PREFER), and the
+/// choice by pivoting, y and vy, stops near the bottom of the swing at
+/// every tolerance, naming the rod. Before, the mark was taken up to the
+/// run's limit itself: at atan 99 the run stopped at its far turning point
+/// at rtol 1e-5 (the first wobble past 100) and ended 297 to 3 664 rtol
+/// off without a word at the six other tolerances.
+#[test]
+fn a_marked_choice_is_taken_only_well_inside_the_run_s_limit() {
+    let lib = common::library();
+    let inside = lsim_ir::math::atan(45.0);
+    let kept = common::build(&lib, &pendulum(inside, StateSelect::Prefer), false);
+    assert_eq!(states(&kept), ["x", "vx"]);
+    assert!(kept.prepared.warnings.iter().all(|w| !w.code.starts_with("STATE-SELECT")));
+    // (y carries up to 45 times x's error: 290 to 2 040 rtol over five
+    // periods, where the same pendulum in its angle, an ODE, is 33 to 200
+    // rtol off at 1.55 rad, the outside judge's figures)
+    runs_right(&kept, inside, 10.0, 3e3);
+    let edge = lsim_ir::math::atan(99.0);
+    let refused = common::build(&lib, &pendulum(edge, StateSelect::Prefer), false);
+    assert_eq!(states(&refused), ["y", "vy"], "the choice by pivoting");
+    let told: Vec<_> =
+        refused.prepared.warnings.iter().filter(|w| w.code == "STATE-SELECT-PREFER").collect();
+    assert_eq!(told.len(), 1, "{:#?}", refused.prepared.warnings);
+    assert!(told[0].message.contains("x of the model") && told[0].message.contains("99 times"));
+    let w0 = (2.0 * 9.81 * (1.0 - lsim_ir::math::cos(edge))).sqrt();
+    let want = quarter(edge) - time_from_bottom(w0, lsim_ir::math::atan(0.01));
+    stops_at(&refused, 10.0, "x", "y", want);
 }
 
 /// `always` that no regular choice can keep, and `never` that has to be a

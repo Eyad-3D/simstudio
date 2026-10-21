@@ -484,6 +484,11 @@ fn a_constraint_that_is_singular_at_the_start() {
 /// = π/2 from the downward vertical: x = 1, y = −6e-17), x marked
 /// `x_select`.
 fn rod(x_select: StateSelect) -> ComponentDef {
+    rod_at(x_select, std::f64::consts::FRAC_PI_2)
+}
+
+/// [`rod`] released at `theta0` from the downward vertical.
+fn rod_at(x_select: StateSelect, theta0_value: f64) -> ComponentDef {
     use common::{guess, state_expr};
     use lsim_ir::VarDecl;
     use lsim_ir::expr::{Builtin, call};
@@ -493,7 +498,7 @@ fn rod(x_select: StateSelect) -> ComponentDef {
         params: vec![
             param("m", "kg", 1.0, ""),
             param("g", "m/s2", 9.81, ""),
-            param("theta0", "1", std::f64::consts::FRAC_PI_2, ""),
+            param("theta0", "1", theta0_value, ""),
         ],
         vars: vec![
             VarDecl {
@@ -524,6 +529,22 @@ fn a_variable_marked_always_a_state_that_cannot_be_one() {
     let top = model(vec![labelled(sub("pt", "Faults.Rod", &[]), "Point")], &[]);
     let d = expect_in(&lib, &top, "STATE-SELECT-ALWAYS", &["pt"], Severity::Warning);
     assert!(d.message.contains("x"), "{d}");
+}
+
+#[test]
+fn a_variable_marked_prefer_whose_choice_starts_too_near_the_run_s_limit() {
+    // released at atan 99 from the downward vertical: the choice that keeps
+    // x decides y at a factor of 99, inside the run's limit (100) but not
+    // within the margin a marked choice must start in (50): the states are
+    // y and vy, and the mark's refusal is told
+    let lib = with(vec![rod_at(StateSelect::Prefer, lsim_ir::math::atan(99.0))]);
+    let top = model(vec![labelled(sub("pt", "Faults.Rod", &[]), "Point")], &[]);
+    let d = expect_in(&lib, &top, "STATE-SELECT-PREFER", &["pt"], Severity::Warning);
+    assert!(d.message.contains("x") && d.message.contains("99 times"), "{d}");
+    // at atan 45 the mark is met, and nothing is told
+    let lib = with(vec![rod_at(StateSelect::Prefer, lsim_ir::math::atan(45.0))]);
+    let prepared = prepare(&lib, &top, &PrepOptions::default()).expect("prepares");
+    assert!(prepared.warnings.iter().all(|w| !w.code.starts_with("STATE-SELECT")));
 }
 
 #[test]

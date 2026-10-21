@@ -29,6 +29,7 @@
 //! | `STATE-SELECT-SINGULAR` | no fixed choice of states works at the start (index reduction) |
 //! | `STATE-SELECT-ALWAYS` | a variable marked `stateSelect = always` that cannot be a state (warning) |
 //! | `STATE-SELECT-NEVER` | a variable marked `stateSelect = never` that has to be one (warning) |
+//! | `STATE-SELECT-PREFER` | a variable marked `stateSelect = prefer` whose choice of states would start too near the run's limit to be taken (warning) |
 //! | `STATE-SELECT-CONFLICT` | one variable (its aliases) marked with different `stateSelect` (warning) |
 //! | `REINIT-NOT-STATE` | `reinit` of something that is not a state, or cannot stay one |
 //! | `INVERSE-OVER`, `INVERSE-UNDER` | fast mode's prescription over- or under-determines the model |

@@ -28,11 +28,13 @@
 //!
 //! * where that factor exceeds `1 /` [`DEGRADED`]: a decided variable
 //!   moves a hundred times as much as a state (ten times beyond the factor
-//!   10 the choice allowed, so a run that starts at the edge of the choice's
-//!   window does not stop at the first wobble), and carries a hundred times
-//!   its error;
-//! * where the chosen block's determinant changed sign between two step
-//!   ends with no event between them: it passed through zero inside the
+//!   10 the choice by pivoting allows at the start, twice the 50 a choice
+//!   the model's marks ask for may start at: `lsim_prep::index::MARGIN`;
+//!   so a run that starts at the edge of its choice's window does not stop
+//!   at the first wobble), and carries a hundred times its error;
+//! * where the chosen block's determinant changed sign between two points
+//!   checked with no event between them (two step ends; the point after an
+//!   event and the next step's end): it passed through zero inside the
 //!   step, which the step ends alone may not show;
 //! * at the start, where the constraints themselves no longer hold apart
 //!   (the smallest pivot of `M`, its columns and rows scaled to their
@@ -44,7 +46,8 @@
 //!   integrator's words.
 //!
 //! Where a step's end shows the choice failing, the step's own dense output
-//! (the integrator's interpolant, no event since the last point checked)
+//! (the integrator's interpolant, no event since the last point checked:
+//! an event ends the stretch, the point after it starts the next, [`Watch`])
 //! shows where: the run stops at the first point inside the step where the
 //! factor passes the limit or the determinant its zero, found by
 //! bisection, so a run stops at the same point whatever its tolerance and
@@ -316,6 +319,10 @@ fn moving_set(set: &StateSetInfo, info: &RunInfo) -> bool {
     set.entries.iter().flatten().any(|e| moves(e, info))
 }
 
+/// The channels at a time inside the step just taken, from its dense
+/// output (false where it cannot give them).
+type Inside<'a> = dyn FnMut(f64, &mut Vec<f64>) -> bool + 'a;
+
 /// One watched set in the run loop.
 struct Watched {
     /// the set
@@ -393,11 +400,20 @@ struct Compiled {
 /// moved enough, a small share of its steps. The entries that do not move
 /// are read again where an event changed a discrete value they read.
 ///
-/// An event since the last point checked (the time moved without a step,
-/// or the run recorded one) ends the stretch the signs compare within; a
-/// changed discrete value that a set's fixed entries read makes them be
-/// read again. Only those values are compared at each step, not every
-/// discrete value of the model.
+/// An event ends the stretch the signs compare within, and the point after
+/// it starts the next: the run loop gives the point before it (a step's
+/// end, or a tick inside a step: [`Watch::end`]) and the point after it
+/// ([`Watch::resume`]; [`Watch::begin`] where the integrator restarts
+/// there), each checked as a step's end is, so the step after an event is
+/// watched as any other: its sign compared with the point after the
+/// event, its dense output searched from there. A tick that changes
+/// nothing the integrator integrates (the step stands) changes nothing a
+/// set reads, and the stretch goes on across it ([`Watch::carry`]). An
+/// event the watch was not told of (the run recorded one since the last
+/// point checked) still ends the stretch, unchecked. A changed discrete
+/// value that a set's fixed entries read makes them be read again. Only
+/// those values are compared at each step, not every discrete value of
+/// the model.
 ///
 /// It also keeps where each step started (its time, and the discrete
 /// values, copied where an event has changed them), so that an integrator
@@ -413,10 +429,13 @@ pub(crate) struct Watch {
     /// scratch rows
     tmp: Vec<Vec<f64>>,
     vals: Vec<f64>,
-    /// the last point the run loop gave: its time, and how many events
-    /// the run had recorded
+    /// the last point checked: its time, and how many events the run had
+    /// recorded there
     at_t: f64,
     at_events: usize,
+    /// scratch for the channels at the point after an event
+    at_work: Vec<f64>,
+    at_vars: Vec<f64>,
     /// where the last step started: its time, the discrete values, and how
     /// many events the run had recorded when they were copied
     from_t: f64,
@@ -494,6 +513,8 @@ impl Watch {
             vals: vec![],
             at_t: f64::NAN,
             at_events: 0,
+            at_work: vec![],
+            at_vars: vec![],
             from_t: f64::NAN,
             from_d: vec![],
             from_events: usize::MAX,
@@ -506,11 +527,14 @@ impl Watch {
     }
 
     /// The point `(t, d)` the run loop is at, the run having recorded
-    /// `events` events: an event since the last point ends the stretch the
-    /// signs compare within, and a discrete value a set's fixed entries
-    /// read that changed makes them be read again.
-    fn arrive(&mut self, t: f64, d: &[f64], events: usize, stepped: bool) {
-        let event = (!stepped && t != self.at_t) || events != self.at_events;
+    /// `events` events; `stretch`: whether it is in the stretch of the last
+    /// point checked (a step's end, or a point before an event inside it),
+    /// else it starts a new one (the point after an event). An event the
+    /// watch was not told of since the last point checked ends the stretch
+    /// too, and a discrete value a set's fixed entries read that changed
+    /// makes them be read again.
+    fn arrive(&mut self, t: f64, d: &[f64], events: usize, stretch: bool) {
+        let event = !stretch || events != self.at_events;
         self.at_t = t;
         self.at_events = events;
         for w in &mut self.sets {
@@ -525,18 +549,68 @@ impl Watch {
         }
     }
 
-    /// Before a step from `(t, d)`, the run having recorded `events`
-    /// events.
-    pub(crate) fn begin(&mut self, t: f64, d: &[f64], events: usize) {
+    /// Before a step from `(t, y, d)` (the inputs `u`), the run having
+    /// recorded `events` events. Where an event came since the last point
+    /// checked (or the run starts here), this point, after it, starts the
+    /// next stretch ([`Watch::resume`]): fails where the choice fails
+    /// here.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn begin(
+        &mut self,
+        info: &RunInfo,
+        model: &dyn ModelFunctions,
+        t: f64,
+        y: &[f64],
+        d: &[f64],
+        u: &[f64],
+        events: usize,
+    ) -> Result<(), SolveError> {
         self.from_t = t;
         if events != self.from_events || self.from_d.len() != d.len() {
             self.from_d.clear();
             self.from_d.extend_from_slice(d);
             self.from_events = events;
         }
-        if self.active() {
-            self.arrive(t, d, events, false);
+        if !self.active() || (events == self.at_events && t == self.at_t) {
+            return Ok(());
         }
+        let l = *model.layout();
+        let mut vars = std::mem::take(&mut self.at_vars);
+        self.at_work.resize(l.n_work, 0.0);
+        vars.resize(l.n_vars, 0.0);
+        model.vars(&EvalInput { t, y, p: &info.params, d, u }, &mut self.at_work, &mut vars);
+        let checked = self.resume(info, model, t, &vars, d, events);
+        self.at_vars = vars;
+        checked
+    }
+
+    /// The point `(t, vars, d)` right after an event (the run having
+    /// recorded `events` events), or where the run starts: the next
+    /// stretch starts here. Each set is checked as at a step's end, its
+    /// sign here being what the next step's end is compared with; fails
+    /// where the choice fails here.
+    pub(crate) fn resume(
+        &mut self,
+        info: &RunInfo,
+        model: &dyn ModelFunctions,
+        t: f64,
+        vars: &[f64],
+        d: &[f64],
+        events: usize,
+    ) -> Result<(), SolveError> {
+        if !self.active() {
+            return Ok(());
+        }
+        self.arrive(t, d, events, false);
+        self.check(info, model, t, vars, d, None)
+    }
+
+    /// An event at the last point checked, the run now having recorded
+    /// `events` events, that changes nothing the choice reads (a tick whose
+    /// outputs reach nothing the integrator integrates or watches: the
+    /// step stands): the stretch goes on across it.
+    pub(crate) fn carry(&mut self, events: usize) {
+        self.at_events = events;
     }
 
     /// Where the last step started: its time and discrete values.
@@ -544,10 +618,11 @@ impl Watch {
         (self.from_t, &self.from_d)
     }
 
-    /// At a step's end `t`, the channels `vars` just sampled there and the
-    /// discrete values `d`, the run having recorded `events` events;
-    /// `inside(τ, vars)` gives the channels at a time `τ` inside the step
-    /// just taken from its dense output (false where it cannot).
+    /// At a step's end `t` (or a point inside the step, before an event
+    /// there), the channels `vars` just sampled there and the discrete
+    /// values `d` the step was taken with, the run having recorded `events`
+    /// events; `inside(τ, vars)` gives the channels at a time `τ` inside
+    /// the step just taken from its dense output (false where it cannot).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn end(
         &mut self,
@@ -563,6 +638,21 @@ impl Watch {
             return Ok(());
         }
         self.arrive(t, d, events, true);
+        self.check(info, model, t, vars, d, Some(inside))
+    }
+
+    /// Checks each set at `(t, vars, d)` ([`Watch::end`], [`Watch::resume`]):
+    /// a sign compared with the last point checked where it is in that
+    /// point's stretch, and `inside` searched where the choice fails.
+    fn check(
+        &mut self,
+        info: &RunInfo,
+        model: &dyn ModelFunctions,
+        t: f64,
+        vars: &[f64],
+        d: &[f64],
+        mut inside: Option<&mut Inside<'_>>,
+    ) -> Result<(), SolveError> {
         // every moving entry, each distinct one once
         moving_values(&self.exprs, self.compiled.as_mut(), info, model, t, vars, &mut self.vals);
         for j in 0..self.sets.len() {
@@ -633,10 +723,11 @@ impl Watch {
             let (k, moving) = (w.k, w.moving);
             // where inside the step it went wrong (no event since the last
             // point checked: the step's dense output holds it)
-            let found = if moving && continuous && t0 < t {
-                self.locate(j, info, model, t0, t, sign0, inside)
-            } else {
-                None
+            let found = match inside.as_deref_mut() {
+                Some(inside) if moving && continuous && t0 < t => {
+                    self.locate(j, info, model, t0, t, sign0, inside)
+                }
+                _ => None,
             };
             let (at, m, how) = match found {
                 Some((at, m)) => (at, m, How::Run),
@@ -903,7 +994,8 @@ mod tests {
         let SolveError::StateSelection { t, message, .. } = &e else { panic!("{e}") };
         assert_eq!(*t, 0.12);
         assert!(message.contains("between t = 0.1 and 0.12 s"), "{e}");
-        // an event between them (the run recorded one): no compare
+        // an event between them that the watch was not told of (the run
+        // recorded one): no compare
         let mut w = Watch::new(&info, &model, false);
         w.end(&info, &model, 0.10, &[0.3, -0.95], &[0.0], 0, &mut none).expect("regular");
         w.end(&info, &model, 0.12, &[-0.3, -0.95], &[1.0], 1, &mut none).expect("a new stretch");
@@ -917,6 +1009,45 @@ mod tests {
         let flag = SolveError::Integrator { t: 0.1, message: "IDA failed (flag -4)".into() };
         let told = w.blamed(&info, &flag).expect("the choice's failure").to_string();
         assert!(told.contains("failing here") && told.contains("flag -4"), "{told}");
+    }
+
+    #[test]
+    fn the_step_after_an_event_is_watched_from_the_point_after_it() {
+        let (model, info) = (no_model(), rod());
+        let mut none = |_: f64, _: &mut Vec<f64>| false;
+        // the point before an event, the point after it, and a step from
+        // there that passes the bottom: compared with the point after it
+        let mut w = Watch::new(&info, &model, false);
+        w.end(&info, &model, 0.10, &[0.3, -0.95], &[0.0], 0, &mut none).expect("regular");
+        w.resume(&info, &model, 0.10, &[0.3, -0.95], &[1.0], 1).expect("regular after it");
+        let e = w.end(&info, &model, 0.12, &[-0.3, -0.95], &[1.0], 1, &mut none).unwrap_err();
+        assert!(e.to_string().contains("between t = 0.1 and 0.12 s"), "{e}");
+        // the step's dense output searched from the point after the event
+        let line = |tau: f64| [0.3 - 6.0 * (tau - 0.1), -0.95];
+        let mut along = |tau: f64, v: &mut Vec<f64>| {
+            v.clear();
+            v.extend_from_slice(&line(tau));
+            true
+        };
+        let mut w = Watch::new(&info, &model, false);
+        w.end(&info, &model, 0.05, &[0.5, -0.87], &[0.0], 0, &mut along).expect("regular");
+        w.resume(&info, &model, 0.1, &line(0.1), &[1.0], 1).expect("regular after it");
+        let e = w.end(&info, &model, 0.2, &line(0.2), &[1.0], 1, &mut along).unwrap_err();
+        let SolveError::StateSelection { t, .. } = &e else { panic!("{e}") };
+        let want = 0.1 + (0.3 - 0.0095) / 6.0;
+        assert!((t - want).abs() < 1e-12, "stops at {t}, not {want}: {e}");
+        // an event that changes nothing the choice reads (a tick whose step
+        // stands): the stretch goes on across it
+        let mut w = Watch::new(&info, &model, false);
+        w.end(&info, &model, 0.10, &[0.3, -0.95], &[0.0], 0, &mut none).expect("regular");
+        w.carry(1);
+        let e = w.end(&info, &model, 0.12, &[-0.3, -0.95], &[1.0], 1, &mut none).unwrap_err();
+        assert!(e.to_string().contains("between t = 0.1 and 0.12 s"), "{e}");
+        // the point after an event where the choice no longer works
+        let mut w = Watch::new(&info, &model, false);
+        w.end(&info, &model, 0.10, &[0.3, -0.95], &[0.0], 0, &mut none).expect("regular");
+        let e = w.resume(&info, &model, 0.10, &[0.009, -1.0], &[1.0], 1).unwrap_err();
+        assert!(e.to_string().contains("x moves 111 times as much as y"), "{e}");
     }
 
     #[test]

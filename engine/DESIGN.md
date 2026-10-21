@@ -917,14 +917,31 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    v`), and through aliases (marks that pull both ways are told:
    `STATE-SELECT-CONFLICT`). A marked column competes within a factor 10
    only with the columns marked as it is or weaker, and within a factor
-   100 with every column, and the choice the marks ask for is taken only
-   where, the entries moving with the solution, no candidate it decides
-   moves more than a hundred times as much as a state (the run's limit,
-   below; a parameter's scale is no degeneracy): else the choice by
-   pivoting alone. `always` that no regular choice keeps, and `never` that
-   has to be a state, are told (`STATE-SELECT-ALWAYS`,
+   50 with every column, and the choice the marks (or a `reinit`) ask for
+   is taken only where, the entries moving with the solution, no candidate
+   it decides moves more than 50 times as much as a state (a parameter's
+   scale is no degeneracy): else the choice by pivoting alone. That is
+   half the run's limit (below; `lsim_prep::index::MARGIN`), as pivoting's
+   own window of 10 is a tenth of it: a choice that starts at the run's
+   limit itself stops at its first wobble at one tolerance and not at
+   another (a pendulum's turning point, where the factor is largest,
+   reached a little further on by the integrator's error). So a marked
+   choice may carry up to 50 times a state's error in what it decides,
+   where pivoting's carries up to 10: the pendulum with x marked `prefer`
+   at 1.55 rad (48 at the release) ends up to 22 times the angle form's
+   error over five periods (section 15), at atan 45 290 to 2 040 rtol
+   off (`state_choice.rs`). Before the margin (the marks' window at the
+   run's limit), at atan 99 the run stopped at its far turning point at
+   rtol 1e-5 and ended 297 to 3 664 rtol off without a word at the six
+   other tolerances (3 to 18 times the angle form's); now the mark is
+   refused there and the choice by pivoting stops near the bottom of the
+   swing at every tolerance. Where only the margin kept a marked
+   variable from being a state, that is told (`STATE-SELECT-PREFER`, or
+   `STATE-SELECT-ALWAYS` with that reason; for a restarted variable,
+   `REINIT-NOT-STATE`); `always` that no regular choice keeps, and `never`
+   that has to be a state, are told (`STATE-SELECT-ALWAYS`,
    `STATE-SELECT-NEVER`). The judge's pendulum released at 1.5 rad keeps
-   y and vy by pivoting (y moves 14 times as much as x there), which
+   y and vy by pivoting (y would move 14 times as much as x there), which
    degenerate at the bottom of the swing; with x marked `prefer` it keeps
    x and vx, which hold for the whole swing.
 
@@ -949,10 +966,31 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    event between them (it passed through zero inside the step). The first
    point inside the step where either happens is found by bisection on
    the step's dense output, so the run stops at the same point whatever
-   its tolerance: the pendulum released level, where |x| first falls to
-   |y| / 100 (2.26 ms before the bottom), to 1.8e-4 s at rtol 1e-4 and
-   5.9e-10 s at 1e-10 of the closed form; the looping one, where the rod
-   nears the horizontal, to 8.2e-6 and 1.6e-10 s (`state_choice.rs`). A
+   its tolerance, up to the solution's own error there: the pendulum
+   released level, where |x| first falls to |y| / 100 (2.26 ms before the
+   bottom), to 1.8e-4 s at rtol 1e-4 and 5.9e-10 s at 1e-10 of the closed
+   form; the looping one, where the rod nears the horizontal, to 8.2e-6
+   and 1.6e-10 s (`state_choice.rs`). An event ends the stretch the signs
+   are compared within, and the point right after it starts the next: the
+   run gives the watch the point before the event (a step's end, or a
+   block's tick inside a step) and the point after it, each checked as a
+   step's end, so the step after an event is watched as any other, its
+   sign compared with the point after the event and its dense output
+   searched from there; a tick whose outputs reach nothing the integrator
+   integrates (the step stands) changes nothing the choice's entries read,
+   and the stretch goes on across it. Before (the watch's first version), the step
+   after any event, and every step with a tick inside, went unwatched: the
+   pendulum released at 2.8 rad with a `when` that changed nothing 2.3 ms
+   before its states degenerate crossed the horizontal in that step and
+   ended 2.45e-2 m off without a word (rtol 1e-4), as with a display block
+   ticking every 3 to 10 ms, and at 1e-5 with ticks every 5 ms it stopped
+   1.6e-3 s late. Now such runs stop where the run without the event
+   stops, to the last bit where the integration goes on across it; one
+   whose event restarts the integrator there stops on the same branch,
+   before the rod is level, where its own solution degenerates (restarted
+   that close to the point, at order 1, the solution is a few hundred
+   rtol off at 1e-10: near the point the error test on x sees the
+   decided y's error divided by the factor; `state_choice.rs`). A
    full check at a step's end (the factor, the sign) is skipped where a
    bound on the entries' change since the last one, carried through the
    block's inverse there, shows the verdict cannot have changed; the
@@ -981,7 +1019,7 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    alone. The watch is the full dynamic run's: fast mode steps its inverse
    model with its own Newton solver, which names the variables a singular
    Jacobian leaves free (section 10), and the example cars' inverse
-   blocks read only ratios. Its cost, counted in instructions against the run before it: +0.04 % on the BEV's WLTC (its blocks read only ratios: the point each step starts from is all it keeps), +0.45 % on the hybrid's mixed cycle (its gearbox's block of 9 constraints, read at every step), +8.5 % on Andrews' mechanism and +14 % on MSL's PlanarFourbar (blocks of 13 to 22 constraints whose entries are sines and cosines of the angles, evaluated at every step: most of it those functions).
+   blocks read only ratios. Its cost, counted in instructions against the run before it: +0.04 % on the BEV's WLTC (its blocks read only ratios: the point each step starts from is all it keeps), +0.45 % on the hybrid's mixed cycle (its gearbox's block of 9 constraints, read at every step), +8.5 % on Andrews' mechanism and +14 % on MSL's PlanarFourbar (blocks of 13 to 22 constraints whose entries are sines and cosines of the angles, evaluated at every step: most of it those functions). The points on either side of each event (the channels after it, and a check at each) add 0.47 % on the hybrid's mixed cycle (its 56 218 events), about 7 200 instructions an event; the BEV's WLTC takes 0.14 % fewer (a step's start with no event before it is no longer looked at); the whole golden comparison's CPU time the same (91.85 and 91.60 s before, 92.63 and 91.70 s after, back to back).
 
    **Through tables.** A table read differentiates by the chain rule,
    `d/dt T(a, b) = ∂T/∂x · a' + ∂T/∂y · b'`, and `∂T/∂x` is itself a table
@@ -2581,8 +2619,11 @@ save most of those 10 ms in every run, sequential or not (a change to
   −0.05 … +0.07 %; perturbed, at most 1.5e-7 apart, no flag either way.
   The long-haul cycle (805 km) empties both batteries: fast mode flags
   them from the second they reach their minimum SOC, and the full
-  dynamic runs stop about 200 s later on a bare SUNDIALS flag −4 (the
-  forward run's, outside fast mode). On EPA's four reference cars (UDDS,
+  dynamic runs stop about 200 s later, where the battery is empty
+  (14 881 s on the aerodynamic BEV, 14 541 s on the BEV), naming the
+  E-Motor's equation that cuts its torque to what its supply gives (the
+  forward run's, outside fast mode; before the solver work's state
+  selection round, on a bare SUNDIALS flag −4). On EPA's four reference cars (UDDS,
   HWFET), fast mode's energy at the wall is within 0.02 … 0.17 % of the
   full dynamic run's and within 1.3 % of FASTSim 3.1.0's given the same
   cars (mean 0.92 %; today's engine is within 1.3 % too,
@@ -2978,7 +3019,8 @@ all. The catalogue as built (each code's model and expected parts are in
 `PART-UNCONNECTED`, `GEAR-NO-RATIO`, `SIGNAL-UNCONNECTED`, `SIGNAL-SOURCES`,
 `CAUSAL-LOOP` (a warning), `SINGULAR-LOOP`, `INIT-OVER`, `DER-NOT-STATE`,
 `INDEX-TABLE-NOT-SMOOTH`, `STATE-SELECT-SINGULAR`, `STATE-SELECT-ALWAYS`,
-`STATE-SELECT-NEVER` and `STATE-SELECT-CONFLICT` (warnings),
+`STATE-SELECT-NEVER`, `STATE-SELECT-PREFER` and `STATE-SELECT-CONFLICT`
+(warnings),
 `PIVOT-ZERO-AT-START` (a warning), `PARAM-CYCLE`, `EXTERNAL-PERIOD`, `EXTERNAL-LOOP` (a warning),
 `WHEN-CONDITION`, `WHEN-CONTINUOUS`, `REINIT-NOT-STATE`, `STRUCT-OVER` and
 `STRUCT-UNDER`; `INIT-START-IGNORED` is tested with the index-reduction
@@ -3114,12 +3156,17 @@ events name the modes that chatter.
   every tolerance. The IFToMM pendulum (3 runs 1.0 to
   1.1 m off before, 4 with no step passing) and the four looping ones (6
   wrong, 22 stopped on a flag or with no step passing) stop so at every
-  tolerance. The 103 still wrong are runs whose choice holds throughout
-  (the factor at most 8, at 1.45 rad): the integrator's error over five
-  periods, which in the pendulum's angle makes 1 096 of its 2 198 runs
-  wrong by the same criterion, the x-y form up to three times further off
-  than the angle form from 1.31 rad (786 against 245 rtol at 1.31 … 1.40,
-  rtol 1e-10), its decided coordinate carrying the factor. With x marked
+  tolerance. The 103 still wrong are runs whose choice holds throughout,
+  released at 0.72 to 1.47 rad (the factor at the release, the swing's
+  largest, at most 9.9, inside the choice's own window of 10; from 1.48
+  rad the runs stop): the x-y form's own larger error, its decided
+  coordinate carrying the factor. In its angle the same pendulum is wrong
+  in only 48 of its 1 029 runs up to 1.47 rad (its 1 096 wrong runs of
+  the 2 198 are nearly all above), and right in 66 of these 103 at the
+  same angle and tolerance; per run the x-y form is up to 28.6 times the
+  angle form's error (1.47 rad, rtol 1e-6; 15.9 times at 0.72 rad and
+  1e-10, at a factor of 0.88), and at 1e-10 from 1.31 rad up to 6.0 times
+  (the worst runs of 1.31 … 1.40: 786 against 245 rtol). With x marked
   `prefer`, released at 1.50 and 1.55 rad, the runs that all stopped or
   ended 1 m off go to their end (3 right, 11 beyond 100 rtol: 8.4e-8 and
   2.7e-7 m at 1e-10, 3 and 22 times the angle form's, the second starting
@@ -3129,7 +3176,23 @@ events name the modes that chatter.
   reference in its one degree of freedom; OpenModelica 1.9e-7 and 5.6e-4
   on the same text, MSL's Dymola result 7.1e-4 (1e-6). No run of the
   judge ends on a bare SUNDIALS flag (182 before), and every run of the
-  other cases is bitwise as before (3 339 of the 4 557).
+  other cases is bitwise as before (3 339 of the 4 557). The fourth
+  verdict (the independent check of the detection, fixed: the step after
+  an event watched, a marked choice taken only within half the run's
+  limit; new cases `pendulum-event-2.00` and `-2.80`, the pendulum with a
+  `when` that changes nothing about 2 ms before its states degenerate,
+  and `pendulum-prefer-x-1.5607`, x marked `prefer` at atan 99): every
+  run of the 4 557 is bitwise as before (none has an event near a
+  degenerate choice, nor a mark between 50 and 100). The event cases,
+  which passed the point on the wrong branch at one tolerance each and
+  stopped only later (at 1.30 s instead of 0.724 s at rtol 1e-4 released
+  at 2.8 rad, 72 100 rtol seconds late at 1e-5 at 2.0 rad; at the check's
+  horizon of 1.28 s, 2.45e-2 m off without a word), now stop within 10
+  rtol seconds of the closed form's point at every tolerance, as without
+  the event. At atan 99, where the marked runs ended 297 to 3 664 rtol off
+  without a word or stopped at the far turning point (rtol 1e-5), the
+  mark is refused and told and every run stops near the bottom, within 6
+  rtol seconds of the closed form's point.
 * **Performance gates**: not built yet. When they are, they compare build
   time (prepare + compile) and run time for each example car in both modes
   with the base commit (as the backend's performance job does) and with
@@ -3472,7 +3535,7 @@ the vehicle body). A short integration checkpoint each week runs
 |---|---|---|
 | R1 | Sampled Script blocks at 10 ms force 180 000 integrator restarts on WLTC | restart only when an output changes; recommend continuous-time controllers; measure (WP4 acceptance). **WP4:** done — no restart and no extra step for a tick that changes nothing; its inputs read ahead across the step, bit for bit: 9.5–21 ns a tick, 2.0–4.4 % of the cheapest test model's run (20 000× real time), < 3 % of the 101-state one (section 9) |
 | R2 | SUNDIALS build on Windows/macOS | in-tree `cc` build with committed config header and bindings; CI on all three from the start (WP4/WP6). **WP4:** built and tested on Linux with only a C compiler; the MSVC build is proven by CI's "Engine (Rust) on Windows" job (run 38620416352 on a619ab4; the merged tree from dd8feb0); macOS is not built (Windows only for now) |
-| R3 | Index reduction needs dynamic state selection for some models | static dummy derivatives with an initial pivoting check cover vehicle drivelines; report the rare case clearly; dynamic selection only if a real model needs it. **The outside judge (16 October 2026, section 15):** the rare case is neither rare nor reported clearly. The index-3 pendulum released at 1.48 rad or more (the IFToMM planar pendulum among them), or looping, keeps the states chosen at the start through the point where they degenerate: at rtol 1e-4 … 1e-6 two thirds of the runs end without a message and wrong (the position 0.3 to 2 m off on a 1 m rod, the energy up to 29 J), the rest stop there (SUNDIALS flag −4, or no step passes), and at 1e-7 … 1e-10 nearly all stop; the IFToMM multiple four-bar does not prepare (SINGULAR-LOOP at its start values); released exactly level (y = 0) the pendulum is refused (STATE-SELECT-SINGULAR), 6e-17 m below it prepares. Below 1.48 rad the runs end, but 103 of the 1029 up to 1.47 rad without a message more than 100 rtol off the closed form (section 15). OpenModelica 1.27 (DASSL) with its dynamic state selection runs every pendulum (at rtol 1e-10 to 1.3e-9 m released at 0.40 rad, 9.8e-8 and 6.6e-8 m at 1.50 and 1.55 rad, 8.6e-8 m on the IFToMM problem, 6.4e-7 … 2.0e-5 m looping, 1.3e-5 and 6.4e-4 m at 3.00 and 3.13 rad); with static dummy derivatives it fails as the engine does, mostly worse (results of NaN reported as a success); neither of its selections runs the four-bar (it fails at its start, or does not build). **Detection (21 October 2026, section 6 step 5):** the choice is watched along every run, at its start and on `set_param`; where it degrades the run stops there, naming the constraint, the variables and the parts: none of the judge's pendulum runs ends on a bare SUNDIALS flag or without a message for a degenerate choice any more (1 169 of the release-angle sweep's runs stop so, where 432 ended wrong and 840 stopped on a flag or with no step passing); `stateSelect` leads the choice (with x marked `prefer` the pendulum at 1.50 and 1.55 rad runs to its end). Dynamic selection (choosing again at an event, going on) is the next part |
+| R3 | Index reduction needs dynamic state selection for some models | static dummy derivatives with an initial pivoting check cover vehicle drivelines; report the rare case clearly; dynamic selection only if a real model needs it. **The outside judge (16 October 2026, section 15):** the rare case is neither rare nor reported clearly. The index-3 pendulum released at 1.48 rad or more (the IFToMM planar pendulum among them), or looping, keeps the states chosen at the start through the point where they degenerate: at rtol 1e-4 … 1e-6 two thirds of the runs end without a message and wrong (the position 0.3 to 2 m off on a 1 m rod, the energy up to 29 J), the rest stop there (SUNDIALS flag −4, or no step passes), and at 1e-7 … 1e-10 nearly all stop; the IFToMM multiple four-bar does not prepare (SINGULAR-LOOP at its start values); released exactly level (y = 0) the pendulum is refused (STATE-SELECT-SINGULAR), 6e-17 m below it prepares. Below 1.48 rad the runs end, but 103 of the 1029 up to 1.47 rad without a message more than 100 rtol off the closed form (section 15). OpenModelica 1.27 (DASSL) with its dynamic state selection runs every pendulum (at rtol 1e-10 to 1.3e-9 m released at 0.40 rad, 9.8e-8 and 6.6e-8 m at 1.50 and 1.55 rad, 8.6e-8 m on the IFToMM problem, 6.4e-7 … 2.0e-5 m looping, 1.3e-5 and 6.4e-4 m at 3.00 and 3.13 rad); with static dummy derivatives it fails as the engine does, mostly worse (results of NaN reported as a success); neither of its selections runs the four-bar (it fails at its start, or does not build). **Detection (21 October 2026, section 6 step 5):** the choice is watched along every run, at its start, on `set_param` and on either side of every event; where it degrades the run stops there, naming the constraint, the variables and the parts: none of the judge's pendulum runs ends on a bare SUNDIALS flag or without a message for a degenerate choice any more (1 169 of the release-angle sweep's runs stop so, where 432 ended wrong and 840 stopped on a flag or with no step passing), nor where an event comes just before the point (`pendulum-event-…`); `stateSelect` leads the choice where it starts within half the run's limit (with x marked `prefer` the pendulum at 1.50 and 1.55 rad runs to its end; at atan 99 the mark is refused and told). Dynamic selection (choosing again at an event, going on) is the next part |
 | R4 | Friction and clutch modes chatter | force-based stick/slip conditions in the components; event-storm detection naming the parts. **WP4:** storm detection done (over 100 state events within 1e-3 of the run, the error names the modes' parts; tested on a chattering mode); the force-based conditions are WP5's |
 | R5 | Golden comparisons show differences that are today's numerical error | measured bands from today's own fine-step runs; differences triaged and documented |
 | R6 | Fast-mode speed (now: faster than the average of comparable tools, section 2) | Rosenbrock-W with Jacobian reuse; explicit backward evaluation of the sorted inverse model; measured early in WP6 |

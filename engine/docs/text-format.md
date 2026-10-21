@@ -373,11 +373,12 @@ out the rest from the constraints. `stateSelect` says how strongly a
 variable is wanted as a state, as in Modelica: `StateSelect.never`,
 `.avoid`, `.default` (the default), `.prefer` (before those marked default)
 or `.always`. The choice the marks ask for is taken where it suits the
-start: no variable it works out from the states may move more than a
-hundred times as much as a state there (a pendulum's x kept as a state
-released near level, where y moves fast and x hardly at all, would need
-more); else the choice by the start values alone. `always` is kept unless
-no regular choice keeps it, and is told when it cannot be, as `never` is
+start: no variable it works out from the states may move more than 50
+times as much as a state there, half the factor at which a run stops a
+choice (a pendulum's x kept as a state released near level, where y moves
+fast and x hardly at all, would need more); else the choice by the start
+values alone, and a mark refused so is told. `always` is kept unless no
+regular choice keeps it, and is told when it cannot be, as `never` is
 when the variable has to be a state. The choice is made once, when the
 model is prepared; a run whose chosen states stop suiting the motion stops
 there, naming the constraint and the variables (DESIGN.md §6, step 5).
